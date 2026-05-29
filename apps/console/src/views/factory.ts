@@ -818,22 +818,24 @@ export function zonesView(ctx: Ctx): View {
               kind: 'text',
               required: true,
               info: infoPage({
-                title: 'Application name',
-                meaning: 'Human-readable name for the agent, service, gateway, or client identity being created.',
-                when: 'Use the name operators will recognize when selecting this application in grants, resources, and audit views.',
-                impact: 'Console sends this name to the Application API and shows it in lists, pickers, details, setup output, and generated profile summaries.',
-                example: 'Son of Anton',
+                title: 'Zone name',
+                meaning: 'Human-readable name for the operational boundary being created.',
+                when: 'Use the name operators should recognize when selecting this zone for applications, resources, providers, grants, and audit views.',
+                impact: 'Console sends this name to the Zone API and shows it in zone lists, pickers, details, and setup output.',
+                example: 'Pied Piper Production',
                 valid: 'Required for this path. Use a short operational name, not an internal database ID.',
-                after: 'After submit, Console creates the application and shows the one-time client secret when the backend accepts the request.',
+                after: 'After submit, Console creates the zone and reloads the zone list.',
                 terms: [
-                  { label: 'Application', value: 'A client identity used by workloads, agents, gateways, or automation to request Caracal tokens.' },
+                  { label: 'Zone', value: 'An isolated Caracal boundary for applications, resources, providers, policies, grants, and audit records.' },
                 ],
               }),
             },
+            { key: 'dcr_enabled', label: 'dynamic clients', kind: 'bool', default: 'false' },
           ],
           onSubmit: async (v, app) => {
             await ctx.client.zones.create({
               name: v.name!,
+              dcr_enabled: bool(v.dcr_enabled),
             })
             await popAndReload(app, list as unknown as ListView<unknown>)
           },

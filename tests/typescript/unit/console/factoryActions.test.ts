@@ -148,6 +148,9 @@ describe('zones actions', () => {
     expect(body).toContain('dynamic clients')
     expect(body).not.toContain('require PKCE')
     expect(body).not.toContain('login flow')
+
+    const createForm = await pressKey(list, 'n', app) as FormView
+    expect(createForm.render({ app, size: { rows: 20, cols: 100 }, status: '' }).join('\n')).toContain('dynamic clients')
   })
 
   it('n opens a FormView; submit calls zones.create', async () => {
@@ -156,10 +159,10 @@ describe('zones actions', () => {
     const app = fakeApp()
     const pushed = await pressKey(list, 'n', app) as FormView
     expect(pushed).toBeInstanceOf(FormView)
-    ;(pushed as unknown as { values: Record<string, string> }).values = { name: 'z' }
-    ;(pushed as unknown as { focus: number }).focus = 1
+    ;(pushed as unknown as { values: Record<string, string> }).values = { name: 'z', dcr_enabled: 'true' }
+    ;(pushed as unknown as { focus: number }).focus = 2
     await pushed.onKey('enter', { app, size: { rows: 20, cols: 80 }, status: '' })
-    expect(client.zones.create).toHaveBeenCalled()
+    expect(client.zones.create).toHaveBeenCalledWith({ name: 'z', dcr_enabled: true })
   })
 
   it('d on row opens ConfirmView; y calls zones.delete', async () => {
