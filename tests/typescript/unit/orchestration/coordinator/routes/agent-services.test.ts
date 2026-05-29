@@ -144,3 +144,110 @@ describe('POST /v1/zones/:zoneId/agents/:id/heartbeat', () => {
     expect(client.query).toHaveBeenCalledWith('COMMIT')
   })
 })
+
+describe('GET /v1/zones/:zoneId/agent-services: list', () => {
+  it('rejects an invalid query', async () => {
+    const { app } = buildApp()
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/agent-services?limit=nope' })
+    expect(res.statusCode).toBe(400)
+    expect(res.json()).toEqual({ error: 'invalid_query' })
+  })
+
+  it('rejects an unknown cursor', async () => {
+    const { app, db } = buildApp()
+    db.query.mockResolvedValueOnce({ rows: [] })
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/agent-services?cursor=ghost' })
+    expect(res.statusCode).toBe(400)
+    expect(res.json()).toEqual({ error: 'invalid_cursor' })
+  })
+
+  it('returns services with a next cursor when the page is full', async () => {
+    const { app, db } = buildApp()
+    db.query
+      .mockResolvedValueOnce({ rows: [{ x: 1 }] })
+      .mockResolvedValueOnce({ rows: [{ id: 's1' }, { id: 's2' }] })
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/agent-services?cursor=s0&limit=2' })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({ items: [{ id: 's1' }, { id: 's2' }], next_cursor: 's2' })
+  })
+
+  it('returns a null cursor for a partial page', async () => {
+    const { app, db } = buildApp()
+    db.query.mockResolvedValueOnce({ rows: [{ id: 's1' }] })
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/agent-services?limit=5' })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().next_cursor).toBeNull()
+  })
+})
+
+describe('POST /v1/zones/:zoneId/agents/:id/heartbeat: lifecycle guards', () => {
+  it('returns 409 when the agent is not live', async () => {
+    const { app, db } = buildApp()
+    const client = {
+      query: vi.fn()
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [{ application_id: 'app-1', status: 'terminated', agent_kind: 'task' }] })
+        .mockResolvedValue({ rows: [] }),
+      release: vi.fn(),
+    }
+    db.connect.mockResolvedValueOnce(client)
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST', url: '/v1/zones/z1/agents/agent-1/heartbeat',
+      payload: { status: 'healthy' },
+    })
+    expect(res.statusCode).toBe(409)
+    expect(res.json()).toEqual({ error: 'agent_not_live' })
+    expect(client.query).toHaveBeenCalledWith('ROLLBACK')
+  })
+
+  it('suspends and returns 409 when a service lease has expired', async () => {
+    const { app, db } = buildApp()
+    const expired = new Date(Date.now() - 1000)
+    const client = {
+      query: vi.fn()
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [{
+          application_id: 'app-1', status: 'active', agent_kind: 'service', heartbeat_deadline_at: expired,
+        }] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValue({ rows: [] }),
+      release: vi.fn(),
+    }
+    db.connect.mockResolvedValueOnce(client)
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST', url: '/v1/zones/z1/agents/agent-1/heartbeat',
+      payload: { status: 'healthy' },
+    })
+    expect(res.statusCode).toBe(409)
+    expect(res.json()).toEqual({ error: 'agent_lease_expired' })
+    expect(client.query).toHaveBeenCalledWith('COMMIT')
+  })
+
+  it('returns 404 when the referenced service is missing', async () => {
+    const { app, db } = buildApp()
+    const client = {
+      query: vi.fn()
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [{ application_id: 'app-1', status: 'active', agent_kind: 'task' }] })
+        .mockResolvedValueOnce({ rows: [{ id: 'agent-1', application_id: 'app-1' }] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValue({ rows: [] }),
+      release: vi.fn(),
+    }
+    db.connect.mockResolvedValueOnce(client)
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST', url: '/v1/zones/z1/agents/agent-1/heartbeat',
+      payload: { service_id: 'svc-missing', status: 'healthy' },
+    })
+    expect(res.statusCode).toBe(404)
+    expect(res.json()).toEqual({ error: 'agent_service_not_found' })
+    expect(client.query).toHaveBeenCalledWith('ROLLBACK')
+  })
+})

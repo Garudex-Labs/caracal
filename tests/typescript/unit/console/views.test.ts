@@ -290,6 +290,114 @@ describe('EntityPickerView', () => {
     expect(body).toContain('key broker')
     expect(body).not.toContain('alpha runner')
   })
+
+  it('loads rows on init and renders a loading frame beforehand', async () => {
+    const app = fakeApp()
+    const view = new EntityPickerView<{ id: string; name: string }>({
+      title: 'pick',
+      load: async () => [{ id: 'a', name: 'Alpha' }],
+      value: (row) => row.id,
+      label: (row) => row.name,
+      onPick: () => {},
+    })
+    expect(view.render({ app, size: { rows: 10, cols: 80 }, status: '' }).join('\n')).toContain('loading')
+    await view.init(app)
+    expect(view.render({ app, size: { rows: 10, cols: 80 }, status: '' }).join('\n')).toContain('Alpha')
+  })
+
+  it('surfaces loader failures as an error frame', async () => {
+    const app = fakeApp()
+    const view = new EntityPickerView<{ id: string; name: string }>({
+      title: 'pick',
+      load: async () => { throw new Error('boom') },
+      value: (row) => row.id,
+      label: (row) => row.name,
+      onPick: () => {},
+    })
+    await view.init(app)
+    expect(view.render({ app, size: { rows: 10, cols: 80 }, status: '' }).join('\n')).toContain('error')
+  })
+
+  it('reveals ids, copies values, and opens contextual info', async () => {
+    const app = fakeApp()
+    const view = new EntityPickerView<{ id: string; name: string }>({
+      title: 'pick',
+      rows: [{ id: 'res-1', name: 'Payments' }],
+      load: async () => [],
+      value: (row) => row.id,
+      label: (row) => row.name,
+      onPick: () => {},
+    })
+    const ctx = { app, size: { rows: 10, cols: 80 }, status: '' }
+    await view.onKey('V', ctx)
+    expect(view.render(ctx).join('\n')).toContain('id:res-1')
+    await view.onKey('N', ctx)
+    await view.onKey('I', ctx)
+    const status = (app as unknown as { _status: { text: string }[] })._status
+    expect(status.some((s) => s.text.includes('copied name'))).toBe(true)
+    expect(status.some((s) => s.text.includes('copied id'))).toBe(true)
+    await view.onKey('?', ctx)
+    expect(app.push).toHaveBeenCalled()
+  })
+
+  it('navigates with paging keys and pops on escape', async () => {
+    const app = fakeApp()
+    const rows = Array.from({ length: 30 }, (_, i) => ({ id: `id-${i}`, name: `Row ${i}` }))
+    const view = new EntityPickerView<{ id: string; name: string }>({
+      title: 'pick', rows, load: async () => [],
+      value: (row) => row.id, label: (row) => row.name, onPick: () => {},
+    })
+    const ctx = { app, size: { rows: 10, cols: 80 }, status: '' }
+    await view.onKey('end', ctx)
+    expect((view as unknown as { cursor: number }).cursor).toBe(29)
+    await view.onKey('pgup', ctx)
+    expect((view as unknown as { cursor: number }).cursor).toBe(19)
+    await view.onKey('home', ctx)
+    expect((view as unknown as { cursor: number }).cursor).toBe(0)
+    await view.onKey('pgdn', ctx)
+    expect((view as unknown as { cursor: number }).cursor).toBe(10)
+    await view.onKey('down', ctx)
+    await view.onKey('up', ctx)
+    expect((view as unknown as { cursor: number }).cursor).toBe(10)
+    await view.onKey('esc', ctx)
+    expect(app.pop).toHaveBeenCalled()
+  })
+
+  it('disambiguates duplicate labels and renders icons', async () => {
+    const app = fakeApp()
+    const view = new EntityPickerView<{ id: string; name: string }>({
+      title: 'pick',
+      rows: [
+        { id: 'aaaa1111', name: 'Worker' },
+        { id: 'bbbb2222', name: 'Worker' },
+      ],
+      load: async () => [],
+      value: (row) => row.id,
+      label: (row) => row.name,
+      icon: () => '*',
+      onPick: () => {},
+    })
+    const body = view.render({ app, size: { rows: 10, cols: 120 }, status: '' }).join('\n')
+    expect(body).toContain('Worker (')
+    expect(body).toContain('*')
+  })
+
+  it('clears the search with backspace', async () => {
+    const app = fakeApp()
+    const view = new EntityPickerView<{ id: string; name: string }>({
+      title: 'pick',
+      rows: [{ id: 'a', name: 'alpha' }, { id: 'b', name: 'beta' }],
+      load: async () => [],
+      value: (row) => row.id,
+      label: (row) => row.name,
+      onPick: () => {},
+    })
+    const ctx = { app, size: { rows: 10, cols: 80 }, status: '' }
+    await view.onKey('b', ctx)
+    expect(view.render(ctx).join('\n')).not.toContain('alpha')
+    await view.onKey('backspace', ctx)
+    expect(view.render(ctx).join('\n')).toContain('alpha')
+  })
 })
 
 function fakeView() {
@@ -445,5 +553,100 @@ describe('DetailView', () => {
     const rendered = view.render(ctx)
     expect(rendered.length).toBe(ctx.size.rows)
     expect(rendered[rendered.length - 1]).toContain(body[body.length - 1]!)
+  })
+})
+
+describe('AuditTailView lifecycle and interaction', () => {
+  function auditClient(events: unknown[], opts: { fail?: boolean } = {}) {
+    return {
+      audit: {
+        list: vi.fn(async () => { if (opts.fail) throw new Error('audit boom'); return events }),
+        byRequest: vi.fn(async () => []),
+      },
+    } as unknown as Parameters<typeof import('../../../../apps/console/src/views/audit.ts')['AuditTailView']> extends never ? never : import('@caracalai/admin').AdminClient
+  }
+
+  const sample = [
+    { id: 'e1', occurred_at: '2025-01-01T00:00:00Z', event_type: 'token_exchange', decision: 'allow', evaluation_status: 'ok', request_id: 'req-1' },
+    { id: 'e2', occurred_at: '2025-01-01T00:01:00Z', event_type: 'introspect', decision: 'deny', evaluation_status: 'ok', request_id: 'req-2' },
+    { id: 'e3', occurred_at: '2025-01-01T00:02:00Z', event_type: 'authorize', decision: 'partial', evaluation_status: 'ok', request_id: undefined },
+  ]
+
+  it('fetches events on init and renders coloured decisions', async () => {
+    const { AuditTailView } = await import('../../../../apps/console/src/views/audit.ts')
+    const view = new AuditTailView(auditClient(sample) as never, 'z1', { limit: 50 })
+    await view.init(fakeApp())
+    const ctx = { app: fakeApp(), size: { rows: 10, cols: 120 }, status: '' }
+    const out = view.render(ctx).join('\n')
+    expect(out).toContain('token_exchange')
+    expect(out).toContain('allow')
+    expect(out).toContain('deny')
+    expect(out).toContain('partial')
+    view.dispose()
+  })
+
+  it('reports an error status when the initial fetch fails', async () => {
+    const { AuditTailView } = await import('../../../../apps/console/src/views/audit.ts')
+    const app = fakeApp()
+    const view = new AuditTailView(auditClient([], { fail: true }) as never, 'z1')
+    await view.init(app)
+    const status = (app as unknown as { _status: { text: string; kind: string }[] })._status
+    expect(status.some((s) => s.kind === 'error' && s.text.includes('audit:'))).toBe(true)
+    view.dispose()
+  })
+
+  it('cycles the decision filter, toggles pause, and reloads', async () => {
+    const { AuditTailView } = await import('../../../../apps/console/src/views/audit.ts')
+    const client = auditClient(sample)
+    const changes: unknown[] = []
+    const view = new AuditTailView(client as never, 'z1', {}, (f) => changes.push(f))
+    await view.init(fakeApp())
+    const app = fakeApp()
+    const ctx = { app, size: { rows: 10, cols: 120 }, status: '' }
+    await view.onKey('d', ctx)
+    expect(view.hints().some((h) => h === 'filter:allow')).toBe(true)
+    expect(changes.length).toBe(1)
+    await view.onKey('p', ctx)
+    expect(view.hints()).toContain('p:resume')
+    await view.onKey('r', ctx)
+    expect((client.audit.list as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(1)
+    view.dispose()
+  })
+
+  it('navigates rows and opens an explain detail on enter', async () => {
+    const { AuditTailView } = await import('../../../../apps/console/src/views/audit.ts')
+    const view = new AuditTailView(auditClient(sample) as never, 'z1')
+    await view.init(fakeApp())
+    const app = fakeApp()
+    const ctx = { app, size: { rows: 10, cols: 120 }, status: '' }
+    await view.onKey('down', ctx)
+    await view.onKey('enter', ctx)
+    expect(app.push).toHaveBeenCalled()
+    view.dispose()
+  })
+
+  it('opens contextual info and pops on escape', async () => {
+    const { AuditTailView } = await import('../../../../apps/console/src/views/audit.ts')
+    const view = new AuditTailView(auditClient(sample) as never, 'z1')
+    await view.init(fakeApp())
+    const app = fakeApp()
+    const ctx = { app, size: { rows: 10, cols: 120 }, status: '' }
+    await view.onKey('?', ctx)
+    expect(app.push).toHaveBeenCalled()
+    await view.onKey('esc', ctx)
+    expect(app.pop).toHaveBeenCalled()
+    view.dispose()
+  })
+
+  it('summarizes active filters in the hints', async () => {
+    const { AuditTailView } = await import('../../../../apps/console/src/views/audit.ts')
+    const view = new AuditTailView(auditClient([]) as never, 'z1', {
+      since: '2025-01-01', request_id: 'req-9', event_type: 'authorize', limit: 25,
+    })
+    const hints = view.hints().join(' ')
+    expect(hints).toContain('since:2025-01-01')
+    expect(hints).toContain('request:req-9')
+    expect(hints).toContain('event:authorize')
+    expect(hints).toContain('limit:25')
   })
 })

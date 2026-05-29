@@ -28,4 +28,19 @@ describe('InMemoryRevocationStore', () => {
     expect(store.isRevoked('sid-1')).toBe(true)
     expect(store.isRevoked('sid-2')).toBe(true)
   })
+
+  it('reaps expired entries to make room under capacity pressure', () => {
+    vi.useFakeTimers()
+    try {
+      const store = new InMemoryRevocationStore({ maxEntries: 2, defaultTtlMs: 1_000 })
+      store.markRevoked('sid-1')
+      store.markRevoked('sid-2')
+      vi.advanceTimersByTime(1_001)
+      store.markRevoked('sid-3')
+      expect(store.isRevoked('sid-3')).toBe(true)
+      expect(store.size()).toBe(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })

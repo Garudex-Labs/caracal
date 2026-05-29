@@ -85,4 +85,16 @@ describe('ShutdownRegistry', () => {
     reg.install([])
     expect(reg.draining).toBe(false)
   })
+
+  it('wires signal handlers that fire the registry', async () => {
+    const { reg, exits } = makeRegistry()
+    let ran = false
+    reg.register('cleanup', () => { ran = true })
+    reg.install(['SIGUSR2'])
+    process.emit('SIGUSR2')
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    expect(ran).toBe(true)
+    expect(exits).toEqual([0])
+    process.removeAllListeners('SIGUSR2')
+  })
 })
