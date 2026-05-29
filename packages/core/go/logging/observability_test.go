@@ -25,6 +25,83 @@ func TestParseTraceparent(t *testing.T) {
 	}
 }
 
+func TestParseTraceparentRejectsMalformedFields(t *testing.T) {
+	if got := ParseTraceparent("00-tooshort-b7ad6b7169203331-01"); got != (TraceContext{}) {
+		t.Fatalf("short trace id must yield zero value, got %+v", got)
+	}
+	if got := ParseTraceparent("00-0af7651916cd43dd8448eb211c80319c-short-01"); got != (TraceContext{}) {
+		t.Fatalf("short span id must yield zero value, got %+v", got)
+	}
+}
+
+func TestWithTrace(t *testing.T) {
+	base := New("test-withtrace")
+
+	plain := WithTrace(base, context.Background())
+	_ = plain
+
+	ctx := WithTraceContext(context.Background(), TraceContext{TraceID: "t1", SpanID: "s1"})
+	decorated := WithTrace(base, ctx)
+
+	buf := &captureWriter{}
+	decorated = decorated.Output(buf)
+	decorated.Info().Msg("hi")
+	out := buf.String()
+	if !strings.Contains(out, `"trace_id":"t1"`) || !strings.Contains(out, `"span_id":"s1"`) {
+		t.Fatalf("expected trace fields in output, got %s", out)
+	}
+}
+
+func TestWithTraceNoContextReturnsLoggerUnchanged(t *testing.T) {
+	base := New("test-withtrace-empty")
+	buf := &captureWriter{}
+	out := WithTrace(base, context.Background()).Output(buf)
+	out.Info().Msg("hi")
+	if strings.Contains(buf.String(), "trace_id") {
+		t.Fatalf("no trace context must not add trace fields, got %s", buf.String())
+	}
+}
+
+func TestWithTraceOnlyTraceID(t *testing.T) {
+	base := New("test-withtrace-partial")
+	ctx := WithTraceContext(context.Background(), TraceContext{TraceID: "t1"})
+	buf := &captureWriter{}
+	out := WithTrace(base, ctx).Output(buf)
+	out.Info().Msg("hi")
+	logged := buf.String()
+	if !strings.Contains(logged, `"trace_id":"t1"`) || strings.Contains(logged, "span_id") {
+		t.Fatalf("expected only trace_id, got %s", logged)
+	}
+}
+
+func TestTraceFromContextNilContext(t *testing.T) {
+	if got := TraceFromContext(nil); got != (TraceContext{}) {
+		t.Fatalf("nil context must yield zero value, got %+v", got)
+	}
+}
+
+func TestIsDebugLine(t *testing.T) {
+	if !isDebugLine([]byte(`{"level":"debug","msg":"x"}`)) {
+		t.Fatal("debug line must be detected")
+	}
+	if isDebugLine([]byte(`{"level":"info","msg":"x"}`)) {
+		t.Fatal("info line must not be detected as debug")
+	}
+	if isDebugLine([]byte(`{}`)) {
+		t.Fatal("short line must not be detected as debug")
+	}
+}
+
+type captureWriter struct {
+	b strings.Builder
+}
+
+func (c *captureWriter) Write(p []byte) (int, error) {
+	return c.b.Write(p)
+}
+
+func (c *captureWriter) String() string { return c.b.String() }
+
 func TestWithTraceContext(t *testing.T) {
 	ctx := WithTraceContext(context.Background(), TraceContext{TraceID: "t1", SpanID: "s1"})
 	tc := TraceFromContext(ctx)

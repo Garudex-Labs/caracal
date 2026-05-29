@@ -198,3 +198,81 @@ func TestResolveFileSecretsPanicsForEmptyOrMissingFiles(t *testing.T) {
 	t.Setenv("CARACAL_TEST_VALUE_FILE", t.TempDir()+"/missing")
 	assertPanics(t, func() { ResolveFileSecrets("CARACAL_TEST_VALUE") })
 }
+
+func TestIsPublished(t *testing.T) {
+	if (Base{Mode: "dev"}).IsPublished() {
+		t.Fatal("dev mode must not be published")
+	}
+	for _, mode := range []string{"rc", "stable"} {
+		if !(Base{Mode: mode}).IsPublished() {
+			t.Fatalf("mode %q must be published", mode)
+		}
+	}
+}
+
+func TestMustGetenvReturnsValue(t *testing.T) {
+	t.Setenv("CARACAL_TEST_PRESENT", "value")
+	if got := MustGetenv("CARACAL_TEST_PRESENT"); got != "value" {
+		t.Fatalf("want present value, got %q", got)
+	}
+}
+
+func TestMissingRequiredReportsUnsetKeys(t *testing.T) {
+	t.Setenv("CARACAL_TEST_SET", "v")
+	t.Setenv("CARACAL_TEST_UNSET", "")
+	missing := MissingRequired("CARACAL_TEST_SET", "CARACAL_TEST_UNSET")
+	if len(missing) != 1 || missing[0] != "CARACAL_TEST_UNSET" {
+		t.Fatalf("want only the unset key reported, got %v", missing)
+	}
+	if got := MissingRequired("CARACAL_TEST_SET"); got != nil {
+		t.Fatalf("want nil when all present, got %v", got)
+	}
+}
+
+func TestLoadPanicsWhenRequiredMissing(t *testing.T) {
+	t.Setenv("PORT", "")
+	t.Setenv("DATABASE_URL", "")
+	t.Setenv("REDIS_URL", "")
+	t.Setenv("DATABASE_URL_FILE", "")
+	t.Setenv("REDIS_URL_FILE", "")
+	assertPanics(t, func() { Load() })
+}
+
+func TestStrictEnvParsersPanicOnInvalidInput(t *testing.T) {
+	t.Setenv("CARACAL_TEST_BAD_DURATION", "nope")
+	assertPanics(t, func() { DurationEnv("CARACAL_TEST_BAD_DURATION", time.Second) })
+	t.Setenv("CARACAL_TEST_NONPOS_DURATION", "0s")
+	assertPanics(t, func() { DurationEnv("CARACAL_TEST_NONPOS_DURATION", time.Second) })
+
+	t.Setenv("CARACAL_TEST_BAD_INT64", "x")
+	assertPanics(t, func() { Int64Env("CARACAL_TEST_BAD_INT64", 1) })
+	t.Setenv("CARACAL_TEST_NONPOS_INT64", "-1")
+	assertPanics(t, func() { Int64Env("CARACAL_TEST_NONPOS_INT64", 1) })
+
+	t.Setenv("CARACAL_TEST_BAD_BOOL", "maybe")
+	assertPanics(t, func() { BoolEnv("CARACAL_TEST_BAD_BOOL", false) })
+}
+
+func TestStrictEnvParsersUseFallbackWhenUnset(t *testing.T) {
+	t.Setenv("CARACAL_TEST_DUR_MISSING", "")
+	if got := DurationEnv("CARACAL_TEST_DUR_MISSING", 5*time.Second); got != 5*time.Second {
+		t.Fatalf("want duration fallback, got %s", got)
+	}
+	t.Setenv("CARACAL_TEST_I64_MISSING", "")
+	if got := Int64Env("CARACAL_TEST_I64_MISSING", 9); got != 9 {
+		t.Fatalf("want int64 fallback, got %d", got)
+	}
+	t.Setenv("CARACAL_TEST_BOOL_MISSING", "")
+	if got := BoolEnv("CARACAL_TEST_BOOL_MISSING", true); !got {
+		t.Fatalf("want bool fallback true")
+	}
+}
+
+func TestSplitCSVEmptyReturnsNil(t *testing.T) {
+	if got := SplitCSV(""); got != nil {
+		t.Fatalf("empty input must return nil, got %v", got)
+	}
+	if got := SplitCSV("  , ,  "); len(got) != 0 {
+		t.Fatalf("whitespace-only entries must produce no values, got %v", got)
+	}
+}
