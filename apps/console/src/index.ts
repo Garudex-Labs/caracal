@@ -18,8 +18,7 @@ function nonInteractiveReason(): string | undefined {
   if (!process.stdin.isTTY) return 'stdin is not a TTY'
   if (!process.stdout.isTTY) return 'stdout is not a TTY'
   if (typeof (process as { send?: unknown }).send === 'function') return 'launched with an IPC channel'
-  const term = process.env.TERM
-  if (!term || term === 'dumb') return 'TERM is unset or "dumb"'
+  if (process.env.TERM === 'dumb') return 'TERM is "dumb"'
   if (process.env.CI === 'true') return 'CI=true detected'
   return undefined
 }

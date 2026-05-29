@@ -14,7 +14,7 @@
 - Must keep view timers, streams, and child processes disposable when a view leaves the stack.
 - Must mask credential and token fields by default.
 - Must keep runtime-compatible config resolution for API URL, coordinator URL, zone ID, and `caracal.toml`.
-- Must accept input only from a controlling console: refuse to start when stdin or stdout is not a TTY, when `TERM` is unset or `dumb`, when `CI=true`, or when launched with an IPC channel.
+- Must accept input only from a controlling console: refuse to start when stdin or stdout is not a TTY, when `TERM` is `dumb`, when `CI=true`, or when launched with an IPC channel.
 
 ## Forbidden
 - Must not use React, Ink, blessed, or another heavyweight console UI framework.
