@@ -20,7 +20,6 @@ TABLES=(
   agent_services
   agent_sessions
   agent_topology
-  application_dependencies
   applications
   audit_events
   audit_events_default
@@ -40,7 +39,6 @@ TABLES=(
   policy_sets
   policy_versions
   providers
-  resource_rate_limits
   resources
   secrets
   sessions
@@ -99,7 +97,6 @@ RLS_TABLES=(
   agent_services
   agent_invocations
   gateway_resource_bindings
-  resource_rate_limits
   step_up_challenges
   admin_audit_events
   admin_tokens

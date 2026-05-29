@@ -507,6 +507,38 @@ func TestBuildUpstreamDirectiveSupportsAPIKeyProviderShape(t *testing.T) {
 	}
 }
 
+func TestBuildUpstreamDirectiveSupportsAPIKeyAuthorizationScheme(t *testing.T) {
+	providerID := "provider1"
+	upstreamURL := "https://upstream.example"
+	resource := &Resource{
+		ID:                   "res1",
+		Identifier:           "resource://api",
+		UpstreamURL:          &upstreamURL,
+		CredentialProviderID: &providerID,
+	}
+	zek := []byte("12345678901234567890123456789012")
+	secretCt, secretNonce := testProviderSecret(t, zek, `{"api_key":"api-key-value"}`)
+	srv := &Server{
+		db: &stubDB{
+			provider: &ProviderConfig{
+				ID:                providerID,
+				ProviderKind:      strPtr("api_key"),
+				ConfigJSON:        []byte(`{"header_name":"Authorization","auth_scheme":"Bearer"}`),
+				SecretConfigCt:    secretCt,
+				SecretConfigNonce: secretNonce,
+			},
+		},
+		keys: &KeyCache{zek: zek},
+	}
+	directive, err := srv.buildUpstreamDirective(context.Background(), "zone1", map[string]any{"sub": "user1"}, resource, true)
+	if err != nil {
+		t.Fatalf("gateway directive should support API key auth scheme: %v", err)
+	}
+	if directive.AuthMode != UpstreamAuthProviderAPIKey || directive.AuthHeader != "Authorization" || directive.AuthScheme != "Bearer" || directive.ProviderToken != "api-key-value" {
+		t.Fatalf("unexpected apikey directive: %#v", directive)
+	}
+}
+
 func TestBuildUpstreamDirectiveSupportsCaracalMandateProviderShape(t *testing.T) {
 	providerID := "provider1"
 	upstreamURL := "https://upstream.example"
@@ -591,6 +623,34 @@ func TestBuildUpstreamDirectiveRejectsAPIKeyWithoutHeader(t *testing.T) {
 	}
 	if _, err := srv.buildUpstreamDirective(context.Background(), "zone1", map[string]any{"sub": "user1"}, resource, true); err == nil {
 		t.Fatal("apikey provider directive must require an explicit auth header")
+	}
+}
+
+func TestBuildUpstreamDirectiveRejectsLegacyAPIKeyAuthHeader(t *testing.T) {
+	providerID := "provider1"
+	upstreamURL := "https://upstream.example"
+	resource := &Resource{
+		ID:                   "res1",
+		Identifier:           "resource://api",
+		UpstreamURL:          &upstreamURL,
+		CredentialProviderID: &providerID,
+	}
+	zek := []byte("12345678901234567890123456789012")
+	secretCt, secretNonce := testProviderSecret(t, zek, `{"api_key":"api-key-value"}`)
+	srv := &Server{
+		db: &stubDB{
+			provider: &ProviderConfig{
+				ID:                providerID,
+				ProviderKind:      strPtr("api_key"),
+				ConfigJSON:        []byte(`{"auth_header":"X-Api-Key"}`),
+				SecretConfigCt:    secretCt,
+				SecretConfigNonce: secretNonce,
+			},
+		},
+		keys: &KeyCache{zek: zek},
+	}
+	if _, err := srv.buildUpstreamDirective(context.Background(), "zone1", map[string]any{"sub": "user1"}, resource, true); err == nil {
+		t.Fatal("apikey provider directive must use header_name, not auth_header")
 	}
 }
 

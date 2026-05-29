@@ -578,10 +578,7 @@ func applyProviderDirective(provider *ProviderConfig, directive *UpstreamDirecti
 		directive.AuthHeader = "Authorization"
 		directive.AuthScheme = "Bearer"
 	case "api_key":
-		header := strings.TrimSpace(cfg.AuthHeader)
-		if header == "" {
-			header = strings.TrimSpace(cfg.HeaderName)
-		}
+		header := strings.TrimSpace(cfg.HeaderName)
 		if !validProviderHeaderName(header) {
 			return fmt.Errorf("provider api key header invalid")
 		}
