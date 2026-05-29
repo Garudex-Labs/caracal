@@ -32,11 +32,13 @@ Resources tell Caracal what can be protected. Providers describe the upstream cr
 | OAuth2 authorization code | Authorization endpoint, token endpoint, redirect URI, client ID, client secret. | Uses user/resource provider grants and refreshes delegated provider tokens inside STS. |
 | OAuth2 client credentials | Token endpoint, client ID, client secret unless client auth method is `none`. | STS obtains and caches service-to-service provider tokens for Gateway upstream calls. |
 | API key | Header name and API key. | Gateway forwards the sealed provider key in the configured header, with an optional auth scheme prefix. |
-| Bearer token | Bearer token. | Gateway forwards the sealed provider token through `Authorization` unless another header is configured. |
+| Bearer token | Bearer token. | Gateway forwards the sealed provider token as `Authorization: Bearer ...` unless Advanced routing configures another header or scheme. |
 
 OAuth2 client credentials keeps common machine-to-machine setup in the main form and moves provider-specific controls to Advanced. Use provider scopes when the token endpoint expects OAuth scopes, token audience when the provider requires an `audience` parameter, and token resource when the provider expects a resource indicator. Allowed token hosts constrain outbound token acquisition; Console infers the host from the token endpoint when the Advanced field is blank.
 
 API key providers use one required routing field: the exact header the upstream expects. Use `X-API-Key` or another vendor header when the API wants the raw key value, use `Authorization` plus the Advanced auth scheme `Bearer` for bearer-style API keys, and use a vendor scheme such as `Token` only when the provider documents that format. `auth_header` is not part of API-key provider config; OAuth and bearer-token providers use that field because their default upstream header is `Authorization`.
+
+Bearer token providers are for static, pre-issued access tokens that Caracal does not mint or refresh. The main form only needs the token; Advanced options are for uncommon upstreams that expect a non-default header or a scheme other than `Bearer`. The token is sealed at creation time, list and detail APIs expose only `secret_config_keys`, and Gateway replaces caller-supplied auth before forwarding the provider credential upstream.
 
 Provider secrets are sealed at creation time and are not returned by list or detail APIs. Caracal mandate providers have no provider-native secret; they make the internal mandate-forwarding choice explicit while keeping the same Gateway and verifier checks.
 

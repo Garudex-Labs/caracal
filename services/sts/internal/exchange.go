@@ -593,6 +593,7 @@ func applyProviderDirective(provider *ProviderConfig, directive *UpstreamDirecti
 		}
 	case "bearer_token":
 		directive.AuthMode = UpstreamAuthProviderOAuth
+		directive.AuthHeader = "Authorization"
 		directive.AuthScheme = "Bearer"
 		if header := strings.TrimSpace(cfg.AuthHeader); header != "" {
 			if !validProviderHeaderName(header) {

@@ -591,6 +591,98 @@ func TestProxyProviderAPIKeySupportsAuthorizationAndSchemes(t *testing.T) {
 	}
 }
 
+func TestProxyProviderBearerTokenSupportsHeadersSchemesAndIdentity(t *testing.T) {
+	cases := []struct {
+		name            string
+		authHeader      string
+		authScheme      string
+		forwardIdentity bool
+		inbound         http.Header
+		wantHeader      string
+		wantValue       string
+		wantIdentity    string
+		wantMissing     string
+	}{
+		{
+			name:       "authorization bearer",
+			authScheme: "Bearer",
+			inbound: http.Header{
+				"Authorization": {"Bearer caller-token"},
+			},
+			wantHeader: "Authorization",
+			wantValue:  "Bearer provider-token",
+		},
+		{
+			name:            "custom trusted upstream",
+			authHeader:      "X-Provider-Authorization",
+			authScheme:      "Token",
+			forwardIdentity: true,
+			inbound: http.Header{
+				"Authorization":            {"Bearer caller-token"},
+				"X-Provider-Authorization": {"caller-supplied"},
+			},
+			wantHeader:   "X-Provider-Authorization",
+			wantValue:    "Token provider-token",
+			wantIdentity: "caracal-identity-token",
+			wantMissing:  "Authorization",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var seen *http.Request
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				seen = r.Clone(context.Background())
+				w.WriteHeader(http.StatusNoContent)
+			}))
+			defer upstream.Close()
+
+			sts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_ = r.ParseForm()
+				resource := r.Form.Get("resource")
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(stsResponseFixture{
+					AccessToken: "caracal-identity-token",
+					ExpiresIn:   300,
+					Upstreams: map[string]corests.UpstreamDirective{resource: {
+						URL:                    upstream.URL,
+						AuthMode:               "provider_oauth",
+						AuthHeader:             tc.authHeader,
+						AuthScheme:             tc.authScheme,
+						ProviderToken:          "provider-token",
+						ForwardCaracalIdentity: tc.forwardIdentity,
+					}},
+				})
+			}))
+			defer sts.Close()
+			p := newProxyForTest(t, sts, true)
+
+			hdr := tc.inbound.Clone()
+			hdr.Set("Authorization", "Bearer "+makeJWT(t, time.Hour))
+			if tc.authHeader != "" && tc.authHeader != "Authorization" && tc.inbound.Get(tc.authHeader) != "" {
+				hdr.Set(tc.authHeader, tc.inbound.Get(tc.authHeader))
+			}
+			hdr.Set("X-Caracal-Resource", "r1")
+			resp := doProxiedRequest(t, p, "GET", "/x", nil, hdr)
+			if resp.StatusCode != http.StatusNoContent {
+				body, _ := io.ReadAll(resp.Body)
+				t.Fatalf("expected 204, got %d: %s", resp.StatusCode, body)
+			}
+			if seen == nil {
+				t.Fatal("upstream never received request")
+			}
+			if got := seen.Header.Get(tc.wantHeader); got != tc.wantValue {
+				t.Fatalf("%s = %q", tc.wantHeader, got)
+			}
+			if got := seen.Header.Get("X-Caracal-Identity"); got != tc.wantIdentity {
+				t.Fatalf("X-Caracal-Identity = %q", got)
+			}
+			if tc.wantMissing != "" && seen.Header.Get(tc.wantMissing) != "" {
+				t.Fatalf("%s leaked upstream: %q", tc.wantMissing, seen.Header.Get(tc.wantMissing))
+			}
+		})
+	}
+}
+
 func TestProxySignedExchangeBrokersProviderCredentialWithoutIdentityLeak(t *testing.T) {
 	var seen *http.Request
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

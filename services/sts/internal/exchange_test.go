@@ -539,6 +539,61 @@ func TestBuildUpstreamDirectiveSupportsAPIKeyAuthorizationScheme(t *testing.T) {
 	}
 }
 
+func TestBuildUpstreamDirectiveSupportsBearerTokenProviderShape(t *testing.T) {
+	cases := []struct {
+		name       string
+		configJSON string
+		wantHeader string
+		wantScheme string
+	}{
+		{
+			name:       "default authorization bearer",
+			configJSON: `{}`,
+			wantHeader: "Authorization",
+			wantScheme: "Bearer",
+		},
+		{
+			name:       "custom header and scheme",
+			configJSON: `{"auth_header":"X-Provider-Authorization","auth_scheme":"Token"}`,
+			wantHeader: "X-Provider-Authorization",
+			wantScheme: "Token",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			providerID := "provider1"
+			upstreamURL := "https://upstream.example"
+			resource := &Resource{
+				ID:                   "res1",
+				Identifier:           "resource://api",
+				UpstreamURL:          &upstreamURL,
+				CredentialProviderID: &providerID,
+			}
+			zek := []byte("12345678901234567890123456789012")
+			secretCt, secretNonce := testProviderSecret(t, zek, `{"bearer_token":"provider-bearer-token"}`)
+			srv := &Server{
+				db: &stubDB{
+					provider: &ProviderConfig{
+						ID:                providerID,
+						ProviderKind:      strPtr("bearer_token"),
+						ConfigJSON:        []byte(tc.configJSON),
+						SecretConfigCt:    secretCt,
+						SecretConfigNonce: secretNonce,
+					},
+				},
+				keys: &KeyCache{zek: zek},
+			}
+			directive, err := srv.buildUpstreamDirective(context.Background(), "zone1", map[string]any{"sub": "user1"}, resource, true)
+			if err != nil {
+				t.Fatalf("gateway directive should support bearer token provider shape: %v", err)
+			}
+			if directive.AuthMode != UpstreamAuthProviderOAuth || directive.AuthHeader != tc.wantHeader || directive.AuthScheme != tc.wantScheme || directive.ProviderToken != "provider-bearer-token" {
+				t.Fatalf("unexpected bearer token directive: %#v", directive)
+			}
+		})
+	}
+}
+
 func TestBuildUpstreamDirectiveSupportsCaracalMandateProviderShape(t *testing.T) {
 	providerID := "provider1"
 	upstreamURL := "https://upstream.example"
@@ -651,6 +706,30 @@ func TestBuildUpstreamDirectiveRejectsLegacyAPIKeyAuthHeader(t *testing.T) {
 	}
 	if _, err := srv.buildUpstreamDirective(context.Background(), "zone1", map[string]any{"sub": "user1"}, resource, true); err == nil {
 		t.Fatal("apikey provider directive must use header_name, not auth_header")
+	}
+}
+
+func TestBuildUpstreamDirectiveRejectsBearerTokenWithoutSecret(t *testing.T) {
+	providerID := "provider1"
+	upstreamURL := "https://upstream.example"
+	resource := &Resource{
+		ID:                   "res1",
+		Identifier:           "resource://api",
+		UpstreamURL:          &upstreamURL,
+		CredentialProviderID: &providerID,
+	}
+	srv := &Server{
+		db: &stubDB{
+			provider: &ProviderConfig{
+				ID:           providerID,
+				ProviderKind: strPtr("bearer_token"),
+				ConfigJSON:   []byte(`{}`),
+			},
+		},
+		keys: &KeyCache{zek: []byte("12345678901234567890123456789012")},
+	}
+	if _, err := srv.buildUpstreamDirective(context.Background(), "zone1", map[string]any{"sub": "user1"}, resource, true); err == nil {
+		t.Fatal("bearer token provider directive must require a sealed bearer token")
 	}
 }
 
