@@ -637,13 +637,14 @@ func providerRequiresUserGrant(provider *ProviderConfig) bool {
 }
 
 type oauthClientCredentialsConfig struct {
-	TokenEndpoint     string   `json:"token_endpoint"`
-	ClientID          string   `json:"client_id"`
-	ClientAuthMethod  string   `json:"client_auth_method"`
-	AllowedTokenHosts []string `json:"allowed_token_hosts"`
-	Scopes            []string `json:"scopes"`
-	Audience          string   `json:"audience"`
-	Resource          string   `json:"resource"`
+	TokenEndpoint     string            `json:"token_endpoint"`
+	ClientID          string            `json:"client_id"`
+	ClientAuthMethod  string            `json:"client_auth_method"`
+	AllowedTokenHosts []string          `json:"allowed_token_hosts"`
+	Scopes            []string          `json:"scopes"`
+	Audience          string            `json:"audience"`
+	Resource          string            `json:"resource"`
+	TokenParams       map[string]string `json:"token_params"`
 }
 
 type providerServiceTokenCacheEntry struct {
@@ -709,7 +710,10 @@ func (s *Server) fetchProviderServiceToken(ctx context.Context, provider *Provid
 	if s.providerCircuitOpen(ctx, provider.ID) {
 		return "", time.Time{}, fmt.Errorf("provider token circuit open")
 	}
-	form := oauthClientCredentialsForm(cfg)
+	form, err := oauthClientCredentialsForm(cfg)
+	if err != nil {
+		return "", time.Time{}, err
+	}
 	body, err := s.refreshProviderToken(ctx, provider.ID, tokenEndpoint, form, cfg.ClientID, secretConfig.ClientSecret, cfg.ClientAuthMethod)
 	if err != nil {
 		return "", time.Time{}, err
@@ -724,7 +728,7 @@ func (s *Server) fetchProviderServiceToken(ctx context.Context, provider *Provid
 	return tokenResp.AccessToken, time.Now().Add(providerServiceTokenTTL(tokenResp.ExpiresIn, s.cfg.MaxGrantTTLSeconds)), nil
 }
 
-func oauthClientCredentialsForm(cfg oauthClientCredentialsConfig) url.Values {
+func oauthClientCredentialsForm(cfg oauthClientCredentialsConfig) (url.Values, error) {
 	form := url.Values{"grant_type": {"client_credentials"}}
 	if len(cfg.Scopes) > 0 {
 		form.Set("scope", strings.Join(cfg.Scopes, " "))
@@ -735,7 +739,10 @@ func oauthClientCredentialsForm(cfg oauthClientCredentialsConfig) url.Values {
 	if strings.TrimSpace(cfg.Resource) != "" {
 		form.Set("resource", strings.TrimSpace(cfg.Resource))
 	}
-	return form
+	if err := applyOAuthTokenParams(form, cfg.TokenParams); err != nil {
+		return nil, err
+	}
+	return form, nil
 }
 
 func providerServiceTokenTTL(providerSeconds, maxSeconds int) time.Duration {

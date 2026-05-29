@@ -43,6 +43,17 @@ const (
 	refreshWaitInterval     = 50 * time.Millisecond
 )
 
+var reservedOAuthTokenParams = map[string]struct{}{
+	"client_id":     {},
+	"client_secret": {},
+	"code":          {},
+	"code_verifier": {},
+	"grant_type":    {},
+	"redirect_uri":  {},
+	"refresh_token": {},
+	"scope":         {},
+}
+
 type distributedRefreshResult struct {
 	OK          bool           `json:"ok"`
 	Code        sharederr.Code `json:"code,omitempty"`
@@ -114,10 +125,11 @@ func (s *Server) refreshExpiredBrokeredGrant(ctx context.Context, zoneID, userID
 		return sharederr.New(sharederr.CredentialExpired, "credential_expired_not_renewable")
 	}
 	var provCfg struct {
-		TokenEndpoint     string   `json:"token_endpoint"`
-		ClientID          string   `json:"client_id"`
-		ClientAuthMethod  string   `json:"client_auth_method"`
-		AllowedTokenHosts []string `json:"allowed_token_hosts"`
+		TokenEndpoint     string            `json:"token_endpoint"`
+		ClientID          string            `json:"client_id"`
+		ClientAuthMethod  string            `json:"client_auth_method"`
+		AllowedTokenHosts []string          `json:"allowed_token_hosts"`
+		TokenParams       map[string]string `json:"token_params"`
 	}
 	if err := json.Unmarshal(provider.ConfigJSON, &provCfg); err != nil || provCfg.TokenEndpoint == "" || provCfg.ClientID == "" {
 		return sharederr.New(sharederr.CredentialExpired, "credential_expired_not_renewable")
@@ -139,6 +151,9 @@ func (s *Server) refreshExpiredBrokeredGrant(ctx context.Context, zoneID, userID
 	}
 	defer clear(refreshToken)
 	form := url.Values{"grant_type": {"refresh_token"}, "refresh_token": {string(refreshToken)}}
+	if err := applyOAuthTokenParams(form, provCfg.TokenParams); err != nil {
+		return sharederr.New(sharederr.CredentialExpired, "provider token params invalid")
+	}
 	body, err := s.refreshProviderToken(ctx, provider.ID, tokenEndpoint, form, provCfg.ClientID, secretConfig.ClientSecret, provCfg.ClientAuthMethod)
 	if err != nil {
 		return sharederr.New(sharederr.CredentialExpired, "credential_expired_not_renewable")
@@ -390,6 +405,21 @@ func jitteredBackoff(base time.Duration, attempt int) time.Duration {
 	_, _ = rand.Read(b[:])
 	jitter := time.Duration(binary.LittleEndian.Uint64(b[:]) % uint64(base))
 	return base*time.Duration(attempt+1) + jitter
+}
+
+func applyOAuthTokenParams(form url.Values, params map[string]string) error {
+	for key, value := range params {
+		name := strings.TrimSpace(key)
+		text := strings.TrimSpace(value)
+		if name == "" || text == "" {
+			return errors.New("provider token params must be non-empty")
+		}
+		if _, reserved := reservedOAuthTokenParams[name]; reserved {
+			return fmt.Errorf("provider token param %s is reserved", name)
+		}
+		form.Set(name, text)
+	}
+	return nil
 }
 
 // validateTokenEndpoint enforces SSRF defenses: HTTPS only, mandatory non-empty host

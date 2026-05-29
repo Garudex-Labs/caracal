@@ -824,11 +824,15 @@ func TestBuildUpstreamDirectiveRejectsMalformedProviderAuthScheme(t *testing.T) 
 }
 
 func TestOAuthClientCredentialsFormIncludesProviderTokenParameters(t *testing.T) {
-	form := oauthClientCredentialsForm(oauthClientCredentialsConfig{
-		Scopes:   []string{"read", "write"},
-		Audience: " https://api.example.com ",
-		Resource: " https://resource.example.com ",
+	form, err := oauthClientCredentialsForm(oauthClientCredentialsConfig{
+		Scopes:      []string{"read", "write"},
+		Audience:    " https://api.example.com ",
+		Resource:    " https://resource.example.com ",
+		TokenParams: map[string]string{"tenant": "hooli"},
 	})
+	if err != nil {
+		t.Fatalf("build form: %v", err)
+	}
 	if form.Get("grant_type") != "client_credentials" {
 		t.Fatalf("unexpected grant_type: %s", form.Get("grant_type"))
 	}
@@ -840,6 +844,9 @@ func TestOAuthClientCredentialsFormIncludesProviderTokenParameters(t *testing.T)
 	}
 	if form.Get("resource") != "https://resource.example.com" {
 		t.Fatalf("unexpected resource: %s", form.Get("resource"))
+	}
+	if form.Get("tenant") != "hooli" {
+		t.Fatalf("unexpected token param: %s", form.Get("tenant"))
 	}
 }
 
