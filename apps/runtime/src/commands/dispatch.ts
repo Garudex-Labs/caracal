@@ -16,7 +16,7 @@ const INSTALL_HINTS = {
 } as const
 
 const WORKSPACE_SHIMS: Record<string, string> = {
-  'caracal-console': 'apps/console/bin/caracal-console.mjs',
+  'caracal-console': 'apps/console/bin/caracal-console-workspace.mjs',
 }
 
 const KNOWN_SIBLINGS = Object.freeze(Object.keys(WORKSPACE_SHIMS))

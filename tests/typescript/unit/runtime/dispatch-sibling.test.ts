@@ -49,7 +49,7 @@ describe('execSibling', () => {
 
     expect(availableInterfaceCommands()).toEqual([])
 
-    writeFileSync(join(consoleBin, 'caracal-console.mjs'), '')
+    writeFileSync(join(consoleBin, 'caracal-console-workspace.mjs'), '')
     expect(availableInterfaceCommands()).toEqual(['console'])
   })
 })
