@@ -30,9 +30,11 @@ Resources tell Caracal what can be protected. Providers describe the upstream cr
 | --- | --- | --- |
 | Caracal mandate | No credential fields. | Gateway forwards the Caracal resource mandate in `Authorization: Bearer ...`; the internal service verifies issuer, audience, scopes, target, expiry, and revocation. |
 | OAuth2 authorization code | Authorization endpoint, token endpoint, redirect URI, client ID, client secret. | Uses user/resource provider grants and refreshes delegated provider tokens inside STS. |
-| OAuth2 client credentials | Token endpoint, client ID, client secret. | STS obtains a service-to-service provider token for Gateway upstream calls. |
+| OAuth2 client credentials | Token endpoint, client ID, client secret unless client auth method is `none`. | STS obtains and caches service-to-service provider tokens for Gateway upstream calls. |
 | API key | Header name and API key. | Gateway forwards the sealed provider key in the configured header. |
 | Bearer token | Bearer token. | Gateway forwards the sealed provider token through `Authorization` unless another header is configured. |
+
+OAuth2 client credentials keeps common machine-to-machine setup in the main form and moves provider-specific controls to Advanced. Use provider scopes when the token endpoint expects OAuth scopes, token audience when the provider requires an `audience` parameter, and token resource when the provider expects a resource indicator. Allowed token hosts constrain outbound token acquisition; Console infers the host from the token endpoint when the Advanced field is blank.
 
 Provider secrets are sealed at creation time and are not returned by list or detail APIs. Caracal mandate providers have no provider-native secret; they make the internal mandate-forwarding choice explicit while keeping the same Gateway and verifier checks.
 

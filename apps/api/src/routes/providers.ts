@@ -73,6 +73,8 @@ const PUBLIC_PROVIDER_CONFIG_KEYS: Record<ProviderKind, ReadonlySet<string>> = {
     'client_id',
     'client_auth_method',
     'scopes',
+    'audience',
+    'resource',
     'allowed_token_hosts',
     'auth_header',
     'auth_scheme',
@@ -146,6 +148,13 @@ function requireOptionalStringList(config: Record<string, unknown>, key: string,
   if (config[key] !== undefined) requireStringList(config, key, message)
 }
 
+function requireOptionalText(config: Record<string, unknown>, key: string, message: string): void {
+  const value = config[key]
+  if (value === undefined) return
+  if (typeof value !== 'string' || value.trim().length === 0) throw new Error(message)
+  config[key] = value.trim()
+}
+
 function requireOptionalOAuthClientAuthMethod(config: Record<string, unknown>): OAuthClientAuthMethod {
   const method = config.client_auth_method
   if (method === undefined) return 'client_secret_basic'
@@ -193,6 +202,10 @@ function splitProviderConfig(kind: ProviderKind, input: Record<string, unknown> 
     requireStringList(publicConfig, 'allowed_token_hosts', `${kind} provider config requires allowed_token_hosts`)
     requireOptionalStringList(publicConfig, 'scopes', `${kind} provider config scopes must be a list of strings`)
     requireOptionalHeaderName(publicConfig, 'auth_header', `${kind} provider config auth_header must be an HTTP header name`)
+    if (kind === 'oauth2_client_credentials') {
+      requireOptionalText(publicConfig, 'audience', 'oauth2_client_credentials provider config audience must be a non-empty string')
+      requireOptionalText(publicConfig, 'resource', 'oauth2_client_credentials provider config resource must be a non-empty string')
+    }
     const clientAuthMethod = requireOptionalOAuthClientAuthMethod(publicConfig)
     publicConfig.client_auth_method = clientAuthMethod
     if (kind === 'oauth2_authorization_code') {

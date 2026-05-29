@@ -474,6 +474,8 @@ function providerConfigFromValues(values: Record<string, string>, requireConfig:
   mergeConfigText(config, 'bearer_token', values.bearer_token)
   mergeConfigText(config, 'client_auth_method', values.client_auth_method)
   mergeConfigList(config, 'scopes', values.provider_scopes)
+  mergeConfigText(config, 'audience', values.token_audience)
+  mergeConfigText(config, 'resource', values.token_resource)
   mergeConfigList(config, 'allowed_token_hosts', values.allowed_token_hosts || inferredTokenHosts(values.token_endpoint))
   mergeConfigText(config, 'header_name', values.api_key_header)
   mergeConfigText(config, 'auth_header', values.auth_header)
@@ -531,6 +533,10 @@ function validateProviderConfig(kind: ProviderKind, config: JsonObject): void {
   requireStringList(config, 'allowed_token_hosts', `${kind} provider config requires allowed_token_hosts`)
   requireOptionalHeaderName(config, 'auth_header', `${kind} provider config auth_header must be an HTTP header name`)
   requireOptionalAuthScheme(config, 'auth_scheme', `${kind} provider config auth_scheme must be an auth scheme token`)
+  if (kind === 'oauth2_client_credentials') {
+    requireOptionalText(config, 'audience', 'oauth2_client_credentials provider config audience must be a non-empty string')
+    requireOptionalText(config, 'resource', 'oauth2_client_credentials provider config resource must be a non-empty string')
+  }
   if (kind === 'oauth2_authorization_code') {
     requireHttpsUrl(config, 'authorization_endpoint', 'oauth2_authorization_code provider config authorization_endpoint must be an HTTPS URL')
     requireAbsoluteUri(config, 'redirect_uri', 'oauth2_authorization_code provider config redirect_uri must be an absolute URI')
@@ -542,6 +548,7 @@ function providerConfigKeys(kind: ProviderKind): Set<string> {
   if (kind === 'api_key') return new Set(['header_name', 'api_key', 'auth_scheme', 'forward_caracal_identity'])
   if (kind === 'bearer_token') return new Set(['bearer_token', 'auth_header', 'auth_scheme', 'forward_caracal_identity'])
   const keys = ['token_endpoint', 'client_id', 'client_secret', 'client_auth_method', 'provider_scopes', 'scopes', 'allowed_token_hosts', 'auth_header', 'auth_scheme', 'forward_caracal_identity']
+  if (kind === 'oauth2_client_credentials') keys.push('audience', 'resource')
   if (kind === 'oauth2_authorization_code') keys.push('authorization_endpoint', 'redirect_uri')
   return new Set(keys)
 }
@@ -569,6 +576,13 @@ function requireStringList(config: JsonObject, key: string, message: string): vo
   if (!Array.isArray(value) || value.length === 0 || value.some((item) => typeof item !== 'string' || item.trim().length === 0)) {
     throw new Error(message)
   }
+}
+
+function requireOptionalText(config: JsonObject, key: string, message: string): void {
+  const value = config[key]
+  if (value === undefined) return
+  if (typeof value !== 'string' || value.trim().length === 0) throw new Error(message)
+  config[key] = value.trim()
 }
 
 function int(v: string | undefined): number | undefined {
@@ -1225,12 +1239,14 @@ export function providersView(ctx: Ctx): View {
             { key: 'token_endpoint', label: 'token endpoint', kind: 'text', dependsOn: { kind: ['oauth2_authorization_code', 'oauth2_client_credentials'] }, required: true, hint: 'HTTPS endpoint where provider tokens are issued or refreshed' },
             { key: 'redirect_uri', label: 'redirect URI', kind: 'text', dependsOn: { kind: 'oauth2_authorization_code' }, required: true, hint: 'callback URI registered with the provider' },
             { key: 'client_id', label: 'client ID', kind: 'text', dependsOn: { kind: ['oauth2_authorization_code', 'oauth2_client_credentials'] }, required: true },
-            { key: 'client_secret', label: 'client secret', kind: 'secret', dependsOn: { kind: ['oauth2_authorization_code', 'oauth2_client_credentials'] }, hint: 'required unless client auth method is none' },
+            { key: 'client_secret', label: 'client secret', kind: 'secret', dependsOn: { kind: ['oauth2_authorization_code', 'oauth2_client_credentials'] }, required: (current) => current.client_auth_method !== 'none', hint: 'required unless client auth method is none' },
             { key: 'api_key_header', label: 'API key header', kind: 'text', dependsOn: { kind: 'api_key' }, required: true, hint: 'header where the upstream service expects the API key' },
             { key: 'api_key', label: 'API key', kind: 'secret', dependsOn: { kind: 'api_key' }, required: true },
             { key: 'bearer_token', label: 'bearer token', kind: 'secret', dependsOn: { kind: 'bearer_token' }, required: true },
             { key: 'identifier', label: 'provider identifier', kind: 'text', advanced: true, hint: 'optional; generated from provider name when blank', validate: validateProviderIdentifier },
             { key: 'provider_scopes', label: 'provider scopes', kind: 'list', dependsOn: { kind: ['oauth2_authorization_code', 'oauth2_client_credentials'] }, advanced: true, hint: 'optional upstream OAuth scopes for provider-native grants' },
+            { key: 'token_audience', label: 'token audience', kind: 'text', dependsOn: { kind: 'oauth2_client_credentials' }, advanced: true, hint: 'optional audience parameter for token endpoints such as Auth0' },
+            { key: 'token_resource', label: 'token resource', kind: 'text', dependsOn: { kind: 'oauth2_client_credentials' }, advanced: true, hint: 'optional resource parameter for token endpoints that use RFC 8707 or Azure-style resource values' },
             { key: 'allowed_token_hosts', label: 'allowed token hosts', kind: 'list', dependsOn: { kind: ['oauth2_authorization_code', 'oauth2_client_credentials'] }, advanced: true, hint: 'optional; inferred from token endpoint when blank' },
             { key: 'client_auth_method', label: 'client auth method', kind: 'select', options: ['client_secret_basic', 'client_secret_post', 'none'], default: 'client_secret_basic', dependsOn: { kind: ['oauth2_authorization_code', 'oauth2_client_credentials'] }, advanced: true },
             { key: 'auth_header', label: 'upstream auth header', kind: 'text', dependsOn: { kind: ['oauth2_authorization_code', 'oauth2_client_credentials', 'bearer_token'] }, advanced: true, hint: 'optional; leave blank for Authorization' },
@@ -1261,11 +1277,13 @@ export function providersView(ctx: Ctx): View {
               { key: 'token_endpoint', label: 'token endpoint', kind: 'text', default: configString(row.config_json, 'token_endpoint'), dependsOn: { kind: ['oauth2_authorization_code', 'oauth2_client_credentials'] }, required: true },
               { key: 'redirect_uri', label: 'redirect URI', kind: 'text', default: configString(row.config_json, 'redirect_uri'), dependsOn: { kind: 'oauth2_authorization_code' }, required: true },
               { key: 'client_id', label: 'client ID', kind: 'text', default: configString(row.config_json, 'client_id'), dependsOn: { kind: ['oauth2_authorization_code', 'oauth2_client_credentials'] }, required: true },
-              { key: 'client_secret', label: 'client secret', kind: 'secret', dependsOn: { kind: ['oauth2_authorization_code', 'oauth2_client_credentials'] }, hint: 'leave blank to keep the current secret' },
+              { key: 'client_secret', label: 'client secret', kind: 'secret', dependsOn: { kind: ['oauth2_authorization_code', 'oauth2_client_credentials'] }, required: (current) => current.client_auth_method !== 'none' && !row.secret_config_keys.includes('client_secret'), hint: 'leave blank to keep the current secret' },
               { key: 'api_key_header', label: 'API key header', kind: 'text', default: configString(row.config_json, 'header_name'), dependsOn: { kind: 'api_key' }, required: true },
               { key: 'api_key', label: 'API key', kind: 'secret', dependsOn: { kind: 'api_key' }, hint: 'leave blank to keep the current API key' },
               { key: 'bearer_token', label: 'bearer token', kind: 'secret', dependsOn: { kind: 'bearer_token' }, hint: 'leave blank to keep the current bearer token' },
               { key: 'provider_scopes', label: 'provider scopes', kind: 'list', default: configList(row.config_json, 'scopes'), dependsOn: { kind: ['oauth2_authorization_code', 'oauth2_client_credentials'] }, advanced: true },
+              { key: 'token_audience', label: 'token audience', kind: 'text', default: configString(row.config_json, 'audience'), dependsOn: { kind: 'oauth2_client_credentials' }, advanced: true },
+              { key: 'token_resource', label: 'token resource', kind: 'text', default: configString(row.config_json, 'resource'), dependsOn: { kind: 'oauth2_client_credentials' }, advanced: true },
               { key: 'allowed_token_hosts', label: 'allowed token hosts', kind: 'list', default: configList(row.config_json, 'allowed_token_hosts'), dependsOn: { kind: ['oauth2_authorization_code', 'oauth2_client_credentials'] }, advanced: true },
               { key: 'client_auth_method', label: 'client auth method', kind: 'select', options: ['client_secret_basic', 'client_secret_post', 'none'], default: configString(row.config_json, 'client_auth_method') || 'client_secret_basic', dependsOn: { kind: ['oauth2_authorization_code', 'oauth2_client_credentials'] }, advanced: true },
               { key: 'auth_header', label: 'upstream auth header', kind: 'text', default: configString(row.config_json, 'auth_header'), dependsOn: { kind: ['oauth2_authorization_code', 'oauth2_client_credentials', 'bearer_token'] }, advanced: true, hint: 'optional; leave blank for Authorization' },
