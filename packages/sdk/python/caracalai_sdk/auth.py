@@ -78,15 +78,14 @@ class ClientSecretExchanger:
             return self._token
 
     def _refresh(self) -> None:
-        data: list[tuple[str, str]] = [
-            ("grant_type", GRANT_TYPE),
-            ("zone_id", self._zone_id),
-            ("application_id", self._application_id),
-            ("client_secret", self._client_secret),
-            ("scope", self._scope),
-        ]
-        for r in self._resources:
-            data.append(("resource", r))
+        data: dict[str, str | list[str]] = {
+            "grant_type": GRANT_TYPE,
+            "zone_id": self._zone_id,
+            "application_id": self._application_id,
+            "client_secret": self._client_secret,
+            "scope": self._scope,
+            "resource": self._resources,
+        }
         with httpx.Client(timeout=self._timeout) as http:
             resp = http.post(f"{self._sts_url}/oauth/2/token", data=data)
         resp.raise_for_status()

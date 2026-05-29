@@ -5,7 +5,10 @@
 
 package logging
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestIsSecretKey(t *testing.T) {
 	cases := map[string]bool{
@@ -53,5 +56,33 @@ func TestRedactMap(t *testing.T) {
 	}
 	if in["password"] == RedactValue {
 		t.Fatal("input mutated")
+	}
+}
+
+func TestRedactMapNilReturnsNil(t *testing.T) {
+	if RedactMap(nil) != nil {
+		t.Fatal("nil map must redact to nil")
+	}
+}
+
+func TestRedactValueSliceAndScalar(t *testing.T) {
+	in := map[string]any{
+		"list":   []any{"Bearer abcdefghijklmnopqrstuvwxyz", "plain", 5},
+		"number": 42,
+		"flag":   true,
+	}
+	out := RedactMap(in)
+	list, ok := out["list"].([]any)
+	if !ok || len(list) != 3 {
+		t.Fatalf("list not preserved: %v", out["list"])
+	}
+	if s, _ := list[0].(string); !strings.Contains(s, RedactValue) {
+		t.Fatalf("bearer token in slice not redacted: %v", list[0])
+	}
+	if list[1] != "plain" || list[2] != 5 {
+		t.Fatalf("non-secret slice entries mutated: %v", list)
+	}
+	if out["number"] != 42 || out["flag"] != true {
+		t.Fatalf("scalar values must pass through unchanged: %v", out)
 	}
 }
