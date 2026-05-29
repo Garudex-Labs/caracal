@@ -28,6 +28,9 @@ auth = CaracalAuth(
     revocations=InMemoryRevocationStore(),
     require_agent=True,
 )
+
+async def startup():
+    await auth.warmup()
 ```
 
 ## Verify before running a tool
@@ -39,7 +42,7 @@ async def handle_tool_call(token: str, payload: dict):
     try:
         claims = await auth(token)
     except CaracalAuthError as err:
-        return {"error": err.code, "error_description": err.description}
+        return {"error": err.code, "error_description": err.description, "error_hint": err.hint}
 
     return {
         "subject": claims.sub,

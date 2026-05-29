@@ -19,6 +19,7 @@ The MCP transport packages verify Caracal mandates without tying the check to Ex
 | --- | --- |
 | `extractBearer` / `extract_bearer` / `ExtractBearer` | Parse a bearer token from an `Authorization` header. |
 | `createMandateVerifier` / `NewVerifier` | Build a reusable verifier with secure defaults, JWKS caching, revocation checks, and per-route overrides. |
+| `create_mandate_verifier` | Python reusable verifier with the same defaults, warmup, and per-route override model. |
 | `authenticate` / `Authenticate` | Verify one token against identity claims and revocation anchors. |
 | `checkActiveAuthority` / `check_active_authority` / `CheckActiveAuthority` | Check expiry and revoked anchors for verified claims. |
 
@@ -48,9 +49,36 @@ if (!result.ok) {
 
 Use one verifier per resource server and add route-level scopes or targets through `verifier.authorization(..., overrides)` or `verifier.require(overrides)`. The verifier defaults to resource mandates, checks the STS issuer and audience, enforces zone/scopes/targets/agent/delegation/hop constraints, checks expiry, and queries all revocation anchors for the session, root session, agent session, and delegation edge.
 
+## Python example
+
+```python
+from caracalai_revocation import InMemoryRevocationStore
+from caracalai_transport_mcp import AuthOptions, create_mandate_verifier
+
+verifier = create_mandate_verifier(
+    AuthOptions(
+        issuer="https://sts.example.com",
+        audience="https://api.example.com",
+        expected_zone_id="zone_prod",
+        revocations=InMemoryRevocationStore(),
+    )
+)
+
+await verifier.warmup()
+
+result = await verifier.authorization(
+    request.headers.get("authorization"),
+    required_scopes=["tickets:read"],
+    required_targets=["https://api.example.com/tickets"],
+)
+
+if not result.ok:
+    raise PermissionError(f"{result.error.code}: {result.error.hint}")
+```
+
 ## Error codes
 
-`authenticate` and reusable verifiers normalize failures into transport error codes: `missing_token`, `invalid_token`, `invalid_zone`, `insufficient_scope`, `session_revoked`, `agent_required`, `delegation_required`, `chain_mismatch`, and `hop_count_exceeded`. Each error includes an `error.hint` value that is safe to log for operator debugging.
+`authenticate` and reusable verifiers normalize failures into transport error codes: `missing_token`, `invalid_token`, `invalid_zone`, `insufficient_scope`, `session_revoked`, `agent_required`, `delegation_required`, `chain_mismatch`, and `hop_count_exceeded`. TypeScript, Python, and Go reusable verifiers include a safe debugging hint for operator logs and API error bodies.
 
 ## Related pages
 

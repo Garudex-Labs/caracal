@@ -3,7 +3,7 @@ title: Identity Package
 description: JWT verification packages for mandate claims, scopes, targets, agents, delegation, and hop count.
 ---
 
-The identity packages verify Caracal mandate JWTs. Use them when you are building a connector, transport, or custom resource-server boundary.
+The identity packages verify Caracal mandate JWTs. Use them when you are building a connector, transport, or custom resource-server boundary that accepts mandates directly.
 
 ## Install
 
@@ -61,6 +61,8 @@ const claims = await verify(token, {
 });
 ```
 
+Go and Python identity packages also cache issuer JWKS metadata in memory. Python exposes `warm_jwks(issuer)` for service boot; Go callers can warm the cache with `GetJWKSContext(ctx, issuer)`.
+
 ## Failure classes
 
 | Error | Meaning |
@@ -75,4 +77,4 @@ const claims = await verify(token, {
 
 ## When to use transport-mcp instead
 
-Use [MCP Transport](/sdks/transport-mcp/) when you also need revocation checks and transport-neutral auth result mapping. Use the identity package directly when you are composing your own verifier.
+Use [MCP Transport](/sdks/transport-mcp/) when you also need revocation checks, reusable verifier defaults, bearer-header parsing, and safe debugging hints. Use the identity package directly when you are composing your own verifier or connector boundary.

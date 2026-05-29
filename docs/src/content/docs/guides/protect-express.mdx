@@ -30,6 +30,8 @@ const verifier = createMandateVerifier({
   revocations: new InMemoryRevocationStore(),
 });
 
+await verifier.warmup();
+
 app.use("/mcp", caracalAuth({ verifier }, {
   requiredScopes: ["mcp:tool:call"],
   requiredTargets: ["https://mcp.example.com"],
