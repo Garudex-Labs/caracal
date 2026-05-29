@@ -141,3 +141,63 @@ describe('POST /v1/zones/:zoneId/policies/:id/versions', () => {
     expect(res.statusCode).toBe(404)
   })
 })
+
+describe('GET /v1/zones/:zoneId/policies', () => {
+  it('lists policies for the zone', async () => {
+    const { app, db } = buildApp()
+    db.query.mockResolvedValueOnce({ rows: [{ id: 'p-1', name: 'One' }, { id: 'p-2', name: 'Two' }] })
+
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/policies' })
+
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body)).toHaveLength(2)
+  })
+})
+
+describe('GET /v1/zones/:zoneId/policies/:id', () => {
+  it('returns a policy with its versions', async () => {
+    const { app, db } = buildApp()
+    db.query.mockResolvedValueOnce({ rows: [{ id: 'p-1', name: 'One', versions: [{ version: 1 }] }] })
+
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/policies/p-1' })
+
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body)).toMatchObject({ id: 'p-1' })
+  })
+
+  it('returns 404 for a missing policy', async () => {
+    const { app, db } = buildApp()
+    db.query.mockResolvedValueOnce({ rows: [] })
+
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/policies/missing' })
+
+    expect(res.statusCode).toBe(404)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'policy_not_found' })
+  })
+})
+
+describe('DELETE /v1/zones/:zoneId/policies/:id', () => {
+  it('archives an existing policy', async () => {
+    const { app, db } = buildApp()
+    db.query.mockResolvedValueOnce({ rowCount: 1 })
+
+    await app.ready()
+    const res = await app.inject({ method: 'DELETE', url: '/v1/zones/z1/policies/p-1' })
+
+    expect(res.statusCode).toBe(204)
+  })
+
+  it('returns 404 when the policy is missing', async () => {
+    const { app, db } = buildApp()
+    db.query.mockResolvedValueOnce({ rowCount: 0 })
+
+    await app.ready()
+    const res = await app.inject({ method: 'DELETE', url: '/v1/zones/z1/policies/missing' })
+
+    expect(res.statusCode).toBe(404)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'policy_not_found' })
+  })
+})

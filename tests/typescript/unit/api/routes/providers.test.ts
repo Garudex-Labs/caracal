@@ -583,3 +583,39 @@ describe('PATCH /v1/zones/:zoneId/providers/:id', () => {
     expect(db.query).not.toHaveBeenCalled()
   })
 })
+
+describe('GET /v1/zones/:zoneId/providers', () => {
+  it('lists providers for the zone', async () => {
+    const { app, db } = buildRouteApp(providersRoutes)
+    db.query.mockResolvedValueOnce({ rows: [{ id: 'provider-1', zone_id: 'z1' }, { id: 'provider-2', zone_id: 'z1' }] })
+
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/providers' })
+
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body)).toHaveLength(2)
+  })
+})
+
+describe('DELETE /v1/zones/:zoneId/providers/:id', () => {
+  it('archives an existing provider', async () => {
+    const { app, db } = buildRouteApp(providersRoutes)
+    db.query.mockResolvedValueOnce({ rowCount: 1 })
+
+    await app.ready()
+    const res = await app.inject({ method: 'DELETE', url: '/v1/zones/z1/providers/provider-1' })
+
+    expect(res.statusCode).toBe(204)
+  })
+
+  it('returns 404 when the provider is missing', async () => {
+    const { app, db } = buildRouteApp(providersRoutes)
+    db.query.mockResolvedValueOnce({ rowCount: 0 })
+
+    await app.ready()
+    const res = await app.inject({ method: 'DELETE', url: '/v1/zones/z1/providers/missing' })
+
+    expect(res.statusCode).toBe(404)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'provider_not_found' })
+  })
+})

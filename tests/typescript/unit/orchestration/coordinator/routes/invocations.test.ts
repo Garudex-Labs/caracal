@@ -175,3 +175,130 @@ describe('rate limiting', () => {
     expect(JSON.parse(res.body)).toMatchObject({ error: 'rate_limited' })
   })
 })
+describe('GET /v1/zones/:zoneId/invocations/:id', () => {
+  it('returns 404 when the invocation is unknown', async () => {
+    const { app, db } = buildApp()
+    db.query.mockResolvedValueOnce({ rows: [] })
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/invocations/missing' })
+    expect(res.statusCode).toBe(404)
+    expect(res.json()).toEqual({ error: 'invocation_not_found' })
+  })
+
+  it('returns the invocation row', async () => {
+    const { app, db } = buildApp()
+    db.query.mockResolvedValueOnce({ rows: [{ id: 'inv-1', status: 'pending' }] })
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/invocations/inv-1' })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({ id: 'inv-1', status: 'pending' })
+  })
+})
+
+describe('PATCH /v1/zones/:zoneId/invocations/:id/start', () => {
+  it('returns 404 when the invocation is unknown', async () => {
+    const { app, db } = buildApp()
+    const client = {
+      query: vi.fn()
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValue({ rows: [] }),
+      release: vi.fn(),
+    }
+    db.connect.mockResolvedValueOnce(client)
+    await app.ready()
+    const res = await app.inject({ method: 'PATCH', url: '/v1/zones/z1/invocations/missing/start' })
+    expect(res.statusCode).toBe(404)
+    expect(res.json()).toEqual({ error: 'invocation_not_found' })
+  })
+
+  it('returns 409 when the invocation is not startable', async () => {
+    const { app, db } = buildApp()
+    const client = {
+      query: vi.fn()
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [{ application_id: 'app-1' }] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValue({ rows: [] }),
+      release: vi.fn(),
+    }
+    db.connect.mockResolvedValueOnce(client)
+    await app.ready()
+    const res = await app.inject({ method: 'PATCH', url: '/v1/zones/z1/invocations/inv-1/start' })
+    expect(res.statusCode).toBe(409)
+    expect(res.json()).toEqual({ error: 'invocation_not_startable' })
+  })
+
+  it('marks the invocation running and commits', async () => {
+    const { app, db } = buildApp()
+    const client = {
+      query: vi.fn()
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [{ application_id: 'app-1' }] })
+        .mockResolvedValueOnce({ rows: [{ id: 'inv-1', service_id: 'svc-1', status: 'running' }] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValue({ rows: [] }),
+      release: vi.fn(),
+    }
+    db.connect.mockResolvedValueOnce(client)
+    await app.ready()
+    const res = await app.inject({ method: 'PATCH', url: '/v1/zones/z1/invocations/inv-1/start' })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toMatchObject({ id: 'inv-1', status: 'running' })
+    expect(client.query).toHaveBeenCalledWith('COMMIT')
+  })
+})
+
+describe('PATCH /v1/zones/:zoneId/invocations/:id/complete', () => {
+  it('rejects an invalid status', async () => {
+    const { app } = buildApp()
+    await app.ready()
+    const res = await app.inject({
+      method: 'PATCH', url: '/v1/zones/z1/invocations/inv-1/complete',
+      payload: { status: 'bogus' },
+    })
+    expect(res.statusCode).toBe(500)
+  })
+
+  it('returns 409 when the invocation is not completable', async () => {
+    const { app, db } = buildApp()
+    const client = {
+      query: vi.fn()
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [{ application_id: 'app-1' }] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValue({ rows: [] }),
+      release: vi.fn(),
+    }
+    db.connect.mockResolvedValueOnce(client)
+    await app.ready()
+    const res = await app.inject({
+      method: 'PATCH', url: '/v1/zones/z1/invocations/inv-1/complete',
+      payload: { status: 'succeeded' },
+    })
+    expect(res.statusCode).toBe(409)
+    expect(res.json()).toEqual({ error: 'invocation_not_completable' })
+  })
+
+  it('completes a running invocation', async () => {
+    const { app, db } = buildApp()
+    const client = {
+      query: vi.fn()
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [{ application_id: 'app-1' }] })
+        .mockResolvedValueOnce({ rows: [{ id: 'inv-1', service_id: 'svc-1', status: 'succeeded' }] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValue({ rows: [] }),
+      release: vi.fn(),
+    }
+    db.connect.mockResolvedValueOnce(client)
+    await app.ready()
+    const res = await app.inject({
+      method: 'PATCH', url: '/v1/zones/z1/invocations/inv-1/complete',
+      payload: { status: 'succeeded', metadata: { ok: true } },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toMatchObject({ id: 'inv-1', status: 'succeeded' })
+    expect(client.query).toHaveBeenCalledWith('COMMIT')
+  })
+})

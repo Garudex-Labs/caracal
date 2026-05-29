@@ -303,3 +303,153 @@ describe('DELETE /v1/zones/:zoneId/agents/:id: cascade terminate', () => {
     ]))
   })
 })
+
+function seqClient(responses: Array<{ rows: unknown[] }>): {
+  query: ReturnType<typeof vi.fn>
+  release: ReturnType<typeof vi.fn>
+} {
+  const query = vi.fn()
+  for (const r of responses) query.mockResolvedValueOnce(r)
+  query.mockResolvedValue({ rows: [] })
+  return { query, release: vi.fn() }
+}
+
+describe('GET /v1/zones/:zoneId/agents: list', () => {
+  it('rejects an invalid query', async () => {
+    const { app } = buildApp()
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/agents?limit=abc' })
+    expect(res.statusCode).toBe(400)
+    expect(res.json()).toEqual({ error: 'invalid_query' })
+  })
+
+  it('rejects an unknown cursor', async () => {
+    const { app, db } = buildApp()
+    db.query.mockResolvedValueOnce({ rows: [] })
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/agents?cursor=ghost' })
+    expect(res.statusCode).toBe(400)
+    expect(res.json()).toEqual({ error: 'invalid_cursor' })
+  })
+
+  it('returns items with a next cursor when the page is full', async () => {
+    const { app, db } = buildApp()
+    db.query
+      .mockResolvedValueOnce({ rows: [{ x: 1 }] })
+      .mockResolvedValueOnce({ rows: [{ agent_session_id: 'a1' }, { agent_session_id: 'a2' }] })
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/agents?cursor=a3&limit=2' })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({
+      items: [{ agent_session_id: 'a1' }, { agent_session_id: 'a2' }],
+      next_cursor: 'a2',
+    })
+  })
+
+  it('returns a null cursor for a partial page', async () => {
+    const { app, db } = buildApp()
+    db.query.mockResolvedValueOnce({ rows: [{ agent_session_id: 'a1' }] })
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/agents?limit=5' })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().next_cursor).toBeNull()
+  })
+})
+
+describe('GET /v1/zones/:zoneId/agents/:id/children', () => {
+  it('returns the child rows', async () => {
+    const { app, db } = buildApp()
+    db.query.mockResolvedValueOnce({ rows: [{ agent_session_id: 'child-1' }] })
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/agents/parent/children' })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual([{ agent_session_id: 'child-1' }])
+  })
+})
+
+describe('PATCH /v1/zones/:zoneId/agents/:id/suspend', () => {
+  it('returns 404 when the agent is unknown', async () => {
+    const { app, db } = buildApp()
+    const client = seqClient([{ rows: [] }, { rows: [] }])
+    db.connect.mockResolvedValueOnce(client)
+    await app.ready()
+    const res = await app.inject({ method: 'PATCH', url: '/v1/zones/z1/agents/missing/suspend' })
+    expect(res.statusCode).toBe(404)
+    expect(res.json()).toEqual({ error: 'agent_not_found' })
+    expect(client.query).toHaveBeenCalledWith('ROLLBACK')
+  })
+
+  it('returns 409 when nothing is active to suspend', async () => {
+    const { app, db } = buildApp()
+    const client = seqClient([
+      { rows: [] },
+      { rows: [{ application_id: 'app1' }] },
+      { rows: [] },
+    ])
+    db.connect.mockResolvedValueOnce(client)
+    await app.ready()
+    const res = await app.inject({ method: 'PATCH', url: '/v1/zones/z1/agents/a1/suspend' })
+    expect(res.statusCode).toBe(409)
+    expect(res.json()).toEqual({ error: 'agent_not_found_or_not_active' })
+  })
+
+  it('suspends the subtree and commits', async () => {
+    const { app, db } = buildApp()
+    const client = seqClient([
+      { rows: [] },
+      { rows: [{ application_id: 'app1' }] },
+      { rows: [{ id: 'a1', subject_session_id: 's1', parent_id: null }] },
+      { rows: [] },
+      { rows: [] },
+    ])
+    db.connect.mockResolvedValueOnce(client)
+    await app.ready()
+    const res = await app.inject({ method: 'PATCH', url: '/v1/zones/z1/agents/a1/suspend' })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({ suspended: 1 })
+    expect(client.query).toHaveBeenCalledWith('COMMIT')
+  })
+})
+
+describe('PATCH /v1/zones/:zoneId/agents/:id/resume', () => {
+  it('returns 404 when the agent is unknown', async () => {
+    const { app, db } = buildApp()
+    const client = seqClient([{ rows: [] }, { rows: [] }])
+    db.connect.mockResolvedValueOnce(client)
+    await app.ready()
+    const res = await app.inject({ method: 'PATCH', url: '/v1/zones/z1/agents/missing/resume' })
+    expect(res.statusCode).toBe(404)
+    expect(res.json()).toEqual({ error: 'agent_not_found' })
+  })
+
+  it('returns 409 when nothing is suspended', async () => {
+    const { app, db } = buildApp()
+    const client = seqClient([
+      { rows: [] },
+      { rows: [{ application_id: 'app1' }] },
+      { rows: [] },
+    ])
+    db.connect.mockResolvedValueOnce(client)
+    await app.ready()
+    const res = await app.inject({ method: 'PATCH', url: '/v1/zones/z1/agents/a1/resume' })
+    expect(res.statusCode).toBe(409)
+    expect(res.json()).toEqual({ error: 'agent_not_found_or_not_suspended' })
+  })
+
+  it('resumes the subtree and enqueues lifecycle events', async () => {
+    const { app, db } = buildApp()
+    const client = seqClient([
+      { rows: [] },
+      { rows: [{ application_id: 'app1' }] },
+      { rows: [{ id: 'a1', parent_id: null }] },
+      { rows: [] },
+      { rows: [] },
+    ])
+    db.connect.mockResolvedValueOnce(client)
+    await app.ready()
+    const res = await app.inject({ method: 'PATCH', url: '/v1/zones/z1/agents/a1/resume' })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({ resumed: 1 })
+    expect(client.query).toHaveBeenCalledWith('COMMIT')
+  })
+})
