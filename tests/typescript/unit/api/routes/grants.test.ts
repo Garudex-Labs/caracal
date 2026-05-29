@@ -463,3 +463,38 @@ describe('DELETE /v1/zones/:zoneId/grants/:id bounded session revocation', () =>
     expect(limitArg).toBe(1000)
   })
 })
+
+describe('GET /v1/zones/:zoneId/grants list and detail', () => {
+  it('lists grants for the zone', async () => {
+    const { app, db } = buildRouteApp(grantsRoutes)
+    db.query.mockResolvedValueOnce({ rows: [{ id: 'grant-1' }, { id: 'grant-2' }] })
+
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/grants' })
+
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body)).toHaveLength(2)
+  })
+
+  it('returns a single grant', async () => {
+    const { app, db } = buildRouteApp(grantsRoutes)
+    db.query.mockResolvedValueOnce({ rows: [{ id: 'grant-1', status: 'active' }] })
+
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/grants/grant-1' })
+
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body)).toMatchObject({ id: 'grant-1' })
+  })
+
+  it('returns 404 for a missing grant', async () => {
+    const { app, db } = buildRouteApp(grantsRoutes)
+    db.query.mockResolvedValueOnce({ rows: [] })
+
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/grants/missing' })
+
+    expect(res.statusCode).toBe(404)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'grant_not_found' })
+  })
+})

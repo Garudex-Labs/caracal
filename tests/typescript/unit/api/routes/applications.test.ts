@@ -220,3 +220,112 @@ describe('POST /v1/zones/:zoneId/applications/dcr', () => {
     expect(JSON.parse(res.body)).toMatchObject({ error: 'dcr_limit_exceeded' })
   })
 })
+
+describe('GET /v1/zones/:zoneId/applications', () => {
+  it('lists applications for the zone', async () => {
+    const { app, db } = buildApp()
+    db.query.mockResolvedValueOnce({ rows: [{ id: 'app-1', name: 'One' }, { id: 'app-2', name: 'Two' }] })
+
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/applications' })
+
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body)).toHaveLength(2)
+  })
+})
+
+describe('GET /v1/zones/:zoneId/applications/:id', () => {
+  it('returns a single application', async () => {
+    const { app, db } = buildApp()
+    db.query.mockResolvedValueOnce({ rows: [{ id: 'app-1', name: 'One' }] })
+
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/applications/app-1' })
+
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body)).toMatchObject({ id: 'app-1' })
+  })
+
+  it('returns 404 when the application is missing', async () => {
+    const { app, db } = buildApp()
+    db.query.mockResolvedValueOnce({ rows: [] })
+
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/applications/missing' })
+
+    expect(res.statusCode).toBe(404)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'application_not_found' })
+  })
+})
+
+describe('PATCH /v1/zones/:zoneId/applications/:id', () => {
+  it('updates the application name', async () => {
+    const { app, db } = buildApp()
+    db.query.mockResolvedValueOnce({ rows: [{ id: 'app-1', name: 'Renamed' }] })
+
+    await app.ready()
+    const res = await app.inject({ method: 'PATCH', url: '/v1/zones/z1/applications/app-1', payload: { name: 'Renamed' } })
+
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body)).toMatchObject({ name: 'Renamed' })
+  })
+
+  it('rejects an empty patch with no_fields', async () => {
+    const { app } = buildApp()
+
+    await app.ready()
+    const res = await app.inject({ method: 'PATCH', url: '/v1/zones/z1/applications/app-1', payload: {} })
+
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'no_fields' })
+  })
+
+  it('returns 404 when patching a missing application', async () => {
+    const { app, db } = buildApp()
+    db.query.mockResolvedValueOnce({ rows: [] })
+
+    await app.ready()
+    const res = await app.inject({ method: 'PATCH', url: '/v1/zones/z1/applications/missing', payload: { name: 'X' } })
+
+    expect(res.statusCode).toBe(404)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'application_not_found' })
+  })
+
+  it('rejects client secret rotation when none is configured', async () => {
+    const { app, db } = buildApp()
+    db.query.mockResolvedValueOnce({ rows: [{ client_secret_hash: null }] })
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/v1/zones/z1/applications/app-1',
+      payload: { client_secret: 'cs_newsecretvalue' },
+    })
+
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'client_secret_not_configured' })
+  })
+})
+
+describe('DELETE /v1/zones/:zoneId/applications/:id', () => {
+  it('archives an existing application', async () => {
+    const { app, db } = buildApp()
+    db.query.mockResolvedValueOnce({ rowCount: 1 })
+
+    await app.ready()
+    const res = await app.inject({ method: 'DELETE', url: '/v1/zones/z1/applications/app-1' })
+
+    expect(res.statusCode).toBe(204)
+  })
+
+  it('returns 404 when archiving a missing application', async () => {
+    const { app, db } = buildApp()
+    db.query.mockResolvedValueOnce({ rowCount: 0 })
+
+    await app.ready()
+    const res = await app.inject({ method: 'DELETE', url: '/v1/zones/z1/applications/missing' })
+
+    expect(res.statusCode).toBe(404)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'application_not_found' })
+  })
+})

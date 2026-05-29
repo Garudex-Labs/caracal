@@ -232,3 +232,157 @@ describe('POST /v1/zones/:zoneId/policy-sets/:id/simulate', () => {
     expect(JSON.parse(res.body).detail).toContain('does not match policy set schema')
   })
 })
+
+function setActor(app: ReturnType<typeof buildRouteApp>['app']) {
+  app.addHook('preHandler', async (req) => {
+    ;(req as unknown as { actor: unknown }).actor = { id: 'a1', name: 'operator', scope: 'zone', zoneId: 'z1' }
+  })
+}
+
+describe('GET /v1/zones/:zoneId/policy-sets', () => {
+  it('lists policy sets for the zone', async () => {
+    const { app, db } = buildRouteApp(policySetsRoutes)
+    db.query.mockResolvedValueOnce({ rows: [{ id: 'ps-1' }, { id: 'ps-2' }] })
+
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/policy-sets' })
+
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body)).toHaveLength(2)
+  })
+
+  it('returns a single policy set', async () => {
+    const { app, db } = buildRouteApp(policySetsRoutes)
+    db.query.mockResolvedValueOnce({ rows: [{ id: 'ps-1', active_version_id: 'v1' }] })
+
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/policy-sets/ps-1' })
+
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body)).toMatchObject({ id: 'ps-1' })
+  })
+
+  it('returns 404 for a missing policy set', async () => {
+    const { app, db } = buildRouteApp(policySetsRoutes)
+    db.query.mockResolvedValueOnce({ rows: [] })
+
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/policy-sets/missing' })
+
+    expect(res.statusCode).toBe(404)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'policy_set_not_found' })
+  })
+})
+
+describe('POST /v1/zones/:zoneId/policy-sets create', () => {
+  it('creates a policy set and its binding in a transaction', async () => {
+    const { app, db } = buildRouteApp(policySetsRoutes)
+    setActor(app)
+    db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] }) // zoneExists
+    const client = { query: vi.fn(), release: vi.fn() }
+    client.query
+      .mockResolvedValueOnce({ rows: [] }) // BEGIN
+      .mockResolvedValueOnce({ rows: [{ id: 'ps-1', zone_id: 'z1', name: 'Set' }] }) // INSERT policy_sets
+      .mockResolvedValueOnce({ rows: [] }) // INSERT binding
+      .mockResolvedValueOnce({ rows: [] }) // COMMIT
+    db.connect.mockResolvedValueOnce(client)
+
+    await app.ready()
+    const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/policy-sets', payload: { name: 'Set' } })
+
+    expect(res.statusCode).toBe(201)
+    expect(JSON.parse(res.body)).toMatchObject({ id: 'ps-1' })
+  })
+
+  it('returns 404 when the zone does not exist', async () => {
+    const { app, db } = buildRouteApp(policySetsRoutes)
+    setActor(app)
+    db.query.mockResolvedValueOnce({ rows: [] }) // zoneExists -> false
+
+    await app.ready()
+    const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/policy-sets', payload: { name: 'Set' } })
+
+    expect(res.statusCode).toBe(404)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'zone_not_found' })
+  })
+})
+
+describe('POST /v1/zones/:zoneId/policy-sets/:id/versions', () => {
+  it('returns 404 when the policy set is missing', async () => {
+    const { app, db } = buildRouteApp(policySetsRoutes)
+    setActor(app)
+    db.query.mockResolvedValueOnce({ rows: [] }) // policy set lookup
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/policy-sets/ps-1/versions',
+      payload: { manifest: [{ policy_version_id: 'pv-1' }], schema_version: '2026-05-20' },
+    })
+
+    expect(res.statusCode).toBe(404)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'policy_set_not_found' })
+  })
+
+  it('rejects an unsupported schema version', async () => {
+    const { app } = buildRouteApp(policySetsRoutes)
+    setActor(app)
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/policy-sets/ps-1/versions',
+      payload: { manifest: [{ policy_version_id: 'pv-1' }], schema_version: '1900-01-01' },
+    })
+
+    expect(res.statusCode).toBe(422)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'invalid_schema_version' })
+  })
+})
+
+describe('GET /v1/zones/:zoneId/policy-sets/:id/versions/:versionId', () => {
+  it('returns a policy set version', async () => {
+    const { app, db } = buildRouteApp(policySetsRoutes)
+    db.query.mockResolvedValueOnce({ rows: [{ id: 'psv-1', version: 1, policies: ['pv-1'] }] })
+
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/policy-sets/ps-1/versions/psv-1' })
+
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body)).toMatchObject({ id: 'psv-1' })
+  })
+
+  it('returns 404 for a missing version', async () => {
+    const { app, db } = buildRouteApp(policySetsRoutes)
+    db.query.mockResolvedValueOnce({ rows: [] })
+
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/policy-sets/ps-1/versions/missing' })
+
+    expect(res.statusCode).toBe(404)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'policy_set_version_not_found' })
+  })
+})
+
+describe('DELETE /v1/zones/:zoneId/policy-sets/:id', () => {
+  it('archives an existing policy set', async () => {
+    const { app, db } = buildRouteApp(policySetsRoutes)
+    db.query.mockResolvedValueOnce({ rowCount: 1 })
+
+    await app.ready()
+    const res = await app.inject({ method: 'DELETE', url: '/v1/zones/z1/policy-sets/ps-1' })
+
+    expect(res.statusCode).toBe(204)
+  })
+
+  it('returns 404 when the policy set is missing', async () => {
+    const { app, db } = buildRouteApp(policySetsRoutes)
+    db.query.mockResolvedValueOnce({ rowCount: 0 })
+
+    await app.ready()
+    const res = await app.inject({ method: 'DELETE', url: '/v1/zones/z1/policy-sets/missing' })
+
+    expect(res.statusCode).toBe(404)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'policy_set_not_found' })
+  })
+})

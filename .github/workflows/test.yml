@@ -346,7 +346,7 @@ jobs:
             ./packages/revocation/go/... \
             ./packages/sdk/go/...
           go test -race -covermode=atomic \
-            -coverpkg=github.com/garudex-labs/caracal/transport-mcp,github.com/garudex-labs/caracal/revocation,github.com/garudex-labs/caracal/identity \
+            -coverpkg=github.com/garudex-labs/caracal/packages/transport/mcp/go,github.com/garudex-labs/caracal/packages/revocation/go,github.com/garudex-labs/caracal/packages/identity/go \
             -coverprofile=coverage/go/tests.out \
             ./tests/go/unit/revocation \
             ./tests/go/unit/transport/mcp \

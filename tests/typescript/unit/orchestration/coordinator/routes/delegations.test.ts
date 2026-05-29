@@ -369,3 +369,157 @@ describe('GET /v1/zones/:zoneId/delegations/:id/impact', () => {
     })
   })
 })
+
+describe('GET /v1/zones/:zoneId/delegations/inbound|outbound/:sessionId', () => {
+  it('lists inbound edges with a next cursor', async () => {
+    const { app, db } = buildApp()
+    db.query.mockResolvedValueOnce({ rows: [{ id: 'e1' }, { id: 'e2' }] })
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/delegations/inbound/sess-1?limit=2' })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({ items: [{ id: 'e1' }, { id: 'e2' }], next_cursor: 'e2' })
+  })
+
+  it('rejects an invalid query', async () => {
+    const { app } = buildApp()
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/delegations/outbound/sess-1?limit=bad' })
+    expect(res.statusCode).toBe(400)
+    expect(res.json()).toEqual({ error: 'invalid_query' })
+  })
+
+  it('rejects an unknown cursor', async () => {
+    const { app, db } = buildApp()
+    db.query.mockResolvedValueOnce({ rows: [] })
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/delegations/outbound/sess-1?cursor=ghost' })
+    expect(res.statusCode).toBe(400)
+    expect(res.json()).toEqual({ error: 'invalid_cursor' })
+  })
+})
+
+describe('GET /v1/zones/:zoneId/delegations/active', () => {
+  it('rejects an invalid query', async () => {
+    const { app } = buildApp()
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/delegations/active?limit=nope' })
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('rejects an unknown cursor', async () => {
+    const { app, db } = buildApp()
+    db.query.mockResolvedValueOnce({ rows: [] })
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/delegations/active?cursor=ghost' })
+    expect(res.statusCode).toBe(400)
+    expect(res.json()).toEqual({ error: 'invalid_cursor' })
+  })
+
+  it('returns active edges after validating the cursor', async () => {
+    const { app, db } = buildApp()
+    db.query
+      .mockResolvedValueOnce({ rows: [{ x: 1 }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'e1' }] })
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/delegations/active?cursor=e0&limit=1' })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({ items: [{ id: 'e1' }], next_cursor: 'e1' })
+  })
+})
+
+describe('GET /v1/zones/:zoneId/delegations/:id/traverse', () => {
+  it('returns the reachable edges', async () => {
+    const { app, db } = buildApp()
+    db.query.mockResolvedValueOnce({ rows: [{ id: 'e1', depth: 1 }] })
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/delegations/e1/traverse' })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual([{ id: 'e1', depth: 1 }])
+  })
+})
+
+describe('GET /v1/zones/:zoneId/agents/:sessionId/effective-authority', () => {
+  it('returns an empty authority when there are no parents', async () => {
+    const { app, db } = buildApp()
+    db.query.mockResolvedValueOnce({ rows: [] })
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/agents/sess-1/effective-authority' })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({
+      agent_session_id: 'sess-1',
+      inbound_edges: [],
+      effective_scopes: [],
+      effective_resources: [],
+      effective_max_hops: 0,
+      effective_ttl_seconds: null,
+      earliest_expires_at: null,
+    })
+  })
+
+  it('intersects scopes and resources across parent delegations', async () => {
+    const { app, db } = buildApp()
+    db.query.mockResolvedValueOnce({
+      rows: [
+        {
+          id: 'p1', scopes: ['read', 'write'], resource_id: 'res-1', resource_identifier: 'urn:a',
+          constraints_json: { max_hops: 3, ttl_seconds: 600, resources: ['urn:x'] },
+          expires_at: '2027-01-01T00:00:00.000Z',
+        },
+        {
+          id: 'p2', scopes: ['read'], resource_id: null, resource_identifier: null,
+          constraints_json: { max_hops: 2, ttl_seconds: 300 },
+          expires_at: '2026-06-01T00:00:00.000Z',
+        },
+      ],
+    })
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/agents/sess-1/effective-authority' })
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(body.inbound_edges).toEqual(['p1', 'p2'])
+    expect(body.effective_scopes).toEqual(['read'])
+    expect(body.effective_resources).toEqual(['urn:a', 'urn:x'])
+    expect(body.effective_resource_ids).toEqual(['res-1'])
+    expect(body.effective_resource_constrained).toBe(true)
+    expect(body.effective_max_hops).toBe(2)
+    expect(body.effective_ttl_seconds).toBe(300)
+    expect(body.earliest_expires_at).toBe('2026-06-01T00:00:00.000Z')
+  })
+})
+
+describe('PATCH /v1/zones/:zoneId/delegations/:id/revoke', () => {
+  it('returns 404 when the edge is unknown', async () => {
+    const { app, db } = buildApp()
+    const client = {
+      query: vi.fn()
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValue({ rows: [] }),
+      release: vi.fn(),
+    }
+    db.connect.mockResolvedValueOnce(client)
+    await app.ready()
+    const res = await app.inject({ method: 'PATCH', url: '/v1/zones/z1/delegations/missing/revoke' })
+    expect(res.statusCode).toBe(404)
+    expect(res.json()).toEqual({ error: 'delegation_not_found' })
+    expect(client.query).toHaveBeenCalledWith('ROLLBACK')
+  })
+
+  it('returns 403 when the caller lacks issuer ownership', async () => {
+    const { app, db } = buildApp(['coordinator.read'])
+    const client = {
+      query: vi.fn()
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [{ issuer_application_id: 'other-app' }] })
+        .mockResolvedValue({ rows: [] }),
+      release: vi.fn(),
+    }
+    db.connect.mockResolvedValueOnce(client)
+    await app.ready()
+    const res = await app.inject({ method: 'PATCH', url: '/v1/zones/z1/delegations/e1/revoke' })
+    expect(res.statusCode).toBe(403)
+    expect(res.json()).toEqual({ error: 'issuer_ownership_required' })
+  })
+})
