@@ -35,7 +35,7 @@ Open `credential` with `c` to read a protected-resource token or inspect a JWT l
 
 | Symptom | Check |
 | --- | --- |
-| Diagnostics cannot reach API | Run `caracal status --ready` and confirm `CARACAL_API_URL`. |
+| Diagnostics cannot reach API | Run `caracal status --ready`; custom deployments should confirm the Management API URL override. |
 | Zone diagnostics show no zones | Confirm the admin token has visibility into the expected zone. |
 | Audit records are missing | Confirm the selected zone, time window, and audit service readiness. |
 | Credential inspection succeeds but service rejects the token | Check audience/resource, scopes, token use, revocation state, and identity verifier settings. |

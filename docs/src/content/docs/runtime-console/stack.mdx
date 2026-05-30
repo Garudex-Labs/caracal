@@ -60,6 +60,6 @@ After a full purge, recreate product state through the Console: zones, applicati
 | Symptom | Likely cause |
 | --- | --- |
 | `status` passes but `status --ready` fails | A service is alive but one of its dependencies or readiness checks is not ready. |
-| Console cannot connect after `up` | Check `caracal status --ready`, then confirm `CARACAL_API_URL` if you are not using localhost. |
+| Console cannot connect after `up` | Check `caracal status --ready`; custom deployments should confirm the Management API URL override. |
 | Workloads cannot exchange tokens | Readiness for STS, Gateway, and audit must pass before debugging workload config. |
 | Local tokens are stale after `purge` and `up` | Prefer local generated secret files over exported shell tokens for localhost Console sessions. |

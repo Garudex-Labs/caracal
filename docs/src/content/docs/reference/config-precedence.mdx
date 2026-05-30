@@ -17,7 +17,13 @@ The runtime does not read `./caracal.toml` from the current working directory.
 
 ## Environment runtime config detection
 
-Environment config is considered when workload identity or credential-manifest variables are present, including `CARACAL_APPLICATION_ID`, `CARACAL_APP_CLIENT_SECRET`, `CARACAL_APP_CLIENT_SECRET_FILE`, `CARACAL_RUN_CREDENTIALS`, or `CARACAL_RUN_CREDENTIALS_FILE`.
+Environment config is considered when workload identity variables are present.
+Local dev and stable launches use `CARACAL_ZONE_ID` and
+`CARACAL_APPLICATION_ID`, then auto-detect credential files from the OS Caracal
+config directory. Cloud and custom deployments can provide explicit
+`CARACAL_APP_CLIENT_SECRET_FILE`, `CARACAL_RUN_CREDENTIALS`,
+or `CARACAL_RUN_CREDENTIALS_FILE` values when mounted secret paths differ from
+the local convention.
 
 Set only one of `CARACAL_RUN_CREDENTIALS` and `CARACAL_RUN_CREDENTIALS_FILE`.
 

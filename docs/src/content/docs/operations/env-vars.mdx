@@ -48,12 +48,20 @@ These variables belong to `caracal run` and SDK profile loading, not to service 
 | Variable | Meaning |
 | --- | --- |
 | `CARACAL_CONFIG` | Explicit runtime profile path. |
-| `CARACAL_STS_URL` or `CARACAL_ZONE_URL` | STS URL for token exchange. |
-| `CARACAL_GATEWAY_URL` | Gateway URL for SDK transports. |
+| `CARACAL_STS_URL` or `CARACAL_ZONE_URL` | Cloud/custom STS URL override for token exchange. |
+| `CARACAL_GATEWAY_URL` | Cloud/custom Gateway URL override for SDK transports. |
 | `CARACAL_ZONE_ID` | Zone identifier. |
 | `CARACAL_APPLICATION_ID` | Confidential application ID. |
-| `CARACAL_APP_CLIENT_SECRET_FILE` | Preferred workload secret file. |
-| `CARACAL_RUN_CREDENTIALS_FILE` | JSON credential manifest. |
+| `CARACAL_APP_CLIENT_SECRET_FILE` | Cloud/custom workload secret file. |
+| `CARACAL_RUN_CREDENTIALS_FILE` | Cloud/custom JSON credential manifest. |
+
+Local dev and stable runtime launches auto-detect credential files from the OS
+Caracal config directory. Use the explicit file variables only when a deployment
+mounts secrets somewhere else.
+
+Local dev and stable runtime launches also resolve service URLs automatically.
+Use explicit service URL variables only when a deployment does not use the local
+stack defaults.
 
 ## Published-mode rules
 

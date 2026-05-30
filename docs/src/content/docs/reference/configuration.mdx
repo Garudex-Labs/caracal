@@ -27,13 +27,13 @@ flowchart TD
 
 | Field | Meaning |
 | --- | --- |
-| `zone_url` | STS zone URL for token exchange. |
-| `sts_url` | SDK-readable STS alias/fallback. |
-| `coordinator_url` | SDK/Console Coordinator URL. |
-| `gateway_url` | Gateway URL for SDK transports. |
+| `zone_url` | Cloud/custom STS URL override for token exchange. |
+| `sts_url` | Cloud/custom SDK-readable STS alias/fallback. |
+| `coordinator_url` | Cloud/custom SDK/Console Coordinator URL override. |
+| `gateway_url` | Cloud/custom Gateway URL override for SDK transports. |
 | `zone_id` | Zone identifier. |
 | `application_id` | Confidential application ID. |
-| `app_client_secret_file` | Preferred secret-file path. |
+| `app_client_secret_file` | Cloud/custom secret-file path override. |
 | `app_client_secret` | Inline local-development secret. |
 | `ttl_seconds` | `caracal run` exchange TTL, capped at 900 seconds. |
 | `continue_on_failure` | Required credential failure behavior. |
@@ -42,6 +42,11 @@ flowchart TD
 | `mcp_governance.mode` | `block` or `log` for likely MCP subprocesses. |
 
 Credential entries use `env`, `resource`, optional `upstream_prefix`, and optional `credential_type`. Use `provider_token` for direct `caracal run` provider-key injection and `caracal_mandate` for mandate-aware workloads.
+
+Local dev and stable runtime launches auto-detect the client secret and
+credential manifest from the OS Caracal config directory. Use explicit
+secret-file paths and service URLs only for cloud deployments, containers, or
+custom infrastructure.
 
 ## Core service env keys
 

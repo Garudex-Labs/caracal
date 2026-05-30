@@ -34,13 +34,17 @@ Injected tokens have a one-hour TTL from the runtime exchange.
 
 | Input | Source |
 | --- | --- |
-| STS/zone URL | `CARACAL_STS_URL`, `CARACAL_ZONE_URL`, or `zone_url` in a profile. |
+| STS/zone URL | Automatic for local dev/stable; explicit only for cloud/custom deployments. |
 | Zone ID | `CARACAL_ZONE_ID` or `zone_id`. |
 | Application ID | `CARACAL_APPLICATION_ID` or `application_id`. |
-| Client secret | `CARACAL_APP_CLIENT_SECRET_FILE`, `CARACAL_APP_CLIENT_SECRET`, `app_client_secret_file`, or `app_client_secret`. |
-| Credential manifest | `CARACAL_RUN_CREDENTIALS_FILE`, `CARACAL_RUN_CREDENTIALS`, `credentials[]`, or `optional_credentials[]`. |
+| Client secret | Auto-detected local client-secret file or explicit cloud/custom secret-file config. |
+| Credential manifest | Auto-detected local credential manifest or `credentials[]` / `optional_credentials[]` in a profile. |
 
 Console `guided setup` is the recommended way to generate the first profile and one-time client secret file.
+Local dev and stable launches auto-detect credential files under the OS Caracal
+config directory after the zone and application IDs are known. Service URLs use
+local defaults automatically unless cloud/custom deployment docs configure
+explicit overrides.
 
 ## Step-up challenges
 
