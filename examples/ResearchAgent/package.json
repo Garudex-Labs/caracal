@@ -1,9 +1,9 @@
 {
-  "name": "caracal-example-openai-research-agent",
+  "name": "caracal-example-google-oauth-openai-agent",
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Realistic external OpenAI agent launched with caracal run using runtime-only key injection.",
+  "description": "Google OAuth and OpenAI agent launched with caracal run using runtime-only credential injection.",
   "engines": {
     "node": ">=24"
   },
