@@ -940,7 +940,7 @@ func TestBuildProviderTokenRequestImplementsClientAuthMethods(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	basicReq, err := buildProviderTokenRequest(context.Background(), endpoint, url.Values{"grant_type": {"client_credentials"}}, "client-id", "client-secret", "client_secret_basic")
+	basicReq, err := buildProviderTokenRequest(context.Background(), endpoint, url.Values{"grant_type": {"client_credentials"}}, "client-id", "client-secret", "client_secret_basic", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -956,7 +956,7 @@ func TestBuildProviderTokenRequestImplementsClientAuthMethods(t *testing.T) {
 		t.Fatalf("client_secret_basic must not put client_secret in the form body: %s", string(body))
 	}
 
-	postReq, err := buildProviderTokenRequest(context.Background(), endpoint, url.Values{"grant_type": {"client_credentials"}}, "client-id", "client-secret", "client_secret_post")
+	postReq, err := buildProviderTokenRequest(context.Background(), endpoint, url.Values{"grant_type": {"client_credentials"}}, "client-id", "client-secret", "client_secret_post", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -975,7 +975,54 @@ func TestBuildProviderTokenRequestImplementsClientAuthMethods(t *testing.T) {
 		t.Fatalf("client_secret_post body mismatch: %s", string(body))
 	}
 
-	noneReq, err := buildProviderTokenRequest(context.Background(), endpoint, url.Values{"grant_type": {"client_credentials"}}, "client-id", "", "none")
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate client assertion key: %v", err)
+	}
+	der, err := x509.MarshalPKCS8PrivateKey(privateKey)
+	if err != nil {
+		t.Fatalf("marshal client assertion key: %v", err)
+	}
+	pemKey := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der})
+	jwtReq, err := buildProviderTokenRequest(context.Background(), endpoint, url.Values{"grant_type": {"client_credentials"}}, "client-id", "", "private_key_jwt", "key-1", string(pemKey))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if jwtReq.Header.Get("Authorization") != "" {
+		t.Fatalf("private_key_jwt must not set Authorization: %s", jwtReq.Header.Get("Authorization"))
+	}
+	body, err = io.ReadAll(jwtReq.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	values, err = url.ParseQuery(string(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if values.Get("client_id") != "client-id" || values.Get("client_secret") != "" {
+		t.Fatalf("private_key_jwt body credential mismatch: %s", string(body))
+	}
+	if values.Get("client_assertion_type") != "urn:ietf:params:oauth:client-assertion-type:jwt-bearer" {
+		t.Fatalf("private_key_jwt assertion type mismatch: %s", string(body))
+	}
+	claims := jwt.MapClaims{}
+	token, err := jwt.ParseWithClaims(values.Get("client_assertion"), claims, func(token *jwt.Token) (any, error) {
+		if token.Method.Alg() != jwt.SigningMethodES256.Alg() {
+			t.Fatalf("unexpected client assertion alg: %s", token.Method.Alg())
+		}
+		if token.Header["kid"] != "key-1" {
+			t.Fatalf("unexpected client assertion kid: %#v", token.Header["kid"])
+		}
+		return &privateKey.PublicKey, nil
+	})
+	if err != nil || !token.Valid {
+		t.Fatalf("client assertion invalid: token=%#v err=%v", token, err)
+	}
+	if claims["iss"] != "client-id" || claims["sub"] != "client-id" || claims["aud"] != endpoint.String() || claims["jti"] == "" {
+		t.Fatalf("client assertion claims mismatch: %#v", claims)
+	}
+
+	noneReq, err := buildProviderTokenRequest(context.Background(), endpoint, url.Values{"grant_type": {"client_credentials"}}, "client-id", "", "none", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

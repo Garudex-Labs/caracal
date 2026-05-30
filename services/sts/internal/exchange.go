@@ -661,6 +661,7 @@ type oauthClientCredentialsConfig struct {
 	TokenEndpoint     string            `json:"token_endpoint"`
 	ClientID          string            `json:"client_id"`
 	ClientAuthMethod  string            `json:"client_auth_method"`
+	KeyID             string            `json:"key_id"`
 	AllowedTokenHosts []string          `json:"allowed_token_hosts"`
 	Scopes            []string          `json:"scopes"`
 	Audience          string            `json:"audience"`
@@ -735,7 +736,7 @@ func (s *Server) fetchProviderServiceToken(ctx context.Context, provider *Provid
 	if err != nil {
 		return "", time.Time{}, err
 	}
-	body, err := s.refreshProviderToken(ctx, provider.ID, tokenEndpoint, form, cfg.ClientID, secretConfig.ClientSecret, cfg.ClientAuthMethod)
+	body, err := s.refreshProviderToken(ctx, provider.ID, tokenEndpoint, form, cfg.ClientID, secretConfig.ClientSecret, cfg.ClientAuthMethod, cfg.KeyID, secretConfig.PrivateKey)
 	if err != nil {
 		return "", time.Time{}, err
 	}

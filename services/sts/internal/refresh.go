@@ -7,11 +7,16 @@ package internal
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -23,6 +28,7 @@ import (
 
 	sharedcrypto "github.com/garudex-labs/caracal/packages/core/go/crypto"
 	sharederr "github.com/garudex-labs/caracal/packages/core/go/errors"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 	"golang.org/x/crypto/chacha20poly1305"
@@ -44,14 +50,16 @@ const (
 )
 
 var reservedOAuthTokenParams = map[string]struct{}{
-	"client_id":     {},
-	"client_secret": {},
-	"code":          {},
-	"code_verifier": {},
-	"grant_type":    {},
-	"redirect_uri":  {},
-	"refresh_token": {},
-	"scope":         {},
+	"client_assertion":      {},
+	"client_assertion_type": {},
+	"client_id":             {},
+	"client_secret":         {},
+	"code":                  {},
+	"code_verifier":         {},
+	"grant_type":            {},
+	"redirect_uri":          {},
+	"refresh_token":         {},
+	"scope":                 {},
 }
 
 type distributedRefreshResult struct {
@@ -154,7 +162,7 @@ func (s *Server) refreshExpiredBrokeredGrant(ctx context.Context, zoneID, userID
 	if err := applyOAuthTokenParams(form, provCfg.TokenParams); err != nil {
 		return sharederr.New(sharederr.CredentialExpired, "provider token params invalid")
 	}
-	body, err := s.refreshProviderToken(ctx, provider.ID, tokenEndpoint, form, provCfg.ClientID, secretConfig.ClientSecret, provCfg.ClientAuthMethod)
+	body, err := s.refreshProviderToken(ctx, provider.ID, tokenEndpoint, form, provCfg.ClientID, secretConfig.ClientSecret, provCfg.ClientAuthMethod, "", "")
 	if err != nil {
 		return sharederr.New(sharederr.CredentialExpired, "credential_expired_not_renewable")
 	}
@@ -321,6 +329,7 @@ func refreshGrantKey(zoneID, userID, resourceID string, providerID *string, gran
 
 type providerSecretConfig struct {
 	ClientSecret string `json:"client_secret"`
+	PrivateKey   string `json:"private_key"`
 	APIKey       string `json:"api_key"`
 	BearerToken  string `json:"bearer_token"`
 }
@@ -343,7 +352,7 @@ func openProviderSecretConfig(zek []byte, provider *ProviderConfig) (providerSec
 
 func normalizeOAuthClientAuthMethod(method string) string {
 	switch strings.TrimSpace(method) {
-	case "client_secret_post", "none":
+	case "client_secret_post", "private_key_jwt", "none":
 		return method
 	default:
 		return "client_secret_basic"
@@ -522,12 +531,15 @@ func safeHTTPClient(timeout time.Duration) *http.Client {
 	}
 }
 
-func (s *Server) refreshProviderToken(ctx context.Context, providerID string, endpoint *url.URL, form url.Values, clientID, clientSecret, clientAuthMethod string) ([]byte, error) {
+func (s *Server) refreshProviderToken(ctx context.Context, providerID string, endpoint *url.URL, form url.Values, clientID, clientSecret, clientAuthMethod, keyID, privateKey string) ([]byte, error) {
 	method := normalizeOAuthClientAuthMethod(clientAuthMethod)
 	if clientID == "" {
 		return nil, errors.New("provider oauth client_id missing")
 	}
-	if method != "none" && clientSecret == "" {
+	if method == "private_key_jwt" && privateKey == "" {
+		return nil, errors.New("provider oauth private_key missing")
+	}
+	if method != "none" && method != "private_key_jwt" && clientSecret == "" {
 		return nil, errors.New("provider oauth client_secret missing")
 	}
 	client := safeHTTPClient(providerRefreshTimeout)
@@ -540,7 +552,7 @@ func (s *Server) refreshProviderToken(ctx context.Context, providerID string, en
 			case <-time.After(jitteredBackoff(providerRetryBackoff, attempt-1)):
 			}
 		}
-		req, err := buildProviderTokenRequest(ctx, endpoint, form, clientID, clientSecret, method)
+		req, err := buildProviderTokenRequest(ctx, endpoint, form, clientID, clientSecret, method, keyID, privateKey)
 		if err != nil {
 			return nil, err
 		}
@@ -565,7 +577,7 @@ func (s *Server) refreshProviderToken(ctx context.Context, providerID string, en
 	return nil, lastErr
 }
 
-func buildProviderTokenRequest(ctx context.Context, endpoint *url.URL, form url.Values, clientID, clientSecret, method string) (*http.Request, error) {
+func buildProviderTokenRequest(ctx context.Context, endpoint *url.URL, form url.Values, clientID, clientSecret, method, keyID, privateKey string) (*http.Request, error) {
 	requestForm := url.Values{}
 	for key, values := range form {
 		requestForm[key] = append([]string(nil), values...)
@@ -574,6 +586,14 @@ func buildProviderTokenRequest(ctx context.Context, endpoint *url.URL, form url.
 	case "client_secret_post":
 		requestForm.Set("client_id", clientID)
 		requestForm.Set("client_secret", clientSecret)
+	case "private_key_jwt":
+		assertion, err := buildProviderClientAssertion(endpoint.String(), clientID, keyID, privateKey, time.Now().UTC())
+		if err != nil {
+			return nil, err
+		}
+		requestForm.Set("client_id", clientID)
+		requestForm.Set("client_assertion_type", "urn:ietf:params:oauth:client-assertion-type:jwt-bearer")
+		requestForm.Set("client_assertion", assertion)
 	case "none":
 		requestForm.Set("client_id", clientID)
 	}
@@ -586,6 +606,66 @@ func buildProviderTokenRequest(ctx context.Context, endpoint *url.URL, form url.
 		req.SetBasicAuth(clientID, clientSecret)
 	}
 	return req, nil
+}
+
+func buildProviderClientAssertion(audience, clientID, keyID, privateKey string, now time.Time) (string, error) {
+	method, key, err := providerSigningKey(privateKey)
+	if err != nil {
+		return "", err
+	}
+	token := jwt.NewWithClaims(method, jwt.MapClaims{
+		"iss": clientID,
+		"sub": clientID,
+		"aud": audience,
+		"iat": now.Unix(),
+		"exp": now.Add(time.Minute).Unix(),
+		"jti": uuid.NewString(),
+	})
+	if text := strings.TrimSpace(keyID); text != "" {
+		token.Header["kid"] = text
+	}
+	return token.SignedString(key)
+}
+
+func providerSigningKey(privateKey string) (jwt.SigningMethod, any, error) {
+	block, _ := pem.Decode([]byte(privateKey))
+	if block == nil {
+		return nil, nil, errors.New("provider oauth private_key must be PEM encoded")
+	}
+	if key, err := x509.ParsePKCS8PrivateKey(block.Bytes); err == nil {
+		return providerSigningMethod(key)
+	}
+	if key, err := x509.ParsePKCS1PrivateKey(block.Bytes); err == nil {
+		return jwt.SigningMethodRS256, key, nil
+	}
+	if key, err := x509.ParseECPrivateKey(block.Bytes); err == nil {
+		return providerECDSASigningMethod(key)
+	}
+	return nil, nil, errors.New("provider oauth private_key is unsupported")
+}
+
+func providerSigningMethod(key any) (jwt.SigningMethod, any, error) {
+	switch typed := key.(type) {
+	case *rsa.PrivateKey:
+		return jwt.SigningMethodRS256, typed, nil
+	case *ecdsa.PrivateKey:
+		return providerECDSASigningMethod(typed)
+	default:
+		return nil, nil, errors.New("provider oauth private_key is unsupported")
+	}
+}
+
+func providerECDSASigningMethod(key *ecdsa.PrivateKey) (jwt.SigningMethod, any, error) {
+	switch key.Curve {
+	case elliptic.P256():
+		return jwt.SigningMethodES256, key, nil
+	case elliptic.P384():
+		return jwt.SigningMethodES384, key, nil
+	case elliptic.P521():
+		return jwt.SigningMethodES512, key, nil
+	default:
+		return nil, nil, errors.New("provider oauth private_key curve is unsupported")
+	}
 }
 
 func (s *Server) providerCircuitOpen(ctx context.Context, providerID string) bool {
