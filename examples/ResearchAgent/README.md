@@ -14,15 +14,31 @@ until the user exits.
 
 ## Important: Console owns provider setup
 
-Do not pass provider base URLs, model names, scopes, provider IDs, policies, or
-resource mappings as command-line flags to the agent. Those belong in Caracal
-Console and the runtime profile generated from Console.
+Do not pass provider base URLs, model names, scopes, provider IDs, policies,
+resource mappings, or credential env names as command-line flags to the agent.
+Those belong in Caracal Console and the runtime profile generated from Console.
 
 The command is intentionally simple:
 
 ```bash
 caracal run -- node agent.mjs
 ```
+
+If you want an env-file style setup, copy `env.example`, replace the Console
+values, source it, and run the agent:
+
+```bash
+mkdir -p ~/.config/caracal/research-agent
+cp env.example ~/.config/caracal/research-agent/env
+chmod 600 ~/.config/caracal/research-agent/env
+$EDITOR ~/.config/caracal/research-agent/env
+. ~/.config/caracal/research-agent/env
+caracal run -- node agent.mjs
+```
+
+`env.example` contains only Caracal bootstrap settings. It must not contain
+Google or OpenAI credentials; Caracal injects those only into the launched child
+process.
 
 After launch, the agent opens an interactive terminal prompt:
 
@@ -31,16 +47,19 @@ Caracal run research agent ready. Ask about Drive docs or Calendar events. Type 
 > What meetings do I have about the checkout incident, and what does Drive say caused it?
 ```
 
-The model is hardcoded in the agent as **GPT-5.4 mini** (`gpt-5.4-mini`). The
-provider endpoints are also fixed to the real public APIs:
+The model is hardcoded in the agent as **GPT-5.4 mini** (`gpt-5.4-mini`). In
+Console, configure the resource upstream URLs to match the real public APIs the
+agent uses:
 
-| Provider | Endpoint used by the agent |
-| --- | --- |
-| Google APIs | `https://www.googleapis.com` |
-| OpenAI | `https://api.openai.com/v1` |
+| Resource | Console upstream URL | Endpoint used by the agent |
+| --- | --- | --- |
+| `resource://google-drive` | `https://www.googleapis.com/drive/v3` | `https://www.googleapis.com` |
+| `resource://google-calendar` | `https://www.googleapis.com/calendar/v3` | `https://www.googleapis.com` |
+| `resource://openai` | `https://api.openai.com/v1` | `https://api.openai.com/v1` |
 
-If your deployment needs alternate endpoints, configure the providers and
-resources in Console. Do not teach the external agent Caracal-specific routing.
+If your deployment needs alternate endpoints, create separate resources and
+providers in Console and use an agent build that calls those endpoints. Do not
+pass endpoint overrides to this agent at launch time.
 
 ## Runtime resources
 
@@ -74,9 +93,15 @@ injection:
 5. OpenAI remains the LLM used by the agent, matching real workflows where an
    agent combines enterprise context with model reasoning.
 
-## Provider setup model
+## Complete Console setup
 
-Create or select these objects in Console:
+Open Console:
+
+```bash
+caracal console
+```
+
+Then create or select these objects:
 
 | Object | Purpose |
 | --- | --- |
@@ -89,6 +114,46 @@ Create or select these objects in Console:
 | Google Calendar resource | Resource identifier `resource://google-calendar` attached to the Calendar provider |
 | OpenAI resource | Resource identifier `resource://openai` attached to the OpenAI provider |
 | Policy | Allows the run application to request all three resources |
+
+Use these concrete setup steps:
+
+1. Create a zone, for example `Pied Piper Production`.
+2. Create a managed confidential application, for example `PiperNet AI Research Agent`.
+3. Save the one-time application client secret to the local auto-detected owner-only file:
+
+   ```bash
+   export CARACAL_ZONE_ID="zone_prod"
+   export CARACAL_APPLICATION_ID="app_support_research_agent"
+   CARACAL_RUNTIME_DIR="$HOME/.config/caracal/runtime/$CARACAL_ZONE_ID/$CARACAL_APPLICATION_ID"
+   mkdir -p "$CARACAL_RUNTIME_DIR"
+   install -m 600 /dev/null "$CARACAL_RUNTIME_DIR/client-secret"
+   printf '%s' '<paste-one-time-client-secret-here>' > "$CARACAL_RUNTIME_DIR/client-secret"
+   ```
+
+4. Create the Google Drive provider:
+   - Kind: OAuth/provider-token capable provider, or a Google Workspace token broker exposed to Caracal.
+   - Runtime injection: enabled with `allow_runtime_injection = true`.
+   - Scope: `https://www.googleapis.com/auth/drive.readonly`.
+   - Token source: service-account-backed or brokered token flow for application-principal runs, or an existing delegated user grant.
+5. Create the Google Calendar provider:
+   - Kind: OAuth/provider-token capable provider, or a Google Workspace token broker exposed to Caracal.
+   - Runtime injection: enabled with `allow_runtime_injection = true`.
+   - Scope: `https://www.googleapis.com/auth/calendar.readonly`.
+   - Token source: service-account-backed or brokered token flow for application-principal runs, or an existing delegated user grant.
+6. Create the OpenAI provider:
+   - Kind: API key, bearer token, or brokered provider.
+   - Runtime injection: enabled with `allow_runtime_injection = true`.
+   - Secret: store the OpenAI credential in the provider secret fields in Console, not in this repo.
+7. Create the resources:
+
+   | Name | Identifier | Upstream URL | Provider |
+   | --- | --- | --- | --- |
+   | Google Drive | `resource://google-drive` | `https://www.googleapis.com/drive/v3` | Google Drive provider |
+   | Google Calendar | `resource://google-calendar` | `https://www.googleapis.com/calendar/v3` | Google Calendar provider |
+   | OpenAI | `resource://openai` | `https://api.openai.com/v1` | OpenAI provider |
+
+8. Create and activate a policy that allows the research-agent application to request all three resources.
+9. Generate or copy the runtime profile values: zone ID, application ID, and the resource credential mapping. Add an STS URL only when you are not using the local default.
 
 The Google providers should use the minimum scopes needed by the agent:
 
@@ -113,10 +178,104 @@ credential. Raw OpenAI API keys are long-lived, so true provider-enforced expiry
 requires a broker; without a broker, `caracal run` still prevents `.env` storage
 and limits exposure to the child process lifetime.
 
-## Runtime credential mapping
+## Local files to write
 
-Put the run credential mapping in `CARACAL_RUN_CREDENTIALS_FILE` or
-`CARACAL_RUN_CREDENTIALS`:
+Write the local auto-detected credential manifest file. This file is not secret;
+it maps Caracal resources to child-process environment variables:
+
+```bash
+export CARACAL_ZONE_ID="zone_prod"
+export CARACAL_APPLICATION_ID="app_support_research_agent"
+CARACAL_RUNTIME_DIR="$HOME/.config/caracal/runtime/$CARACAL_ZONE_ID/$CARACAL_APPLICATION_ID"
+mkdir -p "$CARACAL_RUNTIME_DIR"
+cat > "$CARACAL_RUNTIME_DIR/credentials.json" <<'JSON'
+[
+  {
+    "env": "GOOGLE_DRIVE_ACCESS_TOKEN",
+    "resource": "resource://google-drive",
+    "credential_type": "provider_token"
+  },
+  {
+    "env": "GOOGLE_CALENDAR_ACCESS_TOKEN",
+    "resource": "resource://google-calendar",
+    "credential_type": "provider_token"
+  },
+  {
+    "env": "OPENAI_API_KEY",
+    "resource": "resource://openai",
+    "credential_type": "provider_token"
+  }
+]
+JSON
+```
+
+Write the runtime profile:
+
+```bash
+cat > ~/.config/caracal/research-agent/caracal.toml <<TOML
+zone_id = "zone_prod"
+application_id = "app_support_research_agent"
+ttl_seconds = 900
+continue_on_failure = false
+
+[[credentials]]
+env = "GOOGLE_DRIVE_ACCESS_TOKEN"
+resource = "resource://google-drive"
+credential_type = "provider_token"
+
+[[credentials]]
+env = "GOOGLE_CALENDAR_ACCESS_TOKEN"
+resource = "resource://google-calendar"
+credential_type = "provider_token"
+
+[[credentials]]
+env = "OPENAI_API_KEY"
+resource = "resource://openai"
+credential_type = "provider_token"
+TOML
+chmod 600 ~/.config/caracal/research-agent/caracal.toml
+```
+
+Replace `zone_id` and `application_id` with values from Console. Local dev/stable
+runs auto-detect the client secret and JSON credential manifest under
+`~/.config/caracal/runtime/<zone_id>/<application_id>/`. The credential
+manifest and the inline `[[credentials]]` blocks show the same mapping;
+use the TOML profile when you set `CARACAL_CONFIG`, or use the JSON manifest with
+environment-only config. Cloud deployments, containers, and custom secret stores
+use the runtime configuration docs for explicit secret-file and service URL paths.
+
+## Environment example
+
+The standalone env example is `env.example`:
+
+```bash
+export CARACAL_ZONE_ID="zone_prod"
+export CARACAL_APPLICATION_ID="app_support_research_agent"
+export CARACAL_RUN_TTL_SECONDS="900"
+```
+
+Recommended profile-based launch:
+
+```bash
+export CARACAL_CONFIG="$HOME/.config/caracal/research-agent/caracal.toml"
+caracal run -- node agent.mjs
+```
+
+Environment-only launch:
+
+```bash
+export CARACAL_ZONE_ID="zone_prod"
+export CARACAL_APPLICATION_ID="app_support_research_agent"
+export CARACAL_RUN_TTL_SECONDS="900"
+
+caracal run -- node agent.mjs
+```
+
+Do not export `GOOGLE_DRIVE_ACCESS_TOKEN`, `GOOGLE_CALENDAR_ACCESS_TOKEN`, or
+`OPENAI_API_KEY` yourself. Those are the child-process variables Caracal injects
+after STS authorizes the run.
+
+## Runtime credential mapping reference
 
 ```json
 [
@@ -141,37 +300,6 @@ Put the run credential mapping in `CARACAL_RUN_CREDENTIALS_FILE` or
 That mapping is not a secret; it only says which resource should populate which
 child-process env var. The bootstrap app identity is supplied to the launcher, not
 to the child.
-
-## Runtime profile shape
-
-A real local profile has this shape:
-
-```toml
-zone_url = "https://sts.your-caracal.example"
-zone_id = "zone_prod"
-application_id = "app_support_research_agent"
-app_client_secret_file = "/run/secrets/caracal-support-agent-secret"
-ttl_seconds = 900
-continue_on_failure = false
-
-[[credentials]]
-env = "GOOGLE_DRIVE_ACCESS_TOKEN"
-resource = "resource://google-drive"
-credential_type = "provider_token"
-
-[[credentials]]
-env = "GOOGLE_CALENDAR_ACCESS_TOKEN"
-resource = "resource://google-calendar"
-credential_type = "provider_token"
-
-[[credentials]]
-env = "OPENAI_API_KEY"
-resource = "resource://openai"
-credential_type = "provider_token"
-```
-
-Store the app client secret in an owner-only secret file. Do not put Google
-tokens, refresh tokens, or OpenAI keys in this profile.
 
 ## Flow
 

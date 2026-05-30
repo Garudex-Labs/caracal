@@ -69,9 +69,10 @@ an owner-only secret file referenced by `caracal.toml`.
 After creating the Lynx zone, control key, and resources in the Console, use
 the Console-generated runtime profile contract. Enable **write files** when you
 want the Console to create the profile and one-time secret file locally. If you
-write files through platform automation, store the control key secret in an
-owner-only secret file and write `~/.config/caracal/caracal.toml`. The Python
-SDK reads this profile directly, so Caracal credentials stay out of `.env`.
+write files through platform automation, store the control key secret at the
+local auto-detected runtime path. Cloud deployments and custom secret stores use
+the runtime configuration docs for explicit secret-file paths. The Python SDK
+reads this profile directly, so Caracal credentials stay out of `.env`.
 
 ```toml
 [[credentials]]
@@ -87,16 +88,9 @@ protocol providers use their own local endpoints, such as
 `http://127.0.0.1:50051` for `lynx/treasury-ops` and
 `http://127.0.0.1:7800` for `lynx/vendor-portal`.
 
-The stack listens on:
-
-- API         → `http://localhost:3000`
-- Coordinator → `http://localhost:4000`
-- Gateway     → `http://localhost:8081`
-- STS         → `http://localhost:8080`
-
-The defaults in `.env.example` already point at these. If you run Caracal on
-different hosts/ports, edit the `CARACAL_*` block in `.env` and the URLs in
-`caracal.toml`.
+The SDKs and generated profiles use the local Caracal endpoints automatically.
+Cloud deployments and custom service locations use the runtime configuration docs
+for explicit service URL overrides.
 
 > If you already had the Caracal monorepo cloned and used `pnpm i -g` from it,
 > remove the stale workspace shim first so the released binary wins:

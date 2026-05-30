@@ -7,13 +7,13 @@ import { readFile } from 'node:fs/promises';
 
 const args = parseArgs(process.argv.slice(2));
 const timeoutMs = Number(args.timeoutMs ?? 10_000);
+const defaultStsUrl = 'http://localhost:8080';
+const defaultGatewayUrl = 'http://localhost:8081';
 
 if (args.help) {
   usage(0);
 }
 
-requireArg('gatewayUrl');
-requireArg('stsUrl');
 requireArg('resource');
 
 const token = args.token ?? process.env[args.tokenEnv ?? 'CARACAL_TOKEN'];
@@ -21,8 +21,8 @@ if (!token) {
   fail(`missing token; set --token-env or --token with a real Caracal mandate`);
 }
 
-const gatewayUrl = trimSlash(args.gatewayUrl);
-const stsUrl = trimSlash(args.stsUrl);
+const gatewayUrl = trimSlash(args.gatewayUrl ?? process.env.CARACAL_GATEWAY_URL ?? defaultGatewayUrl);
+const stsUrl = trimSlash(args.stsUrl ?? process.env.CARACAL_STS_URL ?? process.env.CARACAL_ZONE_URL ?? defaultStsUrl);
 const requestPath = args.path ?? '/';
 const method = (args.method ?? 'GET').toUpperCase();
 const headers = await loadHeaders(args.headersFile);
@@ -150,13 +150,13 @@ function fail(message) {
 function usage(code) {
   console.log(`Usage:
 node scripts/validateFirstSuccess.mjs \\
-  --gateway-url http://localhost:8081 \\
-  --sts-url http://localhost:8080 \\
   --resource <real-resource-id> \\
   --token-env CARACAL_TOKEN \\
   --path /real/protected/path
 
 Options:
+  --gateway-url <url>         Gateway URL for custom deployments. Defaults to local stack.
+  --sts-url <url>             STS URL for custom deployments. Defaults to local stack.
   --token <token>             Use a real mandate directly instead of --token-env.
   --method <method>           HTTP method for the protected request. Defaults to GET.
   --headers-file <path>       JSON object of additional request headers.

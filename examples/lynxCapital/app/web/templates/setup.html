@@ -69,7 +69,7 @@ lynx/vendor-portal</pre>
 
   <div class="panel">
     <h2>3 · Create the runtime profile</h2>
-    <p>Use the Console-generated profile contract. Enable <code>write files</code> when the Console should create the profile and one-time secret file locally; otherwise write an owner-only secret file and point <code>app_client_secret_file</code> at it. The SDK reads this profile directly, so keep Caracal credentials out of <code>.env</code>.</p>
+    <p>Use the Console-generated profile contract. Enable <code>write files</code> when the Console should create the profile and one-time secret file locally; otherwise write the secret to the local auto-detected runtime path. Cloud deployments and custom secret stores use the runtime configuration docs for explicit secret-file paths. The SDK reads this profile directly, so keep Caracal credentials out of <code>.env</code>.</p>
 <pre class="cmd">[[credentials]]
 env = "LYNX_MERCURY_BANK_TOKEN"
 resource = "lynx/mercury-bank"

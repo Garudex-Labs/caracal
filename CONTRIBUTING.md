@@ -60,19 +60,18 @@ pnpm caracal console          # Human-facing product management
 
 #### Standalone execution
 
-`pnpm caracal run -- <command>` reads validated runtime config from platform environment variables or an explicit runtime profile, exchanges the configured application credentials with STS, injects only the configured scoped resource-token environment variables into the child process, and executes without a shell. The stack does not create zones, applications, client secrets, or runtime profiles. Create a managed application with credential type `token`, copy the one-time client secret from the create result, and use that secret below.
+`pnpm caracal run -- <command>` reads validated runtime config from platform environment variables or an explicit runtime profile, exchanges the configured application credentials with STS, injects only the configured scoped resource-token environment variables into the child process, and executes without a shell. The stack does not create zones, applications, client secrets, or runtime profiles. Create a managed application with credential type `token`, copy the one-time client secret from the create result, and store local files under the OS Caracal config directory.
 
 ```bash
-printf '%s\n' '<client-secret>' > "$XDG_RUNTIME_DIR/caracal-client-secret"
-chmod 600 "$XDG_RUNTIME_DIR/caracal-client-secret"
-cat > "$XDG_RUNTIME_DIR/caracal-credentials.json" <<'JSON'
-[{ "env": "RESOURCE_TOKEN", "resource": "resource://local-http" }]
-JSON
-export CARACAL_STS_URL="http://localhost:8080"
 export CARACAL_ZONE_ID="<zone-id>"
 export CARACAL_APPLICATION_ID="<application-id>"
-export CARACAL_APP_CLIENT_SECRET_FILE="$XDG_RUNTIME_DIR/caracal-client-secret"
-export CARACAL_RUN_CREDENTIALS_FILE="$XDG_RUNTIME_DIR/caracal-credentials.json"
+CARACAL_RUNTIME_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/caracal/runtime/$CARACAL_ZONE_ID/$CARACAL_APPLICATION_ID"
+mkdir -p "$CARACAL_RUNTIME_DIR"
+printf '%s\n' '<client-secret>' > "$CARACAL_RUNTIME_DIR/client-secret"
+chmod 600 "$CARACAL_RUNTIME_DIR/client-secret"
+cat > "$CARACAL_RUNTIME_DIR/credentials.json" <<'JSON'
+[{ "env": "RESOURCE_TOKEN", "resource": "resource://local-http" }]
+JSON
 pnpm caracal run -- node -e "if (!process.env.RESOURCE_TOKEN) process.exit(1)"
 ```
 
