@@ -592,6 +592,7 @@ describe('providers actions', () => {
       'auth_header',
       'auth_scheme',
       'forward_caracal_identity',
+      'allow_runtime_injection',
     ])
   })
 

@@ -25,6 +25,36 @@ describe('OAuthClient', () => {
     expect(res.expiresIn).toBe(900)
     const body = fetchMock.mock.calls[0][1].body as URLSearchParams
     expect(body.get('client_secret')).toBe('secret-1')
+    expect(body.get('runtime_credential_injection')).toBeNull()
+  })
+
+  it('sends runtime credential injection requests and returns upstream directives', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        access_token: 'caracal-mandate',
+        expires_in: 900,
+        target_resources: ['resource://openai'],
+        upstreams: {
+          'resource://openai': {
+            auth_mode: 'provider_apikey',
+            provider_token: 'provider-token',
+            auth_header: 'Authorization',
+          },
+        },
+      }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
+    const res = await client.exchange('', 'resource://openai', {
+      clientSecret: 'secret-1',
+      runtimeCredentialInjection: true,
+    })
+
+    const body = fetchMock.mock.calls[0][1].body as URLSearchParams
+    expect(body.get('runtime_credential_injection')).toBe('true')
+    expect(res.upstreams?.['resource://openai']?.providerToken).toBe('provider-token')
   })
 
   it('supports application-principal exchanges with multiple resources', async () => {

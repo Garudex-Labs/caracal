@@ -59,9 +59,36 @@ describe('checkMcpGovernance', () => {
 
 describe('buildRunEnv', () => {
   it('exchanges tokens for each credential', async () => {
-    exchangeMock.mockResolvedValue({ accessToken: 'tok-123' })
+    exchangeMock.mockResolvedValue({ accessToken: 'mandate', upstreams: { 'urn:api': { providerToken: 'tok-123' } } })
     const env = await buildRunEnv({ ...baseConfig, credentials: [{ env: 'API_KEY', resource: 'urn:api' }] })
     expect(env.API_KEY).toBe('tok-123')
+    expect(exchangeMock).toHaveBeenCalledWith('', 'urn:api', {
+      clientSecret: 'secret',
+      ttlSeconds: 900,
+      runtimeCredentialInjection: true,
+    })
+  })
+
+  it('can inject a Caracal mandate for mandate-aware workloads', async () => {
+    exchangeMock.mockResolvedValue({ accessToken: 'mandate-token' })
+    const env = await buildRunEnv({
+      ...baseConfig,
+      credentials: [{ env: 'CARACAL_TOKEN', resource: 'urn:api', credential_type: 'caracal_mandate' }],
+      ttl_seconds: 300,
+    })
+    expect(env.CARACAL_TOKEN).toBe('mandate-token')
+    expect(exchangeMock).toHaveBeenCalledWith('', 'urn:api', {
+      clientSecret: 'secret',
+      ttlSeconds: 300,
+      runtimeCredentialInjection: false,
+    })
+  })
+
+  it('fails when provider-token injection is unavailable', async () => {
+    exchangeMock.mockResolvedValue({ accessToken: 'mandate' })
+    await expect(buildRunEnv({ ...baseConfig, credentials: [{ env: 'API_KEY', resource: 'urn:api' }] })).rejects.toThrow(
+      'provider_credential_unavailable:urn:api',
+    )
   })
 
   it('rejects invalid, blocked, and duplicate credential env names', async () => {
@@ -122,7 +149,7 @@ describe('buildRunEnv', () => {
   it('completes a step-up challenge and retries the exchange', async () => {
     exchangeMock
       .mockRejectedValueOnce(new InteractionRequiredError('step up', 'chal-1', 'r'))
-      .mockResolvedValueOnce({ accessToken: 'after-stepup' })
+      .mockResolvedValueOnce({ accessToken: 'mandate', upstreams: { r: { providerToken: 'after-stepup' } } })
     const fetchSpy = vi
       .spyOn(globalThis, 'fetch')
       .mockResolvedValue({ ok: true, status: 200, json: async () => ({ satisfied: true }) } as unknown as Response)

@@ -50,6 +50,7 @@ describe('POST /v1/zones/:zoneId/providers', () => {
           audience: 'https://api.hooli.example',
           resource: 'https://resource.hooli.example',
           allowed_token_hosts: ['issuer.example'],
+          allow_runtime_injection: true,
         },
       },
     })
@@ -66,6 +67,7 @@ describe('POST /v1/zones/:zoneId/providers', () => {
       audience: 'https://api.hooli.example',
       resource: 'https://resource.hooli.example',
       allowed_token_hosts: ['issuer.example'],
+      allow_runtime_injection: true,
     })
     expect(values[8]).toEqual(['client_secret'])
   })
@@ -284,6 +286,7 @@ describe('POST /v1/zones/:zoneId/providers', () => {
           header_name: 'Authorization',
           auth_scheme: 'Bearer',
           forward_caracal_identity: true,
+          allow_runtime_injection: true,
           api_key: 'hooli-api-key',
         },
       },
@@ -297,6 +300,7 @@ describe('POST /v1/zones/:zoneId/providers', () => {
       header_name: 'Authorization',
       auth_scheme: 'Bearer',
       forward_caracal_identity: true,
+      allow_runtime_injection: true,
     })
     expect(values[8]).toEqual(['api_key'])
   })
@@ -373,6 +377,11 @@ describe('POST /v1/zones/:zoneId/providers', () => {
         auth_location: 'cookie',
         api_key: 'hooli-api-key',
       },
+      {
+        header_name: 'Authorization',
+        allow_runtime_injection: 'yes',
+        api_key: 'hooli-api-key',
+      },
     ]
     for (const config of invalidConfigs) {
       const res = await app.inject({
@@ -406,6 +415,7 @@ describe('POST /v1/zones/:zoneId/providers', () => {
           auth_header: 'Authorization',
           auth_scheme: 'Bearer',
           forward_caracal_identity: true,
+          allow_runtime_injection: true,
         },
       },
     })
@@ -418,6 +428,7 @@ describe('POST /v1/zones/:zoneId/providers', () => {
       auth_header: 'Authorization',
       auth_scheme: 'Bearer',
       forward_caracal_identity: true,
+      allow_runtime_injection: true,
     })
     expect(values[8]).toEqual(['bearer_token'])
   })

@@ -19,7 +19,8 @@ import { runCommand } from '../../../../apps/runtime/src/commands/run.js'
 
 const cfg: RuntimeConfig = {
   zone_url: 'https://sts.example.com',
-  app_client_id: 'zone1:app1',
+  zone_id: 'zone1',
+  application_id: 'app1',
   app_client_secret: 'secret',
   credentials: [{ env: 'RESOURCE_TOKEN', resource: 'resource://api' }],
 }
@@ -80,15 +81,20 @@ describe('runCommand', () => {
       })
       const fetchMock = vi.fn().mockResolvedValue({
         ok: true,
-        json: async () => ({ access_token: 'resource-token', expires_in: 3600 }),
+        json: async () => ({
+          access_token: 'caracal-mandate',
+          expires_in: 900,
+          upstreams: { 'resource://api': { provider_token: 'resource-token' } },
+        }),
       })
       vi.stubGlobal('fetch', fetchMock)
 
       await expect(runCommand(['node', 'tool.js'], cfg)).rejects.toThrow('exit:0')
 
       const body = fetchMock.mock.calls[0][1].body as URLSearchParams
-      expect(body.get('ttl_seconds')).toBe('3600')
+      expect(body.get('ttl_seconds')).toBe('900')
       expect(body.get('resource')).toBe('resource://api')
+      expect(body.get('runtime_credential_injection')).toBe('true')
       expect(spawnMock).toHaveBeenCalledWith('node', ['tool.js'], expect.objectContaining({ stdio: 'inherit' }))
       expect(childEnv.RESOURCE_TOKEN).toBe('resource-token')
       expect(childEnv.CARACAL_ADMIN_TOKEN).toBeUndefined()
@@ -107,7 +113,11 @@ describe('runCommand', () => {
   it('strips the pnpm separator before spawning the child command', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ access_token: 'resource-token', expires_in: 3600 }),
+      json: async () => ({
+        access_token: 'caracal-mandate',
+        expires_in: 900,
+        upstreams: { 'resource://api': { provider_token: 'resource-token' } },
+      }),
     }))
 
     await expect(runCommand(['--', 'node', 'tool.js'], cfg)).rejects.toThrow('exit:0')
@@ -225,7 +235,11 @@ describe('runCommand', () => {
   it('runs a literal command after the -- separator instead of treating it as help', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ access_token: 'resource-token', expires_in: 3600 }),
+      json: async () => ({
+        access_token: 'caracal-mandate',
+        expires_in: 900,
+        upstreams: { 'resource://api': { provider_token: 'resource-token' } },
+      }),
     }))
 
     await expect(runCommand(['--', 'help'], cfg)).rejects.toThrow('exit:0')

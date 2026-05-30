@@ -41,6 +41,7 @@ afterEach(() => {
   delete process.env.CARACAL_RUN_CREDENTIALS
   delete process.env.CARACAL_RUN_CREDENTIALS_FILE
   delete process.env.CARACAL_RUN_CONTINUE_ON_FAILURE
+  delete process.env.CARACAL_RUN_TTL_SECONDS
   delete process.env.CARACAL_MCP_GOVERNANCE_MODE
   delete process.env.CARACAL_ALLOW_INSECURE_CONFIG_URLS
   delete process.env.CARACAL_ALLOW_MCP_GOVERNANCE_LOG
@@ -181,6 +182,7 @@ describe('resolveRuntimeConfigPath', () => {
       '[[credentials]]',
       'env = "RESOURCE_TOKEN"',
       'resource = "resource://api"',
+      'credential_type = "caracal_mandate"',
       '',
     ].join('\n'))
     if (process.platform !== 'win32') {
@@ -194,7 +196,7 @@ describe('resolveRuntimeConfigPath', () => {
       zone_id: 'zone1',
       application_id: 'app1',
       app_client_secret: 'secret-value',
-      credentials: [{ env: 'RESOURCE_TOKEN', resource: 'resource://api' }],
+      credentials: [{ env: 'RESOURCE_TOKEN', resource: 'resource://api', credential_type: 'caracal_mandate' }],
     })
   })
 
@@ -217,6 +219,7 @@ describe('resolveRuntimeConfigPath', () => {
     process.env.CARACAL_APP_CLIENT_SECRET_FILE = secret
     process.env.CARACAL_RUN_CREDENTIALS_FILE = credentials
     process.env.CARACAL_RUN_CONTINUE_ON_FAILURE = 'true'
+    process.env.CARACAL_RUN_TTL_SECONDS = '600'
     process.env.CARACAL_MCP_GOVERNANCE_MODE = 'block'
 
     expect(loadRuntimeConfig(true)).toMatchObject({
@@ -225,6 +228,7 @@ describe('resolveRuntimeConfigPath', () => {
       application_id: 'app1',
       app_client_secret: 'secret-value',
       continue_on_failure: true,
+      ttl_seconds: 600,
       credentials: [{ env: 'RESOURCE_TOKEN', resource: 'resource://api' }],
       optional_credentials: [{ env: 'OPTIONAL_TOKEN', resource: 'resource://optional', on_failure: 'warn' }],
       mcp_governance: { mode: 'block' },
@@ -286,6 +290,17 @@ describe('resolveRuntimeConfigPath', () => {
     process.env.CARACAL_RUN_CREDENTIALS = JSON.stringify([{ env: 'RESOURCE_TOKEN', resource: 'resource://api' }])
 
     expect(() => loadRuntimeConfig(true)).toThrow(/secret file path looks like a client secret/)
+  })
+
+  it('rejects run TTL values above the resource mandate cap', () => {
+    process.env.CARACAL_STS_URL = 'https://sts.example.com'
+    process.env.CARACAL_ZONE_ID = 'zone1'
+    process.env.CARACAL_APPLICATION_ID = 'app1'
+    process.env.CARACAL_APP_CLIENT_SECRET = 'secret-value'
+    process.env.CARACAL_RUN_CREDENTIALS = JSON.stringify([{ env: 'RESOURCE_TOKEN', resource: 'resource://api' }])
+    process.env.CARACAL_RUN_TTL_SECONDS = '901'
+
+    expect(() => loadRuntimeConfig(true)).toThrow(/CARACAL_RUN_TTL_SECONDS must be between 1 and 900/)
   })
 
   it('rejects unknown runtime config fields', () => {
