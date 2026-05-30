@@ -20,11 +20,13 @@
 
 # Runtime behavior:
 # continue_on_failure = false
+# ttl_seconds = 900
 
 # Required credential entries are generated from real resource IDs:
 # [[credentials]]
 # env
 # resource
+# credential_type = "provider_token"
 # upstream_prefix
 
 # Optional credential entries are advanced runtime configuration:

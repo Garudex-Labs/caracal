@@ -20,6 +20,8 @@ interface STSSuccessResponse {
   access_token?: unknown
   token_type?: unknown
   expires_in?: unknown
+  target_resources?: unknown
+  upstreams?: unknown
 }
 
 const SECRET_CACHE_KEY = randomBytes(32)
@@ -106,7 +108,12 @@ export class OAuthClient {
   }
 
   private cacheResource(resource: string | string[], opts: ExchangeOptions): string {
-    return [resourceList(resource).join(' '), this.normalizedScopes(opts.scopes), opts.ttlSeconds?.toString() ?? ''].join('::')
+    return [
+      resourceList(resource).join(' '),
+      this.normalizedScopes(opts.scopes),
+      opts.ttlSeconds?.toString() ?? '',
+      opts.runtimeCredentialInjection === true ? 'runtime-credential-injection' : '',
+    ].join('::')
   }
 
   private normalizedScopes(scopes?: string[]): string {
@@ -148,6 +155,7 @@ export class OAuthClient {
     const scope = this.normalizedScopes(opts.scopes)
     if (scope) body.set('scope', scope)
     if (opts.ttlSeconds) body.set('ttl_seconds', String(opts.ttlSeconds))
+    if (opts.runtimeCredentialInjection === true) body.set('runtime_credential_injection', 'true')
 
     const maxRetries = opts.retries ?? 3
     let res: Awaited<ReturnType<typeof fetch>> | undefined
@@ -224,12 +232,74 @@ function validateSuccessResponse(data: STSSuccessResponse): TokenExchangeRespons
   if (typeof expiresIn !== 'number' || !Number.isInteger(expiresIn) || expiresIn <= 0) {
     throw new Error('STS response invalid: expires_in must be a positive integer')
   }
-  return {
+  const response: TokenExchangeResponse = {
     accessToken: data.access_token,
     tokenType: 'Bearer',
     expiresIn,
     issuedAt: Math.floor(Date.now() / 1000),
   }
+  if (data.target_resources !== undefined) {
+    if (!Array.isArray(data.target_resources) || data.target_resources.some((item) => typeof item !== 'string')) {
+      throw new Error('STS response invalid: target_resources must be a string array')
+    }
+    response.targetResources = data.target_resources
+  }
+  if (data.upstreams !== undefined) response.upstreams = validateUpstreams(data.upstreams)
+  return response
+}
+
+function validateUpstreams(value: unknown): NonNullable<TokenExchangeResponse['upstreams']> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('STS response invalid: upstreams must be an object')
+  }
+  const upstreams: NonNullable<TokenExchangeResponse['upstreams']> = {}
+  for (const [resource, directive] of Object.entries(value)) {
+    if (!directive || typeof directive !== 'object' || Array.isArray(directive)) {
+      throw new Error('STS response invalid: upstream directive must be an object')
+    }
+    const item = directive as Record<string, unknown>
+    upstreams[resource] = {
+      url: optionalString(item.url, 'upstreams.url'),
+      authMode: optionalString(item.auth_mode, 'upstreams.auth_mode'),
+      authLocation: optionalString(item.auth_location, 'upstreams.auth_location'),
+      authHeader: optionalString(item.auth_header, 'upstreams.auth_header'),
+      queryParamName: optionalString(item.query_param_name, 'upstreams.query_param_name'),
+      authScheme: optionalString(item.auth_scheme, 'upstreams.auth_scheme'),
+      allowedTokenHosts: optionalStringArray(item.allowed_token_hosts, 'upstreams.allowed_token_hosts'),
+      providerToken: optionalString(item.provider_token, 'upstreams.provider_token'),
+      providerId: optionalString(item.provider_id, 'upstreams.provider_id'),
+      grantId: optionalString(item.grant_id, 'upstreams.grant_id'),
+      forwardCaracalIdentity: optionalBoolean(item.forward_caracal_identity, 'upstreams.forward_caracal_identity'),
+      expiresAt: optionalInteger(item.expires_at, 'upstreams.expires_at'),
+    }
+  }
+  return upstreams
+}
+
+function optionalString(value: unknown, name: string): string | undefined {
+  if (value === undefined) return undefined
+  if (typeof value !== 'string') throw new Error(`STS response invalid: ${name} must be a string`)
+  return value
+}
+
+function optionalStringArray(value: unknown, name: string): string[] | undefined {
+  if (value === undefined) return undefined
+  if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) {
+    throw new Error(`STS response invalid: ${name} must be a string array`)
+  }
+  return value
+}
+
+function optionalBoolean(value: unknown, name: string): boolean | undefined {
+  if (value === undefined) return undefined
+  if (typeof value !== 'boolean') throw new Error(`STS response invalid: ${name} must be a boolean`)
+  return value
+}
+
+function optionalInteger(value: unknown, name: string): number | undefined {
+  if (value === undefined) return undefined
+  if (typeof value !== 'number' || !Number.isInteger(value)) throw new Error(`STS response invalid: ${name} must be an integer`)
+  return value
 }
 
 function retryDelayMs(res: Response, attempt: number): number {

@@ -12,11 +12,16 @@ import { parse } from 'smol-toml';
 export const DEFAULT_API_URL = 'http://localhost:3000';
 export const DEFAULT_COORDINATOR_URL = 'http://localhost:4000';
 export const DEFAULT_ZONE_URL = 'http://localhost:8080';
+export const DEFAULT_RUN_TTL_SECONDS = 900;
+export const MAX_RUN_TTL_SECONDS = 900;
+
+export type RunCredentialType = 'provider_token' | 'caracal_mandate';
 
 export interface Credential {
   env: string;
   resource: string;
   upstream_prefix?: string;
+  credential_type?: RunCredentialType;
 }
 
 export interface OptionalCredential extends Credential {
@@ -35,6 +40,7 @@ export interface RuntimeConfig {
   zone_id: string;
   application_id: string;
   app_client_secret: string;
+  ttl_seconds?: number;
   continue_on_failure?: boolean;
   credentials?: Credential[];
   optional_credentials?: OptionalCredential[];
@@ -62,14 +68,15 @@ const RUNTIME_CONFIG_KEYS = new Set([
   'application_id',
   'app_client_secret',
   'app_client_secret_file',
+  'ttl_seconds',
   'continue_on_failure',
   'credentials',
   'optional_credentials',
   'mcp_governance',
 ]);
 
-const CREDENTIAL_KEYS = new Set(['env', 'resource', 'upstream_prefix']);
-const OPTIONAL_CREDENTIAL_KEYS = new Set(['env', 'resource', 'upstream_prefix', 'on_failure']);
+const CREDENTIAL_KEYS = new Set(['env', 'resource', 'upstream_prefix', 'credential_type']);
+const OPTIONAL_CREDENTIAL_KEYS = new Set(['env', 'resource', 'upstream_prefix', 'credential_type', 'on_failure']);
 const CREDENTIAL_MANIFEST_KEYS = new Set(['credentials', 'optional_credentials', 'continue_on_failure', 'mcp_governance']);
 
 type UnknownRecord = Record<string, unknown>;
@@ -206,6 +213,22 @@ function booleanField(record: UnknownRecord, key: string, source: string): boole
   return value;
 }
 
+function integerField(record: UnknownRecord, key: string, source: string): number | undefined {
+  const value = record[key];
+  if (value === undefined) return undefined;
+  if (typeof value !== 'number' || !Number.isInteger(value)) failConfig(source, `${key} must be an integer`);
+  return value;
+}
+
+function ttlSecondsField(record: UnknownRecord, source: string): number | undefined {
+  const value = integerField(record, 'ttl_seconds', source);
+  if (value === undefined) return undefined;
+  if (value < 1 || value > MAX_RUN_TTL_SECONDS) {
+    failConfig(source, `ttl_seconds must be between 1 and ${MAX_RUN_TTL_SECONDS}`);
+  }
+  return value;
+}
+
 function validateEndpointUrl(value: string, key: string, source: string, env: NodeJS.ProcessEnv): string {
   let url: URL;
   try {
@@ -274,10 +297,20 @@ function normalizeCredential(value: unknown, source: string, index: number, opti
   const resource = requiredStringField(value, 'resource', source);
   const upstreamPrefix = stringField(value, 'upstream_prefix', source);
   if (upstreamPrefix) validateEndpointUrl(upstreamPrefix, `credentials[${index}].upstream_prefix`, source, { ...process.env, NODE_ENV: 'development' });
-  if (!optional) return upstreamPrefix ? { env, resource, upstream_prefix: upstreamPrefix } : { env, resource };
+  const credentialType = stringField(value, 'credential_type', source);
+  if (credentialType !== undefined && credentialType !== 'provider_token' && credentialType !== 'caracal_mandate') {
+    failConfig(source, `${optional ? 'optional_credentials' : 'credentials'}[${index}].credential_type must be provider_token or caracal_mandate`);
+  }
+  const base = {
+    env,
+    resource,
+    ...(upstreamPrefix ? { upstream_prefix: upstreamPrefix } : {}),
+    ...(credentialType ? { credential_type: credentialType as RunCredentialType } : {}),
+  };
+  if (!optional) return base;
   const onFailure = stringField(value, 'on_failure', source) ?? 'warn';
   if (onFailure !== 'warn' && onFailure !== 'error') failConfig(source, `optional_credentials[${index}].on_failure must be 'warn' or 'error'`);
-  return upstreamPrefix ? { env, resource, upstream_prefix: upstreamPrefix, on_failure: onFailure } : { env, resource, on_failure: onFailure };
+  return { ...base, on_failure: onFailure };
 }
 
 function normalizeCredentials(record: UnknownRecord, key: 'credentials', source: string): Credential[] | undefined;
@@ -325,6 +358,8 @@ function normalizeRuntimeConfig(value: unknown, source: string, env: NodeJS.Proc
     application_id: requiredStringField(value, 'application_id', source),
     app_client_secret: clientSecret(value, source),
   };
+  const ttlSeconds = ttlSecondsField(value, source);
+  if (ttlSeconds !== undefined) cfg.ttl_seconds = ttlSeconds;
   const stsUrl = stringField(value, 'sts_url', source);
   if (stsUrl) cfg.sts_url = validateEndpointUrl(stsUrl, 'sts_url', source, env);
   const coordinatorUrl = stringField(value, 'coordinator_url', source);
@@ -383,6 +418,13 @@ function runtimeConfigFromEnv(env: NodeJS.ProcessEnv): UnknownRecord | undefined
   };
   const continueOnFailure = parseBooleanEnv(env.CARACAL_RUN_CONTINUE_ON_FAILURE, 'CARACAL_RUN_CONTINUE_ON_FAILURE');
   if (continueOnFailure !== undefined) cfg.continue_on_failure = continueOnFailure;
+  if (env.CARACAL_RUN_TTL_SECONDS !== undefined && env.CARACAL_RUN_TTL_SECONDS !== '') {
+    const ttlSeconds = Number.parseInt(env.CARACAL_RUN_TTL_SECONDS, 10);
+    if (!/^[1-9]\d*$/.test(env.CARACAL_RUN_TTL_SECONDS) || ttlSeconds > MAX_RUN_TTL_SECONDS) {
+      failConfig('environment', `CARACAL_RUN_TTL_SECONDS must be between 1 and ${MAX_RUN_TTL_SECONDS}`);
+    }
+    cfg.ttl_seconds = ttlSeconds;
+  }
   return cfg;
 }
 

@@ -7,7 +7,9 @@ import { spawn, type ChildProcess, type StdioOptions } from 'node:child_process'
 import { createInterface } from 'node:readline'
 import { scrubTokens } from './crash.js'
 import { InteractionRequiredError, OAuthClient } from '@caracalai/oauth'
-import type { RuntimeConfig, Credential } from './runtimeConfig.js'
+import { DEFAULT_RUN_TTL_SECONDS } from './runtimeConfig.js'
+import type { RuntimeConfig, Credential, RunCredentialType } from './runtimeConfig.js'
+import type { TokenExchangeResponse } from '@caracalai/oauth'
 
 const SIGNAL_EXIT_MAP: Record<string, number> = {
   SIGINT: 2,
@@ -19,7 +21,6 @@ const SIGNAL_EXIT_MAP: Record<string, number> = {
 
 const STEP_UP_POLL_MS = 2000
 const STEP_UP_TIMEOUT_MS = 300_000
-const TOKEN_TTL_SECONDS = 3600
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
 const BLOCKED_CREDENTIAL_ENV = new Set([
   'NODE_OPTIONS',
@@ -117,23 +118,40 @@ async function waitForChallenge(zoneUrl: string, challengeId: string): Promise<b
   return false
 }
 
-async function exchangeWithStepUp(client: OAuthClient, cfg: RuntimeConfig, resource: string, onLine?: RunLineSink): Promise<string> {
+function runTTLSeconds(cfg: RuntimeConfig): number {
+  return cfg.ttl_seconds ?? DEFAULT_RUN_TTL_SECONDS
+}
+
+function credentialType(cred: Credential): RunCredentialType {
+  return cred.credential_type ?? 'provider_token'
+}
+
+function injectedCredential(resource: string, type: RunCredentialType, token: TokenExchangeResponse): string {
+  if (type === 'caracal_mandate') return token.accessToken
+  const exact = token.upstreams?.[resource]
+  const directives = Object.values(token.upstreams ?? {})
+  const directive = exact ?? (directives.length === 1 ? directives[0] : undefined)
+  if (!directive?.providerToken) throw new Error(`provider_credential_unavailable:${resource}`)
+  return directive.providerToken
+}
+
+async function exchangeWithStepUp(client: OAuthClient, cfg: RuntimeConfig, cred: Credential, onLine?: RunLineSink): Promise<string> {
+  const type = credentialType(cred)
+  const exchangeOptions = {
+    clientSecret: cfg.app_client_secret,
+    ttlSeconds: runTTLSeconds(cfg),
+    runtimeCredentialInjection: type === 'provider_token',
+  }
   try {
-    const token = await client.exchange('', resource, {
-      clientSecret: cfg.app_client_secret,
-      ttlSeconds: TOKEN_TTL_SECONDS,
-    })
-    return token.accessToken
+    const token = await client.exchange('', cred.resource, exchangeOptions)
+    return injectedCredential(cred.resource, type, token)
   } catch (err) {
     if (!(err instanceof InteractionRequiredError) || !err.challengeId) throw err
-    onLine?.(JSON.stringify({ resource, challenge_id: err.challengeId, reason: 'step_up_required' }), 'stderr')
+    onLine?.(JSON.stringify({ resource: cred.resource, challenge_id: err.challengeId, reason: 'step_up_required' }), 'stderr')
     const satisfied = await waitForChallenge(cfg.zone_url, err.challengeId)
     if (!satisfied) throw new Error('step_up_challenge_timed_out')
-    const token = await client.exchange('', resource, {
-      clientSecret: cfg.app_client_secret,
-      ttlSeconds: TOKEN_TTL_SECONDS,
-    })
-    return token.accessToken
+    const token = await client.exchange('', cred.resource, exchangeOptions)
+    return injectedCredential(cred.resource, type, token)
   }
 }
 
@@ -157,8 +175,14 @@ export async function buildRunEnv(cfg: RuntimeConfig, opts: BuildRunEnvOptions =
 
   for (const cred of cfg.credentials ?? []) {
     validateCredentialEnv(cred, usedEnv)
+  }
+  for (const cred of cfg.optional_credentials ?? []) {
+    validateCredentialEnv(cred, usedEnv)
+  }
+
+  for (const cred of cfg.credentials ?? []) {
     try {
-      env[cred.env] = await exchangeWithStepUp(client, cfg, cred.resource, opts.onLine)
+      env[cred.env] = await exchangeWithStepUp(client, cfg, cred, opts.onLine)
     } catch (err) {
       opts.onLine?.(credentialFailureLine(cred, err), 'stderr')
       if (!cfg.continue_on_failure) throw err
@@ -166,9 +190,8 @@ export async function buildRunEnv(cfg: RuntimeConfig, opts: BuildRunEnvOptions =
   }
 
   for (const cred of cfg.optional_credentials ?? []) {
-    validateCredentialEnv(cred, usedEnv)
     try {
-      env[cred.env] = await exchangeWithStepUp(client, cfg, cred.resource, opts.onLine)
+      env[cred.env] = await exchangeWithStepUp(client, cfg, cred, opts.onLine)
     } catch (err) {
       if (cred.on_failure === 'error') {
         opts.onLine?.(credentialFailureLine(cred, err), 'stderr')

@@ -18,6 +18,22 @@ export interface TokenExchangeRequest {
   delegationEdgeId?: string
   scopes?: string[]
   ttlSeconds?: number
+  runtimeCredentialInjection?: boolean
+}
+
+export interface UpstreamDirective {
+  url?: string
+  authMode?: string
+  authLocation?: string
+  authHeader?: string
+  queryParamName?: string
+  authScheme?: string
+  allowedTokenHosts?: string[]
+  providerToken?: string
+  providerId?: string
+  grantId?: string
+  forwardCaracalIdentity?: boolean
+  expiresAt?: number
 }
 
 export interface TokenExchangeResponse {
@@ -25,6 +41,8 @@ export interface TokenExchangeResponse {
   tokenType: 'Bearer'
   expiresIn: number
   issuedAt: number
+  targetResources?: string[]
+  upstreams?: Record<string, UpstreamDirective>
 }
 
 export interface ExchangeOptions {
@@ -39,6 +57,7 @@ export interface ExchangeOptions {
   timeoutMs?: number
   retries?: number
   ttlSeconds?: number
+  runtimeCredentialInjection?: boolean
 }
 
 export class InteractionRequiredError extends CaracalError {
