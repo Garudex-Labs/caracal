@@ -8,7 +8,8 @@ import type { JsonObject } from '@caracalai/core'
 import { DEFAULT_CONTROL_AUDIENCE } from '@caracalai/engine'
 import {
   DEFAULT_COORDINATOR_URL,
-  DEFAULT_ZONE_URL,
+  DEFAULT_GATEWAY_URL,
+  defaultAppClientSecretFilePath,
   defaultRuntimeConfigPath,
 } from '@caracalai/engine/runtime-config'
 import { access, chmod, mkdir, writeFile } from 'node:fs/promises'
@@ -23,7 +24,6 @@ import { infoPage, openInfo, providerTypeInfo } from './info.ts'
 import { EntityPickerView } from './picker.ts'
 import type { Ctx } from './factory.ts'
 
-const DEFAULT_GATEWAY_URL = 'http://localhost:8081'
 const PROVIDER_KINDS: ProviderKind[] = ['none', 'caracal_mandate', 'oauth2_authorization_code', 'oauth2_client_credentials', 'api_key', 'bearer_token']
 const PROVIDER_CREDENTIAL_KINDS: ProviderKind[] = ['oauth2_authorization_code', 'oauth2_client_credentials', 'api_key', 'bearer_token']
 const API_KEY_AUTH_LOCATIONS = ['header', 'query']
@@ -694,7 +694,7 @@ async function runFirstSetup(ctx: Ctx, values: SetupValues, app: App): Promise<S
   const applicationName = await setupApplicationName(ctx, existingZoneId, values)
   const targetResourceIdentifier = await setupResourceIdentifier(ctx, existingZoneId, values)
   const target = shouldGenerateProfile
-    ? profileTarget(values, applicationName, targetResourceIdentifier)
+    ? profileTarget(values, existingZoneId ?? trimmed(values.zone_name) ?? 'default-zone', trimmed(values.selected_agent_app_id) ?? applicationName, targetResourceIdentifier)
     : undefined
   if (writeFiles && target) await assertWritableTarget(target, overwriteFiles)
 
@@ -708,7 +708,7 @@ async function runFirstSetup(ctx: Ctx, values: SetupValues, app: App): Promise<S
     ? await createFirstPolicy(ctx, zoneResult.zone.id, applicationResult.application.id, resourceResult.resource.identifier, scopes)
     : undefined
   const finalTarget = shouldGenerateProfile
-    ? profileTarget(values, applicationResult.application.name, resourceResult.resource.identifier)
+    ? profileTarget(values, zoneResult.zone.id, applicationResult.application.id, resourceResult.resource.identifier)
     : undefined
   const profile = finalTarget
     ? buildProfile(finalTarget, zoneResult.zone.id, applicationResult.application.id, resourceResult.resource.identifier, upstreamUrl, profileCredentialType(providerResult.provider))
@@ -1249,17 +1249,16 @@ function buildProfile(
   upstreamUrl: string | undefined,
   credentialType: 'provider_token' | 'caracal_mandate',
 ): SetupResult['profile'] {
-  const stsUrl = process.env.CARACAL_STS_URL ?? process.env.CARACAL_ZONE_URL ?? DEFAULT_ZONE_URL
-  const coordinatorUrl = process.env.CARACAL_COORDINATOR_URL ?? DEFAULT_COORDINATOR_URL
-  const gatewayUrl = process.env.CARACAL_GATEWAY_URL ?? DEFAULT_GATEWAY_URL
+  const stsUrl = process.env.CARACAL_STS_URL ?? process.env.CARACAL_ZONE_URL
+  const coordinatorUrl = process.env.CARACAL_COORDINATOR_URL
+  const gatewayUrl = process.env.CARACAL_GATEWAY_URL
   const lines = [
-    `zone_url = ${quoteToml(stsUrl)}`,
-    `sts_url = ${quoteToml(stsUrl)}`,
-    `coordinator_url = ${quoteToml(coordinatorUrl)}`,
-    `gateway_url = ${quoteToml(gatewayUrl)}`,
+    ...(stsUrl ? [`sts_url = ${quoteToml(stsUrl)}`] : []),
+    ...(coordinatorUrl && coordinatorUrl !== DEFAULT_COORDINATOR_URL ? [`coordinator_url = ${quoteToml(coordinatorUrl)}`] : []),
+    ...(gatewayUrl && gatewayUrl !== DEFAULT_GATEWAY_URL ? [`gateway_url = ${quoteToml(gatewayUrl)}`] : []),
     `zone_id = ${quoteToml(zoneId)}`,
     `application_id = ${quoteToml(applicationId)}`,
-    `app_client_secret_file = ${quoteToml(target.secretPath)}`,
+    ...(target.secretPath === defaultAppClientSecretFilePath(zoneId, applicationId) ? [] : [`app_client_secret_file = ${quoteToml(target.secretPath)}`]),
     'continue_on_failure = false',
     'ttl_seconds = 900',
     '',
@@ -1269,7 +1268,7 @@ function buildProfile(
     `credential_type = ${quoteToml(credentialType)}`,
   ]
   if (upstreamUrl) lines.push(`upstream_prefix = ${quoteToml(upstreamUrl)}`)
-  return { ...target, gatewayUrl, content: lines.join('\n') + '\n' }
+  return { ...target, gatewayUrl: gatewayUrl ?? DEFAULT_GATEWAY_URL, content: lines.join('\n') + '\n' }
 }
 
 function profileCredentialType(provider: Provider): 'provider_token' | 'caracal_mandate' {
@@ -1360,9 +1359,9 @@ function setupSummary(result: SetupResult): Record<string, unknown> {
   return summary
 }
 
-function profileTarget(values: SetupValues, agentAppName: string, resourceIdentifier: string): ProfileTarget {
+function profileTarget(values: SetupValues, zoneId: string, applicationId: string, resourceIdentifier: string): ProfileTarget {
   const path = trimmed(values.profile_path) ?? defaultRuntimeConfigPath()
-  const secretPath = trimmed(values.secret_file_path) ?? join(dirname(path), `${safeName(agentAppName)}-client-secret`)
+  const secretPath = trimmed(values.secret_file_path) ?? defaultAppClientSecretFilePath(zoneId, applicationId)
   if (path === secretPath) throw new Error('profile path and secret file must be different files')
   return {
     path,

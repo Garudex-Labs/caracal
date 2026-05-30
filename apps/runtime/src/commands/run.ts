@@ -26,10 +26,11 @@ Examples:
 
 Configuration:
   Requires runtime config (zone, application, client secret). Set it up in the Caracal
-  Console, then provide it through CARACAL_STS_URL, CARACAL_ZONE_ID,
-  CARACAL_APPLICATION_ID, CARACAL_APP_CLIENT_SECRET_FILE, and CARACAL_RUN_CREDENTIALS_FILE,
-  or point CARACAL_CONFIG at a runtime profile. Use credential_type=provider_token for
-  provider-native key injection and credential_type=caracal_mandate for mandate-aware code.
+  Console, then provide CARACAL_ZONE_ID and CARACAL_APPLICATION_ID, or point CARACAL_CONFIG
+  at a runtime profile. Local dev/stable stacks auto-detect credential files under the
+  OS Caracal config directory. Use deployment docs for custom/cloud paths.
+  Use credential_type=provider_token for provider-native key injection and
+  credential_type=caracal_mandate for mandate-aware code.
 `
 
 function isHelpToken(arg: string | undefined): boolean {

@@ -78,7 +78,7 @@ function rawExplain(err: unknown): string {
   if (err instanceof Error) {
     const msg = err.message
     if (/coordinator_url_not_configured/.test(msg)) {
-      return 'coordinator URL not set: export CARACAL_COORDINATOR_URL'
+      return 'coordinator URL not configured: use the local default or set CARACAL_COORDINATOR_URL for a custom deployment'
     }
     if (/coordinator_token_not_configured/.test(msg)) {
       return 'coordinator token not found: run `caracal up` or set CARACAL_COORDINATOR_TOKEN'

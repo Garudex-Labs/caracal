@@ -28,8 +28,7 @@ import {
 } from '@caracalai/engine'
 import { readFileSync } from 'node:fs'
 import {
-  DEFAULT_ZONE_URL,
-  resolveServiceUrl,
+  resolveStsUrl,
   type RuntimeConfig,
 } from '@caracalai/engine/runtime-config'
 import { pad, ui } from '../ansi.ts'
@@ -76,7 +75,7 @@ function credentialConfig(ctx: Ctx, values: Record<string, string>): RuntimeConf
   const clientSecret = values.app_client_secret
   if (!clientSecret) throw new Error('client secret is required')
   return {
-    zone_url: process.env.CARACAL_STS_URL ?? resolveServiceUrl('CARACAL_ZONE_URL', DEFAULT_ZONE_URL),
+    zone_url: resolveStsUrl(),
     zone_id: ctx.zoneId,
     application_id: applicationId,
     app_client_secret: clientSecret,
@@ -520,7 +519,7 @@ class ControlMenuView implements View {
         }
         const accessToken = await credentialRead({
           cfg: {
-            zone_url: process.env.CARACAL_STS_URL ?? resolveServiceUrl('CARACAL_ZONE_URL', DEFAULT_ZONE_URL),
+            zone_url: resolveStsUrl(),
             zone_id: zoneId,
             application_id: record.client_id,
             app_client_secret: v.client_secret!,
