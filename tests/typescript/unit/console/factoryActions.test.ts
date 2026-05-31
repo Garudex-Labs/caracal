@@ -1481,7 +1481,7 @@ describe('agents actions', () => {
     const list = agentsView(ctx as unknown as Parameters<typeof agentsView>[0]) as ListView<unknown>
     setRows(list, [{ agent_session_id: 'ag1', application_id: 'a', parent_id: null, status: 'active', depth: 0, spawned_at: 'now' }])
     const pushed = await pressKey(list, 'T', fakeApp()) as { title: string }
-    expect(pushed.title).toContain('agent-tree')
+    expect(pushed.title).toContain('agent session tree')
   })
 })
 

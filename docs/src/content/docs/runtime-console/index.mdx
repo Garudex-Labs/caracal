@@ -9,7 +9,7 @@ Caracal has two local operator surfaces with a deliberate boundary:
 | Surface | Owns | Does not own |
 | --- | --- | --- |
 | `caracal` | Local stack lifecycle, readiness, local reset, token-injected process execution, and Console launch. | Product-management workflows. |
-| `caracal console` / `caracal-console` | Human management for zones, applications, providers, resources, policies, policy sets, grants, sessions, Control, audit, explanations, agent runs, delegation, and diagnostics. | Starting/stopping the stack or running workloads. |
+| `caracal console` / `caracal-console` | Human management for zones, applications, providers, resources, policies, policy sets, grants, sessions, Control, audit, explanations, agent sessions, delegation, and diagnostics. | Starting/stopping the stack or running workloads. |
 
 The runtime CLI stays small so local lifecycle and workload execution do not depend on admin tokens, zone selection, or Control credentials. Product management belongs to the Console or to the authenticated Control/Admin APIs.
 
@@ -43,7 +43,7 @@ No other top-level `caracal` product-management commands are part of the runtime
 | `control` | `9` | Manage the Control automation service and credentials. |
 | `audit` | `a` | Search audit events. |
 | `explain` | `e` | Explain an audit decision. |
-| `agent run` | `r` | Manage agent runs. |
+| `agent session` | `r` | Manage agent sessions. |
 | `delegation` | `g` | Manage delegated permissions. |
 | `diagnostics` | `d` | Run operator diagnostics. |
 

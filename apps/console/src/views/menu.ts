@@ -108,7 +108,7 @@ const BASE_ENTRIES: Entry[] = [
   { key: '9', label: 'control',    group: 'manage', description: 'Manage the Control automation service', needsZone: true, open: controlEntry },
   { key: 'a', label: 'audit',      group: 'observe', description: 'Search audit events', needsZone: true, open: auditView },
   { key: 'e', label: 'explain',    group: 'observe', description: 'Explain an audit decision', needsZone: true, open: auditExplainEntry },
-  { key: 'r', label: 'agent run',  group: 'agents', description: 'Manage agent runs', needsZone: true, open: agentsView },
+  { key: 'r', label: 'agent session', group: 'agents', description: 'Manage agent sessions', needsZone: true, open: agentsView },
   { key: 'g', label: 'delegation', group: 'agents', description: 'Manage delegated permissions', needsZone: true, open: delegationsView },
   { key: 'd', label: 'diagnostics', group: 'runtime', description: 'Run operator diagnostics', needsZone: false, open: doctorEntry },
 ]
@@ -879,10 +879,10 @@ function menuHelp(label: string): Pick<InfoPage, 'meaning' | 'when' | 'impact' |
         example: 'req_01HX...',
         terms: [{ label: 'Request ID', value: 'Correlation identifier for one evaluated request.' }],
       }
-    case 'agent run':
+    case 'agent session':
       return {
-        meaning: 'Agent runs are coordinator sessions for agent applications and their child work.',
-        when: 'Use this to inspect status, tree shape, suspend, resume, or terminate agent activity.',
+        meaning: 'Agent sessions are Coordinator records for agent runs and their child work.',
+        when: 'Use this to inspect status, tree shape, suspend, resume, or terminate agent sessions.',
         impact: 'Suspend and terminate can affect live work; tree/detail views are read-only.',
         example: 'Son of Anton running depth 1',
         terms: [{ label: 'Depth', value: 'Distance from the root agent session.' }],

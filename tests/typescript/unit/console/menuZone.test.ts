@@ -87,7 +87,7 @@ describe('menu zone hotkey', () => {
     }
     expect(rendered).toContain(' a  audit')
     expect(rendered).toContain(' e  explain')
-    expect(rendered).toContain(' r  agent run')
+    expect(rendered).toContain(' r  agent session')
     expect(rendered).toContain(' g  delegation')
     expect(rendered).toContain(' d  diagnostics')
     expect(rendered).not.toContain(' c  credential')

@@ -304,7 +304,7 @@ interface GrantPlan {
   resources: GrantPlanResource[]
 }
 
-type ResourceHelpKind = 'zone' | 'application' | 'resource' | 'provider' | 'policy' | 'policy set' | 'grant' | 'session' | 'delegation' | 'agent'
+type ResourceHelpKind = 'zone' | 'application' | 'resource' | 'provider' | 'policy' | 'policy set' | 'grant' | 'session' | 'delegation' | 'agent session'
 
 function readFileOrInline(filePath: string, inline: string): string {
   if (filePath && filePath.length > 0) return readFileSync(filePath, 'utf8')
@@ -354,7 +354,8 @@ function resourceKindFromTitle(title: string): ResourceHelpKind {
   if (head === 'app') return 'application'
   if (head === 'policy set') return 'policy set'
   if (head === 'delegation-node') return 'delegation'
-  if (head === 'zone' || head === 'resource' || head === 'provider' || head === 'policy' || head === 'grant' || head === 'delegation' || head === 'agent') return head
+  if (head === 'agent session') return 'agent session'
+  if (head === 'zone' || head === 'resource' || head === 'provider' || head === 'policy' || head === 'grant' || head === 'delegation') return head
   return 'resource'
 }
 
@@ -499,14 +500,14 @@ function resourceHelp(kind: ResourceHelpKind): InfoPage & { notes: string[] } {
         ],
         notes: ['Traversal is diagnostic; revoke is a state-changing authority operation.'],
       }
-    case 'agent':
+    case 'agent session':
       return {
-        title: 'Agent run',
-        meaning: 'An agent run is an operational session for an agent application and its child activity.',
-        when: 'Use agent views to inspect status, parent/child trees, suspension, resume, and termination.',
+        title: 'Agent session',
+        meaning: 'An agent session records one agent run and its child activity.',
+        when: 'Use agent session views to inspect status, parent/child trees, suspension, resume, and termination.',
         impact: 'Suspend and terminate affect live agent execution; tree inspection is read-only.',
         example: 'Son of Anton running depth 1',
-        valid: 'Agent rows come from the coordinator for the selected zone.',
+        valid: 'Agent session rows come from the Coordinator for the selected zone.',
         after: 'Open details for raw session state or tree for child-session relationships.',
         terms: [
           { label: 'Depth', value: 'How far the session is from the root agent session.' },
@@ -2257,8 +2258,8 @@ function delegationTraverseView(ctx: Ctx, id: string): ListView<TraverseNode> {
 
 export function agentsView(ctx: Ctx): View {
   const list: ListView<AgentRow> = new ListView<AgentRow>({
-    title: 'agents',
-    info: resourceListInfo('agent'),
+    title: 'agent sessions',
+    info: resourceListInfo('agent session'),
     columns: [
       { header: 'application', width: 28, value: (r) => r.application_name },
       { header: 'parent', width: 36, value: (r) => r.parent_id ?? '-' },
@@ -2273,13 +2274,13 @@ export function agentsView(ctx: Ctx): View {
     rowKey: (row) => row.agent_session_id,
     rowId: (row) => row.agent_session_id,
     rowName: (row) => row.application_name,
-    onEnter: (app, row) => open(app, entityDetail(`agent / ${row.agent_session_id}`, () => ctx.client.agents.get(ctx.zoneId, row.agent_session_id))),
+    onEnter: (app, row) => open(app, entityDetail(`agent session / ${row.agent_session_id}`, () => ctx.client.agents.get(ctx.zoneId, row.agent_session_id))),
     actions: [
       {
         key: 's', label: 'suspend', build: (row) => {
           if (!row) throw new Error('no row selected')
           return new ConfirmView({
-            message: `suspend agent ${row.agent_session_id}?`,
+            message: `suspend agent session ${row.agent_session_id}?`,
             onConfirm: async (app) => {
               await ctx.client.agents.suspend(ctx.zoneId, row.agent_session_id)
               await popAndReload(app, list as unknown as ListView<unknown>)
@@ -2291,7 +2292,7 @@ export function agentsView(ctx: Ctx): View {
         key: 'r', label: 'resume', build: (row) => {
           if (!row) throw new Error('no row selected')
           return new ConfirmView({
-            message: `resume agent ${row.agent_session_id}?`,
+            message: `resume agent session ${row.agent_session_id}?`,
             onConfirm: async (app) => {
               await ctx.client.agents.resume(ctx.zoneId, row.agent_session_id)
               await popAndReload(app, list as unknown as ListView<unknown>)
@@ -2303,7 +2304,7 @@ export function agentsView(ctx: Ctx): View {
         key: 't', label: 'terminate', build: (row) => {
           if (!row) throw new Error('no row selected')
           return new ConfirmView({
-            message: `terminate agent ${row.agent_session_id}?`,
+            message: `terminate agent session ${row.agent_session_id}?`,
             onConfirm: async (app) => {
               await ctx.client.agents.terminate(ctx.zoneId, row.agent_session_id)
               await popAndReload(app, list as unknown as ListView<unknown>)
@@ -2314,7 +2315,7 @@ export function agentsView(ctx: Ctx): View {
       {
         key: 'T', label: 'tree', build: (row) => {
           if (!row) throw new Error('no row selected')
-          return detail(`agent-tree / ${row.agent_session_id}`, () => ctx.client.agents.children(ctx.zoneId, row.agent_session_id))
+          return detail(`agent session tree / ${row.agent_session_id}`, () => ctx.client.agents.children(ctx.zoneId, row.agent_session_id))
         },
       },
     ],
