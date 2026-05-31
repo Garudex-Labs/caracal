@@ -86,9 +86,9 @@ Valid outcomes:
 | Outcome | What to expect |
 | --- | --- |
 | Allowed | The call reaches the upstream and audit shows both authorization and action-result evidence. |
-| Denied | STS returns a denial and audit explains which policy or missing state caused it. |
+| Denied | STS returns a denial and request trace shows which policy or missing state caused it. |
 
-Open Console **audit** and **explain** with the request ID. If an accepted Gateway-mediated call has authorization audit but no action-result audit, check the Gateway route and resource header. If a connector-verified call lacks result audit, the service-side enforcement path is incomplete.
+Open Console **audit** and **request trace** with the request ID. If an accepted Gateway-mediated call has authorization audit but no action-result audit, check the Gateway route and resource header. If a connector-verified call lacks result audit, the service-side enforcement path is incomplete.
 
 ## Next step
 

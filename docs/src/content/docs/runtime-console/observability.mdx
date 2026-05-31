@@ -1,6 +1,6 @@
 ---
 title: Observability Workflows
-description: Inspect diagnostics, audit events, and policy explanations through the Console.
+description: Inspect diagnostics, audit events, and request traces through the Console.
 pageType: reference
 ---
 
@@ -23,9 +23,11 @@ Useful Doctor controls include reload, all-zones or selected-zone checks, prefli
 
 Open `audit` with `a`. Audit records tie STS, Gateway, Coordinator, policy, and Control decisions to request IDs and authority anchors. Use the audit view to filter recent events, inspect denials, and gather incident context.
 
-## Explain
+The audit view opens recent events immediately. Use row actions to open request details or trace the selected request. Advanced filters remain available for decision, event type, time window, request ID, and result limit.
 
-Open `explain` with `e` when you have a request ID and need the decision trace. Explanation output connects the request, selected resource, subject, scopes, determining policies, diagnostics, and result.
+## Request trace
+
+Open `request trace` with `e` when you already have a request ID and need the decision trace directly. Trace output connects the request, selected resource, subject, scopes, determining policies, diagnostics, and result.
 
 ## Troubleshooting
 

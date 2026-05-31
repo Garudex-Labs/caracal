@@ -25,7 +25,7 @@ flowchart TD
 | Local | `caracal status --ready`, `docker compose ps`, `docker compose logs <service>` |
 | Helm | `kubectl -n caracal get pods,svc,jobs`, `kubectl -n caracal describe pod <pod>`, `kubectl -n caracal logs <pod>` |
 | Storage | `infra/postgres/scripts/validateMigrations.sh`, `infra/redis/scripts/verify.sh` |
-| App-level | Console `diagnostics`, `audit`, and `explain` |
+| App-level | Console `diagnostics`, `audit`, and `request trace` |
 
 ## Common cases
 
@@ -40,7 +40,7 @@ flowchart TD
 ## Request investigation
 
 1. Capture request ID, zone ID, subject, resource, and timestamp.
-2. Open Console `audit` or `explain`.
+2. Open Console `audit` or `request trace`.
 3. Confirm policy decision, scopes, target resource, session, agent session, and delegation edge.
 4. Compare token claims with resource-server verifier settings.
 5. Check revocation and step-up state when authority appears valid but access fails.

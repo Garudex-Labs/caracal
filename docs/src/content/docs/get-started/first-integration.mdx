@@ -4,7 +4,7 @@ description: Run an agent through Caracal and call a protected resource through 
 pageType: workflow
 ---
 
-This page shows the smallest SDK integration in TypeScript, Python, and Go. Each example opens an agent run, calls a Gateway-protected resource, and leaves both authorization and action-result audit behind.
+This page shows the smallest SDK integration in TypeScript, Python, and Go. Each example opens an agent session, calls a Gateway-protected resource, and leaves both authorization and action-result audit behind.
 
 Complete [Five-Minute Setup](./five-minute-setup/) first so you have a generated runtime profile, a resource ID, and a real protected path.
 
@@ -22,7 +22,7 @@ sequenceDiagram
   App->>SDK: Caracal.connect()
   SDK->>STS: exchange app secret for scoped mandate
   STS-->>Audit: authorization event
-  SDK-->>App: bound agent run context
+  SDK-->>App: bound agent session context
   App->>Gateway: request + mandate + X-Caracal-Resource
   Gateway->>Upstream: brokered upstream call
   Gateway-->>Audit: action-result event
@@ -171,7 +171,7 @@ func main() {
 | Primitive | Role |
 | --- | --- |
 | `connect()` / `Connect()` | Loads the generated profile or environment configuration and prepares token exchange. |
-| `spawn()` / `Spawn()` | Creates an agent run, binds context for the work, and terminates the run when the block exits. |
+| `spawn()` / `Spawn()` | Creates an agent session, binds context for the work, and terminates the session when the block exits. |
 | `gatewayRequest()` / `GatewayRequest()` | Builds the Gateway URL and `X-Caracal-Resource` header for explicit resource routing. |
 | `transport()` / `Transport()` | Injects Caracal context, authorization, trace, and baggage headers on outbound calls. |
 

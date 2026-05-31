@@ -1,14 +1,14 @@
 ---
-title: Inspect a Run
-description: Trace one agent run through sessions, delegation, authorization decisions, and action-result audit.
+title: Inspect an Agent Session
+description: Trace one agent session through authority sessions, delegation, authorization decisions, and action-result audit.
 pageType: workflow
 ---
 
-This tutorial shows how to explain what happened during one agent run. You will find the run, inspect its authority chain, review audit events, and explain one request ID.
+This tutorial shows how to trace what happened during one agent session. You will find the session, inspect its authority chain, review audit events, and trace one request ID.
 
 The flow assumes you already completed [Protect an API](../protect-an-api/) and [Connect an Agent](../connect-an-agent/).
 
-## 1. Find the run
+## 1. Find the agent session
 
 Open the Console:
 
@@ -21,29 +21,29 @@ Use these Console entries:
 | Entry | Use it for |
 | --- | --- |
 | **agent session** | Find the tracked agent session for the selected zone. |
-| **session** | Inspect the underlying execution sessions and parent relationships. |
-| **delegation** | Follow authority edges from parent runs to child runs. |
+| **authority session** | Inspect the underlying authority sessions and parent relationships. |
+| **delegation** | Follow authority edges from parent sessions to child sessions. |
 
-Record the agent session ID or request ID that belongs to the run you want to inspect.
+Record the agent session ID or request ID that belongs to the session you want to inspect.
 
 ## 2. Read the audit timeline
 
-Open **audit**. The live audit view supports decision filters, reload, pause/resume, and opening a selected event for details.
+Open **audit**. The live audit view opens recent events immediately and supports request details, request tracing, advanced filters, reload, and pause/resume.
 
 A Gateway-mediated protected call usually produces:
 
 | Event class | What it proves |
 | --- | --- |
-| Authorization event | STS evaluated policy for the app, resource, scopes, run state, and delegation context. |
+| Authorization event | STS evaluated policy for the app, resource, scopes, agent session state, and delegation context. |
 | Action-result event | Gateway verified and routed the request, then recorded the upstream result. |
 
 If you see authorization events without matching action-result events, check whether the call reached the Gateway. For connector-verified services, confirm the service writes its own result audit after mandate verification.
 
-## 3. Explain one decision
+## 3. Trace one decision
 
-Pick an audit event with a request ID. Either press Enter on the selected event in **audit** or open **explain** and paste the request ID.
+Pick an audit event with a request ID. Press the trace action on the selected event in **audit**, or open **request trace** and paste the request ID.
 
-The explanation should show:
+The request trace should show:
 
 - application and execution session;
 - resource and requested scopes;
@@ -52,21 +52,21 @@ The explanation should show:
 - diagnostics from policy evaluation;
 - delegation edge constraints when present.
 
-Use **explain** as the source of truth for why a request got its result. If a run behaves differently than expected, compare the explanation against the active policy set, resource configuration, and runtime profile.
+Use the request trace as the source of truth for why a request got its result. If an agent session behaves differently than expected, compare the trace against the active policy set, resource configuration, and runtime profile.
 
 ## 4. Follow delegation
 
-If the run delegated authority, open **delegation** and inspect the edge:
+If the agent session delegated authority, open **delegation** and inspect the edge:
 
 | Field | Why it matters |
 | --- | --- |
-| Source session | The run that granted authority. |
-| Target session | The run allowed to use the delegated permission. |
+| Source session | The session that granted authority. |
+| Target session | The session allowed to use the delegated permission. |
 | Scopes | The narrowed actions. |
 | TTL and hop limits | The lifetime and graph depth of the permission. |
 | Resource constraints | The targets the delegated permission can affect. |
 
-Repeat the audit and explain flow for the target session to trace child work.
+Repeat the audit and request trace flow for the target session to trace child work.
 
 ## 5. Check revocation behavior
 
@@ -78,4 +78,4 @@ For SIEM or long-term retention, use the audit exporter and Redis Streams consum
 
 ## Wrap-up
 
-You can now trace one run from application identity to policy decision, Gateway action, delegation chain, and revocation state. That evidence is the operational value of routing protected work through Caracal.
+You can now trace one agent session from application identity to policy decision, Gateway action, delegation chain, and revocation state. That evidence is the operational value of routing protected work through Caracal.
