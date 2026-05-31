@@ -937,7 +937,7 @@ function menuHelp(label: string): Pick<InfoPage, 'meaning' | 'when' | 'impact' |
       return {
         meaning: 'Resources are protected APIs, services, audiences, or Gateway targets.',
         when: 'Use this to define what applications request access to and which scopes exist.',
-        impact: 'Resource identifiers and scopes become part of grants, policy input, and token audiences.',
+        impact: 'Resource identifiers and scopes become part of grants, policy input, token audiences, Gateway application bindings, and upstream credential provider bindings.',
         example: 'resource://pipernet',
         terms: [{ label: 'Scope', value: 'A named permission string evaluated by grants and policies.' }],
       }

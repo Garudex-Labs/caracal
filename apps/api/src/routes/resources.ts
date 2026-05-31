@@ -66,6 +66,17 @@ function resourceIdentifierFromName(name: string): string {
   return text.startsWith(RESOURCE_IDENTIFIER_PREFIX) ? text : `${RESOURCE_IDENTIFIER_PREFIX}${slugValue(text)}`
 }
 
+function validateResourceIdentifier(identifier: string): string | null {
+  if (isControlResource(identifier)) return null
+  try {
+    const url = new URL(identifier)
+    if (url.protocol === 'provider:' || url.username || url.password) throw new Error()
+    return null
+  } catch {
+    return 'resource identifier must be an absolute resource audience URI and must not use the provider:// namespace'
+  }
+}
+
 async function resourceIdentifierExists(client: ResourceQueryClient, zoneId: string, identifier: string): Promise<boolean> {
   const { rows } = await client.query(
     `SELECT 1 FROM resources WHERE zone_id = $1 AND identifier = $2`,
@@ -242,6 +253,8 @@ export const resourcesRoutes: FastifyPluginAsync = async (fastify) => {
     if (!parsed.success) return reply.code(400).send({ error: 'invalid_resource' })
     const body = parsed.data
     const identifier = body.identifier ?? await nextResourceIdentifier(fastify.db, params.zoneId, body.name ?? 'resource')
+    const identifierError = validateResourceIdentifier(identifier)
+    if (identifierError) return reply.code(400).send({ error: 'invalid_resource_identifier', message: identifierError })
     if (isControlResource(identifier) && !isControlResourceOperation(req)) {
       return reply.code(409).send({ error: 'protected_resource', detail: 'control API resource is managed only through the Control console path' })
     }
@@ -334,6 +347,11 @@ export const resourcesRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.code(404).send({ error: 'resource_not_found' })
       }
       const nextIdentifier = body.identifier ?? current.identifier
+      const identifierError = validateResourceIdentifier(nextIdentifier)
+      if (identifierError) {
+        await client.query('ROLLBACK')
+        return reply.code(400).send({ error: 'invalid_resource_identifier', message: identifierError })
+      }
       if ((isControlResource(current.identifier) || isControlResource(nextIdentifier)) && !isControlResourceOperation(req)) {
         await client.query('ROLLBACK')
         return reply.code(409).send({ error: 'protected_resource', detail: 'control API resource is managed only through the Control console path' })

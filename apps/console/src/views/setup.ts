@@ -543,7 +543,7 @@ class FirstSetupWizardView implements View {
         { key: 'resource_name', label: 'resource name', kind: 'text', required: true, default: this.values.resource_name ?? '', dependsOn: { resource_mode: 'create' }, info: guidedInfo('Resource name', 'Human-readable target name for the API, service, MCP server, or SDK capability.', 'PiperNet', 'Short text, not an internal ID.', 'Console creates a resource identifier from this name unless Advanced overrides it.') },
         { key: 'resource_scopes', label: 'Caracal resource scopes', kind: 'list', required: (current) => current.resource_mode === 'create', default: this.values.resource_scopes ?? '', info: guidedInfo('Caracal resource scopes', 'Permissions that Caracal policy evaluates for this resource.', 'pipernet.read,pipernet.write', 'Comma-separated Caracal scope names.', 'Console writes these scopes to the resource and generated allow-list policy.') },
         { key: 'upstream_url', label: 'upstream URL', kind: 'text', required: (current) => current.resource_mode === 'create', default: this.values.upstream_url ?? '', dependsOn: { resource_mode: 'create' }, info: guidedInfo('Upstream URL', 'Gateway target for the protected internal or external service.', 'https://api.pipernet.example', 'Absolute HTTP or HTTPS URL.', 'Console enables Gateway routing and Gateway forwards either a Caracal mandate or the selected provider credential.') },
-        { key: 'resource_identifier', label: 'resource identifier', kind: 'text', default: this.values.resource_identifier ?? '', dependsOn: { resource_mode: 'create' }, advanced: true, info: guidedInfo('Resource identifier', 'Stable identifier used in tokens, policy input, SDK config, and audit.', 'resource://pipernet', 'Leave blank to let the API generate a collision-safe identifier from resource name.', 'Console uses the returned identifier as the policy resource target.') },
+        { key: 'resource_identifier', label: 'resource identifier', kind: 'text', default: this.values.resource_identifier ?? '', dependsOn: { resource_mode: 'create' }, advanced: true, validate: validateResourceIdentifier, info: guidedInfo('Resource identifier', 'Stable identifier used in tokens, policy input, SDK config, and audit.', 'resource://pipernet', 'Leave blank to let the API generate a collision-safe identifier from resource name.', 'Use an absolute resource audience URI and keep it distinct from upstream URLs and provider identifiers.') },
         { key: 'request_path', label: 'first request path', kind: 'text', default: this.values.request_path ?? '', dependsOn: 'upstream_url', advanced: true, info: guidedInfo('First request path', 'Optional path used only to show an exact first Gateway curl command.', '/v1/not-hotdog', 'Path starting with /, or blank.', 'The result page includes a ready-to-copy request example.') },
       ],
       onSubmit: async (raw, formApp) => {
@@ -946,6 +946,18 @@ function validateProviderIdentifier(value: string): string | undefined {
   const text = value.trim()
   if (!text || PROVIDER_IDENTIFIER_PATTERN.test(text)) return undefined
   return 'provider identifier must stay in provider://lowercase-slug format'
+}
+
+function validateResourceIdentifier(value: string): string | undefined {
+  const text = value.trim()
+  if (!text) return undefined
+  try {
+    const url = new URL(text)
+    if (url.protocol === 'provider:' || url.username || url.password) throw new Error()
+    return undefined
+  } catch {
+    return 'resource identifier must be an absolute resource audience URI and must not use provider://'
+  }
 }
 
 function providerKind(value: string | undefined): ProviderKind {

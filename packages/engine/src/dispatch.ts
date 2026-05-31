@@ -217,7 +217,7 @@ const resourceHandler = bySubcommand({
     scopes: getList(flags, 'scopes') ?? [],
     upstream_url: getStr(flags, 'upstream-url'),
     gateway_application_id: getStr(flags, 'gateway-application-id'),
-    credential_provider_id: getStr(flags, 'provider'),
+    credential_provider_id: getStr(flags, 'credential-provider-id'),
   } as never),
   patch: ({ principal, flags, ctx }) => ctx.admin.resources.patch(requireZone(principal), mustStr(flags, 'id'), {
     identifier: getStr(flags, 'identifier'),
@@ -225,7 +225,7 @@ const resourceHandler = bySubcommand({
     scopes: getList(flags, 'scopes'),
     upstream_url: getNullableStr(flags, 'upstream-url'),
     gateway_application_id: getNullableStr(flags, 'gateway-application-id'),
-    credential_provider_id: getNullableStr(flags, 'provider'),
+    credential_provider_id: getNullableStr(flags, 'credential-provider-id'),
   } as never),
   delete: ({ principal, flags, ctx }) => ctx.admin.resources.delete(requireZone(principal), mustStr(flags, 'id')),
 })

@@ -165,7 +165,7 @@ export const MANAGEMENT_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
         { name: '--scopes', summary: 'Comma-separated resource scopes' },
         { name: '--upstream-url', summary: 'Upstream URL' },
         { name: '--gateway-application-id', summary: 'Gateway application for upstream routing' },
-        { name: '--provider', summary: 'Provider ID' },
+        { name: '--credential-provider-id', summary: 'Upstream credential provider ID' },
       ],
       patch: [
         { name: '--identifier', summary: 'Resource identifier' },
@@ -173,7 +173,7 @@ export const MANAGEMENT_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
         { name: '--scopes', summary: 'Comma-separated resource scopes' },
         { name: '--upstream-url', summary: 'Upstream URL' },
         { name: '--gateway-application-id', summary: 'Gateway application for upstream routing' },
-        { name: '--provider', summary: 'Provider ID' },
+        { name: '--credential-provider-id', summary: 'Upstream credential provider ID' },
       ],
     },
   },

@@ -383,7 +383,7 @@ function afterFor(kind: string, title: string, opts: FieldInfoOpts): string {
   if (key === 'token_params' || label.includes('token parameters')) return 'After submit, STS includes these parameters in OAuth token exchange or refresh requests.'
   if (key === 'oauth_token_hosts' || key === 'provider_oauth_token_hosts' || label.includes('oauth token endpoint hosts')) return 'After submit, STS enforces this allowlist for OAuth token exchange and refresh endpoints.'
   if (key === 'bearer_upstream_hosts' || key === 'provider_allowed_upstream_hosts' || label.includes('allowed upstream hosts')) return 'After submit, Gateway enforces this allowlist before forwarding static bearer tokens to upstream hosts.'
-  if (key === 'credential_provider_id') return 'After submit, the resource cannot issue upstream Gateway credentials unless this provider binding is valid.'
+  if (key === 'credential_provider_id') return 'After submit, the resource cannot issue upstream Gateway credentials unless this upstream credential provider binding is valid.'
   return opts.advanced
     ? 'After saving advanced options, Console keeps this value on the parent form and sends it only when you submit.'
     : 'After submit, Console sends this value to the Admin API and shows the result or validation error.'
@@ -529,6 +529,7 @@ function validFor(kind: string, title: string, options?: readonly string[], opts
   if (key === 'auth_scheme' || label.includes('upstream authorization scheme')) return 'Credential scheme only, without the secret value; leave blank only when the upstream expects the raw credential.'
   if (key === 'api_key' || key === 'bearer_token' || key === 'client_secret' || key === 'token') return 'Paste the exact secret value; it is masked by default and not echoed after submit.'
   if (key === 'client_id' || label.includes('client id')) return 'Provider-issued client identifier exactly as shown in the upstream OAuth application.'
+  if (label.includes('resource') && label.includes('identifier')) return 'Absolute resource audience URI such as resource://pipernet or an HTTPS audience URI; do not use provider:// or include credentials.'
   if (key === 'auth_code_client_auth_method' || key === 'client_credentials_auth_method' || key === 'provider_auth_code_client_auth_method' || key === 'provider_client_credentials_auth_method' || label.includes('oauth client authentication')) return `One of: ${(options ?? []).join(', ')}.`
   if (key === 'oauth_token_hosts' || key === 'provider_oauth_token_hosts' || key === 'bearer_upstream_hosts' || key === 'provider_allowed_upstream_hosts' || label.includes('oauth token endpoint hosts') || label.includes('allowed upstream hosts')) return 'Comma-separated DNS hostnames only; omit paths, schemes, query strings, and credentials.'
   if (key === 'authorization_params' || key === 'token_params' || label.includes('authorization parameters') || label.includes('token parameters')) return 'Comma-separated key=value pairs; do not include Caracal-managed OAuth parameters.'

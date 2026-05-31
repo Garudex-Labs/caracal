@@ -165,6 +165,18 @@ function validateProviderIdentifier(value: string): string | undefined {
   return 'provider identifier must stay in provider://lowercase-slug format'
 }
 
+function validateResourceIdentifier(value: string): string | undefined {
+  const text = value.trim()
+  if (!text || text === controlAudience()) return undefined
+  try {
+    const url = new URL(text)
+    if (url.protocol === 'provider:' || url.username || url.password) throw new Error()
+    return undefined
+  } catch {
+    return 'resource identifier must be an absolute resource audience URI and must not use provider://'
+  }
+}
+
 function requireHttpsUrl(config: JsonObject, key: string, message: string): void {
   requireString(config, key, message)
   const value = config[key] as string
@@ -365,7 +377,7 @@ function resourceHelp(kind: ResourceHelpKind): InfoPage & { notes: string[] } {
         impact: 'Resource identifiers and scopes become the vocabulary used by grants, policies, tokens, and Gateway bindings.',
         example: 'resource://pipernet',
         valid: 'Resources include an upstream route and Gateway application; Caracal-aware resources use the Gateway-forwarded mandate.',
-        after: 'Open details to inspect routing, scopes, provider binding, and raw API identifiers.',
+        after: 'Open details to inspect routing, scopes, upstream credential provider binding, and raw API identifiers.',
         terms: [
           { label: 'Scope', value: 'A named permission on a resource, such as read, write, or admin.' },
           { label: 'Gateway', value: 'The proxy path where Caracal can enforce policy and forward requests upstream.' },
@@ -1249,7 +1261,7 @@ export function resourcesView(ctx: Ctx): View {
             { key: 'scopes', label: 'Caracal resource scopes', kind: 'list', required: true, hint: 'comma-separated authorization scopes for this resource' },
             { key: 'upstream_url', label: 'upstream URL', kind: 'text', required: true, hint: 'Gateway target for REST APIs, gRPC gateways, MCP servers, or SDK-backed services' },
             { key: 'gateway_application_id', label: 'gateway application', kind: 'text', required: true, pick: applicationPicker(ctx), resolve: applicationResolver(ctx), hint: 'application identity the Gateway uses for upstream exchanges' },
-            { key: 'identifier', label: 'identifier', kind: 'text', advanced: true, hint: 'optional; generated as resource://pipernet when blank' },
+            { key: 'identifier', label: 'resource identifier', kind: 'text', advanced: true, hint: 'optional; generated as resource://pipernet when blank', validate: validateResourceIdentifier },
             { key: 'credential_provider_id', label: 'upstream credential provider', kind: 'text', required: true, pick: providerPicker(ctx), resolve: providerResolver(ctx), hint: 'required; use None for Gateway-only enforcement, Caracal mandate for verifier-backed services, or provider credentials for external auth' },
           ],
           onSubmit: async (v, app) => {
@@ -1272,7 +1284,7 @@ export function resourcesView(ctx: Ctx): View {
             title: `edit ${row.identifier}`,
             fields: [
               { key: 'name', label: 'name', kind: 'text', default: row.name ?? '' },
-              { key: 'identifier', label: 'identifier', kind: 'text', default: row.identifier, advanced: true },
+              { key: 'identifier', label: 'resource identifier', kind: 'text', default: row.identifier, advanced: true, validate: validateResourceIdentifier },
               { key: 'upstream_url', label: 'upstream URL', kind: 'text', default: row.upstream_url ?? '', required: true },
               { key: 'gateway_application_id', label: 'gateway application', kind: 'text', default: row.gateway_application_id ?? '', required: true, pick: applicationPicker(ctx), resolve: applicationResolver(ctx) },
               { key: 'credential_provider_id', label: 'upstream credential provider', kind: 'text', default: row.credential_provider_id ?? '', required: true, pick: providerPicker(ctx), resolve: providerResolver(ctx), hint: 'required; use None for Gateway-only enforcement, Caracal mandate for verifier-backed services, or provider credentials for external auth' },

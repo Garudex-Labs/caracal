@@ -524,7 +524,7 @@ export class FormView implements View {
       info: infoPage({
         title: 'Advanced options',
         meaning: 'These optional settings override inferred defaults for uncommon cases.',
-        when: 'Use them for manual identifiers, raw config, shadow versions, provider binding, or enterprise-specific routing.',
+        when: 'Use them for manual identifiers, raw config, shadow versions, upstream credential provider binding, or enterprise-specific routing.',
         impact: 'Submitted advanced values are sent to the same API request as common fields and can change runtime behavior.',
         example: 'Set a manual resource identifier only when another system already depends on it.',
         valid: 'Leave fields blank to keep the parent form defaults.',
