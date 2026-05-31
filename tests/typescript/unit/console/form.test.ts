@@ -147,8 +147,8 @@ describe('FormView input UX', () => {
         kind: 'select',
         options: ['oauth2_authorization_code', 'oauth2_client_credentials'],
         optionLabels: {
-          oauth2_authorization_code: 'OAuth2 auth code',
-          oauth2_client_credentials: 'OAuth2 client creds',
+          oauth2_authorization_code: 'OAuth 2.0 authorization code',
+          oauth2_client_credentials: 'OAuth 2.0 client credentials',
         },
         default: 'oauth2_authorization_code',
       }],
@@ -157,12 +157,12 @@ describe('FormView input UX', () => {
     const app = fakeApp()
     const ctx = { app, size: { rows: 10, cols: 80 }, status: '' }
 
-    expect(view.render(ctx).join('\n')).toContain('OAuth2 auth code')
+    expect(view.render(ctx).join('\n')).toContain('OAuth 2.0 authorization code')
     expect(view.render(ctx).join('\n')).not.toContain('oauth2_authorization_code')
     await view.onKey('right', ctx)
 
     const picker = vi.mocked(app.push).mock.calls[0]![0] as { onKey: FormView['onKey']; render: FormView['render'] }
-    expect(picker.render(ctx).join('\n')).toContain('OAuth2 client creds')
+    expect(picker.render(ctx).join('\n')).toContain('OAuth 2.0 client credentials')
     await picker.onKey('down', ctx)
     await picker.onKey('enter', ctx)
     expect(view.values_().provider_type).toBe('oauth2_client_credentials')
@@ -267,7 +267,7 @@ describe('FormView input UX', () => {
 
     const info = vi.mocked(app.push).mock.calls.at(-1)![0] as { render: FormView['render'] }
     const help = info.render(ctx).join('\n')
-    expect(help).toContain('Hooli OAuth2')
+    expect(help).toContain('Hooli OAuth')
     expect(help).not.toContain('Son of Anton')
   })
 

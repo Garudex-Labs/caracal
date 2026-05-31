@@ -110,7 +110,7 @@ describe('POST /v1/zones/:zoneId/providers', () => {
     expect(values[8]).toEqual(['private_key'])
   })
 
-  it('rejects OAuth2 client-credentials providers with invalid endpoint or token parameter config', async () => {
+  it('rejects OAuth 2.0 client-credentials providers with invalid endpoint or token parameter config', async () => {
     const { app, db } = buildRouteApp(providersRoutes)
     db.query.mockResolvedValue({ rows: [{ '?column?': 1 }] })
 
@@ -473,7 +473,7 @@ describe('POST /v1/zones/:zoneId/providers', () => {
       .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({
-        rows: [{ id: 'provider-1', zone_id: 'z1', identifier: 'provider://hooli-oauth2', kind: 'caracal_mandate' }],
+        rows: [{ id: 'provider-1', zone_id: 'z1', identifier: 'provider://hooli-oauth', kind: 'caracal_mandate' }],
       })
 
     await app.ready()
@@ -482,7 +482,7 @@ describe('POST /v1/zones/:zoneId/providers', () => {
       url: '/v1/zones/z1/providers',
       payload: {
         identifier: '',
-        name: 'Hooli OAuth2',
+        name: 'Hooli OAuth',
         kind: 'caracal_mandate',
         config_json: {},
       },
@@ -490,8 +490,8 @@ describe('POST /v1/zones/:zoneId/providers', () => {
 
     const values = db.query.mock.calls[2][1] as unknown[]
     expect(res.statusCode).toBe(201)
-    expect(values[2]).toBe('Hooli OAuth2')
-    expect(values[3]).toBe('provider://hooli-oauth2')
+    expect(values[2]).toBe('Hooli OAuth')
+    expect(values[3]).toBe('provider://hooli-oauth')
   })
 
   it('suffixes generated provider identifiers when the provider name already exists in the zone', async () => {
@@ -501,7 +501,7 @@ describe('POST /v1/zones/:zoneId/providers', () => {
       .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({
-        rows: [{ id: 'provider-2', zone_id: 'z1', identifier: 'provider://hooli-oauth2-2', kind: 'caracal_mandate' }],
+        rows: [{ id: 'provider-2', zone_id: 'z1', identifier: 'provider://hooli-oauth-2', kind: 'caracal_mandate' }],
       })
 
     await app.ready()
@@ -509,7 +509,7 @@ describe('POST /v1/zones/:zoneId/providers', () => {
       method: 'POST',
       url: '/v1/zones/z1/providers',
       payload: {
-        name: 'Hooli OAuth2',
+        name: 'Hooli OAuth',
         kind: 'caracal_mandate',
         config_json: {},
       },
@@ -517,7 +517,7 @@ describe('POST /v1/zones/:zoneId/providers', () => {
 
     const values = db.query.mock.calls[3][1] as unknown[]
     expect(res.statusCode).toBe(201)
-    expect(values[3]).toBe('provider://hooli-oauth2-2')
+    expect(values[3]).toBe('provider://hooli-oauth-2')
   })
 
   it('rejects duplicate explicit provider identifiers in the zone', async () => {
@@ -535,8 +535,8 @@ describe('POST /v1/zones/:zoneId/providers', () => {
       method: 'POST',
       url: '/v1/zones/z1/providers',
       payload: {
-        identifier: 'provider://hooli-oauth2',
-        name: 'Hooli OAuth2',
+        identifier: 'provider://hooli-oauth',
+        name: 'Hooli OAuth',
         kind: 'caracal_mandate',
         config_json: {},
       },
@@ -561,7 +561,7 @@ describe('POST /v1/zones/:zoneId/providers', () => {
     expect(JSON.parse(res.body)).toMatchObject({ error: 'invalid_provider_config' })
   })
 
-  it('stores OAuth2 auth-code provider config with validated callback and forwarding settings', async () => {
+  it('stores OAuth 2.0 auth-code provider config with validated callback and forwarding settings', async () => {
     const { app, db } = buildRouteApp(providersRoutes)
     db.query
       .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
@@ -608,7 +608,7 @@ describe('POST /v1/zones/:zoneId/providers', () => {
     expect(values[8]).toEqual(['client_secret'])
   })
 
-  it('rejects OAuth2 auth-code providers with invalid URLs or malformed forwarding schemes', async () => {
+  it('rejects OAuth 2.0 auth-code providers with invalid URLs, unsupported client auth, or malformed forwarding schemes', async () => {
     const { app, db } = buildRouteApp(providersRoutes)
     db.query.mockResolvedValue({ rows: [{ '?column?': 1 }] })
 
@@ -656,6 +656,15 @@ describe('POST /v1/zones/:zoneId/providers', () => {
         client_secret: 'hooli-secret',
         allowed_token_hosts: ['login.hooli.example'],
         token_params: { grant_type: 'override' },
+      },
+      {
+        authorization_endpoint: 'https://login.hooli.example/oauth/authorize',
+        token_endpoint: 'https://login.hooli.example/oauth/token',
+        redirect_uri: 'http://localhost:3000/oauth/callback',
+        client_id: 'hooli-client',
+        client_auth_method: 'private_key_jwt',
+        private_key: '-----BEGIN PRIVATE KEY-----\nsecret\n-----END PRIVATE KEY-----',
+        allowed_token_hosts: ['login.hooli.example'],
       },
     ]) {
       const res = await app.inject({

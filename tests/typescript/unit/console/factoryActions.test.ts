@@ -554,8 +554,8 @@ describe('resources actions', () => {
 
     const body = form.render(ctxView).join('\n')
     expect(body).toContain('upstream URL *')
-    expect(body).toContain('gateway app *')
-    expect(body).toContain('credential provider *')
+    expect(body).toContain('gateway application *')
+    expect(body).toContain('upstream credential provider *')
     expect(body).toContain('Advanced options')
   })
 })
@@ -574,19 +574,21 @@ describe('providers actions', () => {
       'redirect_uri',
       'client_id',
       'client_secret',
+      'provider_scopes',
       'api_key_auth_location',
       'api_key_header',
       'api_key_query_param',
       'api_key',
       'bearer_token',
       'identifier',
-      'provider_scopes',
       'authorization_params',
       'token_params',
       'token_audience',
       'token_resource',
-      'allowed_token_hosts',
-      'client_auth_method',
+      'oauth_token_hosts',
+      'bearer_upstream_hosts',
+      'auth_code_client_auth_method',
+      'client_credentials_auth_method',
       'key_id',
       'private_key',
       'auth_header',
@@ -615,7 +617,7 @@ describe('providers actions', () => {
     ;(form as unknown as { values: Record<string, string> }).values.api_key_auth_location = 'header'
     body = form.render(ctxView).join('\n')
     expect(body).toContain('API key location')
-    expect(body).toContain('API key header *')
+    expect(body).toContain('API key header name *')
     expect(body).toContain('API key *')
     expect(body).not.toContain('API key query parameter')
     expect(body).not.toContain('token endpoint *')
@@ -627,6 +629,17 @@ describe('providers actions', () => {
     body = form.render(ctxView).join('\n')
     expect(body).toContain('API key query parameter *')
     expect(body).not.toContain('API key header *')
+  })
+
+  it('keeps common OAuth scopes visible and limits private-key JWT to client credentials', async () => {
+    const { ctx } = newCtx()
+    const list = providersView(ctx as unknown as Parameters<typeof providersView>[0]) as ListView<unknown>
+    const form = await pressKey(list, 'n', fakeApp()) as FormView
+    const fields = (form as unknown as { fields: { key: string; advanced?: boolean; options?: string[] }[] }).fields
+
+    expect(fields.find((f) => f.key === 'provider_scopes')?.advanced).not.toBe(true)
+    expect(fields.find((f) => f.key === 'auth_code_client_auth_method')?.options).not.toContain('private_key_jwt')
+    expect(fields.find((f) => f.key === 'client_credentials_auth_method')?.options).toContain('private_key_jwt')
   })
 
   it('explains when each provider type should be used', async () => {
@@ -645,9 +658,9 @@ describe('providers actions', () => {
     expect(body).toContain('no auth credential')
     expect(body).toContain('Caracal mandate')
     expect(body).toContain('Caracal-aware upstream')
-    expect(body).toContain('OAuth2 auth code')
+    expect(body).toContain('OAuth 2.0 authorization code')
     expect(body).toContain('consent screen')
-    expect(body).toContain('OAuth2 client creds')
+    expect(body).toContain('OAuth 2.0 client credentials')
     expect(body).toContain('server-to-server')
     expect(body).toContain('Bearer token')
     expect(body).toContain('already issued')
@@ -700,8 +713,8 @@ describe('providers actions', () => {
       token_params: 'tenant=hooli',
       token_audience: 'https://api.hooli.example',
       token_resource: 'https://resource.hooli.example',
-      allowed_token_hosts: 'provider.example',
-      client_auth_method: 'client_secret_basic',
+      oauth_token_hosts: 'provider.example',
+      client_credentials_auth_method: 'client_secret_basic',
       api_key_header: '',
       auth_header: '',
       auth_scheme: '',
@@ -728,7 +741,7 @@ describe('providers actions', () => {
     }))
   })
 
-  it('creates OAuth2 client-credentials providers with private-key JWT authentication', async () => {
+  it('creates OAuth 2.0 client-credentials providers with private-key JWT authentication', async () => {
     const { client, ctx } = newCtx()
     const list = providersView(ctx as unknown as Parameters<typeof providersView>[0]) as ListView<unknown>
     const app = fakeApp()
@@ -742,8 +755,8 @@ describe('providers actions', () => {
       client_secret: '',
       private_key: '-----BEGIN PRIVATE KEY-----\nsecret\n-----END PRIVATE KEY-----',
       key_id: 'key-1',
-      allowed_token_hosts: 'provider.example',
-      client_auth_method: 'private_key_jwt',
+      oauth_token_hosts: 'provider.example',
+      client_credentials_auth_method: 'private_key_jwt',
       forward_caracal_identity: 'false',
     }
     ;(pushed as unknown as { focus: number }).focus = 99
@@ -764,7 +777,7 @@ describe('providers actions', () => {
     }))
   })
 
-  it('requires OAuth client secrets unless client auth method is none', async () => {
+  it('requires OAuth client secrets unless OAuth client authentication is none', async () => {
     const { client, ctx } = newCtx()
     const list = providersView(ctx as unknown as Parameters<typeof providersView>[0]) as ListView<unknown>
     const app = fakeApp()
@@ -776,8 +789,8 @@ describe('providers actions', () => {
       token_endpoint: 'https://issuer.example/oauth/token',
       client_id: 'public-client',
       client_secret: '',
-      allowed_token_hosts: '',
-      client_auth_method: 'client_secret_basic',
+      oauth_token_hosts: '',
+      client_credentials_auth_method: 'client_secret_basic',
     }
     ;(pushed as unknown as { focus: number }).focus = 99
 
@@ -786,7 +799,7 @@ describe('providers actions', () => {
     expect(client.providers.create).not.toHaveBeenCalled()
     expect(app.setStatus).toHaveBeenCalledWith('client secret is required', 'error')
 
-    ;(pushed as unknown as { values: Record<string, string> }).values.client_auth_method = 'none'
+    ;(pushed as unknown as { values: Record<string, string> }).values.client_credentials_auth_method = 'none'
     ;(pushed as unknown as { focus: number }).focus = 99
     await pushed.onKey('enter', { app, size: { rows: 20, cols: 80 }, status: '' })
 
@@ -801,7 +814,7 @@ describe('providers actions', () => {
     }))
   })
 
-  it('creates OAuth2 auth-code providers with standard endpoints and upstream forwarding fields', async () => {
+  it('creates OAuth 2.0 auth-code providers with standard endpoints and upstream forwarding fields', async () => {
     const { client, ctx } = newCtx()
     const list = providersView(ctx as unknown as Parameters<typeof providersView>[0]) as ListView<unknown>
     const app = fakeApp()
@@ -816,8 +829,8 @@ describe('providers actions', () => {
       client_id: 'hooli-client',
       client_secret: 'hooli-secret',
       token_params: 'tenant=hooli',
-      allowed_token_hosts: '',
-      client_auth_method: 'client_secret_basic',
+      oauth_token_hosts: '',
+      auth_code_client_auth_method: 'client_secret_basic',
       auth_header: 'Authorization',
       auth_scheme: 'Bearer',
       forward_caracal_identity: 'false',
@@ -917,7 +930,7 @@ describe('providers actions', () => {
       name: 'Hooli Bearer',
       kind: 'bearer_token',
       bearer_token: 'provider-token',
-      allowed_token_hosts: 'api.hooli.example',
+      bearer_upstream_hosts: 'api.hooli.example',
       auth_header: 'X-Provider-Authorization',
       auth_scheme: 'Token',
       forward_caracal_identity: 'true',
@@ -948,12 +961,12 @@ describe('providers actions', () => {
     const pushed = await pressKey(list, 'n', app) as FormView
     ;(pushed as unknown as { values: Record<string, string> }).values = {
       identifier: '',
-      name: 'Hooli OAuth2',
+      name: 'Hooli OAuth',
       kind: 'caracal_mandate',
       token_endpoint: '',
       client_id: '',
       client_secret: '',
-      allowed_token_hosts: '',
+      oauth_token_hosts: '',
       api_key_header: '',
       api_key_query_param: '',
       api_key: '',
@@ -985,7 +998,7 @@ describe('providers actions', () => {
       token_endpoint: 'https://issuer.example/token',
       client_id: 'client-1',
       client_secret: 'secret',
-      allowed_token_hosts: 'issuer.example',
+      oauth_token_hosts: 'issuer.example',
       api_key_header: 'X-API-Key',
       api_key_query_param: 'key',
       api_key: 'api-key',
@@ -1031,7 +1044,7 @@ describe('providers actions', () => {
     expect(app.setStatus).toHaveBeenCalledWith(expect.stringContaining('provider://'), 'error')
   })
 
-  it('blocks malformed upstream auth schemes before provider submission', async () => {
+  it('blocks malformed upstream authorization schemes before provider submission', async () => {
     const { client, ctx } = newCtx()
     const list = providersView(ctx as unknown as Parameters<typeof providersView>[0]) as ListView<unknown>
     const app = fakeApp()
@@ -1043,8 +1056,8 @@ describe('providers actions', () => {
       token_endpoint: 'https://login.hooli.example/oauth/token',
       client_id: 'hooli-client',
       client_secret: 'hooli-secret',
-      client_auth_method: 'client_secret_basic',
-      allowed_token_hosts: '',
+      client_credentials_auth_method: 'client_secret_basic',
+      oauth_token_hosts: '',
       auth_scheme: 'Bearer Token',
     }
     ;(pushed as unknown as { focus: number }).focus = 99
@@ -1097,7 +1110,7 @@ describe('providers actions', () => {
       name: 'API key provider',
       kind: 'api_key',
       token_endpoint: 'https://provider.example/token',
-      allowed_token_hosts: 'provider.example',
+      oauth_token_hosts: 'provider.example',
       api_key_auth_location: 'header',
       api_key_header: 'X-Api-Key',
       api_key: 'provider-key',
@@ -1241,9 +1254,9 @@ describe('grants actions', () => {
     const form = await pressKey(list, 'n', fakeApp()) as FormView
     const ctxView = { app: fakeApp(), size: { rows: 20, cols: 100 }, status: '' }
 
-    expect(form.render(ctxView).join('\n')).not.toContain('Caracal scopes')
+    expect(form.render(ctxView).join('\n')).not.toContain('Caracal resource scopes')
     ;(form as unknown as { values: Record<string, string> }).values.resource_id = 'res-1'
-    expect(form.render(ctxView).join('\n')).toContain('Caracal scopes *')
+    expect(form.render(ctxView).join('\n')).toContain('Caracal resource scopes *')
   })
 
   it('k revokes selected grant', async () => {

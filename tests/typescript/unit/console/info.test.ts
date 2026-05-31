@@ -43,9 +43,9 @@ describe('fieldInfo', () => {
 
   it('describes OAuth client fields without name-like fallback examples', () => {
     const clientId = fieldInfo('client ID', 'text', undefined, { key: 'client_id', required: true })
-    const allowedHosts = fieldInfo('allowed token hosts', 'list', undefined, { key: 'allowed_token_hosts', advanced: true })
-    const authMethod = fieldInfo('client auth method', 'select', undefined, {
-      key: 'client_auth_method',
+    const allowedHosts = fieldInfo('OAuth token endpoint hosts', 'list', undefined, { key: 'oauth_token_hosts', advanced: true })
+    const authMethod = fieldInfo('OAuth client authentication', 'select', undefined, {
+      key: 'client_credentials_auth_method',
       options: ['client_secret_basic', 'client_secret_post', 'none'],
       advanced: true,
     })
@@ -59,8 +59,8 @@ describe('fieldInfo', () => {
   })
 
   it('describes gateway binding and audit fields with operational examples', () => {
-    const provider = fieldInfo('credential provider', 'text', undefined, { key: 'credential_provider_id', picker: true })
-    const gatewayApp = fieldInfo('gateway app', 'text', undefined, { key: 'gateway_application_id', picker: true })
+    const provider = fieldInfo('upstream credential provider', 'text', undefined, { key: 'credential_provider_id', picker: true })
+    const gatewayApp = fieldInfo('gateway application', 'text', undefined, { key: 'gateway_application_id', picker: true })
     const requestId = fieldInfo('request ID', 'text', undefined, { key: 'request_id' })
 
     expect(provider.example).toBe('provider://hooli-pipernet')

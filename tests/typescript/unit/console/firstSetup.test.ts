@@ -303,7 +303,7 @@ describe('first setup workflow', () => {
     }))
   })
 
-  it('creates guided OAuth2 private-key JWT providers', async () => {
+  it('creates guided OAuth 2.0 private-key JWT providers', async () => {
     const client = makeClient()
     const app = fakeApp()
     const view = firstSetupView({
@@ -318,7 +318,7 @@ describe('first setup workflow', () => {
       provider_kind: 'oauth2_client_credentials',
       provider_token_endpoint: 'https://issuer.example.com/oauth/token',
       provider_client_id: 'hooli-client',
-      provider_client_auth_method: 'private_key_jwt',
+      provider_client_credentials_auth_method: 'private_key_jwt',
       provider_private_key: '-----BEGIN PRIVATE KEY-----\nsecret\n-----END PRIVATE KEY-----',
       provider_key_id: 'key-1',
     })
