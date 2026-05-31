@@ -144,8 +144,12 @@ export function defaultRunCredentialsFilePath(zoneId: string, applicationId: str
 }
 
 function safePathSegment(value: string): string {
-  const safe = value.trim().replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^_+|_+$/g, '');
-  return safe || 'default';
+  const segment = value.trim().replace(/[^A-Za-z0-9._-]+/g, '_');
+  let start = 0;
+  let end = segment.length;
+  while (start < end && segment[start] === '_') start += 1;
+  while (end > start && segment[end - 1] === '_') end -= 1;
+  return segment.slice(start, end) || 'default';
 }
 
 // Resolves the path to caracal.toml using the documented precedence:

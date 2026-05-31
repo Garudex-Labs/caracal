@@ -274,6 +274,28 @@ describe('resolveRuntimeConfigPath', () => {
     })
   })
 
+  it('auto-detects local secret and credential files from sanitized generated paths', () => {
+    process.env.CARACAL_ZONE_ID = '__zone id__'
+    process.env.CARACAL_APPLICATION_ID = '  app/value  '
+    const secret = defaultAppClientSecretFilePath('__zone id__', '  app/value  ')
+    const credentials = defaultRunCredentialsFilePath('__zone id__', '  app/value  ')
+    mkdirSync(join(root, 'xdg-default', 'caracal', 'runtime', 'zone_id', 'app_value'), { recursive: true })
+    writeFileSync(secret, 'secret-value\n')
+    writeFileSync(credentials, JSON.stringify([{ env: 'RESOURCE_TOKEN', resource: 'resource://api' }]))
+    if (process.platform !== 'win32') {
+      chmodSync(secret, 0o600)
+      chmodSync(credentials, 0o600)
+    }
+
+    expect(loadRuntimeConfig(true)).toMatchObject({
+      zone_url: DEFAULT_STS_URL,
+      zone_id: '__zone id__',
+      application_id: '  app/value  ',
+      app_client_secret: 'secret-value',
+      credentials: [{ env: 'RESOURCE_TOKEN', resource: 'resource://api' }],
+    })
+  })
+
   it('rejects zone and application identity without a client secret', () => {
     process.env.CARACAL_ZONE_ID = 'zone1'
     process.env.CARACAL_APPLICATION_ID = 'app1'

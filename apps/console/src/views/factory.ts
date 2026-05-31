@@ -36,7 +36,7 @@ import { AuditTailView } from './audit.ts'
 import { DetailView } from './detail.ts'
 import { ChoiceConfirmView, ConfirmView, FormView, type Field } from './form.ts'
 import { infoPage, openInfo, providerTypeInfo, type InfoPage } from './info.ts'
-import { ListView } from './list.ts'
+import { ListView, type Column } from './list.ts'
 import { appendCsv, EntityPickerView, pickFromList } from './picker.ts'
 
 export interface Ctx {
@@ -278,9 +278,31 @@ const CONTENT_SOURCES = ['paste', 'file'] as const
 type PolicyVersionRow = PolicyVersion & { policy_name: string }
 type PolicySetVersionRow = PolicySetVersion & { policy_set_name: string }
 type PolicySetRow = PolicySet & { active_version_label: string }
-type GrantRow = Grant & { application_name: string; resource_name: string }
+type ResourceRow = Resource & { provider_id: string; provider_name: string; provider_kind: string }
+type GrantRow = Grant & { application_name: string; resource_name: string; provider_id: string; provider_name: string; provider_kind: string }
 type AgentRow = AgentSession & { application_name: string }
 type DelegationRow = DelegationEdge & { resource_name?: string | undefined }
+interface GrantFilters {
+  application_id?: string | undefined
+  user_id?: string | undefined
+  resource_id?: string | undefined
+  provider_id?: string | undefined
+  status?: string | undefined
+  scopes?: string | undefined
+}
+interface GrantPlanResource {
+  id: string
+  name: string
+  provider_name: string
+  provider_kind: string
+  scopes: string[]
+}
+interface GrantPlan {
+  application_id: string
+  application_name: string
+  user_id: string
+  resources: GrantPlanResource[]
+}
 
 type ResourceHelpKind = 'zone' | 'application' | 'resource' | 'provider' | 'policy' | 'policy set' | 'grant' | 'session' | 'delegation' | 'agent'
 
@@ -433,17 +455,19 @@ function resourceHelp(kind: ResourceHelpKind): InfoPage & { notes: string[] } {
     case 'grant':
       return {
         title: 'Grant',
-        meaning: 'A grant binds an application, subject, resource, and scopes into explicit authority.',
-        when: 'Use grants for known subjects or workloads that need scoped access to one resource.',
-        impact: 'Grants establish requestable authority; policies can still narrow or deny individual requests.',
+        meaning: 'A grant binds one application, one subject, one resource, and selected scopes into explicit eligible authority.',
+        when: 'Use grants for known subjects or workloads that need scoped access to a protected resource. Create additional grants for additional resources.',
+        impact: 'Grants establish requestable authority; policies still make runtime allow, deny, or partial decisions and can narrow each request.',
         example: 'Son of Anton -> Bertram Gilfoyle -> resource://pipernet read',
         valid: 'The resource and application must exist in the selected zone; scopes should come from the selected resource.',
-        after: 'Open details to inspect status, subject, scopes, and linked object IDs before revoking.',
+        after: 'Open details to inspect status, subject, scopes, provider backing, and linked object IDs before revoking.',
         terms: [
           { label: 'Subject', value: 'The end user, workload, or actor receiving authority through the grant.' },
+          { label: 'Provider backing', value: 'The upstream credential provider bound to the selected resource; it shows where Gateway access ultimately goes.' },
+          { label: 'Policy', value: 'Runtime authorization logic that can deny or constrain access even when a matching grant exists.' },
           { label: 'Revoke', value: 'Stops future use of the grant while keeping an audit trail.' },
         ],
-        notes: ['Use the scope picker after selecting a resource to avoid invalid scope strings.'],
+        notes: ['Use filters to review an app, subject, resource, or provider before changing access.', 'Use the scope picker after selecting a resource to avoid invalid scope strings.'],
       }
     case 'session':
       return {
@@ -763,6 +787,10 @@ function sessionResolver(ctx: Ctx): Field['resolve'] {
   return resolveFromList(() => ctx.client.sessions.list(ctx.zoneId, { status: 'active', limit: 100 }), (row) => row.id, (row) => row.subject_id)
 }
 
+function subjectResolver(ctx: Ctx): Field['resolve'] {
+  return resolveFromList(() => ctx.client.sessions.list(ctx.zoneId, { status: 'active', limit: 100 }), (row) => row.subject_id, (row) => row.subject_id)
+}
+
 async function loadPolicyVersions(ctx: Ctx): Promise<PolicyVersionRow[]> {
   const policies = await ctx.client.policies.list(ctx.zoneId)
   const details = await Promise.all(policies.map((policy) => ctx.client.policies.get(ctx.zoneId, policy.id)))
@@ -800,20 +828,173 @@ async function loadPolicySets(ctx: Ctx): Promise<PolicySetRow[]> {
   })
 }
 
+async function loadResourceRows(ctx: Ctx): Promise<ResourceRow[]> {
+  const [resources, providers] = await Promise.all([
+    ctx.client.resources.list(ctx.zoneId),
+    ctx.client.providers.list(ctx.zoneId),
+  ])
+  const providersById = new Map(providers.map((provider) => [provider.id, provider]))
+  return userResources(resources).map((resource) => {
+    const providerId = resource.credential_provider_id ?? ''
+    const provider = providerId ? providersById.get(providerId) : undefined
+    return {
+      ...resource,
+      provider_id: providerId,
+      provider_name: provider ? named(provider) : providerId ? providerId : '(none)',
+      provider_kind: provider ? PROVIDER_KIND_LABELS[provider.kind] : providerId ? 'missing provider' : 'none',
+    }
+  })
+}
+
 async function loadGrants(ctx: Ctx): Promise<GrantRow[]> {
-  const resourcesPromise = ctx.client.resources.list(ctx.zoneId).then(userResources)
   const [grants, applications, resources] = await Promise.all([
     ctx.client.grants.list(ctx.zoneId),
     ctx.client.applications.list(ctx.zoneId),
-    resourcesPromise,
+    loadResourceRows(ctx),
   ])
   const applicationNames = labelMap(applications, (row) => row.id, (row) => row.name)
   const resourceNames = labelMap(resources, (row) => row.id, named)
+  const resourcesById = new Map(resources.map((resource) => [resource.id, resource]))
   return grants.map((grant) => ({
     ...grant,
     application_name: applicationNames.get(grant.application_id) ?? grant.application_id,
     resource_name: resourceNames.get(grant.resource_id) ?? grant.resource_id,
+    provider_id: resourcesById.get(grant.resource_id)?.provider_id ?? '',
+    provider_name: resourcesById.get(grant.resource_id)?.provider_name ?? '-',
+    provider_kind: resourcesById.get(grant.resource_id)?.provider_kind ?? '-',
   }))
+}
+
+function filterGrants(rows: GrantRow[], filters: GrantFilters): GrantRow[] {
+  const applicationId = filters.application_id?.trim()
+  const userId = filters.user_id?.trim().toLowerCase()
+  const resourceId = filters.resource_id?.trim()
+  const providerId = filters.provider_id?.trim()
+  const status = filters.status?.trim()
+  const scopes = splitList(filters.scopes ?? '').map((scope) => scope.toLowerCase())
+  return rows.filter((row) => {
+    if (applicationId && row.application_id !== applicationId) return false
+    if (userId && !row.user_id.toLowerCase().includes(userId)) return false
+    if (resourceId && row.resource_id !== resourceId) return false
+    if (providerId && row.provider_id !== providerId) return false
+    if (status && row.status !== status) return false
+    if (scopes.length > 0) {
+      const rowScopes = new Set((row.scopes ?? []).map((scope) => scope.toLowerCase()))
+      if (!scopes.every((scope) => rowScopes.has(scope))) return false
+    }
+    return true
+  })
+}
+
+async function buildGrantPlan(ctx: Ctx, values: Record<string, string>, resourceKey: 'resource_id' | 'resource_ids'): Promise<GrantPlan> {
+  const applicationId = values.application_id?.trim()
+  const userId = values.user_id?.trim()
+  const resourceIds = unique(splitList(values[resourceKey] ?? ''))
+  const scopes = unique(splitList(values.scopes ?? ''))
+  if (!applicationId) throw new Error('application is required')
+  if (!userId) throw new Error('subject ID is required')
+  if (resourceIds.length === 0) throw new Error(resourceKey === 'resource_id' ? 'resource is required' : 'resources are required')
+  if (scopes.length === 0) throw new Error('Caracal resource scopes are required')
+
+  const [applications, resources] = await Promise.all([
+    ctx.client.applications.list(ctx.zoneId),
+    loadResourceRows(ctx),
+  ])
+  const application = applications.find((row) => row.id === applicationId)
+  if (!application) throw new Error('selected application was not found in this zone')
+  const resourcesById = new Map(resources.map((resource) => [resource.id, resource]))
+  const planResources = resourceIds.map((resourceId) => {
+    const resource = resourcesById.get(resourceId)
+    if (!resource) throw new Error(`selected resource ${resourceId} was not found in this zone`)
+    const validScopes = new Set((resource.scopes ?? []).map((scope) => scope.toLowerCase()))
+    const invalidScopes = scopes.filter((scope) => !validScopes.has(scope.toLowerCase()))
+    if (invalidScopes.length > 0) {
+      throw new Error(`${named(resource)} does not define scope${invalidScopes.length === 1 ? '' : 's'} ${invalidScopes.join(', ')}`)
+    }
+    return {
+      id: resource.id,
+      name: named(resource),
+      provider_name: resource.provider_name,
+      provider_kind: resource.provider_kind,
+      scopes,
+    }
+  })
+  return {
+    application_id: application.id,
+    application_name: application.name,
+    user_id: userId,
+    resources: planResources,
+  }
+}
+
+function unique(values: string[]): string[] {
+  return [...new Set(values)]
+}
+
+function broadGrantScopes(plan: GrantPlan): string[] {
+  return unique(plan.resources.flatMap((resource) => resource.scopes).filter((scope) => {
+    const value = scope.toLowerCase()
+    return value === '*' || value === 'all' || value === 'admin' || value === 'delete' || value === 'manage' || value.includes('admin')
+  }))
+}
+
+function grantReviewMessage(plan: GrantPlan): string {
+  const names = plan.resources.map((resource) => `${resource.name} via ${resource.provider_name}`)
+  const shown = names.slice(0, 3).join('; ')
+  const tail = names.length > 3 ? `; +${names.length - 3} more` : ''
+  const broad = broadGrantScopes(plan)
+  const warning = broad.length > 0 ? ` Broad scopes: ${broad.join(', ')}.` : ''
+  return `create ${plan.resources.length} grant${plan.resources.length === 1 ? '' : 's'} for ${plan.application_name} and ${plan.user_id}: ${shown}${tail}. Scopes: ${plan.resources[0]?.scopes.join(', ') ?? '-'}.${warning}`
+}
+
+function grantReviewInfo(plan: GrantPlan): InfoPage {
+  return infoPage({
+    title: 'Review grant creation',
+    meaning: 'This review shows the exact app, subject, resources, provider backing, and scopes before Console creates grants.',
+    when: 'Confirm only when the listed app and subject should receive every listed resource scope.',
+    impact: `Console will create ${plan.resources.length} separate resource-scoped grant record${plan.resources.length === 1 ? '' : 's'} for audit and revocation.`,
+    context: [
+      { label: 'Application', value: plan.application_name },
+      { label: 'Subject', value: plan.user_id },
+      { label: 'Resources', value: plan.resources.map((resource) => `${resource.name} (${resource.provider_name}, ${resource.provider_kind})`).join('; ') },
+      { label: 'Scopes', value: plan.resources[0]?.scopes.join(', ') ?? '-' },
+    ],
+    example: 'Son of Anton / Richard Hendricks / PiperNet read',
+    valid: 'Press y only after confirming the listed resources and scopes match least-privilege intent.',
+    after: 'Console creates one grant per resource and refreshes the Grants list.',
+    notes: ['Policies still evaluate runtime requests after these grants exist.'],
+  })
+}
+
+function pushGrantReview(app: App, list: ListView<GrantRow>, ctx: Ctx, plan: GrantPlan): void {
+  app.push(new ConfirmView({
+    message: grantReviewMessage(plan),
+    info: grantReviewInfo(plan),
+    onConfirm: async (confirmApp) => {
+      for (const resource of plan.resources) {
+        await ctx.client.grants.create(ctx.zoneId, {
+          application_id: plan.application_id,
+          user_id: plan.user_id,
+          resource_id: resource.id,
+          scopes: resource.scopes,
+        })
+      }
+      confirmApp.pop()
+      await popAndReload(confirmApp, list as unknown as ListView<unknown>)
+    },
+  }))
+}
+
+async function loadGrantDetail(ctx: Ctx, row: GrantRow): Promise<GrantRow> {
+  const grant = await ctx.client.grants.get(ctx.zoneId, row.id)
+  return {
+    ...grant,
+    application_name: row.application_name,
+    resource_name: row.resource_name,
+    provider_id: row.provider_id,
+    provider_name: row.provider_name,
+    provider_kind: row.provider_kind,
+  }
 }
 
 async function loadAgents(ctx: Ctx): Promise<AgentRow[]> {
@@ -839,29 +1020,46 @@ export function applicationPicker(ctx: Ctx): Field['pick'] {
   )
 }
 
-function resourcePicker(ctx: Ctx): Field['pick'] {
-  return pickFromList<Resource>(
-    'pick resource',
-    async () => userResources(await ctx.client.resources.list(ctx.zoneId)),
+function subjectPicker(ctx: Ctx): Field['pick'] {
+  return pickFromList<Session>(
+    'pick active subject',
+    () => ctx.client.sessions.list(ctx.zoneId, { status: 'active', limit: 100 }),
     [
-      { header: 'name', width: 24, value: named },
-      { header: 'identifier', width: 30, value: (row) => row.identifier },
-      { header: 'Caracal resource scopes', width: 28, value: (row) => (row.scopes ?? []).join(',') || '-' },
+      { header: 'subject', width: 30, value: (row) => row.subject_id },
+      { header: 'type', width: 10, value: (row) => row.session_type },
+      { header: 'status', value: (row) => row.status },
     ],
+    (row) => row.subject_id,
+    (row) => row.subject_id,
+  )
+}
+
+function resourcePickerColumns(scopesWidth?: number): Column<ResourceRow>[] {
+  return [
+    { header: 'name', width: 22, value: named },
+    { header: 'identifier', width: 28, value: (row) => row.identifier },
+    { header: 'provider', width: 20, value: (row) => row.provider_name },
+    { header: 'kind', width: 14, value: (row) => row.provider_kind },
+    { header: 'scopes', width: scopesWidth, value: (row) => (row.scopes ?? []).join(',') || '-' },
+  ]
+}
+
+function resourcePicker(ctx: Ctx, merge?: (current: string, picked: string) => string): Field['pick'] {
+  return pickFromList<ResourceRow>(
+    merge ? 'pick resources' : 'pick resource',
+    () => loadResourceRows(ctx),
+    resourcePickerColumns(28),
     (row) => row.id,
     named,
+    merge,
   )
 }
 
 export function resourceIdentifierPicker(ctx: Ctx): Field['pick'] {
-  return pickFromList<Resource>(
+  return pickFromList<ResourceRow>(
     'pick resource',
-    async () => userResources(await ctx.client.resources.list(ctx.zoneId)),
-    [
-      { header: 'name', width: 24, value: named },
-      { header: 'identifier', width: 30, value: (row) => row.identifier },
-      { header: 'Caracal resource scopes', value: (row) => (row.scopes ?? []).join(',') || '-' },
-    ],
+    () => loadResourceRows(ctx),
+    resourcePickerColumns(),
     (row) => row.identifier,
     named,
   )
@@ -965,6 +1163,44 @@ function grantScopePicker(ctx: Ctx): Field['pick'] {
       }),
     }))
   }
+}
+
+function createGrantInfo(): InfoPage {
+  return infoPage({
+    title: 'Create grant',
+    meaning: 'A grant gives one application eligible authority for one subject, one resource, and selected scopes.',
+    when: 'Use this when an agent, service, or integration should be allowed to request a specific resource on behalf of a subject.',
+    impact: 'Console creates one resource-scoped grant. Policies still evaluate each runtime request and can deny or constrain granted authority.',
+    context: [
+      { label: 'Grant', value: 'Eligible access envelope: app, subject, resource, and scopes.' },
+      { label: 'Policy', value: 'Runtime decision logic that can allow, deny, or partially constrain a request.' },
+      { label: 'Provider', value: 'The upstream credential backing shown on the selected resource so operators can see where access goes.' },
+    ],
+    example: 'Grant Son of Anton read access to PiperNet for Richard Hendricks.',
+    valid: 'Pick an existing application and resource, enter the exact subject ID, then choose scopes defined by that resource.',
+    after: 'After creation, use filters to review related grants for the same app, subject, resource, provider, status, or scope.',
+    notes: [
+      'Use bulk grant when the same app and subject need the same scopes on multiple resources.',
+      'Choose the least scopes the app needs; broad scopes should be intentional and visible before submit.',
+    ],
+  })
+}
+
+function bulkGrantInfo(): InfoPage {
+  return infoPage({
+    title: 'Bulk grant',
+    meaning: 'Bulk grant creates multiple one-resource grants for the same application, subject, and common scopes.',
+    when: 'Use this when one agent or workload needs the same named scopes across several resources.',
+    impact: 'Console validates every selected scope against every selected resource, then creates one grant record per resource after review.',
+    context: [
+      { label: 'Common scopes', value: 'The same scope names are applied to every selected resource; resources with different scope names should be granted separately.' },
+      { label: 'Provider backing', value: 'Resource pickers show provider name and kind so upstream access is visible before review.' },
+    ],
+    example: 'Grant Son of Anton read access to PiperNet, HooliBox, and Nucleus for Richard Hendricks.',
+    valid: 'Pick one application, one subject, at least one resource, and scopes that all selected resources define.',
+    after: 'Console shows a review prompt and creates one grant per resource after confirmation.',
+    notes: ['This is a Console workflow improvement; the backend grant model remains one resource per grant.'],
+  })
 }
 
 export function zonesView(ctx: Ctx): View {
@@ -1712,43 +1948,80 @@ export function policySetsView(ctx: Ctx): View {
 }
 
 export function grantsView(ctx: Ctx): View {
+  const filters: GrantFilters = {}
   const list: ListView<GrantRow> = new ListView<GrantRow>({
     title: 'grants',
     info: resourceListInfo('grant'),
     columns: [
-      { header: 'app', width: 28, value: (r) => r.application_name },
-      { header: 'subject', width: 36, value: (r) => r.user_id },
-      { header: 'resource', width: 28, value: (r) => r.resource_name },
+      { header: 'app', width: 24, value: (r) => r.application_name },
+      { header: 'subject', width: 30, value: (r) => r.user_id },
+      { header: 'resource', width: 24, value: (r) => r.resource_name },
+      { header: 'provider', width: 20, value: (r) => r.provider_name },
+      { header: 'provider kind', width: 28, value: (r) => r.provider_kind },
       { header: 'status', width: 10, value: (r) => r.status },
       { header: 'Caracal resource scopes', value: (r) => (r.scopes ?? []).join(' ') || '-' },
     ],
-    load: () => loadGrants(ctx),
+    load: async () => filterGrants(await loadGrants(ctx), filters),
     state: ctx.state,
     stateKey: 'grants',
     zoneId: ctx.zoneId,
     rowKey: (row) => row.id,
     rowId: (row) => row.id,
     rowName: (row) => `${row.application_name} → ${row.resource_name}`,
-    onEnter: (app, row) => open(app, entityDetail(`grant / ${row.id}`, () => ctx.client.grants.get(ctx.zoneId, row.id))),
+    onEnter: (app, row) => open(app, entityDetail(`grant / ${row.id}`, () => loadGrantDetail(ctx, row))),
     actions: [
+      {
+        key: 'f', label: 'filter', build: () => new FormView({
+          title: 'filter grants',
+          submitLabel: 'apply filter',
+          fields: [
+            { key: 'application_id', label: 'application', kind: 'text', default: filters.application_id ?? '', pick: applicationPicker(ctx), resolve: applicationResolver(ctx), hint: 'show grants for one application or agent identity' },
+            { key: 'user_id', label: 'subject contains', kind: 'text', default: filters.user_id ?? '', hint: 'match part of the subject ID across grants' },
+            { key: 'resource_id', label: 'resource', kind: 'text', default: filters.resource_id ?? '', pick: resourcePicker(ctx), resolve: resourceResolver(ctx), hint: 'show grants for one protected resource' },
+            { key: 'provider_id', label: 'provider', kind: 'text', default: filters.provider_id ?? '', pick: providerPicker(ctx), resolve: providerResolver(ctx), hint: 'show grants for resources backed by one upstream provider' },
+            { key: 'status', label: 'status', kind: 'select', default: filters.status ?? '', options: ['', 'active', 'revoked'], optionLabels: { '': 'any', active: 'active', revoked: 'revoked' } },
+            { key: 'scopes', label: 'scopes include', kind: 'list', default: filters.scopes ?? '', hint: 'comma-separated scopes that must all be present on the grant' },
+          ],
+          onSubmit: async (v, app) => {
+            filters.application_id = v.application_id || undefined
+            filters.user_id = v.user_id || undefined
+            filters.resource_id = v.resource_id || undefined
+            filters.provider_id = v.provider_id || undefined
+            filters.status = v.status || undefined
+            filters.scopes = v.scopes || undefined
+            await popAndReload(app, list as unknown as ListView<unknown>)
+          },
+        }),
+      },
       {
         key: 'n', label: 'new', build: () => new FormView({
           title: 'create grant',
-          submitLabel: 'create grant',
+          submitLabel: 'review grant',
+          info: createGrantInfo(),
           fields: [
-            { key: 'resource_id', label: 'resource', kind: 'text', required: true, pick: resourcePicker(ctx), resolve: resourceResolver(ctx) },
-            { key: 'application_id', label: 'application', kind: 'text', required: true, pick: applicationPicker(ctx), resolve: applicationResolver(ctx) },
-            { key: 'user_id', label: 'subject ID', kind: 'text', required: true, hint: 'opaque subject such as user:richard.hendricks@piedpiper.example or service:son-of-anton' },
-            { key: 'scopes', label: 'Caracal resource scopes', kind: 'list', required: true, dependsOn: 'resource_id', pick: grantScopePicker(ctx), hint: 'choose from the selected resource scopes or enter comma-separated scopes' },
+            { key: 'application_id', label: 'application', kind: 'text', section: 'Who receives access', required: true, pick: applicationPicker(ctx), resolve: applicationResolver(ctx), hint: 'app or agent identity that may request this access' },
+            { key: 'user_id', label: 'subject ID', kind: 'text', required: true, pick: subjectPicker(ctx), resolve: subjectResolver(ctx), hint: 'opaque subject such as user:richard.hendricks@piedpiper.example or service:son-of-anton' },
+            { key: 'resource_id', label: 'resource', kind: 'text', section: 'What it may request', required: true, pick: resourcePicker(ctx), resolve: resourceResolver(ctx), hint: 'one protected resource; the picker shows provider backing and available scopes' },
+            { key: 'scopes', label: 'Caracal resource scopes', kind: 'list', required: true, dependsOn: 'resource_id', pick: grantScopePicker(ctx), hint: 'choose least-privilege scopes from the selected resource or enter comma-separated scopes' },
           ],
           onSubmit: async (v, app) => {
-            await ctx.client.grants.create(ctx.zoneId, {
-              application_id: v.application_id!,
-              user_id: v.user_id!,
-              resource_id: v.resource_id!,
-              scopes: splitList(v.scopes ?? ''),
-            })
-            await popAndReload(app, list as unknown as ListView<unknown>)
+            pushGrantReview(app, list, ctx, await buildGrantPlan(ctx, v, 'resource_id'))
+          },
+        }),
+      },
+      {
+        key: 'b', label: 'bulk', requiresSelection: false, build: () => new FormView({
+          title: 'bulk grant',
+          submitLabel: 'review grants',
+          info: bulkGrantInfo(),
+          fields: [
+            { key: 'application_id', label: 'application', kind: 'text', section: 'Who receives access', required: true, pick: applicationPicker(ctx), resolve: applicationResolver(ctx), hint: 'app or agent identity that may request this access' },
+            { key: 'user_id', label: 'subject ID', kind: 'text', required: true, pick: subjectPicker(ctx), resolve: subjectResolver(ctx), hint: 'opaque subject such as user:richard.hendricks@piedpiper.example or service:son-of-anton' },
+            { key: 'resource_ids', label: 'resources', kind: 'list', section: 'What it may request', required: true, pick: resourcePicker(ctx, appendCsv), resolve: resourceResolver(ctx), hint: 'right arrow adds resources; each selected resource becomes one grant record' },
+            { key: 'scopes', label: 'common scopes', kind: 'list', required: true, dependsOn: 'resource_ids', hint: 'comma-separated scopes that every selected resource defines' },
+          ],
+          onSubmit: async (v, app) => {
+            pushGrantReview(app, list, ctx, await buildGrantPlan(ctx, v, 'resource_ids'))
           },
         }),
       },

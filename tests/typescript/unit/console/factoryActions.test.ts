@@ -1241,13 +1241,175 @@ describe('grants actions', () => {
     expect(body).not.toContain('res-1')
   })
 
+  it('renders provider context for granted resources', async () => {
+    const { client, ctx } = newCtx()
+    client.grants.list.mockResolvedValueOnce([
+      { id: 'g1', application_id: 'app-1', user_id: 'u', resource_id: 'res-1', scopes: ['read'], status: 'active' },
+    ])
+    client.applications.list.mockResolvedValueOnce([
+      { id: 'app-1', name: 'Son of Anton', registration_method: 'managed', traits: [] },
+    ])
+    client.resources.list.mockResolvedValueOnce([
+      { id: 'res-1', identifier: 'resource://pipernet', name: 'PiperNet', scopes: ['read'], credential_provider_id: 'provider-1' },
+    ])
+    client.providers.list.mockResolvedValueOnce([
+      { id: 'provider-1', name: 'Hooli OAuth', identifier: 'provider://hooli-oauth', kind: 'oauth2_client_credentials', config_json: {}, secret_config_keys: [] },
+    ])
+    const list = grantsView(ctx as unknown as Parameters<typeof grantsView>[0]) as ListView<unknown>
+    const app = fakeApp()
+
+    await list.init(app)
+    const body = list.render({ app, size: { rows: 20, cols: 140 }, status: '' }).join('\n')
+
+    expect(body).toContain('Hooli OAuth')
+    expect(body).toContain('OAuth 2.0 client credentials')
+  })
+
+  it('filters grants by provider backing', async () => {
+    const { client, ctx } = newCtx()
+    client.grants.list.mockResolvedValue([
+      { id: 'g1', application_id: 'app-1', user_id: 'u', resource_id: 'res-1', scopes: ['read'], status: 'active' },
+      { id: 'g2', application_id: 'app-1', user_id: 'u', resource_id: 'res-2', scopes: ['read'], status: 'active' },
+    ])
+    client.applications.list.mockResolvedValue([
+      { id: 'app-1', name: 'Son of Anton', registration_method: 'managed', traits: [] },
+    ])
+    client.resources.list.mockResolvedValue([
+      { id: 'res-1', identifier: 'resource://pipernet', name: 'PiperNet', scopes: ['read'], credential_provider_id: 'provider-1' },
+      { id: 'res-2', identifier: 'resource://hoolibox', name: 'HooliBox', scopes: ['read'], credential_provider_id: 'provider-2' },
+    ])
+    client.providers.list.mockResolvedValue([
+      { id: 'provider-1', name: 'Hooli OAuth', identifier: 'provider://hooli-oauth', kind: 'oauth2_client_credentials', config_json: {}, secret_config_keys: [] },
+      { id: 'provider-2', name: 'Nucleus API Key', identifier: 'provider://nucleus-api-key', kind: 'api_key', config_json: {}, secret_config_keys: [] },
+    ])
+    const list = grantsView(ctx as unknown as Parameters<typeof grantsView>[0]) as ListView<unknown>
+    const app = fakeApp()
+
+    await list.init(app)
+    const form = await pressKey(list, 'f', app) as FormView
+    ;(form as unknown as { values: Record<string, string> }).values.provider_id = 'provider-1'
+    ;(form as unknown as { focus: number }).focus = 6
+    await form.onKey('enter', { app, size: { rows: 20, cols: 140 }, status: '' })
+    const body = list.render({ app, size: { rows: 20, cols: 140 }, status: '' }).join('\n')
+
+    expect(body).toContain('PiperNet')
+    expect(body).toContain('Hooli OAuth')
+    expect(body).not.toContain('HooliBox')
+    expect(body).not.toContain('Nucleus API Key')
+  })
+
   it('n opens grant form with pickers for application and resource references', async () => {
     const { ctx } = newCtx()
     const list = grantsView(ctx as unknown as Parameters<typeof grantsView>[0]) as ListView<unknown>
     const form = await pressKey(list, 'n', fakeApp()) as FormView
     const fields = (form as unknown as { fields: { key: string; pick?: unknown }[] }).fields
     expect(typeof fields.find((f) => f.key === 'application_id')?.pick).toBe('function')
+    expect(typeof fields.find((f) => f.key === 'user_id')?.pick).toBe('function')
     expect(typeof fields.find((f) => f.key === 'resource_id')?.pick).toBe('function')
+  })
+
+  it('reviews single grants before creation and validates scopes against the resource', async () => {
+    const { client, ctx } = newCtx()
+    client.applications.list.mockResolvedValue([
+      { id: 'app-1', name: 'Son of Anton', registration_method: 'managed', traits: [] },
+    ])
+    client.resources.list.mockResolvedValue([
+      { id: 'res-1', identifier: 'resource://pipernet', name: 'PiperNet', scopes: ['read'], credential_provider_id: null },
+    ])
+    const list = grantsView(ctx as unknown as Parameters<typeof grantsView>[0]) as ListView<unknown>
+    const app = fakeApp()
+    const form = await pressKey(list, 'n', app) as FormView
+    ;(form as unknown as { values: Record<string, string> }).values = {
+      application_id: 'app-1',
+      user_id: 'user:richard.hendricks@piedpiper.example',
+      resource_id: 'res-1',
+      scopes: 'read',
+    }
+    ;(form as unknown as { focus: number }).focus = 4
+
+    await form.onKey('enter', { app, size: { rows: 20, cols: 160 }, status: '' })
+    const pushed = (app as unknown as { _pushed: unknown[] })._pushed
+    const confirm = pushed[pushed.length - 1] as ConfirmView
+    expect(confirm).toBeInstanceOf(ConfirmView)
+    await confirm.onKey('y', { app, size: { rows: 20, cols: 160 }, status: '' })
+
+    expect(client.grants.create).toHaveBeenCalledWith('z1', {
+      application_id: 'app-1',
+      user_id: 'user:richard.hendricks@piedpiper.example',
+      resource_id: 'res-1',
+      scopes: ['read'],
+    })
+  })
+
+  it('blocks grant creation when selected scopes are not on the resource', async () => {
+    const { client, ctx } = newCtx()
+    client.applications.list.mockResolvedValue([
+      { id: 'app-1', name: 'Son of Anton', registration_method: 'managed', traits: [] },
+    ])
+    client.resources.list.mockResolvedValue([
+      { id: 'res-1', identifier: 'resource://pipernet', name: 'PiperNet', scopes: ['read'], credential_provider_id: null },
+    ])
+    const list = grantsView(ctx as unknown as Parameters<typeof grantsView>[0]) as ListView<unknown>
+    const app = fakeApp()
+    const form = await pressKey(list, 'n', app) as FormView
+    ;(form as unknown as { values: Record<string, string> }).values = {
+      application_id: 'app-1',
+      user_id: 'user:richard.hendricks@piedpiper.example',
+      resource_id: 'res-1',
+      scopes: 'admin',
+    }
+    ;(form as unknown as { focus: number }).focus = 4
+
+    await form.onKey('enter', { app, size: { rows: 20, cols: 160 }, status: '' })
+
+    expect(client.grants.create).not.toHaveBeenCalled()
+    expect(app.setStatus).toHaveBeenCalledWith(expect.stringContaining('does not define scope admin'), 'error')
+  })
+
+  it('bulk creates one reviewed grant per selected resource', async () => {
+    const { client, ctx } = newCtx()
+    client.applications.list.mockResolvedValue([
+      { id: 'app-1', name: 'Son of Anton', registration_method: 'managed', traits: [] },
+    ])
+    client.resources.list.mockResolvedValue([
+      { id: 'res-1', identifier: 'resource://pipernet', name: 'PiperNet', scopes: ['read'], credential_provider_id: 'provider-1' },
+      { id: 'res-2', identifier: 'resource://hoolibox', name: 'HooliBox', scopes: ['read'], credential_provider_id: 'provider-2' },
+    ])
+    client.providers.list.mockResolvedValue([
+      { id: 'provider-1', name: 'Hooli OAuth', identifier: 'provider://hooli-oauth', kind: 'oauth2_client_credentials', config_json: {}, secret_config_keys: [] },
+      { id: 'provider-2', name: 'Nucleus API Key', identifier: 'provider://nucleus-api-key', kind: 'api_key', config_json: {}, secret_config_keys: [] },
+    ])
+    const list = grantsView(ctx as unknown as Parameters<typeof grantsView>[0]) as ListView<unknown>
+    const app = fakeApp()
+    const form = await pressKey(list, 'b', app) as FormView
+    ;(form as unknown as { values: Record<string, string> }).values = {
+      application_id: 'app-1',
+      user_id: 'user:richard.hendricks@piedpiper.example',
+      resource_ids: 'res-1,res-2',
+      scopes: 'read',
+    }
+    ;(form as unknown as { focus: number }).focus = 4
+
+    await form.onKey('enter', { app, size: { rows: 20, cols: 180 }, status: '' })
+    const pushed = (app as unknown as { _pushed: unknown[] })._pushed
+    const confirm = pushed[pushed.length - 1] as ConfirmView
+    expect(confirm).toBeInstanceOf(ConfirmView)
+    expect(confirm.render({ app, size: { rows: 20, cols: 180 }, status: '' }).join('\n')).toContain('create 2 grants')
+    await confirm.onKey('y', { app, size: { rows: 20, cols: 180 }, status: '' })
+
+    expect(client.grants.create).toHaveBeenCalledTimes(2)
+    expect(client.grants.create).toHaveBeenNthCalledWith(1, 'z1', {
+      application_id: 'app-1',
+      user_id: 'user:richard.hendricks@piedpiper.example',
+      resource_id: 'res-1',
+      scopes: ['read'],
+    })
+    expect(client.grants.create).toHaveBeenNthCalledWith(2, 'z1', {
+      application_id: 'app-1',
+      user_id: 'user:richard.hendricks@piedpiper.example',
+      resource_id: 'res-2',
+      scopes: ['read'],
+    })
   })
 
   it('shows grant scopes only after a resource is selected', async () => {
