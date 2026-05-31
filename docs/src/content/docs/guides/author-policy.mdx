@@ -28,12 +28,12 @@ default result := {
 result := {
   "decision": "allow",
   "evaluation_status": "complete",
-  "determining_policies": [{"policy": "payments-read"}],
+  "determining_policies": [{"policy": "pipernet-read"}],
   "diagnostics": [],
 } if {
-  input.resource.identifier == "https://api.example.com/payments"
+  input.resource.identifier == "resource://pipernet"
   every scope in input.context.requested_scopes {
-    scope == "payments:read"
+    scope == "pipernet:read"
   }
 }
 ```

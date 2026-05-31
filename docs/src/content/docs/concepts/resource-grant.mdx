@@ -18,11 +18,11 @@ Resources describe protected targets such as:
 
 | Resource field | Purpose |
 | --- | --- |
-| Identifier | Stable policy and token audience target, such as `https://api.example.com/payments`. |
-| Upstream URL | Optional Gateway forwarding target. |
-| Scopes | Named actions that policies and mandates can constrain. |
-| Gateway application | Optional application used by Gateway-mediated resources. |
-| Credential provider | Optional provider used when Caracal brokers upstream credentials. |
+| Identifier | Stable policy and token audience target, such as `resource://pipernet`. |
+| Upstream URL | Gateway forwarding target. |
+| Scopes | Named Caracal resource actions that policies and mandates can constrain. |
+| Gateway application | Application identity used by Gateway-mediated resources. |
+| Upstream credential provider | Resource binding to the provider record used when Gateway attaches no credential, a Caracal mandate, OAuth tokens, API keys, or bearer tokens. |
 
 ## Grants
 

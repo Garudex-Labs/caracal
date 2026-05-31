@@ -3,27 +3,29 @@ title: Define Resources and Providers
 description: Register protected upstream resources and explicit provider auth modes from the Console.
 ---
 
-Resources tell Caracal what can be protected. Providers describe the upstream credential shape a Gateway-routed resource uses, including no-credential and Caracal mandate flows.
+Resources tell Caracal what protected target is being accessed. Providers describe how Gateway authenticates to that target, including no-credential and Caracal mandate flows.
 
 ## When to create each object
 
 | Object | Create it when |
 | --- | --- |
-| Resource | You need a stable protected target with scopes and a Gateway route to an upstream. |
-| Provider | The target needs an explicit upstream auth mode: none, Caracal mandate, OAuth2 authorization code, OAuth2 client credentials, API key, or bearer-token upstream auth. |
-| Gateway application | You want the Gateway to front an HTTP upstream and issue the final mandate for that request. |
+| Resource | You need a stable protected target, Caracal resource scopes, an upstream URL, a Gateway application, and one upstream credential provider binding. |
+| Provider | A resource needs an explicit upstream auth mode: none, Caracal mandate, OAuth 2.0 authorization code, OAuth 2.0 client credentials, API key, or bearer-token upstream auth. |
+| Gateway application | You want Gateway-originated upstream calls to use a specific Caracal application identity. |
+
+Resource fields should answer “what is being protected and where does Gateway send traffic?” Provider fields should answer “what credential or identity does Gateway attach upstream?” Keep credential details such as client secrets, token endpoints, API-key placement, bearer tokens, identity forwarding, and runtime injection on the provider. Keep target details such as resource identifier, Caracal resource scopes, upstream URL, Gateway application, and the selected upstream credential provider on the resource.
 
 ## Console workflow
 
 1. Start the local runtime with `caracal up`.
 2. Open `caracal console`.
 3. Select `resource`.
-4. Create a resource with a stable identifier, such as `https://api.example.com/payments`.
+4. Create a resource with a stable identifier, such as `resource://pipernet`.
 5. Add action-oriented scopes, such as `payments:read` and `payments:refund`.
-6. Set the upstream URL and Gateway application for the protected service.
+6. Set the upstream URL, Gateway application, and upstream credential provider for the protected service.
 7. Select `None` only when Gateway should enforce Caracal access but the upstream expects no credential.
 8. Select `Caracal mandate` for resources that verify Caracal tokens directly, or choose a provider-native type when the upstream needs external credentials.
-9. Attach exactly one provider to the resource.
+9. Attach exactly one upstream credential provider to the resource.
 
 ## Provider auth modes
 
@@ -31,34 +33,35 @@ Resources tell Caracal what can be protected. Providers describe the upstream cr
 | --- | --- | --- |
 | None | No credential fields. | Gateway strips caller auth and forwards no upstream credential; use only when Gateway is the enforcement point and the upstream expects no credential. |
 | Caracal mandate | No credential fields. | Gateway forwards the Caracal resource mandate in `Authorization: Bearer ...`; the resource verifies issuer, audience, scopes, target, expiry, and revocation. |
-| OAuth2 authorization code | Authorization endpoint, token endpoint, redirect URI, client ID, client secret. | Creates user/resource provider grants through a browser consent callback, then refreshes delegated provider tokens inside STS. |
-| OAuth2 client credentials | Token endpoint, client ID, client secret unless client auth method is `none`. | STS obtains and caches service-to-service provider tokens for Gateway upstream calls. |
+| OAuth 2.0 authorization code | Authorization endpoint, token endpoint, redirect URI, client ID, client secret, optional upstream OAuth scopes. | Creates user/resource provider grants through a browser consent callback, then refreshes delegated provider tokens inside STS. |
+| OAuth 2.0 client credentials | Token endpoint, client ID, client secret unless OAuth client authentication is `none`, optional upstream OAuth scopes. | STS obtains and caches service-to-service provider tokens for Gateway upstream calls. |
 | API key | Header name and API key. | Gateway forwards the sealed provider key in the configured header, with an optional auth scheme prefix. |
 | Bearer token | Bearer token. | Gateway forwards the sealed provider token as `Authorization: Bearer ...` unless Advanced routing configures another header or scheme. |
 
-OAuth2 authorization-code providers are for delegated user consent. Register the exact Caracal callback URI as the provider redirect URI, such as `https://api.hooli.example/v1/zones/z1/provider-grants/oauth/callback`, then use the provider `connect` action to create an authorization URL for a user, resource, and Caracal scope set. Provider scopes are the upstream OAuth scopes requested during consent. Authorization params are Advanced key/value entries for provider-specific browser parameters, such as Google `access_type=offline` and `prompt=consent`; Caracal always owns reserved OAuth fields such as `client_id`, `redirect_uri`, `state`, and PKCE challenge values. Token params are Advanced key/value entries for provider-specific token endpoint parameters; Caracal owns credentials, grants, refresh tokens, and scope parameters. Allowed token hosts constrain the code exchange and later refresh calls, and token endpoints must resolve to routable public addresses.
+OAuth 2.0 authorization-code providers are for delegated user consent. Register the exact Caracal callback URI as the provider redirect URI, such as `https://api.hooli.example/v1/zones/z1/provider-grants/oauth/callback`, then use the provider `connect` action to create an authorization URL for a user, resource, and Caracal resource scope set. Upstream OAuth scopes are main-form optional fields because they are a common part of consent. OAuth authorization parameters are Advanced key/value entries for provider-specific browser parameters, such as `access_type=offline` and `prompt=consent`; Caracal always owns reserved OAuth fields such as `client_id`, `redirect_uri`, `state`, and PKCE challenge values. OAuth token parameters are Advanced key/value entries for provider-specific token endpoint parameters; Caracal owns credentials, grants, refresh tokens, and scope parameters. OAuth token endpoint hosts constrain the code exchange and later refresh calls, and token endpoints must resolve to routable public addresses.
 
-The callback endpoint is intentionally public so external providers can redirect browsers back to Caracal. Security comes from short-lived Redis-backed state, one-time state consumption, PKCE, resource/provider binding checks, scope checks, sealed token storage, HTTPS-only token exchange, redirect blocking, host allow-listing, and private-address rejection. In cloud deployments, all API replicas must share Redis so a callback can validate state created by any replica. Reconnecting the same user, resource, and provider replaces the active provider grant instead of creating duplicate active credentials. Use the provider `disconnect` action to revoke the active delegated provider grant for a user and resource.
+The callback endpoint is intentionally public so external providers can redirect browsers back to Caracal. Security comes from short-lived Redis-backed state, one-time state consumption, PKCE, resource/upstream-provider binding checks, scope checks, sealed token storage, HTTPS-only token exchange, redirect blocking, host allow-listing, and private-address rejection. In cloud deployments, all API replicas must share Redis so a callback can validate state created by any replica. Reconnecting the same user, resource, and provider replaces the active provider grant instead of creating duplicate active credentials. Use the provider `disconnect` action to revoke the active delegated provider grant for a user and resource.
 
-OAuth2 client credentials keeps common machine-to-machine setup in the main form and moves provider-specific controls to Advanced. Use provider scopes when the token endpoint expects OAuth scopes, token audience when the provider requires an `audience` parameter, token resource when the provider expects a resource indicator, and token params only for documented provider-specific token endpoint parameters. Allowed token hosts constrain outbound token acquisition; Console infers the host from the token endpoint when the Advanced field is blank.
+OAuth 2.0 client credentials keeps common machine-to-machine setup in the main form and moves provider-specific controls to Advanced. Use upstream OAuth scopes when the token endpoint expects OAuth scopes, OAuth token audience when the provider requires an `audience` parameter, OAuth resource indicator when the provider expects a resource indicator, and OAuth token parameters only for documented provider-specific token endpoint parameters. OAuth token endpoint hosts constrain outbound token acquisition; Console infers the host from the token endpoint when the Advanced field is blank.
 
 API key providers use one required routing field: the exact header the upstream expects. Use `X-API-Key` or another vendor header when the API wants the raw key value, use `Authorization` plus the Advanced auth scheme `Bearer` for bearer-style API keys, and use a vendor scheme such as `Token` only when the provider documents that format. `auth_header` is not part of API-key provider config; OAuth and bearer-token providers use that field because their default upstream header is `Authorization`.
 
 Bearer token providers are for static, pre-issued access tokens that Caracal does not mint or refresh. The main form only needs the token; Advanced options are for uncommon upstreams that expect a non-default header or a scheme other than `Bearer`. The token is sealed at creation time, list and detail APIs expose only `secret_config_keys`, and Gateway replaces caller-supplied auth before forwarding the provider credential upstream.
 
-Provider secrets are sealed at creation time and are not returned by list or detail APIs. Every Gateway resource binds one provider, and one provider can be reused by many resources. None providers have no secret and send no credential. Caracal mandate providers have no provider-native secret and no `forward_caracal_identity` setting because the mandate is already the upstream credential. Use Caracal mandate for internal services, partner services, external integrations, or network-level resources that choose to trust Caracal mandates through a verifier.
+Provider secrets are sealed at creation time and are not returned by list or detail APIs. Every Gateway resource binds one upstream credential provider, and one provider can be reused by many resources. None providers have no secret and send no credential. Caracal mandate providers have no provider-native secret and no `forward_caracal_identity` setting because the mandate is already the upstream credential. Use Caracal mandate for internal services, partner services, external integrations, or network-level resources that choose to trust Caracal mandates through a verifier.
 
 ## Identifier and scope guidance
 
 | Field | Good pattern |
 | --- | --- |
-| Resource identifier | URL-shaped or URN-shaped stable target. |
-| Scope | `domain:action`, such as `tickets:read`. |
-| Upstream URL | The service URL the Gateway can reach. |
-| Gateway application | The application identity Gateway uses for upstream exchanges. |
-| Provider identifier | Stable name for the upstream credential system. |
+| Resource identifier | Stable audience URI, such as `resource://pipernet`; do not use the `provider://` namespace. |
+| Caracal resource scope | `domain:action`, such as `pipernet:read`. |
+| Upstream URL | The network URL Gateway can reach; it may change without changing policy audiences. |
+| Gateway application | The Caracal application identity Gateway uses for upstream exchanges. |
+| Upstream credential provider | The provider record Gateway uses to attach no credential, a Caracal mandate, OAuth tokens, API keys, or bearer tokens. |
+| Provider identifier | `provider://lowercase-slug` stable name for the upstream credential system. |
 
-Do not use mutable deployment hostnames as policy identifiers unless they are the actual authority boundary. Keep the identifier stable even if the upstream URL changes.
+Do not put provider-specific credential details on a resource. Do not use mutable deployment hostnames as policy identifiers unless they are the actual authority boundary. Keep the resource identifier stable even if the upstream URL or upstream credential provider binding changes.
 
 ## Validate the setup
 

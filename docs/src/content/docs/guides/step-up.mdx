@@ -28,8 +28,8 @@ const oauth = new OAuthClient(
 );
 
 try {
-  await oauth.exchange(subjectToken, "https://api.example.com/payments", {
-    scopes: ["payments:refund"],
+  await oauth.exchange(subjectToken, "resource://pipernet", {
+    scopes: ["pipernet:refund"],
   });
 } catch (error) {
   if (error instanceof InteractionRequiredError) {
