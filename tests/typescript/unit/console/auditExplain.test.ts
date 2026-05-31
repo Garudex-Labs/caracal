@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// audit-explain form submits the request_id and pushes a populated DetailView.
+// Request trace and audit views expose low-friction request investigation.
 
 import { afterEach, describe, it, expect, vi } from 'vitest'
 
@@ -33,7 +33,7 @@ function fakeApp(): App {
   return app
 }
 
-describe('audit explain entry', () => {
+describe('request trace entry', () => {
   it('submits request_id and pushes a populated DetailView', async () => {
     const explain = vi.fn(async () => ({ request_id: 'req-42', decision: 'allow' }))
     const client = { audit: { explain } } as unknown as AdminClient
@@ -57,26 +57,39 @@ describe('audit explain entry', () => {
     expect(explain).toHaveBeenCalledWith('z1', 'req-42')
   })
 
-  it('opens audit filters before tailing events', async () => {
+  it('opens audit tail directly with default filters', async () => {
     const list = vi.fn(async () => [])
-    const client = { audit: { list, byRequest: vi.fn() } } as unknown as AdminClient
+    const client = { audit: { list, byRequest: vi.fn(), explain: vi.fn() } } as unknown as AdminClient
     const menu = new MenuView(client, 'z1')
     const app = fakeApp()
     await menu.onKey('a', { app, size: { rows: 25, cols: 80 }, status: '' })
     const pushed = (app as unknown as { _pushed: unknown[] })._pushed
+    const tail = pushed[pushed.length - 1] as { init: (app: App) => Promise<void> }
+    await tail.init(app)
+    expect(list).toHaveBeenCalledWith('z1', { limit: 100, decision: undefined })
+  })
+
+  it('keeps advanced audit filters available from the tail', async () => {
+    const list = vi.fn(async () => [])
+    const client = { audit: { list, byRequest: vi.fn(), explain: vi.fn() } } as unknown as AdminClient
+    const menu = new MenuView(client, 'z1')
+    const app = fakeApp()
+    await menu.onKey('a', { app, size: { rows: 25, cols: 80 }, status: '' })
+    const pushed = (app as unknown as { _pushed: unknown[] })._pushed
+    const tail = pushed[pushed.length - 1] as { init: (app: App) => Promise<void>; onKey: MenuView['onKey'] }
+    await tail.onKey('f', { app, size: { rows: 25, cols: 80 }, status: '' })
     const form = pushed[pushed.length - 1] as FormView
     expect(form).toBeInstanceOf(FormView)
     ;(form as unknown as { values: Record<string, string> }).values = {
+      request_id: 'req-1',
       decision: 'deny',
+      event_type: 'authorization',
       since: '2026-01-01T00:00:00Z',
       until: '',
-      request_id: 'req-1',
-      event_type: 'authorization',
       limit: '25',
     }
-    ;(form as unknown as { focus: number }).focus = 6
+    ;(form as unknown as { focus: number }).focus = 2
     await form.onKey('enter', { app, size: { rows: 25, cols: 80 }, status: '' })
-    const tail = pushed[pushed.length - 1] as { init: (app: App) => Promise<void> }
     await tail.init(app)
     expect(list).toHaveBeenCalledWith('z1', {
       decision: 'deny',

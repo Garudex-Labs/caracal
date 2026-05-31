@@ -200,7 +200,7 @@ describe('AdminClient', () => {
     expect(url).toBe('http://api/v1/zones/z1/audit/by-request/req-9')
   })
 
-  it('hits the audit request explanation endpoint', async () => {
+  it('hits the audit decision trace endpoint', async () => {
     const f = fetchOk({ request_id: 'req-9', zone_id: 'z1', final_decision: 'allow', denied: [], events: [] })
     const c = new AdminClient({ apiUrl: 'http://api', adminToken: 't', fetchImpl: f })
     const trace = await c.audit.explain('z1', 'req-9')

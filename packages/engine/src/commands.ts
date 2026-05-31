@@ -248,7 +248,7 @@ export const MANAGEMENT_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
   },
 
   {
-    name: 'session', group: 'admin', summary: 'List sessions',
+    name: 'session', group: 'admin', summary: 'List authority sessions',
     subcommands: ['list'], requiresZone: true,
     flags: {
       list: [
@@ -277,10 +277,11 @@ export const MANAGEMENT_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
   {
     name: 'explain',
     group: 'observability',
-    summary: 'Explain an audit request',
+    summary: 'Explain one audit request',
     requiresZone: true,
     flags: {
       '': [
+        { name: '--request-id', summary: 'Request ID from an audit event' },
         { name: '--format', summary: 'Output format: text or mermaid' },
         { name: '--flow', summary: 'Render the authority path as Mermaid' },
       ],

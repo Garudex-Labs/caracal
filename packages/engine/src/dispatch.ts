@@ -344,7 +344,7 @@ const auditHandler = bySubcommand({
 })
 
 const explainHandler: Handler = async ({ principal, flags, ctx }) =>
-  ctx.admin.audit.byRequest(requireZone(principal), mustStr(flags, 'request-id'))
+  ctx.admin.audit.explain(requireZone(principal), mustStr(flags, 'request-id'))
 
 const debugHandler = bySubcommand({
   request: ({ principal, flags, ctx }) => ctx.admin.audit.explain(requireZone(principal), mustStr(flags, 'request-id')),
