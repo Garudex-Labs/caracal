@@ -6,4 +6,6 @@
 export interface RevocationStore {
   isRevoked: (sid: string) => boolean | Promise<boolean>
   markRevoked: (sid: string, ttlMs?: number) => void | Promise<void>
+  currentDelegationEpoch?: (zoneId: string) => number | Promise<number>
+  markDelegationEpoch?: (zoneId: string, epoch: number, ttlMs?: number) => void | Promise<void>
 }

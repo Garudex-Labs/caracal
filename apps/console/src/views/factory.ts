@@ -2124,6 +2124,8 @@ class DelegationMenuView implements View {
     { key: 'i', label: 'inbound', build: () => this.edgeForm('inbound') },
     { key: 'o', label: 'outbound', build: () => this.edgeForm('outbound') },
     { key: 't', label: 'traverse', build: () => this.traverseForm() },
+    { key: 'p', label: 'impact', build: () => this.impactForm() },
+    { key: 'e', label: 'effective authority', build: () => this.effectiveAuthorityForm() },
     { key: 'r', label: 'revoke', build: () => this.revokeForm() },
   ]
 
@@ -2184,6 +2186,28 @@ class DelegationMenuView implements View {
     })
   }
 
+  private impactForm(): View {
+    return new FormView({
+      title: 'delegation impact',
+      fields: [{ key: 'edge_id', label: 'delegation', kind: 'text', required: true, pick: delegationPicker(this.ctx) }],
+      onSubmit: async (v, app) => {
+        app.pop()
+        app.push(delegationImpactView(this.ctx, v.edge_id!))
+      },
+    })
+  }
+
+  private effectiveAuthorityForm(): View {
+    return new FormView({
+      title: 'delegation effective authority',
+      fields: [{ key: 'session_id', label: 'agent session', kind: 'text', required: true, pick: sessionPicker(this.ctx), resolve: sessionResolver(this.ctx) }],
+      onSubmit: async (v, app) => {
+        app.pop()
+        app.push(effectiveAuthorityView(this.ctx, v.session_id!))
+      },
+    })
+  }
+
   private revokeForm(): View {
     return new FormView({
       title: 'delegation revoke',
@@ -2215,6 +2239,7 @@ function delegationActiveView(ctx: Ctx): ListView<DelegationRow> {
     rowId: (row) => row.id,
     rowName: (row) => `${row.source_session_id} → ${row.target_session_id}`,
     onEnter: (app, row) => open(app, entityDetail(`delegation / ${row.id}`, async () => row)),
+    actions: delegationAuditActions(ctx),
   })
 }
 
@@ -2239,6 +2264,7 @@ function delegationEdgesView(ctx: Ctx, kind: 'inbound' | 'outbound', sessionId: 
     rowName: (row) => `${row.source_session_id} → ${row.target_session_id}`,
     onEnter: (app, row) => open(app, entityDetail(`delegation / ${row.id}`, async () => row)),
     actions: [
+      ...delegationAuditActions(ctx),
       {
         key: 't', label: 'traverse', build: (row) => {
           if (!row) throw new Error('no row selected')
@@ -2262,6 +2288,23 @@ function delegationEdgesView(ctx: Ctx, kind: 'inbound' | 'outbound', sessionId: 
   return list
 }
 
+function delegationAuditActions(ctx: Ctx) {
+  return [
+    {
+      key: 'p', label: 'impact', build: (row: DelegationRow | undefined) => {
+        if (!row) throw new Error('no row selected')
+        return delegationImpactView(ctx, row.id)
+      },
+    },
+    {
+      key: 'e', label: 'authority', build: (row: DelegationRow | undefined) => {
+        if (!row) throw new Error('no row selected')
+        return effectiveAuthorityView(ctx, row.target_session_id)
+      },
+    },
+  ]
+}
+
 function delegationTraverseView(ctx: Ctx, id: string): ListView<TraverseNode> {
   return new ListView<TraverseNode>({
     title: `delegation traverse / ${id}`,
@@ -2280,6 +2323,14 @@ function delegationTraverseView(ctx: Ctx, id: string): ListView<TraverseNode> {
     rowName: (row) => `${row.source_session_id} → ${row.target_session_id}`,
     onEnter: (app, row) => open(app, entityDetail(`delegation-node / ${row.id}`, async () => row)),
   })
+}
+
+function delegationImpactView(ctx: Ctx, id: string): DetailView {
+  return detail(`delegation impact / ${id}`, () => ctx.client.delegations.impact(ctx.zoneId, id))
+}
+
+function effectiveAuthorityView(ctx: Ctx, sessionId: string): DetailView {
+  return detail(`effective authority / ${sessionId}`, () => ctx.client.agents.effectiveAuthority(ctx.zoneId, sessionId))
 }
 
 export function agentsView(ctx: Ctx): View {

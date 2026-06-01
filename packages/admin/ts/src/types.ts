@@ -498,6 +498,7 @@ export interface DelegationEdge {
   target_session_id: string
   issuer_application_id: string
   receiver_application_id: string
+  parent_edge_id: string | null
   resource_id: string | null
   scopes: string[]
   constraints_json: JsonObject
@@ -520,4 +521,16 @@ export interface DelegationImpact {
   affected_edges: TraverseNode[]
   affected_agents: string[]
   affected_subject_sessions: string[]
+}
+
+export interface EffectiveAuthority {
+  agent_session_id: string
+  inbound_edges: string[]
+  effective_scopes: string[]
+  effective_resource_ids?: string[]
+  effective_resources: string[]
+  effective_resource_constrained?: boolean
+  effective_max_hops: number | null
+  effective_ttl_seconds: number | null
+  earliest_expires_at: string | null
 }

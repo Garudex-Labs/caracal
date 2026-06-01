@@ -33,7 +33,7 @@ type DelegationConstraints = z.infer<typeof ConstraintBody>
 interface ResourceAuthority {
   id: string
   identifier: string
-  application_id: string
+  application_id: string | null
   scopes: string[]
 }
 
@@ -51,6 +51,7 @@ const DelegationBody = z.object({
   target_session_id: z.string().min(1),
   issuer_application_id: z.string().min(1),
   receiver_application_id: z.string().min(1),
+  parent_edge_id: z.string().min(1).optional(),
   resource_id: z.string().min(1).nullable().default(null),
   scopes: z.array(z.string().min(1)).default([]),
   constraints: z.unknown().optional(),
@@ -141,9 +142,22 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
         }
       }
       const parents = await activeParentDelegations(client, zoneId, body.source_session_id)
-      if (parents.length > 0 && !parents.some((parent) => parentAllowsDelegation(parent, body, constraints, resources.items, expiresAt))) {
-        await client.query('ROLLBACK')
-        return reply.code(403).send({ error: 'delegation_exceeds_parent_authority' })
+      let parentEdgeId: string | null = null
+      if (parents.length > 0) {
+        const parent = body.parent_edge_id
+          ? parents.find((item) => item.id === body.parent_edge_id)
+          : parents.length === 1 ? parents[0] : undefined
+        if (!parent) {
+          await client.query('ROLLBACK')
+          return reply.code(body.parent_edge_id ? 403 : 409).send({
+            error: body.parent_edge_id ? 'parent_delegation_not_active' : 'parent_delegation_ambiguous',
+          })
+        }
+        if (!parentAllowsDelegation(parent, body, constraints, resources.items, expiresAt)) {
+          await client.query('ROLLBACK')
+          return reply.code(403).send({ error: 'delegation_exceeds_parent_authority' })
+        }
+        parentEdgeId = parent.id
       }
       if (await wouldCreateCycle(client, zoneId, body.source_session_id, body.target_session_id)) {
         await client.query('ROLLBACK')
@@ -154,10 +168,10 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
       const { rows } = await client.query(
         `INSERT INTO delegation_edges
          (id, zone_id, source_session_id, target_session_id, issuer_application_id, receiver_application_id,
-          resource_id, scopes, constraints_json, expires_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+          parent_edge_id, resource_id, scopes, constraints_json, expires_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
          RETURNING id AS delegation_edge_id, zone_id, source_session_id, target_session_id, issuer_application_id, receiver_application_id,
-                   resource_id, scopes, constraints_json, status, expires_at, edge_version, revoked_at, created_at`,
+                   parent_edge_id, resource_id, scopes, constraints_json, status, expires_at, edge_version, revoked_at, created_at`,
         [
           edgeId,
           zoneId,
@@ -165,6 +179,7 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
           body.target_session_id,
           body.issuer_application_id,
           body.receiver_application_id,
+          parentEdgeId,
           body.resource_id,
           body.scopes,
           constraints,
@@ -187,10 +202,10 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
         allow_reason: [
           'same_zone_endpoints_active',
           resourceScoped ? 'resource_scope_checked' : 'broad_delegation_elevated',
-          parents.length > 0 ? 'parent_authority_narrowed' : 'source_authority_root',
+          parentEdgeId ? 'parent_authority_narrowed' : 'source_authority_root',
           'typed_constraints_validated',
         ],
-        effective_authority: effectiveAuthority(body, constraints, resources.items, expiresAt, parents),
+        effective_authority: effectiveAuthority(body, constraints, resources.items, expiresAt, parents, parentEdgeId),
       })
     } catch (err) {
       await client.query('ROLLBACK')
@@ -227,7 +242,7 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
     }
     const { rows } = await fastify.db.query(
       `SELECT id, zone_id, source_session_id, target_session_id, issuer_application_id, receiver_application_id,
-              resource_id, scopes, constraints_json, status, expires_at, edge_version, revoked_at, created_at,
+              parent_edge_id, resource_id, scopes, constraints_json, status, expires_at, edge_version, revoked_at, created_at,
               constraints_json->>'broad_reason' AS broad_reason
        FROM delegation_edges
        WHERE zone_id = $1 AND status = 'active' AND expires_at > now() ${cursorClause}
@@ -538,8 +553,8 @@ async function listEdges(
     cursorClause = `AND id < $4`
   }
   const { rows } = await db.query(
-    `SELECT id, zone_id, source_session_id, target_session_id, issuer_application_id, receiver_application_id,
-            resource_id, scopes, constraints_json, status, expires_at, edge_version, revoked_at, created_at
+      `SELECT id, zone_id, source_session_id, target_session_id, issuer_application_id, receiver_application_id,
+            parent_edge_id, resource_id, scopes, constraints_json, status, expires_at, edge_version, revoked_at, created_at
      FROM delegation_edges
      WHERE zone_id = $1 AND ${column} = $2 ${cursorClause}
      ORDER BY id DESC LIMIT $3`,
@@ -584,7 +599,11 @@ async function getResource(
   db: Queryable, zoneId: string, resourceId: string,
 ): Promise<ResourceAuthority | null> {
   const { rows } = await db.query(
-    `SELECT id, identifier, application_id, scopes FROM resources WHERE id = $1 AND zone_id = $2`,
+    `SELECT r.id, r.identifier, b.application_id, r.scopes
+     FROM resources r
+     LEFT JOIN gateway_resource_bindings b
+       ON b.zone_id = r.zone_id AND b.resource_identifier = r.identifier
+     WHERE r.id = $1 AND r.zone_id = $2 AND r.archived_at IS NULL`,
     [resourceId, zoneId],
   )
   return rows[0] ?? null
@@ -605,9 +624,13 @@ async function resolveResourceAuthority(
   if (identifiers.length > 0) {
     const uniqueIdentifiers = [...new Set(identifiers)]
     const { rows } = await db.query<ResourceAuthority>(
-      `SELECT id, identifier, application_id, scopes
-       FROM resources
-       WHERE zone_id = $1 AND identifier = ANY($2::text[])`,
+      `SELECT r.id, r.identifier, b.application_id, r.scopes
+       FROM resources r
+       LEFT JOIN gateway_resource_bindings b
+         ON b.zone_id = r.zone_id AND b.resource_identifier = r.identifier
+       WHERE r.zone_id = $1
+         AND r.identifier = ANY($2::text[])
+         AND r.archived_at IS NULL`,
       [zoneId, uniqueIdentifiers],
     )
     if (rows.length !== uniqueIdentifiers.length) {
@@ -692,10 +715,12 @@ function effectiveAuthority(
   resources: ResourceAuthority[],
   expiresAt: string,
   parents: ParentDelegationEdge[],
+  parentEdgeId: string | null,
 ): Record<string, unknown> {
   return {
     source_session_id: body.source_session_id,
     target_session_id: body.target_session_id,
+    parent_edge_id: parentEdgeId,
     resource_id: body.resource_id,
     resources: resources.map((resource) => resource.identifier),
     scopes: body.scopes,

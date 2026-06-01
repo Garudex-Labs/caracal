@@ -115,6 +115,8 @@ export async function checkActiveAuthority(claims: Principal, revocations: Revoc
   }
   const checks = await Promise.all(revocationAnchors(claims).map((anchor) => revocations.isRevoked(anchor)))
   if (checks.some(Boolean)) return authError('session_revoked')
+  const epochError = await graphEpochError(claims, revocations)
+  if (epochError) return epochError
   return null
 }
 
@@ -126,6 +128,12 @@ function revocationAnchors(claims: Principal): string[] {
     claims.delegationEdgeId,
   ].filter((value): value is string => typeof value === 'string' && value !== '')
   return [...new Set(anchors)]
+}
+
+async function graphEpochError(claims: Principal, revocations: RevocationStore): Promise<AuthError | null> {
+  if (claims.graphEpoch === undefined || !revocations.currentDelegationEpoch) return null
+  const currentEpoch = await revocations.currentDelegationEpoch(claims.zoneId)
+  return currentEpoch > claims.graphEpoch ? authError('delegation_stale') : null
 }
 
 function authError(code: AuthError['code'], description = defaultDescription(code)): AuthError {
@@ -142,6 +150,8 @@ function defaultDescription(code: AuthError['code']): string {
       return 'Required scope is missing'
     case 'session_revoked':
       return 'Session revoked'
+    case 'delegation_stale':
+      return 'Delegation graph changed'
     case 'agent_required':
       return 'Agent identity required'
     case 'delegation_required':
@@ -165,6 +175,8 @@ function defaultHint(code: AuthError['code']): string {
       return 'Request a mandate that includes every required scope for this route.'
     case 'session_revoked':
       return 'Refresh the mandate or start a new authorized session.'
+    case 'delegation_stale':
+      return 'Refresh the mandate so delegated authority is evaluated against the latest graph.'
     case 'agent_required':
       return 'Use an agent-issued resource mandate for this endpoint.'
     case 'delegation_required':

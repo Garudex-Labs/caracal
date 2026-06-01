@@ -17,6 +17,7 @@ import type {
   DecisionTrace,
   DelegationEdge,
   DelegationImpact,
+  EffectiveAuthority,
   Grant,
   GrantInput,
   GrantQuery,
@@ -427,6 +428,8 @@ export class AdminClient {
       this.request<{ resumed: true }>(`/zones/${zoneId}/agents/${id}/resume`, { method: 'PATCH', base: 'coordinator' }),
     terminate: (zoneId: string, id: string) =>
       this.request<void>(`/zones/${zoneId}/agents/${id}`, { method: 'DELETE', base: 'coordinator', expectEmpty: true }),
+    effectiveAuthority: (zoneId: string, id: string) =>
+      this.request<EffectiveAuthority>(`/zones/${zoneId}/agents/${id}/effective-authority`, { base: 'coordinator' }),
   }
 
   // Delegations (coordinator)
