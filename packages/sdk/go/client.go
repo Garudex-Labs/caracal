@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -972,6 +973,31 @@ func (c *Caracal) GatewayRequest(resourceID, path string) (GatewayRequest, error
 	header := http.Header{}
 	header.Set("X-Caracal-Resource", resourceID)
 	return GatewayRequest{URL: target, Header: header}, nil
+}
+
+// Fetch is the one-call happy path: it sends an HTTP request to path on the given
+// Caracal resource through the Gateway, injecting Caracal context and authority on
+// the outbound call. Pass a nil header when no extra request headers are needed;
+// the resource header always wins over any caller-supplied X-Caracal-Resource. The
+// caller closes the returned response body.
+func (c *Caracal) Fetch(ctx context.Context, method, resourceID, path string, body io.Reader, header http.Header, opts ...RootOptions) (*http.Response, error) {
+	gr, err := c.GatewayRequest(resourceID, path)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, method, gr.URL, body)
+	if err != nil {
+		return nil, err
+	}
+	if header != nil {
+		req.Header = header.Clone()
+	}
+	for key, values := range gr.Header {
+		for _, value := range values {
+			req.Header.Set(key, value)
+		}
+	}
+	return c.Transport(nil, opts...).Do(req)
 }
 
 type caracalTransport struct {

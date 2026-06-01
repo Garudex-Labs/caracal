@@ -414,6 +414,42 @@ class TransportRootGuardTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(seen["resource"], "resource://calendar")
         self.assertEqual(seen["auth"], "Bearer tok")
 
+    async def test_fetch_composes_gateway_request_and_transport(self) -> None:
+        c = Caracal(
+            CaracalConfig(
+                coordinator=CoordinatorClient(base_url="http://coord"),
+                zone_id="z",
+                application_id="app",
+                subject_token="tok",
+                gateway_url="https://gateway.example.com/proxy",
+            )
+        )
+        seen = {}
+
+        async def handler(http_request):
+            seen["url"] = str(http_request.url)
+            seen["method"] = http_request.method
+            seen["resource"] = http_request.headers["X-Caracal-Resource"]
+            seen["content_type"] = http_request.headers["content-type"]
+            seen["auth"] = http_request.headers[HEADER_AUTHORIZATION]
+            return httpx.Response(204)
+
+        resp = await c.fetch(
+            "resource://calendar",
+            "events?limit=10",
+            method="POST",
+            headers={"content-type": "application/json"},
+            allow_root=True,
+            transport=httpx.MockTransport(handler),
+        )
+
+        self.assertEqual(resp.status_code, 204)
+        self.assertEqual(seen["url"], "https://gateway.example.com/proxy/events?limit=10")
+        self.assertEqual(seen["method"], "POST")
+        self.assertEqual(seen["resource"], "resource://calendar")
+        self.assertEqual(seen["content_type"], "application/json")
+        self.assertEqual(seen["auth"], "Bearer tok")
+
     async def test_gateway_request_rejects_invalid_inputs(self) -> None:
         c = Caracal(
             CaracalConfig(

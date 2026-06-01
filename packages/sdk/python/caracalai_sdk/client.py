@@ -962,6 +962,29 @@ class Caracal:
             headers={"X-Caracal-Resource": resource_id},
         )
 
+    async def fetch(
+        self,
+        resource_id: str,
+        path: str = "/",
+        *,
+        method: str = "GET",
+        headers: Mapping[str, str] | None = None,
+        allow_root: bool = False,
+        transport: httpx.AsyncBaseTransport | None = None,
+        **request_kwargs: Any,
+    ) -> httpx.Response:
+        """One-call happy path: send a request to ``path`` on ``resource_id`` through
+        the Gateway with Caracal context and authority injected. Extra keyword
+        arguments (``json``, ``content``, ``params``, ``timeout``, ...) pass through
+        to the underlying httpx request. The resource header always wins over any
+        caller-supplied ``X-Caracal-Resource``.
+        """
+        request = self.gateway_request(resource_id, path)
+        merged = {**(headers or {}), **request.headers}
+        client_kwargs: dict[str, Any] = {} if transport is None else {"transport": transport}
+        async with self.transport(allow_root=allow_root, **client_kwargs) as client:
+            return await client.request(method, request.url, headers=merged, **request_kwargs)
+
     def sync_transport(self, *, allow_root: bool = False, **kwargs: Any) -> httpx.Client:
         """Sync counterpart to transport(): returns an httpx.Client that auto-injects
         the envelope on every request and rewrites resource-bound calls through the

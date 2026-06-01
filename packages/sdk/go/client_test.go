@@ -341,6 +341,53 @@ func TestGatewayRequestBuildsExplicitGatewayTarget(t *testing.T) {
 	}
 }
 
+func TestFetchComposesGatewayRequestAndTransport(t *testing.T) {
+	c := &sdk.Caracal{
+		ZoneID:        "z",
+		ApplicationID: "a",
+		SubjectToken:  "tok",
+		GatewayURL:    "https://gateway.example.com/proxy",
+	}
+	var got http.Header
+	var gotPath, gotMethod string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Clone()
+		gotPath = r.URL.String()
+		gotMethod = r.Method
+		w.WriteHeader(204)
+	}))
+	defer srv.Close()
+	c.GatewayURL = srv.URL + "/proxy"
+	ctx := sdk.Bind(context.Background(), sdk.CaracalContext{
+		SubjectToken: "tok",
+		ZoneID:       "z",
+		ClientID:     "a",
+		Hop:          1,
+	})
+	header := http.Header{}
+	header.Set("Content-Type", "application/json")
+	resp, err := c.Fetch(ctx, http.MethodPost, "resource://calendar", "events?limit=10", nil, header)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if gotMethod != http.MethodPost {
+		t.Fatalf("unexpected method: %s", gotMethod)
+	}
+	if gotPath != "/proxy/events?limit=10" {
+		t.Fatalf("unexpected path: %s", gotPath)
+	}
+	if got.Get("X-Caracal-Resource") != "resource://calendar" {
+		t.Fatalf("missing resource header: %v", got)
+	}
+	if got.Get("Content-Type") != "application/json" {
+		t.Fatalf("missing caller header: %v", got)
+	}
+	if got.Get(sdk.HeaderAuthorization) != "Bearer tok" {
+		t.Fatalf("missing authorization: %v", got)
+	}
+}
+
 func TestGatewayRequestRejectsInvalidInputs(t *testing.T) {
 	c := &sdk.Caracal{GatewayURL: "https://gateway.example.com/proxy"}
 	if _, err := (&sdk.Caracal{}).GatewayRequest("resource://calendar", "/events"); err == nil {
