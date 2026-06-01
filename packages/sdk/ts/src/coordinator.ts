@@ -53,6 +53,7 @@ export interface DelegationRequest {
   sourceSessionId: string;
   targetSessionId: string;
   receiverApplicationId: string;
+  parentEdgeId?: string;
   resourceId?: string;
   scopes: string[];
   constraints?: DelegationConstraints;
@@ -176,6 +177,7 @@ export async function createDelegation(
     source_session_id: req.sourceSessionId,
     target_session_id: req.targetSessionId,
     receiver_application_id: req.receiverApplicationId,
+    parent_edge_id: req.parentEdgeId,
     resource_id: req.resourceId ?? null,
     scopes: req.scopes,
     constraints,

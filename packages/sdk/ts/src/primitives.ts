@@ -55,11 +55,13 @@ export async function spawn<T>(input: SpawnInput, fn: () => Promise<T>): Promise
     traceId: input.traceId ?? parent?.traceId,
     hop: parent?.hop ?? 0,
   };
-  if (input.onAgentStart) await input.onAgentStart(ctx);
+  let started = false;
   try {
+    if (input.onAgentStart) await input.onAgentStart(ctx);
+    started = true;
     return await (bind(ctx, fn) as Promise<T>);
   } finally {
-    if (input.onAgentEnd) await input.onAgentEnd(ctx);
+    if (started && input.onAgentEnd) await input.onAgentEnd(ctx);
     if (kind !== AgentKind.Service) {
       await terminateAgent(input.coordinator, bearer, input.zoneId, res.agent_session_id);
     }
@@ -91,6 +93,7 @@ export async function delegate<T>(
     sourceSessionId: ctx.agentSessionId,
     targetSessionId: input.toAgentSessionId,
     receiverApplicationId: input.toApplicationId,
+    parentEdgeId: ctx.delegationEdgeId,
     resourceId: input.resourceId,
     scopes: input.scopes,
     constraints: input.constraints,
@@ -155,6 +158,7 @@ export async function delegateToSpawn<T>(
       sourceSessionId: parent.agentSessionId,
       targetSessionId: spawnRes.agent_session_id,
       receiverApplicationId: input.applicationId,
+      parentEdgeId: parent.delegationEdgeId,
       resourceId: input.resourceId,
       scopes: input.scopes,
       constraints: input.constraints,
@@ -177,11 +181,13 @@ export async function delegateToSpawn<T>(
     traceId: input.traceId ?? parent.traceId,
     hop: parent.hop + 1,
   };
-  if (input.onAgentStart) await input.onAgentStart(ctx);
+  let started = false;
   try {
+    if (input.onAgentStart) await input.onAgentStart(ctx);
+    started = true;
     return await (bind(ctx, fn) as Promise<T>);
   } finally {
-    if (input.onAgentEnd) await input.onAgentEnd(ctx);
+    if (started && input.onAgentEnd) await input.onAgentEnd(ctx);
     if (kind !== AgentKind.Service) {
       await terminateAgent(input.coordinator, input.subjectToken, input.zoneId, spawnRes.agent_session_id);
     }

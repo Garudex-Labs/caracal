@@ -11,6 +11,7 @@ interface Entry {
 
 export class InMemoryRevocationStore implements RevocationStore {
   private readonly entries = new Map<string, Entry>()
+  private readonly delegationEpochs = new Map<string, Entry & { epoch: number }>()
   private readonly defaultTtlMs: number
   private readonly maxEntries: number
 
@@ -35,6 +36,25 @@ export class InMemoryRevocationStore implements RevocationStore {
       if (this.entries.size >= this.maxEntries) throw new Error('Revocation store capacity exceeded')
     }
     this.entries.set(sid, { expiresAt: Date.now() + (ttlMs ?? this.defaultTtlMs) })
+  }
+
+  currentDelegationEpoch(zoneId: string): number {
+    const entry = this.delegationEpochs.get(zoneId)
+    if (!entry) return 0
+    if (entry.expiresAt <= Date.now()) {
+      this.delegationEpochs.delete(zoneId)
+      return 0
+    }
+    return entry.epoch
+  }
+
+  markDelegationEpoch(zoneId: string, epoch: number, ttlMs?: number): void {
+    const current = this.currentDelegationEpoch(zoneId)
+    if (epoch <= current) return
+    this.delegationEpochs.set(zoneId, {
+      epoch,
+      expiresAt: Date.now() + (ttlMs ?? this.defaultTtlMs),
+    })
   }
 
   size(): number {
