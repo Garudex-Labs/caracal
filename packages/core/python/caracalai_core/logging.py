@@ -33,7 +33,6 @@ SECRET_KEYS: tuple[str, ...] = (
     "refresh_token",
     "id_token",
     "authorization",
-    "auth",
     "cookie",
     "set-cookie",
     "client_secret",
@@ -48,6 +47,13 @@ SECRET_KEYS: tuple[str, ...] = (
 )
 
 REDACT_VALUE = "***"
+
+# Generic terms that must match a whole word to avoid over-redacting fields
+# such as "author" or "authority".
+_WORD_SECRET_KEYS = ("auth",)
+_WORD_SECRET_RE = re.compile(
+    r"(?:^|[^a-z])(?:" + "|".join(_WORD_SECRET_KEYS) + r")(?:[^a-z]|$)"
+)
 
 _LEVELS = {"debug": 10, "info": 20, "warn": 30, "warning": 30, "error": 40, "fatal": 50, "critical": 50}
 
@@ -71,7 +77,9 @@ def is_secret_key(key: str) -> bool:
     if not key:
         return False
     lk = key.lower()
-    return any(s in lk for s in SECRET_KEYS)
+    if any(s in lk for s in SECRET_KEYS):
+        return True
+    return _WORD_SECRET_RE.search(lk) is not None
 
 
 def redact_string(s: str) -> str:

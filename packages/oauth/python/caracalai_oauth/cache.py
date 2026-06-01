@@ -8,11 +8,16 @@ Bounded in-memory token cache keyed by hashed subject and resource.
 from __future__ import annotations
 
 from collections import OrderedDict
-from hashlib import sha256
+from hmac import new as hmac_new
+from os import urandom
 from time import time
 from typing import Protocol
 
 from .types import TokenExchangeResponse
+
+# Per-process random key so cache keys cannot be recomputed from a known
+# subject token by an observer.
+_CACHE_KEY_SECRET = urandom(32)
 
 
 class TokenCache(Protocol):
@@ -51,4 +56,6 @@ class InMemoryTokenCache:
 
 
 def _cache_key(subject_token: str, resource: str) -> str:
-    return sha256(f"{subject_token}\0{resource}".encode()).hexdigest()
+    return hmac_new(
+        _CACHE_KEY_SECRET, f"{subject_token}\0{resource}".encode(), "sha256"
+    ).hexdigest()

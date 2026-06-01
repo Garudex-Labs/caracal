@@ -6,12 +6,26 @@
 package oauth
 
 import (
+	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"sync"
 	"time"
 )
+
+// cacheKeySecret is a per-process random key so cache keys cannot be
+// recomputed from a known subject token by an observer.
+var cacheKeySecret = mustRandomBytes(32)
+
+func mustRandomBytes(n int) []byte {
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		panic(err)
+	}
+	return b
+}
 
 // TokenCache stores token exchange responses by subject and resource identity.
 type TokenCache interface {
@@ -97,6 +111,9 @@ func (c *InMemoryTokenCache) removeOrder(key string) {
 }
 
 func cacheKey(subjectToken, resource string) string {
-	sum := sha256.Sum256([]byte(subjectToken + "\x00" + resource))
-	return hex.EncodeToString(sum[:])
+	mac := hmac.New(sha256.New, cacheKeySecret)
+	mac.Write([]byte(subjectToken))
+	mac.Write([]byte{0})
+	mac.Write([]byte(resource))
+	return hex.EncodeToString(mac.Sum(nil))
 }

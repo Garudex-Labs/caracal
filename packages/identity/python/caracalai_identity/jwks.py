@@ -4,11 +4,39 @@
 # JWKS cache with 5-min TTL.
 
 import asyncio
+import ipaddress
+import os
 import time
+from urllib.parse import urlsplit
 import httpx
 from caracalai_core import JsonValue
 
 _TTL = 300.0
+
+
+def _assert_secure_issuer(issuer: str) -> None:
+    parts = urlsplit(issuer)
+    if parts.scheme == "https":
+        return
+    if parts.scheme == "http":
+        insecure_allowed = (
+            _is_loopback_host(parts.hostname)
+            or os.environ.get("CARACAL_ALLOW_INSECURE_CONFIG_URLS") == "true"
+        )
+        if insecure_allowed:
+            return
+    raise ValueError(f"insecure issuer scheme: {parts.scheme or '<none>'}")
+
+
+def _is_loopback_host(host: str | None) -> bool:
+    if host is None:
+        return False
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
 
 
 class JwksCache:
@@ -26,6 +54,7 @@ class JwksCache:
             return lock
 
     async def get_keys(self, issuer: str) -> list[dict[str, JsonValue]]:
+        _assert_secure_issuer(issuer)
         url = issuer.rstrip("/") + "/.well-known/jwks.json"
         entry = self._cache.get(issuer)
         if entry and time.monotonic() - entry[1] < _TTL:

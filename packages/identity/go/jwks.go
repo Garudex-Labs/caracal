@@ -13,7 +13,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"net"
 	"net/http"
+	"net/url"
+	"os"
 	"sync"
 	"time"
 )
@@ -41,6 +44,9 @@ func GetJWKS(issuer string) (map[string]*ecdsa.PublicKey, error) {
 
 // GetJWKSContext is GetJWKS with caller-supplied cancellation.
 func GetJWKSContext(ctx context.Context, issuer string) (map[string]*ecdsa.PublicKey, error) {
+	if err := assertSecureIssuer(issuer); err != nil {
+		return nil, err
+	}
 	url := issuer + "/.well-known/jwks.json"
 
 	jwksMu.RLock()
@@ -90,6 +96,35 @@ func ResetJWKSCache() {
 	jwksMu.Lock()
 	jwksCache = map[string]*jwksEntry{}
 	jwksMu.Unlock()
+}
+
+// assertSecureIssuer requires the issuer to use https. http is permitted only for
+// loopback hosts, or for any host when CARACAL_ALLOW_INSECURE_CONFIG_URLS=true, so
+// local development and trusted-network deployments are not blocked.
+func assertSecureIssuer(issuer string) error {
+	parsed, err := url.Parse(issuer)
+	if err != nil {
+		return fmt.Errorf("invalid issuer url: %w", err)
+	}
+	switch parsed.Scheme {
+	case "https":
+		return nil
+	case "http":
+		if isLoopbackHost(parsed.Hostname()) || os.Getenv("CARACAL_ALLOW_INSECURE_CONFIG_URLS") == "true" {
+			return nil
+		}
+		return fmt.Errorf("insecure issuer scheme: http requires a loopback host or CARACAL_ALLOW_INSECURE_CONFIG_URLS=true")
+	default:
+		return fmt.Errorf("unsupported issuer scheme: %q", parsed.Scheme)
+	}
+}
+
+func isLoopbackHost(host string) bool {
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // ParseECJWK decodes a single EC P-256 JWK (RFC 7517) and returns the public key together
