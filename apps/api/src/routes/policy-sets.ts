@@ -20,6 +20,7 @@ import { zoneExists } from '../zone-guard.js'
 import { OPA_INPUT_SCHEMA_VERSION, validateAuthzPolicy, validatePolicySchemaVersion } from '../rego.js'
 import { appendKeysetCondition, parseListPagination, setNextLink } from './list-pagination.js'
 import type { Queryable } from '../db.js'
+import { withTransaction, TxAbort } from '../db.js'
 
 const MANIFEST_MAX_ENTRIES = 256
 
@@ -97,9 +98,7 @@ export const policySetsRoutes: FastifyPluginAsync = async (fastify) => {
     const body = PolicySetBody.parse(req.body)
     const id = uuidv7()
 
-    const client = await fastify.db.connect()
-    try {
-      await client.query('BEGIN')
+    return withTransaction(fastify.db, async (client) => {
       const { rows } = await client.query(
         `INSERT INTO policy_sets (id, zone_id, name, description, created_by)
          VALUES ($1, $2, $3, $4, $5)
@@ -111,14 +110,8 @@ export const policySetsRoutes: FastifyPluginAsync = async (fastify) => {
          VALUES ($1, $2)`,
         [params.zoneId, id],
       )
-      await client.query('COMMIT')
       return reply.code(201).send(rows[0])
-    } catch (err) {
-      await client.query('ROLLBACK')
-      throw err
-    } finally {
-      client.release()
-    }
+    })
   })
 
   fastify.post('/zones/:zoneId/policy-sets/:id/versions', async (req, reply) => {
@@ -137,9 +130,7 @@ export const policySetsRoutes: FastifyPluginAsync = async (fastify) => {
     const contractErr = await policySetContractError(fastify.db, params.zoneId, body.manifest, body.schema_version)
     if (contractErr) return reply.code(422).send({ error: 'invalid_policy_contract', detail: contractErr })
 
-    const client = await fastify.db.connect()
-    try {
-      await client.query('BEGIN')
+    return withTransaction(fastify.db, async (client) => {
       await client.query(`SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`, [params.id])
       const manifestJSON = JSON.stringify(body.manifest)
       const manifestSHA = sha256Hex(manifestJSON)
@@ -155,14 +146,8 @@ export const policySetsRoutes: FastifyPluginAsync = async (fastify) => {
          RETURNING id, policy_set_id, version, manifest_sha256, schema_version, created_at`,
         [versionId, params.id, manifestJSON, manifestSHA, body.schema_version, req.actor.name],
       )
-      await client.query('COMMIT')
       return reply.code(201).send(rows[0])
-    } catch (err) {
-      await client.query('ROLLBACK')
-      throw err
-    } finally {
-      client.release()
-    }
+    })
   })
 
   fastify.get('/zones/:zoneId/policy-sets/:id/versions/:versionId', async (req, reply) => {
@@ -211,10 +196,7 @@ export const policySetsRoutes: FastifyPluginAsync = async (fastify) => {
       if (shadowErr) return reply.code(422).send({ error: 'invalid_shadow_policy_contract', detail: shadowErr })
     }
 
-    const client = await fastify.db.connect()
-    let outboxId: string
-    try {
-      await client.query('BEGIN')
+    const outboxId = await withTransaction(fastify.db, async (client) => {
       const referencedIds = collectManifestIds(vRows[0].manifest_json)
       if (body.shadow_version_id) {
         const { rows: shadowVer } = await client.query<{ manifest_json: PolicyManifest }>(
@@ -232,8 +214,7 @@ export const policySetsRoutes: FastifyPluginAsync = async (fastify) => {
           [Array.from(new Set(referencedIds))],
         )
         if ((lockedCount ?? 0) !== new Set(referencedIds).size) {
-          await client.query('ROLLBACK')
-          return reply.code(409).send({ error: 'referenced_policy_version_missing' })
+          throw new TxAbort(reply.code(409).send({ error: 'referenced_policy_version_missing' }))
         }
       }
       const { rowCount } = await client.query(
@@ -243,10 +224,9 @@ export const policySetsRoutes: FastifyPluginAsync = async (fastify) => {
         [body.version_id, body.shadow_version_id ?? null, params.zoneId, params.id],
       )
       if (!rowCount) {
-        await client.query('ROLLBACK')
-        return reply.code(404).send({ error: 'policy_set_binding_not_found' })
+        throw new TxAbort(reply.code(404).send({ error: 'policy_set_binding_not_found' }))
       }
-      outboxId = await enqueueOutbox(client, {
+      return enqueueOutbox(client, {
         streamName: STREAM_POLICY_INVALIDATE,
         payload: {
           zone_id: params.zoneId,
@@ -256,13 +236,9 @@ export const policySetsRoutes: FastifyPluginAsync = async (fastify) => {
         },
         requestId: req.id,
       })
-      await client.query('COMMIT')
-    } catch (err) {
-      await client.query('ROLLBACK')
-      throw err
-    } finally {
-      client.release()
-    }
+    })
+
+    if (reply.sent) return reply
 
     return reply.code(202).send({
       activated: true,

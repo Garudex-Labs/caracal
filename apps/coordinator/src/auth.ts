@@ -170,6 +170,10 @@ export async function verifyBearer(req: FastifyRequest, reply: FastifyReply): Pr
       return
     }
   }
+  if (OPERATOR_TOKEN_PATHS.has(path)) {
+    reply.code(403).send({ error: 'operator_token_required' })
+    return
+  }
   let payload: Awaited<ReturnType<typeof jwtVerify>>['payload']
   let tokenZone: string
   try {

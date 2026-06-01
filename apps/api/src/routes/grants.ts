@@ -14,6 +14,7 @@ import { v7 as uuidv7 } from 'uuid'
 import { scopesAllowed } from '@caracalai/core'
 import { STREAM_SESSIONS_REVOKE } from '../redis.js'
 import { enqueueOutbox } from '../outbox.js'
+import { withTransaction, TxAbort } from '../db.js'
 import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
 import { zoneExists } from '../zone-guard.js'
 import { appendKeysetCondition, parseListPagination, setNextLink } from './list-pagination.js'
@@ -651,19 +652,14 @@ export const grantsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.delete('/zones/:zoneId/grants/:id', async (req, reply) => {
     const params = parseParams(ZoneIdParams, req, reply)
     if (!params) return
-    const client = await fastify.db.connect()
-    try {
-      await client.query('BEGIN')
+    return withTransaction(fastify.db, async (client) => {
       const { rows } = await client.query<{ user_id: string }>(
         `UPDATE delegated_grants SET status = 'revoked'
          WHERE id = $1 AND zone_id = $2
          RETURNING user_id`,
         [params.id, params.zoneId],
       )
-      if (!rows[0]) {
-        await client.query('ROLLBACK')
-        return reply.code(404).send({ error: 'grant_not_found' })
-      }
+      if (!rows[0]) throw new TxAbort(reply.code(404).send({ error: 'grant_not_found' }))
 
       // Page session revocation so a grant covering many active sessions cannot
       // hold a long-running UPDATE lock or flood the outbox in a single batch.
@@ -690,13 +686,7 @@ export const grantsRoutes: FastifyPluginAsync = async (fastify) => {
         if (sessions.length < SESSION_REVOKE_BATCH) break
       }
 
-      await client.query('COMMIT')
       return reply.code(204).send()
-    } catch (err) {
-      await client.query('ROLLBACK')
-      throw err
-    } finally {
-      client.release()
-    }
+    })
   })
 }

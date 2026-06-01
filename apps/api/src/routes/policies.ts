@@ -9,6 +9,7 @@ import { sha256Hex } from '@caracalai/core'
 import { v7 as uuidv7 } from 'uuid'
 import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
 import { zoneExists } from '../zone-guard.js'
+import { withTransaction, TxAbort } from '../db.js'
 import { OPA_INPUT_SCHEMA_VERSION, analyzeAuthzPolicy, validateAuthzPolicy, validatePolicySchemaVersion } from '../rego.js'
 import { appendKeysetCondition, parseListPagination, setNextLink } from './list-pagination.js'
 
@@ -106,9 +107,7 @@ export const policiesRoutes: FastifyPluginAsync = async (fastify) => {
     const contentSHA = sha256Hex(body.content)
     const createdBy = req.actor.name
 
-    const client = await fastify.db.connect()
-    try {
-      await client.query('BEGIN')
+    return withTransaction(fastify.db, async (client) => {
       await client.query(
         `INSERT INTO policies (id, zone_id, name, description, owner_type, created_by)
          VALUES ($1, $2, $3, $4, $5, $6)`,
@@ -120,14 +119,8 @@ export const policiesRoutes: FastifyPluginAsync = async (fastify) => {
          RETURNING id, policy_id, version, content_sha256, schema_version, created_at`,
         [versionId, policyId, body.content, contentSHA, body.schema_version, createdBy],
       )
-      await client.query('COMMIT')
       return reply.code(201).send({ id: policyId, zone_id: params.zoneId, name: body.name, description: body.description ?? null, version: rows[0] })
-    } catch (err) {
-      await client.query('ROLLBACK')
-      throw err
-    } finally {
-      client.release()
-    }
+    })
   })
 
   fastify.post('/zones/:zoneId/policies/:id/versions', async (req, reply) => {
@@ -141,18 +134,13 @@ export const policiesRoutes: FastifyPluginAsync = async (fastify) => {
 
     const versionId = uuidv7()
     const contentSHA = sha256Hex(body.content)
-    const client = await fastify.db.connect()
-    try {
-      await client.query('BEGIN')
+    return withTransaction(fastify.db, async (client) => {
       await client.query(`SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`, [params.id])
       const { rows: policyRows } = await client.query(
         `SELECT id FROM policies WHERE id = $1 AND zone_id = $2 AND archived_at IS NULL`,
         [params.id, params.zoneId],
       )
-      if (!policyRows[0]) {
-        await client.query('ROLLBACK')
-        return reply.code(404).send({ error: 'policy_not_found' })
-      }
+      if (!policyRows[0]) throw new TxAbort(reply.code(404).send({ error: 'policy_not_found' }))
       const { rows } = await client.query(
         `WITH next AS (
            SELECT COALESCE(MAX(version), 0) + 1 AS v
@@ -163,14 +151,8 @@ export const policiesRoutes: FastifyPluginAsync = async (fastify) => {
          RETURNING id, policy_id, version, content_sha256, schema_version, created_at`,
         [versionId, params.id, body.content, contentSHA, body.schema_version, req.actor.name],
       )
-      await client.query('COMMIT')
       return reply.code(201).send(rows[0])
-    } catch (err) {
-      await client.query('ROLLBACK')
-      throw err
-    } finally {
-      client.release()
-    }
+    })
   })
 
   fastify.delete('/zones/:zoneId/policies/:id', async (req, reply) => {

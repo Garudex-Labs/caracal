@@ -10,6 +10,7 @@ import { v7 as uuidv7 } from 'uuid'
 import { buildPatchUpdate, patchColumn } from './patch.js'
 import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
 import { zoneExists } from '../zone-guard.js'
+import { withTransaction, TxAbort } from '../db.js'
 import { appendKeysetCondition, parseListPagination, setNextLink } from './list-pagination.js'
 
 const HttpURL = z.string().url().refine((value) => {
@@ -289,24 +290,21 @@ export const resourcesRoutes: FastifyPluginAsync = async (fastify) => {
         throw err
       }
     }
-    const client = await fastify.db.connect()
+    const gatewayApplicationId = body.gateway_application_id
     try {
-      await client.query('BEGIN')
-      const { rows } = await client.query(
-        `INSERT INTO resources (id, zone_id, name, identifier, upstream_url, scopes, credential_provider_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
-         RETURNING id, zone_id, name, identifier, upstream_url, scopes, credential_provider_id, created_at, updated_at`,
-        [id, params.zoneId, body.name ?? identifier, identifier, body.upstream_url, body.scopes, credentialProviderID],
-      )
-      await syncGatewayBinding(client, params.zoneId, identifier, body.gateway_application_id)
-      await client.query('COMMIT')
-      return reply.code(201).send({ ...rows[0], gateway_application_id: body.gateway_application_id })
+      return await withTransaction(fastify.db, async (client) => {
+        const { rows } = await client.query(
+          `INSERT INTO resources (id, zone_id, name, identifier, upstream_url, scopes, credential_provider_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)
+           RETURNING id, zone_id, name, identifier, upstream_url, scopes, credential_provider_id, created_at, updated_at`,
+          [id, params.zoneId, body.name ?? identifier, identifier, body.upstream_url, body.scopes, credentialProviderID],
+        )
+        await syncGatewayBinding(client, params.zoneId, identifier, gatewayApplicationId)
+        return reply.code(201).send({ ...rows[0], gateway_application_id: gatewayApplicationId })
+      })
     } catch (err) {
-      await client.query('ROLLBACK')
       if (isResourceIdentifierConflict(err)) return reply.code(409).send({ error: 'resource_identifier_conflict' })
       throw err
-    } finally {
-      client.release()
     }
   })
 
@@ -324,103 +322,88 @@ export const resourcesRoutes: FastifyPluginAsync = async (fastify) => {
     if (body.gateway_application_id && !(await applicationExists(fastify, params.zoneId, body.gateway_application_id))) {
       return reply.code(404).send({ error: 'gateway_application_not_found' })
     }
-    const client = await fastify.db.connect()
     try {
-      await client.query('BEGIN')
-      const { rows: currentRows } = await client.query<{
-        identifier: string
-        upstream_url: string | null
-        credential_provider_id: string | null
-        gateway_application_id: string | null
-      }>(
-        `SELECT r.identifier, r.upstream_url, r.credential_provider_id, b.application_id AS gateway_application_id
-         FROM resources r
-         LEFT JOIN gateway_resource_bindings b
-           ON b.zone_id = r.zone_id AND b.resource_identifier = r.identifier
-         WHERE r.id = $1 AND r.zone_id = $2 AND r.archived_at IS NULL
-         FOR UPDATE OF r`,
-        [params.id, params.zoneId],
-      )
-      const current = currentRows[0]
-      if (!current) {
-        await client.query('ROLLBACK')
-        return reply.code(404).send({ error: 'resource_not_found' })
-      }
-      const nextIdentifier = body.identifier ?? current.identifier
-      const identifierError = validateResourceIdentifier(nextIdentifier)
-      if (identifierError) {
-        await client.query('ROLLBACK')
-        return reply.code(400).send({ error: 'invalid_resource_identifier', message: identifierError })
-      }
-      if ((isControlResource(current.identifier) || isControlResource(nextIdentifier)) && !isControlResourceOperation(req)) {
-        await client.query('ROLLBACK')
-        return reply.code(409).send({ error: 'protected_resource', detail: 'control API resource is managed only through the Control console path' })
-      }
-      const nextUpstreamURL = body.upstream_url !== undefined ? body.upstream_url : current.upstream_url
-      const nextGatewayApplicationID = body.gateway_application_id !== undefined
-        ? body.gateway_application_id
-        : current.gateway_application_id
-      let nextCredentialProviderID = body.credential_provider_id !== undefined
-        ? body.credential_provider_id
-        : current.credential_provider_id
-      if (isControlResource(nextIdentifier) && isControlResourceOperation(req) && !nextCredentialProviderID) {
-        nextCredentialProviderID = await ensureNoneProvider(client, params.zoneId)
-        body.credential_provider_id = nextCredentialProviderID
-      }
-      const gatewayError = validateGatewayBinding(nextIdentifier, nextUpstreamURL, nextGatewayApplicationID, nextCredentialProviderID)
-      if (gatewayError) {
-        await client.query('ROLLBACK')
-        return reply.code(400).send({ error: gatewayError })
-      }
-      const update = buildPatchUpdate([params.id, params.zoneId], [
-        patchColumn('name', body.name),
-        patchColumn('identifier', body.identifier),
-        patchColumn('upstream_url', body.upstream_url),
-        patchColumn('scopes', body.scopes),
-        patchColumn('credential_provider_id', body.credential_provider_id),
-      ])
-      if (!update && body.gateway_application_id === undefined) {
-        await client.query('ROLLBACK')
-        return reply.code(400).send({ error: 'no_fields' })
-      }
-      let row: unknown
-      if (update) {
-        const { rows } = await client.query(
-          `UPDATE resources SET ${update.sets.join(', ')}, updated_at = now()
-           WHERE id = $1 AND zone_id = $2 AND archived_at IS NULL
-           RETURNING id, zone_id, name, identifier, upstream_url, scopes, credential_provider_id, created_at, updated_at`,
-          update.values,
-        )
-        row = rows[0]
-      } else {
-        const { rows } = await client.query(
-          `SELECT id, zone_id, name, identifier, upstream_url, scopes, credential_provider_id, created_at, updated_at
-           FROM resources WHERE id = $1 AND zone_id = $2 AND archived_at IS NULL`,
+      return await withTransaction(fastify.db, async (client) => {
+        const { rows: currentRows } = await client.query<{
+          identifier: string
+          upstream_url: string | null
+          credential_provider_id: string | null
+          gateway_application_id: string | null
+        }>(
+          `SELECT r.identifier, r.upstream_url, r.credential_provider_id, b.application_id AS gateway_application_id
+           FROM resources r
+           LEFT JOIN gateway_resource_bindings b
+             ON b.zone_id = r.zone_id AND b.resource_identifier = r.identifier
+           WHERE r.id = $1 AND r.zone_id = $2 AND r.archived_at IS NULL
+           FOR UPDATE OF r`,
           [params.id, params.zoneId],
         )
-        row = rows[0]
-      }
-      if (current.identifier !== nextIdentifier) {
-        await syncGatewayBinding(client, params.zoneId, current.identifier, null)
-      }
-      await syncGatewayBinding(client, params.zoneId, nextIdentifier, isControlResource(nextIdentifier) ? null : nextGatewayApplicationID)
-      await client.query('COMMIT')
-      return { ...(row as Record<string, unknown>), gateway_application_id: isControlResource(nextIdentifier) ? null : nextGatewayApplicationID }
+        const current = currentRows[0]
+        if (!current) throw new TxAbort(reply.code(404).send({ error: 'resource_not_found' }))
+        const nextIdentifier = body.identifier ?? current.identifier
+        const identifierError = validateResourceIdentifier(nextIdentifier)
+        if (identifierError) {
+          throw new TxAbort(reply.code(400).send({ error: 'invalid_resource_identifier', message: identifierError }))
+        }
+        if ((isControlResource(current.identifier) || isControlResource(nextIdentifier)) && !isControlResourceOperation(req)) {
+          throw new TxAbort(reply.code(409).send({ error: 'protected_resource', detail: 'control API resource is managed only through the Control console path' }))
+        }
+        const nextUpstreamURL = body.upstream_url !== undefined ? body.upstream_url : current.upstream_url
+        const nextGatewayApplicationID = body.gateway_application_id !== undefined
+          ? body.gateway_application_id
+          : current.gateway_application_id
+        let nextCredentialProviderID = body.credential_provider_id !== undefined
+          ? body.credential_provider_id
+          : current.credential_provider_id
+        if (isControlResource(nextIdentifier) && isControlResourceOperation(req) && !nextCredentialProviderID) {
+          nextCredentialProviderID = await ensureNoneProvider(client, params.zoneId)
+          body.credential_provider_id = nextCredentialProviderID
+        }
+        const gatewayError = validateGatewayBinding(nextIdentifier, nextUpstreamURL, nextGatewayApplicationID, nextCredentialProviderID)
+        if (gatewayError) throw new TxAbort(reply.code(400).send({ error: gatewayError }))
+        const update = buildPatchUpdate([params.id, params.zoneId], [
+          patchColumn('name', body.name),
+          patchColumn('identifier', body.identifier),
+          patchColumn('upstream_url', body.upstream_url),
+          patchColumn('scopes', body.scopes),
+          patchColumn('credential_provider_id', body.credential_provider_id),
+        ])
+        if (!update && body.gateway_application_id === undefined) {
+          throw new TxAbort(reply.code(400).send({ error: 'no_fields' }))
+        }
+        let row: unknown
+        if (update) {
+          const { rows } = await client.query(
+            `UPDATE resources SET ${update.sets.join(', ')}, updated_at = now()
+             WHERE id = $1 AND zone_id = $2 AND archived_at IS NULL
+             RETURNING id, zone_id, name, identifier, upstream_url, scopes, credential_provider_id, created_at, updated_at`,
+            update.values,
+          )
+          row = rows[0]
+        } else {
+          const { rows } = await client.query(
+            `SELECT id, zone_id, name, identifier, upstream_url, scopes, credential_provider_id, created_at, updated_at
+             FROM resources WHERE id = $1 AND zone_id = $2 AND archived_at IS NULL`,
+            [params.id, params.zoneId],
+          )
+          row = rows[0]
+        }
+        if (current.identifier !== nextIdentifier) {
+          await syncGatewayBinding(client, params.zoneId, current.identifier, null)
+        }
+        await syncGatewayBinding(client, params.zoneId, nextIdentifier, isControlResource(nextIdentifier) ? null : nextGatewayApplicationID)
+        return { ...(row as Record<string, unknown>), gateway_application_id: isControlResource(nextIdentifier) ? null : nextGatewayApplicationID }
+      })
     } catch (err) {
-      await client.query('ROLLBACK')
       if (isResourceIdentifierConflict(err)) return reply.code(409).send({ error: 'resource_identifier_conflict' })
       throw err
-    } finally {
-      client.release()
     }
   })
 
   fastify.delete('/zones/:zoneId/resources/:id', async (req, reply) => {
     const params = parseParams(ZoneIdParams, req, reply)
     if (!params) return
-    const client = await fastify.db.connect()
-    try {
-      await client.query('BEGIN')
+    return withTransaction(fastify.db, async (client) => {
       const { rows: currentRows } = await client.query<{ identifier: string }>(
         `SELECT identifier FROM resources
          WHERE id = $1 AND zone_id = $2 AND archived_at IS NULL
@@ -428,13 +411,9 @@ export const resourcesRoutes: FastifyPluginAsync = async (fastify) => {
         [params.id, params.zoneId],
       )
       const current = currentRows[0]
-      if (!current) {
-        await client.query('ROLLBACK')
-        return reply.code(404).send({ error: 'resource_not_found' })
-      }
+      if (!current) throw new TxAbort(reply.code(404).send({ error: 'resource_not_found' }))
       if (isControlResource(current.identifier)) {
-        await client.query('ROLLBACK')
-        return reply.code(409).send({ error: 'protected_resource', detail: 'control API resource cannot be deleted' })
+        throw new TxAbort(reply.code(409).send({ error: 'protected_resource', detail: 'control API resource cannot be deleted' }))
       }
       await client.query(
         `UPDATE resources SET archived_at = now(), updated_at = now()
@@ -442,13 +421,7 @@ export const resourcesRoutes: FastifyPluginAsync = async (fastify) => {
         [params.id, params.zoneId],
       )
       await syncGatewayBinding(client, params.zoneId, current.identifier, null)
-      await client.query('COMMIT')
       return reply.code(204).send()
-    } catch (err) {
-      await client.query('ROLLBACK')
-      throw err
-    } finally {
-      client.release()
-    }
+    })
   })
 }
