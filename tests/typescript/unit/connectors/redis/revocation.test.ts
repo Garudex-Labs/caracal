@@ -6,6 +6,8 @@
 import { describe, expect, it } from 'vitest'
 import { signStream, STREAM_SIG_FIELD } from '../../../../../packages/core/ts/src/crypto.js'
 import {
+  DELEGATION_INVALIDATION_STREAM,
+  RedisDelegationInvalidationConsumer,
   RedisRevocationConsumer,
   RedisRevocationStore,
   REVOCATION_STREAM,
@@ -62,6 +64,16 @@ describe('RedisRevocationStore', () => {
     const store = new RedisRevocationStore(redis)
 
     expect(await store.isRevoked('sid-1')).toBe(true)
+  })
+
+  it('tracks the latest delegation graph epoch', async () => {
+    const redis = new FakeRedis()
+    const store = new RedisRevocationStore(redis)
+
+    await store.markDelegationEpoch('zone1', 7)
+    await store.markDelegationEpoch('zone1', 6)
+
+    expect(await store.currentDelegationEpoch('zone1')).toBe(7)
   })
 })
 
@@ -137,5 +149,37 @@ describe('RedisRevocationConsumer', () => {
     expect(await consumer.pollOnce()).toBe(1)
     expect(await store.isRevoked('sid-pending')).toBe(true)
     expect(redis.acked).toEqual(['0-1'])
+  })
+})
+
+describe('RedisDelegationInvalidationConsumer', () => {
+  it('marks signed delegation graph epochs', async () => {
+    const redis = new FakeRedis()
+    const store = new RedisRevocationStore(redis)
+    const key = Buffer.alloc(32, 7)
+    const values = {
+      event: 'edge_revoke',
+      zone_id: 'zone1',
+      edge_id: 'edge-1',
+      epoch: '9',
+    }
+    const sig = signStream(key, DELEGATION_INVALIDATION_STREAM, values)
+    redis.stream = [[DELEGATION_INVALIDATION_STREAM, [['1-0', [
+      'event', 'edge_revoke',
+      'zone_id', 'zone1',
+      'edge_id', 'edge-1',
+      'epoch', '9',
+      STREAM_SIG_FIELD, sig,
+    ]]]]]
+
+    const consumer = new RedisDelegationInvalidationConsumer(redis, store, {
+      consumer: 'resource-1',
+      streamHmacKey: key,
+      requireSignature: true,
+    })
+
+    expect(await consumer.pollOnce()).toBe(1)
+    expect(await store.currentDelegationEpoch('zone1')).toBe(9)
+    expect(redis.acked).toEqual(['1-0'])
   })
 })

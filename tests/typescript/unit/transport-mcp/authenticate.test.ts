@@ -9,6 +9,8 @@ import { authenticate, checkActiveAuthority, createMandateVerifier, extractBeare
 const revocations = {
   isRevoked: vi.fn(),
   markRevoked: vi.fn(),
+  currentDelegationEpoch: vi.fn(),
+  markDelegationEpoch: vi.fn(),
 }
 
 let issuerId = 0
@@ -84,6 +86,8 @@ describe('transport-mcp authentication', () => {
   afterEach(() => {
     revocations.isRevoked.mockReset()
     revocations.markRevoked.mockReset()
+    revocations.currentDelegationEpoch.mockReset()
+    revocations.markDelegationEpoch.mockReset()
     jwksByIssuer.clear()
     vi.unstubAllGlobals()
   })
@@ -189,6 +193,25 @@ describe('transport-mcp authentication', () => {
       ok: false,
       error: { code: 'session_revoked', description: 'Session revoked' },
     })
+  })
+
+  it('rejects delegated tokens from stale graph epochs', async () => {
+    const { token, issuer, audience } = await mintToken({
+      delegation_edge_id: 'edge-1',
+      delegation_graph_epoch: 7,
+    })
+    revocations.isRevoked.mockResolvedValue(false)
+    revocations.currentDelegationEpoch.mockResolvedValue(8)
+
+    await expect(authenticate(token, {
+      issuer,
+      audience,
+      revocations,
+    })).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'delegation_stale', description: 'Delegation graph changed' },
+    })
+    expect(revocations.currentDelegationEpoch).toHaveBeenCalledWith('zone-1')
   })
 
   it.each([

@@ -89,6 +89,24 @@ describe('spawn', () => {
     expect(calls.some((c) => c.method === 'DELETE')).toBe(true)
   })
 
+  it('terminates without running onAgentEnd when onAgentStart throws', async () => {
+    const { client, calls } = recorder()
+    const onAgentEnd = vi.fn()
+    await expect(spawn(
+      {
+        coordinator: client,
+        zoneId: 'zone-1',
+        applicationId: 'app-1',
+        subjectToken: 'tok',
+        onAgentStart: async () => { throw new Error('start failed') },
+        onAgentEnd,
+      },
+      async () => undefined,
+    )).rejects.toThrow('start failed')
+    expect(onAgentEnd).not.toHaveBeenCalled()
+    expect(calls.some((c) => c.method === 'DELETE')).toBe(true)
+  })
+
   it('inherits the parent agent session as parentId', async () => {
     const { client, calls } = recorder()
     await bind(baseCtx(), async () => {
@@ -176,6 +194,28 @@ describe('delegateToSpawn', () => {
         async () => undefined,
       )).rejects.toThrow()
     })
+    expect(calls.some((c) => c.method === 'DELETE')).toBe(true)
+  })
+
+  it('terminates without running onAgentEnd when delegated child start hook throws', async () => {
+    const { client, calls } = recorder('agent-child', 'edge-child')
+    const onAgentEnd = vi.fn()
+
+    await bind(baseCtx(), async () => {
+      await expect(delegateToSpawn(
+        {
+          coordinator: client,
+          zoneId: 'zone-1',
+          applicationId: 'app-2',
+          subjectToken: 'tok',
+          scopes: ['read'],
+          onAgentStart: async () => { throw new Error('start failed') },
+          onAgentEnd,
+        },
+        async () => undefined,
+      )).rejects.toThrow('start failed')
+    })
+    expect(onAgentEnd).not.toHaveBeenCalled()
     expect(calls.some((c) => c.method === 'DELETE')).toBe(true)
   })
 

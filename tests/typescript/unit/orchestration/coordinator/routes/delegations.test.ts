@@ -281,9 +281,12 @@ describe('POST /v1/zones/:zoneId/delegations', () => {
 
     expect(res.statusCode).toBe(201)
     expect(JSON.parse(res.body)).toMatchObject({ id: 'edge-sdk' })
+    const resourceCall = client.query.mock.calls.find((call) => String(call[0]).includes('FROM resources r'))
+    expect(String(resourceCall?.[0])).toContain('gateway_resource_bindings b')
+    expect(String(resourceCall?.[0])).not.toContain('r.application_id')
     const insertCall = client.query.mock.calls.find((call) => String(call[0]).includes('INSERT INTO delegation_edges'))
     const values = insertCall?.[1] as unknown[]
-    expect(values[8]).toMatchObject({ resources: ['calendar'], max_depth: 2, max_hops: 2, ttl_seconds: 30 })
+    expect(values[9]).toMatchObject({ resources: ['calendar'], max_depth: 2, max_hops: 2, ttl_seconds: 30 })
   })
 
   it('rejects child delegation that widens parent authority', async () => {
@@ -326,6 +329,115 @@ describe('POST /v1/zones/:zoneId/delegations', () => {
 
     expect(res.statusCode).toBe(403)
     expect(JSON.parse(res.body)).toMatchObject({ error: 'delegation_exceeds_parent_authority' })
+  })
+
+  it('rejects ambiguous downstream delegation when multiple parent edges could authorize it', async () => {
+    const { app, db } = buildApp()
+    const client = {
+      query: vi.fn()
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [
+          { id: 'src-1', application_id: 'issuer-1' },
+          { id: 'dst-1', application_id: 'receiver-1' },
+        ] })
+        .mockResolvedValueOnce({ rows: [
+          { id: 'res-1', identifier: 'calendar', application_id: 'issuer-1', scopes: ['read'] },
+        ] })
+        .mockResolvedValueOnce({ rows: [
+          {
+            id: 'parent-edge-a',
+            resource_id: 'res-1',
+            resource_identifier: 'calendar',
+            scopes: ['read'],
+            constraints_json: { max_hops: 2 },
+            expires_at: '2027-03-16T00:00:00.000Z',
+          },
+          {
+            id: 'parent-edge-b',
+            resource_id: 'res-1',
+            resource_identifier: 'calendar',
+            scopes: ['read'],
+            constraints_json: { max_hops: 2 },
+            expires_at: '2027-03-16T00:00:00.000Z',
+          },
+        ] })
+        .mockResolvedValueOnce({ rows: [] }),
+      release: vi.fn(),
+    }
+    db.connect.mockResolvedValueOnce(client)
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/delegations',
+      payload: {
+        ...delegationBody,
+        resource_id: 'res-1',
+        constraints: { max_hops: 1 },
+      },
+    })
+
+    expect(res.statusCode).toBe(409)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'parent_delegation_ambiguous' })
+  })
+
+  it('records the selected parent edge for downstream delegation', async () => {
+    const { app, db } = buildApp()
+    const client = {
+      query: vi.fn()
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [
+          { id: 'src-1', application_id: 'issuer-1' },
+          { id: 'dst-1', application_id: 'receiver-1' },
+        ] })
+        .mockResolvedValueOnce({ rows: [
+          { id: 'res-1', identifier: 'calendar', application_id: 'issuer-1', scopes: ['read'] },
+        ] })
+        .mockResolvedValueOnce({ rows: [
+          {
+            id: 'parent-edge-a',
+            resource_id: 'res-1',
+            resource_identifier: 'calendar',
+            scopes: ['read'],
+            constraints_json: { max_hops: 2 },
+            expires_at: '2027-03-16T00:00:00.000Z',
+          },
+          {
+            id: 'parent-edge-b',
+            resource_id: 'res-1',
+            resource_identifier: 'calendar',
+            scopes: ['read'],
+            constraints_json: { max_hops: 2 },
+            expires_at: '2027-03-16T00:00:00.000Z',
+          },
+        ] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [{ id: 'edge-child', parent_edge_id: 'parent-edge-b' }] })
+        .mockResolvedValueOnce({ rows: [{ epoch: '1' }] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [] }),
+      release: vi.fn(),
+    }
+    db.connect.mockResolvedValueOnce(client)
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/delegations',
+      payload: {
+        ...delegationBody,
+        parent_edge_id: 'parent-edge-b',
+        resource_id: 'res-1',
+        constraints: { max_hops: 1 },
+      },
+    })
+
+    expect(res.statusCode).toBe(201)
+    const insertCall = client.query.mock.calls.find((call) => String(call[0]).includes('INSERT INTO delegation_edges'))
+    const values = insertCall?.[1] as unknown[]
+    expect(values[6]).toBe('parent-edge-b')
   })
 })
 
