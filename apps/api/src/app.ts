@@ -16,7 +16,7 @@ import type { DB } from './db.js'
 import type { RedisClient } from './redis.js'
 import { adminAuthPlugin } from './auth.js'
 import { registerAdminAuditHook } from './admin-audit.js'
-import { isPublished, getTraceContext, parseTraceparent, bindTrace, renderObservabilityMetrics, buildPinoRedactPaths, instrumentFastifyApp, withTimeout } from '@caracalai/core'
+import { isPublished, getTraceContext, parseTraceparent, bindTrace, renderObservabilityMetrics, buildPinoRedactPaths, instrumentFastifyApp, withTimeout, CaracalError } from '@caracalai/core'
 import { zonesRoutes } from './routes/zones.js'
 import { applicationsRoutes } from './routes/applications.js'
 import { resourcesRoutes } from './routes/resources.js'
@@ -160,13 +160,23 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
 
   app.setErrorHandler((err, req, reply) => {
     if (err instanceof ZodError) {
-      reply.code(400).send({ error: 'invalid_body', issues: err.issues.map((i) => ({ path: i.path, message: i.message })) })
+      const issues = err.issues.map((i) => ({ path: i.path.map(String), message: i.message }))
+      reply.code(400).send(
+        new CaracalError('invalid_body', 'Request body failed validation', {
+          requestId: req.id,
+          details: { issues },
+        }).toJSON(),
+      )
       return
     }
     req.log.error({ err }, 'unhandled route error')
     const status = (err as { statusCode?: number }).statusCode
-    reply.code(typeof status === 'number' && status >= 400 && status < 600 ? status : 500)
-      .send({ error: 'internal_error' })
+    const code = typeof status === 'number' && status >= 400 && status < 600 ? status : 500
+    reply.code(code).send(
+      new CaracalError('internal_error', 'The service failed to process the request', {
+        requestId: req.id,
+      }).toJSON(),
+    )
   })
 
   app.addHook('onSend', async (req, reply, payload) => {

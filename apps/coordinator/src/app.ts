@@ -9,7 +9,7 @@ import pino from 'pino'
 import type { Pool } from 'pg'
 import type { Redis as RedisClient } from 'ioredis'
 import { ZodError } from 'zod'
-import { getTraceContext, parseTraceparent, bindTrace, renderObservabilityMetrics, devLogMetrics, buildPinoRedactPaths, instrumentFastifyApp, withTimeout } from '@caracalai/core'
+import { getTraceContext, parseTraceparent, bindTrace, renderObservabilityMetrics, devLogMetrics, buildPinoRedactPaths, instrumentFastifyApp, withTimeout, CaracalError } from '@caracalai/core'
 import { agentsRoutes } from './routes/agents.js'
 import { agentServicesRoutes } from './routes/agent-services.js'
 import { delegationsRoutes } from './routes/delegations.js'
@@ -100,16 +100,23 @@ export async function buildApp({ cfg, db, redis, isDraining }: CoordinatorDeps) 
   instrumentFastifyApp(app, 'caracal-coordinator')
   app.setErrorHandler((err, req, reply) => {
     if (err instanceof ZodError) {
-      reply
-        .code(400)
-        .send({ error: 'invalid_body', issues: err.issues.map((i) => ({ path: i.path, message: i.message })) })
+      const issues = err.issues.map((i) => ({ path: i.path.map(String), message: i.message }))
+      reply.code(400).send(
+        new CaracalError('invalid_body', 'Request body failed validation', {
+          requestId: req.id,
+          details: { issues },
+        }).toJSON(),
+      )
       return
     }
     req.log.error({ err }, 'unhandled route error')
     const status = (err as { statusCode?: number }).statusCode
-    reply
-      .code(typeof status === 'number' && status >= 400 && status < 600 ? status : 500)
-      .send({ error: 'internal_error' })
+    const code = typeof status === 'number' && status >= 400 && status < 600 ? status : 500
+    reply.code(code).send(
+      new CaracalError('internal_error', 'The service failed to process the request', {
+        requestId: req.id,
+      }).toJSON(),
+    )
   })
   app.addHook('onRequest', async (req, reply) => {
     const h = req.headers['traceparent']

@@ -408,6 +408,19 @@ export class Caracal {
     };
   }
 
+  /**
+   * One-call happy path: sends `init` to `path` on the given resource through the
+   * Gateway with Caracal context and authority injected. Equivalent to building a
+   * `gatewayRequest` and calling it with `transport`. The resource header always
+   * wins over any caller-supplied `X-Caracal-Resource`.
+   */
+  fetch(resourceId: string, path: string = "/", init: RequestInit = {}, opts: RootOptions = {}): Promise<Response> {
+    const request = this.gatewayRequest(resourceId, path);
+    const headers = new Headers(init.headers ?? {});
+    for (const [key, value] of Object.entries(request.headers)) headers.set(key, value);
+    return this.transport(opts)(request.url, { ...init, headers });
+  }
+
   private routeThroughGateway(
     input: RequestInfo | URL,
     explicitResource: string | undefined,
