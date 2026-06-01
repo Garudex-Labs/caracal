@@ -33,6 +33,7 @@ var forbiddenBuiltins = map[string]struct{}{
 	"net.cidr_contains":   {},
 	"net.cidr_intersects": {},
 	"net.cidr_expand":     {},
+	"net.cidr_merge":      {},
 	"opa.runtime":         {},
 	"rand.intn":           {},
 	"time.now_ns":         {},
