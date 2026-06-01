@@ -1,0 +1,21 @@
+# Claude Code Mapping Playbook
+
+Copy this folder into the root of a project where Claude Code will help configure Caracal Console fields.
+
+This setup is mapping-first. It helps Claude Code translate provider and resource dashboard labels into visible Caracal Console fields, verify the mapping against docs, and keep secrets masked.
+
+## Use
+
+1. Copy `CLAUDE.md` and `.claude/` into your project root.
+2. Start Claude Code in that project.
+3. Ask for one focused task, such as `/map-provider`, `/map-resource`, or `/review-config`.
+
+## Contents
+
+- `CLAUDE.md`: main mapping rules.
+- `.claude/console-fields.ground-truth.json`: Console field branches for providers and resources.
+- `.claude/commands/`: focused Claude Code commands for common mapping tasks.
+
+This kit does not include agents, skills, or hooks. They are not required for this mapping layer because the commands already provide the workflows and the ground-truth JSON keeps Console field knowledge in one place.
+
+Do not paste raw provider secrets into chat. Use redacted values or environment variable names.

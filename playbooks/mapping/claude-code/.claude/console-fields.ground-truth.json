@@ -1,0 +1,575 @@
+{
+  "purpose": "Ground truth for visible Caracal Console provider and resource fields.",
+  "docs_lookup": {
+    "caracal": "https://docs.caracal.run/guides/resources-providers/",
+    "provider": "Use the official provider docs for the selected provider and flow."
+  },
+  "agent_rules": [
+    "Use this file before mapping provider or resource fields.",
+    "Expose only Caracal Console field labels from this file.",
+    "Use docs only to explain a known Console field or provider term after matching the field label.",
+    "If a provider requires a field or auth mode not listed here, say it is not currently supported.",
+    "Send unsupported provider or resource needs to https://github.com/Garudex-Labs/caracal/issues/new/choose.",
+    "Never repeat raw secrets."
+  ],
+  "output_contract": [
+    "UI label",
+    "Caracal Console field",
+    "Meaning",
+    "Required or optional",
+    "Expected value",
+    "Notes",
+    "Secret handling"
+  ],
+  "unsupported_output_contract": [
+    "Unsupported need",
+    "Provider requirement",
+    "Current Caracal Console support",
+    "What to do",
+    "Issue link"
+  ],
+  "provider_form": {
+    "form_title": "create provider",
+    "field_source": "visible Console labels",
+    "edit_form_label_aliases": [
+      {
+        "edit_label": "name",
+        "same_as_create_label": "provider name"
+      },
+      {
+        "edit_label": "kind",
+        "same_as_create_label": "provider type"
+      },
+      {
+        "edit_secret_note": "blank secret fields keep the current stored secret"
+      }
+    ],
+    "provider_types": [
+      {
+        "provider_type": "None",
+        "branch_when": "provider type = None",
+        "required_fields": [
+          {
+            "label": "provider name",
+            "input": "text",
+            "secret": false
+          },
+          {
+            "label": "provider type",
+            "input": "select",
+            "options": ["None", "Caracal mandate", "OAuth 2.0 authorization code", "OAuth 2.0 client credentials", "API key", "Bearer token"],
+            "default": "Caracal mandate",
+            "secret": false
+          }
+        ],
+        "optional_fields": [
+          {
+            "label": "provider identifier",
+            "input": "text",
+            "advanced": true,
+            "secret": false
+          }
+        ],
+        "not_supported_if_provider_requires": [
+          "client credentials",
+          "API key",
+          "bearer token",
+          "OAuth consent",
+          "custom credential forwarding"
+        ]
+      },
+      {
+        "provider_type": "Caracal mandate",
+        "branch_when": "provider type = Caracal mandate",
+        "required_fields": [
+          {
+            "label": "provider name",
+            "input": "text",
+            "secret": false
+          },
+          {
+            "label": "provider type",
+            "input": "select",
+            "options": ["None", "Caracal mandate", "OAuth 2.0 authorization code", "OAuth 2.0 client credentials", "API key", "Bearer token"],
+            "default": "Caracal mandate",
+            "secret": false
+          }
+        ],
+        "optional_fields": [
+          {
+            "label": "provider identifier",
+            "input": "text",
+            "advanced": true,
+            "secret": false
+          }
+        ],
+        "not_supported_if_provider_requires": [
+          "provider-native secret",
+          "external token endpoint",
+          "API key",
+          "static bearer token"
+        ]
+      },
+      {
+        "provider_type": "OAuth 2.0 authorization code",
+        "branch_when": "provider type = OAuth 2.0 authorization code",
+        "required_fields": [
+          {
+            "label": "provider name",
+            "input": "text",
+            "secret": false
+          },
+          {
+            "label": "provider type",
+            "input": "select",
+            "options": ["None", "Caracal mandate", "OAuth 2.0 authorization code", "OAuth 2.0 client credentials", "API key", "Bearer token"],
+            "secret": false
+          },
+          {
+            "label": "authorization endpoint",
+            "input": "text",
+            "expected": "HTTPS URL",
+            "secret": false
+          },
+          {
+            "label": "token endpoint",
+            "input": "text",
+            "expected": "HTTPS URL",
+            "secret": false
+          },
+          {
+            "label": "redirect URI",
+            "input": "text",
+            "expected": "absolute callback URI registered with the provider",
+            "secret": false
+          },
+          {
+            "label": "client ID",
+            "input": "text",
+            "secret": false
+          }
+        ],
+        "conditional_required_fields": [
+          {
+            "label": "client secret",
+            "input": "secret",
+            "required_when": "OAuth client authentication = client_secret_basic or client_secret_post",
+            "not_required_when": "OAuth client authentication = none",
+            "secret": true
+          }
+        ],
+        "optional_fields": [
+          {
+            "label": "upstream OAuth scopes",
+            "input": "list",
+            "secret": false
+          },
+          {
+            "label": "provider identifier",
+            "input": "text",
+            "advanced": true,
+            "secret": false
+          },
+          {
+            "label": "OAuth authorization parameters",
+            "input": "list",
+            "advanced": true,
+            "format": "key=value",
+            "secret": false
+          },
+          {
+            "label": "OAuth token parameters",
+            "input": "list",
+            "advanced": true,
+            "format": "key=value",
+            "secret": false
+          },
+          {
+            "label": "OAuth token endpoint hosts",
+            "input": "list",
+            "advanced": true,
+            "note": "Console can infer this from token endpoint when blank.",
+            "secret": false
+          },
+          {
+            "label": "OAuth client authentication",
+            "input": "select",
+            "advanced": true,
+            "options": ["client_secret_basic", "client_secret_post", "none"],
+            "default": "client_secret_basic",
+            "secret": false
+          },
+          {
+            "label": "upstream authorization header",
+            "input": "text",
+            "advanced": true,
+            "secret": false
+          },
+          {
+            "label": "upstream authorization scheme",
+            "input": "text",
+            "advanced": true,
+            "secret": false
+          },
+          {
+            "label": "forward Caracal identity",
+            "input": "bool",
+            "advanced": true,
+            "default": "false",
+            "secret": false
+          },
+          {
+            "label": "allow runtime injection",
+            "input": "bool",
+            "advanced": true,
+            "default": "false",
+            "secret": false
+          }
+        ],
+        "not_supported_if_provider_requires": [
+          "private_key_jwt for authorization code",
+          "device code flow",
+          "password flow",
+          "SAML",
+          "custom token exchange not expressible as listed fields"
+        ]
+      },
+      {
+        "provider_type": "OAuth 2.0 client credentials",
+        "branch_when": "provider type = OAuth 2.0 client credentials",
+        "required_fields": [
+          {
+            "label": "provider name",
+            "input": "text",
+            "secret": false
+          },
+          {
+            "label": "provider type",
+            "input": "select",
+            "options": ["None", "Caracal mandate", "OAuth 2.0 authorization code", "OAuth 2.0 client credentials", "API key", "Bearer token"],
+            "secret": false
+          },
+          {
+            "label": "token endpoint",
+            "input": "text",
+            "expected": "HTTPS URL",
+            "secret": false
+          },
+          {
+            "label": "client ID",
+            "input": "text",
+            "secret": false
+          }
+        ],
+        "conditional_required_fields": [
+          {
+            "label": "client secret",
+            "input": "secret",
+            "required_when": "OAuth client authentication = client_secret_basic or client_secret_post",
+            "not_required_when": "OAuth client authentication = private_key_jwt or none",
+            "secret": true
+          },
+          {
+            "label": "private key",
+            "input": "secret-multiline",
+            "required_when": "OAuth client authentication = private_key_jwt",
+            "secret": true
+          }
+        ],
+        "optional_fields": [
+          {
+            "label": "upstream OAuth scopes",
+            "input": "list",
+            "secret": false
+          },
+          {
+            "label": "provider identifier",
+            "input": "text",
+            "advanced": true,
+            "secret": false
+          },
+          {
+            "label": "OAuth token parameters",
+            "input": "list",
+            "advanced": true,
+            "format": "key=value",
+            "secret": false
+          },
+          {
+            "label": "OAuth token audience",
+            "input": "text",
+            "advanced": true,
+            "secret": false
+          },
+          {
+            "label": "OAuth resource indicator",
+            "input": "text",
+            "advanced": true,
+            "secret": false
+          },
+          {
+            "label": "OAuth token endpoint hosts",
+            "input": "list",
+            "advanced": true,
+            "note": "Console can infer this from token endpoint when blank.",
+            "secret": false
+          },
+          {
+            "label": "OAuth client authentication",
+            "input": "select",
+            "advanced": true,
+            "options": ["client_secret_basic", "client_secret_post", "private_key_jwt", "none"],
+            "default": "client_secret_basic",
+            "secret": false
+          },
+          {
+            "label": "key ID",
+            "input": "text",
+            "advanced": true,
+            "appears_when": "OAuth client authentication = private_key_jwt",
+            "secret": false
+          },
+          {
+            "label": "upstream authorization header",
+            "input": "text",
+            "advanced": true,
+            "secret": false
+          },
+          {
+            "label": "upstream authorization scheme",
+            "input": "text",
+            "advanced": true,
+            "secret": false
+          },
+          {
+            "label": "forward Caracal identity",
+            "input": "bool",
+            "advanced": true,
+            "default": "false",
+            "secret": false
+          },
+          {
+            "label": "allow runtime injection",
+            "input": "bool",
+            "advanced": true,
+            "default": "false",
+            "secret": false
+          }
+        ],
+        "not_supported_if_provider_requires": [
+          "authorization endpoint",
+          "browser consent",
+          "device code flow",
+          "SAML",
+          "custom signed assertion fields beyond key ID and private key"
+        ]
+      },
+      {
+        "provider_type": "API key",
+        "branch_when": "provider type = API key",
+        "required_fields": [
+          {
+            "label": "provider name",
+            "input": "text",
+            "secret": false
+          },
+          {
+            "label": "provider type",
+            "input": "select",
+            "options": ["None", "Caracal mandate", "OAuth 2.0 authorization code", "OAuth 2.0 client credentials", "API key", "Bearer token"],
+            "secret": false
+          },
+          {
+            "label": "API key location",
+            "input": "select",
+            "options": ["header", "query"],
+            "default": "header",
+            "secret": false
+          },
+          {
+            "label": "API key",
+            "input": "secret",
+            "secret": true
+          }
+        ],
+        "conditional_required_fields": [
+          {
+            "label": "API key header name",
+            "input": "text",
+            "required_when": "API key location = header",
+            "secret": false
+          },
+          {
+            "label": "API key query parameter",
+            "input": "text",
+            "required_when": "API key location = query",
+            "secret": false
+          }
+        ],
+        "optional_fields": [
+          {
+            "label": "provider identifier",
+            "input": "text",
+            "advanced": true,
+            "secret": false
+          },
+          {
+            "label": "upstream authorization scheme",
+            "input": "text",
+            "advanced": true,
+            "appears_when": "API key location = header",
+            "secret": false
+          },
+          {
+            "label": "forward Caracal identity",
+            "input": "bool",
+            "advanced": true,
+            "default": "false",
+            "secret": false
+          },
+          {
+            "label": "allow runtime injection",
+            "input": "bool",
+            "advanced": true,
+            "default": "false",
+            "secret": false
+          }
+        ],
+        "not_supported_if_provider_requires": [
+          "multiple API keys",
+          "both header and query key placement at the same time",
+          "body parameter key placement",
+          "custom request signing"
+        ]
+      },
+      {
+        "provider_type": "Bearer token",
+        "branch_when": "provider type = Bearer token",
+        "required_fields": [
+          {
+            "label": "provider name",
+            "input": "text",
+            "secret": false
+          },
+          {
+            "label": "provider type",
+            "input": "select",
+            "options": ["None", "Caracal mandate", "OAuth 2.0 authorization code", "OAuth 2.0 client credentials", "API key", "Bearer token"],
+            "secret": false
+          },
+          {
+            "label": "bearer token",
+            "input": "secret",
+            "secret": true
+          }
+        ],
+        "optional_fields": [
+          {
+            "label": "provider identifier",
+            "input": "text",
+            "advanced": true,
+            "secret": false
+          },
+          {
+            "label": "allowed upstream hosts",
+            "input": "list",
+            "advanced": true,
+            "secret": false
+          },
+          {
+            "label": "upstream authorization header",
+            "input": "text",
+            "advanced": true,
+            "secret": false
+          },
+          {
+            "label": "upstream authorization scheme",
+            "input": "text",
+            "advanced": true,
+            "secret": false
+          },
+          {
+            "label": "forward Caracal identity",
+            "input": "bool",
+            "advanced": true,
+            "default": "false",
+            "secret": false
+          },
+          {
+            "label": "allow runtime injection",
+            "input": "bool",
+            "advanced": true,
+            "default": "false",
+            "secret": false
+          }
+        ],
+        "not_supported_if_provider_requires": [
+          "refresh token",
+          "automatic token refresh",
+          "token endpoint",
+          "multiple static tokens",
+          "custom request signing"
+        ]
+      }
+    ]
+  },
+  "resource_form": {
+    "form_title": "create resource",
+    "field_source": "visible Console labels",
+    "edit_form_label_aliases": [
+      {
+        "edit_label": "name",
+        "same_as_create_label": "resource name"
+      }
+    ],
+    "required_fields": [
+      {
+        "label": "resource name",
+        "input": "text",
+        "secret": false
+      },
+      {
+        "label": "Caracal resource scopes",
+        "input": "list",
+        "format": "comma-separated",
+        "secret": false
+      },
+      {
+        "label": "upstream URL",
+        "input": "text",
+        "secret": false
+      },
+      {
+        "label": "gateway application",
+        "input": "picker or text",
+        "secret": false
+      },
+      {
+        "label": "upstream credential provider",
+        "input": "picker or text",
+        "secret": false
+      }
+    ],
+    "optional_fields": [
+      {
+        "label": "resource identifier",
+        "input": "text",
+        "advanced": true,
+        "note": "Console generates this when blank.",
+        "secret": false
+      }
+    ],
+    "boundaries": [
+      "Put target and routing values on the resource.",
+      "Put upstream credential values on the provider.",
+      "If the user needs a resource field not listed here, say it is unsupported and link the issue form."
+    ],
+    "not_supported_if_resource_requires": [
+      "multiple upstream credential providers on one resource",
+      "provider secrets on the resource form",
+      "resource-specific OAuth client fields",
+      "custom routing fields not visible in Console"
+    ]
+  },
+  "issue_link": "https://github.com/Garudex-Labs/caracal/issues/new/choose"
+}
