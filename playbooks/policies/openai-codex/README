@@ -1,0 +1,33 @@
+# OpenAI Codex Caracal Policy Playbook
+
+This folder is a copy-paste OpenAI Codex setup for authoring and reviewing Caracal Rego policies.
+
+## Use it for
+
+- discovering policy requirements before writing Rego
+- validating available Caracal policy inputs
+- writing deny-by-default Caracal policies
+- reviewing existing policies
+- planning validation, simulation, policy-set activation, audit review, and rollback
+
+## Install
+
+Copy `.codex/` into the repository where users want Codex to help author policies.
+
+## Behavior
+
+Codex should:
+
+- understand the requirement before writing policy
+- use Caracal docs, OPA docs, and documentation MCPs before assumptions
+- use `package caracal.authz` and `import rego.v1`
+- return `decision`, `evaluation_status`, `determining_policies`, and `diagnostics`
+- distinguish grants from policies
+- keep examples limited to app, resource, scope, subject, session, and delegation checks
+- never expose secrets or real customer identifiers
+
+## Not for
+
+- SDK integration
+- provider dashboard mapping
+- creating grants, resources, applications, tokens, clients, or API keys
