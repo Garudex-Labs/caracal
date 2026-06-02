@@ -231,3 +231,24 @@ func TestOPALoadZoneRejectsPartialBundle(t *testing.T) {
 		t.Fatal("want error when manifest version count mismatches DB result")
 	}
 }
+
+func TestOPAForbiddenBuiltins(t *testing.T) {
+	forbidden := []string{
+		`result := {"decision": "allow", "evaluation_status": "complete", "determining_policies": [], "diagnostics": [net.cidr_merge(["1.1.1.1/32"])]}`,
+		`result := {"decision": "allow", "evaluation_status": "complete", "determining_policies": [], "diagnostics": [http.send({"method": "get", "url": "http://localhost"})]}`,
+		`result := {"decision": "allow", "evaluation_status": "complete", "determining_policies": [], "diagnostics": [time.now_ns()]}`,
+	}
+
+	for i, f := range forbidden {
+		regoSource := "package caracal.authz\n" + f
+		_, err := rego.New(
+			rego.Module("forbidden.rego", regoSource),
+			rego.Query("result = data.caracal.authz.result"),
+			rego.Capabilities(safeCapabilities()),
+		).PrepareForEval(context.Background())
+		if err == nil {
+			t.Errorf("case %d: expected forbidden builtin to cause compilation failure, but it compiled successfully", i)
+		}
+	}
+}
+
