@@ -86,6 +86,15 @@ function assertScope(principal: Principal, desc: CommandDescriptor, sub: string)
   denied(`missing scope ${required}`)
 }
 
+function assertRemoteZoneBound(principal: Principal, desc: CommandDescriptor): void {
+  if (principal.kind === 'local') return
+  if (desc.requiresZone) {
+    requireZone(principal)
+    return
+  }
+  denied(`command "${desc.name}" is not available through zone-bound Control`)
+}
+
 function getStr(flags: FlagMap | undefined, key: string): string | undefined {
   const v = flags?.[key]
   return typeof v === 'string' ? v : undefined
@@ -400,6 +409,7 @@ export async function dispatch(
   if (!desc) denied(`unknown command "${req.command}"`)
   if (desc.hidden && principal.kind === 'remote') denied(`command "${req.command}" not exposed`)
   if (desc.localOnly && principal.kind === 'remote') denied(`command "${req.command}" is available only through the Console`)
+  assertRemoteZoneBound(principal, desc)
   if (desc.subcommands && desc.subcommands.length > 0) {
     if (!desc.subcommands.includes(req.subcommand)) {
       denied(`subcommand "${req.subcommand}" not allowed for "${req.command}"`)
@@ -425,6 +435,7 @@ export function describeRemoteSurface(): readonly { command: string; subcommand:
   for (const desc of MANAGEMENT_COMMANDS) {
     if (desc.hidden) continue
     if (desc.localOnly) continue
+    if (!desc.requiresZone) continue
     if (!commandHandler(desc.name)) continue
     const subs = desc.subcommands && desc.subcommands.length > 0 ? desc.subcommands : ['']
     for (const sub of subs) {

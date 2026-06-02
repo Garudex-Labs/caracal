@@ -125,7 +125,7 @@ export const MANAGEMENT_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
   },
 
   {
-    name: 'app', group: 'admin', summary: 'Manage applications',
+    name: 'app', group: 'admin', summary: 'Manage applications', requiresZone: true,
     subcommands: ['list', 'get', 'create', 'patch', 'delete', 'dcr'],
     flags: {
       create: [

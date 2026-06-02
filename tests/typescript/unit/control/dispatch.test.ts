@@ -14,7 +14,10 @@ import {
 } from '../../../../packages/engine/src/dispatch.js'
 import type { AdminClient } from '../../../../packages/admin/ts/src/client.js'
 
-const stubAdmin = { zones: { list: async () => [] } } as unknown as AdminClient
+const stubAdmin = {
+  resources: { list: async (zoneId: string) => [zoneId] },
+  zones: { list: async () => [] },
+} as unknown as AdminClient
 const ctx: DispatchContext = { admin: stubAdmin }
 
 function principal(scopes: string[]): Principal {
@@ -52,17 +55,23 @@ describe('dispatch', () => {
 
   it('denies missing scope', async () => {
     await expect(
-      dispatch({ command: 'zone', subcommand: 'list' }, principal([]), ctx),
+      dispatch({ command: 'resource', subcommand: 'list' }, principal([]), ctx),
+    ).rejects.toMatchObject({ code: 'denied' })
+  })
+
+  it('blocks global zone administration for remote principals', async () => {
+    await expect(
+      dispatch({ command: 'zone', subcommand: 'list' }, principal(['control:zone:read']), ctx),
     ).rejects.toMatchObject({ code: 'denied' })
   })
 
   it('accepts a matching per-resource scope', async () => {
     const result = await dispatch(
-      { command: 'zone', subcommand: 'list' },
-      principal(['control:zone:read']),
+      { command: 'resource', subcommand: 'list' },
+      principal(['control:resource:read']),
       ctx,
     )
-    expect(result).toEqual([])
+    expect(result).toEqual(['z1'])
   })
 
   it('skips scope checks for local principals', async () => {
@@ -101,6 +110,7 @@ describe('describeRemoteSurface', () => {
   it('omits hidden and local-only commands', () => {
     const surface = describeRemoteSurface()
     for (const row of surface) {
+      expect(row.command).not.toBe('zone')
       expect(row.command).not.toBe('control')
       expect(row.command).not.toBe('completion')
       expect(row.command).not.toBe('run')
@@ -110,12 +120,12 @@ describe('describeRemoteSurface', () => {
 
   it('emits per-resource scope names', () => {
     const surface = describeRemoteSurface()
-    const zoneList = surface.find((r) => r.command === 'zone' && r.subcommand === 'list')
-    expect(zoneList?.scope).toBe('control:zone:read')
-    const zoneCreate = surface.find((r) => r.command === 'zone' && r.subcommand === 'create')
-    expect(zoneCreate?.scope).toBe('control:zone:write')
-    const zoneDelete = surface.find((r) => r.command === 'zone' && r.subcommand === 'delete')
-    expect(zoneDelete?.scope).toBe('control:zone:delete')
+    const resourceList = surface.find((r) => r.command === 'resource' && r.subcommand === 'list')
+    expect(resourceList?.scope).toBe('control:resource:read')
+    const resourceCreate = surface.find((r) => r.command === 'resource' && r.subcommand === 'create')
+    expect(resourceCreate?.scope).toBe('control:resource:write')
+    const resourceDelete = surface.find((r) => r.command === 'resource' && r.subcommand === 'delete')
+    expect(resourceDelete?.scope).toBe('control:resource:delete')
     const explainRequest = surface.find((r) => r.command === 'explain' && r.subcommand === '')
     expect(explainRequest?.scope).toBe('control:explain:read')
     expect(surface.find((r) => r.command === 'debug')).toBeUndefined()

@@ -171,7 +171,7 @@ describe('request trace entry', () => {
 
     ;(form as unknown as { values: Record<string, string> }).values = {
       name: 'robot',
-      scopes: 'control:zone:read',
+      scopes: 'control:agent:read',
       max_ttl_seconds: '300',
       expires_in_days: '1',
     }
@@ -182,7 +182,7 @@ describe('request trace entry', () => {
       name: 'robot',
       traits: expect.arrayContaining([
         'control:invoke',
-        'control:scope:control:zone:read',
+        'control:scope:control:agent:read',
         'control:max-ttl:300',
       ]),
     }))
@@ -215,7 +215,7 @@ describe('request trace entry', () => {
         get: vi.fn(async () => ({
           id: 'control-app',
           name: 'robot',
-          traits: ['control:invoke', 'control:scope:control:zone:read'],
+          traits: ['control:invoke', 'control:scope:control:agent:read'],
           created_at: 'now',
         })),
       },
@@ -231,7 +231,7 @@ describe('request trace entry', () => {
     ;(form as unknown as { values: Record<string, string> }).values = {
       id: 'control-app',
       client_secret: 'secret',
-      scopes: 'control:zone:read',
+      scopes: 'control:agent:read',
       ttl_seconds: '300',
     }
     ;(form as unknown as { focus: number }).focus = 4
@@ -240,7 +240,7 @@ describe('request trace entry', () => {
     const request = fetchMock.mock.calls[0][1] as { body: URLSearchParams }
     expect(request.body.get('application_id')).toBe('control-app')
     expect(request.body.get('resource')).toBe('caracal-control')
-    expect(request.body.get('scope')).toBe('control:zone:read')
+    expect(request.body.get('scope')).toBe('control:agent:read')
     expect(request.body.get('ttl_seconds')).toBe('300')
     const detail = pushed[pushed.length - 1] as DetailView
     await detail.init(app)
@@ -258,7 +258,7 @@ describe('request trace entry', () => {
         get: vi.fn(async () => ({
           id: 'control-app',
           name: 'robot',
-          traits: ['control:invoke', 'control:scope:control:zone:read'],
+          traits: ['control:invoke', 'control:scope:control:agent:read'],
           created_at: 'now',
         })),
       },

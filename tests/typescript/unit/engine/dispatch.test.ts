@@ -18,7 +18,7 @@ const remote: Principal = {
   kind: 'remote',
   subject: 'automation',
   zoneId: 'z1',
-  scopes: ['control:zone:read'],
+  scopes: ['control:resource:read'],
 }
 
 function admin(): AdminClient {
@@ -66,6 +66,14 @@ describe('dispatch', () => {
       .rejects.toMatchObject({ code: 'denied' })
     await expect(dispatch({ command: 'zone', subcommand: 'create' }, local, { admin: admin() }))
       .rejects.toBeInstanceOf(DispatchError)
+  })
+
+  it('denies global zone administration for remote principals', async () => {
+    await expect(dispatch({
+      command: 'zone',
+      subcommand: 'list',
+    }, { ...remote, scopes: ['control:zone:read'] }, { admin: admin() }))
+      .rejects.toMatchObject({ code: 'denied' })
   })
 
   it('dispatches resource and policy-set helpers with parsed flag shapes', async () => {

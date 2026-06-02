@@ -55,7 +55,7 @@ Product-management workflows are not mirrored as top-level runtime CLI commands.
 
 ## Automation
 
-Use the Control API or Admin SDK when scripts need to create zones, applications, resources, policies, grants, authority sessions, agents, delegation edges, audit queries, or Control credentials. Enable Control from the Console `control` menu, then call the authenticated HTTP surface from CI or automation.
+Use the Admin SDK from trusted operator environments when scripts need to create zones. Use the Control API for zone-bound automation over applications, resources, policies, grants, authority sessions, agents, delegation edges, audit queries, and Control credentials. Enable Control from the Console `control` menu, then call the authenticated HTTP surface from CI or automation.
 
 Automation must run with operator credentials only in trusted control-plane environments. Agent workloads should use `caracal run` or application credentials and must not receive `CARACAL_ADMIN_TOKEN`, `CARACAL_COORDINATOR_TOKEN`, `CARACAL_SECRETS_DIR`, or mounted operator secret files.
 

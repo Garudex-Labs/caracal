@@ -47,7 +47,7 @@ describe('control credentials', () => {
 
     const result = await controlKeyCreate(c, 'z1', {
       name: 'robot',
-      scopes: ['control:zone:read'],
+      scopes: ['control:agent:read'],
       maxTtlSeconds: 300,
       expiresAt: '2999-01-01T00:00:00.000Z',
     })
@@ -55,20 +55,20 @@ describe('control credentials', () => {
     expect(c.resources.list).toHaveBeenCalledWith('z1', { controlResource: true })
     expect(c.resources.create).toHaveBeenCalledWith('z1', expect.objectContaining({
       identifier: 'caracal-control',
-      scopes: expect.arrayContaining(['control:zone:read', 'control:zone:write', 'control:zone:delete']),
+      scopes: expect.arrayContaining(['control:agent:read', 'control:agent:write', 'control:agent:delete']),
     }), { controlResource: true })
     expect(c.applications.create).toHaveBeenCalledWith('z1', expect.objectContaining({
       name: 'robot',
       traits: expect.arrayContaining([
         'control:invoke',
-        'control:scope:control:zone:read',
+        'control:scope:control:agent:read',
         'control:max-ttl:300',
         'control:expires:2999-01-01T00:00:00.000Z',
       ]),
     }))
     expect(result.resource.identifier).toBe('caracal-control')
     expect(result.clientSecret).toBe('cs_generated')
-    expect(result.allowedScopes).toEqual(['control:zone:read'])
+    expect(result.allowedScopes).toEqual(['control:agent:read'])
     expect(result.maxTtlSeconds).toBe(300)
     expect(result.expiresAt).toBe('2999-01-01T00:00:00.000Z')
   })
@@ -82,17 +82,17 @@ describe('control credentials', () => {
 
     const result = await controlKeyCreate(c, 'z1', {
       name: 'reader',
-      resources: ['zone'],
+      resources: ['agent'],
       actions: ['read'],
     })
 
-    expect(result.allowedScopes).toEqual(['control:zone:read'])
+    expect(result.allowedScopes).toEqual(['control:agent:read'])
     expect(c.applications.create).toHaveBeenCalledWith('z1', expect.objectContaining({
-      traits: expect.arrayContaining(['control:scope:control:zone:read']),
+      traits: expect.arrayContaining(['control:scope:control:agent:read']),
     }))
   })
 
-  it('patches an existing control resource with missing scopes', async () => {
+  it('reconciles an existing control resource to the current remote surface', async () => {
     const existing = {
       id: 'res-1',
       zone_id: 'z1',
@@ -110,7 +110,8 @@ describe('control credentials', () => {
     await ensureControlResource(c, 'z1')
 
     expect(c.resources.patch).toHaveBeenCalledWith('z1', 'res-1', expect.objectContaining({
-      scopes: expect.arrayContaining(['control:zone:write', 'control:zone:delete']),
+      scopes: expect.arrayContaining(['control:agent:write', 'control:agent:delete']),
     }), { controlResource: true })
+    expect((c.resources.patch as ReturnType<typeof vi.fn>).mock.calls[0][2].scopes).not.toContain('control:zone:read')
   })
 })

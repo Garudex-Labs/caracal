@@ -38,7 +38,7 @@ function claims(overrides: Partial<ControlClaims> = {}): ControlClaims {
     exp: Math.floor(Date.now() / 1000) + 300,
     zoneId: 'z1',
     clientId: 'app-1',
-    scope: 'control:zone:read control:zone:write',
+    scope: 'control:agent:read control:agent:write',
     ...overrides,
   }
 }
@@ -106,7 +106,7 @@ describe('registerInvokeRoute', () => {
       method: 'POST',
       url: '/v1/control/invoke',
       headers: { authorization: 'Bearer token' },
-      payload: { command: 'zone', subcommand: 'list' },
+      payload: { command: 'agent', subcommand: 'list' },
     })
 
     expect(res.statusCode).toBe(401)
@@ -127,7 +127,7 @@ describe('registerInvokeRoute', () => {
       method: 'POST',
       url: '/v1/control/invoke',
       headers: { authorization: 'Bearer token' },
-      payload: { command: 'zone', subcommand: 'list' },
+      payload: { command: 'agent', subcommand: 'list' },
     })
 
     expect(res.statusCode).toBe(429)
@@ -140,7 +140,7 @@ describe('registerInvokeRoute', () => {
     apps.push(app)
     const d = deps(vi.fn(async () => claims()))
     d.replay.mark = vi.fn(async () => true)
-    d.ctx = { admin: { zones: { list: vi.fn(async () => [{ id: 'z1' }]) } } } as DispatchContext
+    d.ctx = { admin: { agents: { list: vi.fn(async () => [{ id: 'agent-1' }]) } } } as DispatchContext
 
     registerInvokeRoute(app, d)
     await app.ready()
@@ -148,12 +148,12 @@ describe('registerInvokeRoute', () => {
       method: 'POST',
       url: '/v1/control/invoke',
       headers: { authorization: 'Bearer token' },
-      payload: { command: 'zone', subcommand: 'list', flags: ['ignored'] },
+      payload: { command: 'agent', subcommand: 'list', flags: ['ignored'] },
     })
 
     expect(res.statusCode).toBe(200)
-    expect(res.json()).toEqual({ ok: true, result: [{ id: 'z1' }] })
-    expect(d.sink.emit).toHaveBeenCalledWith(expect.objectContaining({ decision: 'allow', command: 'zone' }))
+    expect(res.json()).toEqual({ ok: true, result: [{ id: 'agent-1' }] })
+    expect(d.sink.emit).toHaveBeenCalledWith(expect.objectContaining({ decision: 'allow', command: 'agent' }))
   })
 
   it('maps dispatch denials, invalid requests, and upstream failures', async () => {
@@ -178,28 +178,28 @@ describe('registerInvokeRoute', () => {
 
     const invalidDeps = deps(vi.fn(async () => claims()))
     invalidDeps.replay.mark = vi.fn(async () => true)
-    invalidDeps.ctx = { admin: { zones: { create: vi.fn() } } } as DispatchContext
+    invalidDeps.ctx = { admin: { agents: { suspend: vi.fn() } } } as DispatchContext
     registerInvokeRoute(invalid, invalidDeps)
     await invalid.ready()
     const invalidRes = await invalid.inject({
       method: 'POST',
       url: '/v1/control/invoke',
       headers: { authorization: 'Bearer token' },
-      payload: { command: 'zone', subcommand: 'create' },
+      payload: { command: 'agent', subcommand: 'suspend' },
     })
     expect(invalidRes.statusCode).toBe(400)
     expect(invalidRes.json()).toEqual({ error: 'invalid request' })
 
     const upstreamDeps = deps(vi.fn(async () => claims()))
     upstreamDeps.replay.mark = vi.fn(async () => true)
-    upstreamDeps.ctx = { admin: { zones: { list: vi.fn(async () => { throw new Error('api down') }) } } } as DispatchContext
+    upstreamDeps.ctx = { admin: { agents: { list: vi.fn(async () => { throw new Error('api down') }) } } } as DispatchContext
     registerInvokeRoute(upstream, upstreamDeps)
     await upstream.ready()
     const upstreamRes = await upstream.inject({
       method: 'POST',
       url: '/v1/control/invoke',
       headers: { authorization: 'Bearer token' },
-      payload: { command: 'zone', subcommand: 'list' },
+      payload: { command: 'agent', subcommand: 'list' },
     })
     expect(upstreamRes.statusCode).toBe(502)
     expect(upstreamRes.json()).toEqual({ error: 'upstream error' })

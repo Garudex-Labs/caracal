@@ -104,11 +104,11 @@ export async function ensureControlResource(
       scopes,
     }, { controlResource: true })
   }
-  const nextScopes = [...new Set([...current.scopes, ...scopes])].sort()
-  if (nextScopes.length === current.scopes.length && nextScopes.every((scope, index) => scope === [...current.scopes].sort()[index])) {
+  const currentScopes = [...current.scopes].sort()
+  if (scopes.length === currentScopes.length && scopes.every((scope, index) => scope === currentScopes[index])) {
     return current
   }
-  return client.resources.patch(zoneId, current.id, { scopes: nextScopes }, { controlResource: true })
+  return client.resources.patch(zoneId, current.id, { scopes }, { controlResource: true })
 }
 
 export async function controlKeyList(client: AdminClient, zoneId: string): Promise<ControlKeyRecord[]> {

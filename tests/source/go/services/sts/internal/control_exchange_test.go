@@ -8,11 +8,11 @@ package internal
 import "testing"
 
 func TestIsControlKeyExchange(t *testing.T) {
-	app := &Application{ID: "app-1", Traits: []string{controlInvokeTrait, controlScopeTrait + "control:zone:read"}}
+	app := &Application{ID: "app-1", Traits: []string{controlInvokeTrait, controlScopeTrait + "control:agent:read"}}
 	req := TokenExchangeRequest{ApplicationID: "app-1"}
 	resource := &Resource{Identifier: defaultControlAudience}
 
-	if !isControlKeyExchange(app, req, resource, []string{"control:zone:read"}) {
+	if !isControlKeyExchange(app, req, resource, []string{"control:agent:read"}) {
 		t.Fatalf("expected control key exchange to be allowed")
 	}
 
@@ -23,34 +23,34 @@ func TestIsControlKeyExchange(t *testing.T) {
 		scopes   []string
 	}{
 		"missing trait": {
-			app:      &Application{ID: "app-1", Traits: []string{controlScopeTrait + "control:zone:read"}},
+			app:      &Application{ID: "app-1", Traits: []string{controlScopeTrait + "control:agent:read"}},
 			req:      req,
 			resource: resource,
-			scopes:   []string{"control:zone:read"},
+			scopes:   []string{"control:agent:read"},
 		},
 		"missing scoped permission": {
 			app:      &Application{ID: "app-1", Traits: []string{controlInvokeTrait}},
 			req:      req,
 			resource: resource,
-			scopes:   []string{"control:zone:read"},
+			scopes:   []string{"control:agent:read"},
 		},
 		"ungranted scope": {
 			app:      app,
 			req:      req,
 			resource: resource,
-			scopes:   []string{"control:zone:delete"},
+			scopes:   []string{"control:agent:delete"},
 		},
 		"wrong resource": {
 			app:      app,
 			req:      req,
 			resource: &Resource{Identifier: "api"},
-			scopes:   []string{"control:zone:read"},
+			scopes:   []string{"control:agent:read"},
 		},
 		"subject token": {
 			app:      app,
 			req:      TokenExchangeRequest{ApplicationID: "app-1", SubjectToken: "subject"},
 			resource: resource,
-			scopes:   []string{"control:zone:read"},
+			scopes:   []string{"control:agent:read"},
 		},
 		"empty scopes": {
 			app:      app,
@@ -75,11 +75,11 @@ func TestIsControlKeyExchange(t *testing.T) {
 
 func TestIsControlKeyExchangeRestrictions(t *testing.T) {
 	resource := &Resource{Identifier: defaultControlAudience}
-	scope := []string{"control:zone:read"}
+	scope := []string{"control:agent:read"}
 
 	if isControlKeyExchange(&Application{ID: "app-1", Traits: []string{
 		controlInvokeTrait,
-		controlScopeTrait + "control:zone:read",
+		controlScopeTrait + "control:agent:read",
 		controlMaxTTLTrait + "60",
 	}}, TokenExchangeRequest{ApplicationID: "app-1", TTLSeconds: 300}, resource, scope) {
 		t.Fatalf("expected ttl above key maximum to be denied")
@@ -87,7 +87,7 @@ func TestIsControlKeyExchangeRestrictions(t *testing.T) {
 
 	if isControlKeyExchange(&Application{ID: "app-1", Traits: []string{
 		controlInvokeTrait,
-		controlScopeTrait + "control:zone:read",
+		controlScopeTrait + "control:agent:read",
 		controlExpiresTrait + "2000-01-01T00:00:00Z",
 	}}, TokenExchangeRequest{ApplicationID: "app-1"}, resource, scope) {
 		t.Fatalf("expected expired key to be denied")
