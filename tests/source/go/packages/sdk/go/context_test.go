@@ -46,6 +46,17 @@ func TestCurrentOnFreshContext(t *testing.T) {
 	}
 }
 
+func TestCaptureReturnsCurrentContext(t *testing.T) {
+	want := sdk.CaracalContext{SubjectToken: "tok", ZoneID: "z1", ClientID: "app1"}
+	got, ok := sdk.Capture(sdk.Bind(context.Background(), want))
+	if !ok {
+		t.Fatal("Capture must return true after Bind")
+	}
+	if got != want {
+		t.Fatalf("Capture = %#v, want %#v", got, want)
+	}
+}
+
 func TestBindDoesNotMutateParent(t *testing.T) {
 	parent := context.Background()
 	sdk.Bind(parent, sdk.CaracalContext{SubjectToken: "tok"})
@@ -166,6 +177,23 @@ func TestDescribeAuthorityRedactsSubjectToken(t *testing.T) {
 	}
 	got := strings.Join(summary.Chain, ">")
 	want := "authority:sid>agent-run:agent>delegated-permission:edge"
+	if got != want {
+		t.Fatalf("chain = %q, want %q", got, want)
+	}
+}
+
+func TestDescribeAuthorityIncludesParentDelegationAndFreshContextFalse(t *testing.T) {
+	if _, ok := sdk.DescribeAuthority(context.Background()); ok {
+		t.Fatal("fresh context should not describe authority")
+	}
+	summary := sdk.DescribeCaracalContext(sdk.CaracalContext{
+		SessionID:        "sid",
+		AgentSessionID:   "agent",
+		ParentEdgeID:     "parent-edge",
+		DelegationEdgeID: "edge",
+	})
+	got := strings.Join(summary.Chain, ">")
+	want := "authority:sid>agent-run:agent>parent-delegated-permission:parent-edge>delegated-permission:edge"
 	if got != want {
 		t.Fatalf("chain = %q, want %q", got, want)
 	}

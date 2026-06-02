@@ -8,6 +8,7 @@ package sdk_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -221,6 +222,92 @@ upstream_prefix = "https://billing.example.com"
 	}
 }
 
+func TestConnectUsesExplicitOptionsConfigProfileAndEnv(t *testing.T) {
+	sts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"fresh-root","token_type":"Bearer","expires_in":3600}`))
+	}))
+	defer sts.Close()
+
+	explicit, err := sdk.Connect(sdk.ClientSecretOptions{
+		CoordinatorURL: "http://coord",
+		STSURL:         sts.URL,
+		ZoneID:         "z",
+		ApplicationID:  "app",
+		ClientSecret:   "secret",
+		Resources:      []string{"resource://pipernet"},
+	})
+	if err != nil {
+		t.Fatalf("explicit connect: %v", err)
+	}
+	if explicit.TokenSource == nil {
+		t.Fatal("explicit connect should use client secret token source")
+	}
+
+	dir := t.TempDir()
+	secretPath := filepath.Join(dir, "secret")
+	if err := os.WriteFile(secretPath, []byte("secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(dir, "caracal.toml")
+	if err := os.WriteFile(configPath, []byte(fmt.Sprintf(`
+zone_id = "z"
+application_id = "app"
+sts_url = %q
+app_client_secret_file = %q
+
+[[credentials]]
+resource = "resource://pipernet"
+`, sts.URL, secretPath)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CARACAL_CONFIG", configPath)
+	fromConfig, err := sdk.Connect()
+	if err != nil {
+		t.Fatalf("config connect: %v", err)
+	}
+	if fromConfig.ZoneID != "z" || fromConfig.ApplicationID != "app" {
+		t.Fatalf("unexpected config client: %#v", fromConfig)
+	}
+
+	t.Setenv("CARACAL_CONFIG", "")
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	profileDir := filepath.Join(dir, "caracal")
+	if err := os.MkdirAll(profileDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(profileDir, "caracal.toml"), []byte(fmt.Sprintf(`
+zone_id = "z-profile"
+application_id = "app-profile"
+sts_url = %q
+app_client_secret_file = %q
+
+[[credentials]]
+resource = "resource://pipernet"
+`, sts.URL, secretPath)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fromProfile, err := sdk.Connect()
+	if err != nil {
+		t.Fatalf("profile connect: %v", err)
+	}
+	if fromProfile.ZoneID != "z-profile" {
+		t.Fatalf("unexpected profile client: %#v", fromProfile)
+	}
+
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "empty"))
+	t.Setenv("CARACAL_ZONE_ID", "z-env")
+	t.Setenv("CARACAL_APPLICATION_ID", "app-env")
+	t.Setenv("CARACAL_SUBJECT_TOKEN", "tok-env")
+	fromEnv, err := sdk.Connect()
+	if err != nil {
+		t.Fatalf("env connect: %v", err)
+	}
+	if fromEnv.SubjectToken != "tok-env" {
+		t.Fatalf("unexpected env client: %#v", fromEnv)
+	}
+}
+
 func compactSorted(values []string) []string {
 	out := []string{}
 	seen := map[string]bool{}
@@ -249,6 +336,28 @@ func TestHeadersRequiresRootOptIn(t *testing.T) {
 	}
 	if sdk.ParseTraceparent(h.Get(sdk.HeaderTraceparent)) == "" {
 		t.Fatalf("missing traceparent: %v", h)
+	}
+}
+
+func TestCaracalCurrentAndBindFromRequestRootFallback(t *testing.T) {
+	c := &sdk.Caracal{ZoneID: "z", ApplicationID: "app", SubjectToken: "root-token"}
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	bound, err := c.BindFromRequest(context.Background(), req, sdk.RootOptions{AllowRoot: true})
+	if err != nil {
+		t.Fatalf("bind from root fallback: %v", err)
+	}
+	cur, ok := c.Current(bound)
+	if !ok {
+		t.Fatal("client Current should return bound context")
+	}
+	if cur.SubjectToken != "root-token" || cur.ZoneID != "z" || cur.ClientID != "app" {
+		t.Fatalf("unexpected bound context: %#v", cur)
+	}
+}
+
+func TestCloseIsANoop(t *testing.T) {
+	if err := (&sdk.Caracal{}).Close(); err != nil {
+		t.Fatalf("close: %v", err)
 	}
 }
 
@@ -424,6 +533,91 @@ func TestFetchComposesGatewayRequestAndTransport(t *testing.T) {
 	}
 }
 
+func TestTransportRoutesMatchingResourceBindingsThroughGateway(t *testing.T) {
+	c := &sdk.Caracal{
+		ZoneID:        "z",
+		ApplicationID: "a",
+		SubjectToken:  "tok",
+		Resources: []sdk.ResourceBinding{
+			{ResourceID: "resource://pipernet-api", UpstreamPrefix: "https://api.pipernet.example/v1"},
+			{ResourceID: "resource://pipernet", UpstreamPrefix: "https://api.pipernet.example"},
+		},
+	}
+	var gotPath string
+	var gotHeader http.Header
+	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.String()
+		gotHeader = r.Header.Clone()
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer gateway.Close()
+	c.GatewayURL = gateway.URL + "/gateway"
+	ctx := sdk.Bind(context.Background(), sdk.CaracalContext{SubjectToken: "tok", ZoneID: "z", ClientID: "a"})
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.pipernet.example/v1/users?limit=10", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	resp, err := c.Transport(nil).Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+
+	if gotPath != "/gateway/users?limit=10" {
+		t.Fatalf("unexpected gateway path: %s", gotPath)
+	}
+	if gotHeader.Get("X-Caracal-Resource") != "resource://pipernet-api" {
+		t.Fatalf("expected longest matching resource binding, got %v", gotHeader)
+	}
+	if gotHeader.Get(sdk.HeaderAuthorization) != "Bearer tok" {
+		t.Fatalf("expected gateway authorization header, got %v", gotHeader)
+	}
+}
+
+func TestTransportUsesExplicitResourceBindingAndSkipsGatewayOrigin(t *testing.T) {
+	c := &sdk.Caracal{
+		ZoneID:        "z",
+		ApplicationID: "a",
+		SubjectToken:  "tok",
+		Resources: []sdk.ResourceBinding{
+			{ResourceID: "resource://pipernet", UpstreamPrefix: "https://api.pipernet.example"},
+		},
+	}
+	var paths []string
+	var resources []string
+	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.String())
+		resources = append(resources, r.Header.Get("X-Caracal-Resource"))
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer gateway.Close()
+	c.GatewayURL = gateway.URL + "/gateway"
+	ctx := sdk.Bind(context.Background(), sdk.CaracalContext{SubjectToken: "tok", ZoneID: "z", ClientID: "a"})
+
+	explicit, _ := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.other.example/raw", nil)
+	explicit.Header.Set("X-Caracal-Resource", "resource://pipernet")
+	resp, err := c.Transport(nil).Do(explicit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+
+	directGateway, _ := http.NewRequestWithContext(ctx, http.MethodGet, gateway.URL+"/gateway/already", nil)
+	resp, err = c.Transport(nil).Do(directGateway)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+
+	if paths[0] != "/gateway/raw" || resources[0] != "resource://pipernet" {
+		t.Fatalf("explicit resource was not routed through gateway: paths=%v resources=%v", paths, resources)
+	}
+	if paths[1] != "/gateway/already" || resources[1] != "" {
+		t.Fatalf("gateway-origin request should not be rewritten: paths=%v resources=%v", paths, resources)
+	}
+}
+
 func TestGatewayRequestRejectsInvalidInputs(t *testing.T) {
 	c := &sdk.Caracal{GatewayURL: "https://gateway.example.com/proxy"}
 	if _, err := (&sdk.Caracal{}).GatewayRequest("resource://calendar", "/events"); err == nil {
@@ -443,6 +637,33 @@ func TestHTTPClientRejectsUnboundRootByDefault(t *testing.T) {
 	req, _ := http.NewRequestWithContext(context.Background(), "GET", "https://example.com", nil)
 	if _, err := client.Do(req); err == nil {
 		t.Fatal("expected missing context error")
+	}
+}
+
+func TestTransportUsesRootTokenWhenAllowed(t *testing.T) {
+	c := &sdk.Caracal{
+		ZoneID:       "z",
+		SubjectToken: "root-token",
+	}
+	var got http.Header
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Clone()
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	resp, err := c.Transport(nil, sdk.RootOptions{AllowRoot: true}).Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+
+	if got.Get(sdk.HeaderAuthorization) != "Bearer root-token" {
+		t.Fatalf("expected root token authorization, got %v", got)
 	}
 }
 

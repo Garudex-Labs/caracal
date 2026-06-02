@@ -3,10 +3,19 @@
 //
 // FormView focus, validation, secret reveal, and dispose-abort tests.
 
-import { describe, it, expect, vi } from 'vitest'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, describe, it, expect, vi } from 'vitest'
 import { FormView } from '../../../../apps/console/src/views/form.ts'
 import type { App } from '../../../../apps/console/src/screen.ts'
 import { AdminApiError } from '../../../../packages/admin/ts/src/errors.ts'
+
+const dirs: string[] = []
+
+afterEach(() => {
+  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true })
+})
 
 function fakeApp(): App {
   const status: { text: string; kind: string }[] = []
@@ -166,6 +175,42 @@ describe('FormView input UX', () => {
     await picker.onKey('down', ctx)
     await picker.onKey('enter', ctx)
     expect(view.values_().provider_type).toBe('oauth2_client_credentials')
+  })
+
+  it('filters select options, opens option info, and handles empty matches', async () => {
+    const view = new FormView({
+      title: 'provider type',
+      fields: [{
+        key: 'provider_type',
+        label: 'provider type',
+        kind: 'select',
+        options: ['oauth2_authorization_code', 'oauth2_client_credentials', 'api_key'],
+        optionLabels: {
+          oauth2_authorization_code: 'OAuth 2.0 authorization code',
+          oauth2_client_credentials: 'OAuth 2.0 client credentials',
+          api_key: 'API key',
+        },
+        default: 'oauth2_authorization_code',
+      }],
+      onSubmit: async () => {},
+    })
+    const app = fakeApp()
+    const ctx = { app, size: { rows: 6, cols: 100 }, status: '' }
+
+    await view.onKey('right', ctx)
+    const picker = vi.mocked(app.push).mock.calls.at(-1)![0] as { onKey: FormView['onKey']; render: FormView['render']; hints: () => string[] }
+    expect(picker.hints()).toContain('type:search')
+    await picker.onKey('client', ctx)
+    expect(picker.render(ctx).join('\n')).toContain('OAuth 2.0 client credentials')
+    await picker.onKey('?', ctx)
+    expect(app.push).toHaveBeenCalledWith(expect.objectContaining({ title: expect.stringContaining('OAuth 2.0 client credentials') }))
+    await picker.onKey('home', ctx)
+    await picker.onKey('end', ctx)
+    await picker.onKey('backspace', ctx)
+    await picker.onKey('zzzz', ctx)
+    expect(picker.render(ctx).join('\n')).toContain('No matches')
+    await picker.onKey('esc', ctx)
+    expect(app.pop).toHaveBeenCalled()
   })
 
   it('submits only fields relevant to the current dynamic selection', async () => {
@@ -459,6 +504,73 @@ describe('FormView picker fields', () => {
     const lines = view.render({ app, size: { rows: 10, cols: 80 }, status: '' }).join('\n')
     expect(lines).toContain('Payments API')
     expect(lines).toContain('res-1')
+  })
+})
+
+describe('FormView file picker', () => {
+  it('picks files under the current directory and rejects leaving it', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'caracal-form-file-'))
+    dirs.push(root)
+    mkdirSync(join(root, 'policies'))
+    writeFileSync(join(root, 'policies', 'pipernet.rego'), 'package pipernet\n')
+    const cwd = process.cwd()
+    process.chdir(root)
+    try {
+      const view = new FormView({
+        title: 'policy file',
+        fields: [{ key: 'path', label: 'policy path', kind: 'file' }],
+        onSubmit: async () => {},
+      })
+      const app = fakeApp()
+      const ctx = { app, size: { rows: 8, cols: 120 }, status: '' }
+
+      await view.onKey('right', ctx)
+      const picker = vi.mocked(app.push).mock.calls.at(-1)![0] as { onKey: FormView['onKey']; render: FormView['render']; hints: () => string[] }
+      expect(picker.hints()).toContain(':abs')
+      await picker.onKey('?', ctx)
+      expect(vi.mocked(app.push).mock.calls.some((call) => (call[0] as { title?: string }).title === 'info / File picker')).toBe(true)
+      await picker.onKey('enter', ctx)
+      await picker.onKey('enter', ctx)
+
+      expect(view.values_().path).toBe(join(root, 'policies', 'pipernet.rego'))
+      expect(app.pop).toHaveBeenCalled()
+
+      await view.onKey('right', ctx)
+      const second = vi.mocked(app.push).mock.calls.at(-1)![0] as { onKey: FormView['onKey'] }
+      await second.onKey('left', ctx)
+      expect(app.setStatus).toHaveBeenCalledWith('refusing to leave cwd; use : for absolute path', 'error')
+    } finally {
+      process.chdir(cwd)
+    }
+  })
+
+  it('supports absolute file entry and rejects relative absolute prompts', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'caracal-form-abs-'))
+    dirs.push(root)
+    const policyPath = join(root, 'pipernet.rego')
+    writeFileSync(policyPath, 'package pipernet\n')
+    const view = new FormView({
+      title: 'policy file',
+      fields: [{ key: 'path', label: 'policy path', kind: 'file' }],
+      onSubmit: async () => {},
+    })
+    const app = fakeApp()
+    const ctx = { app, size: { rows: 8, cols: 120 }, status: '' }
+
+    await view.onKey('right', ctx)
+    const picker = vi.mocked(app.push).mock.calls.at(-1)![0] as { onKey: FormView['onKey']; render: FormView['render']; hints: () => string[] }
+    await picker.onKey(':', ctx)
+    expect(picker.hints()).toContain('enter:open')
+    await picker.onKey('relative.rego', ctx)
+    await picker.onKey('enter', ctx)
+    expect(app.setStatus).toHaveBeenCalledWith('absolute path required (no ~ expansion)', 'error')
+
+    await picker.onKey(':', ctx)
+    await picker.onKey(policyPath, ctx)
+    expect(picker.render(ctx).join('\n')).toContain(policyPath)
+    await picker.onKey('enter', ctx)
+    expect(view.values_().path).toBe(policyPath)
+    expect(app.pop).toHaveBeenCalled()
   })
 })
 
