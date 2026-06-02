@@ -25,7 +25,7 @@ import {
   parseTraceparent,
 } from "../../../../packages/sdk/ts/src/advanced.js";
 
-const dummyConfig = {
+const baseConfig = {
   coordinator: { baseUrl: "http://coord" },
   zoneId: "z",
   applicationId: "app",
@@ -74,6 +74,34 @@ describe("Caracal.fromEnv", () => {
     const body = fetchMock.mock.calls[0][1].body as URLSearchParams;
     expect(body.get("client_secret")).toBe("secret");
     expect(body.getAll("resource").sort()).toEqual(["billing", "calendar"]);
+  });
+
+  it("keeps credential resources when CARACAL_APP_RESOURCES is explicit", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ access_token: "fresh-root", expires_in: 900 }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const c = Caracal.fromEnv({
+      CARACAL_COORDINATOR_URL: "http://coord",
+      CARACAL_ZONE_ID: "z",
+      CARACAL_APPLICATION_ID: "app",
+      CARACAL_APP_CLIENT_SECRET: "secret",
+      CARACAL_STS_URL: "http://sts",
+      CARACAL_RUN_CREDENTIALS: JSON.stringify([
+        { resource: "calendar", upstream_prefix: "https://calendar.example.com" },
+      ]),
+      CARACAL_APP_RESOURCES: "billing",
+    } as NodeJS.ProcessEnv);
+
+    await c.headersAsync({ allowRoot: true });
+
+    const body = fetchMock.mock.calls[0][1].body as URLSearchParams;
+    expect(body.getAll("resource").sort()).toEqual(["billing", "calendar"]);
+    expect(resourceMap(c.config.resources)).toEqual({
+      calendar: "https://calendar.example.com",
+    });
   });
 
   it("loads resource bindings from file and lets CARACAL_RESOURCES override conflicts", () => {
@@ -171,12 +199,12 @@ describe("Caracal.fromEnv", () => {
 
 describe("Caracal.headers", () => {
   it("refuses root headers without explicit opt-in", () => {
-    const c = new Caracal(dummyConfig);
+    const c = new Caracal(baseConfig);
     expect(() => c.headers()).toThrow(/allowRoot/);
   });
 
   it("emits W3C envelope when root use is explicit", () => {
-    const c = new Caracal(dummyConfig);
+    const c = new Caracal(baseConfig);
     const h = c.headers({ allowRoot: true });
     expect(h[HeaderAuthorization]).toBe("Bearer tok");
     expect(parseTraceparent(h[HeaderTraceparent]!)).toBeTruthy();
@@ -186,7 +214,7 @@ describe("Caracal.headers", () => {
 
 describe("contextMiddleware + bindFromHeaders", () => {
   it("binds inbound W3C envelope and exposes claims through Caracal.current()", async () => {
-    const c = new Caracal(dummyConfig);
+    const c = new Caracal(baseConfig);
     let seen = "";
     const mw = c.contextMiddleware();
     await new Promise<void>((resolve, reject) => {
@@ -217,7 +245,7 @@ describe("contextMiddleware + bindFromHeaders", () => {
   });
 
   it("describes authority without exposing the subject token", async () => {
-    const c = new Caracal(dummyConfig);
+    const c = new Caracal(baseConfig);
     let summary = "";
     await c.bindFromHeaders({
       [HeaderAuthorization]: "Bearer inbound",
@@ -231,7 +259,7 @@ describe("contextMiddleware + bindFromHeaders", () => {
   });
 
   it("rejects inbound requests without a bearer token by default", async () => {
-    const c = new Caracal(dummyConfig);
+    const c = new Caracal(baseConfig);
     await expect(c.bindFromHeaders({}, async () => undefined)).rejects.toThrow(/missing a bearer token/);
   });
 });
@@ -344,7 +372,7 @@ resource = "calendar"
 
 describe("caracal.transport", () => {
   it("refuses root transport without explicit opt-in", async () => {
-    const c = new Caracal(dummyConfig);
+    const c = new Caracal(baseConfig);
     await expect(c.transport()("http://api/x")).rejects.toThrow(/allowRoot/);
   });
 
@@ -354,7 +382,7 @@ describe("caracal.transport", () => {
       calls.push({ url: String(input), headers: new Headers(init.headers) });
       return new Response(null, { status: 204 });
     }) as unknown as typeof fetch;
-    const c = new Caracal({ ...dummyConfig, coordinator: { baseUrl: "http://c", fetchImpl: fakeFetch } });
+    const c = new Caracal({ ...baseConfig, coordinator: { baseUrl: "http://c", fetchImpl: fakeFetch } });
     await c.transport({ allowRoot: true })("http://api/x");
     expect(calls).toHaveLength(1);
     expect(calls[0].headers.get(HeaderAuthorization)).toBe("Bearer tok");
@@ -368,7 +396,7 @@ describe("caracal.transport", () => {
       return new Response(null, { status: 204 });
     }) as unknown as typeof fetch;
     const c = new Caracal({
-      ...dummyConfig,
+      ...baseConfig,
       coordinator: { baseUrl: "http://c", fetchImpl: fakeFetch },
       gatewayUrl: "https://gateway.example.com/proxy",
       resources: [{ resourceId: "calendar", upstreamPrefix: "https://api.example.com/v1" }],
@@ -391,7 +419,7 @@ describe("caracal.transport", () => {
       return new Response(null, { status: 204 });
     }) as unknown as typeof fetch;
     const c = new Caracal({
-      ...dummyConfig,
+      ...baseConfig,
       coordinator: { baseUrl: "http://c", fetchImpl: fakeFetch },
       gatewayUrl: "https://gateway.example.com/proxy",
     });
@@ -411,7 +439,7 @@ describe("caracal.transport", () => {
       return new Response(null, { status: 204 });
     }) as unknown as typeof fetch;
     const c = new Caracal({
-      ...dummyConfig,
+      ...baseConfig,
       coordinator: { baseUrl: "http://c", fetchImpl: fakeFetch },
       gatewayUrl: "https://gateway.example.com/proxy",
     });
@@ -431,7 +459,7 @@ describe("caracal.transport", () => {
       return new Response(null, { status: 204 });
     }) as unknown as typeof fetch;
     const c = new Caracal({
-      ...dummyConfig,
+      ...baseConfig,
       coordinator: { baseUrl: "http://c", fetchImpl: fakeFetch },
       gatewayUrl: "https://gateway.example.com/proxy",
     });
@@ -452,8 +480,8 @@ describe("caracal.transport", () => {
   });
 
   it("rejects invalid Gateway helper inputs", () => {
-    const c = new Caracal({ ...dummyConfig, gatewayUrl: "https://gateway.example.com/proxy" });
-    expect(() => new Caracal(dummyConfig).gatewayRequest("resource://calendar", "/events")).toThrow(/gatewayUrl/);
+    const c = new Caracal({ ...baseConfig, gatewayUrl: "https://gateway.example.com/proxy" });
+    expect(() => new Caracal(baseConfig).gatewayRequest("resource://calendar", "/events")).toThrow(/gatewayUrl/);
     expect(() => c.gatewayRequest("", "/events")).toThrow(/resourceId/);
     expect(() => c.gatewayRequest("resource://calendar", "https://api.example.com/events")).toThrow(/relative/);
   });
@@ -473,7 +501,7 @@ describe("agent lifecycle and delegation", () => {
       return new Response(null, { status: 204 });
     }) as unknown as typeof fetch;
     const c = new Caracal({
-      ...dummyConfig,
+      ...baseConfig,
       coordinator: { baseUrl: "https://coordinator.example.com", fetchImpl: fakeFetch },
       defaultKind: AgentKind.Ephemeral,
       defaultTtlSeconds: 60,
@@ -526,7 +554,7 @@ describe("agent lifecycle and delegation", () => {
       return new Response(null, { status: 204 });
     }) as unknown as typeof fetch;
     const c = new Caracal({
-      ...dummyConfig,
+      ...baseConfig,
       coordinator: { baseUrl: "https://coordinator.example.com", fetchImpl: fakeFetch },
     });
     await c.spawn(async () => { return; }, { subjectSessionId: "sid-1", parentId: "parent-1" });
@@ -548,7 +576,7 @@ describe("agent lifecycle and delegation", () => {
 describe("config resource sorting and token validation", () => {
   it("sorts bindings longest-prefix-first", () => {
     const c = new Caracal({
-      ...dummyConfig,
+      ...baseConfig,
       resources: [
         { resourceId: "short", upstreamPrefix: "https://api.example.com/v1" },
         { resourceId: "long", upstreamPrefix: "https://api.example.com/v1/accounts/treasury" },

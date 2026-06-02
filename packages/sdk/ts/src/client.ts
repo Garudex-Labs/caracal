@@ -172,7 +172,11 @@ export class Caracal {
         zoneId: zoneId!,
         applicationId: applicationId!,
         clientSecret,
-        resources: resourceIdsFromEnv(env.CARACAL_APP_RESOURCES, profileResources.resources),
+        resources: resourceIdsFromEnv(
+          env.CARACAL_APP_RESOURCES,
+          profileResources.credentialResources ?? [],
+          profileResources.resources,
+        ),
         gatewayUrl,
       });
     }
@@ -504,6 +508,7 @@ function stsUrlFromEnv(env: NodeJS.ProcessEnv): string {
 interface ProfileResources {
   resources: Array<string | ResourceBinding>;
   bindings?: ResourceBinding[];
+  credentialResources?: Array<string | ResourceBinding>;
 }
 
 interface CredentialEntry {
@@ -622,13 +627,15 @@ function resourcesFromProfile(record: Record<string, unknown>, source: string, e
     ...credentialManifestFromEnv(env, zoneId, applicationId),
   ];
   const resources = resourcesFromCredentials(credentials);
-  return resolveProfileResources(resources.resources, resources.bindings ?? [], env);
+  const resolved = resolveProfileResources(resources.resources, resources.bindings ?? [], env);
+  return { ...resolved, credentialResources: resources.resources };
 }
 
 function resourcesFromEnv(env: NodeJS.ProcessEnv, zoneId: string, applicationId: string): ProfileResources {
   const credentials = credentialManifestFromEnv(env, zoneId, applicationId);
   const resources = resourcesFromCredentials(credentials);
-  return resolveProfileResources(resources.resources, resources.bindings ?? [], env);
+  const resolved = resolveProfileResources(resources.resources, resources.bindings ?? [], env);
+  return { ...resolved, credentialResources: resources.resources };
 }
 
 function resolveProfileResources(resources: Array<string | ResourceBinding>, credentialBindings: ResourceBinding[], env: NodeJS.ProcessEnv): ProfileResources {
@@ -831,9 +838,21 @@ function parseResourceBindings(raw: string | undefined): ResourceBinding[] | und
   return out.length ? sortBindingsLongestFirst(out) : undefined;
 }
 
-function resourceIdsFromEnv(raw: string | undefined, resources: Array<string | ResourceBinding> | undefined): Array<string | ResourceBinding> {
+function compactResourceValues(values: Array<string | ResourceBinding>): Array<string | ResourceBinding> {
+  const seen = new Set<string>();
+  const out: Array<string | ResourceBinding> = [];
+  for (const value of values) {
+    const resourceId = typeof value === "string" ? value : value.resourceId;
+    if (!resourceId || seen.has(resourceId)) continue;
+    seen.add(resourceId);
+    out.push(value);
+  }
+  return out;
+}
+
+function resourceIdsFromEnv(raw: string | undefined, first: Array<string | ResourceBinding>, resources: Array<string | ResourceBinding> | undefined): Array<string | ResourceBinding> {
   const explicit = raw?.split(",").map((value) => value.trim()).filter(Boolean);
-  if (explicit?.length) return explicit;
+  if (explicit?.length) return compactResourceValues([...first, ...explicit]);
   if (resources?.length) return resources;
   throw new Error("Caracal.fromEnv: client-secret mode requires resources via CARACAL_APP_RESOURCES, CARACAL_RUN_CREDENTIALS, CARACAL_RESOURCES, or CARACAL_RESOURCES_FILE");
 }
