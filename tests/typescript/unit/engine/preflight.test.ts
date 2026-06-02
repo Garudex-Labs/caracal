@@ -116,6 +116,7 @@ describe('runPreflightChecks failure reporting', () => {
     }
     delete process.env.CARACAL_REPO_ROOT
     delete process.env.CARACAL_SECRETS_DIR
+    delete process.env.STS_URL
   })
 
   afterEach(() => {
