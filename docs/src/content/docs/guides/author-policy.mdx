@@ -7,7 +7,7 @@ Caracal policies run inside the STS during token exchange. A policy must return 
 
 ## Prerequisites
 
-- A zone, application, resource, and grant.
+- A zone, application, and resource.
 - Access to the Console or Admin API.
 - The resource identifier and scopes you want to allow.
 
@@ -46,7 +46,6 @@ result := {
 | `input.application` | Application registration and trait checks. |
 | `input.resource` | Resource identifier and resource metadata checks. |
 | `input.context.requested_scopes` | Scope allowlists. |
-| `input.grant` | Grant-aware decisions. |
 | `input.delegation_edge` | Delegation constraints and graph proof. |
 
 ## Validate before versioning
@@ -72,7 +71,7 @@ if (!validation.valid) {
 - Default to deny.
 - Return diagnostics for denies and step-up triggers.
 - Keep resource identifiers stable and scopes action-oriented.
-- Avoid broad tables that duplicate grants; use policy for decision logic and grants for assignments.
+- Keep decision logic in policy rather than duplicating allow tables across rules.
 - Split policies by ownership only when separate review or activation is useful.
 
 Next, [activate the policy in a policy set](/guides/activate-policy-set/).
