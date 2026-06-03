@@ -11,7 +11,7 @@ description: Public API reference for caracalai-sdk.
 pip install caracalai-sdk
 ```
 
-The package requires Python `>=3.14`.
+The package requires Python `>=3.12`.
 
 ## Configuration entry points
 
@@ -40,7 +40,7 @@ caracal = Caracal.connect()
 | `async with caracal.bind_from_headers(headers, allow_root=False)` | Bind inbound Caracal envelope headers. |
 | `caracal.transport(allow_root=False, **kwargs)` | Return an `httpx.AsyncClient` that injects Caracal headers and Gateway routing. |
 | `caracal.sync_transport(allow_root=False, **kwargs)` | Synchronous `httpx.Client` counterpart. |
-| `caracal.context_middleware()` | ASGI context propagation middleware factory. |
+| `caracal.context_middleware(verifier=None)` | ASGI middleware factory: propagates context, and enforces at the boundary when a `verifier` is passed. |
 | `caracal.gateway_request(resource_id, path="/")` | Build a Gateway URL and `X-Caracal-Resource` header. |
 
 ## Delegation constraints
@@ -59,7 +59,26 @@ constraints = DelegationConstraints(
 
 ## ASGI propagation boundary
 
-`context_middleware()` binds a Caracal envelope after a verifier boundary. It does not verify JWT signatures, audience, scopes, token use, or revocation. Pair it with a Gateway, connector, or MCP transport verifier before trusting the context.
+`context_middleware()` is framework-agnostic and runs on any ASGI app (FastAPI, Starlette, Quart, Django ASGI).
+
+Without a verifier it only **propagates**: it binds the inbound Caracal envelope into request context but does not check JWT signatures, audience, scopes, token use, or revocation. Use this when a Gateway already enforced the mandate upstream.
+
+Pass `verifier=` to **enforce at the boundary**. The callable receives the bearer token and must raise on failure; back it with `caracalai_identity.verify_token` so the application sees a request only after the mandate is proven. The SDK never inspects token internals itself.
+
+```python
+from caracalai_identity import verify_token
+from caracalai_sdk import Caracal
+
+caracal = Caracal.from_env()
+app = FastAPI()
+
+async def verify(token: str) -> None:
+    await verify_token(token, issuer=ISSUER, audience=AUDIENCE)
+
+app.add_middleware(caracal.context_middleware(verifier=verify))
+```
+
+See [Enforce, propagate, or attribute](/concepts/authority-model/#enforce-propagate-or-attribute) for which call path verifies authority.
 
 ## Related pages
 
