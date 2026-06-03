@@ -4,7 +4,7 @@
 - Covers the `@caracalai/api` Fastify control-plane service under `apps/api/`.
 
 ## Architecture Design
-- Routes under `src/routes/` own zone, application, resource, provider, policy, grant, session, invitation, team, and step-up APIs.
+- Routes under `src/routes/` own zone, application, resource, provider, policy, grant, session, and step-up APIs.
 - `src/db.ts`, `src/outbox.ts`, `src/redis.ts`, and `src/admin-audit.ts` own persistence, stream publishing, and admin audit integration.
 - The service listens on port 3000 in Compose and depends on PostgreSQL, Redis, STS, and migrations.
 

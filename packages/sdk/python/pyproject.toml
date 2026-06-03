@@ -14,7 +14,7 @@ description = "Caracal agent identity and delegation SDK: context propagation, s
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.12"
 dependencies = [
   "httpx>=0.28.0",
   "idna>=3.15",

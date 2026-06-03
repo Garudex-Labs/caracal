@@ -9,7 +9,7 @@ description = "Caracal RFC 8693 token exchange client with safe in-memory cachin
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.12"
 dependencies = [
   "httpx>=0.28.0",
   "idna>=3.15",
