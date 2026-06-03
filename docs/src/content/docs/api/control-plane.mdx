@@ -48,6 +48,7 @@ Use Console when you are performing these operations interactively. Use the Admi
 ## Usage notes
 
 - Use Console for human workflows and Admin SDK or Control API for automation.
+- For scoped, non-interactive provisioning, drive the Control API with a control key. See [Control automation](/services/control/#non-interactive-automation) and the `controlBootstrap` example.
 - Policy activation and simulation are API operations, but top-level `caracal` runtime commands do not expose them.
 - Writes that produce downstream state changes enqueue signed Redis stream events through the API outbox.
 

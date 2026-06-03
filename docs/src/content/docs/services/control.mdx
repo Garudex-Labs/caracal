@@ -45,6 +45,42 @@ sequenceDiagram
 | `CARACAL_API_URL` | API base URL. |
 | `CONTROL_GATE_FILE` | File gate that must exist before invoke is available. |
 
+## Non-interactive automation
+
+Control is the automation counterpart to Console. A CI job, provisioning script,
+or onboarding tool drives the same management operations a human performs in
+Console, because both run through the shared engine dispatch. Automation never
+receives the root admin token; it uses a scoped control key.
+
+1. Create a control key once in Console from the Control menu. Console returns a
+   one-time `client_id` and `client_secret` and records the `control:<command>:<verb>`
+   scopes the key may request, along with an optional maximum token TTL.
+2. Exchange the key for a short-lived token at the STS token endpoint.
+
+   ```bash
+   curl -s -X POST "$STS_URL/oauth/2/token" \
+     -d grant_type=client_credentials \
+     -d application_id="$CONTROL_CLIENT_ID" \
+     -d client_secret="$CONTROL_CLIENT_SECRET" \
+     -d zone_id="$CARACAL_ZONE_ID" \
+     -d resource=caracal-control \
+     -d scope="control:resource:write control:policy:write"
+   ```
+
+3. Invoke a management command with the returned token.
+
+   ```bash
+   curl -s -X POST "$CONTROL_URL/v1/control/invoke" \
+     -H "authorization: Bearer $TOKEN" \
+     -H "content-type: application/json" \
+     -d '{"command":"resource","subcommand":"create","flags":{"name":"PiperNet","identifier":"resource://pipernet","scopes":["pipernet.read"]}}'
+   ```
+
+Each token is short-lived, replay-protected, rate-limited, and audited, so
+least-privilege automation stays the easy path. The `controlBootstrap` example
+ships a reusable client plus idempotent bootstrap and teardown scripts that
+provision a demo provider, resource, and policy through this flow.
+
 ## Safety behavior
 
 Control returns `503` when the gate is disabled, `401` for authentication or replay failures, `429` for rate limiting, `403` for denied dispatch, `400` for invalid requests, `501` for unsupported commands, and `502` for upstream errors.
@@ -56,3 +92,4 @@ Control is a product-management surface. Do not expose it as a top-level `caraca
 - [CLI and Console](/runtime-console/cli-and-console/)
 - [Trust Boundaries](/architecture/trust-boundaries/)
 - [Control API Reference](/api/control-plane/)
+- [Control bootstrap example](https://github.com/Garudex-Labs/caracal/tree/main/examples/controlBootstrap)
