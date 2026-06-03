@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Google OAuth and OpenAI agent launched with caracal run using runtime-only credential injection.",
   "engines": {
-    "node": ">=24"
+    "node": ">=22"
   },
   "scripts": {
     "test": "node --test \"tests/**/*.test.mjs\""
