@@ -66,12 +66,12 @@ Do not put provider-specific credential details on a resource. Do not use mutabl
 ## Validate the setup
 
 - Open the resource in the Console and confirm scopes are present.
-- Create a grant for the application and subject that will request the scopes.
-- Activate a policy set that allows the resource.
+- Author and activate a policy that allows the application and subject to request the scopes.
 - Send a Gateway request and inspect the audit event. For Caracal mandate upstreams, also confirm the resource uses a Caracal verifier or connector.
 
 ## Related guides
 
-- [Issue Grants and Invitations](/guides/grants-invitations/)
+- [Author a Rego Policy](/guides/author-policy/)
+- [Authorize Access and Invite Members](/guides/invitations/)
 - [Protect an API](/tutorials/protect-an-api/)
 - [Activate a Policy Set](/guides/activate-policy-set/)

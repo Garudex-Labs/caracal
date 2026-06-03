@@ -1,0 +1,46 @@
+---
+title: Authorize Access and Invite Members
+description: Authorize applications to request resource scopes through policy, and invite new members into a zone.
+---
+
+Applications and subjects are authorized to request resource scopes by the policy set that is active in the zone. Invitations bring people into a zone so they can administer, review, or approve work.
+
+## Authorize an application
+
+Access is decided by policy at request time. There is no separate access-binding step to maintain: define the protected resource and its scopes, then author and activate a policy that allows the application, subject, and scopes. The Gateway and STS evaluate that active policy on every request.
+
+1. Define the resource and its scopes. See [Define Resources and Providers](/guides/resources-providers/).
+2. Author a rule that allows the application, subject, and scopes. See [Author a Rego Policy](/guides/author-policy/).
+3. Activate the policy set so the rule takes effect. See [Activate a Policy Set](/guides/activate-policy-set/).
+4. Run a token exchange or Gateway request that asks for those scopes.
+5. Inspect `audit` or `request trace` to confirm the decision.
+
+## Invite a member
+
+Use invitations when a new operator or reviewer needs zone access.
+
+| Field | Meaning |
+| --- | --- |
+| Email | Person being invited. |
+| Role | Zone role or team role being assigned. |
+| Invited by | Subject ID of the inviter. |
+| Expiration | Optional expiry; defaults to the service-defined invite window when omitted. |
+
+The Admin API exposes invitation list, create, and cancel endpoints for automation.
+
+## Authorization design rules
+
+- Allow only the scopes an application and subject need.
+- Keep policies resource-specific instead of allowing broad cross-resource access.
+- Express context-sensitive conditions in policy rather than widening scopes.
+- Revoke active sessions when a subject leaves a workflow or an application no longer needs a resource.
+
+## Troubleshooting
+
+| Symptom | Check |
+| --- | --- |
+| Exchange is denied | Use `request trace`; confirm the active policy allows the application, subject, resource, and scopes. |
+| Scope missing | Confirm the resource defines the scope and the active policy authorizes it. |
+| Access continues after revocation | Confirm revocation consumers are running on resource servers. |
+
+Related pages: [Resource and Grant](/concepts/resource-grant/), [Policy](/concepts/policy/), and [Sessions and Revocation](/concepts/sessions-revocation/).

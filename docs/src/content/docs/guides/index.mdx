@@ -11,7 +11,7 @@ Use these guides after you finish [Get Started](/get-started/) and understand th
 | --- | --- |
 | Add Caracal to application code | [TypeScript SDK](/guides/sdk-typescript/), [Python SDK](/guides/sdk-python/), or [Go SDK](/guides/sdk-go/) |
 | Protect a resource server | [Express](/guides/protect-express/), [FastMCP](/guides/protect-fastmcp/), [Go net/http](/guides/protect-nethttp/), or [MCP transport](/guides/protect-mcp/) |
-| Configure authority | [Define Resources and Providers](/guides/resources-providers/), [Issue Grants and Invitations](/guides/grants-invitations/), [Author a Rego Policy](/guides/author-policy/), and [Activate a Policy Set](/guides/activate-policy-set/) |
+| Configure authority | [Define Resources and Providers](/guides/resources-providers/), [Author a Rego Policy](/guides/author-policy/), [Activate a Policy Set](/guides/activate-policy-set/), and [Authorize Access and Invite Members](/guides/invitations/) |
 | Run and inspect agents | [Run an Agent with caracal run](/guides/runtime-run/), [Implement Multi-Agent Delegation](/guides/delegation/), and [Tail and Query the Audit Stream](/guides/audit-stream/) |
 | Handle sensitive resources | [Step-Up Re-Authentication](/guides/step-up/) |
 | Design larger deployments | [Enterprise Runtime Patterns](/guides/enterprise-runtime-patterns/) |
@@ -20,8 +20,7 @@ Use these guides after you finish [Get Started](/get-started/) and understand th
 
 ```mermaid
 flowchart LR
-  Resource["Define resources"] --> Grant["Issue grants"]
-  Grant --> Policy["Author policy"]
+  Resource["Define resources"] --> Policy["Author policy"]
   Policy --> Activate["Activate policy set"]
   Activate --> SDK["Integrate SDK"]
   SDK --> Protect["Protect resource"]
@@ -35,7 +34,7 @@ Use the right surface for each task:
 | Surface | Use for |
 | --- | --- |
 | `caracal up`, `down`, `status`, `purge`, `run`, `console` | Local runtime lifecycle and subprocess injection. |
-| Console | Human-facing zone, application, provider, resource, policy, grant, session, audit, explanation, delegation, and diagnostic workflows. |
+| Console | Human-facing zone, application, provider, resource, policy, session, audit, explanation, delegation, and diagnostic workflows. |
 | Admin API and `@caracalai/admin` | Automation for the same control-plane objects. |
 | SDKs and connectors | Application integration, context propagation, mandate exchange, and mandate verification. |
 
