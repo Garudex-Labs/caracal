@@ -20,16 +20,28 @@ Create product objects only after readiness succeeds.
 
 In the Console, choose **guided setup**.
 
+Guided setup opens with a **Scenario** step. Pick the scenario that matches what you are protecting and the wizard only asks for the fields that scenario needs:
+
+| Scenario | Use when | Upstream credential step |
+| --- | --- | --- |
+| Internal HTTP API | You are protecting your own service and the Gateway needs no upstream secret. | Skipped — Caracal records a no-secret provider for you. |
+| Mandate-aware service | The upstream understands Caracal mandates directly. | Skipped — Caracal records a mandate provider for you. |
+| API key | The Gateway must inject a static API key into upstream calls. | Shown, locked to API key. |
+| OAuth client credentials | The Gateway brokers a machine OAuth token. | Shown, locked to OAuth client credentials. |
+| User OAuth consent | A user authorizes the upstream once via OAuth. | Shown, locked to OAuth authorization code. |
+| Custom | You need the full provider matrix. | Shown, full provider-kind selection. |
+
 | Wizard step | Recommended first-run choice |
 | --- | --- |
+| Scenario | Start with **Internal HTTP API** to reach a protected call without choosing a credential type. |
 | Zone | Create a local evaluation zone or select an existing one. |
 | Agent app | Create a confidential app for the workload. |
-| Provider | Create a provider only if the resource needs a brokered upstream credential. |
-| Resource | Enter a stable resource identifier, required scopes, and Gateway upstream details when the resource fronts an external API. |
+| Resource | Name the thing you are protecting: a stable resource identifier, required scopes, and Gateway upstream details when the resource fronts an external API. |
+| Provider | Only shown for credential scenarios; the provider type is pre-selected from your scenario so you only enter the secret. |
 | Access policy | Let the Console create and activate the starter policy. |
 | Review | Enable **write profile files** if this machine should receive the runtime profile and secret file. |
 
-The result view shows the zone ID, application ID, resource ID, app client secret, active policy set, profile path, secret-file path, generated profile, and first-success commands.
+The result view shows the zone ID, application ID, resource ID, app client secret, active policy set, profile path, secret-file path, generated profile, and first-success commands. It also explains what just happened: the short-lived scoped token the workload now receives, the policy that allowed it, where to read the audit trail, and how to revoke.
 
 If the Console does not write files, create the files manually from the result view and keep them owner-readable only. The app client secret is shown once for a newly created app.
 

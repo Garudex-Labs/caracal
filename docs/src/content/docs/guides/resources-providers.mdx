@@ -23,7 +23,7 @@ Resource fields should answer “what is being protected and where does Gateway 
 4. Create a resource with a stable identifier, such as `resource://pipernet`.
 5. Add action-oriented scopes, such as `payments:read` and `payments:refund`.
 6. Set the upstream URL, Gateway application, and upstream credential provider for the protected service.
-7. Select `None` only when Gateway should enforce Caracal access but the upstream expects no credential.
+7. Select a `None` provider when Gateway should enforce Caracal access but the upstream expects no credential.
 8. Select `Caracal mandate` for resources that verify Caracal tokens directly, or choose a provider-native type when the upstream needs external credentials.
 9. Attach exactly one upstream credential provider to the resource.
 

@@ -34,7 +34,7 @@ Define:
 | Resource identifier | Use a stable ID, for example `resource://billing-api`. |
 | Scopes | Use short action names such as `billing:read` or `billing:submit`. |
 | Upstream URL | Required for Gateway-mediated routing. Use a URL reachable from the Gateway. |
-| Provider | Select one only when the route needs a brokered upstream credential. |
+| Provider | Select one for the route. Use a `None` provider only when Gateway should enforce access but the upstream needs no brokered credential. |
 
 Keep the resource ID; SDK code, policy, Gateway headers, and audit events all refer to it.
 
