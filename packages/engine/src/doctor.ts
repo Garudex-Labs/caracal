@@ -7,7 +7,7 @@ import type { Zone } from '@caracalai/admin'
 import { discoverCoordinatorToken } from '@caracalai/core'
 import { DEFAULT_API_URL, DEFAULT_COORDINATOR_URL, DEFAULT_GATEWAY_URL, DEFAULT_ZONE_URL, resolveServiceUrl } from './runtimeConfig.js'
 import { scrubTokens } from './crash.js'
-import { buildAdminClient as buildAdminClientCore, type AdminContext } from './shared.js'
+import { adminTokenProvisionCommand, buildAdminClient as buildAdminClientCore, type AdminContext } from './shared.js'
 import { runPreflightChecks, type PreflightCheck } from './preflight.js'
 
 export type DoctorStatus = 'ok' | 'warn' | 'fail'
@@ -334,7 +334,7 @@ function buildAdminContext(checks: DoctorCheck[]): AdminContext | undefined {
       check: 'admin config',
       status: 'fail',
       detail: message(err),
-      advice: 'Set CARACAL_ADMIN_TOKEN or run `pnpm caracal up` to provision local admin credentials.',
+      advice: `Run \`${adminTokenProvisionCommand()}\` to provision local admin credentials.`,
     })
     return undefined
   }

@@ -154,7 +154,9 @@ describe('runDoctorDiagnostics — full system run', () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse({}, true))
 
     const report = await runDoctorDiagnostics({})
-    expect(report.checks.some((c) => c.check === 'admin config' && c.status === 'fail')).toBe(true)
+    const adminConfig = report.checks.find((c) => c.check === 'admin config')
+    expect(adminConfig?.status).toBe('fail')
+    expect(adminConfig?.advice).toBe('Run `pnpm caracal up` to provision local admin credentials.')
     expect(report.context.zoneScope).toBe('none')
     fetchSpy.mockRestore()
   })

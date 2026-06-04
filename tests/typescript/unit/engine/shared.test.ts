@@ -14,10 +14,66 @@ describe('buildAdminClient', () => {
   const saved = { ...process.env }
   let dir: string
 
+  function setAdminlessEnv(env: NodeJS.ProcessEnv): void {
+    process.env = { ...saved, ...env }
+    delete process.env.CARACAL_ADMIN_TOKEN
+    delete process.env.CARACAL_ADMIN_TOKEN_FILE
+    delete process.env.CARACAL_COORDINATOR_TOKEN
+    delete process.env.CARACAL_COORDINATOR_TOKEN_FILE
+    delete process.env.CARACAL_DEV_SECRETS_DIR
+    delete process.env.CARACAL_ENV_FILE
+    delete process.env.CARACAL_SECRETS_DIR
+    delete process.env.CARACAL_ALLOW_WORKSPACE_SECRETS
+  }
+
   afterEach(() => {
     process.env = { ...saved }
     vi.unstubAllGlobals()
     if (dir) rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('recommends pnpm caracal up when the admin token is missing in dev mode', () => {
+    dir = mkdtempSync(join(tmpdir(), 'caracal-shared-'))
+    setAdminlessEnv({
+      CARACAL_HOME: dir,
+      CARACAL_MODE: 'dev',
+      CARACAL_API_URL: 'http://localhost:3000',
+      CARACAL_COORDINATOR_URL: 'http://localhost:4000',
+    })
+
+    expect(() => buildAdminClient()).toThrow(
+      'Admin token not found; run `pnpm caracal up` to provision local admin credentials.',
+    )
+  })
+
+  it('recommends pnpm caracal up when launched from the workspace', () => {
+    dir = mkdtempSync(join(tmpdir(), 'caracal-shared-'))
+    setAdminlessEnv({
+      CARACAL_HOME: dir,
+      CARACAL_REPO_ROOT: dir,
+      CARACAL_API_URL: 'http://localhost:3000',
+      CARACAL_COORDINATOR_URL: 'http://localhost:4000',
+    })
+    delete process.env.CARACAL_MODE
+
+    expect(() => buildAdminClient()).toThrow(
+      'Admin token not found; run `pnpm caracal up` to provision local admin credentials.',
+    )
+  })
+
+  it.each(['rc', 'stable'] as const)('recommends caracal up when the admin token is missing in %s mode', (mode) => {
+    dir = mkdtempSync(join(tmpdir(), 'caracal-shared-'))
+    setAdminlessEnv({
+      CARACAL_HOME: dir,
+      CARACAL_MODE: mode,
+      CARACAL_REPO_ROOT: dir,
+      CARACAL_API_URL: 'http://localhost:3000',
+      CARACAL_COORDINATOR_URL: 'http://localhost:4000',
+    })
+
+    expect(() => buildAdminClient()).toThrow(
+      'Admin token not found; run `caracal up` to provision local admin credentials.',
+    )
   })
 
   it('discovers the coordinator token from the local secret file', async () => {

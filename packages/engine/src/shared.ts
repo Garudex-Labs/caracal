@@ -4,9 +4,8 @@
 // Shared helpers for engine verbs: AdminClient bootstrap and file content reads.
 
 import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { AdminClient } from '@caracalai/admin'
-import { discoverAdminToken, discoverCoordinatorToken, installedHome } from '@caracalai/core'
+import { discoverAdminToken, discoverCoordinatorToken } from '@caracalai/core'
 import {
   DEFAULT_API_URL,
   DEFAULT_COORDINATOR_URL,
@@ -28,13 +27,19 @@ function isLocalUrl(value: string): boolean {
   }
 }
 
+export function adminTokenProvisionCommand(env: NodeJS.ProcessEnv = process.env): string {
+  return env.CARACAL_MODE === 'dev' || (!env.CARACAL_MODE && env.CARACAL_REPO_ROOT !== undefined)
+    ? 'pnpm caracal up'
+    : 'caracal up'
+}
+
 export function buildAdminClient(): AdminContext {
   const apiUrl = resolveServiceUrl('CARACAL_API_URL', DEFAULT_API_URL)
   const coordinatorUrl = resolveServiceUrl('CARACAL_COORDINATOR_URL', DEFAULT_COORDINATOR_URL)
   const adminToken = discoverAdminToken(undefined, { preferGenerated: isLocalUrl(apiUrl) })
   if (!adminToken) {
     throw new Error(
-      `CARACAL_ADMIN_TOKEN not set; export it or run \`caracal up\` (writes ${join(installedHome(), 'secrets', 'caracalAdminToken')})`,
+      `Admin token not found; run \`${adminTokenProvisionCommand()}\` to provision local admin credentials.`,
     )
   }
   const coordinatorToken = discoverCoordinatorToken(undefined, { preferGenerated: isLocalUrl(coordinatorUrl) })

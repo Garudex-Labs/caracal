@@ -67,7 +67,6 @@ const staleBuilds = [
   ['packages/engine/src', 'packages/engine/dist/stack.js'],
 ]
 if (tsBuilds.some((path) => !existsSync(join(root, path))) || staleBuilds.some(([source, output]) => sourceIsNewer(source, output))) {
-  process.stderr.write('caracal-console: building TypeScript workspace packages…\n')
   try {
     execSync('pnpm run build:typescript', { cwd: root, stdio: 'inherit' })
   } catch (err) {
