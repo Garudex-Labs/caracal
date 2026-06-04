@@ -32,7 +32,6 @@ TABLES=(
   event_outbox
   gateway_binding_revision
   gateway_resource_bindings
-  invitations
   policies
   policy_set_bindings
   policy_set_versions
@@ -43,7 +42,6 @@ TABLES=(
   secrets
   sessions
   step_up_challenges
-  teams
   zones
 )
 for t in "${TABLES[@]}"; do
@@ -52,6 +50,20 @@ for t in "${TABLES[@]}"; do
     exit 1
   fi
   echo "  $t OK"
+done
+
+echo ""
+echo "=== Migration: retired tables absent ==="
+RETIRED_TABLES=(
+  invitations
+  teams
+)
+for t in "${RETIRED_TABLES[@]}"; do
+  if [ "$(scalar "SELECT to_regclass('public.$t') IS NULL;")" != "t" ]; then
+    echo "  FAIL: $t present"
+    exit 1
+  fi
+  echo "  $t absent OK"
 done
 
 echo ""
@@ -91,8 +103,6 @@ RLS_TABLES=(
   resources
   audit_events
   agent_sessions
-  invitations
-  teams
   delegation_edges
   agent_services
   agent_invocations
