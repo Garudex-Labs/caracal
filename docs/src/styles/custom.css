@@ -630,7 +630,7 @@ main:has(.landing-hero) {
 .landing-footer {
   width: 100%;
   padding: 0 clamp(0.75rem, 3vw, 2rem) 0;
-  border-top: 1px solid var(--sl-color-hairline);
+  border-top: 1px solid var(--sl-color-border-strong, var(--sl-color-hairline));
   background: var(--sl-color-bg);
 }
 
@@ -638,7 +638,7 @@ main:has(.landing-hero) {
   position: relative;
   max-width: 84rem;
   margin-inline: auto;
-  padding: clamp(2rem, 4vw, 3.25rem) clamp(1.5rem, 4vw, 3.5rem) 0;
+  padding: clamp(2rem, 4vw, 3.25rem) clamp(1.5rem, 4vw, 3.5rem) clamp(1.75rem, 3vw, 2.5rem);
   border: 1px solid var(--sl-color-hairline);
   border-top: 0;
   border-bottom: 0;
@@ -750,7 +750,7 @@ main:has(.landing-hero) {
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--sl-color-gray-3);
+  color: var(--sl-color-text-accent);
 }
 
 .landing-footer__col a {
@@ -782,38 +782,9 @@ main:has(.landing-hero) {
   margin: 0;
 }
 
-.landing-footer__wordmark {
-  position: relative;
-  margin-top: clamp(0.5rem, 2vw, 1.5rem);
-  text-align: center;
-  pointer-events: none;
-}
-
-.landing-footer__wordmark::before {
-  content: "";
-  position: absolute;
-  inset-inline: 0;
-  bottom: 0;
-  margin-inline: auto;
-  width: min(48rem, 80%);
-  height: 70%;
-  border-radius: 50%;
-  background: var(--caracal-link);
-  opacity: 0.22;
-  filter: blur(120px);
-}
-
-.landing-footer__wordmark span {
-  position: relative;
-  display: block;
-  font-family: "Space Grotesk", var(--sl-font);
-  font-weight: 800;
-  line-height: 0.72;
-  letter-spacing: -0.02em;
-  font-size: clamp(3.5rem, 16vw, 13rem);
-  color: transparent;
-  -webkit-text-stroke: 1px color-mix(in srgb, var(--caracal-link) 55%, transparent);
-  transform: translateY(18%);
+.landing-footer__accent {
+  color: var(--caracal-link);
+  font-weight: 600;
 }
 
 @media (max-width: 52rem) {
@@ -855,7 +826,8 @@ label,
 select,
 .theme-toggle,
 .landing-button,
-.docs-dir__item {
+.path-card__link,
+.map-card__link {
   cursor: var(--caracal-cursor-pointer);
 }
 
@@ -1278,24 +1250,26 @@ footer .meta a {
   }
 }
 
-/* Documentation directory body */
-.docs-dir {
+/* Documentation body */
+.docs-body {
   width: 100%;
-  padding: clamp(2.5rem, 5vw, 3.75rem) clamp(1rem, 5vw, 4rem);
+  padding: clamp(2.75rem, 5vw, 4.5rem) clamp(1rem, 5vw, 4rem);
   border-top: 1px solid var(--sl-color-hairline);
 }
 
-.docs-dir__inner {
-  max-width: 76rem;
+.docs-body__inner {
+  max-width: 78rem;
   margin-inline: auto;
+  display: flex;
+  flex-direction: column;
+  gap: clamp(3rem, 6vw, 4.5rem);
 }
 
-.docs-dir__head {
-  max-width: 46rem;
+.docs-section__head {
   margin-bottom: clamp(1.5rem, 3vw, 2.25rem);
 }
 
-.docs-dir__eyebrow {
+.docs-section__eyebrow {
   margin: 0;
   font-family: var(--sl-font-mono);
   font-size: 0.74rem;
@@ -1305,90 +1279,201 @@ footer .meta a {
   color: var(--sl-color-text-accent);
 }
 
-.docs-dir__heading {
+.docs-section__heading {
   margin: 0.4rem 0 0;
-  font-size: clamp(1.5rem, 3vw, 2.2rem);
+  font-size: clamp(1.55rem, 3vw, 2.2rem);
   font-weight: 720;
   letter-spacing: -0.025em;
   line-height: 1.15;
   color: var(--sl-color-text);
 }
 
-.docs-dir__lede {
-  margin: 0.6rem 0 0;
-  font-size: 0.98rem;
-  line-height: 1.6;
-  color: var(--sl-color-gray-3);
-}
-
-.docs-dir__grid {
+/* Audience paths */
+.docs-paths__grid {
   display: grid;
-  gap: clamp(1.25rem, 2.5vw, 2rem) clamp(1rem, 2vw, 1.75rem);
-  grid-template-columns: repeat(auto-fit, minmax(13.5rem, 1fr));
+  gap: clamp(1rem, 2vw, 1.5rem);
+  grid-template-columns: repeat(3, 1fr);
 }
 
-.docs-dir__group {
+.path-card {
   display: flex;
   flex-direction: column;
-  gap: 0.6rem;
-  min-width: 0;
+  gap: 0.55rem;
+  padding: clamp(1.25rem, 2.5vw, 1.75rem);
+  border: 1px solid var(--sl-color-hairline);
+  border-radius: 14px;
+  background: var(--caracal-panel);
+  transition: border-color 140ms ease, background 140ms ease, transform 140ms ease;
 }
 
-.docs-dir__group-title {
+.path-card:hover {
+  border-color: var(--sl-color-text-accent);
+  background: var(--caracal-panel-strong);
+  transform: translateY(-2px);
+}
+
+.path-card__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.6rem;
+  height: 2.6rem;
+  border-radius: 11px;
+  border: 1px solid var(--sl-color-hairline);
+  background: var(--caracal-panel-strong);
+  color: var(--caracal-link);
+  margin-bottom: 0.35rem;
+}
+
+.path-card__kicker {
   margin: 0;
-  padding-bottom: 0.55rem;
-  border-bottom: 1px solid var(--sl-color-hairline);
   font-family: var(--sl-font-mono);
-  font-size: 0.74rem;
+  font-size: 0.68rem;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.09em;
   text-transform: uppercase;
   color: var(--sl-color-gray-3);
 }
 
-.docs-dir__list {
+.path-card__title {
+  margin: 0;
+  font-size: 1.18rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--sl-color-text);
+}
+
+.path-card__body {
+  margin: 0 0 0.35rem;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  color: var(--sl-color-gray-3);
+}
+
+.path-card__links {
+  margin: 0;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--sl-color-hairline);
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.path-card__link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.4rem 0;
+  font-size: 0.9rem;
+  font-weight: 560;
+  color: color-mix(in srgb, var(--sl-color-text) 82%, transparent);
+  text-decoration: none;
+  transition: color 120ms ease;
+}
+
+.path-card__link svg {
+  flex-shrink: 0;
+  opacity: 0;
+  transform: translateX(-4px);
+  transition: opacity 140ms ease, transform 140ms ease;
+}
+
+.path-card__link:hover {
+  color: var(--sl-color-text-accent);
+}
+
+.path-card__link:hover svg {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+/* Documentation map */
+.docs-map__grid {
+  display: grid;
+  gap: clamp(1rem, 2vw, 1.5rem);
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.map-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  padding: clamp(1.1rem, 2.2vw, 1.5rem);
+  border: 1px solid var(--sl-color-hairline);
+  border-radius: 14px;
+  background: var(--caracal-panel);
+  transition: border-color 140ms ease, background 140ms ease;
+}
+
+.map-card:hover {
+  border-color: var(--sl-color-border-strong, var(--sl-color-hairline));
+  background: var(--caracal-panel-strong);
+}
+
+.map-card__head {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.map-card__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.1rem;
+  height: 2.1rem;
+  border-radius: 9px;
+  border: 1px solid var(--sl-color-hairline);
+  background: var(--caracal-panel-strong);
+  color: var(--caracal-link);
+}
+
+.map-card__title {
+  margin: 0;
+  font-size: 0.96rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--sl-color-text);
+}
+
+.map-card__list {
   margin: 0;
   padding: 0;
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 0.45rem;
 }
 
-.docs-dir__item {
-  display: flex;
-  flex-direction: column;
-  gap: 0.18rem;
-  padding: 0.65rem 0.75rem;
-  border: 1px solid var(--sl-color-hairline);
-  border-radius: 6px;
-  background: var(--caracal-panel);
+.map-card__list li + li {
+  border-top: 1px solid color-mix(in srgb, var(--sl-color-hairline) 60%, transparent);
+}
+
+.map-card__link {
+  display: block;
+  padding: 0.5rem 0;
+  font-size: 0.9rem;
+  color: color-mix(in srgb, var(--sl-color-text) 80%, transparent);
   text-decoration: none;
-  transition: border-color 120ms ease, background 120ms ease;
+  transition: color 120ms ease, padding-left 120ms ease;
 }
 
-.docs-dir__item:hover,
-.docs-dir__item:focus-visible {
-  border-color: var(--sl-color-text-accent);
-  background: var(--caracal-panel-strong);
-  outline: none;
+.map-card__link:hover {
+  color: var(--sl-color-text-accent);
+  padding-left: 0.35rem;
 }
 
-.docs-dir__item-title {
-  font-size: 0.95rem;
-  font-weight: 680;
-  letter-spacing: -0.01em;
-  color: var(--sl-color-text);
+@media (max-width: 60rem) {
+  .docs-paths__grid,
+  .docs-map__grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
 
-.docs-dir__item-body {
-  font-size: 0.82rem;
-  line-height: 1.5;
-  color: var(--sl-color-gray-3);
-}
-
-@media (max-width: 30rem) {
-  .docs-dir__grid {
+@media (max-width: 38rem) {
+  .docs-paths__grid,
+  .docs-map__grid {
     grid-template-columns: 1fr;
   }
 }

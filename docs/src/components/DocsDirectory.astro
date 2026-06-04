@@ -3,84 +3,176 @@
  * Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
  * Caracal, a product of Garudex Labs
  *
- * Compact documentation directory that routes readers by task in one responsive grid.
+ * Homepage body that routes readers by audience and then by documentation topic.
  */
+
+const icons = {
+  compass: '<circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/>',
+  server: '<rect x="2" y="3" width="20" height="8" rx="2"/><rect x="2" y="13" width="20" height="8" rx="2"/><line x1="6" y1="7" x2="6.01" y2="7"/><line x1="6" y1="17" x2="6.01" y2="17"/>',
+  branch: '<line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/>',
+  rocket: '<path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/><path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0"/><path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/>',
+  blocks: '<rect x="14" y="3" width="7" height="7" rx="1"/><path d="M10 21V8a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1Z"/><path d="M10 14h7a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-6"/>',
+  layers: '<polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/>',
+  code: '<polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>',
+  activity: '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>',
+  book: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>',
+};
+
+const paths = [
+  {
+    icon: icons.compass,
+    kicker: "First time",
+    title: "Evaluate Caracal",
+    body: "See what it does and whether it fits your stack.",
+    links: [
+      { title: "Choose your path", href: "/get-started/choose-your-path/" },
+      { title: "What Caracal does", href: "/get-started/what-caracal-does/" },
+      { title: "One-Minute Model", href: "/concepts/model-overview/" },
+    ],
+  },
+  {
+    icon: icons.server,
+    kicker: "Self-host & operate",
+    title: "Run it yourself",
+    body: "Install, integrate, and keep the runtime healthy.",
+    links: [
+      { title: "Quickstart", href: "/get-started/quickstart/" },
+      { title: "First integration", href: "/get-started/first-integration/" },
+      { title: "Operations guide", href: "/operations/" },
+    ],
+  },
+  {
+    icon: icons.branch,
+    kicker: "Contribute",
+    title: "Build with us",
+    body: "Learn the internals and ship changes upstream.",
+    links: [
+      { title: "Contributor setup", href: "/contributing/setup/" },
+      { title: "Architecture", href: "/architecture/" },
+      { title: "Threat Model", href: "/security/threat-model/" },
+    ],
+  },
+];
 
 const groups = [
   {
-    id: "start",
+    icon: icons.rocket,
     label: "Start here",
     items: [
-      { title: "Choose your path", body: "Decide whether Caracal fits before learning the model.", href: "/get-started/choose-your-path/" },
-      { title: "Quickstart", body: "Install the released tools and start the local runtime.", href: "/get-started/quickstart/" },
-      { title: "First integration", body: "Connect an agent or service to scoped access.", href: "/get-started/first-integration/" },
+      { title: "Choose your path", href: "/get-started/choose-your-path/" },
+      { title: "Quickstart", href: "/get-started/quickstart/" },
+      { title: "First integration", href: "/get-started/first-integration/" },
     ],
   },
   {
-    id: "build",
+    icon: icons.blocks,
     label: "Build",
     items: [
-      { title: "Protect an HTTP API", body: "Require a mandate before any upstream call.", href: "/tutorials/protect-an-api/" },
-      { title: "Resources & providers", body: "Separate protected targets from credential modes.", href: "/guides/resources-providers/" },
-      { title: "Author policy", body: "Write Rego decisions and activate them safely.", href: "/guides/author-policy/" },
+      { title: "Protect an HTTP API", href: "/tutorials/protect-an-api/" },
+      { title: "Resources & providers", href: "/guides/resources-providers/" },
+      { title: "Author policy", href: "/guides/author-policy/" },
     ],
   },
   {
-    id: "model",
+    icon: icons.layers,
     label: "Core model",
     items: [
-      { title: "One-Minute Model", body: "Zones, applications, resources, policy, mandates.", href: "/concepts/model-overview/" },
-      { title: "Modeling Recipes", body: "Map environments, customers, and agents onto objects.", href: "/guides/modeling-recipes/" },
-      { title: "Delegation Graph", body: "Bounded authority transfer between agent sessions.", href: "/concepts/delegation/" },
+      { title: "One-Minute Model", href: "/concepts/model-overview/" },
+      { title: "Modeling Recipes", href: "/guides/modeling-recipes/" },
+      { title: "Delegation Graph", href: "/concepts/delegation/" },
     ],
   },
   {
-    id: "operate",
+    icon: icons.code,
+    label: "SDKs",
+    items: [
+      { title: "TypeScript", href: "/sdks/typescript/" },
+      { title: "Python", href: "/sdks/python/" },
+      { title: "Go", href: "/sdks/go/" },
+    ],
+  },
+  {
+    icon: icons.activity,
     label: "Operate",
     items: [
-      { title: "CLI and Console", body: "What belongs in runtime, Console, Admin API, SDKs.", href: "/runtime-console/cli-and-console/" },
-      { title: "Diagnostics & traces", body: "Doctor checks, audit records, and request traces.", href: "/runtime-console/observability/" },
-      { title: "Troubleshooting", body: "Start from a failing call and find the surface.", href: "/operations/troubleshooting/" },
+      { title: "CLI and Console", href: "/runtime-console/cli-and-console/" },
+      { title: "Observability", href: "/operations/observability/" },
+      { title: "Troubleshooting", href: "/operations/troubleshooting/" },
     ],
   },
   {
-    id: "reference",
+    icon: icons.book,
     label: "Reference",
     items: [
-      { title: "FAQ", body: "Direct answers with stable anchors.", href: "/reference/faq/" },
-      { title: "Error Reference", body: "Codes, likely source, and first check.", href: "/reference/errors/" },
-      { title: "Threat Model", body: "Boundaries, invariants, and security assumptions.", href: "/security/threat-model/" },
+      { title: "FAQ", href: "/reference/faq/" },
+      { title: "Error Reference", href: "/reference/errors/" },
+      { title: "Glossary", href: "/reference/glossary/" },
     ],
   },
 ];
 ---
 
-<section id="explore" class="docs-dir" aria-labelledby="docs-dir-heading">
-  <div class="docs-dir__inner">
-    <header class="docs-dir__head">
-      <p class="docs-dir__eyebrow">Documentation map</p>
-      <h2 id="docs-dir-heading" class="docs-dir__heading">Explore the documentation</h2>
-      <p class="docs-dir__lede">
-        The homepage is a routing surface. Pick the column that matches what you are doing now.
-      </p>
-    </header>
+<section id="explore" class="docs-body" aria-label="Documentation overview">
+  <div class="docs-body__inner">
 
-    <div class="docs-dir__grid">
-      {groups.map((group) => (
-        <section id={group.id} class="docs-dir__group" aria-label={group.label}>
-          <h3 class="docs-dir__group-title">{group.label}</h3>
-          <ul class="docs-dir__list">
-            {group.items.map((item) => (
-              <li>
-                <a class="docs-dir__item" href={item.href}>
-                  <span class="docs-dir__item-title">{item.title}</span>
-                  <span class="docs-dir__item-body">{item.body}</span>
-                </a>
-              </li>
-            ))}
-          </ul>
-        </section>
-      ))}
-    </div>
+    <section class="docs-paths" aria-labelledby="docs-paths-heading">
+      <header class="docs-section__head">
+        <p class="docs-section__eyebrow">Pick a starting point</p>
+        <h2 id="docs-paths-heading" class="docs-section__heading">Where do you want to begin?</h2>
+      </header>
+
+      <div class="docs-paths__grid">
+        {paths.map((path) => (
+          <article class="path-card">
+            <span class="path-card__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" set:html={path.icon} />
+            </span>
+            <p class="path-card__kicker">{path.kicker}</p>
+            <h3 class="path-card__title">{path.title}</h3>
+            <p class="path-card__body">{path.body}</p>
+            <ul class="path-card__links">
+              {path.links.map((link) => (
+                <li>
+                  <a class="path-card__link" href={link.href}>
+                    <span>{link.title}</span>
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" />
+                    </svg>
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </article>
+        ))}
+      </div>
+    </section>
+
+    <section class="docs-map" aria-labelledby="docs-map-heading">
+      <header class="docs-section__head">
+        <p class="docs-section__eyebrow">Documentation map</p>
+        <h2 id="docs-map-heading" class="docs-section__heading">Browse by topic</h2>
+      </header>
+
+      <div class="docs-map__grid">
+        {groups.map((group) => (
+          <article class="map-card" aria-label={group.label}>
+            <div class="map-card__head">
+              <span class="map-card__icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" set:html={group.icon} />
+              </span>
+              <h3 class="map-card__title">{group.label}</h3>
+            </div>
+            <ul class="map-card__list">
+              {group.items.map((item) => (
+                <li>
+                  <a class="map-card__link" href={item.href}>{item.title}</a>
+                </li>
+              ))}
+            </ul>
+          </article>
+        ))}
+      </div>
+    </section>
+
   </div>
 </section>
