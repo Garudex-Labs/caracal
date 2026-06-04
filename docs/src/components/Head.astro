@@ -14,6 +14,7 @@ import Default from '@astrojs/starlight/components/Head.astro'
   const STEP = 0.25
   const MIN = 0.25
   const MAX = 4.0
+  let mermaidRender = Promise.resolve()
 
   function isDark() {
     return document.documentElement.dataset.theme !== 'light'
@@ -88,7 +89,7 @@ import Default from '@astrojs/starlight/components/Head.astro'
     })
   }
 
-  async function initMermaid() {
+  async function renderMermaid() {
     mermaid.initialize({
       startOnLoad: false,
       theme: isDark() ? 'dark' : 'default',
@@ -103,6 +104,11 @@ import Default from '@astrojs/starlight/components/Head.astro'
       await mermaid.run({ nodes })
     }
     mountZoomControls()
+  }
+
+  function initMermaid() {
+    mermaidRender = mermaidRender.then(renderMermaid, renderMermaid)
+    mermaidRender.catch((err) => console.error('Mermaid render failed', err))
   }
 
   document.addEventListener('DOMContentLoaded', initMermaid)
