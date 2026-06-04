@@ -103,13 +103,14 @@ describe('runtime installer', () => {
     expect(rc).not.toBe(stable)
   })
 
-  it('bootstraps secret files under home/secrets with owner-only mode', () => {
+  it('bootstraps secret files under a private home/secrets directory with read-only mode', () => {
     const home = mkdtempSync(join(tmpdir(), 'caracal-runtime-'))
     const result = installRuntimeAssets(runtimePaths(home))
     expect(result.filesCreated.length).toBeGreaterThan(0)
+    expect(statSync(join(home, 'secrets')).mode & 0o777).toBe(0o700)
     for (const name of ['postgresPassword', 'redisPassword', 'caracalAdminToken', 'zoneKek']) {
       const secretPath = join(home, 'secrets', name)
-      expect(statSync(secretPath).mode & 0o777).toBe(0o400)
+      expect(statSync(secretPath).mode & 0o777).toBe(0o444)
       const value = readFileSync(secretPath, 'utf8').trim()
       expect(value.length).toBeGreaterThan(0)
     }

@@ -9,7 +9,7 @@ import { resolve } from 'node:path'
 import { devSecretsHome } from '@caracalai/core'
 
 const isPosix = process.platform !== 'win32'
-const SECRET_FILE_MODE = 0o400
+const SECRET_FILE_MODE = 0o444
 const SECRET_REWRITE_MODE = 0o600
 const ROTATED_DEV_SECRET_FILES = new Set(['caracalAdminToken', 'caracalCoordinatorToken'])
 

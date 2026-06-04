@@ -26,15 +26,18 @@ afterEach(() => {
 })
 
 describe('bootstrapSecrets', () => {
-  it('generates every declared secret file with owner-only mode', () => {
+  it('generates every declared secret file under a private directory with read-only mode', () => {
     const report = bootstrapSecrets({ secretsDir: dir })
     expect(report.filesCreated.length).toBeGreaterThanOrEqual(SECRET_FILES.length)
+    if (process.platform !== 'win32') {
+      expect(statSync(dir).mode & 0o777).toBe(0o700)
+    }
     for (const spec of SECRET_FILES) {
       const path = join(dir, spec.fileName)
       const value = readFileSync(path, 'utf8').trim()
       expect(value.length).toBe(spec.bytes * 2)
       if (process.platform !== 'win32') {
-        expect(statSync(path).mode & 0o777).toBe(0o400)
+        expect(statSync(path).mode & 0o777).toBe(0o444)
       }
     }
   })
