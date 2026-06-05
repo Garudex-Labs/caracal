@@ -234,7 +234,12 @@ def _install_oauth(app: FastAPI, provider: catalog.Provider) -> None:
         doc = {
             "issuer": base,
             "token_endpoint": f"{base}/oauth/token",
+            "revocation_endpoint": f"{base}/oauth/revoke",
+            "introspection_endpoint": f"{base}/oauth/introspect",
             "scopes_supported": list(provider.scopes),
+            "response_types_supported": ["code"] if provider.category == "oauth2_authorization_code" else [],
+            "response_modes_supported": ["query"],
+            "token_endpoint_auth_methods_supported": ["client_secret_basic", "client_secret_post"],
             "grant_types_supported": [],
         }
         if provider.category == "oauth2_client_credentials":
@@ -250,9 +255,10 @@ def _install_oauth(app: FastAPI, provider: catalog.Provider) -> None:
         async def authorize(request: Request):
             store = credentials.load(provider.id)
             q = request.query_params
+            error = _authorize_error(provider, store, dict(q))
+            if error is not None:
+                return error
             client = store.find_client(q.get("client_id", ""))
-            if client is None:
-                return JSONResponse(status_code=400, content={"error": "invalid_client"})
             redirect_uri = q.get("redirect_uri", client["redirectUris"][0] if client["redirectUris"] else "")
             consent = f"""<!doctype html><html><body style="font-family:sans-serif;background:#0f1320;color:#e7ecf5;padding:40px">
 <h2>{provider.brand} authorization</h2>
@@ -263,6 +269,7 @@ def _install_oauth(app: FastAPI, provider: catalog.Provider) -> None:
   <input type="hidden" name="scope" value="{q.get('scope','')}">
   <input type="hidden" name="state" value="{q.get('state','')}">
   <input type="hidden" name="code_challenge" value="{q.get('code_challenge','')}">
+  <input type="hidden" name="code_challenge_method" value="{q.get('code_challenge_method','S256')}">
   <button style="background:#2f56b5;color:#fff;border:0;padding:8px 16px;border-radius:4px">Approve</button>
 </form></body></html>"""
             return HTMLResponse(consent)
@@ -271,9 +278,9 @@ def _install_oauth(app: FastAPI, provider: catalog.Provider) -> None:
         async def authorize_decision(request: Request):
             store = credentials.load(provider.id)
             form = await _form(request)
-            client = store.find_client(form.get("client_id", ""))
-            if client is None:
-                return JSONResponse(status_code=400, content={"error": "invalid_client"})
+            error = _authorize_error(provider, store, form)
+            if error is not None:
+                return error
             code = store.create_auth_code(
                 form.get("client_id"), form.get("redirect_uri"), form.get("scope", ""),
                 form.get("code_challenge") or None, subject="resource-owner",
@@ -303,9 +310,13 @@ def _install_oauth(app: FastAPI, provider: catalog.Provider) -> None:
                 return _oauth_error(400, "invalid_grant")
             if client is None or client["clientSecret"] != client_secret:
                 return _oauth_error(401, "invalid_client")
-            if provider.use_pkce and record.get("codeChallenge"):
-                if not _pkce_ok(form.get("code_verifier", ""), record["codeChallenge"]):
-                    return _oauth_error(400, "invalid_grant")
+            if record["clientId"] != client_id:
+                return _oauth_error(400, "invalid_grant", "code was issued to another client")
+            if form.get("redirect_uri", record["redirectUri"]) != record["redirectUri"]:
+                return _oauth_error(400, "invalid_grant", "redirect_uri mismatch")
+            if provider.use_pkce or record.get("codeChallenge"):
+                if not _pkce_ok(form.get("code_verifier", ""), record.get("codeChallenge") or ""):
+                    return _oauth_error(400, "invalid_grant", "PKCE verification failed")
             issued = store.issue_token(client_id, record["scope"], subject=record["subject"],
                                        refresh=provider.offline_access)
             return _token_response(issued)
@@ -317,6 +328,58 @@ def _install_oauth(app: FastAPI, provider: catalog.Provider) -> None:
             return _token_response(issued)
 
         return _oauth_error(400, "unsupported_grant_type")
+
+    @app.post("/oauth/revoke")
+    async def revoke(request: Request):
+        store = credentials.load(provider.id)
+        form = await _form(request)
+        client_id, client_secret = _client_auth(request, form)
+        client = store.find_client(client_id) if client_id else None
+        if client is None or client["clientSecret"] != client_secret:
+            return _oauth_error(401, "invalid_client")
+        store.revoke_access_token(form.get("token", ""))
+        return Response(status_code=200)
+
+    @app.post("/oauth/introspect")
+    async def introspect(request: Request):
+        store = credentials.load(provider.id)
+        form = await _form(request)
+        client_id, client_secret = _client_auth(request, form)
+        client = store.find_client(client_id) if client_id else None
+        if client is None or client["clientSecret"] != client_secret:
+            return _oauth_error(401, "invalid_client")
+        token = store.valid_access_token(form.get("token", ""))
+        if token is None:
+            return JSONResponse({"active": False})
+        return JSONResponse({
+            "active": True,
+            "client_id": token["clientId"],
+            "scope": token["scope"],
+            "sub": token.get("subject"),
+            "token_type": "Bearer",
+            "exp": token["expiresAt"],
+            "iat": token["createdAt"],
+        })
+
+
+def _authorize_error(provider: catalog.Provider, store, params: dict) -> JSONResponse | None:
+    """Validate an authorization request the way a real provider would, before consent."""
+    client = store.find_client(params.get("client_id", ""))
+    if client is None:
+        return JSONResponse(status_code=400, content={"error": "invalid_client"})
+    if params.get("response_type", "code") != "code":
+        return JSONResponse(status_code=400, content={"error": "unsupported_response_type"})
+    redirect_uri = params.get("redirect_uri")
+    if redirect_uri and client["redirectUris"] and redirect_uri not in client["redirectUris"]:
+        return JSONResponse(status_code=400, content={"error": "invalid_redirect_uri"})
+    if provider.use_pkce:
+        if not params.get("code_challenge"):
+            return JSONResponse(status_code=400,
+                                content={"error": "invalid_request", "error_description": "code_challenge required"})
+        if params.get("code_challenge_method", "S256") != "S256":
+            return JSONResponse(status_code=400,
+                                content={"error": "invalid_request", "error_description": "code_challenge_method must be S256"})
+    return None
 
 
 def _client_auth(request: Request, form) -> tuple[str, str]:
@@ -349,5 +412,8 @@ def _token_response(issued: dict) -> JSONResponse:
     return JSONResponse(body)
 
 
-def _oauth_error(status: int, code: str) -> JSONResponse:
-    return JSONResponse(status_code=status, content={"error": code})
+def _oauth_error(status: int, code: str, description: str | None = None) -> JSONResponse:
+    body = {"error": code}
+    if description:
+        body["error_description"] = description
+    return JSONResponse(status_code=status, content=body)

@@ -310,9 +310,18 @@ class ProviderStore:
 
     def valid_access_token(self, presented: str) -> dict | None:
         for t in self.data["tokens"]:
-            if t["accessToken"] == presented and t["expiresAt"] >= _now():
+            if t["accessToken"] == presented and t["expiresAt"] >= _now() and not t.get("revoked"):
                 return t
         return None
+
+    def revoke_access_token(self, presented: str) -> bool:
+        for t in self.data["tokens"]:
+            if t["accessToken"] == presented and not t.get("revoked"):
+                t["revoked"] = True
+                t["revokedAt"] = _now()
+                self._save()
+                return True
+        return False
 
     def refresh(self, refresh_token: str) -> dict | None:
         for t in self.data["tokens"]:

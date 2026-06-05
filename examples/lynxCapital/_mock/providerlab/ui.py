@@ -68,6 +68,8 @@ def _config_rows(provider: catalog.Provider) -> list[tuple[str, str]]:
         rows.append(("Token header", f"{provider.auth_header}: {provider.auth_scheme} <token>"))
     if c in ("oauth2_client_credentials", "oauth2_authorization_code"):
         rows.append(("Token endpoint", f"{base}/oauth/token"))
+        rows.append(("Revocation endpoint", f"{base}/oauth/revoke"))
+        rows.append(("Introspection endpoint", f"{base}/oauth/introspect"))
         rows.append(("Discovery", f"{base}/.well-known/oauth-authorization-server"))
         rows.append(("Client authentication", provider.client_auth_method))
         rows.append(("Scopes", " ".join(provider.scopes) or "—"))
