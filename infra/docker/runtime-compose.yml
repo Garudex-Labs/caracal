@@ -424,6 +424,7 @@ services:
       CONTROL_AUDIENCE: ${CONTROL_AUDIENCE:-caracal-control}
       CONTROL_PORT: "8087"
       CONTROL_HOST: 0.0.0.0
+      PORT: "8087"
       CONTROL_REDIS_URL_FILE: /run/secrets/redisUrl
       AUDIT_HMAC_KEY_FILE: /run/secrets/auditHmacKey
       CARACAL_API_URL: http://api:3000

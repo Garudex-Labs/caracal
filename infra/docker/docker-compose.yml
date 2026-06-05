@@ -553,6 +553,7 @@ services:
       CONTROL_AUDIENCE: ${CONTROL_AUDIENCE:-caracal-control}
       CONTROL_PORT: "8087"
       CONTROL_HOST: "0.0.0.0"
+      PORT: "8087"
       CONTROL_REDIS_URL_FILE: /run/secrets/redisUrl
       CARACAL_API_URL: http://api:3000
       CONTROL_API_TOKEN_FILE: /run/secrets/caracalAdminToken

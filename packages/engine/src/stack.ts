@@ -303,6 +303,14 @@ function controlLifecycleFailureMessage(action: ControlLifecycleAction, code: nu
   return `${base}: ${lines.join(' | ')}`
 }
 
+function setControlMountedForHome(value: boolean, enabled: boolean, home?: string): ControlRuntimeState | undefined {
+  return home ? setControlMounted(value, enabled, { home }) : setControlMounted(value, enabled)
+}
+
+function setControlEnabledForHome(value: boolean, home?: string): ControlRuntimeState | undefined {
+  return home ? setControlEnabled(value, { home }) : setControlEnabled(value)
+}
+
 function controlResult(
   action: ControlLifecycleAction,
   state: ControlLifecycleState,
@@ -331,7 +339,6 @@ export async function applyControlLifecycleAction(opts: ControlLifecycleOpts): P
   authorizeControlManagementAccess({ env: opts.accessEnv })
   const settings = controlRuntimeSettings({ home: opts.home })
   const current = readControlState(opts.home)
-  const stateOpts = opts.home ? { home: opts.home } : undefined
   if (opts.action === 'mount' && current) {
     return controlResult(opts.action, current.enabled ? 'enabled' : 'disabled', current.enabled ? 'running' : 'gated', current, opts.home)
   }
@@ -371,18 +378,18 @@ export async function applyControlLifecycleAction(opts: ControlLifecycleOpts): P
     }
   }
   if (opts.action === 'unmount') {
-    setControlMounted(false, false, stateOpts)
+    setControlMountedForHome(false, false, opts.home)
     return controlResult(opts.action, 'unmounted', 'removed', settings, opts.home)
   }
   if (opts.action === 'mount') {
-    const state = setControlMounted(true, false, stateOpts) ?? settings
+    const state = setControlMountedForHome(true, false, opts.home) ?? settings
     return controlResult(opts.action, 'disabled', 'gated', state, opts.home)
   }
-  const state = setControlEnabled(opts.action === 'enable', stateOpts) ?? settings
+  const state = setControlEnabledForHome(opts.action === 'enable', opts.home) ?? settings
   if (opts.action === 'enable') {
     const probe = await probeOne({ name: state.service, url: state.readyUrl, port: state.port }, 1500)
     if (!probe.ok) {
-      setControlEnabled(false, stateOpts)
+      setControlEnabledForHome(false, opts.home)
       throw new Error(`Control endpoint gate did not open (${probe.detail}); unmount and mount the Control runtime once, then enable the endpoint.`)
     }
   }
