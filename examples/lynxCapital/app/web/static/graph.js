@@ -413,7 +413,7 @@ function drawFrames() {
   const frameTop = 18;
   const frameH = viewH - 38;
   drawZone(ORCH_X - 20, frameTop, ORCH_W + 40, frameH, "Internal orchestration", "Agent hierarchy, delegation scopes, and execution state.", "rgba(30, 91, 216, 0.12)");
-  drawZone(RUNTIME_X - 20, frameTop, RUNTIME_W + 40, frameH, "Caracal runtime", "Intercept, policy, telemetry, audit.", "rgba(93, 70, 163, 0.16)");
+  drawZone(RUNTIME_X - 20, frameTop, RUNTIME_W + 40, frameH, "Service runtime", "Resilience, retries, telemetry, audit.", "rgba(93, 70, 163, 0.16)");
   drawZone(SERVICE_X - 20, frameTop, SERVICE_W + 70, frameH, "External systems", "Providers, ledgers, banks, tax, and compliance services.", "rgba(13, 110, 114, 0.14)");
 }
 
@@ -1097,7 +1097,7 @@ function renderInspector() {
     const metrics = serviceMetrics(service.id);
     inspectorType.textContent = "Service";
     inspectorTitle.textContent = titleCase(service.id);
-    inspectorCopy.textContent = "External dependency reached through the Caracal runtime boundary.";
+    inspectorCopy.textContent = "External dependency reached through the service runtime boundary.";
     addMetric("Group", serviceGroup(service.id));
     addMetric("Status", statusLabel(metrics.lastState));
     addMetric("Calls", String(metrics.total));
@@ -1113,7 +1113,7 @@ function renderInspector() {
     const agent = nodes[flow.agentId];
     inspectorType.textContent = "Flow";
     inspectorTitle.textContent = shortAction(flow.action);
-    inspectorCopy.textContent = "Service communication intercepted through Caracal policy, telemetry, and audit controls.";
+    inspectorCopy.textContent = "Service communication routed through the service runtime's resilience, telemetry, and audit controls.";
     addMetric("Status", statusLabel(flowState(flow)));
     addMetric("Agent", agent ? titleCase(agent.role) : shortId(flow.agentId));
     addMetric("Service", titleCase(flow.serviceId));
@@ -1145,7 +1145,7 @@ function renderInspector() {
   inspectorType.textContent = "Overview";
   inspectorTitle.textContent = runId ? `Run ${shortId(runId)}` : "No run selected";
   inspectorCopy.textContent = runId
-    ? "Live topology showing Caracal control, agent coordination, provider communication, and execution telemetry."
+    ? "Live topology showing runtime control, agent coordination, provider communication, and execution telemetry."
     : "Select a stage, agent, service, or connection to inspect runtime state.";
   addMetric("Phase", statusLabel(runPhase));
   addMetric("Agents", String(Object.keys(nodes).length));

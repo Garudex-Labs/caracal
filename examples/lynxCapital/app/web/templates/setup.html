@@ -2,7 +2,7 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-Lynx Capital setup checklist for Caracal and provider configuration.
+Lynx Capital setup checklist for environment and provider configuration.
 #}
 {% extends "layout.html" %}
 {% block title %}Setup: {{ company }}{% endblock %}
@@ -37,66 +37,26 @@ Lynx Capital setup checklist for Caracal and provider configuration.
   <p class="sub">Confirm your environment is ready to run the {{ company }} demo.</p>
 
   <div class="panel">
-    <h2>1 · Connect Caracal through Console + control API</h2>
-    <p>Install the released runtime/console, start Caracal, then use <code>caracal-console</code> to create or confirm the Lynx zone, control key, and protected resources.</p>
-<pre class="cmd">curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-console.sh | sh
-caracal up
-caracal status --ready
-caracal-console</pre>
-    <p>In the Console, open <strong>Control</strong> and confirm <strong>enable endpoint</strong> before creating the Lynx control key.</p>
-  </div>
-
-  <div class="panel">
-    <h2>2 · Create the Lynx Caracal objects</h2>
-    <p>In the Console, create a <code>Lynx Capital</code> zone, create a <code>lynx-control</code> control key, copy its client secret once, and add one <code>lynx/&lt;provider&gt;</code> resource for each provider in <code>config/company.yaml</code>. REST resources should point upstream to the provider alias such as <code>http://mercury-bank.mock:8800</code>.</p>
-<pre class="cmd"><span class="c"># Required resource identifiers</span>
-lynx/mercury-bank
-lynx/wise-payouts
-lynx/stripe-treasury
-lynx/quickbooks
-lynx/netsuite
-lynx/sap-erp
-lynx/ocr-vision
-lynx/close-engine
-lynx/regulatory-filings
-lynx/customer-billing
-lynx/tax-rules
-lynx/compliance-nexus
-lynx/fx-rates
-lynx/treasury-ops
-lynx/vendor-portal</pre>
-  </div>
-
-  <div class="panel">
-    <h2>3 · Create the runtime profile</h2>
-    <p>Use the Console-generated profile contract. Enable <code>write files</code> when the Console should create the profile and one-time secret file locally; otherwise write the secret to the local auto-detected runtime path. Cloud deployments and custom secret stores use the runtime configuration docs for explicit secret-file paths. The SDK reads this profile directly, so keep Caracal credentials out of <code>.env</code>.</p>
-<pre class="cmd">[[credentials]]
-env = "LYNX_MERCURY_BANK_TOKEN"
-resource = "lynx/mercury-bank"
-upstream_prefix = "http://127.0.0.1:8800"</pre>
-  </div>
-
-  <div class="panel">
-    <h2>4 · Configure environment</h2>
-    <p>Copy the template and fill in <code>OPENAI_API_KEY</code>. Provider credentials are normal integration settings; Caracal credentials come from <code>caracal.toml</code>.</p>
+    <h2>1 · Configure environment</h2>
+    <p>Copy the template and fill in <code>OPENAI_API_KEY</code>. Provider credentials are normal integration settings supplied through <code>.env</code>.</p>
 <pre class="cmd">cp .env.example .env
 <span class="c"># edit .env → set OPENAI_API_KEY=sk-...</span></pre>
   </div>
 
   <div class="panel">
-    <h2>5 · Start the local provider network</h2>
-    <p>The local provider network is isolated under <code>_mock/</code>. The Lynx app still calls providers through its real registry and transport clients.</p>
+    <h2>2 · Start the local provider network</h2>
+    <p>The local provider network is isolated under <code>_mock/</code>. The Lynx app calls providers through its real registry and transport clients.</p>
 <pre class="cmd">docker compose -f _mock/docker-compose.yml up -d --build --wait</pre>
   </div>
 
   <div class="panel">
-    <h2>6 · Run Lynx Capital</h2>
+    <h2>3 · Run Lynx Capital</h2>
 <pre class="cmd">uv run uvicorn app.main:app --reload --port 8000</pre>
   </div>
 
   <div class="panel">
-    <h2>7 · Validate</h2>
-    <p>Confirms <code>OPENAI_API_KEY</code>, Caracal URLs, <code>caracal.toml</code> resource bindings, gateway/coordinator health, and provider webhook secrets.</p>
+    <h2>4 · Validate</h2>
+    <p>Confirms <code>OPENAI_API_KEY</code>, the local provider network, and provider webhook secrets.</p>
 
     <div class="validate-bar">
       <button id="validate-btn">Validate configuration</button>
