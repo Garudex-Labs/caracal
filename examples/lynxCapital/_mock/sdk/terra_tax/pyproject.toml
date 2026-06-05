@@ -1,0 +1,13 @@
+[project]
+name = "terra-tax"
+version = "0.1.4rc1"
+description = "First-party SDK for the Terra Tax mock provider"
+requires-python = ">=3.12"
+dependencies = ["httpx>=0.28", "idna>=3.15"]
+
+[build-system]
+requires = ["setuptools>=82.0.1"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]

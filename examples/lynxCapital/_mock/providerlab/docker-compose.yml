@@ -1,0 +1,332 @@
+# Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+# Caracal, a product of Garudex Labs
+#
+# Provider lab network: each mock external provider runs as its own service
+# on its own published localhost port so the boundary feels like real third parties.
+
+services:
+
+  aurum-pay:
+    build:
+      context: ..
+      dockerfile: _mock/Dockerfile
+    image: lynx-mock:latest
+    command: python -m _mock.providerlab.server
+    environment:
+      PROVIDERLAB_PROVIDER: "aurum-pay"
+      PROVIDERLAB_HOST: "0.0.0.0"
+      PROVIDERLAB_PORT: "9400"
+      PROVIDERLAB_FAST: "${PROVIDERLAB_FAST:-0}"
+    ports:
+      - "127.0.0.1:9400:9400"
+    networks: [providerlab]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9400/healthz').read()"]
+      interval: 5s
+      timeout: 2s
+      retries: 5
+
+  quill-ocr:
+    build:
+      context: ..
+      dockerfile: _mock/Dockerfile
+    image: lynx-mock:latest
+    command: python -m _mock.providerlab.server
+    environment:
+      PROVIDERLAB_PROVIDER: "quill-ocr"
+      PROVIDERLAB_HOST: "0.0.0.0"
+      PROVIDERLAB_PORT: "9401"
+      PROVIDERLAB_FAST: "${PROVIDERLAB_FAST:-0}"
+    ports:
+      - "127.0.0.1:9401:9401"
+    networks: [providerlab]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9401/healthz').read()"]
+      interval: 5s
+      timeout: 2s
+      retries: 5
+
+  nimbus-ledger:
+    build:
+      context: ..
+      dockerfile: _mock/Dockerfile
+    image: lynx-mock:latest
+    command: python -m _mock.providerlab.server
+    environment:
+      PROVIDERLAB_PROVIDER: "nimbus-ledger"
+      PROVIDERLAB_HOST: "0.0.0.0"
+      PROVIDERLAB_PORT: "9402"
+      PROVIDERLAB_FAST: "${PROVIDERLAB_FAST:-0}"
+    ports:
+      - "127.0.0.1:9402:9402"
+    networks: [providerlab]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9402/healthz').read()"]
+      interval: 5s
+      timeout: 2s
+      retries: 5
+
+  vela-mail:
+    build:
+      context: ..
+      dockerfile: _mock/Dockerfile
+    image: lynx-mock:latest
+    command: python -m _mock.providerlab.server
+    environment:
+      PROVIDERLAB_PROVIDER: "vela-mail"
+      PROVIDERLAB_HOST: "0.0.0.0"
+      PROVIDERLAB_PORT: "9403"
+      PROVIDERLAB_FAST: "${PROVIDERLAB_FAST:-0}"
+    ports:
+      - "127.0.0.1:9403:9403"
+    networks: [providerlab]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9403/healthz').read()"]
+      interval: 5s
+      timeout: 2s
+      retries: 5
+
+  helios-fx:
+    build:
+      context: ..
+      dockerfile: _mock/Dockerfile
+    image: lynx-mock:latest
+    command: python -m _mock.providerlab.server
+    environment:
+      PROVIDERLAB_PROVIDER: "helios-fx"
+      PROVIDERLAB_HOST: "0.0.0.0"
+      PROVIDERLAB_PORT: "9404"
+      PROVIDERLAB_FAST: "${PROVIDERLAB_FAST:-0}"
+    ports:
+      - "127.0.0.1:9404:9404"
+    networks: [providerlab]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9404/healthz').read()"]
+      interval: 5s
+      timeout: 2s
+      retries: 5
+
+  orbit-erp:
+    build:
+      context: ..
+      dockerfile: _mock/Dockerfile
+    image: lynx-mock:latest
+    command: python -m _mock.providerlab.server
+    environment:
+      PROVIDERLAB_PROVIDER: "orbit-erp"
+      PROVIDERLAB_HOST: "0.0.0.0"
+      PROVIDERLAB_PORT: "9405"
+      PROVIDERLAB_FAST: "${PROVIDERLAB_FAST:-0}"
+    ports:
+      - "127.0.0.1:9405:9405"
+    networks: [providerlab]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9405/healthz').read()"]
+      interval: 5s
+      timeout: 2s
+      retries: 5
+
+  corvus-bank:
+    build:
+      context: ..
+      dockerfile: _mock/Dockerfile
+    image: lynx-mock:latest
+    command: python -m _mock.providerlab.server
+    environment:
+      PROVIDERLAB_PROVIDER: "corvus-bank"
+      PROVIDERLAB_HOST: "0.0.0.0"
+      PROVIDERLAB_PORT: "9406"
+      PROVIDERLAB_FAST: "${PROVIDERLAB_FAST:-0}"
+    ports:
+      - "127.0.0.1:9406:9406"
+    networks: [providerlab]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9406/healthz').read()"]
+      interval: 5s
+      timeout: 2s
+      retries: 5
+
+  lumen-crm:
+    build:
+      context: ..
+      dockerfile: _mock/Dockerfile
+    image: lynx-mock:latest
+    command: python -m _mock.providerlab.server
+    environment:
+      PROVIDERLAB_PROVIDER: "lumen-crm"
+      PROVIDERLAB_HOST: "0.0.0.0"
+      PROVIDERLAB_PORT: "9407"
+      PROVIDERLAB_FAST: "${PROVIDERLAB_FAST:-0}"
+    ports:
+      - "127.0.0.1:9407:9407"
+    networks: [providerlab]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9407/healthz').read()"]
+      interval: 5s
+      timeout: 2s
+      retries: 5
+
+  atlas-treasury:
+    build:
+      context: ..
+      dockerfile: _mock/Dockerfile
+    image: lynx-mock:latest
+    command: python -m _mock.providerlab.server
+    environment:
+      PROVIDERLAB_PROVIDER: "atlas-treasury"
+      PROVIDERLAB_HOST: "0.0.0.0"
+      PROVIDERLAB_PORT: "9408"
+      PROVIDERLAB_FAST: "${PROVIDERLAB_FAST:-0}"
+    ports:
+      - "127.0.0.1:9408:9408"
+    networks: [providerlab]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9408/healthz').read()"]
+      interval: 5s
+      timeout: 2s
+      retries: 5
+
+  sentinel-compliance:
+    build:
+      context: ..
+      dockerfile: _mock/Dockerfile
+    image: lynx-mock:latest
+    command: python -m _mock.providerlab.server
+    environment:
+      PROVIDERLAB_PROVIDER: "sentinel-compliance"
+      PROVIDERLAB_HOST: "0.0.0.0"
+      PROVIDERLAB_PORT: "9409"
+      PROVIDERLAB_FAST: "${PROVIDERLAB_FAST:-0}"
+    ports:
+      - "127.0.0.1:9409:9409"
+    networks: [providerlab]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9409/healthz').read()"]
+      interval: 5s
+      timeout: 2s
+      retries: 5
+
+  core-billing:
+    build:
+      context: ..
+      dockerfile: _mock/Dockerfile
+    image: lynx-mock:latest
+    command: python -m _mock.providerlab.server
+    environment:
+      PROVIDERLAB_PROVIDER: "core-billing"
+      PROVIDERLAB_HOST: "0.0.0.0"
+      PROVIDERLAB_PORT: "9410"
+      PROVIDERLAB_FAST: "${PROVIDERLAB_FAST:-0}"
+    ports:
+      - "127.0.0.1:9410:9410"
+    networks: [providerlab]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9410/healthz').read()"]
+      interval: 5s
+      timeout: 2s
+      retries: 5
+
+  core-identity:
+    build:
+      context: ..
+      dockerfile: _mock/Dockerfile
+    image: lynx-mock:latest
+    command: python -m _mock.providerlab.server
+    environment:
+      PROVIDERLAB_PROVIDER: "core-identity"
+      PROVIDERLAB_HOST: "0.0.0.0"
+      PROVIDERLAB_PORT: "9411"
+      PROVIDERLAB_FAST: "${PROVIDERLAB_FAST:-0}"
+    ports:
+      - "127.0.0.1:9411:9411"
+    networks: [providerlab]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9411/healthz').read()"]
+      interval: 5s
+      timeout: 2s
+      retries: 5
+
+  forge-mcp:
+    build:
+      context: ..
+      dockerfile: _mock/Dockerfile
+    image: lynx-mock:latest
+    command: python -m _mock.providerlab.server
+    environment:
+      PROVIDERLAB_PROVIDER: "forge-mcp"
+      PROVIDERLAB_HOST: "0.0.0.0"
+      PROVIDERLAB_PORT: "9412"
+      PROVIDERLAB_FAST: "${PROVIDERLAB_FAST:-0}"
+    ports:
+      - "127.0.0.1:9412:9412"
+    networks: [providerlab]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9412/healthz').read()"]
+      interval: 5s
+      timeout: 2s
+      retries: 5
+
+  relay-mcp:
+    build:
+      context: ..
+      dockerfile: _mock/Dockerfile
+    image: lynx-mock:latest
+    command: python -m _mock.providerlab.server
+    environment:
+      PROVIDERLAB_PROVIDER: "relay-mcp"
+      PROVIDERLAB_HOST: "0.0.0.0"
+      PROVIDERLAB_PORT: "9413"
+      PROVIDERLAB_FAST: "${PROVIDERLAB_FAST:-0}"
+    ports:
+      - "127.0.0.1:9413:9413"
+    networks: [providerlab]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9413/healthz').read()"]
+      interval: 5s
+      timeout: 2s
+      retries: 5
+
+  zephyr-pay:
+    build:
+      context: ..
+      dockerfile: _mock/Dockerfile
+    image: lynx-mock:latest
+    command: python -m _mock.providerlab.server
+    environment:
+      PROVIDERLAB_PROVIDER: "zephyr-pay"
+      PROVIDERLAB_HOST: "0.0.0.0"
+      PROVIDERLAB_PORT: "9414"
+      PROVIDERLAB_FAST: "${PROVIDERLAB_FAST:-0}"
+    ports:
+      - "127.0.0.1:9414:9414"
+    networks: [providerlab]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9414/healthz').read()"]
+      interval: 5s
+      timeout: 2s
+      retries: 5
+
+  terra-tax:
+    build:
+      context: ..
+      dockerfile: _mock/Dockerfile
+    image: lynx-mock:latest
+    command: python -m _mock.providerlab.server
+    environment:
+      PROVIDERLAB_PROVIDER: "terra-tax"
+      PROVIDERLAB_HOST: "0.0.0.0"
+      PROVIDERLAB_PORT: "9415"
+      PROVIDERLAB_FAST: "${PROVIDERLAB_FAST:-0}"
+    ports:
+      - "127.0.0.1:9415:9415"
+    networks: [providerlab]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9415/healthz').read()"]
+      interval: 5s
+      timeout: 2s
+      retries: 5
+
+networks:
+  providerlab:
+    driver: bridge
+    name: lynxcapital_providerlab
