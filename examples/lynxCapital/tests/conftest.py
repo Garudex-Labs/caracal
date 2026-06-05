@@ -28,6 +28,7 @@ for _pkg in (_LYNX_ROOT / "_mock" / "sdk").glob("*/"):
     sys.path.insert(0, str(_pkg))
 
 os.environ.setdefault("OPENAI_API_KEY", "test-key")
+os.environ.setdefault("PROVIDERLAB_FAST", "1")
 
 
 def _free_port() -> int:
@@ -181,3 +182,41 @@ def vendor_mcp() -> tuple[str, int]:
     os.environ.setdefault("LYNX_VENDOR_PORTAL_KEY", "local-vendor-portal-key")
     yield ("127.0.0.1", port)
     runner.stop()
+
+
+@pytest.fixture(scope="session")
+def providerlab() -> dict[str, str]:
+    """Boot every provider-direct lab provider on a free port and wire LYNX_PARTNER_* env."""
+    from _mock.providerlab import catalog, credentials
+    from _mock.providerlab.app import build_app
+
+    servers: list[_UvicornInThread] = []
+    urls: dict[str, str] = {}
+
+    def _eid(provider_id: str) -> str:
+        return provider_id.upper().replace("-", "_")
+
+    for provider in catalog.CATALOG:
+        port = _free_port()
+        server = _UvicornInThread(build_app(provider), port)
+        server.start()
+        servers.append(server)
+        url = f"http://127.0.0.1:{port}"
+        urls[provider.id] = url
+        eid = _eid(provider.id)
+        os.environ[f"LYNX_PARTNER_{eid}_URL"] = url
+        seed = credentials.load(provider.id).data["seed"]
+        if provider.category in ("api_key", "sdk"):
+            os.environ[f"LYNX_PARTNER_{eid}_API_KEY"] = seed["apiKey"]
+        elif provider.category == "bearer_token" or (provider.category == "mcp" and provider.mcp_auth == "bearer"):
+            os.environ[f"LYNX_PARTNER_{eid}_TOKEN"] = seed["bearerToken"]
+        elif provider.category in ("oauth2_client_credentials", "oauth2_authorization_code"):
+            os.environ[f"LYNX_PARTNER_{eid}_CLIENT_ID"] = seed["clientId"]
+            os.environ[f"LYNX_PARTNER_{eid}_CLIENT_SECRET"] = seed["clientSecret"]
+
+    yield urls
+
+    from app.services import partners
+    partners.reset()
+    for server in servers:
+        server.stop()
