@@ -61,13 +61,14 @@ ROLES: dict[str, RoleDef] = {
     "payment-execution": RoleDef(
         name="payment-execution",
         scope_template="payment:{vendor_id}:{invoice_id}",
-        allowed_tools=("submit_payment", "submit_payout", "create_outbound_payment"),
+        allowed_tools=("submit_payment", "submit_payout", "create_outbound_payment",
+                       "settle_vendor_fx_payment"),
         emits=("agent_start", "agent_end", "agent_terminate", "tool_call", "tool_result", "service_call", "service_result"),
     ),
     "audit": RoleDef(
         name="audit",
         scope_template="audit:{region}",
-        allowed_tools=("get_contract_terms", "get_payment_status"),
+        allowed_tools=("get_contract_terms", "get_payment_status", "get_fx_settlement_status"),
         emits=("agent_start", "agent_end", "agent_terminate", "tool_call", "tool_result", "service_call", "service_result", "audit_record"),
     ),
     "exception": RoleDef(
