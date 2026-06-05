@@ -73,13 +73,19 @@ _SPECS: dict[str, PartnerSpec] = {
         apikey_location="header", apikey_field="X-Api-Key"),
     "cordoba-fx": PartnerSpec(
         "cordoba-fx", "oauth_cc", 9402,
-        ("get_quote", "convert", "create_transfer", "get_transfer"),
+        ("get_quote", "create_conversion", "get_conversion",
+         "create_beneficiary", "get_beneficiary", "list_beneficiaries",
+         "create_payment", "get_payment", "list_balances"),
         client_auth_method="client_secret_basic",
         scopes=("fx.read", "fx.convert", "fx.transfer")),
     "ironbark-erp": PartnerSpec(
         "ironbark-erp", "oauth_cc", 9403,
-        ("list_vendors", "get_vendor", "create_bill", "get_bill",
-         "match_invoice", "post_journal_entry", "get_account"),
+        ("list_vendors", "get_vendor",
+         "list_purchase_orders", "get_purchase_order", "create_purchase_order",
+         "list_bills", "get_bill", "create_bill", "approve_bill",
+         "match_invoice",
+         "post_journal_entry", "get_journal_entry", "list_journal_entries",
+         "list_accounts", "get_account"),
         client_auth_method="client_secret_post", scopes=("erp.read", "erp.write"),
         audience="https://api.ironbark-erp.test"),
     "tallyhall-books": PartnerSpec(

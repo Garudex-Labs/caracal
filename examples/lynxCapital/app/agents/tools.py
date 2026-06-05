@@ -51,7 +51,8 @@ def get_vendor_profile(run_id: str, agent_id: str, vendor_id: str) -> dict[str, 
 
 def get_fx_rate(run_id: str, agent_id: str, from_currency: str, to_currency: str) -> dict[str, object]:
     return _run(run_id, agent_id, "get_fx_rate", "cordoba-fx", "get_quote",
-                {"from": from_currency, "to": to_currency, "amount": 1})
+                {"sell_currency": from_currency, "buy_currency": to_currency,
+                 "amount": 1, "fixed_side": "sell"})
 
 
 # -- ledger-match tools (three accounting back ends) --
@@ -153,7 +154,53 @@ def get_account_balance(run_id: str, agent_id: str, vendor_id: str) -> dict[str,
 
 def get_quote(run_id: str, agent_id: str, from_currency: str, to_currency: str, amount: float) -> dict[str, object]:
     return _run(run_id, agent_id, "get_quote", "cordoba-fx", "get_quote",
-                {"from": from_currency, "to": to_currency, "amount": amount})
+                {"sell_currency": from_currency, "buy_currency": to_currency,
+                 "amount": amount, "fixed_side": "sell"})
+
+
+def convert_currency(run_id: str, agent_id: str, from_currency: str, to_currency: str, amount: float) -> dict[str, object]:
+    """Lock a rate and book an FX conversion, buying `to_currency` with `from_currency`."""
+    return _run(run_id, agent_id, "convert_currency", "cordoba-fx", "create_conversion",
+                {"sell_currency": from_currency, "buy_currency": to_currency,
+                 "amount": amount, "fixed_side": "sell", "term_agreement": True})
+
+
+def settle_vendor_fx_payment(run_id: str, agent_id: str, vendor_id: str, amount: float,
+                             buy_currency: str, sell_currency: str = "USD",
+                             bank_country: str = "", account_number: str = "",
+                             iban: str = "", bic_swift: str = "",
+                             reference: str = "") -> dict[str, object]:
+    """Settle a multi-currency vendor invoice end to end: book the conversion that
+    sources the vendor's currency, register the vendor's bank beneficiary, then
+    release the cross-border payment drawn on that conversion."""
+    conversion = _run(run_id, agent_id, "settle_vendor_fx_payment", "cordoba-fx", "create_conversion",
+                      {"sell_currency": sell_currency, "buy_currency": buy_currency,
+                       "amount": amount, "fixed_side": "buy", "term_agreement": True})
+    conv_data = conversion.get("data") if isinstance(conversion, dict) else None
+    conversion_id = conv_data.get("id") if isinstance(conv_data, dict) else None
+    if not conversion_id:
+        return conversion
+
+    beneficiary = _run(run_id, agent_id, "settle_vendor_fx_payment", "cordoba-fx", "create_beneficiary",
+                       {"bank_account_holder_name": vendor_id, "bank_country": bank_country or buy_currency[:2],
+                        "currency": buy_currency, "account_number": account_number,
+                        "iban": iban, "bic_swift": bic_swift,
+                        "beneficiary_entity_type": "company"})
+    ben_data = beneficiary.get("data") if isinstance(beneficiary, dict) else None
+    beneficiary_id = ben_data.get("id") if isinstance(ben_data, dict) else None
+    if not beneficiary_id:
+        return beneficiary
+
+    return _run(run_id, agent_id, "settle_vendor_fx_payment", "cordoba-fx", "create_payment",
+                {"currency": buy_currency, "amount": amount, "beneficiary_id": beneficiary_id,
+                 "conversion_id": conversion_id, "reference": reference or vendor_id,
+                 "reason": "vendor invoice settlement"})
+
+
+def get_fx_settlement_status(run_id: str, agent_id: str, payment_id: str) -> dict[str, object]:
+    """Track a cross-border vendor payment through to its completed state."""
+    return _run(run_id, agent_id, "get_fx_settlement_status", "cordoba-fx", "get_payment",
+                {"payment_id": payment_id})
 
 
 # -- payment-execution tools (distinct rails routed to distinct providers) --

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import random
+import uuid
 from datetime import date, datetime, time, timedelta, timezone
 
 _LEGAL = ("Holdings", "Industries", "Systems", "Logistics", "Components", "Partners",
@@ -710,6 +711,608 @@ def meridian_dataset(seed: str) -> dict[str, dict]:
         "payouts": payouts,
         "settlements": settlements,
         "events": events,
+    }
+
+
+# --------------------------------------------------------------------------- #
+# Ironbark ERP — NetSuite / SAP S/4HANA / Dynamics 365 Finance flavored records
+# --------------------------------------------------------------------------- #
+_GL_CHART = (
+    ("1000", "Operating Bank - USD", "Bank", "USD"),
+    ("1010", "Operating Bank - EUR", "Bank", "EUR"),
+    ("1100", "Accounts Receivable", "AcctRec", "USD"),
+    ("1200", "Inventory", "OthCurrAsset", "USD"),
+    ("1500", "Fixed Assets", "FixedAsset", "USD"),
+    ("2000", "Accounts Payable", "AcctPay", "USD"),
+    ("2100", "Accrued Expenses", "OthCurrLiab", "USD"),
+    ("2200", "Sales Tax Payable", "OthCurrLiab", "USD"),
+    ("3000", "Common Stock", "Equity", "USD"),
+    ("3900", "Retained Earnings", "Equity", "USD"),
+    ("4000", "Revenue", "Income", "USD"),
+    ("5000", "Cost of Goods Sold", "COGS", "USD"),
+    ("6000", "Payroll Expense", "Expense", "USD"),
+    ("6100", "Facilities Expense", "Expense", "USD"),
+    ("6200", "Software Subscriptions", "Expense", "USD"),
+    ("6300", "Professional Fees", "Expense", "USD"),
+)
+_ERP_ITEMS = (
+    ("Cloud compute", "6200"), ("Software licenses", "6200"),
+    ("Professional services", "6300"), ("Office supplies", "6100"),
+    ("Marketing services", "6300"), ("Networking hardware", "1500"),
+    ("Inbound freight", "5000"), ("Facilities maintenance", "6100"),
+    ("Managed security", "6300"), ("Data subscriptions", "6200"),
+)
+_VENDOR_CATEGORIES = ("Software", "Professional Services", "Facilities", "Logistics",
+                      "Hardware", "Marketing", "Utilities", "Consulting")
+_SUBSIDIARIES = ("LynxCapital : US", "LynxCapital : EMEA", "LynxCapital : APAC")
+_DEPARTMENTS = ("Engineering", "Finance", "Operations", "Marketing", "Treasury", "Legal")
+_CITY_BY_COUNTRY = {
+    "US": "Austin", "GB": "London", "DE": "Berlin", "FR": "Paris",
+    "BR": "Sao Paulo", "SG": "Singapore", "JP": "Tokyo", "CA": "Toronto",
+}
+_TAX_RATE_BY_COUNTRY = {
+    "US": 0.0825, "GB": 0.20, "DE": 0.19, "FR": 0.20,
+    "BR": 0.17, "SG": 0.09, "JP": 0.10, "CA": 0.13,
+}
+_LEGAL_SUFFIX = {"US": "Inc.", "CA": "Inc.", "GB": "Ltd.", "SG": "Pte. Ltd.",
+                 "DE": "GmbH", "FR": "S.A.S.", "BR": "Ltda.", "JP": "K.K."}
+_PO_STATUSES = ("pendingReceipt", "partiallyReceived", "pendingBilling",
+                "fullyBilled", "closed")
+
+
+def _term_days(term: str) -> int:
+    return {"NET15": 15, "NET30": 30, "NET45": 45, "NET60": 60}.get(term, 30)
+
+
+def _posting_period(iso_day: str) -> str:
+    moment = date.fromisoformat(iso_day[:10])
+    return moment.strftime("%b %Y")
+
+
+def _erp_vendor(seed: str, i: int) -> dict:
+    rng = _rng(seed, "erp_vendor", i)
+    name = _company(rng)
+    country, currency = rng.choice(_COUNTRIES)
+    internal = 1000 + i
+    status = rng.choices(("active", "inactive", "onHold"), weights=(86, 8, 6))[0]
+    contact = _person(rng)
+    return {
+        "id": f"VEND-{internal:05d}",
+        "internalId": str(internal),
+        "entityId": f"V{internal:05d} {name}",
+        "companyName": name,
+        "legalName": f"{name} {_LEGAL_SUFFIX.get(country, 'Ltd.')}",
+        "taxId": f"{country}{rng.randint(10 ** 8, 10 ** 9 - 1)}",
+        "category": rng.choice(_VENDOR_CATEGORIES),
+        "subsidiary": rng.choice(_SUBSIDIARIES),
+        "currency": currency,
+        "terms": rng.choice(_TERMS),
+        "status": status,
+        "isInactive": status == "inactive",
+        "is1099Eligible": country == "US" and rng.random() < 0.3,
+        "defaultPayablesAccount": "2000",
+        "creditLimit": float(rng.choice((25_000, 50_000, 100_000, 250_000, 500_000))),
+        "balancePrimary": 0.0,
+        "primaryContact": {
+            "name": contact,
+            "email": f"{contact.split()[0].lower()}.{contact.split()[1].lower()}@{_slug(name).split('-')[0]}.example",
+            "phone": f"+1-{rng.randint(200, 989)}-{rng.randint(200, 989)}-{rng.randint(1000, 9999)}",
+        },
+        "addressBook": [{
+            "label": "Remit-To",
+            "addr1": f"{rng.randint(10, 9999)} {rng.choice(_ROOTS)} {rng.choice(('Ave', 'St', 'Blvd', 'Way'))}",
+            "city": _CITY_BY_COUNTRY.get(country, "Austin"),
+            "zip": f"{rng.randint(10000, 99999)}",
+            "country": country,
+        }],
+        "createdDate": _instant(rng, -720, -120),
+        "lastModifiedDate": _instant(rng, -119, -1),
+    }
+
+
+def _po_lines(rng: random.Random) -> list[dict]:
+    lines = []
+    for n in range(1, rng.randint(1, 4) + 1):
+        item, account = rng.choice(_ERP_ITEMS)
+        quantity = rng.randint(1, 40)
+        rate = round(rng.uniform(45, 5_200), 2)
+        lines.append({
+            "lineId": n,
+            "item": item,
+            "description": f"{item} — PO commitment",
+            "account": account,
+            "quantity": quantity,
+            "quantityReceived": 0,
+            "quantityBilled": 0,
+            "rate": rate,
+            "amount": round(quantity * rate, 2),
+        })
+    return lines
+
+
+def _purchase_order(seed: str, idx: int, vendor: dict) -> dict:
+    rng = _rng(seed, "po", idx)
+    lines = _po_lines(rng)
+    subtotal = round(sum(l["amount"] for l in lines), 2)
+    rate = _TAX_RATE_BY_COUNTRY.get(vendor["addressBook"][0]["country"], 0.0)
+    tax_total = round(subtotal * rate, 2)
+    created = _instant(rng, -240, -10)
+    status = rng.choices(_PO_STATUSES, weights=(28, 16, 22, 24, 10))[0]
+    received_all = status in ("pendingBilling", "fullyBilled", "closed")
+    billed_all = status in ("fullyBilled", "closed")
+    for line in lines:
+        line["quantityReceived"] = line["quantity"] if received_all else (
+            line["quantity"] // 2 if status == "partiallyReceived" else 0)
+        line["quantityBilled"] = line["quantity"] if billed_all else 0
+    return {
+        "id": f"PO-{idx:05d}",
+        "tranId": f"PO-2026-{idx:05d}",
+        "type": "purchaseOrder",
+        "vendorId": vendor["id"],
+        "vendorName": vendor["companyName"],
+        "status": status,
+        "approvalStatus": "approved" if status != "pendingReceipt" or rng.random() > 0.2 else "pendingApproval",
+        "subsidiary": vendor["subsidiary"],
+        "department": rng.choice(_DEPARTMENTS),
+        "currency": vendor["currency"],
+        "memo": f"Commitment to {vendor['companyName']}",
+        "lines": lines,
+        "subtotal": subtotal,
+        "taxTotal": tax_total,
+        "total": round(subtotal + tax_total, 2),
+        "createdDate": created,
+        "dueDate": _day(rng, -5, 60),
+    }
+
+
+def _bill_lines_from_po(po: dict) -> list[dict]:
+    return [{
+        "lineId": l["lineId"],
+        "item": l["item"],
+        "description": l["description"].replace("PO commitment", "vendor invoice"),
+        "account": l["account"],
+        "quantity": l["quantity"],
+        "rate": l["rate"],
+        "amount": l["amount"],
+    } for l in po["lines"]]
+
+
+def _vendor_bill(seed: str, idx: int, vendor: dict, po: dict | None) -> dict:
+    rng = _rng(seed, "bill", idx)
+    if po is not None:
+        lines = _bill_lines_from_po(po)
+        country = vendor["addressBook"][0]["country"]
+    else:
+        lines = _po_lines(rng)
+        for line in lines:
+            line.pop("quantityReceived", None)
+            line.pop("quantityBilled", None)
+        country = vendor["addressBook"][0]["country"]
+    subtotal = round(sum(l["amount"] for l in lines), 2)
+    tax_total = round(subtotal * _TAX_RATE_BY_COUNTRY.get(country, 0.0), 2)
+    total = round(subtotal + tax_total, 2)
+    created = _instant(rng, -150, -3)
+    term_days = _term_days(vendor["terms"])
+    due = (date.fromisoformat(created[:10]) + timedelta(days=term_days)).isoformat()
+    status = rng.choices(("open", "paidInFull", "pendingApproval", "cancelled"),
+                         weights=(50, 34, 12, 4))[0]
+    amount_paid = total if status == "paidInFull" else (
+        round(total * rng.uniform(0.2, 0.6), 2) if status == "open" and rng.random() < 0.25 else 0.0)
+    return {
+        "id": f"BILL-{idx:06d}",
+        "tranId": f"VENDBILL-{idx:06d}",
+        "type": "vendorBill",
+        "vendorId": vendor["id"],
+        "vendorName": vendor["companyName"],
+        "referenceNumber": f"{vendor['companyName'][:3].upper()}-{rng.randint(10000, 99999)}",
+        "purchaseOrderId": po["id"] if po else None,
+        "status": status,
+        "approvalStatus": "approved" if status != "pendingApproval" else "pendingApproval",
+        "subsidiary": vendor["subsidiary"],
+        "account": vendor["defaultPayablesAccount"],
+        "currency": vendor["currency"],
+        "terms": vendor["terms"],
+        "lines": lines,
+        "subtotal": subtotal,
+        "taxTotal": tax_total,
+        "total": total,
+        "amountPaid": amount_paid,
+        "amountRemaining": round(total - amount_paid, 2),
+        "postingPeriod": _posting_period(created),
+        "createdDate": created,
+        "dueDate": due,
+    }
+
+
+def _journal_entry(seed: str, idx: int) -> dict:
+    rng = _rng(seed, "je", idx)
+    expense = rng.choice(("6000", "6100", "6200", "6300", "5000"))
+    amount = round(rng.uniform(1_500, 120_000), 2)
+    credit_account = rng.choice(("2000", "2100", "1000"))
+    created = _instant(rng, -120, -2)
+    lines = [
+        {"line": 1, "account": expense, "debit": amount, "credit": 0.0,
+         "memo": "Accrued cost", "department": rng.choice(_DEPARTMENTS)},
+        {"line": 2, "account": credit_account, "debit": 0.0, "credit": amount,
+         "memo": "Offset", "department": rng.choice(_DEPARTMENTS)},
+    ]
+    return {
+        "id": f"JE-{idx:06d}",
+        "tranId": f"JOURNAL-{idx:06d}",
+        "type": "journalEntry",
+        "subsidiary": rng.choice(_SUBSIDIARIES),
+        "currency": "USD",
+        "postingPeriod": _posting_period(created),
+        "lines": lines,
+        "totalDebit": amount,
+        "totalCredit": amount,
+        "status": "posted",
+        "reversalOf": None,
+        "createdDate": created,
+    }
+
+
+def ironbark_dataset(seed: str) -> dict[str, dict]:
+    """Build a coherent ERP back office: a chart of accounts, vendor master,
+    purchase orders that flow into vendor bills via three-way match, and posted
+    journal entries — with vendor balances and the AP control account rolled up
+    the way a real ledger keeps them."""
+    accounts: dict[str, dict] = {}
+    for number, name, acct_type, currency in _GL_CHART:
+        accounts[f"ACCT-{number}"] = {
+            "id": f"ACCT-{number}",
+            "acctNumber": number,
+            "acctName": name,
+            "acctType": acct_type,
+            "currency": currency,
+            "subsidiary": "LynxCapital : Consolidated",
+            "balance": 0.0,
+            "isInactive": False,
+        }
+
+    vendors = {v["id"]: v for v in (_erp_vendor(seed, i) for i in range(1, 121))}
+    active = [v for v in vendors.values() if v["status"] == "active"]
+
+    purchase_orders: dict[str, dict] = {}
+    for idx in range(1, 41):
+        vendor = active[_rng(seed, "po_pick", idx).randrange(len(active))]
+        po = _purchase_order(seed, idx, vendor)
+        purchase_orders[po["id"]] = po
+
+    bills: dict[str, dict] = {}
+    po_list = list(purchase_orders.values())
+    for idx in range(1, 61):
+        rng = _rng(seed, "bill_pick", idx)
+        linked = idx <= 30 and po_list
+        po = po_list[rng.randrange(len(po_list))] if linked else None
+        vendor = vendors[po["vendorId"]] if po else active[rng.randrange(len(active))]
+        bill = _vendor_bill(seed, idx, vendor, po)
+        bills[bill["id"]] = bill
+
+    journal_entries: dict[str, dict] = {
+        je["id"]: je for je in (_journal_entry(seed, i) for i in range(1, 31))
+    }
+
+    ap_outstanding = 0.0
+    for bill in bills.values():
+        if bill["status"] in ("open", "pendingApproval"):
+            vendors[bill["vendorId"]]["balancePrimary"] = round(
+                vendors[bill["vendorId"]]["balancePrimary"] + bill["amountRemaining"], 2)
+            ap_outstanding += bill["amountRemaining"]
+    accounts["ACCT-2000"]["balance"] = round(ap_outstanding, 2)
+
+    return {
+        "accounts": accounts,
+        "vendors": vendors,
+        "purchase_orders": purchase_orders,
+        "bills": bills,
+        "journal_entries": journal_entries,
+        "matches": {},
+    }
+
+
+# --------------------------------------------------------------------------- #
+# Cordoba FX — cross-border FX-as-a-service, modeled on Currencycloud and Wise.
+# Mid-market reference, settlement, beneficiary, and payment shapes mirror the
+# real wire format: snake_case fields and decimal-string monetary amounts.
+# --------------------------------------------------------------------------- #
+_CORDOBA_EPOCH = datetime(2026, 1, 1, tzinfo=timezone.utc)
+
+# Mid-market reference: units of the quoted currency per 1 USD.
+_FX_MID = {
+    "USD": 1.0, "EUR": 0.92, "GBP": 0.79, "JPY": 156.4, "BRL": 5.08,
+    "SGD": 1.35, "CAD": 1.37, "CHF": 0.89, "AUD": 1.52, "INR": 83.2, "MXN": 18.7,
+}
+
+# Spread charged over mid-market, in basis points, widening for thinner pairs.
+_FX_SPREAD_BPS = {
+    "EUR": 20, "GBP": 22, "CHF": 28, "CAD": 28, "SGD": 30, "AUD": 30,
+    "JPY": 35, "MXN": 55, "INR": 60, "BRL": 75,
+}
+
+# Currencies whose minor unit is not 1/100.
+_FX_ZERO_DECIMAL = {"JPY"}
+
+# Country -> (currency, routing_code_type) for beneficiary bank coordinates.
+_FX_BANK_ROUTING = {
+    "US": ("USD", "aba"), "GB": ("GBP", "sort_code"), "DE": ("EUR", "iban"),
+    "FR": ("EUR", "iban"), "BR": ("BRL", "bic_swift"), "SG": ("SGD", "bic_swift"),
+    "JP": ("JPY", "bic_swift"), "CA": ("CAD", "bic_swift"), "IN": ("INR", "ifsc"),
+    "MX": ("MXN", "clabe"), "AU": ("AUD", "bsb_code"),
+}
+
+# Per-currency minimum conversion size, in the sell currency.
+_FX_MIN_CONVERSION = {"JPY": 1500.0, "INR": 800.0, "BRL": 60.0, "MXN": 200.0}
+
+_CONVERSION_FLOW = ("awaiting_funds", "funds_sent", "funds_arrived", "trade_settled")
+_PAYMENT_FLOW = ("ready_to_send", "submitted", "completed")
+
+
+def fx_currencies() -> tuple[str, ...]:
+    return tuple(_FX_MID)
+
+
+def fx_supported(currency: str) -> bool:
+    return currency in _FX_MID
+
+
+def fx_minor_units(currency: str) -> int:
+    return 0 if currency in _FX_ZERO_DECIMAL else 2
+
+
+def fx_money(amount: float, currency: str) -> str:
+    decimals = fx_minor_units(currency)
+    return f"{round(float(amount), decimals):.{decimals}f}"
+
+
+def fx_min_conversion(currency: str) -> float:
+    return _FX_MIN_CONVERSION.get(currency, 100.0)
+
+
+def fx_rate_str(rate: float) -> str:
+    """Format a rate to six significant figures, as FX platforms publish them."""
+    return f"{rate:.6g}"
+
+
+def fx_mid_rate(sell: str, buy: str) -> float:
+    """Mid-market units of buy currency per one unit of sell currency."""
+    return _FX_MID[buy] / _FX_MID[sell]
+
+
+def fx_spread(sell: str, buy: str) -> float:
+    bps = max(_FX_SPREAD_BPS.get(buy, 15), _FX_SPREAD_BPS.get(sell, 15))
+    return bps / 10_000.0
+
+
+def fx_client_rate(sell: str, buy: str) -> float:
+    """Client-facing rate: the spread leaves the client slightly fewer buy units."""
+    return fx_mid_rate(sell, buy) * (1.0 - fx_spread(sell, buy))
+
+
+def fx_next_status(current: str, kind: str) -> str:
+    """Advance a conversion or payment one step along its settlement lifecycle."""
+    flow = _CONVERSION_FLOW if kind == "conversion" else _PAYMENT_FLOW
+    if current not in flow:
+        return current
+    return flow[min(flow.index(current) + 1, len(flow) - 1)]
+
+
+def _fx_iso(dt: datetime) -> str:
+    return dt.replace(microsecond=0).isoformat()
+
+
+def _fx_bic(rng: random.Random, country: str) -> str:
+    bank = "".join(rng.choice("ABCDEFGHJKLMNPRSTUVWXYZ") for _ in range(4))
+    branch = "".join(rng.choice("0123456789ABCDEFGHJKLMNPQRSTUVWXYZ") for _ in range(3))
+    return f"{bank}{country}2L{branch}"
+
+
+def _fx_routing(rng: random.Random, country: str) -> dict:
+    """Local clearing coordinates shaped to the destination country's scheme."""
+    _, routing_type = _FX_BANK_ROUTING.get(country, (None, "bic_swift"))
+    account = "".join(rng.choice("0123456789") for _ in range(8))
+    out: dict = {
+        "account_number": account,
+        "iban": None,
+        "bic_swift": _fx_bic(rng, country),
+        "routing_code_type_1": None,
+        "routing_code_value_1": None,
+        "bank_account_type": None,
+    }
+    if routing_type == "aba":
+        out["routing_code_type_1"] = "aba"
+        out["routing_code_value_1"] = "".join(rng.choice("0123456789") for _ in range(9))
+        out["bank_account_type"] = rng.choice(("checking", "savings"))
+    elif routing_type == "sort_code":
+        out["routing_code_type_1"] = "sort_code"
+        out["routing_code_value_1"] = "-".join(
+            "".join(rng.choice("0123456789") for _ in range(2)) for _ in range(3))
+    elif routing_type == "iban":
+        check = f"{rng.randint(2, 98):02d}"
+        body = "".join(rng.choice("0123456789") for _ in range(16))
+        out["iban"] = f"{country}{check}{body}"
+    elif routing_type == "ifsc":
+        out["routing_code_type_1"] = "ifsc"
+        bank = "".join(rng.choice("ABCDEFGHIJKLMNOPQRSTUVWXYZ") for _ in range(4))
+        out["routing_code_value_1"] = f"{bank}0{rng.randint(100000, 999999)}"
+    elif routing_type == "bsb_code":
+        out["routing_code_type_1"] = "bsb_code"
+        out["routing_code_value_1"] = "-".join(
+            ("".join(rng.choice("0123456789") for _ in range(3)),
+             "".join(rng.choice("0123456789") for _ in range(3))))
+    elif routing_type == "clabe":
+        out["account_number"] = "".join(rng.choice("0123456789") for _ in range(18))
+    return out
+
+
+def fx_beneficiary(seed: str, idx: int) -> dict:
+    """A vendor settlement beneficiary with country-appropriate bank coordinates."""
+    rng = _rng(seed, "beneficiary", idx)
+    country = rng.choice(tuple(_FX_BANK_ROUTING))
+    currency, _ = _FX_BANK_ROUTING[country]
+    company = rng.random() > 0.3
+    holder = _company(rng) if company else _person(rng)
+    routing = _fx_routing(rng, country)
+    payment_types = ["regular"]
+    if country in ("US", "BR", "SG", "JP", "CA"):
+        payment_types.append("priority")
+    created = _CORDOBA_EPOCH - timedelta(days=rng.randint(20, 400))
+    return {
+        "id": str(uuid.UUID(int=rng.getrandbits(128), version=4)),
+        "bank_account_holder_name": holder,
+        "name": f"{holder} {currency} account",
+        "beneficiary_entity_type": "company" if company else "individual",
+        "beneficiary_company_name": holder if company else "",
+        "beneficiary_first_name": "" if company else holder.split()[0],
+        "beneficiary_last_name": "" if company else holder.split()[-1],
+        "beneficiary_country": country,
+        "beneficiary_address": [f"{rng.randint(1, 400)} {rng.choice(_ROOTS)} Street"],
+        "beneficiary_city": rng.choice(("London", "Frankfurt", "Singapore", "Toronto",
+                                        "Sao Paulo", "Tokyo", "Sydney", "Mumbai", "New York")),
+        "currency": currency,
+        "bank_country": country,
+        "bank_name": f"{rng.choice(_ROOTS)} Bank",
+        "account_number": routing["account_number"],
+        "iban": routing["iban"],
+        "bic_swift": routing["bic_swift"],
+        "routing_code_type_1": routing["routing_code_type_1"],
+        "routing_code_value_1": routing["routing_code_value_1"],
+        "bank_account_type": routing["bank_account_type"],
+        "payment_types": payment_types,
+        "status": "enabled",
+        "created_at": _fx_iso(created),
+        "updated_at": _fx_iso(created),
+    }
+
+
+def _fx_short_ref(rng: random.Random, when: datetime) -> str:
+    token = "".join(rng.choice("ABCDEFGHJKLMNPQRSTUVWXYZ0123456789") for _ in range(6))
+    return f"{when:%Y%m%d}-{token}"
+
+
+def cordoba_dataset(seed: str) -> dict[str, dict]:
+    """Build a coherent FX book: per-currency balances, vendor beneficiaries, a
+    history of conversions across the settlement lifecycle, and the cross-border
+    payments those conversions funded — the trail a live FX platform would hold."""
+    balances: dict[str, dict] = {}
+    for currency in ("USD", "EUR", "GBP", "SGD", "BRL", "JPY"):
+        rng = _rng(seed, "balance", currency)
+        account_id = str(uuid.UUID(int=rng.getrandbits(128), version=4))
+        amount = rng.uniform(40_000, 900_000) if currency != "JPY" else rng.uniform(3_000_000, 20_000_000)
+        balances[currency] = {
+            "id": str(uuid.UUID(int=rng.getrandbits(128), version=4)),
+            "account_id": account_id,
+            "currency": currency,
+            "amount": fx_money(amount, currency),
+            "created_at": _fx_iso(_CORDOBA_EPOCH - timedelta(days=400)),
+            "updated_at": _fx_iso(_CORDOBA_EPOCH - timedelta(days=rng.randint(1, 20))),
+        }
+
+    beneficiaries: dict[str, dict] = {}
+    for i in range(1, 25):
+        ben = fx_beneficiary(seed, i)
+        beneficiaries[ben["id"]] = ben
+    beneficiary_list = list(beneficiaries.values())
+
+    conversions: dict[str, dict] = {}
+    payments: dict[str, dict] = {}
+    sell_pool = ("USD", "USD", "USD", "GBP", "EUR")
+    for i in range(1, 33):
+        rng = _rng(seed, "conversion", i)
+        ben = beneficiary_list[rng.randrange(len(beneficiary_list))]
+        buy = ben["currency"]
+        sell = rng.choice([s for s in sell_pool if s != buy] or ["USD"])
+        booked = _CORDOBA_EPOCH - timedelta(days=rng.randint(1, 180))
+        stage = rng.choices(range(4), weights=(1, 1, 1, 5))[0]
+        status = _CONVERSION_FLOW[stage]
+        buy_amount = rng.uniform(2_000, 250_000) if buy != "JPY" else rng.uniform(300_000, 9_000_000)
+        client_rate = fx_client_rate(sell, buy)
+        mid_rate = fx_mid_rate(sell, buy)
+        sell_amount = buy_amount / client_rate
+        settlement = booked + timedelta(days=2)
+        conv = {
+            "id": str(uuid.UUID(int=rng.getrandbits(128), version=4)),
+            "short_reference": _fx_short_ref(rng, booked),
+            "currency_pair": f"{buy}{sell}",
+            "status": status,
+            "buy_currency": buy,
+            "sell_currency": sell,
+            "client_buy_amount": fx_money(buy_amount, buy),
+            "client_sell_amount": fx_money(sell_amount, sell),
+            "fixed_side": "buy",
+            "client_rate": fx_rate_str(client_rate),
+            "mid_market_rate": fx_rate_str(mid_rate),
+            "core_rate": fx_rate_str(client_rate),
+            "settlement_date": _fx_iso(settlement),
+            "conversion_date": _fx_iso(booked.replace(hour=0, minute=0, second=0)),
+            "deposit_required": False,
+            "deposit_amount": fx_money(0, sell),
+            "deposit_currency": sell,
+            "unique_request_id": None,
+            "payment_ids": [],
+            "created_at": _fx_iso(booked),
+            "updated_at": _fx_iso(settlement if stage == 3 else booked),
+        }
+        conversions[conv["id"]] = conv
+
+        if stage >= 2 and rng.random() < 0.8:
+            prng = _rng(seed, "payment", i)
+            priority = "priority" in ben["payment_types"] and prng.random() < 0.4
+            pay_status = "completed" if stage == 3 else prng.choice(("submitted", "ready_to_send"))
+            fee = 8.0 if priority else 0.0
+            pay_date = settlement + timedelta(days=prng.randint(0, 2))
+            payment = {
+                "id": str(uuid.UUID(int=prng.getrandbits(128), version=4)),
+                "short_reference": _fx_short_ref(prng, pay_date),
+                "beneficiary_id": ben["id"],
+                "conversion_id": conv["id"],
+                "amount": conv["client_buy_amount"],
+                "currency": buy,
+                "status": pay_status,
+                "payment_type": "priority" if priority else "regular",
+                "charge_type": "shared",
+                "reference": f"INV-{2026000 + i}",
+                "reason": "vendor invoice settlement",
+                "purpose_code": "GDDS",
+                "payment_date": _fx_iso(pay_date.replace(hour=0, minute=0, second=0)),
+                "payment_fee_amount": fx_money(fee, buy),
+                "payment_fee_currency": buy,
+                "transaction_id": str(uuid.UUID(int=prng.getrandbits(128), version=4)),
+                "failure_reason": "",
+                "created_at": _fx_iso(pay_date),
+                "updated_at": _fx_iso(pay_date),
+            }
+            payments[payment["id"]] = payment
+            conv["payment_ids"].append(payment["id"])
+
+    settlement_accounts: dict[str, dict] = {}
+    ssi = {
+        "USD": ("Cordoba FX USD Settlement", "US", "CORDUS33XXX", None, "021000021"),
+        "EUR": ("Cordoba FX EUR Settlement", "DE", "CORDDEFFXXX", "DE89370400440532013000", None),
+        "GBP": ("Cordoba FX GBP Settlement", "GB", "CORDGB2LXXX", "GB29CORD60161331926819", "60-16-13"),
+        "SGD": ("Cordoba FX SGD Settlement", "SG", "CORDSGSGXXX", None, None),
+    }
+    for currency, (holder, country, bic, iban, routing) in ssi.items():
+        settlement_accounts[currency] = {
+            "id": str(_rng(seed, "ssi", currency).getrandbits(48)),
+            "currency": currency,
+            "bank_account_holder_name": holder,
+            "bank_name": "Cordoba FX Settlement Bank",
+            "bank_country": country,
+            "beneficiary_country": country,
+            "bic_swift": bic,
+            "iban": iban,
+            "account_number": "".join(str((ord(c) % 10)) for c in currency * 3),
+            "routing_code_type_1": "sort_code" if routing and "-" in routing else ("aba" if routing else None),
+            "routing_code_value_1": routing,
+        }
+
+    return {
+        "balances": balances,
+        "beneficiaries": beneficiaries,
+        "conversions": conversions,
+        "payments": payments,
+        "settlement_accounts": settlement_accounts,
     }
 
 
