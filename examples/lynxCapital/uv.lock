@@ -2,9 +2,6 @@ version = 1
 revision = 3
 requires-python = ">=3.12"
 
-[options]
-prerelease-mode = "allow"
-
 [manifest]
 constraints = [
     { name = "idna", specifier = ">=3.15" },
@@ -71,44 +68,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/63/9a/fec38644694abfaaeca2798b58e276a8e61de49e2e37494ace423395febc/bracex-2.6.tar.gz", hash = "sha256:98f1347cd77e22ee8d967a30ad4e310b233f7754dbf31ff3fceb76145ba47dc7", size = 26642, upload-time = "2025-06-22T19:12:31.254Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/9d/2a/9186535ce58db529927f6cf5990a849aa9e052eea3e2cfefe20b9e1802da/bracex-2.6-py3-none-any.whl", hash = "sha256:0b0049264e7340b3ec782b5cb99beb325f36c3782a32e36e876452fd49a09952", size = 11508, upload-time = "2025-06-22T19:12:29.781Z" },
-]
-
-[[package]]
-name = "caracalai-core"
-version = "0.1.4rc1"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/68/7d/4c43aa7a79acf90932c4abc54c8f716a140e9a221f8ae8c424d450c8248b/caracalai_core-0.1.4rc1.tar.gz", hash = "sha256:e03d2e0ba135c432228d5cc24cd92b28001f65f58e09f73ff684d728522e3820", size = 13786, upload-time = "2026-06-04T16:46:04.675Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/03/0c/24c35b84a46f21fc86cb42428bddfc8d1bbaff2cd48536e103034be134f8/caracalai_core-0.1.4rc1-py3-none-any.whl", hash = "sha256:0c2e57cda06854efb5abc39051a71304b8fa65b0515746751e17390ffeafabce", size = 15432, upload-time = "2026-06-04T16:46:03.624Z" },
-]
-
-[[package]]
-name = "caracalai-identity"
-version = "0.1.4rc1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "caracalai-core" },
-    { name = "httpx" },
-    { name = "idna" },
-    { name = "pyjwt" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/78/a5/4279f6678201c6990ac31151229600225851657d22d5ada3c2607f9e8064/caracalai_identity-0.1.4rc1.tar.gz", hash = "sha256:c01bfd94512966c6a2a3fa795b20161fd0ca781fbfdec55239b08bd1fa3277f7", size = 9956, upload-time = "2026-06-04T16:46:02.919Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/d4/eb/f5298d945e129c18c75c68b4747d83ab24c04ee4d9700e89381110eef99f/caracalai_identity-0.1.4rc1-py3-none-any.whl", hash = "sha256:ca0634544958b9f2a3bc31a7a5d58caeb80f5a98a6c2108f6b784e129d6b5c02", size = 11258, upload-time = "2026-06-04T16:46:01.913Z" },
-]
-
-[[package]]
-name = "caracalai-sdk"
-version = "0.1.4rc1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "caracalai-identity" },
-    { name = "httpx" },
-    { name = "idna" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/57/ed/25854337ea9287ab703a5cf2135d28f90f4aa919ee4e63f26b8090128f5f/caracalai_sdk-0.1.4rc1.tar.gz", hash = "sha256:b405a9dd62a83292ca5e435ae3b8a9e758ba87a3cd6505a713232616d5c31008", size = 23135, upload-time = "2026-06-04T16:46:06.909Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/5b/85/d2fc845f0a64c7259aeb2e6fda412dd84218eaf25de1576f7a631f99c065/caracalai_sdk-0.1.4rc1-py3-none-any.whl", hash = "sha256:8d9ab5ac0a0d80b060fd5d9989c87f15dac726e01f2d524be39192b58413ac94", size = 27166, upload-time = "2026-06-04T16:46:05.16Z" },
 ]
 
 [[package]]
@@ -866,7 +825,6 @@ name = "lynx-capital"
 version = "0.1.4rc1"
 source = { editable = "." }
 dependencies = [
-    { name = "caracalai-sdk" },
     { name = "deepagents" },
     { name = "fastapi" },
     { name = "grpcio" },
@@ -896,7 +854,6 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "caracalai-sdk", specifier = "==0.1.4rc1" },
     { name = "deepagents", specifier = ">=0.6" },
     { name = "fastapi", specifier = ">=0.136" },
     { name = "grpcio", specifier = ">=1.80" },
@@ -1267,15 +1224,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/c3/b2/bc9c9196916376152d655522fdcebac55e66de6603a76a02bca1b6414f6c/pygments-2.20.0.tar.gz", hash = "sha256:6757cd03768053ff99f3039c1a36d6c0aa0b263438fcab17520b30a303a82b5f", size = 4955991, upload-time = "2026-03-29T13:29:33.898Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/f4/7e/a72dd26f3b0f4f2bf1dd8923c85f7ceb43172af56d63c7383eb62b332364/pygments-2.20.0-py3-none-any.whl", hash = "sha256:81a9e26dd42fd28a23a2d169d86d7ac03b46e2f8b59ed4698fb4785f946d0176", size = 1231151, upload-time = "2026-03-29T13:29:30.038Z" },
-]
-
-[[package]]
-name = "pyjwt"
-version = "2.12.1"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/c2/27/a3b6e5bf6ff856d2509292e95c8f57f0df7017cf5394921fc4e4ef40308a/pyjwt-2.12.1.tar.gz", hash = "sha256:c74a7a2adf861c04d002db713dd85f84beb242228e671280bf709d765b03672b", size = 102564, upload-time = "2026-03-13T19:27:37.25Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/e5/7a/8dd906bd22e79e47397a61742927f6747fe93242ef86645ee9092e610244/pyjwt-2.12.1-py3-none-any.whl", hash = "sha256:28ca37c070cad8ba8cd9790cd940535d40274d22f80ab87f3ac6a713e6e8454c", size = 29726, upload-time = "2026-03-13T19:27:35.677Z" },
 ]
 
 [[package]]
