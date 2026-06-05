@@ -55,7 +55,7 @@ ROLES: dict[str, RoleDef] = {
     "route-optimization": RoleDef(
         name="route-optimization",
         scope_template="route-batch:{region}",
-        allowed_tools=("get_fx_rate", "get_account_balance", "get_quote"),
+        allowed_tools=("get_fx_rate", "get_account_balance", "get_quote", "convert_currency"),
         emits=("agent_start", "agent_end", "agent_terminate", "tool_call", "tool_result", "service_call", "service_result"),
     ),
     "payment-execution": RoleDef(

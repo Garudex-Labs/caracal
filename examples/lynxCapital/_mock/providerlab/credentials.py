@@ -97,6 +97,8 @@ class ProviderStore:
             seed["clientId"] = client["clientId"]
             seed["clientSecret"] = client["clientSecret"]
             seed["tokenEndpoint"] = "/oauth/token"
+            if p.audience:
+                seed["audience"] = p.audience
             if p.category == "oauth2_authorization_code":
                 seed["authorizationEndpoint"] = "/oauth/authorize"
         elif p.category == "caracal_mandate" or (p.category == "mcp" and p.mcp_auth == "mandate"):
@@ -292,13 +294,15 @@ class ProviderStore:
         return None
 
     # ---- oauth issuance ----
-    def issue_token(self, client_id: str, scope: str, *, subject: str = "service", refresh: bool = False) -> dict:
+    def issue_token(self, client_id: str, scope: str, *, subject: str = "service",
+                    refresh: bool = False, audience: str | None = None) -> dict:
         token = {
             "accessToken": f"at_{secrets.token_urlsafe(28)}",
             "tokenType": "Bearer",
             "clientId": client_id,
             "scope": scope,
             "subject": subject,
+            "audience": audience,
             "expiresAt": _now() + 3600,
             "createdAt": _now(),
         }
@@ -326,7 +330,8 @@ class ProviderStore:
     def refresh(self, refresh_token: str) -> dict | None:
         for t in self.data["tokens"]:
             if t.get("refreshToken") == refresh_token:
-                return self.issue_token(t["clientId"], t["scope"], subject=t["subject"], refresh=True)
+                return self.issue_token(t["clientId"], t["scope"], subject=t["subject"],
+                                        refresh=True, audience=t.get("audience"))
         return None
 
     def create_auth_code(self, client_id: str, redirect_uri: str, scope: str,
