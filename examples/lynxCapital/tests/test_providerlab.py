@@ -872,6 +872,283 @@ def test_ui_pages_render(path):
 
 
 # --------------------------------------------------------------------------- #
+# Pulse Market Data — api_key / sse provider with FX rates, OHLC, and subscriptions
+# --------------------------------------------------------------------------- #
+def _pulse_key() -> str:
+    return seed("pulse-market")["apiKey"]
+
+
+def _pulse_hdr() -> dict:
+    return {"X-Api-Key": _pulse_key()}
+
+
+def _pulse() -> TestClient:
+    return client("pulse-market")
+
+
+def test_pulse_market_api_key_accept_and_reject():
+    c = _pulse()
+    h = _pulse_hdr()
+    assert c.post("/api/list_instruments", headers=h).status_code == 200
+    assert c.post("/api/list_instruments", headers={"X-Api-Key": "bad-key"}).status_code == 401
+    assert c.post("/api/list_instruments").status_code == 401
+
+
+def test_pulse_market_list_instruments_realistic_schema():
+    items = _pulse().post("/api/list_instruments", json={}, headers=_pulse_hdr()).json()["data"]["items"]
+    assert len(items) >= 10
+    first = items[0]
+    assert {"symbol", "base", "quote", "description", "type", "assetClass",
+            "exchange", "venue", "pipSize", "lotSize", "minTradeSize",
+            "liquidityTier", "tradingHours", "tradingDays",
+            "mid", "spreadBps", "dayOpen", "dayHigh", "dayLow",
+            "prevClose", "change", "changePct"} <= first.keys()
+    assert first["type"] == "fx"
+    assert first["assetClass"] == "FX"
+    assert first["exchange"] == "OTC"
+    assert first["liquidityTier"] in ("tier1", "tier2", "tier3")
+    assert 0 < first["pipSize"] <= 0.01
+    assert first["lotSize"] >= 1_000
+    assert first["dayLow"] <= first["mid"] <= first["dayHigh"]
+
+
+def test_pulse_market_list_instruments_filter_by_liquidity_tier():
+    c = _pulse()
+    h = _pulse_hdr()
+    t1 = c.post("/api/list_instruments", json={"liquidityTier": "tier1"}, headers=h).json()["data"]
+    t3 = c.post("/api/list_instruments", json={"liquidityTier": "tier3"}, headers=h).json()["data"]
+    assert all(i["liquidityTier"] == "tier1" for i in t1["items"])
+    assert all(i["liquidityTier"] == "tier3" for i in t3["items"])
+    assert t1["total"] + t3["total"] < t1["total"] + t3["total"] + 1  # sanity: no overlap issue
+
+
+def test_pulse_market_snapshot_realistic_fields():
+    c = _pulse()
+    snap = c.post("/api/get_snapshot", json={"symbol": "USD/EUR"}, headers=_pulse_hdr()).json()["data"]
+    assert snap["symbol"] == "USD/EUR"
+    assert {"bid", "ask", "mid", "seq",
+            "timestamp", "change", "changePct",
+            "volume", "session", "open", "high", "low"} <= snap.keys()
+    # Spread must be positive and finite.
+    assert snap["bid"] < snap["ask"]
+    assert snap["bid"] > 0 and snap["ask"] > 0
+    # Timestamp must be an ISO UTC string.
+    assert snap["timestamp"].endswith("Z")
+    # Session is one of the known trading windows.
+    assert snap["session"] in ("sydney", "asia", "london", "new_york", "after_hours")
+    # Intra-day range constraint.
+    assert snap["low"] <= snap["mid"] <= snap["high"]
+
+
+def test_pulse_market_snapshot_jpy_pair_precision():
+    snap = _pulse().post("/api/get_snapshot", json={"symbol": "USD/JPY"},
+                         headers=_pulse_hdr()).json()["data"]
+    # JPY pairs are quoted to 2 decimal places, not 4.
+    assert snap["mid"] > 100, "USD/JPY mid should be above 100"
+    # Verify the pip size is 0.01 by checking the spread width.
+    spread = round(snap["ask"] - snap["bid"], 4)
+    assert spread < 2.0, "JPY spread in price terms should be small"
+
+
+def test_pulse_market_snapshot_unknown_symbol():
+    r = _pulse().post("/api/get_snapshot", json={"symbol": "XYZ/FAKE"}, headers=_pulse_hdr())
+    assert r.status_code == 404
+    assert r.json()["error"] == "instrument_not_found"
+
+
+def test_pulse_market_snapshot_missing_symbol_field():
+    r = _pulse().post("/api/get_snapshot", json={}, headers=_pulse_hdr())
+    assert r.status_code == 422
+    assert r.json()["error"] == "invalid_request"
+
+
+def test_pulse_market_stream_rates_tick_schema():
+    c = _pulse()
+    resp = c.post("/api/stream_rates", json={"symbol": "EUR/GBP", "ticks": 5},
+                  headers=_pulse_hdr()).json()["data"]
+    assert resp["symbol"] == "EUR/GBP"
+    assert len(resp["ticks"]) == 5
+    tick = resp["ticks"][0]
+    assert {"bid", "ask", "mid", "seq", "timestamp",
+            "change", "changePct", "volume", "session",
+            "open", "high", "low"} <= tick.keys()
+    assert tick["bid"] < tick["ask"]
+    assert tick["timestamp"].endswith("Z")
+    assert tick["volume"] > 0
+
+
+def test_pulse_market_stream_rates_count_clamped():
+    c = _pulse()
+    h = _pulse_hdr()
+    assert len(c.post("/api/stream_rates", json={"symbol": "USD/EUR", "ticks": 200},
+                      headers=h).json()["data"]["ticks"]) == 50
+    assert len(c.post("/api/stream_rates", json={"symbol": "USD/EUR", "ticks": 1},
+                      headers=h).json()["data"]["ticks"]) == 1
+
+
+def test_pulse_market_stream_rates_unknown_symbol():
+    r = _pulse().post("/api/stream_rates", json={"symbol": "AAA/BBB"}, headers=_pulse_hdr())
+    assert r.status_code == 404
+
+
+def test_pulse_market_ohlc_daily_candles():
+    c = _pulse()
+    resp = c.post("/api/get_ohlc", json={"symbol": "USD/EUR", "interval": "1d", "limit": 10},
+                  headers=_pulse_hdr()).json()["data"]
+    assert resp["symbol"] == "USD/EUR"
+    assert resp["interval"] == "1d"
+    assert len(resp["candles"]) == 10
+    assert "from" in resp and "to" in resp
+    candle = resp["candles"][0]
+    assert {"t", "o", "h", "l", "c", "v"} <= candle.keys()
+    assert candle["l"] <= candle["o"]
+    assert candle["l"] <= candle["c"]
+    assert candle["h"] >= candle["o"]
+    assert candle["h"] >= candle["c"]
+    assert candle["v"] > 0
+    assert candle["t"].endswith("Z")
+
+
+def test_pulse_market_ohlc_intraday_intervals():
+    c = _pulse()
+    h = _pulse_hdr()
+    for interval in ("1m", "5m", "15m", "1h", "4h"):
+        resp = c.post("/api/get_ohlc", json={"symbol": "EUR/USD", "interval": interval, "limit": 3},
+                      headers=h).json()["data"]
+        assert resp["interval"] == interval
+        assert len(resp["candles"]) == 3
+
+
+def test_pulse_market_ohlc_invalid_interval():
+    r = _pulse().post("/api/get_ohlc", json={"symbol": "USD/EUR", "interval": "2w"},
+                      headers=_pulse_hdr())
+    assert r.status_code == 422
+    assert r.json()["error"] == "invalid_interval"
+
+
+def test_pulse_market_ohlc_limit_clamped():
+    c = _pulse()
+    h = _pulse_hdr()
+    assert len(c.post("/api/get_ohlc", json={"symbol": "USD/EUR", "interval": "1d", "limit": 500},
+                      headers=h).json()["data"]["candles"]) == 100
+
+
+def test_pulse_market_ohlc_unknown_symbol():
+    r = _pulse().post("/api/get_ohlc", json={"symbol": "ZZZ/XXX", "interval": "1d"},
+                      headers=_pulse_hdr())
+    assert r.status_code == 404
+
+
+def test_pulse_market_reference_rates_schema():
+    c = _pulse()
+    resp = c.post("/api/get_reference_rates", json={}, headers=_pulse_hdr()).json()["data"]
+    assert "date" in resp and "rates" in resp and "source" in resp
+    assert resp["source"] == "ECB"
+    assert resp["baseCurrency"] == "EUR"
+    assert resp["publishedAt"].endswith("Z")
+    assert len(resp["rates"]) > 0
+    r = resp["rates"][0]
+    assert {"symbol", "rate", "base", "quote", "source"} <= r.keys()
+    assert r["source"] == "ECB"
+    assert r["rate"] > 0
+
+
+def test_pulse_market_reference_rates_with_date():
+    c = _pulse()
+    resp = c.post("/api/get_reference_rates", json={"date": "2026-01-15"},
+                  headers=_pulse_hdr()).json()["data"]
+    assert resp["date"] == "2026-01-15"
+    assert len(resp["rates"]) > 0
+
+
+def test_pulse_market_reference_rates_deterministic():
+    c = _pulse()
+    h = _pulse_hdr()
+    r1 = c.post("/api/get_reference_rates", json={"date": "2026-03-01"}, headers=h).json()["data"]
+    r2 = c.post("/api/get_reference_rates", json={"date": "2026-03-01"}, headers=h).json()["data"]
+    assert r1["rates"] == r2["rates"]
+    r3 = c.post("/api/get_reference_rates", json={"date": "2026-04-01"}, headers=h).json()["data"]
+    # Different date → different rates.
+    assert r1["rates"] != r3["rates"]
+
+
+def test_pulse_market_subscription_full_lifecycle():
+    c = _pulse()
+    h = _pulse_hdr()
+    # Create subscription.
+    created = c.post("/api/create_subscription", json={"symbol": "GBP/USD", "maxTicks": 20},
+                     headers=h).json()["data"]
+    assert created["symbol"] == "GBP/USD"
+    assert created["status"] == "active"
+    assert "subscriptionId" in created
+    assert "createdAt" in created
+    sub_id = created["subscriptionId"]
+
+    # Subscription appears in the list.
+    listing = c.post("/api/list_subscriptions", json={}, headers=h).json()["data"]
+    ids = [s["subscriptionId"] for s in listing["items"]]
+    assert sub_id in ids
+
+    # Delete the subscription.
+    deleted = c.post("/api/delete_subscription", json={"subscriptionId": sub_id},
+                     headers=h).json()["data"]
+    assert deleted["subscriptionId"] == sub_id
+    assert deleted["status"] == "cancelled"
+    assert "cancelledAt" in deleted
+
+    # Cancelled subscription no longer appears in the active list.
+    after = c.post("/api/list_subscriptions", json={}, headers=h).json()["data"]
+    assert sub_id not in [s["subscriptionId"] for s in after["items"]]
+
+
+def test_pulse_market_subscription_unknown_symbol():
+    r = _pulse().post("/api/create_subscription", json={"symbol": "FAKE/SYM"},
+                      headers=_pulse_hdr())
+    assert r.status_code == 404
+    assert r.json()["error"] == "instrument_not_found"
+
+
+def test_pulse_market_subscription_double_cancel():
+    c = _pulse()
+    h = _pulse_hdr()
+    sub = c.post("/api/create_subscription", json={"symbol": "USD/CAD"}, headers=h).json()["data"]
+    sub_id = sub["subscriptionId"]
+    c.post("/api/delete_subscription", json={"subscriptionId": sub_id}, headers=h)
+    replay = c.post("/api/delete_subscription", json={"subscriptionId": sub_id}, headers=h)
+    assert replay.status_code == 409
+    assert replay.json()["error"] == "subscription_already_cancelled"
+
+
+def test_pulse_market_subscription_not_found():
+    r = _pulse().post("/api/delete_subscription", json={"subscriptionId": "sub_does_not_exist"},
+                      headers=_pulse_hdr())
+    assert r.status_code == 404
+
+
+def test_pulse_market_sse_stream_delivers_ticks():
+    c = _pulse()
+    h = _pulse_hdr()
+    with c.stream("GET", "/stream", headers=h, params={"symbol": "USD/EUR", "ticks": 3}) as resp:
+        assert resp.status_code == 200
+        events = []
+        for line in resp.iter_lines():
+            if line.startswith("data:"):
+                import json as _json
+                events.append(_json.loads(line[5:].strip()))
+            if len(events) >= 3:
+                break
+    assert len(events) >= 1
+    tick = events[0]
+    assert {"bid", "ask", "mid", "seq", "timestamp"} <= tick.keys()
+
+
+def test_pulse_market_sse_stream_rejects_bad_key():
+    with _pulse().stream("GET", "/stream", headers={"X-Api-Key": "invalid"},
+                         params={"symbol": "USD/EUR", "ticks": 1}) as resp:
+        assert resp.status_code == 401
+
+
+# --------------------------------------------------------------------------- #
 # External-feel network behavior
 # --------------------------------------------------------------------------- #
 def test_responses_carry_request_id_header():

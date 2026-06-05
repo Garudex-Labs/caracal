@@ -253,9 +253,11 @@ CATALOG: tuple[Provider, ...] = (
     Provider(
         id="pulse-market", brand="Pulse Market Data", category="api_key",
         protocol="sse", port=9418, industry="Market data",
-        tagline="Real-time FX and reference market data",
-        resources=("instruments", "rates", "snapshots"),
-        operations=("list_instruments", "get_snapshot", "stream_rates"),
+        tagline="Real-time FX rates, OHLC candles, reference rates, and streaming ticks",
+        resources=("instruments", "rates", "snapshots", "ohlc", "reference_rates", "subscriptions"),
+        operations=("list_instruments", "get_snapshot", "stream_rates",
+                    "get_ohlc", "get_reference_rates",
+                    "list_subscriptions", "create_subscription", "delete_subscription"),
         apikey_location="header", apikey_field="X-Api-Key",
     ),
     Provider(

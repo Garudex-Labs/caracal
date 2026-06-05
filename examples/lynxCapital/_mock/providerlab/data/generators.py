@@ -350,17 +350,89 @@ def users(seed: str, count: int) -> list[dict]:
     return out
 
 
+_FX_INSTRUMENTS: tuple[tuple, ...] = (
+    # (symbol, base, quote, description, realistic_mid, pip_size, lot_size, min_trade, liquidity_tier)
+    ("USD/EUR", "USD", "EUR", "US Dollar / Euro",            0.9241, 0.0001, 100_000, 1_000, "tier1"),
+    ("USD/GBP", "USD", "GBP", "US Dollar / British Pound",   0.7892, 0.0001, 100_000, 1_000, "tier1"),
+    ("USD/JPY", "USD", "JPY", "US Dollar / Japanese Yen",  149.62,  0.01,   100_000, 1_000, "tier1"),
+    ("USD/BRL", "USD", "BRL", "US Dollar / Brazilian Real",   4.972, 0.0001, 100_000, 5_000, "tier2"),
+    ("USD/SGD", "USD", "SGD", "US Dollar / Singapore Dollar", 1.341, 0.0001, 100_000, 1_000, "tier2"),
+    ("EUR/GBP", "EUR", "GBP", "Euro / British Pound",         0.854, 0.0001, 100_000, 1_000, "tier1"),
+    ("EUR/JPY", "EUR", "JPY", "Euro / Japanese Yen",        161.53,  0.01,   100_000, 1_000, "tier1"),
+    ("GBP/JPY", "GBP", "JPY", "British Pound / Japanese Yen", 189.1, 0.01,  100_000, 1_000, "tier2"),
+    ("USD/CAD", "USD", "CAD", "US Dollar / Canadian Dollar",  1.362, 0.0001, 100_000, 1_000, "tier1"),
+    ("EUR/CHF", "EUR", "CHF", "Euro / Swiss Franc",           0.968, 0.0001, 100_000, 1_000, "tier2"),
+    ("AUD/USD", "AUD", "USD", "Australian Dollar / US Dollar", 0.646, 0.0001, 100_000, 1_000, "tier2"),
+    ("NZD/USD", "NZD", "USD", "New Zealand Dollar / US Dollar", 0.601, 0.0001, 100_000, 1_000, "tier3"),
+    ("USD/CHF", "USD", "CHF", "US Dollar / Swiss Franc",      0.895, 0.0001, 100_000, 1_000, "tier1"),
+    ("EUR/USD", "EUR", "USD", "Euro / US Dollar",             1.082, 0.0001, 100_000, 1_000, "tier1"),
+    ("GBP/USD", "GBP", "USD", "British Pound / US Dollar",   1.267, 0.0001, 100_000, 1_000, "tier1"),
+)
+
+_FX_VENUES: dict[str, str] = {
+    "LDN": "London",
+    "NYC": "New York",
+    "SGP": "Singapore",
+    "TKY": "Tokyo",
+    "FRA": "Frankfurt",
+    "SYD": "Sydney",
+}
+
+_TRADING_SESSIONS: dict[str, tuple[str, str]] = {
+    "LDN": ("08:00", "17:00"),
+    "NYC": ("13:00", "22:00"),
+    "SGP": ("00:00", "09:00"),
+    "TKY": ("00:00", "09:00"),
+    "FRA": ("07:00", "15:30"),
+    "SYD": ("22:00", "07:00"),
+}
+
+
 def instruments(seed: str) -> list[dict]:
-    pairs = ("USD/EUR", "USD/GBP", "USD/JPY", "USD/BRL", "USD/SGD", "EUR/GBP",
-             "EUR/JPY", "GBP/JPY", "USD/CAD", "EUR/CHF")
     out = []
-    for sym in pairs:
+    for sym, base, quote, description, nominal_mid, pip_size, lot_size, min_trade, liq_tier in _FX_INSTRUMENTS:
         rng = _rng(seed, "instrument", sym)
+        # Apply a small deterministic perturbation to the nominal mid so the
+        # seeded price reflects live-ish variation without changing on every run.
+        perturbation = rng.uniform(-0.012, 0.012)
+        mid = round(nominal_mid * (1.0 + perturbation), 4 if pip_size == 0.0001 else 2)
+        spread_bps = rng.randint(2, 18)
+        venue_code = rng.choice(("LDN", "NYC", "SGP", "TKY", "FRA", "SYD"))
+        # Derive a realistic day range centered on mid.
+        day_range_pct = rng.uniform(0.003, 0.012)
+        day_open = round(mid * (1.0 + rng.uniform(-day_range_pct / 2, day_range_pct / 2)),
+                         4 if pip_size == 0.0001 else 2)
+        day_low = round(min(mid, day_open) * (1.0 - rng.uniform(0.001, day_range_pct / 2)),
+                        4 if pip_size == 0.0001 else 2)
+        day_high = round(max(mid, day_open) * (1.0 + rng.uniform(0.001, day_range_pct / 2)),
+                         4 if pip_size == 0.0001 else 2)
+        prev_close = round(mid * (1.0 + rng.uniform(-day_range_pct, day_range_pct)),
+                           4 if pip_size == 0.0001 else 2)
+        session_open, session_close = _TRADING_SESSIONS[venue_code]
         out.append({
             "symbol": sym,
-            "mid": round(rng.uniform(0.6, 160.0), 4),
-            "spreadBps": rng.randint(2, 18),
-            "venue": rng.choice(("LDN", "NYC", "SGP", "TKY")),
+            "base": base,
+            "quote": quote,
+            "description": description,
+            "type": "fx",
+            "assetClass": "FX",
+            "exchange": "OTC",
+            "venue": venue_code,
+            "venueName": _FX_VENUES[venue_code],
+            "tradingHours": f"{session_open}-{session_close} UTC",
+            "tradingDays": "Mon-Fri",
+            "liquidityTier": liq_tier,
+            "pipSize": pip_size,
+            "lotSize": lot_size,
+            "minTradeSize": min_trade,
+            "mid": mid,
+            "spreadBps": spread_bps,
+            "dayOpen": day_open,
+            "dayHigh": day_high,
+            "dayLow": day_low,
+            "prevClose": prev_close,
+            "change": round(mid - prev_close, 4 if pip_size == 0.0001 else 2),
+            "changePct": round((mid - prev_close) / prev_close * 100, 4),
         })
     return out
 
