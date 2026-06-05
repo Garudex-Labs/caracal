@@ -353,10 +353,11 @@ def _build_regional_domain_tools(run_id, runner, parent, region):
     def call_partner(provider_id: str, operation: str, payload_json: str = "{}") -> str:
         """Call an external partner provider over its real auth surface.
 
-        Use for third-party services beyond the core stack: aurum-pay/zephyr-pay (payments,
-        payouts), quill-ocr (document extraction), nimbus-ledger (journals), vela-mail (email),
-        helios-fx (fx convert), orbit-erp (vendors/bills), corvus-bank (open banking),
-        lumen-crm (contacts/deals), core-billing, core-identity, forge-mcp (tools), terra-tax.
+        Use for third-party services beyond the core flow: meridian-pay/quetzal-payouts
+        (payments, payouts), inkwell-ocr (document extraction), slate-ledger (journals),
+        vela-notify (email/SMS), cordoba-fx (fx convert), ironbark-erp/tallyhall-books
+        (vendors/bills), halcyon-bank (open banking), beacon-crm (contacts/deals),
+        core-billing, lumen-identity, atlas-vendor (vendor MDM), sabre-tax, pulse-market.
         `payload_json` is a JSON object string of operation arguments. Spawns a partner-integration worker.
         """
         try:

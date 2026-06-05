@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse
 
 router = APIRouter()
 
-_PROVIDER_HEALTH_DEFAULT = "http://127.0.0.1:8800/healthz"
+_PROVIDER_HEALTH_DEFAULT = "http://127.0.0.1:9400/healthz"
 
 
 async def _ping(url: str) -> tuple[bool, str]:

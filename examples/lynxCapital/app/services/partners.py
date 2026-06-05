@@ -58,52 +58,92 @@ class PartnerSpec:
 
 
 _SPECS: dict[str, PartnerSpec] = {
-    "aurum-pay": PartnerSpec(
-        "aurum-pay", "api_key", 9400, ("create_charge", "get_balance"),
-        apikey_location="header", apikey_field="X-Api-Key"),
-    "quill-ocr": PartnerSpec(
-        "quill-ocr", "api_key", 9401, ("extract_document", "get_job"),
-        apikey_location="query", apikey_field="api_key"),
-    "nimbus-ledger": PartnerSpec(
-        "nimbus-ledger", "bearer", 9402, ("post_entry", "get_account"),
-        auth_header="Authorization", auth_scheme="Bearer"),
-    "vela-mail": PartnerSpec(
-        "vela-mail", "bearer", 9403, ("send_message", "get_message"),
-        auth_header="X-Vela-Token", auth_scheme="Token"),
-    "helios-fx": PartnerSpec(
-        "helios-fx", "oauth_cc", 9404, ("get_quote", "convert"),
-        client_auth_method="client_secret_basic", scopes=("fx.read", "fx.convert")),
-    "orbit-erp": PartnerSpec(
-        "orbit-erp", "oauth_cc", 9405, ("get_vendor", "create_bill"),
-        client_auth_method="client_secret_post", scopes=("erp.read", "erp.write")),
-    "corvus-bank": PartnerSpec(
-        "corvus-bank", "oauth_ac", 9406, ("list_accounts", "initiate_payment"),
+    "halcyon-bank": PartnerSpec(
+        "halcyon-bank", "oauth_ac", 9400,
+        ("list_accounts", "get_account", "list_transactions",
+         "initiate_payment", "get_payment", "get_statement"),
         scopes=("accounts.read", "payments.write"), use_pkce=True),
-    "lumen-crm": PartnerSpec(
-        "lumen-crm", "oauth_ac", 9407, ("get_contact", "update_deal"),
-        scopes=("contacts.read", "deals.write"), offline_access=True),
-    "atlas-treasury": PartnerSpec(
-        "atlas-treasury", "mandate", 9408, ("get_position", "move_funds"),
-        scopes=("treasury.read", "treasury.write")),
-    "sentinel-compliance": PartnerSpec(
-        "sentinel-compliance", "mandate", 9409, ("screen_party", "get_case"),
-        scopes=("screening.run",)),
-    "core-billing": PartnerSpec(
-        "core-billing", "none", 9410, ("create_invoice", "get_invoice")),
-    "core-identity": PartnerSpec(
-        "core-identity", "none", 9411, ("get_user", "list_groups")),
-    "forge-mcp": PartnerSpec(
-        "forge-mcp", "mcp_bearer", 9412, ("search_catalog", "create_ticket"),
+    "meridian-pay": PartnerSpec(
+        "meridian-pay", "api_key", 9401,
+        ("create_charge", "get_charge", "refund_charge",
+         "create_payout", "get_balance", "list_disputes"),
+        apikey_location="header", apikey_field="X-Api-Key"),
+    "cordoba-fx": PartnerSpec(
+        "cordoba-fx", "oauth_cc", 9402,
+        ("get_quote", "convert", "create_transfer", "get_transfer"),
+        client_auth_method="client_secret_basic",
+        scopes=("fx.read", "fx.convert", "fx.transfer")),
+    "ironbark-erp": PartnerSpec(
+        "ironbark-erp", "oauth_cc", 9403,
+        ("list_vendors", "get_vendor", "create_bill", "get_bill",
+         "match_invoice", "post_journal_entry", "get_account"),
+        client_auth_method="client_secret_post", scopes=("erp.read", "erp.write")),
+    "tallyhall-books": PartnerSpec(
+        "tallyhall-books", "oauth_ac", 9404,
+        ("list_vendors", "get_vendor", "create_bill", "match_bill",
+         "create_invoice", "record_payment", "get_account"),
+        scopes=("accounting.read", "accounting.write"), offline_access=True),
+    "slate-ledger": PartnerSpec(
+        "slate-ledger", "bearer", 9405,
+        ("post_entry", "get_entry", "get_account", "reconcile_account",
+         "compute_accrual", "close_period", "get_period"),
         auth_header="Authorization", auth_scheme="Bearer"),
-    "relay-mcp": PartnerSpec(
-        "relay-mcp", "mandate", 9413, ("dispatch_job", "get_job"),
+    "inkwell-ocr": PartnerSpec(
+        "inkwell-ocr", "api_key", 9406,
+        ("submit_document", "get_extraction", "list_documents"),
+        apikey_location="query", apikey_field="api_key"),
+    "aegis-screening": PartnerSpec(
+        "aegis-screening", "mandate", 9407,
+        ("screen_party", "get_screening", "get_case", "resolve_case"),
+        scopes=("screening.run", "cases.read")),
+    "verafin-monitor": PartnerSpec(
+        "verafin-monitor", "mandate", 9408,
+        ("monitor_transaction", "get_alert", "prepare_filing",
+         "get_filing", "attest_control"),
+        scopes=("monitoring.run", "filings.write")),
+    "lumen-identity": PartnerSpec(
+        "lumen-identity", "none", 9409,
+        ("get_user", "list_users", "list_groups", "get_service_account")),
+    "beacon-crm": PartnerSpec(
+        "beacon-crm", "oauth_ac", 9410,
+        ("get_contact", "list_contacts", "update_deal", "log_activity", "get_account"),
+        scopes=("contacts.read", "deals.write"), offline_access=True),
+    "atlas-vendor": PartnerSpec(
+        "atlas-vendor", "mcp_bearer", 9411,
+        ("get_vendor_profile", "register_vendor", "get_contract_terms", "search_vendors"),
+        auth_header="Authorization", auth_scheme="Bearer"),
+    "keystone-treasury": PartnerSpec(
+        "keystone-treasury", "api_key", 9412,
+        ("get_position", "forecast_liquidity", "place_hedge", "transfer_funds"),
+        apikey_location="header", apikey_field="X-Api-Key"),
+    "sabre-tax": PartnerSpec(
+        "sabre-tax", "api_key", 9413,
+        ("calculate", "get_jurisdiction", "validate_id"),
+        apikey_location="header", apikey_field="X-Api-Key"),
+    "quetzal-payouts": PartnerSpec(
+        "quetzal-payouts", "api_key", 9414,
+        ("create_recipient", "get_quote", "create_payout", "create_batch", "get_batch"),
+        apikey_location="header", apikey_field="X-Api-Key"),
+    "vela-notify": PartnerSpec(
+        "vela-notify", "bearer", 9415,
+        ("send_message", "get_message", "list_templates"),
+        auth_header="X-Vela-Token", auth_scheme="Token"),
+    "core-billing": PartnerSpec(
+        "core-billing", "none", 9416,
+        ("create_invoice", "get_invoice", "issue_dunning", "apply_payment", "get_ar_aging")),
+    "relay-automation": PartnerSpec(
+        "relay-automation", "mandate", 9417,
+        ("list_workflows", "dispatch_job", "get_job", "cancel_job"),
         scopes=("relay.invoke",)),
-    "zephyr-pay": PartnerSpec(
-        "zephyr-pay", "api_key", 9414, ("create_payout", "get_payout"),
+    "pulse-market": PartnerSpec(
+        "pulse-market", "api_key", 9418,
+        ("list_instruments", "get_snapshot", "stream_rates"),
         apikey_location="header", apikey_field="X-Api-Key"),
-    "terra-tax": PartnerSpec(
-        "terra-tax", "api_key", 9415, ("calculate", "validate_id"),
-        apikey_location="header", apikey_field="X-Api-Key"),
+    "junction-procure": PartnerSpec(
+        "junction-procure", "oauth_cc", 9419,
+        ("create_requisition", "approve_requisition", "create_purchase_order",
+         "get_purchase_order", "get_budget"),
+        client_auth_method="client_secret_basic", scopes=("procure.read", "procure.write")),
 }
 
 
