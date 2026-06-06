@@ -2,397 +2,474 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-Lynx Capital landing page for scenario context, provider coverage, and access acceptance.
+Lynx Capital overview page with a guided onboarding wizard.
 #}
 {% extends "layout.html" %}
 {% block title %}{{ company }} - Overview{% endblock %}
 {% block content %}
 <style>
-  .landing {
-    max-width: 1180px;
-    margin: 0 auto;
-    padding: 34px 24px 52px;
-  }
-  .hero {
+  .overview {
+    min-height: calc(100vh - 44px);
     display: grid;
-    grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
-    gap: 18px;
-    align-items: stretch;
-    margin-bottom: 18px;
+    place-items: center;
+    padding: 32px 24px;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(245, 247, 250, 0.96)),
+      var(--surface);
   }
-  .panel {
+  .overview-card {
+    width: min(720px, 100%);
     background: #fff;
     border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 20px;
+    border-radius: 14px;
+    box-shadow: 0 18px 52px rgba(11, 61, 145, 0.09);
+    padding: 36px;
   }
-  .hero-copy h1 {
-    color: var(--primary);
-    font-size: 28px;
-    line-height: 1.05;
-    margin-bottom: 8px;
-  }
-  .tagline {
-    color: #4b5567;
-    font-size: 14px;
-    line-height: 1.6;
-    max-width: 76ch;
-    margin-bottom: 18px;
-  }
-  .scenario-text {
-    color: #4b5567;
-    line-height: 1.58;
-    font-size: 13px;
-  }
-  .section-title {
-    color: var(--primary);
-    font-size: 12px;
+  .eyebrow {
+    color: var(--accent);
+    font-size: 11px;
     font-weight: 800;
-    letter-spacing: 0.08em;
+    letter-spacing: 0.12em;
     margin-bottom: 12px;
     text-transform: uppercase;
   }
-  .stats {
+  .overview h1 {
+    color: var(--primary);
+    font-size: 34px;
+    line-height: 1.05;
+    margin-bottom: 12px;
+  }
+  .lede {
+    color: #445066;
+    font-size: 15px;
+    line-height: 1.7;
+    max-width: 58ch;
+    margin-bottom: 22px;
+  }
+  .summary-points {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 10px;
-    margin: 18px 0;
+    margin-bottom: 24px;
   }
-  .stat {
+  .summary-point {
     border: 1px solid #e1e7f0;
-    border-radius: 6px;
+    border-radius: 10px;
+    background: #f8fafc;
     padding: 12px;
-    background: var(--surface);
   }
-  .stat .val {
-    color: var(--accent);
-    font-size: 24px;
-    font-weight: 800;
-    line-height: 1;
+  .summary-point strong {
+    display: block;
+    color: var(--text);
+    font-size: 12px;
+    margin-bottom: 4px;
   }
-  .stat .lbl {
+  .summary-point span {
     color: #5a6478;
-    font-size: 11px;
-    margin-top: 6px;
+    font-size: 11.5px;
+    line-height: 1.45;
   }
-  .detail-grid {
+  .primary-cta {
+    background: var(--accent);
+    border: 0;
+    border-radius: 8px;
+    color: #fff;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 750;
+    padding: 12px 20px;
+  }
+  .primary-cta:hover {
+    background: #174bb8;
+  }
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(10, 20, 38, 0.48);
+    display: none;
+    place-items: center;
+    padding: 24px;
+    z-index: 20;
+  }
+  .modal-backdrop.open {
+    display: grid;
+  }
+  .wizard-card {
+    width: min(760px, calc(100vw - 48px));
+    height: 560px;
+    background: #fff;
+    border: 1px solid rgba(208, 215, 227, 0.95);
+    border-radius: 16px;
+    box-shadow: 0 28px 80px rgba(10, 20, 38, 0.24);
+    display: grid;
+    grid-template-rows: 74px 1fr 76px;
+    overflow: hidden;
+  }
+  .wizard-head {
+    border-bottom: 1px solid #e7edf5;
+    padding: 18px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+  }
+  .wizard-head h2 {
+    color: var(--primary);
+    font-size: 16px;
+    margin-bottom: 4px;
+  }
+  .wizard-head p {
+    color: #647086;
+    font-size: 12px;
+  }
+  .step-indicator {
+    color: #647086;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .wizard-body {
+    height: 410px;
+    padding: 24px;
+    overflow: hidden;
+  }
+  .wizard-page {
+    height: 362px;
+    display: none;
+  }
+  .wizard-page.active {
+    display: grid;
+    align-content: start;
+  }
+  .wizard-page h3 {
+    color: var(--text);
+    font-size: 20px;
+    margin-bottom: 10px;
+  }
+  .wizard-page p {
+    color: #4b5567;
+    font-size: 13px;
+    line-height: 1.65;
+    margin-bottom: 14px;
+  }
+  .capability-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 14px;
-    margin-top: 18px;
+    gap: 10px;
+    margin-top: 8px;
   }
-  .wide-grid {
+  .capability-card,
+  .notice-card {
+    border: 1px solid #e1e7f0;
+    border-radius: 10px;
+    background: #f8fafc;
+    padding: 12px;
+  }
+  .capability-card strong,
+  .notice-card strong {
+    color: var(--primary);
+    display: block;
+    font-size: 12px;
+    margin-bottom: 5px;
+  }
+  .capability-card span,
+  .notice-card span {
+    color: #5a6478;
+    display: block;
+    font-size: 11.5px;
+    line-height: 1.45;
+  }
+  .flow {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    gap: 14px;
-    margin-top: 14px;
+    grid-template-columns: 1fr 22px 1fr 22px 1fr 22px 1fr;
+    align-items: center;
+    margin: 18px 0;
   }
-  .mini-list {
+  .flow-box {
+    min-height: 76px;
+    border: 1px solid #dbe4f0;
+    border-radius: 12px;
+    background: #f8fbff;
+    padding: 12px;
+  }
+  .flow-box strong {
+    color: var(--primary);
+    display: block;
+    font-size: 12px;
+    margin-bottom: 6px;
+  }
+  .flow-box span {
+    color: #5a6478;
+    display: block;
+    font-size: 11px;
+    line-height: 1.4;
+  }
+  .flow-arrow {
+    color: #8a9bae;
+    font-weight: 800;
+    text-align: center;
+  }
+  .architecture-note {
+    color: #4b5567;
+    font-size: 12px;
+    line-height: 1.6;
+  }
+  .notice-grid {
     display: grid;
-    gap: 7px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+    margin: 8px 0 14px;
   }
-  .mini-row {
+  .ack-row {
+    border: 1px solid #ead6a8;
+    border-radius: 10px;
+    background: #fff9ec;
+    color: #4b5567;
+    display: flex;
+    gap: 10px;
+    font-size: 12px;
+    line-height: 1.5;
+    padding: 12px;
+  }
+  .ack-row input {
+    margin-top: 2px;
+  }
+  .wizard-foot {
+    border-top: 1px solid #e7edf5;
+    padding: 16px 24px;
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 12px;
-    border-bottom: 1px solid #edf1f6;
-    padding-bottom: 7px;
-    font-size: 12px;
   }
-  .mini-row:last-child {
-    border-bottom: 0;
-    padding-bottom: 0;
-  }
-  .mini-row strong {
-    color: var(--text);
-    font-weight: 700;
-  }
-  .mini-row span {
-    color: #5a6478;
-    text-align: right;
-  }
-  .chips {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-  }
-  .chip {
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    background: var(--surface);
-    color: var(--text);
-    font-size: 11px;
-    padding: 4px 9px;
-  }
-  .chip strong {
-    color: var(--primary);
-  }
-  .provider-grid {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 10px;
-    margin-top: 10px;
-  }
-  .provider-card {
-    border: 1px solid #e1e7f0;
-    border-radius: 6px;
-    padding: 10px;
-    background: #fff;
-    min-height: 92px;
-  }
-  .provider-card h3 {
-    color: var(--text);
-    font-size: 12px;
-    margin-bottom: 5px;
-  }
-  .provider-card p {
-    color: #5a6478;
-    font-size: 11px;
-    line-height: 1.45;
-  }
-  .workflow-grid {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 10px;
-  }
-  .workflow-card {
-    border: 1px solid #e1e7f0;
-    border-radius: 6px;
-    padding: 12px;
-    background: #fff;
-  }
-  .workflow-card h3 {
-    color: var(--primary);
-    font-size: 12px;
-    margin-bottom: 6px;
-  }
-  .workflow-card p {
-    color: #4b5567;
-    font-size: 11.5px;
-    line-height: 1.5;
-    margin-bottom: 8px;
-  }
-  .stage-line {
-    color: #5a6478;
-    font-size: 10.5px;
-    line-height: 1.45;
-  }
-  .terms {
-    border-left: 4px solid var(--warning);
-  }
-  .terms p {
-    color: #4b5567;
-    font-size: 12px;
-    line-height: 1.55;
-    margin-bottom: 12px;
-  }
-  .terms label {
-    display: flex;
-    align-items: flex-start;
-    gap: 9px;
-    color: var(--text);
-    cursor: pointer;
-    font-size: 12px;
-    line-height: 1.45;
-  }
-  .terms input {
-    margin-top: 1px;
-  }
-  .continue-row {
+  .wizard-actions {
     display: flex;
     align-items: center;
-    gap: 12px;
-    margin-top: 16px;
-    flex-wrap: wrap;
+    gap: 8px;
   }
-  .continue-btn {
-    background: var(--accent);
-    color: #fff;
-    border: 0;
-    border-radius: 5px;
+  .secondary-btn,
+  .ghost-btn,
+  .next-btn {
+    border-radius: 7px;
     cursor: pointer;
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 700;
-    padding: 10px 22px;
+    padding: 9px 14px;
   }
-  .continue-btn:disabled {
+  .ghost-btn {
+    background: transparent;
+    border: 1px solid transparent;
+    color: #5a6478;
+  }
+  .secondary-btn {
+    background: #fff;
+    border: 1px solid var(--border);
+    color: var(--text);
+  }
+  .next-btn {
+    background: var(--primary);
+    border: 1px solid var(--primary);
+    color: #fff;
+  }
+  .next-btn:disabled,
+  .secondary-btn:disabled {
     cursor: not-allowed;
     opacity: 0.38;
   }
-  .guard-note {
-    color: #5a6478;
-    font-size: 11px;
-  }
-  .routes {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 8px;
-    margin-top: 12px;
-  }
-  .route-card {
-    border: 1px dashed var(--border);
-    border-radius: 6px;
-    color: #5a6478;
-    padding: 10px;
-    font-size: 11px;
-  }
-  .route-card strong {
-    color: var(--primary);
-    display: block;
-    margin-bottom: 4px;
-  }
-  @media (max-width: 980px) {
-    .hero, .wide-grid { grid-template-columns: 1fr; }
-    .provider-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .workflow-grid, .routes { grid-template-columns: 1fr; }
-  }
-  @media (max-width: 680px) {
-    .stats, .detail-grid, .provider-grid { grid-template-columns: 1fr; }
+  @media (max-width: 760px) {
+    .overview-card { padding: 26px; }
+    .summary-points, .capability-grid, .notice-grid { grid-template-columns: 1fr; }
+    .wizard-card { height: 620px; }
+    .wizard-body { height: 470px; overflow-y: auto; }
+    .wizard-page { height: auto; min-height: 410px; }
+    .flow { grid-template-columns: 1fr; gap: 8px; }
+    .flow-arrow { transform: rotate(90deg); }
   }
 </style>
 
-<div class="landing">
-  <section class="hero">
-    <div class="panel hero-copy">
-      <div class="section-title">Production-style finance AI lab</div>
-      <h1>{{ company }}</h1>
-      <p class="tagline">{{ content.tagline }} This workspace models a multi-region finance operations company with provider-backed workflows, real network boundaries, human approval gates, durable memory, and live runtime observability.</p>
-      <p class="scenario-text">{{ scenario.description }}</p>
+<section class="overview">
+  <div class="overview-card">
+    <div class="eyebrow">Lynx Capital demo workspace</div>
+    <h1>Finance operations, coordinated by agents.</h1>
+    <p class="lede">{{ company }} demonstrates how a modern finance team can review, route, and execute operational workflows across payments, treasury, compliance, procurement, and close activities.</p>
+    <div class="summary-points">
+      <div class="summary-point">
+        <strong>Enterprise finance flows</strong>
+        <span>Run realistic payout, receivables, compliance, treasury, close, and procurement tasks.</span>
+      </div>
+      <div class="summary-point">
+        <strong>Connected providers</strong>
+        <span>See how provider-backed tools support real operational decisions.</span>
+      </div>
+      <div class="summary-point">
+        <strong>Guided setup</strong>
+        <span>Review the demo expectations before configuring and starting a run.</span>
+      </div>
+    </div>
+    <button class="primary-cta" id="open-wizard">
+      {% if accepted %}Continue Setup{% else %}Get Started{% endif %}
+    </button>
+  </div>
+</section>
 
-      <div class="stats">
-        <div class="stat">
-          <div class="val">{{ "{:,}".format(scenario.invoices) }}</div>
-          <div class="lbl">Invoices in weekly payout scenario</div>
+<div class="modal-backdrop" id="wizard" role="dialog" aria-modal="true" aria-labelledby="wizard-title" aria-hidden="true">
+  <div class="wizard-card">
+    <header class="wizard-head">
+      <div>
+        <h2 id="wizard-title">Before you configure Lynx Capital</h2>
+        <p id="wizard-subtitle">A short orientation for first-time users.</p>
+      </div>
+      <span class="step-indicator" id="step-indicator">Step 1 of 3</span>
+    </header>
+
+    <div class="wizard-body">
+      <section class="wizard-page active" data-title="About Lynx Capital" data-subtitle="What the product is for.">
+        <h3>About Lynx Capital</h3>
+        <p>Lynx Capital is a finance operations demo for teams that need to coordinate work across regions, systems, and approval boundaries. It is designed to show how an enterprise assistant can help with operational tasks while keeping execution visible.</p>
+        <div class="capability-grid">
+          <div class="capability-card">
+            <strong>Problems it addresses</strong>
+            <span>Manual routing, fragmented provider access, inconsistent audit trails, and slow cross-functional finance workflows.</span>
+          </div>
+          <div class="capability-card">
+            <strong>Key capabilities</strong>
+            <span>Multi-agent planning, provider-backed tools, human approvals, live logs, memory, and topology visibility.</span>
+          </div>
+          <div class="capability-card">
+            <strong>Intended users</strong>
+            <span>Finance operators, platform teams, risk reviewers, and product teams evaluating agent-enabled workflows.</span>
+          </div>
+          <div class="capability-card">
+            <strong>What you will do</strong>
+            <span>Configure the local environment, validate provider access, then run guided finance scenarios from the demo console.</span>
+          </div>
         </div>
-        <div class="stat">
-          <div class="val">${{ "%.1fM" | format(scenario.totalUsd / 1000000) }}</div>
-          <div class="lbl">USD-equivalent payment value</div>
+      </section>
+
+      <section class="wizard-page" data-title="Architecture & Providers" data-subtitle="How requests move through the system.">
+        <h3>Architecture & Providers</h3>
+        <p>Requests begin in the Lynx workspace, move through an orchestration layer, and use provider tools only when a task requires external or internal business data.</p>
+        <div class="flow" aria-label="High-level request flow">
+          <div class="flow-box">
+            <strong>User request</strong>
+            <span>A finance operator asks for a workflow or investigation.</span>
+          </div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-box">
+            <strong>Agent plan</strong>
+            <span>The runtime selects regions, workflows, tools, and approval points.</span>
+          </div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-box">
+            <strong>Providers</strong>
+            <span>{{ overview.provider_count }} integrations cover banking, payments, ERP, tax, risk, treasury, CRM, procurement, and market data.</span>
+          </div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-box">
+            <strong>Result & audit</strong>
+            <span>Events stream into the console for inspection, recovery, and review.</span>
+          </div>
         </div>
-        <div class="stat">
-          <div class="val">{{ overview.region_count }}</div>
-          <div class="lbl">Operating regions</div>
+        <p class="architecture-note">The provider layer is intentionally diverse: REST, MCP, SDK-style, SSE, and gRPC-style surfaces are represented, but the setup flow only asks you for the configuration needed to run the local demo.</p>
+      </section>
+
+      <section class="wizard-page" data-title="Demo Environment Notice" data-subtitle="What is real, simulated, and expected.">
+        <h3>Demo Environment Notice</h3>
+        <p>This environment exists to demonstrate Lynx Capital workflows and Caracal integration capabilities without touching real financial systems.</p>
+        <div class="notice-grid">
+          <div class="notice-card">
+            <strong>Real</strong>
+            <span>Application routing, agent orchestration, provider HTTP calls, event streaming, logs, setup checks, and UI state.</span>
+          </div>
+          <div class="notice-card">
+            <strong>Simulated</strong>
+            <span>Provider accounts, credentials, invoices, payments, sanctions results, tax outputs, market data, and audit records.</span>
+          </div>
+          <div class="notice-card">
+            <strong>Limitations</strong>
+            <span>No real money moves, no production compliance decision is made, and generated outputs require human judgment.</span>
+          </div>
         </div>
-        <div class="stat">
-          <div class="val">~{{ "{:,}".format(scenario.peakAgents) }}</div>
-          <div class="lbl">Peak worker agents</div>
-        </div>
-      </div>
-
-      <div class="chips">
-        <span class="chip"><strong>{{ overview.provider_count }}</strong> providers</span>
-        <span class="chip"><strong>{{ overview.workflow_count }}</strong> workflows</span>
-        <span class="chip"><strong>{{ overview.agent_layer_count }}</strong> agent layers</span>
-        <span class="chip"><strong>{{ overview.persistent_agents }}</strong> standing agents</span>
-        <span class="chip"><strong>{{ overview.ephemeral_agents }}</strong> ephemeral per-cycle workers</span>
-      </div>
+        <label class="ack-row">
+          <input type="checkbox" id="wizard-ack">
+          <span>I understand that this is a demonstration environment and have reviewed the information above.</span>
+        </label>
+      </section>
     </div>
 
-    <div class="panel terms">
-      <div class="section-title">Access gate</div>
-      <p>{{ content.disclaimer }}</p>
-      <p>Accepting the terms unlocks Setup. Demo, Prompts, and Logs remain blocked until setup validation is completed from the Setup page.</p>
-      <label>
-        <input type="checkbox" id="ack" {% if accepted %}checked{% endif %}>
-        <span>I understand this is a local simulation environment using provider fixtures, generated credentials, and AI-driven operational workflows. I will not treat outputs as real payment, tax, legal, or compliance decisions.</span>
-      </label>
-      <div class="continue-row">
-        <button class="continue-btn" id="continue-btn" {% if not accepted %}disabled{% endif %}>Continue to setup</button>
+    <footer class="wizard-foot">
+      <button class="ghost-btn" id="close-wizard" type="button">Close</button>
+      <div class="wizard-actions">
+        <button class="secondary-btn" id="prev-step" type="button">Previous</button>
+        <button class="next-btn" id="next-step" type="button">Next</button>
+        <button class="next-btn" id="proceed-setup" type="button" disabled hidden>Proceed to Setup</button>
       </div>
-    </div>
-  </section>
-
-  <section class="wide-grid">
-    <div class="panel">
-      <div class="section-title">Regions and operating currencies</div>
-      <div class="mini-list">
-        {% for region in regions %}
-        <div class="mini-row">
-          <strong>{{ region.id }} · {{ region.name }}</strong>
-          <span>{{ region.currency }}</span>
-        </div>
-        {% endfor %}
-      </div>
-    </div>
-
-    <div class="panel">
-      <div class="section-title">Agent architecture</div>
-      <div class="mini-list">
-        {% for layer in agentLayers %}
-        <div class="mini-row">
-          <strong>{{ layer.label }}</strong>
-          <span>{% if layer.ephemeral %}ephemeral{% else %}standing{% endif %}; {{ layer.perRegion }} per region</span>
-        </div>
-        {% endfor %}
-      </div>
-    </div>
-  </section>
-
-  <section class="detail-grid">
-    <div class="panel">
-      <div class="section-title">Authentication coverage</div>
-      <div class="chips">
-        {% for item in overview.auth_methods %}
-        <span class="chip"><strong>{{ item.count }}</strong> {{ item.name.replace("_", " ") }}</span>
-        {% endfor %}
-      </div>
-    </div>
-
-    <div class="panel">
-      <div class="section-title">Protocol coverage</div>
-      <div class="chips">
-        {% for item in overview.protocols %}
-        <span class="chip"><strong>{{ item.count }}</strong> {{ item.name.upper() }}</span>
-        {% endfor %}
-      </div>
-    </div>
-  </section>
-
-  <section class="panel" style="margin-top:14px">
-    <div class="section-title">Provider ecosystem</div>
-    <div class="chips">
-      {% for item in overview.categories %}
-      <span class="chip"><strong>{{ item.count }}</strong> {{ item.name.replace("_", " ") }}</span>
-      {% endfor %}
-    </div>
-    <div class="provider-grid">
-      {% for provider in providers %}
-      <div class="provider-card">
-        <h3>{{ provider.name }}</h3>
-        <p>{{ provider.industry }} · {{ provider.protocol.upper() }}</p>
-        <p>{{ provider.authType.replace("_", " ") }} · {{ provider.category.replace("_", " ") }}</p>
-      </div>
-      {% endfor %}
-    </div>
-  </section>
-
-  <section class="panel" style="margin-top:14px">
-    <div class="section-title">Workflow coverage</div>
-    <div class="workflow-grid">
-      {% for workflow in workflows %}
-      <div class="workflow-card">
-        <h3>{{ workflow.label }}</h3>
-        <p>{{ workflow.focus }}</p>
-        <div class="stage-line">
-          {% for stage in workflow.stages %}
-          {{ stage.label }}{% if not loop.last %} → {% endif %}
-          {% endfor %}
-        </div>
-      </div>
-      {% endfor %}
-    </div>
-  </section>
+    </footer>
+  </div>
 </div>
 
 <script>
-  const ack = document.getElementById('ack');
-  const btn = document.getElementById('continue-btn');
-  ack.addEventListener('change', () => { btn.disabled = !ack.checked; });
-  btn.addEventListener('click', async () => {
+  const wizard = document.getElementById('wizard');
+  const openWizard = document.getElementById('open-wizard');
+  const closeWizard = document.getElementById('close-wizard');
+  const prevStep = document.getElementById('prev-step');
+  const nextStep = document.getElementById('next-step');
+  const proceedSetup = document.getElementById('proceed-setup');
+  const stepIndicator = document.getElementById('step-indicator');
+  const wizardTitle = document.getElementById('wizard-title');
+  const wizardSubtitle = document.getElementById('wizard-subtitle');
+  const ack = document.getElementById('wizard-ack');
+  const pages = Array.from(document.querySelectorAll('.wizard-page'));
+  const accepted = {{ "true" if accepted else "false" }};
+  let step = 0;
+
+  function showStep(index) {
+    step = Math.max(0, Math.min(index, pages.length - 1));
+    pages.forEach((page, i) => page.classList.toggle('active', i === step));
+    const page = pages[step];
+    wizardTitle.textContent = page.dataset.title;
+    wizardSubtitle.textContent = page.dataset.subtitle;
+    stepIndicator.textContent = `Step ${step + 1} of ${pages.length}`;
+    prevStep.disabled = step === 0;
+    nextStep.hidden = step === pages.length - 1;
+    proceedSetup.hidden = step !== pages.length - 1;
+    proceedSetup.disabled = !ack.checked;
+  }
+
+  function openModal() {
+    if (accepted) {
+      window.location = '/setup';
+      return;
+    }
+    wizard.classList.add('open');
+    wizard.setAttribute('aria-hidden', 'false');
+    showStep(0);
+  }
+
+  function closeModal() {
+    wizard.classList.remove('open');
+    wizard.setAttribute('aria-hidden', 'true');
+  }
+
+  openWizard.addEventListener('click', openModal);
+  closeWizard.addEventListener('click', closeModal);
+  prevStep.addEventListener('click', () => showStep(step - 1));
+  nextStep.addEventListener('click', () => showStep(step + 1));
+  ack.addEventListener('change', () => { proceedSetup.disabled = !ack.checked; });
+  proceedSetup.addEventListener('click', async () => {
     if (!ack.checked) return;
-    btn.disabled = true;
+    proceedSetup.disabled = true;
     await fetch('/api/session/accept', {method: 'POST'});
     window.location = '/setup';
   });
+  wizard.addEventListener('click', event => {
+    if (event.target === wizard) closeModal();
+  });
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && wizard.classList.contains('open')) closeModal();
+  });
+  showStep(0);
 </script>
 {% endblock %}
