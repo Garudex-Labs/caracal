@@ -406,7 +406,8 @@ def _build_regional_domain_tools(run_id, runner, parent, region):
         Use for third-party services beyond the core flow: meridian-pay/quetzal-payouts/halcyon-bank
         (payments, payouts, open banking), inkwell-ocr (document extraction), slate-ledger (journals),
         vela-notify (email/SMS), cordoba-fx (fx quotes/conversions/settlement payments), ironbark-erp/tallyhall-books (vendors/bills),
-        beacon-crm (CRM accounts/contacts/deal pipeline/activities), core-billing, lumen-identity (directory), atlas-vendor (vendor MDM),
+        beacon-crm (CRM accounts/contacts/deal pipeline/activities), core-billing, lumen-identity (directory),
+        atlas-vendor (vendor MDM/onboarding/verification/compliance/contracts over MCP),
         sabre-tax, pulse-market (market data), junction-procure (requisitions/POs/budgets).
         relay-automation, aegis-screening, and verafin-monitor require a Caracal mandate and are
         gated until the Caracal SDK phase (calls return status 'pending_caracal_integration').
@@ -621,6 +622,34 @@ def _build_workflow_domain_tools(run_id, runner, parent, workflow_id):
         w = _worker("vendor-lifecycle", f"contract:{vendor_id}")
         try:
             return json.dumps(tool_fns.get_contract_terms(run_id, w.id, vendor_id))
+        finally:
+            _finish(w, {"vendor_id": vendor_id})
+
+    @tool
+    def get_vendor_onboarding_status(vendor_id: str) -> str:
+        """Return the onboarding case and checklist progress for a vendor."""
+        w = _worker("vendor-lifecycle", f"onboarding:{vendor_id}")
+        try:
+            return json.dumps(tool_fns.get_vendor_onboarding_status(run_id, w.id, vendor_id))
+        finally:
+            _finish(w, {"vendor_id": vendor_id})
+
+    @tool
+    def advance_vendor_onboarding(vendor_id: str, step: str, outcome: str = "pass") -> str:
+        """Advance one onboarding checklist step (profile, tax, kyb, banking, documents,
+        approval) for a vendor; the vendor activates once every step clears."""
+        w = _worker("vendor-lifecycle", f"onboard-step:{vendor_id}:{step}")
+        try:
+            return json.dumps(tool_fns.advance_vendor_onboarding(run_id, w.id, vendor_id, step, outcome))
+        finally:
+            _finish(w, {"vendor_id": vendor_id})
+
+    @tool
+    def verify_vendor_banking(vendor_id: str, account_number: str = "") -> str:
+        """Run micro-deposit bank verification for a vendor before enabling payments."""
+        w = _worker("vendor-lifecycle", f"banking:{vendor_id}")
+        try:
+            return json.dumps(tool_fns.verify_vendor_banking(run_id, w.id, vendor_id, account_number))
         finally:
             _finish(w, {"vendor_id": vendor_id})
 
@@ -973,6 +1002,7 @@ def _build_workflow_domain_tools(run_id, runner, parent, workflow_id):
 
     return [
         kyb_screen_vendor, register_vendor, refresh_vendor_compliance, get_contract_terms_for_vendor,
+        get_vendor_onboarding_status, advance_vendor_onboarding, verify_vendor_banking,
         get_cash_position, forecast_liquidity, place_fx_hedge, transfer_funds,
         post_journal_entry, list_ledger_accounts, reconcile_account, compute_accrual,
         get_trial_balance, close_period,

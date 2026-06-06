@@ -584,8 +584,72 @@ def test_mcp_tool_call_runs_domain():
     token = seed("atlas-vendor")["bearerToken"]
     r = _mcp_call(c, "tools/call", {"Authorization": f"Bearer {token}"},
                   {"name": "search_vendors", "arguments": {"query": "a"}})
-    data = r.json()["result"]["content"][0]["data"]
-    assert "items" in data
+    result = r.json()["result"]
+    assert result["isError"] is False
+    assert "items" in result["structuredContent"]
+    assert result["content"][0]["type"] == "text"
+
+
+def test_mcp_initialize_advertises_capabilities():
+    c = client("atlas-vendor")
+    token = seed("atlas-vendor")["bearerToken"]
+    result = _mcp_call(c, "initialize", {"Authorization": f"Bearer {token}"}).json()["result"]
+    assert result["protocolVersion"] == "2025-06-18"
+    assert result["serverInfo"]["title"] == "Atlas Vendor Network"
+    assert "tools" in result["capabilities"] and "resources" in result["capabilities"]
+    assert "instructions" in result
+
+
+def test_mcp_tools_list_carries_schemas():
+    c = client("atlas-vendor")
+    token = seed("atlas-vendor")["bearerToken"]
+    tools = _mcp_call(c, "tools/list", {"Authorization": f"Bearer {token}"}).json()["result"]["tools"]
+    by_name = {t["name"]: t for t in tools}
+    register = by_name["register_vendor"]
+    assert register["inputSchema"]["required"] == ["country"]
+    assert by_name["get_vendor_profile"]["annotations"]["readOnlyHint"] is True
+    assert by_name["set_vendor_status"]["annotations"]["destructiveHint"] is True
+
+
+def test_mcp_resources_discoverable():
+    c = client("atlas-vendor")
+    token = seed("atlas-vendor")["bearerToken"]
+    headers = {"Authorization": f"Bearer {token}"}
+    resources = _mcp_call(c, "resources/list", headers).json()["result"]["resources"]
+    uris = {r["uri"] for r in resources}
+    assert "atlas://onboarding/queue" in uris
+    read = _mcp_call(c, "resources/read", headers,
+                     {"uri": "atlas://vendors/directory"}).json()["result"]
+    assert read["contents"][0]["uri"] == "atlas://vendors/directory"
+
+
+def test_mcp_tool_error_is_structured():
+    c = client("atlas-vendor")
+    token = seed("atlas-vendor")["bearerToken"]
+    r = _mcp_call(c, "tools/call", {"Authorization": f"Bearer {token}"},
+                  {"name": "get_vendor_profile", "arguments": {"vendorId": "VEND-99999"}})
+    result = r.json()["result"]
+    assert result["isError"] is True
+    assert "vendor_not_found" in result["content"][0]["text"]
+
+
+def test_mcp_onboarding_lifecycle():
+    c = client("atlas-vendor")
+    token = seed("atlas-vendor")["bearerToken"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    def call(name, args):
+        return _mcp_call(c, "tools/call", headers,
+                         {"name": name, "arguments": args}).json()["result"]["structuredContent"]
+
+    created = call("register_vendor", {"legalName": "Northwind Robotics", "country": "US"})
+    vid = created["id"]
+    assert created["status"] == "pending_review"
+    for step in ("tax", "kyb", "banking", "documents", "approval"):
+        progress = call("advance_onboarding", {"vendorId": vid, "step": step})
+    assert progress["onboarding"]["status"] == "completed"
+    profile = call("get_vendor_profile", {"vendorId": vid})
+    assert profile["status"] == "active"
 
 
 def test_mcp_mandate_guarded():
