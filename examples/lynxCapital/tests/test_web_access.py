@@ -74,3 +74,24 @@ def test_demo_prompts_and_logs_require_setup_after_acceptance():
             response = client.get(path, follow_redirects=False)
             assert response.status_code == 303
             assert response.headers["location"] == "/setup"
+
+
+def test_demo_workspace_is_end_user_focused():
+    with TestClient(app) as client:
+        client.cookies.set("lynx_accepted", "1")
+        client.cookies.set("lynx_setup", "1")
+        response = client.get("/demo")
+    assert response.status_code == 200
+    body = response.text
+    assert "What would you like the team to handle?" in body
+    assert "welcome-task" in body
+    assert "Run the Vendor Lifecycle workflow" in body
+    assert "Agent workload" in body
+    assert "Plan of work" in body
+    assert "Live activity" in body
+    assert "Workflow map" in body
+    assert "Activity history" in body
+    assert "Orchestration graph" not in body
+    assert "Memory pressure" not in body
+    assert "Runtime counters" not in body
+    assert "Execution timeline" not in body

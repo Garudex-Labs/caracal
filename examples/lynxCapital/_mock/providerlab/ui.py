@@ -10,6 +10,7 @@ import html
 import time
 
 from _mock.providerlab import catalog, credentials
+from _mock.providerlab.providers import base
 
 _CATEGORY_LABEL = {
     "api_key": "API key",
