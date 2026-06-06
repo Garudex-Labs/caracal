@@ -4503,7 +4503,15 @@ def _cb_invoice(seed: str, idx: int, customer: dict, inv_no: int) -> dict:
     rng = _rng(seed, "invoice", idx)
     terms = customer["paymentTerms"]
     term_days = _cb_term_days(terms)
-    issue_offset = rng.randint(-150, -2)
+    # Bias issue dates toward recent billing with a thinning overdue tail, the
+    # way a healthy receivables book sits mostly current with fewer aged items.
+    skew = rng.random()
+    if skew < 0.55:
+        issue_offset = -rng.randint(2, 40)
+    elif skew < 0.85:
+        issue_offset = -rng.randint(40, 80)
+    else:
+        issue_offset = -rng.randint(80, 150)
     issue_date = _CB_AS_OF + timedelta(days=issue_offset)
     due_date = issue_date + timedelta(days=term_days)
     days_past_due = max(0, (_CB_AS_OF - due_date).days)

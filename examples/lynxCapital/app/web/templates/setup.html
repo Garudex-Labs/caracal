@@ -50,6 +50,8 @@ Lynx Capital guided setup page for Caracal configuration, providers, and launch.
   .automation-path article:first-child { border-top: 0; padding-top: 0; }
   .automation-path h3 { color: #111827; font-size: 13px; font-weight: 780; margin: 0 0 5px; }
   .automation-path p { color: #647187; font-size: 12.5px; line-height: 1.5; margin: 0; }
+  .automation-path b { color: #7c3aed; font-weight: 850; }
+  .automation-path code { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; color: #047857; font-family: "Fira Code", ui-monospace, monospace; font-size: 11px; padding: 2px 6px; }
   .automation-detail { border-top: 1px solid #e8edf4; color: #566276; font-size: 12px; padding-top: 12px; }
   .automation-detail summary { cursor: pointer; font-weight: 800; margin-bottom: 9px; }
   .scope-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
@@ -63,7 +65,12 @@ Lynx Capital guided setup page for Caracal configuration, providers, and launch.
   .config-step { border-top: 2px solid #d9e2ee; padding-top: 12px; }
   .config-step span.num { color: var(--accent); display: block; font-size: 10px; font-weight: 850; letter-spacing: .14em; margin-bottom: 8px; text-transform: uppercase; }
   .config-step h3 { color: #111827; font-size: 15px; font-weight: 780; margin: 0 0 6px; }
-  .config-step .console-do { color: #44506a; font-size: 12.5px; line-height: 1.5; margin: 0 0 10px; }
+  .config-step .console-path { color: #44506a; font-size: 12.5px; font-weight: 760; line-height: 1.5; margin: 0 0 10px; }
+  .field-list { background: #fbfcfe; border: 1px solid #e2e8f0; border-radius: 10px; display: grid; margin: 0 0 11px; overflow: hidden; }
+  .field-row { align-items: center; display: grid; gap: 10px; grid-template-columns: 138px minmax(0, 1fr); padding: 8px 10px; }
+  .field-row + .field-row { border-top: 1px solid #edf2f7; }
+  .field-name { color: #7c3aed; font-size: 11px; font-weight: 850; letter-spacing: .05em; text-transform: uppercase; }
+  .field-value { color: #047857; font-family: "Fira Code", ui-monospace, monospace; font-size: 11.5px; font-weight: 760; overflow-wrap: anywhere; }
   .config-step .why { color: #8a93a3; font-size: 11.5px; line-height: 1.4; margin: 0 0 12px; }
   .config-step pre { background: #f7f9fc; border: 1px solid #dce4ef; border-radius: 9px; color: #172033; font-family: "Fira Code", ui-monospace, monospace; font-size: 11px; line-height: 1.5; margin: 0; overflow-x: auto; padding: 9px 10px; }
   .env-note { color: #66748a; font-size: 11px; line-height: 1.45; margin-top: 18px; }
@@ -141,20 +148,27 @@ Lynx Capital guided setup page for Caracal configuration, providers, and launch.
     <div class="section-head">
       <span class="kicker">Section 1</span>
       <h2 id="caracal-heading">Caracal configuration</h2>
-      <p>Prefer to set things up by hand? Fill the Caracal Console fields shown below, then put the resulting identifiers into your environment.</p>
+      <p>Prefer a hands-on setup? Complete the fields below in the Caracal Console</p>
     </div>
     <div class="config-flow">
       {% for step in setup_caracal_steps %}
       <article class="config-step">
         <span class="num">Step {{ step.step }}</span>
         <h3>{{ step.title }}</h3>
-        <p class="console-do"><b>In the console:</b> {{ step.console }}</p>
+        <p class="console-path">{{ step.path }}</p>
+        <dl class="field-list">
+          {% for field in step.consoleFields %}
+          <div class="field-row">
+            <dt class="field-name">{{ field.label }}</dt>
+            <dd class="field-value">{{ field.value }}</dd>
+          </div>
+          {% endfor %}
+        </dl>
         <p class="why">{{ step.why }}</p>
         <pre><code>{{ step.field }}={{ step.value }}</code></pre>
       </article>
       {% endfor %}
     </div>
-    <p class="env-note">Use the application secret from the console for STS exchange, or set <code>CARACAL_SUBJECT_TOKEN</code> for local bring-up. Map providers to resources in the Providers step.</p>
   </section>
 
   <section class="setup-panel" data-setup-panel="providers" aria-labelledby="providers-heading" hidden>
@@ -247,11 +261,11 @@ Lynx Capital guided setup page for Caracal configuration, providers, and launch.
       <div class="automation-path">
         <article>
           <h3>1. Create the zone</h3>
-          <p>Go to Caracal Console &gt; Zones &gt; New. Set <b>name</b> = <code>Lynx Capital</code> and <b>dynamic clients</b> = <code>[x] enabled</code>.</p>
+          <p>Go to Caracal Console &gt; Zones &gt; New. Set <b>name</b> = <code>"Lynx Capital"</code> and <b>dynamic clients</b> = <code>[x] enabled</code>.</p>
         </article>
         <article>
           <h3>2. Create the control key</h3>
-          <p>Go to Control &gt; control key create. Set <b>name</b> = <code>Lynx Capital Bootstrap</code>, <b>max token TTL</b> = <code>300</code>, and <b>expires in days</b> = <code>30</code>.</p>
+          <p>Go to Control &gt; control key create. Set <b>name</b> = <code>"Lynx Capital Bootstrap"</code>, <b>max token TTL</b> = <code>300</code>, and <b>expires in days</b> = <code>30</code>.</p>
         </article>
         <article>
           <h3>3. Export credentials and run</h3>
