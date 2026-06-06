@@ -6,14 +6,19 @@ Web HTML routes: landing, overview, setup, demo, and logs pages.
 """
 from __future__ import annotations
 
+import os
+import shutil
+import sys
 from collections import Counter
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from pathlib import Path
 
+from app.api.hooks import required_secret_envs
 from app.api.session import COOKIE, SETUP_COOKIE
 from app.config import get_config
+from app.services import setup_catalog
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
@@ -210,6 +215,108 @@ def _overview_ctx(request: Request, key: str) -> dict:
     return ctx
 
 
+def _setup_requirements(providers: list[dict[str, object]]) -> list[dict[str, object]]:
+    missing_provider_vars = sorted({
+        variable
+        for provider in providers
+        for variable in provider["missing"]
+    })
+    missing_webhook_secrets = [name for name in required_secret_envs() if not os.environ.get(name)]
+    return [
+        {
+            "name": "Python runtime",
+            "scope": "Required",
+            "status": "Configured" if sys.version_info >= (3, 14) else "Missing",
+            "detail": f"Python 3.14+ application runtime; current interpreter is {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}.",
+        },
+        {
+            "name": "Docker",
+            "scope": "Required",
+            "status": "Configured" if shutil.which("docker") else "Missing",
+            "detail": "Runs the local provider network used by Lynx Capital.",
+        },
+        {
+            "name": "OpenAI API Key",
+            "scope": "Required",
+            "status": "Configured" if os.environ.get("OPENAI_API_KEY") else "Missing",
+            "detail": "OPENAI_API_KEY powers the orchestration layer.",
+        },
+        {
+            "name": "Provider secrets",
+            "scope": "Required",
+            "status": "Configured" if not missing_provider_vars else "Missing",
+            "detail": "All provider credential variables are present." if not missing_provider_vars else f"{len(missing_provider_vars)} provider credential variables are missing.",
+        },
+        {
+            "name": "Webhook secrets",
+            "scope": "Required",
+            "status": "Configured" if not missing_webhook_secrets else "Missing",
+            "detail": "All callback signing secrets are present." if not missing_webhook_secrets else f"Missing {', '.join(missing_webhook_secrets)}.",
+        },
+        {
+            "name": "Caracal runtime",
+            "scope": "Optional",
+            "status": "Configured" if os.environ.get("CARACAL_ZONE_ID") and os.environ.get("CARACAL_APPLICATION_ID") else "Optional",
+            "detail": "Set CARACAL_ZONE_ID and CARACAL_APPLICATION_ID to route through Caracal; otherwise Lynx uses direct local providers.",
+        },
+    ]
+
+
+def _setup_commands() -> list[dict[str, str]]:
+    return [
+        {
+            "step": "01",
+            "action": "Prepare environment",
+            "description": "Create a local environment file and set OPENAI_API_KEY before launching the app.",
+            "command": "cp .env.example .env\n# edit .env and set OPENAI_API_KEY=sk-...",
+            "expected": ".env contains the required OpenAI and Lynx configuration.",
+        },
+        {
+            "step": "02",
+            "action": "Generate provider credentials",
+            "description": "Print ready-to-source provider credentials from deterministic local provider stores.",
+            "command": "python -m _mock.providerlab.seedenv",
+            "expected": "Credential exports are available for provider API keys, tokens, and OAuth clients.",
+        },
+        {
+            "step": "03",
+            "action": "Start provider network",
+            "description": "Launches local provider services used by the demo.",
+            "command": "docker compose -f _mock/docker-compose.yml up -d --build --wait",
+            "expected": "Provider services report healthy on localhost ports 9400-9419.",
+        },
+        {
+            "step": "04",
+            "action": "Launch Lynx Capital",
+            "description": "Runs the FastAPI application with server-rendered UI and SSE event stream.",
+            "command": "uv run uvicorn app.main:app --reload --port 8000",
+            "expected": "Lynx Capital is available at http://127.0.0.1:8000.",
+        },
+    ]
+
+
+def _setup_ctx(request: Request) -> dict:
+    ctx = _ctx(request)
+    providers = setup_catalog.provider_entries(get_config().providers)
+    ready_requirements = sum(1 for item in _setup_requirements(providers) if item["status"] in ("Configured", "Optional"))
+    ctx.update({
+        "setup_providers": providers,
+        "setup_requirements": _setup_requirements(providers),
+        "setup_commands": _setup_commands(),
+        "setup_progress": {
+            "ready": ready_requirements,
+            "total": 6,
+            "percent": round((ready_requirements / 6) * 100),
+        },
+        "setup_links": {
+            "overview": "/overview/about",
+            "credentials": "http://127.0.0.1:9400/__lab/credentials",
+            "providerDashboard": "http://127.0.0.1:9400/",
+        },
+    })
+    return ctx
+
+
 @router.get("/", response_class=HTMLResponse)
 def landing(request: Request):
     return templates.TemplateResponse(request, "landing.html", _ctx(request))
@@ -239,7 +346,7 @@ def favicon() -> Response:
 def setup(request: Request):
     if not _accepted(request):
         return RedirectResponse(url="/overview/about", status_code=303)
-    return templates.TemplateResponse(request, "setup.html", _ctx(request))
+    return templates.TemplateResponse(request, "setup.html", _setup_ctx(request))
 
 
 def _require_ready(request: Request):
