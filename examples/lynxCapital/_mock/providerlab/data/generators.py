@@ -3738,3 +3738,297 @@ def crm_dataset(seed: str) -> dict[str, dict]:
         "notes": notes,
         "relationships": relationships,
     }
+
+
+# --------------------------------------------------------------------------- #
+# Sabre Tax — tax determination reference data
+# US sales/use tax rolls up state + county + city + special district components;
+# international transaction tax is a single VAT/GST/consumption rate. Withholding
+# follows the US FDAP model: a 30% statutory rate reduced by bilateral treaties,
+# 24% backup withholding on undocumented domestic payees, and FATCA chapter-4.
+# --------------------------------------------------------------------------- #
+
+# region -> {state, county (name, rate), city (name, rate), special (name, rate)}
+_SABRE_US_JURISDICTIONS = {
+    "CA": {"stateName": "CALIFORNIA", "stateRate": 0.0600,
+           "county": ("ORANGE", 0.0025), "city": ("IRVINE", 0.0000),
+           "special": ("ORANGE CO LOCAL TAX SL", 0.0150)},
+    "NY": {"stateName": "NEW YORK", "stateRate": 0.0400,
+           "county": ("NEW YORK", 0.0000), "city": ("NEW YORK CITY", 0.0450),
+           "special": ("MCTD", 0.00375)},
+    "TX": {"stateName": "TEXAS", "stateRate": 0.0625,
+           "county": ("TRAVIS", 0.0000), "city": ("AUSTIN", 0.0100),
+           "special": ("AUSTIN MTA TRANSIT", 0.0100)},
+    "WA": {"stateName": "WASHINGTON", "stateRate": 0.0650,
+           "county": ("KING", 0.0000), "city": ("SEATTLE", 0.0375),
+           "special": ("", 0.0000)},
+    "IL": {"stateName": "ILLINOIS", "stateRate": 0.0625,
+           "county": ("COOK", 0.0175), "city": ("CHICAGO", 0.0125),
+           "special": ("RTA", 0.0100)},
+    "FL": {"stateName": "FLORIDA", "stateRate": 0.0600,
+           "county": ("MIAMI-DADE", 0.0100), "city": ("", 0.0000),
+           "special": ("", 0.0000)},
+    "CO": {"stateName": "COLORADO", "stateRate": 0.0290,
+           "county": ("", 0.0000), "city": ("DENVER", 0.0481),
+           "special": ("RTD", 0.0110)},
+    "MA": {"stateName": "MASSACHUSETTS", "stateRate": 0.0625,
+           "county": ("", 0.0000), "city": ("", 0.0000),
+           "special": ("", 0.0000)},
+    "GA": {"stateName": "GEORGIA", "stateRate": 0.0400,
+           "county": ("FULTON", 0.0300), "city": ("ATLANTA", 0.0150),
+           "special": ("", 0.0000)},
+}
+
+# ISO country -> single transaction-tax (VAT/GST/consumption) regime
+_SABRE_COUNTRY_TAX = {
+    "GB": {"taxType": "VAT", "taxName": "UNITED KINGDOM VAT", "standardRate": 0.20,
+           "reducedRates": {"reduced": 0.05, "zero": 0.0}, "currency": "GBP"},
+    "DE": {"taxType": "VAT", "taxName": "GERMANY VAT (USt)", "standardRate": 0.19,
+           "reducedRates": {"reduced": 0.07}, "currency": "EUR"},
+    "FR": {"taxType": "VAT", "taxName": "FRANCE TVA", "standardRate": 0.20,
+           "reducedRates": {"reduced": 0.10, "super_reduced": 0.055}, "currency": "EUR"},
+    "NL": {"taxType": "VAT", "taxName": "NETHERLANDS BTW", "standardRate": 0.21,
+           "reducedRates": {"reduced": 0.09}, "currency": "EUR"},
+    "IE": {"taxType": "VAT", "taxName": "IRELAND VAT", "standardRate": 0.23,
+           "reducedRates": {"reduced": 0.135, "second_reduced": 0.09}, "currency": "EUR"},
+    "SG": {"taxType": "GST", "taxName": "SINGAPORE GST", "standardRate": 0.09,
+           "reducedRates": {}, "currency": "SGD"},
+    "JP": {"taxType": "JCT", "taxName": "JAPAN CONSUMPTION TAX", "standardRate": 0.10,
+           "reducedRates": {"reduced": 0.08}, "currency": "JPY"},
+    "BR": {"taxType": "ICMS", "taxName": "BRAZIL ICMS", "standardRate": 0.17,
+           "reducedRates": {"interstate": 0.12, "interstate_south": 0.07}, "currency": "BRL"},
+    "IN": {"taxType": "GST", "taxName": "INDIA GST (CGST+SGST)", "standardRate": 0.18,
+           "reducedRates": {"merit": 0.05, "standard_merit": 0.12, "demerit": 0.28},
+           "currency": "INR", "split": ("CGST", "SGST")},
+    "CA": {"taxType": "GST", "taxName": "CANADA GST", "standardRate": 0.05,
+           "reducedRates": {}, "currency": "CAD"},
+    "AU": {"taxType": "GST", "taxName": "AUSTRALIA GST", "standardRate": 0.10,
+           "reducedRates": {}, "currency": "AUD"},
+}
+
+# (code, category, description, taxableByDefault)
+_SABRE_TAX_CODES = (
+    ("P0000000", "Tangible Personal Property", "General tangible goods", True),
+    ("NT", "Non-Taxable", "Explicitly non-taxable line", False),
+    ("FR020100", "Freight", "Shipping and freight charges", True),
+    ("FR010000", "Delivery", "Delivery charges", True),
+    ("SW054000", "Software as a Service", "Cloud-delivered / subscription software", True),
+    ("SW050000", "Software (downloaded)", "Electronically delivered software", True),
+    ("SW052000", "Software (canned)", "Pre-written packaged software", True),
+    ("DC010200", "Digital Content", "Digital downloads (music, video, ebooks)", True),
+    ("SC016100", "Professional Services", "Consulting, professional and IT services", False),
+    ("SC110000", "Maintenance and Support", "Hardware maintenance and support", True),
+    ("OF010000", "Office Supplies", "General office products", True),
+    ("OE040000", "Computer Hardware", "Computers and peripherals", True),
+    ("PS081282", "Yarn and Fiber", "Knitting yarn", True),
+    ("FD000000", "Food and Grocery", "General unprepared food items", False),
+    ("CL000000", "Clothing", "General apparel", True),
+    ("PH000000", "Pharmaceuticals", "Prescription drugs", False),
+)
+_SABRE_TAX_CODE_INDEX = {row[0]: row for row in _SABRE_TAX_CODES}
+
+# country -> tax-identifier validation rule (format + VIES/national-registry source)
+_SABRE_TAXID_RULES = {
+    "US": {"taxType": "EIN", "format": "NN-NNNNNNN", "pattern": r"^\d{2}-?\d{7}$",
+           "source": "IRS TIN Matching"},
+    "GB": {"taxType": "VAT", "format": "GB999999999", "pattern": r"^GB\d{9}(\d{3})?$",
+           "source": "HMRC"},
+    "DE": {"taxType": "VAT", "format": "DE999999999", "pattern": r"^DE\d{9}$",
+           "source": "VIES"},
+    "FR": {"taxType": "VAT", "format": "FRXX999999999", "pattern": r"^FR[A-Z0-9]{2}\d{9}$",
+           "source": "VIES"},
+    "NL": {"taxType": "VAT", "format": "NL999999999B99", "pattern": r"^NL\d{9}B\d{2}$",
+           "source": "VIES"},
+    "IT": {"taxType": "VAT", "format": "IT99999999999", "pattern": r"^IT\d{11}$",
+           "source": "VIES"},
+    "ES": {"taxType": "VAT", "format": "ESX9999999X", "pattern": r"^ES[A-Z0-9]\d{7}[A-Z0-9]$",
+           "source": "VIES"},
+    "IE": {"taxType": "VAT", "format": "IE9X99999X", "pattern": r"^IE\d[A-Z0-9]\d{5}[A-Z]{1,2}$",
+           "source": "VIES"},
+    "SG": {"taxType": "GST", "format": "M99999999X", "pattern": r"^[A-Z]\d{8}[A-Z]$",
+           "source": "IRAS"},
+    "IN": {"taxType": "GSTIN", "format": "99XXXXX9999X9ZX",
+           "pattern": r"^\d{2}[A-Z]{5}\d{4}[A-Z]\d[Z][A-Z0-9]$", "source": "GSTN"},
+    "BR": {"taxType": "CNPJ", "format": "99.999.999/9999-99",
+           "pattern": r"^\d{2}\.?\d{3}\.?\d{3}/?\d{4}-?\d{2}$", "source": "Receita Federal"},
+    "JP": {"taxType": "CN", "format": "9999999999999", "pattern": r"^\d{13}$",
+           "source": "National Tax Agency"},
+    "CA": {"taxType": "BN", "format": "999999999RT9999", "pattern": r"^\d{9}(RT\d{4})?$",
+           "source": "Canada Revenue Agency"},
+}
+
+# US FDAP withholding constants and the 1042-S income-code map
+_SABRE_WHT_STATUTORY = 0.30
+_SABRE_WHT_BACKUP = 0.24
+_SABRE_WHT_FATCA = 0.30
+_SABRE_INCOME_CODES = {
+    "interest": "01", "dividends": "06", "rents": "14", "royalties": "12",
+    "royalties_industrial": "10", "services": "17", "independent_services": "16",
+    "scholarship": "16",
+}
+
+# payee country -> bilateral treaty: income type -> (treatyRate, treatyArticle).
+# Countries with no US income-tax treaty (BR, SG) are intentionally absent so the
+# 30% statutory rate applies.
+_SABRE_TREATY = {
+    "DE": {"name": "U.S.-Germany Income Tax Treaty", "rates": {
+        "dividends": (0.15, "Article 10"), "interest": (0.0, "Article 11"),
+        "royalties": (0.0, "Article 12"), "services": (0.0, "Article 7"),
+        "rents": (0.0, "Article 6")}},
+    "GB": {"name": "U.S.-U.K. Income Tax Treaty", "rates": {
+        "dividends": (0.15, "Article 10"), "interest": (0.0, "Article 11"),
+        "royalties": (0.0, "Article 12"), "services": (0.0, "Article 7"),
+        "rents": (0.0, "Article 6")}},
+    "FR": {"name": "U.S.-France Income Tax Treaty", "rates": {
+        "dividends": (0.15, "Article 10"), "interest": (0.0, "Article 11"),
+        "royalties": (0.0, "Article 12"), "services": (0.0, "Article 7"),
+        "rents": (0.0, "Article 6")}},
+    "NL": {"name": "U.S.-Netherlands Income Tax Treaty", "rates": {
+        "dividends": (0.15, "Article 10"), "interest": (0.0, "Article 12"),
+        "royalties": (0.0, "Article 13"), "services": (0.0, "Article 7")}},
+    "CA": {"name": "U.S.-Canada Income Tax Treaty", "rates": {
+        "dividends": (0.15, "Article X"), "interest": (0.0, "Article XI"),
+        "royalties": (0.10, "Article XII"), "services": (0.0, "Article VII")}},
+    "JP": {"name": "U.S.-Japan Income Tax Treaty", "rates": {
+        "dividends": (0.10, "Article 10"), "interest": (0.10, "Article 11"),
+        "royalties": (0.0, "Article 12"), "services": (0.0, "Article 7")}},
+    "IN": {"name": "U.S.-India Income Tax Treaty", "rates": {
+        "dividends": (0.15, "Article 10"), "interest": (0.15, "Article 11"),
+        "royalties": (0.15, "Article 12"), "services": (0.15, "Article 12")}},
+}
+
+# entity use / exemption reason codes (drive exemption certificate logic)
+_SABRE_ENTITY_USE_CODES = {
+    "A": "Federal government", "B": "State or local government",
+    "C": "Tribal government", "D": "Foreign diplomat",
+    "E": "Charitable or religious organization", "F": "Religious organization",
+    "G": "Resale", "H": "Agricultural production",
+    "I": "Industrial production / manufacturer", "J": "Direct pay permit",
+    "K": "Direct mail", "L": "Other", "N": "Local government",
+    "R": "Non-resident",
+}
+_SABRE_EXEMPT_ZONES = ("CA", "NY", "TX", "WA", "IL", "FL", "CO", "MA", "GA")
+
+
+def sabre_us_jurisdiction(region: str) -> dict | None:
+    return _SABRE_US_JURISDICTIONS.get(str(region).upper()) if region else None
+
+
+def sabre_country_tax(country: str) -> dict | None:
+    return _SABRE_COUNTRY_TAX.get(str(country).upper()) if country else None
+
+
+def sabre_tax_codes() -> list[dict]:
+    return [{"taxCode": c, "category": cat, "description": desc, "taxable": taxable}
+            for c, cat, desc, taxable in _SABRE_TAX_CODES]
+
+
+def sabre_tax_code(code: str) -> dict | None:
+    row = _SABRE_TAX_CODE_INDEX.get(str(code).upper())
+    if row is None:
+        return None
+    return {"taxCode": row[0], "category": row[1], "description": row[2], "taxable": row[3]}
+
+
+def sabre_taxid_rule(country: str) -> dict | None:
+    return _SABRE_TAXID_RULES.get(str(country).upper()) if country else None
+
+
+def sabre_treaty(country: str) -> dict | None:
+    return _SABRE_TREATY.get(str(country).upper()) if country else None
+
+
+def sabre_income_code(income_type: str) -> str:
+    return _SABRE_INCOME_CODES.get(str(income_type).lower(), "50")
+
+
+def sabre_withholding_rates() -> dict:
+    """Statutory NRA FDAP, domestic backup, and FATCA chapter-4 withholding rates."""
+    return {"statutory": _SABRE_WHT_STATUTORY, "backup": _SABRE_WHT_BACKUP,
+            "fatca": _SABRE_WHT_FATCA}
+
+
+def sabre_entity_use_reason(code: str) -> str | None:
+    return _SABRE_ENTITY_USE_CODES.get(str(code).upper()) if code else None
+
+
+def sabre_business_name(taxid: str) -> str:
+    """Deterministic registered business name, mimicking a VIES name lookup."""
+    return _company(_rng("sabre-vies", taxid))
+
+
+def _sabre_combined_rate(juris: dict) -> float:
+    return round(juris["stateRate"] + juris["county"][1]
+                 + juris["city"][1] + juris["special"][1], 5)
+
+
+def _sabre_jurisdiction_rows(seed: str) -> dict:
+    """Stored jurisdiction reference: US states (component breakdown) + VAT/GST countries."""
+    rows: dict[str, dict] = {}
+    for region, j in _SABRE_US_JURISDICTIONS.items():
+        rows[f"US-{region}"] = {
+            "jurisdictionId": f"US-{region}", "country": "US", "region": region,
+            "name": j["stateName"], "taxType": "SalesAndUse",
+            "combinedRate": _sabre_combined_rate(j),
+            "components": {
+                "state": {"name": j["stateName"], "rate": j["stateRate"]},
+                "county": {"name": j["county"][0], "rate": j["county"][1]},
+                "city": {"name": j["city"][0], "rate": j["city"][1]},
+                "special": {"name": j["special"][0], "rate": j["special"][1]},
+            },
+        }
+    for country, c in _SABRE_COUNTRY_TAX.items():
+        rows[country] = {
+            "jurisdictionId": country, "country": country, "region": "",
+            "name": c["taxName"], "taxType": c["taxType"],
+            "combinedRate": c["standardRate"], "currency": c["currency"],
+            "reducedRates": c["reducedRates"],
+        }
+    return rows
+
+
+def _sabre_exemption_certificates(seed: str) -> dict:
+    """Deterministic exemption-certificate roll keyed by certificate number."""
+    reasons = ("E", "G", "I", "A", "B", "H", "R", "J")
+    certs: dict[str, dict] = {}
+    for i in range(1, 15):
+        rng = _rng(seed, "sabre-cert", i)
+        code = rng.choice(reasons)
+        zone = rng.choice(_SABRE_EXEMPT_ZONES)
+        signed = _EPOCH + timedelta(days=rng.randint(-900, -30))
+        expired = rng.random() < 0.18
+        expiration = (signed + timedelta(days=365 * 3)) if not expired \
+            else (_EPOCH - timedelta(days=rng.randint(10, 120)))
+        number = f"EX-{rng.randint(100000, 999999)}"
+        customer = f"CUST-{rng.randint(1000, 9999)}"
+        tax_number_type = "FEIN"
+        business = f"{rng.randint(10, 99)}-{rng.randint(1000000, 9999999)}"
+        partial = rng.random() < 0.15
+        certs[number] = {
+            "exemptionNumber": number,
+            "customerCode": customer,
+            "entityUseCode": code,
+            "exemptionReason": _SABRE_ENTITY_USE_CODES[code],
+            "exposureZone": {"region": zone, "country": "US",
+                             "name": _SABRE_US_JURISDICTIONS[zone]["stateName"]},
+            "signedDate": signed.isoformat(),
+            "expirationDate": expiration.isoformat(),
+            "exemptPercentage": 50.0 if partial else 100.0,
+            "taxNumberType": tax_number_type,
+            "businessNumber": business,
+            "status": "EXPIRED" if expired else "ACTIVE",
+            "valid": not expired,
+            "verified": not expired and rng.random() > 0.1,
+        }
+    return certs
+
+
+def sabre_dataset(seed: str) -> dict[str, dict]:
+    """Seed Sabre Tax with reference jurisdictions, the tax-code catalog, and a
+    roll of exemption certificates; transactions accrue as determinations run."""
+    return {
+        "transactions": {},
+        "jurisdictions": _sabre_jurisdiction_rows(seed),
+        "tax_codes": {row["taxCode"]: row for row in sabre_tax_codes()},
+        "exemption_certificates": _sabre_exemption_certificates(seed),
+    }

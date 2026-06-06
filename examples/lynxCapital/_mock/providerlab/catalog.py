@@ -238,9 +238,11 @@ CATALOG: tuple[Provider, ...] = (
     Provider(
         id="sabre-tax", brand="Sabre Tax", category="sdk",
         protocol="sdk", port=9413, industry="Tax",
-        tagline="Tax determination and tax-ID validation",
-        resources=("calculations", "jurisdictions", "tax_ids"),
-        operations=("calculate", "get_jurisdiction", "validate_id"),
+        tagline="Transaction tax determination, jurisdiction resolution, tax-ID validation, exemptions, and cross-border withholding",
+        resources=("transactions", "jurisdictions", "tax_codes", "exemption_certificates"),
+        operations=("calculate_tax", "get_transaction", "commit_transaction",
+                    "void_transaction", "resolve_jurisdiction", "validate_tax_id",
+                    "determine_withholding", "get_exemption_certificate", "list_tax_codes"),
         apikey_location="header", apikey_field="X-Api-Key", sdk_package="sabre_tax",
     ),
     Provider(
