@@ -77,6 +77,7 @@ class SpawnAgentTests(unittest.IsolatedAsyncioTestCase):
                 kind=AgentKind.EPHEMERAL,
                 ttl_seconds=60,
                 metadata={"purpose": "test"},
+                capabilities=["refunds.execute", "ledger.read"],
             ),
         )
         body = captured[0]
@@ -85,6 +86,7 @@ class SpawnAgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(body["kind"], "ephemeral")
         self.assertEqual(body["ttl_seconds"], 60)
         self.assertEqual(body["metadata"], {"purpose": "test"})
+        self.assertEqual(body["capabilities"], ["refunds.execute", "ledger.read"])
 
     async def test_derives_idempotency_key_when_stable_inputs_present(self) -> None:
         captured: list[httpx.Request] = []

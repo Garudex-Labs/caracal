@@ -719,6 +719,7 @@ class Caracal:
         parent_id: str | None = None,
         parent_ctx: CaracalContext | None = None,
         metadata: JsonObject | None = None,
+        capabilities: list[str] | None = None,
         trace_id: str | None = None,
     ) -> AsyncGenerator[CaracalContext, None]:
         on_start: LifecycleHook | None = (
@@ -737,6 +738,7 @@ class Caracal:
             kind=kind or self.config.default_kind,
             ttl_seconds=ttl_seconds if ttl_seconds is not None else self.config.default_ttl_seconds,
             metadata=metadata,
+            capabilities=capabilities,
             trace_id=trace_id,
             on_agent_start=on_start,
             on_agent_end=on_end,
@@ -777,6 +779,7 @@ class Caracal:
         kind: AgentKind | None = None,
         ttl_seconds: int | None = None,
         metadata: JsonObject | None = None,
+        capabilities: list[str] | None = None,
         trace_id: str | None = None,
     ) -> AsyncGenerator[CaracalContext, None]:
         on_start: LifecycleHook | None = (
@@ -798,6 +801,7 @@ class Caracal:
             kind=kind or self.config.default_kind,
             ttl_seconds=ttl_seconds if ttl_seconds is not None else self.config.default_ttl_seconds,
             metadata=metadata,
+            capabilities=capabilities,
             trace_id=trace_id,
             on_agent_start=on_start,
             on_agent_end=on_end,

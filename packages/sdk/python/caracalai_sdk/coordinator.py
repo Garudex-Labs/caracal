@@ -81,6 +81,7 @@ class SpawnRequest:
     kind: AgentKind = AgentKind.INSTANCE
     ttl_seconds: int | None = None
     metadata: JsonObject | None = None
+    capabilities: list[str] | None = None
     idempotency_key: str | None = None
 
 
@@ -121,6 +122,8 @@ async def spawn_agent(client: CoordinatorClient, bearer: str, req: SpawnRequest)
         body["ttl_seconds"] = req.ttl_seconds
     if req.metadata:
         body["metadata"] = req.metadata
+    if req.capabilities:
+        body["capabilities"] = req.capabilities
 
     headers = {"authorization": f"Bearer {bearer}"}
     key = req.idempotency_key or _derive_idempotency_key(req)
@@ -153,6 +156,7 @@ def _derive_idempotency_key(req: SpawnRequest) -> str | None:
         req.subject_session_id or "",
         req.parent_id or "",
         str(req.kind),
+        ",".join(req.capabilities or []),
     ])
     return hashlib.sha256(seed.encode("utf-8")).hexdigest()
 
