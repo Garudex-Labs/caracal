@@ -153,7 +153,11 @@ _SPECS: dict[str, PartnerSpec] = {
         offline_access=True),
     "atlas-vendor": PartnerSpec(
         "atlas-vendor", "mcp_bearer", 9411,
-        ("get_vendor_profile", "register_vendor", "get_contract_terms", "search_vendors"),
+        ("search_vendors", "list_vendors", "get_vendor_profile",
+         "list_vendor_contacts", "register_vendor", "get_onboarding_status",
+         "advance_onboarding", "verify_vendor_banking", "get_compliance_status",
+         "list_vendor_documents", "submit_vendor_document", "set_vendor_status",
+         "list_contracts", "get_contract_terms"),
         auth_header="Authorization", auth_scheme="Bearer"),
     "keystone-treasury": PartnerSpec(
         "keystone-treasury", "api_key", 9412,
@@ -405,8 +409,16 @@ def _call_mcp(spec: PartnerSpec, operation: str, payload: dict) -> dict:
         return {"provider": spec.id, "operation": operation, "status": body["error"].get("code"),
                 "error": body["error"].get("message"), "data": None}
     result = body.get("result") or {}
-    content = result.get("content") or []
-    data = content[0].get("data") if content else result
+    if result.get("isError"):
+        content = result.get("content") or []
+        text = content[0].get("text") if content else "tool execution error"
+        return {"provider": spec.id, "operation": operation, "status": 422,
+                "error": text, "data": None}
+    if "structuredContent" in result:
+        data = result["structuredContent"]
+    else:
+        content = result.get("content") or []
+        data = content[0].get("data") if content else result
     return {"provider": spec.id, "operation": operation, "status": 200, "data": data}
 
 

@@ -403,8 +403,28 @@ def register_vendor(run_id: str, agent_id: str, vendor_id: str) -> dict[str, obj
 
 
 def refresh_vendor_compliance(run_id: str, agent_id: str, vendor_id: str) -> dict[str, object]:
-    return _run(run_id, agent_id, "refresh_vendor_compliance", "atlas-vendor", "get_vendor_profile",
+    return _run(run_id, agent_id, "refresh_vendor_compliance", "atlas-vendor", "get_compliance_status",
                 {"vendorId": vendor_id})
+
+
+def get_vendor_onboarding_status(run_id: str, agent_id: str, vendor_id: str) -> dict[str, object]:
+    return _run(run_id, agent_id, "get_vendor_onboarding_status", "atlas-vendor",
+                "get_onboarding_status", {"vendorId": vendor_id})
+
+
+def advance_vendor_onboarding(run_id: str, agent_id: str, vendor_id: str,
+                              step: str, outcome: str = "pass") -> dict[str, object]:
+    return _run(run_id, agent_id, "advance_vendor_onboarding", "atlas-vendor",
+                "advance_onboarding", {"vendorId": vendor_id, "step": step, "outcome": outcome})
+
+
+def verify_vendor_banking(run_id: str, agent_id: str, vendor_id: str,
+                          account_number: str = "") -> dict[str, object]:
+    payload: dict[str, object] = {"vendorId": vendor_id}
+    if account_number:
+        payload["accountNumber"] = account_number
+    return _run(run_id, agent_id, "verify_vendor_banking", "atlas-vendor",
+                "verify_vendor_banking", payload)
 
 
 # -- treasury tools --
@@ -680,6 +700,9 @@ TOOLS: dict[str, Callable] = {
     "kyb_screen_vendor": kyb_screen_vendor,
     "register_vendor": register_vendor,
     "refresh_vendor_compliance": refresh_vendor_compliance,
+    "get_vendor_onboarding_status": get_vendor_onboarding_status,
+    "advance_vendor_onboarding": advance_vendor_onboarding,
+    "verify_vendor_banking": verify_vendor_banking,
     "get_cash_position": get_cash_position,
     "forecast_liquidity": forecast_liquidity,
     "place_fx_hedge": place_fx_hedge,

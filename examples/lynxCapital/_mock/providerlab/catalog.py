@@ -213,10 +213,13 @@ CATALOG: tuple[Provider, ...] = (
     Provider(
         id="atlas-vendor", brand="Atlas Vendor Network", category="mcp",
         protocol="mcp", port=9411, industry="Vendor master data",
-        tagline="Vendor onboarding and master-data tool server",
+        tagline="Vendor onboarding, verification, and master-data tool server",
         resources=("vendors", "contracts"),
-        operations=("get_vendor_profile", "register_vendor",
-                    "get_contract_terms", "search_vendors"),
+        operations=("search_vendors", "list_vendors", "get_vendor_profile",
+                    "list_vendor_contacts", "register_vendor", "get_onboarding_status",
+                    "advance_onboarding", "verify_vendor_banking", "get_compliance_status",
+                    "list_vendor_documents", "submit_vendor_document", "set_vendor_status",
+                    "list_contracts", "get_contract_terms"),
         mcp_auth="bearer", auth_header="Authorization", auth_scheme="Bearer",
     ),
     Provider(
