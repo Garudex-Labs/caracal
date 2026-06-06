@@ -13,6 +13,8 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from pathlib import Path
 
+import httpx
+
 from app.api.session import COOKIE, SETUP_COOKIE
 from app.config import get_config
 from app.services import setup_catalog
@@ -212,48 +214,26 @@ def _overview_ctx(request: Request, key: str) -> dict:
     return ctx
 
 
-def _setup_requirements(providers: list[dict[str, object]]) -> list[dict[str, object]]:
-    resources = setup_catalog.resource_bindings()
-    unmapped_resources = [provider["id"] for provider in providers if provider["status"] == "Unmapped"]
-    caracal_identity = bool(os.environ.get("CARACAL_ZONE_ID") and os.environ.get("CARACAL_APPLICATION_ID"))
-    caracal_auth = bool(os.environ.get("CARACAL_APP_CLIENT_SECRET") or os.environ.get("CARACAL_SUBJECT_TOKEN"))
+def _health_status(url: str) -> str:
+    try:
+        with httpx.Client(timeout=0.35) as client:
+            response = client.get(f"{url.rstrip('/')}/healthz")
+        return "Online" if response.status_code < 500 else "Offline"
+    except httpx.HTTPError:
+        return "Offline"
+
+
+def _setup_requirements() -> list[dict[str, object]]:
+    services = [
+        ("API", os.environ.get("CARACAL_API_URL", "http://localhost:3000")),
+        ("STS", os.environ.get("CARACAL_STS_URL", "http://localhost:8080")),
+        ("Gateway", os.environ.get("CARACAL_GATEWAY_URL", "http://localhost:8081")),
+        ("Audit", os.environ.get("CARACAL_AUDIT_URL", "http://localhost:9090")),
+        ("Coordinator", os.environ.get("CARACAL_COORDINATOR_URL", "http://localhost:4000")),
+    ]
     return [
-        {
-            "name": "Caracal identity",
-            "scope": "Required",
-            "status": "Configured" if caracal_identity else "Missing",
-            "detail": "CARACAL_ZONE_ID and CARACAL_APPLICATION_ID identify the Lynx application in its Caracal zone.",
-        },
-        {
-            "name": "Application credential",
-            "scope": "Required",
-            "status": "Configured" if caracal_auth else "Missing",
-            "detail": "Use CARACAL_APP_CLIENT_SECRET for STS exchange or CARACAL_SUBJECT_TOKEN for local bring-up.",
-        },
-        {
-            "name": "STS endpoint",
-            "scope": "Required",
-            "status": "Configured" if os.environ.get("CARACAL_STS_URL") else "Missing",
-            "detail": "CARACAL_STS_URL points the SDK at the token service.",
-        },
-        {
-            "name": "Coordinator endpoint",
-            "scope": "Required",
-            "status": "Configured" if os.environ.get("CARACAL_COORDINATOR_URL") else "Missing",
-            "detail": "CARACAL_COORDINATOR_URL lets the SDK spawn delegated agents for each run.",
-        },
-        {
-            "name": "Gateway endpoint",
-            "scope": "Required",
-            "status": "Configured" if os.environ.get("CARACAL_GATEWAY_URL") else "Missing",
-            "detail": "CARACAL_GATEWAY_URL routes provider operations through the Caracal gateway.",
-        },
-        {
-            "name": "Resource bindings",
-            "scope": "Required",
-            "status": "Configured" if resources and not unmapped_resources else "Missing",
-            "detail": f"{len(resources)} Caracal resources mapped." if resources and not unmapped_resources else f"Map provider resource ids in CARACAL_RESOURCES; {len(unmapped_resources)} are not mapped.",
-        },
+        {"name": name, "endpoint": url, "status": _health_status(url)}
+        for name, url in services
     ]
 
 
@@ -293,16 +273,16 @@ def _setup_commands() -> list[dict[str, str]]:
 def _setup_ctx(request: Request) -> dict:
     ctx = _ctx(request)
     providers = setup_catalog.provider_entries(get_config().providers)
-    requirements = _setup_requirements(providers)
-    ready_requirements = sum(1 for item in requirements if item["status"] in ("Configured", "Optional"))
+    requirements = _setup_requirements()
+    ready_requirements = sum(1 for item in requirements if item["status"] == "Online")
     ctx.update({
         "setup_providers": providers,
         "setup_requirements": requirements,
         "setup_commands": _setup_commands(),
         "setup_progress": {
             "ready": ready_requirements,
-            "total": 6,
-            "percent": round((ready_requirements / 6) * 100),
+            "total": len(requirements),
+            "percent": round((ready_requirements / len(requirements)) * 100),
         },
         "setup_links": {
             "overview": "/overview/about",

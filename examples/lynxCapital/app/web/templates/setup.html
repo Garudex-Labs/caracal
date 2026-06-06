@@ -36,16 +36,16 @@ Lynx Capital guided setup page for Caracal runtime and provider readiness.
   .section-count { border: 1px solid #d8e0ea; border-radius: 999px; color: #24364d; flex: none; font-size: 11px; font-weight: 850; padding: 6px 10px; }
 
   .status { border-radius: 999px; display: inline-flex; font-size: 10px; font-weight: 850; justify-content: center; letter-spacing: .08em; padding: 5px 8px; text-transform: uppercase; white-space: nowrap; }
-  .status-configured, .status-ready, .status-mapped, .status-passed { background: #e8f5ef; color: #136c45; }
+  .status-configured, .status-ready, .status-mapped, .status-passed, .status-online { background: #e8f5ef; color: #136c45; }
   .status-optional, .status-warning, .status-pending { background: #fff7e6; color: #91610a; }
-  .status-missing, .status-unmapped, .status-failed { background: #faecec; color: #a33434; }
+  .status-missing, .status-unmapped, .status-failed, .status-offline { background: #faecec; color: #a33434; }
 
   .readiness-list { border-top: 1px solid #e3e8f0; }
-  .readiness-row { align-items: center; display: grid; gap: 14px; grid-template-columns: 190px 94px 112px minmax(0, 1fr); padding: 12px 0; }
+  .readiness-row { align-items: center; display: grid; gap: 14px; grid-template-columns: 190px minmax(0, 1fr) 112px; padding: 12px 0; }
   .readiness-row + .readiness-row { border-top: 1px solid #eef2f7; }
   .readiness-row strong { color: #1e293b; font-size: 13px; font-weight: 780; }
   .readiness-row p { color: #657389; font-size: 12px; line-height: 1.42; margin: 0; }
-  .scope { color: #778397; font-size: 10px; font-weight: 850; letter-spacing: .12em; text-transform: uppercase; }
+  .endpoint { color: #657389; font-family: "Fira Code", ui-monospace, monospace; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   .config-flow { display: grid; gap: 12px; grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .config-step { border-top: 2px solid #d9e2ee; padding-top: 12px; }
@@ -131,16 +131,15 @@ Lynx Capital guided setup page for Caracal runtime and provider readiness.
           <span>Section 1</span>
           <h2 id="environment-heading">Environment Readiness</h2>
         </div>
-        <p>These checks cover the required environment variables, local services, SDK/runtime requirements, and provider mappings.</p>
-        <div class="section-count">{{ setup_progress.ready }}/{{ setup_progress.total }} ready</div>
+        <p>Live health for the Caracal services Lynx needs before setup continues.</p>
+        <div class="section-count">{{ setup_progress.ready }}/{{ setup_progress.total }} healthy</div>
       </div>
       <div class="readiness-list">
         {% for item in setup_requirements %}
         <div class="readiness-row">
           <strong>{{ item.name }}</strong>
-          <span class="scope">{{ item.scope }}</span>
+          <span class="endpoint">{{ item.endpoint }}</span>
           <span class="status status-{{ item.status|lower|replace(' ', '-') }}">{{ item.status }}</span>
-          <p>{{ item.detail }}</p>
         </div>
         {% endfor %}
       </div>

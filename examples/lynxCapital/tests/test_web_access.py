@@ -132,6 +132,13 @@ def test_setup_page_is_guided_and_provider_backed():
     assert 'data-setup-panel="launch" aria-labelledby="launch-heading" hidden' in body
     assert "function showSetupSection(name)" in body
     assert "Environment Readiness" in body
+    assert "Live health for the Caracal services Lynx needs before setup continues." in body
+    assert "/5 healthy" in body
+    assert "http://localhost:3000" in body
+    assert "http://localhost:8080" in body
+    assert "http://localhost:8081" in body
+    assert "http://localhost:9090" in body
+    assert "http://localhost:4000" in body
     assert "Caracal Configuration" in body
     assert "Provider Credentials" in body
     assert "Validation" in body
