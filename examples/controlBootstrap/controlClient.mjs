@@ -41,7 +41,6 @@ export function createControlClient(config, deps = {}) {
   const stsUrl = trimTrailingSlash(requireField(config, 'stsUrl'))
   const controlUrl = trimTrailingSlash(requireField(config, 'controlUrl'))
   const audience = requireField(config, 'audience')
-  const zoneId = requireField(config, 'zoneId')
   const clientId = requireField(config, 'clientId')
   const clientSecret = requireField(config, 'clientSecret')
   const scopes = normalizeScopes(config.scopes)
@@ -59,7 +58,6 @@ export function createControlClient(config, deps = {}) {
       grant_type: 'client_credentials',
       application_id: clientId,
       client_secret: clientSecret,
-      zone_id: zoneId,
       resource: audience,
       scope: scopes.join(' '),
     })

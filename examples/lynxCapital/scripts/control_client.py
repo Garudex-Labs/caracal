@@ -30,7 +30,6 @@ class ControlConfig:
     sts_url: str
     control_url: str
     audience: str
-    zone_id: str
     client_id: str
     client_secret: str
     scopes: list[str] = field(default_factory=lambda: list(SCOPES))
@@ -44,7 +43,7 @@ def config_from_env(env: dict[str, str] | None = None) -> ControlConfig:
     env = env or dict(os.environ)
     missing = [
         name
-        for name in ("CARACAL_ZONE_ID", "CONTROL_CLIENT_ID", "CONTROL_CLIENT_SECRET")
+        for name in ("CONTROL_CLIENT_ID", "CONTROL_CLIENT_SECRET")
         if not env.get(name, "").strip()
     ]
     if missing:
@@ -54,7 +53,6 @@ def config_from_env(env: dict[str, str] | None = None) -> ControlConfig:
         sts_url=env.get("STS_URL", "http://127.0.0.1:8080").rstrip("/"),
         control_url=env.get("CONTROL_URL", "http://127.0.0.1:8087").rstrip("/"),
         audience=env.get("CONTROL_AUDIENCE", "caracal-control"),
-        zone_id=env["CARACAL_ZONE_ID"],
         client_id=env["CONTROL_CLIENT_ID"],
         client_secret=env["CONTROL_CLIENT_SECRET"],
         scopes=scopes or list(SCOPES),
@@ -87,7 +85,6 @@ class ControlClient:
             "grant_type": "client_credentials",
             "application_id": self._config.client_id,
             "client_secret": self._config.client_secret,
-            "zone_id": self._config.zone_id,
             "resource": self._config.audience,
             "scope": " ".join(self._config.scopes),
         }

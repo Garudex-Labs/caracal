@@ -56,7 +56,6 @@ export function loadConfig(env = process.env) {
     stsUrl: env.STS_URL,
     controlUrl: env.CONTROL_URL,
     audience: env.CONTROL_AUDIENCE ?? 'caracal-control',
-    zoneId: env.CARACAL_ZONE_ID,
     clientId: env.CONTROL_CLIENT_ID,
     clientSecret: env.CONTROL_CLIENT_SECRET,
     scopes,
