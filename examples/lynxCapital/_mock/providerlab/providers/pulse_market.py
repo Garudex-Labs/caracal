@@ -2,13 +2,12 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-Pulse Market Data domain: real-time FX instruments, point-in-time snapshots, OHLC candles,
-ECB-style daily reference rates, and streamable rate ticks.  Authentication: API Key (header).
+Pulse Market Data provider mock for API-key FX instruments, snapshots, OHLC candles, reference rates, and streaming ticks.
 """
 from __future__ import annotations
 
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 from _mock.providerlab.data import generators as gen
 from _mock.providerlab.providers import base
@@ -61,7 +60,6 @@ def _utc_iso(ts: float) -> str:
 def seed(state: base.State) -> None:
     state.tables["instruments"] = gen.index_by(gen.instruments(ID), key="symbol")
     state.tables["subscriptions"] = {}
-    state.tables["reference_date"] = {}
 
 
 def _tick(inst: dict, seq: int, base_ts: float | None = None) -> dict:
@@ -77,7 +75,8 @@ def _tick(inst: dict, seq: int, base_ts: float | None = None) -> dict:
     bid = round(mid - half_spread, decimals)
     ask = round(mid + half_spread, decimals)
     volume = rng.randint(500_000, 12_000_000)
-    ts = (base_ts or time.time()) - seq * rng.uniform(0.08, 0.4)
+    ts0 = base_ts if base_ts is not None else time.time()
+    ts = ts0 - seq * 0.2 - rng.uniform(0.0, 0.05)
 
     # Intra-day change relative to the seeded day open.
     open_price = inst["dayOpen"]
@@ -105,7 +104,7 @@ def _tick(inst: dict, seq: int, base_ts: float | None = None) -> dict:
     }
 
 
-def _ohlc_candle(symbol: str, mid_base: float, pip: int, interval_sec: int,
+def _ohlc_candle(symbol: str, mid_base: float, pip: float, interval_sec: int,
                  candle_idx: int) -> dict:
     """Return one OHLC candle for a symbol, deterministically derived from its index."""
     decimals = 4 if pip == 0.0001 else 2

@@ -919,7 +919,9 @@ def test_pulse_market_list_instruments_filter_by_liquidity_tier():
     t3 = c.post("/api/list_instruments", json={"liquidityTier": "tier3"}, headers=h).json()["data"]
     assert all(i["liquidityTier"] == "tier1" for i in t1["items"])
     assert all(i["liquidityTier"] == "tier3" for i in t3["items"])
-    assert t1["total"] + t3["total"] < t1["total"] + t3["total"] + 1  # sanity: no overlap issue
+    s1 = {i["symbol"] for i in t1["items"]}
+    s3 = {i["symbol"] for i in t3["items"]}
+    assert s1.isdisjoint(s3)
 
 
 def test_pulse_market_snapshot_realistic_fields():
