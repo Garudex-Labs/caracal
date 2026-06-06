@@ -148,6 +148,8 @@ def test_setup_page_is_guided_and_provider_backed():
     assert "CARACAL_ZONE_ID" in body
     assert "CONTROL_CLIENT_ID" in body
     assert "CONTROL_CLIENT_SECRET" in body
+    assert "Add to examples/lynxCapital/.env" in body
+    assert "The scripts load <code>.env</code> automatically." in body
     assert "python scripts/provision.py" in body
     assert "python scripts/teardown.py" in body
     # Caracal configuration: zone, application, policy
@@ -169,10 +171,10 @@ def test_setup_page_is_guided_and_provider_backed():
     assert "CARACAL_ZONE_ID=&lt;placeholder-zone-id&gt;" in body
     assert "CARACAL_APPLICATION_ID=&lt;placeholder-application-id&gt;" in body
     assert "CARACAL_APP_CLIENT_SECRET=&lt;placeholder-application-secret&gt;" in body
-    assert 'export CONTROL_CLIENT_ID="<placeholder-control-client-id>"' in body
-    assert 'export CONTROL_CLIENT_SECRET="<placeholder-control-client-secret>"' in body
+    assert 'CONTROL_CLIENT_ID="&lt;placeholder-control-client-id&gt;"' in body
+    assert 'CONTROL_CLIENT_SECRET="&lt;placeholder-control-client-secret&gt;"' in body
     assert 'export CARACAL_ZONE_ID="<placeholder-zone-id>"' not in body
-    assert "Replace each placeholder with the value issued by Caracal Console." in body
+    assert "Add these values to <code>examples/lynxCapital/.env</code>" in body
     # Providers: manual mapping to Caracal resources
     assert "Providers" in body
     assert "resource://halcyon-bank" in body

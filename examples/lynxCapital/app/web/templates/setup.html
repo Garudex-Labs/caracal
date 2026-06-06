@@ -73,6 +73,9 @@ Lynx Capital guided setup page for Caracal configuration, providers, and launch.
   .field-value { color: #047857; font-family: "Fira Code", ui-monospace, monospace; font-size: 11.5px; font-weight: 760; overflow-wrap: anywhere; }
   .config-step .why { color: #8a93a3; font-size: 11.5px; line-height: 1.4; margin: 0 0 12px; }
   .config-step pre { background: #f7f9fc; border: 1px solid #dce4ef; border-radius: 9px; color: #172033; font-family: "Fira Code", ui-monospace, monospace; font-size: 11px; line-height: 1.5; margin: 0; overflow-x: auto; padding: 9px 10px; }
+  .env-card { border-top: 1px solid #d8e0ea; margin-top: 18px; padding-top: 16px; }
+  .env-card h3 { color: #111827; font-size: 14px; font-weight: 780; margin: 0 0 7px; }
+  .env-card p { color: #647187; font-size: 12px; line-height: 1.45; margin: 8px 0 0; }
   .env-note { color: #66748a; font-size: 11px; line-height: 1.45; margin-top: 18px; }
   .env-note code { background: #f1f5fb; border-radius: 5px; color: #2a3a52; font-family: "Fira Code", ui-monospace, monospace; font-size: 11px; padding: 2px 5px; }
 
@@ -168,6 +171,15 @@ Lynx Capital guided setup page for Caracal configuration, providers, and launch.
         <pre><code>{{ step.field }}={{ step.value }}</code></pre>
       </article>
       {% endfor %}
+    </div>
+    <div class="env-card">
+      <h3>Add these values to <code>examples/lynxCapital/.env</code></h3>
+      <pre class="script">CARACAL_ZONE_ID={{ setup_env.zone }}
+
+CARACAL_APPLICATION_ID={{ setup_env.application }}
+
+CARACAL_APP_CLIENT_SECRET={{ setup_env.applicationSecret }}</pre>
+      <p>Keep this block in <code>.env</code>; Lynx loads it automatically when the app starts.</p>
     </div>
   </section>
 
@@ -279,10 +291,13 @@ Lynx Capital guided setup page for Caracal configuration, providers, and launch.
       </div>
       <div class="automation-terminal">
         <div class="command-block">
-          <h3>Export once</h3>
-        <pre class="script">export CONTROL_CLIENT_ID="<placeholder-control-client-id>"
-export CONTROL_CLIENT_SECRET="<placeholder-control-client-secret>"</pre>
-          <p class="automation-note">Replace each placeholder with the value issued by Caracal Console.</p>
+          <h3>Add to examples/lynxCapital/.env</h3>
+        <pre class="script">CARACAL_ZONE_ID={{ setup_env.zone }}
+
+CONTROL_CLIENT_ID="{{ setup_env.controlClient }}"
+
+CONTROL_CLIENT_SECRET="{{ setup_env.controlSecret }}"</pre>
+          <p class="automation-note">The scripts load <code>.env</code> automatically. Keep a blank line between runtime values and control credentials for readability.</p>
         </div>
         <div class="command-block">
           <h3>Run</h3>

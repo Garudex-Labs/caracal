@@ -11,6 +11,9 @@ import os
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
+from pathlib import Path
+
+from dotenv import load_dotenv
 
 STS_TOKEN_PATH = "/oauth/2/token"
 CONTROL_INVOKE_PATH = "/v1/control/invoke"
@@ -23,6 +26,8 @@ SCOPES = [
     "control:policy:read",
     "control:policy:write",
 ]
+
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 
 @dataclass
