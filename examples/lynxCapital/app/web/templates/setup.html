@@ -246,16 +246,16 @@ Lynx Capital guided setup page for Caracal configuration, providers, and launch.
     <div class="automation-body">
       <div class="automation-path">
         <article>
-          <h3>1. Open the Lynx zone</h3>
-          <p>In Caracal Console, open the zone with Zone ID <code>&lt;placeholder-zone-id&gt;</code>. Replace the placeholder with your real zone id.</p>
+          <h3>1. Create the zone</h3>
+          <p>Go to Caracal Console &gt; Zones &gt; New. Set <b>name</b> = <code>Lynx Capital</code> and <b>dynamic clients</b> = <code>[x] enabled</code>.</p>
         </article>
         <article>
-          <h3>2. Copy the credentials</h3>
-          <p>Copy the one-time client id and secret from the Control menu. No zone value is required.</p>
+          <h3>2. Create the control key</h3>
+          <p>Go to Control &gt; control key create. Set <b>name</b> = <code>Lynx Capital Bootstrap</code>, <b>max token TTL</b> = <code>300</code>, and <b>expires in days</b> = <code>30</code>.</p>
         </article>
         <article>
-          <h3>3. Run provision</h3>
-          <p>Run the script from this example directory. It reads the provider catalog and creates the Caracal objects.</p>
+          <h3>3. Export credentials and run</h3>
+          <p>Copy the returned <b>client_id</b> and <b>client_secret</b>. No zone value is needed because the control key is bound to the zone.</p>
         </article>
         <details class="automation-detail">
           <summary>Required control access</summary>

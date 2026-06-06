@@ -136,6 +136,13 @@ def test_setup_page_is_guided_and_provider_backed():
     # Automation is a popup action, not a setup section
     assert "Automate Setup" in body
     assert "Automate setup" in body
+    assert "Go to Caracal Console &gt; Zones &gt; New" in body
+    assert "<b>name</b> = <code>Lynx Capital</code>" in body
+    assert "<b>dynamic clients</b> = <code>[x] enabled</code>" in body
+    assert "Go to Control &gt; control key create" in body
+    assert "<b>name</b> = <code>Lynx Capital Bootstrap</code>" in body
+    assert "<b>max token TTL</b> = <code>300</code>" in body
+    assert "<b>expires in days</b> = <code>30</code>" in body
     assert "control:identity-provider:write" in body
     assert "control:resource:write" in body
     assert "CARACAL_ZONE_ID" in body

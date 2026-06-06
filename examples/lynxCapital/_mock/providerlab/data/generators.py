@@ -4370,3 +4370,370 @@ def vela_dataset(seed: str) -> dict[str, dict]:
         "suppressions": _vela_suppressions(seed),
         "webhooks": _vela_webhooks(seed),
     }
+
+
+# --------------------------------------------------------------------------- #
+# Core Billing — LynxCapital's internal accounts-receivable and billing
+# platform. Not a third-party SaaS: it is the system the finance org runs to
+# invoice customers, apply cash, age receivables, drive dunning, and escalate
+# collections. Data is generated as a coherent sub-ledger where customer
+# balances, invoice states, payments, credit memos, dunning history, and
+# collection cases all reconcile against one another as of a reporting date.
+# --------------------------------------------------------------------------- #
+
+_CB_AS_OF = _EPOCH  # reporting date the receivables sub-ledger is aged against
+_CB_SEGMENTS = ("enterprise", "mid_market", "smb", "strategic")
+_CB_CURRENCIES = (("US", "USD"), ("US", "USD"), ("US", "USD"),
+                  ("GB", "GBP"), ("DE", "EUR"), ("SG", "SGD"))
+_CB_TERMS = ("NET15", "NET30", "NET30", "NET45", "NET60")
+_CB_PRODUCTS = (
+    ("PLT-CORE", "Platform subscription - Core", 2400.0),
+    ("PLT-ENT", "Platform subscription - Enterprise", 7800.0),
+    ("SEAT-USR", "Additional user seats", 65.0),
+    ("API-OVG", "API overage charges", 0.012),
+    ("IMPL-SVC", "Implementation services", 18500.0),
+    ("SUP-PREM", "Premium support plan", 1200.0),
+    ("DATA-FEED", "Market data feed", 950.0),
+    ("PRO-SVC", "Professional services - day rate", 1850.0),
+)
+_CB_TAX_RATE = {"US": 0.0, "GB": 0.20, "DE": 0.19, "SG": 0.09}
+_CB_COLLECTIONS_OWNERS = ("Priya Whitfield", "Marco Bianchi", "Lena Novak", "Hassan Haddad")
+
+
+def _cb_term_days(term: str) -> int:
+    return int(term.removeprefix("NET"))
+
+
+def _cb_bucket(days_past_due: int) -> str:
+    if days_past_due <= 0:
+        return "current"
+    if days_past_due <= 30:
+        return "1-30"
+    if days_past_due <= 60:
+        return "31-60"
+    if days_past_due <= 90:
+        return "61-90"
+    return "90+"
+
+
+def _cb_dunning_level(days_past_due: int) -> int:
+    if days_past_due <= 0:
+        return 0
+    if days_past_due <= 30:
+        return 1
+    if days_past_due <= 60:
+        return 2
+    return 3
+
+
+def _cb_customer(seed: str, idx: int) -> dict:
+    rng = _rng(seed, "customer", idx)
+    name = _company(rng)
+    country, currency = rng.choice(_CB_CURRENCIES)
+    segment = _CB_SEGMENTS[idx % len(_CB_SEGMENTS)]
+    terms = rng.choice(_CB_TERMS)
+    credit_limit = {
+        "enterprise": rng.choice((250_000, 500_000, 750_000)),
+        "strategic": rng.choice((500_000, 1_000_000)),
+        "mid_market": rng.choice((75_000, 100_000, 150_000)),
+        "smb": rng.choice((15_000, 25_000, 50_000)),
+    }[segment]
+    contact = _person(rng)
+    slug = _slug(name)
+    status = "inactive" if rng.random() < 0.05 else "active"
+    return {
+        "customerId": f"CUST-{idx:04d}",
+        "name": name,
+        "legalName": f"{name} {rng.choice(('Inc.', 'Ltd.', 'LLC', 'GmbH'))}",
+        "segment": segment,
+        "status": status,
+        "currency": currency,
+        "country": country,
+        "paymentTerms": terms,
+        "creditLimit": float(credit_limit),
+        "creditHold": False,
+        "taxId": f"{country}{rng.randint(10_000_000, 99_999_999)}",
+        "billingContact": {
+            "name": contact,
+            "email": f"ap@{slug}.example",
+            "phone": _phone(rng, country),
+        },
+        "billingAddress": {
+            "line1": f"{rng.randint(10, 9990)} {rng.choice(('Market', 'King', 'Bridge', 'Harbor', 'Castle'))} St",
+            "city": rng.choice(("New York", "London", "Berlin", "Singapore", "Chicago", "Austin")),
+            "region": rng.choice(("NY", "LDN", "BE", "SG", "IL", "TX")),
+            "postalCode": f"{rng.randint(10_000, 99_999)}",
+            "country": country,
+        },
+        "accountManager": _person(_rng(seed, "am", idx)),
+        "collectionsOwner": _CB_COLLECTIONS_OWNERS[idx % len(_CB_COLLECTIONS_OWNERS)],
+        "collectionsStatus": "current",
+        "arBalance": 0.0,
+        "overdueBalance": 0.0,
+        "createdAt": _instant(rng, -540, -200),
+    }
+
+
+def _cb_line_items(rng: random.Random, segment: str) -> tuple[list[dict], float]:
+    count = rng.randint(1, 4)
+    lines: list[dict] = []
+    subtotal = 0.0
+    for n in range(1, count + 1):
+        sku, desc, unit = rng.choice(_CB_PRODUCTS)
+        if unit < 1:  # usage-priced line (per-call overage)
+            qty = rng.randint(50_000, 900_000)
+        elif unit > 5_000:
+            qty = rng.choice((1, 1, 2))
+        else:
+            qty = rng.randint(1, 25)
+        amount = round(unit * qty, 2)
+        subtotal += amount
+        lines.append({
+            "lineNo": n,
+            "sku": sku,
+            "description": desc,
+            "quantity": qty,
+            "unitPrice": unit,
+            "amount": amount,
+        })
+    return lines, round(subtotal, 2)
+
+
+def _cb_invoice(seed: str, idx: int, customer: dict, inv_no: int) -> dict:
+    rng = _rng(seed, "invoice", idx)
+    terms = customer["paymentTerms"]
+    term_days = _cb_term_days(terms)
+    issue_offset = rng.randint(-150, -2)
+    issue_date = _CB_AS_OF + timedelta(days=issue_offset)
+    due_date = issue_date + timedelta(days=term_days)
+    days_past_due = max(0, (_CB_AS_OF - due_date).days)
+
+    lines, subtotal = _cb_line_items(rng, customer["segment"])
+    tax_rate = _CB_TAX_RATE.get(customer["country"], 0.0)
+    tax_amount = round(subtotal * tax_rate, 2)
+    total = round(subtotal + tax_amount, 2)
+
+    roll = rng.random()
+    draft = issue_offset > -5 and roll < 0.10
+    disputed = (not draft) and days_past_due > 20 and roll > 0.93
+    if draft:
+        status, amount_paid = "draft", 0.0
+    elif roll < 0.42:
+        status, amount_paid = "paid", total
+    elif roll < 0.55:
+        status, amount_paid = "partiallyPaid", round(total * rng.uniform(0.2, 0.7), 2)
+    else:
+        status, amount_paid = "open", 0.0
+
+    if status in ("open", "partiallyPaid") and days_past_due > 0:
+        status = "disputed" if disputed else "overdue" if status == "open" else "partiallyPaid"
+
+    amount_due = round(total - amount_paid, 2)
+    outstanding = amount_due if status not in ("paid", "void", "draft") else 0.0
+    return {
+        "invoiceId": f"INV-2026-{inv_no:06d}",
+        "customerId": customer["customerId"],
+        "customerName": customer["name"],
+        "status": status,
+        "currency": customer["currency"],
+        "terms": terms,
+        "issueDate": issue_date.isoformat(),
+        "dueDate": due_date.isoformat(),
+        "poNumber": f"PO-{rng.randint(40_000, 99_999)}" if rng.random() < 0.6 else None,
+        "lineItems": lines,
+        "subtotal": subtotal,
+        "taxRate": tax_rate,
+        "taxAmount": tax_amount,
+        "total": total,
+        "amountPaid": amount_paid,
+        "amountDue": amount_due,
+        "daysPastDue": days_past_due if outstanding else 0,
+        "agingBucket": _cb_bucket(days_past_due) if outstanding else "current",
+        "dunningLevel": _cb_dunning_level(days_past_due) if outstanding else 0,
+        "lastDunnedAt": None,
+        "memo": rng.choice(("", "", "Renewal billing", "Usage true-up", "Milestone billing")),
+        "createdBy": "billing-batch@core-billing.lynxcapital.test",
+        "createdAt": _instant(_rng(seed, "inv-created", idx), issue_offset, issue_offset),
+        "updatedAt": _instant(rng, max(issue_offset, -30), -1),
+    }
+
+
+def core_billing_dataset(seed: str) -> dict[str, dict]:
+    """Build a coherent receivables sub-ledger: a customer master with credit
+    terms and limits, issued invoices across the full lifecycle (draft, open,
+    overdue, partially paid, paid, disputed), the payments and cash applications
+    that settle them, credit memos, a dunning history aged off due dates,
+    collection cases for the worst accounts, and an append-only audit trail.
+    Customer AR and overdue balances are rolled up from the open invoices so the
+    aging and reporting endpoints reconcile to the invoice detail."""
+    customers: dict[str, dict] = {}
+    for i in range(1, 41):
+        cust = _cb_customer(seed, i)
+        customers[cust["customerId"]] = cust
+    active_ids = [c for c, row in customers.items() if row["status"] == "active"]
+
+    invoices: dict[str, dict] = {}
+    payments: dict[str, dict] = {}
+    audit: list[dict] = []
+    inv_no = 0
+    pmt_no = 0
+    for i in range(1, 211):
+        rng = _rng(seed, "inv-assign", i)
+        customer = customers[rng.choice(active_ids)]
+        inv_no += 1
+        inv = _cb_invoice(seed, i, customer, inv_no)
+        invoices[inv["invoiceId"]] = inv
+        audit.append({
+            "eventId": f"AUD-{len(audit) + 1:06d}",
+            "at": inv["createdAt"],
+            "actor": inv["createdBy"],
+            "action": "invoice.issued",
+            "entityType": "invoice",
+            "entityId": inv["invoiceId"],
+            "details": {"customerId": customer["customerId"], "total": inv["total"],
+                        "currency": inv["currency"]},
+        })
+        # Synthesize the cash application behind any settled or partly settled invoice.
+        if inv["amountPaid"] > 0:
+            pmt_no += 1
+            prng = _rng(seed, "pmt", i)
+            received = (date.fromisoformat(inv["issueDate"])
+                        + timedelta(days=prng.randint(5, 40)))
+            received = min(received, _CB_AS_OF)
+            method = prng.choice(("ach", "ach", "wire", "check", "card"))
+            pid = f"PMT-2026-{pmt_no:06d}"
+            payments[pid] = {
+                "paymentId": pid,
+                "customerId": customer["customerId"],
+                "customerName": customer["name"],
+                "currency": inv["currency"],
+                "amount": inv["amountPaid"],
+                "method": method,
+                "reference": f"{method.upper()}-{prng.randint(100000, 999999)}",
+                "receivedDate": received.isoformat(),
+                "appliedAmount": inv["amountPaid"],
+                "unappliedAmount": 0.0,
+                "status": "applied",
+                "allocations": [{"invoiceId": inv["invoiceId"], "amount": inv["amountPaid"],
+                                 "appliedAt": received.isoformat()}],
+                "createdAt": _instant(prng, -120, -1),
+            }
+            inv["lastPaymentId"] = pid
+            audit.append({
+                "eventId": f"AUD-{len(audit) + 1:06d}",
+                "at": payments[pid]["createdAt"],
+                "actor": "cash-application@core-billing.lynxcapital.test",
+                "action": "payment.applied",
+                "entityType": "payment",
+                "entityId": pid,
+                "details": {"invoiceId": inv["invoiceId"], "amount": inv["amountPaid"]},
+            })
+
+    # Roll customer balances up from open invoices.
+    for inv in invoices.values():
+        if inv["status"] in ("paid", "void", "draft"):
+            continue
+        cust = customers[inv["customerId"]]
+        cust["arBalance"] = round(cust["arBalance"] + inv["amountDue"], 2)
+        if inv["daysPastDue"] > 0:
+            cust["overdueBalance"] = round(cust["overdueBalance"] + inv["amountDue"], 2)
+
+    # Derive collections posture and a credit hold for the worst accounts.
+    for cust in customers.values():
+        worst = max((inv["daysPastDue"] for inv in invoices.values()
+                     if inv["customerId"] == cust["customerId"]
+                     and inv["status"] not in ("paid", "void", "draft")), default=0)
+        if worst > 60:
+            cust["collectionsStatus"] = "in_collections"
+        elif worst > 30:
+            cust["collectionsStatus"] = "past_due"
+        elif worst > 0:
+            cust["collectionsStatus"] = "watch"
+        if cust["overdueBalance"] > cust["creditLimit"]:
+            cust["creditHold"] = True
+
+    # Dunning history for every overdue open invoice.
+    dunning: dict[str, dict] = {}
+    dun_no = 0
+    for inv in invoices.values():
+        if inv["dunningLevel"] <= 0 or inv["status"] in ("paid", "void", "draft", "disputed"):
+            continue
+        rng = _rng(seed, "dun", inv["invoiceId"])
+        for level in range(1, inv["dunningLevel"] + 1):
+            dun_no += 1
+            sent = (date.fromisoformat(inv["dueDate"]) + timedelta(days=level * 14))
+            sent = min(sent, _CB_AS_OF)
+            did = f"DUN-2026-{dun_no:06d}"
+            dunning[did] = {
+                "dunningId": did,
+                "invoiceId": inv["invoiceId"],
+                "customerId": inv["customerId"],
+                "level": level,
+                "channel": "email",
+                "template": ("payment_reminder", "second_notice", "final_notice")[level - 1],
+                "status": "sent",
+                "sentAt": sent.isoformat(),
+                "nextActionDate": (sent + timedelta(days=14)).isoformat(),
+            }
+        inv["lastDunnedAt"] = dunning[did]["sentAt"]
+
+    # Collection cases for accounts in collections.
+    collections: dict[str, dict] = {}
+    col_no = 0
+    for cust in customers.values():
+        if cust["collectionsStatus"] != "in_collections":
+            continue
+        col_no += 1
+        rng = _rng(seed, "col", cust["customerId"])
+        case_invoices = [inv["invoiceId"] for inv in invoices.values()
+                         if inv["customerId"] == cust["customerId"] and inv["daysPastDue"] > 60
+                         and inv["status"] not in ("paid", "void", "draft")]
+        cid = f"COL-2026-{col_no:04d}"
+        collections[cid] = {
+            "caseId": cid,
+            "customerId": cust["customerId"],
+            "customerName": cust["name"],
+            "status": rng.choice(("open", "in_progress", "in_progress")),
+            "priority": "high" if cust["overdueBalance"] > 100_000 else "medium",
+            "assignedTo": cust["collectionsOwner"],
+            "invoiceIds": case_invoices,
+            "totalOutstanding": round(sum(invoices[i]["amountDue"] for i in case_invoices), 2),
+            "openedDate": _day(rng, -60, -10),
+            "promiseToPayDate": None,
+            "notes": [{"at": _instant(rng, -30, -1), "author": cust["collectionsOwner"],
+                       "note": "Escalated from automated dunning; awaiting customer response."}],
+        }
+
+    credit_memos: dict[str, dict] = {}
+    for i in range(1, 9):
+        rng = _rng(seed, "cm", i)
+        cust = customers[active_ids[i % len(active_ids)]]
+        amount = round(rng.uniform(250, 9_500), 2)
+        cmid = f"CM-2026-{i:04d}"
+        credit_memos[cmid] = {
+            "creditMemoId": cmid,
+            "customerId": cust["customerId"],
+            "currency": cust["currency"],
+            "amount": amount,
+            "appliedAmount": 0.0,
+            "remainingAmount": amount,
+            "reason": rng.choice(("billing_error", "service_credit", "goodwill", "overcharge")),
+            "status": "open",
+            "issueDate": _day(rng, -90, -5),
+        }
+
+    audit.sort(key=lambda e: e["at"])
+    audit_table = {e["eventId"]: e for e in audit}
+
+    return {
+        "customers": customers,
+        "invoices": invoices,
+        "payments": payments,
+        "creditMemos": credit_memos,
+        "dunning": dunning,
+        "collections": collections,
+        "auditEvents": audit_table,
+        "counters": {"invoiceNo": {"value": inv_no}, "paymentNo": {"value": pmt_no},
+                     "dunningNo": {"value": dun_no}, "collectionNo": {"value": col_no},
+                     "creditMemoNo": {"value": 8}, "auditNo": {"value": len(audit)}},
+    }
