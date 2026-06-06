@@ -227,8 +227,8 @@ def _env(name: str) -> str:
 
 
 def _caracal_steps() -> list[dict[str, str]]:
-    zone = _env("CARACAL_ZONE_ID") or "zone_lynxcapital"
-    application = _env("CARACAL_APPLICATION_ID") or "app_lynxcapital"
+    zone = _env("CARACAL_ZONE_ID") or "<placeholder-zone-id>"
+    application = _env("CARACAL_APPLICATION_ID") or "<placeholder-application-id>"
     return [
         {
             "step": "01",
@@ -252,7 +252,7 @@ def _caracal_steps() -> list[dict[str, str]]:
             "console": "Create a policy in the zone that allows the Lynx application to read and act on the resources it routes to. Activate the policy set.",
             "why": "The gateway evaluates this policy on every provider call Lynx makes.",
             "field": "CARACAL_APP_CLIENT_SECRET",
-            "value": "<application-secret-from-console>",
+            "value": "<placeholder-application-secret>",
         },
     ]
 

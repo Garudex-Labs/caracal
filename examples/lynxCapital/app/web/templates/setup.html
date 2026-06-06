@@ -37,24 +37,27 @@ Lynx Capital guided setup page for Caracal configuration, providers, and launch.
   .status-optional, .status-warning, .status-pending { background: #fff7e6; color: #91610a; }
   .status-unmapped, .status-missing { background: #faecec; color: #a33434; }
 
-  .auto-grid { display: grid; gap: 22px; grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr); }
-  .auto-steps { counter-reset: auto; display: grid; gap: 16px; }
-  .auto-step { border-left: 2px solid #d9e2ee; padding: 2px 0 2px 16px; }
-  .auto-step h3 { color: #111827; font-size: 14px; font-weight: 780; margin: 0 0 5px; }
-  .auto-step p { color: #647187; font-size: 12.5px; line-height: 1.5; margin: 0; }
-  .scope-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
-  .scope-list code { background: #f1f5fb; border: 1px solid #e0e8f2; border-radius: 6px; color: #2a3a52; font-family: "Fira Code", ui-monospace, monospace; font-size: 11px; padding: 3px 7px; }
-  .script-head { align-items: center; display: flex; justify-content: space-between; margin: 18px 0 8px; }
-  .script-head h3 { color: #111827; font-size: 13px; font-weight: 800; margin: 0; }
-  pre.script { background: #0f172a; border-radius: 12px; color: #dce6f5; font-family: "Fira Code", ui-monospace, monospace; font-size: 11px; line-height: 1.55; margin: 0; max-height: 360px; overflow: auto; padding: 14px 15px; white-space: pre; }
-
   .automation-popup[hidden] { display: none; }
-  .automation-popup { align-items: center; background: rgba(248, 250, 252, .94); display: grid; inset: 0; padding: 24px; position: fixed; z-index: 40; }
-  .automation-dialog { background: #fff; border: 1px solid #cdd7e4; border-radius: 18px; margin: 0 auto; max-height: min(760px, calc(100vh - 48px)); overflow: auto; padding: 22px; width: min(880px, 100%); }
-  .automation-dialog header { align-items: start; display: flex; gap: 18px; justify-content: space-between; margin-bottom: 18px; }
-  .automation-dialog h2 { color: #111827; font-size: 22px; font-weight: 780; letter-spacing: -.02em; margin: 0 0 7px; }
+  .automation-popup { align-items: center; background: rgba(246, 248, 251, .92); display: grid; inset: 0; padding: 24px; position: fixed; z-index: 40; }
+  .automation-dialog { background: #fff; border: 1px solid #d8e0ea; border-radius: 14px; margin: 0 auto; max-height: min(720px, calc(100vh - 48px)); overflow: auto; padding: 0; width: min(820px, 100%); }
+  .automation-dialog header { align-items: start; border-bottom: 1px solid #e5eaf1; display: flex; gap: 18px; justify-content: space-between; padding: 22px 24px 18px; }
+  .automation-dialog h2 { color: #111827; font-size: 22px; font-weight: 780; letter-spacing: -.025em; line-height: 1.05; margin: 0 0 7px; }
   .automation-dialog p { color: #637188; font-size: 13px; line-height: 1.5; margin: 0; }
   .automation-close { background: #fff; border: 1px solid #cbd5e1; border-radius: 999px; color: #263449; cursor: pointer; font-size: 12px; font-weight: 850; padding: 8px 12px; }
+  .automation-body { display: grid; gap: 24px; grid-template-columns: minmax(0, .84fr) minmax(300px, 1fr); padding: 22px 24px 24px; }
+  .automation-path { display: grid; gap: 0; }
+  .automation-path article { border-top: 1px solid #e8edf4; padding: 14px 0; }
+  .automation-path article:first-child { border-top: 0; padding-top: 0; }
+  .automation-path h3 { color: #111827; font-size: 13px; font-weight: 780; margin: 0 0 5px; }
+  .automation-path p { color: #647187; font-size: 12.5px; line-height: 1.5; margin: 0; }
+  .automation-detail { border-top: 1px solid #e8edf4; color: #566276; font-size: 12px; padding-top: 12px; }
+  .automation-detail summary { cursor: pointer; font-weight: 800; margin-bottom: 9px; }
+  .scope-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .scope-list code { background: #f6f8fb; border: 1px solid #e2e8f0; border-radius: 6px; color: #2a3a52; font-family: "Fira Code", ui-monospace, monospace; font-size: 10.5px; padding: 3px 6px; }
+  .automation-terminal { align-content: start; display: grid; gap: 14px; }
+  .command-block h3 { color: #111827; font-size: 12px; font-weight: 850; letter-spacing: .08em; margin: 0 0 7px; text-transform: uppercase; }
+  pre.script { background: #f8fafc; border: 1px solid #e0e6ee; border-radius: 10px; color: #182235; font-family: "Fira Code", ui-monospace, monospace; font-size: 11px; line-height: 1.55; margin: 0; overflow: auto; padding: 12px 13px; white-space: pre; }
+  .automation-note { color: #7a8494; font-size: 11.5px; line-height: 1.45; margin-top: 2px; }
 
   .config-flow { display: grid; gap: 14px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .config-step { border-top: 2px solid #d9e2ee; padding-top: 12px; }
@@ -99,7 +102,7 @@ Lynx Capital guided setup page for Caracal configuration, providers, and launch.
   .primary-btn:disabled, .secondary-btn:disabled { cursor: not-allowed; opacity: .48; }
 
   @media (max-width: 1080px) {
-    .auto-grid, .validation-layout, .provider-grid { grid-template-columns: 1fr; }
+    .automation-body, .validation-layout, .provider-grid { grid-template-columns: 1fr; }
     .config-flow { grid-template-columns: 1fr; }
   }
   @media (max-width: 860px) {
@@ -235,37 +238,45 @@ Lynx Capital guided setup page for Caracal configuration, providers, and launch.
     <header>
       <div>
         <h2 id="automation-title">Automate setup</h2>
-        <p>Use the in-repo scripts to provision Lynx providers, resources, and the baseline policy. The scripts use their built-in Caracal defaults, so only the zone and scoped control key need to be exported.</p>
+        <p>Use the bundled scripts to create Lynx providers, resources, and the baseline policy from the current catalog.</p>
       </div>
       <button class="automation-close" id="automation-close" type="button">Close</button>
     </header>
 
-    <div class="auto-grid">
-      <div class="auto-steps">
-        <div class="auto-step">
-          <h3>1. Create the zone</h3>
-          <p>Create or select the Lynx zone in Caracal Console. Use that zone id in the export block below.</p>
-        </div>
-        <div class="auto-step">
-          <h3>2. Create a scoped control key</h3>
-          <p>In the Control menu, create a key with only the scopes below. Console returns the one-time client id and client secret.</p>
+    <div class="automation-body">
+      <div class="automation-path">
+        <article>
+          <h3>1. Select the Lynx zone</h3>
+          <p>Use the zone you created in Caracal Console. The script provisions objects inside that zone only.</p>
+        </article>
+        <article>
+          <h3>2. Create one control key</h3>
+          <p>Create a scoped key in the Control menu and copy the one-time client id and secret.</p>
+        </article>
+        <article>
+          <h3>3. Run provision</h3>
+          <p>Run the script from this example directory. It reads the provider catalog and creates the Caracal objects.</p>
+        </article>
+        <details class="automation-detail">
+          <summary>Required control access</summary>
           <div class="scope-list">
             {% for scope in setup_automate.scopes %}<code>{{ scope }}</code>{% endfor %}
           </div>
-        </div>
-        <div class="auto-step">
-          <h3>3. Run provision</h3>
-          <p>Run the script from the Lynx Capital directory. It reads the catalog, creates providers and resources, and publishes the baseline policy.</p>
-        </div>
+        </details>
       </div>
-      <div>
-        <div class="script-head"><h3>Required environment</h3></div>
-        <pre class="script">export CARACAL_ZONE_ID="zone_lynxcapital"
-export CONTROL_CLIENT_ID="app_lynx_bootstrap"
-export CONTROL_CLIENT_SECRET="one-time-secret-from-console"</pre>
-        <div class="script-head"><h3>Run scripts</h3></div>
-        <pre class="script">python scripts/provision.py
-python scripts/teardown.py</pre>
+      <div class="automation-terminal">
+        <div class="command-block">
+          <h3>Export once</h3>
+        <pre class="script">export CARACAL_ZONE_ID="<placeholder-zone-id>"
+export CONTROL_CLIENT_ID="<placeholder-control-client-id>"
+export CONTROL_CLIENT_SECRET="<placeholder-control-client-secret>"</pre>
+          <p class="automation-note">Replace every placeholder with the value issued by Caracal Console.</p>
+        </div>
+        <div class="command-block">
+          <h3>Run</h3>
+          <pre class="script">python scripts/provision.py</pre>
+          <p class="automation-note">Use <code>python scripts/teardown.py</code> only when you want to remove the demo objects.</p>
+        </div>
       </div>
     </div>
   </div>

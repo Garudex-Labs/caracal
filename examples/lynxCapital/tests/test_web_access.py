@@ -148,8 +148,13 @@ def test_setup_page_is_guided_and_provider_backed():
     assert "Create the zone" in body
     assert "Register the application" in body
     assert "Publish the access policy" in body
-    assert "CARACAL_ZONE_ID=zone_lynxcapital" in body
-    assert "CARACAL_APPLICATION_ID=app_lynxcapital" in body
+    assert "CARACAL_ZONE_ID=&lt;placeholder-zone-id&gt;" in body
+    assert "CARACAL_APPLICATION_ID=&lt;placeholder-application-id&gt;" in body
+    assert "CARACAL_APP_CLIENT_SECRET=&lt;placeholder-application-secret&gt;" in body
+    assert 'export CARACAL_ZONE_ID="<placeholder-zone-id>"' in body
+    assert 'export CONTROL_CLIENT_ID="<placeholder-control-client-id>"' in body
+    assert 'export CONTROL_CLIENT_SECRET="<placeholder-control-client-secret>"' in body
+    assert "Replace every placeholder with the value issued by Caracal Console." in body
     # Providers: manual mapping to Caracal resources
     assert "Providers" in body
     assert "resource://halcyon-bank" in body
@@ -256,8 +261,8 @@ def test_provision_scripts_exist_and_build_plan_from_catalog():
     with pytest.raises(control_client.ControlError):
         control_client.config_from_env({})
     config = control_client.config_from_env({
-        "CARACAL_ZONE_ID": "zone_lynxcapital",
-        "CONTROL_CLIENT_ID": "app_lynx_bootstrap",
-        "CONTROL_CLIENT_SECRET": "secret",
+        "CARACAL_ZONE_ID": "<placeholder-zone-id>",
+        "CONTROL_CLIENT_ID": "<placeholder-control-client-id>",
+        "CONTROL_CLIENT_SECRET": "<placeholder-control-client-secret>",
     })
     assert config.scopes == control_client.SCOPES
