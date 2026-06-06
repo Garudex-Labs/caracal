@@ -348,12 +348,6 @@ def submit_payout(run_id: str, agent_id: str, vendor_id: str, amount: float, cur
                  "reference": reference or vendor_id})
 
 
-def get_payout_status(run_id: str, agent_id: str, payout_id: str) -> dict[str, object]:
-    """Track a cross-border payout through its delivery lifecycle to settlement."""
-    return _run(run_id, agent_id, "get_payout_status", "quetzal-payouts", "get_payout",
-                {"payoutId": payout_id})
-
-
 def create_outbound_payment(run_id: str, agent_id: str, vendor_id: str, amount: float, currency: str, rail: str, reference: str) -> dict[str, object]:
     """Open-banking rail: draw from a currency-matched enabled account and pay the creditor."""
     accounts = _run(run_id, agent_id, "create_outbound_payment", "halcyon-bank", "list_accounts",
@@ -408,9 +402,11 @@ def list_payment_disputes(run_id: str, agent_id: str, status: str = "") -> dict[
     return _run(run_id, agent_id, "list_payment_disputes", "meridian-pay", "list_disputes", payload)
 
 
-def get_payout_status(run_id: str, agent_id: str, payout_id: str) -> dict[str, object]:
-    """Track a card-rail payout through to its settled state."""
-    return _run(run_id, agent_id, "get_payout_status", "meridian-pay", "get_payout",
+def get_payout_status(run_id: str, agent_id: str, payout_id: str, rail: str = "") -> dict[str, object]:
+    """Track a payout through to its settled state, querying the provider that served
+    its rail: cross-border rails to quetzal-payouts, card/default to meridian-pay."""
+    provider = "quetzal-payouts" if _RAIL_PROVIDER.get((rail or "").upper()) == "quetzal" else "meridian-pay"
+    return _run(run_id, agent_id, "get_payout_status", provider, "get_payout",
                 {"payoutId": payout_id})
 
 
