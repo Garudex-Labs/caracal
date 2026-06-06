@@ -31,6 +31,16 @@ CREDENTIAL_REQUIREMENTS = {
     "mandate": "Caracal-issued resource mandate",
 }
 
+PROVIDER_KINDS = {
+    "api_key": "api_key",
+    "bearer": "bearer_token",
+    "mcp_bearer": "bearer_token",
+    "oauth_cc": "oauth2_client_credentials",
+    "oauth_ac": "oauth2_authorization_code",
+    "none": "internal",
+    "mandate": "caracal_mandate",
+}
+
 
 def env_id(provider_id: str) -> str:
     return provider_id.upper().replace("-", "_")
@@ -69,6 +79,8 @@ def provider_entries(config_providers: list[Any]) -> list[dict[str, object]]:
             status = "Unmapped"
             resource = "Add to CARACAL_RESOURCES"
         credential_url = f"{url}/__lab/clients" if spec.auth.startswith("oauth") else f"{url}/__lab/credentials"
+        resource_identifier = f"resource://{spec.id}"
+        scopes = " ".join(spec.scopes) if spec.scopes else f"{spec.id.replace('-', '.')}.read"
         entries.append({
             "id": spec.id,
             "name": provider.name if provider else spec.id.replace("-", " ").title(),
@@ -78,7 +90,11 @@ def provider_entries(config_providers: list[Any]) -> list[dict[str, object]]:
             "protocol": (provider.protocol if provider else "http").upper(),
             "purpose": ", ".join(operation.replace("_", " ") for operation in spec.operations[:3]),
             "credentials": CREDENTIAL_REQUIREMENTS.get(spec.auth, spec.auth.replace("_", " ").title()),
+            "kind": PROVIDER_KINDS.get(spec.auth, "api_key"),
+            "resourceIdentifier": resource_identifier,
+            "scopes": scopes,
             "resource": resource,
+            "external": spec.auth != "none",
             "variables": [],
             "missing": [] if status != "Unmapped" else [spec.id],
             "upstreamUrl": url,

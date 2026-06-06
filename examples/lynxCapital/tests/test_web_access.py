@@ -118,61 +118,78 @@ def test_setup_page_is_guided_and_provider_backed():
     assert response.status_code == 200
     body = response.text
     assert "<h1>Setup</h1>" in body
-    assert "Confirm the environment, configure Caracal, review provider credentials" in body
+    assert "Connect Lynx Capital to Caracal" in body
     assert "progress-strip" in body
-    assert 'data-setup-tab="environment" aria-selected="true"' in body
-    assert 'data-setup-tab="caracal" aria-selected="false"' in body
+    assert 'id="automation-open"' in body
+    assert 'id="automation-popup"' in body
+    assert 'data-setup-tab="caracal" aria-selected="true"' in body
     assert 'data-setup-tab="providers" aria-selected="false"' in body
     assert 'data-setup-tab="validation" aria-selected="false"' in body
     assert 'data-setup-tab="launch" aria-selected="false"' in body
-    assert 'data-setup-panel="environment"' in body
-    assert 'data-setup-panel="caracal" aria-labelledby="caracal-heading" hidden' in body
+    assert 'data-setup-tab="automate"' not in body
+    assert 'data-setup-panel="automate"' not in body
+    assert 'data-setup-panel="caracal" aria-labelledby="caracal-heading"' in body
     assert 'data-setup-panel="providers" aria-labelledby="providers-heading" hidden' in body
     assert 'data-setup-panel="validation" aria-labelledby="validation-heading" hidden' in body
     assert 'data-setup-panel="launch" aria-labelledby="launch-heading" hidden' in body
     assert "function showSetupSection(name)" in body
-    assert "Environment Readiness" in body
-    assert "Live health for the Caracal services Lynx needs before setup continues." in body
-    assert "/5 healthy" in body
-    assert "http://localhost:3000" in body
-    assert "http://localhost:8080" in body
-    assert "http://localhost:8081" in body
-    assert "http://localhost:9090" in body
-    assert "http://localhost:4000" in body
-    assert "Caracal Configuration" in body
-    assert "Provider Credentials" in body
-    assert "Validation" in body
-    assert "Ready to Launch" in body
+    # Automation is a popup action, not a setup section
+    assert "Automate Setup" in body
+    assert "Automate setup" in body
+    assert "control:identity-provider:write" in body
+    assert "control:resource:write" in body
+    assert "CARACAL_ZONE_ID" in body
+    assert "CONTROL_CLIENT_ID" in body
+    assert "CONTROL_CLIENT_SECRET" in body
+    assert "python scripts/provision.py" in body
+    assert "python scripts/teardown.py" in body
+    # Caracal configuration: zone, application, policy
+    assert "Caracal configuration" in body
+    assert "Create the zone" in body
+    assert "Register the application" in body
+    assert "Publish the access policy" in body
+    assert "CARACAL_ZONE_ID=zone_lynxcapital" in body
+    assert "CARACAL_APPLICATION_ID=app_lynxcapital" in body
+    # Providers: manual mapping to Caracal resources
+    assert "Providers" in body
+    assert "resource://halcyon-bank" in body
+    assert "oauth2_authorization_code" in body
+    assert "Open provider console" in body
+    assert "Create credentials" in body
+    assert "Provider docs" in body
+    assert "/__lab/credentials" in body
+    assert "/__lab/clients" in body
+    assert "/__lab/resources" in body
+    assert "Halcyon Bank" in body
+    assert "Quetzal Payouts" in body
+    assert "Junction Procurement" in body
+    # Validation: user-facing checks only, no infra health
+    assert "Required identifiers" in body
+    assert "Application access" in body
+    assert "Caracal mapping" in body
+    assert "Provider setup" in body
     assert "Run Validation" in body
     assert "Launch Demo" in body
     assert "Open Workspace" in body
     assert "Start First Workflow" in body
-    assert "CARACAL_ZONE_ID=zone_lynxcapital" in body
-    assert "CARACAL_APP_CLIENT_SECRET=&lt;application-secret&gt;" in body
-    assert "CARACAL_STS_URL=http://localhost:8080" in body
-    assert "CARACAL_RESOURCES=meridian-pay=http://127.0.0.1:9401,halcyon-bank=http://127.0.0.1:9400" in body
-    assert "Caracal identity" in body
-    assert "Application auth" in body
-    assert "Service endpoints" in body
-    assert "Resource bindings" in body
-    assert "Provider access" in body
-    assert "Halcyon Bank" in body
-    assert "Quetzal Payouts" in body
-    assert "Junction Procurement" in body
-    assert "Credentials needed" in body
-    assert "Open dashboard" in body
-    assert "Create credentials" in body
-    assert "Read provider docs" in body
-    assert "/__lab/credentials" in body
-    assert "/__lab/clients" in body
-    assert "/__lab/resources" in body
+    # No infra/service health surfaced to the end user
+    assert "Environment Readiness" not in body
+    assert "healthy" not in body
+    assert "CONTROL_URL" not in body
+    assert "STS_URL" not in body
+    assert "CONTROL_AUDIENCE" not in body
+    assert "caracal-control" not in body
+    assert "http://127.0.0.1:8087" not in body
+    assert "http://127.0.0.1:8080" not in body
+    assert "http://localhost:9090" not in body
+    assert "Service endpoints" not in body
+    assert "CARACAL_STS_URL=http://localhost:8080" not in body
+    # No legacy infra/startup commands
     assert "python -m _mock.providerlab.seedenv" not in body
     assert "docker compose -f _mock/docker-compose.yml up -d --build --wait" not in body
     assert "uv run uvicorn app.main:app --reload --port 8000" not in body
     assert "Start provider network" not in body
     assert "Launch Lynx Capital" not in body
-    assert ".panel {" not in body
-    assert "Validate configuration" not in body
     assert "gradient(" not in body
     assert "box-shadow" not in body
 
@@ -205,3 +222,42 @@ def test_demo_workspace_is_end_user_focused():
     assert "Memory pressure" not in body
     assert "Runtime counters" not in body
     assert "Execution timeline" not in body
+
+
+def test_provision_scripts_exist_and_build_plan_from_catalog():
+    import sys
+    from pathlib import Path
+
+    scripts_dir = Path(__file__).resolve().parent.parent / "scripts"
+    assert (scripts_dir / "provision.py").exists()
+    assert (scripts_dir / "teardown.py").exists()
+    assert (scripts_dir / "control_client.py").exists()
+
+    sys.path.insert(0, str(scripts_dir))
+    try:
+        import control_client
+        import provision_plan
+    finally:
+        sys.path.remove(str(scripts_dir))
+
+    entries = provision_plan.providers()
+    assert entries, "expected external providers in the provision plan"
+    sample = entries[0]
+    assert sample["resourceIdentifier"].startswith("resource://")
+    assert sample["kind"]
+    assert sample["scopes"]
+
+    policy = provision_plan.policy([entry["resourceIdentifier"] for entry in entries])
+    assert policy["name"] == provision_plan.POLICY_NAME
+    assert "package caracal.authz" in policy["content"]
+
+    import pytest
+
+    with pytest.raises(control_client.ControlError):
+        control_client.config_from_env({})
+    config = control_client.config_from_env({
+        "CARACAL_ZONE_ID": "zone_lynxcapital",
+        "CONTROL_CLIENT_ID": "app_lynx_bootstrap",
+        "CONTROL_CLIENT_SECRET": "secret",
+    })
+    assert config.scopes == control_client.SCOPES

@@ -2,22 +2,23 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-Lynx Capital guided setup page for Caracal runtime and provider readiness.
+Lynx Capital guided setup page for Caracal configuration, providers, and launch.
 #}
 {% extends "layout.html" %}
 {% block title %}Setup: {{ company }}{% endblock %}
 
 {% block content %}
 <style>
-  .setup-page { width: min(1320px, calc(100vw - 48px)); margin: 0 auto; padding: 24px 0 36px; }
-  .setup-header { align-items: end; display: grid; gap: 22px; grid-template-columns: minmax(0, 1fr) auto; margin-bottom: 20px; }
+  .setup-page { width: min(1280px, calc(100vw - 48px)); margin: 0 auto; padding: 24px 0 40px; }
+  .setup-header { align-items: end; display: grid; gap: 22px; grid-template-columns: minmax(0, 1fr) auto; margin-bottom: 18px; }
   .setup-kicker { color: var(--accent); font-size: 11px; font-weight: 800; letter-spacing: .14em; margin: 0 0 8px; text-transform: uppercase; }
-  .setup-header h1 { color: #111827; font-family: Outfit, Inter, sans-serif; font-size: clamp(34px, 5vw, 58px); font-weight: 780; letter-spacing: -.045em; line-height: .95; margin: 0; }
-  .setup-header p { color: #59667a; font-size: 14px; line-height: 1.55; margin: 12px 0 0; max-width: 680px; }
+  .setup-header h1 { color: #111827; font-family: Outfit, Inter, sans-serif; font-size: clamp(34px, 5vw, 56px); font-weight: 780; letter-spacing: -.045em; line-height: .95; margin: 0; }
+  .setup-header p { color: #59667a; font-size: 14px; line-height: 1.55; margin: 12px 0 0; max-width: 660px; }
+  .setup-actions { align-items: center; display: flex; flex-wrap: wrap; gap: 9px; justify-content: flex-end; }
   .setup-return { align-items: center; border: 1px solid #cdd7e4; border-radius: 999px; color: #253244; display: inline-flex; font-size: 12px; font-weight: 800; padding: 9px 13px; text-decoration: none; white-space: nowrap; }
   .setup-return:hover { border-color: var(--primary); color: var(--primary); }
 
-  .progress-strip { border-bottom: 1px solid #d8e0ea; border-top: 1px solid #d8e0ea; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); margin-bottom: 24px; }
+  .progress-strip { border-bottom: 1px solid #d8e0ea; border-top: 1px solid #d8e0ea; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: 22px; }
   .progress-step { background: #fff; border: 0; cursor: pointer; font: inherit; min-width: 0; padding: 12px 14px; text-align: left; }
   .progress-step + .progress-step { border-left: 1px solid #e5eaf1; }
   .progress-step span { color: #8793a5; display: block; font-size: 10px; font-weight: 850; letter-spacing: .13em; margin-bottom: 5px; text-transform: uppercase; }
@@ -25,84 +26,91 @@ Lynx Capital guided setup page for Caracal runtime and provider readiness.
   .progress-step[aria-selected="true"] { background: #f8fafc; }
   .progress-step[aria-selected="true"] span, .progress-step[aria-selected="true"] strong { color: var(--primary); }
 
-  .setup-grid { display: grid; gap: 18px; }
   .setup-panel[hidden] { display: none; }
-  .section-block { background: #fff; border: 1px solid #dce3ed; border-radius: 16px; padding: 18px; }
-  .section-head { align-items: start; display: flex; gap: 18px; justify-content: space-between; margin-bottom: 15px; }
-  .section-title { min-width: 0; }
-  .section-title span { color: var(--accent); display: block; font-size: 10px; font-weight: 850; letter-spacing: .14em; margin-bottom: 6px; text-transform: uppercase; }
-  .section-title h2 { color: #111827; font-size: 18px; font-weight: 780; letter-spacing: -.015em; line-height: 1.15; margin: 0; }
-  .section-head p { color: #637188; font-size: 12px; line-height: 1.45; margin: 2px 0 0; max-width: 430px; }
-  .section-count { border: 1px solid #d8e0ea; border-radius: 999px; color: #24364d; flex: none; font-size: 11px; font-weight: 850; padding: 6px 10px; }
+  .section-head { margin-bottom: 16px; }
+  .section-head span.kicker { color: var(--accent); display: block; font-size: 10px; font-weight: 850; letter-spacing: .14em; margin-bottom: 6px; text-transform: uppercase; }
+  .section-head h2 { color: #111827; font-size: 21px; font-weight: 780; letter-spacing: -.02em; line-height: 1.1; margin: 0; }
+  .section-head p { color: #637188; font-size: 13px; line-height: 1.5; margin: 8px 0 0; max-width: 720px; }
 
-  .status { border-radius: 999px; display: inline-flex; font-size: 10px; font-weight: 850; justify-content: center; letter-spacing: .08em; padding: 5px 8px; text-transform: uppercase; white-space: nowrap; }
-  .status-configured, .status-ready, .status-mapped, .status-passed, .status-online { background: #e8f5ef; color: #136c45; }
+  .status { border-radius: 999px; display: inline-flex; font-size: 10px; font-weight: 850; justify-content: center; letter-spacing: .07em; padding: 5px 9px; text-transform: uppercase; white-space: nowrap; }
+  .status-ready, .status-mapped, .status-passed { background: #e8f5ef; color: #136c45; }
   .status-optional, .status-warning, .status-pending { background: #fff7e6; color: #91610a; }
-  .status-missing, .status-unmapped, .status-failed, .status-offline { background: #faecec; color: #a33434; }
+  .status-unmapped, .status-missing { background: #faecec; color: #a33434; }
 
-  .readiness-list { border-top: 1px solid #e3e8f0; }
-  .readiness-row { align-items: center; display: grid; gap: 14px; grid-template-columns: 190px minmax(0, 1fr) 112px; padding: 12px 0; }
-  .readiness-row + .readiness-row { border-top: 1px solid #eef2f7; }
-  .readiness-row strong { color: #1e293b; font-size: 13px; font-weight: 780; }
-  .readiness-row p { color: #657389; font-size: 12px; line-height: 1.42; margin: 0; }
-  .endpoint { color: #657389; font-family: "Fira Code", ui-monospace, monospace; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .auto-grid { display: grid; gap: 22px; grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr); }
+  .auto-steps { counter-reset: auto; display: grid; gap: 16px; }
+  .auto-step { border-left: 2px solid #d9e2ee; padding: 2px 0 2px 16px; }
+  .auto-step h3 { color: #111827; font-size: 14px; font-weight: 780; margin: 0 0 5px; }
+  .auto-step p { color: #647187; font-size: 12.5px; line-height: 1.5; margin: 0; }
+  .scope-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .scope-list code { background: #f1f5fb; border: 1px solid #e0e8f2; border-radius: 6px; color: #2a3a52; font-family: "Fira Code", ui-monospace, monospace; font-size: 11px; padding: 3px 7px; }
+  .script-head { align-items: center; display: flex; justify-content: space-between; margin: 18px 0 8px; }
+  .script-head h3 { color: #111827; font-size: 13px; font-weight: 800; margin: 0; }
+  pre.script { background: #0f172a; border-radius: 12px; color: #dce6f5; font-family: "Fira Code", ui-monospace, monospace; font-size: 11px; line-height: 1.55; margin: 0; max-height: 360px; overflow: auto; padding: 14px 15px; white-space: pre; }
 
-  .config-flow { display: grid; gap: 12px; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .automation-popup[hidden] { display: none; }
+  .automation-popup { align-items: center; background: rgba(248, 250, 252, .94); display: grid; inset: 0; padding: 24px; position: fixed; z-index: 40; }
+  .automation-dialog { background: #fff; border: 1px solid #cdd7e4; border-radius: 18px; margin: 0 auto; max-height: min(760px, calc(100vh - 48px)); overflow: auto; padding: 22px; width: min(880px, 100%); }
+  .automation-dialog header { align-items: start; display: flex; gap: 18px; justify-content: space-between; margin-bottom: 18px; }
+  .automation-dialog h2 { color: #111827; font-size: 22px; font-weight: 780; letter-spacing: -.02em; margin: 0 0 7px; }
+  .automation-dialog p { color: #637188; font-size: 13px; line-height: 1.5; margin: 0; }
+  .automation-close { background: #fff; border: 1px solid #cbd5e1; border-radius: 999px; color: #263449; cursor: pointer; font-size: 12px; font-weight: 850; padding: 8px 12px; }
+
+  .config-flow { display: grid; gap: 14px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .config-step { border-top: 2px solid #d9e2ee; padding-top: 12px; }
-  .config-step span { color: var(--accent); display: block; font-size: 10px; font-weight: 850; letter-spacing: .14em; margin-bottom: 8px; text-transform: uppercase; }
-  .config-step h3 { color: #111827; font-size: 14px; font-weight: 780; margin: 0 0 6px; }
-  .config-step p { color: #647187; font-size: 12px; line-height: 1.42; margin: 0 0 10px; }
-  .config-step pre { background: #f7f9fc; border: 1px solid #dce4ef; border-radius: 10px; color: #172033; font-family: "Fira Code", ui-monospace, monospace; font-size: 11px; line-height: 1.5; margin: 0 0 9px; overflow-x: auto; padding: 10px 11px; }
-  .expected { color: #66748a; font-size: 11px; line-height: 1.35; }
-  .expected b { color: #273449; }
+  .config-step span.num { color: var(--accent); display: block; font-size: 10px; font-weight: 850; letter-spacing: .14em; margin-bottom: 8px; text-transform: uppercase; }
+  .config-step h3 { color: #111827; font-size: 15px; font-weight: 780; margin: 0 0 6px; }
+  .config-step .console-do { color: #44506a; font-size: 12.5px; line-height: 1.5; margin: 0 0 10px; }
+  .config-step .why { color: #8a93a3; font-size: 11.5px; line-height: 1.4; margin: 0 0 12px; }
+  .config-step pre { background: #f7f9fc; border: 1px solid #dce4ef; border-radius: 9px; color: #172033; font-family: "Fira Code", ui-monospace, monospace; font-size: 11px; line-height: 1.5; margin: 0; overflow-x: auto; padding: 9px 10px; }
+  .env-note { color: #66748a; font-size: 11px; line-height: 1.45; margin-top: 18px; }
+  .env-note code { background: #f1f5fb; border-radius: 5px; color: #2a3a52; font-family: "Fira Code", ui-monospace, monospace; font-size: 11px; padding: 2px 5px; }
 
-  .provider-table { border-top: 1px solid #dce3ed; display: grid; }
-  .provider-row { align-items: start; display: grid; gap: 14px; grid-template-columns: minmax(160px, 1fr) minmax(180px, 1.05fr) minmax(170px, .95fr) minmax(164px, .9fr) 86px; padding: 12px 0; }
-  .provider-row + .provider-row { border-top: 1px solid #edf1f6; }
-  .provider-name strong, .provider-cell strong { color: #1e293b; display: block; font-size: 12px; font-weight: 780; }
-  .provider-name span, .provider-cell span { color: #737f91; display: block; font-size: 11px; line-height: 1.38; margin-top: 4px; }
-  .provider-links { display: flex; flex-wrap: wrap; gap: 8px; }
-  .provider-links a, .text-link { border-bottom: 1px solid #b7c3d3; color: #24364d; font-size: 11px; font-weight: 850; padding-bottom: 2px; text-decoration: none; white-space: nowrap; }
-  .provider-links a:hover, .text-link:hover { border-color: var(--primary); color: var(--primary); }
+  .provider-grid { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .provider-card { border: 1px solid #e1e7f0; border-radius: 12px; padding: 14px 15px; }
+  .provider-card header { align-items: start; display: flex; gap: 10px; justify-content: space-between; margin-bottom: 10px; }
+  .provider-card h3 { color: #1e293b; font-size: 14px; font-weight: 780; margin: 0; }
+  .provider-card header span.meta { color: #8793a5; display: block; font-size: 11px; margin-top: 3px; }
+  .provider-card .use { color: #647187; font-size: 12px; line-height: 1.45; margin: 0 0 11px; }
+  .map-row { display: grid; gap: 2px 12px; grid-template-columns: 96px minmax(0, 1fr); padding: 4px 0; }
+  .map-row dt { color: #8a93a3; font-size: 10px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; }
+  .map-row dd { color: #2a3a52; font-family: "Fira Code", ui-monospace, monospace; font-size: 11px; margin: 0; word-break: break-all; }
+  .provider-links { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 11px; }
+  .provider-links a { border-bottom: 1px solid #b7c3d3; color: #24364d; font-size: 11px; font-weight: 800; padding-bottom: 2px; text-decoration: none; white-space: nowrap; }
+  .provider-links a:hover { border-color: var(--primary); color: var(--primary); }
 
-  .validation-layout { display: grid; gap: 16px; grid-template-columns: minmax(220px, .45fr) minmax(0, 1fr); }
-  .check-list { border-left: 2px solid #d8e0ea; display: grid; gap: 9px; padding-left: 14px; }
-  .check-list span { color: #374151; font-size: 12px; font-weight: 700; }
-  .validation-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
-  .primary-btn, .secondary-btn { border-radius: 999px; cursor: pointer; font-size: 12px; font-weight: 850; padding: 9px 14px; }
-  .primary-btn { background: var(--primary); border: 1px solid var(--primary); color: #fff; }
-  .secondary-btn { background: #fff; border: 1px solid #cbd5e1; color: #263449; }
-  .primary-btn:disabled, .secondary-btn:disabled { cursor: not-allowed; opacity: .48; }
+  .validation-layout { display: grid; gap: 18px; grid-template-columns: minmax(210px, .4fr) minmax(0, 1fr); }
+  .check-list { border-left: 2px solid #d8e0ea; display: grid; gap: 10px; padding-left: 14px; }
+  .check-list span { color: #374151; font-size: 12.5px; font-weight: 700; }
+  .check-list small { color: #8a93a3; display: block; font-size: 11px; font-weight: 500; margin-top: 2px; }
   .validation-results { display: grid; gap: 8px; }
-  .validation-row { align-items: start; background: #f8fafc; border: 1px solid #e0e6ee; border-radius: 10px; display: grid; gap: 8px; grid-template-columns: 92px minmax(128px, 180px) minmax(0, 1fr); padding: 10px 12px; }
+  .validation-row { align-items: start; background: #f8fafc; border: 1px solid #e0e6ee; border-radius: 10px; display: grid; gap: 8px; grid-template-columns: 92px minmax(120px, 180px) minmax(0, 1fr); padding: 10px 12px; }
   .validation-row strong { color: #1e293b; font-size: 12px; }
   .validation-row p { color: #647187; font-size: 11px; line-height: 1.4; margin: 0; }
 
-  .launch-panel { align-items: center; background: #f8fafc; border: 1px solid #dce3ed; border-radius: 16px; display: grid; gap: 18px; grid-template-columns: minmax(0, 1fr) auto; padding: 18px; }
-  .launch-panel h2 { color: #111827; font-size: 18px; font-weight: 780; letter-spacing: -.015em; margin: 0 0 6px; }
-  .launch-panel p { color: #637188; font-size: 12px; line-height: 1.45; margin: 0; max-width: 620px; }
+  .launch-panel { align-items: center; background: #f8fafc; border: 1px solid #dce3ed; border-radius: 14px; display: grid; gap: 18px; grid-template-columns: minmax(0, 1fr) auto; padding: 20px; }
+  .launch-panel h2 { color: #111827; font-size: 19px; font-weight: 780; letter-spacing: -.015em; margin: 0 0 6px; }
+  .launch-panel p { color: #637188; font-size: 12.5px; line-height: 1.5; margin: 0; max-width: 620px; }
   .launch-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: flex-end; }
 
-  @media (max-width: 1180px) {
-    .config-flow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .provider-row { grid-template-columns: minmax(160px, 1fr) minmax(180px, 1fr) minmax(170px, 1fr); }
+  .primary-btn, .secondary-btn { border-radius: 999px; cursor: pointer; font-size: 12px; font-weight: 850; padding: 9px 15px; }
+  .primary-btn { background: var(--primary); border: 1px solid var(--primary); color: #fff; }
+  .secondary-btn { background: #fff; border: 1px solid #cbd5e1; color: #263449; }
+  .primary-btn:disabled, .secondary-btn:disabled { cursor: not-allowed; opacity: .48; }
+
+  @media (max-width: 1080px) {
+    .auto-grid, .validation-layout, .provider-grid { grid-template-columns: 1fr; }
+    .config-flow { grid-template-columns: 1fr; }
   }
   @media (max-width: 860px) {
-    .setup-page { width: min(100% - 28px, 760px); padding-top: 18px; }
-    .setup-header, .launch-panel, .validation-layout { grid-template-columns: 1fr; }
+    .setup-page { width: min(100% - 28px, 760px); }
+    .setup-header, .launch-panel { grid-template-columns: 1fr; }
+    .setup-actions { justify-content: flex-start; }
     .progress-strip { grid-template-columns: 1fr 1fr; }
     .progress-step:nth-child(odd) { border-left: 0; }
     .progress-step:nth-child(n+3) { border-top: 1px solid #e5eaf1; }
-    .readiness-row, .provider-row, .validation-row { grid-template-columns: 1fr; gap: 6px; }
+    .validation-row { grid-template-columns: 1fr; gap: 6px; }
     .launch-actions { justify-content: flex-start; }
-  }
-  @media (max-width: 560px) {
-    .setup-page { width: min(100% - 20px, 520px); }
-    .section-block, .launch-panel { border-radius: 12px; padding: 14px; }
-    .section-head { display: block; }
-    .section-count { display: inline-flex; margin-top: 10px; }
-    .config-flow, .progress-strip { grid-template-columns: 1fr; }
-    .progress-step + .progress-step { border-left: 0; border-top: 1px solid #e5eaf1; }
   }
 </style>
 
@@ -111,139 +119,155 @@ Lynx Capital guided setup page for Caracal runtime and provider readiness.
     <div>
       <p class="setup-kicker">Guided setup</p>
       <h1>Setup</h1>
-      <p>Confirm the environment, configure Caracal, review provider credentials, validate readiness, then open the Lynx Capital workspace.</p>
+      <p>Connect Lynx Capital to Caracal. Follow the guided steps for the zone, application, policy, providers, validation, and launch.</p>
     </div>
-    <a class="setup-return" href="{{ setup_links.overview }}">Return to Overview</a>
+    <div class="setup-actions">
+      <button class="primary-btn" id="automation-open" type="button">Automate Setup</button>
+      <a class="setup-return" href="{{ setup_links.overview }}">Return to Overview</a>
+    </div>
   </header>
 
   <nav class="progress-strip" aria-label="Setup stages">
-    <button type="button" class="progress-step" data-setup-tab="environment" aria-selected="true"><span>01</span><strong>Environment</strong></button>
-    <button type="button" class="progress-step" data-setup-tab="caracal" aria-selected="false"><span>02</span><strong>Caracal</strong></button>
-    <button type="button" class="progress-step" data-setup-tab="providers" aria-selected="false"><span>03</span><strong>Providers</strong></button>
-    <button type="button" class="progress-step" data-setup-tab="validation" aria-selected="false"><span>04</span><strong>Validation</strong></button>
-    <button type="button" class="progress-step" data-setup-tab="launch" aria-selected="false"><span>05</span><strong>Launch</strong></button>
+    <button type="button" class="progress-step" data-setup-tab="caracal" aria-selected="true"><span>01</span><strong>Caracal</strong></button>
+    <button type="button" class="progress-step" data-setup-tab="providers" aria-selected="false"><span>02</span><strong>Providers</strong></button>
+    <button type="button" class="progress-step" data-setup-tab="validation" aria-selected="false"><span>03</span><strong>Validation</strong></button>
+    <button type="button" class="progress-step" data-setup-tab="launch" aria-selected="false"><span>04</span><strong>Launch</strong></button>
   </nav>
 
-  <div class="setup-grid">
-    <section class="section-block setup-panel" data-setup-panel="environment" aria-labelledby="environment-heading">
-      <div class="section-head">
-        <div class="section-title">
-          <span>Section 1</span>
-          <h2 id="environment-heading">Environment Readiness</h2>
-        </div>
-        <p>Live health for the Caracal services Lynx needs before setup continues.</p>
-        <div class="section-count">{{ setup_progress.ready }}/{{ setup_progress.total }} healthy</div>
-      </div>
-      <div class="readiness-list">
-        {% for item in setup_requirements %}
-        <div class="readiness-row">
-          <strong>{{ item.name }}</strong>
-          <span class="endpoint">{{ item.endpoint }}</span>
-          <span class="status status-{{ item.status|lower|replace(' ', '-') }}">{{ item.status }}</span>
-        </div>
-        {% endfor %}
-      </div>
-    </section>
+  <section class="setup-panel" data-setup-panel="caracal" aria-labelledby="caracal-heading">
+    <div class="section-head">
+      <span class="kicker">Section 1</span>
+      <h2 id="caracal-heading">Caracal configuration</h2>
+      <p>Prefer to set things up by hand? Create the zone, application, and policy in the Caracal console, then put the identifiers into your environment. These are the only values Lynx needs from you.</p>
+    </div>
+    <div class="config-flow">
+      {% for step in setup_caracal_steps %}
+      <article class="config-step">
+        <span class="num">Step {{ step.step }}</span>
+        <h3>{{ step.title }}</h3>
+        <p class="console-do"><b>In the console:</b> {{ step.console }}</p>
+        <p class="why">{{ step.why }}</p>
+        <pre><code>{{ step.field }}={{ step.value }}</code></pre>
+      </article>
+      {% endfor %}
+    </div>
+    <p class="env-note">Use the application secret from the console for STS exchange, or set <code>CARACAL_SUBJECT_TOKEN</code> for local bring-up. Map providers to resources in the Providers step.</p>
+  </section>
 
-    <section class="section-block setup-panel" data-setup-panel="caracal" aria-labelledby="caracal-heading" hidden>
-      <div class="section-head">
-        <div class="section-title">
-          <span>Section 2</span>
-          <h2 id="caracal-heading">Caracal Configuration</h2>
+  <section class="setup-panel" data-setup-panel="providers" aria-labelledby="providers-heading" hidden>
+    <div class="section-head">
+      <span class="kicker">Section 2</span>
+      <h2 id="providers-heading">Providers</h2>
+      <p>Each provider becomes one Caracal resource. Create credentials in the provider console, then map the resource id to its upstream in <code>CARACAL_RESOURCES</code> — or let the automated script do all {{ setup_external_count }} at once.</p>
+    </div>
+    <div class="provider-grid">
+      {% for provider in setup_providers %}
+      <article class="provider-card">
+        <header>
+          <div>
+            <h3>{{ provider.name }}</h3>
+            <span class="meta">{{ provider.category }} · {{ provider.protocol }} · {{ provider.auth }}</span>
+          </div>
+          <span class="status status-{{ provider.status|lower|replace(' ', '-') }}">{{ provider.status }}</span>
+        </header>
+        <p class="use">{{ provider.purpose }}</p>
+        <dl>
+          <div class="map-row"><dt>Resource</dt><dd>{{ provider.resourceIdentifier }}</dd></div>
+          <div class="map-row"><dt>Kind</dt><dd>{{ provider.kind }}</dd></div>
+          <div class="map-row"><dt>Scopes</dt><dd>{{ provider.scopes }}</dd></div>
+          <div class="map-row"><dt>Credentials</dt><dd>{{ provider.credentials }}</dd></div>
+          <div class="map-row"><dt>Resources</dt><dd>{{ provider.id }}={{ provider.upstreamUrl }}</dd></div>
+        </dl>
+        <div class="provider-links">
+          <a href="{{ provider.dashboardUrl }}" target="_blank" rel="noreferrer">Open provider console</a>
+          <a href="{{ provider.credentialUrl }}" target="_blank" rel="noreferrer">Create credentials</a>
+          <a href="{{ provider.documentationUrl }}" target="_blank" rel="noreferrer">Provider docs</a>
         </div>
-        <p>Set only the Caracal-side values Lynx needs. Provider services and the web process are expected to already be running.</p>
-      </div>
-      <div class="config-flow">
-        {% for command in setup_commands %}
-        <article class="config-step">
-          <span>{{ command.step }}</span>
-          <h3>{{ command.action }}</h3>
-          <p>{{ command.description }}</p>
-          <pre><code>{{ command.command }}</code></pre>
-          <div class="expected"><b>Expected:</b> {{ command.expected }}</div>
-        </article>
-        {% endfor %}
-      </div>
-    </section>
+      </article>
+      {% endfor %}
+    </div>
+  </section>
 
-    <section class="section-block setup-panel" data-setup-panel="providers" aria-labelledby="providers-heading" hidden>
-      <div class="section-head">
-        <div class="section-title">
-          <span>Section 3</span>
-          <h2 id="providers-heading">Provider Credentials</h2>
-        </div>
-        <p>Use the provider links to inspect credential requirements, dashboards, and resource documentation for the configured Lynx provider surfaces.</p>
-        <div class="section-count">{{ setup_providers|length }} providers</div>
+  <section class="setup-panel" data-setup-panel="validation" aria-labelledby="validation-heading" hidden>
+    <div class="section-head">
+      <span class="kicker">Section 3</span>
+      <h2 id="validation-heading">Validation</h2>
+      <p>Check that your configuration is complete before launching. This only looks at what you control — not backend services.</p>
+    </div>
+    <div class="validation-layout">
+      <div class="check-list" aria-label="Validation checks">
+        <span>Required identifiers<small>Zone and application are set</small></span>
+        <span>Application access<small>Application secret or subject token</small></span>
+        <span>Caracal mapping<small>Providers map to resources</small></span>
+        <span>Provider setup<small>Credentials and bindings in place</small></span>
       </div>
-      <div class="provider-table">
-        {% for provider in setup_providers %}
-        <article class="provider-row">
-          <div class="provider-name">
-            <strong>{{ provider.name }}</strong>
-            <span>{{ provider.category }} · {{ provider.protocol }}</span>
-          </div>
-          <div class="provider-cell">
-            <strong>Used for</strong>
-            <span>{{ provider.purpose }}</span>
-          </div>
-          <div class="provider-cell">
-            <strong>Credentials needed</strong>
-            <span>{{ provider.credentials }}</span>
-          </div>
-          <div class="provider-links">
-            <a href="{{ provider.dashboardUrl }}" target="_blank" rel="noreferrer">Open dashboard</a>
-            <a href="{{ provider.credentialUrl }}" target="_blank" rel="noreferrer">Create credentials</a>
-            <a href="{{ provider.documentationUrl }}" target="_blank" rel="noreferrer">Read provider docs</a>
-          </div>
-          <div><span class="status status-{{ provider.status|lower|replace(' ', '-') }}">{{ provider.status }}</span></div>
-        </article>
-        {% endfor %}
-      </div>
-    </section>
-
-    <section class="section-block setup-panel" data-setup-panel="validation" aria-labelledby="validation-heading" hidden>
-      <div class="section-head">
-        <div class="section-title">
-          <span>Section 4</span>
-          <h2 id="validation-heading">Validation</h2>
-        </div>
-        <p>Run one readiness check before unlocking the workspace actions.</p>
-      </div>
-      <div class="validation-layout">
-        <div class="check-list" aria-label="Validation checks">
-          <span>Caracal identity</span>
-          <span>Application auth</span>
-          <span>Service endpoints</span>
-          <span>Resource bindings</span>
-          <span>Provider access</span>
-        </div>
-        <div>
-          <div class="validation-actions">
-            <button type="button" class="primary-btn validate-trigger">Run Validation</button>
-          </div>
-          <div id="validation-results" class="validation-results" aria-live="polite">
-            <div class="validation-row">
-              <span class="status status-pending">Pending</span>
-              <strong>Validation not run</strong>
-              <p>Run validation after Caracal configuration and provider resource mapping are in place.</p>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="launch-panel setup-panel" data-setup-panel="launch" aria-labelledby="launch-heading" hidden>
       <div>
-        <h2 id="launch-heading">Ready to Launch</h2>
-        <p id="launch-copy">Launch actions stay locked until validation passes. Once ready, continue into the demo workspace or start from the first workflow prompt.</p>
+        <div class="validation-actions" style="display:flex;gap:10px;margin-bottom:12px;">
+          <button type="button" class="primary-btn validate-trigger">Run Validation</button>
+        </div>
+        <div id="validation-results" class="validation-results" aria-live="polite">
+          <div class="validation-row">
+            <span class="status status-pending">Pending</span>
+            <strong>Validation not run</strong>
+            <p>Run validation once the Caracal configuration and providers are in place.</p>
+          </div>
+        </div>
       </div>
-      <div class="launch-actions">
-        <button type="button" class="secondary-btn validate-trigger">Run Validation</button>
-        <button id="launch-demo-btn" type="button" class="primary-btn ready-action" data-target="/demo" disabled>Launch Demo</button>
-        <button id="open-workspace-btn" type="button" class="secondary-btn ready-action" data-target="/demo" disabled>Open Workspace</button>
-        <button id="first-workflow-btn" type="button" class="secondary-btn ready-action" data-target="/prompts" disabled>Start First Workflow</button>
+    </div>
+  </section>
+
+  <section class="launch-panel setup-panel" data-setup-panel="launch" aria-labelledby="launch-heading" hidden>
+    <div>
+      <h2 id="launch-heading">Ready to launch</h2>
+      <p id="launch-copy">Launch actions stay locked until validation passes. Once your configuration is complete, open the workspace or start from the first workflow.</p>
+    </div>
+    <div class="launch-actions">
+      <button type="button" class="secondary-btn validate-trigger">Run Validation</button>
+      <button id="launch-demo-btn" type="button" class="primary-btn ready-action" data-target="/demo" disabled>Launch Demo</button>
+      <button id="open-workspace-btn" type="button" class="secondary-btn ready-action" data-target="/demo" disabled>Open Workspace</button>
+      <button id="first-workflow-btn" type="button" class="secondary-btn ready-action" data-target="/prompts" disabled>Start First Workflow</button>
+    </div>
+  </section>
+</div>
+
+<div class="automation-popup" id="automation-popup" role="dialog" aria-modal="true" aria-labelledby="automation-title" hidden>
+  <div class="automation-dialog">
+    <header>
+      <div>
+        <h2 id="automation-title">Automate setup</h2>
+        <p>Use the in-repo scripts to provision Lynx providers, resources, and the baseline policy. The scripts use their built-in Caracal defaults, so only the zone and scoped control key need to be exported.</p>
       </div>
-    </section>
+      <button class="automation-close" id="automation-close" type="button">Close</button>
+    </header>
+
+    <div class="auto-grid">
+      <div class="auto-steps">
+        <div class="auto-step">
+          <h3>1. Create the zone</h3>
+          <p>Create or select the Lynx zone in Caracal Console. Use that zone id in the export block below.</p>
+        </div>
+        <div class="auto-step">
+          <h3>2. Create a scoped control key</h3>
+          <p>In the Control menu, create a key with only the scopes below. Console returns the one-time client id and client secret.</p>
+          <div class="scope-list">
+            {% for scope in setup_automate.scopes %}<code>{{ scope }}</code>{% endfor %}
+          </div>
+        </div>
+        <div class="auto-step">
+          <h3>3. Run provision</h3>
+          <p>Run the script from the Lynx Capital directory. It reads the catalog, creates providers and resources, and publishes the baseline policy.</p>
+        </div>
+      </div>
+      <div>
+        <div class="script-head"><h3>Required environment</h3></div>
+        <pre class="script">export CARACAL_ZONE_ID="zone_lynxcapital"
+export CONTROL_CLIENT_ID="app_lynx_bootstrap"
+export CONTROL_CLIENT_SECRET="one-time-secret-from-console"</pre>
+        <div class="script-head"><h3>Run scripts</h3></div>
+        <pre class="script">python scripts/provision.py
+python scripts/teardown.py</pre>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -254,12 +278,11 @@ Lynx Capital guided setup page for Caracal runtime and provider readiness.
   const validationResults = document.getElementById('validation-results');
   const launchCopy = document.getElementById('launch-copy');
   const readyActions = [...document.querySelectorAll('.ready-action')];
+  const automationOpen = document.getElementById('automation-open');
+  const automationClose = document.getElementById('automation-close');
+  const automationPopup = document.getElementById('automation-popup');
 
-  const labels = {
-    passed: 'Passed',
-    warning: 'Warning',
-    failed: 'Failed'
-  };
+  const labels = { passed: 'Passed', warning: 'Warning', missing: 'Missing' };
 
   function showSetupSection(name) {
     for (const tab of setupTabs) {
@@ -274,86 +297,60 @@ Lynx Capital guided setup page for Caracal runtime and provider readiness.
     tab.addEventListener('click', () => showSetupSection(tab.dataset.setupTab));
   });
 
+  automationOpen.addEventListener('click', () => { automationPopup.hidden = false; });
+  automationClose.addEventListener('click', () => { automationPopup.hidden = true; });
+  automationPopup.addEventListener('click', (event) => {
+    if (event.target === automationPopup) automationPopup.hidden = true;
+  });
+
   function renderValidation(steps) {
     validationResults.replaceChildren();
     for (const step of steps) {
       const row = document.createElement('div');
       row.className = 'validation-row';
-
       const status = document.createElement('span');
-      const state = step.status || (step.ok ? 'passed' : 'failed');
+      const state = step.status || (step.ok ? 'passed' : 'missing');
       status.className = `status status-${state}`;
       status.textContent = labels[state] || state;
-
       const label = document.createElement('strong');
       label.textContent = step.label;
-
       const detail = document.createElement('p');
       detail.textContent = step.detail || '';
-
       row.append(status, label, detail);
       validationResults.appendChild(row);
     }
   }
 
   async function runValidation() {
-    validateTriggers.forEach((button) => {
-      button.disabled = true;
-      button.textContent = 'Checking...';
-    });
+    validateTriggers.forEach((button) => { button.disabled = true; button.textContent = 'Checking...'; });
     try {
       const response = await fetch('/api/setup/validate');
       const data = await response.json();
       renderValidation(data.steps || []);
-      readyActions.forEach((button) => {
-        button.disabled = !data.ok;
-      });
+      readyActions.forEach((button) => { button.disabled = !data.ok; });
       launchCopy.textContent = data.ok
-        ? 'Environment Ready. Caracal, provider mappings, and provider access passed validation.'
-        : 'Resolve failed checks, then run validation again. Warnings indicate partial provider or resource coverage.';
+        ? 'Configuration complete. Open the workspace or start the first workflow.'
+        : 'Resolve the missing items, then run validation again. Warnings indicate partial provider coverage.';
     } catch (error) {
-      validationResults.replaceChildren();
-      const row = document.createElement('div');
-      row.className = 'validation-row';
-      const status = document.createElement('span');
-      status.className = 'status status-failed';
-      status.textContent = 'Failed';
-      const label = document.createElement('strong');
-      label.textContent = 'Validation request';
-      const detail = document.createElement('p');
-      detail.textContent = error.message;
-      row.append(status, label, detail);
-      validationResults.appendChild(row);
-      readyActions.forEach((button) => {
-        button.disabled = true;
-      });
+      renderValidation([{ status: 'missing', label: 'Validation request', detail: error.message }]);
+      readyActions.forEach((button) => { button.disabled = true; });
     } finally {
-      validateTriggers.forEach((button) => {
-        button.disabled = false;
-        button.textContent = 'Run Validation';
-      });
+      validateTriggers.forEach((button) => { button.disabled = false; button.textContent = 'Run Validation'; });
     }
   }
 
   async function completeSetup(target) {
-    const response = await fetch('/api/session/setup-complete', {method: 'POST'});
+    const response = await fetch('/api/session/setup-complete', { method: 'POST' });
     if (!response.ok) throw new Error('Setup acknowledgement failed.');
     window.location = target;
   }
 
-  validateTriggers.forEach((button) => {
-    button.addEventListener('click', runValidation);
-  });
-
+  validateTriggers.forEach((button) => button.addEventListener('click', runValidation));
   readyActions.forEach((button) => {
     button.addEventListener('click', async () => {
       button.disabled = true;
-      try {
-        await completeSetup(button.dataset.target);
-      } catch (error) {
-        launchCopy.textContent = error.message;
-        button.disabled = false;
-      }
+      try { await completeSetup(button.dataset.target); }
+      catch (error) { launchCopy.textContent = error.message; button.disabled = false; }
     });
   });
 </script>

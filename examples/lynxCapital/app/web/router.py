@@ -13,8 +13,6 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from pathlib import Path
 
-import httpx
-
 from app.api.session import COOKIE, SETUP_COOKIE
 from app.config import get_config
 from app.services import setup_catalog
@@ -67,8 +65,6 @@ def _overview_pages() -> dict[str, dict]:
     cfg = get_config()
     overview = _overview()
     workflows = [w.model_dump() for w in cfg.workflows]
-    protocol_names = ", ".join(item["name"].upper() for item in overview["protocols"])
-    category_names = ", ".join(sorted({p.category.replace("_", " ") for p in cfg.providers}))
     operations = [
         {"label": _workflow_label(workflow), "focus": workflow["focus"]}
         for workflow in workflows
@@ -103,38 +99,40 @@ def _overview_pages() -> dict[str, dict]:
             "next": "/overview/notice",
             "previous": "/overview/about",
             "intro": (
-                "A request starts as business intent, moves through Finance Control "
-                "and workflow agents, then reaches local provider fixtures through "
-                "the same application boundary used by the demo runtime."
+                "Your instruction starts as business intent, moves through Finance "
+                "Control and workflow agents, and reaches each provider through "
+                "Caracal — which brokers identity, policy, and access on every call."
             ),
             "body": [
                 (
-                    "The provider network runs under _mock on localhost ports "
-                    f"9400-9419 and represents {overview['provider_count']} provider surfaces."
+                    f"The workspace coordinates {overview['provider_count']} finance "
+                    "provider surfaces across treasury, payments, compliance, "
+                    "procurement, and accounting."
                 ),
                 (
-                    f"Provider protocols represented here: {protocol_names}. "
-                    f"Operational categories include {category_names}."
+                    "You never hold a provider secret. Caracal maps each provider to "
+                    "a resource, issues short-lived authority, and routes the request "
+                    "through its gateway."
                 ),
             ],
             "items": [
                 {
-                    "label": "Application",
+                    "label": "How a request flows",
                     "value": (
-                        "FastAPI on port 8000 with server-rendered pages and "
-                        "plain JavaScript enhancement."
+                        "Intent becomes a delegated agent run, then a policy-checked "
+                        "provider call through the Caracal gateway."
                     ),
                 },
                 {
-                    "label": "Workflow runtime",
+                    "label": "What Caracal handles",
                     "value": (
-                        "LangGraph and LangChain-based orchestration with visible "
-                        "chat, graph, logs, prompts, and activity history."
+                        "Application identity, scoped authority, access policy, and "
+                        "an audited path to every provider."
                     ),
                 },
                 {
-                    "label": "Provider boundary",
-                    "value": "Local REST, SSE, gRPC-style, MCP, and SDK fixtures under _mock.",
+                    "label": "What you configure",
+                    "value": "A zone, an application, a policy, and one resource per provider.",
                 },
             ],
         },
@@ -150,8 +148,8 @@ def _overview_pages() -> dict[str, dict]:
                     "and generated outcomes require human review."
                 ),
                 (
-                    "Setup validates OPENAI_API_KEY, the local provider network, "
-                    "provider webhook secrets, and Caracal services when enabled."
+                    "Setup is Caracal-side only: create a zone, application, and "
+                    "policy, then map each provider to a resource."
                 ),
             ],
             "items": [
@@ -214,75 +212,80 @@ def _overview_ctx(request: Request, key: str) -> dict:
     return ctx
 
 
-def _health_status(url: str) -> str:
-    try:
-        with httpx.Client(timeout=0.35) as client:
-            response = client.get(f"{url.rstrip('/')}/healthz")
-        return "Online" if response.status_code < 500 else "Offline"
-    except httpx.HTTPError:
-        return "Offline"
+CONTROL_SCOPES = [
+    "control:identity-provider:read",
+    "control:identity-provider:write",
+    "control:resource:read",
+    "control:resource:write",
+    "control:policy:read",
+    "control:policy:write",
+]
 
 
-def _setup_requirements() -> list[dict[str, object]]:
-    services = [
-        ("API", os.environ.get("CARACAL_API_URL", "http://localhost:3000")),
-        ("STS", os.environ.get("CARACAL_STS_URL", "http://localhost:8080")),
-        ("Gateway", os.environ.get("CARACAL_GATEWAY_URL", "http://localhost:8081")),
-        ("Audit", os.environ.get("CARACAL_AUDIT_URL", "http://localhost:9090")),
-        ("Coordinator", os.environ.get("CARACAL_COORDINATOR_URL", "http://localhost:4000")),
-    ]
-    return [
-        {"name": name, "endpoint": url, "status": _health_status(url)}
-        for name, url in services
-    ]
+def _env(name: str) -> str:
+    return os.environ.get(name, "").strip()
 
 
-def _setup_commands() -> list[dict[str, str]]:
+def _caracal_steps() -> list[dict[str, str]]:
+    zone = _env("CARACAL_ZONE_ID") or "zone_lynxcapital"
+    application = _env("CARACAL_APPLICATION_ID") or "app_lynxcapital"
     return [
         {
             "step": "01",
-            "action": "Bind the application identity",
-            "description": "Set the Caracal zone and application identifiers used by the SDK client.",
-            "command": "CARACAL_ZONE_ID=zone_lynxcapital\nCARACAL_APPLICATION_ID=app_lynxcapital",
-            "expected": "Lynx can construct a Caracal runtime identity for delegated work.",
+            "title": "Create the zone",
+            "console": "In Caracal Console, create a zone for this workspace. The zone is the tenancy boundary every application, provider, and policy lives in.",
+            "why": "Lynx runs as one application inside a single Caracal zone.",
+            "field": "CARACAL_ZONE_ID",
+            "value": zone,
         },
         {
             "step": "02",
-            "action": "Configure application auth",
-            "description": "Provide the application secret for STS token exchange, or a subject token for local bring-up.",
-            "command": "CARACAL_APP_CLIENT_SECRET=<application-secret>\n# or\nCARACAL_SUBJECT_TOKEN=<local-subject-token>",
-            "expected": "The SDK can obtain or use application authority without exposing provider secrets.",
+            "title": "Register the application",
+            "console": "Add a Caracal application inside the zone and issue its client secret. This is the identity the Lynx SDK presents for delegated work.",
+            "why": "The application authenticates Lynx to STS and the gateway without exposing provider secrets.",
+            "field": "CARACAL_APPLICATION_ID",
+            "value": application,
         },
         {
             "step": "03",
-            "action": "Point at Caracal services",
-            "description": "Connect the SDK to the STS, coordinator, and gateway services already running for the demo.",
-            "command": "CARACAL_STS_URL=http://localhost:8080\nCARACAL_COORDINATOR_URL=http://localhost:4000\nCARACAL_GATEWAY_URL=http://localhost:8081",
-            "expected": "Validation can reach each Caracal control-plane endpoint.",
-        },
-        {
-            "step": "04",
-            "action": "Map provider resources",
-            "description": "Register provider upstreams with the Caracal gateway so Lynx routes through resource ids.",
-            "command": "CARACAL_RESOURCES=meridian-pay=http://127.0.0.1:9401,halcyon-bank=http://127.0.0.1:9400",
-            "expected": "Gateway calls carry X-Caracal-Resource and resolve to the configured upstreams.",
+            "title": "Publish the access policy",
+            "console": "Create a policy in the zone that allows the Lynx application to read and act on the resources it routes to. Activate the policy set.",
+            "why": "The gateway evaluates this policy on every provider call Lynx makes.",
+            "field": "CARACAL_APP_CLIENT_SECRET",
+            "value": "<application-secret-from-console>",
         },
     ]
+
+
+def _automate_plan() -> dict[str, object]:
+    return {
+        "scopes": CONTROL_SCOPES,
+    }
 
 
 def _setup_ctx(request: Request) -> dict:
     ctx = _ctx(request)
     providers = setup_catalog.provider_entries(get_config().providers)
-    requirements = _setup_requirements()
-    ready_requirements = sum(1 for item in requirements if item["status"] == "Online")
+    resources = setup_catalog.resource_bindings()
+    external = [p for p in providers if p["external"]]
+    mapped = [p for p in external if p["id"] in resources]
+    configured = {
+        "zone": bool(_env("CARACAL_ZONE_ID")),
+        "application": bool(_env("CARACAL_APPLICATION_ID")),
+        "auth": bool(_env("CARACAL_APP_CLIENT_SECRET") or _env("CARACAL_SUBJECT_TOKEN")),
+        "providers": bool(external) and len(mapped) == len(external),
+    }
+    ready = sum(1 for value in configured.values() if value)
     ctx.update({
         "setup_providers": providers,
-        "setup_requirements": requirements,
-        "setup_commands": _setup_commands(),
+        "setup_external_count": len(external),
+        "setup_mapped_count": len(mapped),
+        "setup_caracal_steps": _caracal_steps(),
+        "setup_automate": _automate_plan(),
         "setup_progress": {
-            "ready": ready_requirements,
-            "total": len(requirements),
-            "percent": round((ready_requirements / len(requirements)) * 100),
+            "ready": ready,
+            "total": len(configured),
+            "percent": round((ready / len(configured)) * 100),
         },
         "setup_links": {
             "overview": "/overview/about",
