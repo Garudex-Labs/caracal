@@ -6,6 +6,7 @@ Setup validation endpoint for Caracal SDK and gateway readiness.
 """
 from __future__ import annotations
 
+import asyncio
 import os
 
 import httpx
@@ -53,7 +54,7 @@ async def validate_setup():
     resources = setup_catalog.resource_bindings()
     external_provider_ids = [spec.id for spec in partners.catalog().values() if spec.auth != "none"]
     unmapped = [provider_id for provider_id in external_provider_ids if provider_id not in resources]
-    resource_status = "passed" if resources and not unmapped else "warning" if resources else "failed"
+    resource_status = "passed" if resources and not unmapped else "failed"
     steps.append(_step(
         "caracal_resources",
         "Resource bindings",
@@ -62,6 +63,18 @@ async def validate_setup():
             f"{len(resources)} resource bindings configured; {len(unmapped)} provider ids are not mapped."
             if resources else "Set CARACAL_RESOURCES with provider resource ids and upstream URLs."
         ),
+    ))
+
+    provider_results = await asyncio.gather(*(
+        _ping(f"{url.rstrip('/')}/healthz")
+        for url in resources.values()
+    )) if resources else []
+    reachable = sum(1 for provider_ok, _ in provider_results if provider_ok)
+    steps.append(_step(
+        "provider_access",
+        "Provider access",
+        "passed" if provider_results and reachable == len(provider_results) else "failed",
+        f"{reachable}/{len(provider_results)} mapped providers reachable." if provider_results else "No mapped providers available to validate.",
     ))
 
     caracal_ok = True

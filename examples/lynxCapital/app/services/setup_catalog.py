@@ -2,7 +2,7 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-Setup catalog helpers for Caracal resource requirements and local provider links.
+Setup catalog helpers for Caracal resources and provider setup links.
 """
 from __future__ import annotations
 
@@ -19,6 +19,16 @@ AUTH_LABELS = {
     "oauth_ac": "OAuth authorization code",
     "none": "No credential",
     "mandate": "Caracal mandate",
+}
+
+CREDENTIAL_REQUIREMENTS = {
+    "api_key": "API key",
+    "bearer": "Bearer token",
+    "mcp_bearer": "MCP bearer token",
+    "oauth_cc": "Client ID and client secret",
+    "oauth_ac": "Client ID, client secret, and redirect configuration",
+    "none": "No provider credential",
+    "mandate": "Caracal-issued resource mandate",
 }
 
 
@@ -47,17 +57,18 @@ def provider_entries(config_providers: list[Any]) -> list[dict[str, object]]:
         provider = provider_config.get(spec.id)
         url = base_url(spec)
         if spec.auth == "none":
-            status = "Internal Resource"
-            credentials = "Verified in process by Caracal"
+            status = "Ready"
+            resource = "Verified in process by Caracal"
         elif spec.auth == "mandate":
-            status = "Mandate Resource" if spec.id in resources else "Unmapped"
-            credentials = resources.get(spec.id, "Add to CARACAL_RESOURCES")
+            status = "Mapped" if spec.id in resources else "Unmapped"
+            resource = resources.get(spec.id, "Add to CARACAL_RESOURCES")
         elif spec.id in resources:
             status = "Mapped"
-            credentials = resources[spec.id]
+            resource = resources[spec.id]
         else:
             status = "Unmapped"
-            credentials = "Add to CARACAL_RESOURCES"
+            resource = "Add to CARACAL_RESOURCES"
+        credential_url = f"{url}/__lab/clients" if spec.auth.startswith("oauth") else f"{url}/__lab/credentials"
         entries.append({
             "id": spec.id,
             "name": provider.name if provider else spec.id.replace("-", " ").title(),
@@ -66,10 +77,14 @@ def provider_entries(config_providers: list[Any]) -> list[dict[str, object]]:
             "authType": provider.authType if provider else spec.auth,
             "protocol": (provider.protocol if provider else "http").upper(),
             "purpose": ", ".join(operation.replace("_", " ") for operation in spec.operations[:3]),
-            "credentials": credentials,
+            "credentials": CREDENTIAL_REQUIREMENTS.get(spec.auth, spec.auth.replace("_", " ").title()),
+            "resource": resource,
             "variables": [],
             "missing": [] if status != "Unmapped" else [spec.id],
             "upstreamUrl": url,
+            "dashboardUrl": url,
+            "credentialUrl": credential_url,
+            "documentationUrl": f"{url}/__lab/resources",
             "status": status,
         })
     return entries

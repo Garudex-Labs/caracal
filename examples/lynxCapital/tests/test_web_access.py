@@ -117,28 +117,48 @@ def test_setup_page_is_guided_and_provider_backed():
         response = client.get("/setup")
     assert response.status_code == 200
     body = response.text
-    assert "Connect Caracal, validate gateway routing, open the workspace." in body
-    assert "setup-shell" in body
-    assert "setup-strip" in body
-    assert "Caracal configuration" in body
-    assert "Caracal setup checklist" in body
-    assert "Readiness validation" in body
+    assert "<h1>Setup</h1>" in body
+    assert "Confirm the environment, configure Caracal, review provider credentials" in body
+    assert "progress-strip" in body
+    assert 'data-setup-tab="environment" aria-selected="true"' in body
+    assert 'data-setup-tab="caracal" aria-selected="false"' in body
+    assert 'data-setup-tab="providers" aria-selected="false"' in body
+    assert 'data-setup-tab="validation" aria-selected="false"' in body
+    assert 'data-setup-tab="launch" aria-selected="false"' in body
+    assert 'data-setup-panel="environment"' in body
+    assert 'data-setup-panel="caracal" aria-labelledby="caracal-heading" hidden' in body
+    assert 'data-setup-panel="providers" aria-labelledby="providers-heading" hidden' in body
+    assert 'data-setup-panel="validation" aria-labelledby="validation-heading" hidden' in body
+    assert 'data-setup-panel="launch" aria-labelledby="launch-heading" hidden' in body
+    assert "function showSetupSection(name)" in body
+    assert "Environment Readiness" in body
+    assert "Caracal Configuration" in body
+    assert "Provider Credentials" in body
+    assert "Validation" in body
+    assert "Ready to Launch" in body
     assert "Run Validation" in body
     assert "Launch Demo" in body
     assert "Open Workspace" in body
     assert "Start First Workflow" in body
-    assert "Caracal resource bindings" in body
-    assert "Caracal owns provider access" in body
     assert "CARACAL_ZONE_ID=zone_lynxcapital" in body
     assert "CARACAL_APP_CLIENT_SECRET=&lt;application-secret&gt;" in body
     assert "CARACAL_STS_URL=http://localhost:8080" in body
     assert "CARACAL_RESOURCES=meridian-pay=http://127.0.0.1:9401,halcyon-bank=http://127.0.0.1:9400" in body
+    assert "Caracal identity" in body
+    assert "Application auth" in body
+    assert "Service endpoints" in body
+    assert "Resource bindings" in body
+    assert "Provider access" in body
     assert "Halcyon Bank" in body
     assert "Quetzal Payouts" in body
     assert "Junction Procurement" in body
-    assert "/__lab/credentials" not in body
-    assert "/__lab/clients" not in body
-    assert "/__lab/resources" not in body
+    assert "Credentials needed" in body
+    assert "Open dashboard" in body
+    assert "Create credentials" in body
+    assert "Read provider docs" in body
+    assert "/__lab/credentials" in body
+    assert "/__lab/clients" in body
+    assert "/__lab/resources" in body
     assert "python -m _mock.providerlab.seedenv" not in body
     assert "docker compose -f _mock/docker-compose.yml up -d --build --wait" not in body
     assert "uv run uvicorn app.main:app --reload --port 8000" not in body
