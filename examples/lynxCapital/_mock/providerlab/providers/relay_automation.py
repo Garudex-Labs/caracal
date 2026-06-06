@@ -277,10 +277,12 @@ def seed(state: base.State) -> None:
 
 def _seed_history(state: base.State) -> None:
     """Replay a realistic backlog of executions across every terminal and active
-    state so the platform looks like it has been running in production."""
+    state. Tight queues are drained to terminal states so live dispatch can run;
+    roomy queues keep a few in-flight and parked-on-approval executions."""
     actors = ("scheduler@relay", "ap-automation@lynx.example", "treasury-ops@lynx.example",
               "payments-ops@lynx.example")
     for wf in _WORKFLOWS:
+        roomy = wf["concurrencyLimit"] >= 3
         for n in range(1, 9):
             rng = gen._rng(ID, "history", wf["id"], n)
             actor = rng.choice(actors)
@@ -292,13 +294,26 @@ def _seed_history(state: base.State) -> None:
                 priority=wf["priority"], created_offset=-age,
             )
             stop = rng.random()
-            if stop < 0.70:
+            if not roomy or stop < 0.78:
                 _run_to_completion(state, ex, auto_signal=True, rng=rng)
-            elif stop < 0.82:
-                _run_to_completion(state, ex, auto_signal=False, rng=rng)  # may park on approval
             elif stop < 0.90:
-                _advance(state, ex)  # leave mid-flight / queued
-            # else: leave freshly queued
+                _run_to_completion(state, ex, auto_signal=False, rng=rng)  # may park on approval
+            else:
+                _advance(state, ex)  # leave mid-flight
+
+    # Guarantee one execution parked on a human-approval signal for the active surface.
+    showcase = _new_execution(
+        state, _WORKFLOW_INDEX["vendor_onboarding"],
+        input_payload={"vendor": "Northwind Robotics", "country": "US"},
+        trigger=_system_trigger("vendor-ops@lynx.example", "api"),
+        idempotency_key=None, priority="normal", created_offset=-5400,
+    )
+    showcase["_outcome"] = "success"
+    showcase["_faultStep"] = None
+    for _ in range(len(showcase["steps"])):
+        if showcase["status"] == "waiting_signal":
+            break
+        _advance(state, showcase)
 
 
 def _run_to_completion(state: base.State, ex: dict, *, auto_signal: bool, rng) -> None:

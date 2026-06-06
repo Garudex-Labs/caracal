@@ -848,6 +848,104 @@ def test_mcp_mandate_guarded():
     assert _mcp_call(c, "tools/list", {}).status_code == 401
 
 
+def _relay():
+    c = client("relay-automation")
+    headers = {"Authorization": f"Bearer {seed('relay-automation')['mandate']}"}
+
+    def call(name, args=None):
+        result = _mcp_call(c, "tools/call", headers,
+                           {"name": name, "arguments": args or {}}).json()["result"]
+        if result.get("isError"):
+            return {"_error": result["content"][0]["text"]}
+        return result["structuredContent"]
+
+    return c, headers, call
+
+
+def test_relay_catalog_and_resources():
+    c, headers, call = _relay()
+    tools = _mcp_call(c, "tools/list", headers).json()["result"]["tools"]
+    names = {t["name"] for t in tools}
+    assert {"start_execution", "get_execution", "signal_execution",
+            "retry_execution", "cancel_execution", "get_execution_audit"} <= names
+    by_name = {t["name"]: t for t in tools}
+    assert by_name["cancel_execution"]["annotations"]["destructiveHint"] is True
+    assert by_name["list_workflows"]["annotations"]["readOnlyHint"] is True
+
+    workflows = call("list_workflows")
+    assert workflows["total"] == 6
+    assert workflows["items"][0]["stepCount"] >= 4
+
+    resources = {r["uri"] for r in
+                 _mcp_call(c, "resources/list", headers).json()["result"]["resources"]}
+    assert "relay://executions/active" in resources
+
+
+def test_relay_execution_traceable_to_mandate():
+    _, _, call = _relay()
+    ex = call("start_execution", {"workflowId": "statement_reconciliation", "input": {"day": "2026-06-01"}})
+    audit = call("get_execution_audit", {"executionId": ex["executionId"]})
+    # The dispatching mandate subject and delegation edge are recorded for traceability.
+    assert audit["trigger"]["subject"] == "lynx-bootstrap"
+    assert audit["trigger"]["delegationEdgeId"]
+    assert audit["events"][0]["type"] == "execution_queued"
+    assert audit["chainIntact"] is True
+
+
+def test_relay_idempotent_dispatch():
+    _, _, call = _relay()
+    a = call("start_execution", {"workflowId": "dunning_cycle", "idempotencyKey": "run-77"})
+    b = call("start_execution", {"workflowId": "dunning_cycle", "idempotencyKey": "run-77"})
+    assert a["executionId"] == b["executionId"]
+    assert b["idempotentReplay"] is True
+
+
+def test_relay_approval_signal_resumes_run():
+    _, _, call = _relay()
+    ex = call("start_execution", {"workflowId": "payout_release", "input": {"batch": "B-1"}})
+    eid = ex["executionId"]
+    status = ex["status"]
+    for _ in range(10):
+        if status == "waiting_signal":
+            break
+        status = call("get_execution", {"executionId": eid})["status"]
+    assert status == "waiting_signal"
+    resumed = call("signal_execution", {"executionId": eid, "signal": "approve", "note": "ok"})
+    assert resumed["status"] in ("running", "succeeded")
+    for _ in range(10):
+        g = call("get_execution", {"executionId": eid})
+        if g["status"] in ("succeeded", "failed", "timed_out", "cancelled"):
+            break
+    logs = call("get_execution_logs", {"executionId": eid})
+    approval = next(s for s in logs["steps"] if s["type"] == "approval")
+    assert approval["status"] == "completed"
+
+
+def test_relay_failed_execution_can_retry():
+    _, _, call = _relay()
+    failed = call("list_executions", {"status": "failed"})
+    assert failed["total"] >= 1
+    fid = failed["items"][0]["executionId"]
+    retried = call("retry_execution", {"executionId": fid})
+    assert retried["status"] == "running"
+    assert retried["attempt"] == 2
+
+
+def test_relay_cancel_terminal_rejected():
+    _, _, call = _relay()
+    done = call("list_executions", {"status": "succeeded"})
+    eid = done["items"][0]["executionId"]
+    assert "execution_terminal" in call("cancel_execution", {"executionId": eid})["_error"]
+
+
+def test_relay_queue_concurrency_reported():
+    _, _, call = _relay()
+    queues = {q["queue"]: q for q in call("list_queues")["items"]}
+    assert queues["payments"]["concurrencyLimit"] == 1
+    assert "payout_release" in queues["payments"]["workflows"]
+    assert call("get_execution", {"executionId": "exec_missing"})["_error"].startswith("execution_not_found")
+
+
 # --------------------------------------------------------------------------- #
 # sdk (first-party SDK shim over HTTP: api-key or bearer secret per provider)
 # --------------------------------------------------------------------------- #
