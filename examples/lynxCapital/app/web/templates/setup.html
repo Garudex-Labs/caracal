@@ -2,7 +2,7 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-Lynx Capital guided setup page for environment readiness and provider credentials.
+Lynx Capital guided setup page for Caracal runtime readiness.
 #}
 {% extends "layout.html" %}
 {% block title %}Setup: {{ company }}{% endblock %}
@@ -37,9 +37,9 @@ Lynx Capital guided setup page for environment readiness and provider credential
   .requirement-row p { color: #687386; font-size: 12px; line-height: 1.45; margin: 0; }
   .scope { color: #758195; font-size: 11px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
   .status { border-radius: 999px; display: inline-flex; font-size: 10px; font-weight: 850; justify-content: center; letter-spacing: .08em; padding: 5px 8px; text-transform: uppercase; }
-  .status-configured, .status-ready, .status-credentials-added, .status-caracal-configured, .status-passed { background: #e8f5ef; color: #136c45; }
-  .status-optional, .status-warning, .status-requires-caracal { background: #fff7e6; color: #91610a; }
-  .status-missing, .status-not-configured, .status-failed { background: #faecec; color: #a33434; }
+  .status-configured, .status-ready, .status-mapped, .status-internal-resource, .status-mandate-resource, .status-passed { background: #e8f5ef; color: #136c45; }
+  .status-optional, .status-warning { background: #fff7e6; color: #91610a; }
+  .status-missing, .status-unmapped, .status-failed { background: #faecec; color: #a33434; }
 
   .command-list { border-left: 2px solid #d8e0ea; display: grid; gap: 18px; margin-left: 9px; padding-left: 24px; }
   .command-item { position: relative; }
@@ -73,9 +73,8 @@ Lynx Capital guided setup page for environment readiness and provider credential
   .provider-name strong { color: #182333; display: block; font-size: 13px; font-weight: 780; }
   .provider-name span, .provider-meta span { color: #7a8495; display: block; font-size: 11px; line-height: 1.4; margin-top: 3px; }
   .provider-meta strong { color: #2c394c; display: block; font-size: 12px; font-weight: 700; }
-  .provider-links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
-  .provider-links a, .side-link { border-bottom: 1px solid #b7c3d3; color: #24364d; font-size: 11px; font-weight: 800; padding-bottom: 2px; text-decoration: none; }
-  .provider-links a:hover, .side-link:hover { border-color: var(--primary); color: var(--primary); }
+  .side-link { border-bottom: 1px solid #b7c3d3; color: #24364d; font-size: 11px; font-weight: 800; padding-bottom: 2px; text-decoration: none; }
+  .side-link:hover { border-color: var(--primary); color: var(--primary); }
   .side-panel { background: #f8fafc; border: 1px solid #dbe3ee; border-radius: 12px; margin-bottom: 18px; padding: 16px; }
   .side-panel h2 { color: #111827; font-size: 14px; font-weight: 780; margin: 0 0 8px; }
   .side-panel p { color: #647187; font-size: 12px; line-height: 1.5; margin: 0 0 11px; }
@@ -105,8 +104,8 @@ Lynx Capital guided setup page for environment readiness and provider credential
   <header class="setup-header">
     <div>
       <p class="setup-eyebrow">Setup workflow</p>
-      <h1 class="setup-title">Configure the workspace, connect providers, validate readiness.</h1>
-      <p class="setup-sub">{{ company }} uses local provider services, generated provider credentials, OpenAI orchestration, and optional Caracal routing. Complete the checks here before launching the demo workspace.</p>
+      <h1 class="setup-title">Connect Caracal, validate gateway routing, open the workspace.</h1>
+      <p class="setup-sub">{{ company }} runs after the demo services are already online. This step only checks the Caracal SDK configuration, application authority, resource bindings, and gateway readiness before the workspace opens.</p>
     </div>
     <a class="setup-return" href="{{ setup_links.overview }}">Return to Overview</a>
   </header>
@@ -114,18 +113,18 @@ Lynx Capital guided setup page for environment readiness and provider credential
   <div class="setup-shell">
     <section class="setup-left">
       <div class="setup-strip" aria-label="Setup progress">
-        <div class="setup-stage"><span>01</span><strong>Environment</strong></div>
-        <div class="setup-stage"><span>02</span><strong>Credentials</strong></div>
-        <div class="setup-stage"><span>03</span><strong>Infrastructure</strong></div>
-        <div class="setup-stage"><span>04</span><strong>Launch</strong></div>
+        <div class="setup-stage"><span>01</span><strong>Identity</strong></div>
+        <div class="setup-stage"><span>02</span><strong>Authority</strong></div>
+        <div class="setup-stage"><span>03</span><strong>Services</strong></div>
+        <div class="setup-stage"><span>04</span><strong>Resources</strong></div>
         <div class="setup-stage"><span>05</span><strong>Validate</strong></div>
         <div class="setup-stage"><span>06</span><strong>Run</strong></div>
       </div>
 
       <section class="setup-section" aria-labelledby="environment-heading">
         <div class="section-head">
-          <h2 id="environment-heading">Environment preparation</h2>
-          <p>{{ setup_progress.ready }}/{{ setup_progress.total }} prerequisites currently ready</p>
+          <h2 id="environment-heading">Caracal configuration</h2>
+          <p>{{ setup_progress.ready }}/{{ setup_progress.total }} Caracal checks currently configured</p>
         </div>
         <div class="requirement-list">
           {% for item in setup_requirements %}
@@ -141,8 +140,8 @@ Lynx Capital guided setup page for environment readiness and provider credential
 
       <section class="setup-section" aria-labelledby="workflow-heading">
         <div class="section-head">
-          <h2 id="workflow-heading">Operational setup checklist</h2>
-          <p>Commands are paired with the action they unlock.</p>
+          <h2 id="workflow-heading">Caracal setup checklist</h2>
+          <p>Configuration values are paired with the capability they unlock.</p>
         </div>
         <div class="command-list">
           {% for command in setup_commands %}
@@ -160,7 +159,7 @@ Lynx Capital guided setup page for environment readiness and provider credential
         <div class="readiness-top">
           <div>
             <h2 id="readiness-heading">Readiness validation</h2>
-            <p id="readiness-copy">Run validation after credentials and providers are configured. Results cover environment variables, provider connectivity, OpenAI, webhook secrets, local services, and Caracal runtime state.</p>
+            <p id="readiness-copy">Run validation after Caracal identity, authority, service endpoints, and resource mappings are configured. Provider services and the Lynx process are expected to already be running.</p>
           </div>
           <div class="progress-ring" aria-label="Current setup readiness">{{ setup_progress.percent }}%</div>
         </div>
@@ -174,26 +173,25 @@ Lynx Capital guided setup page for environment readiness and provider credential
           <div class="validation-row">
             <span class="status status-warning">Pending</span>
             <strong>Validation not run</strong>
-            <p>Run the readiness check when the local provider network and environment variables are in place.</p>
+            <p>Run the readiness check when the Caracal control plane and resource mapping are in place.</p>
           </div>
         </div>
       </section>
     </section>
 
-    <aside class="setup-right" aria-label="Provider and setup resources">
+    <aside class="setup-right" aria-label="Caracal resource mapping">
       <section class="side-panel">
-        <h2>Credential shortcuts</h2>
-        <p>Open the local provider lab to inspect generated credentials, registered OAuth clients, provider resources, and API client surfaces.</p>
+        <h2>Caracal owns provider access</h2>
+        <p>Lynx should call providers through Caracal resource ids. Provider services and the web process are assumed to be online before users reach this page.</p>
         <div class="shortcut-list">
-          <a class="side-link" href="{{ setup_links.providerDashboard }}" target="_blank" rel="noreferrer">Provider Dashboard</a>
-          <a class="side-link" href="{{ setup_links.credentials }}" target="_blank" rel="noreferrer">Credential Store</a>
+          <a class="side-link" href="{{ setup_links.overview }}">Review Overview</a>
         </div>
       </section>
 
       <section class="setup-section" aria-labelledby="providers-heading">
         <div class="section-head">
-          <h2 id="providers-heading">Provider credentials</h2>
-          <p>{{ setup_providers|length }} configured provider surfaces</p>
+          <h2 id="providers-heading">Caracal resource bindings</h2>
+          <p>{{ setup_providers|length }} provider resources</p>
         </div>
         <div class="provider-panel">
           {% for provider in setup_providers %}
@@ -203,17 +201,12 @@ Lynx Capital guided setup page for environment readiness and provider credential
               <span>{{ provider.category }} · {{ provider.protocol }}</span>
             </div>
             <div class="provider-meta">
-              <strong>{{ provider.auth }}</strong>
+              <strong>Caracal access</strong>
               <span>{{ provider.credentials }}</span>
             </div>
             <div class="provider-meta">
-              <strong>Purpose</strong>
-              <span>{{ provider.purpose }}</span>
-              <div class="provider-links">
-                <a href="{{ provider.dashboardUrl }}" target="_blank" rel="noreferrer">Dashboard</a>
-                <a href="{{ provider.credentialUrl }}" target="_blank" rel="noreferrer">Credentials</a>
-                <a href="{{ provider.documentationUrl }}" target="_blank" rel="noreferrer">Documentation</a>
-              </div>
+              <strong>Resource role</strong>
+              <span>{{ provider.auth }} · {{ provider.purpose }}</span>
             </div>
             <div><span class="status status-{{ provider.status|lower|replace(' ', '-') }}">{{ provider.status }}</span></div>
           </article>
@@ -275,8 +268,8 @@ Lynx Capital guided setup page for environment readiness and provider credential
         button.disabled = !data.ok;
       });
       readinessCopy.textContent = data.ok
-        ? 'Environment Ready. You can launch the demo workspace, open the application, or continue into the first workflow.'
-        : 'Resolve failed checks, then run validation again. Warnings can be acceptable when the related capability is optional.';
+        ? 'Caracal Ready. You can launch the demo workspace, open the application, or continue into the first workflow.'
+        : 'Resolve failed Caracal checks, then run validation again. Warnings indicate partial resource coverage.';
     } catch (error) {
       validationResults.replaceChildren();
       const row = document.createElement('div');

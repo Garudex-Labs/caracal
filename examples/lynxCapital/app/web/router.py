@@ -7,15 +7,12 @@ Web HTML routes: landing, overview, setup, demo, and logs pages.
 from __future__ import annotations
 
 import os
-import shutil
-import sys
 from collections import Counter
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from pathlib import Path
 
-from app.api.hooks import required_secret_envs
 from app.api.session import COOKIE, SETUP_COOKIE
 from app.config import get_config
 from app.services import setup_catalog
@@ -216,48 +213,46 @@ def _overview_ctx(request: Request, key: str) -> dict:
 
 
 def _setup_requirements(providers: list[dict[str, object]]) -> list[dict[str, object]]:
-    missing_provider_vars = sorted({
-        variable
-        for provider in providers
-        for variable in provider["missing"]
-    })
-    missing_webhook_secrets = [name for name in required_secret_envs() if not os.environ.get(name)]
+    resources = setup_catalog.resource_bindings()
+    unmapped_resources = [provider["id"] for provider in providers if provider["status"] == "Unmapped"]
+    caracal_identity = bool(os.environ.get("CARACAL_ZONE_ID") and os.environ.get("CARACAL_APPLICATION_ID"))
+    caracal_auth = bool(os.environ.get("CARACAL_APP_CLIENT_SECRET") or os.environ.get("CARACAL_SUBJECT_TOKEN"))
     return [
         {
-            "name": "Python runtime",
+            "name": "Caracal identity",
             "scope": "Required",
-            "status": "Configured" if sys.version_info >= (3, 14) else "Missing",
-            "detail": f"Python 3.14+ application runtime; current interpreter is {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}.",
+            "status": "Configured" if caracal_identity else "Missing",
+            "detail": "CARACAL_ZONE_ID and CARACAL_APPLICATION_ID identify the Lynx application in its Caracal zone.",
         },
         {
-            "name": "Docker",
+            "name": "Application credential",
             "scope": "Required",
-            "status": "Configured" if shutil.which("docker") else "Missing",
-            "detail": "Runs the local provider network used by Lynx Capital.",
+            "status": "Configured" if caracal_auth else "Missing",
+            "detail": "Use CARACAL_APP_CLIENT_SECRET for STS exchange or CARACAL_SUBJECT_TOKEN for local bring-up.",
         },
         {
-            "name": "OpenAI API Key",
+            "name": "STS endpoint",
             "scope": "Required",
-            "status": "Configured" if os.environ.get("OPENAI_API_KEY") else "Missing",
-            "detail": "OPENAI_API_KEY powers the orchestration layer.",
+            "status": "Configured" if os.environ.get("CARACAL_STS_URL") else "Missing",
+            "detail": "CARACAL_STS_URL points the SDK at the token service.",
         },
         {
-            "name": "Provider secrets",
+            "name": "Coordinator endpoint",
             "scope": "Required",
-            "status": "Configured" if not missing_provider_vars else "Missing",
-            "detail": "All provider credential variables are present." if not missing_provider_vars else f"{len(missing_provider_vars)} provider credential variables are missing.",
+            "status": "Configured" if os.environ.get("CARACAL_COORDINATOR_URL") else "Missing",
+            "detail": "CARACAL_COORDINATOR_URL lets the SDK spawn delegated agents for each run.",
         },
         {
-            "name": "Webhook secrets",
+            "name": "Gateway endpoint",
             "scope": "Required",
-            "status": "Configured" if not missing_webhook_secrets else "Missing",
-            "detail": "All callback signing secrets are present." if not missing_webhook_secrets else f"Missing {', '.join(missing_webhook_secrets)}.",
+            "status": "Configured" if os.environ.get("CARACAL_GATEWAY_URL") else "Missing",
+            "detail": "CARACAL_GATEWAY_URL routes provider operations through the Caracal gateway.",
         },
         {
-            "name": "Caracal runtime",
-            "scope": "Optional",
-            "status": "Configured" if os.environ.get("CARACAL_ZONE_ID") and os.environ.get("CARACAL_APPLICATION_ID") else "Optional",
-            "detail": "Set CARACAL_ZONE_ID and CARACAL_APPLICATION_ID to route through Caracal; otherwise Lynx uses direct local providers.",
+            "name": "Resource bindings",
+            "scope": "Required",
+            "status": "Configured" if resources and not unmapped_resources else "Missing",
+            "detail": f"{len(resources)} Caracal resources mapped." if resources and not unmapped_resources else f"Map provider resource ids in CARACAL_RESOURCES; {len(unmapped_resources)} are not mapped.",
         },
     ]
 
@@ -266,31 +261,31 @@ def _setup_commands() -> list[dict[str, str]]:
     return [
         {
             "step": "01",
-            "action": "Prepare environment",
-            "description": "Create a local environment file and set OPENAI_API_KEY before launching the app.",
-            "command": "cp .env.example .env\n# edit .env and set OPENAI_API_KEY=sk-...",
-            "expected": ".env contains the required OpenAI and Lynx configuration.",
+            "action": "Bind the application identity",
+            "description": "Set the Caracal zone and application identifiers used by the SDK client.",
+            "command": "CARACAL_ZONE_ID=zone_lynxcapital\nCARACAL_APPLICATION_ID=app_lynxcapital",
+            "expected": "Lynx can construct a Caracal runtime identity for delegated work.",
         },
         {
             "step": "02",
-            "action": "Generate provider credentials",
-            "description": "Print ready-to-source provider credentials from deterministic local provider stores.",
-            "command": "python -m _mock.provider" "lab.seedenv",
-            "expected": "Credential exports are available for provider API keys, tokens, and OAuth clients.",
+            "action": "Configure application auth",
+            "description": "Provide the application secret for STS token exchange, or a subject token for local bring-up.",
+            "command": "CARACAL_APP_CLIENT_SECRET=<application-secret>\n# or\nCARACAL_SUBJECT_TOKEN=<local-subject-token>",
+            "expected": "The SDK can obtain or use application authority without exposing provider secrets.",
         },
         {
             "step": "03",
-            "action": "Start provider network",
-            "description": "Launches local provider services used by the demo.",
-            "command": "docker compose -f _mock/docker-compose.yml up -d --build --wait",
-            "expected": "Provider services report healthy on localhost ports 9400-9419.",
+            "action": "Point at Caracal services",
+            "description": "Connect the SDK to the STS, coordinator, and gateway services already running for the demo.",
+            "command": "CARACAL_STS_URL=http://localhost:8080\nCARACAL_COORDINATOR_URL=http://localhost:4000\nCARACAL_GATEWAY_URL=http://localhost:8081",
+            "expected": "Validation can reach each Caracal control-plane endpoint.",
         },
         {
             "step": "04",
-            "action": "Launch Lynx Capital",
-            "description": "Runs the FastAPI application with server-rendered UI and SSE event stream.",
-            "command": "uv run uvicorn app.main:app --reload --port 8000",
-            "expected": "Lynx Capital is available at http://127.0.0.1:8000.",
+            "action": "Map provider resources",
+            "description": "Register provider upstreams with the Caracal gateway so Lynx routes through resource ids.",
+            "command": "CARACAL_RESOURCES=meridian-pay=http://127.0.0.1:9401,halcyon-bank=http://127.0.0.1:9400",
+            "expected": "Gateway calls carry X-Caracal-Resource and resolve to the configured upstreams.",
         },
     ]
 
@@ -311,8 +306,6 @@ def _setup_ctx(request: Request) -> dict:
         },
         "setup_links": {
             "overview": "/overview/about",
-            "credentials": "http://127.0.0.1:9400/__lab/credentials",
-            "providerDashboard": "http://127.0.0.1:9400/",
         },
     })
     return ctx
