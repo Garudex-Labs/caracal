@@ -36,7 +36,7 @@ def authenticate(provider: catalog.Provider, request: Request) -> dict:
     if cat == "none":
         return {"principal": "internal", "auth": "none"}
 
-    if cat in ("api_key", "sdk"):
+    if catalog.apikey_auth(provider):
         if provider.apikey_location == "query":
             presented = request.query_params.get(provider.apikey_field, "")
         else:
@@ -48,7 +48,7 @@ def authenticate(provider: catalog.Provider, request: Request) -> dict:
         store.touch("apiKey", presented)
         return {"principal": "api_key", "auth": "api_key"}
 
-    if cat == "bearer_token":
+    if catalog.bearer_auth(provider):
         presented = _bearer_from(request, provider.auth_header, provider.auth_scheme)
         if not presented:
             raise AuthError(401, "missing_token", f"provide {provider.auth_header}")

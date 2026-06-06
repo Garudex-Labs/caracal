@@ -323,15 +323,35 @@ def submit_payment(run_id: str, agent_id: str, vendor_id: str, amount: float, cu
 
 
 def submit_payout(run_id: str, agent_id: str, vendor_id: str, amount: float, currency: str, rail: str, reference: str) -> dict[str, object]:
-    """Cross-border mass-payout rail: register the recipient then release the payout."""
+    """Cross-border mass-payout rail: onboard and KYC-verify the recipient, lock an
+    FX quote for the corridor, then release the payout funded from the USD balance."""
     rec = _run(run_id, agent_id, "submit_payout", "quetzal-payouts", "create_recipient",
-               {"name": vendor_id, "currency": currency, "method": "bank"})
+               {"name": vendor_id, "currency": currency, "method": "bank", "type": "business"})
     data = rec.get("data") if isinstance(rec, dict) else None
     recipient_id = data.get("id") if isinstance(data, dict) else None
     if not recipient_id:
         return rec
+
+    _run(run_id, agent_id, "submit_payout", "quetzal-payouts", "verify_recipient",
+         {"recipientId": recipient_id})
+
+    quote = _run(run_id, agent_id, "submit_payout", "quetzal-payouts", "get_quote",
+                 {"sourceCurrency": "USD", "targetCurrency": currency,
+                  "targetAmount": amount, "payoutMethod": "bank_transfer"})
+    qdata = quote.get("data") if isinstance(quote, dict) else None
+    source_amount = qdata.get("sourceAmount") if isinstance(qdata, dict) else None
+    quote_id = qdata.get("quoteId") if isinstance(qdata, dict) else None
+
     return _run(run_id, agent_id, "submit_payout", "quetzal-payouts", "create_payout",
-                {"recipientId": recipient_id, "amount": amount, "currency": currency})
+                {"recipientId": recipient_id, "amount": source_amount or amount,
+                 "currency": "USD", "quoteId": quote_id, "purpose": "supplier invoice",
+                 "reference": reference or vendor_id})
+
+
+def get_payout_status(run_id: str, agent_id: str, payout_id: str) -> dict[str, object]:
+    """Track a cross-border payout through its delivery lifecycle to settlement."""
+    return _run(run_id, agent_id, "get_payout_status", "quetzal-payouts", "get_payout",
+                {"payoutId": payout_id})
 
 
 def create_outbound_payment(run_id: str, agent_id: str, vendor_id: str, amount: float, currency: str, rail: str, reference: str) -> dict[str, object]:

@@ -218,7 +218,7 @@ def test_sdk_payout_unverified_recipient(providerlab):
                         {"name": "R", "currency": "EUR", "method": "bank"})
     blocked = partners.call("quetzal-payouts", "create_payout",
                             {"recipientId": rec["data"]["id"], "amount": 100, "currency": "USD"})
-    assert blocked["status"] == 403 and blocked["data"]["error"] == "recipient_unverified"
+    assert blocked["status"] == 403 and blocked["error"] == "recipient_unverified"
     partners.call("quetzal-payouts", "verify_recipient", {"recipientId": rec["data"]["id"]})
     paid = partners.call("quetzal-payouts", "create_payout",
                          {"recipientId": rec["data"]["id"], "amount": 100, "currency": "USD"})
