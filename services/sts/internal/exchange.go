@@ -363,7 +363,7 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 				RegistrationMethod: app.RegistrationMethod,
 				AgentSessionID:     req.AgentSessionID,
 				AgentKind:          agentSessionKind(agentSession),
-				Capabilities:       agentSessionCapabilities(agentSession),
+				Labels:             agentSessionLabels(agentSession),
 			},
 			Resource: OPAResource{
 				Type:       "Resource",
@@ -1322,11 +1322,11 @@ func agentSessionKind(session *AgentSession) string {
 	return session.Kind
 }
 
-func agentSessionCapabilities(session *AgentSession) []string {
-	if session == nil || len(session.Capabilities) == 0 {
+func agentSessionLabels(session *AgentSession) []string {
+	if session == nil || len(session.Labels) == 0 {
 		return nil
 	}
-	return append([]string(nil), session.Capabilities...)
+	return append([]string(nil), session.Labels...)
 }
 
 func agentAuditMeta(session *AgentSession) map[string]any {
@@ -1334,8 +1334,8 @@ func agentAuditMeta(session *AgentSession) map[string]any {
 		return nil
 	}
 	return map[string]any{
-		"agent_kind":         session.Kind,
-		"agent_capabilities": agentSessionCapabilities(session),
+		"agent_kind":   session.Kind,
+		"agent_labels": agentSessionLabels(session),
 	}
 }
 

@@ -255,7 +255,7 @@ type AgentSession struct {
 	ApplicationID    string
 	SubjectSessionID string
 	Kind             string
-	Capabilities     []string
+	Labels           []string
 	Status           string
 	SpawnedAt        time.Time
 	TTLSeconds       int
@@ -304,9 +304,9 @@ func (d *DB) GetSession(ctx context.Context, sid string) (*Session, error) {
 func (d *DB) GetAgentSession(ctx context.Context, id string) (*AgentSession, error) {
 	var s AgentSession
 	err := d.pool.QueryRow(ctx,
-		`SELECT id, zone_id, application_id, subject_session_id, agent_kind, capabilities, status, spawned_at, ttl_seconds
+		`SELECT id, zone_id, application_id, subject_session_id, agent_kind, labels, status, spawned_at, ttl_seconds
 		 FROM agent_sessions WHERE id = $1`, id,
-	).Scan(&s.ID, &s.ZoneID, &s.ApplicationID, &s.SubjectSessionID, &s.Kind, &s.Capabilities, &s.Status, &s.SpawnedAt, &s.TTLSeconds)
+	).Scan(&s.ID, &s.ZoneID, &s.ApplicationID, &s.SubjectSessionID, &s.Kind, &s.Labels, &s.Status, &s.SpawnedAt, &s.TTLSeconds)
 	if err != nil {
 		return nil, err
 	}
