@@ -183,8 +183,128 @@ def test_grpc_exposure_and_streaming():
 
 
 # --------------------------------------------------------------------------- #
-# bearer_token (standard and custom header/scheme)
+# SSE market data (Pulse Market Data) — quotes, bars, fixings, subscriptions, stream
 # --------------------------------------------------------------------------- #
+def _pulse():
+    c = client("pulse-market")
+    return c, {"X-Api-Key": seed("pulse-market")["apiKey"]}
+
+
+def _pulse_data(c, h, op, body=None):
+    return c.post(f"/api/{op}", json=body or {}, headers=h).json()["data"]
+
+
+def test_pulse_api_key_accept_and_reject():
+    c, h = _pulse()
+    assert c.post("/api/get_market_status", headers=h).status_code == 200
+    assert c.post("/api/get_market_status", headers={"X-Api-Key": "bad"}).status_code == 401
+    assert c.post("/api/get_market_status").status_code == 401
+
+
+def test_pulse_instruments_reference_metadata():
+    c, h = _pulse()
+    listing = _pulse_data(c, h, "list_instruments")
+    assert listing["total"] >= 10
+    inst = _pulse_data(c, h, "get_instrument", {"symbol": "USD/JPY"})
+    for field in ("symbol", "ticker", "baseCurrency", "quoteCurrency", "assetClass",
+                  "mid", "pip", "priceDecimals", "spreadBps", "contractSize", "venue"):
+        assert field in inst, field
+    # Yen crosses follow the three-decimal market convention.
+    assert inst["quoteCurrency"] == "JPY" and inst["priceDecimals"] == 3 and inst["pip"] == 0.01
+    eur = _pulse_data(c, h, "get_instrument", {"symbol": "USD/EUR"})
+    assert eur["priceDecimals"] == 5 and eur["pip"] == 0.0001
+    assert c.post("/api/get_instrument", json={"symbol": "ZZZ/YYY"},
+                  headers=h).status_code == 404
+
+
+def test_pulse_snapshot_and_batch_quotes():
+    c, h = _pulse()
+    snap = _pulse_data(c, h, "get_snapshot", {"symbol": "USD/EUR"})
+    for field in ("bid", "ask", "mid", "spread", "spreadBps", "dayOpen", "dayHigh",
+                  "dayLow", "prevClose", "change", "changePct", "volume", "timestamp"):
+        assert field in snap, field
+    assert snap["bid"] < snap["mid"] < snap["ask"]
+    assert snap["dayLow"] <= snap["mid"] <= snap["dayHigh"]
+
+    batch = _pulse_data(c, h, "get_quotes", {"symbols": "USD/EUR,USD/JPY,GBP/JPY"})
+    assert batch["count"] == 3 and {q["symbol"] for q in batch["quotes"]} == {
+        "USD/EUR", "USD/JPY", "GBP/JPY"}
+    nf = c.post("/api/get_quotes", json={"symbols": ["USD/EUR", "ZZZ/YYY"]}, headers=h)
+    assert nf.status_code == 404 and nf.json()["error"] == "instrument_not_found"
+    too_many = c.post("/api/get_quotes", json={"symbols": ["USD/EUR"] * 26}, headers=h)
+    assert too_many.status_code == 422 and too_many.json()["error"] == "too_many_symbols"
+
+
+def test_pulse_bars_resolution_and_range():
+    c, h = _pulse()
+    bars = _pulse_data(c, h, "get_bars", {"symbol": "USD/JPY", "resolution": "5m", "count": 12})
+    assert bars["resolution"] == "5m" and bars["count"] == 12 and len(bars["bars"]) == 12
+    first = bars["bars"][0]
+    assert {"t", "open", "high", "low", "close", "volume"} <= set(first)
+    assert first["high"] >= max(first["open"], first["close"])
+    assert first["low"] <= min(first["open"], first["close"])
+    assert bars["bars"][0]["t"] < bars["bars"][-1]["t"]
+    bad_res = c.post("/api/get_bars", json={"symbol": "USD/EUR", "resolution": "2m"}, headers=h)
+    assert bad_res.status_code == 422 and bad_res.json()["error"] == "invalid_resolution"
+    too_long = c.post("/api/get_bars", json={"symbol": "USD/EUR", "count": 5000}, headers=h)
+    assert too_long.status_code == 422 and too_long.json()["error"] == "range_too_large"
+
+
+def test_pulse_reference_fixings():
+    c, h = _pulse()
+    listing = _pulse_data(c, h, "list_reference_rates", {"symbol": "USD/EUR"})
+    assert listing["total"] >= 1
+    assert all(r["symbol"] == "USD/EUR" for r in listing["items"])
+    # Sorted newest-first by fixing date.
+    dates = [r["fixingDate"] for r in listing["items"]]
+    assert dates == sorted(dates, reverse=True)
+    latest = _pulse_data(c, h, "get_reference_rate", {"symbol": "USD/EUR"})
+    assert latest["fixingDate"] == dates[0]
+    assert latest["source"] == "PULSE_REF" and latest["session"] == "EOD"
+    missing = c.post("/api/get_reference_rate",
+                     json={"symbol": "USD/EUR", "fixingDate": "1999-01-01"}, headers=h)
+    assert missing.status_code == 404 and missing.json()["error"] == "reference_rate_not_found"
+
+
+def test_pulse_subscription_lifecycle():
+    c, h = _pulse()
+    sub = _pulse_data(c, h, "create_subscription",
+                      {"symbols": ["USD/EUR", "USD/JPY"], "channel": "quotes"})
+    assert sub["status"] == "active" and sub["deliveryProtocol"] == "sse"
+    assert sub["channel"] == "quotes" and sub["symbols"] == ["USD/EUR", "USD/JPY"]
+    sub_id = sub["subscriptionId"]
+    assert _pulse_data(c, h, "get_subscription", {"subscriptionId": sub_id})["status"] == "active"
+    listing = _pulse_data(c, h, "list_subscriptions", {"status": "active"})
+    assert any(s["subscriptionId"] == sub_id for s in listing["items"])
+    cancelled = _pulse_data(c, h, "cancel_subscription", {"subscriptionId": sub_id})
+    assert cancelled["status"] == "cancelled" and cancelled["cancelledAt"]
+    # Cancelling again is idempotent.
+    assert _pulse_data(c, h, "cancel_subscription",
+                       {"subscriptionId": sub_id})["status"] == "cancelled"
+    bad_channel = c.post("/api/create_subscription",
+                         json={"symbols": ["USD/EUR"], "channel": "options"}, headers=h)
+    assert bad_channel.status_code == 422 and bad_channel.json()["error"] == "invalid_channel"
+    assert c.post("/api/get_subscription", json={"subscriptionId": "sub_missing"},
+                  headers=h).status_code == 404
+
+
+def test_pulse_stream_emits_typed_events():
+    c, h = _pulse()
+    with c.stream("GET", "/stream", params={"symbol": "USD/EUR", "ticks": 6}, headers=h) as r:
+        assert r.status_code == 200
+        assert r.headers["content-type"].startswith("text/event-stream")
+        events = []
+        for line in r.iter_lines():
+            if line.startswith("event:"):
+                events.append(line.split(":", 1)[1].strip())
+            if len(events) >= 8:
+                break
+    assert events[0] == "subscribed"
+    assert "tick" in events and "heartbeat" in events
+    assert c.get("/stream", params={"symbol": "USD/EUR"}).status_code == 401
+
+
+
 def test_bearer_standard_header():
     c = client("slate-ledger")
     token = seed("slate-ledger")["bearerToken"]

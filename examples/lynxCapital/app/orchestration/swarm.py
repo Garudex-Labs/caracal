@@ -375,6 +375,17 @@ def _build_regional_domain_tools(run_id, runner, parent, region):
             _finish(w, {"symbol": symbol})
 
     @tool
+    def lookup_reference_rate(symbol: str) -> str:
+        """Fetch the official end-of-day reference fixing for an FX pair (e.g. 'USD/EUR')
+        from the market data feed to value or audit a booked rate against the published
+        settlement rate. Spawns a route-optimization worker."""
+        w = _worker("route-optimization", f"ref:{symbol}")
+        try:
+            return json.dumps(tool_fns.get_reference_rate(run_id, w.id, symbol))
+        finally:
+            _finish(w, {"symbol": symbol})
+
+    @tool
     async def submit_payment(vendor_id: str, amount: float, currency: str, rail: str, reference: str) -> str:
         """Submit a payment to the rail-appropriate provider. Spawns a payment-execution worker."""
         denied = await _require_approval(run_id, parent.id, "submit_payment",
@@ -408,7 +419,7 @@ def _build_regional_domain_tools(run_id, runner, parent, region):
         vela-notify (transactional email/SMS, templates, delivery tracking, suppressions, webhooks), cordoba-fx (fx quotes/conversions/settlement payments), ironbark-erp/tallyhall-books (vendors/bills),
         beacon-crm (CRM accounts/contacts/deal pipeline/activities), core-billing (internal AR: customers/invoices/payments/dunning/collections/aging), lumen-identity (directory),
         atlas-vendor (vendor MDM/onboarding/verification/compliance/contracts over MCP),
-        sabre-tax, pulse-market (market data), junction-procure (procure-to-pay: suppliers, commodity catalog, cost-center budgets, tiered requisition approvals, purchase orders, goods receipts).
+        sabre-tax, pulse-market (market data: instruments, quotes, OHLC bars, end-of-day reference fixings, streaming subscriptions), junction-procure (procure-to-pay: suppliers, commodity catalog, cost-center budgets, tiered requisition approvals, purchase orders, goods receipts).
         relay-automation, aegis-screening, and verafin-monitor require a Caracal mandate and are
         gated until the Caracal SDK phase (calls return status 'pending_caracal_integration').
         `payload_json` is a JSON object string of operation arguments. Spawns a partner-integration worker.
@@ -428,7 +439,7 @@ def _build_regional_domain_tools(run_id, runner, parent, region):
     return [
         list_pending_invoices, extract_invoice_data, match_invoice_in_ledger,
         check_vendor_compliance, lookup_fx_rate, lookup_withholding_rate,
-        lookup_market_rate, submit_payment, record_audit, call_partner,
+        lookup_market_rate, lookup_reference_rate, submit_payment, record_audit, call_partner,
     ]
 
 

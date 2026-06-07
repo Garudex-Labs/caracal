@@ -210,7 +210,10 @@ _SPECS: dict[str, PartnerSpec] = {
         scopes=("relay.workflows.read", "relay.executions.read", "relay.executions.write")),
     "pulse-market": PartnerSpec(
         "pulse-market", "api_key", 9418,
-        ("list_instruments", "get_snapshot", "stream_rates"),
+        ("list_instruments", "get_instrument", "get_snapshot", "get_quotes",
+         "get_bars", "get_market_status", "list_reference_rates", "get_reference_rate",
+         "create_subscription", "list_subscriptions", "get_subscription",
+         "cancel_subscription", "stream_rates"),
         apikey_location="header", apikey_field="X-Api-Key"),
     "junction-procure": PartnerSpec(
         "junction-procure", "oauth_cc", 9419,
