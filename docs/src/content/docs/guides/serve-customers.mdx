@@ -60,7 +60,7 @@ For fan-out work, give each child agent the least authority it needs with [deleg
 
 ## Step 4: Differentiate Policy per Customer
 
-All customers share one zone policy set, but policy decisions are per-request and subject-aware. The customer's `sub` and claims, the agent's capabilities, and the delegation edge are all in the policy input, so one policy set can allow different customers different authority at the same time.
+All customers share one zone policy set, but policy decisions are per-request and subject-aware. The customer's `sub` and claims, the agent's labels, and the delegation edge are all in the policy input, so one policy set can allow different customers different authority at the same time.
 
 ```text
 # Allow a resource only for customers on the plan that includes it.

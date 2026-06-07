@@ -67,7 +67,7 @@ Daemons and workers that outlive a single request use `Service` instead of `Spaw
 
 ```go
 svc, err := client.Service(context.Background(), caracal.ServiceOptions{
-	Capabilities: []string{"billing-worker"},
+	Labels: []string{"billing-worker"},
 })
 if err != nil {
 	return err

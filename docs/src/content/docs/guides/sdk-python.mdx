@@ -37,10 +37,10 @@ async with caracal.spawn():
 
 `spawn()` is an async context manager. It binds the agent context inside the block and releases the session when the block exits.
 
-To make agents distinguishable in policy and audit, pass `capabilities` when you spawn. These become `input.principal.capabilities`, so several agents under one application stay separable without one application per agent. `capabilities` are descriptive labels for policy and audit, not grants; authority always comes from scopes and delegation. The session lifecycle is handled for you: `spawn()` retires the session when the block exits, and the coordinator derives the right kind from the application (ephemeral for DCR, instance for managed).
+To make agents distinguishable in policy and audit, pass `labels` when you spawn. These become `input.principal.labels`, so several agents under one application stay separable without one application per agent. `labels` are descriptive, for policy and audit, not grants; authority always comes from scopes and delegation. The session lifecycle is handled for you: `spawn()` retires the session when the block exits, and the coordinator derives the right kind from the application (ephemeral for DCR, instance for managed).
 
 ```python
-async with caracal.spawn(capabilities=["refund-agent"]):
+async with caracal.spawn(labels=["refund-agent"]):
     headers = caracal.headers()
 ```
 
@@ -51,7 +51,7 @@ See [If many agents share one managed application, can policy and audit still te
 Daemons and workers that outlive a single request use `service()` instead of `spawn()`. It returns a handle you own: keep the session alive by calling `heartbeat()` on a timer and retire it with `aclose()`. A service session is reaped by the coordinator if it stops heartbeating before its lease expires.
 
 ```python
-svc = await caracal.service(capabilities=["billing-worker"])
+svc = await caracal.service(labels=["billing-worker"])
 try:
     while running:
         await svc.heartbeat()
