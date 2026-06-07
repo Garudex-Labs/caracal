@@ -10,7 +10,7 @@ import unittest
 import httpx
 
 from caracalai_sdk.coordinator import (
-    AgentKind,
+    AgentLifecycle,
     CoordinatorClient,
     DelegationConstraints,
     DelegationRequest,
@@ -74,7 +74,7 @@ class SpawnAgentTests(unittest.IsolatedAsyncioTestCase):
                 application_id="app",
                 subject_session_id="sid-1",
                 parent_id="parent-1",
-                kind=AgentKind.EPHEMERAL,
+                lifecycle=AgentLifecycle.SERVICE,
                 ttl_seconds=60,
                 metadata={"purpose": "test"},
                 labels=["refunds.execute", "ledger.read"],
@@ -83,7 +83,7 @@ class SpawnAgentTests(unittest.IsolatedAsyncioTestCase):
         body = captured[0]
         self.assertEqual(body["subject_session_id"], "sid-1")
         self.assertEqual(body["parent_id"], "parent-1")
-        self.assertEqual(body["kind"], "ephemeral")
+        self.assertEqual(body["lifecycle"], "service")
         self.assertEqual(body["ttl_seconds"], 60)
         self.assertEqual(body["metadata"], {"purpose": "test"})
         self.assertEqual(body["labels"], ["refunds.execute", "ledger.read"])

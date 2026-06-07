@@ -13,13 +13,12 @@ export interface CoordinatorClient {
   fetchImpl?: typeof fetch;
 }
 
-export const AgentKind = {
+export const AgentLifecycle = {
+  Agent: "agent",
   Service: "service",
-  Instance: "instance",
-  Ephemeral: "ephemeral",
 } as const;
 
-export type AgentKind = typeof AgentKind[keyof typeof AgentKind];
+export type AgentLifecycle = typeof AgentLifecycle[keyof typeof AgentLifecycle];
 
 export interface DelegationConstraints {
   resources?: string[];
@@ -37,7 +36,7 @@ export interface SpawnRequest {
   applicationId: string;
   subjectSessionId?: string;
   parentId?: string;
-  kind?: AgentKind;
+  lifecycle?: AgentLifecycle;
   ttlSeconds?: number;
   metadata?: JsonObject;
   labels?: string[];
@@ -107,7 +106,7 @@ export async function spawnAgent(
       application_id: req.applicationId,
       subject_session_id: req.subjectSessionId,
       parent_id: req.parentId,
-      kind: req.kind,
+      lifecycle: req.lifecycle,
       ttl_seconds: req.ttlSeconds,
       metadata: req.metadata,
       labels: req.labels,
@@ -128,7 +127,7 @@ function deriveIdempotencyKey(req: SpawnRequest): string | undefined {
     req.applicationId,
     req.subjectSessionId ?? "",
     req.parentId ?? "",
-    String(req.kind ?? ""),
+    String(req.lifecycle ?? ""),
     (req.labels ?? []).join(","),
   ].join("|");
   return sha256Hex(seed);

@@ -692,7 +692,7 @@ func TestCoordinatorResponsesUseExplicitIDs(t *testing.T) {
 	agent, err := sdk.SpawnAgent(context.Background(), client, "tok", sdk.SpawnRequest{
 		ZoneID:        "z",
 		ApplicationID: "app",
-		Kind:          sdk.KindEphemeral,
+		Lifecycle:     sdk.LifecycleService,
 		TTLSeconds:    60,
 	})
 	if err != nil {

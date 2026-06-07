@@ -1330,11 +1330,11 @@ func TestValidateSessionReferencesAcceptsActiveGraphEdge(t *testing.T) {
 func TestAgentSessionMetadataIsPolicyAndAuditInput(t *testing.T) {
 	session := &AgentSession{
 		ID:           "agent-1",
-		Kind:         "ephemeral",
+		Lifecycle:    "agent",
 		Labels: []string{"browser", "code"},
 	}
-	if got := agentSessionKind(session); got != "ephemeral" {
-		t.Fatalf("kind = %q", got)
+	if got := agentSessionLifecycle(session); got != "agent" {
+		t.Fatalf("lifecycle = %q", got)
 	}
 	caps := agentSessionLabels(session)
 	caps[0] = "mutated"
@@ -1342,8 +1342,8 @@ func TestAgentSessionMetadataIsPolicyAndAuditInput(t *testing.T) {
 		t.Fatal("labels must be copied before policy evaluation")
 	}
 	meta := agentAuditMeta(session)
-	if meta["agent_kind"] != "ephemeral" {
-		t.Fatalf("audit metadata missing kind: %#v", meta)
+	if meta["agent_lifecycle"] != "agent" {
+		t.Fatalf("audit metadata missing lifecycle: %#v", meta)
 	}
 	gotCaps, ok := meta["agent_labels"].([]string)
 	if !ok || len(gotCaps) != 2 || gotCaps[1] != "code" {
