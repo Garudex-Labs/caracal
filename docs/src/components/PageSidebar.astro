@@ -51,7 +51,6 @@ If retrieval fails, read ${site}/llms-full.txt and find the section with "# URL:
               data-markdown-url={markdownPath}
               data-markdown-absolute-url={markdownUrl}
               data-page-url={pageUrl}
-              data-copy-prompt="true"
               target="_blank"
               rel="noopener noreferrer"
             >
@@ -60,12 +59,13 @@ If retrieval fails, read ${site}/llms-full.txt and find the section with "# URL:
             </a>
             <a
               class="ai-btn"
-              href={`https://chatgpt.com/?q=${encodeURIComponent(aiPrompt)}`}
+              href="https://chatgpt.com/"
               data-ai-url="https://chatgpt.com/"
               data-ai-param="q"
               data-markdown-url={markdownPath}
               data-markdown-absolute-url={markdownUrl}
               data-page-url={pageUrl}
+              data-copy-prompt="true"
               target="_blank"
               rel="noopener noreferrer"
             >
