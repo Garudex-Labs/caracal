@@ -816,6 +816,24 @@ def get_market_snapshot(run_id: str, agent_id: str, symbol: str) -> dict[str, ob
                 {"symbol": symbol})
 
 
+def list_market_instruments(run_id: str, agent_id: str) -> dict[str, object]:
+    return _run(run_id, agent_id, "list_market_instruments", "pulse-market", "list_instruments", {})
+
+
+def get_market_bars(run_id: str, agent_id: str, symbol: str,
+                    resolution: str = "1h", count: int = 24) -> dict[str, object]:
+    return _run(run_id, agent_id, "get_market_bars", "pulse-market", "get_bars",
+                {"symbol": symbol, "resolution": resolution, "count": count})
+
+
+def get_reference_rate(run_id: str, agent_id: str, symbol: str,
+                       fixing_date: str | None = None) -> dict[str, object]:
+    payload: dict[str, object] = {"symbol": symbol}
+    if fixing_date:
+        payload["fixingDate"] = fixing_date
+    return _run(run_id, agent_id, "get_reference_rate", "pulse-market", "get_reference_rate", payload)
+
+
 # -- external partner integration tool --
 
 def partner_operation(run_id: str, agent_id: str, provider_id: str, operation: str,
@@ -936,5 +954,8 @@ TOOLS: dict[str, Callable] = {
     "list_team_members": list_team_members,
     "get_service_identity": get_service_identity,
     "get_market_snapshot": get_market_snapshot,
+    "list_market_instruments": list_market_instruments,
+    "get_market_bars": get_market_bars,
+    "get_reference_rate": get_reference_rate,
     "partner_operation": partner_operation,
 }
