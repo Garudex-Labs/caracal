@@ -7,6 +7,11 @@ sidebar:
 
 Delegation lets one agent session pass a narrower, typed slice of authority to another agent session.
 
+Authority follows the **application**. Agents you spawn under the same application already act under that application's authority — no delegation edge is needed for ordinary fan-out. You create a delegation edge in exactly two cases:
+
+- To **narrow** authority, so a child holds only a subset of what its parent can do (least privilege).
+- To carry authority **across applications**, when the receiver is a different application that must consent.
+
 It is represented as a graph of directed edges. Each edge connects a source session to a target session, carries scopes and constraints, and can be revoked independently.
 
 ## Graph Model
@@ -43,13 +48,15 @@ flowchart LR
 
 ## SDK Relationship
 
-The SDKs expose the same pattern in each language:
+The SDKs expose one primitive for creating children and one for granting a peer:
 
-| Language | Spawn | Delegate | Delegate while spawning |
-| --- | --- | --- | --- |
-| TypeScript | `spawn()` | `delegate()` | `delegateToSpawn()` |
-| Python | `spawn()` | `delegate()` | `delegate_to_spawn()` |
-| Go | `Spawn()` | `Delegate()` | `DelegateToSpawn()` |
+| Language | Spawn a child | Grant to an existing peer |
+| --- | --- | --- |
+| TypeScript | `spawn()` / `spawn({ grant })` | `delegate()` |
+| Python | `spawn()` / `spawn(grant=…)` | `delegate()` |
+| Go | `Spawn()` / `Spawn` with `Grant` | `Delegate()` |
+
+`spawn()` returns a child running under the application's authority. Pass a **narrowing grant** (`Grant.narrow([...])`, `Grant.narrow(...)`, or `GrantNarrow(...)`) to bind a least-privilege delegation edge to the child, or `Grant.none()` for a child with no inherited authority. `delegate()` records an edge to an already-existing session — the path used to hand authority to a peer in another application.
 
 These helpers propagate session and delegation context so later token exchanges include the correct graph proof.
 

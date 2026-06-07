@@ -68,23 +68,26 @@ try {
 }
 ```
 
-## Delegate to a child agent
+## Spawn a narrowed child
 
 ```ts
+import { Grant } from "@caracalai/sdk";
+
 await caracal.spawn(async () => {
-  await caracal.delegateToSpawn({
-    resourceId: "https://api.example.com/tickets",
-    scopes: ["tickets:read"],
-    constraints: { maxHops: 1, budget: 5 },
-    delegationTtlSeconds: 600,
-  }, async () => {
+  await caracal.spawn(async () => {
     const headers = await caracal.headersAsync();
     await fetch("https://api.example.com/tickets", { headers });
+  }, {
+    grant: Grant.narrow(["tickets:read"], {
+      resourceId: "https://api.example.com/tickets",
+      constraints: { maxHops: 1, budget: 5 },
+      ttlSeconds: 600,
+    }),
   });
 });
 ```
 
-Use `delegate()` when the target agent session already exists. Use `delegateToSpawn()` when fan-out should create the child session and delegation edge together.
+A plain `spawn()` runs the child under the application's authority. Pass `grant: Grant.narrow(...)` only when the child should hold a least-privilege subset, or `Grant.none()` for a child with no inherited authority. Use `delegate()` when you need to grant authority to an agent session that already exists, typically in another application.
 
 ## Route through the Gateway
 
