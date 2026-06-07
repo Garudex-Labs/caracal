@@ -61,6 +61,28 @@ err := client.Spawn(context.Background(), func(ctx context.Context) error {
 
 The transport injects Caracal envelope headers from `context.Context`. For explicit Gateway routing, use `GatewayRequest()`.
 
+## Long-lived service agents
+
+Daemons and workers that outlive a single request use `Service` instead of `Spawn`. It returns a handle you own: keep the session alive by calling `Heartbeat` on a timer and retire it with `Close`. A service session is reaped by the coordinator if it stops heartbeating before its lease expires.
+
+```go
+svc, err := client.Service(context.Background(), caracal.ServiceOptions{
+	Capabilities: []string{"billing-worker"},
+})
+if err != nil {
+	return err
+}
+defer svc.Close(context.Background())
+
+for running {
+	if err := svc.Heartbeat(context.Background()); err != nil {
+		return err
+	}
+	doWork(svc.Context)
+	time.Sleep(30 * time.Second)
+}
+```
+
 ## Delegate while spawning
 
 ```go

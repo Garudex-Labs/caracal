@@ -38,18 +38,35 @@ await caracal.spawn(async () => {
 });
 ```
 
-`spawn()` creates an agent session, binds the Caracal context while the callback runs, and terminates non-service sessions when the callback exits.
+`spawn()` creates an agent session, binds the Caracal context while the callback runs, and terminates the session when the callback exits.
 
-To make agents distinguishable in policy and audit, pass `kind` and `capabilities`. These become `input.principal.agent_kind` and `input.principal.capabilities`, so several agents under one application stay separable without one application per agent. `capabilities` are descriptive labels for policy and audit, not grants; authority always comes from scopes and delegation.
+To make agents distinguishable in policy and audit, pass `capabilities`. These become `input.principal.capabilities`, so several agents under one application stay separable without one application per agent. `capabilities` are descriptive labels for policy and audit, not grants; authority always comes from scopes and delegation. The session lifecycle is handled for you: the coordinator derives the right kind from the application (ephemeral for DCR, instance for managed).
 
 ```ts
 await caracal.spawn(async () => {
   const headers = await caracal.headersAsync();
   await fetch("https://api.example.com/tickets", { headers });
-}, { kind: "instance", capabilities: ["refund-agent"] });
+}, { capabilities: ["refund-agent"] });
 ```
 
 See [If many agents share one managed application, can policy and audit still tell them apart?](/reference/faq/#faq-distinguish-agents-under-one-application).
+
+## Long-lived service agents
+
+Daemons and workers that outlive a single request use `service()` instead of `spawn()`. It returns a handle you own: keep the session alive by calling `heartbeat()` on a timer and retire it with `close()`. A service session is reaped by the coordinator if it stops heartbeating before its lease expires.
+
+```ts
+const svc = await caracal.service({ capabilities: ["billing-worker"] });
+try {
+  while (running) {
+    await svc.heartbeat();
+    await doWork(await caracal.headersAsync());
+    await sleep(30_000);
+  }
+} finally {
+  await svc.close();
+}
+```
 
 ## Delegate to a child agent
 
