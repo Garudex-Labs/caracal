@@ -8,7 +8,7 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro';
 
 <section className="faqSearchPanel" aria-label="Search FAQs">
   <div className="faqSearchMeta">
-    <span id="faq-search-status" className="faqSearchStatus" aria-live="polite">21 results</span>
+    <span id="faq-search-status" className="faqSearchStatus" aria-live="polite">22 results</span>
   </div>
   <div className="faqSearchRow">
     <label className="faqSearchLabel" htmlFor="faq-search">Search FAQs</label>
@@ -324,6 +324,22 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro';
       <p>This means there is no "clash" to resolve when a spawned agent runs under its parent's application. A plain <code>spawn()</code> carries no grant edge, so the child runs at the application's full, policy-bounded authority — deliberately identical to the parent, which is what inheriting means. Reach for <code>spawn(grant=Grant.narrow([...]))</code> when the child should hold strictly less; the grant then sub-bounds the authority further while policy continues to apply on top. Because every layer is subtractive, inheriting an application's policy and carrying a grant can only ever narrow access, never expand it.</p>
       <p>See <a href="/concepts/delegation/">Delegation</a> and <a href="/concepts/policy/">Policy</a>.</p>
       <p className="faqRelated">Related: <a href="#faq-006">FAQ-006</a>, <a href="#faq-008">FAQ-008</a>, <a href="#faq-011">FAQ-011</a></p>
+    </details>
+
+    <details id="faq-022" className="faqEntry faqEntryImportant" data-faq-entry data-faq-category="model" data-faq-id="FAQ-022" data-faq-title="If spawned children inherit the parent's application, when is a DCR application actually used?" data-keywords="DCR ephemeral agent kind derived managed instance authenticate as client credentials root session per tenant isolation use case orchestrator">
+      <summary className="faqEntryHeader">
+        <span className="faqNumber">FAQ-022</span>
+        <span className="faqTag faqTagIdentity">Identity</span>
+        <h3>If spawned children inherit the parent's application, when is a DCR application actually used?</h3>
+        <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-022">Share</button>
+      </summary>
+      <span id="faq-when-is-dcr-actually-used" className="faqAnchor"></span>
+      <p>A DCR application is used by <strong>authenticating as it</strong>, not by spawning under it. This is the point that usually causes confusion, so start from how <code>agent_kind</code> is decided: the coordinator derives it from the application alone — a session under a managed application is always <code>instance</code>, and a session under a DCR application is always <code>ephemeral</code>. Since <code>spawn()</code> always runs under the caller's own application, a spawned child of a managed application is always <code>instance</code>. <code>spawn()</code> cannot produce an <code>ephemeral</code> session, and a DCR application — bound to exactly one session — cannot be a spawn parent. So an <code>ephemeral</code> agent only ever exists as the single root session of a DCR application.</p>
+      <p>That root session is created by a workload that holds the DCR application's credentials. The control plane registers the DCR application through the Admin API DCR endpoint, which returns a one-time client secret and a short expiry; the SDK never registers applications. An orchestrator injects those credentials into an independently launched workload — for example a per-tenant container — and that workload, configured with the DCR <code>application_id</code> and secret, authenticates with the <code>client_credentials</code> grant and creates its one ephemeral session. The application then expires (one hour or less) and is archived by DCR cleanup.</p>
+      <p>The credential split is deliberate: minting a new credentialed identity is a privileged control-plane action, so a runtime cannot register applications for itself. The SDK <em>consumes</em> a DCR application by being configured with its credentials; only an operator or orchestrator with Admin API access <em>mints</em> one.</p>
+      <p>So DCR has a real, distinct purpose that managed applications do not serve: a per-tenant, per-job, or per-integration identity that is credential-isolated, independently revocable, auto-expiring, and registry-visible. What it does not add is extra policy or audit distinguishability — the agent session already provides that. Reach for DCR when you need an isolated, short-lived credential boundary for an independently launched unit of work; use one managed application with many <code>instance</code> sessions for ordinary spawn fan-out.</p>
+      <p>See <a href="/concepts/principal/">Identities and Applications</a> and <a href="/reference/faq/#faq-007">FAQ-007</a>.</p>
+      <p className="faqRelated">Related: <a href="#faq-006">FAQ-006</a>, <a href="#faq-007">FAQ-007</a>, <a href="#faq-008">FAQ-008</a></p>
     </details>
 </div>
 
