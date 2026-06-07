@@ -41,6 +41,7 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro';
   <a className="faqStripItem" href="#faq-019"><span>FAQ-019</span><strong>Which features are Enterprise Edition only?</strong></a>
 </nav>
 
+<section className="faqListPanel" aria-label="FAQ results">
 <p id="faq-empty" className="faqEmpty" hidden>No FAQs match that search.</p>
 
 <div id="faq-registry" className="faqRegistry">
@@ -49,7 +50,7 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro';
         <span className="faqNumber">FAQ-001</span>
         <span className="faqTag faqTagPlatform">Platform</span>
         <h3>What problem does Caracal solve?</h3>
-        <a className="faqPermalink" href="#faq-001" aria-label="Link to FAQ-001">#</a>
+        <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-001">Share</button>
       </summary>
       <span id="faq-what-problem-does-caracal-solve" className="faqAnchor"></span>
       <p>Caracal gives agents and automated workflows short-lived, policy-approved authority instead of long-lived credentials. The agent asks for scoped authority at the moment it acts, STS evaluates policy, Gateway or a connector enforces the mandate, and Audit records the decision and result.</p>
@@ -62,7 +63,7 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro';
         <span className="faqNumber">FAQ-002</span>
         <span className="faqTag faqTagPlatform">Platform</span>
         <h3>Is Caracal an identity provider, secrets manager, or API gateway?</h3>
-        <a className="faqPermalink" href="#faq-002" aria-label="Link to FAQ-002">#</a>
+        <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-002">Share</button>
       </summary>
       <span id="faq-is-caracal-an-idp-secrets-manager-or-api-gateway" className="faqAnchor"></span>
       <p>No. Caracal is an authority broker for agent and workload actions. It can sit in front of HTTP resources like a protected Gateway, and it can broker provider credentials, but it does not replace your IdP, your static config store, or your general API management layer.</p>
@@ -74,7 +75,7 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro';
         <span className="faqNumber">FAQ-003</span>
         <span className="faqTag faqTagModel">Architecture</span>
         <h3>What should a zone represent?</h3>
-        <a className="faqPermalink" href="#faq-003" aria-label="Link to FAQ-003">#</a>
+        <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-003">Share</button>
       </summary>
       <span id="faq-what-should-a-zone-represent" className="faqAnchor"></span>
       <p>A zone should represent a trust boundary: the set of resources, sessions, policies, signing keys, and audit records that are allowed to share authority state. Use a separate zone when two workloads need independent signing keys, policy activation, or audit trails. Use one zone with separate resources when the same trust boundary protects multiple upstreams.</p>
@@ -87,7 +88,7 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro';
         <span className="faqNumber">FAQ-004</span>
         <span className="faqTag faqTagModel">Architecture</span>
         <h3>Does the open-source edition include managed multi-tenancy?</h3>
-        <a className="faqPermalink" href="#faq-004" aria-label="Link to FAQ-004">#</a>
+        <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-004">Share</button>
       </summary>
       <span id="faq-does-open-source-include-managed-multi-tenancy" className="faqAnchor"></span>
       <p>No. The open-source Community Edition gives you zones as a manual isolation primitive. You can model customers, environments, or trust tiers with zones and automate them through the Admin API, but managed tenant, team, SSO, and hosted lifecycle features are Enterprise Edition features.</p>
@@ -101,7 +102,7 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro';
         <span className="faqNumber">FAQ-005</span>
         <span className="faqTag faqTagIdentity">Identity</span>
         <h3>What is the difference between an application, principal, and agent session?</h3>
-        <a className="faqPermalink" href="#faq-005" aria-label="Link to FAQ-005">#</a>
+        <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-005">Share</button>
       </summary>
       <span id="faq-application-principal-agent-session" className="faqAnchor"></span>
       <p>An application is registered software that authenticates to Caracal. A principal is the acting identity, such as a user, service, or agent. An agent session is a time-bounded execution context spawned from a subject session or application context.</p>
@@ -114,7 +115,7 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro';
         <span className="faqNumber">FAQ-006</span>
         <span className="faqTag faqTagIdentity">Identity</span>
         <h3>Should I create one application per agent?</h3>
-        <a className="faqPermalink" href="#faq-006" aria-label="Link to FAQ-006">#</a>
+        <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-006">Share</button>
       </summary>
       <span id="faq-one-application-per-agent" className="faqAnchor"></span>
       <p>No. This is the most common modeling mistake, and it does not match how Caracal scales. An <strong>application</strong> and an <strong>agent</strong> are different layers:</p>
@@ -133,7 +134,7 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro';
         <span className="faqNumber">FAQ-007</span>
         <span className="faqTag faqTagIdentity">Identity</span>
         <h3>When should I use a managed application versus DCR?</h3>
-        <a className="faqPermalink" href="#faq-007" aria-label="Link to FAQ-007">#</a>
+        <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-007">Share</button>
       </summary>
       <span id="faq-managed-application-versus-dcr" className="faqAnchor"></span>
       <p>Use a managed application for durable software you intentionally operate: a backend service, Gateway application, orchestrator, or known agent runtime. Use DCR for spawned, high-churn, short-lived agent identities that need isolated credentials. Do not reuse one DCR application across multiple spawned agents.</p>
@@ -146,7 +147,7 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro';
         <span className="faqNumber">FAQ-008</span>
         <span className="faqTag faqTagIdentity">Identity</span>
         <h3>If many agents share one managed application, can policy and audit still tell them apart?</h3>
-        <a className="faqPermalink" href="#faq-008" aria-label="Link to FAQ-008">#</a>
+        <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-008">Share</button>
       </summary>
       <span id="faq-distinguish-agents-under-one-application" className="faqAnchor"></span>
       <p>Yes, with one important distinction between <em>attribution</em> and <em>credential isolation</em>.</p>
@@ -161,7 +162,7 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro';
         <span className="faqNumber">FAQ-009</span>
         <span className="faqTag faqTagResource">Resources</span>
         <h3>What is the difference between a resource and a provider?</h3>
-        <a className="faqPermalink" href="#faq-009" aria-label="Link to FAQ-009">#</a>
+        <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-009">Share</button>
       </summary>
       <span id="faq-resource-versus-provider" className="faqAnchor"></span>
       <p>A resource is the protected target and policy audience: the thing a mandate authorizes access to. A provider describes how Gateway authenticates upstream: no credential, Caracal mandate, OAuth, API key, or bearer token.</p>
@@ -174,7 +175,7 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro';
         <span className="faqNumber">FAQ-010</span>
         <span className="faqTag faqTagResource">Resources</span>
         <h3>Why must the resource identifier stay stable if the upstream URL can change?</h3>
-        <a className="faqPermalink" href="#faq-010" aria-label="Link to FAQ-010">#</a>
+        <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-010">Share</button>
       </summary>
       <span id="faq-stable-resource-identifier" className="faqAnchor"></span>
       <p>Policies, grants, mandates, and audit records refer to the resource identifier. If you use a mutable deployment hostname as the identifier, changing infrastructure also changes your authority boundary and breaks audit continuity. Use a stable audience URI such as <code>resource://billing</code>, then change the upstream URL when routing changes.</p>
@@ -186,7 +187,7 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro';
         <span className="faqNumber">FAQ-011</span>
         <span className="faqTag faqTagResource">Resources</span>
         <h3>How should I design scopes?</h3>
-        <a className="faqPermalink" href="#faq-011" aria-label="Link to FAQ-011">#</a>
+        <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-011">Share</button>
       </summary>
       <span id="faq-scope-design" className="faqAnchor"></span>
       <p>Use small action-oriented scopes such as <code>payments:read</code>, <code>tickets:comment</code>, or <code>mcp:tool:call</code>. Do not encode environment, tenant, user, or hostname into scope names when that data belongs in the zone, principal, resource, or policy input.</p>
@@ -199,7 +200,7 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro';
         <span className="faqNumber">FAQ-012</span>
         <span className="faqTag faqTagResource">Resources</span>
         <h3>Do I manage grants directly?</h3>
-        <a className="faqPermalink" href="#faq-012" aria-label="Link to FAQ-012">#</a>
+        <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-012">Share</button>
       </summary>
       <span id="faq-do-i-manage-grants-directly" className="faqAnchor"></span>
       <p>In the current Console flow, you usually define resources, scopes, applications, subjects, and policies rather than managing grants as a separate daily object. Grants are an authorization input that policy can read; the active policy set still makes the final allow, deny, or step-up decision.</p>
@@ -211,7 +212,7 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro';
         <span className="faqNumber">FAQ-013</span>
         <span className="faqTag faqTagSecurity">Security</span>
         <h3>Is an application secret the same as a provider credential?</h3>
-        <a className="faqPermalink" href="#faq-013" aria-label="Link to FAQ-013">#</a>
+        <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-013">Share</button>
       </summary>
       <span id="faq-app-secret-versus-provider-credential" className="faqAnchor"></span>
       <p>No. An application secret authenticates the application to Caracal. A provider credential authenticates Gateway or STS to an upstream provider such as Google, Slack, OpenAI, or an internal API. Agents should authenticate to Caracal and receive short-lived mandates; they should not receive long-lived provider credentials.</p>
@@ -224,7 +225,7 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro';
         <span className="faqNumber">FAQ-014</span>
         <span className="faqTag faqTagSecurity">Security</span>
         <h3>When should I use per-user OAuth instead of a shared provider credential?</h3>
-        <a className="faqPermalink" href="#faq-014" aria-label="Link to FAQ-014">#</a>
+        <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-014">Share</button>
       </summary>
       <span id="faq-per-user-oauth-versus-shared-credential" className="faqAnchor"></span>
       <p>Use per-user OAuth (<code>oauth2_authorization_code</code>) when the upstream call must act as a specific user and that user must consent. Use a shared service credential (<code>oauth2_client_credentials</code>, <code>api_key</code>, or <code>bearer_token</code>) when the agent acts as the application or service, not as an individual user.</p>
@@ -236,7 +237,7 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro';
         <span className="faqNumber">FAQ-015</span>
         <span className="faqTag faqTagRuntime">Runtime</span>
         <h3>Why are zone and policy commands in the Console instead of the <code>caracal</code> CLI?</h3>
-        <a className="faqPermalink" href="#faq-015" aria-label="Link to FAQ-015">#</a>
+        <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-015">Share</button>
       </summary>
       <span id="faq-why-console-instead-of-cli" className="faqAnchor"></span>
       <p>The top-level <code>caracal</code> CLI is intentionally limited to local runtime lifecycle and process execution: <code>up</code>, <code>down</code>, <code>status</code>, <code>purge</code>, <code>run</code>, and <code>console</code>. Product-management workflows such as zones, applications, providers, resources, policies, audit, diagnostics, agents, and delegation live in the Console, Admin API, and SDKs so they use one management surface and do not drift into duplicated CLI commands.</p>
@@ -249,7 +250,7 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro';
         <span className="faqNumber">FAQ-016</span>
         <span className="faqTag faqTagOps">Operations</span>
         <h3>What is the difference between a 403 from STS and a 403 from Gateway?</h3>
-        <a className="faqPermalink" href="#faq-016" aria-label="Link to FAQ-016">#</a>
+        <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-016">Share</button>
       </summary>
       <span id="faq-sts-403-versus-gateway-403" className="faqAnchor"></span>
       <p>A 403 from STS means the exchange was authenticated but policy did not allow the requested resource scopes, or a step-up/grant/session condition blocked issuance. A 403 from Gateway or a verifier means the request reached a protected boundary but the mandate, resource binding, scope check, revocation state, or route safety check failed.</p>
@@ -262,7 +263,7 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro';
         <span className="faqNumber">FAQ-017</span>
         <span className="faqTag faqTagOps">Operations</span>
         <h3>Where is the diagnostic bundle or doctor command?</h3>
-        <a className="faqPermalink" href="#faq-017" aria-label="Link to FAQ-017">#</a>
+        <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-017">Share</button>
       </summary>
       <span id="faq-diagnostic-bundle" className="faqAnchor"></span>
       <p>The diagnostic bundle is exposed through existing surfaces instead of a separate top-level command. Use <code>caracal status --json</code> for runtime status, Console <code>diagnostics</code> for Doctor checks (<code>health</code>, <code>readiness</code>, <code>zones</code>, <code>preflight</code>), <code>audit</code> for recent decisions, and <code>request trace</code> for a known request ID.</p>
@@ -275,7 +276,7 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro';
         <span className="faqNumber">FAQ-018</span>
         <span className="faqTag faqTagOps">Operations</span>
         <h3>Why is an audit event missing?</h3>
-        <a className="faqPermalink" href="#faq-018" aria-label="Link to FAQ-018">#</a>
+        <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-018">Share</button>
       </summary>
       <span id="faq-missing-audit-event" className="faqAnchor"></span>
       <p>First confirm the request reached a Caracal-protected boundary. If it did, check the selected zone, time window, request ID, Audit service readiness, Redis stream health, replay backlog, and DLQ. If the request failed before STS, Gateway, Coordinator, or a connector emitted evidence, there may be no action-result event for that boundary.</p>
@@ -287,7 +288,7 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro';
         <span className="faqNumber">FAQ-019</span>
         <span className="faqTag faqTagEdition">Editions</span>
         <h3>Which features are Enterprise Edition only?</h3>
-        <a className="faqPermalink" href="#faq-019" aria-label="Link to FAQ-019">#</a>
+        <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-019">Share</button>
       </summary>
       <span id="faq-enterprise-only-features" className="faqAnchor"></span>
       <p>Managed multi-tenancy, hosted management UI, managed Gateway and service operation, SSO, SCIM provisioning, teams, organization-level RBAC, commercial support, and enterprise lifecycle features are Enterprise Edition features. The Community Edition remains self-hosted and uses zones, Admin API automation, Console workflows, SDKs, and connectors.</p>
@@ -295,6 +296,34 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro';
       <p className="faqRelated">Related: <a href="#faq-004">FAQ-004</a></p>
     </details>
 </div>
+
+<nav className="faqPagination" data-faq-pagination aria-label="FAQ pagination" hidden>
+  <button type="button" className="faqPageNav faqPagePrev" data-faq-page-prev>Previous</button>
+  <div className="faqPageNumbers" data-faq-page-numbers></div>
+  <button type="button" className="faqPageNav faqPageNext" data-faq-page-next>Next</button>
+  <span className="faqPageStatus" data-faq-page-status></span>
+</nav>
+</section>
+
+<dialog className="faqDialog" data-faq-dialog aria-labelledby="faq-dialog-title">
+  <div className="faqDialogShell">
+    <header className="faqDialogHeader">
+      <div>
+        <div className="faqDialogMeta">
+          <span className="faqNumber" data-faq-dialog-id></span>
+          <span className="faqTag" data-faq-dialog-tag></span>
+        </div>
+        <h2 id="faq-dialog-title" data-faq-dialog-title></h2>
+      </div>
+      <button type="button" className="faqDialogClose" data-faq-dialog-close aria-label="Close FAQ">Close</button>
+    </header>
+    <div className="faqDialogBody" data-faq-dialog-body></div>
+    <footer className="faqDialogFooter">
+      <button type="button" className="faqDialogCopy" data-faq-dialog-copy>Copy FAQ</button>
+      <button type="button" className="faqDialogShare" data-faq-dialog-share>Share FAQ</button>
+    </footer>
+  </div>
+</dialog>
 
 ## Next Step
 

@@ -17,6 +17,11 @@
     const faqEntries = Array.from(document.querySelectorAll("[data-faq-entry]"))
     const faqRegistry = document.getElementById("faq-registry")
     const faqFilterOptions = Array.from(document.querySelectorAll("[data-faq-filter-option]"))
+    const faqPagination = document.querySelector("[data-faq-pagination]")
+    const faqPageNumbers = document.querySelector("[data-faq-page-numbers]")
+    const faqPagePrev = document.querySelector("[data-faq-page-prev]")
+    const faqPageNext = document.querySelector("[data-faq-page-next]")
+    const faqPageStatus = document.querySelector("[data-faq-page-status]")
     const faqStrip = document.querySelector("[data-faq-strip]")
     const faqFilterToggle = document.querySelector("[data-faq-filter-toggle]")
     const faqFilterLabel = document.querySelector("[data-faq-filter-label]")
@@ -24,7 +29,19 @@
     const faqClear = document.querySelector("[data-faq-clear]")
     const faqStatus = document.getElementById("faq-search-status")
     const faqEmpty = document.getElementById("faq-empty")
+    const faqDialog = document.querySelector("[data-faq-dialog]")
+    const faqDialogId = document.querySelector("[data-faq-dialog-id]")
+    const faqDialogTag = document.querySelector("[data-faq-dialog-tag]")
+    const faqDialogTitle = document.querySelector("[data-faq-dialog-title]")
+    const faqDialogBody = document.querySelector("[data-faq-dialog-body]")
+    const faqDialogClose = document.querySelector("[data-faq-dialog-close]")
+    const faqDialogCopy = document.querySelector("[data-faq-dialog-copy]")
+    const faqDialogShare = document.querySelector("[data-faq-dialog-share]")
     const activeFaqFilters = new Set()
+    const faqPageSize = 7
+    let currentFaqPage = 1
+    let visibleFaqEntries = []
+    let currentFaqEntry = null
 
     const faqData = new Map(
       faqEntries.map((entry, index) => {
@@ -74,9 +91,91 @@
       return score
     }
 
-    function openFaq(entry) {
-      entry.hidden = false
-      entry.open = true
+    function faqUrl(entry) {
+      const url = new URL(window.location.href)
+      url.hash = entry.id
+      return url.toString()
+    }
+
+    function shareFaq(entry, button) {
+      const url = faqUrl(entry)
+      const defaultText = button?.textContent
+      window.history.replaceState(null, "", `#${entry.id}`)
+
+      if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(url).then(() => {
+          if (!button) return
+          button.textContent = "Copied"
+          window.setTimeout(() => {
+            button.textContent = defaultText
+          }, 1400)
+        }).catch(() => {
+          if (button) button.textContent = "Link ready"
+        })
+      } else if (button) {
+        button.textContent = "Link ready"
+      }
+    }
+
+    function copyText(text, button, successText) {
+      const defaultText = button?.textContent
+
+      if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(text).then(() => {
+          if (!button) return
+          button.textContent = successText
+          window.setTimeout(() => {
+            button.textContent = defaultText
+          }, 1400)
+        }).catch(() => {
+          if (button) button.textContent = "Copy failed"
+        })
+      } else if (button) {
+        button.textContent = "Copy unavailable"
+      }
+    }
+
+    function faqAnswerText(entry) {
+      return Array.from(entry.children)
+        .filter((child) => !child.matches("summary, .faqAnchor"))
+        .map((child) => child.innerText.trim())
+        .filter(Boolean)
+        .join("\n\n")
+    }
+
+    function copyFaq(entry, button) {
+      const text = [
+        `${entry.dataset.faqId || "FAQ"} - ${entry.dataset.faqTitle || ""}`,
+        faqAnswerText(entry),
+        `Link: ${faqUrl(entry)}`,
+      ].filter(Boolean).join("\n\n")
+
+      window.history.replaceState(null, "", `#${entry.id}`)
+      copyText(text, button, "Copied")
+    }
+
+    function openFaq(entry, updateHash = true) {
+      if (!faqDialog || !faqDialogBody || !faqDialogTitle || !faqDialogId || !faqDialogTag) return
+
+      currentFaqEntry = entry
+      faqEntries.forEach((item) => {
+        item.open = false
+      })
+
+      const tag = entry.querySelector(".faqTag")
+      faqDialogId.textContent = entry.dataset.faqId || ""
+      faqDialogTag.textContent = tag?.textContent || ""
+      faqDialogTag.className = tag ? tag.className : "faqTag"
+      faqDialogTitle.textContent = entry.dataset.faqTitle || ""
+      faqDialogBody.replaceChildren(
+        ...Array.from(entry.children)
+          .filter((child) => !child.matches("summary, .faqAnchor"))
+          .map((child) => child.cloneNode(true)),
+      )
+      faqDialogShare?.setAttribute("aria-label", `Share ${entry.dataset.faqId || "FAQ"}`)
+      faqDialogCopy?.setAttribute("aria-label", `Copy ${entry.dataset.faqId || "FAQ"}`)
+      if (updateHash) window.history.replaceState(null, "", `#${entry.id}`)
+      if (!faqDialog.open) faqDialog.showModal()
     }
 
     function openFaqFromHash() {
@@ -87,15 +186,87 @@
       const entry = target?.matches("[data-faq-entry]") ? target : target?.closest("[data-faq-entry]")
       if (!entry) return
 
-      openFaq(entry)
-      requestAnimationFrame(() => entry.scrollIntoView({ block: "start" }))
+      const page = Math.max(1, Math.ceil((visibleFaqEntries.indexOf(entry) + 1) / faqPageSize))
+      if (page !== currentFaqPage && visibleFaqEntries.includes(entry)) {
+        currentFaqPage = page
+        renderFaqPage()
+      }
+      openFaq(entry, false)
     }
 
-    function filterFaqs() {
+    function pageItems(totalPages) {
+      if (totalPages <= 7) return Array.from({ length: totalPages }, (_, index) => index + 1)
+
+      const pages = [1]
+      const start = Math.max(2, currentFaqPage - 1)
+      const end = Math.min(totalPages - 1, currentFaqPage + 1)
+
+      if (start > 2) pages.push("start-gap")
+      for (let page = start; page <= end; page += 1) pages.push(page)
+      if (end < totalPages - 1) pages.push("end-gap")
+      pages.push(totalPages)
+
+      return pages
+    }
+
+    function renderFaqPagination(totalPages) {
+      if (!faqPagination || !faqPageNumbers || !faqPagePrev || !faqPageNext || !faqPageStatus) return
+
+      faqPagination.hidden = visibleFaqEntries.length === 0
+      faqPageNumbers.replaceChildren()
+      faqPagePrev.disabled = currentFaqPage <= 1
+      faqPageNext.disabled = currentFaqPage >= totalPages
+      const start = visibleFaqEntries.length ? (currentFaqPage - 1) * faqPageSize + 1 : 0
+      const end = Math.min(currentFaqPage * faqPageSize, visibleFaqEntries.length)
+      faqPageStatus.textContent = visibleFaqEntries.length ? `Showing ${start}-${end} of ${visibleFaqEntries.length}` : ""
+
+      pageItems(totalPages).forEach((page) => {
+        if (typeof page === "string") {
+          const ellipsis = document.createElement("span")
+          ellipsis.className = "faqPageEllipsis"
+          ellipsis.textContent = "..."
+          faqPageNumbers.append(ellipsis)
+          return
+        }
+
+        const button = document.createElement("button")
+        button.type = "button"
+        button.textContent = String(page)
+        button.className = "faqPageButton"
+        button.setAttribute("aria-label", `Go to FAQ page ${page}`)
+        button.setAttribute("aria-current", page === currentFaqPage ? "page" : "false")
+        button.addEventListener("click", () => {
+          currentFaqPage = page
+          renderFaqPage()
+          faqRegistry?.scrollIntoView({ block: "start" })
+        })
+        faqPageNumbers.append(button)
+      })
+    }
+
+    function renderFaqPage() {
+      const totalPages = Math.max(1, Math.ceil(visibleFaqEntries.length / faqPageSize))
+      currentFaqPage = Math.min(currentFaqPage, totalPages)
+      const start = (currentFaqPage - 1) * faqPageSize
+      const pageEntries = new Set(visibleFaqEntries.slice(start, start + faqPageSize))
+
+      visibleFaqEntries.forEach((entry) => {
+        entry.hidden = !pageEntries.has(entry)
+        entry.open = false
+        faqRegistry?.append(entry)
+      })
+
+      faqEntries.forEach((entry) => {
+        if (!visibleFaqEntries.includes(entry)) entry.hidden = true
+      })
+
+      renderFaqPagination(totalPages)
+    }
+
+    function filterFaqs(resetPage = true) {
       const query = faqInput.value.trim().toLowerCase()
       const terms = queryTerms(query)
       const orderedEntries = [...faqEntries]
-      let visibleCount = 0
 
       orderedEntries.sort((first, second) => {
         const firstData = faqData.get(first.id)
@@ -108,26 +279,34 @@
         return (firstData?.index || 0) - (secondData?.index || 0)
       })
 
-      orderedEntries.forEach((entry) => {
+      visibleFaqEntries = orderedEntries.filter((entry) => {
         const category = entry.dataset.faqCategory
         const matchesFilter = activeFaqFilters.size === 0 || activeFaqFilters.has(category)
-        const matches = matchesFilter && (!query || faqScore(entry, terms, query) >= 0)
-        entry.hidden = !matches
-        entry.open = false
-        if (matches) visibleCount += 1
-        faqRegistry?.append(entry)
+        return matchesFilter && (!query || faqScore(entry, terms, query) >= 0)
       })
+
+      if (resetPage) currentFaqPage = 1
+      renderFaqPage()
 
       if (faqStrip) faqStrip.hidden = Boolean(query) || activeFaqFilters.size > 0
       if (faqClear) faqClear.hidden = !query && activeFaqFilters.size === 0
-      faqEmpty.hidden = visibleCount > 0
-      faqStatus.textContent = `${visibleCount} result${visibleCount === 1 ? "" : "s"}`
+      faqEmpty.hidden = visibleFaqEntries.length > 0
+      faqStatus.textContent = `${visibleFaqEntries.length} result${visibleFaqEntries.length === 1 ? "" : "s"}`
 
       if (!query && activeFaqFilters.size === 0) openFaqFromHash()
     }
 
-    document.querySelectorAll(".faqPermalink").forEach((link) => {
-      link.addEventListener("click", (event) => event.stopPropagation())
+    faqEntries.forEach((entry) => {
+      const header = entry.querySelector(".faqEntryHeader")
+      header?.addEventListener("click", (event) => {
+        event.preventDefault()
+        openFaq(entry)
+      })
+      entry.querySelector("[data-faq-share]")?.addEventListener("click", (event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        shareFaq(entry, event.currentTarget)
+      })
     })
 
     document.addEventListener("click", (event) => {
@@ -138,9 +317,37 @@
 
       const target = document.getElementById(link.getAttribute("href").slice(1))
       const entry = target?.matches("[data-faq-entry]") ? target : target?.closest("[data-faq-entry]")
-      if (entry) openFaq(entry)
+      if (entry) {
+        event.preventDefault()
+        openFaq(entry)
+      }
     })
 
+    faqPagePrev?.addEventListener("click", () => {
+      currentFaqPage = Math.max(1, currentFaqPage - 1)
+      renderFaqPage()
+      faqRegistry?.scrollIntoView({ block: "start" })
+    })
+    faqPageNext?.addEventListener("click", () => {
+      currentFaqPage += 1
+      renderFaqPage()
+      faqRegistry?.scrollIntoView({ block: "start" })
+    })
+    faqDialogClose?.addEventListener("click", () => {
+      faqDialog?.close()
+    })
+    faqDialog?.addEventListener("click", (event) => {
+      if (event.target === faqDialog) faqDialog.close()
+    })
+    faqDialog?.addEventListener("close", () => {
+      currentFaqEntry = null
+    })
+    faqDialogShare?.addEventListener("click", (event) => {
+      if (currentFaqEntry) shareFaq(currentFaqEntry, event.currentTarget)
+    })
+    faqDialogCopy?.addEventListener("click", (event) => {
+      if (currentFaqEntry) copyFaq(currentFaqEntry, event.currentTarget)
+    })
     window.addEventListener("hashchange", openFaqFromHash)
     faqFilterOptions.forEach((option) => {
       option.addEventListener("change", () => {

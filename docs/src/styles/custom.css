@@ -1159,22 +1159,22 @@ footer .meta a {
 
 .faqNumber {
   width: fit-content;
-  padding: 0.16rem 0.38rem;
+  padding: 0.12rem 0.32rem;
   border-radius: 4px;
   background: var(--sl-color-bg-inline-code);
   color: var(--sl-color-text);
   font-family: var(--sl-font-mono);
-  font-size: 0.72rem;
+  font-size: 0.66rem;
   font-weight: 800;
   letter-spacing: 0.04em;
 }
 
 .faqTag {
   width: fit-content;
-  padding: 0.16rem 0.46rem;
+  padding: 0.1rem 0.34rem;
   border: 1px solid transparent;
   border-radius: 4px;
-  font-size: 0.7rem;
+  font-size: 0.62rem;
   font-style: normal;
   font-weight: 800;
   letter-spacing: 0.05em;
@@ -1230,9 +1230,22 @@ footer .meta a {
   color: color-mix(in srgb, #d7f59b 82%, var(--sl-color-text));
 }
 
+.faqListPanel {
+  display: grid;
+  grid-template-rows: minmax(24rem, auto) auto;
+  gap: 0.8rem;
+  margin-top: 0.8rem;
+  padding: 0.75rem;
+  border: 1px solid var(--sl-color-hairline);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--caracal-panel) 34%, transparent);
+}
+
 .faqRegistry {
   display: grid;
-  gap: 0.55rem;
+  align-content: start;
+  gap: 0.42rem;
+  min-height: 24rem;
 }
 
 .faqEntry {
@@ -1243,6 +1256,7 @@ footer .meta a {
   background: color-mix(in srgb, var(--caracal-panel) 42%, transparent);
   overflow: clip;
   scroll-margin-top: 6rem;
+  min-height: 2.9rem;
 }
 
 .faqEntryImportant {
@@ -1251,10 +1265,11 @@ footer .meta a {
 
 .faqEntryHeader {
   display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr) auto auto;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 0.55rem;
-  padding: 0.85rem 1rem;
+  gap: 0.42rem;
+  min-height: 2.9rem;
+  padding: 0.5rem 0.7rem;
   cursor: pointer;
   list-style: none;
 }
@@ -1267,53 +1282,221 @@ footer .meta a {
   content: "";
 }
 
-.faqEntryHeader::after {
-  content: "+";
-  color: var(--sl-color-gray-3);
-  font-family: var(--sl-font-mono);
-  font-weight: 800;
-}
-
-.faqEntry[open] > .faqEntryHeader::after {
-  content: "−";
-}
-
-.faqEntry[open] > .faqEntryHeader {
-  border-bottom: 1px solid var(--sl-color-hairline);
-  background: color-mix(in srgb, var(--sl-color-bg) 36%, transparent);
-}
-
-.faqEntry[open] > :not(summary):not(.faqAnchor) {
-  margin-inline: 1rem;
-}
-
-.faqEntry[open] > p:first-of-type,
-.faqEntry[open] > ul:first-of-type {
-  margin-top: 0.95rem;
-}
-
 .faqEntryHeader h3 {
+  overflow: hidden;
   margin: 0;
-  font-size: clamp(0.98rem, 1.7vw, 1.12rem);
+  font-size: clamp(0.9rem, 1.5vw, 1rem);
   line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.faqPermalink {
+.faqShareButton {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.75rem;
-  height: 1.75rem;
+  min-width: 3.2rem;
+  height: 1.55rem;
+  padding-inline: 0.45rem;
   border: 1px solid var(--sl-color-hairline);
   border-radius: 5px;
+  background: transparent;
   color: var(--sl-color-gray-3);
-  text-decoration: none;
+  font: inherit;
+  font-size: 0.68rem;
+  font-weight: 700;
+  cursor: pointer;
 }
 
-.faqPermalink:hover {
+.faqShareButton:hover {
   border-color: var(--caracal-link);
   color: var(--caracal-link);
   background: var(--caracal-link-soft);
+}
+
+.faqPagination {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 0.45rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--sl-color-hairline);
+}
+
+.faqPagination[hidden] {
+  display: none;
+}
+
+.faqPagination button {
+  min-height: 1.8rem;
+  padding: 0.18rem 0.55rem;
+  border: 1px solid var(--sl-color-hairline);
+  border-radius: 0;
+  background: transparent;
+  color: var(--sl-color-gray-2);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.faqPagination button:hover:not(:disabled),
+.faqPageButton[aria-current="page"] {
+  border-color: color-mix(in srgb, var(--caracal-link) 46%, var(--sl-color-hairline));
+  background: var(--sl-color-bg-inline-code);
+  color: var(--sl-color-text);
+}
+
+.faqPagination button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.faqPageNumbers {
+  justify-self: center;
+  display: flex;
+  overflow: hidden;
+  gap: 0;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--sl-color-hairline) 72%, transparent);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--sl-color-bg) 64%, transparent);
+}
+
+.faqPageNumbers .faqPageButton {
+  min-height: 1.9rem;
+  border-width: 0 0 0 1px;
+}
+
+.faqPageNumbers .faqPageButton:first-child {
+  border-left: 0;
+}
+
+.faqPageButton {
+  min-width: 1.85rem;
+  padding-inline: 0.35rem;
+}
+
+.faqPageNav {
+  border-radius: 7px !important;
+}
+
+.faqPageEllipsis {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.85rem;
+  min-height: 1.9rem;
+  border-left: 1px solid var(--sl-color-hairline);
+  color: var(--sl-color-gray-3);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.faqPageStatus {
+  justify-self: end;
+  color: var(--sl-color-gray-3);
+  font-family: var(--sl-font-mono);
+  font-size: 0.68rem;
+  white-space: nowrap;
+}
+
+.faqDialog {
+  position: fixed;
+  inset: 0;
+  width: min(42rem, calc(100vw - 2rem));
+  max-width: none;
+  height: min(34rem, calc(100vh - 4rem));
+  max-height: none;
+  margin: auto;
+  padding: 0;
+  border: 1px solid var(--sl-color-hairline);
+  border-radius: 10px;
+  background: var(--sl-color-bg);
+  color: var(--sl-color-text);
+  box-shadow: 0 24px 80px color-mix(in srgb, var(--sl-color-black) 36%, transparent);
+}
+
+.faqDialog[open] {
+  display: block;
+}
+
+.faqDialog::backdrop {
+  background: color-mix(in srgb, var(--sl-color-black) 48%, transparent);
+}
+
+.faqDialogShell {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  height: 100%;
+}
+
+.faqDialogHeader {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1rem 0.75rem;
+  border-bottom: 1px solid var(--sl-color-hairline);
+}
+
+.faqDialogMeta {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-bottom: 0.45rem;
+}
+
+.faqDialogHeader h2 {
+  margin: 0;
+  font-size: clamp(1.05rem, 2vw, 1.3rem);
+  line-height: 1.22;
+}
+
+.faqDialogClose,
+.faqDialogCopy,
+.faqDialogShare {
+  flex: 0 0 auto;
+  min-height: 1.8rem;
+  padding: 0.24rem 0.55rem;
+  border: 1px solid var(--sl-color-hairline);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--sl-color-gray-2);
+  font: inherit;
+  font-size: 0.74rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.faqDialogClose:hover,
+.faqDialogCopy:hover,
+.faqDialogShare:hover {
+  border-color: var(--caracal-link);
+  background: var(--caracal-link-soft);
+  color: var(--caracal-link);
+}
+
+.faqDialogBody {
+  overflow-y: auto;
+  padding: 1rem;
+  overscroll-behavior: contain;
+}
+
+.faqDialogBody > :first-child {
+  margin-top: 0;
+}
+
+.faqDialogBody > :last-child {
+  margin-bottom: 0;
+}
+
+.faqDialogFooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.45rem;
+  padding: 0.7rem 1rem;
+  border-top: 1px solid var(--sl-color-hairline);
 }
 
 .faqRelated {
@@ -1330,7 +1513,8 @@ footer .meta a {
 }
 
 .faqEmpty {
-  margin-block: 1rem 2rem;
+  align-self: start;
+  margin-block: 0;
   padding: 1rem;
   border: 1px dashed var(--sl-color-hairline);
   border-radius: 8px;
@@ -1352,6 +1536,47 @@ footer .meta a {
   .faqStripItem {
     max-width: 13rem;
   }
+
+  .faqPagination {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .faqPageNumbers {
+    grid-column: 1 / -1;
+    grid-row: 1;
+    justify-self: center;
+  }
+
+  .faqPagination [data-faq-page-prev] {
+    grid-column: 1;
+    grid-row: 2;
+    justify-self: end;
+  }
+
+  .faqPagination [data-faq-page-next] {
+    grid-column: 2;
+    grid-row: 2;
+    justify-self: start;
+  }
+
+  .faqPageStatus {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    justify-self: center;
+  }
+
+  .faqDialog {
+    width: calc(100vw - 1rem);
+    height: calc(100vh - 2rem);
+  }
+
+  .faqDialogHeader {
+    padding: 0.85rem 0.85rem 0.65rem;
+  }
+
+  .faqDialogBody {
+    padding: 0.85rem;
+  }
 }
 
 @media (max-width: 42rem) {
@@ -1360,7 +1585,7 @@ footer .meta a {
   }
 
   .faqEntryHeader .faqTag,
-  .faqPermalink {
+  .faqShareButton {
     display: none;
   }
 
