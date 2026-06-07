@@ -37,7 +37,7 @@ async with caracal.spawn():
 
 `spawn()` is an async context manager. It binds the agent context inside the block and releases the session when the block exits.
 
-To make agents distinguishable in policy and audit, pass `labels` when you spawn. These become `input.principal.labels`, so several agents under one application stay separable without one application per agent. `labels` are descriptive, for policy and audit, not grants; authority always comes from scopes and delegation. The session lifecycle is handled for you: `spawn()` retires the session when the block exits, and the coordinator derives the right kind from the application (ephemeral for DCR, instance for managed).
+To make agents distinguishable in policy and audit, pass `labels` when you spawn. These become `input.principal.labels`, so several agents under one application stay separable without one application per agent. `labels` are descriptive, for policy and audit, not grants; authority always comes from scopes and delegation. The session lifecycle is handled for you: `spawn()` retires the session when the block exits and records it as an ordinary `agent`, while `service()` records a heartbeat-leased `service`.
 
 ```python
 async with caracal.spawn(labels=["refund-agent"]):
