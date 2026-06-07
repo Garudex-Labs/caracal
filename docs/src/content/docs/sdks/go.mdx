@@ -32,9 +32,8 @@ if err != nil {
 | `FromEnv()` | Load from environment variables. |
 | `FromConfig(path)` | Load a generated runtime profile. |
 | `FromClientSecret(options)` | Use STS client-secret exchange for root SDK operations. |
-| `client.Spawn(ctx, fn, opts...)` | Create an agent session and run `fn` with a bound `context.Context`. |
+| `client.Spawn(ctx, fn, opts...)` | Create an agent session and run `fn` with a bound `context.Context`; set `SpawnOptions.Grant` to bound the child's authority. |
 | `client.Delegate(ctx, opts, fn)` | Create a delegation edge from the current agent session. |
-| `client.DelegateToSpawn(ctx, opts, fn)` | Spawn and delegate before running `fn`. |
 | `client.Headers(ctx, opts...)` | Project the bound context to `http.Header`. |
 | `client.BindFromRequest(ctx, req, opts...)` | Bind inbound Caracal envelope headers. |
 | `client.Transport(base, opts...)` | Return an `*http.Client` that injects Caracal headers. |
