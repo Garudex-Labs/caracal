@@ -443,12 +443,12 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
             )
         )
 
-        svc = await c.service(capabilities=["billing-worker"])
+        svc = await c.service(labels=["billing-worker"])
         self.assertEqual(svc.agent_session_id, "svc-1")
         self.assertEqual(json.loads(requests[0].content), {
             "application_id": "app",
             "kind": "service",
-            "capabilities": ["billing-worker"],
+            "labels": ["billing-worker"],
         })
 
         await svc.heartbeat()

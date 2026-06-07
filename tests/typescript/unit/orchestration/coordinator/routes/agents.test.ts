@@ -340,26 +340,26 @@ describe('POST /v1/zones/:zoneId/agents: spawn', () => {
     expect(insertCall?.[1]?.[5]).toBe('ephemeral')
   })
 
-  it('rejects oversized capability metadata before spawning', async () => {
+  it('rejects oversized label set before spawning', async () => {
     const { app, db } = buildApp()
     await app.ready()
     const res = await app.inject({
       method: 'POST',
       url: '/v1/zones/z1/agents',
-      payload: { application_id: 'app-1', subject_session_id: 'sid-1', capabilities: Array.from({ length: 33 }, (_, i) => `cap${i}`) },
+      payload: { application_id: 'app-1', subject_session_id: 'sid-1', labels: Array.from({ length: 33 }, (_, i) => `cap${i}`) },
     })
     expect(res.statusCode).toBe(400)
     expect(JSON.parse(res.body)).toMatchObject({ error: 'invalid_body' })
     expect(db.connect).not.toHaveBeenCalled()
   })
 
-  it('rejects overlong capability values before spawning', async () => {
+  it('rejects overlong label values before spawning', async () => {
     const { app, db } = buildApp()
     await app.ready()
     const res = await app.inject({
       method: 'POST',
       url: '/v1/zones/z1/agents',
-      payload: { application_id: 'app-1', subject_session_id: 'sid-1', capabilities: ['x'.repeat(65)] },
+      payload: { application_id: 'app-1', subject_session_id: 'sid-1', labels: ['x'.repeat(65)] },
     })
     expect(res.statusCode).toBe(400)
     expect(JSON.parse(res.body)).toMatchObject({ error: 'invalid_body' })

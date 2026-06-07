@@ -519,7 +519,7 @@ describe("agent lifecycle and delegation", () => {
         expect(c.current()?.delegationEdgeId).toBe("edge-1");
         expect(c.current()?.hop).toBe(1);
       });
-    }, { metadata: { purpose: "test" }, capabilities: ["refunds.execute", "ledger.read"] });
+    }, { metadata: { purpose: "test" }, labels: ["refunds.execute", "ledger.read"] });
 
     expect(events).toEqual(["start:agent-1", "end:agent-1"]);
     expect(calls.map((call) => [call.init.method, call.url])).toEqual([
@@ -531,7 +531,7 @@ describe("agent lifecycle and delegation", () => {
       application_id: "app",
       ttl_seconds: 60,
       metadata: { purpose: "test" },
-      capabilities: ["refunds.execute", "ledger.read"],
+      labels: ["refunds.execute", "ledger.read"],
     });
     expect(JSON.parse(String(calls[1].init.body))).toMatchObject({
       source_session_id: "agent-1",
@@ -559,12 +559,12 @@ describe("agent lifecycle and delegation", () => {
       coordinator: { baseUrl: "https://coordinator.example.com", fetchImpl: fakeFetch },
     });
 
-    const svc = await c.service({ capabilities: ["billing-worker"] });
+    const svc = await c.service({ labels: ["billing-worker"] });
     expect(svc.agentSessionId).toBe("svc-1");
     expect(JSON.parse(String(calls[0].init.body))).toMatchObject({
       application_id: "app",
       kind: "service",
-      capabilities: ["billing-worker"],
+      labels: ["billing-worker"],
     });
 
     await svc.heartbeat();
