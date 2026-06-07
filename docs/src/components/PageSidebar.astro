@@ -20,6 +20,12 @@ const aiPrompt = `Read this Markdown copy of the Caracal documentation page and 
 Use the canonical page for context: ${pageUrl}
 
 If retrieval fails, read ${site}/llms-full.txt and find the section with "# URL: ${pageUrl}".`
+const chatGptPrompt = `Explain this Caracal documentation page.
+
+Markdown URL: ${markdownUrl}
+Canonical URL: ${pageUrl}
+
+If you cannot retrieve the page, ask me to paste the Markdown content.`
 ---
 
 {toc && (
@@ -59,13 +65,14 @@ If retrieval fails, read ${site}/llms-full.txt and find the section with "# URL:
             </a>
             <a
               class="ai-btn"
-              href="https://chatgpt.com/"
+              href={`https://chatgpt.com/?q=${encodeURIComponent(chatGptPrompt)}`}
               data-ai-url="https://chatgpt.com/"
               data-ai-param="q"
               data-markdown-url={markdownPath}
               data-markdown-absolute-url={markdownUrl}
               data-page-url={pageUrl}
-              data-copy-prompt="true"
+              data-copy-full-prompt="true"
+              data-prefill-chars="3200"
               target="_blank"
               rel="noopener noreferrer"
             >
@@ -74,12 +81,13 @@ If retrieval fails, read ${site}/llms-full.txt and find the section with "# URL:
             </a>
             <a
               class="ai-btn"
-              href={`https://gemini.google.com/app?q=${encodeURIComponent(aiPrompt)}`}
+              href="https://gemini.google.com/app"
               data-ai-url="https://gemini.google.com/app"
               data-ai-param="q"
               data-markdown-url={markdownPath}
               data-markdown-absolute-url={markdownUrl}
               data-page-url={pageUrl}
+              data-copy-prompt="true"
               target="_blank"
               rel="noopener noreferrer"
             >
@@ -155,6 +163,7 @@ If retrieval fails, read ${site}/llms-full.txt and find the section with "# URL:
           throw new Error(`Markdown request failed with ${response.status}`)
         }
 
+        const markdown = await response.text()
         const prompt = [
           'Explain this Caracal documentation page using the Markdown content below.',
           '',
@@ -163,11 +172,32 @@ If retrieval fails, read ${site}/llms-full.txt and find the section with "# URL:
           '',
           'Markdown content:',
           '',
-          await response.text(),
+          markdown,
         ].join('\n')
+        let promptForUrl = prompt
+        const prefillChars = Number(link.dataset.prefillChars ?? '0')
+
+        if (prefillChars > 0) {
+          if (link.dataset.copyFullPrompt === 'true') {
+            await navigator.clipboard.writeText(prompt)
+            if (label) label.textContent = 'Copied full prompt!'
+          }
+
+          promptForUrl = [
+            'Explain this Caracal documentation page using the Markdown excerpt below.',
+            'The full Markdown prompt was copied to my clipboard; ask me to paste it if you need the rest.',
+            '',
+            `Canonical URL: ${link.dataset.pageUrl}`,
+            `Markdown URL: ${link.dataset.markdownAbsoluteUrl}`,
+            '',
+            'Markdown excerpt:',
+            '',
+            markdown.slice(0, prefillChars),
+          ].join('\n')
+        }
 
         const url = new URL(link.dataset.aiUrl!)
-        url.searchParams.set(link.dataset.aiParam!, prompt)
+        url.searchParams.set(link.dataset.aiParam!, promptForUrl)
 
         if (link.dataset.copyPrompt === 'true' || url.href.length > 24000) {
           await navigator.clipboard.writeText(prompt)
