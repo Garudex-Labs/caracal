@@ -26,7 +26,7 @@
     const faqIndexDisclosure = document.querySelector(".faqIndexDisclosure")
     const faqStatus = document.getElementById("faq-search-status")
     const faqEmpty = document.getElementById("faq-empty")
-    let activeFaqFilter = "all"
+    const activeFaqFilters = new Set()
 
     const faqText = new Map(
       faqEntries.map((entry) => [
@@ -73,7 +73,7 @@
 
       faqEntries.forEach((entry) => {
         const category = entry.closest("[data-faq-category]")?.dataset.faqCategory
-        const matchesFilter = activeFaqFilter === "all" || category === activeFaqFilter
+        const matchesFilter = activeFaqFilters.size === 0 || activeFaqFilters.has(category)
         const matches = matchesFilter && (!query || faqMatches(faqText.get(entry.id), query))
         entry.hidden = !matches
         entry.open = Boolean(query && matches)
@@ -93,8 +93,8 @@
       })
 
       if (faqIndexDisclosure) faqIndexDisclosure.open = Boolean(query)
-      if (faqStrip) faqStrip.hidden = Boolean(query) || activeFaqFilter !== "all"
-      if (faqClear) faqClear.hidden = !query && activeFaqFilter === "all"
+      if (faqStrip) faqStrip.hidden = Boolean(query) || activeFaqFilters.size > 0
+      if (faqClear) faqClear.hidden = !query && activeFaqFilters.size === 0
       faqEmpty.hidden = visibleCount > 0
       faqStatus.textContent = `${visibleCount} result${visibleCount === 1 ? "" : "s"}`
 
@@ -118,27 +118,37 @@
 
     window.addEventListener("hashchange", openFaqFromHash)
     faqFilterOptions.forEach((option) => {
-      option.addEventListener("click", () => {
-        activeFaqFilter = option.dataset.faqFilterOption || "all"
-        faqFilterOptions.forEach((item) => {
-          item.classList.toggle("isActive", item === option)
-        })
+      option.addEventListener("change", () => {
+        const filter = option.dataset.faqFilterOption
+        if (!filter) return
+        if (option.checked) {
+          activeFaqFilters.add(filter)
+        } else {
+          activeFaqFilters.delete(filter)
+        }
+        option.closest(".faqFilterOption")?.classList.toggle("isActive", option.checked)
         if (faqFilterLabel) {
-          faqFilterLabel.textContent = activeFaqFilter === "all" ? "Filter" : option.textContent
+          if (activeFaqFilters.size === 0) {
+            faqFilterLabel.textContent = "Filter"
+          } else if (activeFaqFilters.size === 1) {
+            const activeOption = faqFilterOptions.find((item) => item.checked)
+            faqFilterLabel.textContent = activeOption?.dataset.faqFilterName || "1 filter"
+          } else {
+            faqFilterLabel.textContent = `${activeFaqFilters.size} filters`
+          }
         }
         if (faqFilterToggle) {
-          faqFilterToggle.classList.toggle("isActive", activeFaqFilter !== "all")
-          faqFilterToggle.setAttribute("aria-expanded", "false")
+          faqFilterToggle.classList.toggle("isActive", activeFaqFilters.size > 0)
         }
-        if (faqFilterPopover) faqFilterPopover.hidden = true
         filterFaqs()
       })
     })
     faqClear?.addEventListener("click", () => {
       faqInput.value = ""
-      activeFaqFilter = "all"
+      activeFaqFilters.clear()
       faqFilterOptions.forEach((item) => {
-        item.classList.toggle("isActive", item.dataset.faqFilterOption === "all")
+        item.checked = false
+        item.closest(".faqFilterOption")?.classList.remove("isActive")
       })
       if (faqFilterLabel) {
         faqFilterLabel.textContent = "Filter"

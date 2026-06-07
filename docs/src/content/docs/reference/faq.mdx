@@ -22,13 +22,12 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro';
     </button>
   </div>
   <div id="faq-filter-popover" className="faqFilterPopover" data-faq-filter-popover aria-label="Filter FAQs by category" hidden>
-    <button type="button" className="isActive" data-faq-filter-option="all">All</button>
-    <button type="button" data-faq-filter-option="platform">Platform</button>
-    <button type="button" data-faq-filter-option="model">Model</button>
-    <button type="button" data-faq-filter-option="resources">Resources</button>
-    <button type="button" data-faq-filter-option="providers">Providers</button>
-    <button type="button" data-faq-filter-option="runtime">Runtime</button>
-    <button type="button" data-faq-filter-option="editions">Editions</button>
+    <label className="faqFilterOption"><input type="checkbox" data-faq-filter-option="platform" data-faq-filter-name="Platform" /> <span>Platform</span></label>
+    <label className="faqFilterOption"><input type="checkbox" data-faq-filter-option="model" data-faq-filter-name="Model" /> <span>Model</span></label>
+    <label className="faqFilterOption"><input type="checkbox" data-faq-filter-option="resources" data-faq-filter-name="Resources" /> <span>Resources</span></label>
+    <label className="faqFilterOption"><input type="checkbox" data-faq-filter-option="providers" data-faq-filter-name="Providers" /> <span>Providers</span></label>
+    <label className="faqFilterOption"><input type="checkbox" data-faq-filter-option="runtime" data-faq-filter-name="Runtime" /> <span>Runtime</span></label>
+    <label className="faqFilterOption"><input type="checkbox" data-faq-filter-option="editions" data-faq-filter-name="Editions" /> <span>Editions</span></label>
   </div>
 </section>
 

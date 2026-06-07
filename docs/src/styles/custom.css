@@ -967,12 +967,14 @@ footer .meta a {
 }
 
 .faqFilterToggle {
+  appearance: none;
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.22rem;
-  min-height: 1.65rem;
+  align-self: center;
+  gap: 0.28rem;
+  height: 1.8rem;
   padding: 0 0.42rem;
   border: 0;
   border-radius: 4px;
@@ -986,12 +988,17 @@ footer .meta a {
   white-space: nowrap;
 }
 
+.faqFilterToggle [data-faq-filter-label] {
+  display: inline-flex;
+  align-items: center;
+  height: 100%;
+}
+
 .faqFilterIcon {
   width: 0.86rem;
   height: 0.86rem;
   flex: 0 0 auto;
   opacity: 0.72;
-  transform: translateY(0.01rem);
 }
 
 .faqFilterToggle:hover {
@@ -1028,27 +1035,59 @@ footer .meta a {
   display: none;
 }
 
-.faqFilterPopover button {
-  padding: 0.24rem 0.42rem;
-  border: 0;
+.faqFilterOption {
+  display: flex;
+  align-items: center;
+  gap: 0.42rem;
+  min-height: 1.55rem;
+  padding: 0.22rem 0.42rem;
   border-radius: 4px;
-  background: transparent;
   color: var(--sl-color-gray-2);
-  font: inherit;
   font-size: 0.76rem;
   font-weight: 600;
-  text-align: left;
   cursor: pointer;
 }
 
-.faqFilterPopover button:hover {
+.faqFilterOption:hover {
   background: color-mix(in srgb, var(--sl-color-bg-inline-code) 72%, transparent);
   color: var(--sl-color-text);
 }
 
-.faqFilterPopover button.isActive {
+.faqFilterOption.isActive {
   background: var(--sl-color-bg-inline-code);
   color: var(--sl-color-text);
+}
+
+.faqFilterOption input {
+  appearance: none;
+  width: 0.78rem;
+  height: 0.78rem;
+  margin: 0;
+  border: 1px solid color-mix(in srgb, var(--sl-color-gray-4) 72%, var(--sl-color-hairline));
+  border-radius: 3px;
+  background: transparent;
+  color: var(--sl-color-text);
+  display: grid;
+  place-items: center;
+}
+
+.faqFilterOption input::before {
+  content: "";
+  width: 0.42rem;
+  height: 0.24rem;
+  border: solid currentColor;
+  border-width: 0 0 1.5px 1.5px;
+  opacity: 0;
+  transform: rotate(-45deg) translate(0.02rem, -0.01rem);
+}
+
+.faqFilterOption input:checked {
+  border-color: color-mix(in srgb, var(--caracal-link) 42%, var(--sl-color-gray-4));
+  background: color-mix(in srgb, var(--caracal-link) 16%, transparent);
+}
+
+.faqFilterOption input:checked::before {
+  opacity: 1;
 }
 
 .faqSearchStatus {
