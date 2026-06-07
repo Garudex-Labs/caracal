@@ -15,10 +15,9 @@ import httpx
 from .json_types import JsonObject, JsonValue
 
 
-class AgentKind(StrEnum):
+class AgentLifecycle(StrEnum):
+    AGENT = "agent"
     SERVICE = "service"
-    INSTANCE = "instance"
-    EPHEMERAL = "ephemeral"
 
 
 @dataclass
@@ -78,7 +77,7 @@ class SpawnRequest:
     application_id: str
     subject_session_id: str | None = None
     parent_id: str | None = None
-    kind: AgentKind | None = None
+    lifecycle: AgentLifecycle | None = None
     ttl_seconds: int | None = None
     metadata: JsonObject | None = None
     labels: list[str] | None = None
@@ -113,8 +112,8 @@ async def spawn_agent(client: CoordinatorClient, bearer: str, req: SpawnRequest)
     body: dict[str, JsonValue] = {
         "application_id": req.application_id,
     }
-    if req.kind is not None:
-        body["kind"] = str(req.kind)
+    if req.lifecycle is not None:
+        body["lifecycle"] = str(req.lifecycle)
     if req.subject_session_id:
         body["subject_session_id"] = req.subject_session_id
     if req.parent_id:
@@ -156,7 +155,7 @@ def _derive_idempotency_key(req: SpawnRequest) -> str | None:
         req.application_id,
         req.subject_session_id or "",
         req.parent_id or "",
-        str(req.kind or ""),
+        str(req.lifecycle or ""),
         ",".join(req.labels or []),
     ])
     return hashlib.sha256(seed.encode("utf-8")).hexdigest()

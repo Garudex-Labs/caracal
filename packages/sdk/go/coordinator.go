@@ -30,13 +30,12 @@ func (c *CoordinatorClient) http() *http.Client {
 	return http.DefaultClient
 }
 
-// AgentKind distinguishes the agent session lifecycle.
-type AgentKind string
+// AgentLifecycle distinguishes the agent session lifecycle.
+type AgentLifecycle string
 
 const (
-	KindService   AgentKind = "service"
-	KindInstance  AgentKind = "instance"
-	KindEphemeral AgentKind = "ephemeral"
+	LifecycleAgent   AgentLifecycle = "agent"
+	LifecycleService AgentLifecycle = "service"
 )
 
 // SpawnRequest parameters for coordinator agent spawn.
@@ -45,7 +44,7 @@ type SpawnRequest struct {
 	ApplicationID    string
 	SubjectSessionID string
 	ParentID         string
-	Kind             AgentKind
+	Lifecycle        AgentLifecycle
 	TTLSeconds       int
 	Metadata         map[string]any
 	Labels           []string
@@ -122,8 +121,8 @@ func SpawnAgent(ctx context.Context, client *CoordinatorClient, bearer string, r
 	body := map[string]any{
 		"application_id": req.ApplicationID,
 	}
-	if req.Kind != "" {
-		body["kind"] = string(req.Kind)
+	if req.Lifecycle != "" {
+		body["lifecycle"] = string(req.Lifecycle)
 	}
 	if req.SubjectSessionID != "" {
 		body["subject_session_id"] = req.SubjectSessionID
@@ -162,7 +161,7 @@ func deriveIdempotencyKey(req SpawnRequest) string {
 	if req.SubjectSessionID == "" && req.ParentID == "" {
 		return ""
 	}
-	seed := req.ApplicationID + "|" + req.SubjectSessionID + "|" + req.ParentID + "|" + string(req.Kind) + "|" + strings.Join(req.Labels, ",")
+	seed := req.ApplicationID + "|" + req.SubjectSessionID + "|" + req.ParentID + "|" + string(req.Lifecycle) + "|" + strings.Join(req.Labels, ",")
 	sum := sha256.Sum256([]byte(seed))
 	return hex.EncodeToString(sum[:])
 }

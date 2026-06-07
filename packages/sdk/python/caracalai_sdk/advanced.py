@@ -40,7 +40,7 @@ from .context import (
     with_overrides,
 )
 from .coordinator import (
-    AgentKind,
+    AgentLifecycle,
     CoordinatorClient,
     DelegationConstraints,
     DelegationRequest,
@@ -87,7 +87,7 @@ __all__ = [
     "with_overrides",
     "to_envelope",
     "from_envelope",
-    "AgentKind",
+    "AgentLifecycle",
     "DelegationConstraints",
     "CoordinatorClient",
     "SpawnRequest",
