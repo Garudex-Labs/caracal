@@ -74,12 +74,13 @@ If retrieval fails, read ${site}/llms-full.txt and find the section with "# URL:
             </a>
             <a
               class="ai-btn"
-              href={`https://gemini.google.com/app?prompt=${encodeURIComponent(aiPrompt)}`}
+              href="https://gemini.google.com/app"
               data-ai-url="https://gemini.google.com/app"
               data-ai-param="prompt"
               data-markdown-url={markdownPath}
               data-markdown-absolute-url={markdownUrl}
               data-page-url={pageUrl}
+              data-copy-prompt="true"
               target="_blank"
               rel="noopener noreferrer"
             >
