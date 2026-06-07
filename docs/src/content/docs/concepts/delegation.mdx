@@ -46,6 +46,20 @@ flowchart LR
 - Revoking an upstream edge should invalidate downstream authority.
 - Resource servers should verify delegation claims when they require delegated access.
 
+## What an Edge Bounds — and What It Does Not
+
+An edge bounds **the token issued for that edge** and **any further edge chained from it**. It does **not** lower the application's authority ceiling. This distinction is the whole security model, so make it explicit:
+
+- When a child is created with a **narrowing grant**, a `source → child` edge is recorded. A token exchange that presents this edge is bounded to the edge's scopes, and the coordinator enforces that any edge chained from the child is a subset of it (`scopes ⊆ parent`, plus TTL, hop, budget, and resource narrowing).
+- When a child is created with **inherit** (the default), **no edge is recorded**. The child authenticates as the application and re-derives the application's authority, bounded only by policy — it is **not** bounded by an ancestor's narrowing.
+
+Worked example: A spawns B with `grant=narrow([tickets:read])`, then B spawns C.
+
+- If B spawns C with **inherit**, C presents no edge and receives the **application's** authority (subject to policy) — *not* B's `tickets:read` slice. B did not "grant" anything; C simply runs as the app.
+- If B spawns C with a **narrowing grant**, a `B → C` edge is recorded and the coordinator rejects it unless `C ⊆ B` — so B can never pass on authority it does not hold.
+
+The consequence: the **application plus policy** is the hard, server-enforced boundary every session is contained by. Delegation edges are a **least-privilege tool within that boundary** — to bound an entire subtree below the application, narrow at **every hop** (or move the subtree under a different application via `delegate()`, which is a real cross-application trust boundary requiring receiver consent). All sessions of one application share a credential and a trust domain by design; do not rely on a single narrowed intermediary to contain its descendants.
+
 ## SDK Relationship
 
 The SDKs expose one primitive for creating children and one for granting a peer:
@@ -59,6 +73,10 @@ The SDKs expose one primitive for creating children and one for granting a peer:
 `spawn()` returns a child running under the **same application's** authority — it never moves a child into a different application. Pass a **narrowing grant** (`Grant.narrow([...])`, `Grant.narrow(...)`, or `GrantNarrow(...)`) to bind a least-privilege delegation edge to the child, or `Grant.none()` for a child with no inherited authority. To hand authority across applications, use `delegate()`, which records an edge to an already-existing peer session under that other application.
 
 These helpers propagate session and delegation context so later token exchanges include the correct graph proof.
+
+## Where You Interact With Delegation
+
+Delegation is authored **at runtime, from the SDK** — there is no Console form for creating edges, and it is not an internal-only concept. You create edges by calling `spawn(grant=…)` or `delegate(to=…)` in your agent code; the coordinator records and enforces them. You **observe** the resulting graph through audit: every token-exchange decision records the delegation edge id, the chain of hops, and the granted scopes, which the Console audit view and the Admin audit API expose for inspection and filtering. So the split is: **SDK to author, audit/Console to observe** — the mental model maps directly onto two SDK calls, not a separate management surface.
 
 ## Next Step
 
