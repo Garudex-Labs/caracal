@@ -78,7 +78,7 @@ class SpawnRequest:
     application_id: str
     subject_session_id: str | None = None
     parent_id: str | None = None
-    kind: AgentKind = AgentKind.INSTANCE
+    kind: AgentKind | None = None
     ttl_seconds: int | None = None
     metadata: JsonObject | None = None
     capabilities: list[str] | None = None
@@ -112,8 +112,9 @@ class DelegationResponse:
 async def spawn_agent(client: CoordinatorClient, bearer: str, req: SpawnRequest) -> SpawnResponse:
     body: dict[str, JsonValue] = {
         "application_id": req.application_id,
-        "kind": str(req.kind),
     }
+    if req.kind is not None:
+        body["kind"] = str(req.kind)
     if req.subject_session_id:
         body["subject_session_id"] = req.subject_session_id
     if req.parent_id:
@@ -155,7 +156,7 @@ def _derive_idempotency_key(req: SpawnRequest) -> str | None:
         req.application_id,
         req.subject_session_id or "",
         req.parent_id or "",
-        str(req.kind),
+        str(req.kind or ""),
         ",".join(req.capabilities or []),
     ])
     return hashlib.sha256(seed.encode("utf-8")).hexdigest()
@@ -166,6 +167,23 @@ async def terminate_agent(
 ) -> None:
     resp = await client._http().delete(
         f"{client.base_url}/zones/{zone_id}/agents/{agent_session_id}",
+        headers={"authorization": f"Bearer {bearer}"},
+    )
+    resp.raise_for_status()
+
+
+async def heartbeat_agent(
+    client: CoordinatorClient,
+    bearer: str,
+    zone_id: str,
+    agent_session_id: str,
+    status: str = "healthy",
+) -> None:
+    """Renew a service agent's lease. A service session is reaped by the
+    coordinator if it stops heartbeating before the lease expires."""
+    resp = await client._http().post(
+        f"{client.base_url}/zones/{zone_id}/agents/{agent_session_id}/heartbeat",
+        json={"status": status},
         headers={"authorization": f"Bearer {bearer}"},
     )
     resp.raise_for_status()

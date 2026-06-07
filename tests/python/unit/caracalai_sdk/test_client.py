@@ -22,7 +22,6 @@ from caracalai_sdk import (
     ResourceBinding,
 )
 from caracalai_sdk.advanced import (
-    AgentKind,
     CoordinatorClient,
     DelegationConstraints,
     HEADER_AUTHORIZATION,
@@ -368,7 +367,6 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
                 zone_id="z",
                 application_id="app",
                 subject_token="tok",
-                default_kind=AgentKind.EPHEMERAL,
                 default_ttl_seconds=60,
             )
         )
@@ -401,7 +399,6 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([r.method for r in requests], ["POST", "POST", "DELETE"])
         self.assertEqual(json.loads(requests[0].content), {
             "application_id": "app",
-            "kind": "ephemeral",
             "ttl_seconds": 60,
             "metadata": {"purpose": "test"},
         })
@@ -422,6 +419,44 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(RuntimeError):
             async with c.delegate(to="agent-2", to_application_id="app-2", scopes=["tool:call"]):
                 pass
+
+    async def test_service_heartbeats_and_does_not_auto_terminate(self) -> None:
+        requests: list[httpx.Request] = []
+
+        async def handler(request):
+            requests.append(request)
+            if request.method == "POST" and str(request.url).endswith("/agents"):
+                return httpx.Response(200, json={"agent_session_id": "svc-1"})
+            if request.method == "POST" and str(request.url).endswith("/heartbeat"):
+                return httpx.Response(200, json={"agent": {"id": "svc-1"}})
+            if request.method == "DELETE":
+                return httpx.Response(204)
+            return httpx.Response(404)
+
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        c = Caracal(
+            CaracalConfig(
+                coordinator=CoordinatorClient(base_url="https://coordinator.example.com", _client=client),
+                zone_id="z",
+                application_id="app",
+                subject_token="tok",
+            )
+        )
+
+        svc = await c.service(capabilities=["billing-worker"])
+        self.assertEqual(svc.agent_session_id, "svc-1")
+        self.assertEqual(json.loads(requests[0].content), {
+            "application_id": "app",
+            "kind": "service",
+            "capabilities": ["billing-worker"],
+        })
+
+        await svc.heartbeat()
+        self.assertTrue(str(requests[1].url).endswith("/zones/z/agents/svc-1/heartbeat"))
+
+        await svc.aclose()
+        await client.aclose()
+        self.assertEqual([r.method for r in requests], ["POST", "POST", "DELETE"])
 
 
 class AsgiMiddlewareTests(unittest.IsolatedAsyncioTestCase):
