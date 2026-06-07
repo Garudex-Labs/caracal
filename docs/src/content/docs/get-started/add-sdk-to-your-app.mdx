@@ -145,7 +145,7 @@ func main() {
 | `gatewayRequest()` / `GatewayRequest()` | Builds the Gateway URL and `X-Caracal-Resource` header for explicit resource routing. |
 | `transport()` / `Transport()` | Injects Caracal context, authorization, trace, and baggage headers on outbound calls. |
 
-`spawn()` creates an agent session under the application from your runtime profile. You reuse that one application for every agent session your workload spawns; you do not register an application per agent. See [Should I create one application per agent?](/reference/faq/#faq-one-application-per-agent).
+`spawn()` creates an agent session under the application from your runtime profile. You reuse that one application for every agent session your workload spawns; you do not register an application per agent. See [Should I create one application per agent?](/reference/faq/#faq-006).
 
 If policy denies the exchange, STS returns HTTP 403 and the SDK surfaces an error. Open Console **audit** or **explain** with the request ID to see the policy and diagnostics that determined the result.
 
