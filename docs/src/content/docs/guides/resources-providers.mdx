@@ -16,7 +16,7 @@ Resources tell Caracal what protected target is being accessed. Providers descri
 Resource fields should answer “what is being protected and where does Gateway send traffic?” Provider fields should answer “what credential or identity does Gateway attach upstream?” Keep credential details such as client secrets, token endpoints, API-key placement, bearer tokens, identity forwarding, and runtime injection on the provider. Keep target details such as resource identifier, Caracal resource scopes, upstream URL, Gateway application, and the selected upstream credential provider on the resource.
 
 :::note[FAQ]
-[What is the difference between a resource and a provider?](/reference/faq/#faq-resource-versus-provider) and [is an application secret the same as a provider credential?](/reference/faq/#faq-app-secret-versus-provider-credential)
+[What is the difference between a resource and a provider?](/reference/faq/#faq-009) and [is an application secret the same as a provider credential?](/reference/faq/#faq-013)
 :::
 
 ## Console workflow
@@ -68,7 +68,7 @@ Provider secrets are sealed at creation time and are not returned by list or det
 Do not put provider-specific credential details on a resource. Do not use mutable deployment hostnames as policy identifiers unless they are the actual authority boundary. Keep the resource identifier stable even if the upstream URL or upstream credential provider binding changes.
 
 :::note[FAQ]
-[Why must the resource identifier stay stable if the upstream URL can change?](/reference/faq/#faq-stable-resource-identifier)
+[Why must the resource identifier stay stable if the upstream URL can change?](/reference/faq/#faq-010)
 :::
 
 ## Validate the setup

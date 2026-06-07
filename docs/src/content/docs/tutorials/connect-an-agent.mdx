@@ -133,7 +133,7 @@ if err != nil {
 
 `spawn()` is the session boundary. If the function exits or raises, the SDK terminates the agent session and active authority for that session is revoked.
 
-One application credential backs every agent session you spawn. A workload registers one application, then opens an agent session per unit of work — you do not register a new application per agent. See [Should I create one application per agent?](/reference/faq/#faq-one-application-per-agent).
+One application credential backs every agent session you spawn. A workload registers one application, then opens an agent session per unit of work — you do not register a new application per agent. See [Should I create one application per agent?](/reference/faq/#faq-006).
 
 If your app spawns child agents or delegates work, continue to [Implement Multi-Agent Delegation](/guides/delegation/) after this tutorial path.
 

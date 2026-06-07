@@ -40,7 +40,7 @@ flowchart TD
   S3 --> C2["Delegated agent session"]
 ```
 
-An application is registered, holds a server-owned secret, and is the identity Caracal authenticates. An agent session is created at runtime by the workload that already holds that secret; it costs nothing to create and carries the parent, subject, labels, and delegation context. One application backs many agent sessions, so a durable workload uses **one managed application** and spawns, delegates, and fans out as many agent sessions as it needs. You do not register an application per agent — see [Should I create one application per agent?](/reference/faq/#faq-one-application-per-agent).
+An application is registered, holds a server-owned secret, and is the identity Caracal authenticates. An agent session is created at runtime by the workload that already holds that secret; it costs nothing to create and carries the parent, subject, labels, and delegation context. One application backs many agent sessions, so a durable workload uses **one managed application** and spawns, delegates, and fans out as many agent sessions as it needs. You do not register an application per agent — see [Should I create one application per agent?](/reference/faq/#faq-006).
 
 ## Managed and DCR Applications
 
@@ -52,7 +52,7 @@ An application is registered, holds a server-owned secret, and is the identity C
 DCR is for identity isolation, not bulk credential pooling. A runtime that spawns several ephemeral agents should register a separate DCR application for each spawned agent, then create exactly one ephemeral agent session for that application. The agent session carries the parent relationship, subject session, labels, and delegation context; the DCR application carries the short-lived credential identity used to authenticate token exchanges.
 
 :::note[FAQ]
-[What is the difference between an application, principal, and agent session?](/reference/faq/#faq-application-principal-agent-session) and [when should I use a managed application versus DCR?](/reference/faq/#faq-managed-application-versus-dcr)
+[What is the difference between an application, principal, and agent session?](/reference/faq/#faq-005) and [when should I use a managed application versus DCR?](/reference/faq/#faq-007)
 :::
 
 Disabling DCR on a zone has two separate operational meanings. The zone flag always stops future dynamic registration immediately. If live DCR applications already exist, operators must choose whether those identities continue until expiry or are revoked immediately. Revocation archives the live DCR applications, revokes related authority sessions and delegation anchors, and terminates related ephemeral agent access so STS, Gateway, and Coordinator paths stop accepting those identities.
