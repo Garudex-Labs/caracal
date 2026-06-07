@@ -5,6 +5,8 @@ description: Spawn child agents, attach typed constraints, inspect graph impact,
 
 Use delegation when one agent needs to hand a narrower slice of authority to another agent. The SDK creates the edge and carries the context; the Console shows the graph and impact.
 
+Both the parent and the child run under the **same application** — delegation creates a new agent session and a typed authority edge, not a new application.
+
 ## Implementation flow
 
 ```mermaid

@@ -29,6 +29,19 @@ Applications represent software that can participate in Caracal flows:
 
 Applications have registration metadata, a server-owned token credential, and a registration method. Managed applications are operator-provisioned for known durable software. Dynamically registered applications are short-lived identities created through the zone DCR endpoint for spawned or high-churn agents.
 
+## Applications Are the Credential Boundary; Agents Are the Runtime Unit
+
+```mermaid
+flowchart TD
+  App["Managed application<br/>(credential boundary)"] --> S1["Agent session"]
+  App --> S2["Agent session"]
+  App --> S3["Agent session"]
+  S2 --> C1["Spawned child session"]
+  S3 --> C2["Delegated agent session"]
+```
+
+An application is registered, holds a server-owned secret, and is the identity Caracal authenticates. An agent session is created at runtime by the workload that already holds that secret; it costs nothing to create and carries the parent, subject, labels, and delegation context. One application backs many agent sessions, so a durable workload uses **one managed application** and spawns, delegates, and fans out as many agent sessions as it needs. You do not register an application per agent — see [Should I create one application per agent?](/reference/faq/#faq-one-application-per-agent).
+
 ## Managed and DCR Applications
 
 | Method | Identity boundary | Operational rule |
