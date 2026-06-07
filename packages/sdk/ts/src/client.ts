@@ -19,13 +19,15 @@ import {
 import { type CoordinatorClient } from "./coordinator.js";
 import {
   spawn as spawnPrimitive,
+  spawnService as spawnServicePrimitive,
   delegate as delegatePrimitive,
   delegateToSpawn as delegateToSpawnPrimitive,
   type SpawnInput,
+  type ServiceAgent,
   type DelegateInput,
   type DelegateToSpawnInput,
 } from "./primitives.js";
-import { AgentKind, type DelegationConstraints } from "./coordinator.js";
+import { type DelegationConstraints } from "./coordinator.js";
 import type { JsonObject } from "./json.js";
 import { OAuthClient } from "@caracalai/oauth";
 
@@ -48,12 +50,19 @@ export interface CaracalConfig {
   tokenSource?: TokenSource;
   gatewayUrl?: string;
   resources?: ResourceBinding[];
-  defaultKind?: AgentKind;
   defaultTtlSeconds?: number;
 }
 
 export interface SpawnOptions {
-  kind?: AgentKind;
+  ttlSeconds?: number;
+  subjectSessionId?: string;
+  parentId?: string;
+  metadata?: JsonObject;
+  capabilities?: string[];
+  traceId?: string;
+}
+
+export interface ServiceOptions {
   ttlSeconds?: number;
   subjectSessionId?: string;
   parentId?: string;
@@ -76,7 +85,6 @@ export interface DelegateToSpawnOptions {
   scopes: string[];
   constraints?: DelegationConstraints;
   delegationTtlSeconds?: number;
-  kind?: AgentKind;
   ttlSeconds?: number;
   metadata?: JsonObject;
   capabilities?: string[];
@@ -248,7 +256,6 @@ export class Caracal {
       zoneId: this.config.zoneId,
       applicationId: this.config.applicationId,
       subjectToken: await this.rootToken(),
-      kind: opts.kind ?? this.config.defaultKind ?? AgentKind.Instance,
       ttlSeconds: opts.ttlSeconds ?? this.config.defaultTtlSeconds,
       subjectSessionId: opts.subjectSessionId,
       parentId: opts.parentId,
@@ -259,6 +266,22 @@ export class Caracal {
       onAgentEnd: this.agentEndHooks.length ? (c) => this.fire(this.agentEndHooks, c) : undefined,
     };
     return await spawnPrimitive(input, fn);
+  }
+
+  async service(opts: ServiceOptions = {}): Promise<ServiceAgent> {
+    return await spawnServicePrimitive({
+      coordinator: this.config.coordinator,
+      zoneId: this.config.zoneId,
+      applicationId: this.config.applicationId,
+      subjectToken: await this.rootToken(),
+      ttlSeconds: opts.ttlSeconds ?? this.config.defaultTtlSeconds,
+      subjectSessionId: opts.subjectSessionId,
+      parentId: opts.parentId,
+      metadata: opts.metadata,
+      capabilities: opts.capabilities,
+      traceId: opts.traceId,
+      onAgentStart: this.agentStartHooks.length ? (c) => this.fire(this.agentStartHooks, c) : undefined,
+    });
   }
 
   delegate<T>(opts: DelegateOptions, fn: () => Promise<T>): Promise<T> {
@@ -284,7 +307,6 @@ export class Caracal {
       scopes: opts.scopes,
       constraints: opts.constraints,
       delegationTtlSeconds: opts.delegationTtlSeconds,
-      kind: opts.kind ?? this.config.defaultKind ?? AgentKind.Instance,
       ttlSeconds: opts.ttlSeconds ?? this.config.defaultTtlSeconds,
       metadata: opts.metadata,
       capabilities: opts.capabilities,

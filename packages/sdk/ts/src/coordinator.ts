@@ -107,7 +107,7 @@ export async function spawnAgent(
       application_id: req.applicationId,
       subject_session_id: req.subjectSessionId,
       parent_id: req.parentId,
-      kind: req.kind ?? AgentKind.Instance,
+      kind: req.kind,
       ttl_seconds: req.ttlSeconds,
       metadata: req.metadata,
       capabilities: req.capabilities,
@@ -128,7 +128,7 @@ function deriveIdempotencyKey(req: SpawnRequest): string | undefined {
     req.applicationId,
     req.subjectSessionId ?? "",
     req.parentId ?? "",
-    String(req.kind ?? AgentKind.Instance),
+    String(req.kind ?? ""),
     (req.capabilities ?? []).join(","),
   ].join("|");
   return sha256Hex(seed);
@@ -186,4 +186,20 @@ export async function createDelegation(
     constraints,
     ttl_seconds: req.ttlSeconds,
   });
+}
+
+export async function heartbeatAgent(
+  client: CoordinatorClient,
+  bearer: string,
+  zoneId: string,
+  agentSessionId: string,
+  status: "starting" | "healthy" | "degraded" | "unhealthy" = "healthy",
+): Promise<void> {
+  await call<unknown>(
+    client,
+    "POST",
+    `/zones/${encodeURIComponent(zoneId)}/agents/${encodeURIComponent(agentSessionId)}/heartbeat`,
+    bearer,
+    { status },
+  );
 }

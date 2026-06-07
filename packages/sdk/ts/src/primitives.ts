@@ -10,6 +10,7 @@ import {
   CoordinatorClient,
   spawnAgent,
   terminateAgent,
+  heartbeatAgent,
   createDelegation,
   AgentKind,
   DelegationConstraints,
@@ -36,7 +37,7 @@ export async function spawn<T>(input: SpawnInput, fn: () => Promise<T>): Promise
   const parent = current();
   const parentId = input.parentId ?? parent?.agentSessionId;
   const bearer = input.subjectToken;
-  const kind = input.kind ?? AgentKind.Instance;
+  const kind = input.kind;
   const res = await spawnAgent(input.coordinator, bearer, {
     zoneId: input.zoneId,
     applicationId: input.applicationId,
@@ -143,7 +144,7 @@ export async function delegateToSpawn<T>(
   if (!parent || !parent.agentSessionId) {
     throw new Error("delegateToSpawn requires an active agent session in context");
   }
-  const kind = input.kind ?? AgentKind.Instance;
+  const kind = input.kind;
   const spawnRes = await spawnAgent(input.coordinator, input.subjectToken, {
     zoneId: input.zoneId,
     applicationId: input.applicationId,
@@ -196,4 +197,63 @@ export async function delegateToSpawn<T>(
       await terminateAgent(input.coordinator, input.subjectToken, input.zoneId, spawnRes.agent_session_id);
     }
   }
+}
+
+export interface SpawnServiceInput {
+  coordinator: CoordinatorClient;
+  zoneId: string;
+  applicationId: string;
+  subjectToken: string;
+  subjectSessionId?: string;
+  parentId?: string;
+  ttlSeconds?: number;
+  metadata?: JsonObject;
+  capabilities?: string[];
+  traceId?: string;
+  onAgentStart?: (ctx: CaracalContext) => void | Promise<void>;
+}
+
+/**
+ * Handle for a long-lived service agent session. Unlike spawn, a service
+ * session is not terminated automatically: the holder must heartbeat to keep
+ * its lease and close to retire it.
+ */
+export interface ServiceAgent {
+  context: CaracalContext;
+  agentSessionId: string;
+  heartbeat: () => Promise<void>;
+  close: () => Promise<void>;
+}
+
+export async function spawnService(input: SpawnServiceInput): Promise<ServiceAgent> {
+  const parent = current();
+  const parentId = input.parentId ?? parent?.agentSessionId;
+  const bearer = input.subjectToken;
+  const res = await spawnAgent(input.coordinator, bearer, {
+    zoneId: input.zoneId,
+    applicationId: input.applicationId,
+    subjectSessionId: input.subjectSessionId,
+    parentId,
+    kind: AgentKind.Service,
+    ttlSeconds: input.ttlSeconds,
+    metadata: input.metadata,
+    capabilities: input.capabilities,
+  });
+  const ctx: CaracalContext = {
+    subjectToken: bearer,
+    zoneId: input.zoneId,
+    clientId: input.applicationId,
+    agentSessionId: res.agent_session_id,
+    parentEdgeId: parent?.delegationEdgeId,
+    sessionId: input.subjectSessionId ?? parent?.sessionId,
+    traceId: input.traceId ?? parent?.traceId,
+    hop: parent?.hop ?? 0,
+  };
+  if (input.onAgentStart) await input.onAgentStart(ctx);
+  return {
+    context: ctx,
+    agentSessionId: res.agent_session_id,
+    heartbeat: () => heartbeatAgent(input.coordinator, bearer, input.zoneId, res.agent_session_id),
+    close: () => terminateAgent(input.coordinator, bearer, input.zoneId, res.agent_session_id),
+  };
 }
