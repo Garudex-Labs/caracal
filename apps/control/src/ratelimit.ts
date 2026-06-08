@@ -23,7 +23,7 @@ export class RateLimiter {
 
   allow(subject: string): boolean {
     if (!subject) return false
-    const now = Date.now()
+    const now = performance.now()
     this.evict(now)
     const b = this.buckets.get(subject)
     if (!b) {
@@ -36,7 +36,7 @@ export class RateLimiter {
     }
     this.buckets.delete(subject)
     this.buckets.set(subject, b)
-    const elapsed = (now - b.lastMs) / 1000
+    const elapsed = Math.max(0, now - b.lastMs) / 1000
     const refill = elapsed * (this.capacity / (this.windowMs / 1000))
     b.tokens = Math.min(this.capacity, b.tokens + refill)
     b.lastMs = now

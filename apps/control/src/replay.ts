@@ -11,7 +11,7 @@ export interface Replay {
 }
 
 interface MemoryEntry {
-  keepUntilMs: number
+  keepUntilMonoMs: number
 }
 
 export class MemoryReplay implements Replay {
@@ -25,19 +25,21 @@ export class MemoryReplay implements Replay {
 
   async mark(jti: string, expEpochSec: number | undefined): Promise<boolean> {
     if (!jti) return false
-    const now = Date.now()
-    this.evict(now)
+    const nowMono = performance.now()
+    this.evict(nowMono)
     if (this.seen.has(jti)) return false
     if (this.seen.size >= this.maxKeys) {
       const oldest = this.seen.keys().next().value
       if (oldest !== undefined) this.seen.delete(oldest)
     }
-    let keepUntilMs = now + this.ttlMs
+    let ttlMs = this.ttlMs
     if (expEpochSec) {
-      const expMs = expEpochSec * 1000
-      if (expMs > now && expMs < keepUntilMs) keepUntilMs = expMs
+      const delta = expEpochSec * 1000 - Date.now()
+      if (delta <= 0) return false
+      if (delta < ttlMs) ttlMs = delta
     }
-    this.seen.set(jti, { keepUntilMs })
+    if (ttlMs <= 0) return false
+    this.seen.set(jti, { keepUntilMonoMs: nowMono + ttlMs })
     return true
   }
 
@@ -45,7 +47,7 @@ export class MemoryReplay implements Replay {
 
   private evict(now: number): void {
     for (const [k, e] of this.seen) {
-      if (e.keepUntilMs <= now) this.seen.delete(k)
+      if (e.keepUntilMonoMs <= now) this.seen.delete(k)
     }
   }
 }
@@ -63,13 +65,14 @@ export class RedisReplay implements Replay {
 
   async mark(jti: string, expEpochSec: number | undefined): Promise<boolean> {
     if (!jti) return false
-    const now = Date.now()
+    const now = await this.redisNowMs()
     let ttlMs = this.maxTtlMs
     if (expEpochSec) {
       const delta = expEpochSec * 1000 - now
-      if (delta > 0 && delta < ttlMs) ttlMs = delta
+      if (delta <= 0) return false
+      if (delta < ttlMs) ttlMs = delta
     }
-    if (ttlMs <= 0) return true
+    if (ttlMs <= 0) return false
     try {
       const res = await this.client.set(REDIS_KEY_PREFIX + jti, '1', 'PX', ttlMs, 'NX')
       return res === 'OK'
@@ -81,5 +84,19 @@ export class RedisReplay implements Replay {
 
   async ping(): Promise<void> {
     await this.client.ping()
+  }
+
+  private async redisNowMs(): Promise<number> {
+    try {
+      const parts = await this.client.time()
+      const seconds = Number(parts[0])
+      const micros = Number(parts[1])
+      if (Number.isFinite(seconds) && Number.isFinite(micros)) {
+        return seconds * 1000 + Math.floor(micros / 1000)
+      }
+    } catch {
+      return Date.now()
+    }
+    return Date.now()
   }
 }

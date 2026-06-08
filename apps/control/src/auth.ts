@@ -24,14 +24,19 @@ export interface AuthOptions {
   issuer: string
   audience: string
   refreshFloorMs?: number
+  jwksTtlMs?: number
+  maxStaleMs?: number
   maxZones?: number
   negativeTtlMs?: number
+  clockToleranceSec?: number
   fetchImpl?: typeof fetch
 }
 
-const DEFAULT_REFRESH_FLOOR_MS = 30_000
+const DEFAULT_JWKS_TTL_MS = 5 * 60 * 1000
+const DEFAULT_MAX_STALE_MS = 10 * 60 * 1000
 const DEFAULT_MAX_ZONES = 1024
 const DEFAULT_NEGATIVE_TTL_MS = 30_000
+const DEFAULT_CLOCK_TOLERANCE_SEC = 60
 
 const ZONE_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/
 
@@ -47,15 +52,19 @@ export class Authenticator {
   private readonly opts: AuthOptions
   private readonly zones = new Map<string, ZoneEntry>()
   private readonly negative = new Map<string, NegativeEntry>()
-  private readonly refreshFloorMs: number
+  private readonly jwksTtlMs: number
+  private readonly maxStaleMs: number
   private readonly maxZones: number
   private readonly negativeTtlMs: number
+  private readonly clockToleranceSec: number
 
   constructor(opts: AuthOptions) {
     this.opts = opts
-    this.refreshFloorMs = opts.refreshFloorMs ?? DEFAULT_REFRESH_FLOOR_MS
+    this.jwksTtlMs = opts.jwksTtlMs ?? opts.refreshFloorMs ?? DEFAULT_JWKS_TTL_MS
+    this.maxStaleMs = Math.max(opts.maxStaleMs ?? DEFAULT_MAX_STALE_MS, this.jwksTtlMs)
     this.maxZones = opts.maxZones ?? DEFAULT_MAX_ZONES
     this.negativeTtlMs = opts.negativeTtlMs ?? DEFAULT_NEGATIVE_TTL_MS
+    this.clockToleranceSec = opts.clockToleranceSec ?? DEFAULT_CLOCK_TOLERANCE_SEC
   }
 
   async verify(authHeader: string | undefined): Promise<Claims> {
@@ -78,6 +87,7 @@ export class Authenticator {
         audience: this.opts.audience,
         algorithms: ['ES256'],
         requiredClaims: ['exp', 'iat', 'jti', 'sub'],
+        clockTolerance: this.clockToleranceSec,
       }))
     } catch (err) {
       if (isKeyMiss(err)) {
@@ -87,6 +97,7 @@ export class Authenticator {
           audience: this.opts.audience,
           algorithms: ['ES256'],
           requiredClaims: ['exp', 'iat', 'jti', 'sub'],
+          clockTolerance: this.clockToleranceSec,
         }).catch((e) => { throw new AuthError(`invalid token: ${describe(e)}`) }))
       } else {
         throw new AuthError(`invalid token: ${describe(err)}`)
@@ -108,18 +119,28 @@ export class Authenticator {
   }
 
   private async keySet(zoneId: string, force: boolean): Promise<JWTVerifyGetKey> {
-    const now = Date.now()
+    const now = performance.now()
     const cached = this.zones.get(zoneId)
     if (cached && !force) {
       this.zones.delete(zoneId)
       this.zones.set(zoneId, cached)
-      return cached.keySet
+      if (now - cached.loadedAt < this.jwksTtlMs) return cached.keySet
+      try {
+        return await this.fetchAndStore(zoneId, now)
+      } catch (err) {
+        if (now - cached.loadedAt <= this.maxStaleMs) return cached.keySet
+        throw err
+      }
     }
     if (!force) {
       const neg = this.negative.get(zoneId)
       if (neg && neg.expiresAt > now) throw new AuthError('unknown zone')
       if (neg) this.negative.delete(zoneId)
     }
+    return this.fetchAndStore(zoneId, now)
+  }
+
+  private async fetchAndStore(zoneId: string, now: number): Promise<JWTVerifyGetKey> {
     let set: JWTVerifyGetKey
     try {
       set = await fetchJwks(this.opts, zoneId)
