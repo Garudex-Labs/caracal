@@ -186,6 +186,9 @@ jobs:
               const actor = context.payload.comment.user.login;
               const body = context.payload.comment.body.trim();
               const pull = (await github.rest.pulls.get({ owner, repo, pull_number: issue.number })).data;
+              if (pull.user.type === 'Bot') {
+                return true;
+              }
               await ensureLabels();
 
               if (isMaintainer(actor)) {
@@ -211,6 +214,9 @@ jobs:
               }
               const review = context.payload.review;
               const pull = context.payload.pull_request;
+              if (pull.user.type === 'Bot') {
+                return true;
+              }
               if (review.user.type !== 'Bot' && isMaintainer(review.user.login)) {
                 await acknowledgePullRequest(pull.number);
               }
@@ -269,6 +275,9 @@ jobs:
               });
 
               for (const pull of pulls) {
+                if (pull.user.type === 'Bot') {
+                  continue;
+                }
                 const issue = (await github.rest.issues.get({ owner, repo, issue_number: pull.number })).data;
                 const comments = await listComments(pull.number);
                 await processContributorReminder(pull, issue, comments);
