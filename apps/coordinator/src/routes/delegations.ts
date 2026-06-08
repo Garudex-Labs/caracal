@@ -201,6 +201,9 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
           error: parentEdgeId ? 'delegation_exceeds_parent_authority' : 'delegation_expired',
         })
       }
+      const insertedExpiresAt = rows[0].expires_at instanceof Date
+        ? rows[0].expires_at.toISOString()
+        : String(rows[0].expires_at)
       const epoch = await bumpDelegationEpoch(client, zoneId)
       await enqueue(client, Topics.DelegationsInvalidate, `edge_create:${edgeId}`, {
         event: 'edge_create',
@@ -220,7 +223,7 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
           parentEdgeId ? 'parent_authority_narrowed' : 'source_authority_root',
           'typed_constraints_validated',
         ],
-        effective_authority: effectiveAuthority(body, constraints, resources.items, String(rows[0].expires_at), parents, parentEdgeId),
+        effective_authority: effectiveAuthority(body, constraints, resources.items, insertedExpiresAt, parents, parentEdgeId),
       })
     } catch (err) {
       await client.query('ROLLBACK')

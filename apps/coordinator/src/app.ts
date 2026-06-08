@@ -50,7 +50,7 @@ export async function buildApp({ cfg, db, redis, isDraining }: CoordinatorDeps) 
   let runtimeStats: RuntimeStats | null = null
   let runtimeStatsRefresh: Promise<RuntimeStats> | null = null
   const loadRuntimeStats = async (): Promise<RuntimeStats> => {
-    const now = Date.now()
+    const now = performance.now()
     if (runtimeStats && runtimeStats.expiresAt > now) return runtimeStats
     if (runtimeStatsRefresh) return runtimeStatsRefresh
     runtimeStatsRefresh = (async () => {
@@ -63,7 +63,7 @@ export async function buildApp({ cfg, db, redis, isDraining }: CoordinatorDeps) 
       runtimeStats = {
         invocations: Object.fromEntries(invocations.map((row) => [row.status, Number(row.n)])),
         outbox: Object.fromEntries(outbox.map((row) => [row.status, Number(row.n)])),
-        expiresAt: Date.now() + RUNTIME_STATS_TTL_MS,
+        expiresAt: performance.now() + RUNTIME_STATS_TTL_MS,
       }
       return runtimeStats
     })().finally(() => { runtimeStatsRefresh = null })

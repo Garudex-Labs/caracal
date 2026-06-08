@@ -12,7 +12,7 @@ import { loadZoneKek, open, seal } from '@caracalai/core'
 import { z } from 'zod'
 import { v7 as uuidv7 } from 'uuid'
 import { scopesAllowed } from '@caracalai/core'
-import { STREAM_SESSIONS_REVOKE } from '../redis.js'
+import { STREAM_SESSIONS_REVOKE, redisTimeMs } from '../redis.js'
 import { enqueueOutbox } from '../outbox.js'
 import { withTransaction, TxAbort } from '../db.js'
 import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
@@ -516,10 +516,11 @@ export const grantsRoutes: FastifyPluginAsync = async (fastify) => {
     authorizationUrl.searchParams.set('code_challenge', codeChallenge(codeVerifier))
     authorizationUrl.searchParams.set('code_challenge_method', 'S256')
 
+    const expiresAt = new Date(await redisTimeMs(fastify.redis) + OAUTH_STATE_TTL_SECONDS * 1000).toISOString()
     return {
       authorization_url: authorizationUrl.toString(),
       state,
-      expires_at: new Date(Date.now() + OAUTH_STATE_TTL_SECONDS * 1000).toISOString(),
+      expires_at: expiresAt,
     }
   })
 
