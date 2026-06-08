@@ -184,7 +184,7 @@ describe('POST /v1/zones/:zoneId/applications/dcr', () => {
     expect(res.statusCode).toBe(201)
     expect(JSON.parse(res.body)).toMatchObject({ id: 'app-1', registration_method: 'dcr', expires_at: '2026-05-28T09:00:00.000Z', client_secret: expect.stringMatching(/^cs_[A-Za-z0-9_-]+$/) })
     const insertCall = clientQuery.mock.calls.find((call) => String(call[0]).includes('INSERT INTO applications'))
-    expect(insertCall?.[1]?.[6]).toBeInstanceOf(Date)
+    expect(insertCall?.[1]?.[6]).toBe(3600)
   })
 
   it('rejects DCR lifetimes above the one-hour maximum', async () => {

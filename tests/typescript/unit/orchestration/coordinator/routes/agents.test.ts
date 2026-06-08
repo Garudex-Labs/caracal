@@ -41,7 +41,14 @@ function buildApp(scopes = ['coordinator.admin'], clientIdOverride?: string) {
 interface SpawnStage {
   refs?: { application_exists: boolean; session_exists: boolean; registration_method?: 'managed' | 'dcr' }
   count?: { app_n: string; zone_n: string }
-  parent?: { depth: number; child_count: number; max_children: number; application_id?: string } | null
+  parent?: {
+    depth: number
+    child_count: number
+    max_children: number
+    application_id?: string
+    lifecycle?: 'task' | 'service'
+    registration_method?: 'managed' | 'dcr'
+  } | null
   insert?: { rows: unknown[] }
   withTopology?: boolean
   outbox?: boolean
@@ -201,6 +208,55 @@ describe('POST /v1/zones/:zoneId/agents: spawn', () => {
     })
     expect(res.statusCode).toBe(409)
     expect(JSON.parse(res.body)).toMatchObject({ error: 'dcr_application_already_bound' })
+  })
+
+  it('rejects spawning a child under a DCR application', async () => {
+    const { app, db } = buildApp()
+    db.connect.mockResolvedValueOnce(spawnClient({
+      refs: { application_exists: true, session_exists: true, registration_method: 'dcr' },
+    }))
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/agents',
+      payload: { application_id: 'app-1', subject_session_id: 'sid-1', parent_id: 'parent-1' },
+    })
+    expect(res.statusCode).toBe(409)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'dcr_application_cannot_be_child' })
+  })
+
+  it('rejects a DCR-application session acting as a spawn parent', async () => {
+    const { app, db } = buildApp()
+    db.connect.mockResolvedValueOnce(spawnClient({
+      refs: { application_exists: true, session_exists: true, registration_method: 'managed' },
+      count: { app_n: '0', zone_n: '0' },
+      parent: { depth: 0, child_count: 0, max_children: 10, application_id: 'app-1', registration_method: 'dcr' },
+    }))
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/agents',
+      payload: { application_id: 'app-1', subject_session_id: 'sid-1', parent_id: 'parent-1' },
+    })
+    expect(res.statusCode).toBe(409)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'dcr_application_cannot_spawn' })
+  })
+
+  it('rejects a task parent spawning a more-durable service child', async () => {
+    const { app, db } = buildApp()
+    db.connect.mockResolvedValueOnce(spawnClient({
+      refs: { application_exists: true, session_exists: true, registration_method: 'managed' },
+      count: { app_n: '0', zone_n: '0' },
+      parent: { depth: 0, child_count: 0, max_children: 10, application_id: 'app-1', lifecycle: 'task', registration_method: 'managed' },
+    }))
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/agents',
+      payload: { application_id: 'app-1', subject_session_id: 'sid-1', parent_id: 'parent-1', lifecycle: 'service' },
+    })
+    expect(res.statusCode).toBe(409)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'task_agent_cannot_spawn_service' })
   })
 
   it('serializes the spawn cap with a per-zone advisory lock and enqueues lifecycle outbox', async () => {

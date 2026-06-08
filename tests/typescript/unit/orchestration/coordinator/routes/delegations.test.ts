@@ -92,6 +92,20 @@ describe('POST /v1/zones/:zoneId/delegations', () => {
 
   it('rejects expired delegation edges', async () => {
     const { app, db } = buildApp()
+    const client = {
+      query: vi.fn()
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [
+          { id: 'src-1', application_id: 'issuer-1' },
+          { id: 'dst-1', application_id: 'receiver-1' },
+        ] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [] }),
+      release: vi.fn(),
+    }
+    db.connect.mockResolvedValueOnce(client)
 
     await app.ready()
     const res = await app.inject({
@@ -102,7 +116,7 @@ describe('POST /v1/zones/:zoneId/delegations', () => {
 
     expect(res.statusCode).toBe(400)
     expect(JSON.parse(res.body)).toMatchObject({ error: 'delegation_expired' })
-    expect(db.connect).not.toHaveBeenCalled()
+    expect(client.query).toHaveBeenCalledWith('ROLLBACK')
   })
 
   it('rejects self delegation', async () => {
