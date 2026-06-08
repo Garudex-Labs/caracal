@@ -9,6 +9,7 @@ import { v7 as uuidv7 } from 'uuid'
 import { enqueue, Topics, type Queryable } from '../outbox.js'
 import { ownsApplication, requireScope } from '../auth.js'
 import { cfg } from '../config.js'
+import { redisMinuteBucket } from '../redis.js'
 import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
 
 const RetryPolicy = z.object({
@@ -346,7 +347,7 @@ async function enqueueInvocationEvent(
 async function rateLimited(fastify: FastifyInstance, req: FastifyRequest, zoneId: string): Promise<boolean> {
   if (cfg.invocationRateLimitPerMin <= 0) return false
   const subject = req.caracalAuth?.clientId ?? req.ip
-  const minute = Math.floor(Date.now() / 60_000)
+  const minute = await redisMinuteBucket(fastify.redis)
   const key = `coordinator:invocation_rl:${zoneId}:${subject}:${minute}`
   const count = await fastify.redis.incr(key)
   if (count === 1) await fastify.redis.expire(key, 90)

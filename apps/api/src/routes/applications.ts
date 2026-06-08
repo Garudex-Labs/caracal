@@ -161,7 +161,6 @@ export const applicationsRoutes: FastifyPluginAsync = async (fastify) => {
     }
 
     const id = uuidv7()
-    const expiresAt = new Date(Date.now() + body.expires_in * 1000)
     return withTransaction(fastify.db, async (client) => {
       const { rows: zones } = await client.query(
         `SELECT dcr_enabled FROM zones WHERE id = $1 AND archived_at IS NULL FOR UPDATE`,
@@ -183,9 +182,9 @@ export const applicationsRoutes: FastifyPluginAsync = async (fastify) => {
       const dcrSecretHash = await hashClientSecret(clientSecret)
       const { rows } = await client.query(
         `INSERT INTO applications (id, zone_id, name, registration_method, credential_type, client_secret_hash, traits, expires_at)
-         VALUES ($1, $2, $3, 'dcr', $4, $5, $6, $7)
+         VALUES ($1, $2, $3, 'dcr', $4, $5, $6, now() + ($7::int * interval '1 second'))
          RETURNING id, zone_id, name, registration_method, expires_at, created_at`,
-        [id, params.zoneId, body.name, 'token', dcrSecretHash, [], expiresAt],
+        [id, params.zoneId, body.name, 'token', dcrSecretHash, [], body.expires_in],
       )
       return reply.code(201).send({ ...rows[0], client_secret: clientSecret })
     })

@@ -61,8 +61,7 @@ declare module 'fastify' {
 }
 
 interface RuntimeIdentityRow {
-  session_status: string | null
-  session_expires_at: Date | string | null
+  session_active: boolean | null
 }
 
 export function requireScope(req: FastifyRequest, scope: string): boolean {
@@ -124,10 +123,14 @@ async function validateRuntimeIdentity(
   sessionId: string | undefined,
 ): Promise<boolean> {
   const { rows } = await app.db.query<RuntimeIdentityRow>(
-    `SELECT s.status AS session_status,
-            s.expires_at AS session_expires_at
+    `SELECT ($3::text = '' OR EXISTS (
+              SELECT 1 FROM sessions s
+              WHERE s.id = $3
+                AND s.zone_id = $2
+                AND s.status = 'active'
+                AND s.expires_at > now()
+            )) AS session_active
      FROM applications a
-     LEFT JOIN sessions s ON s.id = $3 AND s.zone_id = $2
      WHERE a.id = $1
        AND a.zone_id = $2
        AND a.archived_at IS NULL
@@ -135,12 +138,7 @@ async function validateRuntimeIdentity(
     [clientId, zoneId, sessionId ?? ''],
   )
   const row = rows[0]
-  if (!row) return false
-  if (!sessionId) return true
-  const expiresAt = row.session_expires_at instanceof Date
-    ? row.session_expires_at
-    : row.session_expires_at ? new Date(row.session_expires_at) : undefined
-  return row.session_status === 'active' && Boolean(expiresAt && expiresAt.getTime() > Date.now())
+  return Boolean(row?.session_active)
 }
 
 export async function verifyBearer(req: FastifyRequest, reply: FastifyReply): Promise<void> {
@@ -188,6 +186,7 @@ export async function verifyBearer(req: FastifyRequest, reply: FastifyReply): Pr
       issuer: cfg.issuerUrl,
       audience: cfg.audience,
       algorithms: ['ES256'],
+      clockTolerance: 60,
     })
     payload = verified.payload
   } catch (err) {

@@ -630,11 +630,12 @@ export const grantsRoutes: FastifyPluginAsync = async (fastify) => {
     const grantId = uuidv7()
     const accessTokenCt = sealText(accessToken)
     const refreshTokenCt = refreshToken ? sealText(refreshToken) : null
-    const expiresAt = expiresIn > 0 ? new Date(Date.now() + expiresIn * 1000).toISOString() : null
     const { rows: grantRows } = await fastify.db.query<Record<string, unknown>>(
       `INSERT INTO provider_grants (id, zone_id, user_id, resource_id, provider_id, scopes,
-                                   access_token_ct, refresh_token_ct, expires_at, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'active')
+                                    access_token_ct, refresh_token_ct, expires_at, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
+               CASE WHEN $9::int > 0 THEN now() + ($9::int * interval '1 second') ELSE NULL END,
+               'active')
        ON CONFLICT (zone_id, user_id, resource_id, provider_id) WHERE status = 'active'
        DO UPDATE SET scopes = EXCLUDED.scopes,
                      access_token_ct = EXCLUDED.access_token_ct,
@@ -644,7 +645,7 @@ export const grantsRoutes: FastifyPluginAsync = async (fastify) => {
                      refresh_token_version = provider_grants.refresh_token_version + 1,
                      updated_at = now()
        RETURNING id, zone_id, user_id, resource_id, provider_id, scopes, status, expires_at, created_at, updated_at`,
-      [grantId, state.zone_id, state.user_id, state.resource_id, state.provider_id, state.scopes, accessTokenCt, refreshTokenCt, expiresAt],
+      [grantId, state.zone_id, state.user_id, state.resource_id, state.provider_id, state.scopes, accessTokenCt, refreshTokenCt, expiresIn],
     )
     return sendOAuthCallback(req, reply, 201, grantRows[0] ?? {}, 'OAuth provider connected', 'Caracal stored the delegated provider grant for this user and resource.', 'success')
   })
