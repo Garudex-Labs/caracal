@@ -262,6 +262,7 @@ type IssueParams struct {
 	DelegationPath   []string
 	DelegationChain  []ChainHop
 	GraphEpoch       int64
+	IssuedAt         time.Time
 }
 
 func issueToken(ctx context.Context, params IssueParams, keys *KeyCache, issuerURL string) (string, string, error) {
@@ -270,7 +271,10 @@ func issueToken(ctx context.Context, params IssueParams, keys *KeyCache, issuerU
 		return "", "", err
 	}
 
-	now := time.Now()
+	now := params.IssuedAt
+	if now.IsZero() {
+		now = time.Now()
+	}
 	jti, err := uuid.NewV7()
 	if err != nil {
 		return "", "", fmt.Errorf("generate jti: %w", err)

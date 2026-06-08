@@ -45,7 +45,11 @@ func (s *Server) createChallenge(ctx context.Context, zoneID, sessionID, princip
 	secret := base64.RawURLEncoding.EncodeToString(secretBytes)
 	hash := sha256.Sum256([]byte(secret))
 	resHash := hashResourceSet(resources)
-	expiresAt := time.Now().Add(challengeTTL)
+	now, err := s.db.CurrentTime(ctx)
+	if err != nil {
+		return nil, err
+	}
+	expiresAt := now.Add(challengeTTL)
 
 	c := &challengeState{
 		ID:            id.String(),
@@ -82,13 +86,17 @@ func (s *Server) verifyAndConsumeChallenge(ctx context.Context, zoneID, principa
 	}
 	hash := sha256.Sum256([]byte(secret))
 	resHash := hashResourceSet(resources)
+	now, err := s.db.CurrentTime(ctx)
+	if err != nil {
+		return err
+	}
 	return s.db.ConsumeStepUpChallenge(ctx, ConsumeStepUpParams{
 		ID:                  challengeID,
 		ZoneID:              zoneID,
 		PrincipalID:         principalID,
 		ChallengeSecretHash: hash[:],
 		ResourceSetHash:     resHash,
-		Now:                 time.Now(),
+		Now:                 now,
 	})
 }
 

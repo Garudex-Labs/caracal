@@ -234,9 +234,16 @@ type stubDB struct {
 	secrets       []SecretRow
 	secretsErr    error
 	insertedKey   *SecretRow
+	now           time.Time
 }
 
 func (s *stubDB) Ping(_ context.Context) error { return nil }
+func (s *stubDB) CurrentTime(_ context.Context) (time.Time, error) {
+	if s.now.IsZero() {
+		return time.Now(), nil
+	}
+	return s.now, nil
+}
 func (s *stubDB) GetApplicationByID(_ context.Context, _, _ string) (*Application, error) {
 	return s.app, s.appErr
 }
@@ -349,14 +356,15 @@ func (s *stubDB) UpdateApplicationSecretHash(_ context.Context, _, _, _ string) 
 }
 
 func TestValidateTokenSessionBindsClientID(t *testing.T) {
+	now := time.Now()
 	subjectID := "user-1"
 	srv := &Server{db: &stubDB{session: &Session{
 		ID:        "sess-1",
 		ZoneID:    "zone1",
 		Status:    "active",
 		SubjectID: &subjectID,
-		ExpiresAt: time.Now().Add(time.Minute),
-	}}}
+		ExpiresAt: now.Add(time.Minute),
+	}, now: now}}
 	claims := map[string]any{
 		"sid":       "sess-1",
 		"sub":       subjectID,
@@ -367,6 +375,26 @@ func TestValidateTokenSessionBindsClientID(t *testing.T) {
 	}
 	if _, err := srv.validateTokenSession(context.Background(), "zone1", "app2", "", claims); err == nil || err.Description != "session client mismatch" {
 		t.Fatalf("wrong client_id must fail, got %#v", err)
+	}
+}
+
+func TestValidateTokenSessionUsesDatabaseTime(t *testing.T) {
+	now := time.Now()
+	subjectID := "user-1"
+	srv := &Server{db: &stubDB{session: &Session{
+		ID:        "sess-1",
+		ZoneID:    "zone1",
+		Status:    "active",
+		SubjectID: &subjectID,
+		ExpiresAt: now.Add(time.Minute),
+	}, now: now.Add(2 * time.Minute)}}
+	claims := map[string]any{
+		"sid":       "sess-1",
+		"sub":       subjectID,
+		"client_id": "app1",
+	}
+	if _, err := srv.validateTokenSession(context.Background(), "zone1", "app1", "", claims); err == nil || err.Description != "session inactive or expired" {
+		t.Fatalf("database-expired session must fail, got %#v", err)
 	}
 }
 
@@ -1329,9 +1357,9 @@ func TestValidateSessionReferencesAcceptsActiveGraphEdge(t *testing.T) {
 
 func TestAgentSessionMetadataIsPolicyAndAuditInput(t *testing.T) {
 	session := &AgentSession{
-		ID:           "agent-1",
-		Lifecycle:    "task",
-		Labels: []string{"browser", "code"},
+		ID:        "agent-1",
+		Lifecycle: "task",
+		Labels:    []string{"browser", "code"},
 	}
 	if got := agentSessionLifecycle(session); got != "task" {
 		t.Fatalf("lifecycle = %q", got)
