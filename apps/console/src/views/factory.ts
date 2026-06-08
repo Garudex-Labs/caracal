@@ -830,7 +830,7 @@ async function labelDelegations(ctx: Ctx, rows: DelegationEdge[]): Promise<Deleg
 export function applicationPicker(ctx: Ctx): Field['pick'] {
   return pickFromList<Application>(
     'pick application',
-    () => ctx.client.applications.list(ctx.zoneId),
+    async () => (await ctx.client.applications.list(ctx.zoneId)).filter((row) => row.registration_method === 'managed'),
     [
       { header: 'name', width: 24, value: (row) => row.name },
     ],
@@ -1221,7 +1221,7 @@ export function resourcesView(ctx: Ctx): View {
             { key: 'name', label: 'resource name', kind: 'text', required: true, hint: 'human-readable name; identifier is generated when blank' },
             { key: 'scopes', label: 'Caracal resource scopes', kind: 'list', required: true, hint: 'comma-separated authorization scopes for this resource' },
             { key: 'upstream_url', label: 'upstream URL', kind: 'text', required: true, hint: 'Gateway target for REST APIs, gRPC gateways, MCP servers, or SDK-backed services' },
-            { key: 'gateway_application_id', label: 'gateway application', kind: 'text', required: true, pick: applicationPicker(ctx), resolve: applicationResolver(ctx), hint: 'application identity the Gateway uses for upstream exchanges' },
+            { key: 'gateway_application_id', label: 'gateway application', kind: 'text', required: true, pick: applicationPicker(ctx), resolve: applicationResolver(ctx), hint: 'managed application identity the Gateway uses for upstream exchanges' },
             { key: 'identifier', label: 'resource identifier', kind: 'text', advanced: true, hint: 'optional; generated as resource://pipernet when blank', validate: validateResourceIdentifier },
             { key: 'credential_provider_id', label: 'upstream credential provider', kind: 'text', required: true, pick: providerPicker(ctx), resolve: providerResolver(ctx), hint: 'required; pick a provider for external auth, Caracal mandate for verifier-backed services, or a None provider for Gateway-only enforcement' },
           ],

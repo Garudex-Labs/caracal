@@ -1047,7 +1047,7 @@ function applicationPicker(ctx: Ctx, zoneId: () => string | undefined): Field['p
   return (app, setValue) => {
     app.push(new EntityPickerView<Application>({
       title: 'choose agent app',
-      load: () => ctx.client.applications.list(requireSetupZoneId(zoneId)),
+      load: async () => (await ctx.client.applications.list(requireSetupZoneId(zoneId))).filter((row) => row.registration_method === 'managed'),
       value: (row) => row.id,
       label: (row) => row.name,
       onPick: setValue,

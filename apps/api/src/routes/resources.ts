@@ -48,14 +48,20 @@ async function providerExists(fastify: FastifyInstance, zoneId: string, provider
   return rows.length > 0
 }
 
-async function applicationExists(fastify: FastifyInstance, zoneId: string, applicationId: string): Promise<boolean> {
-  const { rows } = await fastify.db.query(
-    `SELECT 1 FROM applications
+async function gatewayApplicationError(
+  fastify: FastifyInstance,
+  zoneId: string,
+  applicationId: string,
+): Promise<'gateway_application_not_found' | 'gateway_application_must_be_managed' | null> {
+  const { rows } = await fastify.db.query<{ registration_method: string }>(
+    `SELECT registration_method FROM applications
      WHERE id = $1 AND zone_id = $2 AND archived_at IS NULL
        AND (expires_at IS NULL OR expires_at > now())`,
     [applicationId, zoneId],
   )
-  return rows.length > 0
+  if (rows.length === 0) return 'gateway_application_not_found'
+  if (rows[0].registration_method !== 'managed') return 'gateway_application_must_be_managed'
+  return null
 }
 
 function slugValue(value: string): string {
@@ -269,8 +275,9 @@ export const resourcesRoutes: FastifyPluginAsync = async (fastify) => {
     }
     const gatewayError = validateGatewayBinding(identifier, body.upstream_url, body.gateway_application_id, credentialProviderID)
     if (gatewayError) return reply.code(400).send({ error: gatewayError })
-    if (body.gateway_application_id && !(await applicationExists(fastify, params.zoneId, body.gateway_application_id))) {
-      return reply.code(404).send({ error: 'gateway_application_not_found' })
+    if (body.gateway_application_id) {
+      const gwError = await gatewayApplicationError(fastify, params.zoneId, body.gateway_application_id)
+      if (gwError) return reply.code(gwError === 'gateway_application_not_found' ? 404 : 400).send({ error: gwError })
     }
     if (await resourceQuotaExceeded(fastify, params.zoneId)) {
       return reply.code(409).send({ error: 'resource_quota_exceeded' })
@@ -319,8 +326,9 @@ export const resourcesRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.code(404).send({ error: 'provider_not_found' })
       }
     }
-    if (body.gateway_application_id && !(await applicationExists(fastify, params.zoneId, body.gateway_application_id))) {
-      return reply.code(404).send({ error: 'gateway_application_not_found' })
+    if (body.gateway_application_id) {
+      const gwError = await gatewayApplicationError(fastify, params.zoneId, body.gateway_application_id)
+      if (gwError) return reply.code(gwError === 'gateway_application_not_found' ? 404 : 400).send({ error: gwError })
     }
     try {
       return await withTransaction(fastify.db, async (client) => {
