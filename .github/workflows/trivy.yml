@@ -23,26 +23,83 @@ jobs:
       contents: read # for actions/checkout to fetch code
       security-events: write # for github/codeql-action/upload-sarif to upload SARIF results
       actions: read # only required for a private repository by github/codeql-action/upload-sarif to get the Action run status
-    name: Build
+    name: Scan ${{ matrix.name }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: api
+            context: .
+            dockerfile: apps/api/Dockerfile
+            build_args: ""
+          - name: sts
+            context: .
+            dockerfile: infra/docker/Dockerfile.go-service
+            build_args: |
+              SERVICE=sts
+              PORT=8080
+              STATE_DIRS=audit-replay
+          - name: gateway
+            context: .
+            dockerfile: infra/docker/Dockerfile.go-service
+            build_args: |
+              SERVICE=gateway
+              PORT=8081
+          - name: audit
+            context: .
+            dockerfile: infra/docker/Dockerfile.go-service
+            build_args: |
+              SERVICE=audit
+              PORT=9090
+          - name: coordinator
+            context: .
+            dockerfile: apps/coordinator/Dockerfile
+            build_args: ""
+          - name: control
+            context: .
+            dockerfile: apps/control/Dockerfile
+            build_args: ""
+          - name: postgres
+            context: infra/postgres
+            dockerfile: infra/postgres/Dockerfile
+            build_args: ""
+          - name: redis
+            context: infra/redis
+            dockerfile: infra/redis/Dockerfile
+            build_args: ""
+          - name: runtime
+            context: .
+            dockerfile: apps/runtime/Dockerfile
+            build_args: |
+              CARACAL_RELEASE_VERSION=0.0.0-ci
+              CARACAL_DEV_SHA=${{ github.sha }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Build an image from Dockerfile
-        run: |
-          docker build -t docker.io/my-organization/my-app:${{ github.sha }} .
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          build-args: ${{ matrix.build_args }}
+          load: true
+          tags: caracal-${{ matrix.name }}:${{ github.sha }}
 
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@7b7aa264d83dc58691451798b4d117d53d21edfe
         with:
-          image-ref: 'docker.io/my-organization/my-app:${{ github.sha }}'
+          image-ref: 'caracal-${{ matrix.name }}:${{ github.sha }}'
           format: 'template'
           template: '@/contrib/sarif.tpl'
-          output: 'trivy-results.sarif'
+          output: 'trivy-results-${{ matrix.name }}.sarif'
           severity: 'CRITICAL,HIGH'
 
       - name: Upload Trivy scan results to GitHub Security tab
         uses: github/codeql-action/upload-sarif@v3
         with:
-          sarif_file: 'trivy-results.sarif'
+          sarif_file: 'trivy-results-${{ matrix.name }}.sarif'
+          category: 'trivy-${{ matrix.name }}'
