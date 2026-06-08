@@ -41,10 +41,12 @@ export interface SpawnRequest {
   metadata?: JsonObject;
   labels?: string[];
   idempotencyKey?: string;
+  inheritParentEdgeId?: string;
 }
 
 export interface SpawnResponse {
   agent_session_id: string;
+  delegation_edge_id?: string | null;
 }
 
 export interface DelegationRequest {
@@ -110,6 +112,7 @@ export async function spawnAgent(
       ttl_seconds: req.ttlSeconds,
       metadata: req.metadata,
       labels: req.labels,
+      inherit_parent_edge_id: req.inheritParentEdgeId,
     },
     headers,
   );

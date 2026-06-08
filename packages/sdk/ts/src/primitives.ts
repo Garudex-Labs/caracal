@@ -21,10 +21,12 @@ export type GrantMode = "inherit" | "narrow" | "none";
 
 /**
  * Authority handed to a spawned child. `inherit` (the default) runs the child
- * under its application's authority with no delegation edge. `narrow` issues a
- * bounded delegation edge so the child holds only the listed scopes; the server
- * re-validates the subset, so a narrow can never broaden. `none` spawns without
- * issuing any edge.
+ * under its parent's effective authority: a child of a narrowed parent inherits
+ * that same narrowing (the server mirrors the parent's edge onto the child), so
+ * least-privilege is transitive by default; a child of a root parent runs under
+ * full application authority. `narrow` issues a bounded delegation edge so the
+ * child holds only the listed scopes; the server re-validates the subset, so a
+ * narrow can never broaden. `none` spawns without issuing any edge.
  */
 export interface Grant {
   mode: GrantMode;
@@ -75,6 +77,13 @@ export async function spawn<T>(input: SpawnInput, fn: () => Promise<T>): Promise
   const parent = current();
   const parentId = input.parentId ?? parent?.agentSessionId;
   const bearer = input.subjectToken;
+  const inheritParentEdgeId =
+    grant.mode === "inherit"
+      && parent?.agentSessionId
+      && parent.delegationEdgeId
+      && input.applicationId === parent.clientId
+      ? parent.delegationEdgeId
+      : undefined;
   const res = await spawnAgent(input.coordinator, bearer, {
     zoneId: input.zoneId,
     applicationId: input.applicationId,
@@ -83,10 +92,11 @@ export async function spawn<T>(input: SpawnInput, fn: () => Promise<T>): Promise
     ttlSeconds: input.ttlSeconds,
     metadata: input.metadata,
     labels: input.labels,
+    inheritParentEdgeId,
   });
 
-  let delegationEdgeId: string | undefined;
-  let hop = parent?.hop ?? 0;
+  let delegationEdgeId: string | undefined = res.delegation_edge_id ?? undefined;
+  let hop = delegationEdgeId && parent ? parent.hop + 1 : parent?.hop ?? 0;
   try {
     if (grant.mode === "narrow") {
       if (!parent || !parent.agentSessionId) {

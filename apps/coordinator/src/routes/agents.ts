@@ -9,6 +9,7 @@ import { v7 as uuidv7 } from 'uuid'
 import type { PoolClient } from 'pg'
 import { enqueue, enqueueMany, Topics, type OutboxItem, type Queryable } from '../outbox.js'
 import { ownsApplication, requireScope } from '../auth.js'
+import { bumpDelegationEpoch } from '../delegationEpochs.js'
 import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
 import { cfg } from '../config.js'
 
@@ -34,6 +35,7 @@ const SpawnBody = z.object({
   lifecycle: Lifecycle.optional(),
   labels: AgentLabels,
   ttl_seconds: z.number().int().min(1).max(86400).optional(),
+  inherit_parent_edge_id: z.string().min(1).optional(),
   metadata: z.record(z.string(), z.unknown()).default({}),
 })
 
@@ -48,6 +50,50 @@ const TerminateQuery = z.object({
 
 export function spawnLockKey(zoneId: string): string {
   return `coordinator:agent_spawn:${zoneId}`
+}
+
+// inheritParentEdge mirrors the parent's narrowing edge onto a freshly spawned
+// child so an inherit spawn carries the parent's effective authority forward
+// instead of regaining full application authority. The copy is escalation-proof
+// by construction: the child edge holds the parent edge's exact scopes, resource,
+// constraints, and expiry. Returns the new edge id, null when no inheritance was
+// requested, or false when the requested parent edge is not an active edge into
+// the parent under the same application.
+async function inheritParentEdge(
+  client: PoolClient,
+  zoneId: string,
+  body: z.infer<typeof SpawnBody>,
+  childId: string,
+): Promise<string | null | false> {
+  if (!body.inherit_parent_edge_id || !body.parent_id) return null
+  const { rows } = await client.query(
+    `SELECT id, receiver_application_id, resource_id, scopes, constraints_json, expires_at
+     FROM delegation_edges
+     WHERE id = $1 AND zone_id = $2 AND target_session_id = $3
+       AND receiver_application_id = $4 AND status = 'active' AND expires_at > now()`,
+    [body.inherit_parent_edge_id, zoneId, body.parent_id, body.application_id],
+  )
+  const parentEdge = rows[0]
+  if (!parentEdge) return false
+  const edgeId = uuidv7()
+  await client.query(
+    `INSERT INTO delegation_edges
+     (id, zone_id, source_session_id, target_session_id, issuer_application_id, receiver_application_id,
+      parent_edge_id, resource_id, scopes, constraints_json, expires_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+    [edgeId, zoneId, body.parent_id, childId, parentEdge.receiver_application_id, body.application_id,
+      parentEdge.id, parentEdge.resource_id, parentEdge.scopes, parentEdge.constraints_json, parentEdge.expires_at],
+  )
+  const epoch = await bumpDelegationEpoch(client, zoneId)
+  await enqueue(client, Topics.DelegationsInvalidate, `edge_create:${edgeId}`, {
+    event: 'edge_create',
+    zone_id: zoneId,
+    edge_id: edgeId,
+    source_session_id: body.parent_id,
+    target_session_id: childId,
+    epoch,
+  })
+  return edgeId
 }
 
 export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
@@ -78,7 +124,14 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
           `SELECT id AS agent_session_id, zone_id, application_id, parent_id,
                   subject_session_id, lifecycle,
                   labels, status, depth, ttl_seconds, metadata_json AS metadata,
-                  spawned_at, last_heartbeat_at, heartbeat_deadline_at
+                  spawned_at, last_heartbeat_at, heartbeat_deadline_at,
+                  (
+                    SELECT e.id FROM delegation_edges e
+                    WHERE e.zone_id = agent_sessions.zone_id
+                      AND e.target_session_id = agent_sessions.id
+                      AND e.status = 'active' AND e.expires_at > now()
+                    ORDER BY e.created_at DESC LIMIT 1
+                  ) AS delegation_edge_id
            FROM agent_sessions
            WHERE zone_id = $1 AND application_id = $2 AND subject_session_id = $3
              AND COALESCE(parent_id, '') = COALESCE($4, '')
@@ -215,6 +268,11 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
           [body.parent_id],
         )
       }
+      const inheritedEdgeId = await inheritParentEdge(client, zoneId, body, id)
+      if (inheritedEdgeId === false) {
+        await client.query('ROLLBACK')
+        return reply.code(409).send({ error: 'inherit_parent_edge_not_active' })
+      }
       await enqueue(client, Topics.AgentsLifecycle, `spawn:${id}`, {
         event: 'spawn',
         zone_id: zoneId,
@@ -223,7 +281,7 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
         application_id: body.application_id,
       })
       await client.query('COMMIT')
-      return reply.code(201).send(rows[0])
+      return reply.code(201).send({ ...rows[0], delegation_edge_id: inheritedEdgeId })
     } catch (err) {
       await client.query('ROLLBACK')
       throw err
