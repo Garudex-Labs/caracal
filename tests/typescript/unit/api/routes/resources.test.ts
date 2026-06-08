@@ -367,7 +367,7 @@ describe('POST /v1/zones/:zoneId/resources', () => {
     })
 
     expect(res.statusCode).toBe(400)
-    expect(JSON.parse(res.body)).toMatchObject({ error: 'gateway_application_must_be_managed' })
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'gateway_exchange_application_must_be_managed' })
     expect(db.connect).not.toHaveBeenCalled()
   })
 
