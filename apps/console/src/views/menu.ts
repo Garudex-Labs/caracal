@@ -844,10 +844,10 @@ function menuHelp(label: string): Pick<InfoPage, 'meaning' | 'when' | 'impact' |
     case 'application':
       return {
         meaning: 'Applications are client identities for workloads, agents, gateways, or automation.',
-        when: 'Use managed apps for known durable software and DCR apps for dynamic or self-registering clients.',
-        impact: 'Managed creation provisions a stable token application; DCR uses the zone-gated dynamic registration path and can expire clients.',
+        when: 'Create managed apps in Console for known durable software. DCR apps are created programmatically via the admin SDK or REST for dynamic or self-registering clients.',
+        impact: 'Console creates stable managed token applications; DCR apps appear read-only here and are created through the zone-gated dynamic registration path with automatic expiry.',
         example: 'Son of Anton',
-        terms: [{ label: 'DCR', value: 'Dynamic Client Registration for self-service, high-churn, or ephemeral clients.' }],
+        terms: [{ label: 'DCR', value: 'Dynamic Client Registration; short-lived self-registering clients created programmatically, not in Console.' }],
       }
     case 'provider':
       return {

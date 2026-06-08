@@ -263,7 +263,6 @@ function submittedOAuthClientAuthMethod(values: Record<string, string>): string 
   return values.client_credentials_auth_method || 'client_secret_basic'
 }
 
-const APPLICATION_REGISTRATION_METHODS = ['managed', 'dcr'] as const
 const PROVIDER_KINDS: ProviderKind[] = ['none', 'caracal_mandate', 'oauth2_authorization_code', 'oauth2_client_credentials', 'api_key', 'bearer_token']
 const PROVIDER_CREDENTIAL_KINDS: ProviderKind[] = ['oauth2_authorization_code', 'oauth2_client_credentials', 'api_key', 'bearer_token']
 const PROVIDER_KIND_LABELS: Record<ProviderKind, string> = {
@@ -361,14 +360,14 @@ function resourceHelp(kind: ResourceHelpKind): InfoPage & { notes: string[] } {
       return {
         title: 'Application',
         meaning: 'An application is a client identity that requests Caracal tokens for a workload, agent, gateway, or automation actor.',
-        when: 'Use managed applications for known durable software and DCR applications for dynamic or self-registering clients.',
-        impact: 'The registration method decides which creation path is used. DCR is gated by the selected zone, rate-limited, capped, and may expire; managed applications are operator-provisioned and stable.',
+        when: 'Create managed applications in Console for known durable software. DCR applications are short-lived self-registering clients created programmatically through the admin SDK or REST, not in Console.',
+        impact: 'Console creates managed applications: operator-provisioned and stable. DCR applications appear here read-only; they are zone-gated, rate-limited, capped, and expire automatically.',
         example: 'Son of Anton, Fiona, PiperNet AI',
-        valid: 'Console creates applications with a one-time client secret immediately after creation.',
+        valid: 'Console creates managed applications with a one-time client secret immediately after creation.',
         after: 'Open the detail page to inspect IDs, registration method, DCR expiry, and the exact API object through copy-page.',
         terms: [
           { label: 'Managed', value: 'Operator-provisioned identity for known long-lived agents, services, workers, gateways, CI jobs, and integrations.' },
-          { label: 'DCR', value: 'Dynamic Client Registration for self-service, high-churn, or ephemeral clients when dynamic clients are enabled on the zone.' },
+          { label: 'DCR', value: 'Dynamic Client Registration; short-lived self-registering clients created programmatically through the admin SDK or REST, shown read-only in Console.' },
           { label: 'Client secret', value: 'One-time credential used by token applications; store it when Console displays it because it is not returned again.' },
         ],
         notes: ['One-time client secrets are shown only when created or rotated.', 'Use copy-page on details when debugging SDK or API calls.'],
@@ -1077,77 +1076,28 @@ export function applicationsView(ctx: Ctx): View {
         key: 'n', label: 'new', build: () => new FormView({
           title: 'create application',
           fields: [
-            { key: 'name', label: 'name', kind: 'text', required: true },
             {
-              key: 'registration_method',
-              label: 'registration method',
-              kind: 'select',
-              options: [...APPLICATION_REGISTRATION_METHODS],
-              default: 'managed',
+              key: 'name',
+              label: 'name',
+              kind: 'text',
+              required: true,
               info: infoPage({
-                title: 'Application registration method',
-                meaning: 'Choose how this application identity should be created and owned.',
-                when: 'Use managed for known durable agents, services, workers, gateways, CI jobs, and integrations that an operator intentionally provisions. Use DCR for dynamic, self-service, high-churn, or ephemeral agents and clients when the selected zone enables dynamic clients.',
-                impact: 'Managed creation writes the application directly through the admin API. DCR calls the Dynamic Client Registration path and is blocked when the zone has dynamic clients disabled.',
-                example: 'managed for Son of Anton; dcr for a short-lived Fiona task agent',
-                valid: 'Choose managed or dcr.',
-                after: 'Console shows only the fields relevant to the selected registration path before submitting.',
+                title: 'Application name',
+                meaning: 'Human-readable name of the managed application identity Console creates.',
+                when: 'Create a managed application for known durable agents, services, workers, gateways, CI jobs, and integrations that an operator intentionally provisions.',
+                impact: 'Console creates a managed token application and reveals its one-time client secret once.',
+                example: 'Son of Anton',
+                valid: 'Short text, not an internal ID.',
+                after: 'Store the client secret shown on the result page; it is never returned again.',
                 terms: [
                   { label: 'Managed', value: 'Operator-provisioned application with an intentional lifecycle and stable identity.' },
-                  { label: 'DCR', value: 'Dynamic Client Registration; API-driven app registration for self-service or ephemeral clients.' },
+                  { label: 'DCR', value: 'Dynamic Client Registration; short-lived self-registering clients created programmatically through the admin SDK or REST, not in Console.' },
                 ],
-                notes: ['Permanent known agents normally use managed.', 'Ephemeral or self-registering agents normally use DCR, with zone-level limits and cleanup.'],
-              }),
-            },
-            {
-              key: 'expires_in',
-              label: 'client lifetime seconds',
-              kind: 'text',
-              default: '3600',
-              dependsOn: { registration_method: 'dcr' },
-              validate: (v) => {
-                if (v && !/^[1-9]\d*$/.test(v.trim())) return 'client lifetime must be a positive integer'
-                if (v && Number.parseInt(v.trim(), 10) > 3600) return 'client lifetime must be 3600 seconds or less'
-                return undefined
-              },
-              info: infoPage({
-                title: 'Client lifetime seconds',
-                meaning: 'DCR client lifetime expressed as seconds from creation time.',
-                when: 'Use this to keep ephemeral DCR clients short-lived. The default is one hour and the API caps DCR clients at one hour.',
-                impact: 'The DCR API stores an expires_at timestamp. Expired applications are hidden from active references, denied by STS token authentication, and later archived by DCR cleanup.',
-                example: '3600',
-                valid: 'Required for this path. Enter a positive integer from 1 to 3600 seconds.',
-                after: 'After submit, Console sends expires_in to the DCR endpoint and shows the generated client secret once.',
-                terms: [
-                  { label: 'DCR', value: 'Dynamic Client Registration for self-service or ephemeral application identities.' },
-                  { label: 'expires_at', value: 'Backend timestamp derived from the submitted lifetime in seconds.' },
-                ],
+                notes: ['Console creates managed applications only.', 'DCR applications are created programmatically and appear read-only in this list under the dcr method.'],
               }),
             },
           ],
           onSubmit: async (v, app) => {
-            if (v.registration_method === 'dcr') {
-              const application = await ctx.client.applications.dcr(ctx.zoneId, {
-                name: v.name!,
-                expires_in: int(v.expires_in),
-              })
-              const clientSecret = requireClientSecret(application.client_secret)
-              await popAndReload(app, list as unknown as ListView<unknown>)
-              open(app, new DetailView({
-                title: `app / ${application.name}`,
-                load: async () => ({
-                  id: application.id,
-                  zone_id: application.zone_id,
-                  name: application.name,
-                  registration_method: application.registration_method,
-                  expires_at: (application as { expires_at?: string }).expires_at,
-                  client_secret: clientSecret,
-                  note: 'store client_secret now - it cannot be retrieved later',
-                }),
-                mask: maskSecretField,
-              }))
-              return
-            }
             const application = await ctx.client.applications.create(ctx.zoneId, {
               name: v.name!,
               registration_method: 'managed',

@@ -239,6 +239,11 @@ export class AdminClient {
       this.request<Application>(`/v1/zones/${zoneId}/applications/${id}`, { method: 'PATCH', body: input }),
     delete: (zoneId: string, id: string) =>
       this.request<void>(`/v1/zones/${zoneId}/applications/${id}`, { method: 'DELETE', expectEmpty: true }),
+    // DCR (Dynamic Client Registration) is the sole programmatic path for minting
+    // short-lived self-registering client identities. Console does not create DCR
+    // applications. Creation requires an admin token, the zone's dcr_enabled gate,
+    // and is rate-limited, capped per zone, and auto-expiring (<=1h). The client
+    // secret is returned once and never retrievable again.
     dcr: (zoneId: string, input: DCRInput) =>
       this.request<Application>(`/v1/zones/${zoneId}/applications/dcr`, { method: 'POST', body: input }),
   }
