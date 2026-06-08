@@ -52,7 +52,7 @@ async function gatewayApplicationError(
   fastify: FastifyInstance,
   zoneId: string,
   applicationId: string,
-): Promise<'gateway_application_not_found' | 'gateway_application_must_be_managed' | null> {
+): Promise<'gateway_application_not_found' | 'gateway_exchange_application_must_be_managed' | null> {
   const { rows } = await fastify.db.query<{ registration_method: string }>(
     `SELECT registration_method FROM applications
      WHERE id = $1 AND zone_id = $2 AND archived_at IS NULL
@@ -60,7 +60,7 @@ async function gatewayApplicationError(
     [applicationId, zoneId],
   )
   if (rows.length === 0) return 'gateway_application_not_found'
-  if (rows[0].registration_method !== 'managed') return 'gateway_application_must_be_managed'
+  if (rows[0].registration_method !== 'managed') return 'gateway_exchange_application_must_be_managed'
   return null
 }
 

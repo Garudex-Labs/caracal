@@ -1247,7 +1247,7 @@ export function resourcesView(ctx: Ctx): View {
               { key: 'name', label: 'name', kind: 'text', default: row.name ?? '' },
               { key: 'identifier', label: 'resource identifier', kind: 'text', default: row.identifier, advanced: true, validate: validateResourceIdentifier },
               { key: 'upstream_url', label: 'upstream URL', kind: 'text', default: row.upstream_url ?? '', required: true },
-              { key: 'gateway_application_id', label: 'gateway application', kind: 'text', default: row.gateway_application_id ?? '', required: true, pick: applicationPicker(ctx), resolve: applicationResolver(ctx) },
+              { key: 'gateway_application_id', label: 'gateway application', kind: 'text', default: row.gateway_application_id ?? '', required: true, pick: applicationPicker(ctx), resolve: applicationResolver(ctx), hint: 'managed application identity the Gateway uses for upstream exchanges' },
               { key: 'credential_provider_id', label: 'upstream credential provider', kind: 'text', default: row.credential_provider_id ?? '', required: true, pick: providerPicker(ctx), resolve: providerResolver(ctx), hint: 'required; pick a provider for external auth, Caracal mandate for verifier-backed services, or a None provider for Gateway-only enforcement' },
               { key: 'scopes', label: 'Caracal resource scopes', kind: 'list', default: (row.scopes ?? []).join(','), hint: 'comma-separated authorization scopes for this resource' },
             ],
