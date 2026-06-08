@@ -61,7 +61,7 @@ Provider secrets are sealed at creation time and are not returned by list or det
 | Resource identifier | Stable audience URI, such as `resource://pipernet`; do not use the `provider://` namespace. |
 | Caracal resource scope | `domain:action`, such as `pipernet:read`. |
 | Upstream URL | The network URL Gateway can reach; it may change without changing policy audiences. |
-| Gateway application | The Caracal application identity Gateway uses for upstream exchanges. |
+| Gateway application | The managed Caracal application identity Gateway uses for upstream exchanges. DCR applications cannot be bound here — they are short-lived single-session credentials, not durable Gateway identities. |
 | Upstream credential provider | The provider record Gateway uses to attach no credential, a Caracal mandate, OAuth tokens, API keys, or bearer tokens. |
 | Provider identifier | `provider://lowercase-slug` stable name for the upstream credential system. |
 

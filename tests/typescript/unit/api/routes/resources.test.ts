@@ -203,7 +203,7 @@ describe('POST /v1/zones/:zoneId/resources', () => {
     db.query
       .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
       .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
-      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
+      .mockResolvedValueOnce({ rows: [{ registration_method: 'managed' }] })
     db.connect.mockResolvedValueOnce(client)
 
     await app.ready()
@@ -256,7 +256,7 @@ describe('POST /v1/zones/:zoneId/resources', () => {
       .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
-      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
+      .mockResolvedValueOnce({ rows: [{ registration_method: 'managed' }] })
     db.connect.mockResolvedValueOnce(client)
 
     await app.ready()
@@ -297,7 +297,7 @@ describe('POST /v1/zones/:zoneId/resources', () => {
     db.query
       .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
       .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
-      .mockResolvedValueOnce({ rows: [{ resource_count: '0' }] })
+      .mockResolvedValueOnce({ rows: [{ registration_method: 'managed' }] })
     db.connect.mockResolvedValueOnce(client)
 
     await app.ready()
@@ -325,7 +325,7 @@ describe('POST /v1/zones/:zoneId/resources', () => {
     db.query
       .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
       .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
-      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
+      .mockResolvedValueOnce({ rows: [{ registration_method: 'managed' }] })
       .mockResolvedValueOnce({ rows: [{ resource_count: '1' }] })
 
     await app.ready()
@@ -343,6 +343,31 @@ describe('POST /v1/zones/:zoneId/resources', () => {
 
     expect(res.statusCode).toBe(409)
     expect(JSON.parse(res.body)).toMatchObject({ error: 'resource_quota_exceeded' })
+    expect(db.connect).not.toHaveBeenCalled()
+  })
+
+  it('rejects binding a DCR application as the Gateway identity', async () => {
+    const { app, db } = buildRouteApp(resourcesRoutes)
+    db.query
+      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
+      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
+      .mockResolvedValueOnce({ rows: [{ registration_method: 'dcr' }] })
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/resources',
+      payload: {
+        identifier: 'resource://api',
+        upstream_url: 'https://api.example.com',
+        scopes: ['read'],
+        gateway_application_id: 'dcr-app',
+        credential_provider_id: 'provider-1',
+      },
+    })
+
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'gateway_application_must_be_managed' })
     expect(db.connect).not.toHaveBeenCalled()
   })
 

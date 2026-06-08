@@ -6,6 +6,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import {
   agentsView,
+  applicationPicker,
   applicationsView,
   delegationsView,
   policiesView,
@@ -454,6 +455,23 @@ describe('applications actions', () => {
     setRows(list, [{ id: 'd1', name: 'dcr-app', registration_method: 'dcr', traits: [] }])
     const rotate = list.footerActions().find((action) => action.label === 'rotate secret')
     expect(rotate?.enabledWhen?.()).toBe(false)
+  })
+
+  it('gateway application picker lists managed applications only', async () => {
+    const { client, ctx } = newCtx()
+    client.applications.list.mockResolvedValueOnce([
+      { id: 'm1', name: 'managed-app', registration_method: 'managed', traits: [] },
+      { id: 'd1', name: 'dcr-app', registration_method: 'dcr', traits: [] },
+    ])
+    const pick = applicationPicker(ctx as unknown as Parameters<typeof applicationPicker>[0])
+    const app = fakeApp()
+    pick(app, () => {}, '')
+    const pushed = (app as unknown as { _pushed: unknown[] })._pushed
+    const picker = pushed[pushed.length - 1] as { init: (app: App) => Promise<void>; render: (ctx: unknown) => string[] }
+    await picker.init(app)
+    const out = picker.render({ app, size: { rows: 20, cols: 80 }, status: '' }).join('\n')
+    expect(out).toContain('managed-app')
+    expect(out).not.toContain('dcr-app')
   })
 
   it('does not create DCR applications from Console', async () => {
