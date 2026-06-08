@@ -11,9 +11,9 @@ Sessions make Caracal authority temporary and revocable. A mandate includes sess
 
 | Session | Role |
 | --- | --- |
-| Subject session | Original authenticated user or service context. |
+| Subject session | Original authenticated user or service context. Also called the *authority session* in the Console. |
 | Agent session | Runtime context for a spawned agent. |
-| Delegated session | Agent session receiving constrained authority through a delegation edge. |
+| Delegated session | An agent session that holds an inbound delegation edge — a *state* of an agent session, not a separate object. |
 
 ## Revocation Anchors
 

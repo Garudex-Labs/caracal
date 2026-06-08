@@ -605,6 +605,31 @@ describe('GET /v1/zones/:zoneId/agents: list', () => {
     expect(res.statusCode).toBe(200)
     expect(res.json().next_cursor).toBeNull()
   })
+
+  it('applies status, lifecycle, application, and label filters', async () => {
+    const { app, db } = buildApp()
+    db.query.mockResolvedValueOnce({ rows: [] })
+    await app.ready()
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/zones/z1/agents?status=active&lifecycle=service&application_id=app-1&label=worker&limit=10',
+    })
+    expect(res.statusCode).toBe(200)
+    const [sql, params] = db.query.mock.calls[0]
+    expect(sql).toContain('status = $2')
+    expect(sql).toContain('lifecycle = $3')
+    expect(sql).toContain('application_id = $4')
+    expect(sql).toContain('$5 = ANY(labels)')
+    expect(params).toEqual(['z1', 'active', 'service', 'app-1', 'worker', 10])
+  })
+
+  it('rejects an invalid status filter', async () => {
+    const { app } = buildApp()
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/agents?status=bogus' })
+    expect(res.statusCode).toBe(400)
+    expect(res.json()).toEqual({ error: 'invalid_query' })
+  })
 })
 
 describe('GET /v1/zones/:zoneId/agents/:id/children', () => {

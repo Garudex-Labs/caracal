@@ -70,6 +70,29 @@ The Console redraws when content changes and reacts to terminal resize events.
 
 Press `z` to open the zone picker before navigating to zone-scoped views.
 
+## Sessions Views
+
+The `sessions` group observes the three runtime identity objects. They are read-only in the
+Console — authority is minted by the STS and delegation is authored through the agent SDK; the
+Console lists and inspects them.
+
+| View | What it shows | Object |
+| --- | --- | --- |
+| `authority session` | STS-minted subject sessions for a user or application | a `sessions` row |
+| `agent session` | A spawned agent's runtime session, lifecycle, and lease health | an `agent_sessions` row |
+| `delegation` | Authority edges between agent sessions (who narrowed whom) | a `delegation_edges` row |
+
+An **authority session** is the root credential a principal holds after a token exchange. An
+**agent session** is one spawned agent under an application; a *delegated* session is simply an
+agent session that has an inbound delegation edge — not a separate object. A **delegation** edge
+connects two agent sessions, so inbound and outbound edges are anchored on the agent session id.
+
+The `agent session` view supports filtering (`f`) by `status` (active, suspended, terminated),
+`lifecycle` (task, service), `application`, and `label`. The `expires` column surfaces lease
+health: a task agent shows its TTL deadline; a service agent shows its heartbeat-lease deadline
+(or `no lease` if it has stopped renewing). Use `i`/`o` on an agent row to view its inbound and
+outbound delegation edges.
+
 ## Guided Setup
 
 `guided setup` creates or selects the first working objects:
