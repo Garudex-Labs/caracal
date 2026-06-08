@@ -82,6 +82,18 @@ Creation is hardened server-side and cannot be misused as open self-registration
 
 DCR applications remain visible read-only in Console under the `dcr` method for audit and inspection.
 
+## Rotating a managed application secret
+
+A managed application's client secret can be rotated without recreating the application. Send the new secret on a patch; the server stores only its hash and the previous secret stops working immediately.
+
+```ts
+await admin.applications.patch(zoneId, appId, {
+  client_secret: newSecret, // store it yourself; the patch response does not echo it
+});
+```
+
+Rotation is rejected with `client_secret_not_configured` if the application has no secret to replace. The Console exposes the same operation as the **rotate secret** action on managed applications, generating a strong secret and revealing it once. DCR applications are not rotated — they are short-lived and replaced by re-registration.
+
 ## Error handling
 
 Failed HTTP responses throw `AdminApiError` with `status`, `code`, parsed response details, and the base surface (`api` or `coordinator`). Non-idempotent write methods are not retried; read methods retry transient statuses.

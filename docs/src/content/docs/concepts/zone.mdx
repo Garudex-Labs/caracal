@@ -52,6 +52,19 @@ Zone setup is normally managed through the Console. The Admin API exposes the sa
 
 Each zone has its own signing-key and JWKS context. Resource servers verify mandates against the issuer, audience, and expected zone. Policy activation is also zone-scoped: activating a policy set in one zone does not affect another zone.
 
+## Dynamic Client Registration
+
+A zone gates whether workloads may self-register short-lived [DCR applications](/concepts/principal/#managed-and-dcr-applications). DCR is **off by default**; an operator turns it on per zone (`dcr_enabled`). While enabled, a control-plane workload holding an admin token can mint auto-expiring application identities through the zone DCR endpoint — Console never creates them.
+
+Disabling DCR on a zone that still has live DCR applications requires an explicit decision, because turning the gate off does not by itself revoke identities already issued:
+
+| Choice | Effect |
+| --- | --- |
+| Keep live | Blocks new registrations; existing DCR applications stay valid until their own expiry. |
+| Revoke live | Blocks new registrations and immediately archives live DCR applications, revoking their sessions and terminating related agent access. |
+
+The Console prompts for this choice when you disable DCR with live applications, and the Admin API takes the same decision through the `dcr_shutdown` field on a zone patch (`zones.patch(id, { dcr_enabled: false, dcr_shutdown: 'keep_live' | 'revoke_live' })`). Use `zones.dcrStatus(id)` to read the live DCR application count before deciding.
+
 ## Operational Guidance
 
 - Keep production and non-production authority in separate zones.
