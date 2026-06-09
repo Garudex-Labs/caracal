@@ -16,7 +16,7 @@ on:
       - 'scripts/pythonStyleRequirements.in'
       - 'scripts/pythonTestRequirements.in'
       - 'scripts/pythonTestRequirements.lock'
-      - 'scripts/setupDev.sh'
+      - 'scripts/setupDev.mjs'
       - 'apps/**'
       - 'docs/**'
       - 'infra/**'
@@ -36,7 +36,7 @@ on:
       - 'scripts/pythonStyleRequirements.in'
       - 'scripts/pythonTestRequirements.in'
       - 'scripts/pythonTestRequirements.lock'
-      - 'scripts/setupDev.sh'
+      - 'scripts/setupDev.mjs'
       - 'apps/**'
       - 'docs/**'
       - 'infra/**'
@@ -188,7 +188,7 @@ jobs:
                   ;;
               esac
               case "$path" in
-                .github/workflows/test.yml|scripts/pythonStyleRequirements.in|scripts/setupDev.sh|packages/*/python/**|packages/connectors/*/python/**|packages/transport/*/python/**|tests/python/**|tests/shared/test-utils/python/**)
+                .github/workflows/test.yml|scripts/pythonStyleRequirements.in|scripts/setupDev.mjs|packages/*/python/**|packages/connectors/*/python/**|packages/transport/*/python/**|tests/python/**|tests/shared/test-utils/python/**)
                   python=true
                   style=true
                   ;;

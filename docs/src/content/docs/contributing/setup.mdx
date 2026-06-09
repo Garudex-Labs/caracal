@@ -20,10 +20,10 @@ pageType: workflow
 ```bash
 git clone https://github.com/Garudex-Labs/caracal.git
 cd caracal
-pnpm run setup
+pnpm install
 ```
 
-`pnpm run setup` installs Node workspace dependencies, downloads Go module dependencies, creates `.venv`, installs Python test and style tools, and installs local Python packages in editable mode.
+`pnpm install` is the standard dependency install command for the Node workspace. Run `pnpm run setup` when you need the full cross-platform developer environment: it runs `pnpm install`, downloads Go module dependencies, creates `.venv`, installs Python test and style tools, and installs local Python packages in editable mode.
 
 ## Start the Local Stack
 
