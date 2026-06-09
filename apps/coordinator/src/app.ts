@@ -134,7 +134,7 @@ export async function buildApp({ cfg, db, redis, isDraining }: CoordinatorDeps) 
     }
   })
   app.addHook('preHandler', verifyBearer)
-  registerAdminAuditHook(app, db)
+  registerAdminAuditHook(app, db, cfg.auditHmacKey)
   app.get('/health', async () => ({ ok: true }))
   app.get('/ready', async (req, reply) => {
     if (cfg.readyRateLimitPerMin > 0) {
