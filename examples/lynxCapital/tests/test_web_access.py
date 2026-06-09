@@ -164,7 +164,7 @@ def test_setup_page_is_guided_and_provider_backed():
     assert '<dd class="field-value">&#34;lynx-portfolio&#34;, &#34;lynx-research&#34;, &#34;lynx-compliance&#34;</dd>' in body
     assert "Register the credential providers and domain resources" in body
     assert '<dd class="field-value">pf-mandate, rs-mandate, cp-mandate</dd>' in body
-    assert '<dd class="field-value">each resource bound to its service application</dd>' in body
+    assert '<dd class="field-value">portfolio=http://127.0.0.1:9500, research=http://127.0.0.1:9501, compliance=http://127.0.0.1:9502</dd>' in body
     assert "Import the policy library and activate the policy set" in body
     assert '<dd class="field-value">examples/lynxCapital/policies</dd>' in body
     assert '<dd class="field-value">&#34;lynx-platform&#34;</dd>' in body
@@ -179,9 +179,19 @@ def test_setup_page_is_guided_and_provider_backed():
     assert "CARACAL_ZONE_ID=&lt;zone-id&gt;" in body
     assert "CARACAL_APPLICATION_ID=&lt;managed-application-id&gt;" in body
     assert "CARACAL_APP_CLIENT_SECRET=&lt;managed-application-secret&gt;" in body
+    # The workload env block must carry the resource routing map and the model key so the demo runs.
+    assert "CARACAL_RESOURCES=portfolio=http://127.0.0.1:9500,research=http://127.0.0.1:9501,compliance=http://127.0.0.1:9502" in body
+    assert "OPENAI_API_KEY=sk-..." in body
+    # Per-service application credentials are shown for the production one-process-per-service model.
+    assert "CARACAL_APPLICATION_ID=&lt;lynx-portfolio-application-id&gt;" in body
+    assert "CARACAL_APP_CLIENT_SECRET=&lt;lynx-research-secret&gt;" in body
+    assert "CARACAL_RESOURCES=compliance=http://127.0.0.1:9502" in body
     assert 'CONTROL_CLIENT_ID="&lt;control-key-client-id&gt;"' in body
     assert 'CONTROL_CLIENT_SECRET="&lt;one-time-control-key-secret&gt;"' in body
-    assert "Add these values to <code>examples/lynxCapital/.env</code>" in body
+    # Provisioning resource upstreams are surfaced so the operator registers real upstreams.
+    assert "LYNX_RESOURCE_PORTFOLIO_URL=http://127.0.0.1:9500" in body
+    assert "LYNX_RESOURCE_COMPLIANCE_URL=http://127.0.0.1:9502" in body
+    assert "Workload <code>examples/lynxCapital/.env</code> — run one process per service" in body
     # Providers: manual mapping to Caracal resources
     assert "Providers" in body
     assert "resource://halcyon-bank" in body

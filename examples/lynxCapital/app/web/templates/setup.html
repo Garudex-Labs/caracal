@@ -173,13 +173,23 @@ Lynx Capital guided setup page for Caracal configuration, providers, and launch.
       {% endfor %}
     </div>
     <div class="env-card">
-      <h3>Add these values to <code>examples/lynxCapital/.env</code></h3>
+      <h3>Workload <code>examples/lynxCapital/.env</code> — run one process per service</h3>
+      <p>Each service is its own managed application, so in production each service process gets its own Application ID, secret, and the single resource it may reach. Fill in the credential for the service this process runs:</p>
       <pre class="script">CARACAL_ZONE_ID={{ setup_env.zone }}
-
+{% for app in setup_env.applications %}
+# {{ app.name }} (reaches {{ app.resource.split('=')[0] }} only)
+CARACAL_APPLICATION_ID={{ app.applicationId }}
+CARACAL_APP_CLIENT_SECRET={{ app.secret }}
+CARACAL_RESOURCES={{ app.resource }}
+{% endfor %}
+OPENAI_API_KEY={{ setup_env.openaiKey }}</pre>
+      <p>To run the bundled single-process demo instead, use any one service application above and map all three resources at once:</p>
+      <pre class="script">CARACAL_ZONE_ID={{ setup_env.zone }}
 CARACAL_APPLICATION_ID={{ setup_env.application }}
-
-CARACAL_APP_CLIENT_SECRET={{ setup_env.applicationSecret }}</pre>
-      <p>Keep this block in <code>.env</code>; Lynx loads it automatically when the app starts.</p>
+CARACAL_APP_CLIENT_SECRET={{ setup_env.applicationSecret }}
+CARACAL_RESOURCES={{ setup_env.resources }}
+OPENAI_API_KEY={{ setup_env.openaiKey }}</pre>
+      <p>Lynx loads <code>.env</code> automatically when the app starts. Without Caracal configured, provider access fails closed; set <code>LYNX_SIMULATION=1</code> only to exercise the offline simulators.</p>
     </div>
   </section>
 
@@ -293,9 +303,10 @@ CARACAL_APP_CLIENT_SECRET={{ setup_env.applicationSecret }}</pre>
         <div class="command-block">
           <h3>Add to examples/lynxCapital/.env.provision</h3>
         <pre class="script">CONTROL_CLIENT_ID="{{ setup_env.controlClient }}"
-
-CONTROL_CLIENT_SECRET="{{ setup_env.controlSecret }}"</pre>
-          <p class="automation-note">Provisioning credentials live in <code>.env.provision</code>, kept separate from the workload <code>.env</code>. Source it before running the scripts.</p>
+CONTROL_CLIENT_SECRET="{{ setup_env.controlSecret }}"
+{% for line in setup_env.resourceLines %}
+{{ line.env }}={{ line.url }}{% endfor %}</pre>
+          <p class="automation-note">Provisioning credentials live in <code>.env.provision</code>, kept separate from the workload <code>.env</code>. The LYNX_RESOURCE_*_URL values point each domain resource at its upstream when <code>scripts/provision.py</code> registers it. Source the file before running the scripts.</p>
         </div>
         <div class="command-block">
           <h3>Run</h3>
