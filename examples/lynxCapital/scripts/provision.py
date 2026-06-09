@@ -46,6 +46,20 @@ def _version_id(result: object) -> str:
     return ""
 
 
+def ensure_applications(client: ControlClient, model: tenancy.TenancyModel) -> dict[str, str]:
+    """Create each durable managed service application, returning a map of application id to
+    the control-plane id so resources can bind to their application's trust boundary. Managed
+    applications are normally created once in Console; this keeps a fresh zone reproducible."""
+    existing = client.invoke("app", "list")
+    application_ids: dict[str, str] = {}
+    for app in model.applications:
+        found = find_by_name(existing, app.applicationName)
+        result = found if found else client.invoke("app", "create", {"name": app.applicationName})
+        print(f"application {'exists' if found else 'created'}: {app.applicationName}")
+        application_ids[app.id] = _id_of(result, app.applicationName)
+    return application_ids
+
+
 def ensure_providers(client: ControlClient, model: tenancy.TenancyModel) -> dict[str, str]:
     """Register each upstream credential provider, returning a map of provider identifier to
     the control-plane id so resources can bind to it."""
@@ -60,9 +74,14 @@ def ensure_providers(client: ControlClient, model: tenancy.TenancyModel) -> dict
     return provider_ids
 
 
-def ensure_resources(client: ControlClient, model: tenancy.TenancyModel, provider_ids: dict[str, str]) -> None:
+def ensure_resources(
+    client: ControlClient,
+    model: tenancy.TenancyModel,
+    provider_ids: dict[str, str],
+    application_ids: dict[str, str],
+) -> None:
     existing = client.invoke("resource", "list")
-    for command in tenancy.resource_commands(model, provider_ids):
+    for command in tenancy.resource_commands(model, provider_ids, application_ids):
         identifier = command["flags"]["identifier"]
         if find_by_identifier(existing, identifier):
             print(f"resource exists: {identifier}")
@@ -108,8 +127,16 @@ def ensure_policy_set(client: ControlClient, model: tenancy.TenancyModel) -> Non
     print(f"policy-set activated: {set_name} ({set_version_id})")
 
 
-def write_outputs(provider_ids: dict[str, str], model: tenancy.TenancyModel) -> None:
+def write_outputs(
+    application_ids: dict[str, str],
+    provider_ids: dict[str, str],
+    model: tenancy.TenancyModel,
+) -> None:
     outputs = {
+        "applications": [
+            {"id": a.id, "name": a.applicationName, "control_id": application_ids.get(a.id, "")}
+            for a in model.applications
+        ],
         "providers": provider_ids,
         "resources": [r.identifier for r in model.resources],
         "policy_set": model.policySet.name,
@@ -122,13 +149,15 @@ def write_outputs(provider_ids: dict[str, str], model: tenancy.TenancyModel) -> 
 def main() -> None:
     model = tenancy.load_model()
     client = ControlClient(config_from_env())
+    application_ids = ensure_applications(client, model)
     provider_ids = ensure_providers(client, model)
-    ensure_resources(client, model, provider_ids)
+    ensure_resources(client, model, provider_ids, application_ids)
     ensure_policy_set(client, model)
-    write_outputs(provider_ids, model)
+    write_outputs(application_ids, provider_ids, model)
     print(
-        f"provisioned {len(model.providers)} providers, {len(model.resources)} resources, "
-        f"and the {model.policySet.name} policy set for {len(model.customers)} customers"
+        f"provisioned {len(model.applications)} applications, {len(model.providers)} providers, "
+        f"{len(model.resources)} resources, and the {model.policySet.name} policy set "
+        f"for {len(model.customers)} customers"
     )
 
 

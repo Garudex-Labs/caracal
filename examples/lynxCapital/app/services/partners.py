@@ -499,12 +499,21 @@ def _caracal_internal(s: PartnerSpec, operation: str, payload: dict) -> dict:
     return _call_none(s, operation, payload)
 
 
-def call(provider_id: str, operation: str, payload: dict) -> dict:
-    """Authenticate to one external partner and run a single business operation.
+def _simulation_enabled() -> bool:
+    """The bundled offline demo and the provider test harness exercise the simulated provider
+    surface directly. That direct path is never the silent default: it must be opted into with
+    LYNX_SIMULATION so a real deployment that simply forgot to configure Caracal fails closed
+    instead of reaching a provider ungoverned."""
+    return os.environ.get("LYNX_SIMULATION", "").strip().lower() in ("1", "true", "yes", "on")
 
-    When Caracal is configured, external and mandate providers route through the
-    upstream gateway and internal providers are guarded by the verifier; otherwise
-    the call falls back to the direct local provider surface."""
+
+def call(provider_id: str, operation: str, payload: dict) -> dict:
+    """Authenticate to one partner and run a single business operation.
+
+    No provider is reachable without Caracal. When Caracal is configured, external and mandate
+    providers route through the upstream gateway and internal providers are guarded by the
+    verifier. Otherwise the call fails closed, except in explicit LYNX_SIMULATION mode where the
+    bundled simulated provider surface is served directly for the offline demo and tests."""
     s = spec(provider_id)
     if operation not in s.operations:
         raise KeyError(f"unknown operation {operation!r} for partner {provider_id!r}")
@@ -516,7 +525,7 @@ def call(provider_id: str, operation: str, payload: dict) -> dict:
             return _caracal_internal(s, operation, payload or {})
         return _caracal_external(s, operation, payload or {})
 
-    if s.auth == "mandate":
+    if s.auth == "mandate" or not _simulation_enabled():
         raise PartnerPendingCaracal(provider_id)
     return _DISPATCH[s.auth](s, operation, payload or {})
 
