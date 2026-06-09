@@ -168,7 +168,7 @@ Lynx Capital guided setup page for Caracal configuration, providers, and launch.
           {% endfor %}
         </dl>
         <p class="why">{{ step.why }}</p>
-        <pre><code>{{ step.field }}={{ step.value }}</code></pre>
+        {% if step.field %}<pre><code>{{ step.field }}={{ step.value }}</code></pre>{% endif %}
       </article>
       {% endfor %}
     </div>
@@ -272,7 +272,7 @@ CARACAL_APP_CLIENT_SECRET={{ setup_env.applicationSecret }}</pre>
       <div class="automation-path">
         <article>
           <h3>1. Create the zone</h3>
-          <p>Go to Caracal Console &gt; Zones &gt; New. Set <b>name</b> = <code>"Lynx Capital"</code>. Leave <b>dynamic clients</b> unchecked.</p>
+          <p>Go to Caracal Console &gt; Zones &gt; New. Set <b>name</b> = <code>"Lynx Capital"</code>. Enable <b>dynamic clients</b> (required for per-tenant DCR apps).</p>
         </article>
         <article>
           <h3>2. Create the control key</h3>
