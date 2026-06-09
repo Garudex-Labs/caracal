@@ -133,6 +133,30 @@ Pull requests run the same style gate automatically for changed primary-language
   - `scripts/testCi.sh` (daily-check parity)
 5. Commit with a clear message and open a PR.
 
+## Code Review
+
+Every change is proposed as a pull request and reviewed before it is merged or released.
+
+### How review is conducted
+
+- Open a pull request against `main`; direct pushes to `main` are not used for code changes.
+- At least one maintainer **other than the author** must review and approve the pull request before it is merged. Authors must not approve or merge their own changes.
+- Area owners in `.github/CODEOWNERS` are requested automatically and own review for their paths.
+- Release publishing requires `release-approval` from a maintainer other than the one who prepared the release.
+
+### What reviewers must check
+
+- **Correctness:** the change does what it claims and handles edge cases and failure paths.
+- **Scope:** the change stays focused; unrelated edits are split out.
+- **Tests:** the Testing Policy is satisfied — major new functionality adds tests and bug fixes add a regression test — and CI passes.
+- **Style:** the change passes the `pnpm run style` gate for its languages.
+- **Security and boundaries:** input is validated, secrets are not exposed, trust boundaries in `governance/THREAT_MODEL.md` are respected, and no open-source code depends on enterprise-only code.
+- **Docs:** behavior, API, command, config, and operations changes update the affected documentation.
+
+### What is required to be acceptable
+
+A pull request is acceptable to merge only when it has at least one approving review from a non-author maintainer, all required CI checks pass, review comments are resolved, and the change is judged a worthwhile improvement free of known defects that would argue against inclusion.
+
 ## Releases
 
 Release artifacts share one CalVer: `vYYYY.MM.DD` (`.N` for same-day re-cuts). Only `.github/MAINTAINERS` can run release workflows. Stable releases require `release-approval` from a different maintainer.

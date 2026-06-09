@@ -23,6 +23,20 @@ Caracal is maintained by Garudex Labs. Maintainers listed in `.github/MAINTAINER
 - Approve releases and release workflow changes.
 - Preserve open-source and enterprise product isolation.
 
+## Code Review Requirements
+
+Every change is proposed as a pull request and reviewed before merge or release.
+
+| Requirement | Expectation |
+| --- | --- |
+| Independent review | At least one maintainer other than the author approves each pull request; authors do not approve or merge their own changes. |
+| Area ownership | `.github/CODEOWNERS` owners are requested automatically for their paths. |
+| What reviewers check | Correctness and edge cases, focused scope, Testing Policy compliance with passing CI, the `pnpm run style` gate, input validation and trust boundaries, secret hygiene, OSS/enterprise isolation, and updated docs. |
+| Acceptance bar | One approving non-author review, all required CI checks green, resolved comments, and a judgment that the change is worthwhile and free of known disqualifying defects. |
+| Release approval | Stable releases require `release-approval` from a maintainer other than the release preparer. |
+
+The full contributor-facing policy lives in [`.github/CONTRIBUTING.md`](https://github.com/Garudex-Labs/caracal/blob/main/.github/CONTRIBUTING.md#code-review).
+
 ## Community Standards
 
 The project follows the repository [Code of Conduct](https://github.com/Garudex-Labs/caracal/blob/main/.github/CODE_OF_CONDUCT.md). Harassment, private-information disclosure, and disruptive behavior are not acceptable.
