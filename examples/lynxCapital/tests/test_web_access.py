@@ -138,7 +138,7 @@ def test_setup_page_is_guided_and_provider_backed():
     assert "Automate setup" in body
     assert "Go to Caracal Console &gt; Zones &gt; New" in body
     assert "<b>name</b> = <code>\"Lynx Capital\"</code>" in body
-    assert "Leave <b>dynamic clients</b> unchecked." in body
+    assert "Enable <b>dynamic clients</b> (required for per-tenant DCR apps)." in body
     assert "Go to Control &gt; control key create" in body
     assert "<b>name</b> = <code>\"Lynx Capital Bootstrap\"</code>" in body
     assert "<b>max token TTL</b> = <code>300</code>" in body
@@ -152,25 +152,31 @@ def test_setup_page_is_guided_and_provider_backed():
     assert "The scripts load <code>.env</code> automatically." in body
     assert "python scripts/provision.py" in body
     assert "python scripts/teardown.py" in body
-    # Caracal configuration: zone, application, policy
+    # Caracal configuration: zone, managed platform app, policy library, per-tenant DCR
     assert "Caracal configuration" in body
-    assert "Enter the zone fields" in body
     assert "field-name" in body
     assert "field-value" in body
+    assert "Create the zone" in body
     assert '<dt class="field-name">Name</dt>' in body
     assert '<dd class="field-value">&#34;Lynx Capital&#34;</dd>' in body
     assert '<dt class="field-name">Dynamic clients</dt>' in body
-    assert '<dd class="field-value">[ ] leave unchecked</dd>' in body
-    assert "Enter the application fields" in body
+    assert '<dd class="field-value">[x] enabled (required for per-tenant DCR apps)</dd>' in body
+    assert "Create the managed platform application" in body
     assert "Go to Applications &gt; New in the &#34;Lynx Capital&#34; zone" in body
     assert '<dt class="field-name">Registration method</dt>' in body
     assert '<dd class="field-value">managed</dd>' in body
-    assert "Enter the policy fields" in body
-    assert '<dd class="field-value">&#34;Lynx Capital baseline&#34;</dd>' in body
-    assert '<dt class="field-name">Target application</dt>' in body
-    assert '<dd class="field-value">&#34;Lynx Capital&#34;</dd>' in body
+    assert '<dd class="field-value">&#34;lynx-platform&#34;</dd>' in body
+    assert "Import the policy library and activate the policy set" in body
+    assert '<dd class="field-value">examples/lynxCapital/policies</dd>' in body
+    assert '<dd class="field-value">&#34;lynx-multitenant&#34;</dd>' in body
+    assert "Register a DCR application per tenant" in body
+    assert '<dd class="field-value">tenant-aurora, tenant-borealis</dd>' in body
+    assert '<dd class="field-value">dcr</dd>' in body
+    # The single-app / single-baseline-policy anti-pattern must be gone
+    assert "Lynx Capital baseline" not in body
+    assert "[ ] leave unchecked" not in body
     assert "CARACAL_ZONE_ID=&lt;placeholder-zone-id&gt;" in body
-    assert "CARACAL_APPLICATION_ID=&lt;placeholder-application-id&gt;" in body
+    assert "CARACAL_APPLICATION_ID=&lt;placeholder-managed-application-id&gt;" in body
     assert "CARACAL_APP_CLIENT_SECRET=&lt;placeholder-application-secret&gt;" in body
     assert 'CONTROL_CLIENT_ID="&lt;placeholder-control-client-id&gt;"' in body
     assert 'CONTROL_CLIENT_SECRET="&lt;placeholder-control-client-secret&gt;"' in body
@@ -250,32 +256,39 @@ def test_demo_workspace_is_end_user_focused():
     assert "Execution timeline" not in body
 
 
-def test_provision_scripts_exist_and_build_plan_from_catalog():
+def test_provision_scripts_exist_and_build_multitenant_plan():
     import sys
     from pathlib import Path
 
-    scripts_dir = Path(__file__).resolve().parent.parent / "scripts"
+    root = Path(__file__).resolve().parent.parent
+    scripts_dir = root / "scripts"
     assert (scripts_dir / "provision.py").exists()
     assert (scripts_dir / "teardown.py").exists()
     assert (scripts_dir / "control_client.py").exists()
+    assert (scripts_dir / "reference.py").exists()
 
     sys.path.insert(0, str(scripts_dir))
+    sys.path.insert(0, str(root))
     try:
         import control_client
-        import provision_plan
+        from app import tenancy
     finally:
         sys.path.remove(str(scripts_dir))
 
-    entries = provision_plan.providers()
-    assert entries, "expected external providers in the provision plan"
-    sample = entries[0]
-    assert sample["resourceIdentifier"].startswith("resource://")
-    assert sample["kind"]
-    assert sample["scopes"]
+    model = tenancy.load_model()
+    managed = tenancy.managed_app_command(model)
+    assert managed["subcommand"] == "create"
+    assert managed["flags"]["name"] == "lynx-platform"
 
-    policy = provision_plan.policy([entry["resourceIdentifier"] for entry in entries])
-    assert policy["name"] == provision_plan.POLICY_NAME
-    assert "package caracal.authz" in policy["content"]
+    dcr_apps = [tenancy.dcr_app_command(t)["flags"]["name"] for t in model.tenants]
+    assert dcr_apps == ["tenant-aurora", "tenant-borealis"]
+
+    policies = tenancy.policy_commands(model)
+    assert policies[0]["flags"]["name"] == "00-base"
+    assert all("package caracal.authz" in c["flags"]["content"] for c in policies)
+
+    grants = tenancy.grant_specs(model)
+    assert {g["tenant_id"] for g in grants} == {"aurora", "borealis"}
 
     import pytest
 
@@ -286,3 +299,5 @@ def test_provision_scripts_exist_and_build_plan_from_catalog():
         "CONTROL_CLIENT_SECRET": "<placeholder-control-client-secret>",
     })
     assert config.scopes == control_client.SCOPES
+    assert "control:app:write" in control_client.SCOPES
+    assert "control:policy-set:write" in control_client.SCOPES
