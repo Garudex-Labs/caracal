@@ -15,13 +15,17 @@
     "caracal-console": "apps/console/bin/caracal-console-workspace.mjs"
   },
   "scripts": {
+    "setup": "bash scripts/setupDev.sh",
     "caracal": "node apps/runtime/bin/caracal-workspace.mjs",
     "caracal-console": "node apps/console/bin/caracal-console-workspace.mjs",
     "secrets:init": "node infra/secrets/secretInit.mjs",
     "build:typescript": "pnpm --dir packages/core/ts build && pnpm --dir packages/oauth/ts build && pnpm --dir packages/admin/ts build && pnpm --dir packages/adminAudit/ts build && pnpm --dir packages/engine build && pnpm --dir packages/sdk/ts build && pnpm --dir packages/transport/a2a/ts build && pnpm --dir packages/identity/ts build && pnpm --dir packages/revocation/ts build && pnpm --dir packages/transport/mcp/ts build && pnpm --dir packages/connectors/express/ts build && pnpm --dir packages/connectors/fastmcp/ts build && pnpm --dir packages/connectors/postgres/ts build && pnpm --dir packages/connectors/redis/ts build && pnpm --dir apps/api build && pnpm --dir apps/coordinator build && pnpm --dir apps/control build",
+    "style": "bash scripts/checkStyle.sh",
+    "style:all": "bash scripts/checkStyle.sh --all",
+    "style:fix": "bash scripts/checkStyle.sh --fix",
     "lint": "pnpm -r --if-present lint",
     "typecheck": "pnpm -r --if-present typecheck",
-    "ci": "pnpm --filter @caracalai/engine sync-embedded && pnpm run build:typescript && pnpm run lint && pnpm run typecheck && pnpm run test",
+    "ci": "pnpm run style && pnpm --filter @caracalai/engine sync-embedded && pnpm run build:typescript && pnpm run lint && pnpm run typecheck && pnpm run test",
     "test": "pnpm run test:typescript && pnpm run test:go && pnpm run test:python",
     "test:go": "bash scripts/runGoSourceTests.sh go test ./packages/core/go/... ./services/sts/... ./services/audit/... ./services/gateway/... ./services/coordinator-relay/... ./packages/transport/mcp/go/... ./packages/connectors/nethttp/go/... ./packages/connectors/redis/go/... ./packages/identity/go/... ./packages/oauth/go/... ./packages/revocation/go/... ./packages/sdk/go/... && go test ./tests/go/unit/revocation ./tests/go/unit/transport/mcp ./tests/go/unit/identity ./tests/go/contract/interoperability ./tests/go/property",
     "test:python": "PYTHONPATH=packages/core/python:packages/identity/python:packages/oauth/python:packages/revocation/python:packages/transport/mcp/python:packages/connectors/fastmcp/python:packages/connectors/redis/python:packages/sdk/python:tests/shared/test-utils/python python -m unittest discover -s tests/python -p 'test_*.py'",
@@ -48,6 +52,7 @@
     "fastify": "^5.8.5",
     "knip": "^6.13.1",
     "pg": "^8.20.0",
+    "prettier": "^3.8.3",
     "vitest": "^4.1.6"
   }
 }

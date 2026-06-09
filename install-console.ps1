@@ -6,9 +6,11 @@
 [CmdletBinding()]
 param(
     [string]$Version = $env:CARACAL_VERSION,
+    [string]$Prefix = $env:CARACAL_PREFIX,
     [string]$InstallDir = $env:CARACAL_INSTALL_DIR,
     [string]$Color = $env:CARACAL_INSTALL_COLOR,
     [string]$Progress = $env:CARACAL_INSTALL_PROGRESS,
+    [switch]$Uninstall,
     [switch]$NoVerifyProvenance
 )
 
@@ -18,7 +20,11 @@ Set-StrictMode -Version Latest
 $repo = 'Garudex-Labs/caracal'
 if ([string]::IsNullOrEmpty($Version)) { $Version = 'latest' }
 if ([string]::IsNullOrEmpty($InstallDir)) {
-    $InstallDir = Join-Path $env:LOCALAPPDATA 'Programs\caracal'
+    if ([string]::IsNullOrEmpty($Prefix)) {
+        $InstallDir = Join-Path $env:LOCALAPPDATA 'Programs\caracal'
+    } else {
+        $InstallDir = Join-Path $Prefix 'bin'
+    }
 }
 $VerifyProvenance = $true
 $RequireProvenance = $true
@@ -82,6 +88,31 @@ function Write-Section([string]$Title) {
     } else {
         Write-Host "caracal-install $Title"
     }
+}
+
+if ($Uninstall) {
+    $removed = $false
+    foreach ($name in @('caracal.exe', 'caracal-console.exe')) {
+        $path = Join-Path $InstallDir $name
+        if (Test-Path $path) {
+            Remove-Item -Force $path
+            Write-Ok "Removed $path"
+            $removed = $true
+        }
+    }
+    if (-not $removed) {
+        Write-Info "No Caracal binaries found in $InstallDir"
+    }
+    $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+    if (-not [string]::IsNullOrEmpty($userPath)) {
+        $entries = @($userPath -split ';' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and $_ -ine $InstallDir })
+        $nextPath = $entries -join ';'
+        if ($nextPath -ne $userPath) {
+            [Environment]::SetEnvironmentVariable('Path', $nextPath, 'User')
+            Write-Info "Removed $InstallDir from user PATH. Open a new shell to pick it up."
+        }
+    }
+    exit 0
 }
 
 $osArch = (Get-CimInstance Win32_OperatingSystem).OSArchitecture
