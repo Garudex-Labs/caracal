@@ -78,7 +78,7 @@ cp -n .env.example .env
 
 The workload `.env` holds only the Caracal variables the application reads at runtime.
 Prefer a Console-generated `caracal.toml` profile (`CARACAL_CONFIG`); otherwise set the
-zone, the managed application credential, and `CARACAL_RESOURCES`. See
+zone, this service's managed application credential, and `CARACAL_RESOURCES`. See
 [Environment model](#environment-model).
 
 ### 3. Provision the platform

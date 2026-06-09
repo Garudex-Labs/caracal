@@ -7,7 +7,7 @@
 - The demo is a production-style FastAPI, Jinja2, SSE, LangChain, LangGraph, and DeepAgents simulation.
 - `app/` is the real application boundary; `_mock/` is the only provider simulation boundary.
 - `config/company.yaml` owns company labels, regions, providers, scenarios, theme values, and swarm limits.
-- `config/tenancy.yaml` plus `policies/manifest.json` own the identity model: the one managed application, the upstream credential providers, the domain resources, the agent roles, the capability-to-scope mapping, and the customers (modelled as subjects).
+- `config/tenancy.yaml` plus `policies/manifest.json` own the identity model: one managed application per domain service (each its own trust boundary, owning one credential provider and one resource), the agent roles, the capability-to-scope mapping, and the customers (modelled as subjects).
 - `app/services/partners.py` is the single bridge from application code to provider clients.
 - `app/caracal.py` is the single seam from application code to Caracal; `app/tenancy.py` derives labels, scopes, and provisioning commands from the model.
 

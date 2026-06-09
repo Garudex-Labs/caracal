@@ -1,24 +1,24 @@
 ---
 title: Run Lynx Capital
-description: Run the multi-customer SaaS reference protected by one Caracal managed application and per-customer subjects.
+description: Run the multi-customer SaaS reference protected by one Caracal managed application per service and per-customer subjects.
 pageType: workflow
 ---
 
 Lynx Capital is a runnable reference under `examples/lynxCapital`. It models a
 wealth-management platform: many customer firms each run Portfolio, Research, and Compliance
 agents over shared domain services, with every customer isolated by its subject identity and
-the policy set. It is the primary reference for modelling customers, the one managed
-application, least-privilege agents, resources, and policies on Caracal.
+the policy set. It is the primary reference for modelling customers, one managed application
+per service, least-privilege agents, resources, and policies on Caracal.
 
 ## Architecture
 
 | Building block | Role |
 | --- | --- |
-| `lynx-platform` | One **managed application** — the durable platform runtime credential that backs every customer's agents. |
+| Service applications | `lynx-portfolio`, `lynx-research`, `lynx-compliance` — one **managed application** per domain service, each its own trust boundary that can reach only its own resource. |
 | Customers | Each customer is a **subject** (`customer:<id>`), not a separate application; an agent only ever acts for the customer it was spawned for. |
-| Agents | Portfolio / Research / Compliance **agent sessions** spawned under the managed application with `metadata={customer_id}`, narrowed to the role's least-privilege scopes. |
+| Agents | Portfolio / Research / Compliance **agent sessions** spawned under their service application with `metadata={customer_id}`, narrowed to that application's resource scopes. |
 | Providers | `pf-mandate`, `rs-mandate`, `cp-mandate` — `caracal_mandate` credential providers the Gateway uses upstream. |
-| Resources | `resource://portfolio`, `resource://research`, `resource://compliance`, each with action-oriented scopes. |
+| Resources | `resource://portfolio`, `resource://research`, `resource://compliance`, each bound to its application with action-oriented scopes. |
 | Policy set | `lynx-platform`: `00-base` (default-deny + per-customer subject scoping) plus eleven scenario policies. |
 
 The model is declared once in `config/tenancy.yaml` and `policies/manifest.json`; the SDK
@@ -26,21 +26,22 @@ seam, provisioning, and policy all read from it.
 
 ### Why customers are subjects, not applications
 
-Caracal multi-tenancy is one zone and one managed application, with each customer modelled as
-a **subject**. Per-customer agents are agent sessions spawned under the one managed
-application — never separate applications. This keeps a single durable credential while giving
-every customer and role its own least-privilege session and audit trail. Dynamic Client
-Registration (DCR) is intentionally not used: it is for externally-launched, isolated,
-auto-expiring identities bound to a single session, not for an operator fanning out its own
-in-process agents.
+Caracal multi-tenancy is one zone with one managed application per domain service, and each
+customer modelled as a **subject**. Per-customer agents are agent sessions spawned under the
+relevant service application — never separate applications per customer. Each service
+application is its own trust boundary, so a portfolio agent can never reach research or
+compliance, and every customer and role gets its own least-privilege session and audit trail.
+Dynamic Client Registration (DCR) is intentionally not used: it is for externally-launched,
+isolated, auto-expiring identities bound to a single session, not for an operator fanning out
+its own in-process agents.
 
 ## Setup flow
 
 ```mermaid
 flowchart LR
-  Install[Install Python deps] --> Profile[Console: zone + managed app profile]
+  Install[Install Python deps] --> Profile[Console: zone + per-service app profiles]
   Profile --> Provision[scripts/provision.py via Control key]
-  Provision --> Objects[Providers + resources + policy set]
+  Provision --> Objects[Applications + providers + resources + policy set]
   Objects --> Reference[scripts/reference.py]
   Reference --> Spawn[Spawn per-customer agents]
   Spawn --> Inspect[Inspect sessions and delegation in Console]
@@ -57,20 +58,20 @@ cp -n .env.example .env
 ```
 
 Point the workload `.env` at the Console-generated `caracal.toml` profile (`CARACAL_CONFIG`),
-or set the zone, the managed application credential, and `CARACAL_RESOURCES`. Provisioning
-uses a separate operator file and a scoped Control key created once in Console.
+or set the zone, this service's managed application credential, and `CARACAL_RESOURCES`.
+Provisioning uses a separate operator file and a scoped Control key created once in Console.
 
 ```bash
 cp -n .env.provision.example .env.provision   # set CONTROL_CLIENT_ID / _SECRET
 . .env.provision
-python scripts/provision.py     # providers, resources, policy set (idempotent)
+python scripts/provision.py     # applications, providers, resources, policy set (idempotent)
 python scripts/reference.py     # SDK walkthrough: spawn agents, gateway authz, delegation
 python scripts/teardown.py      # remove the provisioned objects
 ```
 
-The managed application is created once in Console (its secret is shown once); provisioning
-handles only the providers, resources, and policy set — the policy set is the day-to-day
-authorization knob.
+The managed applications are created once in Console (each secret is shown once); provisioning
+handles only the applications, providers, resources, and policy set — the policy set is the
+day-to-day authorization knob.
 
 ## Policies
 
@@ -90,13 +91,13 @@ Application code uses one seam, `app/caracal.py`, built on `Caracal.connect()`:
 ```python
 from app import caracal
 
-async with caracal.spawn_customer_agent("aurora", "portfolio") as ctx:
+async with caracal.spawn_customer_agent("aurora", "portfolio", application_id="portfolio") as ctx:
     response = await caracal.fetch("portfolio", "/api/read", method="GET")
 ```
 
 `spawn_customer_agent` correlates the customer in `spawn` metadata, stamps the capability
-labels the policy set keys on, and narrows the delegation edge to the role's least-privilege
-scopes with a single hop, a short TTL, and a call budget.
+labels the policy set keys on, and narrows the delegation edge to the service application's
+resource scopes with a single hop, a short TTL, and a call budget.
 
 ## Tests
 
@@ -121,7 +122,7 @@ docker compose -f _mock/docker-compose.yml down
 ```
 
 Open `http://localhost:8000`; the guided `/setup` wizard teaches the one-zone,
-managed-application, policy-library, and customers-as-subjects flow.
+per-service-application, policy-library, and customers-as-subjects flow.
 
 ## Related examples
 

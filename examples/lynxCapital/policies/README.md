@@ -24,13 +24,13 @@ result := {
 
 ### Customer scoping
 
-Lynx Capital runs one zone and one managed application; **each customer is a Caracal
-subject**, not a separate application. Every agent is spawned for an identified customer, so
-its requests carry that customer's `customer_id` subject claim. The base denies any
-customer-scoped request that arrives without a customer subject — the shared
-managed-application credential alone can never read customer data; it can only spawn the
-agents that act for a customer. Because customer identity lives in the subject (and the
-upstream serves only that subject's data), isolation between customers is structural rather
+Lynx Capital runs one zone and one managed application per domain service; **each customer is
+a Caracal subject**, not a separate application. Every agent is spawned for an identified
+customer under its service application, so its requests carry that customer's `customer_id`
+subject claim. The base denies any customer-scoped request that arrives without a customer
+subject — a service application's credential alone can never read customer data; it can only
+spawn the agents that act for a customer. Because customer identity lives in the subject (and
+the upstream serves only that subject's data), isolation between customers is structural rather
 than a label that could be forged.
 
 ### Plan entitlements
