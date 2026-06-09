@@ -6,6 +6,14 @@ pageType: reference
 
 Run the smallest relevant suite first, then broaden when a change touches shared code, security boundaries, generated artifacts, or deployment behavior.
 
+## Testing Policy
+
+This policy is mandatory and is enforced during review:
+
+- Major new functionality MUST add automated tests covering that functionality, in the same change that introduces it.
+- Every bug fix MUST add a regression test that fails without the fix and passes with it.
+- Reviewers MUST confirm the required tests exist and run in CI before approving; pull requests that omit them are not merged.
+
 ## Root Commands
 
 | Command | Purpose |

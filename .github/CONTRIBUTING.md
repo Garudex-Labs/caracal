@@ -97,6 +97,14 @@ scripts/testCi.sh                # full suite (style + ts + go + py + docs)
 scripts/testCi.sh --smoke | --style | --go | --py | --ts
 ```
 
+### Testing Policy
+
+This policy is mandatory and is enforced during review:
+
+- Major new functionality MUST add automated tests covering that functionality, in the same change that introduces it.
+- Every bug fix MUST add a regression test that fails without the fix and passes with it.
+- Reviewers MUST confirm the required tests exist and run in CI before approving; pull requests that omit them are not merged.
+
 ## Coding Style
 
 Caracal uses the official language style conventions for its primary implementation languages:
