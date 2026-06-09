@@ -26,7 +26,13 @@ curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-c
   sh -s -- --version vYYYY.MM.DD
 ```
 
-By default the installer writes to `~/.local/bin` and requires provenance verification. Override the install path with `--install-dir /path/to/bin` or `CARACAL_INSTALL_DIR=/path/to/bin`. Use `--no-verify-provenance` only when you explicitly need to skip provenance verification.
+By default the installer writes to `~/.local/bin` and requires provenance verification. Override the install path with `--install-dir /path/to/bin` or `CARACAL_INSTALL_DIR=/path/to/bin`. Packaging flows can use `--prefix`, `CARACAL_PREFIX`, `PREFIX`, and `DESTDIR`; for example, `PREFIX=/usr DESTDIR=/tmp/caracal-package sh install-console.sh` stages files under `/tmp/caracal-package/usr/bin`. Use `--no-verify-provenance` only when you explicitly need to skip provenance verification.
+
+Uninstall the Unix binaries from the same install directory:
+
+```sh
+install-console.sh --install-dir ~/.local/bin --uninstall
+```
 
 ### Windows
 
@@ -43,6 +49,14 @@ powershell -ExecutionPolicy Bypass -File $installer -Version vYYYY.MM.DD
 ```
 
 The Windows installer writes to `%LOCALAPPDATA%\Programs\caracal` by default, requires provenance verification, and adds the install directory to the user `Path`. Open a new shell after installation. Use `-NoVerifyProvenance` only when you explicitly need to skip provenance verification.
+
+Uninstall the Windows binaries:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File $installer -Uninstall
+```
+
+The Windows uninstall path also removes the installer-managed user `Path` entry.
 
 ## Verify Installation
 

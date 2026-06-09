@@ -20,8 +20,10 @@ pageType: workflow
 ```bash
 git clone https://github.com/Garudex-Labs/caracal.git
 cd caracal
-pnpm install
+pnpm run setup
 ```
+
+`pnpm run setup` installs Node workspace dependencies, downloads Go module dependencies, creates `.venv`, installs Python test and style tools, and installs local Python packages in editable mode.
 
 ## Start the Local Stack
 
