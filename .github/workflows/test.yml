@@ -564,7 +564,7 @@ jobs:
 
       - name: Upload TypeScript coverage to Codecov
         if: needs.typescript.result == 'success'
-        uses: codecov/codecov-action@75cd11691c0faa626561e295848008c8a7dddffe # v5
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           directory: coverage/coverage-typescript
@@ -573,7 +573,7 @@ jobs:
 
       - name: Upload Go coverage to Codecov
         if: needs.go.result == 'success'
-        uses: codecov/codecov-action@75cd11691c0faa626561e295848008c8a7dddffe # v5
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: coverage/coverage-go/coverage.out
@@ -583,7 +583,7 @@ jobs:
 
       - name: Upload Python coverage to Codecov
         if: needs.python.result == 'success'
-        uses: codecov/codecov-action@75cd11691c0faa626561e295848008c8a7dddffe # v5
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: coverage/coverage-python/coverage.xml
