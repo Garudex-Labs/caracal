@@ -11,6 +11,7 @@ import type {
   EmptyProviderConfig,
   OAuth2AuthorizationCodeProviderConfig,
   OAuth2ClientCredentialsProviderConfig,
+  PolicyPreview,
   PolicyVersion,
   Provider,
   ProviderConfig,
@@ -172,6 +173,8 @@ interface SetupResult {
     version: PolicyVersion
     policy_set_id: string
     policy_set_version_id: string
+    preview: PolicyPreview | null
+    warnings: string[]
   }
   profile?: {
     path: string
@@ -1415,10 +1418,12 @@ async function createFirstPolicy(
   resourceIdentifier: string,
   scopes: string[],
 ): Promise<SetupResult['policy']> {
+  const content = firstAccessPolicy(applicationId, resourceIdentifier, scopes)
+  const validation = await ctx.client.policies.validate(content)
   const policy = await ctx.client.policies.create(zoneId, {
     name: 'Guided setup access policy',
     description: 'Starter Rego allow-list explicitly approved during guided setup. Allows only the configured agent app to request the configured protected resource with the configured Caracal resource scopes.',
-    content: firstAccessPolicy(applicationId, resourceIdentifier, scopes),
+    content,
   })
   const policySet = await ctx.client.policySets.create(zoneId, 'Guided setup access policy set', 'Active policy set approved during guided setup.')
   const version = await ctx.client.policySets.addVersion(zoneId, policySet.id, [{ policy_version_id: policy.version.id }])
@@ -1429,6 +1434,8 @@ async function createFirstPolicy(
     version: policy.version,
     policy_set_id: policySet.id,
     policy_set_version_id: version.id,
+    preview: validation.preview,
+    warnings: validation.warnings,
   }
 }
 
@@ -1517,10 +1524,15 @@ function setupSummary(result: SetupResult): Record<string, unknown> {
     },
   }
   if (result.policy) {
+    const evaluates = result.policy.preview?.inputs_referenced ?? []
+    const decisions = result.policy.preview?.decisions ?? []
     summary.access_policy = {
       status: 'created and activated',
       kind: 'starter least-privilege allow-list',
       summary: 'Denies by default and allows only the selected app to request the selected resource scopes.',
+      ...(decisions.length > 0 ? { decisions } : {}),
+      ...(evaluates.length > 0 ? { evaluates } : {}),
+      ...(result.policy.warnings.length > 0 ? { warnings: result.policy.warnings } : {}),
     }
   } else {
     summary.access_policy = {
