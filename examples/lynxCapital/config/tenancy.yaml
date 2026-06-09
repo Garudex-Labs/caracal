@@ -1,0 +1,57 @@
+# Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+# Caracal, a product of Garudex Labs
+#
+# Multi-tenant identity model for the Lynx Capital platform: the managed platform
+# application, the per-tenant DCR applications, the domain resources, and the agent
+# roles each tenant runs. The capability-to-scope mapping lives in policies/manifest.json.
+
+# The durable managed application that backs the Lynx Capital platform runtime. One
+# managed application serves every tenant; per-tenant attribution comes from agent
+# sessions, labels, and the per-tenant DCR applications below.
+platform:
+  applicationName: "lynx-platform"
+  controlKeyName: "lynx-platform-control"
+
+# Domain services the platform protects. Each becomes a Caracal resource with
+# action-oriented scopes. Upstream URLs are read from the named environment variable so
+# the same identifiers point at the right service per deployment environment.
+resources:
+  - identifier: "resource://portfolio"
+    resourceId: "portfolio"
+    name: "Portfolio Service"
+    scopes: ["portfolio:read", "portfolio:write", "portfolio:admin"]
+    upstreamEnv: "LYNX_RESOURCE_PORTFOLIO_URL"
+  - identifier: "resource://research"
+    resourceId: "research"
+    name: "Research Service"
+    scopes: ["research:read", "research:write"]
+    upstreamEnv: "LYNX_RESOURCE_RESEARCH_URL"
+  - identifier: "resource://compliance"
+    resourceId: "compliance"
+    name: "Compliance Service"
+    scopes: ["compliance:review", "compliance:admin"]
+    upstreamEnv: "LYNX_RESOURCE_COMPLIANCE_URL"
+
+# The policy set authored from the policies/ library and activated for the zone.
+policySet:
+  name: "lynx-multitenant"
+  description: "Lynx Capital multi-tenant authorization (per-tenant isolation, role capabilities, delegation, and step-up)."
+  schemaVersion: "2026-05-20"
+
+# Customer tenants. Each tenant gets its own DCR application (an isolated,
+# auto-expiring, independently revocable credential boundary) and runs Portfolio,
+# Research, and Compliance agents. Agents are spawned under the managed platform
+# application, labelled with `tenant:<id>` and their role capabilities.
+tenants:
+  - id: "aurora"
+    name: "Aurora Wealth"
+    dcrApplicationName: "tenant-aurora"
+    dcrExpiresIn: 3600
+    subject: "customer:aurora"
+    agents: ["portfolio", "research", "compliance"]
+  - id: "borealis"
+    name: "Borealis Advisors"
+    dcrApplicationName: "tenant-borealis"
+    dcrExpiresIn: 3600
+    subject: "customer:borealis"
+    agents: ["portfolio", "research", "compliance"]

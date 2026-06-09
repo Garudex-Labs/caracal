@@ -1,0 +1,32 @@
+{
+  "schema_version": "2026-05-20",
+  "package": "caracal.authz",
+  "resources": {
+    "resource://portfolio": ["portfolio:read", "portfolio:write", "portfolio:admin"],
+    "resource://research": ["research:read", "research:write"],
+    "resource://compliance": ["compliance:review", "compliance:admin"]
+  },
+  "policies": [
+    {"name": "00-base", "file": "00-base.rego", "role": null, "description": "Default-deny aggregation and per-tenant isolation. Always include this policy."},
+    {"name": "portfolio-read", "file": "portfolio-read.rego", "capability": "portfolio-read", "resource": "resource://portfolio", "grants": ["portfolio:read"]},
+    {"name": "portfolio-write", "file": "portfolio-write.rego", "capability": "portfolio-write", "resource": "resource://portfolio", "grants": ["portfolio:write"]},
+    {"name": "portfolio-admin", "file": "portfolio-admin.rego", "capability": "portfolio-admin", "resource": "resource://portfolio", "grants": ["portfolio:admin"]},
+    {"name": "research-read", "file": "research-read.rego", "capability": "research-read", "resource": "resource://research", "grants": ["research:read"]},
+    {"name": "research-write", "file": "research-write.rego", "capability": "research-write", "resource": "resource://research", "grants": ["research:write"]},
+    {"name": "compliance-review", "file": "compliance-review.rego", "capability": "compliance-review", "resource": "resource://compliance", "grants": ["compliance:review"]},
+    {"name": "compliance-admin", "file": "compliance-admin.rego", "capability": "compliance-admin", "resource": "resource://compliance", "grants": ["compliance:admin"]},
+    {"name": "customer-admin", "file": "customer-admin.rego", "capability": "customer-admin", "resource": "*", "grants": ["portfolio:read", "portfolio:write", "portfolio:admin", "research:read", "research:write", "compliance:review", "compliance:admin"]},
+    {"name": "auditor", "file": "auditor.rego", "capability": "auditor", "resource": "*", "grants": ["portfolio:read", "research:read", "compliance:review"]},
+    {"name": "delegated-advisor", "file": "delegated-advisor.rego", "capability": "delegated-advisor", "resource": "*", "grants": ["portfolio:read", "research:read"], "requires": "delegation_edge"},
+    {"name": "emergency-access", "file": "emergency-access.rego", "capability": "emergency-access", "resource": "*", "grants": ["portfolio:admin", "research:write", "compliance:admin"], "requires": "step_up"}
+  ],
+  "roles": {
+    "portfolio": ["portfolio-read", "portfolio-write", "research-read"],
+    "research": ["research-read", "research-write", "portfolio-read"],
+    "compliance": ["compliance-review", "portfolio-read", "research-read"],
+    "customer-admin": ["customer-admin"],
+    "auditor": ["auditor"],
+    "advisor": ["delegated-advisor"],
+    "emergency": ["emergency-access"]
+  }
+}
