@@ -36,14 +36,25 @@ def test_policy_decision_suite_passes():
     assert "PASS" in result.stdout
 
 
+@pytest.mark.skipif(_opa() is None, reason="opa binary not available")
+def test_policy_library_is_fmt_canonical():
+    result = subprocess.run(
+        [_opa(), "fmt", "--list", str(POLICIES_DIR)],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.strip() == "", f"files need `opa fmt`:\n{result.stdout}"
+
+
 def test_policy_library_matches_the_manifest_base_first():
     manifest = json.loads((POLICIES_DIR / "manifest.json").read_text(encoding="utf-8"))
     files = sorted(p.stem for p in POLICIES_DIR.glob("*.rego"))
     assert files == sorted(manifest["policies"])
     assert manifest["policies"][0] == "00-base"
     assert manifest["policySet"] == "lynx-finance-ops"
-    assert {"10-operations", "11-intake", "12-ledger", "13-compliance",
-            "14-treasury", "15-payments", "16-audit"} <= set(manifest["policies"])
+    assert {"00-base", "01-bindings", "02-grants", "10-decisions"} == set(manifest["policies"])
 
 
 def test_every_policy_satisfies_the_authoring_contract():

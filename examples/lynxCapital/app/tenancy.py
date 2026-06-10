@@ -331,6 +331,32 @@ def resource_commands(
     return commands
 
 
+def _rego_strings(values: list[str]) -> str:
+    return "[" + ", ".join(f'"{v}"' for v in values) + "]"
+
+
+def _rego_grants(grants: dict[str, dict]) -> str:
+    """Render the grants map as canonical opa-fmt Rego: tab indentation, trailing
+    commas in multiline composites, single-entry composites inline."""
+    lines = ["grants := {"]
+    for identifier in sorted(grants):
+        entry = grants[identifier]
+        lines.append(f'\t"{identifier}": {{')
+        lines.append(f'\t\t"application": "{entry["application"]}",')
+        roles = entry["roles"]
+        if len(roles) == 1:
+            ((role, scopes),) = roles.items()
+            lines.append(f'\t\t"roles": {{"{role}": {_rego_strings(scopes)}}},')
+        else:
+            lines.append('\t\t"roles": {')
+            for role in sorted(roles):
+                lines.append(f'\t\t\t"{role}": {_rego_strings(roles[role])},')
+            lines.append("\t\t},")
+        lines.append("\t},")
+    lines.append("}")
+    return "\n".join(lines)
+
+
 def render_grants_rego(model: TenancyModel | None = None) -> str:
     """The generated grants data document: every resource view, its owning application,
     and the scope set each role may hold on it. Single source for policy decisions."""
@@ -348,7 +374,6 @@ def render_grants_rego(model: TenancyModel | None = None) -> str:
         if integration.id == resource.id:
             roles["partner-integration"] = sorted(resource.scopes)
         grants[resource.identifier] = {"application": resource.application, "roles": roles}
-    body = json.dumps(grants, indent=2, sort_keys=True)
     return (
         '# Copyright (C) 2026 Garudex Labs.  All Rights Reserved.\n'
         '# Caracal, a product of Garudex Labs\n'
@@ -357,7 +382,7 @@ def render_grants_rego(model: TenancyModel | None = None) -> str:
         '# Rendered by app.tenancy.render_grants_rego from config/tenancy.yaml; do not edit.\n'
         'package caracal.authz\n\n'
         'import rego.v1\n\n'
-        f'grants := {body}\n\n'
+        f'{_rego_grants(grants)}\n\n'
         '# Grants are data for the shared rules in 00-base; this document never decides on\n'
         '# its own. The inert rule below satisfies the platform\'s policy authoring contract,\n'
         '# which requires every authored policy to define a result rule.\n'
@@ -370,7 +395,10 @@ def render_grants_rego(model: TenancyModel | None = None) -> str:
 def render_bindings_rego(application_ids: dict[str, str]) -> str:
     """The bindings data document mapping application keys to the control-plane UUIDs
     OPA sees as input.principal.id. Rendered with real ids at provision time."""
-    body = json.dumps(application_ids, indent=2, sort_keys=True)
+    rows = "\n".join(
+        f'\t"{key}": "{application_ids[key]}",' for key in sorted(application_ids)
+    )
+    body = "{\n" + rows + "\n}"
     return (
         '# Copyright (C) 2026 Garudex Labs.  All Rights Reserved.\n'
         '# Caracal, a product of Garudex Labs\n'
