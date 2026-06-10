@@ -169,12 +169,12 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(calls, [1])
 
 
-class ConnectTests(unittest.TestCase):
+class AutoDetectTests(unittest.TestCase):
     def test_missing_explicit_env_config_path_raises(self) -> None:
         with tempfile.TemporaryDirectory() as root:
             missing = Path(root) / "missing.toml"
             with self.assertRaisesRegex(RuntimeError, "not found"):
-                Caracal.connect(env={"CARACAL_CONFIG": str(missing)})
+                Caracal(env={"CARACAL_CONFIG": str(missing)})
 
     def test_config_path_takes_precedence_over_env_credentials(self) -> None:
         with tempfile.NamedTemporaryFile("w", suffix=".toml", delete=False) as fh:
@@ -190,7 +190,7 @@ class ConnectTests(unittest.TestCase):
             )
             cfg_path = fh.name
 
-        c = Caracal.connect(config_path=cfg_path, env={
+        c = Caracal(config_path=cfg_path, env={
             "CARACAL_ZONE_ID": "other",
             "CARACAL_APPLICATION_ID": "other",
             "CARACAL_SUBJECT_TOKEN": "tok",
