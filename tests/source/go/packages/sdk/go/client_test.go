@@ -222,14 +222,14 @@ upstream_prefix = "https://billing.example.com"
 	}
 }
 
-func TestConnectUsesExplicitOptionsConfigProfileAndEnv(t *testing.T) {
+func TestNewUsesExplicitOptionsConfigProfileAndEnv(t *testing.T) {
 	sts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"access_token":"fresh-root","token_type":"Bearer","expires_in":3600}`))
 	}))
 	defer sts.Close()
 
-	explicit, err := sdk.Connect(sdk.ClientSecretOptions{
+	explicit, err := sdk.New(sdk.ClientSecretOptions{
 		CoordinatorURL: "http://coord",
 		STSURL:         sts.URL,
 		ZoneID:         "z",
@@ -262,7 +262,7 @@ resource = "resource://pipernet"
 		t.Fatal(err)
 	}
 	t.Setenv("CARACAL_CONFIG", configPath)
-	fromConfig, err := sdk.Connect()
+	fromConfig, err := sdk.New()
 	if err != nil {
 		t.Fatalf("config connect: %v", err)
 	}
@@ -287,7 +287,7 @@ resource = "resource://pipernet"
 `, sts.URL, secretPath)), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	fromProfile, err := sdk.Connect()
+	fromProfile, err := sdk.New()
 	if err != nil {
 		t.Fatalf("profile connect: %v", err)
 	}
@@ -299,7 +299,7 @@ resource = "resource://pipernet"
 	t.Setenv("CARACAL_ZONE_ID", "z-env")
 	t.Setenv("CARACAL_APPLICATION_ID", "app-env")
 	t.Setenv("CARACAL_SUBJECT_TOKEN", "tok-env")
-	fromEnv, err := sdk.Connect()
+	fromEnv, err := sdk.New()
 	if err != nil {
 		t.Fatalf("env connect: %v", err)
 	}
