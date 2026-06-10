@@ -516,7 +516,7 @@ def _gateway_call(s: PartnerSpec, operation: str, payload: dict, authority) -> d
     return _result(s.id, operation, resp)
 
 
-def _simulation_enabled() -> bool:
+def simulation_enabled() -> bool:
     """The bundled offline demo and the provider test harness exercise the simulated provider
     surface directly. That direct path is never the silent default: it must be opted into with
     LYNX_SIMULATION so a real deployment that simply forgot to configure Caracal fails closed
@@ -543,7 +543,7 @@ def call(provider_id: str, operation: str, payload: dict, authority=None) -> dic
             raise PartnerError(provider_id, "no agent authority resolved for governed call")
         return _gateway_call(s, operation, payload or {}, authority)
 
-    if not _simulation_enabled():
+    if not simulation_enabled():
         raise PartnerError(provider_id, "Caracal is not configured and simulation mode is off")
     return _DISPATCH[s.auth](s, operation, payload or {})
 
