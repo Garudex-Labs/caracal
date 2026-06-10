@@ -27,7 +27,10 @@ function sealedSecretConfig(config: Record<string, string>): { ciphertext: Buffe
   return seal(loadZoneKek(), Buffer.from(JSON.stringify(config), 'utf8'))
 }
 
-function mockProviderTokenResponse(body: Record<string, unknown>, statusCode = 200): { bodies: string[]; options: Record<string, unknown>[] } {
+function mockProviderTokenResponse(
+  body: Record<string, unknown>,
+  statusCode = 200,
+): { bodies: string[]; options: Record<string, unknown>[] } {
   const bodies: string[] = []
   const options: Record<string, unknown>[] = []
   vi.mocked(httpsRequest).mockImplementation((_url, opts, callback) => {
@@ -172,9 +175,9 @@ describe('POST /v1/zones/:zoneId/provider-grants', () => {
     expect(JSON.parse(unsupportedRes.body)).toMatchObject({ error: 'provider_grant_unsupported' })
 
     const mismatch = buildRouteApp(grantsRoutes)
-    mismatch.db.query
-      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
-      .mockResolvedValueOnce({ rows: [{ provider_kind: 'oauth2_authorization_code', resource_scopes: ['read'], resource_provider_id: 'other-provider' }] })
+    mismatch.db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] }).mockResolvedValueOnce({
+      rows: [{ provider_kind: 'oauth2_authorization_code', resource_scopes: ['read'], resource_provider_id: 'other-provider' }],
+    })
     await mismatch.app.ready()
     const mismatchRes = await mismatch.app.inject({
       method: 'POST',
@@ -191,9 +194,9 @@ describe('POST /v1/zones/:zoneId/provider-grants', () => {
     expect(JSON.parse(mismatchRes.body)).toMatchObject({ error: 'provider_resource_mismatch' })
 
     const forbidden = buildRouteApp(grantsRoutes)
-    forbidden.db.query
-      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
-      .mockResolvedValueOnce({ rows: [{ provider_kind: 'oauth2_authorization_code', resource_scopes: ['read'], resource_provider_id: 'provider-1' }] })
+    forbidden.db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] }).mockResolvedValueOnce({
+      rows: [{ provider_kind: 'oauth2_authorization_code', resource_scopes: ['read'], resource_provider_id: 'provider-1' }],
+    })
     await forbidden.app.ready()
     const forbiddenRes = await forbidden.app.inject({
       method: 'POST',
@@ -215,11 +218,13 @@ describe('POST /v1/zones/:zoneId/provider-grants', () => {
     db.query
       .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
       .mockResolvedValueOnce({
-        rows: [{
-          provider_kind: 'oauth2_authorization_code',
-          resource_scopes: ['read', 'write'],
-          resource_provider_id: 'provider-1',
-        }],
+        rows: [
+          {
+            provider_kind: 'oauth2_authorization_code',
+            resource_scopes: ['read', 'write'],
+            resource_provider_id: 'provider-1',
+          },
+        ],
       })
       .mockResolvedValueOnce({
         rows: [{ id: 'provider-grant-1', zone_id: 'z1', provider_id: 'provider-1', scopes: ['read'] }],
@@ -252,10 +257,9 @@ describe('OAuth provider grant browser flow', () => {
   it('creates a provider authorization URL with state and PKCE', async () => {
     const { app, db, redis } = buildRouteApp(grantsRoutes)
     redis.set.mockResolvedValue('OK')
-    db.query
-      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
-      .mockResolvedValueOnce({
-        rows: [{
+    db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] }).mockResolvedValueOnce({
+      rows: [
+        {
           id: 'provider-1',
           provider_kind: 'oauth2_authorization_code',
           config_json: {
@@ -272,8 +276,9 @@ describe('OAuth provider grant browser flow', () => {
           secret_config_nonce: null,
           resource_scopes: ['read', 'write'],
           resource_provider_id: 'provider-1',
-        }],
-      })
+        },
+      ],
+    })
 
     await app.ready()
     const res = await app.inject({
@@ -303,19 +308,23 @@ describe('OAuth provider grant browser flow', () => {
 
   it('rejects authorization setup with invalid provider configuration', async () => {
     const { app, db } = buildRouteApp(grantsRoutes)
-    db.query
-      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
-      .mockResolvedValueOnce({
-        rows: [{
+    db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] }).mockResolvedValueOnce({
+      rows: [
+        {
           id: 'provider-1',
           provider_kind: 'oauth2_authorization_code',
-          config_json: { authorization_endpoint: 'http://accounts.example.com/auth', redirect_uri: 'http://localhost/cb', client_id: 'client' },
+          config_json: {
+            authorization_endpoint: 'http://accounts.example.com/auth',
+            redirect_uri: 'http://localhost/cb',
+            client_id: 'client',
+          },
           secret_config_ct: null,
           secret_config_nonce: null,
           resource_scopes: ['read'],
           resource_provider_id: 'provider-1',
-        }],
-      })
+        },
+      ],
+    })
 
     await app.ready()
     const res = await app.inject({
@@ -337,32 +346,36 @@ describe('OAuth provider grant browser flow', () => {
     const { app, db, redis } = buildRouteApp(grantsRoutes)
     const state = 'abcdefghijklmnopqrstuvwxyz1234567890'
     const sealed = sealedSecretConfig({ client_secret: 'google-secret' })
-    redis.call.mockResolvedValue(JSON.stringify({
-      zone_id: 'z1',
-      user_id: 'user-1',
-      resource_id: 'res-1',
-      provider_id: 'provider-1',
-      scopes: ['read'],
-      code_verifier: 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890-._~',
-    }))
+    redis.call.mockResolvedValue(
+      JSON.stringify({
+        zone_id: 'z1',
+        user_id: 'user-1',
+        resource_id: 'res-1',
+        provider_id: 'provider-1',
+        scopes: ['read'],
+        code_verifier: 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890-._~',
+      }),
+    )
     db.query
       .mockResolvedValueOnce({
-        rows: [{
-          id: 'provider-1',
-          provider_kind: 'oauth2_authorization_code',
-          config_json: {
-            token_endpoint: 'https://oauth2.googleapis.com/token',
-            redirect_uri: 'http://localhost:3000/v1/zones/z1/provider-grants/oauth/callback',
-            client_id: 'google-client',
-            client_auth_method: 'client_secret_basic',
-            allowed_token_hosts: ['oauth2.googleapis.com'],
-            token_params: { tenant: 'hooli' },
+        rows: [
+          {
+            id: 'provider-1',
+            provider_kind: 'oauth2_authorization_code',
+            config_json: {
+              token_endpoint: 'https://oauth2.googleapis.com/token',
+              redirect_uri: 'http://localhost:3000/v1/zones/z1/provider-grants/oauth/callback',
+              client_id: 'google-client',
+              client_auth_method: 'client_secret_basic',
+              allowed_token_hosts: ['oauth2.googleapis.com'],
+              token_params: { tenant: 'hooli' },
+            },
+            secret_config_ct: sealed.ciphertext,
+            secret_config_nonce: sealed.nonce,
+            resource_scopes: ['read', 'write'],
+            resource_provider_id: 'provider-1',
           },
-          secret_config_ct: sealed.ciphertext,
-          secret_config_nonce: sealed.nonce,
-          resource_scopes: ['read', 'write'],
-          resource_provider_id: 'provider-1',
-        }],
+        ],
       })
       .mockResolvedValueOnce({
         rows: [{ id: 'provider-grant-1', zone_id: 'z1', provider_id: 'provider-1', scopes: ['read'] }],
@@ -385,7 +398,9 @@ describe('OAuth provider grant browser flow', () => {
     expect(values[7]).toBeInstanceOf(Buffer)
     expect(httpsRequest).toHaveBeenCalledOnce()
     expect(exchange.options[0].method).toBe('POST')
-    expect((exchange.options[0].headers as Record<string, string>).Authorization).toBe(`Basic ${Buffer.from('google-client:google-secret').toString('base64')}`)
+    expect((exchange.options[0].headers as Record<string, string>).Authorization).toBe(
+      `Basic ${Buffer.from('google-client:google-secret').toString('base64')}`,
+    )
     const body = new URLSearchParams(exchange.bodies[0])
     expect(body.get('grant_type')).toBe('authorization_code')
     expect(body.get('code')).toBe('provider-code')
@@ -396,30 +411,34 @@ describe('OAuth provider grant browser flow', () => {
   it('rejects callback token exchanges outside the provider host allow-list', async () => {
     const { app, db, redis } = buildRouteApp(grantsRoutes)
     const state = 'abcdefghijklmnopqrstuvwxyz1234567890'
-    redis.call.mockResolvedValue(JSON.stringify({
-      zone_id: 'z1',
-      user_id: 'user-1',
-      resource_id: 'res-1',
-      provider_id: 'provider-1',
-      scopes: ['read'],
-      code_verifier: 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890-._~',
-    }))
+    redis.call.mockResolvedValue(
+      JSON.stringify({
+        zone_id: 'z1',
+        user_id: 'user-1',
+        resource_id: 'res-1',
+        provider_id: 'provider-1',
+        scopes: ['read'],
+        code_verifier: 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890-._~',
+      }),
+    )
     db.query.mockResolvedValueOnce({
-      rows: [{
-        id: 'provider-1',
-        provider_kind: 'oauth2_authorization_code',
-        config_json: {
-          token_endpoint: 'https://oauth2.googleapis.com/token',
-          redirect_uri: 'http://localhost:3000/v1/zones/z1/provider-grants/oauth/callback',
-          client_id: 'google-client',
-          client_auth_method: 'none',
-          allowed_token_hosts: ['login.example.com'],
+      rows: [
+        {
+          id: 'provider-1',
+          provider_kind: 'oauth2_authorization_code',
+          config_json: {
+            token_endpoint: 'https://oauth2.googleapis.com/token',
+            redirect_uri: 'http://localhost:3000/v1/zones/z1/provider-grants/oauth/callback',
+            client_id: 'google-client',
+            client_auth_method: 'none',
+            allowed_token_hosts: ['login.example.com'],
+          },
+          secret_config_ct: null,
+          secret_config_nonce: null,
+          resource_scopes: ['read'],
+          resource_provider_id: 'provider-1',
         },
-        secret_config_ct: null,
-        secret_config_nonce: null,
-        resource_scopes: ['read'],
-        resource_provider_id: 'provider-1',
-      }],
+      ],
     })
     await app.ready()
     const res = await app.inject({
@@ -436,32 +455,82 @@ describe('OAuth provider grant browser flow', () => {
     const { app, db, redis } = buildRouteApp(grantsRoutes)
     const state = 'abcdefghijklmnopqrstuvwxyz1234567890'
     const sealed = sealedSecretConfig({ client_secret: 'google-secret' })
-    redis.call.mockResolvedValue(JSON.stringify({
-      zone_id: 'z1',
-      user_id: 'user-1',
-      resource_id: 'res-1',
-      provider_id: 'provider-1',
-      scopes: ['read'],
-      code_verifier: 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890-._~',
-    }))
+    redis.call.mockResolvedValue(
+      JSON.stringify({
+        zone_id: 'z1',
+        user_id: 'user-1',
+        resource_id: 'res-1',
+        provider_id: 'provider-1',
+        scopes: ['read'],
+        code_verifier: 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890-._~',
+      }),
+    )
     db.query.mockResolvedValueOnce({
-      rows: [{
-        id: 'provider-1',
-        provider_kind: 'oauth2_authorization_code',
-        config_json: {
-          token_endpoint: 'https://oauth2.googleapis.com/token',
-          redirect_uri: 'http://localhost:3000/v1/zones/z1/provider-grants/oauth/callback',
-          client_id: 'google-client',
-          client_auth_method: 'client_secret_basic',
-          allowed_token_hosts: ['oauth2.googleapis.com'],
+      rows: [
+        {
+          id: 'provider-1',
+          provider_kind: 'oauth2_authorization_code',
+          config_json: {
+            token_endpoint: 'https://oauth2.googleapis.com/token',
+            redirect_uri: 'http://localhost:3000/v1/zones/z1/provider-grants/oauth/callback',
+            client_id: 'google-client',
+            client_auth_method: 'client_secret_basic',
+            allowed_token_hosts: ['oauth2.googleapis.com'],
+          },
+          secret_config_ct: sealed.ciphertext,
+          secret_config_nonce: sealed.nonce,
+          resource_scopes: ['read'],
+          resource_provider_id: 'provider-1',
         },
-        secret_config_ct: sealed.ciphertext,
-        secret_config_nonce: sealed.nonce,
-        resource_scopes: ['read'],
-        resource_provider_id: 'provider-1',
-      }],
+      ],
     })
     vi.mocked(lookup).mockResolvedValue([{ address: '127.0.0.1', family: 4 }])
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'GET',
+      url: `/v1/zones/z1/provider-grants/oauth/callback?state=${state}&code=provider-code`,
+    })
+
+    expect(res.statusCode).toBe(502)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'provider_token_exchange_failed' })
+    expect(httpsRequest).not.toHaveBeenCalled()
+  })
+
+  it('rejects callback token endpoints that resolve to NAT64-embedded metadata addresses', async () => {
+    const { app, db, redis } = buildRouteApp(grantsRoutes)
+    const state = 'abcdefghijklmnopqrstuvwxyz1234567890'
+    const sealed = sealedSecretConfig({ client_secret: 'google-secret' })
+    redis.call.mockResolvedValue(
+      JSON.stringify({
+        zone_id: 'z1',
+        user_id: 'user-1',
+        resource_id: 'res-1',
+        provider_id: 'provider-1',
+        scopes: ['read'],
+        code_verifier: 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890-._~',
+      }),
+    )
+    db.query.mockResolvedValueOnce({
+      rows: [
+        {
+          id: 'provider-1',
+          provider_kind: 'oauth2_authorization_code',
+          config_json: {
+            token_endpoint: 'https://oauth2.googleapis.com/token',
+            redirect_uri: 'http://localhost:3000/v1/zones/z1/provider-grants/oauth/callback',
+            client_id: 'google-client',
+            client_auth_method: 'client_secret_basic',
+            allowed_token_hosts: ['oauth2.googleapis.com'],
+          },
+          secret_config_ct: sealed.ciphertext,
+          secret_config_nonce: sealed.nonce,
+          resource_scopes: ['read'],
+          resource_provider_id: 'provider-1',
+        },
+      ],
+    })
+    vi.mocked(lookup).mockResolvedValue([{ address: '64:ff9b::a9fe:a9fe', family: 6 }])
 
     await app.ready()
     const res = await app.inject({
@@ -478,31 +547,35 @@ describe('OAuth provider grant browser flow', () => {
     const { app, db, redis } = buildRouteApp(grantsRoutes)
     const state = 'abcdefghijklmnopqrstuvwxyz1234567890'
     const sealed = sealedSecretConfig({ client_secret: 'google-secret' })
-    redis.call.mockResolvedValue(JSON.stringify({
-      zone_id: 'z1',
-      user_id: 'user-1',
-      resource_id: 'res-1',
-      provider_id: 'provider-1',
-      scopes: ['read'],
-      code_verifier: 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890-._~',
-    }))
+    redis.call.mockResolvedValue(
+      JSON.stringify({
+        zone_id: 'z1',
+        user_id: 'user-1',
+        resource_id: 'res-1',
+        provider_id: 'provider-1',
+        scopes: ['read'],
+        code_verifier: 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890-._~',
+      }),
+    )
     db.query
       .mockResolvedValueOnce({
-        rows: [{
-          id: 'provider-1',
-          provider_kind: 'oauth2_authorization_code',
-          config_json: {
-            token_endpoint: 'https://oauth2.googleapis.com/token',
-            redirect_uri: 'http://localhost:3000/v1/zones/z1/provider-grants/oauth/callback',
-            client_id: 'google-client',
-            client_auth_method: 'client_secret_basic',
-            allowed_token_hosts: ['oauth2.googleapis.com'],
+        rows: [
+          {
+            id: 'provider-1',
+            provider_kind: 'oauth2_authorization_code',
+            config_json: {
+              token_endpoint: 'https://oauth2.googleapis.com/token',
+              redirect_uri: 'http://localhost:3000/v1/zones/z1/provider-grants/oauth/callback',
+              client_id: 'google-client',
+              client_auth_method: 'client_secret_basic',
+              allowed_token_hosts: ['oauth2.googleapis.com'],
+            },
+            secret_config_ct: sealed.ciphertext,
+            secret_config_nonce: sealed.nonce,
+            resource_scopes: ['read'],
+            resource_provider_id: 'provider-1',
           },
-          secret_config_ct: sealed.ciphertext,
-          secret_config_nonce: sealed.nonce,
-          resource_scopes: ['read'],
-          resource_provider_id: 'provider-1',
-        }],
+        ],
       })
       .mockResolvedValueOnce({
         rows: [{ id: 'provider-grant-1', zone_id: 'z1', provider_id: 'provider-1', scopes: ['read'] }],
@@ -544,14 +617,16 @@ describe('OAuth provider grant browser flow', () => {
     expect(JSON.parse(invalidRes.body)).toMatchObject({ error: 'oauth_state_invalid' })
 
     const denied = buildRouteApp(grantsRoutes)
-    denied.redis.call.mockResolvedValue(JSON.stringify({
-      zone_id: 'z1',
-      user_id: 'user-1',
-      resource_id: 'res-1',
-      provider_id: 'provider-1',
-      scopes: ['read'],
-      code_verifier: 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890-._~',
-    }))
+    denied.redis.call.mockResolvedValue(
+      JSON.stringify({
+        zone_id: 'z1',
+        user_id: 'user-1',
+        resource_id: 'res-1',
+        provider_id: 'provider-1',
+        scopes: ['read'],
+        code_verifier: 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890-._~',
+      }),
+    )
     await denied.app.ready()
     const deniedRes = await denied.app.inject({
       method: 'GET',
@@ -612,10 +687,7 @@ describe('DELETE /v1/zones/:zoneId/grants/:id bounded session revocation', () =>
   it('returns 404 when the delegated grant is missing', async () => {
     const { app, db } = buildRouteApp(grantsRoutes)
     const client = { query: vi.fn(), release: vi.fn() }
-    client.query
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [] })
+    client.query.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [] })
     db.connect.mockResolvedValue(client)
 
     await app.ready()
