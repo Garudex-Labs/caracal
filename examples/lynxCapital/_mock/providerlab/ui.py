@@ -7,6 +7,7 @@ Server-rendered control panel for each lab provider with credentials, clients, a
 from __future__ import annotations
 
 import html
+import json
 import time
 
 from _mock.providerlab import catalog, credentials
@@ -38,14 +39,19 @@ def _ts(value) -> str:
 
 
 def _secret(value) -> str:
-    """Render a secret masked by default, revealed on click, so shared demos
-    never expose live credential material at a glance."""
+    """Render a secret masked by default with reveal and copy controls, so shared
+    demos never expose live credential material at a glance."""
     raw = str(value)
     if not raw:
         return '<code class="muted">—</code>'
     mask = raw[:4] + "…" + "•" * 6 if len(raw) > 4 else "•" * 8
-    return (f'<code class="secret" data-value="{_esc(raw)}" data-mask="{_esc(mask)}" '
-            f'data-shown="0" onclick="toggleSecret(this)"><span>{_esc(mask)}</span></code>')
+    return (
+        '<span class="secret-wrap">'
+        f'<code class="secret" data-value="{_esc(raw)}" data-mask="{_esc(mask)}" '
+        f'data-shown="0" onclick="toggleSecret(this)" title="Click to reveal"><span>{_esc(mask)}</span></code>'
+        f'<button type="button" class="icon-btn" onclick="copySecret(this)" data-value="{_esc(raw)}" '
+        'title="Copy to clipboard">copy</button></span>'
+    )
 
 
 _SECRET_FIELDS = {"apiKey", "bearerToken", "clientSecret", "accessToken", "mandate",
@@ -103,6 +109,135 @@ def _config_rows(provider: catalog.Provider) -> list[tuple[str, str]]:
     return rows
 
 
+_STYLE = """
+  * { box-sizing: border-box; }
+  body { font-family: ui-sans-serif, system-ui, sans-serif; margin: 0;
+         background: #0d1117; color: #e6edf3; font-size: 13px; }
+  header { display: flex; align-items: center; gap: 10px; padding: 0 24px; height: 52px;
+           border-bottom: 1px solid #21262d; background: #010409; }
+  header h1 { font-size: 14px; font-weight: 600; margin: 0; white-space: nowrap; }
+  header .tag { color: #7d8590; font-size: 12px; overflow: hidden;
+                text-overflow: ellipsis; white-space: nowrap; }
+  header .host { margin-left: auto; font-family: ui-monospace, monospace; font-size: 11px;
+                 color: #7d8590; white-space: nowrap; }
+  .badge { display: inline-flex; font-size: 11px; font-weight: 500; padding: 1px 7px;
+           border-radius: 3px; background: #21262d; color: #9fb4d0;
+           border: 1px solid #30363d; white-space: nowrap; }
+  nav { display: flex; gap: 2px; padding: 0 16px; background: #010409;
+        border-bottom: 1px solid #21262d; }
+  nav a { padding: 8px 12px; color: #7d8590; text-decoration: none; font-size: 13px;
+          border-bottom: 2px solid transparent; margin-bottom: -1px; }
+  nav a:hover { color: #e6edf3; }
+  nav a.active { color: #e6edf3; border-bottom-color: #f78166; font-weight: 500; }
+  main { padding: 20px 24px 40px; max-width: 980px; margin: 0 auto; }
+  h2 { font-size: 13px; font-weight: 600; margin: 0 0 8px; color: #e6edf3; }
+  .statbar { display: flex; gap: 0; border: 1px solid #21262d; border-radius: 6px;
+             background: #161b22; margin-bottom: 16px; overflow-x: auto; }
+  .stat { display: flex; flex-direction: column; gap: 1px; padding: 10px 16px;
+          border-right: 1px solid #21262d; min-width: 96px; flex-shrink: 0; }
+  .stat:last-child { border-right: none; }
+  .stat .k { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em;
+             color: #7d8590; white-space: nowrap; }
+  .stat .v { font-size: 13px; font-weight: 600; font-family: ui-monospace, monospace;
+             white-space: nowrap; }
+  .statusdot { display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+               background: #3fb950; margin-right: 6px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid #21262d;
+           vertical-align: top; }
+  th { color: #7d8590; font-weight: 600; font-size: 11px; text-transform: uppercase;
+       letter-spacing: 0.04em; background: #161b22; }
+  tr:last-child td { border-bottom: none; }
+  code { font-family: ui-monospace, monospace; font-size: 11px; background: #161b22;
+         border: 1px solid #21262d; padding: 1px 5px; border-radius: 3px;
+         color: #c9d1d9; word-break: break-all; }
+  th code, td code { background: #0d1117; }
+  .panel { background: #0d1117; border: 1px solid #21262d; border-radius: 6px;
+           margin-bottom: 16px; overflow: hidden; }
+  .panel > h2 { padding: 9px 12px; margin: 0; border-bottom: 1px solid #21262d;
+                background: #161b22; display: flex; align-items: center; gap: 8px; }
+  .panel > .panel-body { padding: 12px; }
+  .panel > table { border: none; }
+  .panel-foot { padding: 8px 12px; border-top: 1px solid #21262d; color: #7d8590;
+                font-size: 11px; background: #0d1117; }
+  .panel-foot a { color: #58a6ff; }
+  form.inline { display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+                padding: 10px 12px; border-top: 1px solid #21262d; }
+  input, select { background: #0d1117; border: 1px solid #30363d; color: #e6edf3;
+                  padding: 5px 8px; border-radius: 4px; font-size: 12px; }
+  input:focus { outline: none; border-color: #58a6ff; }
+  button { background: #21262d; color: #e6edf3; border: 1px solid #30363d;
+           padding: 5px 12px; border-radius: 4px; font-size: 12px; font-weight: 500;
+           cursor: pointer; white-space: nowrap; }
+  button:hover { background: #30363d; }
+  button.primary { background: #238636; border-color: #2ea043; }
+  button.primary:hover { background: #2ea043; }
+  button.danger { background: transparent; color: #f85149; border-color: #30363d; }
+  button.danger:hover { background: #f8514922; border-color: #f85149; }
+  .icon-btn { padding: 1px 6px; font-size: 10px; color: #7d8590; background: transparent;
+              border: 1px solid #30363d; }
+  .icon-btn:hover { color: #e6edf3; }
+  .muted { color: #7d8590; font-size: 12px; }
+  .pill { display: inline-flex; font-size: 11px; font-weight: 500; padding: 1px 7px;
+          border-radius: 10px; white-space: nowrap; }
+  .ok { background: #12261e; color: #3fb950; border: 1px solid #1f4430; }
+  .gone { background: #2d1418; color: #f85149; border: 1px solid #58262b; }
+  .neutral { background: #21262d; color: #7d8590; border: 1px solid #30363d; }
+  .secret-wrap { display: inline-flex; align-items: center; gap: 5px; }
+  .secret { cursor: pointer; user-select: none; }
+  .chips { display: flex; flex-wrap: wrap; gap: 5px; padding: 12px; }
+  .chips code { padding: 2px 7px; }
+  .row-actions { display: flex; gap: 6px; }
+  .row-actions form { margin: 0; }
+  .empty { padding: 16px 12px; color: #7d8590; font-size: 12px; }
+  .kv-grid { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px;
+             padding: 12px; font-size: 12px; }
+  .kv-grid .k { color: #7d8590; white-space: nowrap; }
+  pre.sample { margin: 0; padding: 10px 12px; font-family: ui-monospace, monospace;
+               font-size: 11px; line-height: 1.5; color: #c9d1d9; background: #161b22;
+               overflow-x: auto; white-space: pre-wrap; word-break: break-word;
+               max-height: 220px; overflow-y: auto; }
+  a { color: #58a6ff; }
+  @media (max-width: 760px) {
+    main { padding: 16px 12px; }
+    header { padding: 0 12px; }
+    header .tag { display: none; }
+    .kv-grid { grid-template-columns: 1fr; gap: 0; }
+    .kv-grid .k { margin-top: 6px; }
+  }
+"""
+
+_SCRIPT = """
+function toggleSecret(el) {
+  const shown = el.dataset.shown === "1";
+  el.dataset.shown = shown ? "0" : "1";
+  el.firstChild.textContent = shown ? el.dataset.mask : el.dataset.value;
+}
+function copySecret(btn) {
+  navigator.clipboard.writeText(btn.dataset.value).then(() => {
+    const old = btn.textContent;
+    btn.textContent = "copied";
+    setTimeout(() => { btn.textContent = old; }, 1200);
+  });
+}
+function validateCred(form) {
+  const out = form.querySelector(".validate-result");
+  fetch(form.action, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams(new FormData(form)),
+  }).then(r => r.json()).then(d => {
+    out.textContent = d.valid ? "valid" : "invalid";
+    out.className = "validate-result pill " + (d.valid ? "ok" : "gone");
+  }).catch(() => {
+    out.textContent = "error";
+    out.className = "validate-result pill gone";
+  });
+  return false;
+}
+"""
+
+
 def layout(provider: catalog.Provider, active: str, body: str) -> str:
     nav = []
     for key, label in (("home", "Dashboard"), ("resources", "Resources"),
@@ -113,44 +248,15 @@ def layout(provider: catalog.Provider, active: str, body: str) -> str:
         nav.append(f'<a class="{cls}" href="{href}">{label}</a>')
     return f"""<!doctype html>
 <html><head><meta charset="utf-8"><title>{_esc(provider.brand)} · provider lab</title>
-<style>
-  body {{ font-family: ui-sans-serif, system-ui, sans-serif; margin: 0; background: #0f1320; color: #e7ecf5; }}
-  header {{ padding: 18px 28px; border-bottom: 1px solid #232a3d; background: #141a2b; }}
-  header h1 {{ font-size: 17px; margin: 0; }}
-  header .tag {{ color: #8b97b4; font-size: 12px; margin-top: 3px; }}
-  .badge {{ display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 10px; background: #243049; color: #9fc0ff; margin-left: 8px; }}
-  nav {{ display: flex; gap: 4px; padding: 0 22px; background: #141a2b; border-bottom: 1px solid #232a3d; }}
-  nav a {{ padding: 10px 14px; color: #9aa6c2; text-decoration: none; font-size: 13px; border-bottom: 2px solid transparent; }}
-  nav a.active {{ color: #fff; border-bottom-color: #5d8bff; }}
-  main {{ padding: 24px 28px; max-width: 920px; }}
-  h2 {{ font-size: 14px; margin: 22px 0 10px; }}
-  table {{ width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 14px; }}
-  th, td {{ text-align: left; padding: 7px 9px; border-bottom: 1px solid #232a3d; }}
-  th {{ color: #8b97b4; font-weight: 600; }}
-  code {{ font-family: ui-monospace, monospace; font-size: 11px; background: #1b2236; padding: 1px 5px; border-radius: 3px; color: #cdd7ee; word-break: break-all; }}
-  form.inline {{ display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0 18px; }}
-  input, select {{ background: #1b2236; border: 1px solid #2c364f; color: #e7ecf5; padding: 6px 8px; border-radius: 4px; font-size: 12px; }}
-  button {{ background: #2f56b5; color: #fff; border: none; padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer; }}
-  button.danger {{ background: #7a2b39; }}
-  .muted {{ color: #8b97b4; font-size: 12px; }}
-  .panel {{ background: #141a2b; border: 1px solid #232a3d; border-radius: 6px; padding: 16px; margin-bottom: 16px; }}
-  .pill {{ font-size: 11px; padding: 1px 7px; border-radius: 9px; }}
-  .ok {{ background: #1d3b2a; color: #7fe0a6; }}
-  .gone {{ background: #3b1d22; color: #e08a98; }}
-  .secret {{ cursor: pointer; user-select: none; }}
-  .secret::after {{ content: " 👁"; font-size: 10px; opacity: 0.6; }}
-</style></head>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>{_STYLE}</style></head>
 <body>
-<script>
-function toggleSecret(el) {{
-  const shown = el.dataset.shown === "1";
-  el.dataset.shown = shown ? "0" : "1";
-  el.firstChild.textContent = shown ? el.dataset.mask : el.dataset.value;
-}}
-</script>
+<script>{_SCRIPT}</script>
 <header>
-  <h1>{_esc(provider.brand)} <span class="badge">{_esc(_CATEGORY_LABEL[provider.category])}</span></h1>
-  <div class="tag">{_esc(provider.tagline)} · localhost:{provider.port}</div>
+  <h1>{_esc(provider.brand)}</h1>
+  <span class="badge">{_esc(_CATEGORY_LABEL[provider.category])}</span>
+  <span class="tag">{_esc(provider.tagline)}</span>
+  <span class="host">localhost:{provider.port}</span>
 </header>
 <nav>{''.join(nav)}</nav>
 <main>{body}</main>
@@ -160,11 +266,12 @@ function toggleSecret(el) {{
 def overview(provider: catalog.Provider) -> str:
     store = credentials.load(provider.id)
     seed = store.data["seed"]
-    rows = "".join(
-        f"<tr><td>{_esc(k)}</td><td>{_secret(v) if k in _SECRET_FIELDS else '<code>' + _esc(v) + '</code>'}</td></tr>"
+    seed_rows = "".join(
+        f"<tr><td class=\"muted\">{_esc(k)}</td>"
+        f"<td>{_secret(v) if k in _SECRET_FIELDS else '<code>' + _esc(v) + '</code>'}</td></tr>"
         for k, v in seed.items() if not isinstance(v, (list, dict))
     )
-    ops = "".join(f"<li><code>{_esc(o)}</code></li>" for o in provider.operations)
+    ops = "".join(f"<code>{_esc(o)}</code>" for o in provider.operations)
     if provider.category == "mcp":
         ops_hint = "Tools are invoked over JSON-RPC at <code>POST /mcp</code>."
     elif provider.protocol == "grpc":
@@ -172,35 +279,37 @@ def overview(provider: catalog.Provider) -> str:
                     "the lab serves them over the shared HTTP transport.")
     else:
         ops_hint = "Domain calls are served under <code>/api/&lt;operation&gt;</code>."
-    mcp_panel = _mcp_panel(provider)
-    grpc_panel = _grpc_panel(provider)
-    auth_summary = _auth_summary(provider)
     config = "".join(
-        f"<tr><td>{_esc(label)}</td><td><code>{_esc(value)}</code></td></tr>"
+        f"<tr><td class=\"muted\">{_esc(label)}</td><td><code>{_esc(value)}</code></td></tr>"
         for label, value in _config_rows(provider)
     )
     active, revoked = _credential_counts(store)
     body = f"""
-<div class="panel">
-  <h2>Status</h2>
-  <p><span class="pill ok">operational</span>
-     <span class="muted">{active} active credential(s) · {revoked} revoked · {len(provider.resources)} resource type(s)</span></p>
+<div class="statbar" aria-label="Status">
+  <div class="stat"><span class="k">Status</span>
+    <span class="v"><span class="statusdot"></span>operational</span></div>
+  <div class="stat"><span class="k">Active credentials</span><span class="v">{active}</span></div>
+  <div class="stat"><span class="k">Revoked</span><span class="v">{revoked}</span></div>
+  <div class="stat"><span class="k">Resource types</span><span class="v">{len(provider.resources)}</span></div>
+  <div class="stat"><span class="k">Operations</span><span class="v">{len(provider.operations)}</span></div>
+  <div class="stat"><span class="k">Industry</span><span class="v">{_esc(provider.industry)}</span></div>
 </div>
 <div class="panel">
   <h2>Configuration</h2>
-  <table><tr><th>setting</th><th>value</th></tr>{config}</table>
-  <p class="muted">{auth_summary}</p>
+  <table>{config}</table>
+  <div class="panel-foot">{_auth_summary(provider)}</div>
 </div>
 <div class="panel">
-  <h2>Seed credential (for verification flows)</h2>
-  <table><tr><th>field</th><th>value</th></tr>{rows}</table>
-  <p class="muted">Seed material is persisted under <code>_store/{_esc(provider.id)}.json</code> and indexed in <code>_store/_seed_index.json</code>.</p>
+  <h2>Seed credential <span class="badge">verification flows</span></h2>
+  <table>{seed_rows}</table>
+  <div class="panel-foot">Persisted under <code>_store/{_esc(provider.id)}.json</code>
+  and indexed in <code>_store/_seed_index.json</code>.</div>
 </div>
 <div class="panel">
-  <h2>Operations</h2>
-  <ul>{ops}</ul>
-  <p class="muted">{ops_hint}</p>
-</div>{grpc_panel}{mcp_panel}"""
+  <h2>Operations <span class="badge">{len(provider.operations)}</span></h2>
+  <div class="chips">{ops}</div>
+  <div class="panel-foot">{ops_hint}</div>
+</div>{_grpc_panel(provider)}{_mcp_panel(provider)}"""
     return layout(provider, "home", body)
 
 
@@ -221,13 +330,11 @@ def _grpc_panel(provider: catalog.Provider) -> str:
                 f"<tr><td><code>{_esc(rpc['name'])}</code>{badge}</td>"
                 f"<td><code>({_esc(rpc['request'])}) returns ({_esc(response)})</code></td></tr>")
         blocks.append(
-            f"<h2>{_esc(descriptor['package'])}.{_esc(service['name'])}</h2>"
-            f"<table><tr><th>rpc</th><th>signature</th></tr>{''.join(rpc_rows)}</table>")
-    return (f'<div class="panel"><h2>gRPC service definition '
-            f'<span class="badge">{len(descriptor["services"])} services</span></h2>'
-            f"{''.join(blocks)}"
+            f'<div class="panel"><h2>{_esc(descriptor["package"])}.{_esc(service["name"])}</h2>'
+            f"<table><tr><th>rpc</th><th>signature</th></tr>{''.join(rpc_rows)}</table></div>")
+    return ("".join(blocks) +
             '<p class="muted">Methods are discoverable through server reflection and '
-            'authenticated with the <code>x-api-key</code> call metadata.</p></div>')
+            'authenticated with the <code>x-api-key</code> call metadata.</p>')
 
 
 def _mcp_panel(provider: catalog.Provider) -> str:
@@ -253,8 +360,8 @@ def _mcp_panel(provider: catalog.Provider) -> str:
                     f'<span class="muted">{_esc(desc)}</span></td></tr>')
     tools = (f'<div class="panel"><h2>MCP tools <span class="badge">{len(rows)}</span></h2>'
              f"<table><tr><th>tool</th><th>description</th></tr>{''.join(rows)}</table>"
-             '<p class="muted">Discoverable via JSON-RPC <code>tools/list</code>; '
-             'invoked with <code>tools/call</code>.</p></div>')
+             '<div class="panel-foot">Discoverable via JSON-RPC <code>tools/list</code>; '
+             'invoked with <code>tools/call</code>.</div></div>')
     resources = base.RESOURCES.get(provider.id, [])
     if not resources:
         return tools
@@ -264,8 +371,8 @@ def _mcp_panel(provider: catalog.Provider) -> str:
         for r in resources)
     res = (f'<div class="panel"><h2>MCP resources <span class="badge">{len(resources)}</span></h2>'
            f"<table><tr><th>uri</th><th>resource</th></tr>{res_rows}</table>"
-           '<p class="muted">Discoverable via <code>resources/list</code>; '
-           'fetched with <code>resources/read</code>.</p></div>')
+           '<div class="panel-foot">Discoverable via <code>resources/list</code>; '
+           'fetched with <code>resources/read</code>.</div></div>')
     return tools + res
 
 
@@ -314,10 +421,13 @@ def _auth_summary(provider: catalog.Provider) -> str:
     return ""
 
 
-def _cred_table(title: str, headers: list[str], rows: list[str]) -> str:
+def _cred_panel(title: str, headers: list[str], rows: list[str],
+                forms: str = "", empty: str = "none issued yet") -> str:
     head = "".join(f"<th>{_esc(h)}</th>" for h in headers)
-    body = "".join(rows) or f'<tr><td colspan="{len(headers)}" class="muted">none</td></tr>'
-    return f"<h2>{_esc(title)}</h2><table><tr>{head}</tr>{body}</table>"
+    body = "".join(rows) or f'<tr><td colspan="{len(headers)}" class="empty">{_esc(empty)}</td></tr>'
+    count = f' <span class="badge">{len(rows)}</span>' if rows else ""
+    return (f'<div class="panel"><h2>{_esc(title)}{count}</h2>'
+            f"<table><tr>{head}</tr>{body}</table>{forms}</div>")
 
 
 def _status_pill(revoked: bool) -> str:
@@ -337,10 +447,9 @@ def credentials_page(provider: catalog.Provider) -> str:
             f"<td>{_action_btns('apiKey', r['keyId'], r['revoked'])}</td></tr>"
             for r in store.data["apiKeys"]
         ]
-        sections.append(_cred_table(
-            "API keys", ["keyId", "apiKey", "label", "created", "usage", "status", ""], rows))
-        sections.append(_create_form("apiKey", "Create API key"))
-        sections.append(_validate_widget("apiKey", "Test an API key"))
+        forms = _create_form("apiKey", "Create API key") + _validate_widget("apiKey", "Test an API key")
+        sections.append(_cred_panel(
+            "API keys", ["keyId", "apiKey", "label", "created", "usage", "status", ""], rows, forms))
 
     if catalog.bearer_auth(provider) or (cat == "mcp" and provider.mcp_auth == "bearer"):
         label_noun = "Secret keys" if cat == "sdk" else "Bearer tokens"
@@ -351,43 +460,50 @@ def credentials_page(provider: catalog.Provider) -> str:
             f"<td>{_action_btns('bearer', r['tokenId'], r['revoked'])}</td></tr>"
             for r in store.data["bearerTokens"]
         ]
-        sections.append(_cred_table(
-            label_noun, ["tokenId", "accessToken", "label", "created", "usage", "status", ""], rows))
-        sections.append(_create_form("bearer", "Issue secret key" if cat == "sdk" else "Issue bearer token"))
-        sections.append(_validate_widget("bearer", "Test a secret key" if cat == "sdk" else "Test a bearer token"))
+        forms = (_create_form("bearer", "Issue secret key" if cat == "sdk" else "Issue bearer token")
+                 + _validate_widget("bearer", "Test a secret key" if cat == "sdk" else "Test a bearer token"))
+        sections.append(_cred_panel(
+            label_noun, ["tokenId", "accessToken", "label", "created", "usage", "status", ""], rows, forms))
 
     if cat in ("oauth2_client_credentials", "oauth2_authorization_code"):
         rows = [
             f"<tr><td><code>{_esc(r['clientId'])}</code></td><td>{_secret(r['clientSecret'])}</td>"
             f"<td>{_esc(', '.join(r['scopes']))}</td><td>{_ts(r.get('createdAt'))}</td>"
-            f"<td>{_status_pill(r['revoked'])}</td></tr>"
+            f"<td>{_usage(r)}</td><td>{_status_pill(r['revoked'])}</td></tr>"
             for r in store.data["clients"]
         ]
-        sections.append(_cred_table(
-            "OAuth client secrets", ["clientId", "clientSecret", "scopes", "created", "status"], rows))
+        forms = _validate_widget("access_token", "Test an access token",
+                                 placeholder="paste access token from /oauth/token")
+        sections.append(_cred_panel(
+            "OAuth client secrets",
+            ["clientId", "clientSecret", "scopes", "created", "usage", "status"], rows, forms))
         sections.append('<p class="muted">Register, rotate, and revoke clients on the '
                         '<a href="/__lab/clients">Clients</a> page.</p>')
 
     if cat == "caracal_mandate" or (cat == "mcp" and provider.mcp_auth == "mandate"):
         seed = store.data["seed"].get("mandate", "")
-        revoked = "".join(f"<tr><td><code>{_esc(a)}</code></td></tr>" for a in store.data["revoked"]) \
-            or '<tr><td class="muted">none</td></tr>'
-        sections.append(f"""
-<h2>Zone signing key</h2>
-<table><tr><th>zone</th><th>signing key (HS256)</th></tr>
-<tr><td><code>{_esc(store.data['zone'])}</code></td><td>{_secret(store.data['signing_key'])}</td></tr></table>
-<h2>Seed mandate</h2>
-<p>{_secret(seed)}</p>
-<h2>Revoked anchors</h2>
-<table><tr><th>anchor</th></tr>{revoked}</table>
+        revoked_rows = ["<tr><td><code>" + _esc(a) + "</code></td></tr>" for a in store.data["revoked"]]
+        revoke_form = """
 <form class="inline" method="post" action="/__lab/api/revoke-anchor">
   <input name="anchor" placeholder="sid_/agent_/edge_ anchor to revoke" size="32" required>
   <button class="danger" type="submit">Revoke anchor</button>
-</form>""")
+</form>"""
+        sections.append(f"""
+<div class="panel">
+  <h2>Zone signing key</h2>
+  <table><tr><th>zone</th><th>signing key (HS256)</th></tr>
+  <tr><td><code>{_esc(store.data['zone'])}</code></td><td>{_secret(store.data['signing_key'])}</td></tr></table>
+</div>
+<div class="panel">
+  <h2>Seed mandate</h2>
+  <div class="panel-body">{_secret(seed)}</div>
+</div>""")
+        sections.append(_cred_panel("Revoked anchors", ["anchor"], revoked_rows,
+                                    revoke_form, empty="no anchors revoked"))
 
     if cat == "none":
-        sections.append('<div class="panel"><p class="muted">This internal provider holds no credentials. '
-                        'Access is enforced at the network boundary only.</p></div>')
+        sections.append('<div class="panel"><div class="empty">This internal provider holds no '
+                        'credentials. Access is enforced at the network boundary only.</div></div>')
 
     sections.append(_revoked_history(store))
     return layout(provider, "credentials", "".join(sections))
@@ -397,33 +513,31 @@ def _usage(rec: dict) -> str:
     count = rec.get("useCount", 0)
     if not count:
         return '<span class="muted">unused</span>'
-    return f"{count} call(s), last {_ts(rec.get('lastUsedAt'))}"
+    return f"{count} call(s)<br><span class=\"muted\">last {_ts(rec.get('lastUsedAt'))}</span>"
 
 
 def _revoked_history(store) -> str:
     history = store.revoked_history()
     if not history:
         return ""
-    rows = "".join(
+    rows = [
         f"<tr><td>{_esc(h['kind'])}</td><td><code>{_esc(h['id'])}</code></td>"
         f"<td>{_esc(h['label'])}</td><td>{_ts(h['revokedAt'])}</td>"
         f"<td>{('<code>' + _esc(h['rotatedTo']) + '</code>') if h.get('rotatedTo') else '—'}</td></tr>"
         for h in history
-    )
-    return ('<h2>Revoked credential history</h2>'
-            '<table><tr><th>kind</th><th>id</th><th>label</th><th>revoked</th><th>rotated to</th></tr>'
-            f'{rows}</table>')
+    ]
+    return _cred_panel("Revoked credential history",
+                       ["kind", "id", "label", "revoked", "rotated to"], rows)
 
 
-def _validate_widget(kind: str, label: str) -> str:
+def _validate_widget(kind: str, label: str, placeholder: str = "paste credential to validate") -> str:
     return f"""
-<h2>{_esc(label)}</h2>
-<form class="inline" method="post" action="/__lab/api/validate"
-      onsubmit="event.preventDefault();fetch(this.action,{{method:'POST',headers:{{'Content-Type':'application/x-www-form-urlencoded'}},body:new URLSearchParams(new FormData(this))}}).then(r=>r.json()).then(d=>{{this.nextElementSibling.textContent=d.valid?'valid':'invalid';this.nextElementSibling.className=d.valid?'pill ok':'pill gone';}});">
+<form class="inline" method="post" action="/__lab/api/validate" onsubmit="return validateCred(this)">
   <input type="hidden" name="kind" value="{_esc(kind)}">
-  <input name="secret" placeholder="paste credential to validate" size="34" required>
-  <button type="submit">Validate</button>
-</form><span class="pill muted">not tested</span>"""
+  <input name="secret" placeholder="{_esc(placeholder)}" size="34" required>
+  <button type="submit">{_esc(label)}</button>
+  <span class="validate-result pill neutral">not tested</span>
+</form>"""
 
 
 def resource_explorer_page(provider: catalog.Provider, state) -> str:
@@ -442,18 +556,24 @@ def resource_explorer_page(provider: catalog.Provider, state) -> str:
     for resource in provider.resources:
         rows = tables.get(resource, {})
         sample = next(iter(rows.values()), None)
-        fields = ", ".join(f"<code>{_esc(k)}</code>" for k in sample.keys()) if isinstance(sample, dict) else "—"
-        sample_json = _esc(sample) if sample is not None else "no rows yet"
+        fields = "".join(f"<code>{_esc(k)}</code>" for k in sample.keys()) if isinstance(sample, dict) else ""
+        if sample is not None:
+            try:
+                sample_block = f'<pre class="sample">{_esc(json.dumps(sample, indent=2, default=str))}</pre>'
+            except (TypeError, ValueError):
+                sample_block = f'<pre class="sample">{_esc(sample)}</pre>'
+        else:
+            sample_block = '<div class="empty">no rows yet</div>'
+        field_row = f'<div class="chips">{fields}</div>' if fields else ""
         panels.append(f"""
 <div class="panel">
   <h2>{_esc(resource)} <span class="badge">{len(rows)} record(s)</span></h2>
-  <p class="muted">fields: {fields}</p>
-  <code>{sample_json}</code>
+  {field_row}{sample_block}
 </div>""")
     if not panels:
-        panels.append('<div class="panel"><p class="muted">This provider exposes no stored resources.</p></div>')
-    intro = (f'<div class="panel"><p class="muted">Live data served by {_esc(provider.brand)} on this port. '
-             f'Records evolve as operations run against <code>/api/&lt;operation&gt;</code>.</p></div>')
+        panels.append('<div class="panel"><div class="empty">This provider exposes no stored resources.</div></div>')
+    intro = (f'<p class="muted">Live data served by {_esc(provider.brand)} on this port. '
+             f'Records evolve as operations run against <code>/api/&lt;operation&gt;</code>.</p>')
     return layout(provider, "resources", intro + "".join(panels))
 
 
@@ -465,38 +585,47 @@ def clients_page(provider: catalog.Provider) -> str:
             f"<tr><td><code>{_esc(r['clientId'])}</code></td><td>{_esc(r['name'])}</td>"
             f"<td>{_secret(r['clientSecret'])}</td>"
             f"<td>{_esc(', '.join(r['redirectUris']))}</td><td>{_esc(', '.join(r['scopes']))}</td>"
-            f"<td>{_status_pill(r['revoked'])}</td>"
+            f"<td>{_usage(r)}</td><td>{_status_pill(r['revoked'])}</td>"
             f"<td>{_action_btns('client', r['clientId'], r['revoked'])}</td></tr>"
             for r in store.data["clients"]
         ]
-        table = _cred_table("Registered OAuth clients", ["clientId", "name", "clientSecret", "redirectUris", "scopes", "status", ""], rows)
         form = f"""
-<h2>Register client</h2>
 <form class="inline" method="post" action="/__lab/api/register-client">
   <input name="name" placeholder="application name" required>
   <input name="redirect_uris" placeholder="redirect URI" size="34" value="http://127.0.0.1:8000/callback">
   <input name="scopes" placeholder="scopes" value="{_esc(' '.join(provider.scopes))}" size="22">
-  <button type="submit">Register</button>
+  <button class="primary" type="submit">Register client</button>
 </form>"""
-        return layout(provider, "clients", table + form)
+        return layout(provider, "clients", _cred_panel(
+            "Registered OAuth clients",
+            ["clientId", "name", "clientSecret", "redirectUris", "scopes", "usage", "status", ""],
+            rows, form, empty="no clients registered"))
 
-    body = ('<div class="panel"><p class="muted">This provider does not use OAuth application clients. '
+    body = ('<div class="panel"><div class="empty">This provider does not use OAuth application clients. '
             'Machine consumers are managed as credentials and shown on the '
-            '<a href="/__lab/api-clients">API clients</a> page.</p></div>')
+            '<a href="/__lab/api-clients">API clients</a> page.</div></div>')
     return layout(provider, "clients", body)
 
 
 def api_clients_page(provider: catalog.Provider, activity: list[dict]) -> str:
     rows = [
-        f"<tr><td>{_esc(a['principal'])}</td><td>{_esc(a['auth'])}</td><td>{a['calls']}</td>"
-        f"<td><code>{_esc(a['last_op'])}</code></td><td>{a['last_status']}</td></tr>"
+        f"<tr><td>{_esc(a['principal'])}</td><td><span class=\"badge\">{_esc(a['auth'])}</span></td>"
+        f"<td>{a['calls']}</td><td><code>{_esc(a['last_op'])}</code></td>"
+        f"<td>{_call_status(a['last_status'])}</td></tr>"
         for a in activity
     ]
-    table = _cred_table("Live API clients", ["principal", "auth", "calls", "last operation", "last status"], rows)
+    panel = _cred_panel(
+        "Live API clients", ["principal", "auth", "calls", "last operation", "last status"],
+        rows, empty="no authenticated calls observed yet")
     note = ('<p class="muted">API clients are derived from authenticated calls observed on this provider port. '
             'Issue credentials on the <a href="/__lab/credentials">Credentials</a> page, then call '
             '<code>/api/&lt;operation&gt;</code>.</p>')
-    return layout(provider, "api-clients", table + note)
+    return layout(provider, "api-clients", panel + note)
+
+
+def _call_status(status: int) -> str:
+    cls = "ok" if 200 <= status < 400 else "gone"
+    return f'<span class="pill {cls}">{status}</span>'
 
 
 def _create_form(kind: str, label: str) -> str:
@@ -504,24 +633,52 @@ def _create_form(kind: str, label: str) -> str:
 <form class="inline" method="post" action="/__lab/api/create-credential">
   <input type="hidden" name="kind" value="{_esc(kind)}">
   <input name="label" placeholder="label" required>
-  <button type="submit">{_esc(label)}</button>
+  <button class="primary" type="submit">{_esc(label)}</button>
 </form>"""
-
-
-def _revoke_btn(kind: str, identifier: str, revoked: bool) -> str:
-    if revoked:
-        return ""
-    return f"""<form method="post" action="/__lab/api/revoke" style="margin:0">
-  <input type="hidden" name="kind" value="{_esc(kind)}">
-  <input type="hidden" name="id" value="{_esc(identifier)}">
-  <button class="danger" type="submit">Revoke</button></form>"""
 
 
 def _action_btns(kind: str, identifier: str, revoked: bool) -> str:
     if revoked:
         return ""
-    rotate = f"""<form method="post" action="/__lab/api/rotate" style="margin:0">
+    return f"""<div class="row-actions">
+<form method="post" action="/__lab/api/rotate">
   <input type="hidden" name="kind" value="{_esc(kind)}">
   <input type="hidden" name="id" value="{_esc(identifier)}">
-  <button type="submit">Rotate</button></form>"""
-    return f'<div style="display:flex;gap:6px">{rotate}{_revoke_btn(kind, identifier, revoked)}</div>'
+  <button type="submit">Rotate</button></form>
+<form method="post" action="/__lab/api/revoke">
+  <input type="hidden" name="kind" value="{_esc(kind)}">
+  <input type="hidden" name="id" value="{_esc(identifier)}">
+  <button class="danger" type="submit">Revoke</button></form>
+</div>"""
+
+
+def consent_page(provider: catalog.Provider, params: dict) -> str:
+    """OAuth authorization consent prompt shown to the resource owner."""
+    scopes = "".join(f"<code>{_esc(s)}</code>" for s in params.get("scope", "").split() if s) or \
+        '<span class="muted">no scopes requested</span>'
+    hidden = "".join(
+        f'<input type="hidden" name="{_esc(k)}" value="{_esc(params.get(k, ""))}">'
+        for k in ("client_id", "redirect_uri", "scope", "state", "code_challenge", "code_challenge_method")
+    )
+    body = f"""
+<div class="panel" style="max-width:480px;margin:48px auto">
+  <h2>Authorize application</h2>
+  <div class="kv-grid">
+    <span class="k">Application</span><span><code>{_esc(params.get('client_id', ''))}</code></span>
+    <span class="k">Requested scopes</span><span class="chips" style="padding:0">{scopes}</span>
+    <span class="k">Redirects to</span><span><code>{_esc(params.get('redirect_uri', ''))}</code></span>
+  </div>
+  <form class="inline" method="post" action="/oauth/authorize">
+    {hidden}
+    <button class="primary" type="submit">Approve</button>
+  </form>
+</div>"""
+    return f"""<!doctype html>
+<html><head><meta charset="utf-8"><title>{_esc(provider.brand)} · authorize</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>{_STYLE}</style></head>
+<body>
+<header><h1>{_esc(provider.brand)}</h1><span class="badge">OAuth 2.0</span>
+<span class="host">localhost:{provider.port}</span></header>
+<main>{body}</main>
+</body></html>"""

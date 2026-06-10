@@ -2266,6 +2266,17 @@ def test_usage_telemetry_recorded_on_call():
     assert used and used[0].get("useCount", 0) >= 1
 
 
+def test_oauth_client_usage_telemetry_recorded_on_call():
+    c = client("cordoba-fx")
+    c.post("/api/get_quote",
+           json={"buy_currency": "EUR", "sell_currency": "USD", "amount": 100},
+           headers=_cordoba_token(c))
+    store = credentials.load("cordoba-fx")
+    used = [r for r in store.data["clients"] if r["clientId"] == seed("cordoba-fx")["clientId"]]
+    assert used and used[0].get("useCount", 0) >= 1
+    assert used[0].get("lastUsedAt")
+
+
 def test_overview_shows_configuration_and_status():
     c = client("cordoba-fx")
     body = c.get("/").text

@@ -1611,6 +1611,15 @@ body {
     display: none;
   }
 
+  .chat-column .viewport-header,
+  .main-viewport > .viewport-header {
+    height: auto;
+    min-height: 44px;
+    flex-wrap: wrap;
+    padding-top: var(--space-1);
+    padding-bottom: var(--space-1);
+  }
+
   .graph-workspace {
     grid-template-columns: 1fr;
   }
