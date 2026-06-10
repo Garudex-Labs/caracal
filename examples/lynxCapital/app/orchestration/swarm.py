@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 LLM-driven orchestration with stages, replanning, long-lived workers, background dispatch, file-backed memory, streaming, compaction, and cancellation.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -39,7 +40,9 @@ log = logging.getLogger("lynx.swarm")
 log.setLevel(logging.INFO)
 if not log.handlers:
     _h = logging.StreamHandler()
-    _h.setFormatter(logging.Formatter("[%(asctime)s] %(name)s %(levelname)s %(message)s"))
+    _h.setFormatter(
+        logging.Formatter("[%(asctime)s] %(name)s %(levelname)s %(message)s")
+    )
     log.addHandler(_h)
 
 
@@ -81,7 +84,9 @@ def _check_cancel(run_id: str) -> None:
         raise RunCancelled()
 
 
-async def _require_approval(run_id: str, agent_id: str, action: str, detail: dict) -> dict | None:
+async def _require_approval(
+    run_id: str, agent_id: str, action: str, detail: dict
+) -> dict | None:
     """Block an irreversible action on a human decision when approvals are
     enabled. Returns None to proceed, or a denial result to return instead."""
     if not approvals.required():
@@ -89,21 +94,27 @@ async def _require_approval(run_id: str, agent_id: str, action: str, detail: dic
     request_id, pending = await approvals.request(run_id, action)
     bus.publish(ev.approval_required(run_id, agent_id, request_id, action, detail))
     decision = await approvals.wait(run_id, request_id, pending)
-    bus.publish(ev.approval_resolved(run_id, agent_id, request_id, decision.approved, decision.reason))
+    bus.publish(
+        ev.approval_resolved(
+            run_id, agent_id, request_id, decision.approved, decision.reason
+        )
+    )
     if decision.approved:
         return None
     return {"status": "denied", "action": action, "reason": decision.reason, **detail}
 
 
 def _emit_memory_snapshot(run_id: str, mem: AgentMemory) -> None:
-    bus.publish(ev.memory_update(
-        run_id=run_id,
-        agent_id=mem.agent_id,
-        tokens_used=mem.total_tokens(),
-        tokens_limit=context_limit(mem.model),
-        message_count=len(mem.messages),
-        compactions=mem.compactions,
-    ))
+    bus.publish(
+        ev.memory_update(
+            run_id=run_id,
+            agent_id=mem.agent_id,
+            tokens_used=mem.total_tokens(),
+            tokens_limit=context_limit(mem.model),
+            message_count=len(mem.messages),
+            compactions=mem.compactions,
+        )
+    )
 
 
 async def _maybe_compact(run_id: str, mem: AgentMemory, summarizer: ChatOpenAI) -> None:
@@ -114,16 +125,21 @@ async def _maybe_compact(run_id: str, mem: AgentMemory, summarizer: ChatOpenAI) 
     if summary is None:
         return
     after = mem.total_tokens()
-    bus.publish(ev.memory_compaction(
-        run_id=run_id,
-        agent_id=mem.agent_id,
-        summary=summary,
-        tokens_before=before,
-        tokens_after=after,
-    ))
+    bus.publish(
+        ev.memory_compaction(
+            run_id=run_id,
+            agent_id=mem.agent_id,
+            summary=summary,
+            tokens_before=before,
+            tokens_after=after,
+        )
+    )
     log.info(
         "memory_compaction agent=%s tokens=%d->%d chars=%d",
-        mem.agent_id[:8], before, after, len(summary),
+        mem.agent_id[:8],
+        before,
+        after,
+        len(summary),
     )
 
 
@@ -151,23 +167,41 @@ async def _stream_assistant(run_id, agent_id, model_name, llm, messages) -> AIMe
     output_tokens = int(usage.get("output_tokens", 0))
 
     bus.publish(ev.chat_message(run_id, agent_id, message_id, text))
-    bus.publish(ev.llm_call(
-        run_id=run_id, agent_id=agent_id, model=model_name,
-        latency_ms=latency_ms, input_tokens=input_tokens, output_tokens=output_tokens,
-        tool_calls=len(tool_calls), streamed_chars=streamed_chars,
-    ))
+    bus.publish(
+        ev.llm_call(
+            run_id=run_id,
+            agent_id=agent_id,
+            model=model_name,
+            latency_ms=latency_ms,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            tool_calls=len(tool_calls),
+            streamed_chars=streamed_chars,
+        )
+    )
     log.info(
         "llm_call agent=%s model=%s latency_ms=%d in_tok=%d out_tok=%d tool_calls=%d chars=%d",
-        agent_id[:8], model_name, latency_ms, input_tokens, output_tokens,
-        len(tool_calls), streamed_chars,
+        agent_id[:8],
+        model_name,
+        latency_ms,
+        input_tokens,
+        output_tokens,
+        len(tool_calls),
+        streamed_chars,
     )
     return AIMessage(content=text, tool_calls=tool_calls)
 
 
-def _build_agent_builtins(run_id: str, agent_id: str, plans: RunPlanStore, files: RunFileStore,
-                          board: RunBlackboard, region: str | None = None,
-                          stage_state: dict | None = None,
-                          worker_pool: WorkerPool | None = None):
+def _build_agent_builtins(
+    run_id: str,
+    agent_id: str,
+    plans: RunPlanStore,
+    files: RunFileStore,
+    board: RunBlackboard,
+    region: str | None = None,
+    stage_state: dict | None = None,
+    worker_pool: WorkerPool | None = None,
+):
     """Planning, file, blackboard, stage, and worker tools scoped to one
     agent_id so events carry correct attribution. stage_state and worker_pool
     are only provided for orchestrators."""
@@ -182,18 +216,26 @@ def _build_agent_builtins(run_id: str, agent_id: str, plans: RunPlanStore, files
         if isinstance(todos, dict):
             todos = todos.get("items", todos.get("todos", []))
         plan = plans.write(agent_id, todos)
-        bus.publish(ev.plan_update(
-            run_id=run_id, agent_id=agent_id,
-            todos=plan.as_list(), revision=plan.revision,
-        ))
-        return json.dumps({"ok": True, "revision": plan.revision, "items": plan.as_list()})
+        bus.publish(
+            ev.plan_update(
+                run_id=run_id,
+                agent_id=agent_id,
+                todos=plan.as_list(),
+                revision=plan.revision,
+            )
+        )
+        return json.dumps(
+            {"ok": True, "revision": plan.revision, "items": plan.as_list()}
+        )
 
     @tool
     def write_file(path: str, content: str) -> str:
         """Save content to a named file in this run's memory store. Use this to
         offload large intermediate results so they don't bloat your prompt."""
         f = files.write(agent_id, path, content)
-        bus.publish(ev.file_write(run_id=run_id, agent_id=agent_id, path=f.path, size=f.size))
+        bus.publish(
+            ev.file_write(run_id=run_id, agent_id=agent_id, path=f.path, size=f.size)
+        )
         return json.dumps({"path": f.path, "size": f.size})
 
     @tool
@@ -202,7 +244,9 @@ def _build_agent_builtins(run_id: str, agent_id: str, plans: RunPlanStore, files
         f = files.read(path)
         if f is None:
             return json.dumps({"error": f"no file at {path!r}"})
-        bus.publish(ev.file_read(run_id=run_id, agent_id=agent_id, path=f.path, size=f.size))
+        bus.publish(
+            ev.file_read(run_id=run_id, agent_id=agent_id, path=f.path, size=f.size)
+        )
         return f.content
 
     @tool
@@ -230,6 +274,7 @@ def _build_agent_builtins(run_id: str, agent_id: str, plans: RunPlanStore, files
     out = [write_todos, write_file, read_file, ls_files, post_finding, read_findings]
 
     if stage_state is not None:
+
         @tool
         def start_stage(name: str, intent: str) -> str:
             """Declare the start of a stage. `name` is a short stage id
@@ -259,15 +304,20 @@ def _build_agent_builtins(run_id: str, agent_id: str, plans: RunPlanStore, files
                 todos = todos.get("items", todos.get("todos", []))
             plan = plans.write(agent_id, todos)
             bus.publish(ev.replan(run_id, agent_id, reason, plan.revision))
-            bus.publish(ev.plan_update(
-                run_id=run_id, agent_id=agent_id,
-                todos=plan.as_list(), revision=plan.revision,
-            ))
+            bus.publish(
+                ev.plan_update(
+                    run_id=run_id,
+                    agent_id=agent_id,
+                    todos=plan.as_list(),
+                    revision=plan.revision,
+                )
+            )
             return json.dumps({"ok": True, "revision": plan.revision, "reason": reason})
 
         out.extend([start_stage, complete_stage, replan])
 
     if worker_pool is not None:
+
         @tool
         def acquire_worker(role: str, scope: str) -> str:
             """Spawn a long-lived worker that stays alive across multiple tool
@@ -297,12 +347,16 @@ def _build_regional_domain_tools(run_id, runner, parent, region):
     region_vendors = {v.id: v for v in VENDORS.values() if v.region == region}
 
     def _worker(role: str, scope: str) -> AgentHandle:
-        w = runner.spawn(role=role, scope=scope, parent=parent, layer=role, region=region)
+        w = runner.spawn(
+            role=role, scope=scope, parent=parent, layer=role, region=region
+        )
         w.start()
         return w
 
     async def _aworker(role: str, scope: str) -> AgentHandle:
-        w = await runner.aspawn(role=role, scope=scope, parent=parent, layer=role, region=region)
+        w = await runner.aspawn(
+            role=role, scope=scope, parent=parent, layer=role, region=region
+        )
         w.start()
         return w
 
@@ -314,14 +368,18 @@ def _build_regional_domain_tools(run_id, runner, parent, region):
     def list_pending_invoices(limit: int = 3) -> str:
         """Return up to `limit` pending invoices in this region as JSON."""
         out = []
-        for inv in region_invoices[:max(1, min(limit, 5))]:
+        for inv in region_invoices[: max(1, min(limit, 5))]:
             v = region_vendors.get(inv.vendor_id)
             rail = v.preferred_rails[0].value if v and v.preferred_rails else "WIRE"
-            out.append({
-                "invoice_id": inv.id, "vendor_id": inv.vendor_id,
-                "amount": float(inv.amount_local), "currency": inv.currency,
-                "preferred_rail": rail,
-            })
+            out.append(
+                {
+                    "invoice_id": inv.id,
+                    "vendor_id": inv.vendor_id,
+                    "amount": float(inv.amount_local),
+                    "currency": inv.currency,
+                    "preferred_rail": rail,
+                }
+            )
         return json.dumps(out)
 
     @tool
@@ -329,18 +387,26 @@ def _build_regional_domain_tools(run_id, runner, parent, region):
         """OCR-extract invoice data. Spawns an invoice-intake worker."""
         w = _worker("invoice-intake", f"extract:{invoice_id}")
         try:
-            return json.dumps(tool_fns.extract_invoice(run_id, w.id, invoice_id, f"{invoice_id}.pdf"))
+            return json.dumps(
+                tool_fns.extract_invoice(run_id, w.id, invoice_id, f"{invoice_id}.pdf")
+            )
         finally:
             _finish(w, {"invoice_id": invoice_id})
 
     @tool
-    def match_invoice_in_ledger(invoice_id: str, vendor_id: str, amount: float, currency: str, erp: str = "auto") -> str:
+    def match_invoice_in_ledger(
+        invoice_id: str, vendor_id: str, amount: float, currency: str, erp: str = "auto"
+    ) -> str:
         """Match an invoice against the vendor's ledger. `erp` selects the
         accounting back end ('ironbark', 'tallyhall', or 'auto' to route by the
         vendor's bookkeeping system). Spawns a ledger-match worker."""
         w = _worker("ledger-match", f"match:{invoice_id}")
         try:
-            return json.dumps(tool_fns.match_invoice(run_id, w.id, vendor_id, invoice_id, float(amount), currency, erp))
+            return json.dumps(
+                tool_fns.match_invoice(
+                    run_id, w.id, vendor_id, invoice_id, float(amount), currency, erp
+                )
+            )
         finally:
             _finish(w, {"invoice_id": invoice_id})
 
@@ -358,7 +424,9 @@ def _build_regional_domain_tools(run_id, runner, parent, region):
         """Look up an FX rate. Spawns a route-optimization worker."""
         w = _worker("route-optimization", f"fx:{from_currency}->{to_currency}")
         try:
-            return json.dumps(tool_fns.get_fx_rate(run_id, w.id, from_currency, to_currency))
+            return json.dumps(
+                tool_fns.get_fx_rate(run_id, w.id, from_currency, to_currency)
+            )
         finally:
             _finish(w, {"from": from_currency, "to": to_currency})
 
@@ -367,7 +435,9 @@ def _build_regional_domain_tools(run_id, runner, parent, region):
         """Look up the withholding tax rate for this region + currency. Spawns a route-optimization worker."""
         w = _worker("route-optimization", f"withholding:{region}:{currency}")
         try:
-            return json.dumps(tool_fns.get_withholding_rate(run_id, w.id, region, currency))
+            return json.dumps(
+                tool_fns.get_withholding_rate(run_id, w.id, region, currency)
+            )
         finally:
             _finish(w, {"currency": currency})
 
@@ -393,17 +463,35 @@ def _build_regional_domain_tools(run_id, runner, parent, region):
             _finish(w, {"symbol": symbol})
 
     @tool
-    async def submit_payment(vendor_id: str, amount: float, currency: str, rail: str, reference: str) -> str:
+    async def submit_payment(
+        vendor_id: str, amount: float, currency: str, rail: str, reference: str
+    ) -> str:
         """Submit a payment to the rail-appropriate provider. Spawns a payment-execution worker."""
-        denied = await _require_approval(run_id, parent.id, "submit_payment",
-                                         {"vendor_id": vendor_id, "amount": float(amount),
-                                          "currency": currency, "rail": rail, "reference": reference})
+        denied = await _require_approval(
+            run_id,
+            parent.id,
+            "submit_payment",
+            {
+                "vendor_id": vendor_id,
+                "amount": float(amount),
+                "currency": currency,
+                "rail": rail,
+                "reference": reference,
+            },
+        )
         if denied:
             return json.dumps(denied)
         w = await _aworker("payment-execution", f"payment:{reference}")
         try:
             result = await asyncio.to_thread(
-                tool_fns.submit_payment, run_id, w.id, vendor_id, float(amount), currency, rail, reference,
+                tool_fns.submit_payment,
+                run_id,
+                w.id,
+                vendor_id,
+                float(amount),
+                currency,
+                rail,
+                reference,
             )
             return json.dumps(result)
         finally:
@@ -437,24 +525,56 @@ def _build_regional_domain_tools(run_id, runner, parent, region):
         try:
             payload = json.loads(payload_json) if payload_json else {}
         except json.JSONDecodeError:
-            return json.dumps({"error": "invalid_payload", "message": "payload_json must be a JSON object"})
+            return json.dumps(
+                {
+                    "error": "invalid_payload",
+                    "message": "payload_json must be a JSON object",
+                }
+            )
         if not isinstance(payload, dict):
-            return json.dumps({"error": "invalid_payload", "message": "payload_json must be a JSON object"})
+            return json.dumps(
+                {
+                    "error": "invalid_payload",
+                    "message": "payload_json must be a JSON object",
+                }
+            )
         w = _worker("partner-integration", f"partner:{provider_id}:{operation}")
         try:
-            return json.dumps(tool_fns.partner_operation(run_id, w.id, provider_id, operation, payload))
+            return json.dumps(
+                tool_fns.partner_operation(
+                    run_id, w.id, provider_id, operation, payload
+                )
+            )
         finally:
             _finish(w, {"provider_id": provider_id, "operation": operation})
 
     return [
-        list_pending_invoices, extract_invoice_data, match_invoice_in_ledger,
-        check_vendor_compliance, lookup_fx_rate, lookup_withholding_rate,
-        lookup_market_rate, lookup_reference_rate, submit_payment, record_audit, call_partner,
+        list_pending_invoices,
+        extract_invoice_data,
+        match_invoice_in_ledger,
+        check_vendor_compliance,
+        lookup_fx_rate,
+        lookup_withholding_rate,
+        lookup_market_rate,
+        lookup_reference_rate,
+        submit_payment,
+        record_audit,
+        call_partner,
     ]
 
 
-async def _turn_loop(run_id, agent, model_name, llm_with_tools, summarizer, mem, tool_map,
-                      *, stage_budget: int, state: dict):
+async def _turn_loop(
+    run_id,
+    agent,
+    model_name,
+    llm_with_tools,
+    summarizer,
+    mem,
+    tool_map,
+    *,
+    stage_budget: int,
+    state: dict,
+):
     """Run the assistant turn loop for one agent stage. Independent tool calls
     in a single turn are executed concurrently, with bounded retries on
     transient exceptions. Honors stage_budget and state['total_used'] /
@@ -467,7 +587,9 @@ async def _turn_loop(run_id, agent, model_name, llm_with_tools, summarizer, mem,
             break
         _check_cancel(run_id)
         await _maybe_compact(run_id, mem, summarizer)
-        ai_msg = await _stream_assistant(run_id, agent.id, model_name, llm_with_tools, mem.as_prompt())
+        ai_msg = await _stream_assistant(
+            run_id, agent.id, model_name, llm_with_tools, mem.as_prompt()
+        )
         mem.append(ai_msg)
         _emit_memory_snapshot(run_id, mem)
         state["total_used"] += 1
@@ -488,22 +610,37 @@ async def _turn_loop(run_id, agent, model_name, llm_with_tools, summarizer, mem,
                 try:
                     result = await fn.ainvoke(args)
                     result_str = str(result)
-                    bus.publish(ev.tool_result(
-                        run_id, agent.id, name,
-                        {"result": result_str[:400], "truncated": len(result_str) > 400},
-                    ))
+                    bus.publish(
+                        ev.tool_result(
+                            run_id,
+                            agent.id,
+                            name,
+                            {
+                                "result": result_str[:400],
+                                "truncated": len(result_str) > 400,
+                            },
+                        )
+                    )
                     return tc, name, result_str
                 except RunCancelled:
                     raise
                 except Exception as exc:
                     last_exc = exc
                     attempt += 1
-                    bus.publish(ev.tool_retry(run_id, agent.id, name, attempt, str(exc)[:200]))
+                    bus.publish(
+                        ev.tool_retry(run_id, agent.id, name, attempt, str(exc)[:200])
+                    )
                     if attempt >= 3:
                         break
                     await asyncio.sleep(0.1 * (2 ** (attempt - 1)))
-            err = json.dumps({"error": f"tool {name!r} failed after {attempt} attempts: {last_exc}"})
-            bus.publish(ev.tool_result(run_id, agent.id, name, {"result": err, "truncated": False}))
+            err = json.dumps(
+                {"error": f"tool {name!r} failed after {attempt} attempts: {last_exc}"}
+            )
+            bus.publish(
+                ev.tool_result(
+                    run_id, agent.id, name, {"result": err, "truncated": False}
+                )
+            )
             return tc, name, err
 
         results = await asyncio.gather(*[_exec(tc) for tc in ai_msg.tool_calls])
@@ -517,20 +654,41 @@ async def _turn_loop(run_id, agent, model_name, llm_with_tools, summarizer, mem,
     return state.get("tool_calls", 0)
 
 
-async def _drive_stages(run_id, agent, model_name, llm_with_tools, summarizer, mem, tool_map,
-                         *, stage_budget: int = STAGE_BUDGET, total_budget: int = TOTAL_BUDGET):
+async def _drive_stages(
+    run_id,
+    agent,
+    model_name,
+    llm_with_tools,
+    summarizer,
+    mem,
+    tool_map,
+    *,
+    stage_budget: int = STAGE_BUDGET,
+    total_budget: int = TOTAL_BUDGET,
+):
     """Run successive stages until the LLM stops requesting tools or budgets
     are exhausted. Each call to complete_stage exits the inner turn loop so a
     new stage starts with a fresh budget."""
-    state = {"total_used": 0, "tool_calls": 0, "stage_done": False, "current": None,
-             "total_budget": total_budget}
+    state = {
+        "total_used": 0,
+        "tool_calls": 0,
+        "stage_done": False,
+        "current": None,
+        "total_budget": total_budget,
+    }
     while state["total_used"] < total_budget:
         state["stage_done"] = False
         before = state["total_used"]
         await _turn_loop(
-            run_id=run_id, agent=agent, model_name=model_name,
-            llm_with_tools=llm_with_tools, summarizer=summarizer,
-            mem=mem, tool_map=tool_map, stage_budget=stage_budget, state=state,
+            run_id=run_id,
+            agent=agent,
+            model_name=model_name,
+            llm_with_tools=llm_with_tools,
+            summarizer=summarizer,
+            mem=mem,
+            tool_map=tool_map,
+            stage_budget=stage_budget,
+            state=state,
         )
         if not state["stage_done"]:
             break
@@ -539,17 +697,31 @@ async def _drive_stages(run_id, agent, model_name, llm_with_tools, summarizer, m
     return state["tool_calls"]
 
 
-async def _run_regional_orchestrator(run_id, runner, parent, memory_store, plans, files, board,
-                                     parent_summary, region, focus, model_name, summarizer_model):
+async def _run_regional_orchestrator(
+    run_id,
+    runner,
+    parent,
+    memory_store,
+    plans,
+    files,
+    board,
+    parent_summary,
+    region,
+    focus,
+    model_name,
+    summarizer_model,
+):
     cfg = get_config()
     region_meta = REGIONS.get(region)
     if region_meta is None:
         raise ValueError(f"Unknown region {region!r}")
 
-
     ro = await runner.aspawn(
-        role="regional-orchestrator", scope=f"region:{region}",
-        parent=parent, layer="regional-orchestrator", region=region,
+        role="regional-orchestrator",
+        scope=f"region:{region}",
+        parent=parent,
+        layer="regional-orchestrator",
+        region=region,
     )
     ro.start()
 
@@ -557,8 +729,16 @@ async def _run_regional_orchestrator(run_id, runner, parent, memory_store, plans
     stage_state = {"current": None}
     try:
         tools = [
-            *_build_agent_builtins(run_id, ro.id, plans, files, board, region=region,
-                                    stage_state=stage_state, worker_pool=pool),
+            *_build_agent_builtins(
+                run_id,
+                ro.id,
+                plans,
+                files,
+                board,
+                region=region,
+                stage_state=stage_state,
+                worker_pool=pool,
+            ),
             *_build_regional_domain_tools(run_id, runner, ro, region),
         ]
         tool_map = {t.name: t for t in tools}
@@ -568,7 +748,8 @@ async def _run_regional_orchestrator(run_id, runner, parent, memory_store, plans
         summarizer = _make_llm(summarizer_model, 0.0)
 
         system_prompt = cfg.prompts.regionalOrchestrator.format(
-            region=region, region_name=region_meta.name,
+            region=region,
+            region_name=region_meta.name,
             currency=region_meta.currency,
             focus=focus or "process the pending batch end-to-end",
         )
@@ -577,17 +758,33 @@ async def _run_regional_orchestrator(run_id, runner, parent, memory_store, plans
             system=SystemMessage(content=system_prompt),
             seed_summary=parent_summary,
         )
-        mem.append(HumanMessage(content=(
-            f"Begin now. Your first turn MUST be a write_todos call "
-            f"listing your specific planned steps for focus={focus!r}."
-        )))
+        mem.append(
+            HumanMessage(
+                content=(
+                    f"Begin now. Your first turn MUST be a write_todos call "
+                    f"listing your specific planned steps for focus={focus!r}."
+                )
+            )
+        )
         _emit_memory_snapshot(run_id, mem)
 
         tool_calls = await _drive_stages(
-            run_id=run_id, agent=ro, model_name=model_name,
-            llm_with_tools=llm_with_tools, summarizer=summarizer,
-            mem=mem, tool_map=tool_map,
+            run_id=run_id,
+            agent=ro,
+            model_name=model_name,
+            llm_with_tools=llm_with_tools,
+            summarizer=summarizer,
+            mem=mem,
+            tool_map=tool_map,
         )
+    except (RunCancelled, asyncio.CancelledError):
+        if not ro._terminated:
+            ro.terminate("cancelled")
+        raise
+    except Exception:
+        if not ro._terminated:
+            ro.terminate("failed")
+        raise
     finally:
         pool.drain("cancelled")
 
@@ -602,8 +799,14 @@ def _build_workflow_domain_tools(run_id, runner, parent, workflow_id):
     short-lived worker so events carry per-action attribution."""
 
     def _worker(role: str, scope: str, customer_id: str | None = None) -> AgentHandle:
-        w = runner.spawn(role=role, scope=scope, parent=parent, layer=role,
-                         region=None, customer_id=customer_id)
+        w = runner.spawn(
+            role=role,
+            scope=scope,
+            parent=parent,
+            layer=role,
+            region=None,
+            customer_id=customer_id,
+        )
         w.start()
         return w
 
@@ -634,7 +837,9 @@ def _build_workflow_domain_tools(run_id, runner, parent, workflow_id):
         """Refresh ongoing compliance state for an existing vendor."""
         w = _worker("vendor-lifecycle", f"refresh:{vendor_id}")
         try:
-            return json.dumps(tool_fns.refresh_vendor_compliance(run_id, w.id, vendor_id))
+            return json.dumps(
+                tool_fns.refresh_vendor_compliance(run_id, w.id, vendor_id)
+            )
         finally:
             _finish(w, {"vendor_id": vendor_id})
 
@@ -652,17 +857,25 @@ def _build_workflow_domain_tools(run_id, runner, parent, workflow_id):
         """Return the onboarding case and checklist progress for a vendor."""
         w = _worker("vendor-lifecycle", f"onboarding:{vendor_id}")
         try:
-            return json.dumps(tool_fns.get_vendor_onboarding_status(run_id, w.id, vendor_id))
+            return json.dumps(
+                tool_fns.get_vendor_onboarding_status(run_id, w.id, vendor_id)
+            )
         finally:
             _finish(w, {"vendor_id": vendor_id})
 
     @tool
-    def advance_vendor_onboarding(vendor_id: str, step: str, outcome: str = "pass") -> str:
+    def advance_vendor_onboarding(
+        vendor_id: str, step: str, outcome: str = "pass"
+    ) -> str:
         """Advance one onboarding checklist step (profile, tax, kyb, banking, documents,
         approval) for a vendor; the vendor activates once every step clears."""
         w = _worker("vendor-lifecycle", f"onboard-step:{vendor_id}:{step}")
         try:
-            return json.dumps(tool_fns.advance_vendor_onboarding(run_id, w.id, vendor_id, step, outcome))
+            return json.dumps(
+                tool_fns.advance_vendor_onboarding(
+                    run_id, w.id, vendor_id, step, outcome
+                )
+            )
         finally:
             _finish(w, {"vendor_id": vendor_id})
 
@@ -671,7 +884,9 @@ def _build_workflow_domain_tools(run_id, runner, parent, workflow_id):
         """Run micro-deposit bank verification for a vendor before enabling payments."""
         w = _worker("vendor-lifecycle", f"banking:{vendor_id}")
         try:
-            return json.dumps(tool_fns.verify_vendor_banking(run_id, w.id, vendor_id, account_number))
+            return json.dumps(
+                tool_fns.verify_vendor_banking(run_id, w.id, vendor_id, account_number)
+            )
         finally:
             _finish(w, {"vendor_id": vendor_id})
 
@@ -700,7 +915,9 @@ def _build_workflow_domain_tools(run_id, runner, parent, workflow_id):
         scenario (base, optimistic, or stress)."""
         w = _worker("treasury", f"forecast:{horizon_days}:{scenario}")
         try:
-            return json.dumps(tool_fns.forecast_liquidity(run_id, w.id, int(horizon_days), scenario))
+            return json.dumps(
+                tool_fns.forecast_liquidity(run_id, w.id, int(horizon_days), scenario)
+            )
         finally:
             _finish(w, {"horizon_days": horizon_days, "scenario": scenario})
 
@@ -715,27 +932,49 @@ def _build_workflow_domain_tools(run_id, runner, parent, workflow_id):
             _finish(w, {"currency": currency})
 
     @tool
-    def place_fx_hedge(from_currency: str, to_currency: str, notional: float, tenor_days: int = 90) -> str:
+    def place_fx_hedge(
+        from_currency: str, to_currency: str, notional: float, tenor_days: int = 90
+    ) -> str:
         """Place a forward FX hedge."""
         w = _worker("treasury", f"hedge:{from_currency}->{to_currency}")
         try:
-            return json.dumps(tool_fns.place_fx_hedge(
-                run_id, w.id, from_currency, to_currency, float(notional), int(tenor_days)))
+            return json.dumps(
+                tool_fns.place_fx_hedge(
+                    run_id,
+                    w.id,
+                    from_currency,
+                    to_currency,
+                    float(notional),
+                    int(tenor_days),
+                )
+            )
         finally:
             _finish(w, {"from": from_currency, "to": to_currency})
 
     @tool
-    async def transfer_funds(from_region: str, to_region: str, amount_usd: float) -> str:
+    async def transfer_funds(
+        from_region: str, to_region: str, amount_usd: float
+    ) -> str:
         """Move cash between regional operating accounts."""
-        denied = await _require_approval(run_id, parent.id, "transfer_funds",
-                                         {"from_region": from_region, "to_region": to_region,
-                                          "amount_usd": float(amount_usd)})
+        denied = await _require_approval(
+            run_id,
+            parent.id,
+            "transfer_funds",
+            {
+                "from_region": from_region,
+                "to_region": to_region,
+                "amount_usd": float(amount_usd),
+            },
+        )
         if denied:
             return json.dumps(denied)
         w = _worker("treasury", f"transfer:{from_region}->{to_region}")
         try:
-            return json.dumps(tool_fns.transfer_funds(
-                run_id, w.id, from_region, to_region, float(amount_usd)))
+            return json.dumps(
+                tool_fns.transfer_funds(
+                    run_id, w.id, from_region, to_region, float(amount_usd)
+                )
+            )
         finally:
             _finish(w, {"from": from_region, "to": to_region})
 
@@ -751,17 +990,30 @@ def _build_workflow_domain_tools(run_id, runner, parent, workflow_id):
             _finish(w, {"type": account_type})
 
     @tool
-    async def post_journal_entry(account_id: str, amount: float, currency: str, period: str) -> str:
+    async def post_journal_entry(
+        account_id: str, amount: float, currency: str, period: str
+    ) -> str:
         """Post a journal entry to the GL for a given period."""
-        denied = await _require_approval(run_id, parent.id, "post_journal_entry",
-                                         {"account_id": account_id, "amount": float(amount),
-                                          "currency": currency, "period": period})
+        denied = await _require_approval(
+            run_id,
+            parent.id,
+            "post_journal_entry",
+            {
+                "account_id": account_id,
+                "amount": float(amount),
+                "currency": currency,
+                "period": period,
+            },
+        )
         if denied:
             return json.dumps(denied)
         w = _worker("close", f"je:{account_id}")
         try:
-            return json.dumps(tool_fns.post_journal_entry(
-                run_id, w.id, account_id, float(amount), currency, period))
+            return json.dumps(
+                tool_fns.post_journal_entry(
+                    run_id, w.id, account_id, float(amount), currency, period
+                )
+            )
         finally:
             _finish(w, {"account_id": account_id})
 
@@ -806,13 +1058,18 @@ def _build_workflow_domain_tools(run_id, runner, parent, workflow_id):
             _finish(w, {"period": period})
 
     @tool
-    def aml_monitor_transaction(vendor_id: str, amount: float, currency: str, channel: str = "wire") -> str:
+    def aml_monitor_transaction(
+        vendor_id: str, amount: float, currency: str, channel: str = "wire"
+    ) -> str:
         """Run AML transaction monitoring. Returns a risk score and, when flagged,
         an alertId to investigate. `channel` is one of wire/ach/cash/card/crypto/check."""
         w = _worker("compliance", f"aml:{vendor_id}")
         try:
-            return json.dumps(tool_fns.aml_monitor_transaction(
-                run_id, w.id, vendor_id, float(amount), currency, channel))
+            return json.dumps(
+                tool_fns.aml_monitor_transaction(
+                    run_id, w.id, vendor_id, float(amount), currency, channel
+                )
+            )
         finally:
             _finish(w, {"vendor_id": vendor_id})
 
@@ -832,8 +1089,9 @@ def _build_workflow_domain_tools(run_id, runner, parent, workflow_id):
         Returns a filingId and the regulator deadline."""
         w = _worker("compliance", f"filing:{filing_type}")
         try:
-            return json.dumps(tool_fns.prepare_regulatory_filing(
-                run_id, w.id, filing_type, alert_id))
+            return json.dumps(
+                tool_fns.prepare_regulatory_filing(run_id, w.id, filing_type, alert_id)
+            )
         finally:
             _finish(w, {"filing_type": filing_type})
 
@@ -843,7 +1101,9 @@ def _build_workflow_domain_tools(run_id, runner, parent, workflow_id):
         from prepare_regulatory_filing. Returns the BSA confirmation number."""
         w = _worker("compliance", f"submit:{filing_id}")
         try:
-            return json.dumps(tool_fns.submit_regulatory_filing(run_id, w.id, filing_id))
+            return json.dumps(
+                tool_fns.submit_regulatory_filing(run_id, w.id, filing_id)
+            )
         finally:
             _finish(w, {"filing_id": filing_id})
 
@@ -852,7 +1112,9 @@ def _build_workflow_domain_tools(run_id, runner, parent, workflow_id):
         """Attest a BSA/AML or internal control. `effectiveness` is 'effective' or 'deficient'."""
         w = _worker("compliance", f"control:{control_id}")
         try:
-            return json.dumps(tool_fns.attest_control(run_id, w.id, control_id, effectiveness))
+            return json.dumps(
+                tool_fns.attest_control(run_id, w.id, control_id, effectiveness)
+            )
         finally:
             _finish(w, {"control_id": control_id})
 
@@ -861,8 +1123,11 @@ def _build_workflow_domain_tools(run_id, runner, parent, workflow_id):
         """Issue a customer invoice."""
         w = _worker("receivables", f"ar-issue:{customer_id}", customer_id=customer_id)
         try:
-            return json.dumps(tool_fns.issue_customer_invoice(
-                run_id, w.id, customer_id, float(amount), currency))
+            return json.dumps(
+                tool_fns.issue_customer_invoice(
+                    run_id, w.id, customer_id, float(amount), currency
+                )
+            )
         finally:
             _finish(w, {"customer_id": customer_id})
 
@@ -872,39 +1137,62 @@ def _build_workflow_domain_tools(run_id, runner, parent, workflow_id):
         Pass invoice_id to record the dunning action against that invoice in Core Billing."""
         w = _worker("receivables", f"ar-dun:{customer_id}", customer_id=customer_id)
         try:
-            return json.dumps(tool_fns.send_dunning_notice(
-                run_id, w.id, customer_id, int(stage), invoice_id or None))
+            return json.dumps(
+                tool_fns.send_dunning_notice(
+                    run_id, w.id, customer_id, int(stage), invoice_id or None
+                )
+            )
         finally:
             _finish(w, {"customer_id": customer_id})
 
     @tool
     def run_dunning_cycle(min_days_past_due: int = 1, customer_id: str = "") -> str:
         """Sweep overdue receivables in Core Billing and escalate dunning by policy."""
-        w = _worker("receivables", f"ar-cycle:{customer_id or 'all'}", customer_id=customer_id or None)
+        w = _worker(
+            "receivables",
+            f"ar-cycle:{customer_id or 'all'}",
+            customer_id=customer_id or None,
+        )
         try:
-            return json.dumps(tool_fns.run_dunning_cycle(
-                run_id, w.id, int(min_days_past_due), customer_id or None))
+            return json.dumps(
+                tool_fns.run_dunning_cycle(
+                    run_id, w.id, int(min_days_past_due), customer_id or None
+                )
+            )
         finally:
             _finish(w, {"customer_id": customer_id})
 
     @tool
-    def send_remittance_advice(vendor_id: str, amount: float, currency: str, reference: str) -> str:
+    def send_remittance_advice(
+        vendor_id: str, amount: float, currency: str, reference: str
+    ) -> str:
         """Email a vendor a remittance advice confirming a payment was sent."""
         w = _worker("payments", f"remit:{reference}")
         try:
-            return json.dumps(tool_fns.send_remittance_advice(
-                run_id, w.id, vendor_id, float(amount), currency, reference))
+            return json.dumps(
+                tool_fns.send_remittance_advice(
+                    run_id, w.id, vendor_id, float(amount), currency, reference
+                )
+            )
         finally:
             _finish(w, {"vendor_id": vendor_id, "reference": reference})
 
     @tool
-    def send_payment_confirmation(payee_id: str, amount: float, currency: str,
-                                  reference: str, channel: str = "email") -> str:
+    def send_payment_confirmation(
+        payee_id: str,
+        amount: float,
+        currency: str,
+        reference: str,
+        channel: str = "email",
+    ) -> str:
         """Notify a payee that their payment was confirmed, by email or SMS."""
         w = _worker("payments", f"payconf:{reference}")
         try:
-            return json.dumps(tool_fns.send_payment_confirmation(
-                run_id, w.id, payee_id, float(amount), currency, reference, channel))
+            return json.dumps(
+                tool_fns.send_payment_confirmation(
+                    run_id, w.id, payee_id, float(amount), currency, reference, channel
+                )
+            )
         finally:
             _finish(w, {"payee_id": payee_id, "reference": reference})
 
@@ -922,8 +1210,9 @@ def _build_workflow_domain_tools(run_id, runner, parent, workflow_id):
         """Apply a received customer payment to an open invoice."""
         w = _worker("receivables", f"ar-apply:{invoice_id}")
         try:
-            return json.dumps(tool_fns.apply_customer_payment(
-                run_id, w.id, invoice_id, float(amount)))
+            return json.dumps(
+                tool_fns.apply_customer_payment(run_id, w.id, invoice_id, float(amount))
+            )
         finally:
             _finish(w, {"invoice_id": invoice_id})
 
@@ -959,17 +1248,26 @@ def _build_workflow_domain_tools(run_id, runner, parent, workflow_id):
         """List a customer's invoices, optionally only those overdue."""
         w = _worker("receivables", f"ar-inv:{customer_id}", customer_id=customer_id)
         try:
-            return json.dumps(tool_fns.list_customer_invoices(run_id, w.id, customer_id, bool(overdue)))
+            return json.dumps(
+                tool_fns.list_customer_invoices(
+                    run_id, w.id, customer_id, bool(overdue)
+                )
+            )
         finally:
             _finish(w, {"customer_id": customer_id})
 
     @tool
-    def record_customer_payment(customer_id: str, amount: float, reference: str = "") -> str:
+    def record_customer_payment(
+        customer_id: str, amount: float, reference: str = ""
+    ) -> str:
         """Record a customer remittance and apply it across open invoices oldest-first."""
         w = _worker("receivables", f"ar-remit:{customer_id}", customer_id=customer_id)
         try:
-            return json.dumps(tool_fns.record_customer_payment(
-                run_id, w.id, customer_id, float(amount), reference or None))
+            return json.dumps(
+                tool_fns.record_customer_payment(
+                    run_id, w.id, customer_id, float(amount), reference or None
+                )
+            )
         finally:
             _finish(w, {"customer_id": customer_id})
 
@@ -978,7 +1276,9 @@ def _build_workflow_domain_tools(run_id, runner, parent, workflow_id):
         """Write off an uncollectible invoice as bad debt."""
         w = _worker("receivables", f"ar-writeoff:{invoice_id}")
         try:
-            return json.dumps(tool_fns.write_off_invoice(run_id, w.id, invoice_id, reason))
+            return json.dumps(
+                tool_fns.write_off_invoice(run_id, w.id, invoice_id, reason)
+            )
         finally:
             _finish(w, {"invoice_id": invoice_id})
 
@@ -1005,7 +1305,11 @@ def _build_workflow_domain_tools(run_id, runner, parent, workflow_id):
         """Raise a purchase requisition for a department."""
         w = _worker("vendor-lifecycle", f"req:{department}")
         try:
-            return json.dumps(tool_fns.create_requisition(run_id, w.id, department, float(amount), description))
+            return json.dumps(
+                tool_fns.create_requisition(
+                    run_id, w.id, department, float(amount), description
+                )
+            )
         finally:
             _finish(w, {"department": department})
 
@@ -1014,20 +1318,28 @@ def _build_workflow_domain_tools(run_id, runner, parent, workflow_id):
         """Approve a pending purchase requisition."""
         w = _worker("vendor-lifecycle", f"req-approve:{requisition_id}")
         try:
-            return json.dumps(tool_fns.approve_requisition(run_id, w.id, requisition_id))
+            return json.dumps(
+                tool_fns.approve_requisition(run_id, w.id, requisition_id)
+            )
         finally:
             _finish(w, {"requisition_id": requisition_id})
 
     @tool
     async def raise_purchase_order(requisition_id: str, vendor_id: str) -> str:
         """Convert an approved requisition into a purchase order against a vendor."""
-        denied = await _require_approval(run_id, parent.id, "raise_purchase_order",
-                                         {"requisition_id": requisition_id, "vendor_id": vendor_id})
+        denied = await _require_approval(
+            run_id,
+            parent.id,
+            "raise_purchase_order",
+            {"requisition_id": requisition_id, "vendor_id": vendor_id},
+        )
         if denied:
             return json.dumps(denied)
         w = _worker("vendor-lifecycle", f"po:{requisition_id}")
         try:
-            return json.dumps(tool_fns.create_purchase_order(run_id, w.id, requisition_id, vendor_id))
+            return json.dumps(
+                tool_fns.create_purchase_order(run_id, w.id, requisition_id, vendor_id)
+            )
         finally:
             _finish(w, {"requisition_id": requisition_id})
 
@@ -1054,7 +1366,11 @@ def _build_workflow_domain_tools(run_id, runner, parent, workflow_id):
         """Reject a requisition that is awaiting approval."""
         w = _worker("vendor-lifecycle", f"req-reject:{requisition_id}")
         try:
-            return json.dumps(tool_fns.reject_requisition(run_id, w.id, requisition_id, reason or None))
+            return json.dumps(
+                tool_fns.reject_requisition(
+                    run_id, w.id, requisition_id, reason or None
+                )
+            )
         finally:
             _finish(w, {"requisition_id": requisition_id})
 
@@ -1108,7 +1424,9 @@ def _build_workflow_domain_tools(run_id, runner, parent, workflow_id):
         """Advance a CRM deal to a new pipeline stage (prospect, qualified, proposal, negotiation, won, lost)."""
         w = _worker("vendor-lifecycle", f"crm-deal-stage:{deal_id}")
         try:
-            return json.dumps(tool_fns.advance_supplier_deal(run_id, w.id, deal_id, stage))
+            return json.dumps(
+                tool_fns.advance_supplier_deal(run_id, w.id, deal_id, stage)
+            )
         finally:
             _finish(w, {"deal_id": deal_id})
 
@@ -1117,7 +1435,9 @@ def _build_workflow_domain_tools(run_id, runner, parent, workflow_id):
         """Record a supplier interaction (call, email, meeting, note, task) against a CRM contact."""
         w = _worker("vendor-lifecycle", f"crm-log:{contact_id}")
         try:
-            return json.dumps(tool_fns.log_supplier_activity(run_id, w.id, contact_id, activity_type))
+            return json.dumps(
+                tool_fns.log_supplier_activity(run_id, w.id, contact_id, activity_type)
+            )
         finally:
             _finish(w, {"contact_id": contact_id})
 
@@ -1126,7 +1446,9 @@ def _build_workflow_domain_tools(run_id, runner, parent, workflow_id):
         """Attach a free-text note to a CRM contact for the relationship record."""
         w = _worker("vendor-lifecycle", f"crm-note:{contact_id}")
         try:
-            return json.dumps(tool_fns.add_supplier_note(run_id, w.id, contact_id, body))
+            return json.dumps(
+                tool_fns.add_supplier_note(run_id, w.id, contact_id, body)
+            )
         finally:
             _finish(w, {"contact_id": contact_id})
 
@@ -1177,38 +1499,89 @@ def _build_workflow_domain_tools(run_id, runner, parent, workflow_id):
             _finish(w, record)
 
     return [
-        kyb_screen_vendor, register_vendor, refresh_vendor_compliance, get_contract_terms_for_vendor,
-        get_vendor_onboarding_status, advance_vendor_onboarding, verify_vendor_banking,
-        get_cash_position, get_treasury_summary, forecast_liquidity, get_fx_exposure,
-        place_fx_hedge, transfer_funds,
-        post_journal_entry, list_ledger_accounts, reconcile_account, compute_accrual,
-        get_trial_balance, close_period,
-        aml_monitor_transaction, sanctions_screen_batch, prepare_regulatory_filing,
-        submit_regulatory_filing, attest_control,
-        issue_customer_invoice, send_dunning_notice, run_dunning_cycle,
-        apply_customer_payment, record_customer_payment, get_ar_aging, get_ar_summary,
-        get_customer_account, list_customer_invoices, write_off_invoice, open_collection_case,
-        send_remittance_advice, send_payment_confirmation, track_message_delivery,
-        get_department_budget, raise_requisition, approve_requisition, raise_purchase_order,
-        list_procurement_suppliers, get_requisition_approvals, reject_requisition,
+        kyb_screen_vendor,
+        register_vendor,
+        refresh_vendor_compliance,
+        get_contract_terms_for_vendor,
+        get_vendor_onboarding_status,
+        advance_vendor_onboarding,
+        verify_vendor_banking,
+        get_cash_position,
+        get_treasury_summary,
+        forecast_liquidity,
+        get_fx_exposure,
+        place_fx_hedge,
+        transfer_funds,
+        post_journal_entry,
+        list_ledger_accounts,
+        reconcile_account,
+        compute_accrual,
+        get_trial_balance,
+        close_period,
+        aml_monitor_transaction,
+        sanctions_screen_batch,
+        prepare_regulatory_filing,
+        submit_regulatory_filing,
+        attest_control,
+        issue_customer_invoice,
+        send_dunning_notice,
+        run_dunning_cycle,
+        apply_customer_payment,
+        record_customer_payment,
+        get_ar_aging,
+        get_ar_summary,
+        get_customer_account,
+        list_customer_invoices,
+        write_off_invoice,
+        open_collection_case,
+        send_remittance_advice,
+        send_payment_confirmation,
+        track_message_delivery,
+        get_department_budget,
+        raise_requisition,
+        approve_requisition,
+        raise_purchase_order,
+        list_procurement_suppliers,
+        get_requisition_approvals,
+        reject_requisition,
         receive_purchase_order,
-        get_supplier_contact, get_supplier_account, list_supplier_contacts,
-        list_supplier_deals, advance_supplier_deal, log_supplier_activity,
-        add_supplier_note, list_approver_groups,
-        resolve_approver_chain, check_user_access,
+        get_supplier_contact,
+        get_supplier_account,
+        list_supplier_contacts,
+        list_supplier_deals,
+        advance_supplier_deal,
+        log_supplier_activity,
+        add_supplier_note,
+        list_approver_groups,
+        resolve_approver_chain,
+        check_user_access,
         record_audit,
     ]
 
 
-async def _run_workflow_orchestrator(run_id, runner, parent, memory_store, plans, files, board,
-                                     parent_summary, workflow_id, label, focus,
-                                     model_name, summarizer_model):
+async def _run_workflow_orchestrator(
+    run_id,
+    runner,
+    parent,
+    memory_store,
+    plans,
+    files,
+    board,
+    parent_summary,
+    workflow_id,
+    label,
+    focus,
+    model_name,
+    summarizer_model,
+):
     cfg = get_config()
 
-
     wo = await runner.aspawn(
-        role="workflow-orchestrator", scope=f"workflow:{workflow_id}",
-        parent=parent, layer="workflow-orchestrator", region=None,
+        role="workflow-orchestrator",
+        scope=f"workflow:{workflow_id}",
+        parent=parent,
+        layer="workflow-orchestrator",
+        region=None,
     )
     wo.start()
 
@@ -1216,8 +1589,16 @@ async def _run_workflow_orchestrator(run_id, runner, parent, memory_store, plans
     stage_state = {"current": None}
     try:
         tools = [
-            *_build_agent_builtins(run_id, wo.id, plans, files, board, region=None,
-                                    stage_state=stage_state, worker_pool=pool),
+            *_build_agent_builtins(
+                run_id,
+                wo.id,
+                plans,
+                files,
+                board,
+                region=None,
+                stage_state=stage_state,
+                worker_pool=pool,
+            ),
             *_build_workflow_domain_tools(run_id, runner, wo, workflow_id),
         ]
         tool_map = {t.name: t for t in tools}
@@ -1227,24 +1608,41 @@ async def _run_workflow_orchestrator(run_id, runner, parent, memory_store, plans
         summarizer = _make_llm(summarizer_model, 0.0)
 
         system_prompt = cfg.prompts.workflowOrchestrator.format(
-            label=label, focus=focus or "complete the operational task end-to-end",
+            label=label,
+            focus=focus or "complete the operational task end-to-end",
         )
         mem = memory_store.open(
             agent_id=wo.id,
             system=SystemMessage(content=system_prompt),
             seed_summary=parent_summary,
         )
-        mem.append(HumanMessage(content=(
-            f"Begin now. Your first turn MUST be a write_todos call "
-            f"listing your specific planned steps for focus={focus!r}."
-        )))
+        mem.append(
+            HumanMessage(
+                content=(
+                    f"Begin now. Your first turn MUST be a write_todos call "
+                    f"listing your specific planned steps for focus={focus!r}."
+                )
+            )
+        )
         _emit_memory_snapshot(run_id, mem)
 
         tool_calls = await _drive_stages(
-            run_id=run_id, agent=wo, model_name=model_name,
-            llm_with_tools=llm_with_tools, summarizer=summarizer,
-            mem=mem, tool_map=tool_map,
+            run_id=run_id,
+            agent=wo,
+            model_name=model_name,
+            llm_with_tools=llm_with_tools,
+            summarizer=summarizer,
+            mem=mem,
+            tool_map=tool_map,
         )
+    except (RunCancelled, asyncio.CancelledError):
+        if not wo._terminated:
+            wo.terminate("cancelled")
+        raise
+    except Exception:
+        if not wo._terminated:
+            wo.terminate("failed")
+        raise
     finally:
         pool.drain("cancelled")
 
@@ -1254,9 +1652,20 @@ async def _run_workflow_orchestrator(run_id, runner, parent, memory_store, plans
     return result
 
 
-def _build_fc_domain_tools(run_id, runner, fc, memory_store, plans, files, board, model_name,
-                            summarizer_model, dispatched_regions: list[str],
-                            dispatched_workflows: list[str], jobs: JobRegistry):
+def _build_fc_domain_tools(
+    run_id,
+    runner,
+    fc,
+    memory_store,
+    plans,
+    files,
+    board,
+    model_name,
+    summarizer_model,
+    dispatched_regions: list[str],
+    dispatched_workflows: list[str],
+    jobs: JobRegistry,
+):
     cfg = get_config()
     workflow_map = {w.id: w for w in cfg.workflows}
 
@@ -1275,8 +1684,18 @@ def _build_fc_domain_tools(run_id, runner, fc, memory_store, plans, files, board
             f"Finance Control dispatched region {r} with focus: {focus or '(none)'}."
         )
         coro = _run_regional_orchestrator(
-            run_id, runner, fc, memory_store, plans, files, board,
-            parent_summary, r, focus or "", model_name, summarizer_model,
+            run_id,
+            runner,
+            fc,
+            memory_store,
+            plans,
+            files,
+            board,
+            parent_summary,
+            r,
+            focus or "",
+            model_name,
+            summarizer_model,
         )
         try:
             job_id = jobs.start(coro, kind="region", target=r)
@@ -1302,9 +1721,19 @@ def _build_fc_domain_tools(run_id, runner, fc, memory_store, plans, files, board
             f"Finance Control dispatched workflow {wf.id} with focus: {focus or wf.focus}."
         )
         coro = _run_workflow_orchestrator(
-            run_id, runner, fc, memory_store, plans, files, board,
-            parent_summary, wf.id, wf.label, focus or wf.focus,
-            model_name, summarizer_model,
+            run_id,
+            runner,
+            fc,
+            memory_store,
+            plans,
+            files,
+            board,
+            parent_summary,
+            wf.id,
+            wf.label,
+            focus or wf.focus,
+            model_name,
+            summarizer_model,
         )
         try:
             job_id = jobs.start(coro, kind="workflow", target=wf.id)
@@ -1324,11 +1753,22 @@ def _build_fc_domain_tools(run_id, runner, fc, memory_store, plans, files, board
         results = await jobs.await_many(list(job_ids), float(timeout_s))
         for r in results:
             if r["status"] in ("completed", "failed"):
-                payload = r.get("result") if r["status"] == "completed" else {"error": r.get("error")}
-                bus.publish(ev.job_completed(
-                    run_id, fc.id, r["job_id"], r["status"], payload or {},
-                    kind=r.get("kind", ""), target=r.get("target", ""),
-                ))
+                payload = (
+                    r.get("result")
+                    if r["status"] == "completed"
+                    else {"error": r.get("error")}
+                )
+                bus.publish(
+                    ev.job_completed(
+                        run_id,
+                        fc.id,
+                        r["job_id"],
+                        r["status"],
+                        payload or {},
+                        kind=r.get("kind", ""),
+                        target=r.get("target", ""),
+                    )
+                )
         return json.dumps(results)
 
     return [dispatch_region, dispatch_workflow, await_jobs]
@@ -1341,7 +1781,9 @@ async def run_swarm(run_id: str, prompt: str) -> None:
     cancellation.register(run_id)
     bus.publish(ev.run_start(run_id, prompt))
     bus.publish(ev.chat_user(run_id, prompt))
-    log.info("run_swarm start run_id=%s model=%s prompt=%r", run_id, model_name, prompt[:120])
+    log.info(
+        "run_swarm start run_id=%s model=%s prompt=%r", run_id, model_name, prompt[:120]
+    )
 
     runner = create_runner(run_id)
     memory_store = RunMemoryStore(run_id, model_name)
@@ -1351,8 +1793,11 @@ async def run_swarm(run_id: str, prompt: str) -> None:
     jobs = JobRegistry(run_id)
 
     fc = await runner.aspawn(
-        role="finance-control", scope="global", parent=None,
-        layer="finance-control", region=None,
+        role="finance-control",
+        scope="global",
+        parent=None,
+        layer="finance-control",
+        region=None,
     )
     fc.start()
 
@@ -1361,10 +1806,29 @@ async def run_swarm(run_id: str, prompt: str) -> None:
     dispatched_regions: list[str] = []
     dispatched_workflows: list[str] = []
     tools = [
-        *_build_agent_builtins(run_id, fc.id, plans, files, board,
-                                stage_state=stage_state, worker_pool=pool),
-        *_build_fc_domain_tools(run_id, runner, fc, memory_store, plans, files, board, model_name,
-                                 summarizer_model, dispatched_regions, dispatched_workflows, jobs),
+        *_build_agent_builtins(
+            run_id,
+            fc.id,
+            plans,
+            files,
+            board,
+            stage_state=stage_state,
+            worker_pool=pool,
+        ),
+        *_build_fc_domain_tools(
+            run_id,
+            runner,
+            fc,
+            memory_store,
+            plans,
+            files,
+            board,
+            model_name,
+            summarizer_model,
+            dispatched_regions,
+            dispatched_workflows,
+            jobs,
+        ),
     ]
     tool_map = {t.name: t for t in tools}
     llm = _make_llm(model_name, cfg.llm.temperature)
@@ -1376,7 +1840,11 @@ async def run_swarm(run_id: str, prompt: str) -> None:
 
     mem = memory_store.open(fc.id, SystemMessage(content=cfg.prompts.financeControl))
     if ctx:
-        mem.append(SystemMessage(content=f"[Session context: prior runs and conversation]\n{ctx}"))
+        mem.append(
+            SystemMessage(
+                content=f"[Session context: prior runs and conversation]\n{ctx}"
+            )
+        )
     mem.append(HumanMessage(content=prompt))
     _emit_memory_snapshot(run_id, mem)
 
@@ -1384,18 +1852,33 @@ async def run_swarm(run_id: str, prompt: str) -> None:
     run_status = "completed"
     try:
         await _drive_stages(
-            run_id=run_id, agent=fc, model_name=model_name,
-            llm_with_tools=llm_with_tools, summarizer=summarizer,
-            mem=mem, tool_map=tool_map,
+            run_id=run_id,
+            agent=fc,
+            model_name=model_name,
+            llm_with_tools=llm_with_tools,
+            summarizer=summarizer,
+            mem=mem,
+            tool_map=tool_map,
         )
         drained = await jobs.drain(timeout_s=180.0)
         for r in drained:
             if r["status"] in ("completed", "failed"):
-                payload = r.get("result") if r["status"] == "completed" else {"error": r.get("error")}
-                bus.publish(ev.job_completed(
-                    run_id, fc.id, r["job_id"], r["status"], payload or {},
-                    kind=r.get("kind", ""), target=r.get("target", ""),
-                ))
+                payload = (
+                    r.get("result")
+                    if r["status"] == "completed"
+                    else {"error": r.get("error")}
+                )
+                bus.publish(
+                    ev.job_completed(
+                        run_id,
+                        fc.id,
+                        r["job_id"],
+                        r["status"],
+                        payload or {},
+                        kind=r.get("kind", ""),
+                        target=r.get("target", ""),
+                    )
+                )
         await jobs.cancel_pending()
         pool.drain("completed")
         fc.end({"status": "completed"})
@@ -1428,15 +1911,21 @@ async def run_swarm(run_id: str, prompt: str) -> None:
         # Retire every Caracal session the run opened (workers, orchestrators, roots).
         await runner.aclose()
         last_ai = next(
-            (m for m in reversed(mem.messages) if isinstance(m, AIMessage) and m.content),
+            (
+                m
+                for m in reversed(mem.messages)
+                if isinstance(m, AIMessage) and m.content
+            ),
             None,
         )
         if last_ai:
             session_memory.add_assistant(str(last_ai.content), run_id)
-        session_memory.record_run(RunRecord(
-            run_id=run_id,
-            prompt=prompt,
-            status=run_status,
-            regions=list(dispatched_regions),
-            errors=run_errors,
-        ))
+        session_memory.record_run(
+            RunRecord(
+                run_id=run_id,
+                prompt=prompt,
+                status=run_status,
+                regions=list(dispatched_regions),
+                errors=run_errors,
+            )
+        )
