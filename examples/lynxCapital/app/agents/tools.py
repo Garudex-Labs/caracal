@@ -8,9 +8,9 @@ from __future__ import annotations
 
 from typing import Callable
 
+from app.agents.runner import get_runner
 from app.events import types as ev
 from app.events.bus import bus
-from app.services.partners import PartnerPendingCaracal
 from app.services.partners import call as _partner
 
 _REGION_CCY = {"US": "USD", "IN": "USD", "DE": "EUR", "SG": "SGD", "BR": "BRL", "GLOBAL": "USD"}
@@ -21,17 +21,20 @@ def _ccy(region: str) -> str:
     return _REGION_CCY.get(region, "USD")
 
 
+def _authority(run_id: str, agent_id: str):
+    """The calling agent's Caracal authority, resolved from the run's registry."""
+    runner = get_runner(run_id)
+    handle = runner.handle(agent_id) if runner else None
+    return handle.authority if handle else None
+
+
 def _run(run_id: str, agent_id: str, tool_name: str, provider_id: str,
          operation: str, payload: dict) -> dict[str, object]:
-    """Emit the tool/service event pairs and execute one provider operation."""
+    """Emit the tool/service event pairs and execute one provider operation under the
+    calling agent's authority."""
     bus.publish(ev.tool_call(run_id, agent_id, tool_name, payload))
     bus.publish(ev.service_call(run_id, agent_id, provider_id, operation, payload))
-    try:
-        result = _partner(provider_id, operation, payload)
-    except PartnerPendingCaracal:
-        result = {"provider": provider_id, "operation": operation,
-                  "status": "pending_caracal_integration",
-                  "message": "provider activates in the Caracal SDK integration phase"}
+    result = _partner(provider_id, operation, payload, authority=_authority(run_id, agent_id))
     bus.publish(ev.service_result(run_id, agent_id, provider_id, operation, result))
     bus.publish(ev.tool_result(run_id, agent_id, tool_name, result))
     return result
@@ -841,12 +844,7 @@ def partner_operation(run_id: str, agent_id: str, provider_id: str, operation: s
     args = {"provider_id": provider_id, "operation": operation, "payload": payload or {}}
     bus.publish(ev.tool_call(run_id, agent_id, "partner_operation", args))
     bus.publish(ev.service_call(run_id, agent_id, provider_id, operation, args["payload"]))
-    try:
-        result = _partner(provider_id, operation, payload or {})
-    except PartnerPendingCaracal:
-        result = {"provider": provider_id, "operation": operation,
-                  "status": "pending_caracal_integration",
-                  "message": "provider activates in the Caracal SDK integration phase"}
+    result = _partner(provider_id, operation, payload or {}, authority=_authority(run_id, agent_id))
     bus.publish(ev.service_result(run_id, agent_id, provider_id, operation, result))
     bus.publish(ev.tool_result(run_id, agent_id, "partner_operation", result))
     return result

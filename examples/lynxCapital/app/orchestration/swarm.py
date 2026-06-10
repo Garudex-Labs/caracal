@@ -12,7 +12,6 @@ import logging
 import os
 import time
 import weakref
-from contextlib import AsyncExitStack
 from uuid import uuid4
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
@@ -274,7 +273,10 @@ def _build_agent_builtins(run_id: str, agent_id: str, plans: RunPlanStore, files
             """Spawn a long-lived worker that stays alive across multiple tool
             calls. Returns the worker_id; use release_worker(worker_id, summary)
             when the delegated task is done."""
-            w = worker_pool.acquire(role, scope)
+            try:
+                w = worker_pool.acquire(role, scope)
+            except (ValueError, RuntimeError, KeyError) as exc:
+                return json.dumps({"error": str(exc), "role": role})
             return json.dumps({"worker_id": w.id, "role": role, "scope": scope})
 
         @tool
@@ -296,6 +298,11 @@ def _build_regional_domain_tools(run_id, runner, parent, region):
 
     def _worker(role: str, scope: str) -> AgentHandle:
         w = runner.spawn(role=role, scope=scope, parent=parent, layer=role, region=region)
+        w.start()
+        return w
+
+    async def _aworker(role: str, scope: str) -> AgentHandle:
+        w = await runner.aspawn(role=role, scope=scope, parent=parent, layer=role, region=region)
         w.start()
         return w
 
@@ -393,9 +400,12 @@ def _build_regional_domain_tools(run_id, runner, parent, region):
                                           "currency": currency, "rail": rail, "reference": reference})
         if denied:
             return json.dumps(denied)
-        w = _worker("payment-execution", f"payment:{reference}")
+        w = await _aworker("payment-execution", f"payment:{reference}")
         try:
-            return json.dumps(tool_fns.submit_payment(run_id, w.id, vendor_id, float(amount), currency, rail, reference))
+            result = await asyncio.to_thread(
+                tool_fns.submit_payment, run_id, w.id, vendor_id, float(amount), currency, rail, reference,
+            )
+            return json.dumps(result)
         finally:
             _finish(w, {"reference": reference})
 
@@ -419,9 +429,9 @@ def _build_regional_domain_tools(run_id, runner, parent, region):
         vela-notify (transactional email/SMS, templates, delivery tracking, suppressions, webhooks), cordoba-fx (fx quotes/conversions/settlement payments), ironbark-erp/tallyhall-books (vendors/bills),
         beacon-crm (CRM accounts/contacts/deal pipeline/activities), core-billing (internal AR: customers/invoices/payments/dunning/collections/aging), lumen-identity (directory),
         atlas-vendor (vendor MDM/onboarding/verification/compliance/contracts over MCP),
-        sabre-tax, pulse-market (market data: instruments, quotes, OHLC bars, end-of-day reference fixings, streaming subscriptions), junction-procure (procure-to-pay: suppliers, commodity catalog, cost-center budgets, tiered requisition approvals, purchase orders, goods receipts).
-        relay-automation, aegis-screening, and verafin-monitor require a Caracal mandate and are
-        gated until the Caracal SDK phase (calls return status 'pending_caracal_integration').
+        sabre-tax, pulse-market (market data: instruments, quotes, OHLC bars, end-of-day reference fixings, streaming subscriptions), junction-procure (procure-to-pay: suppliers, commodity catalog, cost-center budgets, tiered requisition approvals, purchase orders, goods receipts),
+        relay-automation, aegis-screening, and verafin-monitor.
+        Every call routes through the Caracal Gateway under the worker's own narrowed mandate.
         `payload_json` is a JSON object string of operation arguments. Spawns a partner-integration worker.
         """
         try:
@@ -537,7 +547,7 @@ async def _run_regional_orchestrator(run_id, runner, parent, memory_store, plans
         raise ValueError(f"Unknown region {region!r}")
 
 
-    ro = runner.spawn(
+    ro = await runner.aspawn(
         role="regional-orchestrator", scope=f"region:{region}",
         parent=parent, layer="regional-orchestrator", region=region,
     )
@@ -1195,7 +1205,7 @@ async def _run_workflow_orchestrator(run_id, runner, parent, memory_store, plans
     cfg = get_config()
 
 
-    wo = runner.spawn(
+    wo = await runner.aspawn(
         role="workflow-orchestrator", scope=f"workflow:{workflow_id}",
         parent=parent, layer="workflow-orchestrator", region=None,
     )
@@ -1332,15 +1342,6 @@ async def run_swarm(run_id: str, prompt: str) -> None:
     bus.publish(ev.chat_user(run_id, prompt))
     log.info("run_swarm start run_id=%s model=%s prompt=%r", run_id, model_name, prompt[:120])
 
-    from app import caracal
-    # Open a delegated agent context for the whole run so every upstream gateway
-    # call carries a scoped, non-root Caracal mandate; no-op when unconfigured.
-    caracal_scope = AsyncExitStack()
-    _run_spawn = caracal.spawn(metadata={"run_id": run_id})
-    if _run_spawn is not None:
-        # Enter the spawned context manager; binds the agent identity to this task.
-        await caracal_scope.enter_async_context(_run_spawn)
-
     runner = create_runner(run_id)
     memory_store = RunMemoryStore(run_id, model_name)
     plans = RunPlanStore(run_id)
@@ -1348,7 +1349,7 @@ async def run_swarm(run_id: str, prompt: str) -> None:
     board = RunBlackboard(run_id)
     jobs = JobRegistry(run_id)
 
-    fc = runner.spawn(
+    fc = await runner.aspawn(
         role="finance-control", scope="global", parent=None,
         layer="finance-control", region=None,
     )
@@ -1420,8 +1421,8 @@ async def run_swarm(run_id: str, prompt: str) -> None:
         bus.publish(ev.run_end(run_id, "failed"))
     finally:
         cancellation.clear(run_id)
-        # Close the run's delegated Caracal context (releases the spawned agent).
-        await caracal_scope.aclose()
+        # Retire every Caracal session the run opened (workers, orchestrators, roots).
+        await runner.aclose()
         last_ai = next(
             (m for m in reversed(mem.messages) if isinstance(m, AIMessage) and m.content),
             None,

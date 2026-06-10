@@ -11,7 +11,8 @@ import os
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
-from app.services import partners, setup_catalog
+from app import caracal, tenancy
+from app.services import setup_catalog
 
 router = APIRouter()
 
@@ -22,49 +23,59 @@ def _step(step_id: str, label: str, status: str, detail: str) -> dict:
 
 @router.get("/validate")
 async def validate_setup():
+    model = tenancy.load_model()
     steps: list[dict] = []
 
-    zone = os.environ.get("CARACAL_ZONE_ID")
-    application = os.environ.get("CARACAL_APPLICATION_ID")
-    identity_ok = bool(zone and application)
+    zone_ok = bool(os.environ.get("CARACAL_ZONE_ID"))
     steps.append(_step(
         "identity",
-        "Required identifiers",
-        "passed" if identity_ok else "missing",
-        "Zone and application are set." if identity_ok else "Add the zone and application from the Caracal console.",
+        "Zone",
+        "passed" if zone_ok else "missing",
+        "The zone is set." if zone_ok else "Add CARACAL_ZONE_ID from the Caracal Console.",
     ))
 
-    auth_ok = bool(os.environ.get("CARACAL_APP_CLIENT_SECRET") or os.environ.get("CARACAL_SUBJECT_TOKEN"))
-    steps.append(_step(
-        "auth",
-        "Application access",
-        "passed" if auth_ok else "missing",
-        "Application authority is configured." if auth_ok else "Add the application secret issued by the Caracal console.",
-    ))
-
-    resources = setup_catalog.resource_bindings()
-    external_ids = [spec.id for spec in partners.catalog().values() if spec.auth != "none"]
-    mapped = [provider_id for provider_id in external_ids if provider_id in resources]
-    if external_ids and len(mapped) == len(external_ids):
-        mapping_status = "passed"
-        mapping_detail = f"All {len(external_ids)} providers map to a Caracal resource."
-    elif mapped:
-        mapping_status = "warning"
-        mapping_detail = f"{len(mapped)} of {len(external_ids)} providers mapped. Map the rest from the Providers step."
+    credentialed = [
+        app.id for app in model.applications
+        if caracal.application_credentials(app.id) == (True, True)
+    ]
+    if len(credentialed) == len(model.applications):
+        app_status = "passed"
+        app_detail = f"All {len(model.applications)} application boundaries have an id and secret."
+    elif credentialed:
+        app_status = "warning"
+        app_detail = (
+            f"{len(credentialed)} of {len(model.applications)} applications configured. "
+            "Export the LYNX_CARACAL_<APP>_APPLICATION_ID and _CLIENT_SECRET values printed by provision.py."
+        )
     else:
-        mapping_status = "missing"
-        mapping_detail = "Map providers to Caracal resources from the Providers step."
-    steps.append(_step("mapping", "Caracal mapping", mapping_status, mapping_detail))
+        app_status = "missing"
+        app_detail = "Run scripts/provision.py and export the printed application credentials."
+    steps.append(_step("applications", "Application boundaries", app_status, app_detail))
 
-    if not external_ids:
-        provider_status, provider_detail = "passed", "No external providers require credentials."
-    elif len(mapped) == len(external_ids):
-        provider_status, provider_detail = "passed", "Provider setup is complete."
-    elif mapped:
-        provider_status, provider_detail = "warning", f"{len(external_ids) - len(mapped)} providers still need setup."
+    provisioned_providers, provisioned_resources = setup_catalog.provisioned_state()
+    providers_ready = sum(1 for p in model.providers if p.identifier in provisioned_providers)
+    if providers_ready == len(model.providers):
+        provider_status = "passed"
+        provider_detail = f"All {len(model.providers)} credential providers are registered."
+    elif providers_ready:
+        provider_status = "warning"
+        provider_detail = f"{providers_ready} of {len(model.providers)} providers registered. Re-run scripts/provision.py."
     else:
-        provider_status, provider_detail = "missing", "Configure providers manually or with the automated script."
-    steps.append(_step("providers", "Provider setup", provider_status, provider_detail))
+        provider_status = "missing"
+        provider_detail = "Register the partner credential providers with scripts/provision.py."
+    steps.append(_step("providers", "Credential providers", provider_status, provider_detail))
+
+    views_ready = sum(1 for r in model.resources if r.identifier in provisioned_resources)
+    if views_ready == len(model.resources):
+        view_status = "passed"
+        view_detail = f"All {len(model.resources)} resource views are bound to their applications."
+    elif views_ready:
+        view_status = "warning"
+        view_detail = f"{views_ready} of {len(model.resources)} resource views created. Re-run scripts/provision.py."
+    else:
+        view_status = "missing"
+        view_detail = "Create the per-application resource views with scripts/provision.py."
+    steps.append(_step("resources", "Resource views", view_status, view_detail))
 
     overall = not any(step["status"] == "missing" for step in steps)
     return JSONResponse({"ok": overall, "steps": steps})
