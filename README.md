@@ -36,46 +36,46 @@ Read the full documentation at [docs.caracal.run](https://docs.caracal.run).
 ## Community
 
 <div align="center">
-<table>
-<tr>
-<td align="center">
-<a href="https://www.youtube.com/live/tZ4FdO-zjeE" target="_blank" rel="noopener">
-<img src="https://img.youtube.com/vi/tZ4FdO-zjeE/hqdefault.jpg" alt="Open Source Friday: Preview" height="180"><br>
-<strong>GitHub's Open Source Friday</strong>
-</a>
-</td>
-<td align="center">
-<div style="width:320px;height:180px;display:flex;align-items:center;justify-content:center;border-radius:6px;border:1px solid #ddd;background:#f8f8f8;font-weight:600">
-More coming soon
-</div>
-</td>
-</tr>
-</table>
-
-<br>
-
-<table>
-<tr>
-<td align="center" width="50%">
-<a href="https://mentorship.lfx.linuxfoundation.org/project/9cfe285b-7006-4610-84a8-1a52b0dff662" target="_blank" rel="noopener">
-<img src="public/programs/lfx-mentorship.png" alt="LFX Mentorship 2026" width="90" />
-</a>
-</td>
-<td align="center" width="50%">
-<a href="https://www.microsoft.com/startups" target="_blank" rel="noopener">
-<img src="public/programs/microsoftStartup.png" alt="Microsoft for Startups" width="170" />
-</a>
-</td>
-</tr>
-<tr>
-<td align="center" width="50%">
-This project is part of the <a href="https://mentorship.lfx.linuxfoundation.org/project/9cfe285b-7006-4610-84a8-1a52b0dff662" target="_blank" rel="noopener">LFX Mentorship 2026</a> program under the <a href="https://www.lfdecentralizedtrust.org" target="_blank" rel="noopener">LF Decentralized Trust</a>.
-</td>
-<td align="center" width="50%">
-This project is part of the <a href="https://www.microsoft.com/en-us/startups" target="_blank" rel="noopener">Microsoft for Startups</a> program.
-</td>
-</tr>
-</table>
+  <table width="100%">
+    <tr>
+      <td align="center" valign="top" width="25%">
+        <a href="https://www.youtube.com/live/tZ4FdO-zjeE" target="_blank" rel="noopener">
+          <div style="width:220px;height:180px;display:flex;flex-direction:column;align-items:center;justify-content:space-between;border-radius:6px;border:1px solid #ddd;background:#fff;padding:12px;box-sizing:border-box">
+            <div style="height:120px;display:flex;align-items:center;justify-content:center">
+              <img src="https://img.youtube.com/vi/tZ4FdO-zjeE/hqdefault.jpg" alt="GitHub Open Source Friday preview" width="196">
+            </div>
+            <strong>GitHub's Open Source Friday</strong>
+          </div>
+        </a>
+      </td>
+      <td align="center" valign="top" width="25%">
+        <a href="https://mentorship.lfx.linuxfoundation.org/project/9cfe285b-7006-4610-84a8-1a52b0dff662" target="_blank" rel="noopener">
+          <div style="width:220px;height:180px;display:flex;flex-direction:column;align-items:center;justify-content:space-between;border-radius:6px;border:1px solid #ddd;background:#fff;padding:12px;box-sizing:border-box">
+            <div style="height:120px;display:flex;align-items:center;justify-content:center">
+              <img src="public/programs/lfx-mentorship.png" alt="LFX Mentorship 2026" width="90" />
+            </div>
+            <strong>LFX Mentorship 2026</strong>
+          </div>
+        </a>
+      </td>
+      <td align="center" valign="top" width="25%">
+        <a href="https://www.microsoft.com/startups" target="_blank" rel="noopener">
+          <div style="width:220px;height:180px;display:flex;flex-direction:column;align-items:center;justify-content:space-between;border-radius:6px;border:1px solid #ddd;background:#fff;padding:12px;box-sizing:border-box">
+            <div style="height:120px;display:flex;align-items:center;justify-content:center">
+              <img src="public/programs/microsoftStartup.png" alt="Microsoft for Startups" width="170" />
+            </div>
+            <strong>Microsoft for Startups</strong>
+          </div>
+        </a>
+      </td>
+      <td align="center" valign="top" width="25%">
+        <div style="width:220px;height:180px;display:flex;flex-direction:column;align-items:center;justify-content:space-between;border-radius:6px;border:1px solid #ddd;background:#f8f8f8;padding:12px;box-sizing:border-box">
+          <div style="height:120px"></div>
+          <strong>Coming soon</strong>
+        </div>
+      </td>
+    </tr>
+  </table>
 </div>
 
 -----
