@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 Verafin Monitor domain: transaction monitoring, alert investigation, BSA/AML regulatory filing, and control attestation under delegated Caracal mandates.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -88,7 +89,9 @@ def _delegation(ctx: Ctx) -> dict:
 # --------------------------------------------------------------------------- #
 # tamper-evident audit trail (hash-chained per subject, bound to delegation)
 # --------------------------------------------------------------------------- #
-def _audit(state: base.State, subject: dict, kind: str, ctx: Ctx, details: dict) -> dict:
+def _audit(
+    state: base.State, subject: dict, kind: str, ctx: Ctx, details: dict
+) -> dict:
     trail = subject.setdefault("auditTrail", [])
     prev = trail[-1]["hash"] if trail else "genesis"
     actor = _actor(ctx)
@@ -97,11 +100,18 @@ def _audit(state: base.State, subject: dict, kind: str, ctx: Ctx, details: dict)
     event_id = base.new_id("evt")
     edge = delegation.get("delegationEdgeId") or "none"
     digest = hashlib.sha256(
-        f"{subject['_auditKey']}|{kind}|{actor}|{edge}|{at}|{prev}".encode()).hexdigest()[:16]
+        f"{subject['_auditKey']}|{kind}|{actor}|{edge}|{at}|{prev}".encode()
+    ).hexdigest()[:16]
     event = {
-        "eventId": event_id, "subjectId": subject["_auditKey"], "type": kind,
-        "actor": actor, "delegation": delegation, "at": at, "details": details,
-        "prevHash": prev, "hash": digest,
+        "eventId": event_id,
+        "subjectId": subject["_auditKey"],
+        "type": kind,
+        "actor": actor,
+        "delegation": delegation,
+        "at": at,
+        "details": details,
+        "prevHash": prev,
+        "hash": digest,
     }
     trail.append(event)
     state.table("audit_events")[event_id] = event
@@ -114,8 +124,8 @@ def _audit_intact(subject_key: str, events: list[dict]) -> bool:
     for event in events:
         edge = (event.get("delegation") or {}).get("delegationEdgeId") or "none"
         digest = hashlib.sha256(
-            f"{subject_key}|{event['type']}|{event['actor']}|{edge}|{event['at']}|{prev}"
-            .encode()).hexdigest()[:16]
+            f"{subject_key}|{event['type']}|{event['actor']}|{edge}|{event['at']}|{prev}".encode()
+        ).hexdigest()[:16]
         if event.get("prevHash") != prev or event.get("hash") != digest:
             return False
         prev = event["hash"]
@@ -137,34 +147,78 @@ def _score_transaction(state: base.State, txn: dict) -> tuple[int, list[dict]]:
 
     ctr = meta["ctrThreshold"]
     if 0.85 * ctr <= amount < ctr and txn.get("channel") in ("cash", "wire", "ach"):
-        signals.append({"typology": "structuring", "weight": 38,
-                        "detail": f"amount {amount:.0f} sits just below the ${ctr:,} CTR threshold"})
+        signals.append(
+            {
+                "typology": "structuring",
+                "weight": 38,
+                "detail": f"amount {amount:.0f} sits just below the ${ctr:,} CTR threshold",
+            }
+        )
     if txn.get("channel") == "cash" and amount >= 0.5 * ctr:
-        signals.append({"typology": "cash_intensive", "weight": 24,
-                        "detail": "high-value cash activity"})
+        signals.append(
+            {
+                "typology": "cash_intensive",
+                "weight": 24,
+                "detail": "high-value cash activity",
+            }
+        )
     if amount >= 100_000:
         weight = 34 if amount >= 500_000 else 26
-        signals.append({"typology": "large_value", "weight": weight,
-                        "detail": f"large-value transaction of {amount:.0f}"})
+        signals.append(
+            {
+                "typology": "large_value",
+                "weight": weight,
+                "detail": f"large-value transaction of {amount:.0f}",
+            }
+        )
     if amount % 1000 == 0 and amount >= 10_000:
-        signals.append({"typology": "round_amount", "weight": 16,
-                        "detail": "round-amount value consistent with layering"})
+        signals.append(
+            {
+                "typology": "round_amount",
+                "weight": 16,
+                "detail": "round-amount value consistent with layering",
+            }
+        )
 
     country = txn.get("country") or (customer or {}).get("country")
     if country in meta["highRisk"]:
-        signals.append({"typology": "high_risk_geo", "weight": 28,
-                        "detail": f"counterparty jurisdiction {country} is high-risk"})
+        signals.append(
+            {
+                "typology": "high_risk_geo",
+                "weight": 28,
+                "detail": f"counterparty jurisdiction {country} is high-risk",
+            }
+        )
 
     velocity = _recent_count(state, txn.get("accountId"), within_hours=24)
     if velocity >= 4:
-        signals.append({"typology": "velocity", "weight": 22,
-                        "detail": f"{velocity} transactions on the account within 24h"})
-    if txn.get("channel") in ("wire", "crypto") and amount >= 0.7 * ctr and velocity >= 2:
-        signals.append({"typology": "rapid_movement", "weight": 30,
-                        "detail": "rapid in/out movement consistent with pass-through"})
+        signals.append(
+            {
+                "typology": "velocity",
+                "weight": 22,
+                "detail": f"{velocity} transactions on the account within 24h",
+            }
+        )
+    if (
+        txn.get("channel") in ("wire", "crypto")
+        and amount >= 0.7 * ctr
+        and velocity >= 2
+    ):
+        signals.append(
+            {
+                "typology": "rapid_movement",
+                "weight": 30,
+                "detail": "rapid in/out movement consistent with pass-through",
+            }
+        )
     if account and account.get("status") == "dormant":
-        signals.append({"typology": "dormant_reactivation", "weight": 20,
-                        "detail": "activity on a dormant account"})
+        signals.append(
+            {
+                "typology": "dormant_reactivation",
+                "weight": 20,
+                "detail": "activity on a dormant account",
+            }
+        )
 
     score = 0.0
     if signals:
@@ -172,8 +226,13 @@ def _score_transaction(state: base.State, txn: dict) -> tuple[int, list[dict]]:
         score = ordered[0] + sum(w * 0.6 for w in ordered[1:])
     if customer and customer.get("kycRiskRating") == "high":
         score += 18
-        signals.append({"typology": "high_risk_customer", "weight": 18,
-                        "detail": "customer carries a high KYC risk rating"})
+        signals.append(
+            {
+                "typology": "high_risk_customer",
+                "weight": 18,
+                "detail": "customer carries a high KYC risk rating",
+            }
+        )
     score += rng.uniform(0, 6)
     return int(min(100, round(score))), signals
 
@@ -198,7 +257,9 @@ def _recent_count(state: base.State, account_id: str | None, within_hours: int) 
 # --------------------------------------------------------------------------- #
 # alert + case persistence
 # --------------------------------------------------------------------------- #
-def _open_alert(state: base.State, txn: dict, score: int, signals: list[dict], ctx: Ctx) -> dict:
+def _open_alert(
+    state: base.State, txn: dict, score: int, signals: list[dict], ctx: Ctx
+) -> dict:
     band = _band(score)
     primary = max(signals, key=lambda s: s["weight"]) if signals else None
     detected = _ts()
@@ -235,13 +296,19 @@ def _open_alert(state: base.State, txn: dict, score: int, signals: list[dict], c
             f"Transaction {txn['transactionId']} for {txn['amount']:.0f} {txn.get('currency', 'USD')} "
             f"triggered {primary['typology'] if primary else 'a monitoring rule'} at {band} risk.",
             f"Alert raised on transaction {txn['transactionId']} for "
-            f"{primary['typology'] if primary else 'suspicious activity'} at {band} risk."),
+            f"{primary['typology'] if primary else 'suspicious activity'} at {band} risk.",
+        ),
         "_auditKey": None,
     }
     alert["_auditKey"] = alert["alertId"]
     state.table("alerts")[alert["alertId"]] = alert
-    _audit(state, alert, "alert_opened", ctx,
-           {"riskScore": score, "riskBand": band, "typology": alert["typology"]})
+    _audit(
+        state,
+        alert,
+        "alert_opened",
+        ctx,
+        {"riskScore": score, "riskBand": band, "typology": alert["typology"]},
+    )
     return alert
 
 
@@ -273,7 +340,9 @@ def _open_case(state: base.State, alert: dict, ctx: Ctx, reason: str) -> dict:
     case["_auditKey"] = case["caseId"]
     state.table("cases")[case["caseId"]] = case
     alert["caseId"] = case["caseId"]
-    _audit(state, case, "case_opened", ctx, {"reason": reason, "alertId": alert["alertId"]})
+    _audit(
+        state, case, "case_opened", ctx, {"reason": reason, "alertId": alert["alertId"]}
+    )
     return case
 
 
@@ -285,8 +354,15 @@ def _prepare_filing(state: base.State, alert: dict, filing_type: str, ctx: Ctx) 
     customer = state.table("customers").get(alert.get("customerId") or "")
     deadline_days = _FILING_DEADLINE_DAYS[filing_type]
     detected = alert.get("detectedAt", _ts())
-    deadline = (datetime.fromisoformat(detected.replace("Z", "+00:00"))
-                + timedelta(days=deadline_days)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    deadline = (
+        (
+            datetime.fromisoformat(detected.replace("Z", "+00:00"))
+            + timedelta(days=deadline_days)
+        )
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
     created = _ts()
     filing = {
         "filingId": base.new_id("fil"),
@@ -304,7 +380,9 @@ def _prepare_filing(state: base.State, alert: dict, filing_type: str, ctx: Ctx) 
         "amount": alert["amount"],
         "currency": alert.get("currency", "USD"),
         "suspiciousActivity": alert["typology"] if filing_type == "SAR" else None,
-        "thresholdApplied": meta["sarThreshold"] if filing_type == "SAR" else meta["ctrThreshold"],
+        "thresholdApplied": meta["sarThreshold"]
+        if filing_type == "SAR"
+        else meta["ctrThreshold"],
         "detectedAt": detected,
         "deadlineAt": deadline,
         "filedAt": None,
@@ -321,7 +399,8 @@ def _prepare_filing(state: base.State, alert: dict, filing_type: str, ctx: Ctx) 
             f"Draft a {filing_type} narrative for {filing_type} on alert {alert['alertId']} "
             f"({alert['typology']}, {alert['amount']:.0f} {alert.get('currency', 'USD')}).",
             f"{filing_type} {('documents suspicious ' + alert['typology'] + ' activity') if filing_type == 'SAR' else 'reports a reportable currency transaction'} "
-            f"of {alert['amount']:.0f} {alert.get('currency', 'USD')} tied to alert {alert['alertId']}."),
+            f"of {alert['amount']:.0f} {alert.get('currency', 'USD')} tied to alert {alert['alertId']}.",
+        ),
         "_auditKey": None,
     }
     filing["_auditKey"] = filing["filingId"]
@@ -331,8 +410,17 @@ def _prepare_filing(state: base.State, alert: dict, filing_type: str, ctx: Ctx) 
         case = state.table("cases").get(alert["caseId"])
         if case is not None:
             case["filingIds"].append(filing["filingId"])
-    _audit(state, filing, "filing_prepared", ctx,
-           {"filingType": filing_type, "alertId": alert["alertId"], "deadlineAt": deadline})
+    _audit(
+        state,
+        filing,
+        "filing_prepared",
+        ctx,
+        {
+            "filingType": filing_type,
+            "alertId": alert["alertId"],
+            "deadlineAt": deadline,
+        },
+    )
     return filing
 
 
@@ -346,8 +434,13 @@ def _submit_filing(state: base.State, filing: dict, ctx: Ctx) -> dict:
     filing["confirmationNumber"] = f"{rng.randint(10**13, 10**14 - 1)}"
     filing["bsaTrackingId"] = f"BSA-{rng.randint(10**8, 10**9 - 1)}"
     filing["lateFiling"] = late
-    _audit(state, filing, "filing_submitted", ctx,
-           {"confirmationNumber": filing["confirmationNumber"], "lateFiling": late})
+    _audit(
+        state,
+        filing,
+        "filing_submitted",
+        ctx,
+        {"confirmationNumber": filing["confirmationNumber"], "lateFiling": late},
+    )
     return filing
 
 
@@ -384,18 +477,29 @@ def _seed_history(state: base.State) -> None:
         customer = state.table("customers").get(account["customerId"], {})
         for _ in range(rng.randint(2, 4)):
             channel = rng.choice(("wire", "ach", "cash", "card", "crypto"))
-            amount = float(rng.choice((
-                rng.randint(2_000, 9_900), rng.randint(9_000, 9_990),
-                rng.randint(50_000, 250_000), rng.randint(250_000, 1_200_000))))
+            amount = float(
+                rng.choice(
+                    (
+                        rng.randint(2_000, 9_900),
+                        rng.randint(9_000, 9_990),
+                        rng.randint(50_000, 250_000),
+                        rng.randint(250_000, 1_200_000),
+                    )
+                )
+            )
             country = customer.get("country")
             if rng.random() < 0.3:
                 country = rng.choice(high_risk)
             txn = {
                 "transactionId": f"seed-{account['accountId']}-{rng.randint(1000, 9999)}",
-                "amount": amount, "currency": account["currency"],
-                "customerId": account["customerId"], "accountId": account["accountId"],
-                "channel": channel, "direction": rng.choice(("inbound", "outbound")),
-                "country": country, "counterparty": gen._company(rng),
+                "amount": amount,
+                "currency": account["currency"],
+                "customerId": account["customerId"],
+                "accountId": account["accountId"],
+                "channel": channel,
+                "direction": rng.choice(("inbound", "outbound")),
+                "country": country,
+                "counterparty": gen._company(rng),
             }
             score, signals = _score_transaction(state, txn)
             if score < 60:
@@ -412,20 +516,36 @@ def _seed_history(state: base.State) -> None:
             filing = _prepare_filing(state, alert, "CTR" if cash_ctr else "SAR", ctx)
             if rng.random() < 0.7:
                 _submit_filing(state, filing, ctx)
-                _resolve_case(state, case, "file_sar",
-                              "Suspicious activity confirmed; regulatory filing submitted.", ctx)
+                _resolve_case(
+                    state,
+                    case,
+                    "file_sar",
+                    "Suspicious activity confirmed; regulatory filing submitted.",
+                    ctx,
+                )
                 alert["status"] = "escalated"
         elif roll < 0.75:
             _set_assignee(state, alert, analyst, ctx)
-            _resolve_alert(state, alert, "false_positive",
-                           "Secondary review cleared the alert against expected account activity.", ctx)
+            _resolve_alert(
+                state,
+                alert,
+                "false_positive",
+                "Secondary review cleared the alert against expected account activity.",
+                ctx,
+            )
         elif roll < 0.9:
             _set_assignee(state, alert, analyst, ctx)
 
     for control in list(state.table("controls").values()):
         if rng.random() < 0.7:
-            _record_attestation(state, control, rng.choice(analysts), "2026-Q1",
-                                rng.choice(("effective", "effective", "effective", "deficient")), ctx)
+            _record_attestation(
+                state,
+                control,
+                rng.choice(analysts),
+                "2026-Q1",
+                rng.choice(("effective", "effective", "effective", "deficient")),
+                ctx,
+            )
 
 
 # --------------------------------------------------------------------------- #
@@ -437,24 +557,46 @@ def _set_assignee(state: base.State, alert: dict, assignee: str, ctx: Ctx) -> No
     _audit(state, alert, "alert_assigned", ctx, {"assignee": assignee})
 
 
-def _resolve_alert(state: base.State, alert: dict, disposition: str, reason: str, ctx: Ctx) -> None:
+def _resolve_alert(
+    state: base.State, alert: dict, disposition: str, reason: str, ctx: Ctx
+) -> None:
     alert["status"] = "resolved"
     alert["disposition"] = disposition
     alert["dispositionReason"] = reason
-    _audit(state, alert, "alert_resolved", ctx, {"disposition": disposition, "reason": reason})
+    _audit(
+        state,
+        alert,
+        "alert_resolved",
+        ctx,
+        {"disposition": disposition, "reason": reason},
+    )
 
 
-def _resolve_case(state: base.State, case: dict, disposition: str, reason: str, ctx: Ctx) -> None:
+def _resolve_case(
+    state: base.State, case: dict, disposition: str, reason: str, ctx: Ctx
+) -> None:
     case["status"] = "resolved"
     case["disposition"] = disposition
     case["dispositionReason"] = reason
     case["resolvedAt"] = _ts()
     case["resolvedBy"] = _actor(ctx)
-    _audit(state, case, "case_resolved", ctx, {"disposition": disposition, "reason": reason})
+    _audit(
+        state,
+        case,
+        "case_resolved",
+        ctx,
+        {"disposition": disposition, "reason": reason},
+    )
 
 
-def _record_attestation(state: base.State, control: dict, attestor: str, period: str,
-                        effectiveness: str, ctx: Ctx) -> dict:
+def _record_attestation(
+    state: base.State,
+    control: dict,
+    attestor: str,
+    period: str,
+    effectiveness: str,
+    ctx: Ctx,
+) -> dict:
     at = _ts()
     status = "attested" if effectiveness == "effective" else "exception"
     attestation = {
@@ -477,8 +619,13 @@ def _record_attestation(state: base.State, control: dict, attestor: str, period:
     state.table("attestations")[attestation["attestationId"]] = attestation
     control["lastAttestedAt"] = at
     control["effectiveness"] = effectiveness
-    _audit(state, attestation, "control_attested", ctx,
-           {"period": period, "effectiveness": effectiveness})
+    _audit(
+        state,
+        attestation,
+        "control_attested",
+        ctx,
+        {"period": period, "effectiveness": effectiveness},
+    )
     return attestation
 
 
@@ -502,9 +649,12 @@ def monitor_transaction(ctx: Ctx) -> dict:
     if amount < 0:
         raise DomainError(422, "invalid_request", "amount must be non-negative")
     channel = ctx.get("channel")
-    if channel is not None and channel not in gen._VERAFIN_CHANNELS:
-        raise DomainError(422, "invalid_channel",
-                          f"channel must be one of {', '.join(gen._VERAFIN_CHANNELS)}")
+    if channel is not None and channel not in gen.VERAFIN_CHANNELS:
+        raise DomainError(
+            422,
+            "invalid_channel",
+            f"channel must be one of {', '.join(gen.VERAFIN_CHANNELS)}",
+        )
     txn = {
         "transactionId": str(ctx.payload["transactionId"]),
         "amount": amount,
@@ -532,7 +682,9 @@ def monitor_transaction(ctx: Ctx) -> dict:
     if flagged:
         alert = _open_alert(ctx.state, txn, score, signals, ctx)
         result["alertId"] = alert["alertId"]
-        result["recommendedAction"] = "investigate" if band in ("high", "critical") else "review"
+        result["recommendedAction"] = (
+            "investigate" if band in ("high", "critical") else "review"
+        )
     return result
 
 
@@ -585,17 +737,25 @@ def resolve_alert(ctx: Ctx) -> dict:
         raise DomainError(404, "alert_not_found", ctx.payload["alertId"])
     disposition = ctx.payload["disposition"]
     if disposition not in _ALERT_DISPOSITIONS:
-        raise DomainError(422, "invalid_disposition",
-                          f"disposition must be one of {', '.join(_ALERT_DISPOSITIONS)}")
+        raise DomainError(
+            422,
+            "invalid_disposition",
+            f"disposition must be one of {', '.join(_ALERT_DISPOSITIONS)}",
+        )
     if alert["status"] == "resolved":
         raise DomainError(409, "alert_resolved", "alert already resolved")
     reason = ctx.get("reason", "Disposition recorded by analyst.")
     if disposition in ("file_sar", "escalate"):
         case = alert.get("caseId") and ctx.state.table("cases").get(alert["caseId"])
         if not case:
-            case = _open_case(ctx.state, alert, ctx,
-                              "Confirmed suspicious activity." if disposition == "file_sar"
-                              else "Escalated for enhanced investigation.")
+            case = _open_case(
+                ctx.state,
+                alert,
+                ctx,
+                "Confirmed suspicious activity."
+                if disposition == "file_sar"
+                else "Escalated for enhanced investigation.",
+            )
         _audit(ctx.state, alert, "alert_escalated", ctx, {"caseId": case["caseId"]})
         alert["status"] = "escalated"
         return {"alert": _public(alert), "caseId": case["caseId"]}
@@ -615,7 +775,9 @@ def open_case(ctx: Ctx) -> dict:
         raise DomainError(404, "alert_not_found", ctx.payload["alertId"])
     if alert.get("caseId"):
         return _public(ctx.state.table("cases")[alert["caseId"]])
-    case = _open_case(ctx.state, alert, ctx, ctx.get("reason", "Manual investigation opened."))
+    case = _open_case(
+        ctx.state, alert, ctx, ctx.get("reason", "Manual investigation opened.")
+    )
     return _public(case)
 
 
@@ -650,7 +812,9 @@ def add_case_note(ctx: Ctx) -> dict:
     case = ctx.state.table("cases").get(ctx.payload["caseId"])
     if case is None:
         raise DomainError(404, "case_not_found", ctx.payload["caseId"])
-    event = _audit(ctx.state, case, "note_added", ctx, {"note": str(ctx.payload["note"])})
+    event = _audit(
+        ctx.state, case, "note_added", ctx, {"note": str(ctx.payload["note"])}
+    )
     return {"caseId": case["caseId"], "event": event}
 
 
@@ -666,8 +830,16 @@ def escalate_case(ctx: Ctx) -> dict:
     case["status"] = "escalated"
     case["queue"] = ctx.get("queue", "aml_l3")
     case["priority"] = "critical"
-    _audit(ctx.state, case, "case_escalated", ctx,
-           {"queue": case["queue"], "reason": ctx.get("reason", "Manual escalation requested.")})
+    _audit(
+        ctx.state,
+        case,
+        "case_escalated",
+        ctx,
+        {
+            "queue": case["queue"],
+            "reason": ctx.get("reason", "Manual escalation requested."),
+        },
+    )
     return _public(case)
 
 
@@ -682,10 +854,18 @@ def resolve_case(ctx: Ctx) -> dict:
         raise DomainError(409, "already_resolved", "case already resolved")
     disposition = ctx.payload["disposition"]
     if disposition not in _ALERT_DISPOSITIONS:
-        raise DomainError(422, "invalid_disposition",
-                          f"disposition must be one of {', '.join(_ALERT_DISPOSITIONS)}")
-    _resolve_case(ctx.state, case, disposition,
-                  ctx.get("reason", "Investigation closed by analyst."), ctx)
+        raise DomainError(
+            422,
+            "invalid_disposition",
+            f"disposition must be one of {', '.join(_ALERT_DISPOSITIONS)}",
+        )
+    _resolve_case(
+        ctx.state,
+        case,
+        disposition,
+        ctx.get("reason", "Investigation closed by analyst."),
+        ctx,
+    )
     return _public(case)
 
 
@@ -706,8 +886,9 @@ def prepare_filing(ctx: Ctx) -> dict:
     if alert.get("filingId"):
         existing = ctx.state.table("filings").get(alert["filingId"])
         if existing and existing["status"] != "draft":
-            raise DomainError(409, "filing_exists",
-                              f"alert already has filing {alert['filingId']}")
+            raise DomainError(
+                409, "filing_exists", f"alert already has filing {alert['filingId']}"
+            )
     filing = _prepare_filing(ctx.state, alert, filing_type, ctx)
     return _public(filing)
 
@@ -743,12 +924,21 @@ def submit_filing(ctx: Ctx) -> dict:
     if filing is None:
         raise DomainError(404, "filing_not_found", ctx.payload["filingId"])
     if filing["status"] != "draft":
-        raise DomainError(409, "filing_not_submittable",
-                          f"filing is {filing['status']!r}, not 'draft'")
+        raise DomainError(
+            409,
+            "filing_not_submittable",
+            f"filing is {filing['status']!r}, not 'draft'",
+        )
     if filing["filingType"] == "SAR" and not filing.get("suspiciousActivity"):
-        raise DomainError(422, "incomplete_filing", "SAR requires a suspicious-activity classification")
+        raise DomainError(
+            422,
+            "incomplete_filing",
+            "SAR requires a suspicious-activity classification",
+        )
     if not filing["subject"].get("customerId"):
-        raise DomainError(422, "incomplete_filing", "filing requires an identified subject")
+        raise DomainError(
+            422, "incomplete_filing", "filing requires an identified subject"
+        )
     _submit_filing(ctx.state, filing, ctx)
     return _public(filing)
 
@@ -772,11 +962,19 @@ def attest_control(ctx: Ctx) -> dict:
         raise DomainError(404, "control_not_found", ctx.payload["controlId"])
     effectiveness = ctx.get("effectiveness", "effective")
     if effectiveness not in ("effective", "deficient"):
-        raise DomainError(422, "invalid_effectiveness",
-                          "effectiveness must be 'effective' or 'deficient'")
+        raise DomainError(
+            422,
+            "invalid_effectiveness",
+            "effectiveness must be 'effective' or 'deficient'",
+        )
     attestation = _record_attestation(
-        ctx.state, control, str(ctx.payload["attestor"]),
-        ctx.get("period", "2026-Q2"), effectiveness, ctx)
+        ctx.state,
+        control,
+        str(ctx.payload["attestor"]),
+        ctx.get("period", "2026-Q2"),
+        effectiveness,
+        ctx,
+    )
     return _public(attestation)
 
 
@@ -812,10 +1010,14 @@ def get_audit_trail(ctx: Ctx) -> dict:
     ctx.require_scope("cases.read")
     subject_id = ctx.get("caseId") or ctx.get("alertId") or ctx.get("filingId")
     if not subject_id:
-        raise DomainError(422, "invalid_request", "provide caseId, alertId, or filingId")
-    subject = (ctx.state.table("cases").get(subject_id)
-               or ctx.state.table("alerts").get(subject_id)
-               or ctx.state.table("filings").get(subject_id))
+        raise DomainError(
+            422, "invalid_request", "provide caseId, alertId, or filingId"
+        )
+    subject = (
+        ctx.state.table("cases").get(subject_id)
+        or ctx.state.table("alerts").get(subject_id)
+        or ctx.state.table("filings").get(subject_id)
+    )
     if subject is None:
         raise DomainError(404, "subject_not_found", subject_id)
     events = subject.get("auditTrail", [])

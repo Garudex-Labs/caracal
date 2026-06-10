@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 Agent lifecycle runner that binds every spawned swarm agent to its own Caracal session.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -82,7 +83,11 @@ class _SessionKeeper:
             async with cm as ctx:
                 ready.set_result(ctx)
                 await self._done.wait()
-        except BaseException as exc:
+        except asyncio.CancelledError:
+            if not ready.done():
+                ready.cancel()
+            raise
+        except Exception as exc:
             if not ready.done():
                 ready.set_exception(exc)
             else:
@@ -123,7 +128,9 @@ class AgentRunner:
         authority: caracal.WorkerAuthority | None = None
         release: Callable[[], None] | None = None
         if caracal.enabled():
-            authority, release = await self._open_session(role, scope, parent, agent_id, region, customer_id)
+            authority, release = await self._open_session(
+                role, scope, parent, agent_id, region, customer_id
+            )
 
         handle = AgentHandle(
             id=agent_id,
@@ -141,7 +148,18 @@ class AgentRunner:
         if parent_id:
             self._children.setdefault(parent_id, []).append(agent_id)
 
-        bus.publish(ev.agent_spawn(self.run_id, agent_id, role, scope, parent_id, layer, region, customer_id))
+        bus.publish(
+            ev.agent_spawn(
+                self.run_id,
+                agent_id,
+                role,
+                scope,
+                parent_id,
+                layer,
+                region,
+                customer_id,
+            )
+        )
         if parent_id:
             bus.publish(ev.delegation(self.run_id, parent_id, agent_id, scope))
         return handle
@@ -160,7 +178,9 @@ class AgentRunner:
         if not caracal.enabled():
             return self._local_spawn(role, scope, parent, layer, region, customer_id)
         if self._loop is None:
-            raise RuntimeError("AgentRunner has no loop; spawn the run root with aspawn first")
+            raise RuntimeError(
+                "AgentRunner has no loop; spawn the run root with aspawn first"
+            )
         try:
             running = asyncio.get_running_loop()
         except RuntimeError:
@@ -168,7 +188,8 @@ class AgentRunner:
         if running is self._loop:
             raise RuntimeError("spawn called on the run loop; use aspawn")
         future = asyncio.run_coroutine_threadsafe(
-            self.aspawn(role, scope, parent, layer, region, customer_id), self._loop,
+            self.aspawn(role, scope, parent, layer, region, customer_id),
+            self._loop,
         )
         return future.result(timeout=SPAWN_TIMEOUT_SECONDS)
 
@@ -184,13 +205,30 @@ class AgentRunner:
         agent_id = str(uuid4())
         parent_id = parent.id if parent else None
         handle = AgentHandle(
-            id=agent_id, role=role, scope=scope, parent_id=parent_id,
-            layer=layer, region=region, run_id=self.run_id, customer_id=customer_id,
+            id=agent_id,
+            role=role,
+            scope=scope,
+            parent_id=parent_id,
+            layer=layer,
+            region=region,
+            run_id=self.run_id,
+            customer_id=customer_id,
         )
         self._handles[agent_id] = handle
         if parent_id:
             self._children.setdefault(parent_id, []).append(agent_id)
-        bus.publish(ev.agent_spawn(self.run_id, agent_id, role, scope, parent_id, layer, region, customer_id))
+        bus.publish(
+            ev.agent_spawn(
+                self.run_id,
+                agent_id,
+                role,
+                scope,
+                parent_id,
+                layer,
+                region,
+                customer_id,
+            )
+        )
         if parent_id:
             bus.publish(ev.delegation(self.run_id, parent_id, agent_id, scope))
         return handle
@@ -212,10 +250,18 @@ class AgentRunner:
                 return None, None
             app_key, scopes, views = plan
         else:
-            app_key, scopes, views = spec.application, list(spec.scopes), tenancy.role_views(role, model)
+            app_key, scopes, views = (
+                spec.application,
+                list(spec.scopes),
+                tenancy.role_views(role, model),
+            )
 
         runtime = caracal.runtime(app_key)
-        if parent is not None and parent.authority is not None and parent.authority.application == app_key:
+        if (
+            parent is not None
+            and parent.authority is not None
+            and parent.authority.application == app_key
+        ):
             parent_ctx = parent.authority.ctx
         elif parent is None and not scopes:
             parent_ctx = None
@@ -224,17 +270,23 @@ class AgentRunner:
 
         grant = caracal.worker_grant(scopes, views) if scopes else None
         keeper = _SessionKeeper()
-        ctx = await keeper.open(runtime.client.spawn(
-            grant=grant,
-            labels=tenancy.agent_labels(role, customer_id),
-            metadata=tenancy.agent_metadata(self.run_id, agent_id, scope, region, customer_id),
-            parent_ctx=parent_ctx,
-            ttl_seconds=caracal.WORKER_TTL_SECONDS,
-            trace_id=self.run_id,
-        ))
+        ctx = await keeper.open(
+            runtime.client.spawn(
+                grant=grant,
+                labels=tenancy.agent_labels(role, customer_id),
+                metadata=tenancy.agent_metadata(
+                    self.run_id, agent_id, scope, region, customer_id
+                ),
+                parent_ctx=parent_ctx,
+                ttl_seconds=caracal.WORKER_TTL_SECONDS,
+                trace_id=self.run_id,
+            )
+        )
         self._keepers.append(keeper)
         loop = self._loop
-        return caracal.WorkerAuthority(runtime, ctx, role, scopes), lambda: keeper.release(loop)
+        return caracal.WorkerAuthority(
+            runtime, ctx, role, scopes
+        ), lambda: keeper.release(loop)
 
     def _partner_plan(self, scope: str) -> tuple[str, list[str], list[str]] | None:
         """Resolve a dynamic partner-integration spawn from its work scope, shaped
@@ -257,11 +309,13 @@ class AgentRunner:
                 return ctx
             runtime = caracal.runtime(app_key)
             keeper = _SessionKeeper()
-            ctx = await keeper.open(runtime.client.spawn(
-                labels=["dispatcher", "lynx-swarm"],
-                metadata={"run_id": self.run_id, "application": app_key},
-                trace_id=self.run_id,
-            ))
+            ctx = await keeper.open(
+                runtime.client.spawn(
+                    labels=["dispatcher", "lynx-swarm"],
+                    metadata={"run_id": self.run_id, "application": app_key},
+                    trace_id=self.run_id,
+                )
+            )
             self._keepers.append(keeper)
             self._roots[app_key] = ctx
             return ctx

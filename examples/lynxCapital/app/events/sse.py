@@ -15,12 +15,16 @@ from app.events.bus import bus
 async def run_stream(run_id: str) -> AsyncIterator[str]:
     q = bus.subscribe(run_id)
     replayed: set[str] = set()
-
-    for event in bus.history(run_id):
-        replayed.add(event.id)
-        yield {"data": event.model_dump_json()}
+    ended = False
 
     try:
+        for event in bus.history(run_id):
+            replayed.add(event.id)
+            ended = ended or event.kind == "run_end"
+            yield {"data": event.model_dump_json()}
+        if ended:
+            return
+
         while True:
             try:
                 event = await asyncio.wait_for(q.get(), timeout=30.0)
