@@ -10,118 +10,117 @@
  * OpenTelemetry-aware client/server propagates them transparently.
  */
 
-export const HeaderAuthorization = "authorization";
-export const HeaderTraceparent = "traceparent";
-export const HeaderBaggage = "baggage";
+export const HeaderAuthorization = 'authorization'
+export const HeaderTraceparent = 'traceparent'
+export const HeaderBaggage = 'baggage'
 
-export const BaggageAgentSession = "caracal.agent_session";
-export const BaggageDelegationEdge = "caracal.delegation_edge";
-export const BaggageParentEdge = "caracal.parent_edge";
-export const BaggageSession = "caracal.session";
-export const BaggageHop = "caracal.hop";
+export const BaggageAgentSession = 'caracal.agent_session'
+export const BaggageDelegationEdge = 'caracal.delegation_edge'
+export const BaggageParentEdge = 'caracal.parent_edge'
+export const BaggageSession = 'caracal.session'
+export const BaggageHop = 'caracal.hop'
 
-export const MaxHop = 32;
+export const MaxHop = 32
 
 export interface Envelope {
-  subjectToken?: string;
-  agentSessionId?: string;
-  delegationEdgeId?: string;
-  parentEdgeId?: string;
-  sessionId?: string;
-  traceId?: string;
-  hop: number;
+  subjectToken?: string
+  agentSessionId?: string
+  delegationEdgeId?: string
+  parentEdgeId?: string
+  sessionId?: string
+  traceId?: string
+  hop: number
 }
 
-export type HeaderGetter = (name: string) => string | undefined;
-export type HeaderSetter = (name: string, value: string) => void;
+export type HeaderGetter = (name: string) => string | undefined
+export type HeaderSetter = (name: string, value: string) => void
 
-const TRACEPARENT_RE =
-  /^([0-9a-f]{2})-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})$/;
+const TRACEPARENT_RE = /^([0-9a-f]{2})-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})$/
 
 function randomHex(byteLen: number): string {
-  const bytes = new Uint8Array(byteLen);
-  crypto.getRandomValues(bytes);
-  let s = "";
-  for (const b of bytes) s += b.toString(16).padStart(2, "0");
-  return s;
+  const bytes = new Uint8Array(byteLen)
+  crypto.getRandomValues(bytes)
+  let s = ''
+  for (const b of bytes) s += b.toString(16).padStart(2, '0')
+  return s
 }
 
 function genTraceId(): string {
-  return randomHex(16);
+  return randomHex(16)
 }
 
 function genSpanId(): string {
-  return randomHex(8);
+  return randomHex(8)
 }
 
 export function formatTraceparent(traceId: string): string {
-  return `00-${traceId}-${genSpanId()}-01`;
+  return `00-${traceId}-${genSpanId()}-01`
 }
 
 export function parseTraceparent(value: string): { traceId: string } | undefined {
-  const m = TRACEPARENT_RE.exec(value.trim());
-  if (!m) return undefined;
-  if (m[2] === "00000000000000000000000000000000") return undefined;
-  return { traceId: m[2] };
+  const m = TRACEPARENT_RE.exec(value.trim())
+  if (!m) return undefined
+  if (m[2] === '00000000000000000000000000000000') return undefined
+  return { traceId: m[2] }
 }
 
 export function encodeBaggage(entries: Record<string, string | undefined>): string {
-  const parts: string[] = [];
+  const parts: string[] = []
   for (const [k, v] of Object.entries(entries)) {
-    if (v === undefined || v === "") continue;
-    parts.push(`${k}=${encodeURIComponent(v)}`);
+    if (v === undefined || v === '') continue
+    parts.push(`${k}=${encodeURIComponent(v)}`)
   }
-  return parts.join(",");
+  return parts.join(',')
 }
 
 export function parseBaggage(value: string | undefined): Record<string, string> {
-  const out: Record<string, string> = {};
-  if (!value) return out;
-  for (const piece of value.split(",")) {
-    const eq = piece.indexOf("=");
-    if (eq <= 0) continue;
-    const k = piece.slice(0, eq).trim();
-    const semi = piece.indexOf(";", eq + 1);
-    const rawV = (semi === -1 ? piece.slice(eq + 1) : piece.slice(eq + 1, semi)).trim();
+  const out: Record<string, string> = {}
+  if (!value) return out
+  for (const piece of value.split(',')) {
+    const eq = piece.indexOf('=')
+    if (eq <= 0) continue
+    const k = piece.slice(0, eq).trim()
+    const semi = piece.indexOf(';', eq + 1)
+    const rawV = (semi === -1 ? piece.slice(eq + 1) : piece.slice(eq + 1, semi)).trim()
     try {
-      out[k] = decodeURIComponent(rawV);
+      out[k] = decodeURIComponent(rawV)
     } catch {
-      out[k] = rawV;
+      out[k] = rawV
     }
   }
-  return out;
+  return out
 }
 
 const headerKey = (h: Record<string, string | string[] | undefined>, name: string) => {
-  const lower = name.toLowerCase();
+  const lower = name.toLowerCase()
   for (const k of Object.keys(h)) {
     if (k.toLowerCase() === lower) {
-      const v = h[k];
-      return Array.isArray(v) ? v[0] : v;
+      const v = h[k]
+      return Array.isArray(v) ? v[0] : v
     }
   }
-  return undefined;
-};
+  return undefined
+}
 
 export function fromHeaders(headers: Record<string, string | string[] | undefined>): Envelope {
-  return decodeEnvelope((n) => headerKey(headers, n));
+  return decodeEnvelope((n) => headerKey(headers, n))
 }
 
 export function decodeEnvelope(get: HeaderGetter): Envelope {
-  const auth = get(HeaderAuthorization);
-  let subjectToken: string | undefined;
-  if (auth && auth.slice(0, 6).toLowerCase() === "bearer") {
-    const value = auth.slice(6);
+  const auth = get(HeaderAuthorization)
+  let subjectToken: string | undefined
+  if (auth && auth.slice(0, 6).toLowerCase() === 'bearer') {
+    const value = auth.slice(6)
     if (value.length !== value.trimStart().length) {
-      const token = value.trim();
-      subjectToken = token === "" ? undefined : token;
+      const token = value.trim()
+      subjectToken = token === '' ? undefined : token
     }
   }
-  const tp = get(HeaderTraceparent);
-  const traceId = tp ? parseTraceparent(tp)?.traceId : undefined;
-  const bag = parseBaggage(get(HeaderBaggage));
-  const hopRaw = bag[BaggageHop];
-  const hop = hopRaw ? Math.max(0, Math.min(MaxHop, parseInt(hopRaw, 10) || 0)) : 0;
+  const tp = get(HeaderTraceparent)
+  const traceId = tp ? parseTraceparent(tp)?.traceId : undefined
+  const bag = parseBaggage(get(HeaderBaggage))
+  const hopRaw = bag[BaggageHop]
+  const hop = hopRaw ? Math.max(0, Math.min(MaxHop, parseInt(hopRaw, 10) || 0)) : 0
   return {
     subjectToken,
     agentSessionId: bag[BaggageAgentSession] || undefined,
@@ -130,37 +129,37 @@ export function decodeEnvelope(get: HeaderGetter): Envelope {
     sessionId: bag[BaggageSession] || undefined,
     traceId,
     hop,
-  };
+  }
 }
 
 export function encodeEnvelope(env: Envelope, set: HeaderSetter): void {
-  if (env.subjectToken) set(HeaderAuthorization, `Bearer ${env.subjectToken}`);
-  const traceId = env.traceId && /^[0-9a-f]{32}$/.test(env.traceId) ? env.traceId : genTraceId();
-  set(HeaderTraceparent, formatTraceparent(traceId));
+  if (env.subjectToken) set(HeaderAuthorization, `Bearer ${env.subjectToken}`)
+  const traceId = env.traceId && /^[0-9a-f]{32}$/.test(env.traceId) ? env.traceId : genTraceId()
+  set(HeaderTraceparent, formatTraceparent(traceId))
   const baggage = encodeBaggage({
     [BaggageAgentSession]: env.agentSessionId,
     [BaggageDelegationEdge]: env.delegationEdgeId,
     [BaggageParentEdge]: env.parentEdgeId,
     [BaggageSession]: env.sessionId,
     [BaggageHop]: String(env.hop),
-  });
-  if (baggage) set(HeaderBaggage, baggage);
+  })
+  if (baggage) set(HeaderBaggage, baggage)
 }
 
 export function toHeaders(env: Envelope): Record<string, string> {
-  const out: Record<string, string> = {};
+  const out: Record<string, string> = {}
   encodeEnvelope(env, (n, v) => {
-    out[n] = v;
-  });
-  return out;
+    out[n] = v
+  })
+  return out
 }
 
 export function inject(env: Envelope, carrier: Record<string, string>): void {
   encodeEnvelope(env, (n, v) => {
-    carrier[n] = v;
-  });
+    carrier[n] = v
+  })
 }
 
 export function extract(carrier: Record<string, string | string[] | undefined>): Envelope {
-  return fromHeaders(carrier);
+  return fromHeaders(carrier)
 }

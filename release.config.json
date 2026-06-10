@@ -57,7 +57,7 @@
       { "id": "oauth", "name": "caracalai-oauth", "dir": "packages/oauth/python", "module": "caracalai_oauth", "group": "oauth", "version": "0.1.5rc1", "tier": "core", "publish": true },
       { "id": "identity", "name": "caracalai-identity", "dir": "packages/identity/python", "module": "caracalai_identity", "group": "identity", "version": "0.1.5rc1", "tier": "core", "publish": true },
       { "id": "revocation", "name": "caracalai-revocation", "dir": "packages/revocation/python", "module": "caracalai_revocation", "group": "revocation", "version": "0.1.5rc1", "tier": "core", "publish": true },
-      { "id": "sdk", "name": "caracalai-sdk", "dir": "packages/sdk/python", "module": "caracalai_sdk", "group": "sdk", "version": "0.1.5rc1", "tier": "sdk", "publish": true },
+      { "id": "sdk", "name": "caracalai-sdk", "dir": "packages/sdk/python", "module": "caracalai", "group": "sdk", "version": "0.1.5rc1", "tier": "sdk", "publish": true },
       { "id": "transport-mcp", "name": "caracalai-transport-mcp", "dir": "packages/transport/mcp/python", "module": "caracalai_transport_mcp", "group": "transport-mcp", "version": "0.1.5rc1", "tier": "connector", "publish": true },
       { "id": "fastmcp", "name": "caracalai-mcp-fastmcp", "dir": "packages/connectors/fastmcp/python", "module": "caracalai_mcp_fastmcp", "group": "mcp-fastmcp", "version": "0.1.5rc1", "tier": "connector", "publish": true },
       { "id": "redis", "name": "caracalai-revocation-redis", "dir": "packages/connectors/redis/python", "module": "caracalai_revocation_redis", "group": "revocation-redis", "version": "0.1.5rc1", "tier": "connector", "publish": true }

@@ -470,7 +470,7 @@ jobs:
         run: |
           set -euxo pipefail
           mkdir -p coverage/python
-          coverage run --source=packages/core/python/caracalai_core,packages/oauth/python/caracalai_oauth,packages/identity/python/caracalai_identity,packages/revocation/python/caracalai_revocation,packages/sdk/python/caracalai_sdk,packages/transport/mcp/python/caracalai_transport_mcp,packages/connectors/fastmcp/python/caracalai_mcp_fastmcp,packages/connectors/redis/python/caracalai_revocation_redis \
+          coverage run --source=packages/core/python/caracalai_core,packages/oauth/python/caracalai_oauth,packages/identity/python/caracalai_identity,packages/revocation/python/caracalai_revocation,packages/sdk/python/caracalai,packages/transport/mcp/python/caracalai_transport_mcp,packages/connectors/fastmcp/python/caracalai_mcp_fastmcp,packages/connectors/redis/python/caracalai_revocation_redis \
             -m unittest discover -s tests/python -p 'test_*.py' -v
           coverage xml -o coverage/python/coverage.xml
           coverage report --show-missing
