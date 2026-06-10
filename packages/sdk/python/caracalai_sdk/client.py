@@ -474,33 +474,215 @@ def _validate_subject_token(token: str) -> None:
         )
 
 
-class Caracal:
-    def __init__(self, config: CaracalConfig) -> None:
-        self.config = config
-        self._agent_start_hooks: list[LifecycleHook] = []
-        self._agent_end_hooks: list[LifecycleHook] = []
+def _config_from_env(env: Mapping[str, str] | None = None) -> CaracalConfig:
+    e = env if env is not None else os.environ
+    coordinator_url = _service_url(e, "CARACAL_COORDINATOR_URL", DEFAULT_COORDINATOR_URL)
+    zone_id = e.get("CARACAL_ZONE_ID")
+    application_id = e.get("CARACAL_APPLICATION_ID")
+    missing = [
+        k for k, v in {
+            "CARACAL_ZONE_ID": zone_id,
+            "CARACAL_APPLICATION_ID": application_id,
+        }.items() if not v
+    ]
+    if missing:
+        raise RuntimeError(f"Caracal.from_env: missing {', '.join(missing)}")
 
-    @classmethod
-    def connect(
-        cls,
+    credential_ids, credential_bindings = _resource_bindings_from_credentials(
+        _credential_manifest_from_env(e, zone_id, application_id)
+    )
+    bindings = sort_bindings_longest_first(
+        credential_bindings + _resolve_bindings(None, e, cfg_source="env")
+    )
+    gateway_url = _service_url(e, "CARACAL_GATEWAY_URL", DEFAULT_GATEWAY_URL)
+
+    client_secret = _client_secret_from_env(e, zone_id, application_id)
+    sts_url = _sts_url(e)
+    subject_token = e.get("CARACAL_SUBJECT_TOKEN")
+
+    if client_secret:
+        resources = _resource_ids_from_env(e, bindings)
+        if credential_ids:
+            resources = list(dict.fromkeys(credential_ids + resources))
+        if not resources:
+            raise RuntimeError(
+                "Caracal.from_env: client-secret mode requires resources via "
+                "CARACAL_APP_RESOURCES, CARACAL_RESOURCES, or CARACAL_RESOURCES_FILE"
+            )
+        exchanger = ClientSecretExchanger(
+            sts_url=sts_url,
+            zone_id=zone_id,
+            application_id=application_id,
+            client_secret=client_secret,
+            resources=resources,
+        )
+        return CaracalConfig(
+            coordinator=CoordinatorClient(base_url=coordinator_url),
+            zone_id=zone_id,
+            application_id=application_id,
+            token_source=exchanger.get_token,
+            gateway_url=gateway_url,
+            resources=bindings,
+        )
+
+    if not subject_token:
+        raise RuntimeError(
+            "Caracal.from_env: provide CARACAL_APP_CLIENT_SECRET or CARACAL_SUBJECT_TOKEN"
+        )
+    _validate_subject_token(subject_token)
+    return CaracalConfig(
+        coordinator=CoordinatorClient(base_url=coordinator_url),
+        zone_id=zone_id,
+        application_id=application_id,
+        subject_token=subject_token,
+        gateway_url=gateway_url,
+        resources=bindings,
+    )
+
+
+def _config_from_client_secret(
+    *,
+    coordinator_url: str,
+    sts_url: str,
+    zone_id: str,
+    application_id: str,
+    client_secret: str,
+    resources: list[str | ResourceBinding],
+    gateway_url: str | None = None,
+    scope: str = "agent:lifecycle",
+    http_client: httpx.Client | None = None,
+) -> CaracalConfig:
+    bindings: list[ResourceBinding] = []
+    resource_ids: list[str] = []
+    for r in resources:
+        if isinstance(r, ResourceBinding):
+            bindings.append(r)
+            resource_ids.append(r.resource_id)
+        else:
+            resource_ids.append(str(r))
+    if not resource_ids:
+        raise ValueError("from_client_secret requires at least one resource")
+    exchanger = ClientSecretExchanger(
+        sts_url=sts_url,
+        zone_id=zone_id,
+        application_id=application_id,
+        client_secret=client_secret,
+        resources=resource_ids,
+        scope=scope,
+        http_client=http_client,
+    )
+    return CaracalConfig(
+        coordinator=CoordinatorClient(base_url=coordinator_url),
+        zone_id=zone_id,
+        application_id=application_id,
+        token_source=exchanger.get_token,
+        gateway_url=gateway_url,
+        resources=bindings,
+    )
+
+
+def _config_from_file(path: str | os.PathLike[str] | None = None) -> CaracalConfig:
+    import tomllib
+    from pathlib import Path
+
+    cfg_path = Path(path) if path is not None else _default_config_path()
+    if not cfg_path.exists():
+        raise RuntimeError(
+            f"Caracal config not found at {cfg_path}; provision a zone "
+            "and application in the Console and author "
+            "caracal.toml with the returned ids."
+        )
+    cfg = tomllib.loads(cfg_path.read_text())
+
+    zone_id = _required_str(cfg, "zone_id")
+    application_id = _required_str(cfg, "application_id")
+    client_secret = _client_secret_from_config(cfg, zone_id, application_id)
+    sts_url = (
+        cfg.get("sts_url")
+        or cfg.get("zone_url")
+        or os.environ.get("CARACAL_STS_URL")
+        or os.environ.get("CARACAL_ZONE_URL")
+        or _service_url(os.environ, "CARACAL_STS_URL", DEFAULT_STS_URL)
+    )
+    coordinator_url = (
+        cfg.get("coordinator_url")
+        or os.environ.get("CARACAL_COORDINATOR_URL")
+        or _service_url(os.environ, "CARACAL_COORDINATOR_URL", DEFAULT_COORDINATOR_URL)
+    )
+    gateway_url = (
+        cfg.get("gateway_url")
+        or os.environ.get("CARACAL_GATEWAY_URL")
+        or _service_url(os.environ, "CARACAL_GATEWAY_URL", DEFAULT_GATEWAY_URL)
+    )
+
+    credential_ids, credential_bindings = _resource_bindings_from_credentials(
+        _credential_entries(cfg.get("credentials"), source=f"{cfg_path}.credentials")
+        + _credential_entries(cfg.get("optional_credentials"), source=f"{cfg_path}.optional_credentials")
+        + _credential_manifest_from_env(os.environ, zone_id, application_id)
+    )
+    bindings = sort_bindings_longest_first(
+        credential_bindings + _resolve_bindings([], os.environ, cfg_source=str(cfg_path))
+    )
+    resource_ids = list(
+        dict.fromkeys(credential_ids + [b.resource_id for b in bindings])
+    )
+    if not resource_ids:
+        raise RuntimeError(
+            "Caracal.from_config: at least one resource binding is required via "
+            "caracal.toml credentials, CARACAL_RESOURCES, or CARACAL_RESOURCES_FILE"
+        )
+    binding_by_resource = {b.resource_id: b for b in bindings}
+    resources: list[str | ResourceBinding] = [
+        binding_by_resource.get(resource_id, resource_id)
+        for resource_id in resource_ids
+    ]
+
+    return _config_from_client_secret(
+        coordinator_url=coordinator_url,
+        sts_url=sts_url,
+        zone_id=zone_id,
+        application_id=application_id,
+        client_secret=client_secret,
+        resources=resources,
+        gateway_url=gateway_url,
+    )
+
+
+def _detect_config(
+    config_path: str | os.PathLike[str] | None = None,
+    env: Mapping[str, str] | None = None,
+) -> CaracalConfig:
+    if config_path is not None:
+        return _config_from_file(config_path)
+    e = env if env is not None else os.environ
+    default = _default_config_path_for(e)
+    if e.get("CARACAL_CONFIG") and not default.exists():
+        raise RuntimeError(f"Caracal config not found at {default}")
+    if default.exists():
+        return _config_from_file(default)
+    return _config_from_env(env)
+
+
+class Caracal:
+    def __init__(
+        self,
+        config: CaracalConfig | None = None,
         *,
         config_path: str | os.PathLike[str] | None = None,
         env: Mapping[str, str] | None = None,
-    ) -> Caracal:
-        """Build a Caracal client by auto-detecting available credentials.
-        Pass `config_path` to force loading from a `caracal.toml` file. With
-        no arguments, loads from the default `caracal.toml` if present;
-        otherwise dispatches to `from_env()`.
+    ) -> None:
+        """Create a Caracal client.
+
+        With no arguments, credentials are auto-detected: `CARACAL_CONFIG` or
+        the default `caracal.toml` profile when present, otherwise `CARACAL_*`
+        environment variables. Pass `config_path` to force a profile file, or
+        a `CaracalConfig` for full programmatic control.
         """
-        if config_path is not None:
-            return cls.from_config(config_path)
-        e = env if env is not None else os.environ
-        default = _default_config_path_for(e)
-        if e.get("CARACAL_CONFIG") and not default.exists():
-            raise RuntimeError(f"Caracal config not found at {default}")
-        if default.exists():
-            return cls.from_config(default)
-        return cls.from_env(env)
+        if config is not None and (config_path is not None or env is not None):
+            raise ValueError("Caracal: pass either config or config_path/env, not both")
+        self.config = config if config is not None else _detect_config(config_path, env)
+        self._agent_start_hooks: list[LifecycleHook] = []
+        self._agent_end_hooks: list[LifecycleHook] = []
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> Caracal:
@@ -515,73 +697,7 @@ class Caracal:
 
         Required in both modes: `CARACAL_ZONE_ID`, `CARACAL_APPLICATION_ID`.
         """
-        e = env if env is not None else os.environ
-        coordinator_url = _service_url(e, "CARACAL_COORDINATOR_URL", DEFAULT_COORDINATOR_URL)
-        zone_id = e.get("CARACAL_ZONE_ID")
-        application_id = e.get("CARACAL_APPLICATION_ID")
-        missing = [
-            k for k, v in {
-                "CARACAL_ZONE_ID": zone_id,
-                "CARACAL_APPLICATION_ID": application_id,
-            }.items() if not v
-        ]
-        if missing:
-            raise RuntimeError(f"Caracal.from_env: missing {', '.join(missing)}")
-
-        credential_ids, credential_bindings = _resource_bindings_from_credentials(
-            _credential_manifest_from_env(e, zone_id, application_id)
-        )
-        bindings = sort_bindings_longest_first(
-            credential_bindings + _resolve_bindings(None, e, cfg_source="env")
-        )
-        gateway_url = _service_url(e, "CARACAL_GATEWAY_URL", DEFAULT_GATEWAY_URL)
-
-        client_secret = _client_secret_from_env(e, zone_id, application_id)
-        sts_url = _sts_url(e)
-        subject_token = e.get("CARACAL_SUBJECT_TOKEN")
-
-        if client_secret:
-            resources = _resource_ids_from_env(e, bindings)
-            if credential_ids:
-                resources = list(dict.fromkeys(credential_ids + resources))
-            if not resources:
-                raise RuntimeError(
-                    "Caracal.from_env: client-secret mode requires resources via "
-                    "CARACAL_APP_RESOURCES, CARACAL_RESOURCES, or CARACAL_RESOURCES_FILE"
-                )
-            exchanger = ClientSecretExchanger(
-                sts_url=sts_url,
-                zone_id=zone_id,
-                application_id=application_id,
-                client_secret=client_secret,
-                resources=resources,
-            )
-            return cls(
-                CaracalConfig(
-                    coordinator=CoordinatorClient(base_url=coordinator_url),
-                    zone_id=zone_id,
-                    application_id=application_id,
-                    token_source=exchanger.get_token,
-                    gateway_url=gateway_url,
-                    resources=bindings,
-                )
-            )
-
-        if not subject_token:
-            raise RuntimeError(
-                "Caracal.from_env: provide CARACAL_APP_CLIENT_SECRET or CARACAL_SUBJECT_TOKEN"
-            )
-        _validate_subject_token(subject_token)
-        return cls(
-            CaracalConfig(
-                coordinator=CoordinatorClient(base_url=coordinator_url),
-                zone_id=zone_id,
-                application_id=application_id,
-                subject_token=subject_token,
-                gateway_url=gateway_url,
-                resources=bindings,
-            )
-        )
+        return cls(_config_from_env(env))
 
     @classmethod
     def from_client_secret(
@@ -605,97 +721,7 @@ class Caracal:
         required). When ResourceBinding objects are supplied their
         `resource_id`s are used as the STS audiences.
         """
-        bindings: list[ResourceBinding] = []
-        resource_ids: list[str] = []
-        for r in resources:
-            if isinstance(r, ResourceBinding):
-                bindings.append(r)
-                resource_ids.append(r.resource_id)
-            else:
-                resource_ids.append(str(r))
-        if not resource_ids:
-            raise ValueError("from_client_secret requires at least one resource")
-        exchanger = ClientSecretExchanger(
-            sts_url=sts_url,
-            zone_id=zone_id,
-            application_id=application_id,
-            client_secret=client_secret,
-            resources=resource_ids,
-            scope=scope,
-            http_client=http_client,
-        )
-        return cls(
-            CaracalConfig(
-                coordinator=CoordinatorClient(base_url=coordinator_url),
-                zone_id=zone_id,
-                application_id=application_id,
-                token_source=exchanger.get_token,
-                gateway_url=gateway_url,
-                resources=bindings,
-            )
-        )
-
-    @classmethod
-    def from_config(cls, path: str | os.PathLike[str] | None = None) -> Caracal:
-        """Build a Caracal client from a `caracal.toml` authored from
-        Console values. The config supplies zone, application, client_secret,
-        and resource bindings; tokens are exchanged on demand."""
-        import tomllib
-        from pathlib import Path
-
-        cfg_path = Path(path) if path is not None else _default_config_path()
-        if not cfg_path.exists():
-            raise RuntimeError(
-                f"Caracal config not found at {cfg_path}; provision a zone "
-                "and application in the Console and author "
-                "caracal.toml with the returned ids."
-            )
-        cfg = tomllib.loads(cfg_path.read_text())
-
-        zone_id = _required_str(cfg, "zone_id")
-        application_id = _required_str(cfg, "application_id")
-        client_secret = _client_secret_from_config(cfg, zone_id, application_id)
-        sts_url = (
-            cfg.get("sts_url")
-            or cfg.get("zone_url")
-            or os.environ.get("CARACAL_STS_URL")
-            or os.environ.get("CARACAL_ZONE_URL")
-            or _service_url(os.environ, "CARACAL_STS_URL", DEFAULT_STS_URL)
-        )
-        coordinator_url = (
-            cfg.get("coordinator_url")
-            or os.environ.get("CARACAL_COORDINATOR_URL")
-            or _service_url(os.environ, "CARACAL_COORDINATOR_URL", DEFAULT_COORDINATOR_URL)
-        )
-        gateway_url = (
-            cfg.get("gateway_url")
-            or os.environ.get("CARACAL_GATEWAY_URL")
-            or _service_url(os.environ, "CARACAL_GATEWAY_URL", DEFAULT_GATEWAY_URL)
-        )
-
-        credential_ids, credential_bindings = _resource_bindings_from_credentials(
-            _credential_entries(cfg.get("credentials"), source=f"{cfg_path}.credentials")
-            + _credential_entries(cfg.get("optional_credentials"), source=f"{cfg_path}.optional_credentials")
-            + _credential_manifest_from_env(os.environ, zone_id, application_id)
-        )
-        bindings = sort_bindings_longest_first(
-            credential_bindings + _resolve_bindings([], os.environ, cfg_source=str(cfg_path))
-        )
-        resource_ids = list(
-            dict.fromkeys(credential_ids + [b.resource_id for b in bindings])
-        )
-        if not resource_ids:
-            raise RuntimeError(
-                "Caracal.from_config: at least one resource binding is required via "
-                "caracal.toml credentials, CARACAL_RESOURCES, or CARACAL_RESOURCES_FILE"
-            )
-        binding_by_resource = {b.resource_id: b for b in bindings}
-        resources: list[str | ResourceBinding] = [
-            binding_by_resource.get(resource_id, resource_id)
-            for resource_id in resource_ids
-        ]
-
-        return cls.from_client_secret(
+        return cls(_config_from_client_secret(
             coordinator_url=coordinator_url,
             sts_url=sts_url,
             zone_id=zone_id,
@@ -703,7 +729,16 @@ class Caracal:
             client_secret=client_secret,
             resources=resources,
             gateway_url=gateway_url,
-        )
+            scope=scope,
+            http_client=http_client,
+        ))
+
+    @classmethod
+    def from_config(cls, path: str | os.PathLike[str] | None = None) -> Caracal:
+        """Build a Caracal client from a `caracal.toml` authored from
+        Console values. The config supplies zone, application, client_secret,
+        and resource bindings; tokens are exchanged on demand."""
+        return cls(_config_from_file(path))
 
     def on_agent_start(self, cb: LifecycleHook) -> None:
         self._agent_start_hooks.append(cb)

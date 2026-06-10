@@ -132,18 +132,16 @@ def test_customer_identity_propagates_through_spawn():
     from app.core.workers import WorkerPool
     from app.events.bus import bus
 
-    seen = []
-    unsubscribe = bus.subscribe(lambda e: seen.append(e))
-    try:
-        runner = AgentRunner("run-cust")
-        parent = runner.spawn("workflow-orchestrator", "wf.ar", parent=None, layer="orchestrator")
-        pool = WorkerPool("run-cust", runner, parent)
-        worker = pool.acquire("receivables", "ar-dun:cust-204", customer_id="cust-204")
-        assert worker.customer_id == "cust-204"
-        spawn_events = [e for e in seen if e.kind == "agent_spawn" and e.payload["agent_id"] == worker.id]
-        assert spawn_events and spawn_events[0].payload["customer_id"] == "cust-204"
-    finally:
-        unsubscribe()
+    runner = AgentRunner("run-cust")
+    parent = runner.spawn("workflow-orchestrator", "wf.ar", parent=None, layer="orchestrator")
+    pool = WorkerPool("run-cust", runner, parent)
+    worker = pool.acquire("receivables", "ar-dun:cust-204", customer_id="cust-204")
+    assert worker.customer_id == "cust-204"
+    spawn_events = [
+        e for e in bus.history("run-cust")
+        if e.kind == "agent_spawn" and e.payload["agent_id"] == worker.id
+    ]
+    assert spawn_events and spawn_events[0].payload["customer_id"] == "cust-204"
 
     assert tenancy.agent_labels("receivables", "cust-204") == [
         "receivables", "lynx-swarm", "customer:cust-204",
