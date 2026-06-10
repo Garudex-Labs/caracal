@@ -25,7 +25,7 @@ _ctx_var: contextvars.ContextVar[CaracalContext] = contextvars.ContextVar(
 class CaracalContext:
     subject_token: str
     zone_id: str
-    client_id: str
+    application_id: str
     agent_session_id: str | None = None
     delegation_edge_id: str | None = None
     parent_edge_id: str | None = None
@@ -38,10 +38,10 @@ class CaracalContext:
 class AuthoritySummary:
     zone_id: str
     application_id: str
-    authority_session_id: str | None
-    agent_run_id: str | None
-    delegated_permission_id: str | None
-    parent_delegated_permission_id: str | None
+    session_id: str | None
+    agent_session_id: str | None
+    delegation_edge_id: str | None
+    parent_edge_id: str | None
     trace_id: str | None
     hop: int
     chain: tuple[str, ...]
@@ -50,7 +50,7 @@ class AuthoritySummary:
 class CaracalContextPatch(TypedDict):
     subject_token: NotRequired[str]
     zone_id: NotRequired[str]
-    client_id: NotRequired[str]
+    application_id: NotRequired[str]
     agent_session_id: NotRequired[str | None]
     delegation_edge_id: NotRequired[str | None]
     parent_edge_id: NotRequired[str | None]
@@ -106,14 +106,14 @@ def from_envelope(
     env: Envelope,
     *,
     zone_id: str,
-    client_id: str,
+    application_id: str,
 ) -> CaracalContext:
     if not env.subject_token:
         raise ValueError("envelope missing subject token")
     return CaracalContext(
         subject_token=env.subject_token,
         zone_id=zone_id,
-        client_id=client_id,
+        application_id=application_id,
         agent_session_id=env.agent_session_id,
         delegation_edge_id=env.delegation_edge_id,
         parent_edge_id=env.parent_edge_id,
@@ -130,20 +130,20 @@ def describe_authority(ctx: CaracalContext | None = None) -> AuthoritySummary | 
         return None
     chain: list[str] = []
     if ctx.session_id:
-        chain.append(f"authority:{ctx.session_id}")
+        chain.append(f"session:{ctx.session_id}")
     if ctx.agent_session_id:
-        chain.append(f"agent-run:{ctx.agent_session_id}")
+        chain.append(f"agent-session:{ctx.agent_session_id}")
     if ctx.parent_edge_id:
-        chain.append(f"parent-delegated-permission:{ctx.parent_edge_id}")
+        chain.append(f"parent-edge:{ctx.parent_edge_id}")
     if ctx.delegation_edge_id:
-        chain.append(f"delegated-permission:{ctx.delegation_edge_id}")
+        chain.append(f"delegation-edge:{ctx.delegation_edge_id}")
     return AuthoritySummary(
         zone_id=ctx.zone_id,
-        application_id=ctx.client_id,
-        authority_session_id=ctx.session_id,
-        agent_run_id=ctx.agent_session_id,
-        delegated_permission_id=ctx.delegation_edge_id,
-        parent_delegated_permission_id=ctx.parent_edge_id,
+        application_id=ctx.application_id,
+        session_id=ctx.session_id,
+        agent_session_id=ctx.agent_session_id,
+        delegation_edge_id=ctx.delegation_edge_id,
+        parent_edge_id=ctx.parent_edge_id,
         trace_id=ctx.trace_id,
         hop=ctx.hop,
         chain=tuple(chain),

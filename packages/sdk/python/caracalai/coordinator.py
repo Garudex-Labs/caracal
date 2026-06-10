@@ -31,7 +31,7 @@ class CoordinatorClient:
             self._client = httpx.AsyncClient(timeout=self.timeout)
         return self._client
 
-    async def close(self) -> None:
+    async def aclose(self) -> None:
         """Close the lazy HTTP client. Idempotent and safe to call from FastAPI
         lifespan shutdown."""
         if self._client is not None:
@@ -110,7 +110,9 @@ class DelegationResponse:
     delegation_edge_id: str
 
 
-async def spawn_agent(client: CoordinatorClient, bearer: str, req: SpawnRequest) -> SpawnResponse:
+async def spawn_agent(
+    client: CoordinatorClient, bearer: str, req: SpawnRequest
+) -> SpawnResponse:
     body: dict[str, JsonValue] = {
         "application_id": req.application_id,
     }
@@ -158,13 +160,15 @@ def _derive_idempotency_key(req: SpawnRequest) -> str | None:
 
     if not req.subject_session_id and not req.parent_id:
         return None
-    seed = "|".join([
-        req.application_id,
-        req.subject_session_id or "",
-        req.parent_id or "",
-        str(req.lifecycle or ""),
-        ",".join(req.labels or []),
-    ])
+    seed = "|".join(
+        [
+            req.application_id,
+            req.subject_session_id or "",
+            req.parent_id or "",
+            str(req.lifecycle or ""),
+            ",".join(req.labels or []),
+        ]
+    )
     return hashlib.sha256(seed.encode("utf-8")).hexdigest()
 
 

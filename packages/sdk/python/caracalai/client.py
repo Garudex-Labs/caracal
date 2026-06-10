@@ -43,7 +43,7 @@ DEFAULT_COORDINATOR_URL = "http://localhost:4000"
 DEFAULT_GATEWAY_URL = "http://localhost:8081"
 
 if TYPE_CHECKING:
-    from .http import ASGIApp, CaracalContextASGIMiddleware, Verifier
+    from .http import ASGIApp, CaracalASGIMiddleware, TokenVerifier
 
 
 @dataclass
@@ -99,7 +99,9 @@ class CaracalConfig:
         return self._static_token
 
 
-def sort_bindings_longest_first(bindings: list[ResourceBinding]) -> list[ResourceBinding]:
+def sort_bindings_longest_first(
+    bindings: list[ResourceBinding],
+) -> list[ResourceBinding]:
     """Sort resource bindings by upstream prefix length descending so the most
     specific prefix wins during gateway routing. Stable across equal lengths."""
     return sorted(bindings, key=lambda b: len(b.upstream_prefix), reverse=True)
@@ -121,7 +123,9 @@ def _parse_resource_bindings(raw: str | None) -> list[ResourceBinding]:
         rid = trimmed[:idx].strip()
         prefix = trimmed[idx + 1 :].strip()
         if not rid or not prefix:
-            errors.append(f"entry {index} must contain non-empty resource_id and upstream_prefix")
+            errors.append(
+                f"entry {index} must contain non-empty resource_id and upstream_prefix"
+            )
             continue
         if not _is_absolute_url(prefix):
             errors.append(f"entry {index} upstream_prefix must be an absolute URL")
@@ -168,16 +172,22 @@ def _validate_resource_bindings(data: object, *, source: str) -> list[ResourceBi
                 errors.append(f"{source}: key {key!r} is not a non-empty string")
                 continue
             if not isinstance(value, str) or not value:
-                errors.append(f"{source}: entry {key!r}: upstream_prefix must be a non-empty string")
+                errors.append(
+                    f"{source}: entry {key!r}: upstream_prefix must be a non-empty string"
+                )
                 continue
             if not _is_absolute_url(value):
-                errors.append(f"{source}: entry {key!r}: upstream_prefix must be an absolute URL")
+                errors.append(
+                    f"{source}: entry {key!r}: upstream_prefix must be an absolute URL"
+                )
                 continue
             out.append(ResourceBinding(resource_id=key, upstream_prefix=value))
     elif isinstance(data, list):
         for idx, entry in enumerate(data):
             if not isinstance(entry, dict):
-                errors.append(f"{source}[{idx}]: entry must be an object, got {type(entry).__name__}")
+                errors.append(
+                    f"{source}[{idx}]: entry must be an object, got {type(entry).__name__}"
+                )
                 continue
             extra = set(entry) - _BINDING_FIELDS
             if extra:
@@ -192,13 +202,19 @@ def _validate_resource_bindings(data: object, *, source: str) -> list[ResourceBi
                 continue
             rid, prefix = entry["resource_id"], entry["upstream_prefix"]
             if not isinstance(rid, str) or not rid:
-                errors.append(f"{source}[{idx}]: resource_id must be a non-empty string")
+                errors.append(
+                    f"{source}[{idx}]: resource_id must be a non-empty string"
+                )
                 continue
             if not isinstance(prefix, str) or not prefix:
-                errors.append(f"{source}[{idx}]: upstream_prefix must be a non-empty string")
+                errors.append(
+                    f"{source}[{idx}]: upstream_prefix must be a non-empty string"
+                )
                 continue
             if not _is_absolute_url(prefix):
-                errors.append(f"{source}[{idx}]: upstream_prefix must be an absolute URL")
+                errors.append(
+                    f"{source}[{idx}]: upstream_prefix must be an absolute URL"
+                )
                 continue
             out.append(ResourceBinding(resource_id=rid, upstream_prefix=prefix))
     else:
@@ -235,8 +251,12 @@ def _resolve_bindings(
             rid = cred.get("resource")
             prefix = cred.get("upstream_prefix")
             if rid and prefix:
-                cred_records.append({"resource_id": str(rid), "upstream_prefix": str(prefix)})
-        for b in _validate_resource_bindings(cred_records, source=f"{cfg_source}.credentials"):
+                cred_records.append(
+                    {"resource_id": str(rid), "upstream_prefix": str(prefix)}
+                )
+        for b in _validate_resource_bindings(
+            cred_records, source=f"{cfg_source}.credentials"
+        ):
             seen[b.resource_id] = b
 
     for b in _load_resource_bindings_file(env.get("CARACAL_RESOURCES_FILE")):
@@ -248,7 +268,9 @@ def _resolve_bindings(
     return list(seen.values())
 
 
-def _resource_ids_from_env(env: Mapping[str, str], bindings: list[ResourceBinding]) -> list[str]:
+def _resource_ids_from_env(
+    env: Mapping[str, str], bindings: list[ResourceBinding]
+) -> list[str]:
     explicit = env.get("CARACAL_APP_RESOURCES")
     if explicit:
         ids = [s.strip() for s in explicit.split(",") if s.strip()]
@@ -285,7 +307,14 @@ def _default_config_dir(env: Mapping[str, str]):
     if env.get("XDG_CONFIG_HOME"):
         return Path(env["XDG_CONFIG_HOME"]) / "caracal"
     if os.name == "nt":
-        return Path(env.get("APPDATA") or env.get("LOCALAPPDATA") or Path.home() / "AppData" / "Roaming") / "Caracal"
+        return (
+            Path(
+                env.get("APPDATA")
+                or env.get("LOCALAPPDATA")
+                or Path.home() / "AppData" / "Roaming"
+            )
+            / "Caracal"
+        )
     if sys.platform == "darwin":
         return Path.home() / "Library" / "Application Support" / "Caracal"
     return Path.home() / ".config" / "caracal"
@@ -299,14 +328,23 @@ def _safe_path_segment(value: str) -> str:
 
 
 def _default_credential_dir(env: Mapping[str, str], zone_id: str, application_id: str):
-    return _default_config_dir(env) / "runtime" / _safe_path_segment(zone_id) / _safe_path_segment(application_id)
+    return (
+        _default_config_dir(env)
+        / "runtime"
+        / _safe_path_segment(zone_id)
+        / _safe_path_segment(application_id)
+    )
 
 
-def _default_client_secret_path(env: Mapping[str, str], zone_id: str, application_id: str):
+def _default_client_secret_path(
+    env: Mapping[str, str], zone_id: str, application_id: str
+):
     return _default_credential_dir(env, zone_id, application_id) / "client-secret"
 
 
-def _default_run_credentials_path(env: Mapping[str, str], zone_id: str, application_id: str):
+def _default_run_credentials_path(
+    env: Mapping[str, str], zone_id: str, application_id: str
+):
     return _default_credential_dir(env, zone_id, application_id) / "credentials.json"
 
 
@@ -377,7 +415,9 @@ def _client_secret_from_config(cfg: dict, zone_id: str, application_id: str) -> 
     return _read_secret_path(local_path, "caracal.toml")
 
 
-def _client_secret_from_env(env: Mapping[str, str], zone_id: str, application_id: str) -> str | None:
+def _client_secret_from_env(
+    env: Mapping[str, str], zone_id: str, application_id: str
+) -> str | None:
     from pathlib import Path
 
     value = env.get("CARACAL_APP_CLIENT_SECRET")
@@ -389,7 +429,9 @@ def _client_secret_from_env(env: Mapping[str, str], zone_id: str, application_id
         )
     if file_value:
         return _read_secret_path(Path(file_value), "Caracal.from_env")
-    local_path = _existing_local_file(_default_client_secret_path(env, zone_id, application_id), env)
+    local_path = _existing_local_file(
+        _default_client_secret_path(env, zone_id, application_id), env
+    )
     if local_path is not None:
         return _read_secret_path(local_path, "Caracal.from_env")
     return value
@@ -415,7 +457,9 @@ def _credential_entries(value: object, *, source: str) -> list[dict[str, str]]:
     return entries
 
 
-def _resource_bindings_from_credentials(credentials: list[dict[str, str]]) -> tuple[list[str], list[ResourceBinding]]:
+def _resource_bindings_from_credentials(
+    credentials: list[dict[str, str]],
+) -> tuple[list[str], list[ResourceBinding]]:
     ids: list[str] = []
     bindings: list[ResourceBinding] = []
     seen: set[str] = set()
@@ -431,7 +475,9 @@ def _resource_bindings_from_credentials(credentials: list[dict[str, str]]) -> tu
     return ids, bindings
 
 
-def _credential_manifest_from_env(env: Mapping[str, str], zone_id: str, application_id: str) -> list[dict[str, str]]:
+def _credential_manifest_from_env(
+    env: Mapping[str, str], zone_id: str, application_id: str
+) -> list[dict[str, str]]:
     file_value = env.get("CARACAL_RUN_CREDENTIALS_FILE")
     inline = env.get("CARACAL_RUN_CREDENTIALS")
     if file_value and inline:
@@ -440,7 +486,9 @@ def _credential_manifest_from_env(env: Mapping[str, str], zone_id: str, applicat
             "CARACAL_RUN_CREDENTIALS_FILE"
         )
     if not file_value and not inline:
-        local_path = _existing_local_file(_default_run_credentials_path(env, zone_id, application_id), env)
+        local_path = _existing_local_file(
+            _default_run_credentials_path(env, zone_id, application_id), env
+        )
         if local_path is None:
             return []
         file_value = str(local_path)
@@ -451,10 +499,14 @@ def _credential_manifest_from_env(env: Mapping[str, str], zone_id: str, applicat
         data = json.loads(inline or "")
     manifest = {"credentials": data} if isinstance(data, list) else data
     if not isinstance(manifest, dict):
-        raise RuntimeError("Caracal.from_env credential manifest must be an array or object")
-    return (
-        _credential_entries(manifest.get("credentials"), source="CARACAL_RUN_CREDENTIALS.credentials")
-        + _credential_entries(manifest.get("optional_credentials"), source="CARACAL_RUN_CREDENTIALS.optional_credentials")
+        raise RuntimeError(
+            "Caracal.from_env credential manifest must be an array or object"
+        )
+    return _credential_entries(
+        manifest.get("credentials"), source="CARACAL_RUN_CREDENTIALS.credentials"
+    ) + _credential_entries(
+        manifest.get("optional_credentials"),
+        source="CARACAL_RUN_CREDENTIALS.optional_credentials",
     )
 
 
@@ -476,14 +528,18 @@ def _validate_subject_token(token: str) -> None:
 
 def _config_from_env(env: Mapping[str, str] | None = None) -> CaracalConfig:
     e = env if env is not None else os.environ
-    coordinator_url = _service_url(e, "CARACAL_COORDINATOR_URL", DEFAULT_COORDINATOR_URL)
+    coordinator_url = _service_url(
+        e, "CARACAL_COORDINATOR_URL", DEFAULT_COORDINATOR_URL
+    )
     zone_id = e.get("CARACAL_ZONE_ID")
     application_id = e.get("CARACAL_APPLICATION_ID")
     missing = [
-        k for k, v in {
+        k
+        for k, v in {
             "CARACAL_ZONE_ID": zone_id,
             "CARACAL_APPLICATION_ID": application_id,
-        }.items() if not v
+        }.items()
+        if not v
     ]
     if missing:
         raise RuntimeError(f"Caracal.from_env: missing {', '.join(missing)}")
@@ -617,11 +673,14 @@ def _config_from_file(path: str | os.PathLike[str] | None = None) -> CaracalConf
 
     credential_ids, credential_bindings = _resource_bindings_from_credentials(
         _credential_entries(cfg.get("credentials"), source=f"{cfg_path}.credentials")
-        + _credential_entries(cfg.get("optional_credentials"), source=f"{cfg_path}.optional_credentials")
+        + _credential_entries(
+            cfg.get("optional_credentials"), source=f"{cfg_path}.optional_credentials"
+        )
         + _credential_manifest_from_env(os.environ, zone_id, application_id)
     )
     bindings = sort_bindings_longest_first(
-        credential_bindings + _resolve_bindings([], os.environ, cfg_source=str(cfg_path))
+        credential_bindings
+        + _resolve_bindings([], os.environ, cfg_source=str(cfg_path))
     )
     resource_ids = list(
         dict.fromkeys(credential_ids + [b.resource_id for b in bindings])
@@ -721,17 +780,19 @@ class Caracal:
         required). When ResourceBinding objects are supplied their
         `resource_id`s are used as the STS audiences.
         """
-        return cls(_config_from_client_secret(
-            coordinator_url=coordinator_url,
-            sts_url=sts_url,
-            zone_id=zone_id,
-            application_id=application_id,
-            client_secret=client_secret,
-            resources=resources,
-            gateway_url=gateway_url,
-            scope=scope,
-            http_client=http_client,
-        ))
+        return cls(
+            _config_from_client_secret(
+                coordinator_url=coordinator_url,
+                sts_url=sts_url,
+                zone_id=zone_id,
+                application_id=application_id,
+                client_secret=client_secret,
+                resources=resources,
+                gateway_url=gateway_url,
+                scope=scope,
+                http_client=http_client,
+            )
+        )
 
     @classmethod
     def from_config(cls, path: str | os.PathLike[str] | None = None) -> Caracal:
@@ -766,10 +827,14 @@ class Caracal:
         by default; pass ``grant=Grant.narrow([...])`` to issue a bounded
         delegation edge so the child holds only a subset of scopes."""
         on_start: LifecycleHook | None = (
-            (lambda c: self._fire(self._agent_start_hooks, c)) if self._agent_start_hooks else None
+            (lambda c: self._fire(self._agent_start_hooks, c))
+            if self._agent_start_hooks
+            else None
         )
         on_end: LifecycleHook | None = (
-            (lambda c: self._fire(self._agent_end_hooks, c)) if self._agent_end_hooks else None
+            (lambda c: self._fire(self._agent_end_hooks, c))
+            if self._agent_end_hooks
+            else None
         )
         async with spawn(
             coordinator=self.config.coordinator,
@@ -779,7 +844,9 @@ class Caracal:
             parent_id=parent_id,
             parent_ctx=parent_ctx,
             grant=grant,
-            ttl_seconds=ttl_seconds if ttl_seconds is not None else self.config.default_ttl_seconds,
+            ttl_seconds=ttl_seconds
+            if ttl_seconds is not None
+            else self.config.default_ttl_seconds,
             metadata=metadata,
             labels=labels,
             trace_id=trace_id,
@@ -788,7 +855,7 @@ class Caracal:
         ) as ctx:
             yield ctx
 
-    async def service(
+    async def spawn_service(
         self,
         *,
         ttl_seconds: int | None = None,
@@ -807,7 +874,9 @@ class Caracal:
         single request. Pass ``heartbeat_interval`` to renew the lease from a
         background task so it survives long provider/resource streams."""
         on_start: LifecycleHook | None = (
-            (lambda c: self._fire(self._agent_start_hooks, c)) if self._agent_start_hooks else None
+            (lambda c: self._fire(self._agent_start_hooks, c))
+            if self._agent_start_hooks
+            else None
         )
         return await spawn_service(
             coordinator=self.config.coordinator,
@@ -816,7 +885,9 @@ class Caracal:
             subject_token=self.config.subject_token,
             parent_id=parent_id,
             parent_ctx=parent_ctx,
-            ttl_seconds=ttl_seconds if ttl_seconds is not None else self.config.default_ttl_seconds,
+            ttl_seconds=ttl_seconds
+            if ttl_seconds is not None
+            else self.config.default_ttl_seconds,
             metadata=metadata,
             labels=labels,
             trace_id=trace_id,
@@ -915,7 +986,7 @@ class Caracal:
         ctx = from_envelope(
             env,
             zone_id=self.config.zone_id,
-            client_id=self.config.application_id,
+            application_id=self.config.application_id,
         )
         token = _ctx_var.set(ctx)
         try:
@@ -926,16 +997,16 @@ class Caracal:
     def current(self) -> CaracalContext | None:
         return current()
 
-    async def close(self) -> None:
+    async def aclose(self) -> None:
         """Release the coordinator's HTTP client. Idempotent."""
-        await self.config.coordinator.close()
+        await self.config.coordinator.aclose()
 
     def context_middleware(
         self,
         *,
         allow_root: bool = False,
-        verifier: Verifier | None = None,
-    ) -> Callable[[ASGIApp], CaracalContextASGIMiddleware]:
+        verifier: TokenVerifier | None = None,
+    ) -> Callable[[ASGIApp], CaracalASGIMiddleware]:
         """ASGI middleware factory for the inbound request boundary.
 
         Without ``verifier`` it only binds the inbound envelope into request
@@ -964,18 +1035,20 @@ class Caracal:
 
             app.add_middleware(caracal.context_middleware(verifier=verify))
         """
-        from .http import CaracalContextASGIMiddleware
+        from .http import CaracalASGIMiddleware
 
         outer = self
 
-        def factory(app: ASGIApp) -> CaracalContextASGIMiddleware:
-            return CaracalContextASGIMiddleware(
+        def factory(app: ASGIApp) -> CaracalASGIMiddleware:
+            return CaracalASGIMiddleware(
                 app, outer, allow_root=allow_root, verifier=verifier
             )
 
         return factory
 
-    def transport(self, *, allow_root: bool = False, **kwargs: Any) -> httpx.AsyncClient:
+    def transport(
+        self, *, allow_root: bool = False, **kwargs: Any
+    ) -> httpx.AsyncClient:
         """Returns an httpx.AsyncClient that auto-injects the envelope on every request
         and rewrites resource-bound calls through the configured Caracal gateway. Pass
         to any provider SDK that accepts a custom httpx client.
@@ -1046,11 +1119,17 @@ class Caracal:
         """
         request = self.gateway_request(resource_id, path)
         merged = {**(headers or {}), **request.headers}
-        client_kwargs: dict[str, Any] = {} if transport is None else {"transport": transport}
+        client_kwargs: dict[str, Any] = (
+            {} if transport is None else {"transport": transport}
+        )
         async with self.transport(allow_root=allow_root, **client_kwargs) as client:
-            return await client.request(method, request.url, headers=merged, **request_kwargs)
+            return await client.request(
+                method, request.url, headers=merged, **request_kwargs
+            )
 
-    def sync_transport(self, *, allow_root: bool = False, **kwargs: Any) -> httpx.Client:
+    def sync_transport(
+        self, *, allow_root: bool = False, **kwargs: Any
+    ) -> httpx.Client:
         """Sync counterpart to transport(): returns an httpx.Client that auto-injects
         the envelope on every request and rewrites resource-bound calls through the
         configured Caracal gateway. Use with sync httpx-based SDKs.
@@ -1124,14 +1203,25 @@ class Caracal:
         suffix = parsed.path or "/"
         if binding is not None:
             prefix = urlparse(binding.upstream_prefix)
-            if prefix.path and prefix.path != "/" and parsed.path.startswith(prefix.path):
+            if (
+                prefix.path
+                and prefix.path != "/"
+                and parsed.path.startswith(prefix.path)
+            ):
                 trimmed = parsed.path[len(prefix.path) :] or "/"
                 if not trimmed.startswith("/"):
                     trimmed = "/" + trimmed
                 suffix = trimmed
         base_path = gw_parsed.path.rstrip("/")
         rewritten = urlunparse(
-            (gw_parsed.scheme, gw_parsed.netloc, base_path + suffix, "", parsed.query, "")
+            (
+                gw_parsed.scheme,
+                gw_parsed.netloc,
+                base_path + suffix,
+                "",
+                parsed.query,
+                "",
+            )
         )
         rid = binding.resource_id if binding is not None else (explicit_resource or "")
         return rewritten, rid
@@ -1152,7 +1242,9 @@ def _url_matches_prefix(target, prefix: str) -> bool:
 def _join_gateway_path(gateway_url: str, path: str) -> str:
     parsed_path = urlparse(path)
     if parsed_path.scheme or parsed_path.netloc:
-        raise ValueError("Caracal.gateway_request: path must be relative to the configured gateway")
+        raise ValueError(
+            "Caracal.gateway_request: path must be relative to the configured gateway"
+        )
     gw = urlparse(gateway_url)
     normalized = path if path.startswith("/") else f"/{path}"
     split = normalized.split("?", 1)

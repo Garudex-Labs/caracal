@@ -28,7 +28,7 @@ from .coordinator import (
 from .json_types import JsonObject
 
 
-logger = logging.getLogger("caracalai_sdk")
+logger = logging.getLogger("caracalai")
 
 LifecycleHook = Callable[[CaracalContext], Awaitable[None]]
 
@@ -38,7 +38,7 @@ class Grant:
     """Authority handed to a spawned child.
 
     ``inherit`` (the default) runs the child under its parent's effective
-    authority: if the parent itself holds a narrowing delegation edge the child
+    session: if the parent itself holds a narrowing delegation edge the child
     inherits that same narrowing (the server mirrors the parent's edge onto the
     child), so least-privilege is transitive by default; a root parent under full
     application authority yields a child under that same full authority.
@@ -118,7 +118,7 @@ async def spawn(
             and parent is not None
             and parent.agent_session_id
             and parent.delegation_edge_id
-            and application_id == parent.client_id
+            and application_id == parent.application_id
         )
         else None
     )
@@ -138,17 +138,23 @@ async def spawn(
     )
 
     delegation_edge_id: str | None = res.delegation_edge_id
-    hop = parent.hop + 1 if (delegation_edge_id is not None and parent is not None) else (parent.hop if parent else 0)
+    hop = (
+        parent.hop + 1
+        if (delegation_edge_id is not None and parent is not None)
+        else (parent.hop if parent else 0)
+    )
     try:
         if grant.mode == "narrow":
             if parent is None or not parent.agent_session_id:
-                raise RuntimeError("grant=narrow requires an active parent agent session")
+                raise RuntimeError(
+                    "grant=narrow requires an active parent agent session"
+                )
             deleg = await create_delegation(
                 coordinator,
                 parent.subject_token,
                 DelegationRequest(
                     zone_id=zone_id,
-                    issuer_application_id=parent.client_id,
+                    issuer_application_id=parent.application_id,
                     source_session_id=parent.agent_session_id,
                     target_session_id=res.agent_session_id,
                     receiver_application_id=application_id,
@@ -168,7 +174,7 @@ async def spawn(
     ctx = CaracalContext(
         subject_token=bearer,
         zone_id=zone_id,
-        client_id=application_id,
+        application_id=application_id,
         agent_session_id=res.agent_session_id,
         delegation_edge_id=delegation_edge_id,
         parent_edge_id=parent.delegation_edge_id if parent else None,
@@ -210,7 +216,9 @@ class ServiceAgent:
     context: CaracalContext
     heartbeat_interval: float | None = None
     status: str = "healthy"
-    _auto_task: asyncio.Task[None] | None = field(default=None, init=False, repr=False, compare=False)
+    _auto_task: asyncio.Task[None] | None = field(
+        default=None, init=False, repr=False, compare=False
+    )
 
     @property
     def agent_session_id(self) -> str:
@@ -310,7 +318,7 @@ async def spawn_service(
     ctx = CaracalContext(
         subject_token=subject_token,
         zone_id=zone_id,
-        client_id=application_id,
+        application_id=application_id,
         agent_session_id=res.agent_session_id,
         parent_edge_id=parent.delegation_edge_id if parent else None,
         session_id=parent.session_id if parent else None,
@@ -349,7 +357,7 @@ async def delegate(
         ctx.subject_token,
         DelegationRequest(
             zone_id=ctx.zone_id,
-            issuer_application_id=ctx.client_id,
+            issuer_application_id=ctx.application_id,
             source_session_id=ctx.agent_session_id,
             target_session_id=to_agent_session_id,
             receiver_application_id=to_application_id,
