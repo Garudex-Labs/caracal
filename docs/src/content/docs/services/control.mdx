@@ -81,8 +81,8 @@ bootstrap workflows must not ask users to provide a separate zone id. Supplying
 `zone_id` on a Control key token exchange remains accepted for compatibility but
 is deprecated. Each token is short-lived, replay-protected, rate-limited, and audited, so
 least-privilege automation stays the easy path. The `controlBootstrap` example
-ships a reusable client plus idempotent bootstrap and teardown scripts that
-provision a demo provider, resource, and policy through this flow.
+ships a reusable client plus an apply/verify/teardown pipeline that keeps an
+agent's environment in sync with a declared plan through this flow.
 
 ## Manage Control Keys
 
