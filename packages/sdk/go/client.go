@@ -59,8 +59,8 @@ type GatewayRequest struct {
 	Header http.Header
 }
 
-// Connect builds a Caracal client from explicit values, a generated profile, or env.
-func Connect(opts ...ClientSecretOptions) (*Caracal, error) {
+// New builds a Caracal client from explicit values, a generated profile, or env.
+func New(opts ...ClientSecretOptions) (*Caracal, error) {
 	if len(opts) > 0 {
 		return FromClientSecret(opts[0])
 	}
