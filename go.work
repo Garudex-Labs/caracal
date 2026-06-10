@@ -21,12 +21,12 @@ use (
 // go.mod files require, so they coexist with the `use` directives above and
 // never ship to consumers (go.work is not published). Consumers resolve the
 // same modules from the git tags `packages/<module>/go/vX.Y.Z`.
-replace github.com/garudex-labs/caracal/packages/oauth/go v0.1.5-rc.1 => ./packages/oauth/go
+replace github.com/garudex-labs/caracal/packages/oauth/go v0.1.5-rc.2 => ./packages/oauth/go
 
-replace github.com/garudex-labs/caracal/packages/core/go v0.1.5-rc.1 => ./packages/core/go
+replace github.com/garudex-labs/caracal/packages/core/go v0.1.5-rc.2 => ./packages/core/go
 
-replace github.com/garudex-labs/caracal/packages/identity/go v0.1.5-rc.1 => ./packages/identity/go
+replace github.com/garudex-labs/caracal/packages/identity/go v0.1.5-rc.2 => ./packages/identity/go
 
-replace github.com/garudex-labs/caracal/packages/revocation/go v0.1.5-rc.1 => ./packages/revocation/go
+replace github.com/garudex-labs/caracal/packages/revocation/go v0.1.5-rc.2 => ./packages/revocation/go
 
-replace github.com/garudex-labs/caracal/packages/transport/mcp/go v0.1.5-rc.1 => ./packages/transport/mcp/go
+replace github.com/garudex-labs/caracal/packages/transport/mcp/go v0.1.5-rc.2 => ./packages/transport/mcp/go

@@ -3,7 +3,7 @@ module github.com/garudex-labs/caracal/gateway
 go 1.26
 
 require (
-	github.com/garudex-labs/caracal/packages/core/go v0.1.5-rc.1
+	github.com/garudex-labs/caracal/packages/core/go v0.1.5-rc.2
 	github.com/garudex-labs/caracal/packages/identity/go v0.0.0
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.9.2

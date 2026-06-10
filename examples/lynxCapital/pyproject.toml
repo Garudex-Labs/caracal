@@ -9,7 +9,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lynx-capital"
-version = "0.1.5rc1"
+version = "0.1.5rc2"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.136",
@@ -31,16 +31,16 @@ dependencies = [
     "protobuf>=6.33,<7",
     "python-dotenv>=1.2",
     "redis>=5.2",
-    # Caracal SDK — published release v2026.06.09-rc.1. Upstream gateway routing for
+    # Caracal SDK — published release v2026.06.10-rc.1. Upstream gateway routing for
     # external providers and the verifier boundary for internal providers.
-    "caracalai-sdk==0.1.5rc1",
-    "caracalai-core==0.1.5rc1",
-    "caracalai-identity==0.1.5rc1",
-    "caracalai-oauth==0.1.5rc1",
-    "caracalai-revocation==0.1.5rc1",
-    "caracalai-transport-mcp==0.1.5rc1",
-    "caracalai-mcp-fastmcp==0.1.5rc1",
-    "caracalai-revocation-redis==0.1.5rc1",
+    "caracalai-sdk==0.1.5rc2",
+    "caracalai-core==0.1.5rc2",
+    "caracalai-identity==0.1.5rc2",
+    "caracalai-oauth==0.1.5rc2",
+    "caracalai-revocation==0.1.5rc2",
+    "caracalai-transport-mcp==0.1.5rc2",
+    "caracalai-mcp-fastmcp==0.1.5rc2",
+    "caracalai-revocation-redis==0.1.5rc2",
 ]
 
 [project.optional-dependencies]

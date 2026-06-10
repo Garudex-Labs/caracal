@@ -162,7 +162,7 @@ describe('Control menu views', () => {
     const control = await openControl(app)
     engineMocks.detectActiveLocalStackRuntime.mockReturnValueOnce({
       mode: 'rc',
-      version: '2026.06.09-rc.1',
+      version: '2026.06.10-rc.1',
       registry: 'ghcr.io/garudex-labs/',
       home: '/home/raw/.config/caracal',
       secretsDir: '/home/raw/.config/caracal/secrets',
@@ -193,7 +193,7 @@ describe('Control menu views', () => {
       home: '/home/raw/.config/caracal',
       env: expect.objectContaining({
         CARACAL_MODE: 'rc',
-        CARACAL_VERSION: '2026.06.09-rc.1',
+        CARACAL_VERSION: '2026.06.10-rc.1',
         CARACAL_REGISTRY: 'ghcr.io/garudex-labs/',
         CARACAL_SECRETS_DIR: '/home/raw/.config/caracal/secrets',
       }),

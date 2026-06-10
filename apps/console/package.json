@@ -1,6 +1,6 @@
 {
   "name": "@caracalai/console",
-  "version": "0.1.5-rc.1",
+  "version": "0.1.5-rc.2",
   "private": true,
   "description": "Caracal console UI: inspect and manage identity resources interactively.",
   "license": "Apache-2.0",

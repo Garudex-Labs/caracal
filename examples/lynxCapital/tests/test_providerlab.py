@@ -2350,5 +2350,5 @@ def test_caracal_sdk_usage_confined_to_seam():
 
 def test_caracal_sdk_pinned_in_dependencies():
     text = (LYNX_ROOT / "pyproject.toml").read_text(encoding="utf-8")
-    assert "caracalai-sdk==0.1.5rc1" in text
-    assert "caracalai-identity==0.1.5rc1" in text
+    assert "caracalai-sdk==0.1.5rc2" in text
+    assert "caracalai-identity==0.1.5rc2" in text

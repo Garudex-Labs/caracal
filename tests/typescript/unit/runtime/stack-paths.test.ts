@@ -195,7 +195,7 @@ describe('detectActiveLocalStackRuntime', () => {
         status: 0,
         stdout: JSON.stringify([{
           Config: {
-            Image: 'ghcr.io/garudex-labs/caracal-api:v2026.06.09-rc.1',
+            Image: 'ghcr.io/garudex-labs/caracal-api:v2026.06.10-rc.1',
             Env: ['CARACAL_MODE=rc'],
             Labels: {
               'com.docker.compose.project.working_dir': '/home/raw/.config/caracal',
@@ -215,7 +215,7 @@ describe('detectActiveLocalStackRuntime', () => {
 
     expect(detectActiveLocalStackRuntime()).toEqual({
       mode: 'rc',
-      version: '2026.06.09-rc.1',
+      version: '2026.06.10-rc.1',
       registry: 'ghcr.io/garudex-labs/',
       home: '/home/raw/.config/caracal',
       repoRoot: undefined,

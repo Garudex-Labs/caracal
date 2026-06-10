@@ -1,7 +1,7 @@
 {
   "product": {
     "versionScheme": "calver",
-    "version": "2026.06.09-rc.1",
+    "version": "2026.06.10-rc.1",
     "binaries": {
       "shell": {
         "sourceDir": "apps/runtime/dist",
@@ -39,38 +39,38 @@
   },
   "packages": {
     "npm": [
-      { "id": "core", "name": "@caracalai/core", "dir": "packages/core/ts", "group": "core", "version": "0.1.5-rc.1", "tier": "core", "publish": true },
-      { "id": "oauth", "name": "@caracalai/oauth", "dir": "packages/oauth/ts", "group": "oauth", "version": "0.1.5-rc.1", "tier": "core", "publish": true },
-      { "id": "admin", "name": "@caracalai/admin", "dir": "packages/admin/ts", "group": "admin", "version": "0.1.5-rc.1", "tier": "sdk", "publish": true },
-      { "id": "identity", "name": "@caracalai/identity", "dir": "packages/identity/ts", "group": "identity", "version": "0.1.5-rc.1", "tier": "core", "publish": true },
-      { "id": "revocation", "name": "@caracalai/revocation", "dir": "packages/revocation/ts", "group": "revocation", "version": "0.1.5-rc.1", "tier": "core", "publish": true },
-      { "id": "sdk", "name": "@caracalai/sdk", "dir": "packages/sdk/ts", "group": "sdk", "version": "0.1.5-rc.1", "tier": "sdk", "publish": true },
-      { "id": "transport-mcp", "name": "@caracalai/transport-mcp", "dir": "packages/transport/mcp/ts", "group": "transport-mcp", "version": "0.1.5-rc.1", "tier": "connector", "publish": true },
-      { "id": "transport-a2a", "name": "@caracalai/transport-a2a", "dir": "packages/transport/a2a/ts", "group": "transport-a2a", "version": "0.1.5-rc.1", "tier": "connector", "publish": true },
-      { "id": "express", "name": "@caracalai/mcp-express", "dir": "packages/connectors/express/ts", "group": "mcp-express", "version": "0.1.5-rc.1", "tier": "connector", "publish": true },
-      { "id": "fastmcp", "name": "@caracalai/mcp-fastmcp", "dir": "packages/connectors/fastmcp/ts", "group": "mcp-fastmcp", "version": "0.1.5-rc.1", "tier": "connector", "publish": true },
-      { "id": "postgres", "name": "@caracalai/tokenstate-postgres", "dir": "packages/connectors/postgres/ts", "group": "tokenstate-postgres", "version": "0.1.5-rc.1", "tier": "connector", "publish": true },
-      { "id": "redis", "name": "@caracalai/revocation-redis", "dir": "packages/connectors/redis/ts", "group": "revocation-redis", "version": "0.1.5-rc.1", "tier": "connector", "publish": true }
+      { "id": "core", "name": "@caracalai/core", "dir": "packages/core/ts", "group": "core", "version": "0.1.5-rc.2", "tier": "core", "publish": true },
+      { "id": "oauth", "name": "@caracalai/oauth", "dir": "packages/oauth/ts", "group": "oauth", "version": "0.1.5-rc.2", "tier": "core", "publish": true },
+      { "id": "admin", "name": "@caracalai/admin", "dir": "packages/admin/ts", "group": "admin", "version": "0.1.5-rc.2", "tier": "sdk", "publish": true },
+      { "id": "identity", "name": "@caracalai/identity", "dir": "packages/identity/ts", "group": "identity", "version": "0.1.5-rc.2", "tier": "core", "publish": true },
+      { "id": "revocation", "name": "@caracalai/revocation", "dir": "packages/revocation/ts", "group": "revocation", "version": "0.1.5-rc.2", "tier": "core", "publish": true },
+      { "id": "sdk", "name": "@caracalai/sdk", "dir": "packages/sdk/ts", "group": "sdk", "version": "0.1.5-rc.2", "tier": "sdk", "publish": true },
+      { "id": "transport-mcp", "name": "@caracalai/transport-mcp", "dir": "packages/transport/mcp/ts", "group": "transport-mcp", "version": "0.1.5-rc.2", "tier": "connector", "publish": true },
+      { "id": "transport-a2a", "name": "@caracalai/transport-a2a", "dir": "packages/transport/a2a/ts", "group": "transport-a2a", "version": "0.1.5-rc.2", "tier": "connector", "publish": true },
+      { "id": "express", "name": "@caracalai/mcp-express", "dir": "packages/connectors/express/ts", "group": "mcp-express", "version": "0.1.5-rc.2", "tier": "connector", "publish": true },
+      { "id": "fastmcp", "name": "@caracalai/mcp-fastmcp", "dir": "packages/connectors/fastmcp/ts", "group": "mcp-fastmcp", "version": "0.1.5-rc.2", "tier": "connector", "publish": true },
+      { "id": "postgres", "name": "@caracalai/tokenstate-postgres", "dir": "packages/connectors/postgres/ts", "group": "tokenstate-postgres", "version": "0.1.5-rc.2", "tier": "connector", "publish": true },
+      { "id": "redis", "name": "@caracalai/revocation-redis", "dir": "packages/connectors/redis/ts", "group": "revocation-redis", "version": "0.1.5-rc.2", "tier": "connector", "publish": true }
     ],
     "pypi": [
-      { "id": "core", "name": "caracalai-core", "dir": "packages/core/python", "module": "caracalai_core", "group": "core", "version": "0.1.5rc1", "tier": "core", "publish": true },
-      { "id": "oauth", "name": "caracalai-oauth", "dir": "packages/oauth/python", "module": "caracalai_oauth", "group": "oauth", "version": "0.1.5rc1", "tier": "core", "publish": true },
-      { "id": "identity", "name": "caracalai-identity", "dir": "packages/identity/python", "module": "caracalai_identity", "group": "identity", "version": "0.1.5rc1", "tier": "core", "publish": true },
-      { "id": "revocation", "name": "caracalai-revocation", "dir": "packages/revocation/python", "module": "caracalai_revocation", "group": "revocation", "version": "0.1.5rc1", "tier": "core", "publish": true },
-      { "id": "sdk", "name": "caracalai-sdk", "dir": "packages/sdk/python", "module": "caracalai", "group": "sdk", "version": "0.1.5rc1", "tier": "sdk", "publish": true },
-      { "id": "transport-mcp", "name": "caracalai-transport-mcp", "dir": "packages/transport/mcp/python", "module": "caracalai_transport_mcp", "group": "transport-mcp", "version": "0.1.5rc1", "tier": "connector", "publish": true },
-      { "id": "fastmcp", "name": "caracalai-mcp-fastmcp", "dir": "packages/connectors/fastmcp/python", "module": "caracalai_mcp_fastmcp", "group": "mcp-fastmcp", "version": "0.1.5rc1", "tier": "connector", "publish": true },
-      { "id": "redis", "name": "caracalai-revocation-redis", "dir": "packages/connectors/redis/python", "module": "caracalai_revocation_redis", "group": "revocation-redis", "version": "0.1.5rc1", "tier": "connector", "publish": true }
+      { "id": "core", "name": "caracalai-core", "dir": "packages/core/python", "module": "caracalai_core", "group": "core", "version": "0.1.5rc2", "tier": "core", "publish": true },
+      { "id": "oauth", "name": "caracalai-oauth", "dir": "packages/oauth/python", "module": "caracalai_oauth", "group": "oauth", "version": "0.1.5rc2", "tier": "core", "publish": true },
+      { "id": "identity", "name": "caracalai-identity", "dir": "packages/identity/python", "module": "caracalai_identity", "group": "identity", "version": "0.1.5rc2", "tier": "core", "publish": true },
+      { "id": "revocation", "name": "caracalai-revocation", "dir": "packages/revocation/python", "module": "caracalai_revocation", "group": "revocation", "version": "0.1.5rc2", "tier": "core", "publish": true },
+      { "id": "sdk", "name": "caracalai-sdk", "dir": "packages/sdk/python", "module": "caracalai", "group": "sdk", "version": "0.1.5rc2", "tier": "sdk", "publish": true },
+      { "id": "transport-mcp", "name": "caracalai-transport-mcp", "dir": "packages/transport/mcp/python", "module": "caracalai_transport_mcp", "group": "transport-mcp", "version": "0.1.5rc2", "tier": "connector", "publish": true },
+      { "id": "fastmcp", "name": "caracalai-mcp-fastmcp", "dir": "packages/connectors/fastmcp/python", "module": "caracalai_mcp_fastmcp", "group": "mcp-fastmcp", "version": "0.1.5rc2", "tier": "connector", "publish": true },
+      { "id": "redis", "name": "caracalai-revocation-redis", "dir": "packages/connectors/redis/python", "module": "caracalai_revocation_redis", "group": "revocation-redis", "version": "0.1.5rc2", "tier": "connector", "publish": true }
     ],
     "go": [
-      { "id": "core", "module": "github.com/garudex-labs/caracal/packages/core/go", "dir": "packages/core/go", "group": "core", "version": "0.1.5-rc.1", "tier": "core", "publish": true },
-      { "id": "oauth", "module": "github.com/garudex-labs/caracal/packages/oauth/go", "dir": "packages/oauth/go", "group": "oauth", "version": "0.1.5-rc.1", "tier": "core", "publish": true },
-      { "id": "identity", "module": "github.com/garudex-labs/caracal/packages/identity/go", "dir": "packages/identity/go", "group": "identity", "version": "0.1.5-rc.1", "tier": "core", "publish": true },
-      { "id": "revocation", "module": "github.com/garudex-labs/caracal/packages/revocation/go", "dir": "packages/revocation/go", "group": "revocation", "version": "0.1.5-rc.1", "tier": "core", "publish": true },
-      { "id": "sdk", "module": "github.com/garudex-labs/caracal/packages/sdk/go", "dir": "packages/sdk/go", "group": "sdk", "version": "0.1.5-rc.1", "tier": "sdk", "publish": true },
-      { "id": "transport-mcp", "module": "github.com/garudex-labs/caracal/packages/transport/mcp/go", "dir": "packages/transport/mcp/go", "group": "transport-mcp", "version": "0.1.5-rc.1", "tier": "connector", "publish": true },
-      { "id": "nethttp", "module": "github.com/garudex-labs/caracal/packages/connectors/nethttp/go", "dir": "packages/connectors/nethttp/go", "group": "nethttp", "version": "0.1.5-rc.1", "tier": "connector", "publish": true },
-      { "id": "redis", "module": "github.com/garudex-labs/caracal/packages/connectors/redis/go", "dir": "packages/connectors/redis/go", "group": "revocation-redis", "version": "0.1.5-rc.1", "tier": "connector", "publish": true }
+      { "id": "core", "module": "github.com/garudex-labs/caracal/packages/core/go", "dir": "packages/core/go", "group": "core", "version": "0.1.5-rc.2", "tier": "core", "publish": true },
+      { "id": "oauth", "module": "github.com/garudex-labs/caracal/packages/oauth/go", "dir": "packages/oauth/go", "group": "oauth", "version": "0.1.5-rc.2", "tier": "core", "publish": true },
+      { "id": "identity", "module": "github.com/garudex-labs/caracal/packages/identity/go", "dir": "packages/identity/go", "group": "identity", "version": "0.1.5-rc.2", "tier": "core", "publish": true },
+      { "id": "revocation", "module": "github.com/garudex-labs/caracal/packages/revocation/go", "dir": "packages/revocation/go", "group": "revocation", "version": "0.1.5-rc.2", "tier": "core", "publish": true },
+      { "id": "sdk", "module": "github.com/garudex-labs/caracal/packages/sdk/go", "dir": "packages/sdk/go", "group": "sdk", "version": "0.1.5-rc.2", "tier": "sdk", "publish": true },
+      { "id": "transport-mcp", "module": "github.com/garudex-labs/caracal/packages/transport/mcp/go", "dir": "packages/transport/mcp/go", "group": "transport-mcp", "version": "0.1.5-rc.2", "tier": "connector", "publish": true },
+      { "id": "nethttp", "module": "github.com/garudex-labs/caracal/packages/connectors/nethttp/go", "dir": "packages/connectors/nethttp/go", "group": "nethttp", "version": "0.1.5-rc.2", "tier": "connector", "publish": true },
+      { "id": "redis", "module": "github.com/garudex-labs/caracal/packages/connectors/redis/go", "dir": "packages/connectors/redis/go", "group": "revocation-redis", "version": "0.1.5-rc.2", "tier": "connector", "publish": true }
     ]
   },
   "ignore": [

@@ -1,6 +1,6 @@
 {
   "name": "@caracalai/admin",
-  "version": "0.1.5-rc.1",
+  "version": "0.1.5-rc.2",
   "description": "Typed Caracal admin API client.",
   "license": "Apache-2.0",
   "homepage": "https://github.com/Garudex-Labs/caracal",
@@ -40,7 +40,7 @@
     "prepublishOnly": "pnpm run clean && tsc"
   },
   "dependencies": {
-    "@caracalai/core": "0.1.5-rc.1"
+    "@caracalai/core": "0.1.5-rc.2"
   },
   "devDependencies": {
     "@types/node": "^24.12.2",
