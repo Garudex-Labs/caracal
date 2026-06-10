@@ -13,7 +13,7 @@ import time
 import uuid
 from pathlib import Path
 
-from _mock.providerlab import catalog, mandate
+from _mock.providerlab import catalog, jwtmini, mandate
 
 STORE_DIR = Path(__file__).resolve().parent / "_store"
 SEED_INDEX = STORE_DIR / "_seed_index.json"
@@ -47,6 +47,7 @@ class ProviderStore:
     def _load(self) -> None:
         if self.path.exists():
             self.data = json.loads(self.path.read_text(encoding="utf-8"))
+            self._ensure_seed_mandate()
             return
         self._bootstrap()
 
@@ -126,6 +127,25 @@ class ProviderStore:
             ttl_seconds=86400,
         )
         return mandate.sign(claims, self.data["signing_key"])
+
+    def _ensure_seed_mandate(self) -> None:
+        """A persisted seed mandate outlives its TTL between runs; mint a fresh one
+        whenever the stored token is expired, near expiry, or unverifiable."""
+        seed = self.data.get("seed", {})
+        if "mandate" not in seed:
+            return
+        try:
+            claims = jwtmini.decode(
+                seed["mandate"], self.data["signing_key"], verify_exp=False
+            )
+            valid = int(claims.get("exp", 0)) - _now() > 60
+        except jwtmini.JwtError:
+            valid = False
+        if valid:
+            return
+        seed["mandate"] = self._mint_seed_mandate()
+        self._save()
+        self._write_index()
 
     def _write_index(self) -> None:
         with _index_lock:

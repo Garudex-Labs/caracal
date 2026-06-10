@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import os
 import threading
-import time
 from dataclasses import dataclass
 
 import httpx
@@ -19,11 +18,8 @@ from caracalai import Caracal, CaracalContext, DelegationConstraints, Grant
 
 from app import tenancy
 
-TOKEN_EXCHANGE_GRANT = "urn:ietf:params:oauth:grant-type:token-exchange"
-STS_TOKEN_PATH = "/oauth/2/token"
 WORKER_TTL_SECONDS = int(os.environ.get("LYNX_WORKER_TTL_SECONDS", "600"))
 MANDATE_TTL_SECONDS = int(os.environ.get("LYNX_MANDATE_TTL_SECONDS", "300"))
-MANDATE_REFRESH_LEEWAY_SECONDS = 30.0
 
 _lock = threading.Lock()
 _runtimes: dict[str, AppRuntime] | None = None
@@ -70,56 +66,21 @@ def application_credentials(app_key: str) -> tuple[bool, bool]:
 @dataclass
 class AppRuntime:
     """One application boundary's bound runtime: its control-plane identity, its SDK
-    client holding the session mandate, and the shared transport worker threads use to
-    mint resource mandates and call the Gateway."""
+    client holding the session mandate and resource-mandate minting, and the shared
+    transport worker threads use to call the Gateway."""
 
     key: str
     application_id: str
-    client_secret: str
     zone_id: str
-    sts_url: str
     gateway_url: str
     client: Caracal
     http: httpx.Client
     views: list[str]
 
-    def mint_mandate(
-        self, ctx: CaracalContext, view_identifier: str, scopes: list[str]
-    ) -> tuple[str, float]:
-        """Exchange the application credential plus the agent's session and delegation
-        edge for a resource mandate narrowed to one view and the requested scopes. The
-        STS evaluates policy here with the delegation edge populated."""
-        form = {
-            "grant_type": TOKEN_EXCHANGE_GRANT,
-            "zone_id": self.zone_id,
-            "application_id": self.application_id,
-            "client_secret": self.client_secret,
-            "agent_session_id": ctx.agent_session_id or "",
-            "delegation_edge_id": ctx.delegation_edge_id or "",
-            "resource": view_identifier,
-            "scope": " ".join(scopes),
-            "ttl_seconds": str(MANDATE_TTL_SECONDS),
-        }
-        response = self.http.post(f"{self.sts_url}{STS_TOKEN_PATH}", data=form)
-        response.raise_for_status()
-        body = response.json()
-        token = body.get("access_token")
-        if not isinstance(token, str) or not token:
-            raise RuntimeError(
-                f"STS mandate exchange for {view_identifier} returned no access_token"
-            )
-        expires_in = body.get("expires_in")
-        ttl = (
-            float(expires_in)
-            if isinstance(expires_in, (int, float))
-            else float(MANDATE_TTL_SECONDS)
-        )
-        return token, time.time() + ttl
-
 
 class WorkerAuthority:
-    """One spawned agent's resource authority: its Caracal session context, its granted
-    scope set, and a per-view mandate cache. Every partner call flows through here."""
+    """One spawned agent's resource authority: its Caracal session context and its
+    granted scope set. Every partner call flows through here."""
 
     def __init__(
         self, runtime: AppRuntime, ctx: CaracalContext, role: str, scopes: list[str]
@@ -128,8 +89,6 @@ class WorkerAuthority:
         self.ctx = ctx
         self.role = role
         self.scopes = frozenset(scopes)
-        self._mandates: dict[tuple[str, frozenset[str]], tuple[str, float]] = {}
-        self._mandate_lock = threading.Lock()
 
     @property
     def application(self) -> str:
@@ -143,16 +102,16 @@ class WorkerAuthority:
         return scope in self.scopes
 
     def mandate(self, view_identifier: str, scopes: list[str]) -> str:
-        key = (view_identifier, frozenset(scopes))
-        with self._mandate_lock:
-            cached = self._mandates.get(key)
-            if cached and cached[1] - time.time() > MANDATE_REFRESH_LEEWAY_SECONDS:
-                return cached[0]
-            token, expiry = self.runtime.mint_mandate(
-                self.ctx, view_identifier, sorted(scopes)
-            )
-            self._mandates[key] = (token, expiry)
-            return token
+        """The SDK exchanges the application credential plus this agent's session and
+        delegation edge for a resource mandate narrowed to one view and the requested
+        scopes, caching it per agent until it nears expiry. The STS evaluates policy
+        here with the delegation edge populated."""
+        return self.runtime.client.mint_mandate(
+            view_identifier,
+            scopes,
+            ctx=self.ctx,
+            ttl_seconds=MANDATE_TTL_SECONDS,
+        )
 
     def gateway_post(
         self,
@@ -204,9 +163,7 @@ def _build_runtime(app_key: str, model: tenancy.TenancyModel) -> AppRuntime:
     return AppRuntime(
         key=app_key,
         application_id=application_id,
-        client_secret=client_secret,
         zone_id=zone_id,
-        sts_url=sts_url,
         gateway_url=gateway_url,
         client=client,
         http=httpx.Client(timeout=10.0),

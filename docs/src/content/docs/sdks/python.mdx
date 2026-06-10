@@ -42,6 +42,7 @@ caracal = Caracal()
 | `caracal.sync_transport(allow_root=False, **kwargs)` | Synchronous `httpx.Client` counterpart. |
 | `caracal.context_middleware(verifier=None)` | ASGI middleware factory: propagates context, and enforces at the boundary when a `verifier` is passed. |
 | `caracal.gateway_request(resource_id, path="/")` | Build a Gateway URL and `X-Caracal-Resource` header. |
+| `caracal.mint_mandate(resource_id, scopes, ctx=None, ttl_seconds=None)` | Mint a cached resource mandate carrying the bound agent session and delegation edge; requires client-secret credentials. |
 
 ## Context Propagation
 

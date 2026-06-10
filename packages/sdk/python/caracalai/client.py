@@ -77,6 +77,7 @@ class CaracalConfig:
         gateway_url: str | None = None,
         resources: list[ResourceBinding] | None = None,
         default_ttl_seconds: int | None = None,
+        exchanger: ClientSecretExchanger | None = None,
     ) -> None:
         if (subject_token is None) == (token_source is None):
             raise ValueError(
@@ -90,6 +91,7 @@ class CaracalConfig:
         self.gateway_url = gateway_url
         self.resources = sort_bindings_longest_first(resources or [])
         self.default_ttl_seconds = default_ttl_seconds
+        self.exchanger = exchanger
 
     @property
     def subject_token(self) -> str:
@@ -579,6 +581,7 @@ def _config_from_env(env: Mapping[str, str] | None = None) -> CaracalConfig:
             token_source=exchanger.get_token,
             gateway_url=gateway_url,
             resources=bindings,
+            exchanger=exchanger,
         )
 
     if not subject_token:
@@ -634,6 +637,7 @@ def _config_from_client_secret(
         token_source=exchanger.get_token,
         gateway_url=gateway_url,
         resources=bindings,
+        exchanger=exchanger,
     )
 
 
@@ -1098,6 +1102,41 @@ class Caracal:
         return GatewayRequest(
             url=_join_gateway_path(self.config.gateway_url, path),
             headers={"X-Caracal-Resource": resource_id},
+        )
+
+    def mint_mandate(
+        self,
+        resource_id: str,
+        scopes: list[str],
+        *,
+        ctx: CaracalContext | None = None,
+        ttl_seconds: int | None = None,
+    ) -> str:
+        """Mint a resource mandate for the current agent: a short-lived token
+        audienced to ``resource_id`` and narrowed to ``scopes``, carrying the
+        agent session and delegation edge of the bound :class:`CaracalContext`
+        (or ``ctx`` when the caller owns the context on another task or
+        thread). The STS evaluates policy against that agent's authority, so a
+        narrowed child can mint only what its delegation edge allows. Results
+        are cached per resource, scope set, and agent identity, and refreshed
+        before expiry.
+
+        Requires client-secret credentials (:meth:`from_client_secret`,
+        :meth:`from_config`, or ``CARACAL_APP_CLIENT_SECRET``)."""
+        exchanger = self.config.exchanger
+        if exchanger is None:
+            raise RuntimeError(
+                "Caracal.mint_mandate requires client-secret credentials; "
+                "build the client with from_client_secret, from_config, or "
+                "CARACAL_APP_CLIENT_SECRET."
+            )
+        bound = ctx if ctx is not None else current()
+        return exchanger.mint_mandate(
+            resource=resource_id,
+            scopes=scopes,
+            agent_session_id=bound.agent_session_id if bound else None,
+            delegation_edge_id=bound.delegation_edge_id if bound else None,
+            ttl_seconds=ttl_seconds,
         )
 
     async def fetch(
