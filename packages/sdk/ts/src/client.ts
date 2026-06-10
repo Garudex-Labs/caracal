@@ -158,7 +158,7 @@ export class Caracal {
     return await spawnPrimitive(input, fn)
   }
 
-  async service(opts: ServiceOptions = {}): Promise<ServiceAgent> {
+  async spawnService(opts: ServiceOptions = {}): Promise<ServiceAgent> {
     return await spawnServicePrimitive({
       coordinator: this.config.coordinator,
       zoneId: this.config.zoneId,
@@ -263,7 +263,7 @@ export class Caracal {
     }
     const ctx = fromEnvelope(env as Envelope, {
       zoneId: this.config.zoneId,
-      clientId: this.config.applicationId,
+      applicationId: this.config.applicationId,
     })
     return (await bind(ctx, fn)) as T
   }

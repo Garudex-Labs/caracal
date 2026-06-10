@@ -20,10 +20,10 @@ Scope = dict[str, Any]
 Receive = Callable[[], Awaitable[dict[str, Any]]]
 Send = Callable[[dict[str, Any]], Awaitable[None]]
 ASGIApp = Callable[[Scope, Receive, Send], Awaitable[None]]
-Verifier = Callable[[str], Awaitable[None]]
+TokenVerifier = Callable[[str], Awaitable[None]]
 
 
-class CaracalContextASGIMiddleware:
+class CaracalASGIMiddleware:
     """ASGI middleware that binds Caracal context from inbound headers.
 
     When a ``verifier`` is supplied it runs at the boundary before binding, so
@@ -38,7 +38,7 @@ class CaracalContextASGIMiddleware:
         caracal: Caracal,
         *,
         allow_root: bool = False,
-        verifier: Verifier | None = None,
+        verifier: TokenVerifier | None = None,
     ) -> None:
         self.app = app
         self.caracal = caracal
@@ -58,10 +58,14 @@ class CaracalContextASGIMiddleware:
                 token = decode_envelope(headers.get).subject_token
                 if not token:
                     if not self.allow_root:
-                        return await _reject(send, "missing_token", "Missing bearer token")
+                        return await _reject(
+                            send, "missing_token", "Missing bearer token"
+                        )
                 else:
                     await self.verifier(token)
-            async with self.caracal.bind_from_headers(headers, allow_root=self.allow_root):
+            async with self.caracal.bind_from_headers(
+                headers, allow_root=self.allow_root
+            ):
                 await self.app(scope, receive, send)
         except RuntimeError as err:
             if "missing a bearer token" not in str(err):
@@ -70,12 +74,16 @@ class CaracalContextASGIMiddleware:
 
 
 async def _reject(send: Send, code: str, message: str) -> None:
-    await send({
-        "type": "http.response.start",
-        "status": 401,
-        "headers": [(b"content-type", b"application/json")],
-    })
-    await send({
-        "type": "http.response.body",
-        "body": f'{{"error":"{code}","message":"{message}"}}'.encode("latin-1"),
-    })
+    await send(
+        {
+            "type": "http.response.start",
+            "status": 401,
+            "headers": [(b"content-type", b"application/json")],
+        }
+    )
+    await send(
+        {
+            "type": "http.response.body",
+            "body": f'{{"error":"{code}","message":"{message}"}}'.encode("latin-1"),
+        }
+    )
