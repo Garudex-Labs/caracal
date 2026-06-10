@@ -258,11 +258,11 @@ describe('contextMiddleware + bindFromHeaders', () => {
       },
       async () => {
         const authority = describeAuthority()
-        summary = `${authority?.applicationId}|${authority?.authoritySessionId}|${authority?.agentRunId}|${authority?.chain.join('>')}`
+        summary = `${authority?.applicationId}|${authority?.sessionId}|${authority?.agentSessionId}|${authority?.chain.join('>')}`
         expect(JSON.stringify(authority)).not.toContain('inbound')
       },
     )
-    expect(summary).toBe('app|sid1|agent1|authority:sid1>agent-run:agent1')
+    expect(summary).toBe('app|sid1|agent1|session:sid1>agent-session:agent1')
   })
 
   it('rejects inbound requests without a bearer token by default', async () => {
@@ -593,7 +593,7 @@ describe('agent lifecycle and delegation', () => {
       coordinator: { baseUrl: 'https://coordinator.example.com', fetchImpl: fakeFetch },
     })
 
-    const svc = await c.service({ labels: ['billing-worker'] })
+    const svc = await c.spawnService({ labels: ['billing-worker'] })
     expect(svc.agentSessionId).toBe('svc-1')
     expect(JSON.parse(String(calls[0].init.body))).toMatchObject({
       application_id: 'app',

@@ -4,10 +4,7 @@
 // FastMCP authentication adapter unit tests.
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import {
-  FastMcpAuthError,
-  verifyFastMcpToken,
-} from '../../../../../packages/connectors/fastmcp/ts/src/middleware.js'
+import { FastMcpAuthError, verifyFastMcpToken } from '../../../../../packages/connectors/fastmcp/ts/src/middleware.js'
 import type { MandateVerifier } from '../../../../../packages/transport/mcp/ts/src/authenticate.js'
 
 const revocations = {
@@ -20,40 +17,40 @@ let issuerId = 0
 async function mintToken(claims: Record<string, unknown> = {}): Promise<{ token: string; issuer: string; audience: string }> {
   const issuer = `https://fastmcp-issuer-${++issuerId}.example.com`
   const audience = 'resource://mcp'
-  const key = await crypto.subtle.generateKey(
-    { name: 'ECDSA', namedCurve: 'P-256' },
-    true,
-    ['sign', 'verify'],
-  )
+  const key = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify'])
   const jwk = await crypto.subtle.exportKey('jwk', key.publicKey)
   Object.assign(jwk, { kid: 'kid-1', alg: 'ES256', use: 'sig' })
-  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ keys: [jwk] }), {
-    status: 200,
-    headers: { 'content-type': 'application/json' },
-  })))
-  const header = base64url(JSON.stringify({ alg: 'ES256', kid: 'kid-1', typ: 'JWT' }))
-  const payload = base64url(JSON.stringify({
-    iss: issuer,
-    aud: audience,
-    sub: 'user-1',
-    zone_id: 'zone-1',
-    client_id: 'app-1',
-    sid: 'sid-1',
-    root_sid: 'sid-1',
-    use: 'resource',
-    sub_type: 'user',
-    jti: 'jti-1',
-    scope: 'tool:call',
-    iat: Math.floor(Date.now() / 1000),
-    exp: Math.floor(Date.now() / 1000) + 300,
-    ...claims,
-  }))
-  const body = `${header}.${payload}`
-  const signature = await crypto.subtle.sign(
-    { name: 'ECDSA', hash: 'SHA-256' },
-    key.privateKey,
-    new TextEncoder().encode(body),
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(
+      async () =>
+        new Response(JSON.stringify({ keys: [jwk] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+    ),
   )
+  const header = base64url(JSON.stringify({ alg: 'ES256', kid: 'kid-1', typ: 'JWT' }))
+  const payload = base64url(
+    JSON.stringify({
+      iss: issuer,
+      aud: audience,
+      sub: 'user-1',
+      zone_id: 'zone-1',
+      client_id: 'app-1',
+      sid: 'sid-1',
+      root_sid: 'sid-1',
+      use: 'resource',
+      sub_type: 'user',
+      jti: 'jti-1',
+      scope: 'tool:call',
+      iat: Math.floor(Date.now() / 1000),
+      exp: Math.floor(Date.now() / 1000) + 300,
+      ...claims,
+    }),
+  )
+  const body = `${header}.${payload}`
+  const signature = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key.privateKey, new TextEncoder().encode(body))
   return { token: `${body}.${base64url(new Uint8Array(signature))}`, issuer, audience }
 }
 
@@ -80,17 +77,19 @@ describe('verifyFastMcpToken', () => {
     })
     revocations.isRevoked.mockResolvedValue(false)
 
-    await expect(verifyFastMcpToken(token, {
-      issuer,
-      audience,
-      zoneId: 'zone-1',
-      requiredScopes: ['tool:call'],
-      revocations,
-      requireAgent: true,
-      requireDelegation: true,
-      requireChainContains: ['app-parent'],
-      maxHopCount: 3,
-    })).resolves.toEqual({
+    await expect(
+      verifyFastMcpToken(token, {
+        issuer,
+        audience,
+        zoneId: 'zone-1',
+        requiredScopes: ['tool:call'],
+        revocations,
+        requireAgent: true,
+        requireDelegation: true,
+        requireChainContains: ['app-parent'],
+        maxHopCount: 3,
+      }),
+    ).resolves.toEqual({
       sub: 'user-1',
       zoneId: 'zone-1',
       scope: 'tool:call',
@@ -103,12 +102,14 @@ describe('verifyFastMcpToken', () => {
       delegation_chain: [{ application_id: 'app-child' }],
     })
 
-    await expect(verifyFastMcpToken(token, {
-      issuer,
-      audience,
-      revocations,
-      requireChainContains: ['app-parent'],
-    })).rejects.toMatchObject({
+    await expect(
+      verifyFastMcpToken(token, {
+        issuer,
+        audience,
+        revocations,
+        requireChainContains: ['app-parent'],
+      }),
+    ).rejects.toMatchObject({
       name: 'FastMcpAuthError',
       code: 'chain_mismatch',
       message: 'Delegation chain missing application: app-parent',
