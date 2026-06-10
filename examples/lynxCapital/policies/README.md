@@ -66,6 +66,16 @@ Cross-application access is impossible by construction: every rule requires
 `principal_owns_resource`, and the Gateway additionally binds each resource view to exactly
 one application.
 
+## Customer confinement
+
+Agent sessions spawned for one customer's work carry a `customer:<id>` label (set by
+`app.tenancy.agent_labels`) alongside a `customer_id` metadata key. Labels are policy
+input, so `00-base.rego` adds `customer_confined` to the mint shape: a customer-labeled
+agent may only mint scopes on the customer-record surface (`corebilling:*`, `vela:*`).
+Whatever its role would otherwise allow, a worker dunning one customer can never mint
+treasury, payment-rail, or ERP authority. The metadata key is not policy input — it is the
+audit correlation key that lets the ledger answer "everything this customer's agents did".
+
 ## Testing
 
 ```bash
@@ -74,4 +84,5 @@ opa test policies/ -v
 
 `tests/authz_test.rego` pins a bindings/grants fixture and exercises every decision class:
 bootstrap accept/reject, mint inside and outside the role grant and the delegation edge,
-use with and without the mandate target, cross-application denial, and default deny.
+customer confinement, use with and without the mandate target, cross-application denial,
+and default deny.

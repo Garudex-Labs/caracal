@@ -56,7 +56,44 @@ async with caracal.spawn(
 
 `subject_session_id` references the STS session, so it is the authority anchor; the customer id in `metadata` is the business correlation key. Use a single, consistent metadata key — `customer_id` is the recommended convention — so audit queries and dashboards can filter by customer without per-app special cases.
 
+:::caution[Attribution is not enforcement]
+Agent metadata travels with the session and lands in audit, but it is **not** part of policy input. Policy sees the subject's claims (`input.context.subject_claims`), the agent's labels (`input.principal.labels`), and the delegation edge — never the metadata map. Use metadata to *find* a customer's activity; use subject claims or labels when policy must *restrict* it.
+:::
+
 For fan-out work, give each child agent the least authority it needs with [delegation](/guides/delegation/), keeping one customer's blast radius contained even though all customers share the zone.
+
+### Customer Labels for App-Only Workloads
+
+When the work is app-initiated — a billing sweep, a dunning cycle, a scheduled job acting on a customer's records without that customer signing in — there is no subject session to anchor the customer. Carry the customer on the agent session itself with a label:
+
+```python
+async with caracal.spawn(
+    grant=Grant.narrow(["billing:collect"]),
+    labels=[role, f"customer:{customer_id}"],
+    metadata={"customer_id": customer_id},
+) as ctx:
+    await collect_overdue(ctx)
+```
+
+Labels are policy input, so one bundle-wide rule can confine every customer-labeled agent to the customer-record surface — whatever its role would otherwise allow:
+
+```text
+customer_labeled if {
+    some label in input.principal.labels
+    startswith(label, "customer:")
+}
+
+customer_confined if { not customer_labeled }
+
+customer_confined if {
+    customer_labeled
+    every scope in input.context.requested_scopes {
+        scope in customer_scopes
+    }
+}
+```
+
+Add `customer_confined` to the conditions of your mint rule and a worker spawned for one customer can never mint authority outside that surface, even by accident. The [Lynx Capital example](/examples/lynx-capital/) ships this rule with tests.
 
 ## Step 4: Differentiate Policy per Customer
 
@@ -76,6 +113,8 @@ Express customer differences as conditional rules keyed on the subject and claim
 ## Step 5: Attribute and Revoke per Customer
 
 Every decision is written to the zone audit ledger with the application, session, agent session, and delegation chain. The customer id rides in the agent metadata you set in Step 3, and the subject is reachable through the session, so you can answer "what did this customer do, with what authority" from the audit trail. See [Audit and Request Traces](/concepts/audit-ledger/).
+
+To build a per-customer read-only view — for an internal support console or a customer-facing activity page — query the shared trail by the convention you already established: filter agent sessions on the `customer_id` metadata key (or the `customer:` label), then collect each session's decisions, delegations, and Gateway events. Because every session carries the key from spawn, the view is a filter over one audit trail, not a separate per-customer store. The same filter scopes Console searches and SIEM exports.
 
 To cut a customer off, revoke that customer's subject session and its agents and delegation edges; cascade revocation tears down the chain beneath them. There is no single "purge everything for a customer" call, so iterate the customer's sessions and agents. See [Sessions and Revocation](/concepts/sessions-revocation/).
 

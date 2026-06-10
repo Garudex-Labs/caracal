@@ -10,8 +10,11 @@ The model is one zone with **one managed application per permission boundary**
 `lynx-payments`, `lynx-audit`). Every spawned agent runs as its own labeled Caracal agent
 session under its role's application, narrowed by a delegation edge to its role's scopes;
 every partner is a registered credential provider reached only through per-application
-resource views at the Gateway. The single source of truth is
-[`config/tenancy.yaml`](config/tenancy.yaml).
+resource views at the Gateway. Workers acting on one customer's records spawn with a
+`customer:<id>` label and a `customer_id` metadata key — the label is policy-enforced
+(customer-labeled agents mint customer-record scopes only) and the metadata key makes
+per-customer audit a direct filter over the shared zone trail. The single source of truth
+is [`config/tenancy.yaml`](config/tenancy.yaml).
 
 ## 1. Install
 

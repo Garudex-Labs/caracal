@@ -42,6 +42,16 @@ run TTL)`. Ad-hoc partner-integration workers resolve their boundary, scope, and
 dynamically from the requested provider operation. Logs and policy decisions identify
 exactly which agent did what.
 
+### Customer attribution and confinement
+
+Workers acting on one customer's records — invoicing, dunning, payment application — spawn
+with a `customer:<id>` label and a `customer_id` metadata key. The metadata key makes
+per-customer audit a direct filter over the shared zone trail; the label is policy input,
+and the base policy confines customer-labeled agents to the customer-record scopes, so a
+worker dunning one customer can never mint treasury or payment-rail authority. This is the
+[Serve Your Own Customers](/guides/serve-customers/) pattern applied to app-only work: one
+zone, customer separation carried by sessions, labels, metadata, and policy.
+
 ## Setup flow
 
 ```mermaid
