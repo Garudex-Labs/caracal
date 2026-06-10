@@ -238,6 +238,8 @@ func TestIsUnsafeIPCoversReservedRanges(t *testing.T) {
 		"fc00::1",
 		"fd00::1",
 		"224.0.0.1",
+		"64:ff9b::a9fe:a9fe",
+		"64:ff9b::a00:1",
 	}
 	for _, c := range cases {
 		ip := net.ParseIP(c)
@@ -245,7 +247,7 @@ func TestIsUnsafeIPCoversReservedRanges(t *testing.T) {
 			t.Errorf("%s must be unsafe", c)
 		}
 	}
-	safe := []string{"8.8.8.8", "1.1.1.1", "2001:4860:4860::8888"}
+	safe := []string{"8.8.8.8", "1.1.1.1", "2001:4860:4860::8888", "64:ff9b::808:808"}
 	for _, c := range safe {
 		ip := net.ParseIP(c)
 		if isUnsafeIP(ip) {

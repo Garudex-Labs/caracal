@@ -54,9 +54,12 @@ func TestMetricsExposeAuditBacklogFields(t *testing.T) {
 	s.pelOldestAge.Store(30)
 	s.dlqSize.Store(3)
 	s.dlqOldestAge.Store(60)
+	s.cfg.MetricsBearer = "secret"
 
 	w := httptest.NewRecorder()
-	s.handleMetrics(w, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	s.handleMetrics(w, req)
 	body := w.Body.String()
 	if w.Header().Get("Content-Type") != "text/plain; version=0.0.4; charset=utf-8" {
 		t.Fatalf("content-type = %q", w.Header().Get("Content-Type"))
@@ -85,9 +88,12 @@ func TestMetricsJSONPreservesCompatibilityFields(t *testing.T) {
 	s.exportBacklog.Store(2)
 	s.dlqSize.Store(3)
 	s.dlqOldestAge.Store(60)
+	s.cfg.MetricsBearer = "secret"
 
 	w := httptest.NewRecorder()
-	s.handleMetricsJSON(w, httptest.NewRequest(http.MethodGet, "/metrics.json", nil))
+	req := httptest.NewRequest(http.MethodGet, "/metrics.json", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	s.handleMetricsJSON(w, req)
 	var body map[string]any
 	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
@@ -202,5 +208,20 @@ func TestDLQEntryFromMessageSummarizesReplayableEvent(t *testing.T) {
 	}
 	if entry.ReceivedAt == "" || entry.AgeSeconds != 5 {
 		t.Fatalf("unexpected timing fields: %#v", entry)
+	}
+}
+
+func TestMetricsFailClosedWithoutBearerInPublishedMode(t *testing.T) {
+	s := &Server{}
+	s.cfg.Mode = "stable"
+	w := httptest.NewRecorder()
+	s.handleMetrics(w, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("published audit metrics without bearer must be 401, got %d", w.Code)
+	}
+	w = httptest.NewRecorder()
+	s.handleMetricsJSON(w, httptest.NewRequest(http.MethodGet, "/metrics.json", nil))
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("published audit metrics.json without bearer must be 401, got %d", w.Code)
 	}
 }
