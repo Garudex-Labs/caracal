@@ -906,7 +906,7 @@ type ServiceOptions struct {
 // owns. Unlike Spawn, the session is not retired when a block exits: keep it
 // alive with ServiceAgent.Heartbeat and retire it with ServiceAgent.Close. Use
 // for daemons and workers that outlive a single request.
-func (c *Caracal) Service(ctx context.Context, opts ...ServiceOptions) (*ServiceAgent, error) {
+func (c *Caracal) SpawnService(ctx context.Context, opts ...ServiceOptions) (*ServiceAgent, error) {
 	o := ServiceOptions{}
 	if len(opts) > 0 {
 		o = opts[0]
@@ -1047,29 +1047,39 @@ func (c *Caracal) GatewayRequest(resourceID, path string) (GatewayRequest, error
 	return GatewayRequest{URL: target, Header: header}, nil
 }
 
+// FetchOptions carries the optional request inputs for Fetch.
+type FetchOptions struct {
+	Body      io.Reader
+	Header    http.Header
+	AllowRoot bool
+}
+
 // Fetch is the one-call happy path: it sends an HTTP request to path on the given
 // Caracal resource through the Gateway, injecting Caracal context and authority on
-// the outbound call. Pass a nil header when no extra request headers are needed;
-// the resource header always wins over any caller-supplied X-Caracal-Resource. The
-// caller closes the returned response body.
-func (c *Caracal) Fetch(ctx context.Context, method, resourceID, path string, body io.Reader, header http.Header, opts ...RootOptions) (*http.Response, error) {
+// the outbound call. The resource header always wins over any caller-supplied
+// X-Caracal-Resource. The caller closes the returned response body.
+func (c *Caracal) Fetch(ctx context.Context, method, resourceID, path string, opts ...FetchOptions) (*http.Response, error) {
+	var opt FetchOptions
+	if len(opts) > 0 {
+		opt = opts[0]
+	}
 	gr, err := c.GatewayRequest(resourceID, path)
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, method, gr.URL, body)
+	req, err := http.NewRequestWithContext(ctx, method, gr.URL, opt.Body)
 	if err != nil {
 		return nil, err
 	}
-	if header != nil {
-		req.Header = header.Clone()
+	if opt.Header != nil {
+		req.Header = opt.Header.Clone()
 	}
 	for key, values := range gr.Header {
 		for _, value := range values {
 			req.Header.Set(key, value)
 		}
 	}
-	return c.Transport(nil, opts...).Do(req)
+	return c.Transport(nil, RootOptions{AllowRoot: opt.AllowRoot}).Do(req)
 }
 
 type caracalTransport struct {
