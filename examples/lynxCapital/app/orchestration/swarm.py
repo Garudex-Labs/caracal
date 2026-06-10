@@ -601,8 +601,9 @@ def _build_workflow_domain_tools(run_id, runner, parent, workflow_id):
     """Tools available to a Workflow Orchestrator. Each domain action spawns a
     short-lived worker so events carry per-action attribution."""
 
-    def _worker(role: str, scope: str) -> AgentHandle:
-        w = runner.spawn(role=role, scope=scope, parent=parent, layer=role, region=None)
+    def _worker(role: str, scope: str, customer_id: str | None = None) -> AgentHandle:
+        w = runner.spawn(role=role, scope=scope, parent=parent, layer=role,
+                         region=None, customer_id=customer_id)
         w.start()
         return w
 
@@ -858,7 +859,7 @@ def _build_workflow_domain_tools(run_id, runner, parent, workflow_id):
     @tool
     def issue_customer_invoice(customer_id: str, amount: float, currency: str) -> str:
         """Issue a customer invoice."""
-        w = _worker("receivables", f"ar-issue:{customer_id}")
+        w = _worker("receivables", f"ar-issue:{customer_id}", customer_id=customer_id)
         try:
             return json.dumps(tool_fns.issue_customer_invoice(
                 run_id, w.id, customer_id, float(amount), currency))
@@ -869,7 +870,7 @@ def _build_workflow_domain_tools(run_id, runner, parent, workflow_id):
     def send_dunning_notice(customer_id: str, stage: int, invoice_id: str = "") -> str:
         """Send a dunning notice (stage 1=reminder, 2=second notice, 3=collections).
         Pass invoice_id to record the dunning action against that invoice in Core Billing."""
-        w = _worker("receivables", f"ar-dun:{customer_id}")
+        w = _worker("receivables", f"ar-dun:{customer_id}", customer_id=customer_id)
         try:
             return json.dumps(tool_fns.send_dunning_notice(
                 run_id, w.id, customer_id, int(stage), invoice_id or None))
@@ -879,7 +880,7 @@ def _build_workflow_domain_tools(run_id, runner, parent, workflow_id):
     @tool
     def run_dunning_cycle(min_days_past_due: int = 1, customer_id: str = "") -> str:
         """Sweep overdue receivables in Core Billing and escalate dunning by policy."""
-        w = _worker("receivables", f"ar-cycle:{customer_id or 'all'}")
+        w = _worker("receivables", f"ar-cycle:{customer_id or 'all'}", customer_id=customer_id or None)
         try:
             return json.dumps(tool_fns.run_dunning_cycle(
                 run_id, w.id, int(min_days_past_due), customer_id or None))
@@ -947,7 +948,7 @@ def _build_workflow_domain_tools(run_id, runner, parent, workflow_id):
     @tool
     def get_customer_account(customer_id: str) -> str:
         """Return a customer's billing profile, credit terms, AR balance, and aging."""
-        w = _worker("receivables", f"ar-cust:{customer_id}")
+        w = _worker("receivables", f"ar-cust:{customer_id}", customer_id=customer_id)
         try:
             return json.dumps(tool_fns.get_customer_account(run_id, w.id, customer_id))
         finally:
@@ -956,7 +957,7 @@ def _build_workflow_domain_tools(run_id, runner, parent, workflow_id):
     @tool
     def list_customer_invoices(customer_id: str, overdue: bool = False) -> str:
         """List a customer's invoices, optionally only those overdue."""
-        w = _worker("receivables", f"ar-inv:{customer_id}")
+        w = _worker("receivables", f"ar-inv:{customer_id}", customer_id=customer_id)
         try:
             return json.dumps(tool_fns.list_customer_invoices(run_id, w.id, customer_id, bool(overdue)))
         finally:
@@ -965,7 +966,7 @@ def _build_workflow_domain_tools(run_id, runner, parent, workflow_id):
     @tool
     def record_customer_payment(customer_id: str, amount: float, reference: str = "") -> str:
         """Record a customer remittance and apply it across open invoices oldest-first."""
-        w = _worker("receivables", f"ar-remit:{customer_id}")
+        w = _worker("receivables", f"ar-remit:{customer_id}", customer_id=customer_id)
         try:
             return json.dumps(tool_fns.record_customer_payment(
                 run_id, w.id, customer_id, float(amount), reference or None))

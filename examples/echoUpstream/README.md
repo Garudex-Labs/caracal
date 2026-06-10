@@ -1,38 +1,68 @@
 # Echo Upstream
 
-A zero-dependency HTTP echo service that gives the first Caracal tutorial a
-self-contained protected target. It removes the need to own a reachable upstream
-before you have seen Caracal work end to end.
+A tiny test API you put behind Caracal to check that requests sent through the
+Gateway really reach an upstream service.
 
-Every request is answered with JSON describing the method, path, headers, and
-body the Gateway forwarded, so you can confirm that a brokered, policy-checked
-request actually reached an upstream.
+It echoes every request back as JSON and answers one question: **did this call
+come through the Gateway?**
 
-## Run it
+- `"viaGateway": true` — the Gateway authorized and forwarded the call
+- `"viaGateway": false` — the call hit the service directly
 
-The Caracal control plane runs independently (`caracal up`). This service joins
-the same `caracalData` network so the Gateway can reach it by name.
+## Try it (30 seconds, no Caracal needed)
 
 ```bash
 cd examples/echoUpstream
+node server.mjs &
+curl http://127.0.0.1:8088/v1/hello
+```
+
+You get `"viaGateway": false` — a direct, unprotected call. The rest of this
+guide flips it to `true`.
+
+## Full demo with Caracal
+
+**1. Start it on the Caracal network** (after `caracal up`):
+
+```bash
 docker compose -f compose.yml up --build
 ```
 
-The Gateway reaches it at `http://echoUpstream:8088`. From your host it is
-available at `http://127.0.0.1:8088` (try `curl http://127.0.0.1:8088/healthz`).
+**2. Protect it.** In the Console (`caracal console`), run guided setup and use
+this upstream URL:
 
-You can also run it directly without Docker:
-
-```bash
-node server.mjs           # listens on :8088 (override with ECHO_PORT)
+```text
+http://echoUpstream:8088
 ```
 
-## Use as the tutorial upstream
+**3. Call it through the Gateway** with the token and resource ID from guided
+setup (the Console prints the exact command for you):
 
-When you create the resource in the Console (or via the Control API), set the
-upstream URL to `http://echoUpstream:8088`. A Gateway-mediated request then
-returns the echoed JSON, proving the brokered path works without any external
-dependency.
+```bash
+curl http://localhost:8081/v1/hello \
+  -H "Authorization: Bearer $CARACAL_RESOURCE_PIPERNET_TOKEN" \
+  -H "X-Caracal-Resource: resource://pipernet"
+```
+
+**4. Read the result:**
+
+```json
+{
+  "viaGateway": true,
+  "message": "Brokered call confirmed: the Caracal Gateway authorized this request and forwarded it to the protected upstream.",
+  "gateway": {
+    "requestId": "0af7651916cd43dd8448eb211c80319c",
+    "credentialInjected": true
+  }
+}
+```
+
+- `viaGateway: true` — the request carried the Gateway's forwarding metadata
+- `credentialInjected: true` — the Gateway supplied the credential; your client never held it
+- `requestId` — paste it into Console **explain** to trace the policy decision
+
+Credentials are always shown as `[redacted]` in echoed headers, and the server
+logs each call as `[gateway]` or `[direct]` so you can watch traffic arrive.
 
 ## Test
 

@@ -152,6 +152,20 @@ test_mint_denies_partner_integration_on_non_integration_view if {
 	)
 }
 
+test_mint_allows_customer_labeled_receivables_scope if {
+	authz.result.decision == "allow" with input as mint_input(
+		"app-ledger", ["receivables", "lynx-swarm", "customer:cust-204"],
+		"resource://ledger-corebilling", ["corebilling:collect"], ["corebilling:collect"],
+	)
+}
+
+test_mint_denies_customer_labeled_agent_outside_customer_scopes if {
+	authz.result.decision == "deny" with input as mint_input(
+		"app-ledger", ["ledger-match", "lynx-swarm", "customer:cust-204"],
+		"resource://ledger-ironbark", ["ironbark:read"], ["ironbark:read"],
+	)
+}
+
 test_use_allows_targeted_mandate if {
 	authz.result.decision == "allow" with input as use_input(
 		"app-payments", ["payment-execution", "lynx-swarm"],
