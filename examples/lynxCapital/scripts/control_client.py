@@ -19,10 +19,13 @@ from dotenv import load_dotenv
 STS_TOKEN_PATH = "/oauth/2/token"
 CONTROL_INVOKE_PATH = "/v1/control/invoke"
 
-# The Control scopes the Lynx plan needs: providers, resources, and the policy and
-# policy-set lifecycle. The scoped key only ever receives the scopes Console allowed it,
-# so requesting these is safe even on a more restricted key.
+# The Control scopes the Lynx plan needs: applications, providers, resources, and the
+# policy and policy-set lifecycle. The scoped key only ever receives the scopes Console
+# allowed it, so requesting these is safe even on a more restricted key.
 SCOPES = [
+    "control:app:read",
+    "control:app:write",
+    "control:app:delete",
     "control:identity-provider:read",
     "control:identity-provider:write",
     "control:identity-provider:delete",
