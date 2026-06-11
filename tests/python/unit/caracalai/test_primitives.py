@@ -615,6 +615,126 @@ class SpawnInheritEdgeTests(unittest.IsolatedAsyncioTestCase):
         await agent.aclose()
         self.assertEqual(heartbeats, 0)
 
+    async def test_narrow_grant_issues_delegation_edge(self) -> None:
+        from caracalai.primitives import spawn_service
+
+        calls: list[tuple[str, str]] = []
+        captured: dict = {}
+
+        async def handler(req: httpx.Request) -> httpx.Response:
+            calls.append((req.method, req.url.path))
+            if req.method == "POST" and req.url.path.endswith("/agents"):
+                return httpx.Response(200, json={"agent_session_id": "svc-1"})
+            if req.method == "POST" and req.url.path.endswith("/delegations"):
+                import json
+
+                captured["body"] = json.loads(req.content)
+                return httpx.Response(200, json={"delegation_edge_id": "edge-svc"})
+            if req.method == "DELETE":
+                return httpx.Response(204)
+            return httpx.Response(404)
+
+        coord = _coord(handler)
+        async with spawn(
+            coordinator=coord, zone_id="z", application_id="app", subject_token="tok"
+        ) as parent:
+            agent = await spawn_service(
+                coordinator=coord,
+                zone_id="z",
+                application_id="app-worker",
+                subject_token="tok",
+                grant=Grant.narrow(["ledger:read"], resource_id="resource://ledger"),
+            )
+            self.assertEqual(agent.context.delegation_edge_id, "edge-svc")
+            self.assertEqual(agent.context.parent_edge_id, parent.delegation_edge_id)
+            self.assertEqual(agent.context.hop, parent.hop + 1)
+            self.assertEqual(captured["body"]["source_session_id"], parent.agent_session_id)
+            self.assertEqual(captured["body"]["target_session_id"], "svc-1")
+            self.assertEqual(captured["body"]["scopes"], ["ledger:read"])
+            await agent.aclose()
+
+    async def test_narrow_grant_failure_terminates_service_agent(self) -> None:
+        from caracalai.primitives import spawn_service
+
+        calls: list[tuple[str, str]] = []
+
+        async def handler(req: httpx.Request) -> httpx.Response:
+            calls.append((req.method, req.url.path))
+            if req.method == "POST" and req.url.path.endswith("/agents"):
+                return httpx.Response(200, json={"agent_session_id": "svc-1"})
+            if req.method == "POST" and req.url.path.endswith("/delegations"):
+                return httpx.Response(403)
+            if req.method == "DELETE":
+                return httpx.Response(204)
+            return httpx.Response(404)
+
+        coord = _coord(handler)
+        async with spawn(
+            coordinator=coord, zone_id="z", application_id="app", subject_token="tok"
+        ):
+            with self.assertRaises(httpx.HTTPStatusError):
+                await spawn_service(
+                    coordinator=coord,
+                    zone_id="z",
+                    application_id="app",
+                    subject_token="tok",
+                    grant=Grant.narrow(["x:y"]),
+                )
+        deletes = [path for method, path in calls if method == "DELETE"]
+        self.assertTrue(any("svc-1" in path for path in deletes))
+
+    async def test_narrow_grant_requires_parent_session(self) -> None:
+        from caracalai.primitives import spawn_service
+
+        coord = _coord(_default_handler)
+        with self.assertRaises(RuntimeError):
+            await spawn_service(
+                coordinator=coord,
+                zone_id="z",
+                application_id="app",
+                subject_token="tok",
+                grant=Grant.narrow(["x:y"]),
+            )
+
+    async def test_inherit_grant_carries_parent_edge_forward(self) -> None:
+        import json
+
+        from caracalai.context import CaracalContext
+        from caracalai.primitives import spawn_service
+
+        captured: dict = {}
+
+        async def handler(req: httpx.Request) -> httpx.Response:
+            if req.method == "POST" and req.url.path.endswith("/agents"):
+                captured["body"] = json.loads(req.content)
+                return httpx.Response(
+                    200,
+                    json={"agent_session_id": "svc-1", "delegation_edge_id": "edge-mirror"},
+                )
+            if req.method == "DELETE":
+                return httpx.Response(204)
+            return httpx.Response(404)
+
+        parent = CaracalContext(
+            subject_token="tok",
+            zone_id="z",
+            application_id="app",
+            agent_session_id="parent-1",
+            delegation_edge_id="edge-parent",
+            hop=1,
+        )
+        agent = await spawn_service(
+            coordinator=_coord(handler),
+            zone_id="z",
+            application_id="app",
+            subject_token="tok",
+            parent_ctx=parent,
+        )
+        self.assertEqual(captured["body"]["inherit_parent_edge_id"], "edge-parent")
+        self.assertEqual(agent.context.delegation_edge_id, "edge-mirror")
+        self.assertEqual(agent.context.hop, 2)
+        await agent.aclose()
+
 
 if __name__ == "__main__":
     unittest.main()

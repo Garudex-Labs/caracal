@@ -182,6 +182,7 @@ export interface SpawnServiceInput {
   subjectToken: string
   subjectSessionId?: string
   parentId?: string
+  grant?: Grant
   ttlSeconds?: number
   metadata?: JsonObject
   labels?: string[]
@@ -204,9 +205,14 @@ export interface ServiceAgent {
 }
 
 export async function spawnService(input: SpawnServiceInput): Promise<ServiceAgent> {
+  const grant = input.grant ?? Grant.inherit()
   const parent = current()
   const parentId = input.parentId ?? parent?.agentSessionId
   const bearer = input.subjectToken
+  const inheritParentEdgeId =
+    grant.mode === 'inherit' && parent?.agentSessionId && parent.delegationEdgeId && input.applicationId === parent.applicationId
+      ? parent.delegationEdgeId
+      : undefined
   const res = await spawnAgent(input.coordinator, bearer, {
     zoneId: input.zoneId,
     applicationId: input.applicationId,
@@ -216,18 +222,55 @@ export async function spawnService(input: SpawnServiceInput): Promise<ServiceAge
     ttlSeconds: input.ttlSeconds,
     metadata: input.metadata,
     labels: input.labels,
+    inheritParentEdgeId,
   })
+
+  let delegationEdgeId: string | undefined = res.delegation_edge_id ?? undefined
+  let hop = delegationEdgeId && parent ? parent.hop + 1 : (parent?.hop ?? 0)
+  try {
+    if (grant.mode === 'narrow') {
+      if (!parent || !parent.agentSessionId) {
+        throw new Error('grant narrow requires an active parent agent session')
+      }
+      const delRes = await createDelegation(input.coordinator, parent.subjectToken, {
+        zoneId: input.zoneId,
+        issuerApplicationId: parent.applicationId,
+        sourceSessionId: parent.agentSessionId,
+        targetSessionId: res.agent_session_id,
+        receiverApplicationId: input.applicationId,
+        parentEdgeId: parent.delegationEdgeId,
+        resourceId: grant.resourceId,
+        scopes: grant.scopes ?? [],
+        constraints: grant.constraints,
+        ttlSeconds: grant.ttlSeconds,
+      })
+      delegationEdgeId = delRes.delegation_edge_id
+      hop = parent.hop + 1
+    }
+  } catch (e) {
+    await terminateAgent(input.coordinator, bearer, input.zoneId, res.agent_session_id)
+    throw e
+  }
+
   const ctx: CaracalContext = {
     subjectToken: bearer,
     zoneId: input.zoneId,
     applicationId: input.applicationId,
     agentSessionId: res.agent_session_id,
+    delegationEdgeId,
     parentEdgeId: parent?.delegationEdgeId,
     sessionId: input.subjectSessionId ?? parent?.sessionId,
     traceId: input.traceId ?? parent?.traceId,
-    hop: parent?.hop ?? 0,
+    hop,
   }
-  if (input.onAgentStart) await input.onAgentStart(ctx)
+  if (input.onAgentStart) {
+    try {
+      await input.onAgentStart(ctx)
+    } catch (e) {
+      await terminateAgent(input.coordinator, bearer, input.zoneId, res.agent_session_id)
+      throw e
+    }
+  }
   const heartbeat = () => heartbeatAgent(input.coordinator, bearer, input.zoneId, res.agent_session_id)
   let timer: ReturnType<typeof setInterval> | undefined
   if (input.heartbeatIntervalMs && input.heartbeatIntervalMs > 0) {

@@ -58,6 +58,7 @@ export interface SpawnOptions {
 }
 
 export interface ServiceOptions {
+  grant?: Grant
   ttlSeconds?: number
   subjectSessionId?: string
   parentId?: string
@@ -167,6 +168,7 @@ export class Caracal {
       ttlSeconds: opts.ttlSeconds ?? this.config.defaultTtlSeconds,
       subjectSessionId: opts.subjectSessionId,
       parentId: opts.parentId,
+      grant: opts.grant,
       metadata: opts.metadata,
       labels: opts.labels,
       traceId: opts.traceId,
