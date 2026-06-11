@@ -627,8 +627,12 @@ async def _turn_loop(
                 except Exception as exc:
                     last_exc = exc
                     attempt += 1
+                    detail = str(exc)
+                    body = getattr(getattr(exc, "response", None), "text", "")
+                    if body:
+                        detail = f"{detail} :: {body}"
                     bus.publish(
-                        ev.tool_retry(run_id, agent.id, name, attempt, str(exc)[:200])
+                        ev.tool_retry(run_id, agent.id, name, attempt, detail[:400])
                     )
                     if attempt >= 3:
                         break
@@ -1792,13 +1796,30 @@ async def run_swarm(run_id: str, prompt: str) -> None:
     board = RunBlackboard(run_id)
     jobs = JobRegistry(run_id)
 
-    fc = await runner.aspawn(
-        role="finance-control",
-        scope="global",
-        parent=None,
-        layer="finance-control",
-        region=None,
-    )
+    try:
+        fc = await runner.aspawn(
+            role="finance-control",
+            scope="global",
+            parent=None,
+            layer="finance-control",
+            region=None,
+        )
+    except Exception as exc:
+        log.exception("run_swarm spawn failed run_id=%s", run_id)
+        bus.publish(ev.error(run_id, str(exc)))
+        bus.publish(ev.run_end(run_id, "failed"))
+        cancellation.clear(run_id)
+        await runner.aclose()
+        session_memory.record_run(
+            RunRecord(
+                run_id=run_id,
+                prompt=prompt,
+                status="failed",
+                regions=[],
+                errors=[str(exc)],
+            )
+        )
+        return
     fc.start()
 
     pool = WorkerPool(run_id, runner, fc)

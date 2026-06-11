@@ -8,13 +8,10 @@ package sdk
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 )
 
 // CoordinatorClient is the Caracal coordinator REST client.
@@ -146,29 +143,13 @@ func SpawnAgent(ctx context.Context, client *CoordinatorClient, bearer string, r
 	}
 
 	extra := map[string]string{}
-	key := req.IdempotencyKey
-	if key == "" {
-		key = deriveIdempotencyKey(req)
-	}
-	if key != "" {
-		extra["Idempotency-Key"] = key
+	if req.IdempotencyKey != "" {
+		extra["Idempotency-Key"] = req.IdempotencyKey
 	}
 
 	var out SpawnResponse
 	err := doJSON(ctx, client, "POST", fmt.Sprintf("/zones/%s/agents", req.ZoneID), bearer, body, extra, &out)
 	return out, err
-}
-
-// deriveIdempotencyKey produces a stable key for SDK-issued spawn retries.
-// Returns empty when no stable inputs are present: in that case the caller's
-// retry would still require a fresh session.
-func deriveIdempotencyKey(req SpawnRequest) string {
-	if req.SubjectSessionID == "" && req.ParentID == "" {
-		return ""
-	}
-	seed := req.ApplicationID + "|" + req.SubjectSessionID + "|" + req.ParentID + "|" + string(req.Lifecycle) + "|" + strings.Join(req.Labels, ",")
-	sum := sha256.Sum256([]byte(seed))
-	return hex.EncodeToString(sum[:])
 }
 
 // TerminateAgent calls DELETE /zones/:zoneId/agents/:id.
