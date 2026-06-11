@@ -48,12 +48,8 @@ export function createControlClient(config, deps = {}) {
   const fetchImpl = deps.fetch ?? globalThis.fetch
   const ttlSeconds = Number.isInteger(config.ttlSeconds) ? config.ttlSeconds : undefined
 
-  let cached
-  const skewMs = 5_000
-
+  // Control tokens are replay-protected (single-use JTI); mint one per invoke.
   async function token() {
-    const now = Date.now()
-    if (cached && cached.expiresAt - skewMs > now) return cached.accessToken
     const form = new URLSearchParams({
       grant_type: 'client_credentials',
       application_id: clientId,
@@ -73,8 +69,6 @@ export function createControlClient(config, deps = {}) {
     if (typeof accessToken !== 'string' || accessToken === '') {
       throw new ControlError(res.status, body, 'token exchange returned no access_token')
     }
-    const lifetime = Number.isFinite(body?.expires_in) ? Number(body.expires_in) : 60
-    cached = { accessToken, expiresAt: now + lifetime * 1000 }
     return accessToken
   }
 

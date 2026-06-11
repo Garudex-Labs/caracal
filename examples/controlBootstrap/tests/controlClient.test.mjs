@@ -54,7 +54,7 @@ describe('control client token exchange', () => {
     assert.equal(form.get('scope'), SCOPES.verify.join(' '))
   })
 
-  it('caches the token across invokes until it expires', async () => {
+  it('mints a fresh token for each invoke', async () => {
     let tokenCalls = 0
     const fetchImpl = async (url) => {
       if (url.endsWith('/oauth/2/token')) {
@@ -66,7 +66,7 @@ describe('control client token exchange', () => {
     const client = createControlClient(BASE_CONFIG, { fetch: fetchImpl })
     await client.invoke('resource', 'list')
     await client.invoke('policy', 'list')
-    assert.equal(tokenCalls, 1)
+    assert.equal(tokenCalls, 2)
   })
 
   it('maps non-2xx responses to ControlError with the status', async () => {
