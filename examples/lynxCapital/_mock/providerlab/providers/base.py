@@ -13,6 +13,9 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 
+from _mock.providerlab import partnership
+
+
 class DomainError(Exception):
     """Raised when a domain operation rejects a request the way a real provider would."""
 
@@ -71,6 +74,11 @@ class Ctx:
         return {str(s) for s in raw}
 
     def require_scope(self, scope: str) -> None:
+        # Caracal-issued principals are gated per operation through the
+        # partnership grants at dispatch; this check covers the provider's
+        # native scope vocabulary.
+        if self.principal.get("issuedBy") == "caracal":
+            return
         if self.principal.get("auth") in ("oauth", "caracal_mandate") and scope not in self.scopes():
             raise DomainError(403, "insufficient_scope", f"operation requires scope {scope!r}")
 
@@ -164,7 +172,16 @@ def dispatch(provider, state: State, operation: str, payload: dict, principal: d
             if seed is not None:
                 seed(state)
             state.seeded = True
-        return handler(Ctx(provider, state, operation, payload, principal))
+        ctx = Ctx(provider, state, operation, payload, principal)
+        # A Caracal-issued mandate only authorizes the operations its granted
+        # scopes map to under the partnership terms.
+        if principal.get("issuedBy") == "caracal" and operation in provider.operations:
+            terms = partnership.for_provider(provider.id)
+            allowed = terms.operations_for(ctx.scopes()) if terms else set()
+            if operation not in allowed:
+                raise DomainError(403, "insufficient_scope",
+                                  f"mandate scopes do not grant operation {operation!r}")
+        return handler(ctx)
 
 
 def now() -> int:
