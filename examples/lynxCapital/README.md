@@ -29,7 +29,7 @@ pip install -e ".[dev]"
 ## 2. Run
 
 ```bash
-docker compose -f _mock/docker-compose.yml up -d --build --wait   # start mock providers
+docker compose -f _mock/docker-compose.yml up -d --build --waitD   # start mock providers
 python -m uvicorn app.main:app --reload --port 8000               # run the app
 ```
 
