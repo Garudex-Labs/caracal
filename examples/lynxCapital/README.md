@@ -70,6 +70,11 @@ bindings into the policy library, and activates the `lynx-finance-ops` policy se
 prints the per-application credential exports for the workload `.env`; each client secret
 is shown exactly once. The Control key has no runtime data authority.
 
+It also prints the `LYNX_CARACAL_PARTNERSHIP` export: the partnership terms (accepted
+resource-view audiences and Caracal scope-to-operation grants) the mandate-verifying
+mock providers are configured with. Export it before starting the provider lab —
+without it those providers fail closed on Caracal-issued mandates.
+
 ## 5. Run the SDK reference
 
 ```bash
