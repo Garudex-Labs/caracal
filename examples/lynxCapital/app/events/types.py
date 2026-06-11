@@ -180,10 +180,10 @@ def file_read(run_id: str, agent_id: str, path: str, size: int) -> Event:
     return _mk(run_id, "system", "file_read", agent_id=agent_id, path=path, size=size)
 
 
-def blackboard_post(run_id: str, agent_id: str, region: str | None, kind: str, content: str) -> Event:
+def blackboard_post(run_id: str, agent_id: str, region: str | None, tag: str, content: str) -> Event:
     return _mk(
         run_id, "system", "blackboard_post",
-        agent_id=agent_id, region=region, kind=kind, content=content,
+        agent_id=agent_id, region=region, tag=tag, content=content,
     )
 
 

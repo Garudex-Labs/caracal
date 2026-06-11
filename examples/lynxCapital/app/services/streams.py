@@ -52,71 +52,82 @@ def _consume_governed(symbol: str) -> None:
 
 
 async def _governed_stream(symbol: str) -> None:
-    """Consume the Pulse feed through the Caracal Gateway. The consumer runs as a
+    """Consume the Pulse feed through the Caracal Gateway. The consumer holds one
     labeled treasury agent session whose delegation edge is narrowed to pulse:read on
-    the treasury view; the Gateway validates its mandate and injects the provider
-    credential, so this process never holds the partner API key."""
+    the treasury view and re-mints a short-lived mandate per connection; the Gateway
+    validates each mandate and injects the provider credential, so this process never
+    holds the partner API key. Session or stream failures back off exponentially and
+    respawn the session, keeping reconnect pressure off the control plane."""
     rt = caracal.runtime("treasury")
-    async with rt.client.spawn(
-        labels=["dispatcher", "lynx-swarm"],
-        metadata={"service": "market-stream"},
-    ) as root:
-        while not _stop.is_set():
-            try:
-                await _stream_once(rt, root, symbol)
-            except Exception:
-                if _stop.is_set():
-                    return
-                await asyncio.sleep(2.0)
+    backoff = 2.0
+    while not _stop.is_set():
+        try:
+            async with rt.client.spawn(
+                labels=["dispatcher", "lynx-swarm"],
+                metadata={"service": "market-stream"},
+            ) as root:
+                async with rt.client.spawn(
+                    grant=caracal.worker_grant(["pulse:read"], [PULSE_VIEW]),
+                    labels=tenancy.agent_labels(STREAM_ROLE),
+                    metadata={"service": "market-stream", "provider": "pulse-market"},
+                    parent_ctx=root,
+                    ttl_seconds=caracal.WORKER_TTL_SECONDS,
+                ) as ctx:
+                    while not _stop.is_set():
+                        await _stream_once(rt, ctx, symbol)
+                        backoff = 2.0
+        except Exception:
+            if _stop.is_set():
+                return
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2.0, 60.0)
 
 
 async def _stream_once(
-    rt: caracal.AppRuntime, root: caracal.CaracalContext, symbol: str
+    rt: caracal.AppRuntime, ctx: caracal.CaracalContext, symbol: str
 ) -> None:
-    async with rt.client.spawn(
-        grant=caracal.worker_grant(["pulse:read"], [PULSE_VIEW]),
-        labels=tenancy.agent_labels(STREAM_ROLE),
-        metadata={"service": "market-stream", "provider": "pulse-market"},
-        parent_ctx=root,
-        ttl_seconds=caracal.WORKER_TTL_SECONDS,
-    ) as ctx:
-        token = rt.client.mint_mandate(
-            PULSE_VIEW, ["pulse:read"], ctx=ctx, ttl_seconds=caracal.MANDATE_TTL_SECONDS
-        )
-        async with httpx.AsyncClient(timeout=None) as http:
-            async with http.stream(
-                "GET",
-                f"{rt.gateway_url}/stream",
-                headers={
-                    "Authorization": f"Bearer {token}",
-                    "X-Caracal-Resource": PULSE_VIEW,
-                },
-                params={"symbol": symbol, "ticks": 50},
-            ) as resp:
-                event = "message"
-                async for line in resp.aiter_lines():
-                    if _stop.is_set():
-                        return
-                    event = _handle_line(line, event)
+    token = rt.client.mint_mandate(
+        PULSE_VIEW, ["pulse:read"], ctx=ctx, ttl_seconds=caracal.MANDATE_TTL_SECONDS
+    )
+    async with httpx.AsyncClient(timeout=None) as http:
+        async with http.stream(
+            "GET",
+            f"{rt.gateway_url}/stream",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-Caracal-Resource": PULSE_VIEW,
+            },
+            params={"symbol": symbol, "ticks": 50},
+        ) as resp:
+            resp.raise_for_status()
+            event = "message"
+            async for line in resp.aiter_lines():
+                if _stop.is_set():
+                    return
+                event = _handle_line(line, event)
 
 
 def _consume_direct(url: str, api_key: str, symbol: str) -> None:
     headers = {"X-Api-Key": api_key}
     params = {"symbol": symbol, "ticks": 50}
+    backoff = 2.0
     while not _stop.is_set():
         try:
             with httpx.stream(
                 "GET", f"{url}/stream", headers=headers, params=params, timeout=None
             ) as resp:
+                resp.raise_for_status()
                 event = "message"
                 for line in resp.iter_lines():
                     if _stop.is_set():
                         return
                     event = _handle_line(line, event)
+                backoff = 2.0
         except Exception:
             if _stop.is_set():
                 return
-            _stop.wait(2.0)
+            _stop.wait(backoff)
+            backoff = min(backoff * 2.0, 60.0)
 
 
 def start_streams() -> None:
