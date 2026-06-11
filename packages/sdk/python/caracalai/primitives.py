@@ -282,6 +282,7 @@ async def spawn_service(
     subject_token: str,
     parent_id: str | None = None,
     parent_ctx: CaracalContext | None = None,
+    grant: Grant | None = None,
     ttl_seconds: int | None = None,
     metadata: JsonObject | None = None,
     labels: list[str] | None = None,
@@ -293,11 +294,28 @@ async def spawn_service(
     owns. The session carries a heartbeat lease; renew it with
     :meth:`ServiceAgent.heartbeat` and retire it with :meth:`ServiceAgent.aclose`.
 
+    Authority follows the same model as :func:`spawn`: the session inherits its
+    parent's effective authority by default, and ``grant=Grant.narrow([...])``
+    issues a bounded delegation edge so the handle holds only a subset.
+
     Pass ``heartbeat_interval`` (seconds, well below the server lease) to renew
     the lease automatically from a background task — the lease keeps advancing
     even while the caller is blocked on a long provider/resource stream."""
+    grant = grant or Grant.inherit()
     parent = parent_ctx if parent_ctx is not None else current()
     parent_agent_session_id = parent_id or (parent.agent_session_id if parent else None)
+
+    inherit_parent_edge_id = (
+        parent.delegation_edge_id
+        if (
+            grant.mode == "inherit"
+            and parent is not None
+            and parent.agent_session_id
+            and parent.delegation_edge_id
+            and application_id == parent.application_id
+        )
+        else None
+    )
 
     res = await spawn_agent(
         coordinator,
@@ -310,21 +328,61 @@ async def spawn_service(
             ttl_seconds=ttl_seconds,
             metadata=metadata,
             labels=labels,
+            inherit_parent_edge_id=inherit_parent_edge_id,
         ),
     )
+
+    delegation_edge_id: str | None = res.delegation_edge_id
+    hop = (
+        parent.hop + 1
+        if (delegation_edge_id is not None and parent is not None)
+        else (parent.hop if parent else 0)
+    )
+    try:
+        if grant.mode == "narrow":
+            if parent is None or not parent.agent_session_id:
+                raise RuntimeError(
+                    "grant=narrow requires an active parent agent session"
+                )
+            deleg = await create_delegation(
+                coordinator,
+                parent.subject_token,
+                DelegationRequest(
+                    zone_id=zone_id,
+                    issuer_application_id=parent.application_id,
+                    source_session_id=parent.agent_session_id,
+                    target_session_id=res.agent_session_id,
+                    receiver_application_id=application_id,
+                    parent_edge_id=parent.delegation_edge_id,
+                    resource_id=grant.resource_id,
+                    scopes=list(grant.scopes),
+                    constraints=grant.constraints,
+                    ttl_seconds=grant.ttl_seconds,
+                ),
+            )
+            delegation_edge_id = deleg.delegation_edge_id
+            hop = parent.hop + 1
+    except (asyncio.CancelledError, Exception):
+        await terminate_agent(coordinator, subject_token, zone_id, res.agent_session_id)
+        raise
 
     ctx = CaracalContext(
         subject_token=subject_token,
         zone_id=zone_id,
         application_id=application_id,
         agent_session_id=res.agent_session_id,
+        delegation_edge_id=delegation_edge_id,
         parent_edge_id=parent.delegation_edge_id if parent else None,
         session_id=parent.session_id if parent else None,
         trace_id=trace_id or (parent.trace_id if parent else None),
-        hop=parent.hop if parent else 0,
+        hop=hop,
     )
     if on_agent_start is not None:
-        await on_agent_start(ctx)
+        try:
+            await on_agent_start(ctx)
+        except (asyncio.CancelledError, Exception):
+            await terminate_agent(coordinator, subject_token, zone_id, res.agent_session_id)
+            raise
     agent = ServiceAgent(
         coordinator=coordinator,
         subject_token=subject_token,

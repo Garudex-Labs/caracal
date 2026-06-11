@@ -93,6 +93,20 @@ def test_partner_plan_resolves_only_through_the_integration_view():
     assert tenancy.partner_plan("no-such-provider", "list_charges") is None
 
 
+def test_partnership_manifest_covers_every_mandate_provider():
+    model = tenancy.load_model()
+    manifest = tenancy.partnership_manifest(model)
+    mandate_providers = {p.id for p in model.providers if p.kind == "caracal_mandate"}
+    assert set(manifest) == mandate_providers
+    for provider_id, terms in manifest.items():
+        provider = model.provider(provider_id)
+        assert terms["scopes"] == provider.scopes
+        expected_views = {r.identifier for r in model.resources if r.provider == provider_id}
+        assert set(terms["audiences"]) == expected_views
+        assert expected_views
+    json.dumps(manifest)
+
+
 def test_application_commands_create_every_boundary():
     model = tenancy.load_model()
     apps = tenancy.application_commands(model)

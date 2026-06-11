@@ -9,17 +9,21 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 import os
 import re
+import time
 import uuid
 from pathlib import Path
 
 os.environ.setdefault("PROVIDERLAB_FAST", "1")
 
+import caracalai_identity
+import caracalai_identity.verify
 import pytest
 from fastapi.testclient import TestClient
 
-from _mock.providerlab import catalog, credentials, mandate
+from _mock.providerlab import catalog, credentials, mandate, partnership
 from _mock.providerlab.app import build_app
 
 LYNX_ROOT = Path(__file__).resolve().parents[1]
@@ -1121,6 +1125,153 @@ def test_mandate_resource_use_claim_enforced():
     )
     assert r.status_code == 401
     assert r.json()["error"] == "invalid_token"
+
+
+# --------------------------------------------------------------------------- #
+# Caracal STS-issued (ES256) mandates verify through the verifier kit
+# --------------------------------------------------------------------------- #
+_STS = "http://sts.lab.test"
+_ZONE = "lynx-zone"
+
+
+class _StubJwks:
+    def __init__(self, keys: list[dict]):
+        self.keys = keys
+
+    async def get_keys(self, issuer: str, zone_id: str | None = None) -> list[dict]:
+        return self.keys
+
+
+@pytest.fixture
+def caracal_zone(monkeypatch):
+    """A Caracal zone the lab is partnered with: STS keys served from a stub JWKS,
+    partnership terms derived from the tenancy model, and a mint helper."""
+    import jwt as pyjwt
+    from cryptography.hazmat.primitives.asymmetric import ec
+
+    from app import tenancy
+
+    private_key = ec.generate_private_key(ec.SECP256R1())
+    jwk = json.loads(pyjwt.algorithms.ECAlgorithm.to_jwk(private_key.public_key()))
+    jwk.update({"kid": "sts-key-1", "alg": "ES256", "use": "sig"})
+    monkeypatch.setattr(caracalai_identity.verify, "_cache", _StubJwks([jwk]))
+    monkeypatch.setenv("CARACAL_STS_URL", _STS)
+    monkeypatch.setenv("CARACAL_ZONE_ID", _ZONE)
+    monkeypatch.setenv(
+        partnership.ENV,
+        json.dumps(tenancy.partnership_manifest()),
+    )
+
+    def mint(audience: str, scope: str, **overrides) -> str:
+        now = int(time.time())
+        claims = {
+            "iss": _STS,
+            "aud": audience,
+            "sub": "lynx-agent",
+            "zone_id": _ZONE,
+            "client_id": "app-compliance",
+            "sid": f"sid_{uuid.uuid4().hex[:12]}",
+            "root_sid": f"root_{uuid.uuid4().hex[:12]}",
+            "use": "resource",
+            "sub_type": "application",
+            "jti": uuid.uuid4().hex,
+            "scope": scope,
+            "target": [audience],
+            "iat": now,
+            "exp": now + 300,
+        }
+        claims.update(overrides)
+        claims = {k: v for k, v in claims.items() if v is not None}
+        return pyjwt.encode(claims, private_key, algorithm="ES256", headers={"kid": "sts-key-1"})
+
+    return mint
+
+
+def _caracal_call(provider_id: str, operation: str, token: str, body: dict | None = None):
+    return client(provider_id).post(
+        f"/api/{operation}", json=body or {}, headers={"Authorization": f"Bearer {token}"}
+    )
+
+
+def test_caracal_mandate_grants_only_partnered_operations(caracal_zone):
+    token = caracal_zone("resource://compliance-aegis", "aegis:screen")
+    ok = _caracal_call("aegis-screening", "screen_party", token, {"name": "Acme Trading"})
+    assert ok.status_code == 200
+    blocked = _caracal_call("aegis-screening", "assign_case", token,
+                            {"caseId": "c1", "assignee": "x"})
+    assert blocked.status_code == 403
+    assert blocked.json()["error"] == "insufficient_scope"
+
+
+def test_caracal_mandate_requires_partnership_terms(caracal_zone, monkeypatch):
+    monkeypatch.delenv(partnership.ENV)
+    token = caracal_zone("resource://compliance-aegis", "aegis:screen")
+    r = _caracal_call("aegis-screening", "screen_party", token, {"name": "x"})
+    assert r.status_code == 503
+    assert r.json()["error"] == "partnership_unconfigured"
+
+
+def test_caracal_mandate_audience_pinned_to_partnered_views(caracal_zone):
+    token = caracal_zone("resource://ops-relay", "aegis:screen")
+    r = _caracal_call("aegis-screening", "screen_party", token, {"name": "x"})
+    assert r.status_code == 401
+    assert r.json()["error"] == "invalid_token"
+
+
+def test_caracal_mandate_issuer_pinned(caracal_zone):
+    token = caracal_zone("resource://compliance-aegis", "aegis:screen",
+                         iss="https://rogue-sts.test")
+    r = _caracal_call("aegis-screening", "screen_party", token, {"name": "x"})
+    assert r.status_code == 401
+    assert r.json()["error"] == "invalid_token"
+
+
+def test_caracal_mandate_zone_pinned(caracal_zone):
+    token = caracal_zone("resource://compliance-aegis", "aegis:screen",
+                         zone_id="other-zone")
+    r = _caracal_call("aegis-screening", "screen_party", token, {"name": "x"})
+    assert r.status_code == 403
+    assert r.json()["error"] == "invalid_zone"
+
+
+def test_caracal_mandate_revocation_enforced(caracal_zone):
+    anchor = f"sid_{uuid.uuid4().hex[:12]}"
+    token = caracal_zone("resource://compliance-aegis", "aegis:screen", sid=anchor)
+    assert _caracal_call("aegis-screening", "screen_party", token,
+                         {"name": "y"}).status_code == 200
+    credentials.load("aegis-screening").revoke_mandate_anchor(anchor)
+    r = _caracal_call("aegis-screening", "screen_party", token, {"name": "y"})
+    assert r.status_code == 403
+    assert r.json()["error"] == "session_revoked"
+
+
+def test_caracal_mandate_delegation_requires_edge(caracal_zone):
+    undelegated = caracal_zone("resource://compliance-verafin", "verafin:monitor",
+                               agent_session_id=f"agent_{uuid.uuid4().hex[:12]}")
+    r = _caracal_call("verafin-monitor", "monitor_transaction", undelegated,
+                      {"transactionId": "t1", "amount": 10})
+    assert r.status_code == 403
+    assert r.json()["error"] == "delegation_required"
+
+    delegated = caracal_zone("resource://compliance-verafin", "verafin:monitor",
+                             agent_session_id=f"agent_{uuid.uuid4().hex[:12]}",
+                             delegation_edge_id=f"edge_{uuid.uuid4().hex[:12]}")
+    ok = _caracal_call("verafin-monitor", "monitor_transaction", delegated,
+                       {"transactionId": "t1", "amount": 10})
+    assert ok.status_code == 200
+
+
+def test_caracal_mandate_scopes_gate_mcp_provider_operations(caracal_zone):
+    reader = caracal_zone(
+        "resource://ops-relay", "relay:read",
+        agent_session_id=f"agent_{uuid.uuid4().hex[:12]}",
+        delegation_edge_id=f"edge_{uuid.uuid4().hex[:12]}",
+    )
+    assert _caracal_call("relay-automation", "list_workflows", reader).status_code == 200
+    blocked = _caracal_call("relay-automation", "start_execution", reader,
+                            {"workflowId": "wf1"})
+    assert blocked.status_code == 403
+    assert blocked.json()["error"] == "insufficient_scope"
 
 
 def _aegis_client() -> tuple[TestClient, dict]:
