@@ -97,6 +97,12 @@ async def _verify_caracal(
     ):
         if anchor and anchor in revoked:
             raise VerifyError("session_revoked", "mandate anchor revoked")
+    # The Gateway narrows a mandate to one resource view rather than to scope
+    # strings, so a gateway-minted mandate carries no scope claim; the scopes the
+    # partnered view exposes are exactly what that narrowing authorizes.
+    scopes = [s for s in verified.scope.split() if s]
+    if not scopes:
+        scopes = sorted(terms.granted_for(audience))
     return {
         "iss": issuer,
         "aud": audience,
@@ -104,7 +110,7 @@ async def _verify_caracal(
         "sub": verified.sub,
         "sub_type": verified.sub_type,
         "use": verified.use,
-        "scopes": [s for s in verified.scope.split() if s],
+        "scopes": scopes,
         "sid": verified.sid,
         "root_sid": verified.root_sid,
         "agent_session_id": verified.agent_session_id,

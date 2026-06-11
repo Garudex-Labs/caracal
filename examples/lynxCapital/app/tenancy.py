@@ -261,12 +261,17 @@ def role_views(role: str, model: TenancyModel | None = None) -> list[str]:
 
 def partnership_manifest(model: TenancyModel | None = None) -> dict[str, dict]:
     """The partnership terms each mandate-verifying provider is configured with: the
-    resource-view audiences it serves and the Caracal scope-to-operation grants it
-    honors, in the shape the provider lab's LYNX_CARACAL_PARTNERSHIP expects."""
+    resource-view audiences it serves with the scopes each view exposes, and the
+    Caracal scope-to-operation grants it honors, in the shape the provider lab's
+    LYNX_CARACAL_PARTNERSHIP expects."""
     model = model or load_model()
     return {
         provider.id: {
-            "audiences": [r.identifier for r in model.resources if r.provider == provider.id],
+            "audiences": {
+                r.identifier: sorted(r.scopes)
+                for r in model.resources
+                if r.provider == provider.id
+            },
             "scopes": provider.scopes,
         }
         for provider in model.providers

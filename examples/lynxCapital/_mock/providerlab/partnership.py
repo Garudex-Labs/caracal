@@ -19,8 +19,14 @@ _cache: tuple[str, dict[str, "Partnership"]] | None = None
 class Partnership:
     """One provider's signed-off partnership terms with a Caracal zone."""
 
-    audiences: tuple[str, ...]
+    audiences: dict[str, tuple[str, ...]]
     scopes: dict[str, tuple[str, ...]]
+
+    def granted_for(self, audience: str) -> set[str]:
+        """The Caracal scopes the partnered resource view exposes. A gateway-narrowed
+        mandate is audienced to one view and carries no scope claim; the view's
+        partnership terms are the scopes it authorizes."""
+        return set(self.audiences.get(audience, ()))
 
     def operations_for(self, granted: set[str]) -> set[str]:
         """Every operation the granted Caracal scopes authorize."""
@@ -41,7 +47,7 @@ def manifest() -> dict[str, Partnership]:
     if raw:
         for provider_id, entry in json.loads(raw).items():
             parsed[provider_id] = Partnership(
-                audiences=tuple(entry.get("audiences", ())),
+                audiences={a: tuple(s) for a, s in entry.get("audiences", {}).items()},
                 scopes={s: tuple(ops) for s, ops in entry.get("scopes", {}).items()},
             )
     _cache = (raw, parsed)
