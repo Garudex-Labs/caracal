@@ -21,7 +21,7 @@ Node packages target Node `>=22`; Python packages require Python `>=3.12`.
 | --- | --- |
 | `issuer` / `Issuer` | Expected STS issuer. |
 | `audience` / `Audience` | Expected audience for the mandate. |
-| `zoneId` / `expected_zone_id` / `ZoneID` | Optional zone claim check. |
+| `zoneId` / `expected_zone_id` / `ZoneID` | Zone claim check. When omitted, the verifier reads the unverified `zone_id` claim to select the zone keyset, then proves it through signature verification. |
 | `requiredScopes` / `required_scopes` / `RequiredScopes` | Scopes every accepted mandate must contain. |
 | `requiredTargets` / `required_targets` / `RequiredTargets` | Target resources every accepted mandate must include. |
 | `requiredUse` / `required_use` / `RequiredUse` | Token use, usually `resource`. |
@@ -46,22 +46,23 @@ const claims = await verify(token, {
 
 ## JWKS caching
 
-TypeScript verifiers use an in-memory JWKS cache by default. Build a cache explicitly when a resource server wants shorter local-development TTLs, a custom fetch implementation, or warmup during service boot.
+STS signing keysets are zone-scoped: every fetch hits `{issuer}/.well-known/jwks.json?zone_id={zone}` and is cached per issuer and zone. TypeScript verifiers use an in-memory JWKS cache by default. Build a cache explicitly when a resource server wants shorter local-development TTLs, a custom fetch implementation, or warmup during service boot.
 
 ```ts
 import { createJwksCache, verify } from "@caracalai/identity";
 
 const jwksCache = createJwksCache({ ttlMs: 300_000, fetchTimeoutMs: 5_000 });
-await jwksCache.warm("https://sts.example.com");
+await jwksCache.warm("https://sts.example.com", "zone_prod");
 
 const claims = await verify(token, {
   issuer: "https://sts.example.com",
   audience: "https://api.example.com",
+  zoneId: "zone_prod",
   jwksCache,
 });
 ```
 
-Go and Python identity packages also cache issuer JWKS metadata in memory. Python exposes `warm_jwks(issuer)` for service boot; Go callers can warm the cache with `GetJWKSContext(ctx, issuer)`.
+Go and Python identity packages also cache issuer JWKS metadata in memory. Python exposes `warm_jwks(issuer, zone_id)` for service boot; Go callers can warm the cache with `GetJWKSContext(ctx, issuer, zoneID)`.
 
 ## Failure classes
 

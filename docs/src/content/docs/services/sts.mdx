@@ -12,7 +12,7 @@ STS is the authority issuance boundary. It authenticates applications, validates
 | --- | --- |
 | Port | `8080` |
 | Token exchange | `POST /oauth/2/token` |
-| JWKS | `GET /.well-known/jwks.json` |
+| JWKS | `GET /.well-known/jwks.json?zone_id={zone}` |
 | Step-up status | `GET /step-up/{id}` |
 | Health/readiness | `GET /health`, `GET /ready` |
 | Metrics | `GET /metrics`, `GET /metrics.json` |

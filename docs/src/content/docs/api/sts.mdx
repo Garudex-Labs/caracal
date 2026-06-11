@@ -11,7 +11,7 @@ STS is served on port `8080` and issues scoped Caracal mandate JWTs.
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `POST` | `/oauth/2/token` | OAuth token exchange for resource, session, Gateway, or delegated mandates. |
-| `GET` | `/.well-known/jwks.json` | Public signing keys for mandate verification. |
+| `GET` | `/.well-known/jwks.json?zone_id={zone}` | Public signing keys for mandate verification, scoped per zone. |
 | `GET` | `/step-up/{id}` | Step-up challenge status. |
 | `GET` | `/health` | Liveness check. |
 | `GET` | `/ready` | Readiness check. |
