@@ -738,6 +738,16 @@ def _final_assistant_text(mem) -> str:
     return ""
 
 
+def _orchestrator_summary(mem, board, agent_id) -> str:
+    """Prefer the orchestrator's final message; fall back to its stage findings
+    so the dispatcher always receives substantive results."""
+    text = _final_assistant_text(mem)
+    if text:
+        return text
+    stages = [f.content for f in board.all() if f.agent_id == agent_id and f.kind == "stage"]
+    return " | ".join(stages[-5:])
+
+
 async def _run_regional_orchestrator(
     run_id,
     runner,
@@ -832,7 +842,7 @@ async def _run_regional_orchestrator(
     result = {
         "region": region,
         "toolCalls": tool_calls,
-        "summary": _final_assistant_text(mem),
+        "summary": _orchestrator_summary(mem, board, ro.id),
     }
     ro.end(result)
     ro.terminate("completed")
@@ -1741,7 +1751,7 @@ async def _run_workflow_orchestrator(
     result = {
         "workflow_id": workflow_id,
         "toolCalls": tool_calls,
-        "summary": _final_assistant_text(mem),
+        "summary": _orchestrator_summary(mem, board, wo.id),
     }
     wo.end(result)
     wo.terminate("completed")

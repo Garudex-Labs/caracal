@@ -70,6 +70,16 @@ services:
     container_name: caracal-gateway
     depends_on:
       - caracal-sts
+    environment:
+      # The provider lab lives on the private Docker network, so the gateway's
+      # SSRF guard must be told these exact hosts are legitimate upstreams.
+      ALLOW_PRIVATE_UPSTREAMS: "true"
+      UPSTREAM_HOST_ALLOWLIST: >-
+        halcyon-bank.mock,meridian-pay.mock,cordoba-fx.mock,ironbark-erp.mock,
+        tallyhall-books.mock,slate-ledger.mock,inkwell-ocr.mock,aegis-screening.mock,
+        verafin-monitor.mock,lumen-identity.mock,beacon-crm.mock,atlas-vendor.mock,
+        keystone-treasury.mock,sabre-tax.mock,quetzal-payouts.mock,vela-notify.mock,
+        core-billing.mock,relay-automation.mock,pulse-market.mock,junction-procure.mock
     ports:
       - "8081:8081"
     networks:
