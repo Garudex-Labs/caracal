@@ -307,8 +307,9 @@ def test_demo_workspace_is_end_user_focused():
     assert response.status_code == 200
     body = response.text
     assert "What would you like the team to handle?" in body
-    assert "welcome-task" in body
-    assert "Run the Vendor Lifecycle workflow" in body
+    assert "welcome-link" in body
+    assert "Browse example prompts" in body
+    assert "welcome-task" not in body
     assert "Agent workload" in body
     assert "Plan of work" in body
     assert "Live activity" in body

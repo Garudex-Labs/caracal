@@ -1311,4 +1311,12 @@ updateRunMeta()
 tryResume()
 autoResizeInput()
 
+const handoff = sessionStorage.getItem('lynxPromptHandoff')
+if (handoff) {
+  sessionStorage.removeItem('lynxPromptHandoff')
+  promptInput.value = handoff
+  autoResizeInput()
+  promptInput.focus()
+}
+
 window.runActive = () => AppState.active
