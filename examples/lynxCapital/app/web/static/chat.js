@@ -484,6 +484,16 @@ function computeOverallPlanStatus(items) {
   return 'pending'
 }
 
+function settlePlans(runStatus) {
+  const settled = runStatus === 'failed' ? 'failed' : 'completed'
+  for (const plan of Object.values(AppState.plans)) {
+    for (const item of plan.items) {
+      if (item.status === 'in_progress') item.status = settled
+    }
+  }
+  renderPlan()
+}
+
 function findFinanceControlId() {
   for (const [id, agent] of Object.entries(AppState.agents)) {
     if (agent.layer === 'finance-control') return id
@@ -1168,6 +1178,7 @@ function handleEvent(event) {
 
     case 'run_end':
       setStreamingStatus(payload.status === 'failed' ? 'error' : 'done')
+      settlePlans(payload.status)
       renderGovernanceSummary(event.ts)
       renderMessage('system', {
         ts: event.ts,
