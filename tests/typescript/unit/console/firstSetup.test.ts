@@ -96,6 +96,21 @@ function makeClient() {
       create: vi.fn(async (_zoneId: string, input: Partial<typeof provider>) => ({ ...provider, ...input })),
     },
     policies: {
+      validate: vi.fn(async () => ({
+        valid: true,
+        schema_version: '2026-05-20',
+        input_schema_version: '2026-05-20',
+        output_contract: { package: 'caracal.authz', rule: 'result', decision: ['allow', 'deny'], evaluation_status: ['complete'] },
+        preview: {
+          package: 'caracal.authz',
+          rules: ['allowed_scopes', 'result'],
+          default_result: true,
+          decisions: ['allow', 'deny'],
+          inputs_referenced: ['input.context.requested_scopes', 'input.principal.id', 'input.resource.identifier'],
+          data_referenced: [],
+        },
+        warnings: [],
+      })),
       create: vi.fn(async () => ({
         id: 'pol-1',
         zone_id: 'zone-1',
@@ -237,6 +252,7 @@ describe('first setup workflow', () => {
       name: 'Guided setup access policy',
       content: expect.stringContaining('input.principal.id == "app-1"'),
     }))
+    expect(client.policies.validate).toHaveBeenCalledWith(expect.stringContaining('input.principal.id == "app-1"'))
     expect(client.policySets.activate).toHaveBeenCalledWith('zone-1', 'ps-1', 'psv-1')
 
     const pushed = (app as unknown as { _pushed: unknown[] })._pushed
@@ -251,6 +267,7 @@ describe('first setup workflow', () => {
     expect(body).toContain('Audit Explanation')
     expect(body).toContain('starter least-privilege allow-list')
     expect(body).toContain('Denies by default')
+    expect(body).toContain('input.principal.id')
     expect(body).toContain('••••')
     expect(body).not.toContain('cs_')
     expect(body).not.toContain('zone_url')

@@ -38,6 +38,9 @@ importers:
       pg:
         specifier: ^8.20.0
         version: 8.20.0
+      prettier:
+        specifier: ^3.8.3
+        version: 3.8.3
       vitest:
         specifier: ^4.1.6
         version: 4.1.6(@opentelemetry/api@1.9.1)(@types/node@24.12.2)(@vitest/coverage-v8@4.1.6)(vite@7.3.3(@types/node@24.12.2)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0))
@@ -264,7 +267,7 @@ importers:
   packages/admin/ts:
     dependencies:
       '@caracalai/core':
-        specifier: 0.1.4-rc.1
+        specifier: 0.1.5-rc.2
         version: link:../../core/ts
     devDependencies:
       '@types/node':
@@ -283,6 +286,9 @@ importers:
         specifier: ^14.0.0
         version: 14.0.0
     devDependencies:
+      '@types/node':
+        specifier: ^24.12.2
+        version: 24.12.2
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
@@ -290,13 +296,13 @@ importers:
   packages/connectors/express/ts:
     dependencies:
       '@caracalai/identity':
-        specifier: 0.1.4-rc.1
+        specifier: 0.1.5-rc.2
         version: link:../../../identity/ts
       '@caracalai/sdk':
-        specifier: 0.1.4-rc.1
+        specifier: 0.1.5-rc.2
         version: link:../../../sdk/ts
       '@caracalai/transport-mcp':
-        specifier: 0.1.4-rc.1
+        specifier: 0.1.5-rc.2
         version: link:../../../transport/mcp/ts
       express:
         specifier: ^5.0.0
@@ -318,10 +324,10 @@ importers:
   packages/connectors/fastmcp/ts:
     dependencies:
       '@caracalai/core':
-        specifier: 0.1.4-rc.1
+        specifier: 0.1.5-rc.2
         version: link:../../../core/ts
       '@caracalai/transport-mcp':
-        specifier: 0.1.4-rc.1
+        specifier: 0.1.5-rc.2
         version: link:../../../transport/mcp/ts
     devDependencies:
       '@types/node':
@@ -356,10 +362,10 @@ importers:
   packages/connectors/redis/ts:
     dependencies:
       '@caracalai/core':
-        specifier: 0.1.4-rc.1
+        specifier: 0.1.5-rc.2
         version: link:../../../core/ts
       '@caracalai/revocation':
-        specifier: 0.1.4-rc.1
+        specifier: 0.1.5-rc.2
         version: link:../../../revocation/ts
     devDependencies:
       '@types/node':
@@ -425,7 +431,7 @@ importers:
   packages/identity/ts:
     dependencies:
       '@caracalai/core':
-        specifier: 0.1.4-rc.1
+        specifier: 0.1.5-rc.2
         version: link:../../core/ts
       jose:
         specifier: ^6.2.3
@@ -444,7 +450,7 @@ importers:
   packages/oauth/ts:
     dependencies:
       '@caracalai/core':
-        specifier: 0.1.4-rc.1
+        specifier: 0.1.5-rc.2
         version: link:../../core/ts
     devDependencies:
       '@types/node':
@@ -472,7 +478,7 @@ importers:
   packages/sdk/ts:
     dependencies:
       '@caracalai/oauth':
-        specifier: 0.1.4-rc.1
+        specifier: 0.1.5-rc.2
         version: link:../../oauth/ts
       smol-toml:
         specifier: ^1.4.2
@@ -491,10 +497,10 @@ importers:
   packages/transport/a2a/ts:
     dependencies:
       '@caracalai/oauth':
-        specifier: 0.1.4-rc.1
+        specifier: 0.1.5-rc.2
         version: link:../../../oauth/ts
       '@caracalai/sdk':
-        specifier: 0.1.4-rc.1
+        specifier: 0.1.5-rc.2
         version: link:../../../sdk/ts
     devDependencies:
       '@types/node':
@@ -510,10 +516,10 @@ importers:
   packages/transport/mcp/ts:
     dependencies:
       '@caracalai/identity':
-        specifier: 0.1.4-rc.1
+        specifier: 0.1.5-rc.2
         version: link:../../../identity/ts
       '@caracalai/revocation':
-        specifier: 0.1.4-rc.1
+        specifier: 0.1.5-rc.2
         version: link:../../../revocation/ts
     devDependencies:
       '@types/node':
@@ -3927,6 +3933,11 @@ packages:
   prettier@2.8.8:
     resolution: {integrity: sha512-tdN8qQGvNjw4CHbY+XXk0JgCXn9QiF21a55rBe5LJAU+kDyC4WQn4+awm2Xfk2lQMk5fKup9XgzTZtGkjBdP9Q==}
     engines: {node: '>=10.13.0'}
+    hasBin: true
+
+  prettier@3.8.3:
+    resolution: {integrity: sha512-7igPTM53cGHMW8xWuVTydi2KO233VFiTNyF5hLJqpilHfmn8C8gPf+PS7dUT64YcXFbiMGZxS9pCSxL/Dxm/Jw==}
+    engines: {node: '>=14'}
     hasBin: true
 
   prismjs@1.30.0:
@@ -8760,6 +8771,8 @@ snapshots:
   potpack@1.0.2: {}
 
   prettier@2.8.8: {}
+
+  prettier@3.8.3: {}
 
   prismjs@1.30.0: {}
 

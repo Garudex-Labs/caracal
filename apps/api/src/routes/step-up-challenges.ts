@@ -4,13 +4,8 @@
 // Step-up challenge metadata endpoints: inspection and external satisfaction.
 
 import type { FastifyPluginAsync } from 'fastify'
-import { z } from 'zod'
 import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
 import { appendKeysetCondition, parseListPagination, setNextLink } from './list-pagination.js'
-
-const SatisfyBody = z.object({
-  approver_subject_id: z.string().min(1).max(256),
-})
 
 export const stepUpChallengesRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get('/zones/:zoneId/step-up-challenges', async (req, reply) => {
@@ -49,9 +44,7 @@ export const stepUpChallengesRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post('/zones/:zoneId/step-up-challenges/:id/satisfy', async (req, reply) => {
     const params = parseParams(ZoneIdParams, req, reply)
     if (!params) return
-    const parsed = SatisfyBody.safeParse(req.body)
-    if (!parsed.success) return reply.code(400).send({ error: 'invalid_request' })
-    const approverId = parsed.data.approver_subject_id
+    const approverId = `admin:${req.actor.id}`
 
     const { rows } = await fastify.db.query(
       `UPDATE step_up_challenges c

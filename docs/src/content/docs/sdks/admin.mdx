@@ -59,6 +59,41 @@ const version = await admin.policySets.addVersion(zoneId, set.id, [
 await admin.policySets.activate(zoneId, set.id, version.id);
 ```
 
+## Dynamic Client Registration (DCR)
+
+DCR is the **only** way to create short-lived, self-registering client identities, and it is **programmatic-only** — Console creates managed applications, not DCR applications. Use `applications.dcr()` from a control-plane workload (per-tenant onboarding, a CI job, a per-integration identity) that already holds an admin token.
+
+```ts
+const app = await admin.applications.dcr(zoneId, {
+  name: "tenant-acme-job",
+  expires_in: 900, // seconds; capped at 3600
+});
+// app.client_secret is returned ONCE and never retrievable again.
+```
+
+Creation is hardened server-side and cannot be misused as open self-registration:
+
+- **Admin token required** — the endpoint sits behind admin-bearer auth; a workload must hold a real, revocable, zone-scoped admin credential. Agent SDKs (`caracalai`) cannot create applications.
+- **Zone feature gate** — refused with `dcr_disabled` unless an operator enabled `dcr_enabled` on the zone.
+- **Rate-limited and capped** — per-actor request limiting plus a per-zone cap on live DCR applications (`dcr_rate_limit_exceeded` / `dcr_limit_exceeded`).
+- **Short-lived by construction** — `expires_in` is capped at one hour; expired applications are denied at token authentication and later archived by DCR cleanup.
+- **Secret hygiene** — the client secret is generated server-side, stored only as a hash, and returned exactly once.
+- **Authority is still policy-bound** — a DCR application is a credential, not a grant. It authenticates default-deny and receives no tool access until a policy (typically keyed on `registration_method == "dcr"`) grants scopes.
+
+DCR applications remain visible read-only in Console under the `dcr` method for audit and inspection.
+
+## Rotating a managed application secret
+
+A managed application's client secret can be rotated without recreating the application. Send the new secret on a patch; the server stores only its hash and the previous secret stops working immediately.
+
+```ts
+await admin.applications.patch(zoneId, appId, {
+  client_secret: newSecret, // store it yourself; the patch response does not echo it
+});
+```
+
+Rotation is rejected with `client_secret_not_configured` if the application has no secret to replace. The Console exposes the same operation as the **rotate secret** action on managed applications, generating a strong secret and revealing it once. DCR applications are not rotated — they are short-lived and replaced by re-registration.
+
 ## Error handling
 
 Failed HTTP responses throw `AdminApiError` with `status`, `code`, parsed response details, and the base surface (`api` or `coordinator`). Non-idempotent write methods are not retried; read methods retry transient statuses.

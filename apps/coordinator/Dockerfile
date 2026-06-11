@@ -7,7 +7,16 @@
 ARG PNPM_VERSION=11.1.1
 
 FROM golang:1.26-alpine@sha256:f85330846cde1e57ca9ec309382da3b8e6ae3ab943d2739500e08c86393a21b1 AS go-builder
-ENV CGO_ENABLED=0 GOOS=linux GOFLAGS=-mod=readonly
+ARG CGO_ENABLED=0
+ARG CC
+ARG CFLAGS
+ARG CXX
+ARG CXXFLAGS
+ARG LDFLAGS
+ARG GOFLAGS
+ARG GO_BUILDFLAGS
+ARG GO_LDFLAGS
+ENV CGO_ENABLED=${CGO_ENABLED} GOOS=linux
 WORKDIR /build
 COPY go.work go.work
 COPY packages/core/go/ packages/core/go/
@@ -27,7 +36,7 @@ WORKDIR /build/services/coordinator-relay
 RUN --mount=type=cache,target=/root/.cache/go-build,sharing=locked \
     --mount=type=cache,target=/go/pkg/mod,sharing=locked \
     go mod download && \
-    go build -trimpath -ldflags='-s -w' -o /relay ./cmd/relay
+    go build -mod=readonly -trimpath ${GO_BUILDFLAGS} -ldflags="${GO_LDFLAGS}" -o /relay ./cmd/relay
 
 FROM node:24-alpine@sha256:d1b3b4da11eefd5941e7f0b9cf17783fc99d9c6fc34884a665f40a06dbdfc94f AS node-builder
 ARG PNPM_VERSION

@@ -17,7 +17,7 @@ type contextKey struct{}
 type CaracalContext struct {
 	SubjectToken     string
 	ZoneID           string
-	ClientID         string
+	ApplicationID    string
 	AgentSessionID   string
 	DelegationEdgeID string
 	ParentEdgeID     string
@@ -28,15 +28,15 @@ type CaracalContext struct {
 
 // AuthoritySummary is a redacted operator view of the bound authority chain.
 type AuthoritySummary struct {
-	ZoneID                      string
-	ApplicationID               string
-	AuthoritySessionID          string
-	AgentRunID                  string
-	DelegatedPermissionID       string
-	ParentDelegatedPermissionID string
-	TraceID                     string
-	Hop                         int
-	Chain                       []string
+	ZoneID           string
+	ApplicationID    string
+	SessionID        string
+	AgentSessionID   string
+	DelegationEdgeID string
+	ParentEdgeID     string
+	TraceID          string
+	Hop              int
+	Chain            []string
 }
 
 // Bind returns a new context.Context carrying c.
@@ -59,14 +59,14 @@ func Capture(ctx context.Context) (CaracalContext, bool) {
 }
 
 // FromEnvelope builds a CaracalContext from a deserialized Envelope.
-func FromEnvelope(env Envelope, zoneID, clientID string) (CaracalContext, error) {
+func FromEnvelope(env Envelope, zoneID, applicationID string) (CaracalContext, error) {
 	if env.SubjectToken == "" {
 		return CaracalContext{}, errors.New("caracal: envelope missing subject token")
 	}
 	return CaracalContext{
 		SubjectToken:     env.SubjectToken,
 		ZoneID:           zoneID,
-		ClientID:         clientID,
+		ApplicationID:    applicationID,
 		AgentSessionID:   env.AgentSessionID,
 		DelegationEdgeID: env.DelegationEdgeID,
 		ParentEdgeID:     env.ParentEdgeID,
@@ -95,33 +95,33 @@ func DescribeAuthority(ctx context.Context) (AuthoritySummary, bool) {
 	if !ok {
 		return AuthoritySummary{}, false
 	}
-	return DescribeCaracalContext(c), true
+	return DescribeContext(c), true
 }
 
-// DescribeCaracalContext projects a CaracalContext into user-facing authority terms.
-func DescribeCaracalContext(c CaracalContext) AuthoritySummary {
+// DescribeContext projects a CaracalContext into user-facing authority terms.
+func DescribeContext(c CaracalContext) AuthoritySummary {
 	chain := []string{}
 	if c.SessionID != "" {
-		chain = append(chain, "authority:"+c.SessionID)
+		chain = append(chain, "session:"+c.SessionID)
 	}
 	if c.AgentSessionID != "" {
-		chain = append(chain, "agent-run:"+c.AgentSessionID)
+		chain = append(chain, "agent-session:"+c.AgentSessionID)
 	}
 	if c.ParentEdgeID != "" {
-		chain = append(chain, "parent-delegated-permission:"+c.ParentEdgeID)
+		chain = append(chain, "parent-edge:"+c.ParentEdgeID)
 	}
 	if c.DelegationEdgeID != "" {
-		chain = append(chain, "delegated-permission:"+c.DelegationEdgeID)
+		chain = append(chain, "delegation-edge:"+c.DelegationEdgeID)
 	}
 	return AuthoritySummary{
-		ZoneID:                      c.ZoneID,
-		ApplicationID:               c.ClientID,
-		AuthoritySessionID:          c.SessionID,
-		AgentRunID:                  c.AgentSessionID,
-		DelegatedPermissionID:       c.DelegationEdgeID,
-		ParentDelegatedPermissionID: c.ParentEdgeID,
-		TraceID:                     c.TraceID,
-		Hop:                         c.Hop,
-		Chain:                       chain,
+		ZoneID:           c.ZoneID,
+		ApplicationID:    c.ApplicationID,
+		SessionID:        c.SessionID,
+		AgentSessionID:   c.AgentSessionID,
+		DelegationEdgeID: c.DelegationEdgeID,
+		ParentEdgeID:     c.ParentEdgeID,
+		TraceID:          c.TraceID,
+		Hop:              c.Hop,
+		Chain:            chain,
 	}
 }

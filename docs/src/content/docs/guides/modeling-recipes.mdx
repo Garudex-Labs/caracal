@@ -14,7 +14,7 @@ The most common question is “what is a zone — an environment, a customer, a 
 Use a **separate zone** whenever two workloads must not share signing keys, policy activation, or audit trails. Use a **shared zone with separate resources** when workloads belong to the same trust boundary but target different upstreams.
 
 :::note[FAQ]
-[What should a zone represent?](/reference/faq/#faq-what-should-a-zone-represent) and [does the open-source edition include managed multi-tenancy?](/reference/faq/#faq-does-open-source-include-managed-multi-tenancy)
+[What should a zone represent?](/reference/faq/#faq-003) and [does the open-source edition include managed multi-tenancy?](/reference/faq/#faq-004)
 :::
 
 | Question | If yes, lean toward |
@@ -34,7 +34,7 @@ The simplest deployment: one team, one runtime, a handful of upstreams.
 | Noun | Mapping |
 | --- | --- |
 | Zone | One zone for the whole deployment. |
-| Application | One managed application per durable workload; one DCR application per spawned ephemeral agent. |
+| Application | One managed application per durable workload; one DCR application per isolated, externally-launched identity (per tenant, job, or integration). |
 | Resource | One resource per protected upstream, with action-oriented scopes. |
 | Grant | One grant per application and subject that may request a resource's scopes. |
 
@@ -63,7 +63,7 @@ A platform with many customer workspaces and one shared agent service must choos
 | Shared zone, resource per customer | Customers share a trust boundary and policy owner but target distinct upstreams or data sets. | Lower overhead; isolation is enforced by policy and grants, not by keys or audit separation. |
 | Shared zone, customer in policy input | Customer is a runtime attribute of the same resource, carried in the request and checked by policy. | Lowest overhead; relies entirely on policy correctness, so audit and keys are shared. |
 
-Decide on the strongest isolation a customer actually requires, then pick the least complex model that satisfies it. Do not encode customer identity into [scope names](/concepts/resource-grant/); keep it in the zone, principal, or policy input.
+Decide on the strongest isolation a customer actually requires, then pick the least complex model that satisfies it. Do not encode customer identity into [scope names](/concepts/resource-grant/); keep it in the zone, principal, or policy input. For the end-to-end pattern of serving many customers from one shared zone, see [Serve Your Own Customers](/guides/serve-customers/).
 
 ## High-Sensitivity Resources
 
@@ -88,7 +88,7 @@ The principal type decides who the authority belongs to and which provider flow 
 | Upstream credential | Shared broker credential the agent never sees: `oauth2_client_credentials`, `api_key`, or `bearer_token`. | Per-user delegated consent: `oauth2_authorization_code`. |
 | Audit attribution | Application and agent session. | User subject plus the agent and delegation chain. |
 
-Policy can tell these apart with `input.principal.registration_method`, `input.principal.agent_session_id`, and `input.principal.capabilities`, so you author one policy set that handles both without SDK-specific branching. See [Identities and Applications](/concepts/principal/).
+Policy can tell these apart with `input.principal.registration_method`, `input.principal.agent_session_id`, and `input.principal.labels`, so you author one policy set that handles both without SDK-specific branching. See [Identities and Applications](/concepts/principal/).
 
 ## Per-User OAuth or Shared Credential
 

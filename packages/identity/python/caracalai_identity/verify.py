@@ -171,6 +171,7 @@ async def verify_token(
                 algorithms=["ES256"],
                 audience=audience,
                 issuer=issuer,
+                leeway=60,
                 options={"require": ["exp", "iat", "jti", "sub", "sid", "root_sid", "client_id", "use", "sub_type"]},
             )
             break

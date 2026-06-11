@@ -5,12 +5,14 @@ description: Spawn child agents, attach typed constraints, inspect graph impact,
 
 Use delegation when one agent needs to hand a narrower slice of authority to another agent. The SDK creates the edge and carries the context; the Console shows the graph and impact.
 
+`spawn()` always creates the child under the **same application** as the parent — `spawn()` never moves a child into a different application. Use a narrowing grant only when the child should hold *less* than the parent. To hand authority across applications, use `delegate()` against a peer session that already exists under that other application.
+
 ## Implementation flow
 
 ```mermaid
 flowchart LR
-  Parent["Parent agent session"] --> Spawn["Spawn child"]
-  Spawn --> Edge["Create delegation edge"]
+  Parent["Parent agent session"] --> Spawn["Spawn child with narrowing grant"]
+  Spawn --> Edge["Bounded delegation edge"]
   Edge --> Child["Run child with delegated context"]
   Child --> Exchange["Exchange for resource mandate"]
   Exchange --> Audit["Inspect audit and graph"]
@@ -19,19 +21,20 @@ flowchart LR
 ## TypeScript example
 
 ```ts
-import { Caracal } from "@caracalai/sdk";
+import { Caracal, Grant } from "@caracalai/sdk";
 
-const caracal = Caracal.connect();
+const caracal = new Caracal();
 
 await caracal.spawn(async () => {
-  await caracal.delegateToSpawn({
-    resourceId: "https://api.example.com/tickets",
-    scopes: ["tickets:read"],
-    constraints: { maxHops: 1, budget: 5 },
-    delegationTtlSeconds: 600,
-  }, async () => {
+  await caracal.spawn(async () => {
     const headers = await caracal.headersAsync();
     await fetch("https://api.example.com/tickets", { headers });
+  }, {
+    grant: Grant.narrow(["tickets:read"], {
+      resourceId: "https://api.example.com/tickets",
+      constraints: { maxHops: 1, budget: 5 },
+      ttlSeconds: 600,
+    }),
   });
 });
 ```

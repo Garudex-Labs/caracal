@@ -83,8 +83,8 @@ If file writing is disabled, copy the generated TOML profile and one-time app cl
 The generated profile is the source of runtime configuration for:
 
 - `CARACAL_CONFIG=... caracal run -- <command>`
-- `Caracal.connect()` in TypeScript and Python
-- `caracal.Connect()` in Go
+- `new Caracal()` in TypeScript and `Caracal()` in Python
+- `caracal.New()` in Go
 
 Always generate a profile from the objects you just created instead of hand-authoring runtime configuration.
 
@@ -105,7 +105,7 @@ caracal run -- .\start-agent.ps1
 
 `caracal run` exchanges the configured application secret for resource-specific Caracal access tokens and injects them into the environment variables named in the profile. The workload reads those variables and presents the token to the Gateway or protected service.
 
-For SDK-based workloads, the same generated profile is read by `Caracal.connect()` or `caracal.Connect()`.
+For SDK-based workloads, the same generated profile is read by the SDK constructors (`new Caracal()`, `Caracal()`, `caracal.New()`).
 
 ## Call the Gateway
 
@@ -142,7 +142,7 @@ docker rm -f caracalDemoUpstream
 caracal down
 ```
 
-Use `caracal purge` only when you intentionally want to remove local containers, volumes, config, runtime state, and caches.
+Use `caracal purge` only when you intentionally want to remove local containers, volumes, config, runtime state, examples, and caches.
 
 ## Next Step
 

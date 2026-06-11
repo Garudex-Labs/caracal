@@ -9,6 +9,7 @@ import { getKeySet, type JwksCache } from './jwks.js'
 import { DEFAULT_MAX_HOP_COUNT, MANDATE_USE_RESOURCE, MANDATE_USE_SESSION, type ChainHop, type Claims, type JwtConfig } from './types.js'
 
 const REQUIRED_CLAIMS = ['exp', 'iat', 'jti', 'sub', 'client_id', 'sid', 'root_sid', 'use', 'sub_type']
+const JWT_CLOCK_TOLERANCE_SECONDS = 60
 
 export class TokenInvalidError extends CaracalError {
   constructor(message = 'Token validation failed', cause?: unknown) {
@@ -132,6 +133,7 @@ export async function verify(token: string, config: JwtConfig & { jwksCache?: Jw
       audience: config.audience,
       algorithms: ['ES256'],
       requiredClaims: REQUIRED_CLAIMS,
+      clockTolerance: JWT_CLOCK_TOLERANCE_SECONDS,
     }))
   } catch (err) {
     throw new TokenInvalidError('Token validation failed', err)

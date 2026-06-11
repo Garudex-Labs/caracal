@@ -25,7 +25,7 @@ export CARACAL_RESOURCE_PATH=/charge
 
 ## 2. Connect with the SDK
 
-`connect()` is the standard entry point. It loads the generated profile when available, then falls back to environment configuration. See [Configuration Order](/reference/config-precedence/) for the exact resolution order.
+The client constructor is the standard entry point. It loads the generated profile when available, then falls back to environment configuration. See [Configuration Order](/reference/config-precedence/) for the exact resolution order.
 
 ### TypeScript
 
@@ -34,9 +34,9 @@ npm install @caracalai/sdk
 ```
 
 ```typescript
-import { AgentKind, Caracal } from "@caracalai/sdk";
+import { Caracal } from "@caracalai/sdk";
 
-const caracal = Caracal.connect();
+const caracal = new Caracal();
 const resourceId = process.env.CARACAL_RESOURCE_ID!;
 const resourcePath = process.env.CARACAL_RESOURCE_PATH!;
 
@@ -49,7 +49,7 @@ await caracal.spawn(async () => {
   });
 
   console.log(await response.text());
-}, { kind: AgentKind.Ephemeral });
+});
 ```
 
 ### Python
@@ -62,14 +62,14 @@ pip install caracalai-sdk
 import asyncio
 import os
 
-from caracalai_sdk import AgentKind, Caracal
+from caracalai import Caracal
 
-caracal = Caracal.connect()
+caracal = Caracal()
 resource_id = os.environ["CARACAL_RESOURCE_ID"]
 resource_path = os.environ["CARACAL_RESOURCE_PATH"]
 
 async def main():
-    async with caracal.spawn(kind=AgentKind.EPHEMERAL):
+    async with caracal.spawn():
         request = caracal.gateway_request(resource_id, resource_path)
         async with caracal.transport() as client:
             response = await client.post(
@@ -89,7 +89,7 @@ go get github.com/garudex-labs/caracal/packages/sdk/go
 ```
 
 ```go
-c, err := caracal.Connect()
+c, err := caracal.New()
 if err != nil {
     panic(err)
 }
@@ -126,12 +126,14 @@ if err != nil {
 
 | SDK call | What happens |
 | --- | --- |
-| `connect()` / `Connect()` | Loads configuration and prepares app-secret token exchange. |
+| `new Caracal()` / `Caracal()` / `New()` | Loads configuration and prepares app-secret token exchange. |
 | `spawn()` / `Spawn()` | Creates an agent session, binds context, and tears it down after the block returns. |
 | `gatewayRequest()` / `GatewayRequest()` | Builds the Gateway URL and `X-Caracal-Resource` header. |
 | `transport()` / `Transport()` | Injects Authorization, trace, baggage, and Gateway routing behavior. |
 
 `spawn()` is the session boundary. If the function exits or raises, the SDK terminates the agent session and active authority for that session is revoked.
+
+One application credential backs every agent session you spawn. A workload registers one application, then opens an agent session per unit of work — you do not register a new application per agent. See [Should I create one application per agent?](/reference/faq/#faq-006).
 
 If your app spawns child agents or delegates work, continue to [Implement Multi-Agent Delegation](/guides/delegation/) after this tutorial path.
 

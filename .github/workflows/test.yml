@@ -11,8 +11,12 @@ on:
       - main
     paths:
       - '.github/workflows/test.yml'
+      - '.prettierrc.json'
+      - 'scripts/checkStyle.sh'
+      - 'scripts/pythonStyleRequirements.in'
       - 'scripts/pythonTestRequirements.in'
       - 'scripts/pythonTestRequirements.lock'
+      - 'scripts/setupDev.mjs'
       - 'apps/**'
       - 'docs/**'
       - 'infra/**'
@@ -27,8 +31,12 @@ on:
   pull_request:
     paths:
       - '.github/workflows/test.yml'
+      - '.prettierrc.json'
+      - 'scripts/checkStyle.sh'
+      - 'scripts/pythonStyleRequirements.in'
       - 'scripts/pythonTestRequirements.in'
       - 'scripts/pythonTestRequirements.lock'
+      - 'scripts/setupDev.mjs'
       - 'apps/**'
       - 'docs/**'
       - 'infra/**'
@@ -130,6 +138,7 @@ jobs:
       typescript: ${{ steps.paths.outputs.typescript }}
       go: ${{ steps.paths.outputs.go }}
       python: ${{ steps.paths.outputs.python }}
+      style: ${{ steps.paths.outputs.style }}
       docs: ${{ steps.paths.outputs.docs }}
       postgres: ${{ steps.paths.outputs.postgres }}
       helm: ${{ steps.paths.outputs.helm }}
@@ -150,6 +159,7 @@ jobs:
               echo 'typescript=true'
               echo 'go=true'
               echo 'python=true'
+              echo 'style=true'
               echo 'docs=true'
               echo 'postgres=true'
               echo 'helm=true'
@@ -160,23 +170,27 @@ jobs:
             typescript=false
             go=false
             python=false
+            style=false
             docs=false
             postgres=false
             helm=false
             while IFS= read -r path; do
               case "$path" in
-                .github/workflows/test.yml|package.json|pnpm-lock.yaml|pnpm-workspace.yaml|apps/**|packages/engine/**|packages/*/ts/**|packages/connectors/*/ts/**|packages/transport/*/ts/**|tests/typescript/**)
+                .github/workflows/test.yml|.prettierrc.json|scripts/checkStyle.sh|package.json|pnpm-lock.yaml|pnpm-workspace.yaml|apps/**|packages/engine/**|packages/*/ts/**|packages/connectors/*/ts/**|packages/transport/*/ts/**|tests/typescript/**)
                   typescript=true
+                  style=true
                   ;;
               esac
               case "$path" in
                 .github/workflows/test.yml|go.work|go.work.sum|services/**|packages/*/go/**|packages/connectors/*/go/**|packages/transport/*/go/**|tests/go/**|tests/source/go/**)
                   go=true
+                  style=true
                   ;;
               esac
               case "$path" in
-                .github/workflows/test.yml|packages/*/python/**|packages/connectors/*/python/**|packages/transport/*/python/**|tests/python/**|tests/shared/test-utils/python/**)
+                .github/workflows/test.yml|scripts/pythonStyleRequirements.in|scripts/setupDev.mjs|packages/*/python/**|packages/connectors/*/python/**|packages/transport/*/python/**|tests/python/**|tests/shared/test-utils/python/**)
                   python=true
+                  style=true
                   ;;
               esac
               case "$path" in
@@ -199,10 +213,62 @@ jobs:
             echo "typescript=$typescript"
             echo "go=$go"
             echo "python=$python"
+            echo "style=$style"
             echo "docs=$docs"
             echo "postgres=$postgres"
             echo "helm=$helm"
           } >> "$GITHUB_OUTPUT"
+
+  style:
+    name: Style checks
+    needs: changes
+    if: github.event_name == 'pull_request' && needs.changes.outputs.style == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Setup Go
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: |
+            go.work
+            go.work.sum
+            **/go.mod
+
+      - name: Setup Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: scripts/pythonStyleRequirements.in
+
+      - name: Install style dependencies
+        run: |
+          pnpm install --frozen-lockfile --prefer-offline
+          python -m pip install --requirement scripts/pythonStyleRequirements.in
+
+      - name: Check changed source style
+        env:
+          STYLE_BASE_REF: ${{ github.event.pull_request.base.sha }}
+        run: pnpm run style
 
   typescript:
     name: TypeScript lint, types, tests, build
@@ -404,7 +470,7 @@ jobs:
         run: |
           set -euxo pipefail
           mkdir -p coverage/python
-          coverage run --source=packages/core/python/caracalai_core,packages/oauth/python/caracalai_oauth,packages/identity/python/caracalai_identity,packages/revocation/python/caracalai_revocation,packages/sdk/python/caracalai_sdk,packages/transport/mcp/python/caracalai_transport_mcp,packages/connectors/fastmcp/python/caracalai_mcp_fastmcp,packages/connectors/redis/python/caracalai_revocation_redis \
+          coverage run --source=packages/core/python/caracalai_core,packages/oauth/python/caracalai_oauth,packages/identity/python/caracalai_identity,packages/revocation/python/caracalai_revocation,packages/sdk/python/caracalai,packages/transport/mcp/python/caracalai_transport_mcp,packages/connectors/fastmcp/python/caracalai_mcp_fastmcp,packages/connectors/redis/python/caracalai_revocation_redis \
             -m unittest discover -s tests/python -p 'test_*.py' -v
           coverage xml -o coverage/python/coverage.xml
           coverage report --show-missing
@@ -564,7 +630,7 @@ jobs:
 
       - name: Upload TypeScript coverage to Codecov
         if: needs.typescript.result == 'success'
-        uses: codecov/codecov-action@75cd11691c0faa626561e295848008c8a7dddffe # v5
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           directory: coverage/coverage-typescript
@@ -573,7 +639,7 @@ jobs:
 
       - name: Upload Go coverage to Codecov
         if: needs.go.result == 'success'
-        uses: codecov/codecov-action@75cd11691c0faa626561e295848008c8a7dddffe # v5
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: coverage/coverage-go/coverage.out
@@ -583,7 +649,7 @@ jobs:
 
       - name: Upload Python coverage to Codecov
         if: needs.python.result == 'success'
-        uses: codecov/codecov-action@75cd11691c0faa626561e295848008c8a7dddffe # v5
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: coverage/coverage-python/coverage.xml

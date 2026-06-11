@@ -162,7 +162,7 @@ describe('Control menu views', () => {
     const control = await openControl(app)
     engineMocks.detectActiveLocalStackRuntime.mockReturnValueOnce({
       mode: 'rc',
-      version: '2026.06.04-rc.1',
+      version: '2026.06.10-rc.1',
       registry: 'ghcr.io/garudex-labs/',
       home: '/home/raw/.config/caracal',
       secretsDir: '/home/raw/.config/caracal/secrets',
@@ -193,7 +193,7 @@ describe('Control menu views', () => {
       home: '/home/raw/.config/caracal',
       env: expect.objectContaining({
         CARACAL_MODE: 'rc',
-        CARACAL_VERSION: '2026.06.04-rc.1',
+        CARACAL_VERSION: '2026.06.10-rc.1',
         CARACAL_REGISTRY: 'ghcr.io/garudex-labs/',
         CARACAL_SECRETS_DIR: '/home/raw/.config/caracal/secrets',
       }),
@@ -303,6 +303,30 @@ describe('Control menu views', () => {
       scopes: ['control:read'],
       ttlSeconds: 300,
     }))
+  })
+
+  it('drives the grouped permission picker from the create form into the scopes field', async () => {
+    engineMocks.controlPermissions.mockReturnValue([
+      { command: 'agent', subcommand: 'list', action: 'read', scope: 'control:agent:read' },
+      { command: 'agent', subcommand: 'suspend', action: 'write', scope: 'control:agent:write' },
+      { command: 'agent', subcommand: 'terminate', action: 'delete', scope: 'control:agent:delete' },
+      { command: 'policy', subcommand: 'create', action: 'write', scope: 'control:policy:write' },
+    ])
+    const app = fakeApp()
+    const control = await openControl(app)
+    const ctx = { app, size: { rows: 25, cols: 120 }, status: '' }
+
+    await control.onKey('c', ctx)
+    const create = latest<View>(app)
+    ;(create as unknown as { focus: number }).focus = 1
+    await create.onKey('right', ctx)
+
+    const picker = latest<View>(app)
+    await picker.onKey('space', ctx)
+    await picker.onKey('enter', ctx)
+
+    expect((create as unknown as { values_: () => Record<string, string> }).values_().scopes)
+      .toBe('control:agent:delete,control:agent:read,control:agent:write')
   })
 
   it('validates Control token scope and ttl limits before issuing credentials', async () => {

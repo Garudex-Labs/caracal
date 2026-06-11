@@ -17,7 +17,7 @@ func TestBindCurrentRoundTrip(t *testing.T) {
 	c := sdk.CaracalContext{
 		SubjectToken:     "tok",
 		ZoneID:           "z1",
-		ClientID:         "app1",
+		ApplicationID:    "app1",
 		AgentSessionID:   "sess",
 		DelegationEdgeID: "edge",
 		SessionID:        "sid",
@@ -47,7 +47,7 @@ func TestCurrentOnFreshContext(t *testing.T) {
 }
 
 func TestCaptureReturnsCurrentContext(t *testing.T) {
-	want := sdk.CaracalContext{SubjectToken: "tok", ZoneID: "z1", ClientID: "app1"}
+	want := sdk.CaracalContext{SubjectToken: "tok", ZoneID: "z1", ApplicationID: "app1"}
 	got, ok := sdk.Capture(sdk.Bind(context.Background(), want))
 	if !ok {
 		t.Fatal("Capture must return true after Bind")
@@ -136,14 +136,14 @@ func TestToEnvelopeFromEnvelopeRoundTrip(t *testing.T) {
 	orig := sdk.CaracalContext{
 		SubjectToken:     "tok",
 		ZoneID:           "z",
-		ClientID:         "app",
+		ApplicationID:    "app",
 		AgentSessionID:   "sess",
 		DelegationEdgeID: "edge",
 		SessionID:        "sid",
 		Hop:              1,
 	}
 	env := sdk.ToEnvelope(orig)
-	restored, err := sdk.FromEnvelope(env, orig.ZoneID, orig.ClientID)
+	restored, err := sdk.FromEnvelope(env, orig.ZoneID, orig.ApplicationID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +162,7 @@ func TestDescribeAuthorityRedactsSubjectToken(t *testing.T) {
 	ctx := sdk.Bind(context.Background(), sdk.CaracalContext{
 		SubjectToken:     "tok",
 		ZoneID:           "z",
-		ClientID:         "app",
+		ApplicationID:    "app",
 		SessionID:        "sid",
 		AgentSessionID:   "agent",
 		DelegationEdgeID: "edge",
@@ -172,11 +172,11 @@ func TestDescribeAuthorityRedactsSubjectToken(t *testing.T) {
 	if !ok {
 		t.Fatal("DescribeAuthority must return a summary for a bound context")
 	}
-	if summary.ApplicationID != "app" || summary.AuthoritySessionID != "sid" || summary.AgentRunID != "agent" {
+	if summary.ApplicationID != "app" || summary.SessionID != "sid" || summary.AgentSessionID != "agent" {
 		t.Fatalf("unexpected summary: %#v", summary)
 	}
 	got := strings.Join(summary.Chain, ">")
-	want := "authority:sid>agent-run:agent>delegated-permission:edge"
+	want := "session:sid>agent-session:agent>delegation-edge:edge"
 	if got != want {
 		t.Fatalf("chain = %q, want %q", got, want)
 	}
@@ -186,14 +186,14 @@ func TestDescribeAuthorityIncludesParentDelegationAndFreshContextFalse(t *testin
 	if _, ok := sdk.DescribeAuthority(context.Background()); ok {
 		t.Fatal("fresh context should not describe authority")
 	}
-	summary := sdk.DescribeCaracalContext(sdk.CaracalContext{
+	summary := sdk.DescribeContext(sdk.CaracalContext{
 		SessionID:        "sid",
 		AgentSessionID:   "agent",
 		ParentEdgeID:     "parent-edge",
 		DelegationEdgeID: "edge",
 	})
 	got := strings.Join(summary.Chain, ">")
-	want := "authority:sid>agent-run:agent>parent-delegated-permission:parent-edge>delegated-permission:edge"
+	want := "session:sid>agent-session:agent>parent-edge:parent-edge>delegation-edge:edge"
 	if got != want {
 		t.Fatalf("chain = %q, want %q", got, want)
 	}

@@ -5,7 +5,7 @@
 
 ## Architecture Design
 - Each validation script checks already-published artifacts and emits JSONL findings.
-- `aggregateReport.ts` converts findings into release validation output.
+- `aggregateReport.ts` converts findings into the release record at `docs/src/data/releases/<tag>.json`.
 - `lib/common.sh` owns shared finding and filtering helpers.
 
 ## Required

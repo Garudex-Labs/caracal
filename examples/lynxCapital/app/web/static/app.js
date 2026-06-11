@@ -6,8 +6,14 @@
  */
 
 const path = location.pathname;
-const map = {'/': 'nav-landing', '/demo': 'nav-demo', '/logs': 'nav-logs'};
-const id = map[path];
+const map = {
+  '/': 'nav-landing',
+  '/setup': 'nav-setup',
+  '/demo': 'nav-demo',
+  '/prompts': 'nav-prompts',
+  '/logs': 'nav-logs',
+};
+const id = path.startsWith('/overview/') ? 'nav-landing' : map[path];
 if (id) {
   const el = document.getElementById(id);
   if (el) el.classList.add('active');

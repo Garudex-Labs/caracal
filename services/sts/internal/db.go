@@ -42,10 +42,17 @@ func (d *DB) Ping(ctx context.Context) error {
 	return d.pool.Ping(ctx)
 }
 
+func (d *DB) CurrentTime(ctx context.Context) (time.Time, error) {
+	var now time.Time
+	err := d.pool.QueryRow(ctx, `SELECT now()`).Scan(&now)
+	return now, err
+}
+
 // DBQuerier is the interface that Server and KeyCache use to access the database.
 // Concrete implementations are DB (production) and test doubles.
 type DBQuerier interface {
 	Ping(ctx context.Context) error
+	CurrentTime(ctx context.Context) (time.Time, error)
 	GetApplicationByID(ctx context.Context, id, zoneID string) (*Application, error)
 	GetResourceByIdentifier(ctx context.Context, zoneID, identifier string) (*Resource, error)
 	GetProviderGrant(ctx context.Context, zoneID, userID, resourceID string, providerID *string) (*ProviderGrant, error)
@@ -69,6 +76,7 @@ type DBQuerier interface {
 	GetActivePolicySetBinding(ctx context.Context, zoneID string) (*PolicySetBinding, error)
 	GetPolicySetVersion(ctx context.Context, id string) (*PolicySetVersion, error)
 	GetPolicyVersionsByIDs(ctx context.Context, ids []string) ([]PolicyVersion, error)
+	GetApplicationByIDGlobal(ctx context.Context, id string) (*Application, error)
 	ListBoundZoneIDs(ctx context.Context) ([]string, error)
 }
 
@@ -108,6 +116,20 @@ func (d *DB) GetApplicationByID(ctx context.Context, id, zoneID string) (*Applic
 		 FROM applications
 		 WHERE id = $1 AND zone_id = $2 AND archived_at IS NULL
 		   AND (expires_at IS NULL OR expires_at > now())`, id, zoneID,
+	).Scan(&a.ID, &a.ZoneID, &a.Name, &a.RegistrationMethod, &a.ClientSecretHash, &a.Traits)
+	if err != nil {
+		return nil, err
+	}
+	return &a, nil
+}
+
+func (d *DB) GetApplicationByIDGlobal(ctx context.Context, id string) (*Application, error) {
+	var a Application
+	err := d.pool.QueryRow(ctx,
+		`SELECT id, zone_id, name, registration_method, client_secret_hash, traits
+		 FROM applications
+		 WHERE id = $1 AND archived_at IS NULL
+		   AND (expires_at IS NULL OR expires_at > now())`, id,
 	).Scan(&a.ID, &a.ZoneID, &a.Name, &a.RegistrationMethod, &a.ClientSecretHash, &a.Traits)
 	if err != nil {
 		return nil, err
@@ -235,15 +257,18 @@ type DelegationEdge struct {
 
 // AgentSession holds coordinator graph node fields needed by STS.
 type AgentSession struct {
-	ID               string
-	ZoneID           string
-	ApplicationID    string
-	SubjectSessionID string
-	Kind             string
-	Capabilities     []string
-	Status           string
-	SpawnedAt        time.Time
-	TTLSeconds       int
+	ID                  string
+	ZoneID              string
+	ApplicationID       string
+	SubjectSessionID    string
+	Lifecycle           string
+	Labels              []string
+	Status              string
+	SpawnedAt           time.Time
+	TTLSeconds          int
+	HeartbeatDeadlineAt *time.Time
+	ParentID            *string
+	Depth               int
 }
 
 func (d *DB) GetDelegationEdge(ctx context.Context, id string) (*DelegationEdge, error) {
@@ -289,9 +314,10 @@ func (d *DB) GetSession(ctx context.Context, sid string) (*Session, error) {
 func (d *DB) GetAgentSession(ctx context.Context, id string) (*AgentSession, error) {
 	var s AgentSession
 	err := d.pool.QueryRow(ctx,
-		`SELECT id, zone_id, application_id, subject_session_id, agent_kind, capabilities, status, spawned_at, ttl_seconds
+		`SELECT id, zone_id, application_id, subject_session_id, lifecycle, labels, status,
+		        spawned_at, COALESCE(ttl_seconds, 0), heartbeat_deadline_at, parent_id, depth
 		 FROM agent_sessions WHERE id = $1`, id,
-	).Scan(&s.ID, &s.ZoneID, &s.ApplicationID, &s.SubjectSessionID, &s.Kind, &s.Capabilities, &s.Status, &s.SpawnedAt, &s.TTLSeconds)
+	).Scan(&s.ID, &s.ZoneID, &s.ApplicationID, &s.SubjectSessionID, &s.Lifecycle, &s.Labels, &s.Status, &s.SpawnedAt, &s.TTLSeconds, &s.HeartbeatDeadlineAt, &s.ParentID, &s.Depth)
 	if err != nil {
 		return nil, err
 	}
@@ -411,7 +437,7 @@ func (d *DB) SatisfyStepUpChallenge(ctx context.Context, id string) error {
 func (d *DB) ConsumeStepUpChallenge(ctx context.Context, p ConsumeStepUpParams) error {
 	tag, err := d.pool.Exec(ctx,
 		`UPDATE step_up_challenges c
-		 SET consumed_at = $6
+		 SET consumed_at = now()
 		 WHERE c.id = $1
 		   AND c.zone_id = $2
 		   AND c.principal_id = $3
@@ -419,15 +445,15 @@ func (d *DB) ConsumeStepUpChallenge(ctx context.Context, p ConsumeStepUpParams) 
 		   AND c.resource_set_hash = $5
 		   AND c.satisfied_at IS NOT NULL
 		   AND c.consumed_at IS NULL
-		   AND c.expires_at > $6
+		   AND c.expires_at > now()
 		   AND EXISTS (
 		     SELECT 1 FROM sessions s
 		     WHERE s.id = c.session_id
 		       AND s.zone_id = c.zone_id
 		       AND s.status = 'active'
-		       AND s.expires_at > $6
+		       AND s.expires_at > now()
 		   )`,
-		p.ID, p.ZoneID, p.PrincipalID, p.ChallengeSecretHash, p.ResourceSetHash, p.Now,
+		p.ID, p.ZoneID, p.PrincipalID, p.ChallengeSecretHash, p.ResourceSetHash,
 	)
 	if err != nil {
 		return err

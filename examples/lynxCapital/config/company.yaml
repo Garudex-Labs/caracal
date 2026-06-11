@@ -168,31 +168,31 @@ agentLayers:
     ephemeral: false
   - id: "invoice-intake"
     label: "Invoice Intake"
-    perRegion: 6
+    perRegion: 2
     ephemeral: false
   - id: "ledger-match"
     label: "Ledger Match"
-    perRegion: 4
+    perRegion: 2
     ephemeral: false
   - id: "policy-check"
     label: "Policy Check"
-    perRegion: 5
+    perRegion: 2
     ephemeral: false
   - id: "route-optimization"
     label: "Route Optimization"
-    perRegion: 3
+    perRegion: 1
     ephemeral: false
   - id: "payment-execution"
     label: "Payment Execution"
-    perRegion: 720
+    perRegion: 4
     ephemeral: true
   - id: "audit"
     label: "Audit"
-    perRegion: 2
+    perRegion: 1
     ephemeral: false
   - id: "exception"
     label: "Exception"
-    perRegion: 80
+    perRegion: 2
     ephemeral: true
 
 workflows:
@@ -211,10 +211,10 @@ workflows:
         intent: "Pull or negotiate contract terms; validate approved rails."
       - id: "register"
         label: "Register"
-        intent: "Register the vendor in the master and capture banking details."
+        intent: "Register the vendor in Atlas master data, open the onboarding case, and verify banking details."
       - id: "activate"
         label: "Activate"
-        intent: "Refresh compliance, run a trial transaction, and seal an audit record."
+        intent: "Advance onboarding steps, confirm compliance clearance, run a trial transaction, and seal an audit record."
   - id: "treasury"
     label: "Treasury"
     focus: "Cash position across accounts, FX exposure hedging, liquidity forecasting, intra-company funding moves."
@@ -296,23 +296,26 @@ workflows:
         intent: "Summarize cycle outcomes and seal an audit record."
   - id: "procurement"
     label: "Procurement"
-    focus: "Source-to-pay: department budget checks, purchase requisitions, approvals, and purchase orders against the vendor master."
+    focus: "Procure-to-pay: cost-center budget checks, purchase requisitions, tiered approval chains, purchase orders to approved suppliers, and goods receipts that retire budget commitments."
     stages:
       - id: "budget"
         label: "Budget"
-        intent: "Check remaining department budget before committing spend."
+        intent: "Check committed and available cost-center budget before committing spend."
       - id: "requisition"
         label: "Requisition"
-        intent: "Raise purchase requisitions for approved needs."
+        intent: "Raise purchase requisitions with line items for approved needs."
       - id: "approve"
         label: "Approve"
-        intent: "Approve requisitions within policy thresholds."
+        intent: "Clear the requisition's tiered approval chain within policy thresholds."
       - id: "order"
         label: "Order"
-        intent: "Convert approved requisitions into purchase orders against vendors."
+        intent: "Convert approved requisitions into purchase orders against approved suppliers."
+      - id: "receive"
+        label: "Receive"
+        intent: "Record goods receipts that close orders and move commitments into actual spend."
       - id: "record"
         label: "Record"
-        intent: "Seal an audit record of committed spend."
+        intent: "Seal an audit record of committed and received spend."
 
 scenario:
   invoices: 4200
@@ -448,10 +451,10 @@ prompts:
 
     3. DOMAIN TOOLS available to you (pick the ones relevant to your focus):
        - Vendor lifecycle: kyb_screen_vendor, register_vendor, refresh_vendor_compliance, get_contract_terms_for_vendor
-       - Treasury: get_cash_position, forecast_liquidity, place_fx_hedge, transfer_funds
+       - Treasury: get_cash_position, get_treasury_summary, forecast_liquidity, get_fx_exposure, place_fx_hedge, transfer_funds
        - Close: post_journal_entry, reconcile_account, compute_accrual, close_period
        - Compliance: aml_monitor_transaction, sanctions_screen_batch, prepare_regulatory_filing, attest_control
-       - Receivables: issue_customer_invoice, send_dunning_notice, apply_customer_payment, get_ar_aging
+       - Receivables: issue_customer_invoice, get_customer_account, list_customer_invoices, record_customer_payment, apply_customer_payment, send_dunning_notice, run_dunning_cycle, open_collection_case, write_off_invoice, get_ar_aging, get_ar_summary
        - Procurement: get_department_budget, raise_requisition, approve_requisition, raise_purchase_order
        - Supplier & identity: get_supplier_contact, log_supplier_activity, list_approver_groups
        - Shared: post_finding, read_findings, write_file, read_file, ls_files, record_audit

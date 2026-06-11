@@ -6,22 +6,21 @@ Demo chat composer template for prompts and run controls.
 #}
 <div class="chat-composer">
   <div class="composer-input-shell">
-    <textarea id="prompt-input" rows="1" placeholder="Ask the swarm to run a finance operation, investigate an exception, or coordinate a workflow..."></textarea>
-  </div>
-
-  <div class="composer-footer">
-    <div class="composer-controls">
-      <label class="model-picker">
-        <span class="model-picker-label">Model</span>
-        <select id="model-select" class="model-picker-select"></select>
-      </label>
-      <button class="btn btn-ghost" id="pause-btn" hidden title="Pause or resume stream rendering">Pause</button>
-      <span class="composer-hint">Enter sends - Shift+Enter adds a line - traces stay visible</span>
-    </div>
-
-    <div class="composer-actions">
-      <button class="btn btn-stop" id="stop-btn" hidden title="Cancel the current run">Cancel</button>
-      <button class="btn btn-primary" id="start-btn">Send</button>
+    <textarea id="prompt-input" rows="1" placeholder="Ask the team to run a finance operation, investigate an exception, or coordinate a workflow..."></textarea>
+    <div class="composer-toolbar">
+      <div class="composer-controls">
+        <label class="model-picker">
+          <select id="model-select" class="model-picker-select" title="Model"></select>
+        </label>
+        <button class="btn" id="pause-btn" hidden title="Pause or resume stream rendering">Pause</button>
+        <span class="composer-hint">Enter sends · Shift+Enter adds a line</span>
+      </div>
+      <div class="composer-actions">
+        <button class="btn btn-stop" id="stop-btn" hidden title="Cancel the current run">Cancel</button>
+        <button class="composer-send" id="start-btn" type="button" aria-label="Send" title="Send">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 13V3"/><path d="M3.5 7.5 8 3l4.5 4.5"/></svg>
+        </button>
+      </div>
     </div>
   </div>
 </div>

@@ -1,215 +1,161 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Aggregates JSONL findings and the release manifest into a markdown post-release validation report.
+// Aggregates JSONL validation findings and the release manifest into a docs release record.
 
-import { mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { join, resolve } from 'node:path'
 
 type Finding = {
-  area: string;
-  artifact: string;
-  platform: string;
-  pm: string;
-  runtime: string;
-  severity: "blocker" | "major" | "minor" | "info";
-  status: "pass" | "warn" | "fail";
-  evidence: string;
-  repro: string;
-};
+  area: string
+  artifact: string
+  platform: string
+  pm: string
+  runtime: string
+  severity: 'blocker' | 'major' | 'minor' | 'info'
+  status: 'pass' | 'warn' | 'fail'
+  evidence: string
+  repro: string
+}
 
 type Manifest = {
-  release: string;
-  publishedAt: string;
-  registry?: string;
-  imagePrefix?: string;
-  binaries: Record<string, string>;
-  containers: Record<string, string>;
-  pypi?: Record<string, string>;
-  npm?: Record<string, string>;
+  release: string
+  mode?: 'rc' | 'stable'
+  sha?: string
+  publishedAt?: string
+  generatedAt?: string
+  registry?: string
+  imagePrefix?: string
+  binaries: Record<string, string>
+  containers: Record<string, string>
+  images?: Record<string, string>
+  helm?: { chartVersion?: string }
+  pypi?: Record<string, string>
+  npm?: Record<string, string>
   packages?: {
     published?: {
-      pypi?: Record<string, string>;
-      npm?: Record<string, string>;
-    };
-    unchanged?: {
-      pypi?: Record<string, string>;
-      npm?: Record<string, string>;
-    };
-  };
-};
+      pypi?: Record<string, string>
+      npm?: Record<string, string>
+    }
+  }
+}
 
-const findingsDir = process.env.FINDINGS_DIR;
-const outPath = process.env.REPORT_OUT;
-const release = process.env.CARACAL_RELEASE;
-const manifestPath = process.env.MANIFEST;
-if (!findingsDir || !outPath || !release || !manifestPath) {
-  console.error("FINDINGS_DIR, REPORT_OUT, CARACAL_RELEASE, MANIFEST required");
-  process.exit(2);
+const release = process.env.CARACAL_RELEASE
+const findingsDir = process.env.FINDINGS_DIR
+if (!release || !findingsDir) {
+  console.error('CARACAL_RELEASE and FINDINGS_DIR required')
+  process.exit(2)
 }
 if (!/^v[0-9]{4}\.[0-9]{2}\.[0-9]{2}(\.[0-9]+)?(-rc\.(sha[0-9A-Za-z]+|[0-9]+))?$/.test(release)) {
-  console.error(`invalid release tag: ${release}`);
-  process.exit(2);
+  console.error(`invalid release tag: ${release}`)
+  process.exit(2)
 }
-const repoRoot = resolve(process.env.GITHUB_WORKSPACE ?? process.cwd());
-const releaseDir = resolve(repoRoot, "releases", release);
-if (resolve(dirname(manifestPath)) !== releaseDir || resolve(dirname(outPath)) !== releaseDir) {
-  console.error("MANIFEST and REPORT_OUT must stay under the release directory");
-  process.exit(2);
-}
+const repoRoot = resolve(process.env.GITHUB_WORKSPACE ?? process.cwd())
+const manifestPath = resolve(process.env.MANIFEST ?? join(repoRoot, 'releases', release, 'manifest.json'))
+const recordDir = join(repoRoot, 'docs', 'src', 'data', 'releases')
+const recordPath = join(recordDir, `${release}.json`)
 
-const manifest: Manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+const manifest: Manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
 if (manifest.release !== release) {
-  console.error(`manifest release ${manifest.release} does not match ${release}`);
-  process.exit(2);
+  console.error(`manifest release ${manifest.release} does not match ${release}`)
+  process.exit(2)
 }
-const registry = manifest.registry ?? "ghcr.io/garudex-labs";
-const imagePrefix = manifest.imagePrefix ?? "caracal-";
-const publishedPypi = manifest.packages?.published?.pypi ?? manifest.pypi ?? {};
-const publishedNpm = manifest.packages?.published?.npm ?? manifest.npm ?? {};
+const registry = manifest.registry ?? 'ghcr.io/garudex-labs'
+const imagePrefix = manifest.imagePrefix ?? 'caracal-'
+const publishedNpm = manifest.packages?.published?.npm ?? manifest.npm ?? {}
+const publishedPypi = manifest.packages?.published?.pypi ?? manifest.pypi ?? {}
 
 const AREAS = [
-  ["registryMetadata", "Registry Metadata"],
-  ["pypiInstall", "PyPI Install Matrix"],
-  ["npmInstall", "npm Install Matrix"],
-  ["runtimeBinaries", "Runtime CLI Binaries"],
-  ["consoleBinaries", "Console Binaries"],
-  ["installers", "Installers"],
-  ["containers", "Container Stack"],
-  ["provenance", "Provenance & Signing"],
-] as const;
+  ['registryMetadata', 'Registry Metadata'],
+  ['pypiInstall', 'PyPI Install Matrix'],
+  ['npmInstall', 'npm Install Matrix'],
+  ['runtimeBinaries', 'Runtime CLI Binaries'],
+  ['consoleBinaries', 'Console Binaries'],
+  ['installers', 'Installers'],
+  ['containers', 'Container Stack'],
+  ['provenance', 'Provenance & Signing'],
+] as const
 
 const collectFindingFiles = (dir: string): string[] =>
   readdirSync(dir).flatMap((entry) => {
-    const path = join(dir, entry);
-    if (statSync(path).isDirectory()) return collectFindingFiles(path);
-    return entry.endsWith(".jsonl") ? [path] : [];
-  });
-
-const findings: Finding[] = [];
-for (const f of collectFindingFiles(findingsDir)) {
-  for (const line of readFileSync(f, "utf8").split("\n")) {
-    if (!line.trim()) continue;
-    findings.push(JSON.parse(line));
-  }
-}
-
-const tally = (area: string) => {
-  const rows = findings.filter((r) => r.area === area);
-  return {
-    pass: rows.filter((r) => r.status === "pass").length,
-    warn: rows.filter((r) => r.status === "warn").length,
-    fail: rows.filter((r) => r.status === "fail").length,
-    blockers: rows.filter((r) => r.severity === "blocker" && r.status === "fail").length,
-  };
-};
-
-let totalPass = 0, totalFail = 0, totalWarn = 0, totalBlockers = 0;
-const tableRows = AREAS.map(([id, label]) => {
-  const t = tally(id);
-  totalPass += t.pass; totalFail += t.fail; totalWarn += t.warn; totalBlockers += t.blockers;
-  return `| ${label} | ${t.pass} | ${t.warn} | ${t.fail} | ${t.blockers} |`;
-}).join("\n");
-
-const totalChecks = totalPass + totalFail + totalWarn;
-const score = totalChecks === 0 ? 0 : Math.round((totalPass / totalChecks) * 100);
-
-const compat = (() => {
-  const row = (name: string, ver: string) => `| \`${name}\` | ${ver} |`;
-  const sec = (title: string, entries: Record<string, string>) =>
-    `### ${title}\n\n| Artifact | Version |\n| --- | --- |\n${Object.entries(entries).map(([k, v]) => row(k, v)).join("\n")}\n`;
-  const containerView: Record<string, string> = {};
-  for (const [svc, ver] of Object.entries(manifest.containers)) {
-    containerView[`${registry}/${imagePrefix}${svc}`] = `v${ver}`;
-  }
-  return [
-    sec("Runtime / Console binaries", manifest.binaries),
-    sec(`Container images (${registry})`, containerView),
-    sec("Published PyPI packages", publishedPypi),
-    sec("Published npm packages", publishedNpm),
-  ].join("\n");
-})();
-
-const sections = AREAS.map(([id, label]) => {
-  const rows = findings.filter((r) => r.area === id);
-  if (rows.length === 0) return `### ${label}\n\n_No findings recorded._\n`;
-  const lines = rows.map(
-    (r) => `- **[${r.severity}]** ${r.status.toUpperCase()}: \`${r.artifact}\` (${r.platform}/${r.pm}/${r.runtime}): ${r.evidence}\n  - Repro: \`${r.repro}\``,
-  );
-  return `### ${label}\n\n${lines.join("\n")}\n`;
-}).join("\n");
-
-const failed = findings.filter((r) => r.status === "fail");
-const topFixes = failed
-  .sort((a, b) => {
-    const order = { blocker: 0, major: 1, minor: 2, info: 3 };
-    return order[a.severity] - order[b.severity];
+    const path = join(dir, entry)
+    if (statSync(path).isDirectory()) return collectFindingFiles(path)
+    return entry.endsWith('.jsonl') ? [path] : []
   })
-  .slice(0, 10)
-  .map((r, i) => `${i + 1}. **[${r.severity}]** \`${r.artifact}\`: ${r.evidence}`)
-  .join("\n");
 
-const md = `---
-title: ${release} Release Validation Report
----
-
-# Caracal ${release} Release Validation
-
-**Published:** ${manifest.publishedAt}
-**Ecosystem quality score:** ${score}% (pass / total checks)
-**Total blockers:** ${totalBlockers}
-
-## Compatibility matrix
-
-${compat}
-
-## Summary
-
-| Area | Pass | Warn | Fail | Blockers |
-| --- | --- | --- | --- | --- |
-${tableRows}
-
-## Severity rubric
-
-- **blocker**: unusable artifact
-- **major**: broken contract
-- **minor**: cosmetic or docs issue
-- **info**: informational only
-
-## Findings
-
-${sections}
-
-## Highest priority fixes
-
-${topFixes || "_No failing findings._"}
-
-## Sign-off
-
-- [ ] Compatibility matrix matches GitHub Release assets
-- [ ] Registry metadata reviewed
-- [ ] PyPI install matrix green
-- [ ] npm install matrix green
-- [ ] Runtime and Console binaries verified on all platforms
-- [ ] Installers verified
-- [ ] Containers boot cleanly
-- [ ] Provenance verified
-`;
-
-mkdirSync(releaseDir, { recursive: true });
-writeFileSync(outPath, md);
-
-const persistedFindingsDir = join(releaseDir, "findings");
-rmSync(persistedFindingsDir, { recursive: true, force: true });
-mkdirSync(persistedFindingsDir, { recursive: true });
-for (const [area] of AREAS) {
-  const rows = findings.filter((r) => r.area === area);
-  if (rows.length === 0) continue;
-  writeFileSync(
-    join(persistedFindingsDir, `${area}.jsonl`),
-    `${rows.map((r) => JSON.stringify(r)).join("\n")}\n`,
-  );
+const findings: Finding[] = []
+if (existsSync(findingsDir)) {
+  for (const f of collectFindingFiles(findingsDir)) {
+    for (const line of readFileSync(f, 'utf8').split('\n')) {
+      if (!line.trim()) continue
+      findings.push(JSON.parse(line))
+    }
+  }
 }
 
-console.log(`wrote ${outPath} (${findings.length} findings, score ${score}%)`);
-process.exit(totalFail > 0 ? 1 : 0);
+const areas = AREAS.flatMap(([id, label]) => {
+  const rows = findings.filter((r) => r.area === id)
+  if (rows.length === 0) return []
+  return [
+    {
+      id,
+      label,
+      pass: rows.filter((r) => r.status === 'pass').length,
+      warn: rows.filter((r) => r.status === 'warn').length,
+      fail: rows.filter((r) => r.status === 'fail').length,
+    },
+  ]
+})
+const pass = areas.reduce((n, a) => n + a.pass, 0)
+const warn = areas.reduce((n, a) => n + a.warn, 0)
+const fail = areas.reduce((n, a) => n + a.fail, 0)
+const blockers = findings.filter((r) => r.severity === 'blocker' && r.status === 'fail').length
+const total = pass + warn + fail
+const score = total === 0 ? 0 : Math.round((pass / total) * 100)
+const severityOrder = { blocker: 0, major: 1, minor: 2, info: 3 }
+const notes = findings
+  .filter((r) => r.status !== 'pass')
+  .sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity])
+  .slice(0, 10)
+  .map((r) => `[${r.severity}] ${r.status.toUpperCase()} ${r.artifact} (${r.platform}/${r.pm}): ${r.evidence.slice(0, 300)}`)
+
+const validation = total === 0 ? null : { score, pass, warn, fail, blockers, areas, notes }
+
+const images =
+  manifest.images ??
+  Object.fromEntries(Object.entries(manifest.containers).map(([svc, ver]) => [svc, `${registry}/${imagePrefix}${svc}:v${ver}`]))
+
+async function releaseAssets(): Promise<string[]> {
+  const url = `https://api.github.com/repos/Garudex-Labs/caracal/releases/tags/${release}`
+  const headers: Record<string, string> = { Accept: 'application/vnd.github+json' }
+  const token = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN
+  if (token) headers.Authorization = `Bearer ${token}`
+  try {
+    const res = await fetch(url, { headers })
+    if (!res.ok) throw new Error(`GitHub API ${res.status}`)
+    const body = (await res.json()) as { assets?: { name: string }[] }
+    return (body.assets ?? []).map((a) => a.name).sort()
+  } catch (err) {
+    console.error(`release assets unavailable for ${release}: ${err}`)
+    return []
+  }
+}
+
+const record = {
+  release,
+  channel: manifest.mode ?? (release.includes('-rc.') ? 'rc' : 'stable'),
+  date: manifest.publishedAt ?? manifest.generatedAt?.slice(0, 10) ?? release.replace(/^v(\d{4})\.(\d{2})\.(\d{2}).*$/, '$1-$2-$3'),
+  sha: manifest.sha ?? null,
+  binaries: manifest.binaries,
+  images,
+  npm: publishedNpm,
+  pypi: publishedPypi,
+  helm: manifest.helm?.chartVersion ?? null,
+  assets: await releaseAssets(),
+  validation,
+}
+
+mkdirSync(recordDir, { recursive: true })
+writeFileSync(recordPath, `${JSON.stringify(record, null, 2)}\n`)
+console.log(`wrote ${recordPath} (${findings.length} findings, score ${score}%)`)
+process.exit(fail > 0 ? 1 : 0)

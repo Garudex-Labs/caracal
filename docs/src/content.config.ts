@@ -28,6 +28,17 @@ export const collections = {
         requires: z.array(z.string()).optional(),
         keywords: z.array(z.string()).optional(),
         aliases: z.array(z.string()).optional(),
+        post: z
+          .object({
+            category: z.string(),
+            author: z.string(),
+            role: z.string().optional(),
+            date: z.coerce.date(),
+            readingTime: z.string().optional(),
+            tags: z.array(z.string()).optional(),
+            featured: z.boolean().optional(),
+          })
+          .optional(),
         service: z
           .enum(['sts', 'gateway', 'coordinator', 'audit', 'all', 'sdk'])
           .optional(),

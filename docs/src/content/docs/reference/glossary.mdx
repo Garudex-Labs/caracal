@@ -9,7 +9,7 @@ Use these terms consistently across docs, API names, Console labels, and example
 | Term | Meaning |
 | --- | --- |
 | Agent | Workload identity that performs actions through Caracal-controlled authority. |
-| Agent app | Confidential application registered for agent workloads. |
+| Agent app | Confidential application registered for an agent workload; one agent app backs many agent sessions. |
 | Agent session | Coordinator record representing one agent execution or child session. |
 | Application | Registered client in a zone; confidential applications can exchange credentials. |
 | Audit ledger | Append-only evidence stream and database records for decisions and operations. |
@@ -26,6 +26,7 @@ Use these terms consistently across docs, API names, Console labels, and example
 | Resource | Protected API, tool, MCP server, provider target, or upstream identifier. |
 | Root session | Originating session at the root of a delegation chain; its ID is propagated as the authority root and checked as a revocation anchor. |
 | Runtime profile | `caracal.toml` or environment configuration used by `caracal run` and SDKs. |
+| Service agent | Long-lived agent session started with the SDK `service()` handle; it holds a heartbeat lease and is retired explicitly rather than when a block exits. |
 | STS | Security Token Service that performs token exchange and mandate issuance. |
 | Step-up challenge | Additional approval required before STS issues authority. |
 | Subject session | Original authenticated user or service context that initiates a chain of agent authority. |

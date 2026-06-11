@@ -136,28 +136,6 @@ class SessionMemory:
             self._runs.clear()
         self._persist()
 
-    def as_dict(self) -> dict:
-        with self._lock:
-            runs = list(self._runs)
-            turns = list(self._turns)
-        return {
-            "runs": [
-                {
-                    "run_id": r.run_id,
-                    "prompt": r.prompt,
-                    "status": r.status,
-                    "regions": r.regions,
-                    "errors": r.errors,
-                    "ts": r.ts,
-                }
-                for r in runs
-            ],
-            "turns": [
-                {"role": t.role, "content": t.content[:200], "ts": t.ts}
-                for t in turns
-            ],
-        }
-
     def _trim(self) -> None:
         if len(self._turns) > MAX_TURNS * 2:
             self._turns = self._turns[-(MAX_TURNS * 2):]

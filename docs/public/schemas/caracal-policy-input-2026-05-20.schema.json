@@ -32,10 +32,11 @@
         "agent_session_id": {
           "type": "string"
         },
-        "agent_kind": {
-          "type": "string"
+        "lifecycle": {
+          "type": "string",
+          "enum": ["task", "service"]
         },
-        "capabilities": {
+        "labels": {
           "type": "array",
           "items": {
             "type": "string"

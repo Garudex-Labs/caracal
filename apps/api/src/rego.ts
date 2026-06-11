@@ -132,16 +132,77 @@ export function validatePolicySchemaVersion(schemaVersion: string): string | nul
   return null
 }
 
+// The default result literal: the balanced object assigned by `default result :=`,
+// with string contents tracked so braces inside strings do not skew the depth.
+function defaultResultLiteral(content: string): string | null {
+  const match = /default\s+result\s*:=\s*\{/.exec(content)
+  if (!match) return null
+  let depth = 0
+  let inString = false
+  let literal = ''
+  for (let i = match.index + match[0].length - 1; i < content.length; i++) {
+    const ch = content[i]
+    literal += ch
+    if (inString) {
+      if (ch === '\\') { literal += content[i + 1] ?? ''; i++; continue }
+      if (ch === '"') inString = false
+      continue
+    }
+    if (ch === '"') { inString = true; continue }
+    if (ch === '{') depth++
+    if (ch === '}') {
+      depth--
+      if (depth === 0) return literal
+    }
+  }
+  return literal
+}
+
 export function analyzeAuthzPolicy(content: string): string[] {
   if (validateAuthzPolicy(content)) return []
   const { source } = stripCommentsAndStrings(content)
   const warnings: string[] = []
-  if (/default\s+result\s*:=\s*\{[\s\S]*?decision\s*:\s*allow/.test(source)
-    || /default\s+result\s*:=\s*\{[\s\S]*?"decision"\s*:\s*"allow"/.test(content)) {
+  const defaultLiteral = defaultResultLiteral(content)
+  if (defaultLiteral !== null && /"decision"\s*:\s*"allow"/.test(defaultLiteral)) {
     warnings.push('default_result_allows_access')
+  }
+  if (!/\bdefault\s+result\b/.test(source)) {
+    warnings.push('missing_default_result')
   }
   if (!/\brequested_scopes\b/.test(source)) {
     warnings.push('missing_requested_scope_check')
   }
   return warnings
+}
+
+export interface AuthzPolicyPreview {
+  package: string
+  rules: string[]
+  default_result: boolean
+  decisions: string[]
+  inputs_referenced: string[]
+  data_referenced: string[]
+}
+
+function collectPaths(source: string, root: string): string[] {
+  const re = new RegExp(`\\b${root}((?:\\.[a-zA-Z_][a-zA-Z0-9_]*)+)`, 'g')
+  const paths = new Set<string>()
+  for (const m of source.matchAll(re)) paths.add(`${root}${m[1]}`)
+  return [...paths].sort()
+}
+
+export function previewAuthzPolicy(content: string): AuthzPolicyPreview | null {
+  const check = parseRego(content)
+  if (check.error || check.packageName !== 'caracal.authz') return null
+  const { source } = stripCommentsAndStrings(content)
+  const decisions = new Set<string>()
+  for (const m of content.matchAll(/"decision"\s*:\s*"(allow|deny)"/g)) decisions.add(m[1])
+  return {
+    package: check.packageName,
+    rules: [...check.rules].sort(),
+    default_result: /\bdefault\s+result\b/.test(source),
+    decisions: [...decisions].sort(),
+    inputs_referenced: collectPaths(source, 'input'),
+    data_referenced: collectPaths(source, 'data'),
+  }
 }

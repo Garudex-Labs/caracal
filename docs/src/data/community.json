@@ -1,0 +1,28 @@
+{
+  "blogCategories": [
+    { "name": "Engineering", "tint": "#60a5fa" },
+    { "name": "Security", "tint": "#f87171" },
+    { "name": "Tutorials", "tint": "#34d399" },
+    { "name": "Community", "tint": "#a78bfa" },
+    { "name": "Releases", "tint": "#fbbf24" }
+  ],
+  "vlogCategories": [
+    { "name": "Community Talks", "tint": "#a78bfa" },
+    { "name": "Conference Presentations", "tint": "#60a5fa" },
+    { "name": "Tutorials & Walkthroughs", "tint": "#34d399" },
+    { "name": "Project Updates", "tint": "#fbbf24" }
+  ],
+  "vlogs": [
+    {
+      "id": "open-source-friday",
+      "title": "Open Source Friday: Caracal",
+      "description": "A live walkthrough of Caracal on GitHub's Open Source Friday: why agents need an authority plane, how mandates and policy work, and how to get involved as a contributor.",
+      "category": "Community Talks",
+      "youtubeId": "tZ4FdO-zjeE",
+      "href": "https://www.youtube.com/live/tZ4FdO-zjeE",
+      "host": "GitHub",
+      "featured": true
+    }
+  ],
+  "discordInvite": "https://discord.gg/xB3xVVzcvk"
+}

@@ -32,7 +32,7 @@ function zoneFromParams(req: FastifyRequest, url: string): string | null {
   }
 }
 
-export function registerAdminAuditHook(app: FastifyInstance, db: Pool): void {
+export function registerAdminAuditHook(app: FastifyInstance, db: Pool, hmacKey: Buffer | null = null): void {
   app.addHook('onResponse', async (req: FastifyRequest, reply: FastifyReply) => {
     const path = pathOnly(req.url)
     if (path === '/health' || path === '/ready' || path === '/metrics' || path === '/stats') return
@@ -41,22 +41,32 @@ export function registerAdminAuditHook(app: FastifyInstance, db: Pool): void {
     const auth = req.caracalAuth
     if (!auth) return
     const entity = entityFromUrl(req.url)
+    const client = await db.connect()
     try {
-      await insertAdminAuditRecord(db, {
-        requestId: req.id,
-        actorId: auth.subject,
-        actorName: auth.clientId,
-        actorScope: auth.scopes.join(' '),
-        action: `${req.method} ${req.url}`,
-        method: req.method,
-        path: req.url,
-        zoneId: zoneFromParams(req, req.url),
-        entityType: entity.type,
-        entityId: entity.id,
-        statusCode: reply.statusCode,
-      })
+      await client.query('BEGIN')
+      await insertAdminAuditRecord(
+        client,
+        {
+          requestId: req.id,
+          actorId: auth.subject,
+          actorName: auth.clientId,
+          actorScope: auth.scopes.join(' '),
+          action: `${req.method} ${path}`,
+          method: req.method,
+          path,
+          zoneId: zoneFromParams(req, req.url),
+          entityType: entity.type,
+          entityId: entity.id,
+          statusCode: reply.statusCode,
+        },
+        hmacKey,
+      )
+      await client.query('COMMIT')
     } catch (err) {
+      await client.query('ROLLBACK').catch(() => {})
       req.log.warn({ err, requestId: req.id }, 'failed to record admin audit event')
+    } finally {
+      client.release()
     }
   })
 }

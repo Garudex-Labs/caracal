@@ -43,44 +43,44 @@ CARACAL_VERSION=${CARACAL_RELEASE#v}
 CARACAL_REGISTRY=${REGISTRY%/}/
 POSTGRES_USER=caracal
 POSTGRES_DB=caracal
-POSTGRES_PASSWORD=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-REDIS_PASSWORD=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
-CARACAL_ADMIN_TOKEN=cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-CARACAL_COORDINATOR_TOKEN=dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-ZONE_KEK=1111111111111111111111111111111111111111111111111111111111111111
-AUDIT_HMAC_KEY=2222222222222222222222222222222222222222222222222222222222222222
-STREAMS_HMAC_KEY=3333333333333333333333333333333333333333333333333333333333333333
-GATEWAY_STS_HMAC_KEY=4444444444444444444444444444444444444444444444444444444444444444
+POSTGRES_PASSWORD=5e02824a98a983cf03f4e95ac4cebb610fb1f1e8ed1e92e1
+REDIS_PASSWORD=8a26e3a4be1cd14b58be05a8f6e08a6d6a4d2b7a4ed00b71
+CARACAL_ADMIN_TOKEN=81329794e124d992bd6179d7261a2f74318c25bf2f7f3f47204c0af4ca861bc5
+CARACAL_COORDINATOR_TOKEN=52f2b211731ef7f027f30a90d6079a6bb7b1ed73e2387f256dfd6c9662bc0515
+ZONE_KEK=259b234936c7c77c6374f00832532aea384752b1ef45d6a026b24db660738605
+AUDIT_HMAC_KEY=af82a881d18d05472b4983db53dfe9c503eb414747c96f4bee5b2bfcf7be5bc9
+STREAMS_HMAC_KEY=43bb7cb1013e1050fbc1d5aa72672037d86380c6d93cede6148be2f9c728ee7c
+GATEWAY_STS_HMAC_KEY=730de8c006a7792407a41096c59130ab802fa04e9625cd49f031d3e7ef8e14bb
 EOF
   cat >"$dir/secrets/postgresPassword" <<'EOF'
-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+5e02824a98a983cf03f4e95ac4cebb610fb1f1e8ed1e92e1
 EOF
   cat >"$dir/secrets/redisPassword" <<'EOF'
-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+8a26e3a4be1cd14b58be05a8f6e08a6d6a4d2b7a4ed00b71
 EOF
   cat >"$dir/secrets/caracalAdminToken" <<'EOF'
-cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+81329794e124d992bd6179d7261a2f74318c25bf2f7f3f47204c0af4ca861bc5
 EOF
   cat >"$dir/secrets/caracalCoordinatorToken" <<'EOF'
-dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+52f2b211731ef7f027f30a90d6079a6bb7b1ed73e2387f256dfd6c9662bc0515
 EOF
   cat >"$dir/secrets/zoneKek" <<'EOF'
-1111111111111111111111111111111111111111111111111111111111111111
+259b234936c7c77c6374f00832532aea384752b1ef45d6a026b24db660738605
 EOF
   cat >"$dir/secrets/auditHmacKey" <<'EOF'
-2222222222222222222222222222222222222222222222222222222222222222
+af82a881d18d05472b4983db53dfe9c503eb414747c96f4bee5b2bfcf7be5bc9
 EOF
   cat >"$dir/secrets/streamsHmacKey" <<'EOF'
-3333333333333333333333333333333333333333333333333333333333333333
+43bb7cb1013e1050fbc1d5aa72672037d86380c6d93cede6148be2f9c728ee7c
 EOF
   cat >"$dir/secrets/gatewayStsHmacKey" <<'EOF'
-4444444444444444444444444444444444444444444444444444444444444444
+730de8c006a7792407a41096c59130ab802fa04e9625cd49f031d3e7ef8e14bb
 EOF
   cat >"$dir/secrets/databaseUrl" <<'EOF'
-postgres://caracal:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa@postgres:5432/caracal
+postgres://caracal:5e02824a98a983cf03f4e95ac4cebb610fb1f1e8ed1e92e1@postgres:5432/caracal
 EOF
   cat >"$dir/secrets/redisUrl" <<'EOF'
-redis://:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb@redis:6379
+redis://:8a26e3a4be1cd14b58be05a8f6e08a6d6a4d2b7a4ed00b71@redis:6379
 EOF
   chmod 0444 "$dir"/secrets/*
   REG="$REGISTRY" PREFIX="$IMAGE_PREFIX" SECRETS_DIR="$dir/secrets" "$CARACAL_PYTHON" - "$MANIFEST" "$dir/docker-compose.release.yml" <<'PY'

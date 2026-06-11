@@ -2,33 +2,32 @@
  * Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
  * Caracal, a product of Garudex Labs
  *
- * Modern operations console driver with centralized AppState.
+ * Demo chat driver streaming Caracal run events into the workspace UI.
  */
 
-const $ = (id) => document.getElementById(id);
+const $ = (id) => document.getElementById(id)
 
-// CENTRALIZED APP STATE & CONTROLLER
 const AppState = {
-  streamingStatus: 'idle',      // 'idle' | 'connecting' | 'streaming' | 'tool_executing' | 'awaiting_approval' | 'error'
-  activePanelSections: {},      // section-id -> isCollapsed boolean
-  messages: [],                 // in-memory message logs (capped at 500)
-  runtimeEvents: [],            // timeline/audit events list
-  selectedNode: null,           // active selected node reference: { id, type, label, status, metadata }
-  
   runId: null,
   active: false,
   es: null,
-  spawned: 0,
-  terminated: 0,
+  streamingStatus: 'idle',
+  startedAt: 0,
+  timerHandle: 0,
+
+  promptRendered: false,
   agents: {},
   turns: {},
-  turnOrder: [],
-  lastTurnByAgent: {},
+  blocks: {},
+  lastBlock: null,
+  pendingTools: {},
   agentMem: {},
   compactions: [],
   files: new Set(),
   plans: {},
   planOwner: null,
+
+  messages: [],
   paused: false,
   queue: [],
   pendingEvents: [],
@@ -37,1030 +36,1230 @@ const AppState = {
   pendingScrollForce: false,
   pendingScrollSmooth: false,
   autoScroll: true,
-  
-  metrics: {
-    events: 0,
-    tools: 0,
-    services: 0,
-    controls: 0,
-  },
-  
-  reconnectAttempts: 0,
-  reconnectTimer: null
-};
 
-// DOM SELECTORS
-const stream = $("chat-stream");
-const emptyEl = $("chat-empty");
-const startBtn = $("start-btn");
-const stopBtn = $("stop-btn");
-const pauseBtn = $("pause-btn");
-const promptInput = $("prompt-input");
-const modelSelect = $("model-select");
-const memFill = $("mem-fill");
-const memTokens = $("mem-tokens");
-const memAgents = $("mem-agents");
-const memCompactions = $("mem-compactions");
-const memFiles = $("mem-files");
-const planPanel = $("plan-panel");
-const planList = $("plan-list");
-const planMeta = $("plan-meta");
-const planStatus = $("plan-status");
-const planActivePreview = $("plan-active-preview");
-const clearChatBtn = $("clear-chat-btn");
-const newChatBtn = $("new-chat-btn");
-const runtimeFeed = $("runtime-feed");
+  metrics: { events: 0, tools: 0, services: 0, audits: 0, approvals: 0 },
 
-// TEMPLATES
-const tplUserMessage = $("tpl-user-message");
-const tplAssistantMessage = $("tpl-assistant-message");
-const tplToolCard = $("tpl-tool-card");
-const tplSystemRow = $("tpl-system-row");
-const tplSecurityCard = $("tpl-security-card");
-const tplApprovalCard = $("tpl-approval-card");
-const tplProviderCard = $("tpl-provider-card");
-const tplPlanItem = $("tpl-plan-item");
+  reconnectTimer: null,
+}
 
-const PLAN_TOOLS = new Set(["write_todos", "write_file", "read_file", "ls_files"]);
-const FRAME_EVENT_LIMIT = 180;
-const RUNTIME_FEED_LIMIT = 90;
+const stream = $('chat-stream')
+const emptyEl = $('chat-empty')
+const startBtn = $('start-btn')
+const stopBtn = $('stop-btn')
+const pauseBtn = $('pause-btn')
+const promptInput = $('prompt-input')
+const modelSelect = $('model-select')
+const memFill = $('mem-fill')
+const memTokens = $('mem-tokens')
+const memAgents = $('mem-agents')
+const memCompactions = $('mem-compactions')
+const memFiles = $('mem-files')
+const memDetail = $('mem-detail')
+const planPanel = $('plan-panel')
+const planEmpty = $('plan-empty')
+const planList = $('plan-list')
+const planMeta = $('plan-meta')
+const planStatus = $('plan-status')
+const planActivePreview = $('plan-active-preview')
+const runtimeFeed = $('runtime-feed')
+const feedCount = $('feed-count')
+const statusChip = $('run-status-chip')
+const runtimeState = $('runtime-state')
+const runtimeDot = $('runtime-dot')
+const sessionDot = $('session-dot')
 
-// HELPER UTILITIES
+const tplUserMessage = $('tpl-user-message')
+const tplAssistantMessage = $('tpl-assistant-message')
+const tplStepGroup = $('tpl-step-group')
+const tplToolCard = $('tpl-tool-card')
+const tplSystemRow = $('tpl-system-row')
+const tplSecurityCard = $('tpl-security-card')
+const tplApprovalCard = $('tpl-approval-card')
+const tplPlanItem = $('tpl-plan-item')
+const tplEventBlock = $('tpl-event-block')
+
+const PLAN_TOOLS = new Set(['write_todos', 'write_file', 'read_file', 'ls_files'])
+const FRAME_EVENT_LIMIT = 180
+const RUNTIME_FEED_LIMIT = 90
+const MESSAGE_LIMIT = 500
+
 function cloneTemplate(template) {
-  if (!template) {
-    console.error("Template not found, falling back to system block.");
-    return document.getElementById("tpl-system-row").content.firstElementChild.cloneNode(true);
-  }
-  return template.content.firstElementChild.cloneNode(true);
+  return template.content.firstElementChild.cloneNode(true)
 }
 
 function fmtTok(n) {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
-  return String(n);
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`
+  return String(n)
 }
 
 function shortId(id) {
-  return String(id || "").slice(0, 8);
+  return String(id || '').slice(0, 8)
 }
 
 function formatTime(ts = Date.now()) {
-  const value = typeof ts === "number" && ts < 10_000_000_000 ? ts * 1000 : ts;
-  return new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const value = typeof ts === 'number' && ts < 10_000_000_000 ? ts * 1000 : ts
+  return new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+}
+
+function formatElapsed(ms) {
+  const total = Math.max(0, Math.floor(ms / 1000))
+  const m = Math.floor(total / 60)
+  const s = total % 60
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
 }
 
 function titleCase(value) {
-  return String(value || "")
+  return String(value || '')
     .split(/[\s_-]+/)
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
+    .join(' ')
 }
 
-function truncate(value, limit = 180) {
-  const text = String(value ?? "");
-  return text.length > limit ? `${text.slice(0, limit - 1)}...` : text;
-}
-
-function summarizeObject(value, limit = 180) {
-  if (value == null) return "";
-  if (typeof value === "string") return truncate(value, limit);
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
-  if (Array.isArray(value)) return truncate(value.map((item) => summarizeObject(item, 40)).join(", "), limit);
-  const parts = Object.entries(value)
-    .slice(0, 6)
-    .map(([key, val]) => `${key}: ${truncate(formatScalar(val), 48)}`);
-  return truncate(parts.join(" | "), limit);
+function truncate(value, limit = 160) {
+  const text = String(value ?? '')
+  return text.length > limit ? `${text.slice(0, limit - 1)}…` : text
 }
 
 function formatScalar(value) {
-  if (value == null) return "";
-  if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (value == null) return ''
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
   try {
-    return JSON.stringify(value);
+    return JSON.stringify(value)
   } catch {
-    return String(value);
+    return String(value)
   }
 }
 
 function summarizeArgs(args) {
-  if (!args || typeof args !== "object") return "";
+  if (!args || typeof args !== 'object') return ''
   return truncate(
     Object.entries(args)
-      .filter(([key]) => key !== "focus" && key !== "content")
-      .map(([key, value]) => `${key}=${truncate(formatScalar(value), 36)}`)
-      .join("  "),
-    180,
-  );
+      .map(([key, value]) => `${key}=${truncate(formatScalar(value), 32)}`)
+      .join(' '),
+    140,
+  )
 }
 
 function renderJson(value) {
-  if (value == null || value === "") return "";
-  if (typeof value === "string") return value;
+  if (value == null || value === '') return ''
+  if (typeof value === 'string') return value
   try {
-    return JSON.stringify(value, null, 2);
+    return JSON.stringify(value, null, 2)
   } catch {
-    return String(value);
+    return String(value)
   }
 }
 
-function clearEmpty() {
-  if (emptyEl && emptyEl.parentNode) emptyEl.remove();
+function detachEmpty() {
+  if (emptyEl.parentNode) emptyEl.remove()
+}
+
+function restoreEmpty() {
+  if (!emptyEl.parentNode) stream.append(emptyEl)
 }
 
 function isNearBottom() {
-  return stream.scrollHeight - stream.scrollTop - stream.clientHeight < 72;
+  return stream.scrollHeight - stream.scrollTop - stream.clientHeight < 72
 }
 
 function requestScroll({ force = false, smooth = false } = {}) {
-  AppState.pendingScrollForce = AppState.pendingScrollForce || force;
-  AppState.pendingScrollSmooth = AppState.pendingScrollSmooth || smooth;
+  AppState.pendingScrollForce = AppState.pendingScrollForce || force
+  AppState.pendingScrollSmooth = AppState.pendingScrollSmooth || smooth
 }
 
 function flushScroll() {
-  const shouldScroll = AppState.pendingScrollForce || AppState.autoScroll;
-  if (!shouldScroll) {
-    AppState.pendingScrollForce = false;
-    AppState.pendingScrollSmooth = false;
-    return;
+  const shouldScroll = AppState.pendingScrollForce || AppState.autoScroll
+  AppState.pendingScrollForce = false
+  const smooth = AppState.pendingScrollSmooth
+  AppState.pendingScrollSmooth = false
+  if (!shouldScroll) return
+  stream.scrollTo({ top: stream.scrollHeight, behavior: smooth ? 'smooth' : 'auto' })
+}
+
+// AGENT REGISTRY
+function registerAgent(payload) {
+  AppState.agents[payload.agent_id] = {
+    role: payload.role,
+    layer: payload.layer,
+    region: payload.region || null,
   }
-  stream.scrollTo({
-    top: stream.scrollHeight,
-    behavior: AppState.pendingScrollSmooth ? "smooth" : "auto",
-  });
-  AppState.pendingScrollForce = false;
-  AppState.pendingScrollSmooth = false;
-}
-
-function planStatusLabel(status) {
-  if (status === "in_progress") return "Running";
-  if (status === "completed") return "Completed";
-  if (status === "failed") return "Failed";
-  return "Pending";
-}
-
-function planStatusClass(status) {
-  if (status === "in_progress") return "running";
-  if (status === "completed") return "completed";
-  if (status === "failed") return "failed";
-  return "pending";
-}
-
-function computeOverallPlanStatus(items) {
-  if (!items.length) return "pending";
-  if (items.some((item) => item.status === "failed")) return "failed";
-  if (items.some((item) => item.status === "in_progress")) return "running";
-  if (items.every((item) => item.status === "completed")) return "completed";
-  return "pending";
 }
 
 function layerLabel(agent) {
-  if (!agent) return "Agent";
-  const raw = agent.layer || agent.label || "agent";
-  return titleCase(raw);
+  if (!agent) return 'Agent'
+  return titleCase(agent.layer || agent.role || 'agent')
 }
 
 function agentLabel(agent) {
-  if (!agent) return "Agent";
-  const base = layerLabel(agent);
-  return agent.region ? `${base} ${agent.region}` : base;
+  if (!agent) return 'Agent'
+  const base = layerLabel(agent)
+  return agent.region ? `${base} · ${agent.region}` : base
+}
+
+function agentInitials(agent) {
+  const words = layerLabel(agent).split(/\s+/).filter(Boolean)
+  if (!words.length) return 'A'
+  return words
+    .slice(0, 2)
+    .map((word) => word.charAt(0).toUpperCase())
+    .join('')
+}
+
+// MARKDOWN
+function escapeHtml(text) {
+  return String(text)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+}
+
+function inlineMarkdown(text) {
+  return text
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s).,;:!?]|$)/g, '$1<em>$2</em>')
+}
+
+function renderMarkdown(raw) {
+  const lines = escapeHtml(raw).split('\n')
+  const out = []
+  let list = null
+  let table = false
+  let code = false
+
+  const closeList = () => {
+    if (list) {
+      out.push(list.tag === 'ol' ? '</ol>' : '</ul>')
+      list = null
+    }
+  }
+  const closeTable = () => {
+    if (table) {
+      out.push('</tbody></table>')
+      table = false
+    }
+  }
+
+  for (const line of lines) {
+    if (code) {
+      if (/^```/.test(line.trim())) {
+        out.push('</code></pre>')
+        code = false
+      } else {
+        out.push(line)
+      }
+      continue
+    }
+    const trimmed = line.trim()
+    if (/^```/.test(trimmed)) {
+      closeList()
+      closeTable()
+      code = true
+      out.push('<pre class="md-code"><code>')
+      continue
+    }
+    if (/^\|.*\|$/.test(trimmed)) {
+      closeList()
+      const cells = trimmed.slice(1, -1).split('|').map((cell) => inlineMarkdown(cell.trim()))
+      if (cells.every((cell) => /^:?-{3,}:?$/.test(cell))) continue
+      if (!table) {
+        table = true
+        out.push('<table class="md-table"><thead><tr>')
+        out.push(cells.map((cell) => `<th>${cell}</th>`).join(''))
+        out.push('</tr></thead><tbody>')
+        continue
+      }
+      out.push(`<tr>${cells.map((cell) => `<td>${cell}</td>`).join('')}</tr>`)
+      continue
+    }
+    closeTable()
+    const heading = trimmed.match(/^(#{1,4})\s+(.*)$/)
+    if (heading) {
+      closeList()
+      const depth = Math.min(6, heading[1].length + 2)
+      out.push(`<h${depth}>${inlineMarkdown(heading[2])}</h${depth}>`)
+      continue
+    }
+    const bullet = trimmed.match(/^[-*]\s+(.*)$/)
+    const numbered = trimmed.match(/^\d+[.)]\s+(.*)$/)
+    if (bullet || numbered) {
+      const tag = numbered ? 'ol' : 'ul'
+      if (!list || list.tag !== tag) {
+        closeList()
+        list = { tag }
+        out.push(tag === 'ol' ? '<ol>' : '<ul>')
+      }
+      out.push(`<li>${inlineMarkdown((bullet || numbered)[1])}</li>`)
+      continue
+    }
+    closeList()
+    if (/^(-{3,}|\*{3,})$/.test(trimmed)) {
+      out.push('<hr>')
+      continue
+    }
+    if (!trimmed) continue
+    out.push(`<p>${inlineMarkdown(trimmed)}</p>`)
+  }
+  closeList()
+  closeTable()
+  if (code) out.push('</code></pre>')
+  return out.join('\n')
 }
 
 function toneClass(agent) {
-  if (!agent) return "tone-worker";
-  if (agent.layer === "finance-control") return "tone-fc";
-  if (agent.layer === "regional-orchestrator") return "tone-ro";
-  return "tone-worker";
+  if (!agent) return 'tone-worker'
+  if (agent.layer === 'finance-control') return 'tone-fc'
+  if (agent.layer === 'regional-orchestrator') return 'tone-ro'
+  return 'tone-worker'
 }
 
-// CENTRALIZED RENDER COMPONENT ENGINE WITH ERROR BOUNDARY
-function renderMessage(type, data = {}) {
-  try {
-    clearEmpty();
-    let template = null;
-    
-    switch (type) {
-      case "user":
-        template = tplUserMessage;
-        break;
-      case "assistant":
-        template = tplAssistantMessage;
-        break;
-      case "tool":
-        template = tplToolCard;
-        break;
-      case "system":
-        template = tplSystemRow;
-        break;
-      case "security":
-        template = tplSecurityCard;
-        break;
-      case "approval":
-        template = tplApprovalCard;
-        break;
-      case "provider":
-        template = tplProviderCard;
-        break;
-      default:
-        throw new Error(`Unknown message type: ${type}`);
-    }
-
-    const node = cloneTemplate(template);
-    
-    // Fill common properties
-    const timeEl = node.querySelector(".msg-time, .msg-system-time");
-    if (timeEl) timeEl.textContent = data.time || formatTime();
-    
-    const contentEl = node.querySelector(".msg-content");
-    if (contentEl && data.content !== undefined) {
-      contentEl.textContent = data.content;
-    }
-    
-    // Fill specific attributes
-    if (type === "assistant") {
-      let role = "worker";
-      if (data.role) {
-        role = data.role;
-      } else {
-        const agent = AppState.agents[data.agentId];
-        if (agent) {
-          if (agent.layer === "finance-control") role = "fc";
-          if (agent.layer === "regional-orchestrator") role = "ro";
-        }
-      }
-      
-      node.classList.remove("tone-worker", "tone-ro", "tone-fc");
-      node.classList.add(`tone-${role}`);
-      
-      const authorEl = node.querySelector(".msg-author");
-      if (authorEl) {
-        authorEl.textContent = data.author || (AppState.agents[data.agentId] ? agentLabel(AppState.agents[data.agentId]) : "Agent");
-      }
-      
-      const modelTag = node.querySelector(".msg-model-tag");
-      if (modelTag) modelTag.textContent = data.model || "gpt-5.4-nano";
-      
-      const indicator = node.querySelector(".msg-status-indicator");
-      if (indicator) indicator.textContent = data.status || "Thinking";
-    }
-    
-    if (type === "tool") {
-      const nameEl = node.querySelector(".msg-tool-name");
-      if (nameEl) nameEl.textContent = data.name || "tool_call";
-      
-      const badge = node.querySelector(".msg-tool-status-badge");
-      if (badge) {
-        badge.textContent = data.status || "executing";
-        badge.className = `msg-tool-status-badge status-${data.status || "executing"}`;
-      }
-      
-      const argsEl = node.querySelector(".msg-tool-args .msg-json-block");
-      if (argsEl) argsEl.textContent = renderJson(data.args || {});
-      
-      const outputBlock = node.querySelector(".msg-tool-output");
-      const outputEl = node.querySelector(".msg-tool-output .msg-json-block");
-      if (data.output !== undefined && outputBlock) {
-        outputBlock.hidden = false;
-        outputEl.textContent = renderJson(data.output);
-      }
-    }
-    
-    if (type === "system") {
-      const textEl = node.querySelector(".msg-system-text");
-      if (textEl) textEl.textContent = data.text || "";
-      
-      const kickerEl = node.querySelector(".msg-system-kicker");
-      if (kickerEl) kickerEl.textContent = data.kicker || "SYSTEM";
-    }
-
-    if (type === "security") {
-      const ruleEl = node.querySelector(".msg-security-rule");
-      if (ruleEl) ruleEl.textContent = data.rule || "Control Violation";
-      
-      const actionEl = node.querySelector(".msg-security-action-badge");
-      if (actionEl) actionEl.textContent = data.action || "Intercepted";
-      
-      const policyEl = node.querySelector(".msg-security-policy");
-      if (policyEl) policyEl.innerHTML = `Policy: <code>${data.policy || "sandbox"}</code>`;
-      
-      const reasonEl = node.querySelector(".msg-security-reason");
-      if (reasonEl) reasonEl.textContent = data.reason || "";
-      
-      const detailEl = node.querySelector(".msg-security-details .msg-json-block");
-      if (detailEl) detailEl.textContent = renderJson(data.details || {});
-    }
-
-    if (type === "approval") {
-      const contextEl = node.querySelector(".msg-approval-context");
-      if (contextEl) contextEl.innerHTML = data.context || "";
-      
-      const approveBtn = node.querySelector(".btn-approve");
-      const rejectBtn = node.querySelector(".btn-reject");
-      
-      if (approveBtn && rejectBtn) {
-        approveBtn.onclick = () => handleApprovalAction(data.approvalId, true, node);
-        rejectBtn.onclick = () => handleApprovalAction(data.approvalId, false, node);
-      }
-    }
-
-    if (type === "provider") {
-      const nameEl = node.querySelector(".msg-provider-name");
-      if (nameEl) nameEl.textContent = data.provider || "OpenAI";
-      
-      const tokenEl = node.querySelector(".msg-provider-tokens");
-      if (tokenEl) tokenEl.textContent = `${data.tokens || 0} tokens`;
-      
-      const latEl = node.querySelector(".msg-provider-latency");
-      if (latEl) latEl.textContent = `${data.latency || 0}ms`;
-      
-      const detailEl = node.querySelector(".msg-provider-headers .msg-json-block");
-      if (detailEl) detailEl.textContent = renderJson(data.details || {});
-    }
-
-    stream.append(node);
-    requestScroll({ smooth: true });
-    
-    // In-memory messages limit to avoid memory leak (500 limit cap)
-    AppState.messages.push({ type, data, node });
-    if (AppState.messages.length > 500) {
-      AppState.messages.shift(); // Remove from memory, DOM node stays
-    }
-    
-    return node;
-  } catch (error) {
-    console.error("renderMessage Error Boundary caught exception: ", error);
-    
-    // Fallback error renderer
-    const fallbackNode = cloneTemplate(tplSystemRow);
-    fallbackNode.querySelector(".msg-system-text").textContent = `Error rendering telemetry: ${error.message}. Payload: ${JSON.stringify(data)}`;
-    fallbackNode.querySelector(".msg-system-kicker").textContent = "BOUNDARY EXCEPTION";
-    stream.append(fallbackNode);
-    requestScroll({ smooth: true });
-    return fallbackNode;
-  }
+// STATUS STATE MACHINE
+const STATUS_META = {
+  idle: { chip: 'Idle', chipClass: 'state-idle', label: 'Ready', dot: 'online' },
+  connecting: { chip: 'Connecting', chipClass: 'state-running', label: 'Connecting', dot: 'busy' },
+  streaming: { chip: 'Running', chipClass: 'state-running', label: 'Run in progress', dot: 'busy' },
+  tool_executing: { chip: 'Running tools', chipClass: 'state-running', label: 'Executing tools', dot: 'busy' },
+  awaiting_approval: { chip: 'Needs approval', chipClass: 'state-waiting', label: 'Waiting on you', dot: 'waiting' },
+  paused: { chip: 'Paused', chipClass: 'state-waiting', label: 'Stream paused', dot: 'waiting' },
+  error: { chip: 'Reconnecting', chipClass: 'state-error', label: 'Connection lost', dot: 'error' },
+  done: { chip: 'Finished', chipClass: 'state-done', label: 'Run complete', dot: 'online' },
 }
 
-// METRICS & LAYOUT CONTROLLERS
-function countEvent(event) {
-  AppState.metrics.events += 1;
-  if (event.kind === "tool_call" || event.kind === "service_call") AppState.metrics.tools += 1;
-  if (event.kind === "service_call") AppState.metrics.services += 1;
-  if (CONTROL_EVENTS.has(event.kind)) AppState.metrics.controls += 1;
-  refreshMetrics();
+function setStreamingStatus(status) {
+  AppState.streamingStatus = status
+  const meta = STATUS_META[status] || STATUS_META.idle
+
+  statusChip.textContent = meta.chip
+  statusChip.className = `run-status-chip ${meta.chipClass}`
+  runtimeState.textContent = meta.label
+  runtimeDot.className = `status-indicator-dot ${meta.dot}`
+  sessionDot.className = `session-dot ${meta.dot}`
+
+  const locked = status === 'connecting'
+  promptInput.disabled = locked
+  startBtn.disabled = locked
+  startBtn.classList.toggle('is-busy', locked)
 }
 
+// SESSION METER
 function refreshMetrics() {
-  const msgEl = $("session-msg-count");
-  const toolEl = $("session-tool-count");
-  if (msgEl) msgEl.textContent = `${AppState.messages.filter(m => m.type === "assistant").length} messages`;
-  if (toolEl) toolEl.textContent = `${AppState.metrics.tools} tools`;
+  const turns = AppState.messages.filter((m) => m.type === 'assistant' || m.type === 'user').length
+  $('session-msg-count').textContent = String(turns)
+  $('session-tool-count').textContent = String(AppState.metrics.tools)
+  $('event-count').textContent = String(AppState.metrics.events)
+  $('tool-count').textContent = String(AppState.metrics.tools)
+  $('service-count').textContent = String(AppState.metrics.services)
+  $('audit-count').textContent = String(AppState.metrics.audits)
+  $('security-count').textContent = String(AppState.metrics.approvals)
+  $('agent-count').textContent = String(Object.keys(AppState.agents).length)
+}
+
+function countEvent(event) {
+  AppState.metrics.events += 1
+  if (event.kind === 'tool_call') AppState.metrics.tools += 1
+  if (event.kind === 'service_call') AppState.metrics.services += 1
+  if (event.kind === 'audit_record') AppState.metrics.audits += 1
+  if (event.kind === 'approval_required') AppState.metrics.approvals += 1
 }
 
 function updateRunMeta() {
-  const activeSessionCard = $("active-session-card");
-  const sessionRunId = $("session-run-id");
-  const sessionTime = $("session-time");
-  
-  if (sessionRunId) {
-    sessionRunId.textContent = AppState.runId ? `Session ID: ${shortId(AppState.runId)}` : "No active run";
+  $('session-run-id').textContent = AppState.runId ? `Run ${shortId(AppState.runId)}` : 'No task running'
+  $('active-session-card').classList.toggle('active', AppState.active)
+}
+
+function startTimer() {
+  stopTimer()
+  AppState.startedAt = Date.now()
+  const tick = () => {
+    $('session-time').textContent = formatElapsed(Date.now() - AppState.startedAt)
   }
-  
-  if (activeSessionCard) {
-    if (AppState.active) {
-      activeSessionCard.classList.add("active");
-    } else {
-      activeSessionCard.classList.remove("active");
-    }
+  tick()
+  AppState.timerHandle = window.setInterval(tick, 1000)
+}
+
+function stopTimer() {
+  if (AppState.timerHandle) {
+    window.clearInterval(AppState.timerHandle)
+    AppState.timerHandle = 0
   }
 }
 
+// MEMORY PANEL
 function refreshMemoryBar() {
-  let total = 0;
-  let limit = 131072;
-  let count = 0;
-  
+  let total = 0
+  let limit = 131072
   for (const item of Object.values(AppState.agentMem)) {
-    total = Math.max(total, item.tokens_used);
-    limit = Math.max(limit, item.tokens_limit);
-    count = Math.max(count, item.message_count);
+    total = Math.max(total, item.tokens_used)
+    limit = Math.max(limit, item.tokens_limit)
   }
-  
-  if (memTokens) memTokens.textContent = `${fmtTok(total)} / ${fmtTok(limit)}`;
-  if (memFill) memFill.style.width = `${Math.min(100, (total / limit) * 100)}%`;
-  if (memAgents) memAgents.textContent = `${Object.keys(AppState.agents).length} agents`;
-  if (memCompactions) memCompactions.textContent = `${AppState.compactions.length} compactions`;
-  if (memFiles) memFiles.textContent = `${AppState.files.size} files`;
-  
-  const modelEl = $("inspector-model");
-  if (modelEl && modelSelect) {
-    modelEl.textContent = modelSelect.value || "gpt-5.4-nano";
-  }
+  memTokens.textContent = `${fmtTok(total)} / ${fmtTok(limit)}`
+  memFill.style.width = `${Math.min(100, (total / limit) * 100)}%`
+  memFill.classList.toggle('is-high', total / limit > 0.8)
+  memAgents.textContent = `${Object.keys(AppState.agents).length} agents`
+  memCompactions.textContent = `${AppState.compactions.length} summaries`
+  memFiles.textContent = `${AppState.files.size} files`
 }
 
-function renderPlan() {
-  const ownerId = AppState.planOwner || findFinanceControlId();
-  const plan = ownerId ? AppState.plans[ownerId] : null;
-  if (!ownerId || !plan || plan.items.length === 0) {
-    planPanel.hidden = true;
-    return;
+function renderCompactions() {
+  if (!AppState.compactions.length) {
+    memDetail.innerHTML = '<span class="panel-empty">No compactions yet.</span>'
+    return
   }
+  const frag = document.createDocumentFragment()
+  for (const item of AppState.compactions.slice(-6)) {
+    const row = document.createElement('div')
+    row.className = 'mem-compaction-row'
+    row.innerHTML = `<span class="mem-compaction-delta">${fmtTok(item.before)} → ${fmtTok(item.after)}</span>`
+    const text = document.createElement('span')
+    text.className = 'mem-compaction-summary'
+    text.textContent = truncate(item.summary, 140)
+    row.append(text)
+    frag.append(row)
+  }
+  memDetail.replaceChildren(frag)
+}
 
-  const done = plan.items.filter((item) => item.status === "completed").length;
-  const overall = computeOverallPlanStatus(plan.items);
+// PLAN PANEL
+function planStatusLabel(status) {
+  if (status === 'in_progress') return 'Running'
+  if (status === 'completed') return 'Completed'
+  if (status === 'failed') return 'Failed'
+  return 'Pending'
+}
 
-  planPanel.hidden = false;
-  planMeta.textContent = `${done}/${plan.items.length}`;
-  planStatus.className = `plan-status status-${overall}`;
-  planStatus.textContent = planStatusLabel(overall);
+function planStatusClass(status) {
+  if (status === 'in_progress') return 'running'
+  if (status === 'completed') return 'completed'
+  if (status === 'failed') return 'failed'
+  return 'pending'
+}
 
-  let activeText = "";
-  const frag = document.createDocumentFragment();
-  plan.items.forEach((item, index) => {
-    if (item.status === "in_progress" || (item.status === "pending" && !activeText)) {
-      activeText = item.content;
-    }
-    const row = cloneTemplate(tplPlanItem);
-    const statusClass = planStatusClass(item.status);
-    row.className = `plan-item status-${statusClass}`;
-    row.querySelector(".plan-step-index").textContent = String(index + 1) + ".";
-    row.querySelector(".plan-step-text").textContent = item.content;
-    frag.append(row);
-  });
-  
-  planActivePreview.textContent = activeText ? `Active: ${activeText.substring(0, 35)}...` : "";
-  planList.replaceChildren(frag);
+function computeOverallPlanStatus(items) {
+  if (!items.length) return 'pending'
+  if (items.some((item) => item.status === 'failed')) return 'failed'
+  if (items.some((item) => item.status === 'in_progress')) return 'in_progress'
+  if (items.every((item) => item.status === 'completed')) return 'completed'
+  return 'pending'
 }
 
 function findFinanceControlId() {
   for (const [id, agent] of Object.entries(AppState.agents)) {
-    if (agent.layer === "finance-control") return id;
+    if (agent.layer === 'finance-control') return id
   }
-  return null;
+  return null
 }
 
-function registerAgent(payload) {
-  AppState.agents[payload.agent_id] = {
-    role: payload.role,
-    label: payload.role,
-    layer: payload.layer,
-    region: payload.region || null,
-  };
-}
-
-// SECURITY APPROVAL HANDLER
-async function handleApprovalAction(approvalId, approved, cardNode) {
-  setStreamingStatus('streaming');
-  const actionsContainer = cardNode.querySelector(".msg-approval-actions");
-  if (actionsContainer) {
-    actionsContainer.innerHTML = approved 
-      ? `<span class="badge status-completed">Approved Transaction</span>` 
-      : `<span class="badge status-failed">Rejected Request</span>`;
+function renderPlan() {
+  const ownerId = AppState.planOwner || findFinanceControlId()
+  const plan = ownerId ? AppState.plans[ownerId] : null
+  if (!plan || !plan.items.length) {
+    planPanel.hidden = true
+    planEmpty.hidden = false
+    return
   }
-  
-  renderMessage("system", {
-    kicker: "APPROVAL",
-    text: `User dual-sign security decision: ${approved ? 'APPROVED' : 'REJECTED'}`
-  });
+
+  const done = plan.items.filter((item) => item.status === 'completed').length
+  const overall = computeOverallPlanStatus(plan.items)
+
+  planPanel.hidden = false
+  planEmpty.hidden = true
+  planMeta.textContent = `${done}/${plan.items.length} done`
+  planStatus.className = `plan-status status-${planStatusClass(overall)}`
+  planStatus.textContent = planStatusLabel(overall)
+
+  let activeText = ''
+  const frag = document.createDocumentFragment()
+  plan.items.forEach((item, index) => {
+    if (!activeText && (item.status === 'in_progress' || item.status === 'pending')) {
+      activeText = item.content
+    }
+    const row = cloneTemplate(tplPlanItem)
+    row.className = `plan-item status-${planStatusClass(item.status)}`
+    row.querySelector('.plan-step-index').textContent = `${index + 1}`
+    row.querySelector('.plan-step-text').textContent = item.content
+    frag.append(row)
+  })
+  planActivePreview.textContent = activeText ? truncate(activeText, 60) : ''
+  planList.replaceChildren(frag)
 }
 
-// CENTRAL DRIVING STATE MACHINE
-function setStreamingStatus(status) {
-  AppState.streamingStatus = status;
-  
-  // Streaming Cursor, disable input state rules
-  if (status === 'streaming') {
-    promptInput.disabled = false;
-    startBtn.disabled = false;
-    startBtn.textContent = "Send";
-  } else if (status === 'awaiting_approval') {
-    promptInput.disabled = true;
-    startBtn.disabled = true;
-    startBtn.textContent = "Locked";
-  } else if (status === 'connecting') {
-    promptInput.disabled = true;
-    startBtn.disabled = true;
-    startBtn.textContent = "...";
-  } else if (status === 'idle') {
-    promptInput.disabled = false;
-    startBtn.disabled = false;
-    startBtn.textContent = "Send";
-  }
+// LIVE ACTIVITY FEED
+const FEED_META = {
+  run_start: (p) => ({ kind: 'system', kicker: 'run', title: 'Task started' }),
+  run_end: (p) => ({ kind: p.status === 'failed' ? 'error' : 'result', kicker: 'run', title: `Task ${p.status}` }),
+  run_cancelled: () => ({ kind: 'error', kicker: 'run', title: 'Task cancelled' }),
+  error: (p) => ({ kind: 'error', kicker: 'error', title: truncate(p.message, 90) }),
+  agent_spawn: (p, a) => ({ kind: 'spawn', kicker: 'agent', title: `${a} spawned` }),
+  agent_terminate: (p, a) => ({ kind: 'system', kicker: 'agent', title: `${a} ${p.status}` }),
+  delegation: () => ({ kind: 'spawn', kicker: 'delegate', title: 'Authority delegated' }),
+  tool_call: (p) => ({ kind: 'tool', kicker: 'tool', title: p.tool_name }),
+  tool_result: (p) => ({ kind: 'result', kicker: 'tool done', title: p.tool_name }),
+  tool_retry: (p) => ({ kind: 'error', kicker: 'retry', title: `${p.tool_name} attempt ${p.attempt}` }),
+  service_call: (p) => ({ kind: 'tool', kicker: 'service', title: `${p.service_id} · ${p.action}` }),
+  service_result: (p) => ({ kind: 'result', kicker: 'service done', title: `${p.service_id} · ${p.action}` }),
+  audit_record: (p) => ({
+    kind: 'audit',
+    kicker: 'policy',
+    title: truncate((p.record || {}).reason || (p.record || {}).decision || 'Decision recorded', 90),
+  }),
+  approval_required: (p) => ({ kind: 'audit', kicker: 'approval', title: truncate(p.action, 90) }),
+  approval_resolved: (p) => ({ kind: p.approved ? 'result' : 'error', kicker: 'approval', title: p.approved ? 'Approved' : 'Rejected' }),
+  stage_start: (p) => ({ kind: 'system', kicker: 'stage', title: truncate(p.stage, 90) }),
+  stage_end: (p) => ({ kind: 'result', kicker: 'stage done', title: truncate(p.stage, 90) }),
+  replan: (p) => ({ kind: 'system', kicker: 'replan', title: truncate(p.reason, 90) }),
+  memory_compaction: (p) => ({ kind: 'system', kicker: 'memory', title: `Compacted ${fmtTok(p.tokens_before)} → ${fmtTok(p.tokens_after)}` }),
+  model_change: (p) => ({ kind: 'system', kicker: 'model', title: `${p.prior} → ${p.model}` }),
+  file_write: (p) => ({ kind: 'tool', kicker: 'file', title: `write ${p.path}` }),
+  file_read: (p) => ({ kind: 'tool', kicker: 'file', title: `read ${p.path}` }),
+  worker_acquire: (p) => ({ kind: 'spawn', kicker: 'worker', title: `${p.role} acquired` }),
+  worker_release: () => ({ kind: 'result', kicker: 'worker', title: 'Worker released' }),
+  job_started: (p) => ({ kind: 'tool', kicker: 'job', title: `${p.kind} · ${p.target}` }),
+  job_completed: (p) => ({ kind: p.status === 'failed' ? 'error' : 'result', kicker: 'job', title: `${p.status}` }),
+  blackboard_post: (p) => ({ kind: 'system', kicker: 'note', title: truncate(p.content, 90) }),
 }
 
-// EVENT TELEMETRY PROCESSING
+let feedTotal = 0
+
 function appendRuntimeEvent(event) {
-  if (!runtimeFeed) return;
-  const summary = runtimeEventSummary(event);
-  if (!summary) return;
+  const builder = FEED_META[event.kind]
+  if (!builder) return
+  const payload = event.payload || {}
+  const agent = agentLabel(AppState.agents[payload.agent_id])
+  const summary = builder(payload, agent)
 
-  const empty = runtimeFeed.querySelector(".runtime-feed-empty");
-  if (empty) empty.remove();
+  const emptyNode = runtimeFeed.querySelector('.runtime-feed-empty')
+  if (emptyNode) emptyNode.remove()
 
-  const node = document.createElement("div");
-  node.className = `runtime-feed-item kind-${summary.kind}`;
-  
-  const header = document.createElement("div");
-  header.className = "runtime-feed-header";
-  header.innerHTML = `<span class="kicker">${summary.kicker || ""}</span><span class="time">${formatTime(event.ts)}</span>`;
-  
-  const body = document.createElement("div");
-  body.className = "runtime-feed-body";
-  body.textContent = summary.title || "";
-  
-  node.append(header, body);
-  runtimeFeed.prepend(node);
+  const node = cloneTemplate(tplEventBlock)
+  node.className = `event-block kind-${summary.kind}`
+  node.querySelector('.event-kicker').textContent = summary.kicker
+  node.querySelector('.event-title').textContent = summary.title || ''
+  node.querySelector('.event-time').textContent = formatTime(event.ts)
+  node.querySelector('.event-body').textContent = renderJson(payload)
+  runtimeFeed.prepend(node)
+
+  feedTotal += 1
+  feedCount.textContent = String(feedTotal)
 
   while (runtimeFeed.children.length > RUNTIME_FEED_LIMIT) {
-    runtimeFeed.removeChild(runtimeFeed.lastElementChild);
+    runtimeFeed.removeChild(runtimeFeed.lastElementChild)
   }
 }
 
-function runtimeEventSummary(event) {
-  const payload = event.payload || {};
-  const agent = AppState.agents[payload.agent_id] ? agentLabel(AppState.agents[payload.agent_id]) : "Agent";
-  
-  switch (event.kind) {
-    case "run_start":
-      return { kind: "system", kicker: "Run", title: "Execution started" };
-    case "run_end":
-      return { kind: payload.status === "failed" ? "error" : "system", kicker: "Run", title: `Execution finished: ${payload.status}` };
-    case "agent_spawn":
-      return { kind: "spawn", kicker: "Spawn", title: `${agent} spawned` };
-    case "agent_start":
-      return { kind: "spawn", kicker: "Agent", title: `${agent} active` };
-    case "agent_end":
-      return { kind: "result", kicker: "Agent", title: `${agent} complete` };
-    case "tool_call":
-      return { kind: "tool", kicker: "Tool Call", title: payload.tool_name };
-    case "tool_result":
-      return { kind: "result", kicker: "Tool Return", title: payload.tool_name };
-    case "service_call":
-      return { kind: "tool", kicker: "Service", title: payload.service_id };
-    case "service_result":
-      return { kind: "result", kicker: "Service Complete", title: payload.service_id };
-    case "audit_record":
-      return { kind: "audit", kicker: "Audit", title: "Interception created" };
-    default:
-      return null;
+// MESSAGE RENDER ENGINE
+function renderMessage(type, data = {}, parent = null) {
+  if (!parent) detachEmpty()
+
+  const templates = {
+    user: tplUserMessage,
+    assistant: tplAssistantMessage,
+    tool: tplToolCard,
+    system: tplSystemRow,
+    security: tplSecurityCard,
+    approval: tplApprovalCard,
   }
+  const node = cloneTemplate(templates[type])
+
+  const timeEl = node.querySelector('.msg-time')
+  if (timeEl) timeEl.textContent = data.time || formatTime(data.ts)
+
+  const contentEl = node.querySelector('.msg-content')
+  if (contentEl && data.content !== undefined) contentEl.textContent = data.content
+
+  if (type === 'assistant') {
+    const agent = AppState.agents[data.agentId]
+    node.classList.remove('tone-worker', 'tone-ro', 'tone-fc')
+    node.classList.add(toneClass(agent))
+    node.querySelector('.msg-avatar').textContent = agentInitials(agent)
+    node.querySelector('.msg-author').textContent = agentLabel(agent)
+    node.querySelector('.msg-model-tag').textContent = data.model || ''
+    node.querySelector('.msg-status-indicator').textContent = data.status || 'Working'
+  }
+
+  if (type === 'tool') {
+    node.querySelector('.msg-tool-name').textContent = data.name || 'tool_call'
+    node.querySelector('.msg-tool-summary').textContent = data.summary || ''
+    const badge = node.querySelector('.msg-tool-status-badge')
+    badge.textContent = data.status || 'executing'
+    badge.className = `msg-tool-status-badge status-${data.status || 'executing'}`
+    node.querySelector('.msg-tool-args .msg-json-block').textContent = renderJson(data.args || {})
+    if (data.serviceCall) node.classList.add('is-service')
+  }
+
+  if (type === 'system') {
+    node.querySelector('.msg-system-text').textContent = data.text || ''
+    node.querySelector('.msg-system-kicker').textContent = data.kicker || 'SYSTEM'
+    if (data.variant) node.classList.add(`variant-${data.variant}`)
+  }
+
+  if (type === 'security') {
+    node.querySelector('.msg-security-rule').textContent = data.rule || 'Policy check'
+    node.querySelector('.msg-security-reason').textContent = truncate(data.reason || '', 110)
+    const badge = node.querySelector('.msg-security-action-badge')
+    badge.textContent = data.action || 'checked'
+    badge.className = `msg-security-action-badge action-${String(data.action || 'checked').toLowerCase()}`
+    const policyEl = node.querySelector('.msg-security-policy')
+    policyEl.textContent = ''
+    if (data.policy) {
+      policyEl.append('Policy: ')
+      const code = document.createElement('code')
+      code.textContent = data.policy
+      policyEl.append(code)
+    }
+    node.querySelector('.msg-json-block').textContent = renderJson(data.details || {})
+  }
+
+  if (type === 'approval') {
+    node.querySelector('.msg-approval-context').textContent = data.context || ''
+    node.querySelector('.btn-approve').onclick = () => handleApprovalAction(data.approvalId, true, node)
+    node.querySelector('.btn-reject').onclick = () => handleApprovalAction(data.approvalId, false, node)
+  }
+
+  if (parent) {
+    parent.append(node)
+    requestScroll()
+    return node
+  }
+
+  if (type !== 'assistant') AppState.lastBlock = null
+  stream.append(node)
+  requestScroll({ smooth: type === 'user' })
+
+  AppState.messages.push({ type, data, node })
+  if (AppState.messages.length > MESSAGE_LIMIT) {
+    const removed = AppState.messages.shift()
+    if (removed.node && removed.node.parentNode === stream) removed.node.remove()
+  }
+  refreshMetrics()
+  return node
 }
 
-function ensureTurn(agentId, messageId) {
-  const key = `${agentId}:${messageId}`;
-  if (AppState.turns[key]) return AppState.turns[key];
+// AGENT BLOCKS — one chat block per contiguous span of agent activity
+function ensureBlock(agentId, ts) {
+  const existing = AppState.blocks[agentId]
+  if (existing && AppState.lastBlock === existing) return existing
 
-  const node = renderMessage("assistant", {
+  const node = renderMessage('assistant', { agentId, ts, status: 'Working' })
+  const block = {
     agentId,
-    messageId,
-    status: "Thinking",
-    content: ""
-  });
+    node,
+    flowEl: node.querySelector('.msg-flow'),
+    statusEl: node.querySelector('.msg-status-indicator'),
+    modelEl: node.querySelector('.msg-model-tag'),
+    steps: null,
+    runningSteps: 0,
+    streamingTurns: 0,
+  }
+  AppState.blocks[agentId] = block
+  AppState.lastBlock = block
+  return block
+}
+
+function refreshBlockStatus(block) {
+  const busy = block.streamingTurns > 0 || block.runningSteps > 0
+  block.statusEl.textContent = busy ? 'Working' : 'Done'
+  block.node.classList.toggle('is-complete', !busy)
+}
+
+function ensureSteps(block) {
+  if (block.steps && block.steps.node === block.flowEl.lastElementChild) return block.steps
+
+  const node = cloneTemplate(tplStepGroup)
+  const steps = {
+    node,
+    bodyEl: node.querySelector('.msg-steps-body'),
+    titleEl: node.querySelector('.msg-steps-title'),
+    running: 0,
+    total: 0,
+  }
+  block.flowEl.append(node)
+  block.steps = steps
+  return steps
+}
+
+function stepStarted(block, steps, label) {
+  steps.running += 1
+  steps.total += 1
+  block.runningSteps += 1
+  steps.node.classList.add('is-running')
+  steps.titleEl.textContent = `Running ${label}`
+  refreshBlockStatus(block)
+}
+
+function stepSettled(block, steps) {
+  steps.running = Math.max(0, steps.running - 1)
+  block.runningSteps = Math.max(0, block.runningSteps - 1)
+  if (steps.running === 0) {
+    steps.node.classList.remove('is-running')
+    steps.titleEl.textContent = steps.total === 1 ? '1 step' : `${steps.total} steps`
+  }
+  refreshBlockStatus(block)
+}
+
+// STREAMED ASSISTANT TURNS
+function ensureTurn(agentId, messageId, ts) {
+  const key = `${agentId}:${messageId}`
+  if (AppState.turns[key]) return AppState.turns[key]
+
+  const block = ensureBlock(agentId, ts)
+  const contentEl = document.createElement('div')
+  contentEl.className = 'msg-content'
+  block.flowEl.append(contentEl)
+  block.streamingTurns += 1
+  refreshBlockStatus(block)
 
   const turn = {
     key,
-    agentId,
-    root: node,
-    contentEl: node.querySelector(".msg-content"),
-    statusEl: node.querySelector(".msg-status-indicator"),
-    reasoningSection: node.querySelector(".msg-reasoning-details"),
-    reasoningBody: node.querySelector(".msg-reasoning-content"),
-    reasoningText: "",
-    pendingText: "",
-    finalText: "",
+    block,
+    contentEl,
+    pendingText: '',
+    text: '',
+    finalText: '',
     streaming: true,
-  };
-
-  AppState.turns[key] = turn;
-  AppState.lastTurnByAgent[agentId] = key;
-  AppState.turnOrder.push(key);
-  return turn;
-}
-
-function findActiveTurn(agentId) {
-  const key = AppState.lastTurnByAgent[agentId];
-  return key ? AppState.turns[key] : null;
+    settled: false,
+  }
+  AppState.turns[key] = turn
+  return turn
 }
 
 function markTurnDirty(turn) {
-  AppState.dirtyTurns.add(turn);
+  AppState.dirtyTurns.add(turn)
 }
 
 function flushDirtyTurns() {
-  if (!AppState.dirtyTurns.size) return;
-
   for (const turn of AppState.dirtyTurns) {
     if (turn.pendingText) {
-      turn.reasoningText += turn.pendingText;
-      turn.pendingText = "";
+      turn.text += turn.pendingText
+      turn.pendingText = ''
     }
-
-    if (turn.finalText && turn.finalText.length > turn.reasoningText.length) {
-      turn.reasoningText = turn.finalText;
-    } else if (!turn.reasoningText && turn.finalText) {
-      turn.reasoningText = turn.finalText;
+    if (turn.finalText && turn.finalText.length >= turn.text.length) {
+      turn.text = turn.finalText
     }
-
-    if (turn.contentEl) {
-      turn.contentEl.textContent = turn.reasoningText;
-      turn.contentEl.classList.toggle("is-streaming", turn.streaming);
+    if (turn.streaming) {
+      turn.contentEl.classList.remove('md')
+      turn.contentEl.textContent = turn.text
+    } else {
+      turn.contentEl.classList.add('md')
+      turn.contentEl.innerHTML = renderMarkdown(turn.text)
+      if (!turn.text.trim()) turn.contentEl.remove()
+      if (!turn.settled) {
+        turn.settled = true
+        turn.block.streamingTurns = Math.max(0, turn.block.streamingTurns - 1)
+        refreshBlockStatus(turn.block)
+      }
     }
-    
-    if (turn.statusEl) {
-      turn.statusEl.textContent = turn.streaming ? "Thinking" : "Ready";
-    }
+    turn.contentEl.classList.toggle('is-streaming', turn.streaming)
   }
-
-  AppState.dirtyTurns.clear();
+  AppState.dirtyTurns.clear()
 }
 
+// TOOL CALL PAIRING
+function trackToolCall(payload, node, { serviceCall = false, block = null, steps = null } = {}) {
+  const key = serviceCall
+    ? `svc:${payload.agent_id}:${payload.service_id}:${payload.action}`
+    : `tool:${payload.agent_id}:${payload.tool_name}`
+  if (!AppState.pendingTools[key]) AppState.pendingTools[key] = []
+  AppState.pendingTools[key].push({ node, startTs: performance.now(), block, steps })
+}
+
+function resolveToolCall(payload, result, status, serviceCall = false) {
+  const key = serviceCall
+    ? `svc:${payload.agent_id}:${payload.service_id}:${payload.action}`
+    : `tool:${payload.agent_id}:${payload.tool_name}`
+  const queue = AppState.pendingTools[key]
+  const entry = queue && queue.shift()
+  if (!entry) return
+
+  const { node, startTs, block, steps } = entry
+  const badge = node.querySelector('.msg-tool-status-badge')
+  badge.textContent = status
+  badge.className = `msg-tool-status-badge status-${status}`
+
+  const duration = node.querySelector('.msg-tool-duration')
+  duration.textContent = `${Math.max(1, Math.round(performance.now() - startTs))}ms`
+
+  if (block && steps) stepSettled(block, steps)
+
+  if (result !== undefined) {
+    const outputBlock = node.querySelector('.msg-tool-output')
+    outputBlock.hidden = false
+    outputBlock.querySelector('.msg-json-block').textContent = renderJson(result)
+  }
+}
+
+// APPROVALS
+const approvalCards = new Map()
+
+async function handleApprovalAction(requestId, approved, cardNode) {
+  const actions = cardNode.querySelector('.msg-approval-actions')
+  actions.innerHTML = '<span class="msg-approval-pending">Submitting…</span>'
+  try {
+    const res = await fetch(`/api/run/${AppState.runId}/approve`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ requestId, approved }),
+    })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  } catch (error) {
+    actions.innerHTML = '<span class="msg-approval-failed">Submission failed — retry below</span>'
+    renderMessage('system', { kicker: 'APPROVAL', variant: 'error', text: `Decision not delivered: ${error.message}` })
+  }
+}
+
+function settleApprovalCard(card, approved) {
+  card.classList.add(approved ? 'is-approved' : 'is-rejected')
+  card.querySelector('.msg-approval-state').textContent = approved ? 'Approved' : 'Rejected'
+  card.querySelector('.msg-approval-actions').innerHTML = approved
+    ? '<span class="msg-approval-decision decision-approved">Approved</span>'
+    : '<span class="msg-approval-decision decision-rejected">Rejected</span>'
+}
+
+// EVENT PIPELINE
 function queueIncomingEvent(event) {
-  AppState.pendingEvents.push(event);
-  scheduleFlush();
+  AppState.pendingEvents.push(event)
+  scheduleFlush()
 }
 
 function scheduleFlush() {
-  if (AppState.flushHandle) return;
-  AppState.flushHandle = window.requestAnimationFrame(flushEventQueue);
+  if (AppState.flushHandle) return
+  AppState.flushHandle = window.requestAnimationFrame(flushEventQueue)
 }
 
 function flushEventQueue() {
-  AppState.flushHandle = 0;
-  const batch = AppState.pendingEvents.splice(0, FRAME_EVENT_LIMIT);
-  for (const event of batch) handleEvent(event);
-  flushDirtyTurns();
-  flushScroll();
-  if (AppState.pendingEvents.length) scheduleFlush();
+  AppState.flushHandle = 0
+  const batch = AppState.pendingEvents.splice(0, FRAME_EVENT_LIMIT)
+  for (const event of batch) handleEvent(event)
+  flushDirtyTurns()
+  flushScroll()
+  refreshMetrics()
+  if (AppState.pendingEvents.length) scheduleFlush()
 }
 
 function handleEvent(event) {
-  const payload = event.payload || {};
-  countEvent(event);
-  appendRuntimeEvent(event);
-  updateRunMeta();
+  const payload = event.payload || {}
+  countEvent(event)
+  appendRuntimeEvent(event)
 
   switch (event.kind) {
-    case "run_start":
-      setStreamingStatus('streaming');
-      renderMessage("system", {
-        kicker: "RUN",
-        text: `Swarm session successfully initiated: ${payload.prompt}`
-      });
-      break;
+    case 'run_start':
+      setStreamingStatus('streaming')
+      break
 
-    case "agent_spawn":
-      AppState.spawned += 1;
-      registerAgent(payload);
-      renderMessage("system", {
-        kicker: "SPAWN",
-        text: `${agentLabel(AppState.agents[payload.agent_id])} spawned successfully.`
-      });
-      break;
+    case 'chat_user':
+      if (!AppState.promptRendered) {
+        AppState.promptRendered = true
+        renderMessage('user', { ts: event.ts, content: payload.text })
+      }
+      break
 
-    case "delegation":
-      const parent = AppState.agents[payload.parent_id];
-      const child = AppState.agents[payload.child_id];
-      renderMessage("system", {
-        kicker: "DELEGATE",
-        text: `${agentLabel(parent)} delegated authority to ${agentLabel(child)}.`
-      });
-      break;
+    case 'agent_spawn':
+      registerAgent(payload)
+      refreshMemoryBar()
+      break
 
-    case "chat_token": {
-      const turn = ensureTurn(payload.agent_id, payload.message_id);
-      turn.streaming = true;
-      turn.pendingText += payload.token;
-      markTurnDirty(turn);
-      break;
+    case 'agent_end':
+    case 'agent_terminate': {
+      const block = AppState.blocks[payload.agent_id]
+      if (block) {
+        block.streamingTurns = 0
+        block.runningSteps = 0
+        refreshBlockStatus(block)
+      }
+      break
     }
 
-    case "chat_message": {
-      const turn = ensureTurn(payload.agent_id, payload.message_id);
-      turn.streaming = false;
-      turn.finalText = payload.text || "";
-      markTurnDirty(turn);
-      break;
+    case 'chat_token': {
+      const turn = ensureTurn(payload.agent_id, payload.message_id, event.ts)
+      turn.streaming = true
+      turn.pendingText += payload.token
+      markTurnDirty(turn)
+      requestScroll()
+      break
     }
 
-    case "llm_call": {
-      const latency = payload.latency_ms || 240;
-      const model = payload.model || "gpt-5.4-nano";
-      const tokens = payload.input_tokens + payload.output_tokens;
-      
-      renderMessage("provider", {
-        provider: "OpenAI",
-        tokens,
-        latency,
-        details: payload
-      });
-      
-      const latEl = $("inspector-latency");
-      if (latEl) latEl.textContent = `${latency}ms`;
-      break;
+    case 'chat_message': {
+      const text = payload.text || ''
+      if (!text.trim() && !AppState.turns[`${payload.agent_id}:${payload.message_id}`]) break
+      const turn = ensureTurn(payload.agent_id, payload.message_id, event.ts)
+      turn.streaming = false
+      turn.finalText = text
+      markTurnDirty(turn)
+      break
     }
 
-    case "tool_call": {
-      if (PLAN_TOOLS.has(payload.tool_name)) break;
-      setStreamingStatus('tool_executing');
-      renderMessage("tool", {
+    case 'llm_call': {
+      const block = AppState.blocks[payload.agent_id]
+      if (block && payload.model) block.modelEl.textContent = payload.model
+      break
+    }
+
+    case 'tool_call': {
+      if (PLAN_TOOLS.has(payload.tool_name)) {
+        if (payload.tool_name === 'write_file' && payload.args && payload.args.path) {
+          AppState.files.add(payload.args.path)
+          refreshMemoryBar()
+        }
+        break
+      }
+      setStreamingStatus('tool_executing')
+      const block = ensureBlock(payload.agent_id, event.ts)
+      const steps = ensureSteps(block)
+      const node = renderMessage('tool', {
+        ts: event.ts,
         name: payload.tool_name,
+        summary: summarizeArgs(payload.args),
         args: payload.args,
-        status: "executing"
-      });
-      break;
+        status: 'executing',
+      }, steps.bodyEl)
+      stepStarted(block, steps, payload.tool_name)
+      trackToolCall(payload, node, { block, steps })
+      break
     }
 
-    case "tool_result": {
-      if (PLAN_TOOLS.has(payload.tool_name)) break;
-      setStreamingStatus('streaming');
-      
-      // Let's update the last tool card with result if visible
-      const lastMsg = AppState.messages[AppState.messages.length - 1];
-      if (lastMsg && lastMsg.type === "tool" && lastMsg.data.name === payload.tool_name) {
-        lastMsg.data.status = "completed";
-        lastMsg.data.output = payload.result;
-        
-        const badge = lastMsg.node.querySelector(".msg-tool-status-badge");
-        if (badge) {
-          badge.textContent = "completed";
-          badge.className = "msg-tool-status-badge status-completed";
-        }
-        
-        const outputBlock = lastMsg.node.querySelector(".msg-tool-output");
-        const outputEl = lastMsg.node.querySelector(".msg-tool-output .msg-json-block");
-        if (outputBlock && outputEl) {
-          outputBlock.hidden = false;
-          outputEl.textContent = renderJson(payload.result);
-        }
+    case 'tool_result':
+      if (PLAN_TOOLS.has(payload.tool_name)) break
+      setStreamingStatus('streaming')
+      resolveToolCall(payload, payload.result, 'completed')
+      break
+
+    case 'tool_retry':
+      resolveToolCall(payload, { error: payload.error, attempt: payload.attempt }, 'retrying')
+      break
+
+    case 'service_call': {
+      const block = ensureBlock(payload.agent_id, event.ts)
+      const steps = ensureSteps(block)
+      const node = renderMessage('tool', {
+        ts: event.ts,
+        name: `${payload.service_id}.${payload.action}`,
+        summary: summarizeArgs(payload.payload),
+        args: payload.payload,
+        status: 'executing',
+        serviceCall: true,
+      }, steps.bodyEl)
+      stepStarted(block, steps, payload.service_id)
+      trackToolCall(payload, node, { serviceCall: true, block, steps })
+      break
+    }
+
+    case 'service_result':
+      resolveToolCall(payload, payload.result, 'completed', true)
+      break
+
+    case 'audit_record': {
+      const record = payload.record || {}
+      const decision = String(record.decision || '').toLowerCase()
+      const denied = /denied|blocked|reject/.test(decision)
+      const sink = !denied && AppState.lastBlock
+        ? ensureSteps(AppState.lastBlock).bodyEl
+        : null
+      renderMessage('security', {
+        ts: event.ts,
+        rule: record.rule_id || 'Policy check',
+        action: record.decision || 'checked',
+        policy: record.policy_id || '',
+        reason: record.reason || '',
+        details: record,
+      }, sink)
+      break
+    }
+
+    case 'approval_required': {
+      setStreamingStatus('awaiting_approval')
+      const card = renderMessage('approval', {
+        ts: event.ts,
+        approvalId: payload.request_id,
+        context: `${payload.action} — ${summarizeArgs(payload.detail) || 'no detail provided'}`,
+      })
+      approvalCards.set(payload.request_id, card)
+      requestScroll({ force: true, smooth: true })
+      break
+    }
+
+    case 'approval_resolved': {
+      const card = approvalCards.get(payload.request_id)
+      if (card) {
+        settleApprovalCard(card, !!payload.approved)
+        approvalCards.delete(payload.request_id)
       }
-      break;
+      setStreamingStatus('streaming')
+      break
     }
 
-    case "audit_record": {
-      const record = payload.record || {};
-      const action = record.decision || "checked";
-      
-      // Render as premium security intercepted block
-      renderMessage("security", {
-        rule: record.rule_id || "Interception Policy",
-        action: action,
-        policy: record.policy_id || "dual_sign_policy",
-        reason: record.reason || "Verification passed.",
-        details: record
-      });
-      
-      // If dual-sign exception is raised, trigger awaiting approval state
-      if (action === "exception" || action === "approval_required" || record.reason?.includes("Dual-sign")) {
-        setStreamingStatus('awaiting_approval');
-        renderMessage("approval", {
-          approvalId: payload.worker_id || "tx-1",
-          context: `Dual-sign transaction authorization required: Transfer of <b>$250,000.00</b> external wire.`
-        });
-      }
-      break;
+    case 'plan_update': {
+      AppState.plans[payload.agent_id] = { revision: payload.revision, items: payload.todos || [] }
+      const fcId = findFinanceControlId()
+      if (payload.agent_id === fcId) AppState.planOwner = payload.agent_id
+      else if (!AppState.planOwner) AppState.planOwner = payload.agent_id
+      renderPlan()
+      break
     }
 
-    case "plan_update": {
-      AppState.plans[payload.agent_id] = { revision: payload.revision, items: payload.todos || [] };
-      const fcId = findFinanceControlId();
-      if (payload.agent_id === fcId) AppState.planOwner = payload.agent_id;
-      else if (!AppState.planOwner) AppState.planOwner = payload.agent_id;
+    case 'replan':
+      renderMessage('system', {
+        ts: event.ts,
+        kicker: 'REPLAN',
+        variant: 'warn',
+        text: `Plan revised (rev ${payload.revision}): ${truncate(payload.reason, 140)}`,
+      })
+      break
 
-      renderPlan();
-      break;
-    }
+    case 'stage_start':
+    case 'stage_end':
+      break
 
-    case "memory_update":
+    case 'memory_update':
       AppState.agentMem[payload.agent_id] = {
         tokens_used: payload.tokens_used,
         tokens_limit: payload.tokens_limit,
-        message_count: payload.message_count,
-        compactions: payload.compactions,
-      };
-      refreshMemoryBar();
-      break;
+      }
+      refreshMemoryBar()
+      break
 
-    case "run_end":
-      setStreamingStatus('idle');
-      renderMessage("system", {
-        kicker: "FINISHED",
-        text: `Execution finished with status: ${payload.status}`
-      });
-      finishRun();
-      break;
+    case 'memory_compaction':
+      AppState.compactions.push({
+        summary: payload.summary,
+        before: payload.tokens_before,
+        after: payload.tokens_after,
+      })
+      refreshMemoryBar()
+      renderCompactions()
+      break
+
+    case 'model_change':
+      renderMessage('system', { ts: event.ts, kicker: 'MODEL', text: `Model switched: ${payload.prior} → ${payload.model}` })
+      break
+
+    case 'file_write':
+    case 'file_read':
+      AppState.files.add(payload.path)
+      refreshMemoryBar()
+      break
+
+    case 'error':
+      renderMessage('system', { ts: event.ts, kicker: 'ERROR', variant: 'error', text: truncate(payload.message, 240) })
+      break
+
+    case 'run_cancelled':
+      setStreamingStatus('idle')
+      renderMessage('system', { ts: event.ts, kicker: 'CANCELLED', variant: 'warn', text: 'Run cancelled by operator.' })
+      finishRun()
+      break
+
+    case 'run_end':
+      setStreamingStatus(payload.status === 'failed' ? 'error' : 'done')
+      renderMessage('system', {
+        ts: event.ts,
+        kicker: 'FINISHED',
+        variant: payload.status === 'failed' ? 'error' : 'ok',
+        text: `Run finished: ${payload.status}.`,
+      })
+      finishRun()
+      break
   }
 }
 
-// SSE RECONNECTION STRATEGY
+// SSE LIFECYCLE
 function attachStream(runId, active) {
   if (AppState.reconnectTimer) {
-    clearTimeout(AppState.reconnectTimer);
-    AppState.reconnectTimer = null;
+    clearTimeout(AppState.reconnectTimer)
+    AppState.reconnectTimer = null
   }
-  
-  AppState.es = new EventSource(`/api/run/${runId}/events`);
-  AppState.active = active;
+
+  AppState.es = new EventSource(`/api/run/${runId}/events`)
+  AppState.active = active
 
   AppState.es.onmessage = (message) => {
     try {
-      const event = JSON.parse(message.data);
-      if (AppState.paused) AppState.queue.push(event);
-      else queueIncomingEvent(event);
-      AppState.reconnectAttempts = 0; // Reset reconnection counter on successful event
+      const event = JSON.parse(message.data)
+      if (AppState.paused) AppState.queue.push(event)
+      else queueIncomingEvent(event)
     } catch {
       // keepalive
     }
-  };
+  }
 
   AppState.es.onerror = () => {
-    AppState.es.close();
-    AppState.es = null;
-    
-    if (AppState.active) {
-      setStreamingStatus('error');
-      
-      // Reconnection block in history
-      renderMessage("system", {
-        kicker: "ERROR",
-        text: "SSE Connection interrupted. Reconnecting in 3s..."
-      });
-      
-      AppState.reconnectAttempts += 1;
-      AppState.reconnectTimer = setTimeout(() => {
-        attachStream(runId, true);
-      }, 3000);
-    }
-  };
+    AppState.es.close()
+    AppState.es = null
+    if (!AppState.active) return
+    setStreamingStatus('error')
+    AppState.reconnectTimer = setTimeout(() => attachStream(runId, true), 3000)
+  }
 }
 
 function resetState() {
-  AppState.active = false;
-  AppState.spawned = 0;
-  AppState.terminated = 0;
-  AppState.agents = {};
-  AppState.turns = {};
-  AppState.turnOrder = [];
-  AppState.lastTurnByAgent = {};
-  AppState.agentMem = {};
-  AppState.compactions = [];
-  AppState.files = new Set();
-  AppState.plans = {};
-  AppState.planOwner = null;
-  AppState.paused = false;
-  AppState.queue = [];
-  AppState.metrics = { events: 0, tools: 0, services: 0, controls: 0 };
-  AppState.pendingEvents = [];
-  AppState.dirtyTurns.clear();
-  AppState.pendingScrollForce = false;
-  AppState.pendingScrollSmooth = false;
+  AppState.active = false
+  AppState.promptRendered = false
+  AppState.agents = {}
+  AppState.turns = {}
+  AppState.blocks = {}
+  AppState.lastBlock = null
+  AppState.pendingTools = {}
+  AppState.agentMem = {}
+  AppState.compactions = []
+  AppState.files = new Set()
+  AppState.plans = {}
+  AppState.planOwner = null
+  AppState.paused = false
+  AppState.queue = []
+  AppState.pendingEvents = []
+  AppState.dirtyTurns.clear()
+  AppState.metrics = { events: 0, tools: 0, services: 0, audits: 0, approvals: 0 }
+  approvalCards.clear()
+  feedTotal = 0
 
-  planPanel.hidden = true;
-  planList.replaceChildren();
-  planMeta.textContent = "";
-  planStatus.className = "plan-status status-pending";
-  planStatus.textContent = "Pending";
-  
-  if (runtimeFeed) {
-    runtimeFeed.replaceChildren();
-    const empty = document.createElement("div");
-    empty.className = "runtime-feed-empty";
-    empty.textContent = "Live execution feed...";
-    runtimeFeed.append(empty);
+  planPanel.hidden = true
+  planEmpty.hidden = false
+  planList.replaceChildren()
+  planMeta.textContent = ''
+  planActivePreview.textContent = ''
+  planStatus.className = 'plan-status status-pending'
+  planStatus.textContent = 'Pending'
+
+  runtimeFeed.innerHTML = '<div class="runtime-feed-empty">Service calls, file activity, and approval decisions appear here as they happen.</div>'
+  feedCount.textContent = '0'
+
+  pauseBtn.hidden = true
+  pauseBtn.textContent = 'Pause'
+
+  stopTimer()
+  $('session-time').textContent = '--:--'
+
+  renderCompactions()
+  refreshMemoryBar()
+  refreshMetrics()
+  updateRunMeta()
+}
+
+function clearConversation() {
+  for (const message of AppState.messages) {
+    if (message.node && message.node.parentNode === stream) message.node.remove()
   }
-
-  if (pauseBtn) {
-    pauseBtn.hidden = true;
-    pauseBtn.textContent = "Pause";
-  }
-
-  refreshMemoryBar();
-  refreshMetrics();
-  updateRunMeta();
+  AppState.messages = []
+  restoreEmpty()
+  refreshMetrics()
 }
 
 function finishRun() {
-  AppState.active = false;
-  startBtn.hidden = false;
-  startBtn.disabled = false;
-  startBtn.textContent = "Send";
-  stopBtn.hidden = true;
-  stopBtn.disabled = false;
-  stopBtn.textContent = "Cancel";
-
-  if (pauseBtn) {
-    pauseBtn.hidden = true;
-    pauseBtn.textContent = "Pause";
-  }
-
-  AppState.paused = false;
+  AppState.active = false
+  startBtn.hidden = false
+  startBtn.disabled = false
+  startBtn.classList.remove('is-busy')
+  stopBtn.hidden = true
+  stopBtn.disabled = false
+  stopBtn.textContent = 'Cancel'
+  pauseBtn.hidden = true
+  pauseBtn.textContent = 'Pause'
+  AppState.paused = false
+  stopTimer()
   if (AppState.es) {
-    AppState.es.close();
-    AppState.es = null;
+    AppState.es.close()
+    AppState.es = null
   }
-
-  updateRunMeta();
+  updateRunMeta()
 }
 
 async function stopRun() {
-  if (!AppState.runId) return;
-  stopBtn.disabled = true;
-  stopBtn.textContent = "Cancelling...";
+  if (!AppState.runId) return
+  stopBtn.disabled = true
+  stopBtn.textContent = 'Cancelling…'
   try {
-    await fetch(`/api/run/${AppState.runId}/cancel`, { method: "POST" });
+    await fetch(`/api/run/${AppState.runId}/cancel`, { method: 'POST' })
   } catch {
-    renderMessage("system", { kicker: "ERROR", text: "Cancel request failed" });
+    renderMessage('system', { kicker: 'ERROR', variant: 'error', text: 'Cancel request failed.' })
+    stopBtn.disabled = false
+    stopBtn.textContent = 'Cancel'
   }
 }
 
 function startRun() {
-  const prompt = promptInput.value.trim();
-  if (!prompt) return;
+  const prompt = promptInput.value.trim()
+  if (!prompt || AppState.streamingStatus === 'connecting') return
 
   if (AppState.es) {
-    AppState.es.close();
-    AppState.es = null;
+    AppState.es.close()
+    AppState.es = null
   }
 
-  resetState();
-  renderMessage("user", { content: prompt });
-  promptInput.value = "";
-  autoResizeInput();
+  resetState()
+  AppState.promptRendered = true
+  renderMessage('user', { content: prompt })
+  promptInput.value = ''
+  autoResizeInput()
 
-  AppState.active = true;
-  startBtn.hidden = true;
-  stopBtn.hidden = false;
-  stopBtn.disabled = false;
-  stopBtn.textContent = "Cancel";
-  if (pauseBtn) pauseBtn.hidden = false;
+  AppState.active = true
+  startBtn.hidden = true
+  stopBtn.hidden = false
+  pauseBtn.hidden = false
+  setStreamingStatus('connecting')
+  startTimer()
 
-  setStreamingStatus('connecting');
-
-  fetch("/api/run/start", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
+  fetch('/api/run/start', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ prompt }),
   })
-    .then((response) => response.json())
+    .then((response) => {
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      return response.json()
+    })
     .then((data) => {
-      AppState.runId = data.runId;
-      updateRunMeta();
+      AppState.runId = data.runId
+      updateRunMeta()
       try {
-        localStorage.setItem("lynx.runId", data.runId);
+        localStorage.setItem('lynx.runId', data.runId)
       } catch {
-        // ignore storage block exceptions
+        // storage unavailable
       }
-      window.dispatchEvent(new CustomEvent("run-started", { detail: { runId: AppState.runId } }));
-      attachStream(AppState.runId, true);
+      setStreamingStatus('streaming')
+      window.dispatchEvent(new CustomEvent('run-started', { detail: { runId: AppState.runId } }))
+      attachStream(AppState.runId, true)
     })
     .catch(() => {
-      finishRun();
-      renderMessage("system", { kicker: "ERROR", text: "Failed to initiate swarm execution." });
-    });
-}
-
-function autoResizeInput() {
-  promptInput.style.height = "0px";
-  promptInput.style.height = `${Math.min(promptInput.scrollHeight, 200)}px`;
+      finishRun()
+      setStreamingStatus('idle')
+      renderMessage('system', { kicker: 'ERROR', variant: 'error', text: 'Failed to start the run. Check that the API is reachable.' })
+    })
 }
 
 async function tryResume() {
-  let saved = null;
+  let saved = null
   try {
-    saved = localStorage.getItem("lynx.runId");
+    saved = localStorage.getItem('lynx.runId')
   } catch {
-    return;
+    return
   }
-  if (!saved) return;
+  if (!saved) return
 
   try {
-    const response = await fetch(`/api/run/${saved}/status`);
+    const response = await fetch(`/api/run/${saved}/status`)
     if (!response.ok) {
-      localStorage.removeItem("lynx.runId");
-      return;
+      localStorage.removeItem('lynx.runId')
+      return
     }
-
-    const data = await response.json();
-    AppState.runId = saved;
-    renderMessage("system", {
-      kicker: "REATTACH",
-      text: `Reattached to session ${shortId(saved)}. Status: ${data.status}`
-    });
+    const data = await response.json()
+    AppState.runId = saved
+    renderMessage('system', { kicker: 'RESUME', text: `Reattached to run ${shortId(saved)} (${data.status}).` })
 
     if (data.active) {
-      AppState.active = true;
-      startBtn.hidden = true;
-      stopBtn.hidden = false;
-      stopBtn.disabled = false;
-      stopBtn.textContent = "Cancel";
-      if (pauseBtn) pauseBtn.hidden = false;
+      AppState.active = true
+      startBtn.hidden = true
+      stopBtn.hidden = false
+      pauseBtn.hidden = false
+      setStreamingStatus('streaming')
+      startTimer()
     }
-
-    updateRunMeta();
-    window.dispatchEvent(new CustomEvent("run-started", { detail: { runId: saved } }));
-    attachStream(saved, data.active);
+    updateRunMeta()
+    window.dispatchEvent(new CustomEvent('run-started', { detail: { runId: saved } }))
+    attachStream(saved, data.active)
   } catch {
     try {
-      localStorage.removeItem("lynx.runId");
+      localStorage.removeItem('lynx.runId')
     } catch {
       // ignore
     }
@@ -1068,313 +1267,127 @@ async function tryResume() {
 }
 
 async function loadModelList() {
-  if (!modelSelect) return;
   try {
-    const response = await fetch("/api/system/model");
-    const data = await response.json();
-    modelSelect.replaceChildren();
-
+    const response = await fetch('/api/system/model')
+    const data = await response.json()
+    modelSelect.replaceChildren()
     for (const model of data.allowed) {
-      const option = document.createElement("option");
-      option.value = model;
-      option.textContent = model;
-      if (model === data.model) option.selected = true;
-      modelSelect.append(option);
+      const option = document.createElement('option')
+      option.value = model
+      option.textContent = model
+      if (model === data.model) option.selected = true
+      modelSelect.append(option)
     }
   } catch {
-    modelSelect.innerHTML = "<option>gpt-4o</option>";
+    modelSelect.innerHTML = '<option>unavailable</option>'
   }
 }
 
-// BIND COLLAPSIBLE EVENTS
-document.querySelectorAll(".section-title-bar").forEach(bar => {
-  bar.addEventListener("click", () => {
-    const section = bar.closest(".inspector-section");
-    const collapsed = section.classList.toggle("is-collapsed");
-    AppState.activePanelSections[section.id] = collapsed;
-  });
-});
-
-// BIND NODE SELECT INTERCEPTION
-window.addEventListener("graph-node-selected", (event) => {
-  const selected = event.detail.selected;
-  const inspector = $("section-inspector");
-  if (selected && selected !== "run") {
-    if (inspector) {
-      inspector.classList.remove("is-collapsed");
-      inspector.scrollIntoView({ behavior: "smooth", block: "nearest" });
-    }
-    
-    // Set selected node state
-    AppState.selectedNode = {
-      id: selected,
-      type: selected.split(":")[0],
-      label: selected.split(":")[1] || "Agent Node"
-    };
-  } else {
-    AppState.selectedNode = null;
-  }
-});
-
-// HIGH-FIDELITY MOCKUP ENGINE DRIVER
-function clearMockSession() {
-  stream.replaceChildren();
-  AppState.messages = [];
-  AppState.runtimeEvents = [];
-  
-  // Reset right panel defaults
-  $("inspector-model").textContent = "gpt-5.4-nano";
-  $("inspector-latency").textContent = "--ms";
-  $("mem-tokens").textContent = "0 / 128k";
-  $("mem-fill").style.width = "0%";
-  $("mem-agents").textContent = "0 agents";
-  $("mem-compactions").textContent = "0 compactions";
-  $("mem-files").textContent = "0 files";
-  
-  // Clear checklist
-  const planList = $("plan-list");
-  if (planList) planList.replaceChildren();
-  
-  // Clear live events
-  const runtimeFeed = $("runtime-feed");
-  if (runtimeFeed) {
-    runtimeFeed.replaceChildren();
-    const emptyFeed = document.createElement("div");
-    emptyFeed.className = "runtime-feed-empty";
-    emptyFeed.textContent = "Live execution feed...";
-    runtimeFeed.appendChild(emptyFeed);
-  }
-  
-  // Clear Inspector
-  $("graph-inspector-title").textContent = "No node selected";
-  $("graph-inspector-copy").textContent = "Select an element in the graph to inspect.";
-  $("graph-inspector-metrics").replaceChildren();
-  $("graph-timeline-list").replaceChildren();
-  
-  // Reset active session card subtitle tags
-  $("session-run-id").textContent = "No active run";
-  $("session-time").textContent = "--:--:--";
-  $("session-msg-count").textContent = "0 messages";
-  $("session-tool-count").textContent = "0 tools";
-  
-  // Dispatch clear event to graph.js
-  document.dispatchEvent(new CustomEvent("mock:graph-clear"));
-  
-  AppState.streamingStatus = 'idle';
+function autoResizeInput() {
+  promptInput.style.height = '0px'
+  promptInput.style.height = `${Math.min(promptInput.scrollHeight, 180)}px`
 }
 
-function loadMockSession(sessionId) {
-  // Guard against rapid clicks
-  if (AppState.streamingStatus === 'loading') return;
-  AppState.streamingStatus = 'loading';
-  
-  clearMockSession();
-  
-  const data = window.MOCK_SESSIONS[sessionId];
-  if (!data) {
-    AppState.streamingStatus = 'idle';
-    return;
-  }
-  
-  // Update left active session metadata
-  $("session-run-id").textContent = `Session ID: ${shortId(data.runId)}`;
-  $("session-time").textContent = data.metrics.latency;
-  $("session-msg-count").textContent = `${data.messages.length} messages`;
-  $("session-tool-count").textContent = `${data.messages.filter(m => m.type === 'tool').length} tools`;
-  
-  // Update border styles in past sessions
-  const container = $("past-sessions-list");
-  if (container) {
-    container.querySelectorAll(".session-card-past").forEach((card, idx) => {
-      let mockId = "mercury";
-      if (idx === 1) mockId = "wise";
-      if (idx === 2) mockId = "vendor";
-      if (mockId === sessionId) {
-        card.classList.add("active");
-      } else {
-        card.classList.remove("active");
-      }
-    });
-  }
-  const activeCard = $("active-session-card");
-  if (activeCard) activeCard.classList.remove("active");
-  
-  // 1. Load Metrics
-  $("inspector-model").textContent = data.metrics.model;
-  $("inspector-latency").textContent = data.metrics.latency;
-  $("mem-tokens").textContent = data.metrics.tokens;
-  $("mem-fill").style.width = `${data.metrics.fillPercent}%`;
-  $("mem-agents").textContent = `${data.metrics.agents} agents`;
-  $("mem-compactions").textContent = `${data.metrics.compactions} compactions`;
-  $("mem-files").textContent = `${data.metrics.files} files`;
-  
-  // 2. Load Checklist
-  const planList = $("plan-list");
-  if (planList) {
-    planList.replaceChildren();
-    data.checklist.forEach(item => {
-      const li = document.createElement("li");
-      li.className = "plan-item";
-      li.style.display = "flex";
-      li.style.alignItems = "center";
-      li.style.gap = "var(--space-2)";
-      li.style.fontSize = "12px";
-      li.style.color = "var(--text-secondary)";
-      li.innerHTML = `
-        <input type="checkbox" class="plan-checkbox" ${item.checked ? 'checked' : ''} disabled style="accent-color: var(--accent-green);">
-        <span class="plan-text ${item.checked ? 'checked' : ''}" style="${item.checked ? 'text-decoration: line-through; color: var(--text-muted);' : ''}">${item.text}</span>
-      `;
-      planList.appendChild(li);
-    });
-  }
-  
-  // 3. Load Event Feed
-  const runtimeFeed = $("runtime-feed");
-  if (runtimeFeed) {
-    runtimeFeed.replaceChildren();
-    data.feed.forEach(evt => {
-      const row = document.createElement("div");
-      row.className = "feed-event-row";
-      row.style.display = "flex";
-      row.style.gap = "var(--space-2)";
-      row.style.fontSize = "11px";
-      row.style.fontFamily = "var(--font-mono)";
-      row.style.marginBottom = "var(--space-1)";
-      row.style.color = "var(--text-secondary)";
-      row.innerHTML = `
-        <span class="feed-event-time" style="color: var(--text-muted);">[${evt.time}]</span>
-        <span class="feed-event-text">${evt.text}</span>
-      `;
-      runtimeFeed.appendChild(row);
-    });
-  }
-  
-  // 4. Render Messages inside Chat
-  data.messages.forEach(msg => {
-    renderMessage(msg.type, msg.data);
-  });
-  
-  // 5. Fire graph load event
-  document.dispatchEvent(new CustomEvent("mock:graph-load", {
-    detail: data.graph
-  }));
-  
-  // Update input text
-  if (promptInput) {
-    promptInput.value = data.messages[0]?.data?.content || "";
-    autoResizeInput();
-  }
-  
-  AppState.streamingStatus = data.status || 'idle';
-  
-  // Hook Option B interactive approval actions
-  if (data.status === "waiting_approval") {
-    setTimeout(() => {
-      const approveBtn = stream.querySelector(".btn-approve");
-      const rejectBtn = stream.querySelector(".btn-reject");
-      const actionsDiv = stream.querySelector(".msg-approval-actions");
-      
-      if (approveBtn && actionsDiv) {
-        approveBtn.addEventListener("click", () => {
-          actionsDiv.innerHTML = `
-            <span class="badge badge-success" style="color: var(--accent-green); background: var(--accent-green-surface); padding: var(--space-1) var(--space-2); border-radius: var(--radius-sm); font-weight: 700; font-family: var(--font-mono); font-size: 11px; border: 1px solid rgba(62,207,142,0.18);">
-              ✓ Approved Transaction (User Decision)
-            </span>
-          `;
-          AppState.streamingStatus = 'idle';
-          renderMessage("system", { kicker: "SUCCESS", text: "Mercury wire payout approved and submitted successfully." });
-        });
-      }
-      
-      if (rejectBtn && actionsDiv) {
-        rejectBtn.addEventListener("click", () => {
-          actionsDiv.innerHTML = `
-            <span class="badge badge-error" style="color: var(--accent-red); background: var(--accent-red-surface); padding: var(--space-1) var(--space-2); border-radius: var(--radius-sm); font-weight: 700; font-family: var(--font-mono); font-size: 11px; border: 1px solid rgba(240,96,85,0.18);">
-              ✗ Rejected Request (User Decision)
-            </span>
-          `;
-          AppState.streamingStatus = 'idle';
-          renderMessage("system", { kicker: "ABORTED", text: "Mercury wire transaction rejected. Halting workflow execution." });
-        });
-      }
-    }, 100);
-  }
-}
+// PANEL COLLAPSE
+document.querySelectorAll('.section-title-bar').forEach((bar) => {
+  bar.addEventListener('click', (event) => {
+    if (event.target.closest('summary, button:not(.section-toggle-btn)')) return
+    bar.closest('.inspector-section').classList.toggle('is-collapsed')
+  })
+})
 
-// BIND RESPONSIVE TOGGLES
-const toggleGraphBtn = $("toggle-graph-btn");
-const mainViewport = document.querySelector(".main-viewport");
-if (toggleGraphBtn) {
-  // Show only below 1280px via CSS. Toggle action switches screen modes
-  toggleGraphBtn.removeAttribute("hidden");
-  toggleGraphBtn.addEventListener("click", () => {
-    const isGraph = mainViewport.classList.toggle("show-graph");
-    toggleGraphBtn.textContent = isGraph ? "Show Chat" : "Show Graph";
-  });
-}
+// RESPONSIVE GRAPH TOGGLE
+const toggleGraphBtn = $('toggle-graph-btn')
+const mainViewport = document.querySelector('.main-viewport')
+toggleGraphBtn.addEventListener('click', () => {
+  const showingGraph = mainViewport.classList.toggle('show-graph')
+  toggleGraphBtn.textContent = showingGraph ? 'Chat' : 'Graph'
+})
 
-// APP INITIALIZATION
-clearChatBtn.addEventListener("click", () => {
-  clearMockSession();
-  renderMessage("system", { kicker: "CLEAR", text: "Chat view history cleared." });
-});
+// WIRING
+$('clear-chat-btn').addEventListener('click', () => {
+  clearConversation()
+})
 
-newChatBtn.addEventListener("click", async () => {
-  clearMockSession();
+$('new-chat-btn').addEventListener('click', async () => {
+  if (AppState.es) {
+    AppState.es.close()
+    AppState.es = null
+  }
   try {
-    localStorage.removeItem("lynx.runId");
-  } catch(e) {}
-  try {
-    await fetch("/api/memories", { method: "DELETE" });
-    location.reload();
-  } catch(e) {
-    console.error(e);
-    location.reload();
+    localStorage.removeItem('lynx.runId')
+  } catch {
+    // ignore
   }
-});
+  try {
+    await fetch('/api/memories', { method: 'DELETE' })
+  } catch {
+    // proceed with reload regardless
+  }
+  location.reload()
+})
 
-const pastSessionsContainer = $("past-sessions-list");
-if (pastSessionsContainer) {
-  const cards = pastSessionsContainer.querySelectorAll(".session-card-past");
-  cards.forEach((card, idx) => {
-    card.addEventListener("click", () => {
-      let mockId = "mercury";
-      if (idx === 1) mockId = "wise";
-      if (idx === 2) mockId = "vendor";
-      loadMockSession(mockId);
-    });
-  });
-}
+startBtn.addEventListener('click', startRun)
+stopBtn.addEventListener('click', stopRun)
 
-startBtn.addEventListener("click", startRun);
-stopBtn.addEventListener("click", stopRun);
-
-pauseBtn?.addEventListener("click", () => {
-  AppState.paused = !AppState.paused;
-  pauseBtn.textContent = AppState.paused ? "Resume" : "Pause";
-  updateRunMeta();
+pauseBtn.addEventListener('click', () => {
+  AppState.paused = !AppState.paused
+  pauseBtn.textContent = AppState.paused ? 'Resume' : 'Pause'
+  setStreamingStatus(AppState.paused ? 'paused' : 'streaming')
   if (!AppState.paused) {
-    const queued = AppState.queue.splice(0);
-    for (const event of queued) queueIncomingEvent(event);
+    const queued = AppState.queue.splice(0)
+    for (const event of queued) queueIncomingEvent(event)
   }
-});
+})
 
-promptInput.addEventListener("input", autoResizeInput);
-promptInput.addEventListener("keydown", (event) => {
-  if (event.key === "Enter" && !event.shiftKey) {
-    event.preventDefault();
-    startRun();
+promptInput.addEventListener('input', autoResizeInput)
+promptInput.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter' && !event.shiftKey) {
+    event.preventDefault()
+    startRun()
   }
-});
+})
 
-stream.addEventListener("scroll", () => {
-  AppState.autoScroll = isNearBottom();
-});
+modelSelect.addEventListener('change', async () => {
+  const requested = modelSelect.value
+  modelSelect.disabled = true
+  try {
+    const response = await fetch('/api/system/model', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: requested }),
+    })
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    const data = await response.json()
+    if (!AppState.active) {
+      renderMessage('system', { kicker: 'MODEL', text: `Model set to ${data.model}.` })
+    }
+  } catch (error) {
+    renderMessage('system', { kicker: 'MODEL', variant: 'error', text: `Could not switch to ${requested}: ${error.message}` })
+    await loadModelList()
+  } finally {
+    modelSelect.disabled = false
+  }
+})
 
-loadModelList();
-refreshMemoryBar();
-updateRunMeta();
-tryResume();
-autoResizeInput();
+stream.addEventListener('scroll', () => {
+  AppState.autoScroll = isNearBottom()
+})
 
-window.runActive = () => AppState.active;
+loadModelList()
+setStreamingStatus('idle')
+refreshMemoryBar()
+refreshMetrics()
+updateRunMeta()
+tryResume()
+autoResizeInput()
+
+const handoff = sessionStorage.getItem('lynxPromptHandoff')
+if (handoff) {
+  sessionStorage.removeItem('lynxPromptHandoff')
+  promptInput.value = handoff
+  autoResizeInput()
+  promptInput.focus()
+}
+
+window.runActive = () => AppState.active

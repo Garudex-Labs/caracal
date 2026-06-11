@@ -11,7 +11,15 @@ interface RouteOptions {
   prefix?: string
 }
 
-export function buildRouteApp(route: FastifyPluginAsync, options: RouteOptions = { prefix: '/v1' }) {
+interface BuildRouteAppExtras {
+  actor?: unknown
+}
+
+export function buildRouteApp(
+  route: FastifyPluginAsync,
+  options: RouteOptions = { prefix: '/v1' },
+  extras: BuildRouteAppExtras = {},
+) {
   const app = Fastify({ logger: false })
   const db = {
     query: vi.fn(),
@@ -28,6 +36,11 @@ export function buildRouteApp(route: FastifyPluginAsync, options: RouteOptions =
   }
   app.decorate('db', db as never)
   app.decorate('redis', redis as never)
+  if (extras.actor !== undefined) {
+    app.addHook('preHandler', async (req) => {
+      ;(req as unknown as { actor: unknown }).actor = extras.actor
+    })
+  }
   app.register(route, options)
   return { app, db, redis }
 }

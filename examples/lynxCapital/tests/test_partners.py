@@ -30,7 +30,8 @@ def test_partner_catalog_covers_twenty():
 
 def test_partner_catalog_auth_kinds():
     auths = {s.auth for s in partners.catalog().values()}
-    assert auths == {"api_key", "bearer", "oauth_cc", "oauth_ac", "none", "mcp_bearer", "mandate"}
+    assert auths == {"api_key", "bearer", "oauth_cc", "oauth_ac", "none",
+                     "mcp_bearer", "mandate", "mcp_mandate"}
 
 
 # --------------------------------------------------------------------------- #
@@ -141,14 +142,45 @@ def test_oauth_ac_offline_tallyhall_vendors(providerlab):
     assert res["status"] == 200 and "items" in res["data"]
 
 
+def test_oauth_ac_offline_refresh_reuses_refresh_token(providerlab, monkeypatch):
+    # Prime a session and capture its access + refresh token.
+    first = partners.call("beacon-crm", "list_contacts", {"pageSize": 1})
+    assert first["status"] == 200
+    sess = partners._SESSIONS["beacon-crm"]
+    old_access = sess.token.access_token
+    assert sess.token.refresh_token
+
+    # Expire the cached access token; re-consent must NOT be used.
+    sess.token.expires_at = 0.0
+
+    def _no_reconsent(spec, session):
+        raise AssertionError("offline integration must refresh, not re-run consent")
+
+    monkeypatch.setattr(partners, "_fetch_authorization_code_token", _no_reconsent)
+    again = partners.call("beacon-crm", "get_contact", {"contactId": "CONT-00001"})
+    assert again["status"] == 200
+    assert sess.token.access_token != old_access
+
+
 # --------------------------------------------------------------------------- #
 # none (internal) — distinct cases
 # --------------------------------------------------------------------------- #
 def test_internal_billing_create_and_404(providerlab):
     aging = partners.call("core-billing", "get_ar_aging", {})
     assert aging["status"] == 200
+    assert set(aging["data"]["buckets"]) == {"current", "1-30", "31-60", "61-90", "90+"}
     missing = partners.call("core-billing", "get_invoice", {"invoiceId": "inv_does_not_exist"})
     assert missing["status"] == 404
+
+    summary = partners.call("core-billing", "get_ar_summary", {})
+    assert summary["status"] == 200
+    assert "daysSalesOutstanding" in summary["data"]
+
+    customer = partners.call("core-billing", "list_customers", {"pageSize": 1})["data"]["items"][0]
+    remit = partners.call("core-billing", "record_payment",
+                          {"customerId": customer["customerId"], "amount": 100})
+    assert remit["status"] == 200
+    assert remit["data"]["paymentId"].startswith("PMT-")
 
 
 def test_internal_identity_paging(providerlab):
@@ -165,43 +197,78 @@ def test_mcp_bearer_search_vendors(providerlab):
     assert res["status"] == 200 and "items" in res["data"]
 
 
+def test_mcp_compliance_and_onboarding(providerlab):
+    listed = partners.call("atlas-vendor", "list_vendors", {"status": "active", "pageSize": 5})
+    assert listed["status"] == 200 and listed["data"]["items"]
+    vid = listed["data"]["items"][0]["id"]
+    compliance = partners.call("atlas-vendor", "get_compliance_status", {"vendorId": vid})
+    assert compliance["status"] == 200 and "clearedToPay" in compliance["data"]
+    onboarding = partners.call("atlas-vendor", "get_onboarding_status", {"vendorId": vid})
+    assert "checklist" in onboarding["data"]["onboarding"]
+
+
+def test_mcp_tool_error_surfaces(providerlab):
+    res = partners.call("atlas-vendor", "get_vendor_profile", {"vendorId": "VEND-00000"})
+    assert res["data"] is None and "vendor_not_found" in res["error"]
+
+
 # --------------------------------------------------------------------------- #
 # sdk (api key over REST) — distinct cases
 # --------------------------------------------------------------------------- #
-def test_sdk_tax_rate_table(providerlab):
-    res = partners.call("sabre-tax", "calculate", {"jurisdiction": "US-CA", "amount": 1000})
-    assert res["data"]["rate"] == pytest.approx(0.0825)
+def test_sdk_tax_determination(providerlab):
+    juris = partners.call("sabre-tax", "resolve_jurisdiction",
+                          {"address": {"country": "US", "region": "NY"}})
+    assert juris["data"]["combinedRate"] == pytest.approx(0.08875)
+    wht = partners.call("sabre-tax", "determine_withholding",
+                        {"paymentType": "royalties", "grossAmount": 5000,
+                         "payee": {"country": "DE", "documentationType": "W-8BEN", "treatyClaim": True}})
+    assert wht["data"]["withholdingRate"] == 0.0 and wht["data"]["isTreatyApplicable"]
 
 
 def test_sdk_payout_unverified_recipient(providerlab):
     rec = partners.call("quetzal-payouts", "create_recipient",
-                        {"name": "R", "currency": "USD", "method": "bank"})
-    res = partners.call("quetzal-payouts", "create_payout",
-                        {"recipientId": rec["data"]["id"], "amount": 100, "currency": "USD"})
-    assert res["status"] in (200, 403)
+                        {"name": "R", "currency": "EUR", "method": "bank"})
+    blocked = partners.call("quetzal-payouts", "create_payout",
+                            {"recipientId": rec["data"]["id"], "amount": 100, "currency": "USD"})
+    assert blocked["status"] == 403 and blocked["error"] == "recipient_unverified"
+    partners.call("quetzal-payouts", "verify_recipient", {"recipientId": rec["data"]["id"]})
+    paid = partners.call("quetzal-payouts", "create_payout",
+                         {"recipientId": rec["data"]["id"], "amount": 100, "currency": "USD"})
+    assert paid["status"] == 200 and paid["data"]["status"] == "processing"
 
 
 # --------------------------------------------------------------------------- #
-# caracal_mandate providers are gated until the Caracal SDK phase
+# caracal_mandate providers verify the simulation lab's seeded mandate
 # --------------------------------------------------------------------------- #
-def test_mandate_providers_pending_caracal(providerlab):
-    for provider_id in ("aegis-screening", "verafin-monitor", "relay-automation"):
-        with pytest.raises(partners.PartnerPendingCaracal):
-            partners.call(provider_id, partners.spec(provider_id).operations[0], {})
+def test_mandate_provider_screening(providerlab):
+    res = partners.call("aegis-screening", "screen_party",
+                        {"name": "Northwind Trading GmbH", "entityType": "business"})
+    assert res["status"] == 200 and "data" in res
+
+
+def test_mandate_provider_monitoring(providerlab):
+    res = partners.call("verafin-monitor", "list_alerts", {})
+    assert res["status"] == 200
+
+
+def test_mcp_mandate_provider_workflows(providerlab):
+    res = partners.call("relay-automation", "list_workflows", {})
+    assert res["status"] == 200
 
 
 # --------------------------------------------------------------------------- #
 # Agent tool surface uses the partner layer
 # --------------------------------------------------------------------------- #
 def test_partner_operation_tool_emits_and_runs(providerlab):
-    res = tool_fns.partner_operation("run-1", "agent-1", "sabre-tax", "calculate",
-                                     {"jurisdiction": "US-NY", "amount": 100})
-    assert res["data"]["rate"] == pytest.approx(0.08875)
+    res = tool_fns.partner_operation("run-1", "agent-1", "sabre-tax", "resolve_jurisdiction",
+                                     {"address": {"country": "US", "region": "NY"}})
+    assert res["data"]["combinedRate"] == pytest.approx(0.08875)
 
 
-def test_partner_operation_tool_gates_mandate(providerlab):
-    res = tool_fns.partner_operation("run-1", "agent-1", "aegis-screening", "screen_party", {"name": "x"})
-    assert res["status"] == "pending_caracal_integration"
+def test_partner_operation_tool_runs_mandate_provider(providerlab):
+    res = tool_fns.partner_operation("run-1", "agent-1", "aegis-screening", "screen_party",
+                                     {"name": "Northwind Trading GmbH", "entityType": "business"})
+    assert res["status"] == 200
 
 
 def test_partner_operation_in_tools_registry():

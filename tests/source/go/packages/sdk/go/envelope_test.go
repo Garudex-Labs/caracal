@@ -205,8 +205,8 @@ func TestToMapFromMapRoundTrip(t *testing.T) {
 		TraceID:          "0123456789abcdef0123456789abcdef",
 		Hop:              1,
 	}
-	m := sdk.ToMap(env)
-	out := sdk.FromMap(m)
+	m := sdk.ToHeaders(env)
+	out := sdk.FromHeaders(m)
 
 	if out.SubjectToken != env.SubjectToken {
 		t.Errorf("SubjectToken mismatch")
@@ -224,14 +224,14 @@ func TestToMapFromMapRoundTrip(t *testing.T) {
 
 func TestToMapCaseInsensitive(t *testing.T) {
 	env := sdk.Envelope{SubjectToken: "tok"}
-	m := sdk.ToMap(env)
+	m := sdk.ToHeaders(env)
 
-	// Uppercase the keys to test case-insensitive FromMap.
+	// Uppercase the keys to test case-insensitive FromHeaders.
 	upper := map[string]string{}
 	for k, v := range m {
 		upper[strings.ToUpper(k)] = v
 	}
-	out := sdk.FromMap(upper)
+	out := sdk.FromHeaders(upper)
 	if out.SubjectToken != "tok" {
 		t.Errorf("case-insensitive key lookup failed: %q", out.SubjectToken)
 	}

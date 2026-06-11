@@ -1,0 +1,561 @@
+# Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+# Caracal, a product of Garudex Labs
+#
+# Identity model for the Lynx Capital finance-ops swarm: the managed applications that
+# partition agents by permission boundary, the twenty partner credential providers in
+# their exact Caracal provider format, the per-application resource views the Gateway
+# binds, and the role-to-scope grants every spawned agent is narrowed to.
+#
+# One managed application per permission boundary. The Gateway binds each resource to
+# exactly one application, so two applications can never present authority for the same
+# resource view; shared partners get one view per application that needs them, each with
+# only the scopes that boundary is allowed to hold. Every agent in the swarm runs as its
+# own Caracal agent session under its role's application, labeled with its role and
+# narrowed by a delegation edge to its role's scopes.
+
+applications:
+  - id: "operations"
+    applicationName: "lynx-operations"
+    description: "Run orchestration: finance-control and the regional/workflow orchestrators. Holds no partner authority except the Relay workflow-automation view used by ad-hoc partner integration."
+  - id: "intake"
+    applicationName: "lynx-intake"
+    description: "Invoice capture and vendor lifecycle: OCR extraction, vendor master data, KYB verification, procurement, and supplier CRM."
+  - id: "ledger"
+    applicationName: "lynx-ledger"
+    description: "Books and records: ERP matching, SMB accounting, general ledger close, and accounts receivable with its dunning notifications."
+  - id: "compliance"
+    applicationName: "lynx-compliance"
+    description: "Screening, transaction monitoring, regulatory filing, tax determination, and the internal directory used for approval chains."
+  - id: "treasury"
+    applicationName: "lynx-treasury"
+    description: "Cash positioning, liquidity, FX rates and conversions, market data, and payment-route optimization."
+  - id: "payments"
+    applicationName: "lynx-payments"
+    description: "Money movement: payout rails, open-banking payments, cross-border settlement, bill payment, and payment notifications."
+  - id: "audit"
+    applicationName: "lynx-audit"
+    description: "Read-only verification of contracts, charges, FX settlements, and financial reports."
+
+# The twenty partner providers, registered with the Caracal control plane in the exact
+# config shape each provider kind supports. ${ENV} values resolve from the operator
+# environment at provision time; the Gateway holds the credential and the application
+# never sees it. `scopes` is the provider's operation vocabulary: every operation maps
+# to exactly one scope, and resource views below select scope names from it.
+providers:
+  - id: "halcyon-bank"
+    name: "Halcyon Bank"
+    kind: "oauth2_authorization_code"
+    port: 9400
+    integrationView: "treasury-halcyon"
+    config:
+      authorization_endpoint: "${LYNX_PARTNER_HALCYON_BANK_AUTHORIZE_URL:https://halcyon-bank.mock:9400/oauth/authorize}"
+      token_endpoint: "${LYNX_PARTNER_HALCYON_BANK_TOKEN_URL:https://halcyon-bank.mock:9400/oauth/token}"
+      redirect_uri: "${LYNX_OAUTH_REDIRECT_URI:http://127.0.0.1:8000/oauth/callback}"
+      client_id: "${LYNX_PARTNER_HALCYON_BANK_CLIENT_ID}"
+      client_secret: "${LYNX_PARTNER_HALCYON_BANK_CLIENT_SECRET}"
+      client_auth_method: "client_secret_basic"
+      scopes: ["accounts.read", "payments.write"]
+      allowed_token_hosts: ["halcyon-bank.mock"]
+    scopes:
+      halcyon:read: ["list_accounts", "get_account", "list_transactions", "get_statement"]
+      halcyon:pay: ["initiate_payment", "get_payment"]
+  - id: "meridian-pay"
+    name: "Meridian Pay"
+    kind: "api_key"
+    port: 9401
+    integrationView: "audit-meridian"
+    config:
+      auth_location: "header"
+      header_name: "X-Api-Key"
+      api_key: "${LYNX_PARTNER_MERIDIAN_PAY_API_KEY}"
+    scopes:
+      meridian:payout: ["create_payout", "get_payout", "get_balance"]
+      meridian:charge: ["create_charge", "capture_charge", "refund_charge", "submit_dispute_evidence"]
+      meridian:read: ["get_charge", "list_charges", "list_disputes", "get_dispute", "list_settlements", "get_settlement", "list_events"]
+  - id: "cordoba-fx"
+    name: "Cordoba FX"
+    kind: "oauth2_client_credentials"
+    port: 9402
+    integrationView: "audit-cordoba"
+    config:
+      token_endpoint: "${LYNX_PARTNER_CORDOBA_FX_TOKEN_URL:https://cordoba-fx.mock:9402/oauth/token}"
+      client_id: "${LYNX_PARTNER_CORDOBA_FX_CLIENT_ID}"
+      client_secret: "${LYNX_PARTNER_CORDOBA_FX_CLIENT_SECRET}"
+      client_auth_method: "client_secret_basic"
+      scopes: ["fx.read", "fx.convert", "fx.transfer"]
+      allowed_token_hosts: ["cordoba-fx.mock"]
+    scopes:
+      cordoba:quote: ["get_quote"]
+      cordoba:convert: ["create_conversion"]
+      cordoba:transfer: ["create_beneficiary", "create_payment"]
+      cordoba:read: ["get_conversion", "get_beneficiary", "list_beneficiaries", "get_payment", "list_balances"]
+  - id: "ironbark-erp"
+    name: "Ironbark ERP"
+    kind: "oauth2_client_credentials"
+    port: 9403
+    integrationView: "ledger-ironbark"
+    config:
+      token_endpoint: "${LYNX_PARTNER_IRONBARK_ERP_TOKEN_URL:https://ironbark-erp.mock:9403/oauth/token}"
+      client_id: "${LYNX_PARTNER_IRONBARK_ERP_CLIENT_ID}"
+      client_secret: "${LYNX_PARTNER_IRONBARK_ERP_CLIENT_SECRET}"
+      client_auth_method: "client_secret_post"
+      scopes: ["erp.read", "erp.write"]
+      resource: "https://api.ironbark-erp.test"
+      allowed_token_hosts: ["ironbark-erp.mock"]
+    scopes:
+      ironbark:read: ["list_vendors", "get_vendor", "list_purchase_orders", "get_purchase_order", "list_bills", "get_bill", "get_journal_entry", "list_journal_entries", "list_accounts", "get_account"]
+      ironbark:post: ["match_invoice", "create_purchase_order", "create_bill", "approve_bill", "post_journal_entry"]
+  - id: "tallyhall-books"
+    name: "Tallyhall Books"
+    kind: "oauth2_authorization_code"
+    port: 9404
+    integrationView: "ledger-tallyhall"
+    config:
+      authorization_endpoint: "${LYNX_PARTNER_TALLYHALL_BOOKS_AUTHORIZE_URL:https://tallyhall-books.mock:9404/oauth/authorize}"
+      token_endpoint: "${LYNX_PARTNER_TALLYHALL_BOOKS_TOKEN_URL:https://tallyhall-books.mock:9404/oauth/token}"
+      redirect_uri: "${LYNX_OAUTH_REDIRECT_URI:http://127.0.0.1:8000/oauth/callback}"
+      client_id: "${LYNX_PARTNER_TALLYHALL_BOOKS_CLIENT_ID}"
+      client_secret: "${LYNX_PARTNER_TALLYHALL_BOOKS_CLIENT_SECRET}"
+      client_auth_method: "client_secret_basic"
+      scopes: ["com.intuit.quickbooks.accounting", "com.intuit.quickbooks.payment"]
+      allowed_token_hosts: ["tallyhall-books.mock"]
+    scopes:
+      tallyhall:read: ["get_company_info", "list_accounts", "get_account", "list_vendors", "get_vendor", "list_customers", "get_customer", "list_items", "list_bills", "get_bill", "list_invoices", "get_invoice", "list_expenses", "get_expense", "list_journal_entries", "get_journal_entry"]
+      tallyhall:post: ["create_vendor", "create_bill", "match_bill", "create_expense", "post_journal_entry"]
+      tallyhall:ar: ["create_customer", "create_invoice", "send_invoice", "void_invoice", "record_payment"]
+      tallyhall:pay: ["pay_bill"]
+      tallyhall:report: ["get_report"]
+  - id: "slate-ledger"
+    name: "Slate Ledger"
+    kind: "bearer_token"
+    port: 9405
+    integrationView: "ledger-slate"
+    config:
+      bearer_token: "${LYNX_PARTNER_SLATE_LEDGER_TOKEN}"
+      allowed_token_hosts: ["slate-ledger.mock"]
+    scopes:
+      slate:read: ["list_accounts", "get_account", "get_entry", "list_entries", "get_reconciliation", "trial_balance", "get_period", "list_periods"]
+      slate:post: ["post_entry", "reverse_entry", "reconcile_account", "create_accrual", "close_period"]
+  - id: "inkwell-ocr"
+    name: "Inkwell OCR"
+    kind: "api_key"
+    port: 9406
+    integrationView: "intake-inkwell"
+    config:
+      auth_location: "query"
+      query_param_name: "api_key"
+      api_key: "${LYNX_PARTNER_INKWELL_OCR_API_KEY}"
+    scopes:
+      inkwell:extract: ["submit_document", "get_document", "get_extraction", "list_documents", "list_models"]
+  - id: "aegis-screening"
+    name: "Aegis Screening"
+    kind: "caracal_mandate"
+    port: 9407
+    integrationView: "compliance-aegis"
+    config: {}
+    scopes:
+      aegis:verify: ["verify_business"]
+      aegis:screen: ["screen_party", "screen_batch", "rescreen_entity", "get_screening", "list_screenings", "get_entity", "get_watchlist_hit", "list_watchlists", "get_audit_trail"]
+      aegis:case: ["get_case", "list_cases", "assign_case", "add_case_note", "escalate_case", "resolve_case", "create_monitor", "get_monitor", "list_monitors"]
+  - id: "verafin-monitor"
+    name: "Verafin Monitor"
+    kind: "caracal_mandate"
+    port: 9408
+    integrationView: "compliance-verafin"
+    config: {}
+    scopes:
+      verafin:monitor: ["monitor_transaction", "get_alert", "list_alerts", "assign_alert", "resolve_alert", "get_audit_trail"]
+      verafin:case: ["open_case", "get_case", "list_cases", "add_case_note", "escalate_case", "resolve_case"]
+      verafin:file: ["prepare_filing", "get_filing", "list_filings", "submit_filing"]
+      verafin:attest: ["list_controls", "attest_control", "get_attestation", "list_attestations"]
+  - id: "lumen-identity"
+    name: "Lumen Identity"
+    kind: "none"
+    port: 9409
+    integrationView: "compliance-lumen"
+    config: {}
+    scopes:
+      lumen:read: ["get_user", "lookup_user", "list_users", "get_user_access", "list_direct_reports", "get_manager_chain", "list_roles", "get_role", "list_groups", "get_group", "list_teams", "get_team", "list_departments", "get_department", "list_service_accounts", "get_service_account"]
+  - id: "beacon-crm"
+    name: "Beacon CRM"
+    kind: "oauth2_authorization_code"
+    port: 9410
+    integrationView: "intake-beacon"
+    config:
+      authorization_endpoint: "${LYNX_PARTNER_BEACON_CRM_AUTHORIZE_URL:https://beacon-crm.mock:9410/oauth/authorize}"
+      token_endpoint: "${LYNX_PARTNER_BEACON_CRM_TOKEN_URL:https://beacon-crm.mock:9410/oauth/token}"
+      redirect_uri: "${LYNX_OAUTH_REDIRECT_URI:http://127.0.0.1:8000/oauth/callback}"
+      client_id: "${LYNX_PARTNER_BEACON_CRM_CLIENT_ID}"
+      client_secret: "${LYNX_PARTNER_BEACON_CRM_CLIENT_SECRET}"
+      client_auth_method: "client_secret_basic"
+      scopes: ["contacts.read", "accounts.read", "deals.read", "deals.write", "activities.read", "activities.write"]
+      allowed_token_hosts: ["beacon-crm.mock"]
+    scopes:
+      beacon:read: ["list_contacts", "get_contact", "list_accounts", "get_account", "list_deals", "get_deal", "list_activities", "list_notes", "list_relationships"]
+      beacon:write: ["create_contact", "update_contact", "update_deal", "log_activity", "add_note"]
+  - id: "atlas-vendor"
+    name: "Atlas Vendor Network"
+    kind: "bearer_token"
+    protocol: "mcp"
+    port: 9411
+    integrationView: "intake-atlas"
+    config:
+      bearer_token: "${LYNX_PARTNER_ATLAS_VENDOR_TOKEN}"
+      allowed_token_hosts: ["atlas-vendor.mock"]
+    scopes:
+      atlas:read: ["search_vendors", "list_vendors", "get_vendor_profile", "list_vendor_contacts", "get_onboarding_status", "get_compliance_status", "list_vendor_documents", "list_contracts", "get_contract_terms"]
+      atlas:onboard: ["register_vendor", "advance_onboarding", "verify_vendor_banking", "submit_vendor_document", "set_vendor_status"]
+  - id: "keystone-treasury"
+    name: "Keystone Treasury"
+    kind: "api_key"
+    port: 9412
+    integrationView: "treasury-keystone"
+    config:
+      auth_location: "header"
+      header_name: "x-api-key"
+      api_key: "${LYNX_PARTNER_KEYSTONE_TREASURY_API_KEY}"
+    scopes:
+      keystone:read: ["list_positions", "get_position", "get_account", "get_position_summary", "forecast_liquidity", "list_hedges", "get_hedge", "get_transfer", "list_transfers", "get_exposure", "list_exposures", "list_operations", "get_operation"]
+      keystone:move: ["place_hedge", "cancel_hedge", "transfer_funds"]
+  - id: "sabre-tax"
+    name: "Sabre Tax"
+    kind: "api_key"
+    port: 9413
+    integrationView: "compliance-sabre"
+    config:
+      auth_location: "header"
+      header_name: "X-Api-Key"
+      api_key: "${LYNX_PARTNER_SABRE_TAX_API_KEY}"
+    scopes:
+      sabre:tax: ["calculate_tax", "resolve_jurisdiction", "validate_tax_id", "determine_withholding", "get_exemption_certificate", "list_tax_codes"]
+  - id: "quetzal-payouts"
+    name: "Quetzal Payouts"
+    kind: "bearer_token"
+    port: 9414
+    integrationView: "payments-quetzal"
+    config:
+      bearer_token: "${LYNX_PARTNER_QUETZAL_PAYOUTS_TOKEN}"
+      allowed_token_hosts: ["quetzal-payouts.mock"]
+    scopes:
+      quetzal:payout: ["create_recipient", "get_recipient", "verify_recipient", "get_quote", "create_payout", "get_payout", "cancel_payout", "list_payouts", "get_balance"]
+  - id: "vela-notify"
+    name: "Vela Notify"
+    kind: "bearer_token"
+    port: 9415
+    integrationView: "ledger-vela"
+    config:
+      bearer_token: "${LYNX_PARTNER_VELA_NOTIFY_TOKEN}"
+      auth_header: "X-Vela-Token"
+      auth_scheme: "Token"
+      allowed_token_hosts: ["vela-notify.mock"]
+    scopes:
+      vela:send: ["send_message", "send_batch"]
+      vela:read: ["get_message", "list_messages", "get_message_events", "get_delivery_stats"]
+  - id: "core-billing"
+    name: "Core Billing"
+    kind: "none"
+    port: 9416
+    integrationView: "ledger-corebilling"
+    config: {}
+    scopes:
+      corebilling:read: ["list_customers", "get_customer", "get_invoice", "list_invoices", "get_payment", "list_payments", "list_dunning", "list_collections", "get_ar_aging", "get_ar_summary", "get_audit_trail"]
+      corebilling:post: ["create_invoice", "apply_payment", "record_payment", "write_off_invoice", "issue_credit_memo", "apply_credit_memo"]
+      corebilling:collect: ["issue_dunning", "run_dunning_cycle", "open_collection_case"]
+  - id: "relay-automation"
+    name: "Relay Automation"
+    kind: "caracal_mandate"
+    protocol: "mcp"
+    port: 9417
+    integrationView: "ops-relay"
+    config: {}
+    scopes:
+      relay:read: ["list_workflows", "get_workflow", "get_execution", "list_executions", "get_execution_logs", "get_execution_result", "list_queues", "get_queue", "get_execution_audit"]
+      relay:execute: ["start_execution", "signal_execution", "retry_execution", "cancel_execution"]
+  - id: "pulse-market"
+    name: "Pulse Market Data"
+    kind: "api_key"
+    port: 9418
+    integrationView: "treasury-pulse"
+    config:
+      auth_location: "header"
+      header_name: "X-Api-Key"
+      api_key: "${LYNX_PARTNER_PULSE_MARKET_API_KEY}"
+    scopes:
+      pulse:read: ["list_instruments", "get_instrument", "get_snapshot", "get_quotes", "get_bars", "get_market_status", "list_reference_rates", "get_reference_rate"]
+  - id: "junction-procure"
+    name: "Junction Procurement"
+    kind: "oauth2_client_credentials"
+    port: 9419
+    integrationView: "intake-junction"
+    config:
+      token_endpoint: "${LYNX_PARTNER_JUNCTION_PROCURE_TOKEN_URL:https://junction-procure.mock:9419/oauth/token}"
+      client_id: "${LYNX_PARTNER_JUNCTION_PROCURE_CLIENT_ID}"
+      client_secret: "${LYNX_PARTNER_JUNCTION_PROCURE_CLIENT_SECRET}"
+      client_auth_method: "client_secret_basic"
+      scopes: ["procure.read", "procure.write"]
+      allowed_token_hosts: ["junction-procure.mock"]
+    scopes:
+      junction:read: ["list_suppliers", "get_supplier", "list_commodities", "list_requisitions", "get_requisition", "get_approval_chain", "list_purchase_orders", "get_purchase_order", "list_budgets", "get_budget"]
+      junction:requisition: ["create_requisition", "submit_requisition", "approve_requisition", "reject_requisition"]
+      junction:order: ["create_purchase_order", "acknowledge_order", "receive_order"]
+
+# Per-application resource views. The Gateway binds every view to exactly one
+# application and one credential provider; a view exposes only the scope names its
+# application boundary is allowed to hold. Registered resource scopes additionally
+# include agent:lifecycle so each application can bootstrap its session mandate.
+resources:
+  - id: "ops-relay"
+    identifier: "resource://ops-relay"
+    name: "Operations · Relay Automation"
+    application: "operations"
+    provider: "relay-automation"
+    scopes: ["relay:read", "relay:execute"]
+  - id: "intake-inkwell"
+    identifier: "resource://intake-inkwell"
+    name: "Intake · Inkwell OCR"
+    application: "intake"
+    provider: "inkwell-ocr"
+    scopes: ["inkwell:extract"]
+  - id: "intake-atlas"
+    identifier: "resource://intake-atlas"
+    name: "Intake · Atlas Vendor Network"
+    application: "intake"
+    provider: "atlas-vendor"
+    scopes: ["atlas:read", "atlas:onboard"]
+  - id: "intake-cordoba"
+    identifier: "resource://intake-cordoba"
+    name: "Intake · Cordoba FX quotes"
+    application: "intake"
+    provider: "cordoba-fx"
+    scopes: ["cordoba:quote"]
+  - id: "intake-aegis"
+    identifier: "resource://intake-aegis"
+    name: "Intake · Aegis KYB verification"
+    application: "intake"
+    provider: "aegis-screening"
+    scopes: ["aegis:verify"]
+  - id: "intake-junction"
+    identifier: "resource://intake-junction"
+    name: "Intake · Junction Procurement"
+    application: "intake"
+    provider: "junction-procure"
+    scopes: ["junction:read", "junction:requisition", "junction:order"]
+  - id: "intake-beacon"
+    identifier: "resource://intake-beacon"
+    name: "Intake · Beacon CRM"
+    application: "intake"
+    provider: "beacon-crm"
+    scopes: ["beacon:read", "beacon:write"]
+  - id: "ledger-ironbark"
+    identifier: "resource://ledger-ironbark"
+    name: "Ledger · Ironbark ERP"
+    application: "ledger"
+    provider: "ironbark-erp"
+    scopes: ["ironbark:read", "ironbark:post"]
+  - id: "ledger-tallyhall"
+    identifier: "resource://ledger-tallyhall"
+    name: "Ledger · Tallyhall Books"
+    application: "ledger"
+    provider: "tallyhall-books"
+    scopes: ["tallyhall:read", "tallyhall:post", "tallyhall:ar"]
+  - id: "ledger-slate"
+    identifier: "resource://ledger-slate"
+    name: "Ledger · Slate general ledger"
+    application: "ledger"
+    provider: "slate-ledger"
+    scopes: ["slate:read", "slate:post"]
+  - id: "ledger-corebilling"
+    identifier: "resource://ledger-corebilling"
+    name: "Ledger · Core Billing receivables"
+    application: "ledger"
+    provider: "core-billing"
+    scopes: ["corebilling:read", "corebilling:post", "corebilling:collect"]
+  - id: "ledger-vela"
+    identifier: "resource://ledger-vela"
+    name: "Ledger · Vela dunning notifications"
+    application: "ledger"
+    provider: "vela-notify"
+    scopes: ["vela:send", "vela:read"]
+  - id: "compliance-aegis"
+    identifier: "resource://compliance-aegis"
+    name: "Compliance · Aegis Screening"
+    application: "compliance"
+    provider: "aegis-screening"
+    scopes: ["aegis:screen", "aegis:case"]
+  - id: "compliance-verafin"
+    identifier: "resource://compliance-verafin"
+    name: "Compliance · Verafin Monitor"
+    application: "compliance"
+    provider: "verafin-monitor"
+    scopes: ["verafin:monitor", "verafin:case", "verafin:file", "verafin:attest"]
+  - id: "compliance-sabre"
+    identifier: "resource://compliance-sabre"
+    name: "Compliance · Sabre Tax"
+    application: "compliance"
+    provider: "sabre-tax"
+    scopes: ["sabre:tax"]
+  - id: "compliance-lumen"
+    identifier: "resource://compliance-lumen"
+    name: "Compliance · Lumen Identity directory"
+    application: "compliance"
+    provider: "lumen-identity"
+    scopes: ["lumen:read"]
+  - id: "compliance-atlas"
+    identifier: "resource://compliance-atlas"
+    name: "Compliance · Atlas vendor records"
+    application: "compliance"
+    provider: "atlas-vendor"
+    scopes: ["atlas:read"]
+  - id: "treasury-keystone"
+    identifier: "resource://treasury-keystone"
+    name: "Treasury · Keystone Treasury"
+    application: "treasury"
+    provider: "keystone-treasury"
+    scopes: ["keystone:read", "keystone:move"]
+  - id: "treasury-cordoba"
+    identifier: "resource://treasury-cordoba"
+    name: "Treasury · Cordoba FX rates"
+    application: "treasury"
+    provider: "cordoba-fx"
+    scopes: ["cordoba:quote", "cordoba:convert", "cordoba:read"]
+  - id: "treasury-halcyon"
+    identifier: "resource://treasury-halcyon"
+    name: "Treasury · Halcyon Bank balances"
+    application: "treasury"
+    provider: "halcyon-bank"
+    scopes: ["halcyon:read"]
+  - id: "treasury-pulse"
+    identifier: "resource://treasury-pulse"
+    name: "Treasury · Pulse Market Data"
+    application: "treasury"
+    provider: "pulse-market"
+    scopes: ["pulse:read"]
+  - id: "treasury-sabre"
+    identifier: "resource://treasury-sabre"
+    name: "Treasury · Sabre withholding rates"
+    application: "treasury"
+    provider: "sabre-tax"
+    scopes: ["sabre:tax"]
+  - id: "payments-meridian"
+    identifier: "resource://payments-meridian"
+    name: "Payments · Meridian payouts"
+    application: "payments"
+    provider: "meridian-pay"
+    scopes: ["meridian:payout"]
+  - id: "payments-quetzal"
+    identifier: "resource://payments-quetzal"
+    name: "Payments · Quetzal cross-border payouts"
+    application: "payments"
+    provider: "quetzal-payouts"
+    scopes: ["quetzal:payout"]
+  - id: "payments-halcyon"
+    identifier: "resource://payments-halcyon"
+    name: "Payments · Halcyon open-banking rails"
+    application: "payments"
+    provider: "halcyon-bank"
+    scopes: ["halcyon:read", "halcyon:pay"]
+  - id: "payments-cordoba"
+    identifier: "resource://payments-cordoba"
+    name: "Payments · Cordoba FX settlement"
+    application: "payments"
+    provider: "cordoba-fx"
+    scopes: ["cordoba:convert", "cordoba:transfer"]
+  - id: "payments-tallyhall"
+    identifier: "resource://payments-tallyhall"
+    name: "Payments · Tallyhall bill payment"
+    application: "payments"
+    provider: "tallyhall-books"
+    scopes: ["tallyhall:pay"]
+  - id: "payments-vela"
+    identifier: "resource://payments-vela"
+    name: "Payments · Vela payment notifications"
+    application: "payments"
+    provider: "vela-notify"
+    scopes: ["vela:send"]
+  - id: "audit-atlas"
+    identifier: "resource://audit-atlas"
+    name: "Audit · Atlas contract terms"
+    application: "audit"
+    provider: "atlas-vendor"
+    scopes: ["atlas:read"]
+  - id: "audit-meridian"
+    identifier: "resource://audit-meridian"
+    name: "Audit · Meridian charge records"
+    application: "audit"
+    provider: "meridian-pay"
+    scopes: ["meridian:read"]
+  - id: "audit-cordoba"
+    identifier: "resource://audit-cordoba"
+    name: "Audit · Cordoba settlement records"
+    application: "audit"
+    provider: "cordoba-fx"
+    scopes: ["cordoba:read"]
+  - id: "audit-tallyhall"
+    identifier: "resource://audit-tallyhall"
+    name: "Audit · Tallyhall financial reports"
+    application: "audit"
+    provider: "tallyhall-books"
+    scopes: ["tallyhall:report"]
+
+# Every swarm role, the application boundary it runs under, and the least-privilege
+# scope set its delegation edge is narrowed to. Orchestrator roles coordinate only and
+# hold no partner scopes. partner-integration is dynamic: it spawns under the
+# application that owns the target provider's integrationView, narrowed to that view.
+roles:
+  - name: "finance-control"
+    application: "operations"
+    scopes: []
+  - name: "regional-orchestrator"
+    application: "operations"
+    scopes: []
+  - name: "workflow-orchestrator"
+    application: "operations"
+    scopes: []
+  - name: "partner-integration"
+    application: "operations"
+    scopes: []
+    dynamic: true
+  - name: "invoice-intake"
+    application: "intake"
+    scopes: ["inkwell:extract", "atlas:read", "cordoba:quote"]
+  - name: "vendor-lifecycle"
+    application: "intake"
+    scopes: ["aegis:verify", "atlas:read", "atlas:onboard", "junction:read", "junction:requisition", "junction:order", "beacon:read", "beacon:write"]
+  - name: "ledger-match"
+    application: "ledger"
+    scopes: ["ironbark:read", "ironbark:post", "tallyhall:read", "tallyhall:post"]
+  - name: "close"
+    application: "ledger"
+    scopes: ["slate:read", "slate:post"]
+  - name: "receivables"
+    application: "ledger"
+    scopes: ["corebilling:read", "corebilling:post", "corebilling:collect", "vela:send", "vela:read"]
+  - name: "policy-check"
+    application: "compliance"
+    scopes: ["aegis:screen", "verafin:monitor", "sabre:tax"]
+  - name: "compliance"
+    application: "compliance"
+    scopes: ["aegis:screen", "verafin:monitor", "verafin:case", "verafin:file", "verafin:attest", "lumen:read"]
+  - name: "exception"
+    application: "compliance"
+    scopes: ["aegis:screen", "atlas:read"]
+  - name: "route-optimization"
+    application: "treasury"
+    scopes: ["halcyon:read", "cordoba:quote", "cordoba:convert", "pulse:read", "sabre:tax"]
+  - name: "treasury"
+    application: "treasury"
+    scopes: ["keystone:read", "keystone:move"]
+  - name: "payment-execution"
+    application: "payments"
+    scopes: ["meridian:payout", "quetzal:payout", "halcyon:read", "halcyon:pay", "cordoba:convert", "cordoba:transfer", "tallyhall:pay"]
+  - name: "payments"
+    application: "payments"
+    scopes: ["vela:send"]
+  - name: "audit"
+    application: "audit"
+    scopes: ["atlas:read", "meridian:read", "cordoba:read", "tallyhall:report"]
+
+policySet:
+  name: "lynx-finance-ops"
+  description: "Lynx Capital authorization: per-application bindings, delegation-edge-narrowed agent minting, and mandate-bound resource use."
+  schemaVersion: "2026-05-20"

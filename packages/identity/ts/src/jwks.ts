@@ -7,12 +7,13 @@ import { createLocalJWKSet, type JWTVerifyGetKey } from 'jose'
 
 interface JwksEntry {
   keySet: JWTVerifyGetKey
-  fetchedAt: number
+  fetchedAtMonoMs: number
   revalidating?: Promise<JWTVerifyGetKey>
 }
 
 export interface JwksCacheOptions {
   ttlMs?: number
+  maxStaleMs?: number
   fetchTimeoutMs?: number
   fetchImpl?: typeof fetch
 }
@@ -24,6 +25,7 @@ export interface JwksCache {
 }
 
 const DEFAULT_CACHE_TTL_MS = 5 * 60 * 1000
+const DEFAULT_MAX_STALE_MS = 10 * 60 * 1000
 const DEFAULT_FETCH_TIMEOUT_MS = 5_000
 
 function assertSecureIssuer(issuer: string): void {
@@ -48,16 +50,18 @@ function isLoopbackHost(host: string): boolean {
 
 export function createJwksCache(opts: JwksCacheOptions = {}): JwksCache {
   const ttlMs = opts.ttlMs ?? DEFAULT_CACHE_TTL_MS
+  const maxStaleMs = Math.max(opts.maxStaleMs ?? DEFAULT_MAX_STALE_MS, ttlMs)
   const fetchTimeoutMs = opts.fetchTimeoutMs ?? DEFAULT_FETCH_TIMEOUT_MS
   const fetchImpl = opts.fetchImpl
   const cache = new Map<string, JwksEntry>()
 
   async function getKeySet(issuer: string): Promise<JWTVerifyGetKey> {
-    const now = Date.now()
+    const now = performance.now()
     const entry = cache.get(issuer)
     if (entry) {
-      const age = now - entry.fetchedAt
+      const age = now - entry.fetchedAtMonoMs
       if (age < ttlMs) return entry.keySet
+      if (age > maxStaleMs) return fetchAndStore(issuer)
       if (!entry.revalidating) {
         entry.revalidating = fetchAndStore(issuer)
           .catch(() => entry.keySet)
@@ -81,7 +85,7 @@ export function createJwksCache(opts: JwksCacheOptions = {}): JwksCache {
       if (!res.ok) throw new Error(`JWKS fetch failed: ${res.status}`)
       const body = (await res.json()) as { keys: object[] }
       const keySet = createLocalJWKSet({ keys: body.keys } as Parameters<typeof createLocalJWKSet>[0])
-      cache.set(issuer, { keySet, fetchedAt: Date.now() })
+      cache.set(issuer, { keySet, fetchedAtMonoMs: performance.now() })
       return keySet
     } finally {
       clearTimeout(timeout)

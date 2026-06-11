@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Automatable provider preflight that validates a resource binding, provider reachability, runtime-injection eligibility, and policy authorization before the first Gateway call.",
+  "description": "Automatable provider preflight that validates control-plane and Gateway readiness, dependency resolution, provider configuration, reachability, and policy authorization before the first Gateway request.",
   "engines": {
     "node": ">=22"
   },

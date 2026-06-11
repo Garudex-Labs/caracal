@@ -1,6 +1,6 @@
 {
   "name": "@caracalai/engine",
-  "version": "0.1.4-rc.1",
+  "version": "0.1.5-rc.2",
   "private": true,
   "description": "Shared execution engine for Caracal runtime lifecycle, Console, and OAuth step-up.",
   "license": "Apache-2.0",

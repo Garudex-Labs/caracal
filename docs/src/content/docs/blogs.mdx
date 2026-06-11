@@ -1,21 +1,13 @@
 ---
 title: Blogs
-description: "Stay up to date with the latest security research, engineering updates, and tutorials on securing AI agents with Caracal."
+description: Articles from the Caracal team and community on agent authority, policy design, delegation, identity, and audit.
 template: splash
+editUrl: false
 ---
 
-import BlogContainer from "../../components/BlogContainer"
-import LandingFooter from "../../components/LandingFooter.astro"
+import BlogsDirectory from '../../components/BlogsDirectory.astro'
+import LandingFooter from '../../components/LandingFooter.astro'
 
-<div class="docs-body">
-  <div class="docs-body__inner">
-    <header class="docs-section__head">
-      <p class="docs-section__eyebrow">Caracal Blog</p>
-      <h1 class="docs-section__heading">Latest updates, tutorials, and security insights</h1>
-    </header>
-
-    <BlogContainer client:load />
-  </div>
-</div>
+<BlogsDirectory />
 
 <LandingFooter />

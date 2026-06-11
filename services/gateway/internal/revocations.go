@@ -138,7 +138,7 @@ func (s *revocationStore) SnapshotAge(now time.Time) (time.Duration, bool) {
 	}
 	age := now.Sub(time.Unix(seen, 0))
 	if age < 0 {
-		return 0, true
+		return 0, false
 	}
 	return age, true
 }

@@ -1,0 +1,108 @@
+{
+  "release": "v2026.05.12",
+  "channel": "stable",
+  "date": "2026-05-12",
+  "sha": null,
+  "binaries": {
+    "shell": "2026.05.12",
+    "console": "2026.05.12"
+  },
+  "images": {
+    "api": "ghcr.io/garudex-labs/caracal-api:v2026.05.12",
+    "coordinator": "ghcr.io/garudex-labs/caracal-coordinator:v2026.05.12",
+    "audit": "ghcr.io/garudex-labs/caracal-audit:v2026.05.12",
+    "gateway": "ghcr.io/garudex-labs/caracal-gateway:v2026.05.12",
+    "sts": "ghcr.io/garudex-labs/caracal-sts:v2026.05.12"
+  },
+  "npm": {
+    "@caracalai/core": "0.1.0",
+    "@caracalai/sdk": "0.1.0",
+    "@caracalai/identity": "0.1.0",
+    "@caracalai/revocation": "0.1.0",
+    "@caracalai/oauth": "0.1.0",
+    "@caracalai/admin": "0.1.0",
+    "@caracalai/transport-a2a": "0.1.0",
+    "@caracalai/transport-mcp": "0.1.0",
+    "@caracalai/mcp-express": "0.1.0",
+    "@caracalai/mcp-fastmcp": "0.1.0",
+    "@caracalai/tokenstate-postgres": "0.1.0",
+    "@caracalai/revocation-redis": "0.1.0"
+  },
+  "pypi": {
+    "caracalai-core": "0.1.0",
+    "caracalai-identity": "0.1.0",
+    "caracalai-revocation": "0.1.0",
+    "caracalai-sdk": "0.1.0",
+    "caracalai-transport-mcp": "0.1.0",
+    "caracalai-mcp-fastmcp": "0.1.0",
+    "caracalai-revocation-redis": "0.1.0"
+  },
+  "helm": "2026.5.12",
+  "assets": [
+    "SHA256SUMS",
+    "caracal-cli-darwin-amd64-v2026.05.12.tar.gz",
+    "caracal-cli-darwin-arm64-v2026.05.12.tar.gz",
+    "caracal-cli-linux-amd64-v2026.05.12.tar.gz",
+    "caracal-cli-linux-arm64-v2026.05.12.tar.gz",
+    "caracal-cli-windows-amd64-v2026.05.12.zip",
+    "caracal-tui-darwin-amd64-v2026.05.12.tar.gz",
+    "caracal-tui-darwin-arm64-v2026.05.12.tar.gz",
+    "caracal-tui-linux-amd64-v2026.05.12.tar.gz",
+    "caracal-tui-linux-arm64-v2026.05.12.tar.gz",
+    "caracal-tui-windows-amd64-v2026.05.12.zip",
+    "install.ps1",
+    "install.sh"
+  ],
+  "validation": {
+    "score": 100,
+    "pass": 61,
+    "warn": 0,
+    "fail": 0,
+    "blockers": 0,
+    "areas": [
+      {
+        "id": "registryMetadata",
+        "label": "Registry Metadata",
+        "pass": 19,
+        "warn": 0,
+        "fail": 0
+      },
+      {
+        "id": "pypiInstall",
+        "label": "PyPI Install Matrix",
+        "pass": 7,
+        "warn": 0,
+        "fail": 0
+      },
+      {
+        "id": "npmInstall",
+        "label": "npm Install Matrix",
+        "pass": 12,
+        "warn": 0,
+        "fail": 0
+      },
+      {
+        "id": "installers",
+        "label": "Installers",
+        "pass": 2,
+        "warn": 0,
+        "fail": 0
+      },
+      {
+        "id": "containers",
+        "label": "Container Stack",
+        "pass": 6,
+        "warn": 0,
+        "fail": 0
+      },
+      {
+        "id": "provenance",
+        "label": "Provenance & Signing",
+        "pass": 15,
+        "warn": 0,
+        "fail": 0
+      }
+    ],
+    "notes": []
+  }
+}

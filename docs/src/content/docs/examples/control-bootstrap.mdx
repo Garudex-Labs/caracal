@@ -1,19 +1,22 @@
 ---
 title: Bootstrap Control State
-description: Provision a demo provider, resource, and policy through a scoped Control API automation key.
+description: Keep an agent environment in sync with a declared plan through a scoped Control API automation key.
 pageType: workflow
 ---
 
-Control Bootstrap is a non-interactive provisioning example under `examples/controlBootstrap`. It creates and tears down demo product state through the Control API without adding product-management verbs to the runtime CLI.
+Control Bootstrap is the canonical Control API automation example under `examples/controlBootstrap`. A small CI/CD-style pipeline keeps one agent's environment — application, provider, resource, and policy — matching a declared plan, without adding product-management verbs to the runtime CLI.
 
 ## What it demonstrates
 
 | Area | Behavior |
 | --- | --- |
 | Automation surface | Calls `/v1/control/invoke` instead of using a root admin token. |
-| Identity model | Uses a scoped, short-lived control key created in Console. |
-| Provisioned state | Creates a PiperNet provider, resource, and baseline policy. |
+| Identity model | Uses scoped, short-lived control keys created in Console, one scope tier per pipeline stage. |
+| Reconciliation | `apply` creates missing objects, patches drifted ones, and publishes a new policy version on content drift. |
+| CI gating | `verify` is a read-only drift check that exits non-zero when the zone does not match the plan. |
 | Safety model | Uses replay protection, rate limits, scoped control permissions, and audit. |
+
+The plan describes the PiperNet reporter agent's environment: the agent application, the `provider://pipernet-mandate` provider, the `resource://pipernet` resource wired to it, and the baseline policy that allows `read`.
 
 ## Console setup
 
@@ -26,35 +29,35 @@ Control Bootstrap is a non-interactive provisioning example under `examples/cont
    ```
 
 2. Create or select the target zone.
-3. Create a control key with only the provider, resource, and policy scopes this example needs.
-4. Save the one-time `client_id`, `client_secret`, zone id, and control audience.
+3. Create a control key with only the scopes the stage needs: read/write on app, provider, resource, and policy for `apply`; read for `verify`; read/delete for `teardown`.
+4. Save the one-time `client_id` and `client_secret`. STS resolves the zone from the bound control key.
 
-## Run the bootstrap
+## Run the pipeline
 
 ```bash
 cd examples/controlBootstrap
 cp env.example .env
 $EDITOR .env
 . .env
-npm run bootstrap
+npm run apply
+npm run verify
 ```
 
-Run teardown when you want to remove the demo state:
+`apply` is idempotent: rerunning it against an in-sync zone changes nothing, and rerunning it against a drifted zone converges the drift. Run teardown when you want to remove the environment:
 
 ```bash
 npm run teardown
 ```
-
-The bootstrap is idempotent. It skips existing objects and can be rerun on the same local stack.
 
 ## Files to study
 
 | File | Purpose |
 | --- | --- |
 | `controlClient.mjs` | Exchanges client credentials at STS and calls the Control API. |
-| `provisionPlan.mjs` | Defines demo objects, required scopes, and environment-driven config. |
-| `bootstrap.mjs` | Creates the provider, resource, and policy. |
-| `teardown.mjs` | Removes the policy, resource, and provider in dependency order. |
+| `plan.mjs` | Declares the desired environment, drift checks, scope tiers, and env-driven config. |
+| `apply.mjs` | Reconciles the live zone with the plan. |
+| `verify.mjs` | Read-only drift gate for CI. |
+| `teardown.mjs` | Removes the environment in reverse dependency order. |
 
 ## Test
 
@@ -63,7 +66,7 @@ cd examples/controlBootstrap
 npm test
 ```
 
-The tests use mock transport and do not call a live Caracal stack.
+The tests use a fake zone and mock transport and do not call a live Caracal stack.
 
 ## Next step
 

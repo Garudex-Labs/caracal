@@ -27,6 +27,7 @@ const sections: Record<string, string[]> = {
   'Guides': [
     'guides',
     'guides/modeling-recipes',
+    'guides/serve-customers',
     'guides/resources-providers',
     'guides/provider-recipes',
     'guides/author-policy',
@@ -149,6 +150,12 @@ export async function GET() {
     '',
     'The runtime includes API (port 3000), STS (port 8080), Gateway (port 8081), Audit (port 9090), Coordinator (port 4000), and optional Control (port 8087). Runtime lifecycle uses the top-level caracal runtime CLI; product management uses Console, Admin SDK, or Control API.',
     '',
+    '## Machine-readable endpoints',
+    `- [Full Markdown corpus](${site}/llms-full.txt): Complete documentation content in one text file.`,
+    `- [Page metadata index](${site}/page-index.json): JSON list of canonical HTML URLs, Markdown URLs, titles, descriptions, concepts, requirements, keywords, aliases, and services.`,
+    `- [Concept graph](${site}/concept-graph.json): JSON graph of pages, concepts, and requirements.`,
+    `- Per-page Markdown: ${site}/markdown/{page-id}.md, for example ${site}/markdown/guides/serve-customers.md.`,
+    '',
   ]
 
   for (const [sectionTitle, ids] of Object.entries(sections)) {
@@ -156,7 +163,7 @@ export async function GET() {
     for (const id of ids) {
       const doc = byId.get(id)
       if (!doc) continue
-      entries.push(`- [${doc.data.title}](${site}/${id}/): ${doc.data.description}`)
+      entries.push(`- [${doc.data.title}](${site}/${id}/) ([Markdown](${site}/markdown/${id}.md)): ${doc.data.description}`)
     }
     if (entries.length === 0) continue
     lines.push(`## ${sectionTitle}`)

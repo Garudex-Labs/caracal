@@ -5,14 +5,18 @@
 
 package internal
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestIsControlKeyExchange(t *testing.T) {
 	app := &Application{ID: "app-1", Traits: []string{controlInvokeTrait, controlScopeTrait + "control:agent:read"}}
 	req := TokenExchangeRequest{ApplicationID: "app-1"}
 	resource := &Resource{Identifier: defaultControlAudience}
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 
-	if !isControlKeyExchange(app, req, resource, []string{"control:agent:read"}) {
+	if !isControlKeyExchange(app, req, resource, []string{"control:agent:read"}, now) {
 		t.Fatalf("expected control key exchange to be allowed")
 	}
 
@@ -66,7 +70,7 @@ func TestIsControlKeyExchange(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if isControlKeyExchange(tc.app, tc.req, tc.resource, tc.scopes) {
+			if isControlKeyExchange(tc.app, tc.req, tc.resource, tc.scopes, now) {
 				t.Fatalf("expected control key exchange to be denied")
 			}
 		})
@@ -76,12 +80,13 @@ func TestIsControlKeyExchange(t *testing.T) {
 func TestIsControlKeyExchangeRestrictions(t *testing.T) {
 	resource := &Resource{Identifier: defaultControlAudience}
 	scope := []string{"control:agent:read"}
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 
 	if isControlKeyExchange(&Application{ID: "app-1", Traits: []string{
 		controlInvokeTrait,
 		controlScopeTrait + "control:agent:read",
 		controlMaxTTLTrait + "60",
-	}}, TokenExchangeRequest{ApplicationID: "app-1", TTLSeconds: 300}, resource, scope) {
+	}}, TokenExchangeRequest{ApplicationID: "app-1", TTLSeconds: 300}, resource, scope, now) {
 		t.Fatalf("expected ttl above key maximum to be denied")
 	}
 
@@ -89,7 +94,7 @@ func TestIsControlKeyExchangeRestrictions(t *testing.T) {
 		controlInvokeTrait,
 		controlScopeTrait + "control:agent:read",
 		controlExpiresTrait + "2000-01-01T00:00:00Z",
-	}}, TokenExchangeRequest{ApplicationID: "app-1"}, resource, scope) {
+	}}, TokenExchangeRequest{ApplicationID: "app-1"}, resource, scope, now) {
 		t.Fatalf("expected expired key to be denied")
 	}
 }

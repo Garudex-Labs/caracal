@@ -241,7 +241,7 @@ function meaningFor(kind: string, title: string, opts: FieldInfoOpts): string {
   if (key === 'token_audience' || label.includes('token audience')) return `${title} is the OAuth audience parameter requested for client-credentials tokens.`
   if (key === 'token_resource' || label.includes('resource indicator')) return `${title} is the OAuth resource parameter requested for providers that require resource indicators.`
   if (key === 'credential_provider_id') return `${title} is the provider whose credential Gateway should use for this resource.`
-  if (key === 'gateway_application_id') return `${title} is the application allowed to represent Gateway calls for this resource.`
+  if (key === 'gateway_application_id') return `${title} is the managed application the Gateway exchanges as to obtain this resource's upstream credential; it does not restrict which agents may call through the Gateway.`
   if (key === 'selected_agent_app_id') return `${title} identifies the existing application to reuse in guided setup.`
   if (key === 'selected_provider_id') return `${title} identifies the existing provider to reuse in guided setup.`
   if (key === 'selected_resource_id') return `${title} identifies the existing resource to reuse in guided setup.`
@@ -303,7 +303,7 @@ function whenFor(kind: string, title: string, opts: FieldInfoOpts): string {
   if (key === 'token_audience' || label.includes('token audience')) return 'Use this when the OAuth provider requires an audience value for client-credentials tokens.'
   if (key === 'token_resource' || label.includes('resource indicator')) return 'Use this when the OAuth provider requires an RFC 8707 resource indicator or equivalent resource value.'
   if (key === 'credential_provider_id') return 'Use this to bind a Gateway resource to exactly one provider credential source.'
-  if (key === 'gateway_application_id') return 'Use this when Gateway calls should be associated with a specific Caracal application.'
+  if (key === 'gateway_application_id') return 'Set the managed application identity the Gateway exchanges as for this resource\'s upstream calls.'
   if (key === 'selected_agent_app_id' || key === 'selected_provider_id' || key === 'selected_resource_id' || key === 'selected_zone_id') return 'Use this when setup should reuse an existing object instead of creating another one.'
   if (key === 'zone_id') return 'Use this when a diagnostic or workflow should run against one zone instead of all visible zones.'
   if (key === 'existing_app_client_secret') return 'Use this when reusing an existing application whose one-time secret is already stored outside Console.'
@@ -558,7 +558,7 @@ function validFor(kind: string, title: string, options?: readonly string[], opts
   if (key === 'profile_path' || key === 'secret_file_path') return 'Absolute local file path.'
   if (key === 'credential_env') return 'Environment variable name using letters, numbers, and underscores.'
   if (key === 'request_id') return 'Exact request ID from audit, logs, Gateway, STS, or policy evaluation output.'
-  if (key === 'since' || key === 'until') return 'Readable date/time, ISO timestamp, or supported relative time accepted by the API.'
+  if (key === 'since' || key === 'until') return 'Relative time like 15m, 2h, or 7d, an ISO timestamp, or a date; the Console converts it for the API.'
   if (kind === 'list') return 'Comma-separated values; empty items are ignored.'
   if (kind === 'secret') return 'Paste the exact secret value; it is masked by default.'
   if (kind === 'file') return 'Pick a readable file or enter an absolute path.'

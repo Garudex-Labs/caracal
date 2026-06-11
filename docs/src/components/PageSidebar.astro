@@ -8,9 +8,27 @@
 
 import MobileTableOfContents from 'virtual:starlight/components/MobileTableOfContents'
 import TableOfContents from 'virtual:starlight/components/TableOfContents'
+import { formatPageMarkdown } from '../lib/pageMarkdown'
 
-const { toc } = Astro.locals.starlightRoute
-const pageUrl = Astro.url.href
+const { entry, toc } = Astro.locals.starlightRoute
+const site = 'https://docs.caracal.run'
+const pagePath = Astro.url.pathname.replace(/^\/|\/$/g, '') || 'index'
+const pageUrl = new URL(Astro.url.pathname, site).href
+const markdownPath = `/markdown/${pagePath}.md`
+const markdownUrl = new URL(markdownPath, site).href
+const pageMarkdown = formatPageMarkdown(entry)
+const serializedPageMarkdown = JSON.stringify(pageMarkdown).replace(/</g, '\\u003c')
+const aiPrompt = `Read this Markdown copy of the Caracal documentation page and explain it: ${markdownUrl}
+
+Use the canonical page for context: ${pageUrl}
+
+If retrieval fails, read ${site}/llms-full.txt and find the section with "# URL: ${pageUrl}".`
+const chatGptPrompt = `Explain this Caracal documentation page.
+
+Markdown URL: ${markdownUrl}
+Canonical URL: ${pageUrl}
+
+If you cannot access the Markdown URL, ask me to paste the Markdown content.`
 ---
 
 {toc && (
@@ -28,27 +46,69 @@ const pageUrl = Astro.url.href
             <button
               id="btn-copy-md"
               class="ai-btn"
-              data-llms-url="/llms-full.txt"
-              data-page-url={pageUrl}
+              data-markdown-url={markdownPath}
               type="button"
             >
-              Copy as Markdown
+              <img class="ai-icon" src="/img/markdown.png" alt="" aria-hidden="true" loading="lazy" decoding="async" />
+              <span class="ai-btn-label">Copy as Markdown</span>
             </button>
             <a
               class="ai-btn"
-              href={`https://claude.ai/new?q=${encodeURIComponent(`Read the Caracal documentation at ${pageUrl} and explain it.`)}`}
+              href={`https://claude.ai/new?q=${encodeURIComponent(aiPrompt)}`}
+              data-ai-url="https://claude.ai/new"
+              data-ai-param="q"
+              data-markdown-url={markdownPath}
+              data-markdown-absolute-url={markdownUrl}
+              data-page-url={pageUrl}
               target="_blank"
               rel="noopener noreferrer"
             >
-              Ask Claude
+              <img class="ai-icon" src="/img/claude.png" alt="" aria-hidden="true" loading="lazy" decoding="async" />
+              <span class="ai-btn-label">Ask Claude</span>
             </a>
             <a
               class="ai-btn"
-              href={`https://chatgpt.com/?q=${encodeURIComponent(`Read the Caracal documentation at ${pageUrl} and explain it.`)}`}
+              href={`https://chatgpt.com/?q=${encodeURIComponent(chatGptPrompt)}`}
+              data-ai-url="https://chatgpt.com/"
+              data-ai-param="q"
+              data-markdown-url={markdownPath}
+              data-markdown-absolute-url={markdownUrl}
+              data-page-url={pageUrl}
+              data-copy-full-prompt="true"
               target="_blank"
               rel="noopener noreferrer"
             >
-              Ask ChatGPT
+              <img class="ai-icon" src="/img/gpt.png" alt="" aria-hidden="true" loading="lazy" decoding="async" />
+              <span class="ai-btn-label">Ask ChatGPT</span>
+            </a>
+            <a
+              class="ai-btn"
+              href="https://gemini.google.com/app"
+              data-ai-url="https://gemini.google.com/app"
+              data-markdown-url={markdownPath}
+              data-markdown-absolute-url={markdownUrl}
+              data-page-url={pageUrl}
+              data-copy-prompt="true"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <img class="ai-icon" src="/img/gemini.png" alt="" aria-hidden="true" loading="lazy" decoding="async" />
+              <span class="ai-btn-label">Ask Gemini</span>
+            </a>
+          </div>
+        </div>
+
+        <div class="mcp-actions">
+          <p class="ai-actions-label">MCP</p>
+          <div class="ai-actions-buttons">
+            <a
+              class="ai-btn"
+              href="https://context7.com/websites/caracal_run?tab=chat"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <img class="ai-icon" src="/img/context7.png" alt="" aria-hidden="true" loading="lazy" decoding="async" />
+              <span class="ai-btn-label">Read in Context7</span>
             </a>
           </div>
         </div>
@@ -57,40 +117,205 @@ const pageUrl = Astro.url.href
 
       </div>
     </div>
+
+    <script id="page-markdown-source" type="application/json" set:html={serializedPageMarkdown}></script>
+    <div id="copy-fallback" class="copy-fallback" role="dialog" aria-modal="true" aria-labelledby="copy-fallback-title" hidden>
+      <div class="copy-fallback-panel">
+        <h2 id="copy-fallback-title">Copy prompt manually</h2>
+        <p>Automatic clipboard access is blocked by this browser. Copy this text, then paste it into the chat.</p>
+        <textarea id="copy-fallback-text" readonly></textarea>
+        <div class="copy-fallback-actions">
+          <button id="copy-fallback-select" class="copy-fallback-button" type="button">Select text</button>
+          <a id="copy-fallback-open" class="copy-fallback-button" target="_blank" rel="noopener noreferrer" hidden>Open chat</a>
+          <button id="copy-fallback-close" class="copy-fallback-button copy-fallback-button-secondary" type="button">Close</button>
+        </div>
+      </div>
+    </div>
   </>
 )}
 
 <script>
+  const copyFallback = document.getElementById('copy-fallback') as HTMLDivElement | null
+  const copyFallbackText = document.getElementById('copy-fallback-text') as HTMLTextAreaElement | null
+  const copyFallbackSelect = document.getElementById('copy-fallback-select') as HTMLButtonElement | null
+  const copyFallbackOpen = document.getElementById('copy-fallback-open') as HTMLAnchorElement | null
+  const copyFallbackClose = document.getElementById('copy-fallback-close') as HTMLButtonElement | null
+  const pageMarkdownSource = document.getElementById('page-markdown-source') as HTMLScriptElement | null
+  const pageMarkdown = JSON.parse(pageMarkdownSource?.textContent ?? '""') as string
+
+  const selectManualCopyText = () => {
+    if (!copyFallbackText) return
+    copyFallbackText.focus()
+    copyFallbackText.select()
+    copyFallbackText.setSelectionRange(0, copyFallbackText.value.length)
+  }
+
+  const openManualCopy = (text: string, url?: string) => {
+    if (!copyFallback || !copyFallbackText || !copyFallbackOpen) return
+    copyFallbackText.value = text
+    if (url) {
+      copyFallbackOpen.href = url
+      copyFallbackOpen.hidden = false
+    } else {
+      copyFallbackOpen.removeAttribute('href')
+      copyFallbackOpen.hidden = true
+    }
+    copyFallback.hidden = false
+    selectManualCopyText()
+  }
+
+  const closeManualCopy = () => {
+    if (copyFallback) copyFallback.hidden = true
+  }
+
+  copyFallbackSelect?.addEventListener('click', selectManualCopyText)
+  copyFallbackClose?.addEventListener('click', closeManualCopy)
+
+  const copyText = async (text: string) => {
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text)
+        return true
+      }
+    } catch (err) {
+      console.warn('Clipboard API copy failed', err)
+    }
+
+    const textarea = document.createElement('textarea')
+    textarea.value = text
+    textarea.setAttribute('readonly', '')
+    textarea.style.position = 'fixed'
+    textarea.style.inset = '0 auto auto 0'
+    textarea.style.opacity = '0'
+    textarea.style.pointerEvents = 'none'
+    textarea.style.width = '1px'
+    textarea.style.height = '1px'
+    document.body.appendChild(textarea)
+    textarea.focus()
+    textarea.select()
+    textarea.setSelectionRange(0, textarea.value.length)
+
+    try {
+      return document.execCommand('copy')
+    } catch (err) {
+      console.warn('Fallback clipboard copy failed', err)
+      return false
+    } finally {
+      textarea.remove()
+    }
+  }
+
+  const copyOrShowManual = async (
+    text: string,
+    label: Element | null,
+    copiedText: string,
+    url?: string,
+  ) => {
+    if (await copyText(text)) {
+      if (label) label.textContent = copiedText
+      return true
+    }
+
+    if (label) label.textContent = 'Copy manually'
+    openManualCopy(text, url)
+    return false
+  }
+
+  const openTarget = (url: string, text: string, label: Element | null) => {
+    const popup = window.open(url, '_blank')
+    if (popup) {
+      popup.opener = null
+      return true
+    }
+
+    if (label) label.textContent = 'Open manually'
+    openManualCopy(text, url)
+    return false
+  }
+
   const btn = document.getElementById('btn-copy-md') as HTMLButtonElement | null
   if (btn) {
     btn.addEventListener('click', async () => {
-      const llmsUrl = btn.dataset.llmsUrl!
-      const pageUrl = btn.dataset.pageUrl!
+      const label = btn.querySelector('.ai-btn-label')
 
       try {
-        const text = await fetch(llmsUrl).then((r) => r.text())
-        const urlMarker = `# URL: ${pageUrl}`
-        const start = text.indexOf(urlMarker)
-
-        if (start === -1) {
-          await navigator.clipboard.writeText(text)
-          btn.textContent = 'Copied full docs!'
-        } else {
-          const bodyStart = text.indexOf('\n---\n', start)
-          const bodyEnd = text.indexOf('\n---\n', bodyStart + 5)
-          const section = bodyEnd === -1 ? text.slice(start) : text.slice(start, bodyEnd)
-          await navigator.clipboard.writeText(section)
-          btn.textContent = 'Copied!'
-        }
-      } catch {
-        btn.textContent = 'Copy failed'
+        await copyOrShowManual(pageMarkdown, label, 'Copied!')
+      } catch (err) {
+        console.error('Markdown copy failed', err)
+        if (label) label.textContent = 'Copy failed'
       }
 
       setTimeout(() => {
-        btn.textContent = 'Copy as Markdown'
+        if (label) label.textContent = 'Copy as Markdown'
       }, 2000)
     })
   }
+
+  const aiLinks = document.querySelectorAll<HTMLAnchorElement>('.ai-btn[data-ai-url]')
+  aiLinks.forEach((link) => {
+    link.addEventListener('click', async (event) => {
+      event.preventDefault()
+
+      const label = link.querySelector('.ai-btn-label')
+      const originalText = label?.textContent ?? ''
+
+      try {
+        if (label) label.textContent = 'Preparing...'
+
+        const prompt = [
+          'Explain this Caracal documentation page using the Markdown content below.',
+          '',
+          `Canonical URL: ${link.dataset.pageUrl}`,
+          `Markdown URL: ${link.dataset.markdownAbsoluteUrl}`,
+          '',
+          'Markdown content:',
+          '',
+          pageMarkdown,
+        ].join('\n')
+        let promptForUrl = prompt
+
+        if (link.dataset.copyFullPrompt === 'true') {
+          const copied = await copyOrShowManual(prompt, label, 'Copied full prompt!', link.dataset.aiUrl)
+          if (!copied) {
+            return
+          }
+
+          promptForUrl = [
+            'Explain this Caracal documentation page.',
+            `Canonical URL: ${link.dataset.pageUrl}`,
+            `Markdown URL: ${link.dataset.markdownAbsoluteUrl}`,
+            '',
+            'The full Markdown content was copied to my clipboard. If you cannot access the Markdown URL, ask me to paste it.',
+          ].join('\n')
+        }
+
+        if (link.dataset.copyPrompt === 'true') {
+          if (await copyOrShowManual(prompt, label, 'Copied prompt!', link.dataset.aiUrl)) {
+            openTarget(link.dataset.aiUrl!, prompt, label)
+          }
+        } else {
+          const url = new URL(link.dataset.aiUrl!)
+          url.searchParams.set(link.dataset.aiParam!, promptForUrl)
+
+          if (url.href.length > 24000) {
+            if (await copyOrShowManual(prompt, label, 'Copied prompt!', link.dataset.aiUrl)) {
+              openTarget(link.dataset.aiUrl!, prompt, label)
+            }
+          } else {
+            openTarget(url.href, promptForUrl, label)
+          }
+        }
+      } catch (err) {
+        console.error('AI prompt preparation failed', err)
+        if (label) label.textContent = 'Opening fallback...'
+        openTarget(link.href, link.href, label)
+      }
+
+      setTimeout(() => {
+        if (label) label.textContent = originalText
+      }, 2000)
+    })
+  })
 </script>
 
 <style>
@@ -126,7 +351,13 @@ const pageUrl = Astro.url.href
     .ai-actions {
       margin-bottom: 1.25rem;
       padding-bottom: 1.25rem;
-      border-bottom: 1px solid var(--sl-color-hairline);
+      border-bottom: 1px solid var(--caracal-sidebar-divider);
+    }
+
+    .mcp-actions {
+      margin-bottom: 1.25rem;
+      padding-bottom: 1.25rem;
+      border-bottom: 1px solid var(--caracal-sidebar-divider);
     }
 
     .ai-actions-label {
@@ -144,7 +375,9 @@ const pageUrl = Astro.url.href
     }
 
     .ai-btn {
-      display: block;
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
       font-size: var(--sl-text-xs);
       text-decoration: none;
       color: var(--sl-color-gray-3);
@@ -157,12 +390,101 @@ const pageUrl = Astro.url.href
       font-family: inherit;
     }
 
+    .ai-icon {
+      border-radius: 0.25rem;
+      display: block;
+      flex: 0 0 auto;
+      height: 1.15rem;
+      object-fit: contain;
+      width: 1.15rem;
+    }
+
     .ai-btn:hover {
       color: var(--sl-color-white);
     }
 
     button.ai-btn {
       appearance: none;
+    }
+
+    .copy-fallback[hidden] {
+      display: none;
+    }
+
+    .copy-fallback {
+      align-items: center;
+      background: rgba(0, 0, 0, 0.72);
+      bottom: 0;
+      display: flex;
+      justify-content: center;
+      left: 0;
+      padding: 1rem;
+      position: fixed;
+      right: 0;
+      top: 0;
+      z-index: 1000;
+    }
+
+    .copy-fallback-panel {
+      background: var(--sl-color-bg);
+      border: 1px solid var(--sl-color-hairline);
+      border-radius: 0.75rem;
+      box-shadow: var(--sl-shadow-lg);
+      max-width: 42rem;
+      padding: 1rem;
+      width: min(100%, 42rem);
+    }
+
+    .copy-fallback-panel h2 {
+      color: var(--sl-color-white);
+      font-size: var(--sl-text-h4);
+      margin: 0 0 0.5rem;
+    }
+
+    .copy-fallback-panel p {
+      color: var(--sl-color-gray-2);
+      font-size: var(--sl-text-sm);
+      margin: 0 0 0.75rem;
+    }
+
+    .copy-fallback textarea {
+      background: var(--sl-color-black);
+      border: 1px solid var(--sl-color-gray-5);
+      border-radius: 0.5rem;
+      color: var(--sl-color-white);
+      font: inherit;
+      min-height: 16rem;
+      padding: 0.75rem;
+      resize: vertical;
+      width: 100%;
+    }
+
+    .copy-fallback-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      justify-content: flex-end;
+      margin-top: 0.75rem;
+    }
+
+    .copy-fallback-button {
+      appearance: none;
+      background: var(--sl-color-accent);
+      border: 1px solid var(--sl-color-accent);
+      border-radius: 999rem;
+      color: var(--sl-color-black);
+      cursor: pointer;
+      display: inline-flex;
+      font: inherit;
+      font-size: var(--sl-text-sm);
+      line-height: 1;
+      padding: 0.55rem 0.85rem;
+      text-decoration: none;
+    }
+
+    .copy-fallback-button-secondary {
+      background: transparent;
+      color: var(--sl-color-gray-2);
     }
 
     @media (min-width: 72rem) {

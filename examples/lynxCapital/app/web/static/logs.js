@@ -14,15 +14,24 @@ const clearBtn  = document.getElementById('clear-btn');
 let paused    = false;
 let lineCount = 0;
 let es        = null;
+const pending = [];
 
 // Active category filter set (initialized from chip state)
 const active = new Set();
+
+function applyFilter() {
+  for (const wrapper of logsBody.children) {
+    wrapper.style.display = active.has(wrapper.dataset.cat) ? '' : 'none';
+  }
+}
+
 document.querySelectorAll('.chip').forEach(c => {
   if (c.classList.contains('active')) active.add(c.dataset.cat);
   c.addEventListener('click', () => {
     c.classList.toggle('active');
     if (active.has(c.dataset.cat)) active.delete(c.dataset.cat);
     else active.add(c.dataset.cat);
+    applyFilter();
   });
 });
 
@@ -75,14 +84,19 @@ function summarize(ev) {
   }
 }
 
-function appendLine(ev) {
-  if (!active.has(ev.category)) return;
-  if (paused) return;
+function nearBottom() {
+  return logsBody.scrollHeight - logsBody.scrollTop - logsBody.clientHeight < 48;
+}
 
+function appendLine(ev) {
   lineCount++;
   countEl.textContent = `${lineCount} events`;
 
+  const stick = nearBottom();
+
   const wrapper = document.createElement('div');
+  wrapper.dataset.cat = ev.category;
+  if (!active.has(ev.category)) wrapper.style.display = 'none';
 
   const line = document.createElement('div');
   line.className = 'log-line';
@@ -123,7 +137,7 @@ function appendLine(ev) {
     logsBody.removeChild(logsBody.firstChild);
   }
 
-  logsBody.scrollTop = logsBody.scrollHeight;
+  if (stick) logsBody.scrollTop = logsBody.scrollHeight;
 }
 
 function connect() {
@@ -131,7 +145,9 @@ function connect() {
   es = new EventSource('/api/logs/stream');
   es.onmessage = e => {
     try {
-      appendLine(JSON.parse(e.data));
+      const ev = JSON.parse(e.data);
+      if (paused) pending.push(ev);
+      else appendLine(ev);
     } catch (err) {
       if (err instanceof SyntaxError) return; // non-JSON or malformed line from stream
       throw err;
@@ -145,10 +161,14 @@ function connect() {
 pauseBtn.addEventListener('click', () => {
   paused = !paused;
   pauseBtn.textContent = paused ? 'Resume' : 'Pause';
+  if (!paused) {
+    for (const ev of pending.splice(0)) appendLine(ev);
+  }
 });
 
 clearBtn.addEventListener('click', () => {
   logsBody.innerHTML = '';
+  pending.length = 0;
   lineCount = 0;
   countEl.textContent = '0 events';
 });

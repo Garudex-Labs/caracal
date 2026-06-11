@@ -1,0 +1,330 @@
+---
+/*
+ * Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+ * Caracal, a product of Garudex Labs
+ *
+ * Vlog index with a click-to-play featured player, thumbnail card grid, search, category filters, and pagination.
+ */
+
+import community from "../data/community.json";
+
+interface Vlog {
+  id: string;
+  title: string;
+  description: string;
+  category: string;
+  youtubeId: string;
+  href: string;
+  host?: string;
+  featured?: boolean;
+}
+
+const vlogs = community.vlogs as Vlog[];
+const discord = community.discordInvite;
+const categories = (community.vlogCategories as { name: string; tint: string }[]).filter((c) =>
+  vlogs.some((v) => v.category === c.name),
+);
+const tintFor = (name: string) => categories.find((c) => c.name === name)?.tint ?? "#60a5fa";
+const initials = (name: string) =>
+  name
+    .split(/\s+/)
+    .map((word) => word[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
+
+const featured = vlogs.find((v) => v.featured) ?? vlogs[0];
+const rest = vlogs.filter((v) => v !== featured);
+---
+
+<section class="media-page" aria-labelledby="vlogs-heading">
+  <div class="media-page__inner" data-media-top>
+
+    <header class="media-head">
+      <div class="media-head__row">
+        <div>
+          <h1 id="vlogs-heading" class="media-head__title">Vlogs</h1>
+          <p class="media-head__lede">
+            Talks, walkthroughs, and project updates on running agents with scoped, auditable authority.
+          </p>
+        </div>
+        <button class="media-head__submit" type="button" data-submit-open>
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="m22 8-6 4 6 4V8Z" /><rect width="14" height="12" x="2" y="6" rx="2" ry="2" />
+          </svg>
+          Submit a video
+        </button>
+      </div>
+    </header>
+
+    {featured && (
+      <article class="vlog-feature" style={`--tint: ${tintFor(featured.category)}`}>
+        <div class="vlog-feature__player" data-vlog-player data-youtube-id={featured.youtubeId}>
+          <button class="vlog-feature__thumb" type="button" data-vlog-play aria-label={`Play ${featured.title}`}>
+            <img src={`https://img.youtube.com/vi/${featured.youtubeId}/maxresdefault.jpg`} alt="" loading="lazy" width="1280" height="720" />
+            <span class="vlog-play" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><polygon points="6 3 20 12 6 21 6 3" /></svg>
+            </span>
+          </button>
+        </div>
+        <div class="vlog-feature__caption">
+          <div class="vlog-feature__text">
+            <span class="chip">{featured.category}</span>
+            <h2 class="vlog-feature__title">{featured.title}</h2>
+            <p class="vlog-feature__desc">{featured.description}</p>
+            <div class="vlog-feature__byline">
+              {featured.host && (
+                <>
+                  <span class="avatar" aria-hidden="true">{initials(featured.host)}</span>
+                  <span class="bcard__author">Hosted by {featured.host}</span>
+                </>
+              )}
+              <a class="vlog-feature__external" href={featured.href} target="_blank" rel="noopener noreferrer">
+                <span>Watch on YouTube</span>
+                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" />
+                </svg>
+              </a>
+            </div>
+          </div>
+        </div>
+      </article>
+    )}
+
+    {rest.length > 0 ? (
+      <>
+        <div class="media-toolbar">
+          <div class="media-filterset" role="group" aria-label="Filter videos by category">
+            <button class="media-tab isActive" type="button" data-media-filter="all">All</button>
+            {categories.map((category) => (
+              <button class="media-tab" type="button" data-media-filter={category.name} style={`--tint: ${category.tint}`}>
+                {category.name}
+              </button>
+            ))}
+          </div>
+          <label class="media-search">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+            <input type="search" placeholder="Search videos" aria-label="Search videos" data-media-search />
+          </label>
+        </div>
+
+        <div class="vlog-grid" data-media-list>
+          {rest.map((vlog) => (
+            <a
+              class="vlog-card"
+              href={vlog.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={`--tint: ${tintFor(vlog.category)}`}
+              data-media-item
+              data-media-category={vlog.category}
+              data-media-text={`${vlog.title} ${vlog.description} ${vlog.category} ${vlog.host ?? ""}`.toLowerCase()}
+            >
+              <span class="vlog-card__thumb">
+                <img src={`https://img.youtube.com/vi/${vlog.youtubeId}/hqdefault.jpg`} alt="" loading="lazy" width="480" height="360" />
+                <span class="vlog-play" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><polygon points="6 3 20 12 6 21 6 3" /></svg>
+                </span>
+              </span>
+              <span class="bcard__body">
+                <span class="chip">{vlog.category}</span>
+                <span class="bcard__title">{vlog.title}</span>
+                <span class="bcard__desc">{vlog.description}</span>
+                {vlog.host && (
+                  <span class="bcard__foot">
+                    <span class="avatar" aria-hidden="true">{initials(vlog.host)}</span>
+                    <span class="bcard__author">{vlog.host}</span>
+                  </span>
+                )}
+              </span>
+            </a>
+          ))}
+        </div>
+
+        <p class="media-empty" data-media-noresults hidden>Nothing matches that search.</p>
+
+        <div class="media-foot">
+          <p class="media-count" data-media-count aria-live="polite"></p>
+          <nav class="pager" data-media-pager aria-label="Pagination" hidden></nav>
+        </div>
+      </>
+    ) : (
+      <div class="media-launch">
+        <p class="media-launch__title">More videos on the way</p>
+        <p class="media-launch__body">
+          The library grows as community talks and walkthroughs come in. Recorded something with Caracal in it?
+          Hit "Submit a video" above and share it on Discord.
+        </p>
+      </div>
+    )}
+
+  </div>
+</section>
+
+<dialog class="media-dialog" data-submit-dialog aria-labelledby="vlogs-submit-title">
+  <div class="media-dialog__head">
+    <h2 id="vlogs-submit-title" class="media-dialog__title">Submit a video</h2>
+    <button class="media-dialog__close" type="button" data-submit-close aria-label="Close">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+      </svg>
+    </button>
+  </div>
+  <ol class="media-dialog__steps" role="list">
+    <li class="submit-step">
+      <span class="submit-step__num" aria-hidden="true">1</span>
+      <div>
+        <h3 class="submit-step__title">Join the Discord server</h3>
+        <p class="submit-step__body">Submissions go through the Caracal community Discord, where maintainers review content.</p>
+      </div>
+    </li>
+    <li class="submit-step">
+      <span class="submit-step__num" aria-hidden="true">2</span>
+      <div>
+        <h3 class="submit-step__title">Share the recording</h3>
+        <p class="submit-step__body">Post a link with a short summary: where it was presented, what it covers, and who it is for.</p>
+      </div>
+    </li>
+    <li class="submit-step">
+      <span class="submit-step__num" aria-hidden="true">3</span>
+      <div>
+        <h3 class="submit-step__title">Get reviewed and featured</h3>
+        <p class="submit-step__body">Accepted videos join the library, and standout talks are featured on the docs home page.</p>
+      </div>
+    </li>
+  </ol>
+  <div class="media-dialog__criteria">
+    <h3 class="media-dialog__criteria-title">What we look for</h3>
+    <ul class="media-dialog__checklist">
+      <li>Talks and demos featuring Caracal in real use</li>
+      <li>Agent security, authority, identity, or audit themes</li>
+      <li>Clear audio and watchable screen content</li>
+      <li>Public recordings we can link or embed</li>
+    </ul>
+  </div>
+  <a class="landing-button landing-button--primary" href={discord} target="_blank" rel="noopener noreferrer">
+    Open Discord
+  </a>
+</dialog>
+
+<script>
+  const dialog = document.querySelector<HTMLDialogElement>("[data-submit-dialog]");
+  document.querySelector<HTMLButtonElement>("[data-submit-open]")?.addEventListener("click", () => dialog?.showModal());
+  document.querySelector<HTMLButtonElement>("[data-submit-close]")?.addEventListener("click", () => dialog?.close());
+  dialog?.addEventListener("click", (event) => {
+    if (event.target === dialog) dialog.close();
+  });
+
+  const player = document.querySelector<HTMLElement>("[data-vlog-player]");
+  const playButton = player?.querySelector<HTMLButtonElement>("[data-vlog-play]");
+
+  playButton?.addEventListener("click", () => {
+    const id = player?.dataset.youtubeId;
+    if (!player || !id) return;
+    const iframe = document.createElement("iframe");
+    iframe.src = `https://www.youtube-nocookie.com/embed/${id}?autoplay=1`;
+    iframe.title = "Featured Caracal video";
+    iframe.allow = "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture";
+    iframe.allowFullscreen = true;
+    iframe.className = "vlog-feature__iframe";
+    player.replaceChildren(iframe);
+  });
+
+  const search = document.querySelector<HTMLInputElement>("[data-media-search]");
+  const filters = Array.from(document.querySelectorAll<HTMLButtonElement>("[data-media-filter]"));
+  const items = Array.from(document.querySelectorAll<HTMLElement>("[data-media-item]"));
+  const noResults = document.querySelector<HTMLElement>("[data-media-noresults]");
+  const count = document.querySelector<HTMLElement>("[data-media-count]");
+  const pager = document.querySelector<HTMLElement>("[data-media-pager]");
+  const top = document.querySelector<HTMLElement>("[data-media-top]");
+
+  const pageSize = 6;
+  let category = "all";
+  let query = "";
+  let page = 1;
+
+  const matches = (item: HTMLElement) =>
+    (category === "all" || item.dataset.mediaCategory === category) &&
+    (!query || (item.dataset.mediaText ?? "").includes(query));
+
+  const pageNumbers = (pages: number, current: number): (number | null)[] => {
+    if (pages <= 7) return Array.from({ length: pages }, (_, i) => i + 1);
+    const wanted = [...new Set([1, current - 1, current, current + 1, pages])]
+      .filter((p) => p >= 1 && p <= pages)
+      .sort((a, b) => a - b);
+    const out: (number | null)[] = [];
+    let prev = 0;
+    for (const p of wanted) {
+      if (p - prev > 1) out.push(null);
+      out.push(p);
+      prev = p;
+    }
+    return out;
+  };
+
+  const renderPager = (pages: number) => {
+    if (!pager) return;
+    pager.hidden = pages <= 1;
+    pager.replaceChildren();
+    if (pages <= 1) return;
+    const nav = (label: string, target: number, disabled: boolean) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "pager__btn";
+      button.textContent = label;
+      button.disabled = disabled;
+      button.addEventListener("click", () => {
+        page = target;
+        apply();
+        top?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+      return button;
+    };
+    pager.append(nav("\u2190", page - 1, page === 1));
+    for (const num of pageNumbers(pages, page)) {
+      if (num === null) {
+        const gap = document.createElement("span");
+        gap.className = "pager__gap";
+        gap.textContent = "\u2026";
+        pager.append(gap);
+        continue;
+      }
+      const button = nav(String(num), num, false);
+      button.classList.toggle("isActive", num === page);
+      button.setAttribute("aria-current", num === page ? "page" : "false");
+      pager.append(button);
+    }
+    pager.append(nav("\u2192", page + 1, page === pages));
+  };
+
+  const apply = () => {
+    const filtered = items.filter(matches);
+    const pages = Math.max(1, Math.ceil(filtered.length / pageSize));
+    if (page > pages) page = pages;
+    const start = (page - 1) * pageSize;
+    const visible = new Set(filtered.slice(start, start + pageSize));
+    for (const item of items) item.hidden = !visible.has(item);
+    if (noResults) noResults.hidden = filtered.length > 0;
+    if (count) count.textContent = filtered.length === 0 ? "" : `${filtered.length} video${filtered.length === 1 ? "" : "s"}`;
+    renderPager(pages);
+  };
+
+  search?.addEventListener("input", () => {
+    query = search.value.trim().toLowerCase();
+    page = 1;
+    apply();
+  });
+
+  for (const button of filters) {
+    button.addEventListener("click", () => {
+      category = button.dataset.mediaFilter ?? "all";
+      page = 1;
+      for (const other of filters) other.classList.toggle("isActive", other === button);
+      apply();
+    });
+  }
+
+  apply();
+</script>

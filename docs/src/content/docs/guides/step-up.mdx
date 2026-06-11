@@ -47,12 +47,10 @@ Use the Console for human approval or the Admin API when an external proof syste
 ```bash
 curl -X POST \
   "$CARACAL_API_URL/v1/zones/$CARACAL_ZONE_ID/step-up-challenges/$CHALLENGE_ID/satisfy" \
-  -H "Authorization: Bearer $CARACAL_ADMIN_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"approver_subject_id":"reviewer-123"}'
+  -H "Authorization: Bearer $CARACAL_ADMIN_TOKEN"
 ```
 
-The approver must be different from the challenged session subject.
+The approver is recorded as the authenticated admin actor (`admin:<token-id>`); it is never supplied in the request body, so approval attribution cannot be forged. The challenge cannot be self-approved by its own session subject.
 
 ## Retry exchange
 

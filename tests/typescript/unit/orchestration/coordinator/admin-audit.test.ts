@@ -16,6 +16,11 @@ vi.mock('@caracalai/admin-audit', () => ({
 
 const { registerAdminAuditHook } = await import('../../../../../apps/coordinator/src/admin-audit.js')
 
+function makeDb() {
+  const client = { query: vi.fn().mockResolvedValue({ rows: [] }), release: vi.fn() }
+  return { connect: vi.fn().mockResolvedValue(client) } as never
+}
+
 function buildApp() {
   const app = Fastify({ logger: false })
   app.addHook('preHandler', async (req) => {
@@ -29,7 +34,7 @@ function buildApp() {
   app.post('/zones/:zoneId/agents/:id/suspend', async () => ({ ok: true }))
   app.get('/zones/:zoneId/agents/:id', async () => ({ ok: true }))
   app.get('/health', async () => ({ ok: true }))
-  registerAdminAuditHook(app, {} as never)
+  registerAdminAuditHook(app, makeDb())
   return app
 }
 

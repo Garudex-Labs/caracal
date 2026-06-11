@@ -1,0 +1,74 @@
+---
+title: Verify a Release
+description: Verify Caracal release signatures, provenance, and checksums before installing or deploying.
+pageType: reference
+---
+
+Every published Caracal release is cryptographically signed and verifiable. Verify a download before you install or deploy it, especially when you fetch archives or images directly instead of through the installer.
+
+## How Releases Are Signed
+
+Caracal signs releases with [GitHub Artifact Attestations](https://docs.github.com/en/actions/security-guides/using-artifact-attestations-to-establish-provenance-for-builds), built on the [Sigstore](https://www.sigstore.dev/) keyless model:
+
+- Signatures are produced in the release workflow with short-lived keys issued to the workflow's OpenID Connect identity. No long-lived private signing key exists, so no signing key is stored on the servers that distribute the artifacts.
+- The public trust root is Sigstore's transparency log. The verifier confirms the artifact was built by the `Garudex-Labs/caracal` release workflow rather than checking a static public key you download separately.
+- Release archives are additionally checksummed in `SHA256SUMS`, npm packages publish with provenance, and container images carry provenance and SBOM attestations.
+
+## Prerequisites
+
+Install the GitHub CLI and authenticate it:
+
+```sh
+gh auth login
+```
+
+`gh attestation verify` needs network access to the Sigstore transparency log on first use.
+
+## Verify CLI and Console Archives
+
+Download the archives, `SHA256SUMS`, and installers from the release page, then verify checksums and provenance:
+
+```sh
+# 1. Confirm archive integrity against the published checksums.
+sha256sum --check SHA256SUMS
+
+# 2. Confirm each archive was built by the Caracal release workflow.
+gh attestation verify caracal-runtime-*.tar.gz --repo Garudex-Labs/caracal
+gh attestation verify caracal-console-*.tar.gz --repo Garudex-Labs/caracal
+```
+
+`gh attestation verify` exits non-zero and prints the failing policy if the signature, identity, or transparency-log entry does not match. The bundled installers run the same `gh attestation verify ... --repo Garudex-Labs/caracal` check automatically; pass `--no-verify-provenance` (Unix) or `-NoVerifyProvenance` (Windows) only when you must skip it.
+
+## Verify Container Images
+
+Pull the image by digest, then verify its build provenance:
+
+```sh
+gh attestation verify oci://ghcr.io/garudex-labs/caracal-sts:vYYYY.MM.DD \
+  --repo Garudex-Labs/caracal
+```
+
+Inspect the attached SBOM and provenance attestations with the registry tooling:
+
+```sh
+docker buildx imagetools inspect ghcr.io/garudex-labs/caracal-sts:vYYYY.MM.DD \
+  --format '{{ json .Provenance }}'
+```
+
+## Verify Published Packages
+
+npm packages publish with provenance; verify before installing:
+
+```sh
+npm audit signatures
+```
+
+## If Verification Fails
+
+Do not install or run the artifact. Re-download from the official release page, confirm you used the correct release tag, and if verification still fails, [report it privately](/security/disclosure/).
+
+## Related Pages
+
+- [Install Caracal](/get-started/install-caracal/)
+- [Harden Security Posture](/security/hardening/)
+- [Review the Threat Model](/security/threat-model/)

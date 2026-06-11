@@ -218,6 +218,15 @@ export interface PolicyTemplate {
   content: string
 }
 
+export interface PolicyPreview {
+  package: string
+  rules: string[]
+  default_result: boolean
+  decisions: string[]
+  inputs_referenced: string[]
+  data_referenced: string[]
+}
+
 export interface PolicyValidation {
   valid: boolean
   schema_version: string
@@ -228,6 +237,7 @@ export interface PolicyValidation {
     decision: string[]
     evaluation_status: string[]
   }
+  preview: PolicyPreview | null
   warnings: string[]
 }
 
@@ -407,12 +417,48 @@ export interface AuditQuery {
   request_id?: string
   decision?: 'allow' | 'deny' | 'partial'
   event_type?: string
+  agent_session_id?: string
+  label?: string
   limit?: number
 }
 
 export interface SessionQuery {
   status?: 'active' | 'revoked' | 'expired'
   subject_id?: string
+  limit?: number
+}
+
+export interface AgentSessionRow {
+  id: string
+  application_id: string
+  parent_id: string | null
+  status: string
+  lifecycle: string
+  labels: string[]
+  depth: number
+  child_count: number
+  spawned_at: string
+  last_active_at: string
+  terminated_at: string | null
+  ttl_seconds: number | null
+}
+
+export interface AgentSessionQuery {
+  status?: 'active' | 'suspended' | 'terminated' | 'expired'
+  lifecycle?: 'task' | 'service'
+  application_id?: string
+  parent_id?: string
+  label?: string
+  cursor?: string
+  limit?: number
+}
+
+export interface AgentListQuery {
+  status?: 'active' | 'suspended' | 'terminated'
+  lifecycle?: 'task' | 'service'
+  application_id?: string
+  label?: string
+  cursor?: string
   limit?: number
 }
 
@@ -428,10 +474,6 @@ export interface StepUpChallenge {
   approver_subject_id: string | null
 }
 
-export interface StepUpChallengeSatisfyInput {
-  approver_subject_id: string
-}
-
 export interface StepUpChallengeSatisfaction {
   id: string
   satisfied_at: string
@@ -444,10 +486,16 @@ export interface AgentSession {
   application_id: string
   parent_id: string | null
   subject_session_id: string
+  lifecycle: string
+  labels: string[]
   status: string
   depth: number
+  ttl_seconds: number | null
+  metadata: Record<string, unknown> | null
   spawned_at: string
-  terminated_at: string | null
+  terminated_at?: string | null
+  last_heartbeat_at?: string | null
+  heartbeat_deadline_at?: string | null
 }
 
 export interface DelegationEdge {

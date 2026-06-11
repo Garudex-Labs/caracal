@@ -151,19 +151,18 @@ def build_app(provider: catalog.Provider) -> FastAPI:
             try:
                 principal = auth.authenticate(provider, request)
             except auth.AuthError as exc:
+                activity.record("anonymous", "rejected", "mcp", exc.status)
                 return _auth_error_response(exc, provider)
             message = await request.json()
 
             def run_tool(name: str, arguments: dict) -> dict:
                 return domain.dispatch(provider, state, name, arguments, principal)
 
-            try:
-                response = mcp.handle(provider, message, principal, run_tool)
-            except domain.DomainError as exc:
-                response = {"jsonrpc": "2.0", "id": message.get("id"),
-                            "error": {"code": exc.status, "message": f"{exc.code}: {exc.message}"}}
+            response = mcp.handle(provider, message, principal, run_tool)
             activity.record(str(principal.get("principal")), principal.get("auth"),
                            message.get("method", "mcp"), 200)
+            if response is None:
+                return Response(status_code=202)
             return JSONResponse(response)
 
     # ---------- streaming surface (SSE) ----------
@@ -216,12 +215,23 @@ def _install_sse(app: FastAPI, provider: catalog.Provider, state) -> None:
         count = int(request.query_params.get("ticks", 20))
 
         async def publisher():
-            window = domain.dispatch(provider, state, "stream_rates",
-                                     {"symbol": symbol, "ticks": count}, principal)
-            for tick in window["ticks"]:
+            try:
+                window = domain.dispatch(provider, state, "stream_rates",
+                                         {"symbol": symbol, "ticks": count}, principal)
+            except domain.DomainError as exc:
+                yield {"event": "error",
+                       "data": json_dumps({"error": exc.code, "message": exc.message})}
+                return
+            yield {"event": "subscribed",
+                   "data": json_dumps({"symbol": window["symbol"], "channel": window["channel"],
+                                       "count": window["count"]})}
+            for i, tick in enumerate(window["ticks"]):
                 if await request.is_disconnected():
                     break
-                yield {"event": "tick", "data": json_dumps(tick)}
+                yield {"event": "tick", "id": str(tick["seq"]), "data": json_dumps(tick)}
+                if (i + 1) % 5 == 0:
+                    yield {"event": "heartbeat",
+                           "data": json_dumps({"ts": tick["timestamp"], "seq": tick["seq"]})}
                 await asyncio.sleep(0.05)
 
         return EventSourceResponse(publisher())
@@ -263,19 +273,11 @@ def _install_oauth(app: FastAPI, provider: catalog.Provider) -> None:
                 return error
             client = store.find_client(q.get("client_id", ""))
             redirect_uri = q.get("redirect_uri", client["redirectUris"][0] if client["redirectUris"] else "")
-            consent = f"""<!doctype html><html><body style="font-family:sans-serif;background:#0f1320;color:#e7ecf5;padding:40px">
-<h2>{provider.brand} authorization</h2>
-<p>Application <code>{q.get('client_id','')}</code> requests scope <code>{q.get('scope','')}</code>.</p>
-<form method="post" action="/oauth/authorize">
-  <input type="hidden" name="client_id" value="{q.get('client_id','')}">
-  <input type="hidden" name="redirect_uri" value="{redirect_uri}">
-  <input type="hidden" name="scope" value="{q.get('scope','')}">
-  <input type="hidden" name="state" value="{q.get('state','')}">
-  <input type="hidden" name="code_challenge" value="{q.get('code_challenge','')}">
-  <input type="hidden" name="code_challenge_method" value="{q.get('code_challenge_method','S256')}">
-  <button style="background:#2f56b5;color:#fff;border:0;padding:8px 16px;border-radius:4px">Approve</button>
-</form></body></html>"""
-            return HTMLResponse(consent)
+            params = {key: q.get(key, "") for key in
+                      ("client_id", "scope", "state", "code_challenge")}
+            params["redirect_uri"] = redirect_uri
+            params["code_challenge_method"] = q.get("code_challenge_method", "S256")
+            return HTMLResponse(ui.consent_page(provider, params))
 
         @app.post("/oauth/authorize")
         async def authorize_decision(request: Request):

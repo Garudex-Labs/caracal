@@ -8,10 +8,18 @@
  * adapter or framework integration.
  */
 
-export * from "./envelope.js";
-export * from "./context.js";
-export * from "./coordinator.js";
-export * from "./primitives.js";
-export * from "./http.js";
-export { Caracal } from "./client.js";
-export type { CaracalConfig, SpawnOptions, DelegateOptions, LifecycleHook, RootOptions, TokenSource, ClientSecretOptions } from "./client.js";
+export * from './envelope.js'
+export * from './context.js'
+export * from './coordinator.js'
+export * from './primitives.js'
+export * from './http.js'
+export { Caracal } from './client.js'
+export type {
+  CaracalConfig,
+  SpawnOptions,
+  DelegateOptions,
+  LifecycleHook,
+  RootOptions,
+  TokenSource,
+  ClientSecretOptions,
+} from './client.js'

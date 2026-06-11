@@ -54,7 +54,8 @@ receives the root admin token; it uses a scoped control key.
 
 1. Create a control key once in Console from the Control menu. Console returns a
    one-time `client_id` and `client_secret` and records the `control:<command>:<verb>`
-   scopes the key may request, along with an optional maximum token TTL.
+   scopes the key may request, along with an optional maximum token TTL. The key
+   is bound to the zone where it was created.
 2. Exchange the key for a short-lived token at the STS token endpoint.
 
    ```bash
@@ -62,7 +63,6 @@ receives the root admin token; it uses a scoped control key.
      -d grant_type=client_credentials \
      -d application_id="$CONTROL_CLIENT_ID" \
      -d client_secret="$CONTROL_CLIENT_SECRET" \
-     -d zone_id="$CARACAL_ZONE_ID" \
      -d resource=caracal-control \
      -d scope="control:resource:write control:policy:write"
    ```
@@ -76,10 +76,34 @@ receives the root admin token; it uses a scoped control key.
      -d '{"command":"resource","subcommand":"create","flags":{"name":"PiperNet","identifier":"resource://pipernet","scopes":["pipernet.read"]}}'
    ```
 
-Each token is short-lived, replay-protected, rate-limited, and audited, so
+STS resolves the bound zone from the authenticated control key; standard
+bootstrap workflows must not ask users to provide a separate zone id. Supplying
+`zone_id` on a Control key token exchange remains accepted for compatibility but
+is deprecated. Each token is short-lived, replay-protected, rate-limited, and audited, so
 least-privilege automation stays the easy path. The `controlBootstrap` example
-ships a reusable client plus idempotent bootstrap and teardown scripts that
-provision a demo provider, resource, and policy through this flow.
+ships a reusable client plus an apply/verify/teardown pipeline that keeps an
+agent's environment in sync with a declared plan through this flow.
+
+## Manage Control Keys
+
+Control keys are created and managed in Console from the **Control** menu. A key is
+a managed, zone-bound application whose only authority is the
+`control:<command>:<verb>` scopes you grant it — never the root admin token.
+
+When you create a key, Console opens a grouped permission picker:
+
+- Each command is a group shown as `control:<command>:*` (for example
+  `control:agent:*`). Toggling a group grants every action under that command.
+- Reveal a group to expand its branch and grant a single action — `read`,
+  `write`, or `delete` — instead of the whole command.
+- Selections are checkboxes that persist while you move through the tree; the key
+  is written with exactly the scopes you keep when you save.
+
+A key can never exceed Console's own zone-bound management surface. The picker
+offers only the commands Control exposes: local-only operations (the Control
+lifecycle itself), non-zone operations, and hidden commands are never grantable.
+A token later exchanged from the key is additionally checked against the scopes
+recorded on the key, so a token can only narrow, never widen, the granted set.
 
 ## Safety Behavior
 

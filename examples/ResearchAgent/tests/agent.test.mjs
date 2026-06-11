@@ -42,27 +42,37 @@ describe('real-provider example contract', () => {
     assert.equal(code, 0, stderr)
   })
 
-  it('fails before network access when Google Drive OAuth is not injected', async () => {
+  it('fails closed before network access when no credentials are injected', async () => {
     const { code, stderr } = await runNode([AGENT, 'task'])
     assert.equal(code, 2)
-    assert.match(stderr, /GOOGLE_DRIVE_ACCESS_TOKEN is not set/)
+    assert.match(stderr, /missing GOOGLE_DRIVE_ACCESS_TOKEN/)
+    assert.match(stderr, /missing GOOGLE_CALENDAR_ACCESS_TOKEN/)
+    assert.match(stderr, /missing OPENAI_API_KEY/)
+    assert.match(stderr, /caracal run/)
   })
 
-  it('fails before network access when Google Calendar OAuth is not injected', async () => {
+  it('reports only the credentials that are absent', async () => {
     const { code, stderr } = await runNode([AGENT, 'task'], {
       GOOGLE_DRIVE_ACCESS_TOKEN: 'ya29.real-drive-token',
     })
     assert.equal(code, 2)
-    assert.match(stderr, /GOOGLE_CALENDAR_ACCESS_TOKEN is not set/)
+    assert.doesNotMatch(stderr, /missing GOOGLE_DRIVE_ACCESS_TOKEN/)
+    assert.match(stderr, /missing GOOGLE_CALENDAR_ACCESS_TOKEN/)
+    assert.match(stderr, /missing OPENAI_API_KEY/)
   })
 
-  it('fails before network access when OpenAI is not injected', async () => {
-    const { code, stderr } = await runNode([AGENT, 'task'], {
-      GOOGLE_DRIVE_ACCESS_TOKEN: 'ya29.real-drive-token',
-      GOOGLE_CALENDAR_ACCESS_TOKEN: 'ya29.real-calendar-token',
+  it('confirms injected credentials at startup without printing their values', async () => {
+    const { code, stdout } = await runNode([AGENT], {
+      GOOGLE_DRIVE_ACCESS_TOKEN: 'ya29.secret-drive-value',
+      GOOGLE_CALENDAR_ACCESS_TOKEN: 'ya29.secret-calendar-value',
+      OPENAI_API_KEY: 'sk-secret-openai-value',
     })
-    assert.equal(code, 2)
-    assert.match(stderr, /OPENAI_API_KEY is not set/)
+    assert.equal(code, 0)
+    assert.match(stdout, /credential preflight/)
+    assert.match(stdout, /GOOGLE_DRIVE_ACCESS_TOKEN\s+present/)
+    assert.match(stdout, /GOOGLE_CALENDAR_ACCESS_TOKEN\s+present/)
+    assert.match(stdout, /OPENAI_API_KEY\s+present/)
+    assert.doesNotMatch(stdout, /secret-drive-value|secret-calendar-value|secret-openai-value/)
   })
 
   it('documents real providers and resource mappings', async () => {
@@ -77,6 +87,9 @@ describe('real-provider example contract', () => {
     assert.match(readme, /runtime\/<zone_id>\/<application_id>/)
     assert.match(readme, /CARACAL_RUN_TTL_SECONDS/)
     assert.match(readme, /GPT-5\.4 mini/)
+    assert.match(readme, /drive\.readonly/)
+    assert.match(readme, /calendar\.readonly/)
+    assert.match(readme, /credential_type = "provider_token"/)
     assert.doesNotMatch(readme, /--google-base-url/)
     assert.doesNotMatch(readme, /--openai-base-url/)
     assert.doesNotMatch(readme, /--model/)

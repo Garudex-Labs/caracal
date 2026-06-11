@@ -142,10 +142,13 @@ export const agentServicesRoutes: FastifyPluginAsync = async (fastify) => {
       const { rows: own } = await client.query<{
         application_id: string
         status: string
-        agent_kind: string
+        lifecycle: string
         heartbeat_deadline_at: Date | null
+        lease_expired: boolean
       }>(
-        `SELECT application_id, status, agent_kind, heartbeat_deadline_at FROM agent_sessions
+        `SELECT application_id, status, lifecycle, heartbeat_deadline_at,
+                heartbeat_deadline_at IS NOT NULL AND heartbeat_deadline_at <= now() AS lease_expired
+         FROM agent_sessions
          WHERE id = $1 AND zone_id = $2 FOR UPDATE`,
         [id, zoneId],
       )
@@ -164,9 +167,8 @@ export const agentServicesRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.code(409).send({ error: 'agent_not_live' })
       }
       if (own[0].status === 'active'
-        && own[0].agent_kind === 'service'
-        && own[0].heartbeat_deadline_at
-        && new Date(own[0].heartbeat_deadline_at).getTime() <= Date.now()) {
+        && own[0].lifecycle === 'service'
+        && own[0].lease_expired) {
         await suspendSubtree(client, zoneId, [id], 'service_heartbeat_lost')
         await client.query('COMMIT')
         return reply.code(409).send({ error: 'agent_lease_expired' })
@@ -176,7 +178,7 @@ export const agentServicesRoutes: FastifyPluginAsync = async (fastify) => {
          SET last_active_at = now(),
              last_heartbeat_at = now(),
              heartbeat_deadline_at = CASE
-               WHEN agent_kind = 'service' THEN now() + ($3::int * interval '1 second')
+               WHEN lifecycle = 'service' THEN now() + ($3::int * interval '1 second')
                ELSE heartbeat_deadline_at
              END,
              updated_at = now()

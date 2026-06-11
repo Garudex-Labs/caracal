@@ -103,7 +103,11 @@ func (s *Server) tryRefreshBrokeredGrant(ctx context.Context, zoneID, userID, re
 	if err != nil {
 		return nil
 	}
-	if grant.ExpiresAt != nil && grant.ExpiresAt.After(time.Now()) {
+	now, err := s.db.CurrentTime(ctx)
+	if err != nil {
+		return sharederr.New(sharederr.STSUnavailable, "trusted time unavailable")
+	}
+	if grant.ExpiresAt != nil && grant.ExpiresAt.After(now) {
 		return nil
 	}
 	if len(grant.RefreshTokenCt) == 0 || grant.ProviderID == nil {
@@ -119,7 +123,11 @@ func (s *Server) refreshExpiredBrokeredGrant(ctx context.Context, zoneID, userID
 	if err != nil {
 		return nil
 	}
-	if grant.ExpiresAt != nil && grant.ExpiresAt.After(time.Now()) {
+	now, err := s.db.CurrentTime(ctx)
+	if err != nil {
+		return sharederr.New(sharederr.STSUnavailable, "trusted time unavailable")
+	}
+	if grant.ExpiresAt != nil && grant.ExpiresAt.After(now) {
 		return nil
 	}
 	if len(grant.RefreshTokenCt) == 0 || grant.ProviderID == nil {
@@ -188,7 +196,11 @@ func (s *Server) refreshExpiredBrokeredGrant(ctx context.Context, zoneID, userID
 		return sharederr.New(sharederr.Internal, "token re-encryption failed")
 	}
 	cappedTTL := capGrantTTL(tokenResp.ExpiresIn, s.cfg.MaxGrantTTLSeconds)
-	expiresAt := time.Now().Add(cappedTTL)
+	now, err = s.db.CurrentTime(ctx)
+	if err != nil {
+		return sharederr.New(sharederr.STSUnavailable, "trusted time unavailable")
+	}
+	expiresAt := now.Add(cappedTTL)
 	if cappedTTL < time.Duration(tokenResp.ExpiresIn)*time.Second {
 		s.log.Warn().
 			Str("provider", provider.ID).
@@ -394,7 +406,11 @@ func (s *Server) persistRefreshedGrant(
 		if readErr != nil {
 			return readErr
 		}
-		if latest.ExpiresAt != nil && latest.ExpiresAt.After(time.Now()) {
+		now, timeErr := s.db.CurrentTime(ctx)
+		if timeErr != nil {
+			return timeErr
+		}
+		if latest.ExpiresAt != nil && latest.ExpiresAt.After(now) {
 			return nil
 		}
 		expectedVersion = latest.RefreshTokenVersion
@@ -496,7 +512,34 @@ func isUnsafeIP(ip net.IP) bool {
 	if len(ip) == net.IPv6len && ip[0]&0xfe == 0xfc {
 		return true
 	}
+	// NAT64 well-known prefix (RFC 6052) embeds an IPv4 target in the low 32 bits;
+	// re-check the embedded address so 64:ff9b::<private-or-metadata-v4> cannot
+	// tunnel past the guard while genuine NAT64 to public addresses still resolves.
+	if embedded := nat64Embedded(ip); embedded != nil {
+		return isUnsafeIP(embedded)
+	}
 	return false
+}
+
+// nat64WellKnownPrefix is the RFC 6052 well-known prefix 64:ff9b::/96.
+var nat64WellKnownPrefix = [12]byte{0x00, 0x64, 0xff, 0x9b}
+
+// nat64Embedded returns the IPv4 address carried in a 64:ff9b::/96 address, or
+// nil when ip is not a NAT64 well-known-prefix address.
+func nat64Embedded(ip net.IP) net.IP {
+	if ip.To4() != nil {
+		return nil
+	}
+	ip16 := ip.To16()
+	if ip16 == nil {
+		return nil
+	}
+	for i := 0; i < 12; i++ {
+		if ip16[i] != nat64WellKnownPrefix[i] {
+			return nil
+		}
+	}
+	return net.IPv4(ip16[12], ip16[13], ip16[14], ip16[15])
 }
 
 // safeHTTPClient builds a one-shot HTTP client with redirects disabled and a dialer

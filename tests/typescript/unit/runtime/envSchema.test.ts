@@ -7,7 +7,7 @@ import { readFileSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { describe, it, expect } from 'vitest'
-import { ENV_SCHEMA, envEntries } from '../../../../packages/engine/src/envSchema.ts'
+import { envEntries } from '../../../../packages/engine/src/envSchema.ts'
 import { loadEnv, PinnedVarError, readDotenv } from '../../../../packages/engine/src/envLoad.ts'
 import { renderDevEnv, renderOperatorTemplate } from '../../../../packages/engine/src/envRender.ts'
 
@@ -80,7 +80,9 @@ describe('envSchema', () => {
   })
 
   it('schema enumerates every secret declared in SECRET_FILES', () => {
-    const secrets = envEntries().filter(([, s]) => s.secret).map(([k]) => k)
+    const secrets = envEntries()
+      .filter(([, s]) => s.secret)
+      .map(([k]) => k)
     expect(secrets).toContain('POSTGRES_PASSWORD')
     expect(secrets).toContain('REDIS_PASSWORD')
     expect(secrets).toContain('CARACAL_ADMIN_TOKEN')

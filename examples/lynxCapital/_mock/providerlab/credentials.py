@@ -13,7 +13,7 @@ import time
 import uuid
 from pathlib import Path
 
-from _mock.providerlab import catalog, mandate
+from _mock.providerlab import catalog, jwtmini, mandate
 
 STORE_DIR = Path(__file__).resolve().parent / "_store"
 SEED_INDEX = STORE_DIR / "_seed_index.json"
@@ -47,6 +47,7 @@ class ProviderStore:
     def _load(self) -> None:
         if self.path.exists():
             self.data = json.loads(self.path.read_text(encoding="utf-8"))
+            self._ensure_seed_mandate()
             return
         self._bootstrap()
 
@@ -78,13 +79,13 @@ class ProviderStore:
         """Create one canonical credential per provider so verification flows have known values."""
         p = self.provider
         seed: dict = {"resource": f"resource://{p.id}", "scopes": list(p.scopes)}
-        if p.category in ("api_key", "sdk"):
+        if catalog.apikey_auth(p):
             rec = self._new_api_key("seed-key")
             seed["apiKey"] = rec["apiKey"]
             seed["location"] = p.apikey_location
             seed["field"] = p.apikey_field
-        elif p.category == "bearer_token":
-            rec = self._new_bearer("seed-token")
+        elif catalog.bearer_auth(p):
+            rec = self._new_bearer("seed-token", prefix="sk_live_" if p.category == "sdk" else "bt_")
             seed["bearerToken"] = rec["accessToken"]
             seed["header"] = p.auth_header
             seed["scheme"] = p.auth_scheme
@@ -127,6 +128,25 @@ class ProviderStore:
         )
         return mandate.sign(claims, self.data["signing_key"])
 
+    def _ensure_seed_mandate(self) -> None:
+        """A persisted seed mandate outlives its TTL between runs; mint a fresh one
+        whenever the stored token is expired, near expiry, or unverifiable."""
+        seed = self.data.get("seed", {})
+        if "mandate" not in seed:
+            return
+        try:
+            claims = jwtmini.decode(
+                seed["mandate"], self.data["signing_key"], verify_exp=False
+            )
+            valid = int(claims.get("exp", 0)) - _now() > 60
+        except jwtmini.JwtError:
+            valid = False
+        if valid:
+            return
+        seed["mandate"] = self._mint_seed_mandate()
+        self._save()
+        self._write_index()
+
     def _write_index(self) -> None:
         with _index_lock:
             STORE_DIR.mkdir(parents=True, exist_ok=True)
@@ -153,10 +173,10 @@ class ProviderStore:
         self.data["apiKeys"].append(rec)
         return rec
 
-    def _new_bearer(self, label: str) -> dict:
+    def _new_bearer(self, label: str, prefix: str = "bt_") -> dict:
         rec = {
             "tokenId": f"tok_{uuid.uuid4().hex[:12]}",
-            "accessToken": f"bt_{secrets.token_urlsafe(28)}",
+            "accessToken": f"{prefix}{secrets.token_urlsafe(28)}",
             "label": label,
             "createdAt": _now(),
             "revoked": False,
@@ -225,9 +245,11 @@ class ProviderStore:
         for rec in self.data[field]:
             if rec[id_key] == identifier and not rec["revoked"]:
                 if kind == "client":
-                    fresh = self._new_client(rec["name"], list(rec["redirectUris"]), list(rec["scopes"]))
-                else:
-                    fresh = maker(rec["label"])
+                    rec["clientSecret"] = f"cs_{secrets.token_urlsafe(28)}"
+                    rec["secretRotatedAt"] = _now()
+                    self._save()
+                    return rec
+                fresh = maker(rec["label"])
                 fresh["rotatedFrom"] = identifier
                 rec["revoked"] = True
                 rec["revokedAt"] = _now()
@@ -248,6 +270,15 @@ class ProviderStore:
         field, value_key = spec
         for rec in self.data[field]:
             if rec[value_key] == presented:
+                rec["lastUsedAt"] = _now()
+                rec["useCount"] = rec.get("useCount", 0) + 1
+                return
+
+    def touch_client(self, client_id: str) -> None:
+        """Record last-use telemetry on an OAuth client whenever one of its access
+        tokens authenticates a call, matching the API key and bearer paths."""
+        for rec in self.data["clients"]:
+            if rec["clientId"] == client_id:
                 rec["lastUsedAt"] = _now()
                 rec["useCount"] = rec.get("useCount", 0) + 1
                 return
@@ -276,16 +307,23 @@ class ProviderStore:
             self._save()
 
     # ---- validators ----
+    def find_api_key(self, presented: str) -> dict | None:
+        for rec in self.data["apiKeys"]:
+            if rec["apiKey"] == presented and not rec["revoked"]:
+                return rec
+        return None
+
     def valid_api_key(self, presented: str) -> bool:
-        return any(
-            r["apiKey"] == presented and not r["revoked"]
-            for r in self.data["apiKeys"]
-        )
+        return self.find_api_key(presented) is not None
+
+    def find_bearer(self, presented: str) -> dict | None:
+        for rec in self.data["bearerTokens"]:
+            if rec["accessToken"] == presented and not rec["revoked"]:
+                return rec
+        return None
 
     def valid_bearer(self, presented: str) -> bool:
-        if any(r["accessToken"] == presented and not r["revoked"] for r in self.data["bearerTokens"]):
-            return True
-        return self.valid_access_token(presented) is not None
+        return self.find_bearer(presented) is not None
 
     def find_client(self, client_id: str) -> dict | None:
         for rec in self.data["clients"]:
@@ -296,6 +334,11 @@ class ProviderStore:
     # ---- oauth issuance ----
     def issue_token(self, client_id: str, scope: str, *, subject: str = "service",
                     refresh: bool = False, audience: str | None = None) -> dict:
+        cutoff = _now() - 86400
+        self.data["tokens"] = [
+            t for t in self.data["tokens"]
+            if t["expiresAt"] >= cutoff or (t.get("refreshToken") and not t.get("refreshConsumed"))
+        ]
         token = {
             "accessToken": f"at_{secrets.token_urlsafe(28)}",
             "tokenType": "Bearer",
@@ -356,8 +399,12 @@ class ProviderStore:
 
     def consume_auth_code(self, code: str) -> dict | None:
         record = self.data["authCodes"].pop(code, None)
+        now = _now()
+        self.data["authCodes"] = {
+            c: r for c, r in self.data["authCodes"].items() if r["expiresAt"] >= now
+        }
         self._save()
-        if record is None or record["expiresAt"] < _now():
+        if record is None or record["expiresAt"] < now:
             return None
         return record
 

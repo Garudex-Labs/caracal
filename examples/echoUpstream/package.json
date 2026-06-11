@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Zero-dependency echo upstream for the self-contained Caracal first tutorial.",
+  "description": "Zero-dependency echo upstream that proves Gateway-brokered requests reach a protected target.",
   "engines": {
     "node": ">=22"
   },

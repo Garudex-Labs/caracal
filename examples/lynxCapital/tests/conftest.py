@@ -19,6 +19,24 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 os.environ.setdefault("OPENAI_API_KEY", "test-key")
 os.environ.setdefault("PROVIDERLAB_FAST", "1")
+# The provider test harness exercises the simulated provider surface directly; opt into
+# simulation mode so those providers are reachable without a live Caracal zone.
+os.environ.setdefault("LYNX_SIMULATION", "1")
+
+
+@pytest.fixture(autouse=True)
+def _isolate_caracal_env():
+    """Tests exercise the simulation path and the setup surfaces' unconfigured
+    placeholders, so a developer's live Caracal zone or application credentials
+    from the shell or local .env must not leak in."""
+    saved = {
+        key: os.environ.pop(key)
+        for key in list(os.environ)
+        if key in ("CARACAL_ZONE_ID", "CARACAL_STS_URL", "CARACAL_COORDINATOR_URL", "CARACAL_GATEWAY_URL")
+        or key.startswith("LYNX_CARACAL_")
+    }
+    yield
+    os.environ.update(saved)
 
 
 def _free_port() -> int:
@@ -68,13 +86,15 @@ def providerlab() -> dict[str, str]:
         eid = _eid(provider.id)
         os.environ[f"LYNX_PARTNER_{eid}_URL"] = url
         seed = credentials.load(provider.id).data["seed"]
-        if provider.category in ("api_key", "sdk"):
+        if catalog.apikey_auth(provider):
             os.environ[f"LYNX_PARTNER_{eid}_API_KEY"] = seed["apiKey"]
-        elif provider.category == "bearer_token" or (provider.category == "mcp" and provider.mcp_auth == "bearer"):
+        elif catalog.bearer_auth(provider) or (provider.category == "mcp" and provider.mcp_auth == "bearer"):
             os.environ[f"LYNX_PARTNER_{eid}_TOKEN"] = seed["bearerToken"]
         elif provider.category in ("oauth2_client_credentials", "oauth2_authorization_code"):
             os.environ[f"LYNX_PARTNER_{eid}_CLIENT_ID"] = seed["clientId"]
             os.environ[f"LYNX_PARTNER_{eid}_CLIENT_SECRET"] = seed["clientSecret"]
+        elif provider.category == "caracal_mandate" or (provider.category == "mcp" and provider.mcp_auth == "mandate"):
+            os.environ[f"LYNX_PARTNER_{eid}_MANDATE"] = seed["mandate"]
 
     yield urls
 

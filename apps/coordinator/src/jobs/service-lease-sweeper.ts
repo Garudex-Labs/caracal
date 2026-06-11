@@ -31,7 +31,7 @@ export async function runServiceLeaseSweep(db: Pool): Promise<number> {
     const { rows: expired } = await client.query<{ id: string; zone_id: string }>(
       `SELECT id, zone_id FROM agent_sessions
        WHERE status = 'active'
-         AND agent_kind = 'service'
+         AND lifecycle = 'service'
          AND heartbeat_deadline_at IS NOT NULL
          AND heartbeat_deadline_at < now()
        ORDER BY heartbeat_deadline_at, id

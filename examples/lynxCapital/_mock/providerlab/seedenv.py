@@ -19,13 +19,15 @@ def lines() -> list[str]:
         seed = credentials.load(provider.id).data["seed"]
         eid = _eid(provider.id)
         out.append(f"export LYNX_PARTNER_{eid}_URL=http://127.0.0.1:{provider.port}")
-        if provider.category in ("api_key", "sdk"):
+        if catalog.apikey_auth(provider):
             out.append(f"export LYNX_PARTNER_{eid}_API_KEY={seed['apiKey']}")
-        elif provider.category == "bearer_token" or (provider.category == "mcp" and provider.mcp_auth == "bearer"):
+        elif catalog.bearer_auth(provider) or (provider.category == "mcp" and provider.mcp_auth == "bearer"):
             out.append(f"export LYNX_PARTNER_{eid}_TOKEN={seed['bearerToken']}")
         elif provider.category in ("oauth2_client_credentials", "oauth2_authorization_code"):
             out.append(f"export LYNX_PARTNER_{eid}_CLIENT_ID={seed['clientId']}")
             out.append(f"export LYNX_PARTNER_{eid}_CLIENT_SECRET={seed['clientSecret']}")
+        elif provider.category == "caracal_mandate" or (provider.category == "mcp" and provider.mcp_auth == "mandate"):
+            out.append(f"export LYNX_PARTNER_{eid}_MANDATE={seed['mandate']}")
     return out
 
 

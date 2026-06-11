@@ -1,6 +1,6 @@
 {
   "name": "@caracalai/revocation",
-  "version": "0.1.4-rc.1",
+  "version": "0.1.5-rc.2",
   "description": "Caracal revocation lookup interface and in-memory default.",
   "license": "Apache-2.0",
   "homepage": "https://github.com/Garudex-Labs/caracal",

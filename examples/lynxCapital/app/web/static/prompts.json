@@ -1,74 +1,88 @@
 {
-  "single": [
+  "quick": [
     {
-      "text": "Submit this week's vendor payments for the US region.",
-      "reason": "Finance Control delegates region:US to the US orchestrator via the runtime; workers inherit the mandate and call submit_payment on mercury through the runtime gateway.",
-      "tags": ["US", "mercury-bank", "submit_payment", "delegated"],
-      "icon": "💳"
+      "text": "Show our current cash position across all bank accounts and flag any currency concentration risk.",
+      "reason": "Treasury pulls positions from Keystone Treasury and balances from Halcyon Bank, then summarizes exposure by currency.",
+      "tags": ["keystone-treasury", "halcyon-bank", "treasury"]
     },
     {
-      "text": "Run payouts for Brazil: Wise Payouts rail.",
-      "reason": "FC → BR orchestrator delegation is recorded by the runtime coordinator; submit_payout runs against wise with the envelope auto-injected by the runtime.",
-      "tags": ["BR", "wise-payouts", "submit_payout", "delegated"],
-      "icon": "💳"
+      "text": "Pull the AR aging report and tell me which customers are more than 60 days overdue.",
+      "reason": "Receivables reads aging buckets from Core Billing and highlights the overdue accounts with open balances.",
+      "tags": ["core-billing", "receivables"]
     },
     {
-      "text": "Execute the end-of-week payment batch for Singapore.",
-      "reason": "Full delegation chain visible in the trace: subject → FC → SG orchestrator → workflow → workers. Every outbound call carries a scoped mandate.",
-      "tags": ["SG", "wise-payouts", "submit_payout", "delegated"],
-      "icon": "💳"
+      "text": "Get a trial balance from the ledger and point out any accounts that look out of balance.",
+      "reason": "Close pulls the trial balance from Slate Ledger and reviews debit/credit tie-out per account.",
+      "tags": ["slate-ledger", "close"]
     },
     {
-      "text": "Process pending invoices for Germany: match against the ERP and pay.",
-      "reason": "DE orchestrator extracts invoices, matches in NetSuite, settles via Wise. All three providers reached through the runtime gateway under one delegated identity.",
-      "tags": ["DE", "netsuite", "wise-payouts", "gateway"],
-      "icon": "💳"
+      "text": "Quote a conversion of 250,000 EUR to USD and show the current reference rate.",
+      "reason": "Treasury fetches a live quote from Cordoba FX and the reference rate from Pulse Market for comparison.",
+      "tags": ["cordoba-fx", "pulse-market", "treasury"]
+    },
+    {
+      "text": "List open vendor bills in the ERP and summarize what we owe by vendor.",
+      "reason": "A single worker lists bills from Ironbark ERP and groups payables by vendor and due date.",
+      "tags": ["ironbark-erp", "payables"]
     }
   ],
-  "multi": [
+  "workflow": [
     {
-      "text": "Dispatch payouts for US and SG: process all pending vendors now.",
-      "reason": "FC spawns two regional orchestrators in parallel; The runtime issues two independent delegations with disjoint region scopes.",
-      "tags": ["US", "SG", "2 agents", "parallel dispatch", "delegated"],
-      "icon": "🌐"
+      "text": "Onboard Crestview Software as a new vendor: run KYB screening, pull their contract terms, and register them for payment.",
+      "reason": "Vendor Lifecycle runs Aegis Screening for KYB, fetches terms from Atlas Vendor, then registers the vendor record.",
+      "tags": ["aegis-screening", "atlas-vendor", "vendorLifecycle"]
     },
     {
-      "text": "Run payouts for India and Brazil: full pipeline including compliance checks.",
-      "reason": "Two orchestrators run OCR, compliance, payment in sequence. compliance-nexus is called via gRPC with runtime metadata; payment via the REST gateway.",
-      "tags": ["IN", "BR", "compliance-nexus", "payments", "grpc"],
-      "icon": "🌐"
+      "text": "Run the period close: reconcile ledger accounts, compute accruals, post the journal entries, and close the period.",
+      "reason": "Period Close drives Slate Ledger end-to-end - reconciliation, accruals, journal posting, and the close itself.",
+      "tags": ["slate-ledger", "close"]
     },
     {
-      "text": "For SG and US: run compliance, get FX rates, then settle vendor invoices.",
-      "reason": "Two orchestrators run compliance and FX lookups before settling. FX SSE stream and REST calls all carry the runtime envelope.",
-      "tags": ["US", "SG", "fx-rates", "compliance-nexus", "payments", "delegated"],
-      "icon": "🌐"
+      "text": "Run a dunning cycle on overdue receivables and send notices to every customer past 30 days.",
+      "reason": "Receivables runs the dunning cycle in Core Billing and delivers notices through Vela Notify with delivery tracking.",
+      "tags": ["core-billing", "vela-notify", "receivables"]
+    },
+    {
+      "text": "Create a purchase requisition for 20 engineering laptops, route it through the approval chain, and issue the purchase order.",
+      "reason": "Procurement checks budget in Junction Procure, resolves the approver chain via Lumen Identity, then issues the PO.",
+      "tags": ["junction-procure", "lumen-identity", "procurement"]
+    },
+    {
+      "text": "Assess our FX exposure and place hedges wherever exposure exceeds policy thresholds.",
+      "reason": "Treasury reads exposure from Keystone Treasury, checks market rates, and places hedges - sensitive steps pause for approval.",
+      "tags": ["keystone-treasury", "cordoba-fx", "treasury", "approval"]
+    },
+    {
+      "text": "Run AML monitoring on this week's transactions and screen any flagged parties against sanctions lists.",
+      "reason": "Compliance monitors transactions in Verafin Monitor and batch-screens flagged parties through Aegis Screening.",
+      "tags": ["verafin-monitor", "aegis-screening", "compliance"]
     }
   ],
-  "full": [
+  "pipeline": [
     {
-      "text": "Process all pending invoices for the US region end-to-end: reconcile, screen vendors, then pay.",
-      "reason": "OCR → ERP match → compliance → submit_payment, each through the gateway under the same US delegation. Every provider call shows the inherited mandate.",
-      "tags": ["US", "ocr-vision", "compliance-nexus", "mercury-bank", "gateway"],
-      "icon": "🛠"
+      "text": "Process the pending vendor invoices end-to-end: extract the documents, match them against the ERP, screen the vendors, then schedule payment.",
+      "reason": "Spans four services - Inkwell OCR extraction, Ironbark ERP matching, Aegis vendor screening, and payment submission with an approval gate.",
+      "tags": ["inkwell-ocr", "ironbark-erp", "aegis-screening", "approval"]
     },
     {
-      "text": "Run the full payout cycle for all five regions.",
-      "reason": "Five regional orchestrators spawn; The runtime records five sibling delegations under Finance Control. Maximum agent fan-out with full lineage in the trace.",
-      "tags": ["US", "IN", "DE", "SG", "BR", "5 agents", "delegated"],
-      "icon": "🛠"
+      "text": "Pay our overseas vendors: get FX quotes, convert the funds, settle through the FX rail, and send payment confirmations.",
+      "reason": "Cross-border settlement through Cordoba FX with remittance advice via Vela Notify; the settlement step requires approval.",
+      "tags": ["cordoba-fx", "vela-notify", "approval"]
     },
     {
-      "text": "For Germany: extract invoice data, validate vendor compliance, look up withholding rates, then submit payouts.",
-      "reason": "DE orchestrator runs OCR, compliance, tax-rules, then submit_payout via Wise: REST + gRPC + MCP all under one delegation chain.",
-      "tags": ["DE", "ocr-vision", "tax-rules", "wise-payouts", "mcp"],
-      "icon": "🛠"
+      "text": "Close the quarter: reconcile the ledger, compute accruals, tie out the trial balance, then prepare the control attestations.",
+      "reason": "Period Close hands off to Compliance - Slate Ledger reconciliation and accruals followed by attestations in Verafin Monitor.",
+      "tags": ["slate-ledger", "verafin-monitor", "close", "compliance"]
     },
     {
-      "text": "Process invoices for all five regions: reconcile against the ERP, then submit payments.",
-      "reason": "All five orchestrators run NetSuite match then settle on the appropriate rail. The runtime gateway enforces resource policy per region binding.",
-      "tags": ["all regions", "netsuite", "payment rails", "gateway"],
-      "icon": "🛠"
+      "text": "Investigate Apex Infrastructure: pull their vendor profile, compliance status, open bills, payment history, and recent supplier activity.",
+      "reason": "Fans out across Atlas Vendor, Ironbark ERP, Meridian Pay, and Beacon CRM, then merges findings into one vendor report.",
+      "tags": ["atlas-vendor", "ironbark-erp", "meridian-pay", "beacon-crm"]
+    },
+    {
+      "text": "Prepare this quarter's regulatory filing: run transaction monitoring, screen counterparties, draft the filing, and submit it.",
+      "reason": "Compliance & Risk end-to-end - Verafin monitoring, Aegis batch screening, filing preparation, and gated submission.",
+      "tags": ["verafin-monitor", "aegis-screening", "compliance", "approval"]
     }
   ]
 }

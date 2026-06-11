@@ -147,7 +147,7 @@ describe('POST /v1/zones/:zoneId/agents/:id/heartbeat', () => {
     const client = {
       query: vi.fn()
         .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [{ application_id: 'app-1', status: 'active', agent_kind: 'task' }] })
+        .mockResolvedValueOnce({ rows: [{ application_id: 'app-1', status: 'active', lifecycle: 'task' }] })
         .mockResolvedValue({ rows: [] }),
       release: vi.fn(),
     }
@@ -216,7 +216,7 @@ describe('POST /v1/zones/:zoneId/agents/:id/heartbeat', () => {
     const client = {
       query: vi.fn()
         .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [{ application_id: 'app-1', status: 'active', agent_kind: 'task' }] })
+        .mockResolvedValueOnce({ rows: [{ application_id: 'app-1', status: 'active', lifecycle: 'task' }] })
         .mockRejectedValueOnce(new Error('update failed')),
       release: vi.fn(),
     }
@@ -280,7 +280,7 @@ describe('POST /v1/zones/:zoneId/agents/:id/heartbeat: lifecycle guards', () => 
     const client = {
       query: vi.fn()
         .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [{ application_id: 'app-1', status: 'terminated', agent_kind: 'task' }] })
+        .mockResolvedValueOnce({ rows: [{ application_id: 'app-1', status: 'terminated', lifecycle: 'task' }] })
         .mockResolvedValue({ rows: [] }),
       release: vi.fn(),
     }
@@ -297,12 +297,11 @@ describe('POST /v1/zones/:zoneId/agents/:id/heartbeat: lifecycle guards', () => 
 
   it('suspends and returns 409 when a service lease has expired', async () => {
     const { app, db } = buildApp()
-    const expired = new Date(Date.now() - 1000)
     const client = {
       query: vi.fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [{
-          application_id: 'app-1', status: 'active', agent_kind: 'service', heartbeat_deadline_at: expired,
+          application_id: 'app-1', status: 'active', lifecycle: 'service', lease_expired: true,
         }] })
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValue({ rows: [] }),
@@ -324,7 +323,7 @@ describe('POST /v1/zones/:zoneId/agents/:id/heartbeat: lifecycle guards', () => 
     const client = {
       query: vi.fn()
         .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [{ application_id: 'app-1', status: 'active', agent_kind: 'task' }] })
+        .mockResolvedValueOnce({ rows: [{ application_id: 'app-1', status: 'active', lifecycle: 'task' }] })
         .mockResolvedValueOnce({ rows: [{ id: 'agent-1', application_id: 'app-1' }] })
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValue({ rows: [] }),

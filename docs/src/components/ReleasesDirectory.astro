@@ -1,0 +1,416 @@
+---
+/*
+ * Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+ * Caracal, a product of Garudex Labs
+ *
+ * Release timeline with channel filters, version search, and per-platform downloads.
+ */
+
+interface ReleaseRecord {
+  release: string;
+  channel: "rc" | "stable";
+  date: string;
+  assets: string[];
+}
+
+const modules = import.meta.glob<ReleaseRecord>("../data/releases/*.json", {
+  eager: true,
+  import: "default",
+});
+const releases = Object.values(modules).sort((a, b) => b.release.localeCompare(a.release));
+const latest = releases[0];
+
+const repo = "https://github.com/Garudex-Labs/caracal";
+const assetUrl = (tag: string, name: string) => `${repo}/releases/download/${tag}/${name}`;
+const releaseUrl = (tag: string) => `${repo}/releases/tag/${tag}`;
+
+const formatDate = (iso: string) =>
+  new Date(iso).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+
+const componentLabels: Record<string, string> = {
+  "caracal-runtime": "Runtime",
+  "caracal-console": "Console",
+  "caracal-shell": "Shell",
+  "caracal-cli": "CLI",
+  "caracal-tui": "TUI",
+};
+
+const platformLabel = (name: string) => {
+  const os = name.includes("darwin") ? "macOS" : name.includes("windows") ? "Windows" : "Linux";
+  const arch = name.includes("arm64") ? "arm64" : "amd64";
+  return `${os} ${arch}`;
+};
+
+const groupAssets = (record: ReleaseRecord) => {
+  const archives = record.assets.filter((a) => a.endsWith(".tar.gz") || a.endsWith(".zip"));
+  const components = new Map<string, { name: string; label: string }[]>();
+  for (const name of archives) {
+    const prefix = name.split("-").slice(0, 2).join("-");
+    const label = componentLabels[prefix] ?? prefix;
+    const list = components.get(label) ?? [];
+    list.push({ name, label: platformLabel(name) });
+    components.set(label, list);
+  }
+  const extras = record.assets.filter((a) => !archives.includes(a));
+  return { components, extras };
+};
+---
+
+<section class="media-page releases-page not-content" aria-labelledby="releases-heading">
+  <div class="media-page__inner releases-page__inner">
+    <header class="media-head">
+      <div class="media-head__row">
+        <h1 id="releases-heading" class="media-head__title">Releases</h1>
+        {latest && (
+          <a class="media-head__submit" href={releaseUrl(latest.release)}>
+            Latest: {latest.release}
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" />
+            </svg>
+          </a>
+        )}
+      </div>
+      <p class="media-head__lede">
+        Download Caracal binaries and installers for any published version. Container images live on
+        <code>ghcr.io/garudex-labs</code>, SDK packages on npm and PyPI.
+      </p>
+    </header>
+
+    <div class="media-toolbar">
+      <div class="media-filterset" role="group" aria-label="Filter releases by channel">
+        <button class="media-tab isActive" type="button" data-rel-filter="all">All releases</button>
+        <button class="media-tab" type="button" data-rel-filter="stable" style="--tint: var(--sl-color-green)">Stable</button>
+        <button class="media-tab" type="button" data-rel-filter="rc" style="--tint: var(--sl-color-orange)">Release candidates</button>
+      </div>
+      <label class="media-search">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+        </svg>
+        <input type="search" placeholder="Find a version" aria-label="Search releases" data-rel-search />
+      </label>
+    </div>
+
+    <ol class="rel-timeline" data-rel-list>
+      {releases.map((record) => {
+        const { components, extras } = groupAssets(record);
+        return (
+          <li
+            class="rel-entry"
+            data-rel-item
+            data-rel-channel={record.channel}
+            data-rel-text={`${record.release} ${formatDate(record.date)} ${record.channel}`.toLowerCase()}
+          >
+            <div class="rel-rail">
+              <span class="rel-rail__dot" data-channel={record.channel} aria-hidden="true"></span>
+              <time class="rel-rail__date" datetime={record.date}>{formatDate(record.date)}</time>
+              <span class="rel-badge" data-channel={record.channel}>
+                {record.channel === "rc" ? "Release candidate" : "Stable"}
+              </span>
+            </div>
+
+            <article class="rel-body">
+              <a class="rel-version" href={releaseUrl(record.release)}>
+                {record.release}
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" />
+                </svg>
+              </a>
+
+              <div class="rel-downloads">
+                {[...components.entries()].map(([label, files]) => (
+                  <div class="rel-downloads__row">
+                    <span class="rel-downloads__label">{label}</span>
+                    <span class="rel-downloads__links">
+                      {files.map((file) => (
+                        <a href={assetUrl(record.release, file.name)} download>
+                          <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
+                          </svg>
+                          {file.label}
+                        </a>
+                      ))}
+                    </span>
+                  </div>
+                ))}
+                {extras.length > 0 && (
+                  <div class="rel-downloads__row">
+                    <span class="rel-downloads__label">Installers &amp; checksums</span>
+                    <span class="rel-downloads__links">
+                      {extras.map((name) => (
+                        <a href={assetUrl(record.release, name)} download>{name}</a>
+                      ))}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </article>
+          </li>
+        );
+      })}
+    </ol>
+
+    <p class="media-empty" data-rel-noresults hidden>No releases match that search.</p>
+
+    <footer class="rel-footer">
+      <p>
+        Verify any download against the release <code>SHA256SUMS</code> — see
+        <a href="/security/verify-releases/">Verify a Release</a>.
+      </p>
+    </footer>
+  </div>
+</section>
+
+<script>
+  const search = document.querySelector<HTMLInputElement>("[data-rel-search]");
+  const filters = Array.from(document.querySelectorAll<HTMLButtonElement>("[data-rel-filter]"));
+  const items = Array.from(document.querySelectorAll<HTMLElement>("[data-rel-item]"));
+  const noResults = document.querySelector<HTMLElement>("[data-rel-noresults]");
+
+  let channel = "all";
+  let query = "";
+
+  const apply = () => {
+    let visible = 0;
+    for (const item of items) {
+      const show =
+        (channel === "all" || item.dataset.relChannel === channel) &&
+        (!query || (item.dataset.relText ?? "").includes(query));
+      item.hidden = !show;
+      if (show) visible += 1;
+    }
+    if (noResults) noResults.hidden = visible > 0;
+  };
+
+  for (const button of filters) {
+    button.addEventListener("click", () => {
+      channel = button.dataset.relFilter ?? "all";
+      for (const other of filters) other.classList.toggle("isActive", other === button);
+      apply();
+    });
+  }
+
+  search?.addEventListener("input", () => {
+    query = search.value.trim().toLowerCase();
+    apply();
+  });
+</script>
+
+<style>
+  .releases-page__inner {
+    max-width: 52rem;
+  }
+
+  .rel-timeline {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .rel-entry {
+    position: relative;
+    display: grid;
+    grid-template-columns: 10.5rem 1fr;
+    gap: clamp(1.25rem, 3vw, 2.25rem);
+    padding-bottom: clamp(2rem, 4vw, 2.75rem);
+  }
+
+  .rel-entry[hidden] {
+    display: none;
+  }
+
+  .rel-entry::before {
+    content: "";
+    position: absolute;
+    top: 0.55rem;
+    bottom: -0.55rem;
+    left: calc(10.5rem + clamp(1.25rem, 3vw, 2.25rem) / 2 - 0.5px);
+    width: 1px;
+    background: var(--sl-color-hairline);
+  }
+
+  .rel-entry:last-child::before {
+    display: none;
+  }
+
+  .rel-rail {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.4rem;
+    text-align: right;
+  }
+
+  .rel-rail__dot {
+    position: absolute;
+    top: 0.32rem;
+    left: calc(10.5rem + clamp(1.25rem, 3vw, 2.25rem) / 2 - 4.5px);
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--sl-color-green);
+    box-shadow: 0 0 0 4px var(--sl-color-bg);
+  }
+
+  .rel-rail__dot[data-channel="rc"] {
+    background: var(--sl-color-orange);
+  }
+
+  .rel-rail__date {
+    font-family: var(--sl-font-mono);
+    font-size: 0.78rem;
+    color: var(--sl-color-gray-3);
+  }
+
+  .rel-badge {
+    font-size: 0.7rem;
+    font-weight: 660;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+
+  .rel-badge[data-channel="stable"] {
+    color: var(--sl-color-green-high, var(--sl-color-green));
+  }
+
+  .rel-badge[data-channel="rc"] {
+    color: var(--sl-color-orange-high, var(--sl-color-orange));
+  }
+
+  .rel-body {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+  }
+
+  .rel-version {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    align-self: flex-start;
+    font-family: "Space Grotesk", var(--sl-font);
+    font-size: clamp(1.2rem, 2.4vw, 1.45rem);
+    font-weight: 740;
+    letter-spacing: -0.02em;
+    line-height: 1.15;
+    color: var(--sl-color-text);
+    text-decoration: none;
+    transition: color 140ms ease;
+  }
+
+  .rel-version svg {
+    color: var(--sl-color-gray-4);
+    opacity: 0;
+    transform: translate(-3px, 3px);
+    transition: opacity 140ms ease, transform 140ms ease;
+  }
+
+  .rel-version:hover {
+    color: var(--sl-color-text-accent);
+  }
+
+  .rel-version:hover svg {
+    opacity: 1;
+    transform: translate(0, 0);
+  }
+
+  .rel-downloads {
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+  }
+
+  .rel-downloads__row {
+    display: grid;
+    grid-template-columns: 8.5rem 1fr;
+    gap: 0.6rem;
+    align-items: start;
+  }
+
+  .rel-downloads__label {
+    padding-top: 0.3rem;
+    font-size: 0.76rem;
+    font-weight: 640;
+    color: var(--sl-color-gray-3);
+  }
+
+  .rel-downloads__links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+
+  .rel-downloads__links a {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.26rem 0.65rem;
+    border: 1px solid var(--sl-color-hairline);
+    border-radius: 8px;
+    font-size: 0.77rem;
+    color: var(--sl-color-text);
+    text-decoration: none;
+    transition: border-color 140ms ease, color 140ms ease, background 140ms ease;
+  }
+
+  .rel-downloads__links a svg {
+    color: var(--sl-color-gray-4);
+  }
+
+  .rel-downloads__links a:hover {
+    border-color: var(--sl-color-text-accent);
+    color: var(--sl-color-text-accent);
+    background: color-mix(in srgb, var(--sl-color-text-accent) 6%, transparent);
+  }
+
+  .rel-downloads__links a:hover svg {
+    color: currentColor;
+  }
+
+  .rel-footer {
+    padding-top: 1.4rem;
+    border-top: 1px solid var(--sl-color-hairline);
+    font-size: 0.82rem;
+    line-height: 1.6;
+    color: var(--sl-color-gray-3);
+  }
+
+  .rel-footer p {
+    margin: 0;
+  }
+
+  @media (max-width: 48rem) {
+    .rel-entry {
+      grid-template-columns: 1fr;
+      gap: 0.7rem;
+      padding-left: 1.4rem;
+    }
+
+    .rel-entry::before {
+      left: 3.5px;
+    }
+
+    .rel-rail {
+      flex-direction: row;
+      align-items: center;
+      gap: 0.7rem;
+      text-align: left;
+    }
+
+    .rel-rail__dot {
+      left: 0;
+      top: 0.45rem;
+    }
+
+    .rel-downloads__row {
+      grid-template-columns: 1fr;
+      gap: 0.35rem;
+    }
+
+    .rel-downloads__label {
+      padding-top: 0;
+    }
+  }
+</style>

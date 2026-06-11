@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 Aegis Screening domain: sanctions, PEP, and adverse-media screening, KYB entity verification, risk scoring, case management, and ongoing monitoring.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -19,7 +20,12 @@ ID = "aegis-screening"
 
 # Program weights drive the composite 0-100 risk score; sanctions dominate, with
 # politically-exposed-person and adverse-media signals contributing less.
-_PROGRAM_WEIGHT = {"SANCTIONS": 60, "LAW_ENFORCEMENT": 45, "PEP": 25, "ADVERSE_MEDIA": 18}
+_PROGRAM_WEIGHT = {
+    "SANCTIONS": 60,
+    "LAW_ENFORCEMENT": 45,
+    "PEP": 25,
+    "ADVERSE_MEDIA": 18,
+}
 _BANDS = (("critical", 75), ("high", 50), ("medium", 25), ("low", 0))
 _SLA_HOURS = {"critical": 4, "high": 24, "medium": 72, "low": 168}
 _DISPOSITIONS = ("false_positive", "true_match", "no_match", "escalate")
@@ -35,8 +41,25 @@ def _norm(value: str) -> str:
 
 
 def _tokens(value: str) -> set[str]:
-    drop = {"llc", "ltd", "inc", "co", "corp", "ooo", "gmbh", "plc", "sa", "ag", "the", "and"}
-    return {t for t in _norm(value).replace(".", "").replace(",", "").split() if t and t not in drop}
+    drop = {
+        "llc",
+        "ltd",
+        "inc",
+        "co",
+        "corp",
+        "ooo",
+        "gmbh",
+        "plc",
+        "sa",
+        "ag",
+        "the",
+        "and",
+    }
+    return {
+        t
+        for t in _norm(value).replace(".", "").replace(",", "").split()
+        if t and t not in drop
+    }
 
 
 @base.seeder(ID)
@@ -61,7 +84,9 @@ def seed(state: base.State) -> None:
 # matching, scoring, decisioning
 # --------------------------------------------------------------------------- #
 def _watchlist_subjects(state: base.State) -> list[dict]:
-    return [e for e in state.table("entities").values() if e.get("source") == "watchlist"]
+    return [
+        e for e in state.table("entities").values() if e.get("source") == "watchlist"
+    ]
 
 
 def _match(state: base.State, name: str, etype: str, country: str | None) -> list[dict]:
@@ -92,7 +117,9 @@ def _match(state: base.State, name: str, etype: str, country: str | None) -> lis
         rng = gen._rng(ID, "noise", _norm(name))
         if rng.random() < 0.12:
             subject = rng.choice(_watchlist_subjects(state))
-            if "ADVERSE_MEDIA" in subject.get("programs", []) or "PEP" in subject.get("programs", []):
+            if "ADVERSE_MEDIA" in subject.get("programs", []) or "PEP" in subject.get(
+                "programs", []
+            ):
                 hits.append(_hit(subject, "fuzzy", round(rng.uniform(0.74, 0.84), 2)))
     hits.sort(key=lambda h: h["matchScore"], reverse=True)
     return hits
@@ -111,7 +138,9 @@ def _hit(subject: dict, match_type: str, score: float) -> dict:
         "country": subject.get("country"),
         "sanctionType": subject.get("sanctionType"),
         "dateOfBirth": subject.get("dateOfBirth"),
-        "falsePositiveProbability": round(max(0.02, 1 - score) * (0.4 if match_type == "exact" else 0.8), 2),
+        "falsePositiveProbability": round(
+            max(0.02, 1 - score) * (0.4 if match_type == "exact" else 0.8), 2
+        ),
     }
 
 
@@ -122,22 +151,31 @@ def _band(score: float) -> str:
     return "low"
 
 
-def _risk(hits: list[dict], country: str | None, entity_status: str | None) -> tuple[int, str, list[dict]]:
+def _risk(
+    hits: list[dict], country: str | None, entity_status: str | None
+) -> tuple[int, str, list[dict]]:
     factors: list[dict] = []
     contributions: list[float] = []
     for hit in hits:
         weight = max((_PROGRAM_WEIGHT.get(p, 10) for p in hit["programs"]), default=10)
         weight *= 1.0 if hit["matchType"] == "exact" else 0.6
         contributions.append(weight)
-        factors.append({"factor": "watchlist_match",
-                        "list": hit["watchlists"][0] if hit["watchlists"] else None,
-                        "matchType": hit["matchType"], "weight": round(weight, 1)})
+        factors.append(
+            {
+                "factor": "watchlist_match",
+                "list": hit["watchlists"][0] if hit["watchlists"] else None,
+                "matchType": hit["matchType"],
+                "weight": round(weight, 1),
+            }
+        )
     contributions.sort(reverse=True)
     score = contributions[0] if contributions else 0.0
     score += sum(c * 0.4 for c in contributions[1:])
-    if country in gen._AEGIS_HIGH_RISK:
+    if country in gen.AEGIS_HIGH_RISK:
         score += 15
-        factors.append({"factor": "high_risk_jurisdiction", "country": country, "weight": 15})
+        factors.append(
+            {"factor": "high_risk_jurisdiction", "country": country, "weight": 15}
+        )
     if entity_status == "dissolved":
         score += 20
         factors.append({"factor": "dissolved_entity", "weight": 20})
@@ -146,7 +184,9 @@ def _risk(hits: list[dict], country: str | None, entity_status: str | None) -> t
 
 
 def _decision(hits: list[dict], band: str) -> tuple[str, str]:
-    blocking = any("SANCTIONS" in h["programs"] and h["matchType"] == "exact" for h in hits)
+    blocking = any(
+        "SANCTIONS" in h["programs"] and h["matchType"] == "exact" for h in hits
+    )
     if blocking or band == "critical":
         return "block", "reject_and_escalate_edd"
     if hits or band in ("high", "medium"):
@@ -162,17 +202,31 @@ def _audit(state: base.State, case: dict, kind: str, actor: str, details: dict) 
     prev = case["auditTrail"][-1]["hash"] if case["auditTrail"] else "genesis"
     at = _ts()
     event_id = base.new_id("evt")
-    digest = hashlib.sha256(f"{case['caseId']}|{kind}|{actor}|{at}|{prev}".encode()).hexdigest()[:16]
-    event = {"eventId": event_id, "caseId": case["caseId"], "type": kind, "actor": actor,
-             "at": at, "details": details, "prevHash": prev, "hash": digest}
+    digest = hashlib.sha256(
+        f"{case['caseId']}|{kind}|{actor}|{at}|{prev}".encode()
+    ).hexdigest()[:16]
+    event = {
+        "eventId": event_id,
+        "caseId": case["caseId"],
+        "type": kind,
+        "actor": actor,
+        "at": at,
+        "details": details,
+        "prevHash": prev,
+        "hash": digest,
+    }
     case["auditTrail"].append(event)
     state.table("audit_events")[event_id] = event
     return event
 
 
-def _open_case(state: base.State, screening: dict, hits: list[dict], actor: str) -> dict:
+def _open_case(
+    state: base.State, screening: dict, hits: list[dict], actor: str
+) -> dict:
     band = screening["riskBand"]
-    priority = {"critical": "critical", "high": "high", "medium": "medium"}.get(band, "low")
+    priority = {"critical": "critical", "high": "high", "medium": "medium"}.get(
+        band, "low"
+    )
     created = _ts()
     case = {
         "caseId": base.new_id("case"),
@@ -182,13 +236,23 @@ def _open_case(state: base.State, screening: dict, hits: list[dict], actor: str)
         "subjectType": screening["subject"]["type"],
         "status": "open",
         "priority": priority,
-        "queue": "sanctions_l1" if any("SANCTIONS" in h["programs"] for h in hits) else "aml_l1",
+        "queue": "sanctions_l1"
+        if any("SANCTIONS" in h["programs"] for h in hits)
+        else "aml_l1",
         "riskScore": screening["riskScore"],
         "riskBand": band,
         "assignee": None,
         "slaDueAt": _ts(_SLA_HOURS[priority] * 3600),
-        "hits": [{"hitId": h["hitId"], "list": h.get("watchlists", []), "matchedName": h["matchedName"],
-                  "matchScore": h["matchScore"], "matchType": h["matchType"]} for h in hits],
+        "hits": [
+            {
+                "hitId": h["hitId"],
+                "list": h.get("watchlists", []),
+                "matchedName": h["matchedName"],
+                "matchScore": h["matchScore"],
+                "matchType": h["matchType"],
+            }
+            for h in hits
+        ],
         "disposition": None,
         "dispositionReason": None,
         "auditTrail": [],
@@ -202,15 +266,23 @@ def _open_case(state: base.State, screening: dict, hits: list[dict], actor: str)
             f"at {band} risk against "
             f"{', '.join(sorted({w for h in hits for w in h.get('watchlists', [])})) or 'screening lists'}.",
             f"Potential {band}-risk match for {screening['subject']['name']} "
-            f"against {hits[0]['watchlists'][0] if hits and hits[0]['watchlists'] else 'a screening list'}."),
+            f"against {hits[0]['watchlists'][0] if hits and hits[0]['watchlists'] else 'a screening list'}.",
+        ),
     }
     state.table("cases")[case["caseId"]] = case
-    _audit(state, case, "case_opened", actor, {"riskBand": band, "matchCount": len(hits)})
+    _audit(
+        state, case, "case_opened", actor, {"riskBand": band, "matchCount": len(hits)}
+    )
     return case
 
 
-def _persist_screen(state: base.State, subject: dict, screen_type: str, actor: str,
-                    entity_id: str | None = None) -> dict:
+def _persist_screen(
+    state: base.State,
+    subject: dict,
+    screen_type: str,
+    actor: str,
+    entity_id: str | None = None,
+) -> dict:
     start = time.time()
     raw_hits = _match(state, subject["name"], subject["type"], subject.get("country"))
     screening_id = base.new_id("scr")
@@ -227,8 +299,9 @@ def _persist_screen(state: base.State, subject: dict, screen_type: str, actor: s
         status_for_risk = entity.get("status") if entity else None
     score, band, factors = _risk(stored_hits, subject.get("country"), status_for_risk)
     decision, recommended = _decision(stored_hits, band)
-    screened_lists = sorted({w for h in stored_hits for w in h.get("watchlists", [])}) \
-        or list(state.table("watchlists"))
+    screened_lists = sorted(
+        {w for h in stored_hits for w in h.get("watchlists", [])}
+    ) or list(state.table("watchlists"))
     screening = {
         "screeningId": screening_id,
         "requestId": base.new_id("req"),
@@ -263,16 +336,34 @@ def _persist_screen(state: base.State, subject: dict, screen_type: str, actor: s
 def _seed_history(state: base.State) -> None:
     rng = gen._rng(ID, "history")
     for entity in _watchlist_subjects(state):
-        _persist_screen(state, {"name": entity["legalName"], "type": entity["type"],
-                                "country": entity["country"]}, "sanctions", "system@aegis")
+        _persist_screen(
+            state,
+            {
+                "name": entity["legalName"],
+                "type": entity["type"],
+                "country": entity["country"],
+            },
+            "sanctions",
+            "system@aegis",
+        )
     for entity in list(state.table("entities").values()):
         if entity.get("source") == "registry":
             _verify_entity(state, entity, "system@aegis")
-    clean = ("Harbor Freight Partners", "Cedar Analytics", "Marigold Foods",
-             "Driftwood Logistics", "Quill Components", "Saffron Trading")
+    clean = (
+        "Harbor Freight Partners",
+        "Cedar Analytics",
+        "Marigold Foods",
+        "Driftwood Logistics",
+        "Quill Components",
+        "Saffron Trading",
+    )
     for name in clean:
-        _persist_screen(state, {"name": name, "type": "organization", "country": "US"},
-                        "sanctions", "system@aegis")
+        _persist_screen(
+            state,
+            {"name": name, "type": "organization", "country": "US"},
+            "sanctions",
+            "system@aegis",
+        )
 
     cases = list(state.table("cases").values())
     analysts = ("amelia.stone@aegis", "raj.patel@aegis", "nina.kovac@aegis")
@@ -283,12 +374,25 @@ def _seed_history(state: base.State) -> None:
         elif roll < 0.55:
             analyst = analysts[idx % len(analysts)]
             _assign(state, case, analyst, "system@aegis")
-            _resolve(state, case, "false_positive", "Secondary identifiers cleared the alert.", analyst)
+            _resolve(
+                state,
+                case,
+                "false_positive",
+                "Secondary identifiers cleared the alert.",
+                analyst,
+            )
         elif roll < 0.68 and case["riskBand"] in ("high", "critical"):
-            _escalate(state, case, "edd_l2", "Strong sanctions match requires enhanced due diligence.",
-                      analysts[idx % len(analysts)])
+            _escalate(
+                state,
+                case,
+                "edd_l2",
+                "Strong sanctions match requires enhanced due diligence.",
+                analysts[idx % len(analysts)],
+            )
 
-    registry = [e for e in state.table("entities").values() if e.get("source") == "registry"]
+    registry = [
+        e for e in state.table("entities").values() if e.get("source") == "registry"
+    ]
     for entity in registry[:5]:
         _create_monitor(state, entity, rng.choice(("daily", "weekly")), "system@aegis")
 
@@ -303,7 +407,9 @@ def _assign(state: base.State, case: dict, assignee: str, actor: str) -> None:
     _audit(state, case, "case_assigned", actor, {"assignee": assignee})
 
 
-def _escalate(state: base.State, case: dict, queue: str, reason: str, actor: str) -> None:
+def _escalate(
+    state: base.State, case: dict, queue: str, reason: str, actor: str
+) -> None:
     case["status"] = "escalated"
     case["queue"] = queue
     case["priority"] = "critical"
@@ -311,7 +417,9 @@ def _escalate(state: base.State, case: dict, queue: str, reason: str, actor: str
     _audit(state, case, "case_escalated", actor, {"queue": queue, "reason": reason})
 
 
-def _resolve(state: base.State, case: dict, disposition: str, reason: str, actor: str) -> None:
+def _resolve(
+    state: base.State, case: dict, disposition: str, reason: str, actor: str
+) -> None:
     case["status"] = "resolved"
     case["disposition"] = disposition
     case["dispositionReason"] = reason
@@ -321,12 +429,26 @@ def _resolve(state: base.State, case: dict, disposition: str, reason: str, actor
     for hit_ref in case["hits"]:
         hit = state.table("watchlist_hits").get(hit_ref["hitId"])
         if hit:
-            hit["status"] = "cleared" if disposition in ("false_positive", "no_match") else "confirmed"
-    _audit(state, case, "case_resolved", actor, {"disposition": disposition, "reason": reason})
+            hit["status"] = (
+                "cleared"
+                if disposition in ("false_positive", "no_match")
+                else "confirmed"
+            )
+    _audit(
+        state,
+        case,
+        "case_resolved",
+        actor,
+        {"disposition": disposition, "reason": reason},
+    )
 
 
-def _create_monitor(state: base.State, entity: dict, frequency: str, actor: str) -> dict:
-    interval = {"realtime": 0, "daily": 86_400, "weekly": 604_800}.get(frequency, 86_400)
+def _create_monitor(
+    state: base.State, entity: dict, frequency: str, actor: str
+) -> dict:
+    interval = {"realtime": 0, "daily": 86_400, "weekly": 604_800}.get(
+        frequency, 86_400
+    )
     monitor = {
         "monitorId": base.new_id("mon"),
         "entityId": entity["entityId"],
@@ -348,13 +470,23 @@ def _create_monitor(state: base.State, entity: dict, frequency: str, actor: str)
 def _verify_entity(state: base.State, entity: dict, actor: str) -> dict:
     """Run a KYB verification pass over a registry entity and its beneficial owners."""
     screening = _persist_screen(
-        state, {"name": entity["legalName"], "type": "organization", "country": entity["country"]},
-        "kyb", actor, entity_id=entity["entityId"])
+        state,
+        {
+            "name": entity["legalName"],
+            "type": "organization",
+            "country": entity["country"],
+        },
+        "kyb",
+        actor,
+        entity_id=entity["entityId"],
+    )
     owner_flags = []
     for owner in entity.get("beneficialOwners", []):
         owner_hits = _match(state, owner["name"], "individual", owner.get("country"))
         owner["screeningResult"] = "hit" if owner_hits else "clear"
-        owner["isPep"] = owner.get("isPep") or any("PEP" in h["programs"] for h in owner_hits)
+        owner["isPep"] = owner.get("isPep") or any(
+            "PEP" in h["programs"] for h in owner_hits
+        )
         if owner_hits or owner["isPep"]:
             owner_flags.append(owner["name"])
     blocking = screening["decision"] == "block"
@@ -435,11 +567,23 @@ def screen_batch(ctx: Ctx) -> dict:
         subject = _party_subject(party)
         screening = _persist_screen(ctx.state, subject, "batch_item", actor)
         counts[screening["decision"]] = counts.get(screening["decision"], 0) + 1
-        results.append({"name": subject["name"], "decision": screening["decision"],
-                        "riskBand": screening["riskBand"], "matchCount": screening["matchCount"],
-                        "screeningId": screening["screeningId"], "caseId": screening.get("caseId")})
-    return {"batchId": batch_id or base.new_id("batch"), "submitted": len(results),
-            "summary": counts, "results": results, "completedAt": _ts()}
+        results.append(
+            {
+                "name": subject["name"],
+                "decision": screening["decision"],
+                "riskBand": screening["riskBand"],
+                "matchCount": screening["matchCount"],
+                "screeningId": screening["screeningId"],
+                "caseId": screening.get("caseId"),
+            }
+        )
+    return {
+        "batchId": batch_id or base.new_id("batch"),
+        "submitted": len(results),
+        "summary": counts,
+        "results": results,
+        "completedAt": _ts(),
+    }
 
 
 @base.op(ID, "rescreen_entity")
@@ -454,14 +598,27 @@ def rescreen_entity(ctx: Ctx) -> dict:
     if entity.get("source") == "registry":
         screening = _verify_entity(ctx.state, entity, _actor(ctx))
     else:
-        screening = _persist_screen(ctx.state, {"name": entity["legalName"], "type": entity["type"],
-                                                "country": entity.get("country")}, "rescreen",
-                                    _actor(ctx), entity_id=entity["entityId"])
+        screening = _persist_screen(
+            ctx.state,
+            {
+                "name": entity["legalName"],
+                "type": entity["type"],
+                "country": entity.get("country"),
+            },
+            "rescreen",
+            _actor(ctx),
+            entity_id=entity["entityId"],
+        )
         entity["lastDecision"] = screening["decision"]
-    return {"entityId": entity["entityId"], "previousDecision": previous,
-            "decision": screening["decision"], "riskBand": screening["riskBand"],
-            "changed": previous != screening["decision"], "screeningId": screening["screeningId"],
-            "caseId": screening.get("caseId")}
+    return {
+        "entityId": entity["entityId"],
+        "previousDecision": previous,
+        "decision": screening["decision"],
+        "riskBand": screening["riskBand"],
+        "changed": previous != screening["decision"],
+        "screeningId": screening["screeningId"],
+        "caseId": screening.get("caseId"),
+    }
 
 
 @base.op(ID, "get_screening")
@@ -546,8 +703,12 @@ def get_audit_trail(ctx: Ctx) -> dict:
     if case is None:
         raise DomainError(404, "case_not_found", ctx.payload["caseId"])
     events = case["auditTrail"]
-    return {"caseId": case["caseId"], "events": events, "eventCount": len(events),
-            "chainIntact": _audit_intact(case["caseId"], events)}
+    return {
+        "caseId": case["caseId"],
+        "events": events,
+        "eventCount": len(events),
+        "chainIntact": _audit_intact(case["caseId"], events),
+    }
 
 
 @base.op(ID, "assign_case")
@@ -570,7 +731,9 @@ def add_case_note(ctx: Ctx) -> dict:
     case = ctx.state.table("cases").get(ctx.payload["caseId"])
     if case is None:
         raise DomainError(404, "case_not_found", ctx.payload["caseId"])
-    event = _audit(ctx.state, case, "note_added", _actor(ctx), {"note": str(ctx.payload["note"])})
+    event = _audit(
+        ctx.state, case, "note_added", _actor(ctx), {"note": str(ctx.payload["note"])}
+    )
     case["updatedAt"] = _ts()
     return {"caseId": case["caseId"], "event": event}
 
@@ -584,8 +747,13 @@ def escalate_case(ctx: Ctx) -> dict:
         raise DomainError(404, "case_not_found", ctx.payload["caseId"])
     if case["status"] in ("resolved", "closed"):
         raise DomainError(409, "case_closed", "cannot escalate a closed case")
-    _escalate(ctx.state, case, ctx.get("queue", "edd_l2"),
-              ctx.get("reason", "Manual escalation requested."), _actor(ctx))
+    _escalate(
+        ctx.state,
+        case,
+        ctx.get("queue", "edd_l2"),
+        ctx.get("reason", "Manual escalation requested."),
+        _actor(ctx),
+    )
     return case
 
 
@@ -598,16 +766,29 @@ def resolve_case(ctx: Ctx) -> dict:
         raise DomainError(404, "case_not_found", ctx.payload["caseId"])
     disposition = ctx.payload["disposition"]
     if disposition not in _DISPOSITIONS:
-        raise DomainError(422, "invalid_disposition",
-                          f"disposition must be one of {', '.join(_DISPOSITIONS)}")
+        raise DomainError(
+            422,
+            "invalid_disposition",
+            f"disposition must be one of {', '.join(_DISPOSITIONS)}",
+        )
     if case["status"] in ("resolved", "closed"):
         raise DomainError(409, "already_resolved", "case already resolved")
     if disposition == "escalate":
-        _escalate(ctx.state, case, ctx.get("queue", "edd_l2"),
-                  ctx.get("reason", "Escalated on disposition."), _actor(ctx))
+        _escalate(
+            ctx.state,
+            case,
+            ctx.get("queue", "edd_l2"),
+            ctx.get("reason", "Escalated on disposition."),
+            _actor(ctx),
+        )
         return case
-    _resolve(ctx.state, case, disposition,
-             ctx.get("reason", "Disposition recorded by analyst."), _actor(ctx))
+    _resolve(
+        ctx.state,
+        case,
+        disposition,
+        ctx.get("reason", "Disposition recorded by analyst."),
+        _actor(ctx),
+    )
     return case
 
 
@@ -620,7 +801,9 @@ def create_monitor(ctx: Ctx) -> dict:
         raise DomainError(404, "entity_not_found", ctx.payload["entityId"])
     frequency = ctx.get("frequency", "daily")
     if frequency not in ("realtime", "daily", "weekly"):
-        raise DomainError(422, "invalid_frequency", "frequency must be realtime, daily, or weekly")
+        raise DomainError(
+            422, "invalid_frequency", "frequency must be realtime, daily, or weekly"
+        )
     return _create_monitor(ctx.state, entity, frequency, _actor(ctx))
 
 
@@ -655,9 +838,14 @@ def _party_subject(party) -> dict:
     if isinstance(party, str):
         return {"name": party, "type": "organization", "country": None}
     if isinstance(party, dict) and party.get("name"):
-        return {"name": str(party["name"]), "type": party.get("type", "organization"),
-                "country": party.get("country")}
-    raise DomainError(422, "invalid_request", "each party must be a name or an object with 'name'")
+        return {
+            "name": str(party["name"]),
+            "type": party.get("type", "organization"),
+            "country": party.get("country"),
+        }
+    raise DomainError(
+        422, "invalid_request", "each party must be a name or an object with 'name'"
+    )
 
 
 def _batch_parties(state: base.State, batch_id: str) -> list[dict]:
@@ -679,14 +867,17 @@ def _resolve_entity(state: base.State, legal: str, country: str, payload: dict) 
         "legalName": legal,
         "type": "organization",
         "country": country,
-        "registrationNumber": payload.get("registrationNumber") or gen._aegis_registration(rng, country),
+        "registrationNumber": payload.get("registrationNumber")
+        or gen._aegis_registration(rng, country),
         "incorporationDate": payload.get("incorporationDate"),
         "registeredAddress": payload.get("registeredAddress", {}),
         "industryCode": payload.get("industryCode"),
         "status": "active",
         "beneficialOwners": payload.get("beneficialOwners", []),
         "directors": payload.get("directors", []),
-        "aliases": [], "watchlists": [], "programs": [],
+        "aliases": [],
+        "watchlists": [],
+        "programs": [],
         "verificationStatus": "unverified",
         "source": "registry",
     }
@@ -698,7 +889,8 @@ def _audit_intact(case_id: str, events: list[dict]) -> bool:
     prev = "genesis"
     for event in events:
         digest = hashlib.sha256(
-            f"{case_id}|{event['type']}|{event['actor']}|{event['at']}|{prev}".encode()).hexdigest()[:16]
+            f"{case_id}|{event['type']}|{event['actor']}|{event['at']}|{prev}".encode()
+        ).hexdigest()[:16]
         if event.get("prevHash") != prev or event.get("hash") != digest:
             return False
         prev = event["hash"]

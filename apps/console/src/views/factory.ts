@@ -22,12 +22,14 @@ import type {
   ResourceInput,
   Session,
   SessionQuery,
+  AgentListQuery,
   DelegationEdge,
   TraverseNode,
   Zone,
 } from '@caracalai/admin'
 import type { JsonObject } from '@caracalai/core'
 import { readFileSync } from 'node:fs'
+import { randomBytes } from 'node:crypto'
 import type { App, View } from '../screen.ts'
 import type { ConsoleStateStore } from '../state.ts'
 import { maskSecretField } from '../errors.ts'
@@ -38,7 +40,7 @@ import { DetailView } from './detail.ts'
 import { ChoiceConfirmView, ConfirmView, FormView, type Field } from './form.ts'
 import { infoPage, openInfo, providerTypeInfo, type InfoPage } from './info.ts'
 import { ListView, type Column } from './list.ts'
-import { appendCsv, EntityPickerView, pickFromList } from './picker.ts'
+import { appendCsv, pickFromList } from './picker.ts'
 
 export interface Ctx {
   client: AdminClient
@@ -77,7 +79,9 @@ function applicationDetail(title: string, load: () => Promise<unknown>): DetailV
 
 const APPLICATION_INTERNAL_DETAIL_FIELDS = new Set(['consent', 'credential_type', 'traits'])
 
-function open(app: App, view: View): void { app.push(view) }
+function open(app: App, view: View): void {
+  app.push(view)
+}
 
 type DcrShutdownChoice = 'keep_live' | 'revoke_live' | 'cancel'
 
@@ -104,50 +108,56 @@ async function liveDcrApplicationCount(ctx: Ctx, zoneId: string): Promise<number
 
 async function chooseDcrShutdown(app: App, liveApplications: number): Promise<DcrShutdownChoice> {
   return new Promise((resolve) => {
-    app.push(new ChoiceConfirmView({
-      message: `${liveApplications} live DCR application${liveApplications === 1 ? '' : 's'} exist in this zone.`,
-      options: [
-        {
-          key: 'k',
-          label: 'keep existing DCR apps live',
-          description: 'disable new DCR registrations only',
-          value: 'keep_live',
+    app.push(
+      new ChoiceConfirmView({
+        message: `${liveApplications} live DCR application${liveApplications === 1 ? '' : 's'} exist in this zone.`,
+        options: [
+          {
+            key: 'k',
+            label: 'keep existing DCR apps live',
+            description: 'disable new DCR registrations only',
+            value: 'keep_live',
+          },
+          {
+            key: 'r',
+            label: 'revoke all live DCR apps',
+            description: 'archive active DCR identities and revoke related runtime access',
+            value: 'revoke_live',
+          },
+          {
+            key: 'c',
+            label: 'cancel',
+            description: 'leave the zone unchanged',
+            value: 'cancel',
+          },
+        ],
+        onChoose: (value, currentApp) => {
+          currentApp.pop()
+          resolve(value === 'keep_live' || value === 'revoke_live' ? value : 'cancel')
         },
-        {
-          key: 'r',
-          label: 'revoke all live DCR apps',
-          description: 'archive active DCR identities and revoke related runtime access',
-          value: 'revoke_live',
-        },
-        {
-          key: 'c',
-          label: 'cancel',
-          description: 'leave the zone unchanged',
-          value: 'cancel',
-        },
-      ],
-      onChoose: (value, currentApp) => {
-        currentApp.pop()
-        resolve(value === 'keep_live' || value === 'revoke_live' ? value : 'cancel')
-      },
-      info: infoPage({
-        title: 'Disable dynamic client registration',
-        meaning: 'Disabling DCR blocks future dynamic application registration. Existing live DCR applications need an explicit keep-or-revoke decision.',
-        when: 'Choose keep when a drain period is acceptable. Choose revoke when DCR must stop immediately for the zone.',
-        impact: 'Keep leaves live DCR identities valid until expiry or later revocation. Revoke archives them, revokes related sessions, and terminates ephemeral agent access.',
-        example: 'revoke all live DCR apps',
-        valid: 'Press k to keep, r to revoke, c or esc to cancel.',
-        after: 'Console sends the selected shutdown mode with the zone update.',
+        info: infoPage({
+          title: 'Disable dynamic client registration',
+          meaning:
+            'Disabling DCR blocks future dynamic application registration. Existing live DCR applications need an explicit keep-or-revoke decision.',
+          when: 'Choose keep when a drain period is acceptable. Choose revoke when DCR must stop immediately for the zone.',
+          impact:
+            'Keep leaves live DCR identities valid until expiry or later revocation. Revoke archives them, revokes related sessions, and terminates ephemeral agent access.',
+          example: 'revoke all live DCR apps',
+          valid: 'Press k to keep, r to revoke, c or esc to cancel.',
+          after: 'Console sends the selected shutdown mode with the zone update.',
+        }),
       }),
-    }))
+    )
   })
 }
 
 function splitList(s: string): string[] {
-  return s.split(',').map((x) => x.trim()).filter((x) => x.length > 0)
+  return s
+    .split(',')
+    .map((x) => x.trim())
+    .filter((x) => x.length > 0)
 }
 
-const PROVIDER_IDENTIFIER_PREFIX = 'provider://'
 const PROVIDER_IDENTIFIER_PATTERN = /^provider:\/\/[a-z0-9]+(?:-[a-z0-9]+)*$/
 const API_KEY_AUTH_LOCATIONS = ['header', 'query']
 const OAUTH_CLIENT_AUTH_METHODS = ['client_secret_basic', 'client_secret_post', 'private_key_jwt', 'none']
@@ -157,8 +167,27 @@ const HEADER_TOKEN_PATTERN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/
 const AUTH_SCHEME_PATTERN = /^[A-Za-z][A-Za-z0-9-]*$/
 const OAUTH_PARAM_PATTERN = /^[A-Za-z0-9._~-]+$/
 const HOST_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$/
-const RESERVED_OAUTH_AUTHORIZATION_PARAMS = new Set(['client_id', 'code_challenge', 'code_challenge_method', 'redirect_uri', 'response_type', 'scope', 'state'])
-const RESERVED_OAUTH_TOKEN_PARAMS = new Set(['client_assertion', 'client_assertion_type', 'client_id', 'client_secret', 'code', 'code_verifier', 'grant_type', 'redirect_uri', 'refresh_token', 'scope'])
+const RESERVED_OAUTH_AUTHORIZATION_PARAMS = new Set([
+  'client_id',
+  'code_challenge',
+  'code_challenge_method',
+  'redirect_uri',
+  'response_type',
+  'scope',
+  'state',
+])
+const RESERVED_OAUTH_TOKEN_PARAMS = new Set([
+  'client_assertion',
+  'client_assertion_type',
+  'client_id',
+  'client_secret',
+  'code',
+  'code_verifier',
+  'grant_type',
+  'redirect_uri',
+  'refresh_token',
+  'scope',
+])
 
 function validateProviderIdentifier(value: string): string | undefined {
   const text = value.trim()
@@ -263,8 +292,14 @@ function submittedOAuthClientAuthMethod(values: Record<string, string>): string 
   return values.client_credentials_auth_method || 'client_secret_basic'
 }
 
-const APPLICATION_REGISTRATION_METHODS = ['managed', 'dcr'] as const
-const PROVIDER_KINDS: ProviderKind[] = ['none', 'caracal_mandate', 'oauth2_authorization_code', 'oauth2_client_credentials', 'api_key', 'bearer_token']
+const PROVIDER_KINDS: ProviderKind[] = [
+  'none',
+  'caracal_mandate',
+  'oauth2_authorization_code',
+  'oauth2_client_credentials',
+  'api_key',
+  'bearer_token',
+]
 const PROVIDER_CREDENTIAL_KINDS: ProviderKind[] = ['oauth2_authorization_code', 'oauth2_client_credentials', 'api_key', 'bearer_token']
 const PROVIDER_KIND_LABELS: Record<ProviderKind, string> = {
   none: 'None',
@@ -283,7 +318,17 @@ type ResourceRow = Resource & { provider_id: string; provider_name: string; prov
 type AgentRow = AgentSession & { application_name: string }
 type DelegationRow = DelegationEdge & { resource_name?: string | undefined }
 
-type ResourceHelpKind = 'zone' | 'application' | 'resource' | 'provider' | 'policy' | 'policy set' | 'authority session' | 'session' | 'delegation' | 'agent session'
+type ResourceHelpKind =
+  | 'zone'
+  | 'application'
+  | 'resource'
+  | 'provider'
+  | 'policy'
+  | 'policy set'
+  | 'authority session'
+  | 'session'
+  | 'delegation'
+  | 'agent session'
 
 function readFileOrInline(filePath: string, inline: string): string {
   if (filePath && filePath.length > 0) return readFileSync(filePath, 'utf8')
@@ -292,9 +337,7 @@ function readFileOrInline(filePath: string, inline: string): string {
 
 function readPolicyContent(values: Record<string, string>): string {
   const source = values.source || (values.file ? 'file' : 'paste')
-  return source === 'file'
-    ? readFileOrInline(values.file ?? '', '')
-    : values.content ?? ''
+  return source === 'file' ? readFileOrInline(values.file ?? '', '') : (values.content ?? '')
 }
 
 function resourceListInfo(kind: ResourceHelpKind): InfoPage {
@@ -305,7 +348,8 @@ function resourceListInfo(kind: ResourceHelpKind): InfoPage {
     when: help.when,
     impact: help.impact,
     example: help.example,
-    valid: 'Rows are loaded from the Control API for the current scope; use reload when another operator or automation may have changed state.',
+    valid:
+      'Rows are loaded from the Control API for the current scope; use reload when another operator or automation may have changed state.',
     after: 'Press enter to open the full resource detail page; mutation keys only appear when the selected row supports them.',
     terms: help.terms,
     notes: help.notes,
@@ -321,7 +365,8 @@ function resourceDetailInfo(title: string): InfoPage {
     when: `Use it when you need to inspect one ${help.title.toLowerCase()}, confirm operational state, or copy the complete JSON record.`,
     impact: help.impact,
     example: help.example,
-    valid: 'Values come from the backend response. Displayed timestamps and booleans may be formatted for reading, but copy-page preserves the raw JSON object.',
+    valid:
+      'Values come from the backend response. Displayed timestamps and booleans may be formatted for reading, but copy-page preserves the raw JSON object.',
     after: 'Use copy-page for automation/debugging, reload to fetch the latest API state, or esc to return to the list.',
     terms: help.terms,
     notes: ['copy-page copies the complete loaded object, not the rendered labels or table values.', ...(help.notes ?? [])],
@@ -347,7 +392,8 @@ function resourceHelp(kind: ResourceHelpKind): InfoPage & { notes: string[] } {
         title: 'Zone',
         meaning: 'A zone is the operational trust boundary for applications, resources, policies, sessions, audit events, and agents.',
         when: 'Use zones to separate environments, tenants, or security domains that should not share authority.',
-        impact: 'Selecting a zone scopes almost every management action; DCR on a zone controls whether apps can self-register through the DCR endpoint.',
+        impact:
+          'Selecting a zone scopes almost every management action; DCR on a zone controls whether apps can self-register through the DCR endpoint.',
         example: 'Pied Piper Production',
         valid: 'A zone has a name, slug, dynamic-client setting, and system metadata.',
         after: 'Open a zone to inspect its API object or select it as the active Console scope.',
@@ -361,17 +407,31 @@ function resourceHelp(kind: ResourceHelpKind): InfoPage & { notes: string[] } {
       return {
         title: 'Application',
         meaning: 'An application is a client identity that requests Caracal tokens for a workload, agent, gateway, or automation actor.',
-        when: 'Use managed applications for known durable software and DCR applications for dynamic or self-registering clients.',
-        impact: 'The registration method decides which creation path is used. DCR is gated by the selected zone, rate-limited, capped, and may expire; managed applications are operator-provisioned and stable.',
+        when: 'Create managed applications in Console for known durable software. DCR applications are short-lived self-registering clients created programmatically through the admin SDK or REST, not in Console.',
+        impact:
+          'Console creates managed applications: operator-provisioned and stable. DCR applications appear here read-only; they are zone-gated, rate-limited, capped, and expire automatically.',
         example: 'Son of Anton, Fiona, PiperNet AI',
-        valid: 'Console creates applications with a one-time client secret immediately after creation.',
+        valid: 'Console creates managed applications with a one-time client secret immediately after creation.',
         after: 'Open the detail page to inspect IDs, registration method, DCR expiry, and the exact API object through copy-page.',
         terms: [
-          { label: 'Managed', value: 'Operator-provisioned identity for known long-lived agents, services, workers, gateways, CI jobs, and integrations.' },
-          { label: 'DCR', value: 'Dynamic Client Registration for self-service, high-churn, or ephemeral clients when dynamic clients are enabled on the zone.' },
-          { label: 'Client secret', value: 'One-time credential used by token applications; store it when Console displays it because it is not returned again.' },
+          {
+            label: 'Managed',
+            value: 'Operator-provisioned identity for known long-lived agents, services, workers, gateways, CI jobs, and integrations.',
+          },
+          {
+            label: 'DCR',
+            value:
+              'Dynamic Client Registration; short-lived self-registering clients created programmatically through the admin SDK or REST, shown read-only in Console.',
+          },
+          {
+            label: 'Client secret',
+            value: 'One-time credential used by token applications; store it when Console displays it because it is not returned again.',
+          },
         ],
-        notes: ['One-time client secrets are shown only when created or rotated.', 'Use copy-page on details when debugging SDK or API calls.'],
+        notes: [
+          'One-time client secrets are shown only when created or rotated; rotate a managed application secret with the rotate-secret action.',
+          'Use copy-page on details when debugging SDK or API calls.',
+        ],
       }
     case 'resource':
       return {
@@ -386,23 +446,33 @@ function resourceHelp(kind: ResourceHelpKind): InfoPage & { notes: string[] } {
           { label: 'Scope', value: 'A named permission on a resource, such as read, write, or admin.' },
           { label: 'Gateway', value: 'The proxy path where Caracal can enforce policy and forward requests upstream.' },
         ],
-        notes: ['Changing identifiers can break clients that request the old audience.', 'Gateway routes can forward the Caracal mandate directly or substitute provider credentials when configured.'],
+        notes: [
+          'Changing identifiers can break clients that request the old audience.',
+          'Gateway routes can forward the Caracal mandate directly or substitute provider credentials when configured.',
+        ],
       }
     case 'provider':
       return {
         title: 'Provider',
         meaning: 'A provider describes the upstream auth mode Gateway uses when calling protected services.',
         when: 'Use providers when Gateway workflows must forward a Caracal mandate or exchange or attach upstream credentials.',
-        impact: 'Provider kind and config decide whether STS/Gateway forward the Caracal mandate directly or use a provider-native credential flow at runtime.',
+        impact:
+          'Provider kind and config decide whether STS/Gateway forward the Caracal mandate directly or use a provider-native credential flow at runtime.',
         example: 'Hooli OAuth',
         valid: 'Only configured provider kinds and their implemented fields are sent to the API.',
         after: 'Open details to inspect the provider type and credential routing fields.',
         terms: [
           { label: 'OAuth 2.0', value: 'Token refresh or exchange through a configured upstream token endpoint.' },
           { label: 'API key', value: 'Header-based upstream credential forwarding at the Gateway boundary.' },
-          { label: 'Caracal mandate', value: 'The Gateway forwards the mandate as the upstream auth credential; the resource verifies it with a Caracal verifier.' },
+          {
+            label: 'Caracal mandate',
+            value: 'The Gateway forwards the mandate as the upstream auth credential; the resource verifies it with a Caracal verifier.',
+          },
         ],
-        notes: ['Secrets are masked in the terminal when present.', 'Use OAuth token endpoint hosts to constrain outbound token endpoint calls.'],
+        notes: [
+          'Secrets are masked in the terminal when present.',
+          'Use OAuth token endpoint hosts to constrain outbound token endpoint calls.',
+        ],
       }
     case 'policy':
       return {
@@ -417,7 +487,10 @@ function resourceHelp(kind: ResourceHelpKind): InfoPage & { notes: string[] } {
           { label: 'Version', value: 'An immutable copy of policy content that can be referenced by policy sets.' },
           { label: 'Partial', value: 'A decision that needs additional runtime enforcement or Gateway context.' },
         ],
-        notes: ['Use validate before creating a version from pasted or file content.', 'Policy details do not replace policy-set activation status.'],
+        notes: [
+          'Use validate before creating a version from pasted or file content.',
+          'Policy details do not replace policy-set activation status.',
+        ],
       }
     case 'policy set':
       return {
@@ -512,9 +585,10 @@ function providerConfigFromValues(values: Record<string, string>, requireConfig:
   mergeConfigText(config, 'audience', values.token_audience)
   mergeConfigText(config, 'resource', values.token_resource)
   const oauthKind = kind === 'oauth2_authorization_code' || kind === 'oauth2_client_credentials'
-  const tokenHosts = kind === 'bearer_token'
-    ? values.bearer_upstream_hosts
-    : values.oauth_token_hosts || (oauthKind ? inferredTokenHosts(values.token_endpoint) : '')
+  const tokenHosts =
+    kind === 'bearer_token'
+      ? values.bearer_upstream_hosts
+      : values.oauth_token_hosts || (oauthKind ? inferredTokenHosts(values.token_endpoint) : '')
   mergeConfigList(config, 'allowed_token_hosts', tokenHosts)
   mergeConfigText(config, 'auth_location', values.api_key_auth_location)
   mergeConfigText(config, 'header_name', values.api_key_header)
@@ -537,7 +611,7 @@ function providerConfigFromValues(values: Record<string, string>, requireConfig:
 }
 
 function providerKind(value: string | undefined): ProviderKind {
-  return PROVIDER_KINDS.includes(value as ProviderKind) ? value as ProviderKind : 'caracal_mandate'
+  return PROVIDER_KINDS.includes(value as ProviderKind) ? (value as ProviderKind) : 'caracal_mandate'
 }
 
 function providerKindLabel(value: string): string {
@@ -599,7 +673,12 @@ function validateProviderConfig(kind: ProviderKind, config: JsonObject): void {
   if (typeof config.client_auth_method === 'string' && !OAUTH_CLIENT_AUTH_METHODS.includes(config.client_auth_method)) {
     throw new Error(`${kind} provider config client_auth_method is invalid`)
   }
-  requireOptionalStringRecord(config, 'token_params', RESERVED_OAUTH_TOKEN_PARAMS, `${kind} provider config token_params must use non-reserved key=value entries`)
+  requireOptionalStringRecord(
+    config,
+    'token_params',
+    RESERVED_OAUTH_TOKEN_PARAMS,
+    `${kind} provider config token_params must use non-reserved key=value entries`,
+  )
   requireOptionalHeaderName(config, 'auth_header', `${kind} provider config auth_header must be an HTTP header name`)
   requireOptionalAuthScheme(config, 'auth_scheme', `${kind} provider config auth_scheme must be an auth scheme token`)
   if (kind === 'oauth2_client_credentials') {
@@ -611,24 +690,63 @@ function validateProviderConfig(kind: ProviderKind, config: JsonObject): void {
     throw new Error('oauth2_authorization_code provider config client_auth_method is not supported')
   }
   if (config.client_auth_method === 'private_key_jwt') {
-    if (typeof config.private_key !== 'string' || config.private_key.trim().length === 0) throw new Error(`${kind} provider config requires private_key`)
+    if (typeof config.private_key !== 'string' || config.private_key.trim().length === 0)
+      throw new Error(`${kind} provider config requires private_key`)
     if (config.client_secret !== undefined) throw new Error(`${kind} provider config client_secret is not used with private_key_jwt`)
   } else {
     if (config.private_key !== undefined) throw new Error(`${kind} provider config private_key requires private_key_jwt`)
     if (config.key_id !== undefined) throw new Error(`${kind} provider config key_id requires private_key_jwt`)
   }
   if (kind === 'oauth2_authorization_code') {
-    requireHttpsUrl(config, 'authorization_endpoint', 'oauth2_authorization_code provider config authorization_endpoint must be an HTTPS URL')
+    requireHttpsUrl(
+      config,
+      'authorization_endpoint',
+      'oauth2_authorization_code provider config authorization_endpoint must be an HTTPS URL',
+    )
     requireAbsoluteUri(config, 'redirect_uri', 'oauth2_authorization_code provider config redirect_uri must be an absolute URI')
-    requireOptionalStringRecord(config, 'authorization_params', RESERVED_OAUTH_AUTHORIZATION_PARAMS, 'oauth2_authorization_code provider config authorization_params must use non-reserved key=value entries')
+    requireOptionalStringRecord(
+      config,
+      'authorization_params',
+      RESERVED_OAUTH_AUTHORIZATION_PARAMS,
+      'oauth2_authorization_code provider config authorization_params must use non-reserved key=value entries',
+    )
   }
 }
 
 function providerConfigKeys(kind: ProviderKind): Set<string> {
   if (kind === 'none' || kind === 'caracal_mandate') return new Set()
-  if (kind === 'api_key') return new Set(['auth_location', 'header_name', 'query_param_name', 'api_key', 'auth_scheme', 'forward_caracal_identity', 'allow_runtime_injection'])
-  if (kind === 'bearer_token') return new Set(['bearer_token', 'allowed_token_hosts', 'auth_header', 'auth_scheme', 'forward_caracal_identity', 'allow_runtime_injection'])
-  const keys = ['token_endpoint', 'client_id', 'client_secret', 'client_auth_method', 'scopes', 'allowed_token_hosts', 'token_params', 'auth_header', 'auth_scheme', 'forward_caracal_identity', 'allow_runtime_injection']
+  if (kind === 'api_key')
+    return new Set([
+      'auth_location',
+      'header_name',
+      'query_param_name',
+      'api_key',
+      'auth_scheme',
+      'forward_caracal_identity',
+      'allow_runtime_injection',
+    ])
+  if (kind === 'bearer_token')
+    return new Set([
+      'bearer_token',
+      'allowed_token_hosts',
+      'auth_header',
+      'auth_scheme',
+      'forward_caracal_identity',
+      'allow_runtime_injection',
+    ])
+  const keys = [
+    'token_endpoint',
+    'client_id',
+    'client_secret',
+    'client_auth_method',
+    'scopes',
+    'allowed_token_hosts',
+    'token_params',
+    'auth_header',
+    'auth_scheme',
+    'forward_caracal_identity',
+    'allow_runtime_injection',
+  ]
   if (kind === 'oauth2_client_credentials') keys.push('audience', 'resource', 'key_id', 'private_key')
   if (kind === 'oauth2_authorization_code') keys.push('authorization_endpoint', 'redirect_uri', 'authorization_params')
   return new Set(keys)
@@ -702,6 +820,10 @@ function requireClientSecret(value: string | undefined): string {
   return value
 }
 
+function generateClientSecret(): string {
+  return `cs_${randomBytes(32).toString('base64url')}`
+}
+
 async function popAndReload(app: App, list: ListView<unknown>): Promise<void> {
   app.pop()
   await list.reload()
@@ -722,11 +844,13 @@ function labelMap<T>(rows: T[], value: (row: T) => string, label: (row: T) => st
     const text = label(row)
     counts.set(text, (counts.get(text) ?? 0) + 1)
   }
-  return new Map(rows.map((row) => {
-    const id = value(row)
-    const text = label(row)
-    return [id, (counts.get(text) ?? 0) > 1 ? `${text} (${shortValue(id)})` : text]
-  }))
+  return new Map(
+    rows.map((row) => {
+      const id = value(row)
+      const text = label(row)
+      return [id, (counts.get(text) ?? 0) > 1 ? `${text} (${shortValue(id)})` : text]
+    }),
+  )
 }
 
 function resolveFromList<T>(load: () => Promise<T[]>, value: (row: T) => string, label: (row: T) => string): Field['resolve'] {
@@ -738,23 +862,35 @@ function resolveFromList<T>(load: () => Promise<T[]>, value: (row: T) => string,
 }
 
 function applicationResolver(ctx: Ctx): Field['resolve'] {
-  return resolveFromList(() => ctx.client.applications.list(ctx.zoneId), (row) => row.id, (row) => row.name)
+  return resolveFromList(
+    () => ctx.client.applications.list(ctx.zoneId),
+    (row) => row.id,
+    (row) => row.name,
+  )
 }
 
 function resourceResolver(ctx: Ctx): Field['resolve'] {
-  return resolveFromList(async () => userResources(await ctx.client.resources.list(ctx.zoneId)), (row) => row.id, named)
-}
-
-function resourceIdentifierResolver(ctx: Ctx): Field['resolve'] {
-  return resolveFromList(async () => userResources(await ctx.client.resources.list(ctx.zoneId)), (row) => row.identifier, named)
+  return resolveFromList(
+    async () => userResources(await ctx.client.resources.list(ctx.zoneId)),
+    (row) => row.id,
+    named,
+  )
 }
 
 function providerResolver(ctx: Ctx): Field['resolve'] {
-  return resolveFromList(() => ctx.client.providers.list(ctx.zoneId), (row) => row.id, named)
+  return resolveFromList(
+    () => ctx.client.providers.list(ctx.zoneId),
+    (row) => row.id,
+    named,
+  )
 }
 
 function sessionResolver(ctx: Ctx): Field['resolve'] {
-  return resolveFromList(() => ctx.client.sessions.list(ctx.zoneId, { status: 'active', limit: 100 }), (row) => row.id, (row) => row.subject_id)
+  return resolveFromList(
+    () => ctx.client.sessions.list(ctx.zoneId, { status: 'active', limit: 100 }),
+    (row) => row.id,
+    (row) => row.subject_id,
+  )
 }
 
 async function loadPolicyVersions(ctx: Ctx): Promise<PolicyVersionRow[]> {
@@ -768,11 +904,15 @@ function policyVersionLabel(row: PolicyVersionRow): string {
 }
 
 function policyVersionResolver(ctx: Ctx): Field['resolve'] {
-  return resolveFromList(() => loadPolicyVersions(ctx), (row) => row.id, policyVersionLabel)
+  return resolveFromList(
+    () => loadPolicyVersions(ctx),
+    (row) => row.id,
+    policyVersionLabel,
+  )
 }
 
 async function loadPolicySetVersions(ctx: Ctx, policySet: PolicySet): Promise<PolicySetVersionRow[]> {
-  const detail = await ctx.client.policySets.get(ctx.zoneId, policySet.id) as PolicySet & { versions?: PolicySetVersion[] }
+  const detail = (await ctx.client.policySets.get(ctx.zoneId, policySet.id)) as PolicySet & { versions?: PolicySetVersion[] }
   return (detail.versions ?? []).map((version) => ({ ...version, policy_set_name: policySet.name }))
 }
 
@@ -781,12 +921,18 @@ function policySetVersionLabel(row: PolicySetVersionRow): string {
 }
 
 function policySetVersionResolver(ctx: Ctx, policySet: PolicySet): Field['resolve'] {
-  return resolveFromList(() => loadPolicySetVersions(ctx, policySet), (row) => row.id, policySetVersionLabel)
+  return resolveFromList(
+    () => loadPolicySetVersions(ctx, policySet),
+    (row) => row.id,
+    policySetVersionLabel,
+  )
 }
 
 async function loadPolicySets(ctx: Ctx): Promise<PolicySetRow[]> {
   const rows = await ctx.client.policySets.list(ctx.zoneId)
-  const details = await Promise.all(rows.map((row) => ctx.client.policySets.get(ctx.zoneId, row.id) as Promise<PolicySet & { versions?: PolicySetVersion[] }>))
+  const details = await Promise.all(
+    rows.map((row) => ctx.client.policySets.get(ctx.zoneId, row.id) as Promise<PolicySet & { versions?: PolicySetVersion[] }>),
+  )
   return rows.map((row, index) => {
     const versions = details[index]?.versions ?? []
     const active = versions.find((version) => version.id === row.active_version_id)
@@ -795,10 +941,7 @@ async function loadPolicySets(ctx: Ctx): Promise<PolicySetRow[]> {
 }
 
 async function loadResourceRows(ctx: Ctx): Promise<ResourceRow[]> {
-  const [resources, providers] = await Promise.all([
-    ctx.client.resources.list(ctx.zoneId),
-    ctx.client.providers.list(ctx.zoneId),
-  ])
+  const [resources, providers] = await Promise.all([ctx.client.resources.list(ctx.zoneId), ctx.client.providers.list(ctx.zoneId)])
   const providersById = new Map(providers.map((provider) => [provider.id, provider]))
   return userResources(resources).map((resource) => {
     const providerId = resource.credential_provider_id ?? ''
@@ -812,24 +955,37 @@ async function loadResourceRows(ctx: Ctx): Promise<ResourceRow[]> {
   })
 }
 
-async function loadAgents(ctx: Ctx): Promise<AgentRow[]> {
-  const agents = await ctx.client.agents.list(ctx.zoneId)
+async function loadAgents(ctx: Ctx, filters?: AgentListQuery): Promise<AgentRow[]> {
+  const agents = await ctx.client.agents.list(ctx.zoneId, filters)
   return agents.map((agent) => ({ ...agent, application_name: agent.application_id }))
+}
+
+function agentExpiry(row: AgentRow): string {
+  if (row.status !== 'active') return '-'
+  if (row.lifecycle === 'service') {
+    return row.heartbeat_deadline_at ? formatDateTimeOrValue(row.heartbeat_deadline_at, { compact: true }) : 'no lease'
+  }
+  if (row.ttl_seconds && row.spawned_at) {
+    const deadline = new Date(new Date(row.spawned_at).getTime() + row.ttl_seconds * 1000)
+    return formatDateTimeOrValue(deadline.toISOString(), { compact: true })
+  }
+  return '-'
 }
 
 async function labelDelegations(ctx: Ctx, rows: DelegationEdge[]): Promise<DelegationRow[]> {
   const resources = userResources(await ctx.client.resources.list(ctx.zoneId))
   const resourceNames = labelMap(resources, (row) => row.id, named)
-  return rows.map((row) => ({ ...row, resource_name: row.resource_id ? resourceNames.get(row.resource_id) ?? row.resource_id : undefined }))
+  return rows.map((row) => ({
+    ...row,
+    resource_name: row.resource_id ? (resourceNames.get(row.resource_id) ?? row.resource_id) : undefined,
+  }))
 }
 
 export function applicationPicker(ctx: Ctx): Field['pick'] {
   return pickFromList<Application>(
     'pick application',
-    () => ctx.client.applications.list(ctx.zoneId),
-    [
-      { header: 'name', width: 24, value: (row) => row.name },
-    ],
+    async () => (await ctx.client.applications.list(ctx.zoneId)).filter((row) => row.registration_method === 'managed'),
+    [{ header: 'name', width: 24, value: (row) => row.name }],
     (row) => row.id,
     (row) => row.name,
   )
@@ -955,44 +1111,55 @@ export function zonesView(ctx: Ctx): View {
     onEnter: (app, row) => {
       ctx.onZoneSelect?.(row.id, row.slug)
       app.setStatus(`zone set to ${row.name}`)
-      open(app, entityDetail(`zone / ${row.name}`, () => ctx.client.zones.get(row.id)))
+      open(
+        app,
+        entityDetail(`zone / ${row.name}`, () => ctx.client.zones.get(row.id)),
+      )
     },
     actions: [
       {
-        key: 'n', label: 'new', build: () => new FormView({
-          title: 'create zone',
-          fields: [
-            {
-              key: 'name',
-              label: 'name',
-              kind: 'text',
-              required: true,
-              info: infoPage({
-                title: 'Zone name',
-                meaning: 'Human-readable name for the operational boundary being created.',
-                when: 'Use the name operators should recognize when selecting this zone for applications, resources, providers, and audit views.',
-                impact: 'Console sends this name to the Zone API and shows it in zone lists, pickers, details, and setup output.',
-                example: 'Pied Piper Production',
-                valid: 'Required for this path. Use a short operational name, not an internal database ID.',
-                after: 'After submit, Console creates the zone and reloads the zone list.',
-                terms: [
-                  { label: 'Zone', value: 'An isolated Caracal boundary for applications, resources, providers, policies, and audit records.' },
-                ],
-              }),
+        key: 'n',
+        label: 'new',
+        build: () =>
+          new FormView({
+            title: 'create zone',
+            fields: [
+              {
+                key: 'name',
+                label: 'name',
+                kind: 'text',
+                required: true,
+                info: infoPage({
+                  title: 'Zone name',
+                  meaning: 'Human-readable name for the operational boundary being created.',
+                  when: 'Use the name operators should recognize when selecting this zone for applications, resources, providers, and audit views.',
+                  impact: 'Console sends this name to the Zone API and shows it in zone lists, pickers, details, and setup output.',
+                  example: 'Pied Piper Production',
+                  valid: 'Required for this path. Use a short operational name, not an internal database ID.',
+                  after: 'After submit, Console creates the zone and reloads the zone list.',
+                  terms: [
+                    {
+                      label: 'Zone',
+                      value: 'An isolated Caracal boundary for applications, resources, providers, policies, and audit records.',
+                    },
+                  ],
+                }),
+              },
+              { key: 'dcr_enabled', label: 'dynamic clients', kind: 'bool', default: 'false' },
+            ],
+            onSubmit: async (v, app) => {
+              await ctx.client.zones.create({
+                name: v.name!,
+                dcr_enabled: bool(v.dcr_enabled),
+              })
+              await popAndReload(app, list as unknown as ListView<unknown>)
             },
-            { key: 'dcr_enabled', label: 'dynamic clients', kind: 'bool', default: 'false' },
-          ],
-          onSubmit: async (v, app) => {
-            await ctx.client.zones.create({
-              name: v.name!,
-              dcr_enabled: bool(v.dcr_enabled),
-            })
-            await popAndReload(app, list as unknown as ListView<unknown>)
-          },
-        }),
+          }),
       },
       {
-        key: 'e', label: 'edit', build: (row) => {
+        key: 'e',
+        label: 'edit',
+        build: (row) => {
           if (!row) throw new Error('no row selected')
           return new FormView({
             title: `edit ${row.slug}`,
@@ -1023,9 +1190,7 @@ export function zonesView(ctx: Ctx): View {
               try {
                 await ctx.client.zones.patch(row.id, patch)
               } catch (err) {
-                const liveApplications = !dcrEnabled && dcrShutdown === undefined
-                  ? dcrShutdownLiveApplications(err)
-                  : undefined
+                const liveApplications = !dcrEnabled && dcrShutdown === undefined ? dcrShutdownLiveApplications(err) : undefined
                 if (liveApplications === undefined) throw err
                 dcrShutdown = await chooseDcrShutdown(app, liveApplications)
                 if (dcrShutdown === 'cancel') {
@@ -1040,7 +1205,9 @@ export function zonesView(ctx: Ctx): View {
         },
       },
       {
-        key: 'd', label: 'delete', build: (row) => {
+        key: 'd',
+        label: 'delete',
+        build: (row) => {
           if (!row) throw new Error('no row selected')
           return new ConfirmView({
             message: `delete zone ${row.slug}?`,
@@ -1071,112 +1238,80 @@ export function applicationsView(ctx: Ctx): View {
     rowKey: (row) => row.id,
     rowId: (row) => row.id,
     rowName: (row) => row.name,
-    onEnter: (app, row) => open(app, applicationDetail(`app / ${row.name}`, () => ctx.client.applications.get(ctx.zoneId, row.id))),
+    onEnter: (app, row) =>
+      open(
+        app,
+        applicationDetail(`app / ${row.name}`, () => ctx.client.applications.get(ctx.zoneId, row.id)),
+      ),
     actions: [
       {
-        key: 'n', label: 'new', build: () => new FormView({
-          title: 'create application',
-          fields: [
-            { key: 'name', label: 'name', kind: 'text', required: true },
-            {
-              key: 'registration_method',
-              label: 'registration method',
-              kind: 'select',
-              options: [...APPLICATION_REGISTRATION_METHODS],
-              default: 'managed',
-              info: infoPage({
-                title: 'Application registration method',
-                meaning: 'Choose how this application identity should be created and owned.',
-                when: 'Use managed for known durable agents, services, workers, gateways, CI jobs, and integrations that an operator intentionally provisions. Use DCR for dynamic, self-service, high-churn, or ephemeral agents and clients when the selected zone enables dynamic clients.',
-                impact: 'Managed creation writes the application directly through the admin API. DCR calls the Dynamic Client Registration path and is blocked when the zone has dynamic clients disabled.',
-                example: 'managed for Son of Anton; dcr for a short-lived Fiona task agent',
-                valid: 'Choose managed or dcr.',
-                after: 'Console shows only the fields relevant to the selected registration path before submitting.',
-                terms: [
-                  { label: 'Managed', value: 'Operator-provisioned application with an intentional lifecycle and stable identity.' },
-                  { label: 'DCR', value: 'Dynamic Client Registration; API-driven app registration for self-service or ephemeral clients.' },
-                ],
-                notes: ['Permanent known agents normally use managed.', 'Ephemeral or self-registering agents normally use DCR, with zone-level limits and cleanup.'],
-              }),
-            },
-            {
-              key: 'expires_in',
-              label: 'client lifetime seconds',
-              kind: 'text',
-              default: '3600',
-              dependsOn: { registration_method: 'dcr' },
-              validate: (v) => {
-                if (v && !/^[1-9]\d*$/.test(v.trim())) return 'client lifetime must be a positive integer'
-                if (v && Number.parseInt(v.trim(), 10) > 3600) return 'client lifetime must be 3600 seconds or less'
-                return undefined
+        key: 'n',
+        label: 'new',
+        build: () =>
+          new FormView({
+            title: 'create application',
+            fields: [
+              {
+                key: 'name',
+                label: 'name',
+                kind: 'text',
+                required: true,
+                info: infoPage({
+                  title: 'Application name',
+                  meaning: 'Human-readable name of the managed application identity Console creates.',
+                  when: 'Create a managed application for known durable agents, services, workers, gateways, CI jobs, and integrations that an operator intentionally provisions.',
+                  impact: 'Console creates a managed token application and reveals its one-time client secret once.',
+                  example: 'Son of Anton',
+                  valid: 'Short text, not an internal ID.',
+                  after: 'Store the client secret shown on the result page; it is never returned again.',
+                  terms: [
+                    { label: 'Managed', value: 'Operator-provisioned application with an intentional lifecycle and stable identity.' },
+                    {
+                      label: 'DCR',
+                      value:
+                        'Dynamic Client Registration; short-lived self-registering clients created programmatically through the admin SDK or REST, not in Console.',
+                    },
+                  ],
+                  notes: [
+                    'Console creates managed applications only.',
+                    'DCR applications are created programmatically and appear read-only in this list under the dcr method.',
+                  ],
+                }),
               },
-              info: infoPage({
-                title: 'Client lifetime seconds',
-                meaning: 'DCR client lifetime expressed as seconds from creation time.',
-                when: 'Use this to keep ephemeral DCR clients short-lived. The default is one hour and the API caps DCR clients at one hour.',
-                impact: 'The DCR API stores an expires_at timestamp. Expired applications are hidden from active references, denied by STS token authentication, and later archived by DCR cleanup.',
-                example: '3600',
-                valid: 'Required for this path. Enter a positive integer from 1 to 3600 seconds.',
-                after: 'After submit, Console sends expires_in to the DCR endpoint and shows the generated client secret once.',
-                terms: [
-                  { label: 'DCR', value: 'Dynamic Client Registration for self-service or ephemeral application identities.' },
-                  { label: 'expires_at', value: 'Backend timestamp derived from the submitted lifetime in seconds.' },
-                ],
-              }),
-            },
-          ],
-          onSubmit: async (v, app) => {
-            if (v.registration_method === 'dcr') {
-              const application = await ctx.client.applications.dcr(ctx.zoneId, {
+            ],
+            onSubmit: async (v, app) => {
+              const application = await ctx.client.applications.create(ctx.zoneId, {
                 name: v.name!,
-                expires_in: int(v.expires_in),
+                registration_method: 'managed',
               })
               const clientSecret = requireClientSecret(application.client_secret)
               await popAndReload(app, list as unknown as ListView<unknown>)
-              open(app, new DetailView({
-                title: `app / ${application.name}`,
-                load: async () => ({
-                  id: application.id,
-                  zone_id: application.zone_id,
-                  name: application.name,
-                  registration_method: application.registration_method,
-                  expires_at: (application as { expires_at?: string }).expires_at,
-                  client_secret: clientSecret,
-                  note: 'store client_secret now - it cannot be retrieved later',
+              open(
+                app,
+                new DetailView({
+                  title: `app / ${application.name}`,
+                  load: async () => ({
+                    id: application.id,
+                    zone_id: application.zone_id,
+                    name: application.name,
+                    registration_method: application.registration_method,
+                    client_secret: clientSecret,
+                    note: 'store client_secret now - it cannot be retrieved later',
+                  }),
+                  mask: maskSecretField,
                 }),
-                mask: maskSecretField,
-              }))
-              return
-            }
-            const application = await ctx.client.applications.create(ctx.zoneId, {
-              name: v.name!,
-              registration_method: 'managed',
-            })
-            const clientSecret = requireClientSecret(application.client_secret)
-            await popAndReload(app, list as unknown as ListView<unknown>)
-            open(app, new DetailView({
-              title: `app / ${application.name}`,
-              load: async () => ({
-                id: application.id,
-                zone_id: application.zone_id,
-                name: application.name,
-                registration_method: application.registration_method,
-                client_secret: clientSecret,
-                note: 'store client_secret now - it cannot be retrieved later',
-              }),
-              mask: maskSecretField,
-            }))
-          },
-        }),
+              )
+            },
+          }),
       },
       {
-        key: 'e', label: 'edit', build: (row) => {
+        key: 'e',
+        label: 'edit',
+        build: (row) => {
           if (!row) throw new Error('no row selected')
           return new FormView({
             title: `edit ${row.name}`,
-            fields: [
-              { key: 'name', label: 'name', kind: 'text', default: row.name },
-            ],
+            fields: [{ key: 'name', label: 'name', kind: 'text', default: row.name }],
             onSubmit: async (v, app) => {
               await ctx.client.applications.patch(ctx.zoneId, row.id, {
                 name: v.name || undefined,
@@ -1187,7 +1322,51 @@ export function applicationsView(ctx: Ctx): View {
         },
       },
       {
-        key: 'd', label: 'delete', build: (row) => {
+        key: 'r',
+        label: 'rotate secret',
+        enabled: (row) => row?.registration_method === 'managed',
+        build: (row) => {
+          if (!row) throw new Error('no row selected')
+          if (row.registration_method !== 'managed') throw new Error('only managed applications can rotate their secret')
+          return new ConfirmView({
+            message: `rotate client secret for ${row.name}? the current secret stops working immediately.`,
+            info: infoPage({
+              title: 'Rotate client secret',
+              meaning: 'Replaces the managed application client secret with a freshly generated one.',
+              when: 'Rotate after a suspected leak, on a scheduled cadence, or when offboarding whoever held the old secret.',
+              impact: 'The previous secret is invalidated immediately; running workloads must be reconfigured with the new secret.',
+              example: 'rotate client secret for Son of Anton',
+              valid: 'Press y to rotate, n or esc to cancel.',
+              after: 'The new secret is shown once and never returned again - store it before leaving the page.',
+              notes: ['DCR applications cannot rotate in Console; they are short-lived and replaced by re-registration.'],
+            }),
+            onConfirm: async (app) => {
+              const clientSecret = generateClientSecret()
+              await ctx.client.applications.patch(ctx.zoneId, row.id, { client_secret: clientSecret })
+              await popAndReload(app, list as unknown as ListView<unknown>)
+              open(
+                app,
+                new DetailView({
+                  title: `app / ${row.name}`,
+                  load: async () => ({
+                    id: row.id,
+                    zone_id: ctx.zoneId,
+                    name: row.name,
+                    registration_method: row.registration_method,
+                    client_secret: clientSecret,
+                    note: 'store client_secret now - it cannot be retrieved later',
+                  }),
+                  mask: maskSecretField,
+                }),
+              )
+            },
+          })
+        },
+      },
+      {
+        key: 'd',
+        label: 'delete',
+        build: (row) => {
           if (!row) throw new Error('no row selected')
           return new ConfirmView({
             message: `delete application ${row.name}?`,
@@ -1220,45 +1399,126 @@ export function resourcesView(ctx: Ctx): View {
     rowKey: (row) => row.id,
     rowId: (row) => row.id,
     rowName: named,
-    onEnter: (app, row) => open(app, entityDetail(`resource / ${named(row)}`, () => ctx.client.resources.get(ctx.zoneId, row.id))),
+    onEnter: (app, row) =>
+      open(
+        app,
+        entityDetail(`resource / ${named(row)}`, () => ctx.client.resources.get(ctx.zoneId, row.id)),
+      ),
     actions: [
       {
-        key: 'n', label: 'new', build: () => new FormView({
-          title: 'create resource',
-          submitLabel: 'create resource',
-          fields: [
-            { key: 'name', label: 'resource name', kind: 'text', required: true, hint: 'human-readable name; identifier is generated when blank' },
-            { key: 'scopes', label: 'Caracal resource scopes', kind: 'list', required: true, hint: 'comma-separated authorization scopes for this resource' },
-            { key: 'upstream_url', label: 'upstream URL', kind: 'text', required: true, hint: 'Gateway target for REST APIs, gRPC gateways, MCP servers, or SDK-backed services' },
-            { key: 'gateway_application_id', label: 'gateway application', kind: 'text', required: true, pick: applicationPicker(ctx), resolve: applicationResolver(ctx), hint: 'application identity the Gateway uses for upstream exchanges' },
-            { key: 'identifier', label: 'resource identifier', kind: 'text', advanced: true, hint: 'optional; generated as resource://pipernet when blank', validate: validateResourceIdentifier },
-            { key: 'credential_provider_id', label: 'upstream credential provider', kind: 'text', required: true, pick: providerPicker(ctx), resolve: providerResolver(ctx), hint: 'required; pick a provider for external auth, Caracal mandate for verifier-backed services, or a None provider for Gateway-only enforcement' },
-          ],
-          onSubmit: async (v, app) => {
-            await ctx.client.resources.create(ctx.zoneId, {
-              ...(v.identifier ? { identifier: v.identifier } : {}),
-              scopes: splitList(v.scopes ?? ''),
-              name: v.name,
-              upstream_url: v.upstream_url,
-              gateway_application_id: v.gateway_application_id,
-              credential_provider_id: v.credential_provider_id,
-            })
-            await popAndReload(app, list as unknown as ListView<unknown>)
-          },
-        }),
+        key: 'n',
+        label: 'new',
+        build: () =>
+          new FormView({
+            title: 'create resource',
+            submitLabel: 'create resource',
+            fields: [
+              {
+                key: 'name',
+                label: 'resource name',
+                kind: 'text',
+                required: true,
+                hint: 'human-readable name; identifier is generated when blank',
+              },
+              {
+                key: 'scopes',
+                label: 'Caracal resource scopes',
+                kind: 'list',
+                required: true,
+                hint: 'comma-separated authorization scopes for this resource',
+              },
+              {
+                key: 'upstream_url',
+                label: 'upstream URL',
+                kind: 'text',
+                required: true,
+                hint: 'Gateway target for REST APIs, gRPC gateways, MCP servers, or SDK-backed services',
+              },
+              {
+                key: 'gateway_application_id',
+                label: 'gateway application',
+                kind: 'text',
+                required: true,
+                pick: applicationPicker(ctx),
+                resolve: applicationResolver(ctx),
+                hint: 'managed application identity the Gateway uses for upstream exchanges',
+              },
+              {
+                key: 'identifier',
+                label: 'resource identifier',
+                kind: 'text',
+                advanced: true,
+                hint: 'optional; generated as resource://pipernet when blank',
+                validate: validateResourceIdentifier,
+              },
+              {
+                key: 'credential_provider_id',
+                label: 'upstream credential provider',
+                kind: 'text',
+                required: true,
+                pick: providerPicker(ctx),
+                resolve: providerResolver(ctx),
+                hint: 'required; pick a provider for external auth, Caracal mandate for verifier-backed services, or a None provider for Gateway-only enforcement',
+              },
+            ],
+            onSubmit: async (v, app) => {
+              await ctx.client.resources.create(ctx.zoneId, {
+                ...(v.identifier ? { identifier: v.identifier } : {}),
+                scopes: splitList(v.scopes ?? ''),
+                name: v.name,
+                upstream_url: v.upstream_url,
+                gateway_application_id: v.gateway_application_id,
+                credential_provider_id: v.credential_provider_id,
+              })
+              await popAndReload(app, list as unknown as ListView<unknown>)
+            },
+          }),
       },
       {
-        key: 'e', label: 'edit', build: (row) => {
+        key: 'e',
+        label: 'edit',
+        build: (row) => {
           if (!row) throw new Error('no row selected')
           return new FormView({
             title: `edit ${row.identifier}`,
             fields: [
               { key: 'name', label: 'name', kind: 'text', default: row.name ?? '' },
-              { key: 'identifier', label: 'resource identifier', kind: 'text', default: row.identifier, advanced: true, validate: validateResourceIdentifier },
+              {
+                key: 'identifier',
+                label: 'resource identifier',
+                kind: 'text',
+                default: row.identifier,
+                advanced: true,
+                validate: validateResourceIdentifier,
+              },
               { key: 'upstream_url', label: 'upstream URL', kind: 'text', default: row.upstream_url ?? '', required: true },
-              { key: 'gateway_application_id', label: 'gateway application', kind: 'text', default: row.gateway_application_id ?? '', required: true, pick: applicationPicker(ctx), resolve: applicationResolver(ctx) },
-              { key: 'credential_provider_id', label: 'upstream credential provider', kind: 'text', default: row.credential_provider_id ?? '', required: true, pick: providerPicker(ctx), resolve: providerResolver(ctx), hint: 'required; pick a provider for external auth, Caracal mandate for verifier-backed services, or a None provider for Gateway-only enforcement' },
-              { key: 'scopes', label: 'Caracal resource scopes', kind: 'list', default: (row.scopes ?? []).join(','), hint: 'comma-separated authorization scopes for this resource' },
+              {
+                key: 'gateway_application_id',
+                label: 'gateway application',
+                kind: 'text',
+                default: row.gateway_application_id ?? '',
+                required: true,
+                pick: applicationPicker(ctx),
+                resolve: applicationResolver(ctx),
+                hint: 'managed application identity the Gateway uses for upstream exchanges',
+              },
+              {
+                key: 'credential_provider_id',
+                label: 'upstream credential provider',
+                kind: 'text',
+                default: row.credential_provider_id ?? '',
+                required: true,
+                pick: providerPicker(ctx),
+                resolve: providerResolver(ctx),
+                hint: 'required; pick a provider for external auth, Caracal mandate for verifier-backed services, or a None provider for Gateway-only enforcement',
+              },
+              {
+                key: 'scopes',
+                label: 'Caracal resource scopes',
+                kind: 'list',
+                default: (row.scopes ?? []).join(','),
+                hint: 'comma-separated authorization scopes for this resource',
+              },
             ],
             onSubmit: async (v, app) => {
               await ctx.client.resources.patch(ctx.zoneId, row.id, {
@@ -1275,7 +1535,9 @@ export function resourcesView(ctx: Ctx): View {
         },
       },
       {
-        key: 'd', label: 'delete', build: (row) => {
+        key: 'd',
+        label: 'delete',
+        build: (row) => {
           if (!row) throw new Error('no row selected')
           return new ConfirmView({
             message: `delete resource ${row.identifier}?`,
@@ -1307,87 +1569,485 @@ export function providersView(ctx: Ctx): View {
     rowKey: (row) => row.id,
     rowId: (row) => row.id,
     rowName: named,
-    onEnter: (app, row) => open(app, entityDetail(`provider / ${named(row)}`, () => ctx.client.providers.get(ctx.zoneId, row.id))),
+    onEnter: (app, row) =>
+      open(
+        app,
+        entityDetail(`provider / ${named(row)}`, () => ctx.client.providers.get(ctx.zoneId, row.id)),
+      ),
     actions: [
       {
-        key: 'n', label: 'new', build: () => new FormView({
-          title: 'create provider',
-          submitLabel: 'create provider',
-          fields: [
-            { key: 'name', label: 'provider name', kind: 'text', required: true, hint: 'human-readable name; identifier is generated when blank' },
-            { key: 'kind', label: 'provider type', kind: 'select', options: PROVIDER_KINDS, optionLabels: PROVIDER_KIND_LABELS, default: 'caracal_mandate', info: providerTypeInfo() },
-            { key: 'authorization_endpoint', label: 'authorization endpoint', kind: 'text', dependsOn: { kind: 'oauth2_authorization_code' }, required: true, hint: 'HTTPS endpoint where users approve delegated access' },
-            { key: 'token_endpoint', label: 'token endpoint', kind: 'text', dependsOn: { kind: ['oauth2_authorization_code', 'oauth2_client_credentials'] }, required: true, hint: 'HTTPS endpoint where provider tokens are issued or refreshed' },
-            { key: 'redirect_uri', label: 'redirect URI', kind: 'text', dependsOn: { kind: 'oauth2_authorization_code' }, required: true, hint: 'callback URI registered with the provider' },
-            { key: 'client_id', label: 'client ID', kind: 'text', dependsOn: { kind: ['oauth2_authorization_code', 'oauth2_client_credentials'] }, required: true },
-            { key: 'client_secret', label: 'client secret', kind: 'secret', dependsOn: { kind: ['oauth2_authorization_code', 'oauth2_client_credentials'] }, required: (current) => !['none', 'private_key_jwt'].includes(submittedOAuthClientAuthMethod(current)), hint: 'required for client_secret_basic and client_secret_post' },
-            { key: 'provider_scopes', label: 'upstream OAuth scopes', kind: 'list', dependsOn: { kind: ['oauth2_authorization_code', 'oauth2_client_credentials'] }, hint: 'optional OAuth scopes requested from the upstream provider' },
-            { key: 'api_key_auth_location', label: 'API key location', kind: 'select', options: API_KEY_AUTH_LOCATIONS, default: 'header', dependsOn: { kind: 'api_key' }, hint: 'where the upstream expects the key' },
-            { key: 'api_key_header', label: 'API key header name', kind: 'text', dependsOn: { kind: 'api_key', api_key_auth_location: 'header' }, required: true, hint: 'header where the upstream expects the key, such as X-API-Key or Authorization' },
-            { key: 'api_key_query_param', label: 'API key query parameter', kind: 'text', dependsOn: { kind: 'api_key', api_key_auth_location: 'query' }, required: true, hint: 'query parameter where the upstream expects the key, such as key, appid, or api_key' },
-            { key: 'api_key', label: 'API key', kind: 'secret', dependsOn: { kind: 'api_key' }, required: true },
-            { key: 'bearer_token', label: 'bearer token', kind: 'secret', dependsOn: { kind: 'bearer_token' }, required: true },
-            { key: 'identifier', label: 'provider identifier', kind: 'text', advanced: true, hint: 'optional; generated from provider name when blank', validate: validateProviderIdentifier },
-            { key: 'authorization_params', label: 'OAuth authorization parameters', kind: 'list', dependsOn: { kind: 'oauth2_authorization_code' }, advanced: true, hint: 'optional key=value authorization parameters such as access_type=offline,prompt=consent' },
-            { key: 'token_params', label: 'OAuth token parameters', kind: 'list', dependsOn: { kind: ['oauth2_authorization_code', 'oauth2_client_credentials'] }, advanced: true, hint: 'optional key=value token endpoint parameters not managed by Caracal' },
-            { key: 'token_audience', label: 'OAuth token audience', kind: 'text', dependsOn: { kind: 'oauth2_client_credentials' }, advanced: true, hint: 'optional audience parameter for token endpoints that require one' },
-            { key: 'token_resource', label: 'OAuth resource indicator', kind: 'text', dependsOn: { kind: 'oauth2_client_credentials' }, advanced: true, hint: 'optional resource parameter for token endpoints that use RFC 8707 or Azure-style resource values' },
-            { key: 'oauth_token_hosts', label: 'OAuth token endpoint hosts', kind: 'list', dependsOn: { kind: ['oauth2_authorization_code', 'oauth2_client_credentials'] }, advanced: true, hint: 'optional; inferred from token endpoint when blank' },
-            { key: 'bearer_upstream_hosts', label: 'allowed upstream hosts', kind: 'list', dependsOn: { kind: 'bearer_token' }, advanced: true, hint: 'optional host allow-list for static bearer-token forwarding' },
-            { key: 'auth_code_client_auth_method', label: 'OAuth client authentication', kind: 'select', options: OAUTH_AUTH_CODE_CLIENT_AUTH_METHODS, default: 'client_secret_basic', dependsOn: { kind: 'oauth2_authorization_code' }, advanced: true },
-            { key: 'client_credentials_auth_method', label: 'OAuth client authentication', kind: 'select', options: OAUTH_CLIENT_CREDENTIALS_AUTH_METHODS, default: 'client_secret_basic', dependsOn: { kind: 'oauth2_client_credentials' }, advanced: true },
-            { key: 'key_id', label: 'key ID', kind: 'text', dependsOn: { kind: 'oauth2_client_credentials', client_credentials_auth_method: 'private_key_jwt' }, advanced: true, hint: 'optional kid header for private_key_jwt client assertions' },
-            { key: 'private_key', label: 'private key', kind: 'secret-multiline', dependsOn: { kind: 'oauth2_client_credentials', client_credentials_auth_method: 'private_key_jwt' }, advanced: true, hint: 'PEM private key used to sign private_key_jwt client assertions' },
-            { key: 'auth_header', label: 'upstream authorization header', kind: 'text', dependsOn: { kind: ['oauth2_authorization_code', 'oauth2_client_credentials', 'bearer_token'] }, advanced: true, hint: 'optional; leave blank for Authorization' },
-            { key: 'auth_scheme', label: 'upstream authorization scheme', kind: 'text', dependsOn: { kind: ['oauth2_authorization_code', 'oauth2_client_credentials', 'api_key', 'bearer_token'] }, visible: (current) => current.kind !== 'api_key' || current.api_key_auth_location === 'header', advanced: true, hint: 'optional prefix such as Bearer, Token, or ApiKey; API-key query auth does not use a scheme' },
-            { key: 'forward_caracal_identity', label: 'forward Caracal identity', kind: 'bool', default: 'false', dependsOn: { kind: PROVIDER_CREDENTIAL_KINDS }, advanced: true, hint: 'also send X-Caracal-Identity to trusted upstreams' },
-            { key: 'allow_runtime_injection', label: 'allow runtime injection', kind: 'bool', default: 'false', dependsOn: { kind: PROVIDER_CREDENTIAL_KINDS }, advanced: true, hint: 'allow caracal run to inject this provider credential into a child process environment' },
-          ],
-          onSubmit: async (v, app) => {
-            await ctx.client.providers.create(ctx.zoneId, {
-              ...(v.identifier ? { identifier: v.identifier } : {}),
-              name: v.name || undefined,
-              kind: providerKind(v.kind),
-              config_json: providerConfigFromValues(v, true),
-            } as ProviderInput)
-            await popAndReload(app, list as unknown as ListView<unknown>)
-          },
-        }),
+        key: 'n',
+        label: 'new',
+        build: () =>
+          new FormView({
+            title: 'create provider',
+            submitLabel: 'create provider',
+            fields: [
+              {
+                key: 'name',
+                label: 'provider name',
+                kind: 'text',
+                required: true,
+                hint: 'human-readable name; identifier is generated when blank',
+              },
+              {
+                key: 'kind',
+                label: 'provider type',
+                kind: 'select',
+                options: PROVIDER_KINDS,
+                optionLabels: PROVIDER_KIND_LABELS,
+                default: 'caracal_mandate',
+                info: providerTypeInfo(),
+              },
+              {
+                key: 'authorization_endpoint',
+                label: 'authorization endpoint',
+                kind: 'text',
+                dependsOn: { kind: 'oauth2_authorization_code' },
+                required: true,
+                hint: 'HTTPS endpoint where users approve delegated access',
+              },
+              {
+                key: 'token_endpoint',
+                label: 'token endpoint',
+                kind: 'text',
+                dependsOn: { kind: ['oauth2_authorization_code', 'oauth2_client_credentials'] },
+                required: true,
+                hint: 'HTTPS endpoint where provider tokens are issued or refreshed',
+              },
+              {
+                key: 'redirect_uri',
+                label: 'redirect URI',
+                kind: 'text',
+                dependsOn: { kind: 'oauth2_authorization_code' },
+                required: true,
+                hint: 'callback URI registered with the provider',
+              },
+              {
+                key: 'client_id',
+                label: 'client ID',
+                kind: 'text',
+                dependsOn: { kind: ['oauth2_authorization_code', 'oauth2_client_credentials'] },
+                required: true,
+              },
+              {
+                key: 'client_secret',
+                label: 'client secret',
+                kind: 'secret',
+                dependsOn: { kind: ['oauth2_authorization_code', 'oauth2_client_credentials'] },
+                required: (current) => !['none', 'private_key_jwt'].includes(submittedOAuthClientAuthMethod(current)),
+                hint: 'required for client_secret_basic and client_secret_post',
+              },
+              {
+                key: 'provider_scopes',
+                label: 'upstream OAuth scopes',
+                kind: 'list',
+                dependsOn: { kind: ['oauth2_authorization_code', 'oauth2_client_credentials'] },
+                hint: 'optional OAuth scopes requested from the upstream provider',
+              },
+              {
+                key: 'api_key_auth_location',
+                label: 'API key location',
+                kind: 'select',
+                options: API_KEY_AUTH_LOCATIONS,
+                default: 'header',
+                dependsOn: { kind: 'api_key' },
+                hint: 'where the upstream expects the key',
+              },
+              {
+                key: 'api_key_header',
+                label: 'API key header name',
+                kind: 'text',
+                dependsOn: { kind: 'api_key', api_key_auth_location: 'header' },
+                required: true,
+                hint: 'header where the upstream expects the key, such as X-API-Key or Authorization',
+              },
+              {
+                key: 'api_key_query_param',
+                label: 'API key query parameter',
+                kind: 'text',
+                dependsOn: { kind: 'api_key', api_key_auth_location: 'query' },
+                required: true,
+                hint: 'query parameter where the upstream expects the key, such as key, appid, or api_key',
+              },
+              { key: 'api_key', label: 'API key', kind: 'secret', dependsOn: { kind: 'api_key' }, required: true },
+              { key: 'bearer_token', label: 'bearer token', kind: 'secret', dependsOn: { kind: 'bearer_token' }, required: true },
+              {
+                key: 'identifier',
+                label: 'provider identifier',
+                kind: 'text',
+                advanced: true,
+                hint: 'optional; generated from provider name when blank',
+                validate: validateProviderIdentifier,
+              },
+              {
+                key: 'authorization_params',
+                label: 'OAuth authorization parameters',
+                kind: 'list',
+                dependsOn: { kind: 'oauth2_authorization_code' },
+                advanced: true,
+                hint: 'optional key=value authorization parameters such as access_type=offline,prompt=consent',
+              },
+              {
+                key: 'token_params',
+                label: 'OAuth token parameters',
+                kind: 'list',
+                dependsOn: { kind: ['oauth2_authorization_code', 'oauth2_client_credentials'] },
+                advanced: true,
+                hint: 'optional key=value token endpoint parameters not managed by Caracal',
+              },
+              {
+                key: 'token_audience',
+                label: 'OAuth token audience',
+                kind: 'text',
+                dependsOn: { kind: 'oauth2_client_credentials' },
+                advanced: true,
+                hint: 'optional audience parameter for token endpoints that require one',
+              },
+              {
+                key: 'token_resource',
+                label: 'OAuth resource indicator',
+                kind: 'text',
+                dependsOn: { kind: 'oauth2_client_credentials' },
+                advanced: true,
+                hint: 'optional resource parameter for token endpoints that use RFC 8707 or Azure-style resource values',
+              },
+              {
+                key: 'oauth_token_hosts',
+                label: 'OAuth token endpoint hosts',
+                kind: 'list',
+                dependsOn: { kind: ['oauth2_authorization_code', 'oauth2_client_credentials'] },
+                advanced: true,
+                hint: 'optional; inferred from token endpoint when blank',
+              },
+              {
+                key: 'bearer_upstream_hosts',
+                label: 'allowed upstream hosts',
+                kind: 'list',
+                dependsOn: { kind: 'bearer_token' },
+                advanced: true,
+                hint: 'optional host allow-list for static bearer-token forwarding',
+              },
+              {
+                key: 'auth_code_client_auth_method',
+                label: 'OAuth client authentication',
+                kind: 'select',
+                options: OAUTH_AUTH_CODE_CLIENT_AUTH_METHODS,
+                default: 'client_secret_basic',
+                dependsOn: { kind: 'oauth2_authorization_code' },
+                advanced: true,
+              },
+              {
+                key: 'client_credentials_auth_method',
+                label: 'OAuth client authentication',
+                kind: 'select',
+                options: OAUTH_CLIENT_CREDENTIALS_AUTH_METHODS,
+                default: 'client_secret_basic',
+                dependsOn: { kind: 'oauth2_client_credentials' },
+                advanced: true,
+              },
+              {
+                key: 'key_id',
+                label: 'key ID',
+                kind: 'text',
+                dependsOn: { kind: 'oauth2_client_credentials', client_credentials_auth_method: 'private_key_jwt' },
+                advanced: true,
+                hint: 'optional kid header for private_key_jwt client assertions',
+              },
+              {
+                key: 'private_key',
+                label: 'private key',
+                kind: 'secret-multiline',
+                dependsOn: { kind: 'oauth2_client_credentials', client_credentials_auth_method: 'private_key_jwt' },
+                advanced: true,
+                hint: 'PEM private key used to sign private_key_jwt client assertions',
+              },
+              {
+                key: 'auth_header',
+                label: 'upstream authorization header',
+                kind: 'text',
+                dependsOn: { kind: ['oauth2_authorization_code', 'oauth2_client_credentials', 'bearer_token'] },
+                advanced: true,
+                hint: 'optional; leave blank for Authorization',
+              },
+              {
+                key: 'auth_scheme',
+                label: 'upstream authorization scheme',
+                kind: 'text',
+                dependsOn: { kind: ['oauth2_authorization_code', 'oauth2_client_credentials', 'api_key', 'bearer_token'] },
+                visible: (current) => current.kind !== 'api_key' || current.api_key_auth_location === 'header',
+                advanced: true,
+                hint: 'optional prefix such as Bearer, Token, or ApiKey; API-key query auth does not use a scheme',
+              },
+              {
+                key: 'forward_caracal_identity',
+                label: 'forward Caracal identity',
+                kind: 'bool',
+                default: 'false',
+                dependsOn: { kind: PROVIDER_CREDENTIAL_KINDS },
+                advanced: true,
+                hint: 'also send X-Caracal-Identity to trusted upstreams',
+              },
+              {
+                key: 'allow_runtime_injection',
+                label: 'allow runtime injection',
+                kind: 'bool',
+                default: 'false',
+                dependsOn: { kind: PROVIDER_CREDENTIAL_KINDS },
+                advanced: true,
+                hint: 'allow caracal run to inject this provider credential into a child process environment',
+              },
+            ],
+            onSubmit: async (v, app) => {
+              await ctx.client.providers.create(ctx.zoneId, {
+                ...(v.identifier ? { identifier: v.identifier } : {}),
+                name: v.name || undefined,
+                kind: providerKind(v.kind),
+                config_json: providerConfigFromValues(v, true),
+              } as ProviderInput)
+              await popAndReload(app, list as unknown as ListView<unknown>)
+            },
+          }),
       },
       {
-        key: 'e', label: 'edit', build: (row) => {
+        key: 'e',
+        label: 'edit',
+        build: (row) => {
           if (!row) throw new Error('no row selected')
           return new FormView({
             title: `edit ${row.identifier}`,
             fields: [
               { key: 'name', label: 'name', kind: 'text', default: row.name },
-              { key: 'identifier', label: 'provider identifier', kind: 'text', default: row.identifier, validate: validateProviderIdentifier },
-              { key: 'kind', label: 'kind', kind: 'select', options: PROVIDER_KINDS, optionLabels: PROVIDER_KIND_LABELS, default: row.kind, info: providerTypeInfo() },
-              { key: 'authorization_endpoint', label: 'authorization endpoint', kind: 'text', default: configString(row.config_json, 'authorization_endpoint'), dependsOn: { kind: 'oauth2_authorization_code' }, required: true },
-              { key: 'token_endpoint', label: 'token endpoint', kind: 'text', default: configString(row.config_json, 'token_endpoint'), dependsOn: { kind: ['oauth2_authorization_code', 'oauth2_client_credentials'] }, required: true },
-              { key: 'redirect_uri', label: 'redirect URI', kind: 'text', default: configString(row.config_json, 'redirect_uri'), dependsOn: { kind: 'oauth2_authorization_code' }, required: true },
-              { key: 'client_id', label: 'client ID', kind: 'text', default: configString(row.config_json, 'client_id'), dependsOn: { kind: ['oauth2_authorization_code', 'oauth2_client_credentials'] }, required: true },
-              { key: 'client_secret', label: 'client secret', kind: 'secret', dependsOn: { kind: ['oauth2_authorization_code', 'oauth2_client_credentials'] }, required: (current) => !['none', 'private_key_jwt'].includes(submittedOAuthClientAuthMethod(current)) && !row.secret_config_keys.includes('client_secret'), hint: 'leave blank to keep the current secret' },
-              { key: 'provider_scopes', label: 'upstream OAuth scopes', kind: 'list', default: configList(row.config_json, 'scopes'), dependsOn: { kind: ['oauth2_authorization_code', 'oauth2_client_credentials'] } },
-              { key: 'api_key_auth_location', label: 'API key location', kind: 'select', options: API_KEY_AUTH_LOCATIONS, default: configString(row.config_json, 'auth_location') || 'header', dependsOn: { kind: 'api_key' }, hint: 'where the upstream expects the key' },
-              { key: 'api_key_header', label: 'API key header name', kind: 'text', default: configString(row.config_json, 'header_name'), dependsOn: { kind: 'api_key', api_key_auth_location: 'header' }, required: true, hint: 'header where the upstream expects the key, such as X-API-Key or Authorization' },
-              { key: 'api_key_query_param', label: 'API key query parameter', kind: 'text', default: configString(row.config_json, 'query_param_name'), dependsOn: { kind: 'api_key', api_key_auth_location: 'query' }, required: true, hint: 'query parameter where the upstream expects the key, such as key, appid, or api_key' },
-              { key: 'api_key', label: 'API key', kind: 'secret', dependsOn: { kind: 'api_key' }, hint: 'leave blank to keep the current API key' },
-              { key: 'bearer_token', label: 'bearer token', kind: 'secret', dependsOn: { kind: 'bearer_token' }, hint: 'leave blank to keep the current bearer token' },
-              { key: 'authorization_params', label: 'OAuth authorization parameters', kind: 'list', default: configMap(row.config_json, 'authorization_params'), dependsOn: { kind: 'oauth2_authorization_code' }, advanced: true, hint: 'optional key=value authorization parameters such as access_type=offline,prompt=consent' },
-              { key: 'token_params', label: 'OAuth token parameters', kind: 'list', default: configMap(row.config_json, 'token_params'), dependsOn: { kind: ['oauth2_authorization_code', 'oauth2_client_credentials'] }, advanced: true, hint: 'optional key=value token endpoint parameters not managed by Caracal' },
-              { key: 'token_audience', label: 'OAuth token audience', kind: 'text', default: configString(row.config_json, 'audience'), dependsOn: { kind: 'oauth2_client_credentials' }, advanced: true },
-              { key: 'token_resource', label: 'OAuth resource indicator', kind: 'text', default: configString(row.config_json, 'resource'), dependsOn: { kind: 'oauth2_client_credentials' }, advanced: true },
-              { key: 'oauth_token_hosts', label: 'OAuth token endpoint hosts', kind: 'list', default: configList(row.config_json, 'allowed_token_hosts'), dependsOn: { kind: ['oauth2_authorization_code', 'oauth2_client_credentials'] }, advanced: true },
-              { key: 'bearer_upstream_hosts', label: 'allowed upstream hosts', kind: 'list', default: configList(row.config_json, 'allowed_token_hosts'), dependsOn: { kind: 'bearer_token' }, advanced: true },
-              { key: 'auth_code_client_auth_method', label: 'OAuth client authentication', kind: 'select', options: OAUTH_AUTH_CODE_CLIENT_AUTH_METHODS, default: configString(row.config_json, 'client_auth_method') || 'client_secret_basic', dependsOn: { kind: 'oauth2_authorization_code' }, advanced: true },
-              { key: 'client_credentials_auth_method', label: 'OAuth client authentication', kind: 'select', options: OAUTH_CLIENT_CREDENTIALS_AUTH_METHODS, default: configString(row.config_json, 'client_auth_method') || 'client_secret_basic', dependsOn: { kind: 'oauth2_client_credentials' }, advanced: true },
-              { key: 'key_id', label: 'key ID', kind: 'text', default: configString(row.config_json, 'key_id'), dependsOn: { kind: 'oauth2_client_credentials', client_credentials_auth_method: 'private_key_jwt' }, advanced: true, hint: 'optional kid header for private_key_jwt client assertions' },
-              { key: 'private_key', label: 'private key', kind: 'secret-multiline', dependsOn: { kind: 'oauth2_client_credentials', client_credentials_auth_method: 'private_key_jwt' }, advanced: true, hint: row.secret_config_keys.includes('private_key') ? 'leave blank to keep the current private key' : 'PEM private key used to sign private_key_jwt client assertions' },
-              { key: 'auth_header', label: 'upstream authorization header', kind: 'text', default: configString(row.config_json, 'auth_header'), dependsOn: { kind: ['oauth2_authorization_code', 'oauth2_client_credentials', 'bearer_token'] }, advanced: true, hint: 'optional; leave blank for Authorization' },
-              { key: 'auth_scheme', label: 'upstream authorization scheme', kind: 'text', default: configString(row.config_json, 'auth_scheme'), dependsOn: { kind: ['oauth2_authorization_code', 'oauth2_client_credentials', 'api_key', 'bearer_token'] }, visible: (current) => current.kind !== 'api_key' || current.api_key_auth_location === 'header', advanced: true, hint: 'optional prefix such as Bearer, Token, or ApiKey; API-key query auth does not use a scheme' },
-              { key: 'forward_caracal_identity', label: 'forward Caracal identity', kind: 'bool', default: configBool(row.config_json, 'forward_caracal_identity'), dependsOn: { kind: PROVIDER_CREDENTIAL_KINDS }, advanced: true, hint: 'also send X-Caracal-Identity to trusted upstreams' },
-              { key: 'allow_runtime_injection', label: 'allow runtime injection', kind: 'bool', default: configBool(row.config_json, 'allow_runtime_injection'), dependsOn: { kind: PROVIDER_CREDENTIAL_KINDS }, advanced: true, hint: 'allow caracal run to inject this provider credential into a child process environment' },
+              {
+                key: 'identifier',
+                label: 'provider identifier',
+                kind: 'text',
+                default: row.identifier,
+                validate: validateProviderIdentifier,
+              },
+              {
+                key: 'kind',
+                label: 'kind',
+                kind: 'select',
+                options: PROVIDER_KINDS,
+                optionLabels: PROVIDER_KIND_LABELS,
+                default: row.kind,
+                info: providerTypeInfo(),
+              },
+              {
+                key: 'authorization_endpoint',
+                label: 'authorization endpoint',
+                kind: 'text',
+                default: configString(row.config_json, 'authorization_endpoint'),
+                dependsOn: { kind: 'oauth2_authorization_code' },
+                required: true,
+              },
+              {
+                key: 'token_endpoint',
+                label: 'token endpoint',
+                kind: 'text',
+                default: configString(row.config_json, 'token_endpoint'),
+                dependsOn: { kind: ['oauth2_authorization_code', 'oauth2_client_credentials'] },
+                required: true,
+              },
+              {
+                key: 'redirect_uri',
+                label: 'redirect URI',
+                kind: 'text',
+                default: configString(row.config_json, 'redirect_uri'),
+                dependsOn: { kind: 'oauth2_authorization_code' },
+                required: true,
+              },
+              {
+                key: 'client_id',
+                label: 'client ID',
+                kind: 'text',
+                default: configString(row.config_json, 'client_id'),
+                dependsOn: { kind: ['oauth2_authorization_code', 'oauth2_client_credentials'] },
+                required: true,
+              },
+              {
+                key: 'client_secret',
+                label: 'client secret',
+                kind: 'secret',
+                dependsOn: { kind: ['oauth2_authorization_code', 'oauth2_client_credentials'] },
+                required: (current) =>
+                  !['none', 'private_key_jwt'].includes(submittedOAuthClientAuthMethod(current)) &&
+                  !row.secret_config_keys.includes('client_secret'),
+                hint: 'leave blank to keep the current secret',
+              },
+              {
+                key: 'provider_scopes',
+                label: 'upstream OAuth scopes',
+                kind: 'list',
+                default: configList(row.config_json, 'scopes'),
+                dependsOn: { kind: ['oauth2_authorization_code', 'oauth2_client_credentials'] },
+              },
+              {
+                key: 'api_key_auth_location',
+                label: 'API key location',
+                kind: 'select',
+                options: API_KEY_AUTH_LOCATIONS,
+                default: configString(row.config_json, 'auth_location') || 'header',
+                dependsOn: { kind: 'api_key' },
+                hint: 'where the upstream expects the key',
+              },
+              {
+                key: 'api_key_header',
+                label: 'API key header name',
+                kind: 'text',
+                default: configString(row.config_json, 'header_name'),
+                dependsOn: { kind: 'api_key', api_key_auth_location: 'header' },
+                required: true,
+                hint: 'header where the upstream expects the key, such as X-API-Key or Authorization',
+              },
+              {
+                key: 'api_key_query_param',
+                label: 'API key query parameter',
+                kind: 'text',
+                default: configString(row.config_json, 'query_param_name'),
+                dependsOn: { kind: 'api_key', api_key_auth_location: 'query' },
+                required: true,
+                hint: 'query parameter where the upstream expects the key, such as key, appid, or api_key',
+              },
+              {
+                key: 'api_key',
+                label: 'API key',
+                kind: 'secret',
+                dependsOn: { kind: 'api_key' },
+                hint: 'leave blank to keep the current API key',
+              },
+              {
+                key: 'bearer_token',
+                label: 'bearer token',
+                kind: 'secret',
+                dependsOn: { kind: 'bearer_token' },
+                hint: 'leave blank to keep the current bearer token',
+              },
+              {
+                key: 'authorization_params',
+                label: 'OAuth authorization parameters',
+                kind: 'list',
+                default: configMap(row.config_json, 'authorization_params'),
+                dependsOn: { kind: 'oauth2_authorization_code' },
+                advanced: true,
+                hint: 'optional key=value authorization parameters such as access_type=offline,prompt=consent',
+              },
+              {
+                key: 'token_params',
+                label: 'OAuth token parameters',
+                kind: 'list',
+                default: configMap(row.config_json, 'token_params'),
+                dependsOn: { kind: ['oauth2_authorization_code', 'oauth2_client_credentials'] },
+                advanced: true,
+                hint: 'optional key=value token endpoint parameters not managed by Caracal',
+              },
+              {
+                key: 'token_audience',
+                label: 'OAuth token audience',
+                kind: 'text',
+                default: configString(row.config_json, 'audience'),
+                dependsOn: { kind: 'oauth2_client_credentials' },
+                advanced: true,
+              },
+              {
+                key: 'token_resource',
+                label: 'OAuth resource indicator',
+                kind: 'text',
+                default: configString(row.config_json, 'resource'),
+                dependsOn: { kind: 'oauth2_client_credentials' },
+                advanced: true,
+              },
+              {
+                key: 'oauth_token_hosts',
+                label: 'OAuth token endpoint hosts',
+                kind: 'list',
+                default: configList(row.config_json, 'allowed_token_hosts'),
+                dependsOn: { kind: ['oauth2_authorization_code', 'oauth2_client_credentials'] },
+                advanced: true,
+              },
+              {
+                key: 'bearer_upstream_hosts',
+                label: 'allowed upstream hosts',
+                kind: 'list',
+                default: configList(row.config_json, 'allowed_token_hosts'),
+                dependsOn: { kind: 'bearer_token' },
+                advanced: true,
+              },
+              {
+                key: 'auth_code_client_auth_method',
+                label: 'OAuth client authentication',
+                kind: 'select',
+                options: OAUTH_AUTH_CODE_CLIENT_AUTH_METHODS,
+                default: configString(row.config_json, 'client_auth_method') || 'client_secret_basic',
+                dependsOn: { kind: 'oauth2_authorization_code' },
+                advanced: true,
+              },
+              {
+                key: 'client_credentials_auth_method',
+                label: 'OAuth client authentication',
+                kind: 'select',
+                options: OAUTH_CLIENT_CREDENTIALS_AUTH_METHODS,
+                default: configString(row.config_json, 'client_auth_method') || 'client_secret_basic',
+                dependsOn: { kind: 'oauth2_client_credentials' },
+                advanced: true,
+              },
+              {
+                key: 'key_id',
+                label: 'key ID',
+                kind: 'text',
+                default: configString(row.config_json, 'key_id'),
+                dependsOn: { kind: 'oauth2_client_credentials', client_credentials_auth_method: 'private_key_jwt' },
+                advanced: true,
+                hint: 'optional kid header for private_key_jwt client assertions',
+              },
+              {
+                key: 'private_key',
+                label: 'private key',
+                kind: 'secret-multiline',
+                dependsOn: { kind: 'oauth2_client_credentials', client_credentials_auth_method: 'private_key_jwt' },
+                advanced: true,
+                hint: row.secret_config_keys.includes('private_key')
+                  ? 'leave blank to keep the current private key'
+                  : 'PEM private key used to sign private_key_jwt client assertions',
+              },
+              {
+                key: 'auth_header',
+                label: 'upstream authorization header',
+                kind: 'text',
+                default: configString(row.config_json, 'auth_header'),
+                dependsOn: { kind: ['oauth2_authorization_code', 'oauth2_client_credentials', 'bearer_token'] },
+                advanced: true,
+                hint: 'optional; leave blank for Authorization',
+              },
+              {
+                key: 'auth_scheme',
+                label: 'upstream authorization scheme',
+                kind: 'text',
+                default: configString(row.config_json, 'auth_scheme'),
+                dependsOn: { kind: ['oauth2_authorization_code', 'oauth2_client_credentials', 'api_key', 'bearer_token'] },
+                visible: (current) => current.kind !== 'api_key' || current.api_key_auth_location === 'header',
+                advanced: true,
+                hint: 'optional prefix such as Bearer, Token, or ApiKey; API-key query auth does not use a scheme',
+              },
+              {
+                key: 'forward_caracal_identity',
+                label: 'forward Caracal identity',
+                kind: 'bool',
+                default: configBool(row.config_json, 'forward_caracal_identity'),
+                dependsOn: { kind: PROVIDER_CREDENTIAL_KINDS },
+                advanced: true,
+                hint: 'also send X-Caracal-Identity to trusted upstreams',
+              },
+              {
+                key: 'allow_runtime_injection',
+                label: 'allow runtime injection',
+                kind: 'bool',
+                default: configBool(row.config_json, 'allow_runtime_injection'),
+                dependsOn: { kind: PROVIDER_CREDENTIAL_KINDS },
+                advanced: true,
+                hint: 'allow caracal run to inject this provider credential into a child process environment',
+              },
             ],
             onSubmit: async (v, app) => {
               const kind = providerKind(v.kind)
@@ -1403,15 +2063,39 @@ export function providersView(ctx: Ctx): View {
         },
       },
       {
-        key: 'c', label: 'connect', priority: 'primary', visible: (row) => row?.kind === 'oauth2_authorization_code', build: (row) => {
+        key: 'c',
+        label: 'connect',
+        priority: 'primary',
+        visible: (row) => row?.kind === 'oauth2_authorization_code',
+        build: (row) => {
           if (!row) throw new Error('no row selected')
           return new FormView({
             title: `connect ${row.identifier}`,
             submitLabel: 'create authorization URL',
             fields: [
-              { key: 'user_id', label: 'user ID', kind: 'text', required: true, hint: 'subject that will use this delegated provider grant' },
-              { key: 'resource_id', label: 'resource', kind: 'text', required: true, pick: resourcePicker(ctx), resolve: resourceResolver(ctx), hint: 'Gateway resource bound to this OAuth provider' },
-              { key: 'scopes', label: 'Caracal resource scopes', kind: 'list', required: true, hint: 'resource scopes this provider grant should cover' },
+              {
+                key: 'user_id',
+                label: 'user ID',
+                kind: 'text',
+                required: true,
+                hint: 'subject that will use this delegated provider grant',
+              },
+              {
+                key: 'resource_id',
+                label: 'resource',
+                kind: 'text',
+                required: true,
+                pick: resourcePicker(ctx),
+                resolve: resourceResolver(ctx),
+                hint: 'Gateway resource bound to this OAuth provider',
+              },
+              {
+                key: 'scopes',
+                label: 'Caracal resource scopes',
+                kind: 'list',
+                required: true,
+                hint: 'resource scopes this provider grant should cover',
+              },
             ],
             onSubmit: async (v, app) => {
               const result = await ctx.client.providerGrants.authorizeOAuth(ctx.zoneId, {
@@ -1420,28 +2104,50 @@ export function providersView(ctx: Ctx): View {
                 provider_id: row.id,
                 scopes: splitList(v.scopes),
               })
-              open(app, new DetailView({
-                title: `OAuth authorization / ${row.identifier}`,
-                load: async () => ({
-                  authorization_url: result.authorization_url,
-                  expires_at: result.expires_at,
-                  next_step: 'Open the authorization URL in a browser. The provider redirects back to the configured redirect URI and Caracal stores the provider grant.',
+              open(
+                app,
+                new DetailView({
+                  title: `OAuth authorization / ${row.identifier}`,
+                  load: async () => ({
+                    authorization_url: result.authorization_url,
+                    expires_at: result.expires_at,
+                    next_step:
+                      'Open the authorization URL in a browser. The provider redirects back to the configured redirect URI and Caracal stores the provider grant.',
+                  }),
+                  copyPage: true,
                 }),
-                copyPage: true,
-              }))
+              )
             },
           })
         },
       },
       {
-        key: 'x', label: 'disconnect', priority: 'secondary', visible: (row) => row?.kind === 'oauth2_authorization_code', build: (row) => {
+        key: 'x',
+        label: 'disconnect',
+        priority: 'secondary',
+        visible: (row) => row?.kind === 'oauth2_authorization_code',
+        build: (row) => {
           if (!row) throw new Error('no row selected')
           return new FormView({
             title: `disconnect ${row.identifier}`,
             submitLabel: 'revoke provider grant',
             fields: [
-              { key: 'user_id', label: 'user ID', kind: 'text', required: true, hint: 'subject whose delegated provider grant should be revoked' },
-              { key: 'resource_id', label: 'resource', kind: 'text', required: true, pick: resourcePicker(ctx), resolve: resourceResolver(ctx), hint: 'Gateway resource bound to this OAuth provider' },
+              {
+                key: 'user_id',
+                label: 'user ID',
+                kind: 'text',
+                required: true,
+                hint: 'subject whose delegated provider grant should be revoked',
+              },
+              {
+                key: 'resource_id',
+                label: 'resource',
+                kind: 'text',
+                required: true,
+                pick: resourcePicker(ctx),
+                resolve: resourceResolver(ctx),
+                hint: 'Gateway resource bound to this OAuth provider',
+              },
             ],
             onSubmit: async (v, app) => {
               const result = await ctx.client.providerGrants.revoke(ctx.zoneId, {
@@ -1456,7 +2162,9 @@ export function providersView(ctx: Ctx): View {
         },
       },
       {
-        key: 'd', label: 'delete', build: (row) => {
+        key: 'd',
+        label: 'delete',
+        build: (row) => {
           if (!row) throw new Error('no row selected')
           return new ConfirmView({
             message: `delete provider ${row.identifier}?`,
@@ -1488,51 +2196,63 @@ export function policiesView(ctx: Ctx): View {
     rowKey: (row) => row.id,
     rowId: (row) => row.id,
     rowName: (row) => row.name,
-    onEnter: (app, row) => open(app, entityDetail(`policy / ${row.name}`, () => ctx.client.policies.get(ctx.zoneId, row.id))),
+    onEnter: (app, row) =>
+      open(
+        app,
+        entityDetail(`policy / ${row.name}`, () => ctx.client.policies.get(ctx.zoneId, row.id)),
+      ),
     actions: [
       {
-        key: 'n', label: 'new', build: () => new FormView({
-          title: 'create policy',
-          submitLabel: 'validate and create policy',
-          fields: [
-            { key: 'name', label: 'name', kind: 'text', required: true },
-            { key: 'source', label: 'source', kind: 'select', options: [...CONTENT_SOURCES], default: 'paste' },
-            { key: 'content', label: 'policy content', kind: 'multiline', required: true, dependsOn: { source: 'paste' } },
-            { key: 'file', label: 'policy file', kind: 'file', required: true, dependsOn: { source: 'file' } },
-            { key: 'description', label: 'description', kind: 'text', advanced: true },
-          ],
-          onSubmit: async (v, app) => {
-            const content = readPolicyContent(v)
-            if (!content) throw new Error('file or content required')
-            await ctx.client.policies.create(ctx.zoneId, {
-              name: v.name!,
-              description: v.description || undefined,
-              content,
-            })
-            await popAndReload(app, list as unknown as ListView<unknown>)
-          },
-        }),
+        key: 'n',
+        label: 'new',
+        build: () =>
+          new FormView({
+            title: 'create policy',
+            submitLabel: 'validate and create policy',
+            fields: [
+              { key: 'name', label: 'name', kind: 'text', required: true },
+              { key: 'source', label: 'source', kind: 'select', options: [...CONTENT_SOURCES], default: 'paste' },
+              { key: 'content', label: 'policy content', kind: 'multiline', required: true, dependsOn: { source: 'paste' } },
+              { key: 'file', label: 'policy file', kind: 'file', required: true, dependsOn: { source: 'file' } },
+              { key: 'description', label: 'description', kind: 'text', advanced: true },
+            ],
+            onSubmit: async (v, app) => {
+              const content = readPolicyContent(v)
+              if (!content) throw new Error('file or content required')
+              await ctx.client.policies.create(ctx.zoneId, {
+                name: v.name!,
+                description: v.description || undefined,
+                content,
+              })
+              await popAndReload(app, list as unknown as ListView<unknown>)
+            },
+          }),
       },
       {
-        key: 'c', label: 'validate', build: () => new FormView({
-          title: 'validate policy',
-          submitLabel: 'validate policy',
-          fields: [
-            { key: 'source', label: 'source', kind: 'select', options: [...CONTENT_SOURCES], default: 'paste' },
-            { key: 'content', label: 'policy content', kind: 'multiline', required: true, dependsOn: { source: 'paste' } },
-            { key: 'file', label: 'policy file', kind: 'file', required: true, dependsOn: { source: 'file' } },
-          ],
-          onSubmit: async (v, app) => {
-            const content = readPolicyContent(v)
-            if (!content) throw new Error('file or content required')
-            const result = await ctx.client.policies.validate(content)
-            app.pop()
-            app.push(detail('policy validate', async () => result))
-          },
-        }),
+        key: 'c',
+        label: 'validate',
+        build: () =>
+          new FormView({
+            title: 'validate policy',
+            submitLabel: 'validate policy',
+            fields: [
+              { key: 'source', label: 'source', kind: 'select', options: [...CONTENT_SOURCES], default: 'paste' },
+              { key: 'content', label: 'policy content', kind: 'multiline', required: true, dependsOn: { source: 'paste' } },
+              { key: 'file', label: 'policy file', kind: 'file', required: true, dependsOn: { source: 'file' } },
+            ],
+            onSubmit: async (v, app) => {
+              const content = readPolicyContent(v)
+              if (!content) throw new Error('file or content required')
+              const result = await ctx.client.policies.validate(content)
+              app.pop()
+              app.push(detail('policy validate', async () => result))
+            },
+          }),
       },
       {
-        key: 'v', label: 'version', build: (row) => {
+        key: 'v',
+        label: 'version',
+        build: (row) => {
           if (!row) throw new Error('no row selected')
           return new FormView({
             title: `version ${row.name}`,
@@ -1552,7 +2272,9 @@ export function policiesView(ctx: Ctx): View {
         },
       },
       {
-        key: 'd', label: 'delete', build: (row) => {
+        key: 'd',
+        label: 'delete',
+        build: (row) => {
           if (!row) throw new Error('no row selected')
           return new ConfirmView({
             message: `delete policy ${row.name}?`,
@@ -1584,36 +2306,60 @@ export function policySetsView(ctx: Ctx): View {
     rowKey: (row) => row.id,
     rowId: (row) => row.id,
     rowName: (row) => row.name,
-    onEnter: (app, row) => open(app, entityDetail(`policy set / ${row.name}`, () => ctx.client.policySets.get(ctx.zoneId, row.id))),
+    onEnter: (app, row) =>
+      open(
+        app,
+        entityDetail(`policy set / ${row.name}`, () => ctx.client.policySets.get(ctx.zoneId, row.id)),
+      ),
     actions: [
       {
-        key: 'n', label: 'new', build: () => new FormView({
-          title: 'create policy set',
-          submitLabel: 'create policy set',
-          fields: [
-            { key: 'name', label: 'name', kind: 'text', required: true },
-            { key: 'policy_versions', label: 'policy versions', kind: 'list', pick: policyVersionPicker(ctx), resolve: policyVersionResolver(ctx), hint: 'right arrow adds latest or selected policy versions' },
-            { key: 'activate_now', label: 'activate now', kind: 'bool', default: 'true', dependsOn: 'policy_versions' },
-            { key: 'description', label: 'description', kind: 'text', advanced: true },
-          ],
-          onSubmit: async (v, app) => {
-            const policySet = await ctx.client.policySets.create(ctx.zoneId, v.name!, v.description || undefined)
-            const manifest = splitList(v.policy_versions ?? '').map((policy_version_id) => ({ policy_version_id }))
-            if (manifest.length > 0) {
-              const version = await ctx.client.policySets.addVersion(ctx.zoneId, policySet.id, manifest)
-              if (bool(v.activate_now)) await ctx.client.policySets.activate(ctx.zoneId, policySet.id, version.id)
-            }
-            await popAndReload(app, list as unknown as ListView<unknown>)
-          },
-        }),
+        key: 'n',
+        label: 'new',
+        build: () =>
+          new FormView({
+            title: 'create policy set',
+            submitLabel: 'create policy set',
+            fields: [
+              { key: 'name', label: 'name', kind: 'text', required: true },
+              {
+                key: 'policy_versions',
+                label: 'policy versions',
+                kind: 'list',
+                pick: policyVersionPicker(ctx),
+                resolve: policyVersionResolver(ctx),
+                hint: 'right arrow adds latest or selected policy versions',
+              },
+              { key: 'activate_now', label: 'activate now', kind: 'bool', default: 'true', dependsOn: 'policy_versions' },
+              { key: 'description', label: 'description', kind: 'text', advanced: true },
+            ],
+            onSubmit: async (v, app) => {
+              const policySet = await ctx.client.policySets.create(ctx.zoneId, v.name!, v.description || undefined)
+              const manifest = splitList(v.policy_versions ?? '').map((policy_version_id) => ({ policy_version_id }))
+              if (manifest.length > 0) {
+                const version = await ctx.client.policySets.addVersion(ctx.zoneId, policySet.id, manifest)
+                if (bool(v.activate_now)) await ctx.client.policySets.activate(ctx.zoneId, policySet.id, version.id)
+              }
+              await popAndReload(app, list as unknown as ListView<unknown>)
+            },
+          }),
       },
       {
-        key: 'v', label: 'version', build: (row) => {
+        key: 'v',
+        label: 'version',
+        build: (row) => {
           if (!row) throw new Error('no row selected')
           return new FormView({
             title: `version ${row.name}`,
             fields: [
-              { key: 'policy_versions', label: 'policy versions', kind: 'list', required: true, pick: policyVersionPicker(ctx), resolve: policyVersionResolver(ctx), hint: 'right arrow adds versions' },
+              {
+                key: 'policy_versions',
+                label: 'policy versions',
+                kind: 'list',
+                required: true,
+                pick: policyVersionPicker(ctx),
+                resolve: policyVersionResolver(ctx),
+                hint: 'right arrow adds versions',
+              },
             ],
             onSubmit: async (v, app) => {
               const manifest = splitList(v.policy_versions ?? '').map((policy_version_id) => ({ policy_version_id }))
@@ -1624,13 +2370,29 @@ export function policySetsView(ctx: Ctx): View {
         },
       },
       {
-        key: 'a', label: 'activate', build: (row) => {
+        key: 'a',
+        label: 'activate',
+        build: (row) => {
           if (!row) throw new Error('no row selected')
           return new FormView({
             title: `activate ${row.name}`,
             fields: [
-              { key: 'version_id', label: 'version', kind: 'text', required: true, pick: policySetVersionPicker(ctx, row), resolve: policySetVersionResolver(ctx, row) },
-              { key: 'shadow_version_id', label: 'shadow version', kind: 'text', advanced: true, pick: policySetVersionPicker(ctx, row), resolve: policySetVersionResolver(ctx, row) },
+              {
+                key: 'version_id',
+                label: 'version',
+                kind: 'text',
+                required: true,
+                pick: policySetVersionPicker(ctx, row),
+                resolve: policySetVersionResolver(ctx, row),
+              },
+              {
+                key: 'shadow_version_id',
+                label: 'shadow version',
+                kind: 'text',
+                advanced: true,
+                pick: policySetVersionPicker(ctx, row),
+                resolve: policySetVersionResolver(ctx, row),
+              },
             ],
             onSubmit: async (v, app) => {
               await ctx.client.policySets.activate(ctx.zoneId, row.id, v.version_id!, v.shadow_version_id || undefined)
@@ -1640,15 +2402,32 @@ export function policySetsView(ctx: Ctx): View {
         },
       },
       {
-        key: 's', label: 'simulate', build: (row) => {
+        key: 's',
+        label: 'simulate',
+        build: (row) => {
           if (!row) throw new Error('no row selected')
           return new FormView({
             title: `simulate ${row.name}`,
             fields: [
-              { key: 'version_id', label: 'version', kind: 'text', required: true, default: row.active_version_id ?? '', pick: policySetVersionPicker(ctx, row), resolve: policySetVersionResolver(ctx, row) },
+              {
+                key: 'version_id',
+                label: 'version',
+                kind: 'text',
+                required: true,
+                default: row.active_version_id ?? '',
+                pick: policySetVersionPicker(ctx, row),
+                resolve: policySetVersionResolver(ctx, row),
+              },
               { key: 'source', label: 'input source', kind: 'select', options: ['none', ...CONTENT_SOURCES], default: 'none' },
               { key: 'input_file', label: 'input file', kind: 'file', required: true, dependsOn: { source: 'file' } },
-              { key: 'input', label: 'inline input', kind: 'multiline', required: true, dependsOn: { source: 'paste' }, hint: 'JSON object for a concrete simulation input' },
+              {
+                key: 'input',
+                label: 'inline input',
+                kind: 'multiline',
+                required: true,
+                dependsOn: { source: 'paste' },
+                hint: 'JSON object for a concrete simulation input',
+              },
             ],
             onSubmit: async (v, app) => {
               const inputValue = readFileOrInline(v.input_file ?? '', v.input ?? '')
@@ -1665,7 +2444,9 @@ export function policySetsView(ctx: Ctx): View {
         },
       },
       {
-        key: 'd', label: 'delete', build: (row) => {
+        key: 'd',
+        label: 'delete',
+        build: (row) => {
           if (!row) throw new Error('no row selected')
           return new ConfirmView({
             message: `delete policy set ${row.name}?`,
@@ -1700,16 +2481,34 @@ export function sessionsView(ctx: Ctx): View {
     rowKey: (row) => row.id,
     rowId: (row) => row.id,
     rowName: (row) => row.subject_id,
-    onEnter: (app, row) => open(app, entityDetail(`authority session / ${row.id}`, async () => row)),
+    onEnter: (app, row) =>
+      open(
+        app,
+        entityDetail(`authority session / ${row.id}`, async () => row),
+      ),
     actions: [
       {
-        key: 'f', label: 'filter', build: () => {
+        key: 'f',
+        label: 'filter',
+        build: () => {
           return new FormView({
             title: 'filter authority sessions',
             fields: [
-              { key: 'status', label: 'status', kind: 'select', options: ['', 'active', 'revoked', 'expired'], default: filters.status ?? '' },
+              {
+                key: 'status',
+                label: 'status',
+                kind: 'select',
+                options: ['', 'active', 'revoked', 'expired'],
+                default: filters.status ?? '',
+              },
               { key: 'subject_id', label: 'subject', kind: 'text', default: filters.subject_id ?? '' },
-              { key: 'limit', label: 'limit', kind: 'text', default: filters.limit === undefined ? '' : String(filters.limit), validate: (v) => v ? (Number.isFinite(Number.parseInt(v, 10)) ? undefined : 'limit must be an integer') : undefined },
+              {
+                key: 'limit',
+                label: 'limit',
+                kind: 'text',
+                default: filters.limit === undefined ? '' : String(filters.limit),
+                validate: (v) => (v ? (Number.isFinite(Number.parseInt(v, 10)) ? undefined : 'limit must be an integer') : undefined),
+              },
             ],
             onSubmit: async (v, app) => {
               filters.status = (v.status as SessionQuery['status']) || undefined
@@ -1719,18 +2518,6 @@ export function sessionsView(ctx: Ctx): View {
               await popAndReload(app, list as unknown as ListView<unknown>)
             },
           })
-        },
-      },
-      {
-        key: 'i', label: 'inbound', build: (row) => {
-          if (!row) throw new Error('no row selected')
-          return delegationEdgesView(ctx, 'inbound', row.id)
-        },
-      },
-      {
-        key: 'o', label: 'outbound', build: (row) => {
-          if (!row) throw new Error('no row selected')
-          return delegationEdgesView(ctx, 'outbound', row.id)
         },
       },
     ],
@@ -1756,9 +2543,13 @@ class DelegationMenuView implements View {
   ]
 
   private readonly ctx: Ctx
-  constructor(ctx: Ctx) { this.ctx = ctx }
+  constructor(ctx: Ctx) {
+    this.ctx = ctx
+  }
 
-  hints(): string[] { return ['↑/↓:select', 'enter:open', '?:info', 'esc:back'] }
+  hints(): string[] {
+    return ['↑/↓:select', 'enter:open', '?:info', 'esc:back']
+  }
 
   render(): string[] {
     const lines = ['', ' Delegations', '']
@@ -1770,30 +2561,55 @@ class DelegationMenuView implements View {
   }
 
   async onKey(key: string, ctx: { app: App }): Promise<void> {
-    if (key === 'up' || key === 'k') { this.cursor = Math.max(0, this.cursor - 1); return }
-    if (key === 'down' || key === 'j') { this.cursor = Math.min(this.items.length - 1, this.cursor + 1); return }
-    if (key === 'left' || key === 'esc') { ctx.app.pop(); return }
+    if (key === 'up' || key === 'k') {
+      this.cursor = Math.max(0, this.cursor - 1)
+      return
+    }
+    if (key === 'down' || key === 'j') {
+      this.cursor = Math.min(this.items.length - 1, this.cursor + 1)
+      return
+    }
+    if (key === 'left' || key === 'esc') {
+      ctx.app.pop()
+      return
+    }
     if (key === '?') {
       const item = this.items[this.cursor]
-      if (item) openInfo(ctx.app, infoPage({
-        title: `Delegation ${item.label}`,
-        meaning: 'Delegation views inspect or revoke edges between authority sessions.',
-        when: 'Use this when delegated agent authority must be traced, audited, or revoked.',
-        example: item.label,
-        valid: 'Choose a delegation action, then pick a session or edge from the searchable picker.',
-        after: 'Console opens the selected delegation view or mutation flow.',
-      }))
+      if (item)
+        openInfo(
+          ctx.app,
+          infoPage({
+            title: `Delegation ${item.label}`,
+            meaning: 'Delegation views inspect or revoke edges between authority sessions.',
+            when: 'Use this when delegated agent authority must be traced, audited, or revoked.',
+            example: item.label,
+            valid: 'Choose a delegation action, then pick a session or edge from the searchable picker.',
+            after: 'Console opens the selected delegation view or mutation flow.',
+          }),
+        )
       return
     }
     const direct = this.items.findIndex((item) => item.key === key)
-    if (direct >= 0) { ctx.app.push(this.items[direct]!.build()); return }
+    if (direct >= 0) {
+      ctx.app.push(this.items[direct]!.build())
+      return
+    }
     if (key === 'enter') ctx.app.push(this.items[this.cursor]!.build())
   }
 
   private edgeForm(kind: 'inbound' | 'outbound'): View {
     return new FormView({
       title: `delegation ${kind}`,
-      fields: [{ key: 'session_id', label: 'session', kind: 'text', required: true, pick: sessionPicker(this.ctx), resolve: sessionResolver(this.ctx) }],
+      fields: [
+        {
+          key: 'session_id',
+          label: 'session',
+          kind: 'text',
+          required: true,
+          pick: sessionPicker(this.ctx),
+          resolve: sessionResolver(this.ctx),
+        },
+      ],
       onSubmit: async (v, app) => {
         app.pop()
         app.push(delegationEdgesView(this.ctx, kind, v.session_id!))
@@ -1826,7 +2642,16 @@ class DelegationMenuView implements View {
   private effectiveAuthorityForm(): View {
     return new FormView({
       title: 'delegation effective authority',
-      fields: [{ key: 'session_id', label: 'agent session', kind: 'text', required: true, pick: sessionPicker(this.ctx), resolve: sessionResolver(this.ctx) }],
+      fields: [
+        {
+          key: 'session_id',
+          label: 'agent session',
+          kind: 'text',
+          required: true,
+          pick: sessionPicker(this.ctx),
+          resolve: sessionResolver(this.ctx),
+        },
+      ],
       onSubmit: async (v, app) => {
         app.pop()
         app.push(effectiveAuthorityView(this.ctx, v.session_id!))
@@ -1864,7 +2689,11 @@ function delegationActiveView(ctx: Ctx): ListView<DelegationRow> {
     rowKey: (row) => row.id,
     rowId: (row) => row.id,
     rowName: (row) => `${row.source_session_id} → ${row.target_session_id}`,
-    onEnter: (app, row) => open(app, entityDetail(`delegation / ${row.id}`, async () => row)),
+    onEnter: (app, row) =>
+      open(
+        app,
+        entityDetail(`delegation / ${row.id}`, async () => row),
+      ),
     actions: delegationAuditActions(ctx),
   })
 }
@@ -1879,26 +2708,38 @@ function delegationEdgesView(ctx: Ctx, kind: 'inbound' | 'outbound', sessionId: 
       { header: 'resource', width: 24, value: (r) => r.resource_name ?? '-' },
       { header: 'status', width: 10, value: (r) => r.status },
     ],
-    load: async () => labelDelegations(ctx, kind === 'inbound'
-      ? await ctx.client.delegations.inbound(ctx.zoneId, sessionId)
-      : await ctx.client.delegations.outbound(ctx.zoneId, sessionId)),
+    load: async () =>
+      labelDelegations(
+        ctx,
+        kind === 'inbound'
+          ? await ctx.client.delegations.inbound(ctx.zoneId, sessionId)
+          : await ctx.client.delegations.outbound(ctx.zoneId, sessionId),
+      ),
     state: ctx.state,
     stateKey: `delegations-${kind}-${sessionId}`,
     zoneId: ctx.zoneId,
     rowKey: (row) => row.id,
     rowId: (row) => row.id,
     rowName: (row) => `${row.source_session_id} → ${row.target_session_id}`,
-    onEnter: (app, row) => open(app, entityDetail(`delegation / ${row.id}`, async () => row)),
+    onEnter: (app, row) =>
+      open(
+        app,
+        entityDetail(`delegation / ${row.id}`, async () => row),
+      ),
     actions: [
       ...delegationAuditActions(ctx),
       {
-        key: 't', label: 'traverse', build: (row) => {
+        key: 't',
+        label: 'traverse',
+        build: (row) => {
           if (!row) throw new Error('no row selected')
           return delegationTraverseView(ctx, row.id)
         },
       },
       {
-        key: 'k', label: 'revoke', build: (row) => {
+        key: 'k',
+        label: 'revoke',
+        build: (row) => {
           if (!row) throw new Error('no row selected')
           return new ConfirmView({
             message: `revoke delegation ${row.id}?`,
@@ -1917,13 +2758,17 @@ function delegationEdgesView(ctx: Ctx, kind: 'inbound' | 'outbound', sessionId: 
 function delegationAuditActions(ctx: Ctx) {
   return [
     {
-      key: 'p', label: 'impact', build: (row: DelegationRow | undefined) => {
+      key: 'p',
+      label: 'impact',
+      build: (row: DelegationRow | undefined) => {
         if (!row) throw new Error('no row selected')
         return delegationImpactView(ctx, row.id)
       },
     },
     {
-      key: 'e', label: 'authority', build: (row: DelegationRow | undefined) => {
+      key: 'e',
+      label: 'authority',
+      build: (row: DelegationRow | undefined) => {
         if (!row) throw new Error('no row selected')
         return effectiveAuthorityView(ctx, row.target_session_id)
       },
@@ -1947,7 +2792,11 @@ function delegationTraverseView(ctx: Ctx, id: string): ListView<TraverseNode> {
     rowKey: (row) => row.id,
     rowId: (row) => row.id,
     rowName: (row) => `${row.source_session_id} → ${row.target_session_id}`,
-    onEnter: (app, row) => open(app, entityDetail(`delegation-node / ${row.id}`, async () => row)),
+    onEnter: (app, row) =>
+      open(
+        app,
+        entityDetail(`delegation-node / ${row.id}`, async () => row),
+      ),
   })
 }
 
@@ -1960,27 +2809,80 @@ function effectiveAuthorityView(ctx: Ctx, sessionId: string): DetailView {
 }
 
 export function agentsView(ctx: Ctx): View {
+  const filters: AgentListQuery = { ...ctx.state?.agentFilters(ctx.zoneId) }
   const list: ListView<AgentRow> = new ListView<AgentRow>({
     title: 'agent sessions',
     info: resourceListInfo('agent session'),
     columns: [
-      { header: 'application', width: 28, value: (r) => r.application_name },
-      { header: 'parent', width: 36, value: (r) => r.parent_id ?? '-' },
+      { header: 'application', width: 24, value: (r) => r.application_name },
+      { header: 'lifecycle', width: 10, value: (r) => r.lifecycle ?? '-' },
+      { header: 'labels', width: 24, value: (r) => (r.labels?.length ? r.labels.join(', ') : '-') },
+      { header: 'parent', width: 20, value: (r) => r.parent_id ?? '-' },
       { header: 'status', width: 10, value: (r) => r.status },
       { header: 'depth', width: 6, value: (r) => String(r.depth) },
-      { header: 'spawned_at', width: 24, value: (r) => formatDateTimeOrValue(r.spawned_at, { compact: true }) },
+      { header: 'expires', width: 20, value: (r) => agentExpiry(r) },
     ],
-    load: () => loadAgents(ctx),
+    load: () => loadAgents(ctx, filters),
     state: ctx.state,
     stateKey: 'agents',
     zoneId: ctx.zoneId,
     rowKey: (row) => row.agent_session_id,
     rowId: (row) => row.agent_session_id,
     rowName: (row) => row.application_name,
-    onEnter: (app, row) => open(app, entityDetail(`agent session / ${row.agent_session_id}`, () => ctx.client.agents.get(ctx.zoneId, row.agent_session_id))),
+    onEnter: (app, row) =>
+      open(
+        app,
+        entityDetail(`agent session / ${row.agent_session_id}`, () => ctx.client.agents.get(ctx.zoneId, row.agent_session_id)),
+      ),
     actions: [
       {
-        key: 's', label: 'suspend', build: (row) => {
+        key: 'f',
+        label: 'filter',
+        build: () => {
+          return new FormView({
+            title: 'filter agent sessions',
+            fields: [
+              {
+                key: 'status',
+                label: 'status',
+                kind: 'select',
+                options: ['', 'active', 'suspended', 'terminated'],
+                default: filters.status ?? '',
+              },
+              { key: 'lifecycle', label: 'lifecycle', kind: 'select', options: ['', 'task', 'service'], default: filters.lifecycle ?? '' },
+              {
+                key: 'application_id',
+                label: 'application',
+                kind: 'text',
+                default: filters.application_id ?? '',
+                pick: applicationPicker(ctx),
+                resolve: applicationResolver(ctx),
+              },
+              { key: 'label', label: 'label', kind: 'text', default: filters.label ?? '' },
+              {
+                key: 'limit',
+                label: 'limit',
+                kind: 'text',
+                default: filters.limit === undefined ? '' : String(filters.limit),
+                validate: (v) => (v ? (Number.isFinite(Number.parseInt(v, 10)) ? undefined : 'limit must be an integer') : undefined),
+              },
+            ],
+            onSubmit: async (v, app) => {
+              filters.status = (v.status as AgentListQuery['status']) || undefined
+              filters.lifecycle = (v.lifecycle as AgentListQuery['lifecycle']) || undefined
+              filters.application_id = v.application_id || undefined
+              filters.label = v.label || undefined
+              filters.limit = int(v.limit)
+              ctx.state?.setAgentFilters(ctx.zoneId, filters)
+              await popAndReload(app, list as unknown as ListView<unknown>)
+            },
+          })
+        },
+      },
+      {
+        key: 's',
+        label: 'suspend',
+        build: (row) => {
           if (!row) throw new Error('no row selected')
           return new ConfirmView({
             message: `suspend agent session ${row.agent_session_id}?`,
@@ -1992,7 +2894,9 @@ export function agentsView(ctx: Ctx): View {
         },
       },
       {
-        key: 'r', label: 'resume', build: (row) => {
+        key: 'r',
+        label: 'resume',
+        build: (row) => {
           if (!row) throw new Error('no row selected')
           return new ConfirmView({
             message: `resume agent session ${row.agent_session_id}?`,
@@ -2004,7 +2908,9 @@ export function agentsView(ctx: Ctx): View {
         },
       },
       {
-        key: 't', label: 'terminate', build: (row) => {
+        key: 't',
+        label: 'terminate',
+        build: (row) => {
           if (!row) throw new Error('no row selected')
           return new ConfirmView({
             message: `terminate agent session ${row.agent_session_id}?`,
@@ -2016,21 +2922,27 @@ export function agentsView(ctx: Ctx): View {
         },
       },
       {
-        key: 'T', label: 'tree', build: (row) => {
+        key: 'T',
+        label: 'tree',
+        build: (row) => {
           if (!row) throw new Error('no row selected')
           return detail(`agent session tree / ${row.agent_session_id}`, () => ctx.client.agents.children(ctx.zoneId, row.agent_session_id))
         },
       },
       {
-        key: 'i', label: 'inbound', build: (row) => {
+        key: 'i',
+        label: 'inbound',
+        build: (row) => {
           if (!row) throw new Error('no row selected')
-          return delegationEdgesView(ctx, 'inbound', row.subject_session_id)
+          return delegationEdgesView(ctx, 'inbound', row.agent_session_id)
         },
       },
       {
-        key: 'o', label: 'outbound', build: (row) => {
+        key: 'o',
+        label: 'outbound',
+        build: (row) => {
           if (!row) throw new Error('no row selected')
-          return delegationEdgesView(ctx, 'outbound', row.subject_session_id)
+          return delegationEdgesView(ctx, 'outbound', row.agent_session_id)
         },
       },
     ],

@@ -1,0 +1,451 @@
+# Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+# Caracal, a product of Garudex Labs
+#
+# Coordinates Caracal pull request escalation, contributor reminders, and stale issue assignment cleanup.
+
+name: Caracal follow-up automation
+
+on:
+  schedule:
+    - cron: '25 15 * * *'
+  issue_comment:
+    types: [created]
+  pull_request_review:
+    types: [submitted]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  follow-up:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run Caracal follow-up automation
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const repository = context.payload.repository;
+            const defaultBranch = repository.default_branch;
+            const now = new Date();
+            const dayMs = 24 * 60 * 60 * 1000;
+            const reminderDelayDays = 7;
+            const labels = {
+              escalation: 'caracal: maintainer escalation',
+              acknowledged: 'caracal: maintainer acknowledged',
+              waitingContributor: 'caracal: waiting contributor',
+              contributorReminded: 'caracal: contributor reminded'
+            };
+            const labelDefinitions = [
+              { name: labels.escalation, color: 'BFDADC', description: 'Caracal maintainer escalation is active.' },
+              { name: labels.acknowledged, color: '0E8A16', description: 'A Caracal maintainer has responded.' },
+              { name: labels.waitingContributor, color: 'FBCA04', description: 'Caracal is waiting on contributor response.' },
+              { name: labels.contributorReminded, color: 'D4C5F9', description: 'Contributor reminder has been sent.' }
+            ];
+
+            async function readMaintainers() {
+              const response = await github.rest.repos.getContent({
+                owner,
+                repo,
+                path: '.github/MAINTAINERS',
+                ref: defaultBranch
+              });
+              if (Array.isArray(response.data) || response.data.type !== 'file') {
+                throw new Error('.github/MAINTAINERS must be a file');
+              }
+              const text = Buffer.from(response.data.content, response.data.encoding || 'base64').toString('utf8');
+              const logins = [...text.matchAll(/@([A-Za-z0-9_-]+)/g)].map((match) => match[1]);
+              return [...new Set(logins.map((login) => login.toLowerCase()))];
+            }
+
+            const maintainers = await readMaintainers();
+            const maintainerSet = new Set(maintainers);
+
+            function isMaintainer(login) {
+              return maintainerSet.has(login.toLowerCase());
+            }
+
+            function userMention(login) {
+              return `@${login}`;
+            }
+
+            function issueLabels(issue) {
+              return new Set((issue.labels || []).map((label) => typeof label === 'string' ? label : label.name));
+            }
+
+            async function ensureLabels() {
+              for (const label of labelDefinitions) {
+                try {
+                  await github.rest.issues.getLabel({ owner, repo, name: label.name });
+                } catch (error) {
+                  if (error.status !== 404) {
+                    throw error;
+                  }
+                  await github.rest.issues.createLabel({ owner, repo, ...label });
+                }
+              }
+            }
+
+            async function addLabel(number, label) {
+              await github.rest.issues.addLabels({ owner, repo, issue_number: number, labels: [label] });
+            }
+
+            async function removeLabel(number, label) {
+              try {
+                await github.rest.issues.removeLabel({ owner, repo, issue_number: number, name: label });
+              } catch (error) {
+                if (error.status !== 404) {
+                  throw error;
+                }
+              }
+            }
+
+            async function listComments(number) {
+              return github.paginate(github.rest.issues.listComments, {
+                owner,
+                repo,
+                issue_number: number,
+                per_page: 100
+              });
+            }
+
+            async function listReviews(number) {
+              return github.paginate(github.rest.pulls.listReviews, {
+                owner,
+                repo,
+                pull_number: number,
+                per_page: 100
+              });
+            }
+
+            function hasMarker(comments, marker) {
+              return comments.some((comment) => comment.body && comment.body.includes(`<!-- ${marker} -->`));
+            }
+
+            function shuffle(items) {
+              const result = [...items];
+              for (let index = result.length - 1; index > 0; index -= 1) {
+                const swapIndex = Math.floor(Math.random() * (index + 1));
+                [result[index], result[swapIndex]] = [result[swapIndex], result[index]];
+              }
+              return result;
+            }
+
+            function pickMaintainers(count, excluded = []) {
+              const excludedSet = new Set(excluded.map((login) => login.toLowerCase()));
+              let pool = maintainers.filter((login) => !excludedSet.has(login));
+              if (pool.length < count) {
+                pool = maintainers;
+              }
+              return shuffle(pool).slice(0, count);
+            }
+
+            function mentionedMaintainers(comments) {
+              const mentioned = new Set();
+              for (const comment of comments) {
+                for (const match of (comment.body || '').matchAll(/@([A-Za-z0-9_-]+)/g)) {
+                  const login = match[1].toLowerCase();
+                  if (maintainerSet.has(login)) {
+                    mentioned.add(login);
+                  }
+                }
+              }
+              return [...mentioned];
+            }
+
+            async function postComment(number, body) {
+              await github.rest.issues.createComment({ owner, repo, issue_number: number, body });
+            }
+
+            async function maintainerEngaged(number, comments) {
+              if (comments.some((comment) => comment.user.type !== 'Bot' && isMaintainer(comment.user.login))) {
+                return true;
+              }
+              const reviews = await listReviews(number);
+              return reviews.some((review) => review.user.type !== 'Bot' && isMaintainer(review.user.login));
+            }
+
+            async function acknowledgePullRequest(number) {
+              await ensureLabels();
+              await addLabel(number, labels.acknowledged);
+              await removeLabel(number, labels.escalation);
+            }
+
+            async function handleCommentEvent() {
+              if (context.eventName !== 'issue_comment') {
+                return false;
+              }
+              const issue = context.payload.issue;
+              if (!issue.pull_request) {
+                return true;
+              }
+              const actor = context.payload.comment.user.login;
+              const body = context.payload.comment.body.trim();
+              const pull = (await github.rest.pulls.get({ owner, repo, pull_number: issue.number })).data;
+              if (pull.user.type === 'Bot') {
+                return true;
+              }
+              await ensureLabels();
+
+              if (isMaintainer(actor)) {
+                await acknowledgePullRequest(issue.number);
+                if (/^\/remind\s*$/i.test(body)) {
+                  await addLabel(issue.number, labels.waitingContributor);
+                  await removeLabel(issue.number, labels.contributorReminded);
+                }
+                return true;
+              }
+
+              if (actor.toLowerCase() === pull.user.login.toLowerCase()) {
+                await removeLabel(issue.number, labels.waitingContributor);
+                await removeLabel(issue.number, labels.contributorReminded);
+              }
+
+              return true;
+            }
+
+            async function handleReviewEvent() {
+              if (context.eventName !== 'pull_request_review') {
+                return false;
+              }
+              const review = context.payload.review;
+              const pull = context.payload.pull_request;
+              if (pull.user.type === 'Bot') {
+                return true;
+              }
+              if (review.user.type !== 'Bot' && isMaintainer(review.user.login)) {
+                await acknowledgePullRequest(pull.number);
+              }
+              return true;
+            }
+
+            async function processContributorReminder(pull, issue, comments) {
+              const currentLabels = issueLabels(issue);
+              if (!currentLabels.has(labels.waitingContributor)) {
+                return;
+              }
+              const remindCommands = comments
+                .filter((comment) => comment.user.type !== 'Bot' && isMaintainer(comment.user.login))
+                .filter((comment) => /^\/remind\s*$/i.test((comment.body || '').trim()))
+                .sort((left, right) => new Date(right.created_at) - new Date(left.created_at));
+              if (remindCommands.length === 0) {
+                await removeLabel(pull.number, labels.waitingContributor);
+                await removeLabel(pull.number, labels.contributorReminded);
+                return;
+              }
+
+              const remindAt = new Date(remindCommands[0].created_at);
+              const contributorResponded = comments.some((comment) => {
+                return comment.user.login.toLowerCase() === pull.user.login.toLowerCase()
+                  && new Date(comment.created_at) > remindAt;
+              });
+              if (contributorResponded) {
+                await removeLabel(pull.number, labels.waitingContributor);
+                await removeLabel(pull.number, labels.contributorReminded);
+                return;
+              }
+
+              const alreadyReminded = comments.some((comment) => {
+                return comment.body
+                  && comment.body.includes('<!-- caracal-contributor-reminder -->')
+                  && new Date(comment.created_at) > remindAt;
+              });
+              if (now - remindAt < reminderDelayDays * dayMs || alreadyReminded) {
+                return;
+              }
+
+              await postComment(
+                pull.number,
+                `<!-- caracal-contributor-reminder -->\n${userMention(pull.user.login)} Caracal is waiting on your response when you have a chance. Please reply with an update or let us know if this PR should be closed.`
+              );
+              await addLabel(pull.number, labels.contributorReminded);
+            }
+
+            async function processPullRequests() {
+              await ensureLabels();
+              const pulls = await github.paginate(github.rest.pulls.list, {
+                owner,
+                repo,
+                state: 'open',
+                per_page: 100
+              });
+
+              for (const pull of pulls) {
+                if (pull.user.type === 'Bot') {
+                  continue;
+                }
+                const issue = (await github.rest.issues.get({ owner, repo, issue_number: pull.number })).data;
+                const comments = await listComments(pull.number);
+                await processContributorReminder(pull, issue, comments);
+
+                if (issueLabels(issue).has(labels.acknowledged) || await maintainerEngaged(pull.number, comments)) {
+                  await acknowledgePullRequest(pull.number);
+                  continue;
+                }
+
+                const ageDays = Math.floor((now - new Date(pull.created_at)) / dayMs);
+                if (ageDays < 2) {
+                  continue;
+                }
+
+                await addLabel(pull.number, labels.escalation);
+
+                if (ageDays >= 180 && !hasMarker(comments, 'caracal-pr-escalation:close-180d')) {
+                  await postComment(
+                    pull.number,
+                    `<!-- caracal-pr-escalation:close-180d -->\nClosing this PR because it has been inactive without maintainer pickup for six months. Thank you for contributing to Caracal; please reopen or submit a fresh PR if this work is still relevant.`
+                  );
+                  await github.rest.pulls.update({ owner, repo, pull_number: pull.number, state: 'closed' });
+                  continue;
+                }
+
+                if (ageDays >= 19 && !hasMarker(comments, 'caracal-pr-escalation:contributor-19d')) {
+                  await postComment(
+                    pull.number,
+                    `<!-- caracal-pr-escalation:contributor-19d -->\n${userMention(pull.user.login)} sorry for the delay here. The Caracal maintainers have not been able to pick this PR up yet, but it remains visible for follow-up.`
+                  );
+                  continue;
+                }
+
+                if (ageDays >= 5 && !hasMarker(comments, 'caracal-pr-escalation:maintainers-5d')) {
+                  const earlierMentions = mentionedMaintainers(comments);
+                  const targets = pickMaintainers(2, earlierMentions).map(userMention).join(' ');
+                  await postComment(
+                    pull.number,
+                    `<!-- caracal-pr-escalation:maintainers-5d -->\n${targets} this Caracal PR still needs maintainer pickup. Please coordinate manual review or close the loop with the contributor.`
+                  );
+                  continue;
+                }
+
+                if (ageDays >= 3 && !hasMarker(comments, 'caracal-pr-escalation:reminder-72h')) {
+                  await postComment(
+                    pull.number,
+                    `<!-- caracal-pr-escalation:reminder-72h -->\nMaintainer follow-up is still pending on this Caracal PR. Please review, request changes, or redirect ownership when available.`
+                  );
+                  continue;
+                }
+
+                if (!hasMarker(comments, 'caracal-pr-escalation:maintainer-48h')) {
+                  const target = pickMaintainers(1).map(userMention).join(' ');
+                  await postComment(
+                    pull.number,
+                    `<!-- caracal-pr-escalation:maintainer-48h -->\n${target} this Caracal PR has been waiting for maintainer attention for 48 hours. Please review or route it when available.`
+                  );
+                }
+              }
+            }
+
+            async function listTimeline(number) {
+              return github.paginate(github.rest.issues.listEventsForTimeline, {
+                owner,
+                repo,
+                issue_number: number,
+                per_page: 100
+              });
+            }
+
+            async function issueHasLinkedPullRequest(issue, timeline) {
+              if (timeline.some((event) => {
+                return Boolean(event.source?.issue?.pull_request)
+                  || Boolean(event.source?.pull_request)
+                  || Boolean(event.subject?.pull_request)
+                  || Boolean(event.pull_request)
+                  || (event.source?.issue?.html_url || '').includes('/pull/');
+              })) {
+                return true;
+              }
+
+              const query = `repo:${owner}/${repo} is:pr "#${issue.number}"`;
+              const search = await github.rest.search.issuesAndPullRequests({ q: query, per_page: 10 });
+              return search.data.items.some((item) => {
+                const text = `${item.title || ''}\n${item.body || ''}`;
+                return Boolean(item.pull_request) && text.includes(`#${issue.number}`);
+              });
+            }
+
+            function latestAssignmentTimes(issue, timeline) {
+              const currentAssignees = new Set(issue.assignees.map((assignee) => assignee.login.toLowerCase()));
+              const assignedAt = new Map();
+              const ordered = [...timeline].sort((left, right) => new Date(left.created_at) - new Date(right.created_at));
+              for (const event of ordered) {
+                const assignee = event.assignee?.login?.toLowerCase();
+                if (!assignee || !currentAssignees.has(assignee)) {
+                  continue;
+                }
+                if (event.event === 'assigned') {
+                  assignedAt.set(assignee, new Date(event.created_at));
+                }
+                if (event.event === 'unassigned') {
+                  assignedAt.delete(assignee);
+                }
+              }
+              for (const assignee of issue.assignees) {
+                const login = assignee.login.toLowerCase();
+                if (!assignedAt.has(login)) {
+                  assignedAt.set(login, new Date(issue.created_at));
+                }
+              }
+              return assignedAt;
+            }
+
+            async function processAssignedIssues() {
+              const cutoff = new Date(now.getTime() - 14 * dayMs);
+              const issues = await github.paginate(github.rest.issues.listForRepo, {
+                owner,
+                repo,
+                state: 'open',
+                per_page: 100
+              });
+
+              for (const issue of issues) {
+                if (issue.pull_request || issue.assignees.length === 0 || new Date(issue.updated_at) > cutoff) {
+                  continue;
+                }
+
+                const timeline = await listTimeline(issue.number);
+                const assignedAt = latestAssignmentTimes(issue, timeline);
+                const staleAssignees = issue.assignees
+                  .filter((assignee) => (assignedAt.get(assignee.login.toLowerCase()) || new Date(issue.created_at)) <= cutoff)
+                  .map((assignee) => assignee.login);
+
+                if (staleAssignees.length === 0 || await issueHasLinkedPullRequest(issue, timeline)) {
+                  continue;
+                }
+
+                await github.rest.issues.removeAssignees({
+                  owner,
+                  repo,
+                  issue_number: issue.number,
+                  assignees: staleAssignees
+                });
+
+                const comments = await listComments(issue.number);
+                if (!hasMarker(comments, 'caracal-issue-assignment:no-pr-14d')) {
+                  const assignees = staleAssignees.map(userMention).join(' ');
+                  const maintainerMentions = maintainers.map(userMention).join(' ');
+                  await postComment(
+                    issue.number,
+                    `<!-- caracal-issue-assignment:no-pr-14d -->\n${assignees} this issue has been unassigned because there has been no update or linked PR for two weeks. It can now be assigned to another contributor.\n\ncc ${maintainerMentions}`
+                  );
+                }
+              }
+            }
+
+            if (maintainers.length === 0) {
+              throw new Error('.github/MAINTAINERS does not list any GitHub handles');
+            }
+
+            if (await handleCommentEvent()) {
+              return;
+            }
+
+            if (await handleReviewEvent()) {
+              return;
+            }
+
+            await processPullRequests();
+            await processAssignedIssues();

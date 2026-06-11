@@ -36,7 +36,6 @@ type Caracal struct {
 	TokenSource       TokenSource
 	GatewayURL        string
 	Resources         []ResourceBinding
-	DefaultKind       AgentKind
 	DefaultTTLSeconds int
 
 	agentStartHooks []LifecycleHook
@@ -60,8 +59,8 @@ type GatewayRequest struct {
 	Header http.Header
 }
 
-// Connect builds a Caracal client from explicit values, a generated profile, or env.
-func Connect(opts ...ClientSecretOptions) (*Caracal, error) {
+// New builds a Caracal client from explicit values, a generated profile, or env.
+func New(opts ...ClientSecretOptions) (*Caracal, error) {
 	if len(opts) > 0 {
 		return FromClientSecret(opts[0])
 	}
@@ -846,25 +845,22 @@ func (c *Caracal) fire(hooks []LifecycleHook, ctx context.Context, cc CaracalCon
 
 // SpawnOptions overrides defaults for a single Spawn call.
 type SpawnOptions struct {
-	Kind       AgentKind
+	Grant      Grant
 	TTLSeconds int
 	ParentID   string
 	Metadata   map[string]any
+	Labels     []string
 	TraceID    string
 }
 
-// Spawn spawns an agent session and invokes fn with the bound context.
+// Spawn spawns a child agent session and invokes fn with the bound context.
+// The child inherits this application's authority by default; set Options.Grant
+// to GrantNarrow(...) to issue a bounded delegation edge so the child holds
+// only a subset of scopes.
 func (c *Caracal) Spawn(ctx context.Context, fn func(context.Context) error, opts ...SpawnOptions) error {
 	o := SpawnOptions{}
 	if len(opts) > 0 {
 		o = opts[0]
-	}
-	kind := o.Kind
-	if kind == "" {
-		kind = c.DefaultKind
-	}
-	if kind == "" {
-		kind = KindInstance
 	}
 	ttl := o.TTLSeconds
 	if ttl == 0 {
@@ -887,13 +883,58 @@ func (c *Caracal) Spawn(ctx context.Context, fn func(context.Context) error, opt
 		ApplicationID: c.ApplicationID,
 		SubjectToken:  subjectToken,
 		ParentID:      o.ParentID,
-		Kind:          kind,
+		Grant:         o.Grant,
 		TTLSeconds:    ttl,
 		Metadata:      o.Metadata,
+		Labels:        o.Labels,
 		TraceID:       o.TraceID,
 		OnAgentStart:  onStart,
 		OnAgentEnd:    onEnd,
 	}, fn)
+}
+
+// ServiceOptions overrides defaults for a single Service call.
+type ServiceOptions struct {
+	TTLSeconds int
+	ParentID   string
+	Metadata   map[string]any
+	Labels     []string
+	TraceID    string
+}
+
+// Service starts a long-lived service agent and returns a handle the caller
+// owns. Unlike Spawn, the session is not retired when a block exits: keep it
+// alive with ServiceAgent.Heartbeat and retire it with ServiceAgent.Close. Use
+// for daemons and workers that outlive a single request.
+func (c *Caracal) SpawnService(ctx context.Context, opts ...ServiceOptions) (*ServiceAgent, error) {
+	o := ServiceOptions{}
+	if len(opts) > 0 {
+		o = opts[0]
+	}
+	ttl := o.TTLSeconds
+	if ttl == 0 {
+		ttl = c.DefaultTTLSeconds
+	}
+	var onStart LifecycleHook
+	if len(c.agentStartHooks) > 0 {
+		onStart = func(cx context.Context, cc CaracalContext) error { return c.fire(c.agentStartHooks, cx, cc) }
+	}
+	subjectToken, err := c.rootToken(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return SpawnService(ctx, SpawnServiceInput{
+		Coordinator:   c.Coordinator,
+		ZoneID:        c.ZoneID,
+		ApplicationID: c.ApplicationID,
+		SubjectToken:  subjectToken,
+		ParentID:      o.ParentID,
+		TTLSeconds:    ttl,
+		Metadata:      o.Metadata,
+		Labels:        o.Labels,
+		TraceID:       o.TraceID,
+		OnAgentStart:  onStart,
+	})
 }
 
 // DelegateOptions configures a delegation edge.
@@ -914,61 +955,6 @@ func (c *Caracal) Delegate(ctx context.Context, opts DelegateOptions, fn func(co
 		Scopes:           opts.Scopes,
 		Constraints:      opts.Constraints,
 		TTLSeconds:       opts.TTLSeconds,
-	}, fn)
-}
-
-// DelegateToSpawnOptions configures the atomic spawn+delegate primitive.
-type DelegateToSpawnOptions struct {
-	Scopes               []string
-	Constraints          *DelegationConstraints
-	DelegationTTLSeconds int
-	Kind                 AgentKind
-	TTLSeconds           int
-	Metadata             map[string]any
-	TraceID              string
-}
-
-// DelegateToSpawn atomically spawns a child session and records a parent→child
-// delegation edge before yielding the child context to fn. Use this at fan-out
-// boundaries (e.g. before launching a child goroutine) where the parent may
-// stop interacting before the child can issue any call.
-func (c *Caracal) DelegateToSpawn(ctx context.Context, opts DelegateToSpawnOptions, fn func(context.Context) error) error {
-	kind := opts.Kind
-	if kind == "" {
-		kind = c.DefaultKind
-	}
-	if kind == "" {
-		kind = KindInstance
-	}
-	ttl := opts.TTLSeconds
-	if ttl == 0 {
-		ttl = c.DefaultTTLSeconds
-	}
-	var onStart, onEnd LifecycleHook
-	if len(c.agentStartHooks) > 0 {
-		onStart = func(cx context.Context, cc CaracalContext) error { return c.fire(c.agentStartHooks, cx, cc) }
-	}
-	if len(c.agentEndHooks) > 0 {
-		onEnd = func(cx context.Context, cc CaracalContext) error { return c.fire(c.agentEndHooks, cx, cc) }
-	}
-	subjectToken, err := c.rootToken(ctx)
-	if err != nil {
-		return err
-	}
-	return DelegateToSpawn(ctx, DelegateToSpawnInput{
-		Coordinator:          c.Coordinator,
-		ZoneID:               c.ZoneID,
-		ApplicationID:        c.ApplicationID,
-		SubjectToken:         subjectToken,
-		Scopes:               opts.Scopes,
-		Constraints:          opts.Constraints,
-		DelegationTTLSeconds: opts.DelegationTTLSeconds,
-		Kind:                 kind,
-		TTLSeconds:           ttl,
-		Metadata:             opts.Metadata,
-		TraceID:              opts.TraceID,
-		OnAgentStart:         onStart,
-		OnAgentEnd:           onEnd,
 	}, fn)
 }
 
@@ -1061,29 +1047,39 @@ func (c *Caracal) GatewayRequest(resourceID, path string) (GatewayRequest, error
 	return GatewayRequest{URL: target, Header: header}, nil
 }
 
+// FetchOptions carries the optional request inputs for Fetch.
+type FetchOptions struct {
+	Body      io.Reader
+	Header    http.Header
+	AllowRoot bool
+}
+
 // Fetch is the one-call happy path: it sends an HTTP request to path on the given
 // Caracal resource through the Gateway, injecting Caracal context and authority on
-// the outbound call. Pass a nil header when no extra request headers are needed;
-// the resource header always wins over any caller-supplied X-Caracal-Resource. The
-// caller closes the returned response body.
-func (c *Caracal) Fetch(ctx context.Context, method, resourceID, path string, body io.Reader, header http.Header, opts ...RootOptions) (*http.Response, error) {
+// the outbound call. The resource header always wins over any caller-supplied
+// X-Caracal-Resource. The caller closes the returned response body.
+func (c *Caracal) Fetch(ctx context.Context, method, resourceID, path string, opts ...FetchOptions) (*http.Response, error) {
+	var opt FetchOptions
+	if len(opts) > 0 {
+		opt = opts[0]
+	}
 	gr, err := c.GatewayRequest(resourceID, path)
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, method, gr.URL, body)
+	req, err := http.NewRequestWithContext(ctx, method, gr.URL, opt.Body)
 	if err != nil {
 		return nil, err
 	}
-	if header != nil {
-		req.Header = header.Clone()
+	if opt.Header != nil {
+		req.Header = opt.Header.Clone()
 	}
 	for key, values := range gr.Header {
 		for _, value := range values {
 			req.Header.Set(key, value)
 		}
 	}
-	return c.Transport(nil, opts...).Do(req)
+	return c.Transport(nil, RootOptions{AllowRoot: opt.AllowRoot}).Do(req)
 }
 
 type caracalTransport struct {

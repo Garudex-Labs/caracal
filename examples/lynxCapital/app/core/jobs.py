@@ -78,5 +78,16 @@ class JobRegistry:
             return []
         return await self.await_many([j.job_id for j in outstanding], timeout_s)
 
+    async def cancel_pending(self) -> int:
+        """Cancel every job still running and wait for the tasks to settle. The run's
+        cancel flag is cleared at run end, so any job left alive past its drain
+        window would otherwise run ungoverned forever."""
+        outstanding = [j.task for j in self._jobs.values() if not j.task.done()]
+        for task in outstanding:
+            task.cancel()
+        if outstanding:
+            await asyncio.gather(*outstanding, return_exceptions=True)
+        return len(outstanding)
+
     def all_jobs(self) -> list[JobInfo]:
         return list(self._jobs.values())

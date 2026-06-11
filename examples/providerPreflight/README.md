@@ -1,52 +1,64 @@
 # Provider Preflight
 
-Validates that a provider-backed resource is ready for its first Gateway call.
-The Console and API already validate provider config structure at creation time;
-this preflight covers the live, end-to-end concerns they cannot check at write
-time, so an evaluation does not stall on a silent misconfiguration.
+A pre-launch checklist for a provider-backed resource. One command checks that
+everything a Gateway request depends on — control plane, Gateway, application,
+provider, upstream, and policy — is actually ready, and prints a fix for
+anything that is not.
 
-## Checks
+Without it, a broken link in that chain shows up as an opaque `401`/`502` on
+the first production request. Run the preflight after provisioning a resource
+and from CI before each deploy.
 
-| Check | What it confirms |
-| --- | --- |
-| Resource binding | The resource resolves to exactly one credential provider and a Gateway application. |
-| Token endpoint host | For OAuth providers, the token endpoint is HTTPS and resolves to a public, routable address. |
-| Callback reachability | For authorization-code providers, the HTTPS callback origin is reachable so providers can return the browser. |
-| Upstream reachability | The resource upstream URL is reachable (from this host — see the position note). |
-| Runtime injection | When requested, the provider sets `allow_runtime_injection=true`. |
-| Policy authorization | The active policy set returns `allow` for the application, resource, and scopes. |
-
-The preflight fails closed: any failed check exits non-zero.
-
-## Run
+## Try it
 
 ```bash
 cd examples/providerPreflight
+
+# Zero setup — offline tests show every check pass and fail:
+node --test
+
+# Against your deployment:
 CARACAL_API_URL=http://127.0.0.1:3000 \
 CARACAL_ADMIN_TOKEN=<admin-token> \
 PREFLIGHT_ZONE_ID=<zone-id> \
 PREFLIGHT_RESOURCE_ID=<resource-id> \
 PREFLIGHT_APPLICATION_ID=<app-id> \
-PREFLIGHT_SCOPES=pipernet:read,pipernet:write \
+PREFLIGHT_SCOPES=pipernet:read \
 node run.mjs
 ```
 
-Optional:
+No zone yet? Bootstrap one with `examples/controlBootstrap` first.
 
-- `PREFLIGHT_PRINCIPAL_ID` — defaults to the application id.
-- `PREFLIGHT_REQUIRE_RUNTIME_INJECTION=true` — enforce runtime-injection eligibility.
+## What it checks
 
-## Position note
+| Phase | Validates |
+| --- | --- |
+| readiness | Admin API and Gateway report ready (Gateway ready covers Postgres, Redis, STS, revocations, audit). |
+| dependencies | The resource is bound to a provider and application, and the application exists and is not expired. |
+| configuration | Provider config is complete for its kind, requested scopes are declared on the resource, runtime injection is allowed when required. |
+| connectivity | OAuth token endpoint, callback origin, and upstream are HTTPS/public/reachable. |
+| authorization | The active policy set returns `allow` for this application, resource, and scopes — simulated with the same input a real token exchange uses. |
 
-`Upstream reachability` and `Callback reachability` probe from the host that runs
-this script. The Gateway enforces its own upstream allowlist and private-address
-rejection; run the preflight from a network position comparable to the Gateway
-(or inside the cluster) to make the reachability result meaningful.
+## Output
 
-## Test
-
-```bash
-node --test
+```text
+== readiness ==
+[PASS] admin API readiness: Admin API reports ready
+[FAIL] gateway readiness: GET /ready returned 503 (reason: sts_unreachable)
+       fix: Gateway cannot reach STS; token exchange will fail. Check STS health and network path.
+...
+9/11 ok, 1 warn, 1 fail
+Preflight failed: resolve the FAIL items above before sending Gateway traffic.
 ```
 
-Tests are fully offline: network, DNS, and policy responses are injected.
+Every `FAIL`/`WARN` includes a `fix:` line. Exit codes: `0` ready, `1` a check
+failed, `2` the preflight itself could not run.
+
+## Options
+
+- `PREFLIGHT_GATEWAY_URL` — also probe the Gateway's `/ready` endpoint.
+- `PREFLIGHT_REQUIRE_RUNTIME_INJECTION=true` — require runtime-injection eligibility.
+- `PREFLIGHT_OUTPUT=json` — JSON report for CI.
+
+Note: reachability checks probe from the host running the script; run from a
+network position comparable to the Gateway for meaningful results.

@@ -1,11 +1,11 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Integration-style tests for SDK primitives: spawn, delegate, and delegateToSpawn drive the coordinator client end-to-end.
+// Integration-style tests for SDK primitives: spawn (with grant) and delegate drive the coordinator client end-to-end.
 
 import { describe, it, expect, vi } from 'vitest'
-import { spawn, delegate, delegateToSpawn } from '../../../../packages/sdk/ts/src/primitives.js'
-import { AgentKind, type CoordinatorClient } from '../../../../packages/sdk/ts/src/coordinator.js'
+import { spawn, delegate, Grant } from '../../../../packages/sdk/ts/src/primitives.js'
+import { type CoordinatorClient } from '../../../../packages/sdk/ts/src/coordinator.js'
 import { bind, current, type CaracalContext } from '../../../../packages/sdk/ts/src/context.js'
 
 interface Recorder {
@@ -32,7 +32,7 @@ function baseCtx(overrides: Partial<CaracalContext> = {}): CaracalContext {
   return {
     subjectToken: 'tok',
     zoneId: 'zone-1',
-    clientId: 'app-1',
+    applicationId: 'app-1',
     agentSessionId: 'agent-parent',
     sessionId: 'sess-1',
     traceId: 'trace-1',
@@ -45,25 +45,13 @@ describe('spawn', () => {
   it('binds the spawned context and terminates an instance afterwards', async () => {
     const { client, calls } = recorder()
     let boundAgent: string | undefined
-    const result = await spawn(
-      { coordinator: client, zoneId: 'zone-1', applicationId: 'app-1', subjectToken: 'tok' },
-      async () => {
-        boundAgent = current()?.agentSessionId
-        return 'done'
-      },
-    )
+    const result = await spawn({ coordinator: client, zoneId: 'zone-1', applicationId: 'app-1', subjectToken: 'tok' }, async () => {
+      boundAgent = current()?.agentSessionId
+      return 'done'
+    })
     expect(result).toBe('done')
     expect(boundAgent).toBe('agent-new')
     expect(calls.map((c) => c.method)).toContain('DELETE')
-  })
-
-  it('does not terminate a service-kind agent', async () => {
-    const { client, calls } = recorder()
-    await spawn(
-      { coordinator: client, zoneId: 'zone-1', applicationId: 'app-1', subjectToken: 'tok', kind: AgentKind.Service },
-      async () => undefined,
-    )
-    expect(calls.some((c) => c.method === 'DELETE')).toBe(false)
   })
 
   it('runs lifecycle hooks around the bound function', async () => {
@@ -72,7 +60,7 @@ describe('spawn', () => {
     const onAgentEnd = vi.fn()
     await spawn(
       { coordinator: client, zoneId: 'zone-1', applicationId: 'app-1', subjectToken: 'tok', onAgentStart, onAgentEnd },
-      async () => undefined,
+      async () => {},
     )
     expect(onAgentStart).toHaveBeenCalledOnce()
     expect(onAgentEnd).toHaveBeenCalledOnce()
@@ -81,10 +69,11 @@ describe('spawn', () => {
   it('still terminates and runs onAgentEnd when fn throws', async () => {
     const { client, calls } = recorder()
     const onAgentEnd = vi.fn()
-    await expect(spawn(
-      { coordinator: client, zoneId: 'zone-1', applicationId: 'app-1', subjectToken: 'tok', onAgentEnd },
-      async () => { throw new Error('boom') },
-    )).rejects.toThrow('boom')
+    await expect(
+      spawn({ coordinator: client, zoneId: 'zone-1', applicationId: 'app-1', subjectToken: 'tok', onAgentEnd }, async () => {
+        throw new Error('boom')
+      }),
+    ).rejects.toThrow('boom')
     expect(onAgentEnd).toHaveBeenCalledOnce()
     expect(calls.some((c) => c.method === 'DELETE')).toBe(true)
   })
@@ -92,17 +81,21 @@ describe('spawn', () => {
   it('terminates without running onAgentEnd when onAgentStart throws', async () => {
     const { client, calls } = recorder()
     const onAgentEnd = vi.fn()
-    await expect(spawn(
-      {
-        coordinator: client,
-        zoneId: 'zone-1',
-        applicationId: 'app-1',
-        subjectToken: 'tok',
-        onAgentStart: async () => { throw new Error('start failed') },
-        onAgentEnd,
-      },
-      async () => undefined,
-    )).rejects.toThrow('start failed')
+    await expect(
+      spawn(
+        {
+          coordinator: client,
+          zoneId: 'zone-1',
+          applicationId: 'app-1',
+          subjectToken: 'tok',
+          onAgentStart: async () => {
+            throw new Error('start failed')
+          },
+          onAgentEnd,
+        },
+        async () => {},
+      ),
+    ).rejects.toThrow('start failed')
     expect(onAgentEnd).not.toHaveBeenCalled()
     expect(calls.some((c) => c.method === 'DELETE')).toBe(true)
   })
@@ -110,31 +103,75 @@ describe('spawn', () => {
   it('inherits the parent agent session as parentId', async () => {
     const { client, calls } = recorder()
     await bind(baseCtx(), async () => {
-      await spawn(
-        { coordinator: client, zoneId: 'zone-1', applicationId: 'app-1', subjectToken: 'tok' },
-        async () => undefined,
-      )
+      await spawn({ coordinator: client, zoneId: 'zone-1', applicationId: 'app-1', subjectToken: 'tok' }, async () => {})
     })
     expect(calls.some((c) => c.path.endsWith('/agents'))).toBe(true)
+  })
+
+  it('carries the parent narrowing edge forward on an intra-app inherit child', async () => {
+    const bodies: Record<string, unknown>[] = []
+    const fetchImpl = (async (url: string, init?: { method?: string; body?: string }) => {
+      const method = init?.method ?? 'GET'
+      const path = new URL(url).pathname
+      if (method === 'DELETE') return new Response(null, { status: 204 })
+      if (path.endsWith('/agents')) {
+        bodies.push(JSON.parse(init?.body ?? '{}'))
+        return new Response(JSON.stringify({ agent_session_id: 'agent-child', delegation_edge_id: 'edge-child' }), { status: 200 })
+      }
+      return new Response(JSON.stringify({}), { status: 200 })
+    }) as unknown as typeof fetch
+    const client: CoordinatorClient = { baseUrl: 'http://coord', fetchImpl }
+    let childEdge: string | undefined
+    let childHop: number | undefined
+    await bind(baseCtx({ delegationEdgeId: 'edge-parent', hop: 1 }), async () => {
+      await spawn({ coordinator: client, zoneId: 'zone-1', applicationId: 'app-1', subjectToken: 'tok' }, async () => {
+        childEdge = current()?.delegationEdgeId
+        childHop = current()?.hop
+      })
+    })
+    expect(bodies[0]?.inherit_parent_edge_id).toBe('edge-parent')
+    expect(childEdge).toBe('edge-child')
+    expect(childHop).toBe(2)
+  })
+
+  it('does not request an inherit edge when spawning into another application', async () => {
+    const bodies: Record<string, unknown>[] = []
+    const fetchImpl = (async (url: string, init?: { method?: string; body?: string }) => {
+      const method = init?.method ?? 'GET'
+      const path = new URL(url).pathname
+      if (method === 'DELETE') return new Response(null, { status: 204 })
+      if (path.endsWith('/agents')) {
+        bodies.push(JSON.parse(init?.body ?? '{}'))
+        return new Response(JSON.stringify({ agent_session_id: 'agent-child' }), { status: 200 })
+      }
+      return new Response(JSON.stringify({}), { status: 200 })
+    }) as unknown as typeof fetch
+    const client: CoordinatorClient = { baseUrl: 'http://coord', fetchImpl }
+    let childEdge: string | undefined
+    await bind(baseCtx({ delegationEdgeId: 'edge-parent', hop: 1 }), async () => {
+      await spawn({ coordinator: client, zoneId: 'zone-1', applicationId: 'other-app', subjectToken: 'tok' }, async () => {
+        childEdge = current()?.delegationEdgeId
+      })
+    })
+    expect(bodies[0]?.inherit_parent_edge_id).toBeUndefined()
+    expect(childEdge).toBeUndefined()
   })
 })
 
 describe('delegate', () => {
   it('requires an active context', async () => {
     const { client } = recorder()
-    await expect(delegate(
-      { coordinator: client, toAgentSessionId: 'a2', toApplicationId: 'app-2', scopes: ['read'] },
-      async () => undefined,
-    )).rejects.toThrow(/requires a Caracal context/)
+    await expect(
+      delegate({ coordinator: client, toAgentSessionId: 'a2', toApplicationId: 'app-2', scopes: ['read'] }, async () => {}),
+    ).rejects.toThrow(/requires a Caracal context/)
   })
 
   it('requires an active agent session in context', async () => {
     const { client } = recorder()
     await bind(baseCtx({ agentSessionId: undefined }), async () => {
-      await expect(delegate(
-        { coordinator: client, toAgentSessionId: 'a2', toApplicationId: 'app-2', scopes: ['read'] },
-        async () => undefined,
-      )).rejects.toThrow(/active agent session/)
+      await expect(
+        delegate({ coordinator: client, toAgentSessionId: 'a2', toApplicationId: 'app-2', scopes: ['read'] }, async () => {}),
+      ).rejects.toThrow(/active agent session/)
     })
   })
 
@@ -151,20 +188,22 @@ describe('delegate', () => {
   })
 })
 
-describe('delegateToSpawn', () => {
+describe('spawn with narrow grant', () => {
   it('requires an active agent session', async () => {
     const { client } = recorder()
-    await expect(delegateToSpawn(
-      { coordinator: client, zoneId: 'zone-1', applicationId: 'app-2', subjectToken: 'tok', scopes: ['read'] },
-      async () => undefined,
-    )).rejects.toThrow(/active agent session/)
+    await expect(
+      spawn(
+        { coordinator: client, zoneId: 'zone-1', applicationId: 'app-2', subjectToken: 'tok', grant: Grant.narrow(['read']) },
+        async () => {},
+      ),
+    ).rejects.toThrow(/active parent agent session/)
   })
 
   it('spawns a child, records the delegation, and binds the merged context', async () => {
     const { client, calls } = recorder('agent-child', 'edge-child')
     await bind(baseCtx(), async () => {
-      const out = await delegateToSpawn(
-        { coordinator: client, zoneId: 'zone-1', applicationId: 'app-2', subjectToken: 'tok', scopes: ['read'] },
+      const out = await spawn(
+        { coordinator: client, zoneId: 'zone-1', applicationId: 'app-2', subjectToken: 'tok', grant: Grant.narrow(['read']) },
         async () => ({
           agent: current()?.agentSessionId,
           edge: current()?.delegationEdgeId,
@@ -189,10 +228,12 @@ describe('delegateToSpawn', () => {
     const client: CoordinatorClient = { baseUrl: 'http://coord', fetchImpl }
 
     await bind(baseCtx(), async () => {
-      await expect(delegateToSpawn(
-        { coordinator: client, zoneId: 'zone-1', applicationId: 'app-2', subjectToken: 'tok', scopes: ['read'] },
-        async () => undefined,
-      )).rejects.toThrow()
+      await expect(
+        spawn(
+          { coordinator: client, zoneId: 'zone-1', applicationId: 'app-2', subjectToken: 'tok', grant: Grant.narrow(['read']) },
+          async () => {},
+        ),
+      ).rejects.toThrow()
     })
     expect(calls.some((c) => c.method === 'DELETE')).toBe(true)
   })
@@ -202,18 +243,22 @@ describe('delegateToSpawn', () => {
     const onAgentEnd = vi.fn()
 
     await bind(baseCtx(), async () => {
-      await expect(delegateToSpawn(
-        {
-          coordinator: client,
-          zoneId: 'zone-1',
-          applicationId: 'app-2',
-          subjectToken: 'tok',
-          scopes: ['read'],
-          onAgentStart: async () => { throw new Error('start failed') },
-          onAgentEnd,
-        },
-        async () => undefined,
-      )).rejects.toThrow('start failed')
+      await expect(
+        spawn(
+          {
+            coordinator: client,
+            zoneId: 'zone-1',
+            applicationId: 'app-2',
+            subjectToken: 'tok',
+            grant: Grant.narrow(['read']),
+            onAgentStart: async () => {
+              throw new Error('start failed')
+            },
+            onAgentEnd,
+          },
+          async () => {},
+        ),
+      ).rejects.toThrow('start failed')
     })
     expect(onAgentEnd).not.toHaveBeenCalled()
     expect(calls.some((c) => c.method === 'DELETE')).toBe(true)
@@ -223,7 +268,6 @@ describe('delegateToSpawn', () => {
     const { terminateAgent } = await import('../../../../packages/sdk/ts/src/coordinator.js')
     const fetchImpl = vi.fn(async () => new Response('not found', { status: 404 })) as unknown as typeof fetch
     const client: CoordinatorClient = { baseUrl: 'http://coord', fetchImpl }
-    await expect(terminateAgent(client, 'tok', 'zone-1', 'agent-9'))
-      .rejects.toThrow(/coordinator DELETE .* failed: 404 not found/)
+    await expect(terminateAgent(client, 'tok', 'zone-1', 'agent-9')).rejects.toThrow(/coordinator DELETE .* failed: 404 not found/)
   })
 })

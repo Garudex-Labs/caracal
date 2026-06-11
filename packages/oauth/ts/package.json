@@ -1,6 +1,6 @@
 {
   "name": "@caracalai/oauth",
-  "version": "0.1.4-rc.1",
+  "version": "0.1.5-rc.2",
   "description": "Caracal RFC 8693 OAuth 2.0 token exchange client.",
   "license": "Apache-2.0",
   "homepage": "https://github.com/Garudex-Labs/caracal",
@@ -39,7 +39,7 @@
     "prepublishOnly": "tsc"
   },
   "dependencies": {
-    "@caracalai/core": "0.1.4-rc.1"
+    "@caracalai/core": "0.1.5-rc.2"
   },
   "devDependencies": {
     "@types/node": "^24.12.2",

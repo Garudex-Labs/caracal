@@ -14,9 +14,21 @@ import { ZodError } from 'zod'
 import type { Config } from './config.js'
 import type { DB } from './db.js'
 import type { RedisClient } from './redis.js'
+import { redisMinuteBucket } from './redis.js'
 import { adminAuthPlugin } from './auth.js'
 import { registerAdminAuditHook } from './admin-audit.js'
-import { isPublished, getTraceContext, parseTraceparent, bindTrace, renderObservabilityMetrics, buildPinoRedactPaths, instrumentFastifyApp, withTimeout, CaracalError } from '@caracalai/core'
+import {
+  isPublished,
+  getTraceContext,
+  parseTraceparent,
+  bindTrace,
+  renderObservabilityMetrics,
+  buildPinoRedactPaths,
+  instrumentFastifyApp,
+  withTimeout,
+  CaracalError,
+  pathOnly,
+} from '@caracalai/core'
 import { zonesRoutes } from './routes/zones.js'
 import { applicationsRoutes } from './routes/applications.js'
 import { resourcesRoutes } from './routes/resources.js'
@@ -27,6 +39,7 @@ import { grantsRoutes } from './routes/grants.js'
 import { stepUpChallengesRoutes } from './routes/step-up-challenges.js'
 import { policyTemplatesRoutes } from './routes/policy-templates.js'
 import { zoneEventsRoutes } from './routes/zone-events.js'
+import { adminTokensRoutes } from './routes/admin-tokens.js'
 
 import './fastify-augmentation.js'
 
@@ -122,7 +135,15 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
       messageKey: 'msg',
       timestamp: pino.stdTimeFunctions.isoTime,
       formatters: { level: (label) => ({ level: label }) },
-      serializers: { err: pino.stdSerializers.err, error: pino.stdSerializers.err },
+      serializers: {
+        err: pino.stdSerializers.err,
+        error: pino.stdSerializers.err,
+        req: (request: { method?: string; url?: string; ip?: string }) => ({
+          method: request.method,
+          url: request.url ? pathOnly(request.url) : request.url,
+          ip: request.ip,
+        }),
+      },
       redact: { paths: redactPaths, censor: '***' },
       mixin: () => {
         const tc = getTraceContext()
@@ -200,7 +221,7 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
     }
     app.addHook('onRequest', async (req, reply) => {
       if (!req.url.startsWith('/v1/')) return
-      const minute = Math.floor(Date.now() / 60_000)
+      const minute = await redisMinuteBucket(redis)
       const count = await tick(`api:v1_rl:ip:${req.ip}:${minute}`)
       if (count > cfg.v1RateLimitPerMin) {
         return reply.code(429).send({ error: 'rate_limited' })
@@ -209,7 +230,7 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
     app.addHook('preHandler', async (req, reply) => {
       if (!req.url.startsWith('/v1/')) return
       if (!req.actor?.id) return
-      const minute = Math.floor(Date.now() / 60_000)
+      const minute = await redisMinuteBucket(redis)
       const count = await tick(`api:v1_rl:actor:${req.actor.id}:${minute}`)
       if (count > cfg.v1RateLimitPerMin) {
         return reply.code(429).send({ error: 'rate_limited' })
@@ -223,7 +244,7 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
     authFailLimitPerMin: cfg.adminAuthFailLimitPerMin,
     lastUsedDebounceSec: cfg.lastUsedDebounceSec,
   })
-  registerAdminAuditHook(app, { db })
+  registerAdminAuditHook(app, { db, hmacKey: cfg.auditHmacKey })
 
   if (cfg.enableDocs) {
     await app.register(swagger, {
@@ -247,6 +268,7 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
   await app.register(stepUpChallengesRoutes, { prefix: '/v1' })
   await app.register(policyTemplatesRoutes, { prefix: '/v1' })
   await app.register(zoneEventsRoutes, { prefix: '/v1' })
+  await app.register(adminTokensRoutes, { prefix: '/v1' })
 
   app.get('/health', async () => ({ ok: true }))
   app.get('/metrics', async (req, reply) => {
@@ -256,6 +278,10 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
       if (typeof auth !== 'string' || auth.length !== expected.length || !timingSafeEqual(Buffer.from(auth), Buffer.from(expected))) {
         return reply.code(401).send({ error: 'unauthorized' })
       }
+    } else if (isPublished()) {
+      // Published builds bind to 0.0.0.0; refuse to expose operational metrics
+      // on the network unless an operator has provisioned METRICS_BEARER.
+      return reply.code(401).send({ error: 'unauthorized' })
     }
     const health = await withTimeout(queryOutboxHealth(db), READY_CHECK_TIMEOUT_MS, 'metrics outbox check timed out')
     reply.type('text/plain; version=0.0.4')
@@ -263,7 +289,7 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
   })
   app.get('/ready', async (req, reply) => {
     if (cfg.readyRateLimitPerMin > 0) {
-      const minute = Math.floor(Date.now() / 60_000)
+      const minute = await redisMinuteBucket(redis)
       const key = `api:ready_rl:${req.ip}:${minute}`
       const count = await redis.incr(key)
       if (count === 1) await redis.expire(key, 90)

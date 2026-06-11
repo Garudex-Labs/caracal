@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -170,7 +171,7 @@ func Verify(tokenStr string, cfg Config) (Claims, error) {
 			return k, nil
 		}
 		return nil, jwt.ErrTokenSignatureInvalid
-	}, jwt.WithIssuer(cfg.Issuer), jwt.WithAudience(cfg.Audience), jwt.WithExpirationRequired(), jwt.WithIssuedAt(), jwt.WithValidMethods([]string{jwt.SigningMethodES256.Alg()}))
+	}, jwt.WithIssuer(cfg.Issuer), jwt.WithAudience(cfg.Audience), jwt.WithExpirationRequired(), jwt.WithIssuedAt(), jwt.WithLeeway(60*time.Second), jwt.WithValidMethods([]string{jwt.SigningMethodES256.Alg()}))
 	if err != nil {
 		return Claims{}, ErrTokenInvalid
 	}

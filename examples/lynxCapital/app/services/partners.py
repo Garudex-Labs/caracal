@@ -27,22 +27,12 @@ class PartnerError(Exception):
         self.message = message
 
 
-class PartnerPendingCaracal(Exception):
-    """Raised when a provider requires a Caracal-issued mandate that is wired in the Phase-2 integration."""
-
-    def __init__(self, provider_id: str):
-        super().__init__(
-            f"{provider_id} requires a Caracal mandate; this provider activates in the Caracal SDK integration phase"
-        )
-        self.provider_id = provider_id
-
-
 @dataclass(frozen=True)
 class PartnerSpec:
     """Integration contract for one external provider, mirroring its real auth and routing surface."""
 
     id: str
-    auth: str                                  # api_key | bearer | oauth_cc | oauth_ac | none | mcp_bearer | mandate
+    auth: str                                  # api_key | bearer | oauth_cc | oauth_ac | none | mcp_bearer | mandate | mcp_mandate
     port: int
     operations: tuple[str, ...]
     apikey_location: str = "header"            # header | query
@@ -125,51 +115,105 @@ _SPECS: dict[str, PartnerSpec] = {
         scopes=("screening.run", "screening.read", "cases.read", "cases.write", "monitoring.write")),
     "verafin-monitor": PartnerSpec(
         "verafin-monitor", "mandate", 9408,
-        ("monitor_transaction", "get_alert", "prepare_filing",
-         "get_filing", "attest_control"),
-        scopes=("monitoring.run", "filings.write")),
+        ("monitor_transaction", "get_alert", "list_alerts", "assign_alert",
+         "resolve_alert", "open_case", "get_case", "list_cases",
+         "add_case_note", "escalate_case", "resolve_case",
+         "prepare_filing", "get_filing", "list_filings", "submit_filing",
+         "list_controls", "attest_control", "get_attestation",
+         "list_attestations", "get_audit_trail"),
+        scopes=("monitoring.run", "monitoring.read", "alerts.read", "cases.read",
+                "cases.write", "filings.read", "filings.write", "filings.submit",
+                "attestations.write")),
     "lumen-identity": PartnerSpec(
         "lumen-identity", "none", 9409,
-        ("get_user", "list_users", "list_groups", "get_service_account")),
+        ("get_user", "lookup_user", "list_users", "get_user_access",
+         "list_direct_reports", "get_manager_chain",
+         "list_roles", "get_role", "list_groups", "get_group",
+         "list_teams", "get_team", "list_departments", "get_department",
+         "list_service_accounts", "get_service_account")),
     "beacon-crm": PartnerSpec(
         "beacon-crm", "oauth_ac", 9410,
-        ("get_contact", "list_contacts", "update_deal", "log_activity", "get_account"),
-        scopes=("contacts.read", "deals.write"), offline_access=True),
+        ("list_contacts", "get_contact", "create_contact", "update_contact",
+         "list_accounts", "get_account",
+         "list_deals", "get_deal", "update_deal",
+         "list_activities", "log_activity",
+         "add_note", "list_notes", "list_relationships"),
+        scopes=("contacts.read", "accounts.read", "deals.read", "deals.write",
+                "activities.read", "activities.write"),
+        offline_access=True),
     "atlas-vendor": PartnerSpec(
         "atlas-vendor", "mcp_bearer", 9411,
-        ("get_vendor_profile", "register_vendor", "get_contract_terms", "search_vendors"),
+        ("search_vendors", "list_vendors", "get_vendor_profile",
+         "list_vendor_contacts", "register_vendor", "get_onboarding_status",
+         "advance_onboarding", "verify_vendor_banking", "get_compliance_status",
+         "list_vendor_documents", "submit_vendor_document", "set_vendor_status",
+         "list_contracts", "get_contract_terms"),
         auth_header="Authorization", auth_scheme="Bearer"),
     "keystone-treasury": PartnerSpec(
         "keystone-treasury", "api_key", 9412,
-        ("get_position", "forecast_liquidity", "place_hedge", "transfer_funds"),
-        apikey_location="header", apikey_field="X-Api-Key"),
+        ("list_positions", "get_position", "get_account", "get_position_summary",
+         "watch_positions", "forecast_liquidity",
+         "list_hedges", "place_hedge", "get_hedge", "cancel_hedge",
+         "transfer_funds", "get_transfer", "list_transfers",
+         "get_exposure", "list_exposures",
+         "list_operations", "get_operation"),
+        apikey_location="header", apikey_field="x-api-key"),
     "sabre-tax": PartnerSpec(
         "sabre-tax", "api_key", 9413,
-        ("calculate", "get_jurisdiction", "validate_id"),
+        ("calculate_tax", "get_transaction", "commit_transaction",
+         "void_transaction", "resolve_jurisdiction", "validate_tax_id",
+         "determine_withholding", "get_exemption_certificate", "list_tax_codes"),
         apikey_location="header", apikey_field="X-Api-Key"),
     "quetzal-payouts": PartnerSpec(
-        "quetzal-payouts", "api_key", 9414,
-        ("create_recipient", "get_quote", "create_payout", "create_batch", "get_batch"),
-        apikey_location="header", apikey_field="X-Api-Key"),
+        "quetzal-payouts", "bearer", 9414,
+        ("create_recipient", "get_recipient", "list_recipients", "verify_recipient",
+         "get_quote", "create_payout", "get_payout", "list_payouts", "cancel_payout",
+         "create_batch", "get_batch", "list_batches",
+         "list_settlements", "get_balance"),
+        auth_header="Authorization", auth_scheme="Bearer"),
     "vela-notify": PartnerSpec(
         "vela-notify", "bearer", 9415,
-        ("send_message", "get_message", "list_templates"),
+        ("send_message", "send_batch", "get_message", "list_messages",
+         "get_message_events",
+         "list_templates", "get_template", "create_template", "render_template",
+         "list_suppressions", "create_suppression", "delete_suppression",
+         "list_webhooks", "get_webhook", "create_webhook",
+         "get_delivery_stats"),
         auth_header="X-Vela-Token", auth_scheme="Token"),
     "core-billing": PartnerSpec(
         "core-billing", "none", 9416,
-        ("create_invoice", "get_invoice", "issue_dunning", "apply_payment", "get_ar_aging")),
+        ("list_customers", "get_customer",
+         "create_invoice", "get_invoice", "list_invoices",
+         "void_invoice", "write_off_invoice", "dispute_invoice",
+         "apply_payment", "record_payment", "get_payment", "list_payments",
+         "issue_credit_memo", "apply_credit_memo",
+         "issue_dunning", "run_dunning_cycle", "list_dunning",
+         "open_collection_case", "list_collections",
+         "get_ar_aging", "get_ar_summary", "get_audit_trail")),
     "relay-automation": PartnerSpec(
-        "relay-automation", "mandate", 9417,
-        ("list_workflows", "dispatch_job", "get_job", "cancel_job"),
-        scopes=("relay.invoke",)),
+        "relay-automation", "mcp_mandate", 9417,
+        ("list_workflows", "get_workflow",
+         "start_execution", "get_execution", "list_executions",
+         "get_execution_logs", "get_execution_result",
+         "signal_execution", "retry_execution", "cancel_execution",
+         "list_queues", "get_queue", "get_execution_audit"),
+        scopes=("relay.workflows.read", "relay.executions.read", "relay.executions.write")),
     "pulse-market": PartnerSpec(
         "pulse-market", "api_key", 9418,
-        ("list_instruments", "get_snapshot", "stream_rates"),
+        ("list_instruments", "get_instrument", "get_snapshot", "get_quotes",
+         "get_bars", "get_market_status", "list_reference_rates", "get_reference_rate",
+         "create_subscription", "list_subscriptions", "get_subscription",
+         "cancel_subscription", "stream_rates"),
         apikey_location="header", apikey_field="X-Api-Key"),
     "junction-procure": PartnerSpec(
         "junction-procure", "oauth_cc", 9419,
-        ("create_requisition", "approve_requisition", "create_purchase_order",
-         "get_purchase_order", "get_budget"),
+        ("list_suppliers", "get_supplier", "list_commodities",
+         "create_requisition", "submit_requisition", "approve_requisition",
+         "reject_requisition", "list_requisitions", "get_requisition",
+         "get_approval_chain",
+         "create_purchase_order", "acknowledge_order", "receive_order",
+         "list_purchase_orders", "get_purchase_order",
+         "list_budgets", "get_budget"),
         client_auth_method="client_secret_basic", scopes=("procure.read", "procure.write")),
 }
 
@@ -326,17 +370,42 @@ def _fetch_authorization_code_token(spec: PartnerSpec, sess: _Session) -> _OAuth
                        body.get("refresh_token"))
 
 
+def _refresh_authorization_code_token(spec: PartnerSpec, sess: _Session,
+                                      refresh_token: str) -> _OAuthToken | None:
+    """Exchange a stored refresh token for a fresh access token the way a real
+    offline integration does, rather than re-running interactive consent. The
+    provider rotates the refresh token on each use, so the new one is carried
+    forward; a rejected refresh token returns None to trigger re-authorization."""
+    eid = _env_id(spec.id)
+    client_id = _required(spec.id, f"LYNX_PARTNER_{eid}_CLIENT_ID")
+    client_secret = _required(spec.id, f"LYNX_PARTNER_{eid}_CLIENT_SECRET")
+    resp = sess.client.post("/oauth/token", data={
+        "grant_type": "refresh_token", "refresh_token": refresh_token,
+        "client_id": client_id, "client_secret": client_secret,
+    })
+    if resp.status_code != 200:
+        return None
+    body = resp.json()
+    return _OAuthToken(body["access_token"],
+                       time.time() + int(body.get("expires_in", 3600)) - 30,
+                       body.get("refresh_token", refresh_token))
+
+
 def _oauth_token(spec: PartnerSpec, sess: _Session) -> str:
     with sess.lock:
         token = sess.token
         if token is not None and token.expires_at > time.time():
             return token.access_token
         if spec.auth == "oauth_cc":
-            token = _fetch_client_credentials_token(spec, sess)
-        else:
-            token = _fetch_authorization_code_token(spec, sess)
-        sess.token = token
-        return token.access_token
+            sess.token = _fetch_client_credentials_token(spec, sess)
+            return sess.token.access_token
+        if spec.offline_access and token is not None and token.refresh_token:
+            refreshed = _refresh_authorization_code_token(spec, sess, token.refresh_token)
+            if refreshed is not None:
+                sess.token = refreshed
+                return refreshed.access_token
+        sess.token = _fetch_authorization_code_token(spec, sess)
+        return sess.token.access_token
 
 
 def _call_oauth(spec: PartnerSpec, operation: str, payload: dict) -> dict:
@@ -348,25 +417,53 @@ def _call_oauth(spec: PartnerSpec, operation: str, payload: dict) -> dict:
 
 
 # --------------------------------------------------------------------------- #
-# MCP (JSON-RPC tools/call over a bearer-guarded endpoint)
+# caracal mandate (simulation lab verifies the seeded mandate JWT directly)
 # --------------------------------------------------------------------------- #
-def _call_mcp(spec: PartnerSpec, operation: str, payload: dict) -> dict:
-    token = _required(spec.id, f"LYNX_PARTNER_{_env_id(spec.id)}_TOKEN")
+def _call_mandate(spec: PartnerSpec, operation: str, payload: dict) -> dict:
+    token = _required(spec.id, f"LYNX_PARTNER_{_env_id(spec.id)}_MANDATE")
     sess = _session(spec)
     headers = {spec.auth_header: f"{spec.auth_scheme} {token}".strip()}
-    message = {"jsonrpc": "2.0", "id": secrets.token_hex(6),
-               "method": "tools/call", "params": {"name": operation, "arguments": payload}}
-    resp = sess.client.post("/mcp", json=message, headers=headers)
+    resp = sess.client.post(f"/api/{operation}", json=payload, headers=headers)
+    return _result(spec.id, operation, resp)
+
+
+# --------------------------------------------------------------------------- #
+# MCP (JSON-RPC tools/call over a guarded endpoint)
+# --------------------------------------------------------------------------- #
+def _mcp_envelope(operation: str, payload: dict) -> dict:
+    return {"jsonrpc": "2.0", "id": secrets.token_hex(6),
+            "method": "tools/call", "params": {"name": operation, "arguments": payload}}
+
+
+def _mcp_result(provider_id: str, operation: str, resp: httpx.Response) -> dict:
     if resp.status_code != 200:
-        raise PartnerError(spec.id, f"mcp transport error ({resp.status_code})")
+        raise PartnerError(provider_id, f"mcp transport error ({resp.status_code})")
     body = resp.json()
     if "error" in body:
-        return {"provider": spec.id, "operation": operation, "status": body["error"].get("code"),
+        return {"provider": provider_id, "operation": operation, "status": body["error"].get("code"),
                 "error": body["error"].get("message"), "data": None}
     result = body.get("result") or {}
-    content = result.get("content") or []
-    data = content[0].get("data") if content else result
-    return {"provider": spec.id, "operation": operation, "status": 200, "data": data}
+    if result.get("isError"):
+        content = result.get("content") or []
+        text = content[0].get("text") if content else "tool execution error"
+        return {"provider": provider_id, "operation": operation, "status": 422,
+                "error": text, "data": None}
+    if "structuredContent" in result:
+        data = result["structuredContent"]
+    else:
+        content = result.get("content") or []
+        data = content[0].get("data") if content else result
+    return {"provider": provider_id, "operation": operation, "status": 200, "data": data}
+
+
+def _call_mcp(spec: PartnerSpec, operation: str, payload: dict) -> dict:
+    eid = _env_id(spec.id)
+    env = f"LYNX_PARTNER_{eid}_MANDATE" if spec.auth == "mcp_mandate" else f"LYNX_PARTNER_{eid}_TOKEN"
+    token = _required(spec.id, env)
+    sess = _session(spec)
+    headers = {spec.auth_header: f"{spec.auth_scheme} {token}".strip()}
+    resp = sess.client.post("/mcp", json=_mcp_envelope(operation, payload), headers=headers)
+    return _mcp_result(spec.id, operation, resp)
 
 
 _DISPATCH = {
@@ -376,7 +473,11 @@ _DISPATCH = {
     "oauth_cc": _call_oauth,
     "oauth_ac": _call_oauth,
     "mcp_bearer": _call_mcp,
+    "mandate": _call_mandate,
+    "mcp_mandate": _call_mcp,
 }
+
+_MCP_AUTHS = ("mcp_bearer", "mcp_mandate")
 
 
 def spec(provider_id: str) -> PartnerSpec:
@@ -389,35 +490,48 @@ def catalog() -> dict[str, PartnerSpec]:
     return dict(_SPECS)
 
 
-def _caracal_external(s: PartnerSpec, operation: str, payload: dict) -> dict:
-    """Route an external provider through the Caracal upstream gateway. The gateway
-    holds the provider credential and injects it; the app sends only its envelope."""
-    from app import caracal
+def _gateway_call(s: PartnerSpec, operation: str, payload: dict, authority) -> dict:
+    """Route one provider operation through the Caracal Gateway under the calling
+    agent's authority. The agent's mandate must carry the scope that owns the
+    operation, on its application's view of the provider; the Gateway re-evaluates
+    policy, injects the provider credential, and forwards the request."""
+    from app import tenancy
 
-    resp = caracal.gateway_call(s.id, operation, payload, timeout_s=s.timeout_s)
+    scope = tenancy.operation_scope(s.id, operation)
+    if scope is None:
+        raise PartnerError(s.id, f"operation {operation!r} maps to no governed scope")
+    if not authority.allows(scope):
+        raise PartnerError(
+            s.id, f"agent role {authority.role!r} lacks scope {scope!r} for {operation!r}")
+    view = tenancy.load_model().view_for(authority.application, s.id, scope)
+    if view is None:
+        raise PartnerError(
+            s.id, f"application {authority.application!r} has no view of {s.id} exposing {scope!r}")
+    if s.auth in _MCP_AUTHS:
+        resp = authority.gateway_post(view.identifier, "/mcp", _mcp_envelope(operation, payload),
+                                      [scope], timeout_s=s.timeout_s)
+        return _mcp_result(s.id, operation, resp)
+    resp = authority.gateway_post(view.identifier, f"/api/{operation}", payload,
+                                  [scope], timeout_s=s.timeout_s)
     return _result(s.id, operation, resp)
 
 
-def _caracal_internal(s: PartnerSpec, operation: str, payload: dict) -> dict:
-    """Serve an internal provider after verifying the caller's delegated authority
-    with the Caracal verifier. Internal providers are never network-exposed, so the
-    trust boundary is enforced in-process here rather than at the gateway."""
-    from app import caracal
-
-    zone_id = os.environ.get("CARACAL_ZONE_ID", "")
-    try:
-        caracal.verify_internal(zone_id=zone_id, audience=s.id, required_scopes=list(s.scopes))
-    except caracal.VerifyErrors as exc:
-        raise PartnerError(s.id, f"internal authority rejected: {exc.__class__.__name__}") from exc
-    return _call_none(s, operation, payload)
+def simulation_enabled() -> bool:
+    """The bundled offline demo and the provider test harness exercise the simulated provider
+    surface directly. That direct path is never the silent default: it must be opted into with
+    LYNX_SIMULATION so a real deployment that simply forgot to configure Caracal fails closed
+    instead of reaching a provider ungoverned."""
+    return os.environ.get("LYNX_SIMULATION", "").strip().lower() in ("1", "true", "yes", "on")
 
 
-def call(provider_id: str, operation: str, payload: dict) -> dict:
-    """Authenticate to one external partner and run a single business operation.
+def call(provider_id: str, operation: str, payload: dict, authority=None) -> dict:
+    """Run a single business operation against one partner.
 
-    When Caracal is configured, external and mandate providers route through the
-    upstream gateway and internal providers are guarded by the verifier; otherwise
-    the call falls back to the direct local provider surface."""
+    No provider is reachable without Caracal. When Caracal is configured, every call routes
+    through the Gateway under the calling agent's WorkerAuthority — its mandate, its
+    application's resource view, and the operation's scope. Otherwise the call fails closed,
+    except in explicit LYNX_SIMULATION mode where the bundled simulated provider surface is
+    served directly for the offline demo and tests."""
     s = spec(provider_id)
     if operation not in s.operations:
         raise KeyError(f"unknown operation {operation!r} for partner {provider_id!r}")
@@ -425,12 +539,12 @@ def call(provider_id: str, operation: str, payload: dict) -> dict:
     from app import caracal
 
     if caracal.enabled():
-        if s.auth == "none":
-            return _caracal_internal(s, operation, payload or {})
-        return _caracal_external(s, operation, payload or {})
+        if authority is None:
+            raise PartnerError(provider_id, "no agent authority resolved for governed call")
+        return _gateway_call(s, operation, payload or {}, authority)
 
-    if s.auth == "mandate":
-        raise PartnerPendingCaracal(provider_id)
+    if not simulation_enabled():
+        raise PartnerError(provider_id, "Caracal is not configured and simulation mode is off")
     return _DISPATCH[s.auth](s, operation, payload or {})
 
 

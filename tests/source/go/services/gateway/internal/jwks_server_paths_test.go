@@ -281,3 +281,17 @@ func pad32(n *big.Int) []byte {
 
 var _ gatewayRedis = (*readyRedis)(nil)
 var _ audit.Streamer = fakeAuditStream{}
+
+func TestGatewayMetricsFailClosedWithoutBearerInPublishedMode(t *testing.T) {
+	server := &Server{cfg: Config{Mode: "stable"}}
+	w := httptest.NewRecorder()
+	server.handleMetrics(w, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("published gateway metrics without bearer must be 401, got %d", w.Code)
+	}
+	w = httptest.NewRecorder()
+	server.handleMetricsJSON(w, httptest.NewRequest(http.MethodGet, "/metrics.json", nil))
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("published gateway metrics.json without bearer must be 401, got %d", w.Code)
+	}
+}

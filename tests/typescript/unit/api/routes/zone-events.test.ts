@@ -83,6 +83,23 @@ describe('GET /v1/zones/:zoneId/audit', () => {
     ])
   })
 
+  it('filters audit by agent_session_id and label', async () => {
+    const { app, db } = buildRouteApp(zoneEventsRoutes)
+    db.query.mockResolvedValueOnce({ rows: [] })
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/zones/z1/audit?agent_session_id=agt-1&label=refund-agent',
+    })
+
+    expect(res.statusCode).toBe(200)
+    const sql = db.query.mock.calls[0][0] as string
+    expect(sql).toContain(`metadata_json->>'agent_session_id' = $2`)
+    expect(sql).toContain(`metadata_json->'agent_labels' @> $3::jsonb`)
+    expect(db.query.mock.calls[0][1]).toEqual(['z1', 'agt-1', '["refund-agent"]', 100])
+  })
+
   it('rejects malformed cursor values', async () => {
     const { app, db } = buildRouteApp(zoneEventsRoutes)
 
@@ -247,6 +264,73 @@ describe('GET /v1/zones/:zoneId/sessions', () => {
 
     expect(res.statusCode).toBe(400)
     expect(JSON.parse(res.body)).toEqual({ error: 'invalid_cursor' })
+    expect(db.query).not.toHaveBeenCalled()
+  })
+})
+
+describe('GET /v1/zones/:zoneId/agent-sessions', () => {
+  it('filters by status, lifecycle and label and emits a cursor when the page is full', async () => {
+    const { app, db } = buildRouteApp(zoneEventsRoutes)
+    db.query.mockResolvedValueOnce({
+      rows: [
+        { id: 'as-2', status: 'terminated', spawned_at: '2026-05-02T00:00:00.000Z' },
+        { id: 'as-1', status: 'terminated', spawned_at: '2026-05-01T00:00:00.000Z' },
+      ],
+    })
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/zones/z1/agent-sessions?status=terminated&lifecycle=service&label=refund-worker&limit=2',
+    })
+
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(body.rows).toHaveLength(2)
+    expect(body.next_cursor).toBe(cursor('2026-05-01T00:00:00.000Z', 'as-1'))
+    expect(db.query).toHaveBeenCalledWith(
+      expect.stringContaining('FROM agent_sessions'),
+      ['z1', 'terminated', 'service', '{refund-worker}', 2],
+    )
+    expect(db.query).toHaveBeenCalledWith(
+      expect.stringContaining('labels @> $'),
+      expect.any(Array),
+    )
+  })
+
+  it('exports filtered rows as CSV with a download header', async () => {
+    const { app, db } = buildRouteApp(zoneEventsRoutes)
+    db.query.mockResolvedValueOnce({
+      rows: [{
+        id: 'as-9', application_id: 'app-1', parent_id: null, status: 'suspended',
+        lifecycle: 'service', labels: ['voice', 'worker'], depth: 1, child_count: 0,
+        spawned_at: '2026-05-02T00:00:00.000Z', last_active_at: '2026-05-02T00:01:00.000Z',
+        terminated_at: null, ttl_seconds: null,
+      }],
+    })
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/zones/z1/agent-sessions?status=suspended&format=csv',
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-type']).toContain('text/csv')
+    expect(res.headers['content-disposition']).toContain('attachment; filename="agent-sessions-z1.csv"')
+    const lines = res.body.trim().split('\r\n')
+    expect(lines[0]).toBe('id,application_id,parent_id,status,lifecycle,labels,depth,child_count,spawned_at,last_active_at,terminated_at,ttl_seconds')
+    expect(lines[1]).toBe('as-9,app-1,,suspended,service,voice worker,1,0,2026-05-02T00:00:00.000Z,2026-05-02T00:01:00.000Z,,')
+  })
+
+  it('rejects an invalid status filter', async () => {
+    const { app, db } = buildRouteApp(zoneEventsRoutes)
+
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/agent-sessions?status=bogus' })
+
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body)).toEqual({ error: 'invalid_query' })
     expect(db.query).not.toHaveBeenCalled()
   })
 })

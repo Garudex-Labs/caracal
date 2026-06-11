@@ -74,12 +74,14 @@ For agent-assisted authoring, use the [policy authoring playbook](https://github
 
 ## Use the important inputs
 
+Policies read a fixed input contract. The acting application is the principal — there is no `input.application` or `input.grant` object. See the full [Policy Input Contract](/concepts/policy/#policy-input-contract) for every field.
+
 | Input | Use it for |
 | --- | --- |
-| `input.principal` | User, service, or agent identity checks. |
-| `input.application` | Application registration and trait checks. |
+| `input.principal` | User, service, or agent identity checks (`id`, `registration_method`, `lifecycle`, `labels`). |
 | `input.resource` | Resource identifier and resource metadata checks. |
 | `input.context.requested_scopes` | Scope allowlists. |
+| `input.action.id` | The exchange action being authorized. |
 | `input.delegation_edge` | Delegation constraints and graph proof. |
 
 ## Validate before versioning
@@ -99,6 +101,34 @@ if (!validation.valid) {
   throw new Error(validation.warnings.join("\n"));
 }
 ```
+
+Validation checks the package (`caracal.authz`), the required `result` rule, the
+schema version, balanced syntax, and forbidden built-ins. It also returns
+`warnings` for risky shapes — `default_result_allows_access`,
+`missing_default_result`, and `missing_requested_scope_check`.
+
+### Preview how the policy behaves
+
+A successful validation returns a `preview` describing exactly what the engine
+parsed, so you can confirm the backend reads your policy the way you intend
+before activating it:
+
+```ts
+const { preview } = await admin.policies.validate(policySource);
+// preview = {
+//   package: "caracal.authz",
+//   rules: ["result"],
+//   default_result: true,            // a default deny fallback exists
+//   decisions: ["allow", "deny"],    // outcomes the policy can emit
+//   inputs_referenced: ["input.context.requested_scopes", "input.resource.identifier"],
+//   data_referenced: ["data.allowed_scopes"],
+// }
+```
+
+Use `inputs_referenced` to confirm you are gating on the right contract fields,
+and `data_referenced` to see which external `data` tables you must supply. The
+preview is a static read of the source; for an end-to-end decision run a
+[simulation](/guides/activate-policy-set/) with representative input.
 
 ## Iterate from a denied request
 

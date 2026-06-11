@@ -222,14 +222,14 @@ upstream_prefix = "https://billing.example.com"
 	}
 }
 
-func TestConnectUsesExplicitOptionsConfigProfileAndEnv(t *testing.T) {
+func TestNewUsesExplicitOptionsConfigProfileAndEnv(t *testing.T) {
 	sts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"access_token":"fresh-root","token_type":"Bearer","expires_in":3600}`))
 	}))
 	defer sts.Close()
 
-	explicit, err := sdk.Connect(sdk.ClientSecretOptions{
+	explicit, err := sdk.New(sdk.ClientSecretOptions{
 		CoordinatorURL: "http://coord",
 		STSURL:         sts.URL,
 		ZoneID:         "z",
@@ -262,7 +262,7 @@ resource = "resource://pipernet"
 		t.Fatal(err)
 	}
 	t.Setenv("CARACAL_CONFIG", configPath)
-	fromConfig, err := sdk.Connect()
+	fromConfig, err := sdk.New()
 	if err != nil {
 		t.Fatalf("config connect: %v", err)
 	}
@@ -287,7 +287,7 @@ resource = "resource://pipernet"
 `, sts.URL, secretPath)), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	fromProfile, err := sdk.Connect()
+	fromProfile, err := sdk.New()
 	if err != nil {
 		t.Fatalf("profile connect: %v", err)
 	}
@@ -299,7 +299,7 @@ resource = "resource://pipernet"
 	t.Setenv("CARACAL_ZONE_ID", "z-env")
 	t.Setenv("CARACAL_APPLICATION_ID", "app-env")
 	t.Setenv("CARACAL_SUBJECT_TOKEN", "tok-env")
-	fromEnv, err := sdk.Connect()
+	fromEnv, err := sdk.New()
 	if err != nil {
 		t.Fatalf("env connect: %v", err)
 	}
@@ -350,7 +350,7 @@ func TestCaracalCurrentAndBindFromRequestRootFallback(t *testing.T) {
 	if !ok {
 		t.Fatal("client Current should return bound context")
 	}
-	if cur.SubjectToken != "root-token" || cur.ZoneID != "z" || cur.ClientID != "app" {
+	if cur.SubjectToken != "root-token" || cur.ZoneID != "z" || cur.ApplicationID != "app" {
 		t.Fatalf("unexpected bound context: %#v", cur)
 	}
 }
@@ -416,7 +416,7 @@ func TestHTTPClientInjects(t *testing.T) {
 	ctx := sdk.Bind(context.Background(), sdk.CaracalContext{
 		SubjectToken:   "tok",
 		ZoneID:         "z",
-		ClientID:       "a",
+		ApplicationID:  "a",
 		AgentSessionID: "sess9",
 		Hop:            1,
 	})
@@ -457,10 +457,10 @@ func TestGatewayRequestBuildsExplicitGatewayTarget(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := sdk.Bind(context.Background(), sdk.CaracalContext{
-		SubjectToken: "tok",
-		ZoneID:       "z",
-		ClientID:     "a",
-		Hop:          1,
+		SubjectToken:  "tok",
+		ZoneID:        "z",
+		ApplicationID: "a",
+		Hop:           1,
 	})
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target.URL, nil)
 	if err != nil {
@@ -504,14 +504,14 @@ func TestFetchComposesGatewayRequestAndTransport(t *testing.T) {
 	defer srv.Close()
 	c.GatewayURL = srv.URL + "/proxy"
 	ctx := sdk.Bind(context.Background(), sdk.CaracalContext{
-		SubjectToken: "tok",
-		ZoneID:       "z",
-		ClientID:     "a",
-		Hop:          1,
+		SubjectToken:  "tok",
+		ZoneID:        "z",
+		ApplicationID: "a",
+		Hop:           1,
 	})
 	header := http.Header{}
 	header.Set("Content-Type", "application/json")
-	resp, err := c.Fetch(ctx, http.MethodPost, "resource://calendar", "events?limit=10", nil, header)
+	resp, err := c.Fetch(ctx, http.MethodPost, "resource://calendar", "events?limit=10", sdk.FetchOptions{Header: header})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -552,7 +552,7 @@ func TestTransportRoutesMatchingResourceBindingsThroughGateway(t *testing.T) {
 	}))
 	defer gateway.Close()
 	c.GatewayURL = gateway.URL + "/gateway"
-	ctx := sdk.Bind(context.Background(), sdk.CaracalContext{SubjectToken: "tok", ZoneID: "z", ClientID: "a"})
+	ctx := sdk.Bind(context.Background(), sdk.CaracalContext{SubjectToken: "tok", ZoneID: "z", ApplicationID: "a"})
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.pipernet.example/v1/users?limit=10", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -593,7 +593,7 @@ func TestTransportUsesExplicitResourceBindingAndSkipsGatewayOrigin(t *testing.T)
 	}))
 	defer gateway.Close()
 	c.GatewayURL = gateway.URL + "/gateway"
-	ctx := sdk.Bind(context.Background(), sdk.CaracalContext{SubjectToken: "tok", ZoneID: "z", ClientID: "a"})
+	ctx := sdk.Bind(context.Background(), sdk.CaracalContext{SubjectToken: "tok", ZoneID: "z", ApplicationID: "a"})
 
 	explicit, _ := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.other.example/raw", nil)
 	explicit.Header.Set("X-Caracal-Resource", "resource://pipernet")
@@ -692,7 +692,7 @@ func TestCoordinatorResponsesUseExplicitIDs(t *testing.T) {
 	agent, err := sdk.SpawnAgent(context.Background(), client, "tok", sdk.SpawnRequest{
 		ZoneID:        "z",
 		ApplicationID: "app",
-		Kind:          sdk.KindEphemeral,
+		Lifecycle:     sdk.LifecycleService,
 		TTLSeconds:    60,
 	})
 	if err != nil {
@@ -722,7 +722,7 @@ func TestCoordinatorResponsesUseExplicitIDs(t *testing.T) {
 	}
 }
 
-func TestSpawnAgentDerivesIdempotencyKey(t *testing.T) {
+func TestSpawnAgentNoIdempotencyKeyByDefault(t *testing.T) {
 	var seen http.Header
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		seen = r.Header.Clone()
@@ -738,9 +738,8 @@ func TestSpawnAgentDerivesIdempotencyKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	key := seen.Get("Idempotency-Key")
-	if len(key) != 64 {
-		t.Fatalf("expected 64-char idempotency key, got %q", key)
+	if key := seen.Get("Idempotency-Key"); key != "" {
+		t.Fatalf("expected no idempotency key, got %q", key)
 	}
 }
 

@@ -6,6 +6,7 @@
 import { AdminApiError } from './errors.js'
 import type { JsonValue } from '@caracalai/core'
 import type {
+  AgentListQuery,
   AgentSession,
   Application,
   ApplicationInput,
@@ -41,9 +42,10 @@ import type {
   ResourceInput,
   Session,
   SessionQuery,
+  AgentSessionRow,
+  AgentSessionQuery,
   StepUpChallenge,
   StepUpChallengeSatisfaction,
-  StepUpChallengeSatisfyInput,
   TraverseNode,
   Zone,
   ZoneDcrStatus,
@@ -85,8 +87,6 @@ interface RowListResponse<T> {
 const DEFAULT_TIMEOUT_MS = 30_000
 const DEFAULT_RETRIES = 3
 const MAX_RETRY_AFTER_MS = 30_000
-const CONTROL_RESOURCE_HEADER = 'x-caracal-control-resource'
-const APPLICATION_INTERNALS_HEADER = 'x-caracal-application-internals'
 
 function grantListQuery(query?: GrantQuery): Record<string, string | number | undefined> | undefined {
   if (!query) return undefined
@@ -148,12 +148,12 @@ export class AdminClient {
     const token = opts.base === 'coordinator' ? this.coordinatorToken : this.adminToken
     if (!token) throw new Error('coordinator_token_not_configured')
 
-    const qs = opts.query
-      ? '?' + Object.entries(opts.query)
+    const pairs = opts.query
+      ? Object.entries(opts.query)
           .filter(([, v]) => v !== undefined && v !== '')
           .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`)
-          .join('&')
-      : ''
+      : []
+    const qs = pairs.length ? '?' + pairs.join('&') : ''
     const url = `${base}${path}${qs}`
     const headers: Record<string, string> = { Authorization: `Bearer ${token}`, ...opts.headers }
     let body: BodyInit | undefined
@@ -223,45 +223,40 @@ export class AdminClient {
 
   // Applications
   applications = {
-    list: (zoneId: string, opts?: { applicationInternals?: boolean }) =>
-      this.request<Application[]>(`/v1/zones/${zoneId}/applications`, {
-        headers: opts?.applicationInternals ? { [APPLICATION_INTERNALS_HEADER]: 'control' } : undefined,
-      }),
-    get: (zoneId: string, id: string, opts?: { applicationInternals?: boolean }) =>
-      this.request<Application>(`/v1/zones/${zoneId}/applications/${id}`, {
-        headers: opts?.applicationInternals ? { [APPLICATION_INTERNALS_HEADER]: 'control' } : undefined,
-      }),
+    list: (zoneId: string) =>
+      this.request<Application[]>(`/v1/zones/${zoneId}/applications`),
+    get: (zoneId: string, id: string) =>
+      this.request<Application>(`/v1/zones/${zoneId}/applications/${id}`),
     create: (zoneId: string, input: ApplicationInput) =>
       this.request<Application>(`/v1/zones/${zoneId}/applications`, { method: 'POST', body: input }),
     patch: (zoneId: string, id: string, input: ApplicationPatchInput) =>
       this.request<Application>(`/v1/zones/${zoneId}/applications/${id}`, { method: 'PATCH', body: input }),
     delete: (zoneId: string, id: string) =>
       this.request<void>(`/v1/zones/${zoneId}/applications/${id}`, { method: 'DELETE', expectEmpty: true }),
+    // DCR (Dynamic Client Registration) is the sole programmatic path for minting
+    // short-lived self-registering client identities. Console does not create DCR
+    // applications. Creation requires an admin token, the zone's dcr_enabled gate,
+    // and is rate-limited, capped per zone, and auto-expiring (<=1h). The client
+    // secret is returned once and never retrievable again.
     dcr: (zoneId: string, input: DCRInput) =>
       this.request<Application>(`/v1/zones/${zoneId}/applications/dcr`, { method: 'POST', body: input }),
   }
 
   // Resources
   resources = {
-    list: (zoneId: string, opts?: { controlResource?: boolean }) =>
-      this.request<Resource[]>(`/v1/zones/${zoneId}/resources`, {
-        headers: opts?.controlResource ? { [CONTROL_RESOURCE_HEADER]: 'manage' } : undefined,
-      }),
-    get: (zoneId: string, id: string, opts?: { controlResource?: boolean }) =>
-      this.request<Resource>(`/v1/zones/${zoneId}/resources/${id}`, {
-        headers: opts?.controlResource ? { [CONTROL_RESOURCE_HEADER]: 'manage' } : undefined,
-      }),
-    create: (zoneId: string, input: ResourceInput, opts?: { controlResource?: boolean }) =>
+    list: (zoneId: string) =>
+      this.request<Resource[]>(`/v1/zones/${zoneId}/resources`),
+    get: (zoneId: string, id: string) =>
+      this.request<Resource>(`/v1/zones/${zoneId}/resources/${id}`),
+    create: (zoneId: string, input: ResourceInput) =>
       this.request<Resource>(`/v1/zones/${zoneId}/resources`, {
         method: 'POST',
         body: input,
-        headers: opts?.controlResource ? { [CONTROL_RESOURCE_HEADER]: 'manage' } : undefined,
       }),
-    patch: (zoneId: string, id: string, input: Partial<ResourceInput>, opts?: { controlResource?: boolean }) =>
+    patch: (zoneId: string, id: string, input: Partial<ResourceInput>) =>
       this.request<Resource>(`/v1/zones/${zoneId}/resources/${id}`, {
         method: 'PATCH',
         body: input,
-        headers: opts?.controlResource ? { [CONTROL_RESOURCE_HEADER]: 'manage' } : undefined,
       }),
     delete: (zoneId: string, id: string) =>
       this.request<void>(`/v1/zones/${zoneId}/resources/${id}`, { method: 'DELETE', expectEmpty: true }),
@@ -367,6 +362,16 @@ export class AdminClient {
     },
   }
 
+  // Agent sessions (read; status filtering for active/suspended/terminated). CSV export is
+  // available directly from the API endpoint with format=csv.
+  agentSessions = {
+    list: async (zoneId: string, query?: AgentSessionQuery) => {
+      const response = await this.request<RowListResponse<AgentSessionRow>>(`/v1/zones/${zoneId}/agent-sessions`, { query: { ...query } })
+      if (!Array.isArray(response.rows)) throw new Error('agent-sessions response missing rows')
+      return response.rows
+    },
+  }
+
   // Audit
   audit = {
     list: async (zoneId: string, query?: AuditQuery) => {
@@ -383,14 +388,14 @@ export class AdminClient {
   stepUpChallenges = {
     list: (zoneId: string) => this.request<StepUpChallenge[]>(`/v1/zones/${zoneId}/step-up-challenges`),
     get: (zoneId: string, id: string) => this.request<StepUpChallenge>(`/v1/zones/${zoneId}/step-up-challenges/${id}`),
-    satisfy: (zoneId: string, id: string, input: StepUpChallengeSatisfyInput) =>
-      this.request<StepUpChallengeSatisfaction>(`/v1/zones/${zoneId}/step-up-challenges/${id}/satisfy`, { method: 'POST', body: input }),
+    satisfy: (zoneId: string, id: string) =>
+      this.request<StepUpChallengeSatisfaction>(`/v1/zones/${zoneId}/step-up-challenges/${id}/satisfy`, { method: 'POST', body: {} }),
   }
 
   // Agents (coordinator)
   agents = {
-    list: async (zoneId: string) => {
-      const response = await this.request<AgentListResponse>(`/zones/${zoneId}/agents`, { base: 'coordinator' })
+    list: async (zoneId: string, query?: AgentListQuery) => {
+      const response = await this.request<AgentListResponse>(`/zones/${zoneId}/agents`, { base: 'coordinator', query: { ...query } })
       if (!Array.isArray(response.items)) throw new Error('agents response missing items')
       return response.items
     },

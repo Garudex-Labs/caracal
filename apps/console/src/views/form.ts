@@ -35,6 +35,7 @@ export interface Field {
   info?: InfoPage
   pick?: (app: App, setValue: (value: string, label?: string) => void | Promise<void>, currentValue: string, values: Readonly<Record<string, string>>) => void | Promise<void>
   resolve?: (value: string) => string | undefined | Promise<string | undefined>
+  tags?: boolean
 }
 
 export interface FormOpts {
@@ -231,18 +232,18 @@ export class FormView implements View {
       return
     }
     if (key === 'right' && row?.kind === 'advanced') { this.openAdvanced(ctx.app); return }
-    if (f?.pick && key === 'V' && (this.values[f.key] ?? '').trim()) {
+    if (f?.pick && !f.tags && key === 'V' && (this.values[f.key] ?? '').trim()) {
       if (this.revealedIds.has(f.key)) this.revealedIds.delete(f.key)
       else this.revealedIds.add(f.key)
       return
     }
-    if (f?.pick && key === 'N' && (this.values[f.key] ?? '').trim()) {
+    if (f?.pick && !f.tags && key === 'N' && (this.values[f.key] ?? '').trim()) {
       const name = this.displayLabels[f.key] ?? this.values[f.key] ?? ''
       copyToClipboard(name)
       ctx.app.setStatus(`copied name ${name}`)
       return
     }
-    if (f?.pick && key === 'I' && (this.values[f.key] ?? '').trim()) {
+    if (f?.pick && !f.tags && key === 'I' && (this.values[f.key] ?? '').trim()) {
       copyToClipboard(this.values[f.key] ?? '')
       ctx.app.setStatus(`copied id for ${this.displayLabels[f.key] ?? f.label}`)
       return

@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections import OrderedDict
 from hmac import new as hmac_new
 from os import urandom
-from time import time
+from time import monotonic, time
 from typing import Protocol
 
 from .types import TokenExchangeResponse
@@ -41,7 +41,7 @@ class InMemoryTokenCache:
         if entry is None:
             return None
         token, expires_at = entry
-        if time() >= expires_at:
+        if monotonic() >= expires_at:
             del self._entries[key]
             return None
         self._entries.move_to_end(key)
@@ -49,7 +49,10 @@ class InMemoryTokenCache:
 
     def set(self, subject_token: str, resource: str, token: TokenExchangeResponse) -> None:
         key = _cache_key(subject_token, resource)
-        self._entries[key] = (token, token.issued_at + token.expires_in)
+        remaining = token.issued_at + token.expires_in - time()
+        if remaining <= 0:
+            return
+        self._entries[key] = (token, monotonic() + remaining)
         self._entries.move_to_end(key)
         while len(self._entries) > self._max_entries:
             self._entries.popitem(last=False)

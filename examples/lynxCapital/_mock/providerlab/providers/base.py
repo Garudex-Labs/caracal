@@ -88,12 +88,56 @@ class Ctx:
 
 HANDLERS: dict[str, dict[str, Callable[[Ctx], dict]]] = {}
 SEEDERS: dict[str, Callable[[State], None]] = {}
+TOOLSPECS: dict[str, dict[str, dict]] = {}
+RESOURCES: dict[str, list[dict]] = {}
+GRPC_SERVICES: dict[str, dict] = {}
 
 
-def op(provider_id: str, name: str) -> Callable:
-    """Register a handler for one provider operation."""
+def grpc_service(provider_id: str, *, package: str, services: list[dict]) -> None:
+    """Register the gRPC service surface a provider exposes.
+
+    Each service entry is ``{"name": <ServiceName>, "rpcs": [{"name": <Rpc>,
+    "operation": <op>, "request": <Msg>, "response": <Msg>,
+    "server_streaming": bool}]}``. The lab serves these methods over the shared
+    HTTP transport, but the descriptor lets the control surface present the
+    provider as the gRPC service it models."""
+    GRPC_SERVICES[provider_id] = {"package": package, "services": services}
+
+
+
+def op(provider_id: str, name: str, *, title: str | None = None,
+       description: str | None = None, input_schema: dict | None = None,
+       output_schema: dict | None = None, annotations: dict | None = None,
+       hidden: bool = False) -> Callable:
+    """Register a handler for one provider operation.
+
+    Optional metadata describes the operation as an MCP tool (title, JSON Schema
+    input/output, behavior annotations). Hidden operations stay callable for
+    dispatch but are not advertised in the tool catalog."""
     def deco(fn: Callable[[Ctx], dict]) -> Callable[[Ctx], dict]:
         HANDLERS.setdefault(provider_id, {})[name] = fn
+        if not hidden:
+            spec: dict = {"name": name,
+                          "description": (description or (fn.__doc__ or "")).strip(),
+                          "inputSchema": input_schema or {"type": "object", "properties": {}}}
+            if title:
+                spec["title"] = title
+            if output_schema:
+                spec["outputSchema"] = output_schema
+            if annotations:
+                spec["annotations"] = annotations
+            TOOLSPECS.setdefault(provider_id, {})[name] = spec
+        return fn
+    return deco
+
+
+def resource(provider_id: str, *, uri: str, name: str, description: str,
+             mime_type: str = "application/json") -> Callable:
+    """Register an MCP resource backed by a hidden read handler keyed by its URI."""
+    def deco(fn: Callable[[Ctx], dict]) -> Callable[[Ctx], dict]:
+        HANDLERS.setdefault(provider_id, {})[uri] = fn
+        RESOURCES.setdefault(provider_id, []).append(
+            {"uri": uri, "name": name, "description": description, "mimeType": mime_type})
         return fn
     return deco
 

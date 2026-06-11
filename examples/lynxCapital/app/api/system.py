@@ -2,7 +2,7 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-System health, config, and model switcher endpoints.
+System health and model switcher endpoints.
 """
 from __future__ import annotations
 
@@ -12,6 +12,8 @@ from pydantic import BaseModel
 from app.config import get_config
 from app.core.memory import MODEL_CONTEXT_LIMITS
 from app.core.settings import ALLOWED_MODELS, settings
+from app.events.bus import bus
+from app.events.types import model_change
 
 router = APIRouter()
 
@@ -25,23 +27,6 @@ class HealthResponse(BaseModel):
 def health() -> HealthResponse:
     cfg = get_config()
     return HealthResponse(status="ok", company=cfg.company)
-
-
-@router.get("/config")
-def config() -> dict:
-    cfg = get_config()
-    return {
-        "company": cfg.company,
-        "shortName": cfg.shortName,
-        "regions": [{"id": r.id, "name": r.name, "currency": r.currency} for r in cfg.regions],
-        "providers": [{"id": p.id, "name": p.name, "category": p.category} for p in cfg.providers],
-        "agentLayers": [
-            {"id": l.id, "label": l.label, "perRegion": l.perRegion, "ephemeral": l.ephemeral}
-            for l in cfg.agentLayers
-        ],
-        "scenario": cfg.scenario.model_dump(),
-        "theme": cfg.theme.model_dump(),
-    }
 
 
 class ModelResponse(BaseModel):
@@ -66,9 +51,14 @@ def get_model() -> ModelResponse:
 @router.post("/model")
 def set_model(body: ModelChangeRequest) -> ModelResponse:
     try:
-        settings.set_model(body.model)
+        model, prior = settings.set_model(body.model)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if model != prior:
+        for run_id in bus.runs():
+            history = bus.history(run_id)
+            if history and not any(e.kind == "run_end" for e in history):
+                bus.publish(model_change(run_id, model, prior))
     return ModelResponse(
         model=settings.model,
         allowed=list(ALLOWED_MODELS),

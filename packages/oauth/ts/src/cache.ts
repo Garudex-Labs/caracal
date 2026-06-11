@@ -19,7 +19,7 @@ const DEFAULT_MAX_ENTRIES = 10_000
 const CACHE_KEY = randomBytes(32)
 
 export class InMemoryTokenCache implements TokenCache {
-  private readonly map = new Map<string, { token: TokenExchangeResponse; expiresAt: number }>()
+  private readonly map = new Map<string, { token: TokenExchangeResponse; expiresAtMonoMs: number }>()
   private readonly maxEntries: number
 
   constructor(opts: InMemoryTokenCacheOptions = {}) {
@@ -34,7 +34,7 @@ export class InMemoryTokenCache implements TokenCache {
     const key = cacheKey(subjectToken, resource)
     const entry = this.map.get(key)
     if (!entry) return undefined
-    if (Date.now() / 1000 >= entry.expiresAt) {
+    if (performance.now() >= entry.expiresAtMonoMs) {
       this.map.delete(key)
       return undefined
     }
@@ -48,10 +48,9 @@ export class InMemoryTokenCache implements TokenCache {
     if (this.map.has(key)) {
       this.map.delete(key)
     }
-    this.map.set(key, {
-      token,
-      expiresAt: token.issuedAt + token.expiresIn,
-    })
+    const remainingMs = (token.issuedAt + token.expiresIn) * 1000 - Date.now()
+    if (remainingMs <= 0) return
+    this.map.set(key, { token, expiresAtMonoMs: performance.now() + remainingMs })
     while (this.map.size > this.maxEntries) {
       const oldest = this.map.keys().next().value
       if (oldest === undefined) break

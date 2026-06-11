@@ -5,7 +5,7 @@
 
 import { getenv, mustGetenv, intEnv, boolEnv, resolveFileSecrets } from '@caracalai/core'
 
-resolveFileSecrets(['DATABASE_URL', 'REDIS_URL', 'STREAMS_HMAC_KEY', 'CARACAL_COORDINATOR_TOKEN'])
+resolveFileSecrets(['DATABASE_URL', 'REDIS_URL', 'STREAMS_HMAC_KEY', 'AUDIT_HMAC_KEY', 'CARACAL_COORDINATOR_TOKEN', 'METRICS_BEARER'])
 
 /**
  * Coordinator JWT audience. The STS issues ambient tokens with `aud=[ISSUER_URL]`
@@ -15,6 +15,10 @@ resolveFileSecrets(['DATABASE_URL', 'REDIS_URL', 'STREAMS_HMAC_KEY', 'CARACAL_CO
 
 function buildCfg() {
   const issuerUrl = mustGetenv('ISSUER_URL')
+  const auditHmacKey = process.env.AUDIT_HMAC_KEY ? Buffer.from(process.env.AUDIT_HMAC_KEY, 'hex') : null
+  if (auditHmacKey && auditHmacKey.length < 32) {
+    throw new Error('AUDIT_HMAC_KEY must be hex-encoded with at least 32 bytes')
+  }
   return {
     port: intEnv('PORT', 4000),
     host: getenv('HOST', process.env.CARACAL_MODE === 'rc' || process.env.CARACAL_MODE === 'stable' ? '0.0.0.0' : '127.0.0.1'),
@@ -25,6 +29,7 @@ function buildCfg() {
     audience: issuerUrl,
     requiredScope: mustGetenv('AGENT_COORDINATOR_SCOPE'),
     coordinatorToken: getenv('CARACAL_COORDINATOR_TOKEN', ''),
+    metricsBearer: getenv('METRICS_BEARER', ''),
     dbPoolMax: intEnv('DB_POOL_MAX', 20),
     dbStatementTimeoutMs: intEnv('DB_STATEMENT_TIMEOUT_MS', 10_000),
     dbConnectionTimeoutMs: intEnv('DB_CONNECTION_TIMEOUT_MS', 5_000),
@@ -53,6 +58,7 @@ function buildCfg() {
     dedupeWindowSec: intEnv('RELAY_DEDUPE_WINDOW_SEC', 3600),
     logLevel: getenv('LOG_LEVEL', 'info'),
     trustProxy: boolEnv('TRUST_PROXY', false),
+    auditHmacKey,
   }
 }
 

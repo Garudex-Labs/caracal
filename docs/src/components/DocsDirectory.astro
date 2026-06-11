@@ -3,249 +3,349 @@
  * Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
  * Caracal, a product of Garudex Labs
  *
- * Redesigned Homepage body to communicate value, outline core capabilities,
- * route by audience path, and showcase featured blog/vlog content.
+ * Homepage body with an interactive authority flow, capability row, and audience path tabs.
  */
 
 const icons = {
-  shield: '<polyline points="12 22 12 22 4 18 4 12 12 3 20 12 20 18 12 22"/><path d="M12 3v19"/>',
-  network: '<circle cx="12" cy="12" r="3"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="18" r="3"/><circle cx="12" cy="5" r="3"/><line x1="6" y1="15" x2="10" y2="13"/><line x1="18" y1="15" x2="14" y2="13"/><line x1="12" y1="8" x2="12" y2="9"/>',
-  key: '<path d="m21 2-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0 1.5 1.5M15.5 7.5 14 6"/>',
-  scroll: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>',
-  bell: '<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>',
-  cpu: '<rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="15" x2="23" y2="15"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="15" x2="4" y2="15"/>',
-  compass: '<circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/>',
+  send: '<line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>',
+  scale: '<path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="M7 21h10"/><path d="M12 3v18"/><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"/>',
+  ticket: '<path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M13 5v2"/><path d="M13 17v2"/><path d="M13 11v2"/>',
+  shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',
+  scroll: '<path d="M19 17V5a2 2 0 0 0-2-2H4"/><path d="M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3"/>',
+  branch: '<line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/>',
+  slash: '<circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>',
   code: '<polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>',
-  server: '<rect x="2" y="3" width="20" height="8" rx="2"/><rect x="2" y="13" width="20" height="8" rx="2"/><line x1="6" y1="7" x2="6.01" y2="7"/><line x1="6" y1="17" x2="6.01" y2="17"/>',
-  users: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+  box: '<path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/>',
+  copy: '<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>',
+  check: '<polyline points="20 6 9 17 4 12"/>',
+  compass: '<circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/>',
+  wrench: '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>',
+  server: '<rect width="20" height="8" x="2" y="2" rx="2" ry="2"/><rect width="20" height="8" x="2" y="14" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/>',
+  heart: '<path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/>',
 };
+
+const flow = [
+  {
+    id: "request",
+    icon: icons.send,
+    tint: "#60a5fa",
+    title: "Request",
+    detail: "Your agent asks for authority right when it needs it. Nothing sits in code or env files waiting to leak.",
+    href: "/concepts/principal/",
+    linkText: "Identities and Applications",
+  },
+  {
+    id: "decide",
+    icon: icons.scale,
+    tint: "#a78bfa",
+    title: "Decide",
+    detail: "Rego policy looks at the request and says yes or no before anything touches the resource.",
+    href: "/concepts/policy/",
+    linkText: "Policies and Policy Sets",
+  },
+  {
+    id: "issue",
+    icon: icons.ticket,
+    tint: "#ec4899",
+    title: "Issue",
+    detail: "STS signs a short-lived mandate scoped to that app, that resource, that action. It expires on its own.",
+    href: "/concepts/mandate/",
+    linkText: "Mandates",
+  },
+  {
+    id: "enforce",
+    icon: icons.shield,
+    tint: "#34d399",
+    title: "Enforce",
+    detail: "The Gateway checks the mandate and makes the call. No mandate, no call.",
+    href: "/services/gateway/",
+    linkText: "The Gateway",
+  },
+  {
+    id: "record",
+    icon: icons.scroll,
+    tint: "#fbbf24",
+    title: "Record",
+    detail: "Audit keeps the whole story: who asked, what policy said, what actually happened.",
+    href: "/concepts/audit-ledger/",
+    linkText: "Audit and Request Traces",
+  },
+];
 
 const capabilities = [
   {
-    icon: icons.shield,
-    title: "Pre-Execution Authorization",
-    description: "Intercept and validate agent tool execution against Rego policies before the call is dispatched, preventing unauthorized mutations."
+    icon: icons.branch,
+    tint: "#a78bfa",
+    title: "Delegation that narrows",
+    body: "Agents hand authority to sub-agents, and constraints can only shrink it.",
+    href: "/concepts/delegation/",
   },
   {
-    icon: icons.network,
-    title: "Dynamic Delegation",
-    description: "Issue constrained, short-lived tokens to sub-agents, restricting their scope to specific resources, spending limits, or execution windows."
-  },
-  {
-    icon: icons.key,
-    title: "Signed Mandates",
-    description: "Generate cryptographically signed, single-use mandates that bind agent authority directly to the human user who initiated the run."
-  },
-  {
-    icon: icons.scroll,
-    title: "Immutable Audit Ledger",
-    description: "Capture and verify the full lineage of every tool call, policy decision, and delegation chain in a tamper-resistant, queryable stream."
-  },
-  {
-    icon: icons.bell,
-    title: "Step-Up Verification",
-    description: "Establish gates that pause execution and prompt users for direct re-authentication when agents attempt highly sensitive actions."
-  },
-  {
-    icon: icons.cpu,
-    title: "Multi-Agent Coordination",
-    description: "Secure cross-boundary communications with standard OAuth token exchanges and pre-built connectors for developer stacks."
-  }
-];
-
-const paths = [
-  {
-    icon: icons.compass,
-    kicker: "Get Started",
-    title: "New Users",
-    body: "Evaluate Caracal locally, run the STS stack, and execute your first protected agent call.",
-    links: [
-      { title: "Overview Guide", href: "/get-started/" },
-      { title: "First Protected Call", href: "/get-started/first-protected-call/" },
-      { title: "Install the Stack", href: "/get-started/install-caracal/" }
-    ]
+    icon: icons.slash,
+    tint: "#f87171",
+    title: "Revoke from one place",
+    body: "Kill active authority across every session without redeploying anything.",
+    href: "/concepts/sessions-revocation/",
   },
   {
     icon: icons.code,
-    kicker: "Integrate",
-    title: "Developers",
-    body: "Wrap agent tools, define authorization rules, and secure resource gateway APIs.",
-    links: [
-      { title: "TypeScript SDK", href: "/sdks/typescript/" },
-      { title: "Author OPA Rego Policies", href: "/guides/author-policy/" },
-      { title: "Connectors & SDKs", href: "/sdks/" }
-    ]
+    tint: "#60a5fa",
+    title: "Fits your stack",
+    body: "TypeScript, Python, and Go SDKs, plus connectors for Express, MCP, and more.",
+    href: "/sdks/",
   },
   {
-    icon: icons.server,
-    kicker: "Deploy",
-    title: "Operators",
-    body: "Harden configurations, manage cryptographic keys, scale capacity, and trace diagnostics.",
-    links: [
-      { title: "Docker Compose Deployment", href: "/operations/docker-compose/" },
-      { title: "Harden Production TLS", href: "/operations/tls-hardening/" },
-      { title: "PostgreSQL & Redis Setup", href: "/operations/env-vars/" }
-    ]
+    icon: icons.box,
+    tint: "#34d399",
+    title: "Deploys anywhere",
+    body: "Local stack in one command, Docker Compose and Helm for everything else.",
+    href: "/operations/",
   },
-  {
-    icon: icons.users,
-    kicker: "Upstream",
-    title: "Contributors",
-    body: "Understand the system topology, explore core interfaces, and contribute to the repository.",
-    links: [
-      { title: "Local Contributor Setup", href: "/contributing/setup/" },
-      { title: "Governance & Standard", href: "/contributing/governance/" },
-      { title: "Threat Model Analysis", href: "/security/threat-model/" }
-    ]
-  }
 ];
+
+const audiences = [
+  {
+    id: "new",
+    label: "I'm new here",
+    icon: icons.compass,
+    tint: "#60a5fa",
+    intro: "You want to see it run before you read theory. Install the stack, protect one call, then dig into how it works.",
+    start: { title: "What is Caracal?", href: "/get-started/" },
+    links: [
+      { title: "Install Caracal", href: "/get-started/install-caracal/" },
+      { title: "First protected call", href: "/get-started/first-protected-call/" },
+      { title: "One-Minute Model", href: "/concepts/model-overview/" },
+      { title: "Add SDK to your app", href: "/get-started/add-sdk-to-your-app/" },
+      { title: "First-run troubleshooting", href: "/get-started/first-run-troubleshooting/" },
+    ],
+  },
+  {
+    id: "building",
+    label: "I'm building",
+    icon: icons.wrench,
+    tint: "#a78bfa",
+    intro: "You have an app and an agent. Wire in the SDK, write your first policy, and watch authority flow through it.",
+    start: { title: "Model your application", href: "/guides/modeling-recipes/" },
+    links: [
+      { title: "Author a Rego policy", href: "/guides/author-policy/" },
+      { title: "Protect your first real API", href: "/tutorials/protect-an-api/" },
+      { title: "Multi-agent delegation", href: "/guides/delegation/" },
+      { title: "Tail the audit stream", href: "/guides/audit-stream/" },
+      { title: "TypeScript SDK", href: "/sdks/typescript/" },
+    ],
+  },
+  {
+    id: "operating",
+    label: "I run the platform",
+    icon: icons.server,
+    tint: "#34d399",
+    intro: "You keep this thing healthy. Deployment options, production hardening, and what to check when something breaks.",
+    start: { title: "Operations guide", href: "/operations/" },
+    links: [
+      { title: "Deploy with Docker Compose", href: "/operations/docker-compose/" },
+      { title: "Deploy with Helm", href: "/operations/kubernetes-helm/" },
+      { title: "Harden production", href: "/operations/tls-hardening/" },
+      { title: "Monitor health and metrics", href: "/operations/observability/" },
+      { title: "Troubleshoot by symptom", href: "/operations/troubleshooting/" },
+    ],
+  },
+  {
+    id: "contributing",
+    label: "I want to contribute",
+    icon: icons.heart,
+    tint: "#ec4899",
+    intro: "Caracal is built in the open and good PRs land fast. Set up locally, learn the architecture, find your first change.",
+    start: { title: "Contribute to Caracal", href: "/contributing/" },
+    links: [
+      { title: "Set up locally", href: "/contributing/setup/" },
+      { title: "Understand the architecture", href: "/architecture/" },
+      { title: "Review the threat model", href: "/security/threat-model/" },
+      { title: "Make a change", href: "/contributing/workflow/" },
+      { title: "FAQ", href: "/reference/faq/" },
+    ],
+  },
+];
+
+const installCmd = "curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-console.sh | sh";
 ---
 
 <section id="explore" class="docs-body" aria-label="Documentation overview">
   <div class="docs-body__inner">
 
-    <!-- Section 1: Value Proposition (What & Why) -->
-    <section class="docs-value-prop" aria-labelledby="value-prop-heading">
-      <div class="docs-value-prop__grid">
-        <div class="docs-value-prop__content">
-          <p class="docs-section__eyebrow">The Guardrails for Agentic Workloads</p>
-          <h2 id="value-prop-heading" class="docs-section__heading">Why Caracal?</h2>
-          <p class="docs-value-prop__text">
-            As AI agents transition from read-only assistants to autonomous executors, they gain access to highly sensitive tools: databases, financial ledgers, and workspace APIs. Traditional post-execution auditing is reactive—it logs damage after it occurs. 
-          </p>
-          <p class="docs-value-prop__text">
-            <strong>Caracal is pre-execution authority infrastructure.</strong> By intercepting tool execution *before* it happens, validating requests against Open Policy Agent (OPA) rules, and tracking delegation lines, Caracal brings enterprise-grade security and ironclad identity binding to autonomous agent runtimes.
-          </p>
+    <section class="docs-flow" aria-labelledby="docs-flow-heading">
+      <header class="docs-section__head docs-section__head--split">
+        <div>
+          <p class="docs-section__eyebrow">How it works</p>
+          <h2 id="docs-flow-heading" class="docs-section__heading">Five steps between an agent and a resource</h2>
         </div>
-        <div class="docs-value-prop__card">
-          <h3 class="docs-value-prop__card-title">Traditional IAM vs. Caracal</h3>
-          <ul class="docs-value-prop__list">
-            <li>
-              <strong>Static Identity:</strong> Static API keys can be leaked or abused. Caracal uses short-lived, single-use mandates.
-            </li>
-            <li>
-              <strong>Post-Audit:</strong> Recording actions after execution is too late. Caracal blocks unauthorized actions before dispatch.
-            </li>
-            <li>
-              <strong>Delegation Blindness:</strong> Standard security loses track when one agent spawns another. Caracal enforces cryptographic trust boundaries.
-            </li>
-          </ul>
+        <p class="docs-section__lede">
+          Agents call real APIs with real credentials, and standing secrets are how that goes wrong.
+          Caracal swaps them for short-lived authority that policy approves first. Click through the flow.
+        </p>
+      </header>
+
+      <div class="flow" data-flow>
+        <div class="flow__steps" role="tablist" aria-label="Authority flow steps">
+          {flow.map((stage, i) => (
+            <button
+              class={`flow__step${i === 0 ? " isActive" : ""}`}
+              type="button"
+              role="tab"
+              id={`flow-tab-${stage.id}`}
+              aria-selected={i === 0 ? "true" : "false"}
+              aria-controls={`flow-panel-${stage.id}`}
+              data-flow-step={stage.id}
+              style={`--tint: ${stage.tint}`}
+            >
+              <span class="flow__step-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" set:html={stage.icon} />
+              </span>
+              <span class="flow__step-label">{stage.title}</span>
+            </button>
+          ))}
         </div>
+
+        {flow.map((stage, i) => (
+          <div
+            class="flow__panel"
+            role="tabpanel"
+            id={`flow-panel-${stage.id}`}
+            aria-labelledby={`flow-tab-${stage.id}`}
+            data-flow-panel={stage.id}
+            style={`--tint: ${stage.tint}`}
+            hidden={i !== 0}
+          >
+            <p class="flow__panel-num">Step {i + 1} of 5</p>
+            <p class="flow__panel-detail">{stage.detail}</p>
+            <a class="flow__panel-link" href={stage.href}>
+              <span>{stage.linkText}</span>
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" />
+              </svg>
+            </a>
+          </div>
+        ))}
+      </div>
+
+      <div class="quickstart" data-quickstart>
+        <span class="quickstart__label">Try it now</span>
+        <code class="quickstart__cmd">{installCmd}</code>
+        <button class="quickstart__copy" type="button" data-quickstart-copy aria-label="Copy install command">
+          <svg class="quickstart__icon-copy" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" set:html={icons.copy} />
+          <svg class="quickstart__icon-check" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" set:html={icons.check} />
+        </button>
+        <span class="quickstart__then">then <code>caracal up</code></span>
       </div>
     </section>
 
-    <!-- Section 2: Core Capabilities -->
-    <section class="docs-capabilities" aria-labelledby="capabilities-heading">
-      <header class="docs-section__head">
-        <p class="docs-section__eyebrow">Capabilities</p>
-        <h2 id="capabilities-heading" class="docs-section__heading">Platform Capabilities</h2>
-      </header>
-      <div class="docs-capabilities__grid">
+    <section class="docs-caps" aria-label="What you get">
+      <div class="caps">
         {capabilities.map((cap) => (
-          <div class="capability-card">
-            <span class="capability-card__icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" set:html={cap.icon} />
+          <a class="cap" href={cap.href} style={`--tint: ${cap.tint}`}>
+            <span class="cap__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" set:html={cap.icon} />
             </span>
-            <h3 class="capability-card__title">{cap.title}</h3>
-            <p class="capability-card__description">{cap.description}</p>
-          </div>
+            <span class="cap__text">
+              <span class="cap__title">{cap.title}</span>
+              <span class="cap__body">{cap.body}</span>
+            </span>
+          </a>
         ))}
       </div>
     </section>
 
-    <!-- Section 3: Navigation Pathways by Persona -->
-    <section class="docs-paths" aria-labelledby="docs-paths-heading">
+    <section class="docs-audiences" aria-labelledby="docs-audiences-heading">
       <header class="docs-section__head">
-        <p class="docs-section__eyebrow">Documentation Pathways</p>
-        <h2 id="docs-paths-heading" class="docs-section__heading">Where do you want to begin?</h2>
+        <p class="docs-section__eyebrow">Find your path</p>
+        <h2 id="docs-audiences-heading" class="docs-section__heading">Where are you starting from?</h2>
       </header>
 
-      <div class="docs-paths__grid">
-        {paths.map((path) => (
-          <article class="path-card">
-            <span class="path-card__icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" set:html={path.icon} />
-            </span>
-            <p class="path-card__kicker">{path.kicker}</p>
-            <h3 class="path-card__title">{path.title}</h3>
-            <p class="path-card__body">{path.body}</p>
-            <ul class="path-card__links">
-              {path.links.map((link) => (
+      <div class="audiences" data-audiences>
+        <div class="audiences__tabs" role="tablist" aria-label="Choose your path">
+          {audiences.map((audience, i) => (
+            <button
+              class={`audiences__tab${i === 0 ? " isActive" : ""}`}
+              type="button"
+              role="tab"
+              id={`aud-tab-${audience.id}`}
+              aria-selected={i === 0 ? "true" : "false"}
+              aria-controls={`aud-panel-${audience.id}`}
+              data-audience-tab={audience.id}
+              style={`--tint: ${audience.tint}`}
+            >
+              <span class="audiences__tab-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" set:html={audience.icon} />
+              </span>
+              {audience.label}
+            </button>
+          ))}
+        </div>
+
+        {audiences.map((audience, i) => (
+          <div
+            class="audiences__panel"
+            role="tabpanel"
+            id={`aud-panel-${audience.id}`}
+            aria-labelledby={`aud-tab-${audience.id}`}
+            data-audience-panel={audience.id}
+            style={`--tint: ${audience.tint}`}
+            hidden={i !== 0}
+          >
+            <div class="audiences__intro">
+              <p class="audiences__blurb">{audience.intro}</p>
+              <a class="audiences__start" href={audience.start.href}>
+                <span>{audience.start.title}</span>
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" />
+                </svg>
+              </a>
+            </div>
+            <ul class="audiences__links">
+              {audience.links.map((link) => (
                 <li>
-                  <a class="path-card__link" href={link.href}>
+                  <a class="audiences__link" href={link.href}>
                     <span>{link.title}</span>
-                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                       <line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" />
                     </svg>
                   </a>
                 </li>
               ))}
             </ul>
-          </article>
+          </div>
         ))}
-      </div>
-    </section>
-
-    <!-- Section 4: Curated Showcase -->
-    <section class="docs-showcase" aria-labelledby="showcase-heading">
-      <header class="docs-section__head">
-        <p class="docs-section__eyebrow">Featured Resources</p>
-        <h2 id="showcase-heading" class="docs-section__heading">Featured Content & Community</h2>
-      </header>
-
-      <div class="docs-showcase__grid">
-        {/* Implementation Showcase */}
-        <article class="showcase-card showcase-card--highlight">
-          <div class="showcase-card__content">
-            <span class="showcase-card__badge">Reference Lab</span>
-            <h3 class="showcase-card__title">Lynx Capital</h3>
-            <p class="showcase-card__description">
-              See Caracal in action. Lynx Capital is a fully functional reference application demonstrating secure agentic investing. Witness how OPA policies regulate stock transactions, enforce delegation limits on sub-agents, and log verification trails.
-            </p>
-            <a href="/examples/lynx-capital/" class="showcase-card__link">
-              <span>Explore Lynx Capital</span>
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" />
-              </svg>
-            </a>
-          </div>
-        </article>
-
-        {/* Featured Blog */}
-        <article class="showcase-card">
-          <div class="showcase-card__content">
-            <span class="showcase-card__badge">Featured Blog</span>
-            <h3 class="showcase-card__title">Pre-Execution Auth vs. Post-Execution Monitoring</h3>
-            <p class="showcase-card__description">
-              Why traditional post-execution auditing falls short in agent runtimes and how intercepting tool calls secures your APIs.
-            </p>
-            <a href="/blogs/" class="showcase-card__link">
-              <span>Read the Blog</span>
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" />
-              </svg>
-            </a>
-          </div>
-        </article>
-
-        {/* Featured Vlog */}
-        <article class="showcase-card">
-          <div class="showcase-card__content">
-            <span class="showcase-card__badge">Featured Vlog</span>
-            <h3 class="showcase-card__title">Getting Started with Caracal in 5 Minutes</h3>
-            <p class="showcase-card__description">
-              Watch this quick video walkthrough to spin up the Caracal stack locally and protect your first HTTP API route.
-            </p>
-            <a href="/vlogs/" class="showcase-card__link">
-              <span>Watch Video</span>
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" />
-              </svg>
-            </a>
-          </div>
-        </article>
       </div>
     </section>
 
   </div>
 </section>
+
+<script>
+  const initTabs = (tabSelector: string, panelSelector: string, tabKey: string, panelKey: string) => {
+    const tabs = Array.from(document.querySelectorAll<HTMLButtonElement>(tabSelector));
+    const panels = Array.from(document.querySelectorAll<HTMLElement>(panelSelector));
+    for (const tab of tabs) {
+      tab.addEventListener("click", () => {
+        const id = tab.dataset[tabKey];
+        for (const other of tabs) {
+          const active = other === tab;
+          other.classList.toggle("isActive", active);
+          other.setAttribute("aria-selected", String(active));
+        }
+        for (const panel of panels) panel.hidden = panel.dataset[panelKey] !== id;
+      });
+    }
+  };
+
+  initTabs("[data-flow-step]", "[data-flow-panel]", "flowStep", "flowPanel");
+  initTabs("[data-audience-tab]", "[data-audience-panel]", "audienceTab", "audiencePanel");
+
+  const copyButton = document.querySelector<HTMLButtonElement>("[data-quickstart-copy]");
+  const cmd = document.querySelector<HTMLElement>(".quickstart__cmd");
+  copyButton?.addEventListener("click", async () => {
+    if (!cmd?.textContent) return;
+    await navigator.clipboard.writeText(cmd.textContent);
+    copyButton.classList.add("isCopied");
+    setTimeout(() => copyButton.classList.remove("isCopied"), 1600);
+  });
+</script>

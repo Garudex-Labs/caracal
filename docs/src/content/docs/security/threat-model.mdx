@@ -6,6 +6,15 @@ pageType: reference
 
 The repository threat model covers the current open-source Caracal runtime, services, packages, deployment assets, and release artifacts.
 
+## Assurance Case
+
+Caracal's security requirements are met under an explicit assurance case maintained in [`governance/THREAT_MODEL.md`](https://github.com/Garudex-Labs/caracal/blob/main/governance/THREAT_MODEL.md). It argues the claim from four pillars:
+
+- **Threat model:** threats T1–T12 each carry an owner, a required mitigation, and a verification step.
+- **Trust boundaries:** every boundary names what is untrusted and where mediation happens (see [Enforce Boundaries](/architecture/trust-boundaries/)).
+- **Secure design principles:** deny-by-default, complete mediation, least privilege, defense in depth, and separation of privilege are enforced in STS, gateway, control, and the data layer.
+- **Implementation weaknesses countered:** input validation, token-confusion prevention, SSRF blocking, secret redaction, audit/stream integrity, and a signed, provenance-attested release path, each backed by tests and scanners.
+
 ## In-Scope Areas
 
 | Area | Scope |

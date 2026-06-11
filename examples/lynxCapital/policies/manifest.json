@@ -1,0 +1,11 @@
+{
+  "policySet": "lynx-finance-ops",
+  "schemaVersion": "2026-05-20",
+  "description": "Lynx Capital authorization: per-application bindings, delegation-edge-narrowed agent minting, and mandate-bound resource use.",
+  "policies": [
+    "00-base",
+    "01-bindings",
+    "02-grants",
+    "10-decisions"
+  ]
+}

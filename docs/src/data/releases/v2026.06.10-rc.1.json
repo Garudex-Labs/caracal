@@ -1,0 +1,131 @@
+{
+  "release": "v2026.06.10-rc.1",
+  "channel": "rc",
+  "date": "2026-06-10",
+  "sha": "cd79faa8",
+  "binaries": {
+    "runtime": "2026.06.10-rc.1",
+    "console": "2026.06.10-rc.1"
+  },
+  "images": {
+    "api": "ghcr.io/garudex-labs/caracal-api:v2026.06.10-rc.1",
+    "sts": "ghcr.io/garudex-labs/caracal-sts:v2026.06.10-rc.1",
+    "gateway": "ghcr.io/garudex-labs/caracal-gateway:v2026.06.10-rc.1",
+    "audit": "ghcr.io/garudex-labs/caracal-audit:v2026.06.10-rc.1",
+    "coordinator": "ghcr.io/garudex-labs/caracal-coordinator:v2026.06.10-rc.1",
+    "control": "ghcr.io/garudex-labs/caracal-control:v2026.06.10-rc.1",
+    "postgres": "ghcr.io/garudex-labs/caracal-postgres:v2026.06.10-rc.1",
+    "redis": "ghcr.io/garudex-labs/caracal-redis:v2026.06.10-rc.1",
+    "runtime": "ghcr.io/garudex-labs/caracal-runtime:v2026.06.10-rc.1"
+  },
+  "npm": {
+    "@caracalai/core": "0.1.5-rc.2",
+    "@caracalai/oauth": "0.1.5-rc.2",
+    "@caracalai/admin": "0.1.5-rc.2",
+    "@caracalai/identity": "0.1.5-rc.2",
+    "@caracalai/revocation": "0.1.5-rc.2",
+    "@caracalai/sdk": "0.1.5-rc.2",
+    "@caracalai/transport-mcp": "0.1.5-rc.2",
+    "@caracalai/transport-a2a": "0.1.5-rc.2",
+    "@caracalai/mcp-express": "0.1.5-rc.2",
+    "@caracalai/mcp-fastmcp": "0.1.5-rc.2",
+    "@caracalai/tokenstate-postgres": "0.1.5-rc.2",
+    "@caracalai/revocation-redis": "0.1.5-rc.2"
+  },
+  "pypi": {
+    "caracalai-core": "0.1.5rc2",
+    "caracalai-oauth": "0.1.5rc2",
+    "caracalai-identity": "0.1.5rc2",
+    "caracalai-revocation": "0.1.5rc2",
+    "caracalai-sdk": "0.1.5rc2",
+    "caracalai-transport-mcp": "0.1.5rc2",
+    "caracalai-mcp-fastmcp": "0.1.5rc2",
+    "caracalai-revocation-redis": "0.1.5rc2"
+  },
+  "helm": "2026.6.10-rc.1",
+  "assets": [
+    "SHA256SUMS",
+    "caracal-console-darwin-amd64-v2026.06.10-rc.1.tar.gz",
+    "caracal-console-darwin-arm64-v2026.06.10-rc.1.tar.gz",
+    "caracal-console-linux-amd64-v2026.06.10-rc.1.tar.gz",
+    "caracal-console-linux-arm64-v2026.06.10-rc.1.tar.gz",
+    "caracal-console-windows-amd64-v2026.06.10-rc.1.zip",
+    "caracal-runtime-darwin-amd64-v2026.06.10-rc.1.tar.gz",
+    "caracal-runtime-darwin-arm64-v2026.06.10-rc.1.tar.gz",
+    "caracal-runtime-linux-amd64-v2026.06.10-rc.1.tar.gz",
+    "caracal-runtime-linux-arm64-v2026.06.10-rc.1.tar.gz",
+    "caracal-runtime-windows-amd64-v2026.06.10-rc.1.zip",
+    "install-console.ps1",
+    "install-console.sh",
+    "manifest.json"
+  ],
+  "validation": {
+    "score": 99,
+    "pass": 203,
+    "warn": 2,
+    "fail": 0,
+    "blockers": 0,
+    "areas": [
+      {
+        "id": "registryMetadata",
+        "label": "Registry Metadata",
+        "pass": 20,
+        "warn": 0,
+        "fail": 0
+      },
+      {
+        "id": "pypiInstall",
+        "label": "PyPI Install Matrix",
+        "pass": 48,
+        "warn": 0,
+        "fail": 0
+      },
+      {
+        "id": "npmInstall",
+        "label": "npm Install Matrix",
+        "pass": 72,
+        "warn": 0,
+        "fail": 0
+      },
+      {
+        "id": "runtimeBinaries",
+        "label": "Runtime CLI Binaries",
+        "pass": 15,
+        "warn": 0,
+        "fail": 0
+      },
+      {
+        "id": "consoleBinaries",
+        "label": "Console Binaries",
+        "pass": 15,
+        "warn": 0,
+        "fail": 0
+      },
+      {
+        "id": "installers",
+        "label": "Installers",
+        "pass": 4,
+        "warn": 2,
+        "fail": 0
+      },
+      {
+        "id": "containers",
+        "label": "Container Stack",
+        "pass": 10,
+        "warn": 0,
+        "fail": 0
+      },
+      {
+        "id": "provenance",
+        "label": "Provenance & Signing",
+        "pass": 19,
+        "warn": 0,
+        "fail": 0
+      }
+    ],
+    "notes": [
+      "[info] WARN install-console.ps1 (darwin-arm64/pwsh): PowerShell installer is only exercised on Windows runners",
+      "[info] WARN install-console.ps1 (linux-amd64/pwsh): PowerShell installer is only exercised on Windows runners"
+    ]
+  }
+}

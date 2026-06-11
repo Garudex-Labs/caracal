@@ -100,6 +100,26 @@ describe('POST /v1/policies/validate', () => {
     })
   })
 
+  it('returns a preview of the parsed policy', async () => {
+    const { app } = buildApp()
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/policies/validate',
+      payload: { content: validRego },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(body.valid).toBe(true)
+    expect(body.preview).toMatchObject({
+      package: 'caracal.authz',
+      rules: ['result'],
+      default_result: true,
+      decisions: expect.arrayContaining(['allow', 'deny']),
+      inputs_referenced: ['input.context.requested_scopes'],
+    })
+  })
+
   it('rejects unsupported schema versions', async () => {
     const { app } = buildApp()
     await app.ready()

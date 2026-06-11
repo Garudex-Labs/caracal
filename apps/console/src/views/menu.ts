@@ -40,7 +40,8 @@ import { DoctorView } from './doctor.ts'
 import { ConfirmView, FormView, type Field } from './form.ts'
 import { actionInfo, infoPage, openInfo, type InfoPage } from './info.ts'
 import { firstSetupView } from './setup.ts'
-import { appendCsv, EntityPickerView, pickFromList } from './picker.ts'
+import { EntityPickerView, pickFromList } from './picker.ts'
+import { ScopePickerView } from './scopePicker.ts'
 import {
   agentsView,
   applicationsView,
@@ -183,19 +184,14 @@ function controlKeyPicker(client: AdminClient, zoneId: string): Field['pick'] {
 }
 
 function controlPermissionPicker(): Field['pick'] {
-  return pickFromList(
-    'pick control permission',
-    async () => controlPermissions(),
-    [
-      { header: 'resource', width: 16, value: (row) => row.command },
-      { header: 'action', width: 8, value: (row) => row.action },
-      { header: 'operation', width: 18, value: (row) => row.subcommand || '-' },
-      { header: 'scope', value: (row) => row.scope },
-    ],
-    (row) => row.scope,
-    (row) => row.scope,
-    appendCsv,
-  )
+  return (app, setValue, currentValue) => {
+    app.push(new ScopePickerView({
+      title: 'control permissions',
+      permissions: controlPermissions(),
+      selected: splitList(currentValue),
+      onSave: (scopes) => setValue(scopes.join(',')),
+    }))
+  }
 }
 
 function parseSeconds(value: string | undefined): number | undefined {
@@ -352,7 +348,7 @@ class ControlMenuView implements View {
       title: 'control key create',
       fields: [
         { key: 'name', label: 'name', kind: 'text', required: true },
-        { key: 'scopes', label: 'permissions', kind: 'list', required: true, pick: controlPermissionPicker(), hint: 'right arrow adds one command/action permission' },
+        { key: 'scopes', label: 'permissions', kind: 'list', required: true, tags: true, pick: controlPermissionPicker(), hint: 'right arrow opens the grouped permission picker' },
         { key: 'max_ttl_seconds', label: 'max token TTL', kind: 'select', options: ['300', '600', '900'], default: '300' },
         { key: 'expires_in_days', label: 'expires in days', kind: 'select', options: ['1', '7', '30', '90'], default: '30' },
       ],
@@ -407,7 +403,7 @@ class ControlMenuView implements View {
       fields: [
         { key: 'id', label: 'control key', kind: 'text', required: true, pick: controlKeyPicker(client, zoneId) },
         { key: 'client_secret', label: 'client secret', kind: 'secret', required: true, hint: 'paste the one-time secret from create or rotate' },
-        { key: 'scopes', label: 'permissions', kind: 'list', required: true, pick: controlPermissionPicker(), hint: 'must be granted on the selected key' },
+        { key: 'scopes', label: 'permissions', kind: 'list', required: true, tags: true, pick: controlPermissionPicker(), hint: 'must be granted on the selected key' },
         { key: 'ttl_seconds', label: 'token TTL', kind: 'select', options: ['300', '600', '900'], default: '300' },
       ],
       onSubmit: async (v, app) => {
@@ -844,10 +840,10 @@ function menuHelp(label: string): Pick<InfoPage, 'meaning' | 'when' | 'impact' |
     case 'application':
       return {
         meaning: 'Applications are client identities for workloads, agents, gateways, or automation.',
-        when: 'Use managed apps for known durable software and DCR apps for dynamic or self-registering clients.',
-        impact: 'Managed creation provisions a stable token application; DCR uses the zone-gated dynamic registration path and can expire clients.',
+        when: 'Create managed apps in Console for known durable software. DCR apps are created programmatically via the admin SDK or REST for dynamic or self-registering clients.',
+        impact: 'Console creates stable managed token applications; DCR apps appear read-only here and are created through the zone-gated dynamic registration path with automatic expiry.',
         example: 'Son of Anton',
-        terms: [{ label: 'DCR', value: 'Dynamic Client Registration for self-service, high-churn, or ephemeral clients.' }],
+        terms: [{ label: 'DCR', value: 'Dynamic Client Registration; short-lived self-registering clients created programmatically, not in Console.' }],
       }
     case 'provider':
       return {

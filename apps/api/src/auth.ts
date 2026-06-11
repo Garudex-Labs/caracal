@@ -10,7 +10,9 @@ import { sha256 } from '@caracalai/core'
 import { v7 as uuidv7 } from 'uuid'
 import type { DB } from './db.js'
 import type { RedisClient } from './redis.js'
+import { redisMinuteBucket } from './redis.js'
 import { hashAdminToken, verifyAdminTokenHash } from './hash-secret.js'
+import { bindRequestZoneScope, GLOBAL_ZONE_SCOPE } from './zone-context.js'
 
 type AdminScope = 'global' | 'zone'
 
@@ -116,7 +118,7 @@ async function recordAuthFailure(
   limitPerMin: number,
 ): Promise<boolean> {
   if (!redis || limitPerMin <= 0) return false
-  const minute = Math.floor(Date.now() / 60_000)
+  const minute = await redisMinuteBucket(redis)
   const key = `api:admin_auth_fail:${ip}:${minute}`
   const count = await redis.incr(key)
   if (count === 1) await redis.expire(key, 90)
@@ -215,6 +217,7 @@ const adminAuthImpl: FastifyPluginAsync<AuthPluginOptions> = async (fastify, opt
     }
 
     req.actor = actor
+    bindRequestZoneScope(actor.scope === 'zone' && actor.zoneId ? actor.zoneId : GLOBAL_ZONE_SCOPE)
     if (await shouldTouchLastUsed(redis, actor.id, debounceSec)) {
       touchLastUsed(opts.db, actor.id).catch((err) => {
         req.log.warn({ err, tokenId: actor.id }, 'failed to update admin_tokens.last_used_at')

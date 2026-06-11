@@ -10,7 +10,7 @@ import { v7 as uuidv7 } from 'uuid'
 import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
 import { zoneExists } from '../zone-guard.js'
 import { withTransaction, TxAbort } from '../db.js'
-import { OPA_INPUT_SCHEMA_VERSION, analyzeAuthzPolicy, validateAuthzPolicy, validatePolicySchemaVersion } from '../rego.js'
+import { OPA_INPUT_SCHEMA_VERSION, analyzeAuthzPolicy, previewAuthzPolicy, validateAuthzPolicy, validatePolicySchemaVersion } from '../rego.js'
 import { appendKeysetCondition, parseListPagination, setNextLink } from './list-pagination.js'
 
 const PolicyBody = z.object({
@@ -52,6 +52,7 @@ export const policiesRoutes: FastifyPluginAsync = async (fastify) => {
         decision: ['allow', 'deny'],
         evaluation_status: ['complete'],
       },
+      preview: previewAuthzPolicy(body.content),
       warnings: analyzeAuthzPolicy(body.content),
     }
   })

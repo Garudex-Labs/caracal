@@ -10,7 +10,7 @@ import type { RedisClient } from '../../../../../apps/api/src/redis.js'
 import '../../../../../apps/api/src/fastify-augmentation.js'
 import { applicationsRoutes } from '../../../../../apps/api/src/routes/applications.js'
 
-function buildApp() {
+function buildApp(scope: 'zone' | 'global' = 'zone') {
   const app = Fastify({ logger: false })
   const clientQuery = vi.fn()
   const db = {
@@ -28,7 +28,10 @@ function buildApp() {
   app.decorate('db', db as unknown as DB)
   app.decorate('redis', redis as unknown as RedisClient)
   app.addHook('preHandler', async (req) => {
-    ;(req as unknown as { actor: unknown }).actor = { id: 'actor-1', name: 'operator', scope: 'zone', zoneId: 'z1' }
+    ;(req as unknown as { actor: unknown }).actor =
+      scope === 'global'
+        ? { id: 'actor-1', name: 'operator', scope: 'global' }
+        : { id: 'actor-1', name: 'operator', scope: 'zone', zoneId: 'z1' }
   })
   app.register(applicationsRoutes, { prefix: '/v1' })
   return { app, db, clientQuery, redis }
@@ -184,7 +187,7 @@ describe('POST /v1/zones/:zoneId/applications/dcr', () => {
     expect(res.statusCode).toBe(201)
     expect(JSON.parse(res.body)).toMatchObject({ id: 'app-1', registration_method: 'dcr', expires_at: '2026-05-28T09:00:00.000Z', client_secret: expect.stringMatching(/^cs_[A-Za-z0-9_-]+$/) })
     const insertCall = clientQuery.mock.calls.find((call) => String(call[0]).includes('INSERT INTO applications'))
-    expect(insertCall?.[1]?.[6]).toBeInstanceOf(Date)
+    expect(insertCall?.[1]?.[6]).toBe(3600)
   })
 
   it('rejects DCR lifetimes above the one-hour maximum', async () => {
@@ -268,7 +271,7 @@ describe('GET /v1/zones/:zoneId/applications', () => {
   })
 
   it('includes internal traits only for Control callers and paginates full pages', async () => {
-    const { app, db } = buildApp()
+    const { app, db } = buildApp('global')
     db.query.mockResolvedValueOnce({
       rows: [
         { id: 'app-2', name: 'Two', traits: ['control:invoke'], created_at: '2026-01-02T00:00:00.000Z' },
@@ -280,7 +283,6 @@ describe('GET /v1/zones/:zoneId/applications', () => {
     const res = await app.inject({
       method: 'GET',
       url: '/v1/zones/z1/applications?limit=2',
-      headers: { 'x-caracal-application-internals': 'control' },
     })
 
     expect(res.statusCode).toBe(200)
@@ -313,14 +315,13 @@ describe('GET /v1/zones/:zoneId/applications/:id', () => {
   })
 
   it('includes internal traits on detail only for Control callers', async () => {
-    const { app, db } = buildApp()
+    const { app, db } = buildApp('global')
     db.query.mockResolvedValueOnce({ rows: [{ id: 'app-1', name: 'One', traits: ['control:invoke'] }] })
 
     await app.ready()
     const res = await app.inject({
       method: 'GET',
       url: '/v1/zones/z1/applications/app-1',
-      headers: { 'x-caracal-application-internals': 'control' },
     })
 
     expect(res.statusCode).toBe(200)

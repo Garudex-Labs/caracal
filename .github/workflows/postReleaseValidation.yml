@@ -9,13 +9,13 @@ on:
   workflow_dispatch:
     inputs:
       release:
-        description: Release tag, such as v2026.06.04-rc.1 or v2026.06.04.
+        description: Release tag, such as v2026.06.10-rc.1 or v2026.06.04.
         required: true
         type: string
   workflow_call:
     inputs:
       release:
-        description: Release tag, such as v2026.06.04-rc.1 or v2026.06.04.
+        description: Release tag, such as v2026.06.10-rc.1 or v2026.06.04.
         required: true
         type: string
 
@@ -309,7 +309,6 @@ jobs:
       CARACAL_RELEASE: ${{ inputs.release }}
       FINDINGS_DIR: ${{ github.workspace }}/findings
       MANIFEST: ${{ github.workspace }}/releases/${{ inputs.release }}/manifest.json
-      REPORT_OUT: ${{ github.workspace }}/releases/${{ inputs.release }}/validation.md
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -333,7 +332,7 @@ jobs:
           title: 'release-validation: ${{ inputs.release }} report'
           labels: release-validation
           commit-message: 'release-validation: ${{ inputs.release }} report'
-          add-paths: releases/${{ inputs.release }}/
+          add-paths: docs/src/data/releases/
 
       - if: steps.report-pr.outcome == 'failure'
         run: |

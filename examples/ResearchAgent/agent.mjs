@@ -3,6 +3,12 @@
 //
 // Interactive third-party agent that answers with Google Drive, Calendar, and OpenAI.
 
+// This agent is deliberately Caracal-unaware. It has no Caracal dependency,
+// never talks to STS or the Gateway, and reads only provider-native
+// environment variables. `caracal run` exchanges short-lived credentials and
+// injects them into this process; the agent works exactly like any existing
+// CLI tool that expects Google OAuth tokens and an OpenAI key in its env.
+
 import { createInterface } from 'node:readline/promises'
 import { stdin as input, stdout as output } from 'node:process'
 
@@ -10,22 +16,33 @@ const GOOGLE_API = 'https://www.googleapis.com'
 const OPENAI_API = 'https://api.openai.com/v1'
 const MODEL = 'gpt-5.4-mini'
 
+const CREDENTIALS = [
+  { env: 'GOOGLE_DRIVE_ACCESS_TOKEN', service: 'Google Drive (read-only scope)' },
+  { env: 'GOOGLE_CALENDAR_ACCESS_TOKEN', service: 'Google Calendar (read-only scope)' },
+  { env: 'OPENAI_API_KEY', service: 'OpenAI' },
+]
+
+// Credentials exist only in this process env. Values are never logged,
+// written to disk, or passed to subprocesses.
+function preflight() {
+  const missing = CREDENTIALS.filter(({ env }) => !process.env[env])
+  if (missing.length > 0) {
+    for (const { env } of missing) {
+      process.stderr.write(`[agent] missing ${env}; launch through \`caracal run\` so the credential is injected\n`)
+    }
+    process.exit(2)
+  }
+  output.write('[agent] credential preflight (values masked, injected by launcher):\n')
+  for (const { env, service } of CREDENTIALS) {
+    output.write(`[agent]   ${env}  present  -> ${service}\n`)
+  }
+}
+
+preflight()
+
 const GOOGLE_DRIVE_ACCESS_TOKEN = process.env.GOOGLE_DRIVE_ACCESS_TOKEN
 const GOOGLE_CALENDAR_ACCESS_TOKEN = process.env.GOOGLE_CALENDAR_ACCESS_TOKEN
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY
-
-if (!GOOGLE_DRIVE_ACCESS_TOKEN) {
-  process.stderr.write('GOOGLE_DRIVE_ACCESS_TOKEN is not set; launch through `caracal run`\n')
-  process.exit(2)
-}
-if (!GOOGLE_CALENDAR_ACCESS_TOKEN) {
-  process.stderr.write('GOOGLE_CALENDAR_ACCESS_TOKEN is not set; launch through `caracal run`\n')
-  process.exit(2)
-}
-if (!OPENAI_API_KEY) {
-  process.stderr.write('OPENAI_API_KEY is not set; launch through `caracal run`\n')
-  process.exit(2)
-}
 
 function driveQuery(question) {
   const cleaned = question.replace(/['\\]/g, ' ').trim().split(/\s+/).slice(0, 8).join(' ')
@@ -74,6 +91,7 @@ async function driveContext(question) {
       text: text.slice(0, 2000),
     })
   }
+  output.write(`[agent] drive: ${results.length} matching document(s)\n`)
   return results
 }
 
@@ -92,12 +110,14 @@ async function calendarContext(question) {
     GOOGLE_CALENDAR_ACCESS_TOKEN,
     'google_calendar_events',
   )
-  return (events.items ?? []).map((event) => ({
+  const items = (events.items ?? []).map((event) => ({
     summary: event.summary,
     start: event.start?.dateTime ?? event.start?.date,
     end: event.end?.dateTime ?? event.end?.date,
     description: event.description,
   }))
+  output.write(`[agent] calendar: ${items.length} relevant event(s)\n`)
+  return items
 }
 
 async function answer(question, drive, calendar) {
@@ -126,6 +146,7 @@ async function answer(question, drive, calendar) {
     throw new Error(`openai_call_failed status=${res.status} body=${detail}`)
   }
   const data = await res.json()
+  output.write(`[agent] openai: answered with ${MODEL}\n`)
   return data.choices[0].message.content
 }
 

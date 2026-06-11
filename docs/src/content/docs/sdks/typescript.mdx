@@ -17,7 +17,7 @@ The package is ESM-only and targets Node `>=22`. To consume it from a CommonJS p
 
 | API | Use it when |
 | --- | --- |
-| `Caracal.connect()` | You want auto-detection from explicit options, `CARACAL_CONFIG`, the default profile, or environment variables. |
+| `new Caracal()` | You want auto-detection from explicit options, `CARACAL_CONFIG`, the default profile, or environment variables. |
 | `Caracal.fromEnv()` | You want environment-only startup. |
 | `Caracal.fromConfig(path)` | You want to load a generated runtime profile. |
 | `Caracal.fromClientSecret(options)` | You want service-root token refresh through STS client-secret exchange. |
@@ -25,16 +25,16 @@ The package is ESM-only and targets Node `>=22`. To consume it from a CommonJS p
 ```ts
 import { Caracal } from "@caracalai/sdk";
 
-const caracal = Caracal.connect();
+const caracal = new Caracal();
 ```
 
 ## Core methods
 
 | Method | Purpose |
 | --- | --- |
-| `spawn(fn, options?)` | Create an agent session and bind context while `fn` runs. |
+| `spawn(fn, options?)` | Create an agent session and bind context while `fn` runs; pass `grant: Grant.narrow(...)` to bound the child's authority. |
+| `spawnService(options?)` | Start a long-lived service agent; returns a handle with `heartbeat()` and `close()`. |
 | `delegate(options, fn)` | Create a delegation edge to an existing agent session. |
-| `delegateToSpawn(options, fn)` | Spawn a child agent and create the delegation edge before running `fn`. |
 | `headers(options?)` | Project the current bound context into HTTP headers synchronously. |
 | `headersAsync(options?)` | Project headers when a root token may require async refresh. |
 | `bindFromHeaders(headers, fn, options?)` | Bind inbound Caracal envelope headers to the current async context. |
@@ -45,19 +45,22 @@ const caracal = Caracal.connect();
 ## Context Propagation
 
 ```ts
-await caracal.delegateToSpawn({
-  resourceId: "https://api.example.com/tickets",
-  scopes: ["tickets:read"],
-  constraints: {
-    maxHops: 1,
-    budget: 5,
-    policyApproved: true,
-  },
-  delegationTtlSeconds: 600,
-}, async () => {
+import { Grant } from "@caracalai/sdk";
+
+await caracal.spawn(async () => {
   await fetch("https://api.example.com/tickets", {
     headers: await caracal.headersAsync(),
   });
+}, {
+  grant: Grant.narrow(["tickets:read"], {
+    resourceId: "https://api.example.com/tickets",
+    constraints: {
+      maxHops: 1,
+      budget: 5,
+      policyApproved: true,
+    },
+    ttlSeconds: 600,
+  }),
 });
 ```
 
@@ -67,7 +70,7 @@ await caracal.delegateToSpawn({
 
 Use `bindFromHeaders()` to propagate a Caracal context after an upstream Gateway, connector, or transport verifier has accepted the inbound mandate. Use [Verification Layer Overview](/sdks/verification-layer/) when the TypeScript service must enforce mandate signatures, scopes, targets, agent identity, delegation, or revocation at its own boundary.
 
-Header and transport helpers refuse to fall back to the application root token unless you pass `{ allowRoot: true }`. Use that option only for trusted service-root ingress or setup calls. Normal agent work should run inside `spawn()`, `delegate()`, `delegateToSpawn()`, or `bindFromHeaders()`.
+Header and transport helpers refuse to fall back to the application root token unless you pass `{ allowRoot: true }`. Use that option only for trusted service-root ingress or setup calls. Normal agent work should run inside `spawn()`, `delegate()`, or `bindFromHeaders()`.
 
 ## Related pages
 

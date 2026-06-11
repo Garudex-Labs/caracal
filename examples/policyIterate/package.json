@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Turns a denied request into a reproducible policy-set simulation so teams can iterate policies from real audit data.",
+  "description": "Audit-driven policy iteration: diagnose a denied request, simulate a candidate policy-set version, regression-check expected decisions, and gate activation on the evidence.",
   "engines": {
     "node": ">=22"
   },

@@ -1,17 +1,18 @@
 # examples/controlBootstrap
 
 ## Scope
-- Covers the non-interactive Control API provisioning example under `examples/controlBootstrap/`.
+- Covers the Control API agent environment pipeline example under `examples/controlBootstrap/`.
 
 ## Architecture Design
 - `controlClient.mjs` exchanges a scoped control key for a short-lived STS token and calls `POST /v1/control/invoke`.
-- `provisionPlan.mjs` is the single source of truth for the demo objects, required scopes, and env-driven config.
-- `bootstrap.mjs` and `teardown.mjs` drive idempotent create and reverse-order delete through the Control API.
+- `plan.mjs` is the single source of truth for the desired agent environment, drift checks, per-stage scope tiers, and env-driven config.
+- `apply.mjs`, `verify.mjs`, and `teardown.mjs` drive idempotent reconcile, read-only drift gating, and reverse-order delete through the Control API.
 
 ## Required
 - Must use only the public Control API and STS HTTP surfaces, never repository internals.
-- Must keep the demo objects, scopes, and client config defined in `provisionPlan.mjs`.
-- Must keep tests offline with a mock fetch.
+- Must keep the desired state, drift checks, scope tiers, and client config defined in `plan.mjs`.
+- Must keep `verify` read-only and `apply` idempotent.
+- Must keep tests offline with a fake zone and mock fetch.
 - Must run on Node `>=22`.
 
 ## Forbidden

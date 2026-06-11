@@ -90,8 +90,17 @@ class AgentMemory:
         if len(self.messages) <= KEEP_TAIL_MESSAGES + 2:
             return None
 
-        head = self.messages[:-KEEP_TAIL_MESSAGES]
-        tail = self.messages[-KEEP_TAIL_MESSAGES:]
+        # The kept tail must not start with a ToolMessage: the chat API requires
+        # every tool result to follow the assistant message that issued the call,
+        # so widen the tail until it opens on a non-tool message.
+        cut = len(self.messages) - KEEP_TAIL_MESSAGES
+        while cut > 0 and isinstance(self.messages[cut], ToolMessage):
+            cut -= 1
+        if cut == 0:
+            return None
+
+        head = self.messages[:cut]
+        tail = self.messages[cut:]
 
         transcript_lines: list[str] = []
         for m in head:

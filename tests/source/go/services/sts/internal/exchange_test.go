@@ -234,10 +234,20 @@ type stubDB struct {
 	secrets       []SecretRow
 	secretsErr    error
 	insertedKey   *SecretRow
+	now           time.Time
 }
 
 func (s *stubDB) Ping(_ context.Context) error { return nil }
+func (s *stubDB) CurrentTime(_ context.Context) (time.Time, error) {
+	if s.now.IsZero() {
+		return time.Now(), nil
+	}
+	return s.now, nil
+}
 func (s *stubDB) GetApplicationByID(_ context.Context, _, _ string) (*Application, error) {
+	return s.app, s.appErr
+}
+func (s *stubDB) GetApplicationByIDGlobal(_ context.Context, _ string) (*Application, error) {
 	return s.app, s.appErr
 }
 func (s *stubDB) GetResourceByIdentifier(_ context.Context, _, _ string) (*Resource, error) {
@@ -346,14 +356,15 @@ func (s *stubDB) UpdateApplicationSecretHash(_ context.Context, _, _, _ string) 
 }
 
 func TestValidateTokenSessionBindsClientID(t *testing.T) {
+	now := time.Now()
 	subjectID := "user-1"
 	srv := &Server{db: &stubDB{session: &Session{
 		ID:        "sess-1",
 		ZoneID:    "zone1",
 		Status:    "active",
 		SubjectID: &subjectID,
-		ExpiresAt: time.Now().Add(time.Minute),
-	}}}
+		ExpiresAt: now.Add(time.Minute),
+	}, now: now}}
 	claims := map[string]any{
 		"sid":       "sess-1",
 		"sub":       subjectID,
@@ -364,6 +375,26 @@ func TestValidateTokenSessionBindsClientID(t *testing.T) {
 	}
 	if _, err := srv.validateTokenSession(context.Background(), "zone1", "app2", "", claims); err == nil || err.Description != "session client mismatch" {
 		t.Fatalf("wrong client_id must fail, got %#v", err)
+	}
+}
+
+func TestValidateTokenSessionUsesDatabaseTime(t *testing.T) {
+	now := time.Now()
+	subjectID := "user-1"
+	srv := &Server{db: &stubDB{session: &Session{
+		ID:        "sess-1",
+		ZoneID:    "zone1",
+		Status:    "active",
+		SubjectID: &subjectID,
+		ExpiresAt: now.Add(time.Minute),
+	}, now: now.Add(2 * time.Minute)}}
+	claims := map[string]any{
+		"sid":       "sess-1",
+		"sub":       subjectID,
+		"client_id": "app1",
+	}
+	if _, err := srv.validateTokenSession(context.Background(), "zone1", "app1", "", claims); err == nil || err.Description != "session inactive or expired" {
+		t.Fatalf("database-expired session must fail, got %#v", err)
 	}
 }
 
@@ -402,6 +433,73 @@ func TestAuthenticateAppRejectsApplicationIdentityWithoutSecret(t *testing.T) {
 		ApplicationID: "app1",
 	}); !errors.Is(err, errSecretMismatch) {
 		t.Fatalf("application identity without secret must fail, got %v", err)
+	}
+}
+
+func TestAuthenticateAppDerivesZoneForControlKey(t *testing.T) {
+	hash, err := hashClientSecret("test-secret")
+	if err != nil {
+		t.Fatalf("hash client secret: %v", err)
+	}
+	srv := &Server{db: &stubDB{app: &Application{
+		ID:                 "control-app",
+		ZoneID:             "zone-bound",
+		Name:               "Control key",
+		RegistrationMethod: "managed",
+		ClientSecretHash:   &hash,
+		Traits:             []string{controlInvokeTrait, controlScopeTrait + "control:resource:read"},
+	}}}
+	app, zoneID, err := srv.authenticateApp(context.Background(), TokenExchangeRequest{
+		ApplicationID: "control-app",
+		ClientSecret:  "test-secret",
+		Resources:     []string{defaultControlAudience},
+		Scope:         "control:resource:read",
+	})
+	if err != nil || app.ID != "control-app" || zoneID != "zone-bound" {
+		t.Fatalf("control key should derive zone, app=%#v zone=%q err=%v", app, zoneID, err)
+	}
+}
+
+func TestAuthenticateAppRejectsZoneLessControlKeyForNonControlResource(t *testing.T) {
+	hash, err := hashClientSecret("test-secret")
+	if err != nil {
+		t.Fatalf("hash client secret: %v", err)
+	}
+	srv := &Server{db: &stubDB{app: &Application{
+		ID:                 "control-app",
+		ZoneID:             "zone-bound",
+		Name:               "Control key",
+		RegistrationMethod: "managed",
+		ClientSecretHash:   &hash,
+		Traits:             []string{controlInvokeTrait, controlScopeTrait + "control:resource:read"},
+	}}}
+	if _, _, err := srv.authenticateApp(context.Background(), TokenExchangeRequest{
+		ApplicationID: "control-app",
+		ClientSecret:  "test-secret",
+		Resources:     []string{"resource://payments"},
+		Scope:         "control:resource:read",
+	}); err == nil || !strings.Contains(err.Error(), "zone_id required") {
+		t.Fatalf("zone-less control key must be limited to Control audience, got %v", err)
+	}
+}
+
+func TestAuthenticateAppRejectsZoneLessNonControlApplication(t *testing.T) {
+	hash, err := hashClientSecret("test-secret")
+	if err != nil {
+		t.Fatalf("hash client secret: %v", err)
+	}
+	srv := &Server{db: &stubDB{app: &Application{
+		ID:                 "app1",
+		ZoneID:             "zone1",
+		Name:               "Test App",
+		RegistrationMethod: "managed",
+		ClientSecretHash:   &hash,
+	}}}
+	if _, _, err := srv.authenticateApp(context.Background(), TokenExchangeRequest{
+		ApplicationID: "app1",
+		ClientSecret:  "test-secret",
+	}); err == nil || !strings.Contains(err.Error(), "zone_id required") {
+		t.Fatalf("non-control application without zone_id must fail, got %v", err)
 	}
 }
 
@@ -1259,25 +1357,25 @@ func TestValidateSessionReferencesAcceptsActiveGraphEdge(t *testing.T) {
 
 func TestAgentSessionMetadataIsPolicyAndAuditInput(t *testing.T) {
 	session := &AgentSession{
-		ID:           "agent-1",
-		Kind:         "ephemeral",
-		Capabilities: []string{"browser", "code"},
+		ID:        "agent-1",
+		Lifecycle: "task",
+		Labels:    []string{"browser", "code"},
 	}
-	if got := agentSessionKind(session); got != "ephemeral" {
-		t.Fatalf("kind = %q", got)
+	if got := agentSessionLifecycle(session); got != "task" {
+		t.Fatalf("lifecycle = %q", got)
 	}
-	caps := agentSessionCapabilities(session)
+	caps := agentSessionLabels(session)
 	caps[0] = "mutated"
-	if session.Capabilities[0] != "browser" {
-		t.Fatal("capabilities must be copied before policy evaluation")
+	if session.Labels[0] != "browser" {
+		t.Fatal("labels must be copied before policy evaluation")
 	}
 	meta := agentAuditMeta(session)
-	if meta["agent_kind"] != "ephemeral" {
-		t.Fatalf("audit metadata missing kind: %#v", meta)
+	if meta["agent_lifecycle"] != "task" {
+		t.Fatalf("audit metadata missing lifecycle: %#v", meta)
 	}
-	gotCaps, ok := meta["agent_capabilities"].([]string)
+	gotCaps, ok := meta["agent_labels"].([]string)
 	if !ok || len(gotCaps) != 2 || gotCaps[1] != "code" {
-		t.Fatalf("audit metadata missing capabilities: %#v", meta)
+		t.Fatalf("audit metadata missing labels: %#v", meta)
 	}
 }
 

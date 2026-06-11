@@ -35,25 +35,28 @@ run_ts=false
 run_go=false
 run_py=false
 run_docs=false
+run_style=false
 run_smoke=false
 
 if [[ $# -eq 0 ]]; then
-  run_ts=true; run_go=true; run_py=true; run_docs=true
+  run_ts=true; run_go=true; run_py=true; run_docs=true; run_style=true
 fi
 
 for arg in "$@"; do
   case "$arg" in
-    --all)   run_ts=true; run_go=true; run_py=true; run_docs=true ;;
+    --all)   run_ts=true; run_go=true; run_py=true; run_docs=true; run_style=true ;;
     --smoke) run_smoke=true ;;
+    --style) run_style=true ;;
     --ts)    run_ts=true ;;
     --go)    run_go=true ;;
     --py)    run_py=true ;;
     --docs)  run_docs=true ;;
     -h|--help)
       cat <<EOF
-Usage: scripts/testCi.sh [--all|--smoke|--ts|--go|--py|--docs]...
-  no flags : run full suite (ts, go, py, docs)
+Usage: scripts/testCi.sh [--all|--smoke|--style|--ts|--go|--py|--docs]...
+  no flags : run full suite (style, ts, go, py, docs)
   --smoke  : post-merge smoke (typecheck + go vet)
+  --style  : prettier, gofmt, and ruff format checks for changed files
   --ts     : TypeScript lint, types, build, vitest with coverage
   --go     : go test -race with coverage
   --py     : python coverage run + unittest discover
@@ -80,9 +83,14 @@ if $run_smoke; then
   "$go_cmd" vet "${go_pkgs[@]}"
 fi
 
-if $run_ts || $run_docs; then
+if $run_ts || $run_docs || $run_style; then
   step "pnpm install"
   pnpm install --frozen-lockfile --prefer-offline
+fi
+
+if $run_style; then
+  step "style: changed source"
+  pnpm run style
 fi
 
 if $run_ts; then
@@ -177,7 +185,7 @@ if $run_py; then
   step "py: coverage run"
   mkdir -p coverage/python
   PYTHONPATH="$root/packages/core/python:$root/packages/oauth/python:$root/packages/identity/python:$root/packages/revocation/python:$root/packages/sdk/python:$root/packages/transport/mcp/python:$root/packages/connectors/fastmcp/python:$root/packages/connectors/redis/python:$root/tests/shared/test-utils/python" \
-    "$py_coverage" run --source=packages/core/python/caracalai_core,packages/oauth/python/caracalai_oauth,packages/identity/python/caracalai_identity,packages/revocation/python/caracalai_revocation,packages/sdk/python/caracalai_sdk,packages/transport/mcp/python/caracalai_transport_mcp,packages/connectors/fastmcp/python/caracalai_mcp_fastmcp,packages/connectors/redis/python/caracalai_revocation_redis \
+    "$py_coverage" run --source=packages/core/python/caracalai_core,packages/oauth/python/caracalai_oauth,packages/identity/python/caracalai_identity,packages/revocation/python/caracalai_revocation,packages/sdk/python/caracalai,packages/transport/mcp/python/caracalai_transport_mcp,packages/connectors/fastmcp/python/caracalai_mcp_fastmcp,packages/connectors/redis/python/caracalai_revocation_redis \
     -m unittest discover -s tests/python -p 'test_*.py' -v
   "$py_coverage" xml -o coverage/python/coverage.xml
   "$py_coverage" report --show-missing

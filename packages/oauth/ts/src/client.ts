@@ -134,7 +134,7 @@ export class OAuthClient {
     resource: string | string[],
     opts: ExchangeOptions,
     isRetry: boolean,
-    deadlineMs = Date.now() + (opts.timeoutMs ?? 30_000),
+    deadlineMs = performance.now() + (opts.timeoutMs ?? 30_000),
   ): Promise<TokenExchangeResponse> {
     const body = new URLSearchParams({
       grant_type: 'urn:ietf:params:oauth:grant-type:token-exchange',
@@ -162,7 +162,7 @@ export class OAuthClient {
     let res: Awaited<ReturnType<typeof fetch>> | undefined
     let lastErr: unknown
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
-      const remainingMs = deadlineMs - Date.now()
+      const remainingMs = deadlineMs - performance.now()
       if (remainingMs <= 0) throw new Error('STS request timed out')
       const controller = new AbortController()
       const timeout = setTimeout(() => controller.abort(), remainingMs)
@@ -320,7 +320,7 @@ function jitteredBackoff(attempt: number): number {
 }
 
 async function delayWithinDeadline(waitMs: number, deadlineMs: number): Promise<void> {
-  const remainingMs = deadlineMs - Date.now()
+  const remainingMs = deadlineMs - performance.now()
   if (remainingMs <= 0) throw new Error('STS request timed out')
   await new Promise(resolve => setTimeout(resolve, Math.min(waitMs, remainingMs)))
 }

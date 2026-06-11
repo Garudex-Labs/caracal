@@ -9,7 +9,7 @@
 
 ## Required
 - Must require Python 3.14+ through `pyproject.toml`.
-- Must keep the public surface exported from `caracalai_sdk/__init__.py`.
+- Must keep the public surface exported from `caracalai/__init__.py`.
 - Must preserve context propagation, delegation constraints, and envelope semantics.
 - Must keep ASGI helpers optional and framework-shaped without owning app code.
 
@@ -19,5 +19,5 @@
 - Must not log or persist bearer tokens.
 
 ## Validation
-- Validate with the relevant `tests/python/unit/caracalai_sdk` tests.
+- Validate with the relevant `tests/python/unit/caracalai` tests.
 

@@ -8,9 +8,9 @@ from __future__ import annotations
 
 from typing import Callable
 
+from app.agents.runner import get_runner
 from app.events import types as ev
 from app.events.bus import bus
-from app.services.partners import PartnerPendingCaracal
 from app.services.partners import call as _partner
 
 _REGION_CCY = {"US": "USD", "IN": "USD", "DE": "EUR", "SG": "SGD", "BR": "BRL", "GLOBAL": "USD"}
@@ -21,17 +21,20 @@ def _ccy(region: str) -> str:
     return _REGION_CCY.get(region, "USD")
 
 
+def _authority(run_id: str, agent_id: str):
+    """The calling agent's Caracal authority, resolved from the run's registry."""
+    runner = get_runner(run_id)
+    handle = runner.handle(agent_id) if runner else None
+    return handle.authority if handle else None
+
+
 def _run(run_id: str, agent_id: str, tool_name: str, provider_id: str,
          operation: str, payload: dict) -> dict[str, object]:
-    """Emit the tool/service event pairs and execute one provider operation."""
+    """Emit the tool/service event pairs and execute one provider operation under the
+    calling agent's authority."""
     bus.publish(ev.tool_call(run_id, agent_id, tool_name, payload))
     bus.publish(ev.service_call(run_id, agent_id, provider_id, operation, payload))
-    try:
-        result = _partner(provider_id, operation, payload)
-    except PartnerPendingCaracal:
-        result = {"provider": provider_id, "operation": operation,
-                  "status": "pending_caracal_integration",
-                  "message": "provider activates in the Caracal SDK integration phase"}
+    result = _partner(provider_id, operation, payload, authority=_authority(run_id, agent_id))
     bus.publish(ev.service_result(run_id, agent_id, provider_id, operation, result))
     bus.publish(ev.tool_result(run_id, agent_id, tool_name, result))
     return result
@@ -214,12 +217,16 @@ def check_transaction(run_id: str, agent_id: str, vendor_id: str, amount: float,
 
 
 def get_withholding_rate(run_id: str, agent_id: str, region: str, currency: str) -> dict[str, object]:
-    return _run(run_id, agent_id, "get_withholding_rate", "sabre-tax", "get_jurisdiction",
-                {"jurisdiction": _REGION_TAX.get(region, "US")})
+    country = _REGION_TAX.get(region, "US")
+    documentation = "W-9" if country == "US" else "W-8BEN"
+    payee = {"country": country, "documentationType": documentation,
+             "treatyClaim": country != "US"}
+    return _run(run_id, agent_id, "get_withholding_rate", "sabre-tax", "determine_withholding",
+                {"paymentType": "services", "currencyCode": currency, "payee": payee})
 
 
 def validate_tax_id(run_id: str, agent_id: str, vendor_id: str) -> dict[str, object]:
-    return _run(run_id, agent_id, "validate_tax_id", "sabre-tax", "validate_id",
+    return _run(run_id, agent_id, "validate_tax_id", "sabre-tax", "validate_tax_id",
                 {"taxId": vendor_id, "country": "US"})
 
 
@@ -319,15 +326,29 @@ def submit_payment(run_id: str, agent_id: str, vendor_id: str, amount: float, cu
 
 
 def submit_payout(run_id: str, agent_id: str, vendor_id: str, amount: float, currency: str, rail: str, reference: str) -> dict[str, object]:
-    """Cross-border mass-payout rail: register the recipient then release the payout."""
+    """Cross-border mass-payout rail: onboard and KYC-verify the recipient, lock an
+    FX quote for the corridor, then release the payout funded from the USD balance."""
     rec = _run(run_id, agent_id, "submit_payout", "quetzal-payouts", "create_recipient",
-               {"name": vendor_id, "currency": currency, "method": "bank"})
+               {"name": vendor_id, "currency": currency, "method": "bank", "type": "business"})
     data = rec.get("data") if isinstance(rec, dict) else None
     recipient_id = data.get("id") if isinstance(data, dict) else None
     if not recipient_id:
         return rec
+
+    _run(run_id, agent_id, "submit_payout", "quetzal-payouts", "verify_recipient",
+         {"recipientId": recipient_id})
+
+    quote = _run(run_id, agent_id, "submit_payout", "quetzal-payouts", "get_quote",
+                 {"sourceCurrency": "USD", "targetCurrency": currency,
+                  "targetAmount": amount, "payoutMethod": "bank_transfer"})
+    qdata = quote.get("data") if isinstance(quote, dict) else None
+    source_amount = qdata.get("sourceAmount") if isinstance(qdata, dict) else None
+    quote_id = qdata.get("quoteId") if isinstance(qdata, dict) else None
+
     return _run(run_id, agent_id, "submit_payout", "quetzal-payouts", "create_payout",
-                {"recipientId": recipient_id, "amount": amount, "currency": currency})
+                {"recipientId": recipient_id, "amount": source_amount or amount,
+                 "currency": "USD", "quoteId": quote_id, "purpose": "supplier invoice",
+                 "reference": reference or vendor_id})
 
 
 def create_outbound_payment(run_id: str, agent_id: str, vendor_id: str, amount: float, currency: str, rail: str, reference: str) -> dict[str, object]:
@@ -384,9 +405,11 @@ def list_payment_disputes(run_id: str, agent_id: str, status: str = "") -> dict[
     return _run(run_id, agent_id, "list_payment_disputes", "meridian-pay", "list_disputes", payload)
 
 
-def get_payout_status(run_id: str, agent_id: str, payout_id: str) -> dict[str, object]:
-    """Track a card-rail payout through to its settled state."""
-    return _run(run_id, agent_id, "get_payout_status", "meridian-pay", "get_payout",
+def get_payout_status(run_id: str, agent_id: str, payout_id: str, rail: str = "") -> dict[str, object]:
+    """Track a payout through to its settled state, querying the provider that served
+    its rail: cross-border rails to quetzal-payouts, card/default to meridian-pay."""
+    provider = "quetzal-payouts" if _RAIL_PROVIDER.get((rail or "").upper()) == "quetzal" else "meridian-pay"
+    return _run(run_id, agent_id, "get_payout_status", provider, "get_payout",
                 {"payoutId": payout_id})
 
 
@@ -403,8 +426,28 @@ def register_vendor(run_id: str, agent_id: str, vendor_id: str) -> dict[str, obj
 
 
 def refresh_vendor_compliance(run_id: str, agent_id: str, vendor_id: str) -> dict[str, object]:
-    return _run(run_id, agent_id, "refresh_vendor_compliance", "atlas-vendor", "get_vendor_profile",
+    return _run(run_id, agent_id, "refresh_vendor_compliance", "atlas-vendor", "get_compliance_status",
                 {"vendorId": vendor_id})
+
+
+def get_vendor_onboarding_status(run_id: str, agent_id: str, vendor_id: str) -> dict[str, object]:
+    return _run(run_id, agent_id, "get_vendor_onboarding_status", "atlas-vendor",
+                "get_onboarding_status", {"vendorId": vendor_id})
+
+
+def advance_vendor_onboarding(run_id: str, agent_id: str, vendor_id: str,
+                              step: str, outcome: str = "pass") -> dict[str, object]:
+    return _run(run_id, agent_id, "advance_vendor_onboarding", "atlas-vendor",
+                "advance_onboarding", {"vendorId": vendor_id, "step": step, "outcome": outcome})
+
+
+def verify_vendor_banking(run_id: str, agent_id: str, vendor_id: str,
+                          account_number: str = "") -> dict[str, object]:
+    payload: dict[str, object] = {"vendorId": vendor_id}
+    if account_number:
+        payload["accountNumber"] = account_number
+    return _run(run_id, agent_id, "verify_vendor_banking", "atlas-vendor",
+                "verify_vendor_banking", payload)
 
 
 # -- treasury tools --
@@ -414,19 +457,32 @@ def get_cash_position(run_id: str, agent_id: str, region: str) -> dict[str, obje
                 {"currency": _ccy(region)})
 
 
-def forecast_liquidity(run_id: str, agent_id: str, horizon_days: int) -> dict[str, object]:
+def get_treasury_summary(run_id: str, agent_id: str) -> dict[str, object]:
+    return _run(run_id, agent_id, "get_treasury_summary", "keystone-treasury",
+                "get_position_summary", {})
+
+
+def forecast_liquidity(run_id: str, agent_id: str, horizon_days: int,
+                       scenario: str = "base") -> dict[str, object]:
     return _run(run_id, agent_id, "forecast_liquidity", "keystone-treasury", "forecast_liquidity",
-                {"currency": "USD", "horizonDays": horizon_days})
+                {"currency": "USD", "horizonDays": horizon_days, "scenario": scenario})
+
+
+def get_fx_exposure(run_id: str, agent_id: str, currency: str) -> dict[str, object]:
+    return _run(run_id, agent_id, "get_fx_exposure", "keystone-treasury", "get_exposure",
+                {"currency": currency.upper()})
 
 
 def place_fx_hedge(run_id: str, agent_id: str, from_currency: str, to_currency: str, notional: float, tenor_days: int) -> dict[str, object]:
     return _run(run_id, agent_id, "place_fx_hedge", "keystone-treasury", "place_hedge",
-                {"pair": f"{from_currency}/{to_currency}", "notional": notional, "side": "buy"})
+                {"pair": f"{from_currency}/{to_currency}", "notional": notional, "side": "buy",
+                 "instrument": "forward", "tenorDays": tenor_days})
 
 
 def transfer_funds(run_id: str, agent_id: str, from_region: str, to_region: str, amount_usd: float) -> dict[str, object]:
     return _run(run_id, agent_id, "transfer_funds", "keystone-treasury", "transfer_funds",
-                {"currency": "USD", "amount": amount_usd, "destination": to_region})
+                {"currency": "USD", "amount": amount_usd, "destination": to_region,
+                 "purposeCode": "INTC"})
 
 
 # -- close tools --
@@ -473,9 +529,11 @@ def close_period(run_id: str, agent_id: str, period: str) -> dict[str, object]:
 
 # -- compliance / regulatory tools --
 
-def aml_monitor_transaction(run_id: str, agent_id: str, vendor_id: str, amount: float, currency: str) -> dict[str, object]:
+def aml_monitor_transaction(run_id: str, agent_id: str, vendor_id: str, amount: float,
+                            currency: str, channel: str = "wire") -> dict[str, object]:
     return _run(run_id, agent_id, "aml_monitor_transaction", "verafin-monitor", "monitor_transaction",
-                {"transactionId": vendor_id, "amount": amount, "currency": currency})
+                {"transactionId": vendor_id, "customerId": vendor_id, "amount": amount,
+                 "currency": currency, "channel": channel})
 
 
 def sanctions_screen_batch(run_id: str, agent_id: str, batch_id: str) -> dict[str, object]:
@@ -483,14 +541,20 @@ def sanctions_screen_batch(run_id: str, agent_id: str, batch_id: str) -> dict[st
                 {"batchId": batch_id})
 
 
-def prepare_regulatory_filing(run_id: str, agent_id: str, filing_type: str, period: str) -> dict[str, object]:
+def prepare_regulatory_filing(run_id: str, agent_id: str, filing_type: str, alert_id: str) -> dict[str, object]:
     return _run(run_id, agent_id, "prepare_regulatory_filing", "verafin-monitor", "prepare_filing",
-                {"alertId": period, "filingType": filing_type})
+                {"alertId": alert_id, "filingType": filing_type})
 
 
-def attest_control(run_id: str, agent_id: str, control_id: str) -> dict[str, object]:
+def submit_regulatory_filing(run_id: str, agent_id: str, filing_id: str) -> dict[str, object]:
+    return _run(run_id, agent_id, "submit_regulatory_filing", "verafin-monitor", "submit_filing",
+                {"filingId": filing_id})
+
+
+def attest_control(run_id: str, agent_id: str, control_id: str,
+                   effectiveness: str = "effective") -> dict[str, object]:
     return _run(run_id, agent_id, "attest_control", "verafin-monitor", "attest_control",
-                {"controlId": control_id, "attestor": agent_id})
+                {"controlId": control_id, "attestor": agent_id, "effectiveness": effectiveness})
 
 
 # -- receivables tools --
@@ -500,9 +564,55 @@ def issue_customer_invoice(run_id: str, agent_id: str, customer_id: str, amount:
                 {"customerId": customer_id, "amount": amount})
 
 
-def send_dunning_notice(run_id: str, agent_id: str, customer_id: str, stage: int) -> dict[str, object]:
+_DUNNING_TEMPLATES = {1: "dunning_reminder", 2: "dunning_second_notice", 3: "dunning_final_notice"}
+
+
+def _notify_recipient(party_id: str) -> str:
+    return f"{party_id.strip().lower().replace(' ', '.')}@accounts.lynxcapital.test"
+
+
+def send_dunning_notice(run_id: str, agent_id: str, customer_id: str, stage: int,
+                        invoice_id: str | None = None) -> dict[str, object]:
+    template = _DUNNING_TEMPLATES.get(int(stage), "dunning_final_notice")
+    if invoice_id:
+        _run(run_id, agent_id, "send_dunning_notice", "core-billing", "issue_dunning",
+             {"invoiceId": invoice_id, "channel": "email"})
     return _run(run_id, agent_id, "send_dunning_notice", "vela-notify", "send_message",
-                {"channel": "email", "to": customer_id, "template": "dunning_reminder"})
+                {"channel": "email", "to": _notify_recipient(customer_id), "template": template,
+                 "tag": "dunning", "metadata": {"customerId": customer_id, "stage": int(stage),
+                                                 "invoiceId": invoice_id}})
+
+
+def run_dunning_cycle(run_id: str, agent_id: str, min_days_past_due: int = 1,
+                      customer_id: str | None = None) -> dict[str, object]:
+    payload: dict[str, object] = {"minDaysPastDue": int(min_days_past_due)}
+    if customer_id:
+        payload["customerId"] = customer_id
+    return _run(run_id, agent_id, "run_dunning_cycle", "core-billing", "run_dunning_cycle", payload)
+
+
+def send_remittance_advice(run_id: str, agent_id: str, vendor_id: str, amount: float,
+                           currency: str, reference: str) -> dict[str, object]:
+    return _run(run_id, agent_id, "send_remittance_advice", "vela-notify", "send_message",
+                {"channel": "email", "to": _notify_recipient(vendor_id), "template": "remittance_advice",
+                 "tag": "remittance",
+                 "metadata": {"vendorId": vendor_id, "amount": amount, "currency": currency,
+                              "reference": reference}})
+
+
+def send_payment_confirmation(run_id: str, agent_id: str, payee_id: str, amount: float,
+                              currency: str, reference: str, channel: str = "email") -> dict[str, object]:
+    recipient = _notify_recipient(payee_id) if channel == "email" else "+1 415 555 0100"
+    return _run(run_id, agent_id, "send_payment_confirmation", "vela-notify", "send_message",
+                {"channel": channel, "to": recipient, "template": "payment_confirmation",
+                 "tag": "payment",
+                 "metadata": {"payeeId": payee_id, "amount": amount, "currency": currency,
+                              "reference": reference}})
+
+
+def track_message_delivery(run_id: str, agent_id: str, message_id: str) -> dict[str, object]:
+    return _run(run_id, agent_id, "track_message_delivery", "vela-notify", "get_message_events",
+                {"messageId": message_id})
 
 
 def apply_customer_payment(run_id: str, agent_id: str, invoice_id: str, amount: float) -> dict[str, object]:
@@ -514,21 +624,118 @@ def get_ar_aging(run_id: str, agent_id: str, region: str) -> dict[str, object]:
     return _run(run_id, agent_id, "get_ar_aging", "core-billing", "get_ar_aging", {})
 
 
+def get_ar_summary(run_id: str, agent_id: str) -> dict[str, object]:
+    return _run(run_id, agent_id, "get_ar_summary", "core-billing", "get_ar_summary", {})
+
+
+def get_customer_account(run_id: str, agent_id: str, customer_id: str) -> dict[str, object]:
+    return _run(run_id, agent_id, "get_customer_account", "core-billing", "get_customer",
+                {"customerId": customer_id})
+
+
+def list_customer_invoices(run_id: str, agent_id: str, customer_id: str,
+                           overdue: bool = False) -> dict[str, object]:
+    return _run(run_id, agent_id, "list_customer_invoices", "core-billing", "list_invoices",
+                {"customerId": customer_id, "overdue": bool(overdue)})
+
+
+def record_customer_payment(run_id: str, agent_id: str, customer_id: str, amount: float,
+                            reference: str | None = None) -> dict[str, object]:
+    payload: dict[str, object] = {"customerId": customer_id, "amount": amount}
+    if reference:
+        payload["reference"] = reference
+    return _run(run_id, agent_id, "record_customer_payment", "core-billing", "record_payment", payload)
+
+
+def write_off_invoice(run_id: str, agent_id: str, invoice_id: str,
+                      reason: str = "bad_debt") -> dict[str, object]:
+    return _run(run_id, agent_id, "write_off_invoice", "core-billing", "write_off_invoice",
+                {"invoiceId": invoice_id, "reason": reason})
+
+
+def open_collection_case(run_id: str, agent_id: str, customer_id: str) -> dict[str, object]:
+    return _run(run_id, agent_id, "open_collection_case", "core-billing", "open_collection_case",
+                {"customerId": customer_id})
+
+
 # -- procurement tools (junction-procure) --
 
-def create_requisition(run_id: str, agent_id: str, department: str, amount: float, description: str) -> dict[str, object]:
+def procurement_list_suppliers(run_id: str, agent_id: str, status: str = "active",
+                               category: str | None = None) -> dict[str, object]:
+    payload: dict[str, object] = {"status": status}
+    if category:
+        payload["category"] = category
+    return _run(run_id, agent_id, "procurement_list_suppliers", "junction-procure",
+                "list_suppliers", payload)
+
+
+def procurement_get_supplier(run_id: str, agent_id: str, supplier_id: str) -> dict[str, object]:
+    return _run(run_id, agent_id, "procurement_get_supplier", "junction-procure",
+                "get_supplier", {"supplierId": supplier_id})
+
+
+def create_requisition(run_id: str, agent_id: str, department: str, amount: float,
+                       description: str, justification: str | None = None) -> dict[str, object]:
+    payload: dict[str, object] = {"department": department, "amount": amount,
+                                  "description": description}
+    if justification:
+        payload["justification"] = justification
     return _run(run_id, agent_id, "create_requisition", "junction-procure", "create_requisition",
-                {"department": department, "amount": amount, "description": description})
+                payload)
 
 
-def approve_requisition(run_id: str, agent_id: str, requisition_id: str) -> dict[str, object]:
+def approve_requisition(run_id: str, agent_id: str, requisition_id: str,
+                        comment: str | None = None) -> dict[str, object]:
+    payload: dict[str, object] = {"requisitionId": requisition_id}
+    if comment:
+        payload["comment"] = comment
     return _run(run_id, agent_id, "approve_requisition", "junction-procure", "approve_requisition",
+                payload)
+
+
+def reject_requisition(run_id: str, agent_id: str, requisition_id: str,
+                       comment: str | None = None) -> dict[str, object]:
+    payload: dict[str, object] = {"requisitionId": requisition_id}
+    if comment:
+        payload["comment"] = comment
+    return _run(run_id, agent_id, "reject_requisition", "junction-procure", "reject_requisition",
+                payload)
+
+
+def get_requisition(run_id: str, agent_id: str, requisition_id: str) -> dict[str, object]:
+    return _run(run_id, agent_id, "get_requisition", "junction-procure", "get_requisition",
+                {"requisitionId": requisition_id})
+
+
+def list_requisitions(run_id: str, agent_id: str, status: str | None = None,
+                      department: str | None = None) -> dict[str, object]:
+    payload: dict[str, object] = {}
+    if status:
+        payload["status"] = status
+    if department:
+        payload["department"] = department
+    return _run(run_id, agent_id, "list_requisitions", "junction-procure", "list_requisitions",
+                payload)
+
+
+def get_approval_chain(run_id: str, agent_id: str, requisition_id: str) -> dict[str, object]:
+    return _run(run_id, agent_id, "get_approval_chain", "junction-procure", "get_approval_chain",
                 {"requisitionId": requisition_id})
 
 
 def create_purchase_order(run_id: str, agent_id: str, requisition_id: str, vendor_id: str) -> dict[str, object]:
     return _run(run_id, agent_id, "create_purchase_order", "junction-procure", "create_purchase_order",
-                {"requisitionId": requisition_id, "vendorId": vendor_id})
+                {"requisitionId": requisition_id, "supplierId": vendor_id})
+
+
+def receive_purchase_order(run_id: str, agent_id: str, po_id: str) -> dict[str, object]:
+    return _run(run_id, agent_id, "receive_purchase_order", "junction-procure", "receive_order",
+                {"poId": po_id})
+
+
+def get_purchase_order_status(run_id: str, agent_id: str, po_id: str) -> dict[str, object]:
+    return _run(run_id, agent_id, "get_purchase_order_status", "junction-procure",
+                "get_purchase_order", {"poId": po_id})
 
 
 def get_budget(run_id: str, agent_id: str, department: str) -> dict[str, object]:
@@ -543,9 +750,34 @@ def get_supplier_contact(run_id: str, agent_id: str, contact_id: str) -> dict[st
                 {"contactId": contact_id})
 
 
+def list_supplier_contacts(run_id: str, agent_id: str, account_id: str) -> dict[str, object]:
+    return _run(run_id, agent_id, "list_supplier_contacts", "beacon-crm", "list_contacts",
+                {"accountId": account_id})
+
+
+def get_supplier_account(run_id: str, agent_id: str, account_id: str) -> dict[str, object]:
+    return _run(run_id, agent_id, "get_supplier_account", "beacon-crm", "get_account",
+                {"accountId": account_id})
+
+
+def list_supplier_deals(run_id: str, agent_id: str, account_id: str) -> dict[str, object]:
+    return _run(run_id, agent_id, "list_supplier_deals", "beacon-crm", "list_deals",
+                {"accountId": account_id, "status": "open"})
+
+
+def advance_supplier_deal(run_id: str, agent_id: str, deal_id: str, stage: str) -> dict[str, object]:
+    return _run(run_id, agent_id, "advance_supplier_deal", "beacon-crm", "update_deal",
+                {"dealId": deal_id, "stage": stage})
+
+
 def log_supplier_activity(run_id: str, agent_id: str, contact_id: str, activity_type: str) -> dict[str, object]:
     return _run(run_id, agent_id, "log_supplier_activity", "beacon-crm", "log_activity",
                 {"contactId": contact_id, "type": activity_type})
+
+
+def add_supplier_note(run_id: str, agent_id: str, contact_id: str, body: str) -> dict[str, object]:
+    return _run(run_id, agent_id, "add_supplier_note", "beacon-crm", "add_note",
+                {"contactId": contact_id, "body": body})
 
 
 # -- identity tools (lumen-identity, internal directory) --
@@ -556,7 +788,28 @@ def resolve_user(run_id: str, agent_id: str, user_id: str) -> dict[str, object]:
 
 
 def list_approver_groups(run_id: str, agent_id: str) -> dict[str, object]:
-    return _run(run_id, agent_id, "list_approver_groups", "lumen-identity", "list_groups", {})
+    return _run(run_id, agent_id, "list_approver_groups", "lumen-identity", "list_groups",
+                {"type": "access"})
+
+
+def resolve_approver_chain(run_id: str, agent_id: str, user_id: str) -> dict[str, object]:
+    return _run(run_id, agent_id, "resolve_approver_chain", "lumen-identity", "get_manager_chain",
+                {"userId": user_id})
+
+
+def check_user_access(run_id: str, agent_id: str, user_id: str) -> dict[str, object]:
+    return _run(run_id, agent_id, "check_user_access", "lumen-identity", "get_user_access",
+                {"userId": user_id})
+
+
+def list_team_members(run_id: str, agent_id: str, team_id: str) -> dict[str, object]:
+    return _run(run_id, agent_id, "list_team_members", "lumen-identity", "list_users",
+                {"teamId": team_id})
+
+
+def get_service_identity(run_id: str, agent_id: str, service_account_id: str) -> dict[str, object]:
+    return _run(run_id, agent_id, "get_service_identity", "lumen-identity", "get_service_account",
+                {"serviceAccountId": service_account_id})
 
 
 # -- market data tools (pulse-market) --
@@ -566,6 +819,24 @@ def get_market_snapshot(run_id: str, agent_id: str, symbol: str) -> dict[str, ob
                 {"symbol": symbol})
 
 
+def list_market_instruments(run_id: str, agent_id: str) -> dict[str, object]:
+    return _run(run_id, agent_id, "list_market_instruments", "pulse-market", "list_instruments", {})
+
+
+def get_market_bars(run_id: str, agent_id: str, symbol: str,
+                    resolution: str = "1h", count: int = 24) -> dict[str, object]:
+    return _run(run_id, agent_id, "get_market_bars", "pulse-market", "get_bars",
+                {"symbol": symbol, "resolution": resolution, "count": count})
+
+
+def get_reference_rate(run_id: str, agent_id: str, symbol: str,
+                       fixing_date: str | None = None) -> dict[str, object]:
+    payload: dict[str, object] = {"symbol": symbol}
+    if fixing_date:
+        payload["fixingDate"] = fixing_date
+    return _run(run_id, agent_id, "get_reference_rate", "pulse-market", "get_reference_rate", payload)
+
+
 # -- external partner integration tool --
 
 def partner_operation(run_id: str, agent_id: str, provider_id: str, operation: str,
@@ -573,12 +844,7 @@ def partner_operation(run_id: str, agent_id: str, provider_id: str, operation: s
     args = {"provider_id": provider_id, "operation": operation, "payload": payload or {}}
     bus.publish(ev.tool_call(run_id, agent_id, "partner_operation", args))
     bus.publish(ev.service_call(run_id, agent_id, provider_id, operation, args["payload"]))
-    try:
-        result = _partner(provider_id, operation, payload or {})
-    except PartnerPendingCaracal:
-        result = {"provider": provider_id, "operation": operation,
-                  "status": "pending_caracal_integration",
-                  "message": "provider activates in the Caracal SDK integration phase"}
+    result = _partner(provider_id, operation, payload or {}, authority=_authority(run_id, agent_id))
     bus.publish(ev.service_result(run_id, agent_id, provider_id, operation, result))
     bus.publish(ev.tool_result(run_id, agent_id, "partner_operation", result))
     return result
@@ -626,8 +892,13 @@ TOOLS: dict[str, Callable] = {
     "kyb_screen_vendor": kyb_screen_vendor,
     "register_vendor": register_vendor,
     "refresh_vendor_compliance": refresh_vendor_compliance,
+    "get_vendor_onboarding_status": get_vendor_onboarding_status,
+    "advance_vendor_onboarding": advance_vendor_onboarding,
+    "verify_vendor_banking": verify_vendor_banking,
     "get_cash_position": get_cash_position,
+    "get_treasury_summary": get_treasury_summary,
     "forecast_liquidity": forecast_liquidity,
+    "get_fx_exposure": get_fx_exposure,
     "place_fx_hedge": place_fx_hedge,
     "transfer_funds": transfer_funds,
     "post_journal_entry": post_journal_entry,
@@ -639,19 +910,50 @@ TOOLS: dict[str, Callable] = {
     "aml_monitor_transaction": aml_monitor_transaction,
     "sanctions_screen_batch": sanctions_screen_batch,
     "prepare_regulatory_filing": prepare_regulatory_filing,
+    "submit_regulatory_filing": submit_regulatory_filing,
     "attest_control": attest_control,
     "issue_customer_invoice": issue_customer_invoice,
     "send_dunning_notice": send_dunning_notice,
+    "send_remittance_advice": send_remittance_advice,
+    "send_payment_confirmation": send_payment_confirmation,
+    "track_message_delivery": track_message_delivery,
     "apply_customer_payment": apply_customer_payment,
     "get_ar_aging": get_ar_aging,
+    "get_ar_summary": get_ar_summary,
+    "get_customer_account": get_customer_account,
+    "list_customer_invoices": list_customer_invoices,
+    "record_customer_payment": record_customer_payment,
+    "run_dunning_cycle": run_dunning_cycle,
+    "write_off_invoice": write_off_invoice,
+    "open_collection_case": open_collection_case,
+    "procurement_list_suppliers": procurement_list_suppliers,
+    "procurement_get_supplier": procurement_get_supplier,
     "create_requisition": create_requisition,
     "approve_requisition": approve_requisition,
+    "reject_requisition": reject_requisition,
+    "get_requisition": get_requisition,
+    "list_requisitions": list_requisitions,
+    "get_approval_chain": get_approval_chain,
     "create_purchase_order": create_purchase_order,
+    "receive_purchase_order": receive_purchase_order,
+    "get_purchase_order_status": get_purchase_order_status,
     "get_budget": get_budget,
     "get_supplier_contact": get_supplier_contact,
+    "list_supplier_contacts": list_supplier_contacts,
+    "get_supplier_account": get_supplier_account,
+    "list_supplier_deals": list_supplier_deals,
+    "advance_supplier_deal": advance_supplier_deal,
     "log_supplier_activity": log_supplier_activity,
+    "add_supplier_note": add_supplier_note,
     "resolve_user": resolve_user,
     "list_approver_groups": list_approver_groups,
+    "resolve_approver_chain": resolve_approver_chain,
+    "check_user_access": check_user_access,
+    "list_team_members": list_team_members,
+    "get_service_identity": get_service_identity,
     "get_market_snapshot": get_market_snapshot,
+    "list_market_instruments": list_market_instruments,
+    "get_market_bars": get_market_bars,
+    "get_reference_rate": get_reference_rate,
     "partner_operation": partner_operation,
 }

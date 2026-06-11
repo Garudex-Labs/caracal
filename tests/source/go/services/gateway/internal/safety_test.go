@@ -99,13 +99,15 @@ func TestUpstreamGuardBlocksPrivateRanges(t *testing.T) {
 	g := newUpstreamGuard(nil, false)
 	g.resolve = func(string) ([]net.IP, error) { return nil, nil }
 	cases := map[string]string{
-		"loopback":      "http://127.0.0.1/",
-		"loopback-ipv6": "http://[::1]/",
-		"rfc1918-10":    "http://10.0.0.1/",
-		"rfc1918-192":   "http://192.168.1.1/",
-		"link-local":    "http://169.254.169.254/",
-		"cgnat":         "http://100.64.0.1/",
-		"unspecified":   "http://0.0.0.0/",
+		"loopback":       "http://127.0.0.1/",
+		"loopback-ipv6":  "http://[::1]/",
+		"rfc1918-10":     "http://10.0.0.1/",
+		"rfc1918-192":    "http://192.168.1.1/",
+		"link-local":     "http://169.254.169.254/",
+		"cgnat":          "http://100.64.0.1/",
+		"unspecified":    "http://0.0.0.0/",
+		"nat64-metadata": "http://[64:ff9b::a9fe:a9fe]/",
+		"nat64-rfc1918":  "http://[64:ff9b::a00:1]/",
 	}
 	for name, raw := range cases {
 		if _, err := g.Check(raw); err == nil {
@@ -119,6 +121,14 @@ func TestUpstreamGuardAllowsPublic(t *testing.T) {
 	g.resolve = func(string) ([]net.IP, error) { return []net.IP{net.ParseIP("8.8.8.8")}, nil }
 	if _, err := g.Check("https://example.com/v1"); err != nil {
 		t.Errorf("public host blocked: %v", err)
+	}
+}
+
+func TestUpstreamGuardAllowsNAT64Public(t *testing.T) {
+	g := newUpstreamGuard(nil, false)
+	g.resolve = func(string) ([]net.IP, error) { return []net.IP{net.ParseIP("64:ff9b::808:808")}, nil }
+	if _, err := g.Check("https://example.com/v1"); err != nil {
+		t.Errorf("NAT64-embedded public address blocked: %v", err)
 	}
 }
 

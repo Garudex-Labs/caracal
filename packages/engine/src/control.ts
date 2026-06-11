@@ -95,29 +95,29 @@ export async function ensureControlResource(
   audience = process.env.CONTROL_AUDIENCE ?? DEFAULT_CONTROL_AUDIENCE,
 ): Promise<Resource> {
   const scopes = controlScopes()
-  const resources = await client.resources.list(zoneId, { controlResource: true })
+  const resources = await client.resources.list(zoneId)
   const current = resources.find((resource) => resource.identifier === audience)
   if (!current) {
     return client.resources.create(zoneId, {
       name: 'Control API',
       identifier: audience,
       scopes,
-    }, { controlResource: true })
+    })
   }
   const currentScopes = [...current.scopes].sort()
   if (scopes.length === currentScopes.length && scopes.every((scope, index) => scope === currentScopes[index])) {
     return current
   }
-  return client.resources.patch(zoneId, current.id, { scopes }, { controlResource: true })
+  return client.resources.patch(zoneId, current.id, { scopes })
 }
 
 export async function controlKeyList(client: AdminClient, zoneId: string): Promise<ControlKeyRecord[]> {
-  const apps = await client.applications.list(zoneId, { applicationInternals: true })
+  const apps = await client.applications.list(zoneId)
   return apps.filter(hasControlTrait).map(controlKeyRecord)
 }
 
 async function requireControlApplication(client: AdminClient, zoneId: string, id: string): Promise<Application> {
-  const app = await client.applications.get(zoneId, id, { applicationInternals: true })
+  const app = await client.applications.get(zoneId, id)
   if (!hasControlTrait(app)) {
     throw new Error(`application ${id} is not a control API key (missing trait ${CONTROL_INVOKE_TRAIT})`)
   }

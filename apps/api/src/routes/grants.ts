@@ -12,7 +12,7 @@ import { loadZoneKek, open, seal } from '@caracalai/core'
 import { z } from 'zod'
 import { v7 as uuidv7 } from 'uuid'
 import { scopesAllowed } from '@caracalai/core'
-import { STREAM_SESSIONS_REVOKE } from '../redis.js'
+import { STREAM_SESSIONS_REVOKE, redisTimeMs } from '../redis.js'
 import { enqueueOutbox } from '../outbox.js'
 import { withTransaction, TxAbort } from '../db.js'
 import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
@@ -43,9 +43,13 @@ const GrantListQuery = z.object({
   provider_id: z.string().min(1).optional(),
   status: z.string().min(1).optional(),
   scopes: z.preprocess(
-    (value) => typeof value === 'string'
-      ? value.split(',').map((item) => item.trim()).filter(Boolean)
-      : value,
+    (value) =>
+      typeof value === 'string'
+        ? value
+            .split(',')
+            .map((item) => item.trim())
+            .filter(Boolean)
+        : value,
     z.array(Scope).min(1).max(64).optional(),
   ),
 })
@@ -138,7 +142,9 @@ function stringConfig(config: Record<string, unknown>, key: string): string {
 
 function stringListConfig(config: Record<string, unknown>, key: string): string[] {
   const value = config[key]
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0).map(item => item.trim()) : []
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0).map((item) => item.trim())
+    : []
 }
 
 function recordConfig(config: Record<string, unknown>, key: string): Record<string, string> {
@@ -164,34 +170,57 @@ function ensureAllowedTokenEndpoint(raw: string, hosts: string[]): URL {
   if (hosts.length === 0) {
     throw new Error('provider has no allowed_token_hosts configured')
   }
-  if (!hosts.some(host => host.trim().toLowerCase() === url.hostname.toLowerCase())) {
+  if (!hosts.some((host) => host.trim().toLowerCase() === url.hostname.toLowerCase())) {
     throw new Error('provider token endpoint host is not allowlisted')
   }
   return url
 }
 
+// Extract the IPv4 address embedded in a NAT64 well-known-prefix address
+// (64:ff9b::/96, RFC 6052), or null when value is not such an address.
+function nat64EmbeddedIpv4(value: string): string | null {
+  const lower = value.toLowerCase()
+  if (!lower.startsWith('64:ff9b::')) return null
+  const tail = lower.slice('64:ff9b::'.length)
+  if (tail === '') return null
+  if (tail.includes('.')) {
+    return isIP(tail) === 4 ? tail : null
+  }
+  const groups = tail.split(':')
+  if (groups.length < 2) return null
+  const hi = Number.parseInt(groups[groups.length - 2]!, 16)
+  const lo = Number.parseInt(groups[groups.length - 1]!, 16)
+  if (!Number.isInteger(hi) || !Number.isInteger(lo) || hi > 0xffff || lo > 0xffff) return null
+  return `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`
+}
+
 function isUnsafeIpAddress(value: string): boolean {
+  const nat64 = nat64EmbeddedIpv4(value)
+  if (nat64) return isUnsafeIpAddress(nat64)
   const ip = value.startsWith('::ffff:') ? value.slice(7) : value
   const family = isIP(ip)
   if (family === 4) {
     const parts = ip.split('.').map(Number)
-    return parts[0] === 0
-      || parts[0] === 10
-      || parts[0] === 127
-      || (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127)
-      || (parts[0] === 169 && parts[1] === 254)
-      || (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31)
-      || (parts[0] === 192 && parts[1] === 168)
-      || (parts[0] >= 224)
+    return (
+      parts[0] === 0 ||
+      parts[0] === 10 ||
+      parts[0] === 127 ||
+      (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) ||
+      (parts[0] === 169 && parts[1] === 254) ||
+      (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) ||
+      (parts[0] === 192 && parts[1] === 168) ||
+      parts[0] >= 224
+    )
   }
   const lower = ip.toLowerCase()
-  return family === 6 && (
-    lower === '::'
-    || lower === '::1'
-    || lower.startsWith('fc')
-    || lower.startsWith('fd')
-    || lower.startsWith('fe80:')
-    || lower.startsWith('ff')
+  return (
+    family === 6 &&
+    (lower === '::' ||
+      lower === '::1' ||
+      lower.startsWith('fc') ||
+      lower.startsWith('fd') ||
+      lower.startsWith('fe80:') ||
+      lower.startsWith('ff'))
   )
 }
 
@@ -234,30 +263,34 @@ async function exchangeProviderToken(endpoint: URL, parts: TokenRequestParts): P
       else resolve(value ?? { statusCode: 0, body: '' })
     }
     const body = parts.body.toString()
-    const req = httpsRequest(endpoint, {
-      method: 'POST',
-      headers: { ...parts.headers, 'Content-Length': Buffer.byteLength(body).toString() },
-      timeout: PROVIDER_TOKEN_EXCHANGE_TIMEOUT_MS,
-      lookup: async (host, _options, callback) => {
-        try {
-          const addresses = await resolveSafeHost(host)
-          callback(null, addresses[0].address, addresses[0].family)
-        } catch (err) {
-          callback(err instanceof Error ? err : new Error(String(err)), '', 4)
-        }
+    const req = httpsRequest(
+      endpoint,
+      {
+        method: 'POST',
+        headers: { ...parts.headers, 'Content-Length': Buffer.byteLength(body).toString() },
+        timeout: PROVIDER_TOKEN_EXCHANGE_TIMEOUT_MS,
+        lookup: async (host, _options, callback) => {
+          try {
+            const addresses = await resolveSafeHost(host)
+            callback(null, addresses[0].address, addresses[0].family)
+          } catch (err) {
+            callback(err instanceof Error ? err : new Error(String(err)), '', 4)
+          }
+        },
       },
-    }, (res) => {
-      let text = ''
-      res.setEncoding('utf8')
-      res.on('data', (chunk: string) => {
-        text += chunk
-        if (Buffer.byteLength(text) > PROVIDER_TOKEN_EXCHANGE_MAX_BODY_BYTES) {
-          res.destroy(new Error('provider token response too large'))
-        }
-      })
-      res.on('end', () => finish(undefined, { statusCode: res.statusCode ?? 0, body: text }))
-      res.on('error', finish)
-    })
+      (res) => {
+        let text = ''
+        res.setEncoding('utf8')
+        res.on('data', (chunk: string) => {
+          text += chunk
+          if (Buffer.byteLength(text) > PROVIDER_TOKEN_EXCHANGE_MAX_BODY_BYTES) {
+            res.destroy(new Error('provider token response too large'))
+          }
+        })
+        res.on('end', () => finish(undefined, { statusCode: res.statusCode ?? 0, body: text }))
+        res.on('error', finish)
+      },
+    )
     req.on('timeout', () => req.destroy(new Error('provider token exchange timed out')))
     req.on('error', finish)
     req.write(body)
@@ -279,9 +312,20 @@ function oauthCallbackPage(title: string, message: string, kind: 'success' | 'er
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)}</title><style>body{font-family:system-ui,sans-serif;margin:3rem;line-height:1.5;color:#111827}.card{max-width:42rem;border:1px solid #e5e7eb;border-radius:12px;padding:2rem;box-shadow:0 1px 3px #0001}.status{color:${color};font-weight:700}</style></head><body><main class="card"><p class="status">${escapeHtml(title)}</p><h1>${escapeHtml(message)}</h1><p>You can close this browser tab and return to Caracal Console.</p></main></body></html>`
 }
 
-function sendOAuthCallback(req: FastifyRequest, reply: FastifyReply, status: number, body: Record<string, unknown>, title: string, message: string, kind: 'success' | 'error') {
+function sendOAuthCallback(
+  req: FastifyRequest,
+  reply: FastifyReply,
+  status: number,
+  body: Record<string, unknown>,
+  title: string,
+  message: string,
+  kind: 'success' | 'error',
+) {
   if (wantsHtml(req)) {
-    return reply.code(status).type('text/html; charset=utf-8').send(oauthCallbackPage(title, message, kind))
+    return reply
+      .code(status)
+      .type('text/html; charset=utf-8')
+      .send(oauthCallbackPage(title, message, kind))
   }
   return reply.code(status).send(body)
 }
@@ -321,12 +365,7 @@ export const grantsRoutes: FastifyPluginAsync = async (fastify) => {
       base.values.push(query.scopes)
       base.conds.push(`dg.scopes @> $${base.values.length}::text[]`)
     }
-    const keyset = appendKeysetCondition(
-      base,
-      page,
-      'dg.created_at',
-      'dg.id',
-    )
+    const keyset = appendKeysetCondition(base, page, 'dg.created_at', 'dg.id')
     const { rows } = await fastify.db.query(
       `SELECT dg.id, dg.zone_id, dg.application_id, dg.user_id, dg.resource_id,
               r.credential_provider_id AS provider_id,
@@ -418,7 +457,9 @@ export const grantsRoutes: FastifyPluginAsync = async (fastify) => {
     const refsRow = refs[0]
     if (!refsRow?.provider_kind) return reply.code(404).send({ error: 'provider_not_found' })
     if (refsRow.provider_kind !== 'oauth2_authorization_code') {
-      return reply.code(400).send({ error: 'provider_grant_unsupported', detail: 'only oauth2_authorization_code providers use delegated provider grants' })
+      return reply
+        .code(400)
+        .send({ error: 'provider_grant_unsupported', detail: 'only oauth2_authorization_code providers use delegated provider grants' })
     }
     if (!refsRow.resource_scopes) return reply.code(404).send({ error: 'resource_not_found' })
     if (refsRow.resource_provider_id !== body.provider_id) {
@@ -443,7 +484,17 @@ export const grantsRoutes: FastifyPluginAsync = async (fastify) => {
                      refresh_token_version = provider_grants.refresh_token_version + 1,
                      updated_at = now()
        RETURNING id, zone_id, user_id, resource_id, provider_id, scopes, status, expires_at, created_at, updated_at`,
-      [id, params.zoneId, body.user_id, body.resource_id, body.provider_id, body.scopes, accessTokenCt, refreshTokenCt, body.expires_at ?? null],
+      [
+        id,
+        params.zoneId,
+        body.user_id,
+        body.resource_id,
+        body.provider_id,
+        body.scopes,
+        accessTokenCt,
+        refreshTokenCt,
+        body.expires_at ?? null,
+      ],
     )
     return reply.code(201).send(rows[0])
   })
@@ -469,7 +520,9 @@ export const grantsRoutes: FastifyPluginAsync = async (fastify) => {
     const row = rows[0]
     if (!row) return reply.code(404).send({ error: 'provider_not_found' })
     if (row.provider_kind !== 'oauth2_authorization_code') {
-      return reply.code(400).send({ error: 'provider_grant_unsupported', detail: 'only oauth2_authorization_code providers use browser authorization' })
+      return reply
+        .code(400)
+        .send({ error: 'provider_grant_unsupported', detail: 'only oauth2_authorization_code providers use browser authorization' })
     }
     if (!row.resource_scopes) return reply.code(404).send({ error: 'resource_not_found' })
     if (row.resource_provider_id !== body.provider_id) {
@@ -490,7 +543,9 @@ export const grantsRoutes: FastifyPluginAsync = async (fastify) => {
     try {
       authorizationUrl = ensureHttpsEndpoint(authorizationEndpoint, 'provider authorization endpoint')
     } catch (err) {
-      return reply.code(400).send({ error: 'provider_authorization_endpoint_invalid', detail: err instanceof Error ? err.message : String(err) })
+      return reply
+        .code(400)
+        .send({ error: 'provider_authorization_endpoint_invalid', detail: err instanceof Error ? err.message : String(err) })
     }
     const state = randomUrlToken()
     const codeVerifier = randomUrlToken()
@@ -516,10 +571,11 @@ export const grantsRoutes: FastifyPluginAsync = async (fastify) => {
     authorizationUrl.searchParams.set('code_challenge', codeChallenge(codeVerifier))
     authorizationUrl.searchParams.set('code_challenge_method', 'S256')
 
+    const expiresAt = new Date((await redisTimeMs(fastify.redis)) + OAUTH_STATE_TTL_SECONDS * 1000).toISOString()
     return {
       authorization_url: authorizationUrl.toString(),
       state,
-      expires_at: new Date(Date.now() + OAUTH_STATE_TTL_SECONDS * 1000).toISOString(),
+      expires_at: expiresAt,
     }
   })
 
@@ -548,22 +604,74 @@ export const grantsRoutes: FastifyPluginAsync = async (fastify) => {
     const params = parseParams(ZoneParams, req, reply)
     if (!params) return
     const parsed = OAuthCallbackQuery.safeParse(req.query)
-    if (!parsed.success) return sendOAuthCallback(req, reply, 400, { error: 'invalid_oauth_callback' }, 'OAuth callback failed', 'The provider callback was missing required OAuth state.', 'error')
+    if (!parsed.success)
+      return sendOAuthCallback(
+        req,
+        reply,
+        400,
+        { error: 'invalid_oauth_callback' },
+        'OAuth callback failed',
+        'The provider callback was missing required OAuth state.',
+        'error',
+      )
     const query = parsed.data
     const stateKey = `${OAUTH_STATE_KEY_PREFIX}${query.state}`
     const rawState = await fastify.redis.call('GETDEL', stateKey)
-    if (typeof rawState !== 'string' || !rawState) return sendOAuthCallback(req, reply, 400, { error: 'oauth_state_expired' }, 'OAuth callback expired', 'The authorization request expired. Start the provider connection again from Caracal Console.', 'error')
+    if (typeof rawState !== 'string' || !rawState)
+      return sendOAuthCallback(
+        req,
+        reply,
+        400,
+        { error: 'oauth_state_expired' },
+        'OAuth callback expired',
+        'The authorization request expired. Start the provider connection again from Caracal Console.',
+        'error',
+      )
     let state: z.infer<typeof OAuthStateBody>
     try {
       state = OAuthStateBody.parse(JSON.parse(rawState))
     } catch {
-      return sendOAuthCallback(req, reply, 400, { error: 'oauth_state_invalid' }, 'OAuth callback failed', 'The authorization request state could not be verified.', 'error')
+      return sendOAuthCallback(
+        req,
+        reply,
+        400,
+        { error: 'oauth_state_invalid' },
+        'OAuth callback failed',
+        'The authorization request state could not be verified.',
+        'error',
+      )
     }
-    if (state.zone_id !== params.zoneId) return sendOAuthCallback(req, reply, 400, { error: 'oauth_state_mismatch' }, 'OAuth callback failed', 'The provider returned to a different Caracal zone than the original request.', 'error')
+    if (state.zone_id !== params.zoneId)
+      return sendOAuthCallback(
+        req,
+        reply,
+        400,
+        { error: 'oauth_state_mismatch' },
+        'OAuth callback failed',
+        'The provider returned to a different Caracal zone than the original request.',
+        'error',
+      )
     if (query.error) {
-      return sendOAuthCallback(req, reply, 400, { error: 'provider_oauth_denied', detail: query.error_description ?? query.error }, 'OAuth authorization denied', query.error_description ?? query.error, 'error')
+      return sendOAuthCallback(
+        req,
+        reply,
+        400,
+        { error: 'provider_oauth_denied', detail: query.error_description ?? query.error },
+        'OAuth authorization denied',
+        query.error_description ?? query.error,
+        'error',
+      )
     }
-    if (!query.code) return sendOAuthCallback(req, reply, 400, { error: 'authorization_code_required' }, 'OAuth callback failed', 'The provider did not return an authorization code.', 'error')
+    if (!query.code)
+      return sendOAuthCallback(
+        req,
+        reply,
+        400,
+        { error: 'authorization_code_required' },
+        'OAuth callback failed',
+        'The provider did not return an authorization code.',
+        'error',
+      )
 
     const { rows } = await fastify.db.query<ProviderOAuthRow>(
       `SELECT
@@ -575,11 +683,56 @@ export const grantsRoutes: FastifyPluginAsync = async (fastify) => {
       [state.zone_id, state.provider_id, state.resource_id],
     )
     const row = rows[0]
-    if (!row) return sendOAuthCallback(req, reply, 404, { error: 'provider_not_found' }, 'OAuth callback failed', 'The OAuth provider no longer exists in Caracal.', 'error')
-    if (row.provider_kind !== 'oauth2_authorization_code') return sendOAuthCallback(req, reply, 400, { error: 'provider_grant_unsupported' }, 'OAuth callback failed', 'The selected provider does not support browser authorization.', 'error')
-    if (!row.resource_scopes) return sendOAuthCallback(req, reply, 404, { error: 'resource_not_found' }, 'OAuth callback failed', 'The resource no longer exists in Caracal.', 'error')
-    if (row.resource_provider_id !== state.provider_id) return sendOAuthCallback(req, reply, 400, { error: 'provider_resource_mismatch' }, 'OAuth callback failed', 'The resource is no longer bound to this OAuth provider.', 'error')
-    if (!scopesAllowed(state.scopes, row.resource_scopes)) return sendOAuthCallback(req, reply, 403, { error: 'grant_scopes_exceed_resource' }, 'OAuth callback failed', 'The requested Caracal scopes are no longer valid for this resource.', 'error')
+    if (!row)
+      return sendOAuthCallback(
+        req,
+        reply,
+        404,
+        { error: 'provider_not_found' },
+        'OAuth callback failed',
+        'The OAuth provider no longer exists in Caracal.',
+        'error',
+      )
+    if (row.provider_kind !== 'oauth2_authorization_code')
+      return sendOAuthCallback(
+        req,
+        reply,
+        400,
+        { error: 'provider_grant_unsupported' },
+        'OAuth callback failed',
+        'The selected provider does not support browser authorization.',
+        'error',
+      )
+    if (!row.resource_scopes)
+      return sendOAuthCallback(
+        req,
+        reply,
+        404,
+        { error: 'resource_not_found' },
+        'OAuth callback failed',
+        'The resource no longer exists in Caracal.',
+        'error',
+      )
+    if (row.resource_provider_id !== state.provider_id)
+      return sendOAuthCallback(
+        req,
+        reply,
+        400,
+        { error: 'provider_resource_mismatch' },
+        'OAuth callback failed',
+        'The resource is no longer bound to this OAuth provider.',
+        'error',
+      )
+    if (!scopesAllowed(state.scopes, row.resource_scopes))
+      return sendOAuthCallback(
+        req,
+        reply,
+        403,
+        { error: 'grant_scopes_exceed_resource' },
+        'OAuth callback failed',
+        'The requested Caracal scopes are no longer valid for this resource.',
+        'error',
+      )
 
     const config = row.config_json
     const secretConfig = openProviderSecretConfig(row)
@@ -587,13 +740,29 @@ export const grantsRoutes: FastifyPluginAsync = async (fastify) => {
     const clientAuthMethod = stringConfig(config, 'client_auth_method') || 'client_secret_basic'
     const clientSecret = secretConfig.client_secret ?? ''
     if (!clientId || (clientAuthMethod !== 'none' && !clientSecret)) {
-      return sendOAuthCallback(req, reply, 400, { error: 'invalid_provider_config' }, 'OAuth callback failed', 'The OAuth provider client configuration is incomplete.', 'error')
+      return sendOAuthCallback(
+        req,
+        reply,
+        400,
+        { error: 'invalid_provider_config' },
+        'OAuth callback failed',
+        'The OAuth provider client configuration is incomplete.',
+        'error',
+      )
     }
     let tokenEndpoint: URL
     try {
       tokenEndpoint = ensureAllowedTokenEndpoint(stringConfig(config, 'token_endpoint'), stringListConfig(config, 'allowed_token_hosts'))
     } catch (err) {
-      return sendOAuthCallback(req, reply, 400, { error: 'provider_token_endpoint_not_allowed', detail: err instanceof Error ? err.message : String(err) }, 'OAuth callback failed', 'The provider token endpoint is not allowed by this provider configuration.', 'error')
+      return sendOAuthCallback(
+        req,
+        reply,
+        400,
+        { error: 'provider_token_endpoint_not_allowed', detail: err instanceof Error ? err.message : String(err) },
+        'OAuth callback failed',
+        'The provider token endpoint is not allowed by this provider configuration.',
+        'error',
+      )
     }
 
     const form = new URLSearchParams({
@@ -610,31 +779,65 @@ export const grantsRoutes: FastifyPluginAsync = async (fastify) => {
       tokenResponse = await exchangeProviderToken(tokenEndpoint, buildTokenRequest(form, clientId, clientSecret, clientAuthMethod))
     } catch (err) {
       req.log.warn({ err, providerId: state.provider_id }, 'provider OAuth token exchange failed')
-      return sendOAuthCallback(req, reply, 502, { error: 'provider_token_exchange_failed' }, 'OAuth callback failed', 'Caracal could not exchange the authorization code with the provider.', 'error')
+      return sendOAuthCallback(
+        req,
+        reply,
+        502,
+        { error: 'provider_token_exchange_failed' },
+        'OAuth callback failed',
+        'Caracal could not exchange the authorization code with the provider.',
+        'error',
+      )
     }
     if (tokenResponse.statusCode !== 200) {
       req.log.warn({ statusCode: tokenResponse.statusCode, providerId: state.provider_id }, 'provider OAuth token exchange failed')
-      return sendOAuthCallback(req, reply, 502, { error: 'provider_token_exchange_failed' }, 'OAuth callback failed', 'The provider rejected the authorization-code exchange.', 'error')
+      return sendOAuthCallback(
+        req,
+        reply,
+        502,
+        { error: 'provider_token_exchange_failed' },
+        'OAuth callback failed',
+        'The provider rejected the authorization-code exchange.',
+        'error',
+      )
     }
     let tokenJson: Record<string, unknown>
     try {
       tokenJson = JSON.parse(tokenResponse.body) as Record<string, unknown>
     } catch {
-      return sendOAuthCallback(req, reply, 502, { error: 'provider_token_response_invalid' }, 'OAuth callback failed', 'The provider token response was not valid JSON.', 'error')
+      return sendOAuthCallback(
+        req,
+        reply,
+        502,
+        { error: 'provider_token_response_invalid' },
+        'OAuth callback failed',
+        'The provider token response was not valid JSON.',
+        'error',
+      )
     }
     const accessToken = typeof tokenJson.access_token === 'string' ? tokenJson.access_token : ''
     const refreshToken = typeof tokenJson.refresh_token === 'string' ? tokenJson.refresh_token : ''
     const expiresIn = typeof tokenJson.expires_in === 'number' && Number.isFinite(tokenJson.expires_in) ? tokenJson.expires_in : 0
-    if (!accessToken) return sendOAuthCallback(req, reply, 502, { error: 'provider_token_response_invalid' }, 'OAuth callback failed', 'The provider token response did not include an access token.', 'error')
+    if (!accessToken)
+      return sendOAuthCallback(
+        req,
+        reply,
+        502,
+        { error: 'provider_token_response_invalid' },
+        'OAuth callback failed',
+        'The provider token response did not include an access token.',
+        'error',
+      )
 
     const grantId = uuidv7()
     const accessTokenCt = sealText(accessToken)
     const refreshTokenCt = refreshToken ? sealText(refreshToken) : null
-    const expiresAt = expiresIn > 0 ? new Date(Date.now() + expiresIn * 1000).toISOString() : null
     const { rows: grantRows } = await fastify.db.query<Record<string, unknown>>(
       `INSERT INTO provider_grants (id, zone_id, user_id, resource_id, provider_id, scopes,
-                                   access_token_ct, refresh_token_ct, expires_at, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'active')
+                                    access_token_ct, refresh_token_ct, expires_at, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
+               CASE WHEN $9::int > 0 THEN now() + ($9::int * interval '1 second') ELSE NULL END,
+               'active')
        ON CONFLICT (zone_id, user_id, resource_id, provider_id) WHERE status = 'active'
        DO UPDATE SET scopes = EXCLUDED.scopes,
                      access_token_ct = EXCLUDED.access_token_ct,
@@ -644,9 +847,17 @@ export const grantsRoutes: FastifyPluginAsync = async (fastify) => {
                      refresh_token_version = provider_grants.refresh_token_version + 1,
                      updated_at = now()
        RETURNING id, zone_id, user_id, resource_id, provider_id, scopes, status, expires_at, created_at, updated_at`,
-      [grantId, state.zone_id, state.user_id, state.resource_id, state.provider_id, state.scopes, accessTokenCt, refreshTokenCt, expiresAt],
+      [grantId, state.zone_id, state.user_id, state.resource_id, state.provider_id, state.scopes, accessTokenCt, refreshTokenCt, expiresIn],
     )
-    return sendOAuthCallback(req, reply, 201, grantRows[0] ?? {}, 'OAuth provider connected', 'Caracal stored the delegated provider grant for this user and resource.', 'success')
+    return sendOAuthCallback(
+      req,
+      reply,
+      201,
+      grantRows[0] ?? {},
+      'OAuth provider connected',
+      'Caracal stored the delegated provider grant for this user and resource.',
+      'success',
+    )
   })
 
   fastify.delete('/zones/:zoneId/grants/:id', async (req, reply) => {

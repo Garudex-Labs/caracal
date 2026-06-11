@@ -13,6 +13,7 @@
 - Must write concise agent-useful pages; link to source-owned behavior instead of copying implementation detail.
 - Must keep generated `dist/` and `.astro/` output out of authored guidance.
 - Must use the Starlight content structure already configured in `astro.config.mjs`.
+- Must append every new FAQ entry to the bottom of the FAQ list so existing FAQ numbers and shared FAQ URLs remain stable.
 
 ## Forbidden
 - Must not document speculative features, deprecated plans, or enterprise-only behavior as OSS behavior.
@@ -21,4 +22,3 @@
 
 ## Validation
 - Validate documentation structure with `pnpm --dir docs build` when authored docs or site config changes.
-

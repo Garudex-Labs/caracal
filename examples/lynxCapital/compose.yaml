@@ -24,7 +24,7 @@ services:
       - caracal
 
   # --------------------------------------------------------------------------
-  # Caracal control plane (published release v2026.06.04-rc.1). Optional: only
+  # Caracal control plane (published release v2026.06.10-rc.1). Optional: only
   # required when the CARACAL_* variables are set so the app routes through the
   # gateway. Backing stores carry the zone/session and revocation state.
   # --------------------------------------------------------------------------
@@ -45,7 +45,7 @@ services:
       - caracal
 
   caracal-sts:
-    image: ghcr.io/garudex-labs/caracal-sts:v2026.06.04-rc.1
+    image: ghcr.io/garudex-labs/caracal-sts:v2026.06.10-rc.1
     container_name: caracal-sts
     depends_on:
       - caracal-postgres
@@ -56,7 +56,7 @@ services:
       - caracal
 
   caracal-coordinator:
-    image: ghcr.io/garudex-labs/caracal-coordinator:v2026.06.04-rc.1
+    image: ghcr.io/garudex-labs/caracal-coordinator:v2026.06.10-rc.1
     container_name: caracal-coordinator
     depends_on:
       - caracal-sts
@@ -66,7 +66,7 @@ services:
       - caracal
 
   caracal-gateway:
-    image: ghcr.io/garudex-labs/caracal-gateway:v2026.06.04-rc.1
+    image: ghcr.io/garudex-labs/caracal-gateway:v2026.06.10-rc.1
     container_name: caracal-gateway
     depends_on:
       - caracal-sts
@@ -77,7 +77,7 @@ services:
       - providers
 
   caracal-audit:
-    image: ghcr.io/garudex-labs/caracal-audit:v2026.06.04-rc.1
+    image: ghcr.io/garudex-labs/caracal-audit:v2026.06.10-rc.1
     container_name: caracal-audit
     depends_on:
       - caracal-postgres

@@ -3,12 +3,13 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Non-interactive zone provisioning through the Control API using a scoped, short-lived control key.",
+  "description": "Agent environment pipeline that applies, verifies, and tears down zone state through the Control API.",
   "engines": {
     "node": ">=22"
   },
   "scripts": {
-    "bootstrap": "node bootstrap.mjs",
+    "apply": "node apply.mjs",
+    "verify": "node verify.mjs",
     "teardown": "node teardown.mjs",
     "test": "node --test \"tests/**/*.test.mjs\""
   }

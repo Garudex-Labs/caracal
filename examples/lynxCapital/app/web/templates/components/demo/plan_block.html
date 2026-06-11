@@ -4,25 +4,19 @@ Caracal, a product of Garudex Labs
 
 Demo plan template for live execution checklists.
 #}
-<section id="plan-panel" class="plan-panel plan-collapsed" hidden>
-  <div class="plan-head" id="plan-toggle" title="Click to expand or collapse">
-    <div class="plan-head-copy">
-      <span class="plan-eyebrow">Task plan</span>
-      <h2 class="plan-title">Execution checklist</h2>
-    </div>
-    <div class="plan-head-meta">
-      <span id="plan-meta" class="plan-meta"></span>
-      <span id="plan-active-preview" class="plan-active-preview"></span>
-      <span id="plan-status" class="plan-status status-pending"></span>
-      <span id="plan-chevron" class="plan-chevron" aria-hidden="true">▼</span>
-    </div>
+<div id="plan-panel" hidden>
+  <div class="plan-head">
+    <span id="plan-status" class="plan-status status-pending">Pending</span>
+    <span id="plan-meta" class="plan-meta"></span>
+    <span id="plan-active-preview" class="plan-active-preview"></span>
   </div>
   <ol id="plan-list" class="plan-list"></ol>
-</section>
+</div>
+<div id="plan-empty" class="panel-empty">The orchestrator posts its checklist here once planning starts.</div>
 
 <template id="tpl-plan-item">
   <li class="plan-item status-pending">
-    <div class="plan-step-state" aria-hidden="true"></div>
+    <span class="plan-step-state" aria-hidden="true"></span>
     <span class="plan-step-index"></span>
     <span class="plan-step-text"></span>
   </li>

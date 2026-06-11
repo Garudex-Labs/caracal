@@ -157,6 +157,7 @@ export default defineConfig({
               label: 'Plan the Integration',
               items: [
                 { label: 'Model Your Application in Caracal', link: '/guides/modeling-recipes/' },
+                { label: 'Serve Your Own Customers', link: '/guides/serve-customers/' },
                 { label: 'Define Resources and Providers', link: '/guides/resources-providers/' },
                 { label: 'Provider Recipes', link: '/guides/provider-recipes/' },
               ],
@@ -374,6 +375,7 @@ export default defineConfig({
             { label: 'Secure Caracal', link: '/security/' },
             { label: 'Review the Threat Model', link: '/security/threat-model/' },
             { label: 'Harden Security Posture', link: '/security/hardening/' },
+            { label: 'Verify a Release', link: '/security/verify-releases/' },
             { label: 'Report a Vulnerability', link: '/security/disclosure/' },
           ],
         },
@@ -461,6 +463,7 @@ export default defineConfig({
               label: 'Versions and Contracts',
               collapsed: true,
               items: [
+                { label: 'Releases', link: '/releases/' },
                 { label: 'Compatibility', link: '/reference/compatibility/' },
                 { label: 'Release Map', link: '/reference/release-package-runtime-map/' },
                 { label: 'Wire Contracts', link: '/reference/interoperability-contracts/' },

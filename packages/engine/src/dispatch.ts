@@ -43,7 +43,7 @@ export class DispatchError extends Error {
 
 const MAX_FLAGS = 32
 const MAX_FLAG_KEY_LEN = 64
-const MAX_FLAG_STR_LEN = 4096
+const MAX_FLAG_STR_LEN = 32768
 const MAX_FLAG_ARRAY_LEN = 64
 
 function denied(msg: string): never { throw new DispatchError('denied', msg) }

@@ -16,7 +16,7 @@ Resources tell Caracal what protected target is being accessed. Providers descri
 Resource fields should answer “what is being protected and where does Gateway send traffic?” Provider fields should answer “what credential or identity does Gateway attach upstream?” Keep credential details such as client secrets, token endpoints, API-key placement, bearer tokens, identity forwarding, and runtime injection on the provider. Keep target details such as resource identifier, Caracal resource scopes, upstream URL, Gateway application, and the selected upstream credential provider on the resource.
 
 :::note[FAQ]
-[What is the difference between a resource and a provider?](/reference/faq/#faq-resource-versus-provider) and [is an application secret the same as a provider credential?](/reference/faq/#faq-app-secret-versus-provider-credential)
+[What is the difference between a resource and a provider?](/reference/faq/#faq-009) and [is an application secret the same as a provider credential?](/reference/faq/#faq-013)
 :::
 
 ## Console workflow
@@ -61,14 +61,14 @@ Provider secrets are sealed at creation time and are not returned by list or det
 | Resource identifier | Stable audience URI, such as `resource://pipernet`; do not use the `provider://` namespace. |
 | Caracal resource scope | `domain:action`, such as `pipernet:read`. |
 | Upstream URL | The network URL Gateway can reach; it may change without changing policy audiences. |
-| Gateway application | The Caracal application identity Gateway uses for upstream exchanges. |
+| Gateway application | The managed Caracal application identity Gateway exchanges as to obtain this resource's upstream credential. It does not control which agents may call through the Gateway — callers are authorized by policy on their own mandate. DCR applications cannot be bound here — they are short-lived single-session credentials, not durable Gateway identities. |
 | Upstream credential provider | The provider record Gateway uses to attach no credential, a Caracal mandate, OAuth tokens, API keys, or bearer tokens. |
 | Provider identifier | `provider://lowercase-slug` stable name for the upstream credential system. |
 
 Do not put provider-specific credential details on a resource. Do not use mutable deployment hostnames as policy identifiers unless they are the actual authority boundary. Keep the resource identifier stable even if the upstream URL or upstream credential provider binding changes.
 
 :::note[FAQ]
-[Why must the resource identifier stay stable if the upstream URL can change?](/reference/faq/#faq-stable-resource-identifier)
+[Why must the resource identifier stay stable if the upstream URL can change?](/reference/faq/#faq-010)
 :::
 
 ## Validate the setup

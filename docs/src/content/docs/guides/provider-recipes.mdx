@@ -55,7 +55,7 @@ Delegated user consent for a Google API, refreshed inside STS.
 Caracal owns `client_id`, `redirect_uri`, `state`, and PKCE. Use the provider `connect` action to mint the consent URL for a user and resource.
 
 :::note[FAQ]
-[When should I use per-user OAuth instead of a shared provider credential?](/reference/faq/#faq-per-user-oauth-versus-shared-credential)
+[When should I use per-user OAuth instead of a shared provider credential?](/reference/faq/#faq-014)
 :::
 
 ## GitHub (bearer token, with OAuth note)
@@ -109,7 +109,7 @@ When an existing CLI or client cannot route through the Gateway but still needs 
 
 ## Validate before the first call
 
-After you create the provider, bind it to the resource, and activate a policy, run [Check Provider Readiness](/examples/provider-preflight/) (`examples/providerPreflight`). It checks the resource-to-provider binding, OAuth token endpoint host, callback reachability, upstream reachability, runtime-injection eligibility, and that the active policy set actually returns `allow` for your application, resource, and scopes.
+After you create the provider, bind it to the resource, and activate a policy, run [Check Provider Readiness](/examples/provider-preflight/) (`examples/providerPreflight`). It validates control-plane and Gateway readiness, the resource-to-provider binding, application validity, provider configuration completeness, scope coverage, token endpoint and upstream reachability, runtime-injection eligibility, and that the active policy set actually returns `allow` for your application, resource, and scopes — with a concrete remediation for every failure.
 
 ## Related
 

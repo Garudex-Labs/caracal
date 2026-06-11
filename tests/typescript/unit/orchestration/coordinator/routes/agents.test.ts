@@ -41,9 +41,17 @@ function buildApp(scopes = ['coordinator.admin'], clientIdOverride?: string) {
 interface SpawnStage {
   refs?: { application_exists: boolean; session_exists: boolean; registration_method?: 'managed' | 'dcr' }
   count?: { app_n: string; zone_n: string }
-  parent?: { depth: number; child_count: number; max_children: number; application_id?: string } | null
+  parent?: {
+    depth: number
+    child_count: number
+    max_children: number
+    application_id?: string
+    lifecycle?: 'task' | 'service'
+    registration_method?: 'managed' | 'dcr'
+  } | null
   insert?: { rows: unknown[] }
   withTopology?: boolean
+  inheritEdge?: 'active' | 'inactive'
   outbox?: boolean
 }
 
@@ -54,6 +62,15 @@ function spawnClient(stages: SpawnStage): { query: ReturnType<typeof vi.fn>; rel
   if (stages.parent !== undefined) responses.push({ rows: stages.parent ? [stages.parent] : [] })
   if (stages.insert) responses.push(stages.insert)
   if (stages.withTopology) responses.push({ rows: [] }, { rows: [] })
+  if (stages.inheritEdge === 'active') {
+    responses.push({ rows: [{ id: 'edge-parent', receiver_application_id: 'app-1', resource_id: null, scopes: ['payments:read'], constraints_json: {}, expires_at: '2099-01-01T00:00:00.000Z' }] })
+    responses.push({ rows: [] })
+    responses.push({ rows: [{ epoch: '1' }] })
+    responses.push({ rows: [] })
+  }
+  if (stages.inheritEdge === 'inactive') {
+    responses.push({ rows: [] })
+  }
   if (stages.outbox) responses.push({ rows: [] })
   responses.push({ rows: [] })
   const query = vi.fn()
@@ -172,7 +189,7 @@ describe('POST /v1/zones/:zoneId/agents: spawn', () => {
     expect(JSON.parse(res.body)).toMatchObject({ error: 'agent_depth_limit_exceeded' })
   })
 
-  it('requires DCR applications to spawn ephemeral agent sessions', async () => {
+  it('rejects service lifecycle on DCR applications', async () => {
     const { app, db } = buildApp()
     db.connect.mockResolvedValueOnce(spawnClient({
       refs: { application_exists: true, session_exists: true, registration_method: 'dcr' },
@@ -181,10 +198,10 @@ describe('POST /v1/zones/:zoneId/agents: spawn', () => {
     const res = await app.inject({
       method: 'POST',
       url: '/v1/zones/z1/agents',
-      payload: { application_id: 'app-1', subject_session_id: 'sid-1', kind: 'service' },
+      payload: { application_id: 'app-1', subject_session_id: 'sid-1', lifecycle: 'service' },
     })
     expect(res.statusCode).toBe(409)
-    expect(JSON.parse(res.body)).toMatchObject({ error: 'dcr_requires_ephemeral_agent' })
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'dcr_application_cannot_host_service' })
   })
 
   it('binds each DCR application to only one active agent session', async () => {
@@ -197,10 +214,59 @@ describe('POST /v1/zones/:zoneId/agents: spawn', () => {
     const res = await app.inject({
       method: 'POST',
       url: '/v1/zones/z1/agents',
-      payload: { application_id: 'app-1', subject_session_id: 'sid-1', kind: 'ephemeral' },
+      payload: { application_id: 'app-1', subject_session_id: 'sid-1' },
     })
     expect(res.statusCode).toBe(409)
     expect(JSON.parse(res.body)).toMatchObject({ error: 'dcr_application_already_bound' })
+  })
+
+  it('rejects spawning a child under a DCR application', async () => {
+    const { app, db } = buildApp()
+    db.connect.mockResolvedValueOnce(spawnClient({
+      refs: { application_exists: true, session_exists: true, registration_method: 'dcr' },
+    }))
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/agents',
+      payload: { application_id: 'app-1', subject_session_id: 'sid-1', parent_id: 'parent-1' },
+    })
+    expect(res.statusCode).toBe(409)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'dcr_application_cannot_be_child' })
+  })
+
+  it('rejects a DCR-application session acting as a spawn parent', async () => {
+    const { app, db } = buildApp()
+    db.connect.mockResolvedValueOnce(spawnClient({
+      refs: { application_exists: true, session_exists: true, registration_method: 'managed' },
+      count: { app_n: '0', zone_n: '0' },
+      parent: { depth: 0, child_count: 0, max_children: 10, application_id: 'app-1', registration_method: 'dcr' },
+    }))
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/agents',
+      payload: { application_id: 'app-1', subject_session_id: 'sid-1', parent_id: 'parent-1' },
+    })
+    expect(res.statusCode).toBe(409)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'dcr_application_cannot_spawn' })
+  })
+
+  it('rejects a task parent spawning a more-durable service child', async () => {
+    const { app, db } = buildApp()
+    db.connect.mockResolvedValueOnce(spawnClient({
+      refs: { application_exists: true, session_exists: true, registration_method: 'managed' },
+      count: { app_n: '0', zone_n: '0' },
+      parent: { depth: 0, child_count: 0, max_children: 10, application_id: 'app-1', lifecycle: 'task', registration_method: 'managed' },
+    }))
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/agents',
+      payload: { application_id: 'app-1', subject_session_id: 'sid-1', parent_id: 'parent-1', lifecycle: 'service' },
+    })
+    expect(res.statusCode).toBe(409)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'task_agent_cannot_spawn_service' })
   })
 
   it('serializes the spawn cap with a per-zone advisory lock and enqueues lifecycle outbox', async () => {
@@ -255,6 +321,61 @@ describe('POST /v1/zones/:zoneId/agents: spawn', () => {
     )
   })
 
+  it('mirrors the parent narrowing edge onto an inherit child and returns its edge id', async () => {
+    const { app, db } = buildApp()
+    const client = spawnClient({
+      refs: { application_exists: true, session_exists: true, registration_method: 'managed' },
+      count: { app_n: '0', zone_n: '0' },
+      parent: { depth: 1, child_count: 0, max_children: 10, application_id: 'app-1', registration_method: 'managed' },
+      insert: { rows: [{ agent_session_id: 'agent-child', zone_id: 'z1', application_id: 'app-1', parent_id: 'parent-1' }] },
+      withTopology: true,
+      inheritEdge: 'active',
+      outbox: true,
+    })
+    db.connect.mockResolvedValueOnce(client)
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/agents',
+      payload: { application_id: 'app-1', subject_session_id: 'sid-1', parent_id: 'parent-1', inherit_parent_edge_id: 'edge-parent' },
+    })
+    expect(res.statusCode).toBe(201)
+    const body = JSON.parse(res.body)
+    expect(typeof body.delegation_edge_id).toBe('string')
+    expect(body.delegation_edge_id.length).toBeGreaterThan(0)
+    const edgeInsert = client.query.mock.calls.find((call) => String(call[0]).includes('INSERT INTO delegation_edges'))
+    expect(edgeInsert).toBeDefined()
+    expect(edgeInsert?.[1]?.[2]).toBe('parent-1')
+    expect(typeof edgeInsert?.[1]?.[3]).toBe('string')
+    expect(edgeInsert?.[1]?.[8]).toEqual(['payments:read'])
+    const invalidate = client.query.mock.calls.find((call) => String(call[0]).includes('caracal_outbox') && call[1]?.[1] === 'caracal.delegations.invalidate')
+    expect(invalidate).toBeDefined()
+  })
+
+  it('fails closed with 409 when the requested inherit parent edge is not active', async () => {
+    const { app, db } = buildApp()
+    const client = spawnClient({
+      refs: { application_exists: true, session_exists: true, registration_method: 'managed' },
+      count: { app_n: '0', zone_n: '0' },
+      parent: { depth: 1, child_count: 0, max_children: 10, application_id: 'app-1', registration_method: 'managed' },
+      insert: { rows: [{ agent_session_id: 'agent-child', zone_id: 'z1', application_id: 'app-1', parent_id: 'parent-1' }] },
+      withTopology: true,
+      inheritEdge: 'inactive',
+    })
+    db.connect.mockResolvedValueOnce(client)
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/agents',
+      payload: { application_id: 'app-1', subject_session_id: 'sid-1', parent_id: 'parent-1', inherit_parent_edge_id: 'stale-edge' },
+    })
+    expect(res.statusCode).toBe(409)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'inherit_parent_edge_not_active' })
+    expect(client.query).toHaveBeenCalledWith('ROLLBACK')
+    const edgeInsert = client.query.mock.calls.find((call) => String(call[0]).includes('INSERT INTO delegation_edges'))
+    expect(edgeInsert).toBeUndefined()
+  })
+
   it('rolls back and releases the connection when spawn insert fails', async () => {
     const { app, db } = buildApp()
     const client = {
@@ -279,6 +400,27 @@ describe('POST /v1/zones/:zoneId/agents: spawn', () => {
     expect(client.release).toHaveBeenCalled()
   })
 
+  it('replays the session stored under the supplied idempotency key', async () => {
+    const { app, db } = buildApp()
+    const query = vi.fn()
+    query.mockResolvedValueOnce({ rows: [] })
+    query.mockResolvedValueOnce({ rows: [] })
+    query.mockResolvedValueOnce({ rows: [{ agent_session_id: 'agent-replay', zone_id: 'z1', application_id: 'app-1' }] })
+    query.mockResolvedValueOnce({ rows: [] })
+    db.connect.mockResolvedValueOnce({ query, release: vi.fn() })
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/agents',
+      headers: { 'idempotency-key': 'spawn-key-1' },
+      payload: { application_id: 'app-1' },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body)).toMatchObject({ agent_session_id: 'agent-replay' })
+    const lookup = query.mock.calls.find((call) => String(call[0]).includes('idempotency_key'))
+    expect(lookup?.[1]).toEqual(['z1', 'app-1', 'spawn-key-1'])
+  })
+
   it('defaults subject_session_id from the verified bearer and returns the agent session id', async () => {
     const { app, db } = buildApp()
     const client = spawnClient({
@@ -292,7 +434,7 @@ describe('POST /v1/zones/:zoneId/agents: spawn', () => {
     const res = await app.inject({
       method: 'POST',
       url: '/v1/zones/z1/agents',
-      payload: { application_id: 'app-1', kind: 'ephemeral', metadata: { purpose: 'sdk' } },
+      payload: { application_id: 'app-1', lifecycle: 'service', metadata: { purpose: 'sdk' } },
     })
     expect(res.statusCode).toBe(201)
     expect(JSON.parse(res.body)).toMatchObject({ agent_session_id: 'agent-sdk' })
@@ -300,26 +442,86 @@ describe('POST /v1/zones/:zoneId/agents: spawn', () => {
     expect(refsCall?.[1]).toEqual(['z1', 'app-1', 'sid-test'])
   })
 
-  it('rejects oversized capability metadata before spawning', async () => {
+  it('defaults lifecycle to task for managed applications when none is supplied', async () => {
+    const { app, db } = buildApp()
+    const client = spawnClient({
+      refs: { application_exists: true, session_exists: true, registration_method: 'managed' },
+      count: { app_n: '0', zone_n: '0' },
+      insert: { rows: [{ agent_session_id: 'agent-managed', zone_id: 'z1', application_id: 'app-1', parent_id: null }] },
+      outbox: true,
+    })
+    db.connect.mockResolvedValueOnce(client)
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/agents',
+      payload: { application_id: 'app-1', subject_session_id: 'sid-1' },
+    })
+    expect(res.statusCode).toBe(201)
+    const insertCall = client.query.mock.calls.find((call) => String(call[0]).includes('INSERT INTO agent_sessions'))
+    expect(insertCall?.[1]?.[5]).toBe('task')
+  })
+
+  it('defaults lifecycle to task for DCR applications when none is supplied', async () => {
+    const { app, db } = buildApp()
+    const client = spawnClient({
+      refs: { application_exists: true, session_exists: true, registration_method: 'dcr' },
+      count: { app_n: '0', zone_n: '0' },
+      insert: { rows: [{ agent_session_id: 'agent-dcr', zone_id: 'z1', application_id: 'app-1', parent_id: null }] },
+      outbox: true,
+    })
+    db.connect.mockResolvedValueOnce(client)
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/agents',
+      payload: { application_id: 'app-1', subject_session_id: 'sid-1' },
+    })
+    expect(res.statusCode).toBe(201)
+    const insertCall = client.query.mock.calls.find((call) => String(call[0]).includes('INSERT INTO agent_sessions'))
+    expect(insertCall?.[1]?.[5]).toBe('task')
+  })
+
+  it('passes through service lifecycle for managed applications', async () => {
+    const { app, db } = buildApp()
+    const client = spawnClient({
+      refs: { application_exists: true, session_exists: true, registration_method: 'managed' },
+      count: { app_n: '0', zone_n: '0' },
+      insert: { rows: [{ agent_session_id: 'agent-service', zone_id: 'z1', application_id: 'app-1', parent_id: null }] },
+      outbox: true,
+    })
+    db.connect.mockResolvedValueOnce(client)
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/agents',
+      payload: { application_id: 'app-1', subject_session_id: 'sid-1', lifecycle: 'service' },
+    })
+    expect(res.statusCode).toBe(201)
+    const insertCall = client.query.mock.calls.find((call) => String(call[0]).includes('INSERT INTO agent_sessions'))
+    expect(insertCall?.[1]?.[5]).toBe('service')
+  })
+
+  it('rejects oversized label set before spawning', async () => {
     const { app, db } = buildApp()
     await app.ready()
     const res = await app.inject({
       method: 'POST',
       url: '/v1/zones/z1/agents',
-      payload: { application_id: 'app-1', subject_session_id: 'sid-1', capabilities: Array.from({ length: 33 }, (_, i) => `cap${i}`) },
+      payload: { application_id: 'app-1', subject_session_id: 'sid-1', labels: Array.from({ length: 33 }, (_, i) => `cap${i}`) },
     })
     expect(res.statusCode).toBe(400)
     expect(JSON.parse(res.body)).toMatchObject({ error: 'invalid_body' })
     expect(db.connect).not.toHaveBeenCalled()
   })
 
-  it('rejects overlong capability values before spawning', async () => {
+  it('rejects overlong label values before spawning', async () => {
     const { app, db } = buildApp()
     await app.ready()
     const res = await app.inject({
       method: 'POST',
       url: '/v1/zones/z1/agents',
-      payload: { application_id: 'app-1', subject_session_id: 'sid-1', capabilities: ['x'.repeat(65)] },
+      payload: { application_id: 'app-1', subject_session_id: 'sid-1', labels: ['x'.repeat(65)] },
     })
     expect(res.statusCode).toBe(400)
     expect(JSON.parse(res.body)).toMatchObject({ error: 'invalid_body' })
@@ -372,6 +574,34 @@ describe('DELETE /v1/zones/:zoneId/agents/:id: cascade terminate', () => {
       expect.objectContaining({ session_id: 'sid-child', agent_session_id: 'agent-child' }),
     ]))
   })
+
+  it('skips session revocation when another live agent still uses the subject session', async () => {
+    const { app, db } = buildApp()
+    const client = {
+      query: vi.fn()
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [{ application_id: 'app-1' }] })
+        .mockResolvedValueOnce({ rows: [
+          { id: 'agent-root', subject_session_id: 'sid-shared', parent_id: null },
+          { id: 'agent-child', subject_session_id: 'sid-own', parent_id: 'agent-root' },
+        ] })
+        .mockResolvedValueOnce({ rows: [{ subject_session_id: 'sid-shared' }] })
+        .mockResolvedValue({ rows: [] }),
+      release: vi.fn(),
+    }
+    db.connect.mockResolvedValueOnce(client)
+    await app.ready()
+    const res = await app.inject({ method: 'DELETE', url: '/v1/zones/z1/agents/agent-root' })
+    expect(res.statusCode).toBe(204)
+    const outboxCalls = client.query.mock.calls.filter((call) => String(call[0]).includes('INSERT INTO caracal_outbox'))
+    const params = (outboxCalls[0]?.[1] ?? []) as unknown[]
+    const dedupeKeys = params.filter((_, i) => i % 4 === 2)
+    expect(dedupeKeys).toEqual(expect.arrayContaining([
+      'terminate:agent-root', 'terminate:agent-child', 'agent_terminate:agent-child',
+    ]))
+    expect(dedupeKeys).not.toContain('agent_terminate:agent-root')
+  })
 })
 
 function seqClient(responses: Array<{ rows: unknown[] }>): {
@@ -423,6 +653,31 @@ describe('GET /v1/zones/:zoneId/agents: list', () => {
     const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/agents?limit=5' })
     expect(res.statusCode).toBe(200)
     expect(res.json().next_cursor).toBeNull()
+  })
+
+  it('applies status, lifecycle, application, and label filters', async () => {
+    const { app, db } = buildApp()
+    db.query.mockResolvedValueOnce({ rows: [] })
+    await app.ready()
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/zones/z1/agents?status=active&lifecycle=service&application_id=app-1&label=worker&limit=10',
+    })
+    expect(res.statusCode).toBe(200)
+    const [sql, params] = db.query.mock.calls[0]
+    expect(sql).toContain('status = $2')
+    expect(sql).toContain('lifecycle = $3')
+    expect(sql).toContain('application_id = $4')
+    expect(sql).toContain('$5 = ANY(labels)')
+    expect(params).toEqual(['z1', 'active', 'service', 'app-1', 'worker', 10])
+  })
+
+  it('rejects an invalid status filter', async () => {
+    const { app } = buildApp()
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/agents?status=bogus' })
+    expect(res.statusCode).toBe(400)
+    expect(res.json()).toEqual({ error: 'invalid_query' })
   })
 })
 

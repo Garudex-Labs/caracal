@@ -17,24 +17,24 @@ The package requires Python `>=3.12`.
 
 | API | Use it when |
 | --- | --- |
-| `Caracal.connect()` | Auto-detect a generated profile or environment variables. |
+| `Caracal()` | Auto-detect a generated profile or environment variables. |
 | `Caracal.from_env()` | Load only from `CARACAL_*` environment variables. |
 | `Caracal.from_config(path)` | Load a Console-generated `caracal.toml`. |
 | `Caracal.from_client_secret(...)` | Build a client that refreshes application subject tokens through STS. |
 
 ```python
-from caracalai_sdk import Caracal
+from caracalai import Caracal
 
-caracal = Caracal.connect()
+caracal = Caracal()
 ```
 
 ## Core methods
 
 | Method | Purpose |
 | --- | --- |
-| `async with caracal.spawn(...)` | Create and bind an agent session. |
+| `async with caracal.spawn(...)` | Create and bind an agent session; pass `grant=Grant.narrow(...)` to bound the child's authority. |
+| `await caracal.spawn_service(...)` | Start a long-lived service agent; returns a handle with `heartbeat()` and `aclose()`. |
 | `async with caracal.delegate(...)` | Create and bind a delegation edge to an existing agent session. |
-| `async with caracal.delegate_to_spawn(...)` | Spawn a child session and create the delegation edge before yielding context. |
 | `caracal.headers(allow_root=False)` | Project the current context into HTTP headers. |
 | `async with caracal.bind(ctx)` | Rebind a captured context into a new async task. |
 | `async with caracal.bind_from_headers(headers, allow_root=False)` | Bind inbound Caracal envelope headers. |
@@ -42,11 +42,12 @@ caracal = Caracal.connect()
 | `caracal.sync_transport(allow_root=False, **kwargs)` | Synchronous `httpx.Client` counterpart. |
 | `caracal.context_middleware(verifier=None)` | ASGI middleware factory: propagates context, and enforces at the boundary when a `verifier` is passed. |
 | `caracal.gateway_request(resource_id, path="/")` | Build a Gateway URL and `X-Caracal-Resource` header. |
+| `caracal.mint_mandate(resource_id, scopes, ctx=None, ttl_seconds=None)` | Mint a cached resource mandate carrying the bound agent session and delegation edge; requires client-secret credentials. |
 
 ## Context Propagation
 
 ```python
-from caracalai_sdk import DelegationConstraints
+from caracalai import DelegationConstraints
 
 constraints = DelegationConstraints(
     max_hops=1,
@@ -67,7 +68,7 @@ Pass `verifier=` to **enforce at the boundary**. The callable receives the beare
 
 ```python
 from caracalai_identity import verify_token
-from caracalai_sdk import Caracal
+from caracalai import Caracal
 
 caracal = Caracal.from_env()
 app = FastAPI()

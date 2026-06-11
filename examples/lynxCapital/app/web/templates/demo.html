@@ -7,56 +7,46 @@ Demo page template for the Lynx Capital runtime workspace.
 {% extends "layout.html" %}
 {% block title %}{{ company }} - Demo{% endblock %}
 {% block content %}
-<link rel="stylesheet" href="/static/demo.css?v=12">
+<link rel="stylesheet" href="/static/demo.css?v=20">
 
 <div class="app-shell">
-  <aside class="left-sidebar" aria-label="Runtime sessions">
+  <aside class="left-sidebar" aria-label="Runtime session">
     <div class="sidebar-brand">
       <span class="brand-dot" aria-hidden="true"></span>
       <span class="brand-text">{{ shortName }}</span>
     </div>
 
     <section class="sidebar-section">
-      <h2 class="section-header">Active session</h2>
-      <div id="active-session-card" class="session-card active">
+      <h2 class="section-header">Current task</h2>
+      <div id="active-session-card" class="session-card">
         <div class="session-status">
-          <span class="pulse-dot" aria-hidden="true"></span>
-          <span id="session-run-id" class="session-title">No active run</span>
+          <span id="session-dot" class="session-dot" aria-hidden="true"></span>
+          <span id="session-run-id" class="session-title">No task running</span>
         </div>
-        <div class="session-meta">
-          <span id="session-msg-count">0 messages</span>
-          <span id="session-tool-count">0 tools</span>
-          <span id="session-time">--:--:--</span>
-        </div>
+        <dl class="session-meta">
+          <div><dt>Elapsed</dt><dd id="session-time">--:--</dd></div>
+          <div><dt>Turns</dt><dd id="session-msg-count">0</dd></div>
+          <div><dt>Tools</dt><dd id="session-tool-count">0</dd></div>
+        </dl>
       </div>
     </section>
 
     <section class="sidebar-section">
-      <h2 class="section-header">Runtime counters</h2>
-      <div class="past-sessions-list">
-        <div class="session-card-past">
-          <span class="session-title">Events</span>
-          <span id="event-count" class="session-time-past">0</span>
-        </div>
-        <div class="session-card-past">
-          <span class="session-title">Tools</span>
-          <span id="tool-count" class="session-time-past">0</span>
-        </div>
-        <div class="session-card-past">
-          <span class="session-title">Services</span>
-          <span id="service-count" class="session-time-past">0</span>
-        </div>
-        <div class="session-card-past">
-          <span class="session-title">Controls</span>
-          <span id="security-count" class="session-time-past">0</span>
-        </div>
-      </div>
+      <h2 class="section-header">This session</h2>
+      <dl class="session-stats">
+        <div class="stat-row"><dt>Updates</dt><dd id="event-count">0</dd></div>
+        <div class="stat-row"><dt>Actions taken</dt><dd id="tool-count">0</dd></div>
+        <div class="stat-row"><dt>Services called</dt><dd id="service-count">0</dd></div>
+        <div class="stat-row"><dt>Policy checks</dt><dd id="audit-count">0</dd></div>
+        <div class="stat-row"><dt>Approvals</dt><dd id="security-count">0</dd></div>
+        <div class="stat-row"><dt>Agents spawned</dt><dd id="agent-count">0</dd></div>
+      </dl>
     </section>
 
     <div class="sidebar-footer">
       <span class="runtime-status-badge">
-        <span class="status-indicator-dot online" aria-hidden="true"></span>
-        <span id="runtime-state" class="status-label">Idle</span>
+        <span id="runtime-dot" class="status-indicator-dot online" aria-hidden="true"></span>
+        <span id="runtime-state" class="status-label">Ready</span>
       </span>
     </div>
   </aside>
@@ -64,23 +54,30 @@ Demo page template for the Lynx Capital runtime workspace.
   <section class="main-viewport" aria-label="Conversation and orchestration workspace">
     <header class="viewport-header">
       <div class="viewport-header-left">
-        <h1 class="viewport-title">{{ shortName }} agent workspace</h1>
-        <span class="viewport-subtitle">Conversation, execution traces, and live topology.</span>
+        <button id="toggle-left-panel" class="panel-toggle" type="button" title="Toggle session panel" aria-expanded="true">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="2"/><line x1="5.5" y1="2.5" x2="5.5" y2="13.5"/></svg>
+        </button>
+        <h1 class="viewport-title">{{ shortName }} workspace</h1>
+        <span id="run-status-chip" class="run-status-chip state-idle">Idle</span>
       </div>
       <div class="viewport-actions">
-        <button id="clear-chat-btn" class="btn" title="Clear current visible history">Clear view</button>
-        <button id="new-chat-btn" class="btn" title="Start a new chat session">New chat</button>
-        <button type="button" class="btn responsive-toggle-btn">Graph</button>
+        <button id="clear-chat-btn" class="btn" type="button" title="Clear the visible conversation">Clear view</button>
+        <button id="new-chat-btn" class="btn" type="button" title="Start a new session">New chat</button>
+        <button type="button" class="btn responsive-toggle-btn" id="toggle-graph-btn">Graph</button>
+        <button id="toggle-right-panel" class="panel-toggle" type="button" title="Toggle details panel" aria-expanded="true">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="2"/><line x1="10.5" y1="2.5" x2="10.5" y2="13.5"/></svg>
+        </button>
       </div>
     </header>
 
     <div class="viewport-split-container">
       <section class="chat-column" aria-label="Conversation stream">
-        <div class="chat-stream-shell">
-          <div class="chat-stream" id="chat-stream">
-            <div class="chat-empty" id="chat-empty">
-              <span class="chat-empty-title">No activity yet</span>
-              <span class="chat-empty-copy">Start a run to see the live conversation, execution trail, and system events.</span>
+        <div class="chat-stream-shell" id="chat-stream">
+          <div class="chat-empty" id="chat-empty">
+            <div class="welcome-head">
+              <span class="welcome-eyebrow">{{ shortName }} finance operations</span>
+              <h2 class="welcome-title">What would you like the team to handle?</h2>
+              <a class="welcome-link" href="/prompts">Browse example prompts →</a>
             </div>
           </div>
         </div>
@@ -88,41 +85,47 @@ Demo page template for the Lynx Capital runtime workspace.
         {% include "components/demo/input_component.html" %}
       </section>
 
-      <section class="graph-column" aria-label="Orchestration graph">
+      <div id="split-divider" class="split-divider" role="separator" aria-orientation="vertical" aria-label="Resize chat and graph" title="Drag to resize · double-click to reset"></div>
+
+      <section class="graph-column" aria-label="Orchestration map">
         <header class="viewport-header">
           <div class="viewport-header-left">
-            <h2 class="viewport-title">Orchestration graph</h2>
-            <span class="viewport-subtitle">Agents, providers, approvals, and telemetry.</span>
+            <h2 class="viewport-title">Orchestration map</h2>
+            <span class="viewport-subtitle">What Caracal allowed, blocked, and audited</span>
           </div>
-          <span id="graph-status" class="runtime-status-badge">idle</span>
+          <span id="graph-status" class="graph-status-badge">idle</span>
         </header>
 
         <div class="graph-workspace">
-          <aside class="graph-rail" aria-label="Execution stages">
+          <aside class="graph-rail" aria-label="Execution timeline">
             <div class="graph-rail-head">
-              <span class="graph-rail-eyebrow">Stages</span>
-              <span id="graph-stage-summary" class="graph-rail-summary">Waiting for a run</span>
+              <span class="graph-rail-eyebrow">Execution timeline</span>
+              <span id="graph-timeline-count" class="graph-rail-summary">Waiting for a task</span>
             </div>
-            <div id="graph-stage-rail" class="graph-stage-rail"></div>
+            <ol id="graph-timeline-list" class="graph-timeline-rail"></ol>
           </aside>
 
           <div class="graph-main">
-            <div class="graph-toolbar" aria-label="Graph controls">
+            <div class="graph-toolbar" aria-label="Map controls">
+              <div class="graph-toolbar-group" role="group" aria-label="Filter the map">
+                <button type="button" class="graph-tool-btn graph-filter-btn is-active" data-graphfilter="all">All</button>
+                <button type="button" class="graph-tool-btn graph-filter-btn" data-graphfilter="active">Active</button>
+                <button type="button" class="graph-tool-btn graph-filter-btn" data-graphfilter="blocked">Blocked</button>
+              </div>
               <div class="graph-toolbar-group">
                 <button type="button" id="graph-zoom-out" class="graph-tool-btn" aria-label="Zoom out">-</button>
                 <button type="button" id="graph-zoom-reset" class="graph-tool-btn">100%</button>
                 <button type="button" id="graph-zoom-in" class="graph-tool-btn" aria-label="Zoom in">+</button>
                 <button type="button" id="graph-fit" class="graph-tool-btn">Fit</button>
               </div>
-              <span class="graph-toolbar-hint">Drag to pan - scroll to zoom</span>
             </div>
 
-            <div id="graph-canvas" class="graph-canvas" tabindex="0" aria-label="Zoomable orchestration graph">
+            <div id="graph-canvas" class="graph-canvas" tabindex="0" aria-label="Orchestration map">
               <div class="graph-empty" id="graph-empty">
-                <span class="graph-empty-title">Topology waiting for execution</span>
-                <span>Start a run to watch the runtime coordinate agents and provider calls.</span>
+                <span class="graph-empty-title">No task running yet</span>
+                <span>Start a task to watch agents spawn, providers respond, and Caracal govern every call.</span>
               </div>
-              <svg id="graph-svg" style="display:none" role="img" aria-label="Live orchestration topology"></svg>
+              <svg id="graph-svg" style="display:none" role="img" aria-label="Live orchestration map"></svg>
             </div>
           </div>
         </div>
@@ -130,15 +133,15 @@ Demo page template for the Lynx Capital runtime workspace.
     </div>
   </section>
 
-  <aside class="right-panel" aria-label="Runtime details">
-    <section class="inspector-section">
+  <aside class="right-panel" aria-label="Task details">
+    <section class="inspector-section" id="section-workload">
       <div class="section-title-bar">
-        <h3>Memory pressure</h3>
-        <button class="section-toggle-btn" type="button" aria-label="Toggle memory details"></button>
+        <h3>Agent workload</h3>
+        <button class="section-toggle-btn" type="button" aria-label="Toggle workload details"></button>
       </div>
-      <div class="section-content memory-pressure-block" id="memory-bar" aria-label="Context usage">
+      <div class="section-content" id="memory-bar" aria-label="Working memory across agents">
         <div class="memory-header">
-          <span>Context</span>
+          <span>Working memory</span>
           <span id="mem-tokens">0 / 128k</span>
         </div>
         <div class="mem-track" aria-hidden="true">
@@ -146,17 +149,21 @@ Demo page template for the Lynx Capital runtime workspace.
         </div>
         <div class="mem-chips-row">
           <span id="mem-agents" class="mem-chip">0 agents</span>
-          <span id="mem-compactions" class="mem-chip">0 compactions</span>
+          <span id="mem-compactions" class="mem-chip">0 summaries</span>
           <span id="mem-files" class="mem-chip">0 files</span>
         </div>
-        <button type="button" id="mem-toggle" class="btn" aria-expanded="false">Summaries</button>
-        <div id="mem-detail" class="mem-detail" hidden></div>
+        <details id="mem-detail-shell" class="mem-detail-shell">
+          <summary>Compaction summaries</summary>
+          <div id="mem-detail" class="mem-detail">
+            <span class="panel-empty">No compactions yet.</span>
+          </div>
+        </details>
       </div>
     </section>
 
-    <section class="inspector-section">
+    <section class="inspector-section" id="section-plan">
       <div class="section-title-bar">
-        <h3>Execution plan</h3>
+        <h3>Plan of work</h3>
         <button class="section-toggle-btn" type="button" aria-label="Toggle plan details"></button>
       </div>
       <div class="section-content">
@@ -164,37 +171,27 @@ Demo page template for the Lynx Capital runtime workspace.
       </div>
     </section>
 
-    <section class="inspector-section">
+    <section class="inspector-section" id="section-activity">
       <div class="section-title-bar">
-        <h3>Runtime activity</h3>
-        <button class="section-toggle-btn" type="button" aria-label="Toggle activity details"></button>
+        <h3>Live activity</h3>
+        <span id="feed-count" class="count-badge">0</span>
       </div>
-      <div class="section-content">
+      <div class="section-content section-content-flush">
         <div id="runtime-feed" class="runtime-feed">
-          <div class="runtime-feed-empty">Lifecycle, tools, provider calls, files, memory, and audit decisions appear here.</div>
+          <div class="runtime-feed-empty">Service calls, file activity, and approval decisions appear here as they happen.</div>
         </div>
       </div>
     </section>
 
-    <section class="inspector-section">
+    <section class="inspector-section" id="section-inspector">
       <div class="section-title-bar">
-        <h3>Inspector</h3>
-        <span id="graph-inspector-type" class="provider-model-badge">Overview</span>
+        <h3>Details</h3>
+        <span id="graph-inspector-type" class="count-badge">Overview</span>
       </div>
       <div class="section-content graph-inspector" aria-live="polite">
-        <h3 id="graph-inspector-title">No node selected</h3>
-        <p id="graph-inspector-copy">Select an element in the graph to inspect.</p>
+        <h3 id="graph-inspector-title">Nothing selected</h3>
+        <p id="graph-inspector-copy">Select an item on the orchestration map to see what it does.</p>
         <dl id="graph-inspector-metrics" class="graph-metric-list"></dl>
-      </div>
-    </section>
-
-    <section class="inspector-section">
-      <div class="section-title-bar">
-        <h3>Execution timeline</h3>
-        <span id="graph-timeline-count" class="latency-badge">0 events</span>
-      </div>
-      <div class="section-content">
-        <ol id="graph-timeline-list" class="graph-timeline-list"></ol>
       </div>
     </section>
   </aside>
@@ -203,6 +200,84 @@ Demo page template for the Lynx Capital runtime workspace.
 {% include "components/demo/message_component.html" %}
 {% include "components/demo/event_block.html" %}
 
-<script src="/static/chat.js?v=12" type="module"></script>
-<script src="/static/graph.js?v=12" type="module"></script>
+<script>
+  (() => {
+    const shell = document.querySelector(".app-shell");
+    const split = document.querySelector(".viewport-split-container");
+    const divider = document.getElementById("split-divider");
+    const leftBtn = document.getElementById("toggle-left-panel");
+    const rightBtn = document.getElementById("toggle-right-panel");
+    const MIN_CHAT = 380;
+    const MIN_GRAPH = 320;
+    const DIVIDER_W = 6;
+
+    function applyPanelState(btn, cls, collapsed) {
+      shell.classList.toggle(cls, collapsed);
+      btn.classList.toggle("is-collapsed", collapsed);
+      btn.setAttribute("aria-expanded", String(!collapsed));
+    }
+
+    function bindPanel(btn, cls, storageKey) {
+      applyPanelState(btn, cls, localStorage.getItem(storageKey) === "1");
+      btn.addEventListener("click", () => {
+        const collapsed = !shell.classList.contains(cls);
+        applyPanelState(btn, cls, collapsed);
+        localStorage.setItem(storageKey, collapsed ? "1" : "0");
+      });
+    }
+
+    bindPanel(leftBtn, "leftCollapsed", "lynxLeftCollapsed");
+    bindPanel(rightBtn, "rightCollapsed", "lynxRightCollapsed");
+
+    function clampChatWidth(px) {
+      const max = split.clientWidth - MIN_GRAPH - DIVIDER_W;
+      return Math.min(Math.max(px, MIN_CHAT), Math.max(max, MIN_CHAT));
+    }
+
+    function setChatWidth(px) {
+      split.style.setProperty("--chatW", `${clampChatWidth(px)}px`);
+    }
+
+    const storedRatio = parseFloat(localStorage.getItem("lynxChatSplit"));
+    if (Number.isFinite(storedRatio) && storedRatio > 0 && storedRatio < 1) {
+      setChatWidth(split.clientWidth * storedRatio);
+    }
+
+    divider.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      divider.setPointerCapture(event.pointerId);
+      divider.classList.add("is-dragging");
+      document.body.classList.add("is-resizing");
+
+      const onMove = (move) => {
+        setChatWidth(move.clientX - split.getBoundingClientRect().left);
+      };
+      const onUp = () => {
+        divider.classList.remove("is-dragging");
+        document.body.classList.remove("is-resizing");
+        divider.removeEventListener("pointermove", onMove);
+        divider.removeEventListener("pointerup", onUp);
+        const width = split.style.getPropertyValue("--chatW");
+        if (width && split.clientWidth > 0) {
+          localStorage.setItem("lynxChatSplit", String(parseFloat(width) / split.clientWidth));
+        }
+      };
+      divider.addEventListener("pointermove", onMove);
+      divider.addEventListener("pointerup", onUp);
+    });
+
+    divider.addEventListener("dblclick", () => {
+      split.style.removeProperty("--chatW");
+      localStorage.removeItem("lynxChatSplit");
+    });
+
+    window.addEventListener("resize", () => {
+      const width = split.style.getPropertyValue("--chatW");
+      if (width) setChatWidth(parseFloat(width));
+    });
+  })();
+</script>
+
+<script src="/static/chat.js?v=19" type="module"></script>
+<script src="/static/graph.js?v=16" type="module"></script>
 {% endblock %}

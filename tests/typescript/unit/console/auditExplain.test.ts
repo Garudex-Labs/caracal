@@ -135,7 +135,7 @@ describe('request trace entry', () => {
     const detail = pushed[pushed.length - 1] as DetailView
     expect(detail).toBeInstanceOf(DetailView)
     await detail.init(app)
-    expect(get).toHaveBeenCalledWith('z1', 'app-1', { applicationInternals: true })
+    expect(get).toHaveBeenCalledWith('z1', 'app-1')
   })
 
   it('creates control keys with explicit permissions and restrictions', async () => {

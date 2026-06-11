@@ -23,8 +23,8 @@
 |                       | Dev                                                      | RC                                                          | Stable                                                     |
 | --------------------- | -------------------------------------------------------- | ----------------------------------------------------------- | ---------------------------------------------------------- |
 | Purpose               | Development builds                                      | rc builds                                                   | Released production versions                               |
-| Version               | `2026.06.04-dev.sha<sha>`                                | `2026.06.04-rc.1` / `0.1.4-rc.1`                          | `2026.06.04` / `0.1.4`                                    |
-| Container images      | `localhost/caracal-{svc}:2026.06.04-dev.sha<sha>`        | `ghcr.io/garudex-labs/caracal-{svc}:v2026.06.04-rc.1`      | `ghcr.io/garudex-labs/caracal-{svc}:v2026.06.04`          |
+| Version               | `2026.06.04-dev.sha<sha>`                                | `2026.06.10-rc.1` / `0.1.5-rc.2`                          | `2026.06.04` / `0.1.4`                                    |
+| Container images      | `localhost/caracal-{svc}:2026.06.04-dev.sha<sha>`        | `ghcr.io/garudex-labs/caracal-{svc}:v2026.06.10-rc.1`      | `ghcr.io/garudex-labs/caracal-{svc}:v2026.06.04`          |
 
 </details>
 
@@ -39,8 +39,10 @@ pnpm caracal up                     # Build and start the full stack
 pnpm caracal --help                 # Show runtime shell help and available lifecycle commands
 pnpm caracal status                 # Check health status of all services
 pnpm caracal down [--help]          # Stop the stack
-pnpm caracal purge                  # Remove stack, volumes, logs, cache, and installed data
+pnpm caracal purge                  # Remove stack, volumes, logs, examples, cache, and installed data
 ```
+
+`pnpm install` is the standard dependency install command for the Node workspace. Run `pnpm run setup` when you need the full cross-platform developer environment: it runs `pnpm install`, downloads Go module dependencies, creates `.venv`, installs Python test/style dependencies, and installs local Python packages in editable mode.
 
 <details>
 <summary>Drop the `pnpm` prefix</summary>
@@ -83,6 +85,7 @@ Clients authenticate by exchanging the Control key credentials for a token whose
 ## Tests
 
 ```bash
+pnpm run style                               # changed-file style gate
 pnpm test                                    # full suite (ts + go + py)
 pnpm run test:typescript | test:go | test:python
 ```
@@ -90,9 +93,29 @@ pnpm run test:typescript | test:go | test:python
 `scripts/testCi.sh` mirrors `.github/workflows/test.yml` locally:
 
 ```bash
-scripts/testCi.sh                # full suite (ts + go + py + docs)
-scripts/testCi.sh --smoke | --go | --py | --ts
+scripts/testCi.sh                # full suite (style + ts + go + py + docs)
+scripts/testCi.sh --smoke | --style | --go | --py | --ts
 ```
+
+### Testing Policy
+
+This policy is mandatory and is enforced during review:
+
+- Major new functionality MUST add automated tests covering that functionality, in the same change that introduces it.
+- Every bug fix MUST add a regression test that fails without the fix and passes with it.
+- Reviewers MUST confirm the required tests exist and run in CI before approving; pull requests that omit them are not merged.
+
+## Coding Style
+
+Caracal uses the official language style conventions for its primary implementation languages:
+
+| Language | Style guide | Automatic enforcement |
+| --- | --- | --- |
+| TypeScript and JavaScript | TypeScript Handbook style with the repository Prettier profile in `.prettierrc.json` | `pnpm run style` runs Prettier on changed TS/JS source files. |
+| Go | Effective Go and `gofmt` formatting | `pnpm run style` runs `gofmt -l` on changed Go source files. |
+| Python | PEP 8 layout as formatted by Ruff | `pnpm run style` runs `ruff format --check` on changed Python source files. |
+
+Pull requests run the same style gate automatically for changed primary-language files. Use `pnpm run style:fix` to format changed files and `pnpm run style:all` before broad cleanup work.
 
 ## Submitting Changes
 
@@ -104,10 +127,35 @@ scripts/testCi.sh --smoke | --go | --py | --ts
   - `pnpm caracal console`
   - `pnpm caracal down`
 4. Ensure tests pass:
+  - `pnpm run style`
   - `pnpm test`
   - `scripts/testCi.sh --smoke` (post-commit parity)
   - `scripts/testCi.sh` (daily-check parity)
 5. Commit with a clear message and open a PR.
+
+## Code Review
+
+Every change is proposed as a pull request and reviewed before it is merged or released.
+
+### How review is conducted
+
+- Open a pull request against `main`; direct pushes to `main` are not used for code changes.
+- At least one maintainer **other than the author** must review and approve the pull request before it is merged. Authors must not approve or merge their own changes.
+- Area owners in `.github/CODEOWNERS` are requested automatically and own review for their paths.
+- Release publishing requires `release-approval` from a maintainer other than the one who prepared the release.
+
+### What reviewers must check
+
+- **Correctness:** the change does what it claims and handles edge cases and failure paths.
+- **Scope:** the change stays focused; unrelated edits are split out.
+- **Tests:** the Testing Policy is satisfied — major new functionality adds tests and bug fixes add a regression test — and CI passes.
+- **Style:** the change passes the `pnpm run style` gate for its languages.
+- **Security and boundaries:** input is validated, secrets are not exposed, trust boundaries in `governance/THREAT_MODEL.md` are respected, and no open-source code depends on enterprise-only code.
+- **Docs:** behavior, API, command, config, and operations changes update the affected documentation.
+
+### What is required to be acceptable
+
+A pull request is acceptable to merge only when it has at least one approving review from a non-author maintainer, all required CI checks pass, review comments are resolved, and the change is judged a worthwhile improvement free of known defects that would argue against inclusion.
 
 ## Releases
 
@@ -130,25 +178,29 @@ pnpm caracal down                                          # Stop dev before tes
 
 `build:release` stamps dev binaries and local `localhost/caracal-{svc}:<base>-dev.sha<sha>` images. Do not use dev builds downstream.
 
+### Native build flags
+
+Go-based container builds preserve debug information by default and accept standard build arguments for native toolchains: `CGO_ENABLED`, `CC`, `CFLAGS`, `CXX`, `CXXFLAGS`, `LDFLAGS`, `GOFLAGS`, `GO_BUILDFLAGS`, and `GO_LDFLAGS`. The Dockerfiles add `-mod=readonly` and `-trimpath`; pass linker options through `GO_LDFLAGS` when a release or diagnostic build needs them.
+
 ### Release flow
 
 Use the same flow for rc and stable: plan, dry-run, publish, validate. rc proves the exact artifacts downstream; stable promotes the approved release.
 
 | Step | rc | stable |
 | --- | --- | --- |
-| Prepare | `scripts/release.sh rc prepare --base-version 2026.06.04 --suffix rc.1` | `scripts/release.sh stable --dry-run` |
+| Prepare | `scripts/release.sh rc prepare --base-version 2026.06.10 --suffix rc.1` | `scripts/release.sh stable --dry-run` |
 | Review | Commit the generated manifest and metadata. | Review the stable diff and generated version. |
-| Dry-run | `scripts/release.sh rc dry-run --base-version 2026.06.04 --suffix rc.1 --local` for local simulation; remote dry-run requires the rc commit on the selected ref. | `scripts/release.sh stable --dry-run` |
-| Publish | Tag and push `v2026.06.04-rc.1`. | `scripts/release.sh stable` |
+| Dry-run | `scripts/release.sh rc dry-run --base-version 2026.06.10 --suffix rc.1 --local` for local simulation; remote dry-run requires the rc commit on the selected ref. | `scripts/release.sh stable --dry-run` |
+| Publish | Tag and push `v2026.06.10-rc.1`. | `scripts/release.sh stable` |
 | Validate | `postReleaseValidation.yml` runs after release. | `postReleaseValidation.yml` gates stable promotion. |
 
 ```bash
 # rc
-scripts/release.sh rc prepare --base-version 2026.06.04 --suffix rc.1
-git add -A && git commit -m "rc: v2026.06.04-rc.1"
-scripts/release.sh rc dry-run --base-version 2026.06.04 --suffix rc.1 --local
-git tag -a v2026.06.04-rc.1 -m v2026.06.04-rc.1
-git push origin HEAD && git push origin v2026.06.04-rc.1
+scripts/release.sh rc prepare --base-version 2026.06.10 --suffix rc.1
+git add -A && git commit -m "rc: v2026.06.10-rc.1"
+scripts/release.sh rc dry-run --base-version 2026.06.10 --suffix rc.1 --local
+git tag -a v2026.06.10-rc.1 -m v2026.06.10-rc.1
+git push origin HEAD && git push origin v2026.06.10-rc.1
 
 # stable
 scripts/release.sh stable --dry-run
@@ -164,7 +216,7 @@ Remote rc dry-runs dispatch `release.yml` without publishing. They only read the
 Reproduce one area locally:
 
 ```bash
-CARACAL_RELEASE=v2026.06.04-rc.1 FINDINGS_DIR=/tmp/findings \
+CARACAL_RELEASE=v2026.06.10-rc.1 FINDINGS_DIR=/tmp/findings \
   bash scripts/postRelease/validateRegistryMetadata.sh
 ```
 

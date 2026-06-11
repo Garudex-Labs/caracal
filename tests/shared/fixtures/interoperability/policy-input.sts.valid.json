@@ -6,8 +6,8 @@
     "zone_id": "zone-1",
     "registration_method": "dcr",
     "agent_session_id": "agent-session-1",
-    "agent_kind": "planner",
-    "capabilities": ["files.read"]
+    "lifecycle": "task",
+    "labels": ["files.read"]
   },
   "resource": {
     "type": "http",

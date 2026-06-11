@@ -142,6 +142,7 @@ describe('security response headers', () => {
 
 describe('/metrics endpoint', () => {
   it('returns Prometheus text exposition with observability counters', async () => {
+    process.env.CARACAL_MODE = 'dev'
     const cfg = makeCfg()
     const app = await buildApp({ cfg, db: makeDb(), redis: makeRedis() })
     const res = await app.inject({ method: 'GET', url: '/metrics' })
@@ -150,6 +151,15 @@ describe('/metrics endpoint', () => {
     expect(res.body).toContain('caracal_log_emitted_total')
     expect(res.body).toContain('# TYPE caracal_log_emitted_total counter')
     expect(res.body).toContain('caracal_api_outbox_dead_total')
+    await app.close()
+  })
+
+  it('refuses unauthenticated metrics in published builds without a configured bearer', async () => {
+    process.env.CARACAL_MODE = 'stable'
+    const cfg = makeCfg({ metricsBearer: null })
+    const app = await buildApp({ cfg, db: makeDb(), redis: makeRedis() })
+    const res = await app.inject({ method: 'GET', url: '/metrics' })
+    expect(res.statusCode).toBe(401)
     await app.close()
   })
 

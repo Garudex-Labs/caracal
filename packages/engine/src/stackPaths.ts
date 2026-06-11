@@ -13,6 +13,9 @@ import type { CaracalMode } from '@caracalai/core'
 
 export type StackMode = CaracalMode
 
+const DEV_COMPOSE_DIR = ['infra', 'docker'] as const
+const DEV_COMPOSE_FILENAME = 'docker-compose.yml'
+
 export interface ResolveStackPathsOptions {
   mode?: StackMode
   home?: string
@@ -64,9 +67,9 @@ function devPaths(opts: ResolveStackPathsOptions): StackPaths {
       "CARACAL_MODE=dev requires CARACAL_REPO_ROOT; invoke via 'pnpm caracal' from inside the repo.",
     )
   }
-  const composeFile = process.env.CARACAL_COMPOSE_FILE ?? join(repoRoot, 'infra', 'docker', 'docker-compose.yml')
-  const defaultsEnvFile = join(repoRoot, 'infra', 'docker', 'dev.env')
-  const overrideEnvFile = join(repoRoot, 'infra', 'docker', 'local.env')
+  const composeFile = process.env.CARACAL_COMPOSE_FILE ?? join(repoRoot, ...DEV_COMPOSE_DIR, DEV_COMPOSE_FILENAME)
+  const defaultsEnvFile = join(repoRoot, ...DEV_COMPOSE_DIR, 'dev.env')
+  const overrideEnvFile = join(repoRoot, ...DEV_COMPOSE_DIR, 'local.env')
   const secrets = prepareDevSecrets(repoRoot)
   const report = bootstrapSecrets(secrets)
   if (report.filesCreated.length > 0) {
@@ -139,6 +142,13 @@ function mountedSecretDir(container: DockerInspectContainer): string | undefined
   return mount?.Source ? dirname(mount.Source) : undefined
 }
 
+function devRepoRoot(workingDir: string | undefined): string | undefined {
+  if (!workingDir) return undefined
+  let root = workingDir
+  for (let i = 0; i < DEV_COMPOSE_DIR.length; i++) root = dirname(root)
+  return root
+}
+
 export function detectActiveLocalStackRuntime(): ActiveLocalStackRuntime | undefined {
   const ids = dockerOutput([
     'ps',
@@ -161,7 +171,7 @@ export function detectActiveLocalStackRuntime(): ActiveLocalStackRuntime | undef
     mode,
     ...imageRuntime(container.Config?.Image),
     home: mode === 'dev' ? undefined : home,
-    repoRoot: mode === 'dev' ? home : undefined,
+    repoRoot: mode === 'dev' ? devRepoRoot(home) : undefined,
     composeFile,
     secretsDir: mountedSecretDir(container),
   }

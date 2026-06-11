@@ -9,6 +9,7 @@ import { v7 as uuidv7 } from 'uuid'
 import type { PoolClient } from 'pg'
 import { enqueue, enqueueMany, Topics, type OutboxItem, type Queryable } from '../outbox.js'
 import { ownsApplication, requireScope } from '../auth.js'
+import { bumpDelegationEpoch } from '../delegationEpochs.js'
 import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
 import { cfg } from '../config.js'
 
@@ -19,31 +20,32 @@ const MAX_PER_APP = 200
 const DEFAULT_TTL = 3600
 const LIST_DEFAULT_LIMIT = 100
 const LIST_MAX_LIMIT = 500
-export const MAX_AGENT_CAPABILITIES = 32
-export const MAX_AGENT_CAPABILITY_LENGTH = 64
+export const MAX_AGENT_LABELS = 32
+export const MAX_AGENT_LABEL_LENGTH = 64
 
-export const AgentKind = z.enum(['service', 'instance', 'ephemeral'])
-export const AgentCapabilities = z.array(
-  z.string().trim().min(1).max(MAX_AGENT_CAPABILITY_LENGTH),
-).max(MAX_AGENT_CAPABILITIES).default([])
-
-function heartbeatDeadline(kind: z.infer<typeof AgentKind>): Date | null {
-  return kind === 'service' ? new Date(Date.now() + cfg.serviceAgentLeaseSeconds * 1000) : null
-}
+export const Lifecycle = z.enum(['task', 'service'])
+export const AgentLabels = z.array(
+  z.string().trim().min(1).max(MAX_AGENT_LABEL_LENGTH),
+).max(MAX_AGENT_LABELS).default([])
 
 const SpawnBody = z.object({
   application_id: z.string().min(1),
   subject_session_id: z.string().min(1).optional(),
   parent_id: z.string().nullable().default(null),
-  kind: AgentKind.default('ephemeral'),
-  capabilities: AgentCapabilities,
-  ttl_seconds: z.number().int().min(1).max(86400).default(DEFAULT_TTL),
+  lifecycle: Lifecycle.optional(),
+  labels: AgentLabels,
+  ttl_seconds: z.number().int().min(1).max(86400).optional(),
+  inherit_parent_edge_id: z.string().min(1).optional(),
   metadata: z.record(z.string(), z.unknown()).default({}),
 })
 
 const ListQuery = z.object({
   limit: z.coerce.number().int().min(1).max(LIST_MAX_LIMIT).default(LIST_DEFAULT_LIMIT),
   cursor: z.string().min(1).optional(),
+  status: z.enum(['active', 'suspended', 'terminated']).optional(),
+  lifecycle: z.enum(['task', 'service']).optional(),
+  application_id: z.string().min(1).optional(),
+  label: z.string().min(1).optional(),
 })
 
 const TerminateQuery = z.object({
@@ -52,6 +54,50 @@ const TerminateQuery = z.object({
 
 export function spawnLockKey(zoneId: string): string {
   return `coordinator:agent_spawn:${zoneId}`
+}
+
+// inheritParentEdge mirrors the parent's narrowing edge onto a freshly spawned
+// child so an inherit spawn carries the parent's effective authority forward
+// instead of regaining full application authority. The copy is escalation-proof
+// by construction: the child edge holds the parent edge's exact scopes, resource,
+// constraints, and expiry. Returns the new edge id, null when no inheritance was
+// requested, or false when the requested parent edge is not an active edge into
+// the parent under the same application.
+async function inheritParentEdge(
+  client: PoolClient,
+  zoneId: string,
+  body: z.infer<typeof SpawnBody>,
+  childId: string,
+): Promise<string | null | false> {
+  if (!body.inherit_parent_edge_id || !body.parent_id) return null
+  const { rows } = await client.query(
+    `SELECT id, receiver_application_id, resource_id, scopes, constraints_json, expires_at
+     FROM delegation_edges
+     WHERE id = $1 AND zone_id = $2 AND target_session_id = $3
+       AND receiver_application_id = $4 AND status = 'active' AND expires_at > now()`,
+    [body.inherit_parent_edge_id, zoneId, body.parent_id, body.application_id],
+  )
+  const parentEdge = rows[0]
+  if (!parentEdge) return false
+  const edgeId = uuidv7()
+  await client.query(
+    `INSERT INTO delegation_edges
+     (id, zone_id, source_session_id, target_session_id, issuer_application_id, receiver_application_id,
+      parent_edge_id, resource_id, scopes, constraints_json, expires_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+    [edgeId, zoneId, body.parent_id, childId, parentEdge.receiver_application_id, body.application_id,
+      parentEdge.id, parentEdge.resource_id, parentEdge.scopes, parentEdge.constraints_json, parentEdge.expires_at],
+  )
+  const epoch = await bumpDelegationEpoch(client, zoneId)
+  await enqueue(client, Topics.DelegationsInvalidate, `edge_create:${edgeId}`, {
+    event: 'edge_create',
+    zone_id: zoneId,
+    edge_id: edgeId,
+    source_session_id: body.parent_id,
+    target_session_id: childId,
+    epoch,
+  })
+  return edgeId
 }
 
 export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
@@ -80,15 +126,21 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
       if (idempotencyKey) {
         const { rows: existing } = await client.query(
           `SELECT id AS agent_session_id, zone_id, application_id, parent_id,
-                  subject_session_id, subject_session_id AS authority_root_session_id,
-                  agent_kind AS kind, agent_kind AS session_class,
-                  capabilities, status, depth, spawned_at, last_heartbeat_at, heartbeat_deadline_at
+                  subject_session_id, lifecycle,
+                  labels, status, depth, ttl_seconds, metadata_json AS metadata,
+                  spawned_at, last_heartbeat_at, heartbeat_deadline_at,
+                  (
+                    SELECT e.id FROM delegation_edges e
+                    WHERE e.zone_id = agent_sessions.zone_id
+                      AND e.target_session_id = agent_sessions.id
+                      AND e.status = 'active' AND e.expires_at > now()
+                    ORDER BY e.created_at DESC LIMIT 1
+                  ) AS delegation_edge_id
            FROM agent_sessions
-           WHERE zone_id = $1 AND application_id = $2 AND subject_session_id = $3
-             AND COALESCE(parent_id, '') = COALESCE($4, '')
+           WHERE zone_id = $1 AND application_id = $2 AND idempotency_key = $3
              AND status IN ('active','suspended')
            LIMIT 1`,
-          [zoneId, body.application_id, subjectSessionId, body.parent_id],
+          [zoneId, body.application_id, idempotencyKey],
         )
         if (existing[0]) {
           await client.query('ROLLBACK')
@@ -117,9 +169,14 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
         await client.query('ROLLBACK')
         return reply.code(404).send({ error: 'application_not_found' })
       }
-      if (refs[0].registration_method === 'dcr' && body.kind !== 'ephemeral') {
+      const lifecycle = body.lifecycle ?? 'task'
+      if (refs[0].registration_method === 'dcr' && lifecycle !== 'task') {
         await client.query('ROLLBACK')
-        return reply.code(409).send({ error: 'dcr_requires_ephemeral_agent' })
+        return reply.code(409).send({ error: 'dcr_application_cannot_host_service' })
+      }
+      if (refs[0].registration_method === 'dcr' && body.parent_id) {
+        await client.query('ROLLBACK')
+        return reply.code(409).send({ error: 'dcr_application_cannot_be_child' })
       }
       if (!refs[0].session_exists) {
         await client.query('ROLLBACK')
@@ -153,14 +210,25 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
       let depth = 0
       if (body.parent_id) {
         const { rows: parent } = await client.query(
-          `SELECT depth, child_count, max_children, application_id FROM agent_sessions
-           WHERE id = $1 AND zone_id = $2 AND status = 'active'
-           FOR UPDATE`,
+          `SELECT s.depth, s.child_count, s.max_children, s.application_id, s.lifecycle,
+                  a.registration_method
+           FROM agent_sessions s
+           JOIN applications a ON a.id = s.application_id AND a.zone_id = s.zone_id
+           WHERE s.id = $1 AND s.zone_id = $2 AND s.status = 'active'
+           FOR UPDATE OF s`,
           [body.parent_id, zoneId],
         )
         if (!parent[0]) {
           await client.query('ROLLBACK')
           return reply.code(404).send({ error: 'parent_not_found' })
+        }
+        if (parent[0].registration_method === 'dcr') {
+          await client.query('ROLLBACK')
+          return reply.code(409).send({ error: 'dcr_application_cannot_spawn' })
+        }
+        if (parent[0].lifecycle === 'task' && lifecycle === 'service') {
+          await client.query('ROLLBACK')
+          return reply.code(409).send({ error: 'task_agent_cannot_spawn_service' })
         }
         if (parent[0].application_id !== body.application_id
           && !requireScope(req, `coordinator.spawn_under:${parent[0].application_id}`)) {
@@ -177,19 +245,22 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
           return reply.code(429).send({ error: 'agent_depth_limit_exceeded' })
         }
       }
-      const deadline = heartbeatDeadline(body.kind)
+      const ttlSeconds = body.ttl_seconds ?? (lifecycle === 'service' ? null : DEFAULT_TTL)
       const { rows } = await client.query(
          `INSERT INTO agent_sessions
-          (id, zone_id, application_id, parent_id, subject_session_id, agent_kind, depth,
-           capabilities, max_children, ttl_seconds, metadata_json, last_heartbeat_at, heartbeat_deadline_at)
-          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
-          RETURNING id AS agent_session_id, zone_id, application_id, parent_id,
-                    subject_session_id, subject_session_id AS authority_root_session_id,
-                    agent_kind AS kind, agent_kind AS session_class,
-                    capabilities, status, depth, spawned_at, last_heartbeat_at, heartbeat_deadline_at`,
+          (id, zone_id, application_id, parent_id, subject_session_id, lifecycle, depth,
+            labels, max_children, ttl_seconds, metadata_json, idempotency_key,
+            last_heartbeat_at, heartbeat_deadline_at)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$13,
+                  CASE WHEN $6 = 'service' THEN now() ELSE NULL END,
+                  CASE WHEN $6 = 'service' THEN now() + ($12::int * interval '1 second') ELSE NULL END)
+           RETURNING id AS agent_session_id, zone_id, application_id, parent_id,
+                     subject_session_id, lifecycle,
+                     labels, status, depth, ttl_seconds, metadata_json AS metadata,
+                     spawned_at, last_heartbeat_at, heartbeat_deadline_at`,
         [id, zoneId, body.application_id, body.parent_id, subjectSessionId,
-          body.kind, depth, body.capabilities, MAX_CHILDREN, body.ttl_seconds, body.metadata,
-          deadline, deadline],
+          lifecycle, depth, body.labels, MAX_CHILDREN, ttlSeconds, body.metadata,
+          cfg.serviceAgentLeaseSeconds, idempotencyKey],
       )
       if (body.parent_id) {
         await client.query(
@@ -201,6 +272,11 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
           [body.parent_id],
         )
       }
+      const inheritedEdgeId = await inheritParentEdge(client, zoneId, body, id)
+      if (inheritedEdgeId === false) {
+        await client.query('ROLLBACK')
+        return reply.code(409).send({ error: 'inherit_parent_edge_not_active' })
+      }
       await enqueue(client, Topics.AgentsLifecycle, `spawn:${id}`, {
         event: 'spawn',
         zone_id: zoneId,
@@ -209,7 +285,7 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
         application_id: body.application_id,
       })
       await client.query('COMMIT')
-      return reply.code(201).send(rows[0])
+      return reply.code(201).send({ ...rows[0], delegation_edge_id: inheritedEdgeId })
     } catch (err) {
       await client.query('ROLLBACK')
       throw err
@@ -224,7 +300,7 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
     const { zoneId } = params
     const query = ListQuery.safeParse(req.query)
     if (!query.success) return reply.code(400).send({ error: 'invalid_query' })
-    const { limit, cursor } = query.data
+    const { limit, cursor, status, lifecycle, application_id, label } = query.data
     if (cursor) {
       const { rows: probe } = await fastify.db.query(
         `SELECT 1 FROM agent_sessions WHERE id = $1 AND zone_id = $2`,
@@ -232,19 +308,22 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
       )
       if (!probe[0]) return reply.code(400).send({ error: 'invalid_cursor' })
     }
-    const queryParams: unknown[] = [zoneId, limit]
-    let cursorClause = ''
-    if (cursor) {
-      queryParams.push(cursor)
-      cursorClause = `AND id < $3`
-    }
+    const conds = ['zone_id = $1']
+    const queryParams: unknown[] = [zoneId]
+    if (status) { queryParams.push(status); conds.push(`status = $${queryParams.length}`) }
+    if (lifecycle) { queryParams.push(lifecycle); conds.push(`lifecycle = $${queryParams.length}`) }
+    if (application_id) { queryParams.push(application_id); conds.push(`application_id = $${queryParams.length}`) }
+    if (label) { queryParams.push(label); conds.push(`$${queryParams.length} = ANY(labels)`) }
+    if (cursor) { queryParams.push(cursor); conds.push(`id < $${queryParams.length}`) }
+    queryParams.push(limit)
+    const limitPlaceholder = `$${queryParams.length}`
     const { rows } = await fastify.db.query(
         `SELECT id AS agent_session_id, zone_id, application_id, parent_id,
-                subject_session_id, subject_session_id AS authority_root_session_id,
-                agent_kind AS kind, agent_kind AS session_class,
-                capabilities, status, depth, spawned_at, terminated_at, last_heartbeat_at, heartbeat_deadline_at
-         FROM agent_sessions WHERE zone_id = $1 ${cursorClause}
-       ORDER BY id DESC LIMIT $2`,
+                subject_session_id, lifecycle,
+                labels, status, depth, ttl_seconds, metadata_json AS metadata,
+                spawned_at, terminated_at, last_heartbeat_at, heartbeat_deadline_at
+         FROM agent_sessions WHERE ${conds.join(' AND ')}
+       ORDER BY id DESC LIMIT ${limitPlaceholder}`,
       queryParams,
     )
     const nextCursor = rows.length === limit ? rows[rows.length - 1].agent_session_id : null
@@ -257,9 +336,9 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
     const { zoneId, id } = params
     const { rows } = await fastify.db.query(
         `SELECT id AS agent_session_id, zone_id, application_id, parent_id,
-                subject_session_id, subject_session_id AS authority_root_session_id,
-                agent_kind AS kind, agent_kind AS session_class,
-                capabilities, status, depth, spawned_at, terminated_at, last_heartbeat_at, heartbeat_deadline_at
+                subject_session_id, lifecycle,
+                labels, status, depth, ttl_seconds, metadata_json AS metadata,
+                spawned_at, terminated_at, last_heartbeat_at, heartbeat_deadline_at
          FROM agent_sessions WHERE id = $1 AND zone_id = $2`,
       [id, zoneId],
     )
@@ -273,9 +352,9 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
     const { zoneId, id } = params
     const { rows } = await fastify.db.query(
       `SELECT s.id AS agent_session_id, s.zone_id, s.application_id, s.parent_id,
-              s.subject_session_id, s.subject_session_id AS authority_root_session_id,
-              s.agent_kind AS kind, s.agent_kind AS session_class,
-              s.capabilities, s.status, s.depth, s.spawned_at, s.last_heartbeat_at, s.heartbeat_deadline_at
+              s.subject_session_id, s.lifecycle,
+              s.labels, s.status, s.depth, s.ttl_seconds, s.metadata_json AS metadata,
+              s.spawned_at, s.last_heartbeat_at, s.heartbeat_deadline_at
        FROM agent_sessions s
        JOIN agent_topology t ON t.child_id = s.id
        WHERE t.parent_id = $1 AND s.zone_id = $2
@@ -355,9 +434,8 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
          )
           UPDATE agent_sessions
           SET status = 'active',
-              last_active_at = now(),
               heartbeat_deadline_at = CASE
-                WHEN agent_kind = 'service' THEN now() + ($3::int * interval '1 second')
+                WHEN lifecycle = 'service' THEN now() + ($3::int * interval '1 second')
                 ELSE heartbeat_deadline_at
               END,
               updated_at = now()
@@ -468,6 +546,7 @@ export async function suspendSubtree(
     [rootIds, zoneId],
   )
   if (rows.length === 0) return 0
+  const exemptSessions = await revocationExemptSessions(client, zoneId, rows)
   const items: OutboxItem[] = []
   for (const row of rows) {
     items.push({
@@ -478,6 +557,7 @@ export async function suspendSubtree(
         parent_id: row.parent_id, reason,
       },
     })
+    if (exemptSessions.has(row.subject_session_id)) continue
     items.push({
       topic: Topics.SessionsRevoke,
       dedupeKey: `agent_suspend:${row.id}`,
@@ -533,6 +613,7 @@ export async function terminateSubtree(
     [rootIds, zoneId],
   )
   if (rows.length === 0) return 0
+  const exemptSessions = await revocationExemptSessions(client, zoneId, rows)
   const items: OutboxItem[] = []
   for (const row of rows) {
     items.push({
@@ -543,6 +624,7 @@ export async function terminateSubtree(
         parent_id: row.parent_id, reason,
       },
     })
+    if (exemptSessions.has(row.subject_session_id)) continue
     items.push({
       topic: Topics.SessionsRevoke,
       dedupeKey: `agent_terminate:${row.id}`,
@@ -551,4 +633,34 @@ export async function terminateSubtree(
   }
   await enqueueMany(client as Queryable, items)
   return rows.length
+}
+
+// A subject session may bootstrap many agents (an application reuses its STS
+// session token across spawns). Revoking it while other agents still run under
+// it would sever their credential lineage, and revoking an application's own
+// bootstrap session would invalidate a credential the application can simply
+// re-mint, breaking unrelated in-flight calls for no security gain. Revocation
+// therefore skips sessions that still have live referents and application-type
+// sessions entirely.
+async function revocationExemptSessions(
+  client: PoolClient,
+  zoneId: string,
+  affected: Array<{ id: string; subject_session_id: string }>,
+): Promise<Set<string>> {
+  const sessionIds = [...new Set(affected.map((row) => row.subject_session_id))]
+  const affectedIds = affected.map((row) => row.id)
+  const { rows } = await client.query<{ subject_session_id: string }>(
+    `SELECT DISTINCT subject_session_id FROM agent_sessions
+     WHERE zone_id = $1
+       AND subject_session_id = ANY($2::text[])
+       AND id <> ALL($3::text[])
+       AND status IN ('active', 'suspended')
+     UNION
+     SELECT id AS subject_session_id FROM sessions
+     WHERE zone_id = $1
+       AND id = ANY($2::text[])
+       AND session_type = 'application'`,
+    [zoneId, sessionIds, affectedIds],
+  )
+  return new Set(rows.map((row) => row.subject_session_id))
 }

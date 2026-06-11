@@ -4,7 +4,7 @@
 // TypeScript identity JWKS cache unit tests for fetch and cache behavior.
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { clearJwksCache, getKeySet } from '../../../../packages/identity/ts/src/jwks.js'
+import { clearJwksCache, createJwksCache, getKeySet } from '../../../../packages/identity/ts/src/jwks.js'
 
 const TTL_MS = 5 * 60 * 1000
 
@@ -84,5 +84,24 @@ describe('getKeySet', () => {
     await vi.runAllTimersAsync()
 
     expect(fetchMock).toHaveBeenCalledTimes(3)
+  })
+
+  it('fails closed when cached keys exceed max stale', async () => {
+    const issuer = 'https://issuer-max-stale.example'
+    let calls = 0
+    const cache = createJwksCache({
+      ttlMs: 0,
+      maxStaleMs: 10,
+      fetchImpl: async () => {
+        calls++
+        if (calls === 1) return new Response(JSON.stringify({ keys: [] }), { status: 200 })
+        return new Response('unavailable', { status: 503 })
+      },
+    })
+
+    await cache.getKeySet(issuer)
+    await cache.getKeySet(issuer)
+    await new Promise((resolve) => setTimeout(resolve, 15))
+    await expect(cache.getKeySet(issuer)).rejects.toThrow('JWKS fetch failed: 503')
   })
 })

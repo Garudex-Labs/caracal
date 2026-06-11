@@ -96,13 +96,13 @@ describe('ensureControlResource', () => {
     expect(admin.resources.create).toHaveBeenCalledWith('z1', expect.objectContaining({
       identifier: 'caracal-control',
       scopes: expect.arrayContaining(['control:agent:read']),
-    }), { controlResource: true })
+    }))
 
     admin.resources.list = vi.fn(async () => [resource({ scopes: [] })])
     await ensureControlResource(admin, 'z1')
     expect(admin.resources.patch).toHaveBeenCalledWith('z1', 'res-1', expect.objectContaining({
       scopes: expect.arrayContaining(['control:agent:read']),
-    }), { controlResource: true })
+    }))
 
     admin.resources.list = vi.fn(async () => [resource({ scopes: ['control:zone:read'] })])
     await ensureControlResource(admin, 'z1')

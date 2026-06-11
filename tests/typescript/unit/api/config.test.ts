@@ -167,6 +167,19 @@ describe('api config trustProxy', () => {
     expect(() => loadConfig()).toThrow('Invalid boolean env var API_ENABLE_DOCS')
   })
 
+  test('defaults enableDocs off in published builds and on in dev', async () => {
+    const { loadConfig } = await import(CONFIG_PATH) as typeof import('../../../../apps/api/src/config')
+    process.env.CARACAL_MODE = 'stable'
+    expect(loadConfig().enableDocs).toBe(false)
+    process.env.CARACAL_MODE = 'dev'
+    expect(loadConfig().enableDocs).toBe(true)
+    process.env.API_ENABLE_DOCS = 'true'
+    process.env.CARACAL_MODE = 'stable'
+    expect(loadConfig().enableDocs).toBe(true)
+    delete process.env.API_ENABLE_DOCS
+    delete process.env.CARACAL_MODE
+  })
+
   test('rejects a gateway STS HMAC key shorter than 32 bytes', async () => {
     process.env.GATEWAY_STS_HMAC_KEY = 'abcd'
     const { loadConfig } = await import(CONFIG_PATH) as typeof import('../../../../apps/api/src/config')

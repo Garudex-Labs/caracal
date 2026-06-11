@@ -6,7 +6,7 @@
 import type { RevocationStore } from './iface.js'
 
 interface Entry {
-  expiresAt: number
+  expiresAtMonoMs: number
 }
 
 export class InMemoryRevocationStore implements RevocationStore {
@@ -23,7 +23,7 @@ export class InMemoryRevocationStore implements RevocationStore {
   isRevoked(sid: string): boolean {
     const entry = this.entries.get(sid)
     if (!entry) return false
-    if (entry.expiresAt <= Date.now()) {
+    if (entry.expiresAtMonoMs <= performance.now()) {
       this.entries.delete(sid)
       return false
     }
@@ -35,13 +35,13 @@ export class InMemoryRevocationStore implements RevocationStore {
       this.reapExpired()
       if (this.entries.size >= this.maxEntries) throw new Error('Revocation store capacity exceeded')
     }
-    this.entries.set(sid, { expiresAt: Date.now() + (ttlMs ?? this.defaultTtlMs) })
+    this.entries.set(sid, { expiresAtMonoMs: performance.now() + (ttlMs ?? this.defaultTtlMs) })
   }
 
   currentDelegationEpoch(zoneId: string): number {
     const entry = this.delegationEpochs.get(zoneId)
     if (!entry) return 0
-    if (entry.expiresAt <= Date.now()) {
+    if (entry.expiresAtMonoMs <= performance.now()) {
       this.delegationEpochs.delete(zoneId)
       return 0
     }
@@ -53,7 +53,7 @@ export class InMemoryRevocationStore implements RevocationStore {
     if (epoch <= current) return
     this.delegationEpochs.set(zoneId, {
       epoch,
-      expiresAt: Date.now() + (ttlMs ?? this.defaultTtlMs),
+      expiresAtMonoMs: performance.now() + (ttlMs ?? this.defaultTtlMs),
     })
   }
 
@@ -62,9 +62,9 @@ export class InMemoryRevocationStore implements RevocationStore {
   }
 
   private reapExpired(): void {
-    const now = Date.now()
+    const now = performance.now()
     for (const [sid, entry] of this.entries) {
-      if (entry.expiresAt <= now) this.entries.delete(sid)
+      if (entry.expiresAtMonoMs <= now) this.entries.delete(sid)
     }
   }
 

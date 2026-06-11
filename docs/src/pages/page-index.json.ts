@@ -19,6 +19,7 @@ export async function GET() {
       return {
         id: d.id,
         url: `${site}/${d.id}/`,
+        markdownUrl: `${site}/markdown/${d.id}.md`,
         title: d.data.title,
         description: d.data.description,
         pageType: (data.pageType as string | undefined) ?? null,

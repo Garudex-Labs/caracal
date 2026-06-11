@@ -16,7 +16,7 @@ router = APIRouter()
 
 
 @router.get("/recent")
-def recent(runId: str | None = None, category: str | None = None) -> dict:
+def recent(runId: str | None = None, category: str | None = None, customerId: str | None = None) -> dict:
     if runId:
         events = bus.history(runId)
     else:
@@ -24,6 +24,8 @@ def recent(runId: str | None = None, category: str | None = None) -> dict:
 
     if category:
         events = [e for e in events if e.category == category]
+    if customerId:
+        events = [e for e in events if e.payload.get("customer_id") == customerId]
 
     return {
         "events": [e.model_dump() for e in events[-200:]],

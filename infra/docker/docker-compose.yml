@@ -460,6 +460,7 @@ services:
       REDIS_URL_FILE: /run/secrets/redisUrl
       AUDIT_HMAC_KEY_FILE: /run/secrets/auditHmacKey
       AUDIT_ADMIN_TOKEN: ${AUDIT_ADMIN_TOKEN:-}
+      METRICS_BEARER: ${METRICS_BEARER:-}
       AUDIT_EXPORT_S3_ENDPOINT: ${AUDIT_EXPORT_S3_ENDPOINT:-}
       AUDIT_EXPORT_S3_BUCKET: ${AUDIT_EXPORT_S3_BUCKET:-}
       AUDIT_EXPORT_S3_REGION: ${AUDIT_EXPORT_S3_REGION:-us-east-1}
@@ -506,6 +507,7 @@ services:
       STREAMS_HMAC_KEY_FILE: /run/secrets/streamsHmacKey
       CARACAL_COORDINATOR_TOKEN_FILE: /run/secrets/caracalCoordinatorToken
       AGENT_COORDINATOR_SCOPE: agent:lifecycle
+      METRICS_BEARER: ${METRICS_BEARER:-}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
       OTEL_SERVICE_NAME: caracal-coordinator

@@ -161,3 +161,19 @@ func testSTSServer(t *testing.T) *Server {
 		log:            zerolog.Nop(),
 	}
 }
+
+func TestSTSMetricsFailClosedWithoutBearerInPublishedMode(t *testing.T) {
+	server := testSTSServer(t)
+	server.cfg.Mode = "stable"
+	server.cfg.MetricsBearer = ""
+	w := httptest.NewRecorder()
+	server.handleMetrics(w, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("published STS metrics without bearer must be 401, got %d", w.Code)
+	}
+	w = httptest.NewRecorder()
+	server.handleMetricsJSON(w, httptest.NewRequest(http.MethodGet, "/metrics.json", nil))
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("published STS metrics.json without bearer must be 401, got %d", w.Code)
+	}
+}

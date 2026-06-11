@@ -169,6 +169,10 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		return nil, nil, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "at least one resource is required")
 	}
 	appMeta := applicationAuditMeta(app)
+	exchangeNow, timeErr := s.db.CurrentTime(ctx)
+	if timeErr != nil {
+		return nil, nil, http.StatusServiceUnavailable, sharederr.New(sharederr.STSUnavailable, "trusted time unavailable")
+	}
 
 	var subjectClaims map[string]any
 	if req.SubjectToken != "" {
@@ -275,7 +279,7 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 			continue
 		}
 
-		if isControlKeyExchange(app, req, resource, scopes) {
+		if isControlKeyExchange(app, req, resource, scopes, exchangeNow) {
 			result := &OPAResult{
 				Decision:            "allow",
 				DeterminingPolicies: []map[string]any{{"policy": "control-key"}},
@@ -362,8 +366,8 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 				ZoneID:             zoneID,
 				RegistrationMethod: app.RegistrationMethod,
 				AgentSessionID:     req.AgentSessionID,
-				AgentKind:          agentSessionKind(agentSession),
-				Capabilities:       agentSessionCapabilities(agentSession),
+				Lifecycle:          agentSessionLifecycle(agentSession),
+				Labels:             agentSessionLabels(agentSession),
 			},
 			Resource: OPAResource{
 				Type:       "Resource",
@@ -456,13 +460,22 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		return nil, nil, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "generate session id")
 	}
 	sessID := sid.String()
-	now := time.Now()
+	now := exchangeNow
 	ttl, ttlErr := tokenTTL(req.TTLSeconds, req.SubjectToken == "")
 	if ttlErr != nil {
 		return nil, nil, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, ttlErr.Error())
 	}
 	if ttl, ttlErr = effectiveTokenTTL(ttl, delegation, now); ttlErr != nil {
 		return nil, nil, http.StatusForbidden, sharederr.New(sharederr.AccessDenied, ttlErr.Error())
+	}
+	// A Control key's max-ttl trait caps the issued token lifetime rather than
+	// disqualifying the exchange, matching the documented contract.
+	if controlKeyExchange {
+		if maxTTL := controlMaxTTL(app); maxTTL > 0 {
+			if capTTL := time.Duration(maxTTL) * time.Second; ttl > capTTL {
+				ttl = capTTL
+			}
+		}
 	}
 	subjectID := app.ID
 	sessionType := "application"
@@ -509,6 +522,7 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		Resources:      grantedResources,
 		TTL:            ttl,
 		AgentSessionID: req.AgentSessionID,
+		IssuedAt:       now,
 	}
 	if req.DelegationEdgeID != "" {
 		issueParams.DelegationEdgeID = req.DelegationEdgeID
@@ -963,12 +977,31 @@ func isHostAlnum(b byte) bool {
 func (s *Server) authenticateApp(ctx context.Context, req TokenExchangeRequest) (*Application, string, error) {
 	zoneID := strings.TrimSpace(req.ZoneID)
 	appID := strings.TrimSpace(req.ApplicationID)
-	if zoneID == "" || appID == "" {
-		return nil, "", fmt.Errorf("missing zone_id or application_id")
+	if appID == "" {
+		return nil, "", fmt.Errorf("missing application_id")
 	}
-	app, err := s.db.GetApplicationByID(ctx, appID, zoneID)
-	if err != nil {
-		return nil, "", err
+	var app *Application
+	var err error
+	if zoneID == "" {
+		app, err = s.db.GetApplicationByIDGlobal(ctx, appID)
+		if err != nil {
+			return nil, "", err
+		}
+		if !hasApplicationTrait(app, controlInvokeTrait) {
+			return nil, "", fmt.Errorf("zone_id required for non-control application")
+		}
+		if !isZoneDerivedControlTokenRequest(req) {
+			return nil, "", fmt.Errorf("zone_id required for non-control token exchange")
+		}
+		zoneID = app.ZoneID
+	} else {
+		app, err = s.db.GetApplicationByID(ctx, appID, zoneID)
+		if err != nil {
+			return nil, "", err
+		}
+	}
+	if app.ZoneID != zoneID {
+		return nil, "", fmt.Errorf("application zone mismatch")
 	}
 	if req.GatewayAuthenticated {
 		if req.SubjectToken == "" {
@@ -989,6 +1022,30 @@ func (s *Server) authenticateApp(ctx context.Context, req TokenExchangeRequest) 
 		return nil, "", fmt.Errorf("client secret not configured")
 	}
 	return app, zoneID, nil
+}
+
+func isZoneDerivedControlTokenRequest(req TokenExchangeRequest) bool {
+	if req.SubjectToken != "" || req.ActorToken != "" || req.SessionID != "" || req.AgentSessionID != "" || req.DelegationEdgeID != "" {
+		return false
+	}
+	if len(req.Resources) == 0 {
+		return false
+	}
+	for _, resource := range req.Resources {
+		if strings.TrimSpace(resource) != controlAudience() {
+			return false
+		}
+	}
+	scopes := strings.Fields(req.Scope)
+	if len(scopes) == 0 {
+		return false
+	}
+	for _, scope := range scopes {
+		if !strings.HasPrefix(scope, "control:") {
+			return false
+		}
+	}
+	return true
 }
 
 // validateSubjectToken verifies an inbound STS-issued token: ES256 signature, this STS
@@ -1043,8 +1100,12 @@ func (s *Server) validateTokenSession(ctx context.Context, zoneID, appID, sessio
 	if sessionID != "" && sessionID != sid {
 		return "", sharederr.New(sharederr.AccessDenied, "session mismatch")
 	}
+	now, err := s.db.CurrentTime(ctx)
+	if err != nil {
+		return "", sharederr.New(sharederr.STSUnavailable, "trusted time unavailable")
+	}
 	session, err := s.db.GetSession(ctx, sid)
-	if err != nil || session.ZoneID != zoneID || session.Status != "active" || !session.ExpiresAt.After(time.Now()) {
+	if err != nil || session.ZoneID != zoneID || session.Status != "active" || !session.ExpiresAt.After(now) {
 		return "", sharederr.New(sharederr.AccessDenied, "session inactive or expired")
 	}
 	// Defense in depth: even with a valid signature, the session row's
@@ -1136,11 +1197,11 @@ func controlExpired(app *Application, now time.Time) bool {
 	return false
 }
 
-func isControlKeyExchange(app *Application, req TokenExchangeRequest, resource *Resource, scopes []string) bool {
+func isControlKeyExchange(app *Application, req TokenExchangeRequest, resource *Resource, scopes []string, now time.Time) bool {
 	if resource.Identifier != controlAudience() || !hasApplicationTrait(app, controlInvokeTrait) {
 		return false
 	}
-	if controlExpired(app, time.Now().UTC()) {
+	if controlExpired(app, now.UTC()) {
 		return false
 	}
 	if req.SubjectToken != "" || req.ActorToken != "" || req.SessionID != "" || req.AgentSessionID != "" || req.DelegationEdgeID != "" {
@@ -1160,14 +1221,6 @@ func isControlKeyExchange(app *Application, req TokenExchangeRequest, resource *
 		if _, ok := allowed[scope]; !ok {
 			return false
 		}
-	}
-	maxTTL := controlMaxTTL(app)
-	requestedTTL := req.TTLSeconds
-	if requestedTTL == 0 {
-		requestedTTL = int(ttlResourceMandate.Seconds())
-	}
-	if maxTTL > 0 && requestedTTL > maxTTL {
-		return false
 	}
 	return true
 }
@@ -1272,28 +1325,33 @@ func sessionInput(sessionID string) *OPASession {
 	return &OPASession{ID: sessionID}
 }
 
-func agentSessionKind(session *AgentSession) string {
+func agentSessionLifecycle(session *AgentSession) string {
 	if session == nil {
 		return ""
 	}
-	return session.Kind
+	return session.Lifecycle
 }
 
-func agentSessionCapabilities(session *AgentSession) []string {
-	if session == nil || len(session.Capabilities) == 0 {
+func agentSessionLabels(session *AgentSession) []string {
+	if session == nil || len(session.Labels) == 0 {
 		return nil
 	}
-	return append([]string(nil), session.Capabilities...)
+	return append([]string(nil), session.Labels...)
 }
 
 func agentAuditMeta(session *AgentSession) map[string]any {
 	if session == nil {
 		return nil
 	}
-	return map[string]any{
-		"agent_kind":         session.Kind,
-		"agent_capabilities": agentSessionCapabilities(session),
+	meta := map[string]any{
+		"agent_lifecycle": session.Lifecycle,
+		"agent_labels":    agentSessionLabels(session),
+		"agent_depth":     session.Depth,
 	}
+	if session.ParentID != nil {
+		meta["agent_parent_id"] = *session.ParentID
+	}
+	return meta
 }
 
 func applicationAuditMeta(app *Application) map[string]any {
@@ -1358,8 +1416,12 @@ func delegationAllowsResource(proof *delegationProof, resource *Resource) bool {
 // This stops two apps in a zone from forging each other's agent identity by passing
 // a peer's agent_session_id.
 func (s *Server) validateAgentSessionOwnership(ctx context.Context, zoneID, appID, agentSessionID string) (*AgentSession, *sharederr.CaracalError) {
+	now, err := s.db.CurrentTime(ctx)
+	if err != nil {
+		return nil, sharederr.New(sharederr.STSUnavailable, "trusted time unavailable")
+	}
 	session, err := s.db.GetAgentSession(ctx, agentSessionID)
-	if err != nil || !activeAgentSession(session, zoneID, time.Now()) {
+	if err != nil || !activeAgentSession(session, zoneID, now) {
 		return nil, sharederr.New(sharederr.AccessDenied, "agent session inactive or expired")
 	}
 	if session.ApplicationID != appID {
@@ -1375,7 +1437,10 @@ func (s *Server) validateAgentSessionOwnership(ctx context.Context, zoneID, appI
 // application's ownership of the asserted agent_session_id is verified directly,
 // preventing peer-app forgery through either path.
 func (s *Server) validateSessionReferences(ctx context.Context, zoneID, appID string, req TokenExchangeRequest, hasSubjectToken bool) (*delegationProof, *AgentSession, *sharederr.CaracalError) {
-	now := time.Now()
+	now, err := s.db.CurrentTime(ctx)
+	if err != nil {
+		return nil, nil, sharederr.New(sharederr.STSUnavailable, "trusted time unavailable")
+	}
 	if req.SessionID != "" {
 		session, err := s.db.GetSession(ctx, req.SessionID)
 		if err != nil || session.ZoneID != zoneID || session.Status != "active" || !session.ExpiresAt.After(now) {
@@ -1454,7 +1519,7 @@ func (s *Server) validateSessionReferences(ctx context.Context, zoneID, appID st
 	if err != nil {
 		return nil, nil, sharederr.New(sharederr.AccessDenied, "delegation graph epoch unavailable")
 	}
-	chain, chainErr := s.buildDelegationChain(ctx, path, edge, source, target)
+	chain, chainErr := s.buildDelegationChain(ctx, path, edge, source, target, now)
 	if chainErr != nil {
 		return nil, nil, chainErr
 	}
@@ -1464,11 +1529,10 @@ func (s *Server) validateSessionReferences(ctx context.Context, zoneID, appID st
 // buildDelegationChain resolves each edge id along the path to a chain hop the
 // resource side can audit and authorize against. The chain walks from the
 // originating issuer to the immediate receiver in order.
-func (s *Server) buildDelegationChain(ctx context.Context, path []string, edge *DelegationEdge, source, target *AgentSession) ([]ChainHop, *sharederr.CaracalError) {
+func (s *Server) buildDelegationChain(ctx context.Context, path []string, edge *DelegationEdge, source, target *AgentSession, now time.Time) ([]ChainHop, *sharederr.CaracalError) {
 	if len(path) == 0 {
 		return nil, nil
 	}
-	now := time.Now()
 	hops := make([]ChainHop, 0, len(path)+1)
 	var prevReceiverApp string
 	for _, edgeID := range path {
@@ -1550,6 +1614,19 @@ func effectiveTokenTTL(ttl time.Duration, proof *delegationProof, now time.Time)
 			ttl = constraintTTL
 		}
 	}
+	if proof.constraints.ExpiresAt != "" {
+		expiresAt, err := time.Parse(time.RFC3339, proof.constraints.ExpiresAt)
+		if err != nil {
+			return 0, fmt.Errorf("delegation constraint expiry invalid")
+		}
+		constraintTTL := expiresAt.Sub(now)
+		if constraintTTL <= 0 {
+			return 0, fmt.Errorf("delegation constraint expired")
+		}
+		if constraintTTL < ttl {
+			ttl = constraintTTL
+		}
+	}
 	if ttl <= 0 {
 		return 0, fmt.Errorf("effective delegation ttl expired")
 	}
@@ -1567,6 +1644,12 @@ func containsString(values []string, wanted string) bool {
 
 func activeAgentSession(session *AgentSession, zoneID string, now time.Time) bool {
 	if session == nil || session.ZoneID != zoneID || session.Status != "active" {
+		return false
+	}
+	if session.Lifecycle == "service" {
+		return session.HeartbeatDeadlineAt != nil && session.HeartbeatDeadlineAt.After(now)
+	}
+	if session.TTLSeconds <= 0 {
 		return false
 	}
 	return session.SpawnedAt.Add(time.Duration(session.TTLSeconds) * time.Second).After(now)

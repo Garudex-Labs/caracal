@@ -1,81 +1,461 @@
+{#
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
+Lynx Capital landing page for the route-based overview flow.
+#}
 {% extends "layout.html" %}
 {% block title %}{{ company }} - Overview{% endblock %}
 {% block content %}
 <style>
-  .landing { max-width: 680px; margin: 0 auto; padding: 56px 24px 40px; }
-  .landing h1 { font-size: 22px; font-weight: 600; color: var(--primary); margin-bottom: 6px; }
-  .landing .tagline { color: var(--text); opacity: 0.65; margin-bottom: 32px; font-size: 13px; }
-  .scenario-card { background: #fff; border: 1px solid var(--border); border-radius: 4px; padding: 20px 24px; margin-bottom: 24px; }
-  .scenario-card h2 { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--primary); margin-bottom: 14px; }
-  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 16px; }
-  .stat { text-align: center; }
-  .stat .val { font-size: 22px; font-weight: 700; color: var(--accent); line-height: 1; }
-  .stat .lbl { font-size: 11px; color: var(--text); opacity: 0.6; margin-top: 4px; }
-  .description { font-size: 12px; color: var(--text); opacity: 0.7; line-height: 1.5; border-top: 1px solid var(--border); padding-top: 12px; margin-top: 4px; }
-  .layers { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
-  .layer-badge { background: var(--surface); border: 1px solid var(--border); border-radius: 3px; padding: 3px 8px; font-size: 11px; color: var(--text); }
-  .layer-badge.ephemeral { border-color: var(--accent); color: var(--accent); }
-  .disclaimer-block { background: #fff; border: 1px solid var(--border); border-left: 3px solid var(--warning); border-radius: 4px; padding: 14px 16px; margin-bottom: 24px; }
-  .disclaimer-block p { font-size: 12px; color: var(--text); opacity: 0.75; line-height: 1.5; margin-bottom: 10px; }
-  .disclaimer-block label { display: flex; align-items: center; gap: 8px; font-size: 12px; cursor: pointer; }
-  .disclaimer-block input[type=checkbox] { width: 14px; height: 14px; cursor: pointer; }
-  .continue-btn { display: inline-block; background: var(--accent); color: #fff; border: none; border-radius: 4px; padding: 10px 28px; font-size: 13px; font-weight: 600; cursor: pointer; text-decoration: none; transition: opacity 0.15s; }
-  .continue-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+  .overview {
+    --corner: 4px;
+    height: calc(100vh - 44px);
+    min-height: 640px;
+    overflow: hidden;
+    padding: clamp(20px, 3vw, 36px) clamp(22px, 4vw, 52px);
+    background: var(--surface);
+  }
+  .landing-shell {
+    width: min(1360px, 100%);
+    height: 100%;
+    margin: 0 auto;
+    display: grid;
+    grid-template-rows: minmax(0, 1fr) auto;
+    gap: clamp(18px, 2.6vw, 30px);
+  }
+  .eyebrow {
+    color: var(--accent);
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    margin-bottom: 12px;
+    text-transform: uppercase;
+  }
+  .hero-stage {
+    display: grid;
+    grid-template-columns: minmax(420px, 0.9fr) minmax(520px, 1.1fr);
+    gap: clamp(28px, 5vw, 76px);
+    align-items: center;
+    min-height: 0;
+  }
+  .hero-copy {
+    max-width: 650px;
+  }
+  .overview h1 {
+    color: var(--primary);
+    font-size: clamp(18px, 2vw, 24px);
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    margin-bottom: 16px;
+  }
+  .hero-copy h2 {
+    color: var(--primary);
+    font-size: clamp(48px, 6.1vw, 82px);
+    line-height: 0.96;
+    letter-spacing: -0.055em;
+    margin-bottom: 22px;
+  }
+  .lede {
+    color: #445066;
+    font-size: clamp(16px, 1.45vw, 20px);
+    line-height: 1.55;
+    max-width: 59ch;
+    margin-bottom: 24px;
+  }
+  .hero-reason {
+    color: #5a6478;
+    font-size: 13px;
+    line-height: 1.58;
+    max-width: 61ch;
+    margin-bottom: 28px;
+  }
+  .hero-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+  }
+  .primary-cta,
+  .outline-cta {
+    border-radius: var(--corner);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 750;
+    min-height: 46px;
+    padding: 0 20px;
+    text-decoration: none;
+  }
+  .primary-cta {
+    background: var(--accent);
+    border: 1px solid var(--accent);
+    color: #fff;
+  }
+  .primary-cta:hover,
+  .primary-cta:focus-visible {
+    background: #174bb8;
+    border-color: #174bb8;
+  }
+  .outline-cta {
+    background: #fff;
+    border: 1px solid #b9c5d6;
+    color: var(--primary);
+  }
+  .outline-cta:hover,
+  .outline-cta:focus-visible {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .system-visual {
+    min-height: 430px;
+    display: grid;
+    align-content: center;
+    gap: 24px;
+    padding-left: clamp(12px, 2vw, 30px);
+  }
+  .visual-title {
+    color: var(--primary);
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+  .flow-strip {
+    display: grid;
+    grid-template-columns: auto 1fr auto 1fr auto 1fr auto;
+    align-items: center;
+    gap: 12px;
+  }
+  .flow-strip span {
+    color: var(--text);
+    font-size: 12px;
+    font-weight: 750;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+  }
+  .flow-strip i {
+    border-top: 1px solid #b9c5d6;
+    display: block;
+    min-width: 34px;
+  }
+  .control-field {
+    position: relative;
+    min-height: 260px;
+    display: grid;
+    place-items: center;
+  }
+  .control-field::before,
+  .control-field::after {
+    content: "";
+    position: absolute;
+    inset: 50% 0 auto;
+    border-top: 1px solid #d0d7e3;
+  }
+  .control-field::after {
+    inset: 0 auto 0 50%;
+    border-top: 0;
+    border-left: 1px solid #d0d7e3;
+  }
+  .control-core {
+    position: relative;
+    z-index: 1;
+    width: min(320px, 64%);
+    min-height: 120px;
+    background: #fff;
+    display: grid;
+    place-items: center;
+    text-align: center;
+    padding: 24px;
+  }
+  .control-core strong {
+    color: var(--primary);
+    display: block;
+    font-size: clamp(24px, 2.6vw, 34px);
+    font-weight: 800;
+    letter-spacing: -0.035em;
+    margin-bottom: 8px;
+  }
+  .control-core span {
+    color: #5a6478;
+    display: block;
+    font-size: 13px;
+    font-weight: 650;
+  }
+  .visual-node {
+    position: absolute;
+    color: var(--text);
+    background: var(--surface);
+    font-size: 12px;
+    font-weight: 750;
+    letter-spacing: 0.01em;
+    padding: 8px 10px;
+    white-space: nowrap;
+  }
+  .visual-node:nth-of-type(1) { top: 12px; left: 4%; }
+  .visual-node:nth-of-type(2) { top: 12px; right: 7%; }
+  .visual-node:nth-of-type(3) { bottom: 18px; left: 12%; }
+  .visual-node:nth-of-type(4) { bottom: 18px; right: 12%; }
+  .trust-lane {
+    border-top: 1px solid #d0d7e3;
+    color: #5a6478;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px;
+    justify-content: space-between;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    padding-top: 16px;
+    text-transform: uppercase;
+  }
+  .coverage-map {
+    border-top: 1px solid #d0d7e3;
+    display: grid;
+    grid-template-columns: minmax(260px, 0.45fr) minmax(0, 1fr);
+    gap: clamp(22px, 4vw, 54px);
+    align-items: center;
+    padding-top: clamp(18px, 2.4vw, 26px);
+  }
+  .coverage-label {
+    color: #5a6478;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    margin-bottom: 10px;
+    text-transform: uppercase;
+  }
+  .coverage-map h2 {
+    color: var(--primary);
+    font-size: clamp(24px, 2.6vw, 36px);
+    letter-spacing: -0.02em;
+    line-height: 1.15;
+    margin-bottom: 10px;
+  }
+  .coverage-copy,
+  .operation-detail {
+    color: #4b5567;
+    font-size: 13px;
+    line-height: 1.58;
+  }
+  .operation-line {
+    position: relative;
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 8px;
+    align-items: start;
+    padding-top: 18px;
+  }
+  .operation-line::before {
+    content: "";
+    position: absolute;
+    top: 23px;
+    left: 8%;
+    right: 8%;
+    border-top: 1px solid #b9c5d6;
+  }
+  .operation-node {
+    position: relative;
+    border: 0;
+    background: transparent;
+    color: var(--text);
+    cursor: pointer;
+    display: grid;
+    justify-items: center;
+    gap: 10px;
+    font: inherit;
+    min-width: 0;
+    padding: 0;
+    text-align: center;
+  }
+  .operation-node::before {
+    content: "";
+    width: 11px;
+    height: 11px;
+    background: var(--surface);
+    border: 2px solid #8a9bae;
+    border-radius: 999px;
+    display: block;
+  }
+  .operation-node.active::before,
+  .operation-node:hover::before,
+  .operation-node:focus-visible::before {
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+  .operation-node span {
+    color: inherit;
+    font-size: 12px;
+    font-weight: 760;
+    line-height: 1.25;
+  }
+  .operation-node.active span,
+  .operation-node:hover span,
+  .operation-node:focus-visible span {
+    color: var(--accent);
+  }
+  .operation-detail {
+    min-height: 40px;
+    margin-top: 20px;
+  }
+  .operation-detail strong {
+    color: var(--primary);
+    font-weight: 800;
+  }
+  .primary-cta:focus-visible,
+  .outline-cta:focus-visible,
+  .operation-node:focus-visible {
+    outline: 2px solid #8fb0ef;
+    outline-offset: 2px;
+  }
+  @media (max-width: 1080px) {
+    .overview {
+      height: auto;
+      min-height: calc(100vh - 44px);
+      overflow: visible;
+    }
+    .landing-shell,
+    .hero-stage,
+    .coverage-map {
+      grid-template-columns: 1fr;
+      height: auto;
+    }
+    .system-visual {
+      min-height: 360px;
+      padding-left: 0;
+    }
+    .coverage-map {
+      grid-template-rows: auto auto;
+    }
+  }
+  @media (max-width: 760px) {
+    .overview {
+      padding: 22px 18px;
+    }
+    .overview h1 {
+      font-size: clamp(42px, 13vw, 58px);
+    }
+    .flow-strip {
+      grid-template-columns: 1fr;
+      gap: 8px;
+    }
+    .flow-strip i {
+      display: none;
+    }
+    .control-field {
+      min-height: 300px;
+    }
+    .visual-node {
+      font-size: 11px;
+    }
+    .hero-actions {
+      align-items: stretch;
+      flex-direction: column;
+    }
+    .primary-cta,
+    .outline-cta {
+      width: 100%;
+    }
+    .operation-line {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 18px 12px;
+    }
+    .operation-line::before {
+      display: none;
+    }
+  }
 </style>
 
-<div class="landing">
-  <h1>{{ company }}</h1>
-  <p class="tagline">{{ content.tagline }}</p>
+<section class="overview">
+  <div class="landing-shell">
+    <section class="hero-stage" aria-label="{{ company }} introduction">
+      <div class="hero-copy">
+        <h1>{{ company }}</h1>
+        <h2>Serious finance operations, safely simulated.</h2>
+        <p class="lede">{{ company }} is a demo workspace for understanding how operational finance work is interpreted, routed, approved, and reviewed across realistic business workflows.</p>
+        <div class="hero-actions">
+          <a class="primary-cta" href="{% if accepted %}/setup{% else %}/overview/about{% endif %}">Continue Setup</a>
+          <a class="outline-cta" href="/overview/about">View Overview</a>
+        </div>
+      </div>
 
-  <div class="scenario-card">
-    <h2>{{ content.scenarioTitle }}</h2>
-    <div class="stats">
-      <div class="stat">
-        <div class="val">{{ "{:,}".format(scenario.invoices) }}</div>
-        <div class="lbl">Invoices</div>
+      <div class="system-visual" aria-label="Finance operations routing model">
+        <div class="visual-title">Operating model</div>
+        <div class="flow-strip" aria-label="Request lifecycle">
+          <span>Business request</span>
+          <i aria-hidden="true"></i>
+          <span>Finance Control</span>
+          <i aria-hidden="true"></i>
+          <span>Provider action</span>
+          <i aria-hidden="true"></i>
+          <span>Reviewable outcome</span>
+        </div>
+        <div class="control-field">
+          <div class="control-core">
+            <div>
+              <strong>Finance Control</strong>
+              <span>intent → route → approve → audit</span>
+            </div>
+          </div>
+          <span class="visual-node">User intent</span>
+          <span class="visual-node">Workflow agents</span>
+          <span class="visual-node">Provider systems</span>
+          <span class="visual-node">Audit history</span>
+        </div>
+        <div class="trust-lane" aria-label="Demo guardrails">
+          <span>Demo environment</span>
+          <span>Human review points</span>
+          <span>3-page overview before setup</span>
+        </div>
       </div>
-      <div class="stat">
-        <div class="val">${{ "%.1fM" | format(scenario.totalUsd / 1000000) }}</div>
-        <div class="lbl">Total value</div>
+    </section>
+
+    <section class="coverage-map" aria-labelledby="coverage-title">
+      <div>
+        <div class="coverage-label">Operational coverage</div>
+        <h2 id="coverage-title">One connected finance map.</h2>
       </div>
-      <div class="stat">
-        <div class="val">{{ scenario.regions }}</div>
-        <div class="lbl">Regions</div>
+      <div>
+        <div class="operation-line" aria-label="Covered finance operations">
+          <button class="operation-node active" type="button" data-operation-label="Treasury" data-operation-detail="Treasury covers cash position, exposure, liquidity, hedging, and funding decisions.">
+            <span>Treasury</span>
+          </button>
+          <button class="operation-node" type="button" data-operation-label="Procurement" data-operation-detail="Procurement covers budget checks, requisitions, approvals, orders, and committed spend records.">
+            <span>Procurement</span>
+          </button>
+          <button class="operation-node" type="button" data-operation-label="Compliance" data-operation-detail="Compliance covers monitoring, sanctions screening, escalations, filings, and control attestations.">
+            <span>Compliance</span>
+          </button>
+          <button class="operation-node" type="button" data-operation-label="Receivables" data-operation-detail="Receivables covers invoicing, aging, dunning, cash application, and cycle reporting.">
+            <span>Receivables</span>
+          </button>
+          <button class="operation-node" type="button" data-operation-label="Period Close" data-operation-detail="Period Close covers extraction, reconciliation, accruals, posting, lock, and filing preparation.">
+            <span>Period Close</span>
+          </button>
+          <button class="operation-node" type="button" data-operation-label="Vendor Operations" data-operation-detail="Vendor Operations covers onboarding, KYB, contract validation, master data, banking checks, and activation.">
+            <span>Vendor Operations</span>
+          </button>
+        </div>
+        <p class="operation-detail" id="operation-detail" aria-live="polite"><strong>Treasury:</strong> Treasury covers cash position, exposure, liquidity, hedging, and funding decisions.</p>
       </div>
-      <div class="stat">
-        <div class="val">~{{ "{:,}".format(scenario.peakAgents) }}</div>
-        <div class="lbl">Peak agents</div>
-      </div>
-    </div>
-    <div class="layers">
-      {% for l in agentLayers %}
-      <span class="layer-badge {% if l.ephemeral %}ephemeral{% endif %}">{{ l.label }}</span>
-      {% endfor %}
-    </div>
-    <div class="description">{{ scenario.description }}</div>
+    </section>
   </div>
-
-  <div class="disclaimer-block">
-    <p>{{ content.disclaimer }}</p>
-    <label>
-      <input type="checkbox" id="ack">
-      I understand this is a simulation environment.
-    </label>
-  </div>
-
-  <button class="continue-btn" id="continue-btn" disabled>
-    Continue to setup
-  </button>
-</div>
+</section>
 
 <script>
-  const ack = document.getElementById('ack');
-  const btn = document.getElementById('continue-btn');
-  ack.addEventListener('change', () => { btn.disabled = !ack.checked; });
-  btn.addEventListener('click', async () => {
-    btn.disabled = true;
-    await fetch('/api/session/accept', {method: 'POST'});
-    window.location = '/setup';
+  const operationNodes = Array.from(document.querySelectorAll('.operation-node'));
+  const operationDetail = document.getElementById('operation-detail');
+  operationNodes.forEach(item => {
+    item.addEventListener('click', () => {
+      operationNodes.forEach(current => current.classList.toggle('active', current === item));
+      if (operationDetail) {
+        const label = document.createElement('strong');
+        label.textContent = `${item.dataset.operationLabel}:`;
+        operationDetail.replaceChildren(label, ` ${item.dataset.operationDetail}`);
+      }
+    });
   });
 </script>
 {% endblock %}

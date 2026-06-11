@@ -8,8 +8,6 @@ package sdk
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -29,30 +27,32 @@ func (c *CoordinatorClient) http() *http.Client {
 	return http.DefaultClient
 }
 
-// AgentKind distinguishes the agent session lifecycle.
-type AgentKind string
+// Lifecycle distinguishes the agent session lifecycle.
+type Lifecycle string
 
 const (
-	KindService   AgentKind = "service"
-	KindInstance  AgentKind = "instance"
-	KindEphemeral AgentKind = "ephemeral"
+	LifecycleTask    Lifecycle = "task"
+	LifecycleService Lifecycle = "service"
 )
 
 // SpawnRequest parameters for coordinator agent spawn.
 type SpawnRequest struct {
-	ZoneID           string
-	ApplicationID    string
-	SubjectSessionID string
-	ParentID         string
-	Kind             AgentKind
-	TTLSeconds       int
-	Metadata         map[string]any
-	IdempotencyKey   string
+	ZoneID              string
+	ApplicationID       string
+	SubjectSessionID    string
+	ParentID            string
+	Lifecycle           Lifecycle
+	TTLSeconds          int
+	Metadata            map[string]any
+	Labels              []string
+	IdempotencyKey      string
+	InheritParentEdgeID string
 }
 
 // SpawnResponse from the coordinator.
 type SpawnResponse struct {
-	AgentSessionID string `json:"agent_session_id"`
+	AgentSessionID   string `json:"agent_session_id"`
+	DelegationEdgeID string `json:"delegation_edge_id"`
 }
 
 // DelegationConstraints narrows a delegation edge.
@@ -119,7 +119,9 @@ type DelegationResponse struct {
 func SpawnAgent(ctx context.Context, client *CoordinatorClient, bearer string, req SpawnRequest) (SpawnResponse, error) {
 	body := map[string]any{
 		"application_id": req.ApplicationID,
-		"kind":           string(req.Kind),
+	}
+	if req.Lifecycle != "" {
+		body["lifecycle"] = string(req.Lifecycle)
 	}
 	if req.SubjectSessionID != "" {
 		body["subject_session_id"] = req.SubjectSessionID
@@ -133,14 +135,16 @@ func SpawnAgent(ctx context.Context, client *CoordinatorClient, bearer string, r
 	if req.Metadata != nil {
 		body["metadata"] = req.Metadata
 	}
+	if len(req.Labels) > 0 {
+		body["labels"] = req.Labels
+	}
+	if req.InheritParentEdgeID != "" {
+		body["inherit_parent_edge_id"] = req.InheritParentEdgeID
+	}
 
 	extra := map[string]string{}
-	key := req.IdempotencyKey
-	if key == "" {
-		key = deriveIdempotencyKey(req)
-	}
-	if key != "" {
-		extra["Idempotency-Key"] = key
+	if req.IdempotencyKey != "" {
+		extra["Idempotency-Key"] = req.IdempotencyKey
 	}
 
 	var out SpawnResponse
@@ -148,21 +152,16 @@ func SpawnAgent(ctx context.Context, client *CoordinatorClient, bearer string, r
 	return out, err
 }
 
-// deriveIdempotencyKey produces a stable key for SDK-issued spawn retries.
-// Returns empty when no stable inputs are present: in that case the caller's
-// retry would still require a fresh session.
-func deriveIdempotencyKey(req SpawnRequest) string {
-	if req.SubjectSessionID == "" && req.ParentID == "" {
-		return ""
-	}
-	seed := req.ApplicationID + "|" + req.SubjectSessionID + "|" + req.ParentID + "|" + string(req.Kind)
-	sum := sha256.Sum256([]byte(seed))
-	return hex.EncodeToString(sum[:])
-}
-
 // TerminateAgent calls DELETE /zones/:zoneId/agents/:id.
 func TerminateAgent(ctx context.Context, client *CoordinatorClient, bearer, zoneID, agentSessionID string) error {
 	return doJSON(ctx, client, "DELETE", fmt.Sprintf("/zones/%s/agents/%s", zoneID, agentSessionID), bearer, nil, nil, nil)
+}
+
+// HeartbeatAgent renews a service agent's lease. A service session is reaped by
+// the coordinator if it stops heartbeating before the lease expires.
+func HeartbeatAgent(ctx context.Context, client *CoordinatorClient, bearer, zoneID, agentSessionID string) error {
+	body := map[string]any{"status": "healthy"}
+	return doJSON(ctx, client, "POST", fmt.Sprintf("/zones/%s/agents/%s/heartbeat", zoneID, agentSessionID), bearer, body, nil, nil)
 }
 
 // CreateDelegation calls POST /zones/:zoneId/delegations.

@@ -5,9 +5,20 @@
 // Head override that injects the mermaid diagram renderer with zoom controls.
 
 import Default from '@astrojs/starlight/components/Head.astro'
+
+const site = 'https://docs.caracal.run'
+const pagePath = Astro.url.pathname.replace(/^\/|\/$/g, '') || 'index'
+const markdownUrl = new URL(`markdown/${pagePath}.md`, `${site}/`).href
+const hasMarkdown = pagePath !== '404'
 ---
 
 <Default {...Astro.props} />
+<meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large" />
+<meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large" />
+<link rel="alternate" type="text/plain" href={`${site}/llms.txt`} title="Caracal LLM discovery" />
+<link rel="alternate" type="text/plain" href={`${site}/llms-full.txt`} title="Caracal full Markdown corpus" />
+<link rel="alternate" type="application/json" href={`${site}/page-index.json`} title="Caracal page metadata index" />
+{hasMarkdown && <link rel="alternate" type="text/markdown" href={markdownUrl} />}
 <script>
   import mermaid from 'mermaid'
 

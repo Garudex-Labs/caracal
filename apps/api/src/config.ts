@@ -6,7 +6,7 @@
 import { existsSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { loadEnvFile } from 'node:process'
-import { getenv, mustGetenv, intEnv, boolEnv, resolveFileSecrets } from '@caracalai/core'
+import { getenv, mustGetenv, intEnv, boolEnv, resolveFileSecrets, isPublished } from '@caracalai/core'
 
 function loadEnvChain(): void {
   const seen = new Set<string>()
@@ -48,6 +48,7 @@ export interface Config {
   redisUrl: string
   stsUrl: string
   gatewayStsHmacKey: Buffer | null
+  auditHmacKey: Buffer | null
   logLevel: string
   bootstrapAdminToken: string | null
   shutdownGraceMs: number
@@ -91,6 +92,12 @@ export function loadConfig(): Config {
   if (gatewayStsHmacKey && gatewayStsHmacKey.length < 32) {
     throw new Error('GATEWAY_STS_HMAC_KEY must be hex-encoded with at least 32 bytes')
   }
+  const auditHmacKey = process.env.AUDIT_HMAC_KEY
+    ? Buffer.from(process.env.AUDIT_HMAC_KEY, 'hex')
+    : null
+  if (auditHmacKey && auditHmacKey.length < 32) {
+    throw new Error('AUDIT_HMAC_KEY must be hex-encoded with at least 32 bytes')
+  }
   return {
     port: intEnv('PORT', 3000, 1),
     host: getenv('HOST', process.env.CARACAL_MODE === 'rc' || process.env.CARACAL_MODE === 'stable' ? '0.0.0.0' : '127.0.0.1'),
@@ -98,6 +105,7 @@ export function loadConfig(): Config {
     redisUrl: mustGetenv('REDIS_URL'),
     stsUrl: getenv('STS_URL', 'http://localhost:8080'),
     gatewayStsHmacKey,
+    auditHmacKey,
     logLevel: getenv('LOG_LEVEL', 'info'),
     bootstrapAdminToken: process.env.CARACAL_ADMIN_TOKEN ?? null,
     shutdownGraceMs: intEnv('SHUTDOWN_GRACE_MS', 15_000, 1),
@@ -125,7 +133,7 @@ export function loadConfig(): Config {
     maxResourcesPerZone: intEnv('API_MAX_RESOURCES_PER_ZONE', 100_000, 0),
     readyOutboxDeadMax: intEnv('API_READY_OUTBOX_DEAD_MAX', 0, 0),
     trustProxy: boolEnv('TRUST_PROXY', false),
-    enableDocs: boolEnv('API_ENABLE_DOCS', true),
+    enableDocs: boolEnv('API_ENABLE_DOCS', !isPublished()),
     metricsBearer: process.env.METRICS_BEARER ?? null,
   }
 }

@@ -43,7 +43,7 @@ type InMemoryTokenCache struct {
 
 type cacheEntry struct {
 	token     TokenExchangeResponse
-	expiresAt int64
+	expiresAt time.Time
 }
 
 // NewInMemoryTokenCache returns a bounded token cache.
@@ -71,7 +71,7 @@ func (c *InMemoryTokenCache) Get(subjectToken, resource string) (TokenExchangeRe
 	if !ok {
 		return TokenExchangeResponse{}, false
 	}
-	if time.Now().Unix() >= entry.expiresAt {
+	if !time.Now().Before(entry.expiresAt) {
 		delete(c.entries, key)
 		c.removeOrder(key)
 		return TokenExchangeResponse{}, false
@@ -87,7 +87,11 @@ func (c *InMemoryTokenCache) Set(subjectToken, resource string, token TokenExcha
 	if _, ok := c.entries[key]; ok {
 		c.removeOrder(key)
 	}
-	c.entries[key] = cacheEntry{token: token, expiresAt: token.IssuedAt + int64(token.ExpiresIn)}
+	remaining := time.Unix(token.IssuedAt+int64(token.ExpiresIn), 0).Sub(time.Now())
+	if remaining <= 0 {
+		return
+	}
+	c.entries[key] = cacheEntry{token: token, expiresAt: time.Now().Add(remaining)}
 	c.order = append(c.order, key)
 	for len(c.entries) > c.maxEntries {
 		oldest := c.order[0]

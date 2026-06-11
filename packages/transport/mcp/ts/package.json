@@ -1,6 +1,6 @@
 {
   "name": "@caracalai/transport-mcp",
-  "version": "0.1.4-rc.1",
+  "version": "0.1.5-rc.2",
   "description": "Caracal Model Context Protocol authentication core.",
   "license": "Apache-2.0",
   "homepage": "https://github.com/Garudex-Labs/caracal",
@@ -41,8 +41,8 @@
     "prepublishOnly": "tsc"
   },
   "dependencies": {
-    "@caracalai/identity": "0.1.4-rc.1",
-    "@caracalai/revocation": "0.1.4-rc.1"
+    "@caracalai/identity": "0.1.5-rc.2",
+    "@caracalai/revocation": "0.1.5-rc.2"
   },
   "devDependencies": {
     "@types/node": "^24.12.2",

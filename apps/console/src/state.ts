@@ -22,6 +22,14 @@ export interface SessionFilterState {
   limit?: number | undefined
 }
 
+export interface AgentFilterState {
+  status?: 'active' | 'suspended' | 'terminated' | undefined
+  lifecycle?: 'task' | 'service' | undefined
+  application_id?: string | undefined
+  label?: string | undefined
+  limit?: number | undefined
+}
+
 interface PersistedState {
   version: 1
   selectedZone?: { id: string; slug?: string | undefined } | undefined
@@ -31,6 +39,7 @@ interface PersistedState {
   filters?: {
     audit?: Record<string, AuditFilterState> | undefined
     sessions?: Record<string, SessionFilterState> | undefined
+    agents?: Record<string, AgentFilterState> | undefined
   } | undefined
 }
 
@@ -127,6 +136,17 @@ export class ConsoleStateStore {
     this.save()
   }
 
+  agentFilters(zoneId: string): AgentFilterState {
+    return { ...(this.state.filters?.agents?.[zoneId] ?? {}) }
+  }
+
+  setAgentFilters(zoneId: string, filters: AgentFilterState): void {
+    this.state.filters = this.state.filters ?? {}
+    this.state.filters.agents = this.state.filters.agents ?? {}
+    this.state.filters.agents[zoneId] = cleanAgentFilters(filters)
+    this.save()
+  }
+
   private save(): void {
     mkdirSync(dirname(this.path), { recursive: true, mode: 0o700 })
     const tmp = `${this.path}.${process.pid}.tmp`
@@ -152,6 +172,7 @@ function normalizeState(value: unknown): PersistedState {
     filters: {
       audit: cleanFilterMap(raw.filters?.audit, cleanAuditFilters),
       sessions: cleanFilterMap(raw.filters?.sessions, cleanSessionFilters),
+      agents: cleanFilterMap(raw.filters?.agents, cleanAgentFilters),
     },
   }
 }
@@ -187,6 +208,16 @@ function cleanSessionFilters(filters: SessionFilterState): SessionFilterState {
   return {
     status: filters.status === 'active' || filters.status === 'revoked' || filters.status === 'expired' ? filters.status : undefined,
     subject_id: cleanOptional(filters.subject_id),
+    limit: optionalPositiveInt(filters.limit),
+  }
+}
+
+function cleanAgentFilters(filters: AgentFilterState): AgentFilterState {
+  return {
+    status: filters.status === 'active' || filters.status === 'suspended' || filters.status === 'terminated' ? filters.status : undefined,
+    lifecycle: filters.lifecycle === 'task' || filters.lifecycle === 'service' ? filters.lifecycle : undefined,
+    application_id: cleanOptional(filters.application_id),
+    label: cleanOptional(filters.label),
     limit: optionalPositiveInt(filters.limit),
   }
 }

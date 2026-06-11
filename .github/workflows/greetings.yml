@@ -1,0 +1,50 @@
+name: Greetings
+
+on: [pull_request_target, issues]
+
+jobs:
+  greeting:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
+    steps:
+    - name: Pick greeting messages
+      id: greetings
+      run: |
+        issueMessages=(
+          "👀 First issue unlocked. Thanks for helping us spot things worth fixing."
+          "🛠️ Thanks for opening your first issue. Your report helps make Caracal stronger."
+          "🌱 Welcome, and thanks for starting your Caracal contributor journey with an issue."
+          "🔎 First issue received. We appreciate you taking the time to help improve Caracal."
+          "✨ Thanks for your first issue. Community feedback like this helps shape Caracal."
+        )
+        prMessages=(
+          "⚡ New contributor energy! Thanks for sending your first PR."
+          "🚀 First PR submitted. Thanks for helping move Caracal forward."
+          "🧩 Welcome, and thanks for contributing your first code change to Caracal."
+          "🔥 First PR unlocked. We appreciate you jumping in and contributing."
+          "🌟 Thanks for your first PR. Contributions like this help the Caracal project grow."
+        )
+        footer="Welcome to the Caracal Community: https://discord.gg/WX7dNMhM7E"
+        issueMessage="${issueMessages[$((RANDOM % ${#issueMessages[@]}))]}"
+        prMessage="${prMessages[$((RANDOM % ${#prMessages[@]}))]}"
+
+        {
+          echo "issue-message<<EOF"
+          echo "${issueMessage}"
+          echo
+          echo "${footer}"
+          echo "EOF"
+          echo "pr-message<<EOF"
+          echo "${prMessage}"
+          echo
+          echo "${footer}"
+          echo "EOF"
+        } >> "${GITHUB_OUTPUT}"
+
+    - uses: actions/first-interaction@v1
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
+        issue-message: ${{ steps.greetings.outputs.issue-message }}
+        pr-message: ${{ steps.greetings.outputs.pr-message }}

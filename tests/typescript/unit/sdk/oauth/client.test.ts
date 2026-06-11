@@ -103,13 +103,16 @@ describe('OAuthClient', () => {
 
   it('retries once on 401', async () => {
     let callCount = 0
-    vi.stubGlobal('fetch', vi.fn().mockImplementation(async () => {
-      callCount++
-      if (callCount === 1) {
-        return { ok: false, status: 401, json: async () => ({ error: 'unauthorized' }) }
-      }
-      return { ok: true, status: 200, json: async () => ({ access_token: 'tok-retry', expires_in: 900 }) }
-    }))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async () => {
+        callCount++
+        if (callCount === 1) {
+          return { ok: false, status: 401, json: async () => ({ error: 'unauthorized' }) }
+        }
+        return { ok: true, status: 200, json: async () => ({ access_token: 'tok-retry', expires_in: 900 }) }
+      }),
+    )
     const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
     const res = await client.exchange('subject-tok', 'resource://api')
     expect(res.accessToken).toBe('tok-retry')
@@ -117,15 +120,18 @@ describe('OAuthClient', () => {
   })
 
   it('throws InteractionRequiredError on interaction_required', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: false,
-      status: 401,
-      json: async () => ({
-        error: 'interaction_required',
-        error_description: 'MFA required',
-        challenge_id: 'chal-1',
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 401,
+        json: async () => ({
+          error: 'interaction_required',
+          error_description: 'MFA required',
+          challenge_id: 'chal-1',
+        }),
       }),
-    }))
+    )
     const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
     const err = await client.exchange('subject-tok', 'resource://api').catch((error: unknown) => error)
     expect(err).toBeInstanceOf(InteractionRequiredError)
@@ -267,29 +273,36 @@ describe('OAuthClient', () => {
   })
 
   it('rejects malformed STS error bodies', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: false,
-      status: 503,
-      text: async () => 'not-json',
-    }))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 503,
+        text: async () => 'not-json',
+      }),
+    )
     const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
 
     await expect(client.exchange('subject-tok', 'resource://api')).rejects.toThrow('invalid error response')
   })
 
   it('formats STS errors from json-only responses and request ids', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: false,
-      status: 403,
-      json: async () => ({ error_description: 'Denied', requestId: 'req-1' }),
-    }))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 403,
+        json: async () => ({ error_description: 'Denied', requestId: 'req-1' }),
+      }),
+    )
     const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
 
     await expect(client.exchange('subject-tok', 'resource://api')).rejects.toThrow('Denied (request_id=req-1)')
   })
 
   it('uses retry-after headers for transient STS retries', async () => {
-    const fetchMock = vi.fn()
+    const fetchMock = vi
+      .fn()
       .mockResolvedValueOnce({
         ok: false,
         status: 429,
@@ -305,8 +318,9 @@ describe('OAuthClient', () => {
     vi.stubGlobal('fetch', fetchMock)
     const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
 
-    await expect(client.exchange('subject-tok', 'resource://api', { retries: 1 })).resolves
-      .toMatchObject({ accessToken: 'tok-retry-after' })
+    await expect(client.exchange('subject-tok', 'resource://api', { retries: 1 })).resolves.toMatchObject({
+      accessToken: 'tok-retry-after',
+    })
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
@@ -314,31 +328,35 @@ describe('OAuthClient', () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network down')))
     const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
 
-    await expect(client.exchange('subject-tok', 'resource://api', { retries: 0 }))
-      .rejects.toThrow('network down')
-    await expect(client.exchange('subject-tok', 'resource://api', { timeoutMs: -1 }))
-      .rejects.toThrow('STS request timed out')
+    await expect(client.exchange('subject-tok', 'resource://api', { retries: 0 })).rejects.toThrow('network down')
+    await expect(client.exchange('subject-tok', 'resource://api', { timeoutMs: -1 })).rejects.toThrow('STS request timed out')
   })
 
   it('rejects non-json successful STS responses', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      headers: { get: () => 'text/html' },
-      json: async () => ({ access_token: 'tok-html', expires_in: 900 }),
-    }))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: { get: () => 'text/html' },
+        json: async () => ({ access_token: 'tok-html', expires_in: 900 }),
+      }),
+    )
     const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
 
     await expect(client.exchange('subject-tok', 'resource://api')).rejects.toThrow('expected application/json')
   })
 
   it('rejects malformed successful STS responses', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      headers: { get: () => 'application/json' },
-      json: async () => ({ access_token: '', expires_in: 900 }),
-    }))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: { get: () => 'application/json' },
+        json: async () => ({ access_token: '', expires_in: 900 }),
+      }),
+    )
     const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
 
     await expect(client.exchange('subject-tok', 'resource://api')).rejects.toThrow('access_token is required')
@@ -350,16 +368,25 @@ describe('OAuthClient', () => {
     [{ access_token: 'tok', expires_in: 900, target_resources: ['ok', 1] }, 'target_resources must be a string array'],
     [{ access_token: 'tok', expires_in: 900, upstreams: [] }, 'upstreams must be an object'],
     [{ access_token: 'tok', expires_in: 900, upstreams: { r: null } }, 'upstream directive must be an object'],
-    [{ access_token: 'tok', expires_in: 900, upstreams: { r: { allowed_token_hosts: ['a', 1] } } }, 'allowed_token_hosts must be a string array'],
-    [{ access_token: 'tok', expires_in: 900, upstreams: { r: { forward_caracal_identity: 'true' } } }, 'forward_caracal_identity must be a boolean'],
+    [
+      { access_token: 'tok', expires_in: 900, upstreams: { r: { allowed_token_hosts: ['a', 1] } } },
+      'allowed_token_hosts must be a string array',
+    ],
+    [
+      { access_token: 'tok', expires_in: 900, upstreams: { r: { forward_caracal_identity: 'true' } } },
+      'forward_caracal_identity must be a boolean',
+    ],
     [{ access_token: 'tok', expires_in: 900, upstreams: { r: { expires_at: 1.5 } } }, 'expires_at must be an integer'],
   ])('rejects invalid successful STS response shape %#', async (body, message) => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      headers: { get: () => 'application/json; charset=utf-8' },
-      json: async () => body,
-    }))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: { get: () => 'application/json; charset=utf-8' },
+        json: async () => body,
+      }),
+    )
     const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
 
     await expect(client.exchange('subject-tok', 'resource://api')).rejects.toThrow(message)

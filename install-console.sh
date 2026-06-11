@@ -7,12 +7,17 @@
 set -eu
 
 REPO="Garudex-Labs/caracal"
-INSTALL_DIR="${CARACAL_INSTALL_DIR:-${HOME}/.local/bin}"
+INSTALL_PREFIX="${CARACAL_PREFIX:-${PREFIX:-${HOME}/.local}}"
+INSTALL_DIR="${CARACAL_INSTALL_DIR:-${INSTALL_PREFIX}/bin}"
+INSTALL_DIR_EXPLICIT=0
+[ -n "${CARACAL_INSTALL_DIR:-}" ] && INSTALL_DIR_EXPLICIT=1
+DESTDIR_VALUE="${DESTDIR:-}"
 VERSION="${CARACAL_VERSION:-latest}"
 VERIFY_PROVENANCE="${CARACAL_VERIFY_PROVENANCE:-1}"
 REQUIRE_PROVENANCE="${CARACAL_REQUIRE_PROVENANCE:-1}"
 COLOR_MODE="${CARACAL_INSTALL_COLOR:-default}"
 PROGRESS_MODE="${CARACAL_INSTALL_PROGRESS:-default}"
+UNINSTALL=0
 
 colorReset=""
 colorBold=""
@@ -108,7 +113,7 @@ usage() {
 caracal-install: download the Caracal Console binaries from GitHub Releases.
 
 Usage:
-  install-console.sh [--version vYYYY.MM.DD[.N][-rc.N]] [--install-dir PATH] [--no-verify-provenance]
+  install-console.sh [--version vYYYY.MM.DD[.N][-rc.N]] [--prefix PATH] [--install-dir PATH] [--destdir PATH] [--uninstall] [--no-verify-provenance]
 
 Installs the thin 'caracal' runtime CLI and the 'caracal-console' Console binary.
 
@@ -121,7 +126,9 @@ plain output.
 
 Environment overrides:
   CARACAL_VERSION       same as --version
+  CARACAL_PREFIX        install prefix; default: ${HOME}/.local
   CARACAL_INSTALL_DIR   same as --install-dir
+  DESTDIR               staging root prepended to the install directory
   CARACAL_VERIFY_PROVENANCE   set 0 to disable provenance verification
   CARACAL_REQUIRE_PROVENANCE  set 0 to verify only when gh is available
   CARACAL_INSTALL_COLOR default, auto, always, or never
@@ -134,7 +141,22 @@ configureProgress
 while [ $# -gt 0 ]; do
     case "$1" in
         --version) [ $# -ge 2 ] || err "--version requires a value"; VERSION="$2"; shift ;;
-        --install-dir) [ $# -ge 2 ] || err "--install-dir requires a value"; INSTALL_DIR="$2"; shift ;;
+        --prefix)
+            [ $# -ge 2 ] || err "--prefix requires a value"
+            INSTALL_PREFIX="$2"
+            if [ "${INSTALL_DIR_EXPLICIT}" != "1" ]; then
+                INSTALL_DIR="${INSTALL_PREFIX}/bin"
+            fi
+            shift
+            ;;
+        --install-dir)
+            [ $# -ge 2 ] || err "--install-dir requires a value"
+            INSTALL_DIR="$2"
+            INSTALL_DIR_EXPLICIT=1
+            shift
+            ;;
+        --destdir) [ $# -ge 2 ] || err "--destdir requires a value"; DESTDIR_VALUE="$2"; shift ;;
+        --uninstall) UNINSTALL=1 ;;
         --no-verify-provenance) VERIFY_PROVENANCE=0; REQUIRE_PROVENANCE=0 ;;
         --help|-h) usage; exit 0 ;;
         *) err "unknown argument: $1 (use --help for usage)" ;;
@@ -145,6 +167,40 @@ configureColor
 configureProgress
 if [ "${VERIFY_PROVENANCE}" != "1" ]; then
     REQUIRE_PROVENANCE=0
+fi
+
+installPath() {
+    if [ -z "${DESTDIR_VALUE}" ]; then
+        printf '%s' "$1"
+        return
+    fi
+    case "$1" in
+        /*) printf '%s%s' "${DESTDIR_VALUE%/}" "$1" ;;
+        *) printf '%s/%s' "${DESTDIR_VALUE%/}" "$1" ;;
+    esac
+}
+
+INSTALL_PATH="$(installPath "${INSTALL_DIR}")"
+
+uninstall() {
+    removed=0
+    if [ -d "${INSTALL_PATH}" ]; then
+        for binFile in caracal caracal.exe caracal-console caracal-console.exe; do
+            if [ -e "${INSTALL_PATH}/${binFile}" ] || [ -L "${INSTALL_PATH}/${binFile}" ]; then
+                rm -f "${INSTALL_PATH}/${binFile}"
+                ok "Removed ${INSTALL_PATH}/${binFile}"
+                removed=1
+            fi
+        done
+    fi
+    if [ "${removed}" = "0" ]; then
+        info "No Caracal binaries found in ${INSTALL_PATH}"
+    fi
+}
+
+if [ "${UNINSTALL}" = "1" ]; then
+    uninstall
+    exit 0
 fi
 
 require() {
@@ -222,9 +278,9 @@ cleanup() {
     if [ "${committed}" != "1" ]; then
         for binFile in caracal caracal.exe caracal-console caracal-console.exe; do
             if [ -e "${backup}/${binFile}" ] || [ -L "${backup}/${binFile}" ]; then
-                mv -f "${backup}/${binFile}" "${INSTALL_DIR}/${binFile}" 2>/dev/null || true
+                mv -f "${backup}/${binFile}" "${INSTALL_PATH}/${binFile}" 2>/dev/null || true
             elif [ "${installedFiles#* ${binFile} }" != "${installedFiles}" ]; then
-                rm -f "${INSTALL_DIR}/${binFile}" 2>/dev/null || true
+                rm -f "${INSTALL_PATH}/${binFile}" 2>/dev/null || true
             fi
         done
     fi
@@ -250,6 +306,7 @@ section "Caracal Console Installer"
 printf '  Release:     %s\n' "${tag}"
 printf '  Platform:    %s-%s\n' "${os}" "${arch}"
 printf '  Install dir: %s\n' "${INSTALL_DIR}"
+[ -n "${DESTDIR_VALUE}" ] && printf '  Staging root: %s\n' "${DESTDIR_VALUE}"
 if [ "${REQUIRE_PROVENANCE}" = "1" ]; then
     printf '  Provenance:  required\n'
 elif [ "${VERIFY_PROVENANCE}" = "1" ]; then
@@ -296,7 +353,7 @@ hasArchive() {
     awk -v n="${archive}" '$2 == n || $2 == "*"n {found=1} END {exit found ? 0 : 1}' "${tmp}/SHA256SUMS"
 }
 
-mkdir -p "${INSTALL_DIR}"
+mkdir -p "${INSTALL_PATH}"
 installedRuntime=0
 if hasArchive runtime; then
     installedRuntime=1
@@ -307,7 +364,7 @@ stageArchive console caracal-console
 installStaged() {
     binFile="$1"
     src="${stage}/${binFile}"
-    dest="${INSTALL_DIR}/${binFile}"
+    dest="${INSTALL_PATH}/${binFile}"
     [ -f "${src}" ] || err "staged binary missing: ${binFile}"
     if [ -e "${dest}" ] || [ -L "${dest}" ]; then
         mv -f "${dest}" "${backup}/${binFile}"
@@ -322,10 +379,12 @@ installStaged() {
 installStaged "$([ "${os}" = windows ] && printf 'caracal-console.exe' || printf 'caracal-console')"
 committed=1
 
-case ":${PATH}:" in
-    *":${INSTALL_DIR}:"*) ;;
-    *) info "Add ${INSTALL_DIR} to PATH, for example: export PATH=\"${INSTALL_DIR}:\$PATH\"" ;;
-esac
+if [ -z "${DESTDIR_VALUE}" ]; then
+    case ":${PATH}:" in
+        *":${INSTALL_DIR}:"*) ;;
+        *) info "Add ${INSTALL_DIR} to PATH, for example: export PATH=\"${INSTALL_DIR}:\$PATH\"" ;;
+    esac
+fi
 
 checkShadow() {
     binName="$1"
@@ -346,8 +405,10 @@ checkShadow() {
     fi
 }
 
-[ "${installedRuntime}" = "1" ] && checkShadow caracal
-checkShadow caracal-console
+if [ -z "${DESTDIR_VALUE}" ]; then
+    [ "${installedRuntime}" = "1" ] && checkShadow caracal
+    checkShadow caracal-console
+fi
 
 case "${tag}" in
     *-rc.*) mode=rc ;;
@@ -360,6 +421,4 @@ printf '  Refresh shell cache: hash -r\n'
 [ "${installedRuntime}" = "1" ] && printf '  Launch through runtime: caracal console\n'
 printf '  Launch directly: caracal-console\n'
 section "Uninstall"
-printf '  Remove'
-[ "${installedRuntime}" = "1" ] && printf ' %s/caracal' "${INSTALL_DIR}"
-printf ' %s/caracal-console\n' "${INSTALL_DIR}"
+printf '  install-console.sh --install-dir %s --uninstall\n' "${INSTALL_DIR}"

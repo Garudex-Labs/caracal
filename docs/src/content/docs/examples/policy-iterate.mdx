@@ -1,18 +1,18 @@
 ---
 title: Iterate Policy Safely
-description: Reproduce a denied request against a staged policy-set version before activating a policy fix.
+description: Diagnose a denied request, simulate a candidate policy-set version, regression-check expected decisions, and activate only when every gate passes.
 pageType: workflow
 ---
 
-Policy Iterate is a denial-to-simulation loop under `examples/policyIterate`. Use it when a real request is denied and you want to test a candidate policy change against the exact redaction-safe audit input before activation.
+Policy Iterate is an audit-driven policy rollout loop under `examples/policyIterate`. Use it when a real request is denied and you want to test a candidate policy change against the exact redaction-safe audit input — and prove it does not change other decisions — before activation.
 
 ## Loop
 
-1. A request is denied and you capture its audit `request_id`.
-2. The audit explain endpoint reconstructs the denied `policy_input`.
-3. You edit the policy and stage a candidate policy-set version.
-4. The example simulates the denied input against the candidate version.
-5. You activate only after the simulation returns `allow`.
+1. **Diagnose** — a request is denied and you capture its audit `request_id`. The audit explain endpoint reconstructs the denied `policy_input` along with the diagnostics and determining policies.
+2. **Simulate** — you edit the policy, stage a candidate policy-set version, and the example replays the denied input against it through the same OPA engine that serves live traffic.
+3. **Regress** — the example replays your expected-decision cases against the same candidate, so loosening a policy for one caller cannot silently change decisions for everyone else.
+4. **Decide** — activation is gated on evidence: the candidate allows the denied input, the rollout contract validates, simulation produced no warnings, and every regression case keeps its expected decision.
+5. **Activate** — with `ACTIVATE=true` and a clean verdict, the example activates the version and polls activation status until the STS runtime reports it loaded.
 
 ## Run the iteration
 
@@ -21,17 +21,20 @@ cd examples/policyIterate
 CARACAL_API_URL=http://127.0.0.1:3000 \
 CARACAL_ADMIN_TOKEN=<admin-token> \
 CARACAL_ZONE_ID=<zone-id> \
-PREFLIGHT_REQUEST_ID=<denied-request-id> \
-CANDIDATE_POLICY_SET_ID=<policy-set-id> \
-CANDIDATE_POLICY_SET_VERSION_ID=<staged-version-id> \
+DENIED_REQUEST_ID=<denied-request-id> \
+POLICY_SET_ID=<policy-set-id> \
+CANDIDATE_VERSION_ID=<staged-version-id> \
+REGRESSION_FILE=./regressions.json \
 npm run iterate
 ```
 
-Exit code `0` means the candidate policy-set version allows the previously denied request.
+The run is a dry run by default: it narrates each phase on stderr, prints a JSON report on stdout, and exits `0` only when the verdict is clean. Re-run with `ACTIVATE=true` to roll out the version and wait for propagation.
+
+`REGRESSION_FILE` is optional and points to a JSON array of `{ name, expect, input }` cases — see `regressions.example.json` in the example directory for the format.
 
 ## Claims note
 
-Actor and subject claims are not written to audit, so reconstructed input does not contain them. For a claim-dependent denial, add the relevant `context.actor_claims` to the printed input before simulating.
+Actor and subject claims are not written to audit, so reconstructed input does not contain them. For a claim-dependent denial, add the relevant `context.actor_claims` to a regression case built from the printed `policyInput` and iterate with that case instead.
 
 ## Test
 

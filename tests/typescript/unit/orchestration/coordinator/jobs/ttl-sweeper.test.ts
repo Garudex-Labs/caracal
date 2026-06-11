@@ -84,6 +84,17 @@ describe('runTTLSweep', () => {
     expect(client.query).toHaveBeenCalledWith('COMMIT')
   })
 
+  it('excludes service-lifecycle agents from TTL termination', async () => {
+    const client = clientFromSteps([
+      { match: /pg_try_advisory_xact_lock/, rows: [{ acquired: true }] },
+    ])
+    const db = { connect: vi.fn().mockResolvedValueOnce(client) }
+    await runTTLSweep(db as never)
+    const select = client.calls.find(([sql]) => /FROM agent_sessions[\s\S]*FOR UPDATE SKIP LOCKED/.test(sql))
+    expect(select).toBeDefined()
+    expect(select?.[0]).toMatch(/lifecycle <> 'service'/)
+  })
+
   it('commits with no work when nothing expired', async () => {
     const client = clientFromSteps([
       { match: /pg_try_advisory_xact_lock/, rows: [{ acquired: true }] },

@@ -15,8 +15,14 @@ describe('MemoryReplay', () => {
 
   it('honours exp shorter than ttl', async () => {
     const r = new MemoryReplay(60_000)
+    const soon = Math.floor(Date.now() / 1000) + 1
+    expect(await r.mark('soon', soon)).toBe(true)
+    expect(await r.mark('soon', soon)).toBe(false)
+  })
+
+  it('fails closed when the token is already expired', async () => {
+    const r = new MemoryReplay(60_000)
     const past = Math.floor(Date.now() / 1000) - 10
-    expect(await r.mark('expired', past)).toBe(true)
     expect(await r.mark('expired', past)).toBe(false)
   })
 
@@ -61,18 +67,18 @@ describe('RedisReplay', () => {
     expect(ttl).toBeGreaterThan(0)
   })
 
-  it('uses the full ttl when the token exp is already past', async () => {
+  it('fails closed when the token exp is already past', async () => {
     const set = vi.fn().mockResolvedValue('OK')
     const r = new RedisReplay({ set } as never, 60_000)
     const pastExp = Math.floor(Date.now() / 1000) - 100
-    expect(await r.mark('a', pastExp)).toBe(true)
-    expect((set.mock.calls[0] as number[])[3]).toBe(60_000)
+    expect(await r.mark('a', pastExp)).toBe(false)
+    expect(set).not.toHaveBeenCalled()
   })
 
-  it('accepts without redis when the max ttl is non-positive', async () => {
+  it('fails closed when the max ttl is non-positive', async () => {
     const set = vi.fn()
     const r = new RedisReplay({ set } as never, 0)
-    expect(await r.mark('a', undefined)).toBe(true)
+    expect(await r.mark('a', undefined)).toBe(false)
     expect(set).not.toHaveBeenCalled()
   })
 

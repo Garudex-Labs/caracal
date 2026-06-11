@@ -41,9 +41,9 @@ Install the package for your application language.
 ## TypeScript
 
 ```typescript
-import { AgentKind, Caracal } from "@caracalai/sdk";
+import { Caracal } from "@caracalai/sdk";
 
-const caracal = Caracal.connect();
+const caracal = new Caracal();
 const resourceId = process.env.CARACAL_RESOURCE_ID;
 const resourcePath = process.env.CARACAL_RESOURCE_PATH;
 
@@ -59,7 +59,7 @@ await caracal.spawn(async () => {
   });
 
   console.log(await response.text());
-}, { kind: AgentKind.Ephemeral });
+});
 ```
 
 ## Python
@@ -68,14 +68,14 @@ await caracal.spawn(async () => {
 import asyncio
 import os
 
-from caracalai_sdk import AgentKind, Caracal
+from caracalai import Caracal
 
-caracal = Caracal.connect()
+caracal = Caracal()
 resource_id = os.environ["CARACAL_RESOURCE_ID"]
 resource_path = os.environ["CARACAL_RESOURCE_PATH"]
 
 async def main():
-    async with caracal.spawn(kind=AgentKind.EPHEMERAL) as ctx:
+    async with caracal.spawn() as ctx:
         print("Agent session:", ctx.agent_session_id)
 
         response = await caracal.fetch(
@@ -104,7 +104,7 @@ import (
 )
 
 func main() {
-    c, err := caracal.Connect()
+    c, err := caracal.New()
     if err != nil {
         panic(err)
     }
@@ -119,7 +119,7 @@ func main() {
         cc, _ := c.Current(ctx)
         fmt.Println("Agent session:", cc.AgentSessionID)
 
-        resp, err := c.Fetch(ctx, http.MethodGet, resourceID, resourcePath, nil, nil)
+        resp, err := c.Fetch(ctx, http.MethodGet, resourceID, resourcePath)
         if err != nil {
             return err
         }
@@ -139,11 +139,13 @@ func main() {
 
 | Call | Role |
 | --- | --- |
-| `connect()` / `Connect()` | Loads the generated profile or environment configuration and prepares token exchange. |
+| `new Caracal()` / `Caracal()` / `New()` | Loads the generated profile or environment configuration and prepares token exchange. |
 | `spawn()` / `Spawn()` | Creates an agent session, binds context for the work, and terminates the session when the block exits. |
 | `fetch()` / `Fetch()` | Sends one request to a resource through the Gateway with context and authority injected. |
 | `gatewayRequest()` / `GatewayRequest()` | Builds the Gateway URL and `X-Caracal-Resource` header for explicit resource routing. |
 | `transport()` / `Transport()` | Injects Caracal context, authorization, trace, and baggage headers on outbound calls. |
+
+`spawn()` creates an agent session under the application from your runtime profile. You reuse that one application for every agent session your workload spawns; you do not register an application per agent. See [Should I create one application per agent?](/reference/faq/#faq-006).
 
 If policy denies the exchange, STS returns HTTP 403 and the SDK surfaces an error. Open Console **audit** or **explain** with the request ID to see the policy and diagnostics that determined the result.
 

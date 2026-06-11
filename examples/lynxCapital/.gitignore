@@ -1,0 +1,6 @@
+# Workload and operator environment files (contain secrets).
+.env
+.env.provision
+
+# One-time provisioning output written by scripts/provision.py.
+config/provisioned.json

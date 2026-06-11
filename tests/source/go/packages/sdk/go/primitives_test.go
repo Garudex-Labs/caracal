@@ -8,6 +8,7 @@ package sdk_test
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -47,7 +48,6 @@ func TestSpawnRunsCallbackWithBoundContext(t *testing.T) {
 		ZoneID:        "z",
 		ApplicationID: "app",
 		SubjectToken:  "tok",
-		Kind:          sdk.KindEphemeral,
 	}, func(ctx context.Context) error {
 		c, ok := sdk.Current(ctx)
 		if !ok {
@@ -67,7 +67,7 @@ func TestSpawnRunsCallbackWithBoundContext(t *testing.T) {
 	}
 }
 
-func TestSpawnTerminatesNonServiceKind(t *testing.T) {
+func TestSpawnTerminatesOnExit(t *testing.T) {
 	srv, calls := makeCoordinatorServer(t)
 	coord := &sdk.CoordinatorClient{BaseURL: srv.URL}
 
@@ -76,7 +76,6 @@ func TestSpawnTerminatesNonServiceKind(t *testing.T) {
 		ZoneID:        "z",
 		ApplicationID: "app",
 		SubjectToken:  "tok",
-		Kind:          sdk.KindEphemeral,
 	}, func(ctx context.Context) error { return nil })
 
 	var deleted bool
@@ -86,26 +85,55 @@ func TestSpawnTerminatesNonServiceKind(t *testing.T) {
 		}
 	}
 	if !deleted {
-		t.Errorf("expected DELETE call for non-service kind; calls: %v", *calls)
+		t.Errorf("expected DELETE call on spawn exit; calls: %v", *calls)
 	}
 }
 
-func TestSpawnSkipsTerminationForServiceKind(t *testing.T) {
-	srv, calls := makeCoordinatorServer(t)
+func TestSpawnServiceHeartbeatAndClose(t *testing.T) {
+	calls := &[]string{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		*calls = append(*calls, r.Method+" "+r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/heartbeat"):
+			_, _ = w.Write([]byte(`{"agent":{"id":"svc-1"}}`))
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/agents"):
+			_, _ = w.Write([]byte(`{"agent_session_id":"svc-1"}`))
+		case r.Method == http.MethodDelete:
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(srv.Close)
 	coord := &sdk.CoordinatorClient{BaseURL: srv.URL}
 
-	_ = sdk.Spawn(context.Background(), sdk.SpawnInput{
+	svc, err := sdk.SpawnService(context.Background(), sdk.SpawnServiceInput{
 		Coordinator:   coord,
 		ZoneID:        "z",
 		ApplicationID: "app",
 		SubjectToken:  "tok",
-		Kind:          sdk.KindService,
-	}, func(ctx context.Context) error { return nil })
-
-	for _, c := range *calls {
-		if strings.HasPrefix(c, "DELETE") {
-			t.Errorf("DELETE must not be called for service kind; calls: %v", *calls)
-		}
+		Labels:        []string{"billing-worker"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if svc.AgentSessionID() != "svc-1" {
+		t.Errorf("expected svc-1, got %q", svc.AgentSessionID())
+	}
+	if err := svc.Heartbeat(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"POST /zones/z/agents",
+		"POST /zones/z/agents/svc-1/heartbeat",
+		"DELETE /zones/z/agents/svc-1",
+	}
+	if strings.Join(*calls, ",") != strings.Join(want, ",") {
+		t.Errorf("unexpected calls: %v", *calls)
 	}
 }
 
@@ -119,7 +147,6 @@ func TestSpawnOnAgentStartHookCalled(t *testing.T) {
 		ZoneID:        "z",
 		ApplicationID: "app",
 		SubjectToken:  "tok",
-		Kind:          sdk.KindEphemeral,
 		OnAgentStart: func(ctx context.Context, c sdk.CaracalContext) error {
 			started = true
 			return nil
@@ -142,7 +169,6 @@ func TestSpawnOnAgentStartErrorAbortsAndTerminates(t *testing.T) {
 		ZoneID:        "z",
 		ApplicationID: "app",
 		SubjectToken:  "tok",
-		Kind:          sdk.KindEphemeral,
 		OnAgentStart: func(ctx context.Context, c sdk.CaracalContext) error {
 			return hookErr
 		},
@@ -210,7 +236,7 @@ func TestDelegateIncrementsHopAndBindsEdge(t *testing.T) {
 	parent := sdk.CaracalContext{
 		SubjectToken:   "tok",
 		ZoneID:         "z",
-		ClientID:       "app",
+		ApplicationID:  "app",
 		AgentSessionID: "agent-1",
 		Hop:            1,
 	}
@@ -241,33 +267,33 @@ func TestDelegateIncrementsHopAndBindsEdge(t *testing.T) {
 	}
 }
 
-func TestDelegateToSpawnRequiresActiveParent(t *testing.T) {
+func TestSpawnNarrowRequiresActiveParent(t *testing.T) {
 	srv, _ := makeCoordinatorServer(t)
 	coord := &sdk.CoordinatorClient{BaseURL: srv.URL}
-	err := sdk.DelegateToSpawn(context.Background(), sdk.DelegateToSpawnInput{
+	err := sdk.Spawn(context.Background(), sdk.SpawnInput{
 		Coordinator:   coord,
 		ZoneID:        "z",
 		ApplicationID: "app-child",
 		SubjectToken:  "tok",
-		Scopes:        []string{"tool:call"},
+		Grant:         sdk.GrantNarrow("tool:call"),
 	}, func(ctx context.Context) error { return nil })
 	if err == nil {
 		t.Fatal("expected error without active parent")
 	}
 }
 
-func TestDelegateToSpawnIssuesSpawnThenDelegation(t *testing.T) {
+func TestSpawnNarrowIssuesSpawnThenDelegation(t *testing.T) {
 	srv, calls := makeCoordinatorServer(t)
 	coord := &sdk.CoordinatorClient{BaseURL: srv.URL}
 
 	var child sdk.CaracalContext
 	err := sdk.Spawn(context.Background(), sdk.SpawnInput{
 		Coordinator: coord, ZoneID: "z", ApplicationID: "app",
-		SubjectToken: "tok", Kind: sdk.KindEphemeral,
+		SubjectToken: "tok",
 	}, func(parentCtx context.Context) error {
-		return sdk.DelegateToSpawn(parentCtx, sdk.DelegateToSpawnInput{
+		return sdk.Spawn(parentCtx, sdk.SpawnInput{
 			Coordinator: coord, ZoneID: "z", ApplicationID: "app-child",
-			SubjectToken: "tok", Scopes: []string{"tool:call"}, Kind: sdk.KindEphemeral,
+			SubjectToken: "tok", Grant: sdk.GrantNarrow("tool:call"),
 		}, func(ctx context.Context) error {
 			c, _ := sdk.Current(ctx)
 			child = c
@@ -301,5 +327,111 @@ func TestDelegateToSpawnIssuesSpawnThenDelegation(t *testing.T) {
 	}
 	if !hasDelegation {
 		t.Errorf("delegation call missing: %v", *calls)
+	}
+}
+
+func TestSpawnInheritCarriesParentEdgeForward(t *testing.T) {
+	var bodies []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/agents"):
+			buf := new(strings.Builder)
+			_, _ = io.Copy(buf, r.Body)
+			bodies = append(bodies, buf.String())
+			_, _ = w.Write([]byte(`{"agent_session_id":"agent-child","delegation_edge_id":"edge-child"}`))
+		case r.Method == http.MethodDelete:
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	coord := &sdk.CoordinatorClient{BaseURL: srv.URL}
+
+	parent := sdk.CaracalContext{
+		SubjectToken:     "tok",
+		ZoneID:           "z",
+		ApplicationID:    "app",
+		AgentSessionID:   "parent-session",
+		DelegationEdgeID: "edge-parent",
+		Hop:              1,
+	}
+	ctx := sdk.Bind(context.Background(), parent)
+
+	var child sdk.CaracalContext
+	err := sdk.Spawn(ctx, sdk.SpawnInput{
+		Coordinator:   coord,
+		ZoneID:        "z",
+		ApplicationID: "app",
+		SubjectToken:  "tok",
+	}, func(ctx context.Context) error {
+		child, _ = sdk.Current(ctx)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if child.DelegationEdgeID != "edge-child" {
+		t.Errorf("expected child edge-child, got %q", child.DelegationEdgeID)
+	}
+	if child.ParentEdgeID != "edge-parent" {
+		t.Errorf("expected parent edge-parent, got %q", child.ParentEdgeID)
+	}
+	if child.Hop != 2 {
+		t.Errorf("expected hop 2, got %d", child.Hop)
+	}
+	if len(bodies) != 1 || !strings.Contains(bodies[0], `"inherit_parent_edge_id":"edge-parent"`) {
+		t.Errorf("spawn body missing inherit_parent_edge_id: %v", bodies)
+	}
+}
+
+func TestSpawnInheritSkipsEdgeCrossApp(t *testing.T) {
+	var bodies []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/agents"):
+			buf := new(strings.Builder)
+			_, _ = io.Copy(buf, r.Body)
+			bodies = append(bodies, buf.String())
+			_, _ = w.Write([]byte(`{"agent_session_id":"agent-child"}`))
+		case r.Method == http.MethodDelete:
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	coord := &sdk.CoordinatorClient{BaseURL: srv.URL}
+
+	parent := sdk.CaracalContext{
+		SubjectToken:     "tok",
+		ZoneID:           "z",
+		ApplicationID:    "app",
+		AgentSessionID:   "parent-session",
+		DelegationEdgeID: "edge-parent",
+		Hop:              1,
+	}
+	ctx := sdk.Bind(context.Background(), parent)
+
+	var child sdk.CaracalContext
+	err := sdk.Spawn(ctx, sdk.SpawnInput{
+		Coordinator:   coord,
+		ZoneID:        "z",
+		ApplicationID: "other-app",
+		SubjectToken:  "tok",
+	}, func(ctx context.Context) error {
+		child, _ = sdk.Current(ctx)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if child.DelegationEdgeID != "" {
+		t.Errorf("expected no child edge cross-app, got %q", child.DelegationEdgeID)
+	}
+	if len(bodies) != 1 || strings.Contains(bodies[0], "inherit_parent_edge_id") {
+		t.Errorf("cross-app spawn should not request inherit edge: %v", bodies)
 	}
 }

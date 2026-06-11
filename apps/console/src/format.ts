@@ -44,6 +44,28 @@ export function formatDateTimeOrValue(value: string | Date, opts: DateTimeFormat
   return formatDateTime(value, opts) ?? String(value)
 }
 
+const RELATIVE_TIME = /^(\d+)\s*(s|m|h|d|w)$/i
+const CANONICAL_ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/
+const RELATIVE_UNIT_MS: Record<string, number> = { s: 1_000, m: 60_000, h: 3_600_000, d: 86_400_000, w: 604_800_000 }
+
+export function resolveTimeInput(value: string | undefined, now: Date = new Date()): string | undefined {
+  const text = value?.trim()
+  if (!text) return undefined
+  if (text.toLowerCase() === 'now') return now.toISOString()
+  const relative = RELATIVE_TIME.exec(text)
+  if (relative) {
+    const amount = Number(relative[1])
+    const unit = RELATIVE_UNIT_MS[relative[2]!.toLowerCase()]!
+    return new Date(now.getTime() - amount * unit).toISOString()
+  }
+  if (CANONICAL_ISO.test(text)) return text
+  const parsed = new Date(text)
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error('enter a relative time like 15m, 2h, or 7d, an ISO timestamp, or a date')
+  }
+  return parsed.toISOString()
+}
+
 interface DateParts {
   year: number
   month: number

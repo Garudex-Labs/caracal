@@ -199,7 +199,34 @@ func isUnsafeIP(ip net.IP) bool {
 			return true
 		}
 	}
+	// NAT64 well-known prefix (RFC 6052) embeds an IPv4 target in the low 32 bits;
+	// re-check the embedded address so 64:ff9b::<private-or-metadata-v4> cannot
+	// tunnel past the guard while genuine NAT64 to public addresses still resolves.
+	if embedded := nat64Embedded(ip); embedded != nil {
+		return isUnsafeIP(embedded)
+	}
 	return false
+}
+
+// nat64WellKnownPrefix is the RFC 6052 well-known prefix 64:ff9b::/96.
+var nat64WellKnownPrefix = [12]byte{0x00, 0x64, 0xff, 0x9b}
+
+// nat64Embedded returns the IPv4 address carried in a 64:ff9b::/96 address, or
+// nil when ip is not a NAT64 well-known-prefix address.
+func nat64Embedded(ip net.IP) net.IP {
+	if ip.To4() != nil {
+		return nil
+	}
+	ip16 := ip.To16()
+	if ip16 == nil {
+		return nil
+	}
+	for i := 0; i < 12; i++ {
+		if ip16[i] != nat64WellKnownPrefix[i] {
+			return nil
+		}
+	}
+	return net.IPv4(ip16[12], ip16[13], ip16[14], ip16[15])
 }
 
 // newRequestID returns a UUIDv4 string used to correlate access logs and STS audits.

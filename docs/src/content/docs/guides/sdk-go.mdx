@@ -24,7 +24,7 @@ import (
 )
 
 func main() {
-	client, err := caracal.Connect()
+	client, err := caracal.New()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -42,7 +42,7 @@ func main() {
 }
 ```
 
-`Connect()` loads `CARACAL_CONFIG`, the default generated profile, or environment variables.
+`New()` loads `CARACAL_CONFIG`, the default generated profile, or environment variables.
 
 ## Use an HTTP client
 
@@ -61,29 +61,54 @@ err := client.Spawn(context.Background(), func(ctx context.Context) error {
 
 The transport injects Caracal envelope headers from `context.Context`. For explicit Gateway routing, use `GatewayRequest()`.
 
-## Delegate while spawning
+## Long-lived service agents
+
+Daemons and workers that outlive a single request use `Service` instead of `Spawn`. It returns a handle you own: keep the session alive by calling `Heartbeat` on a timer and retire it with `Close`. A service session is reaped by the coordinator if it stops heartbeating before its lease expires.
+
+```go
+svc, err := client.SpawnService(context.Background(), caracal.ServiceOptions{
+	Labels: []string{"billing-worker"},
+})
+if err != nil {
+	return err
+}
+defer svc.Close(context.Background())
+
+for running {
+	if err := svc.Heartbeat(context.Background()); err != nil {
+		return err
+	}
+	doWork(svc.Context)
+	time.Sleep(30 * time.Second)
+}
+```
+
+## Spawn a narrowed child
 
 ```go
 err := client.Spawn(context.Background(), func(ctx context.Context) error {
-	return client.DelegateToSpawn(ctx, caracal.DelegateToSpawnOptions{
-		Scopes:               []string{"tickets:read"},
-		Constraints:          &caracal.DelegationConstraints{MaxHops: 1, Budget: 5},
-		DelegationTTLSeconds: 600,
-	}, func(child context.Context) error {
+	return client.Spawn(ctx, func(child context.Context) error {
 		_, _ = client.Current(child)
 		return nil
+	}, caracal.SpawnOptions{
+		Grant: caracal.Grant{
+			Mode:        caracal.GrantModeNarrow,
+			Scopes:      []string{"tickets:read"},
+			Constraints: &caracal.DelegationConstraints{MaxHops: 1, Budget: 5},
+			TTLSeconds:  600,
+		},
 	})
 })
 ```
 
-Use `Current(ctx)` to inspect the bound Caracal context and `Headers(ctx)` to project it to outbound HTTP headers.
+A plain `client.Spawn` runs the child under the application's authority. Set `SpawnOptions.Grant` to `caracal.GrantNarrow(...)` only when the child should hold a least-privilege subset, or `caracal.GrantNone()` for a child with no inherited authority. Use `Current(ctx)` to inspect the bound Caracal context and `Headers(ctx)` to project it to outbound HTTP headers.
 
 ## Troubleshooting
 
 | Symptom | Check |
 | --- | --- |
 | Missing config error | Confirm generated profile or required environment variables. |
-| `Headers` without context fails | Call inside `Spawn`, `Delegate`, `DelegateToSpawn`, or pass `RootOptions{AllowRoot: true}` intentionally. |
+| `Headers` without context fails | Call inside `Spawn`, `Delegate`, or pass `RootOptions{AllowRoot: true}` intentionally. |
 | Delegation fails | Ensure delegation runs from a context with an active agent session. |
 | Gateway URL error | Confirm the generated profile includes `gateway_url`. |
 

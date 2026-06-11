@@ -2,114 +2,462 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-Lynx Capital setup checklist for environment and provider configuration.
+Lynx Capital guided setup page for Caracal configuration, providers, and launch.
 #}
 {% extends "layout.html" %}
 {% block title %}Setup: {{ company }}{% endblock %}
 
 {% block content %}
 <style>
-  .setup-wrap { max-width: 720px; margin: 0 auto; padding: 32px 20px 48px; }
-  h1 { font-size: 17px; font-weight: 600; margin-bottom: 4px; }
-  .sub { color: #5a6478; font-size: 12px; margin-bottom: 24px; }
-  .panel { border: 1px solid var(--border); border-radius: 4px; padding: 18px; background: #fff; margin-bottom: 16px; }
-  .panel h2 { font-size: 13px; font-weight: 600; margin-bottom: 6px; }
-  .panel p { font-size: 12px; color: #5a6478; margin-bottom: 12px; }
-  .panel code { font-family: ui-monospace, monospace; font-size: 11px; background: #1a1f2e; color: #c9d1e0; padding: 1px 5px; border-radius: 2px; }
-  pre.cmd { background: #1a1f2e; color: #c9d1e0; font-family: ui-monospace, monospace; font-size: 11px; padding: 10px 12px; border-radius: 3px; margin: 6px 0 10px; overflow-x: auto; }
-  pre.cmd .c { color: #6c7689; }
-  .validate-bar { display: flex; align-items: center; gap: 12px; margin-top: 20px; flex-wrap: wrap; }
-  #validate-btn { background: var(--primary); color: #fff; border: none; padding: 8px 18px; font-size: 12px; font-weight: 600; border-radius: 3px; cursor: pointer; }
-  #validate-btn:hover { opacity: 0.85; }
-  #validate-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-  #start-demo-btn { background: var(--accent); color: #fff; border: none; padding: 8px 18px; font-size: 12px; font-weight: 600; border-radius: 3px; cursor: pointer; }
-  #start-demo-btn:hover { opacity: 0.85; }
-  #validate-out { width: 100%; margin-top: 8px; }
-  .rs { display: flex; align-items: center; gap: 7px; font-size: 12px; padding: 4px 0; }
-  .rs .badge { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: 800; }
-  .badge-ok { background: var(--success); color: #fff; }
-  .badge-fail { background: var(--danger); color: #fff; }
-  .rd { font-size: 10px; color: #5a6478; margin-left: 21px; }
+  .setup-page { width: min(1120px, 100% - 48px); margin: 0 auto; padding: 20px 0 48px; }
+
+  .setup-header { align-items: center; display: flex; gap: 16px; justify-content: space-between; padding: 2px 0 16px; }
+  .setup-header h1 { color: var(--text-primary); font-size: 20px; font-weight: 700; letter-spacing: -.01em; margin: 0; }
+  .setup-header .sub { color: var(--text-secondary); font-size: 12.5px; margin: 3px 0 0; }
+  .setup-meta { align-items: center; display: flex; gap: 10px; }
+  .ready-meter { color: var(--text-secondary); font-family: var(--font-mono); font-size: 11.5px; white-space: nowrap; }
+  .ready-meter b { color: var(--text-primary); font-weight: 700; }
+
+  .btn { align-items: center; border-radius: 4px; cursor: pointer; display: inline-flex; font-family: inherit; font-size: 12px; font-weight: 650; min-height: 30px; padding: 0 12px; text-decoration: none; white-space: nowrap; }
+  .btn-primary { background: var(--primary); border: 1px solid var(--primary); color: #fff; }
+  .btn-secondary { background: #fff; border: 1px solid var(--border-default); color: var(--text-primary); }
+  .btn-secondary:hover { border-color: var(--border-strong); }
+  .btn:disabled { cursor: not-allowed; opacity: .45; }
+  .btn:focus-visible { outline: 2px solid var(--accent-blue); outline-offset: 2px; }
+
+  .progress-strip { background: none; border-bottom: 1px solid var(--border-default); color: inherit; display: flex; gap: 24px; height: auto; justify-content: flex-start; margin-bottom: 20px; padding: 0; }
+  .progress-step { align-items: center; background: none; border: 0; border-bottom: 2px solid transparent; color: var(--text-secondary); cursor: pointer; display: flex; font: inherit; font-size: 12.5px; font-weight: 600; gap: 7px; margin-bottom: -1px; padding: 9px 1px 8px; }
+  .progress-step span { color: var(--text-muted); font-family: var(--font-mono); font-size: 10.5px; }
+  .progress-step[aria-selected="true"] { border-bottom-color: var(--primary); color: var(--text-primary); }
+  .progress-step[aria-selected="true"] span { color: var(--primary); }
+  .step-dot { background: var(--border-strong); border-radius: 50%; height: 7px; width: 7px; }
+  .step-dot.done { background: var(--success); }
+
+  .setup-panel[hidden] { display: none; }
+  .section-head { align-items: baseline; display: flex; flex-wrap: wrap; gap: 6px 12px; margin-bottom: 14px; }
+  .section-head h2 { color: var(--text-primary); font-size: 15px; font-weight: 700; margin: 0; }
+  .section-head p { color: var(--text-secondary); font-size: 12.5px; margin: 0; }
+
+  .status { border-radius: 3px; display: inline-flex; font-size: 10px; font-weight: 750; justify-content: center; letter-spacing: .05em; padding: 3px 7px; text-transform: uppercase; white-space: nowrap; }
+  .status-provisioned, .status-passed { background: var(--accent-green-surface); color: var(--accent-green); }
+  .status-partial, .status-warning, .status-pending, .status-checking { background: var(--accent-amber-surface); color: var(--accent-amber); }
+  .status-unprovisioned, .status-missing { background: var(--accent-red-surface); color: var(--accent-red); }
+
+  code, .mono { font-family: var(--font-mono); }
+  pre.script { background: var(--surface-raised); border: 1px solid var(--border-subtle); border-radius: 6px; color: var(--text-primary); font-family: var(--font-mono); font-size: 11px; line-height: 1.6; margin: 0; overflow: auto; padding: 10px 12px; white-space: pre; }
+
+  .caracal-layout { align-items: start; display: grid; gap: 28px; grid-template-columns: minmax(0, 1fr) 380px; }
+  .step-list { display: grid; }
+  .config-step { border-top: 1px solid var(--border-subtle); display: grid; gap: 2px 14px; grid-template-columns: 26px minmax(0, 1fr); padding: 12px 0; }
+  .config-step:first-child { border-top: 0; padding-top: 0; }
+  .config-step .num { color: var(--text-muted); font-family: var(--font-mono); font-size: 11px; font-weight: 700; padding-top: 2px; }
+  .config-step h3 { color: var(--text-primary); font-size: 13px; font-weight: 700; grid-column: 2; margin: 0; }
+  .config-step .console-path { color: var(--text-secondary); font-family: var(--font-mono); font-size: 11px; grid-column: 2; margin: 2px 0 0; }
+  .field-list { display: grid; gap: 3px; grid-column: 2; margin: 7px 0 0; }
+  .field-row { display: grid; gap: 10px; grid-template-columns: 150px minmax(0, 1fr); }
+  .field-name { color: var(--text-secondary); font-size: 11px; font-weight: 650; }
+  .field-value { color: var(--accent-purple); font-family: var(--font-mono); font-size: 11px; margin: 0; overflow-wrap: anywhere; }
+  .config-step .why { color: var(--text-muted); font-size: 11.5px; grid-column: 2; line-height: 1.45; margin: 6px 0 0; }
+  .config-step pre { grid-column: 2; margin-top: 7px; }
+  .config-step pre code { background: var(--surface-raised); border: 1px solid var(--border-subtle); border-radius: 4px; color: var(--accent-green); display: block; font-size: 11px; overflow-x: auto; padding: 6px 9px; }
+
+  .env-aside { border: 1px solid var(--border-subtle); border-radius: 6px; padding: 13px 14px 14px; position: sticky; top: 16px; }
+  .env-aside header { align-items: center; display: flex; justify-content: space-between; margin-bottom: 8px; }
+  .env-aside h3 { color: var(--text-primary); font-size: 12px; font-weight: 700; margin: 0; }
+  .env-aside h3 code { font-size: 11px; }
+  .copy-btn { background: #fff; border: 1px solid var(--border-default); border-radius: 4px; color: var(--text-secondary); cursor: pointer; font-family: inherit; font-size: 10.5px; font-weight: 650; padding: 3px 8px; }
+  .copy-btn:hover { border-color: var(--border-strong); color: var(--text-primary); }
+  .env-aside .note { color: var(--text-muted); font-size: 11px; line-height: 1.5; margin: 9px 0 0; }
+  .env-aside .note code { background: var(--surface-overlay); border-radius: 3px; font-size: 10.5px; padding: 1px 4px; }
+
+  .provider-table { border: 1px solid var(--border-subtle); border-radius: 6px; overflow: hidden; }
+  .provider-head, .provider-row summary { align-items: center; display: grid; gap: 12px; grid-template-columns: 16px minmax(150px, 1.3fr) 110px 170px 60px 110px; padding: 7px 12px; }
+  .provider-head { background: var(--surface-raised); border-bottom: 1px solid var(--border-subtle); color: var(--text-muted); font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+  .provider-row + .provider-row { border-top: 1px solid var(--border-subtle); }
+  .provider-row summary { cursor: pointer; list-style: none; }
+  .provider-row summary::-webkit-details-marker { display: none; }
+  .provider-row summary:hover { background: var(--surface-raised); }
+  .provider-row summary:focus-visible { outline: 2px solid var(--accent-blue); outline-offset: -2px; }
+  .provider-row .caret { color: var(--text-muted); font-size: 10px; transition: transform .12s; }
+  .provider-row[open] .caret { transform: rotate(90deg); }
+  .provider-row .p-name { color: var(--text-primary); font-size: 12.5px; font-weight: 650; }
+  .provider-row .p-cat, .provider-row .p-auth { color: var(--text-secondary); font-size: 11.5px; }
+  .provider-row .p-proto { color: var(--text-muted); font-family: var(--font-mono); font-size: 10.5px; }
+  .provider-detail { background: var(--surface-raised); border-top: 1px solid var(--border-subtle); display: grid; gap: 3px; padding: 10px 12px 12px 40px; }
+  .provider-detail .purpose { color: var(--text-muted); font-size: 11.5px; margin: 0 0 5px; }
+  .map-row { display: grid; gap: 10px; grid-template-columns: 130px minmax(0, 1fr); }
+  .map-row dt { color: var(--text-secondary); font-size: 11px; font-weight: 650; }
+  .map-row dd { color: var(--text-primary); font-family: var(--font-mono); font-size: 11px; margin: 0; word-break: break-all; }
+  .provider-links { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 8px; }
+  .provider-links a { color: var(--accent-blue); font-size: 11.5px; font-weight: 650; text-decoration: none; }
+  .provider-links a:hover { text-decoration: underline; }
+
+  .validation-list { border: 1px solid var(--border-subtle); border-radius: 6px; overflow: hidden; }
+  .validation-row { align-items: baseline; display: grid; gap: 12px; grid-template-columns: 86px 180px minmax(0, 1fr); padding: 9px 12px; }
+  .validation-row + .validation-row { border-top: 1px solid var(--border-subtle); }
+  .validation-row strong { color: var(--text-primary); font-size: 12px; font-weight: 650; }
+  .validation-row p { color: var(--text-secondary); font-size: 11.5px; line-height: 1.45; margin: 0; }
+  .validation-foot { align-items: center; display: flex; gap: 12px; margin-top: 12px; }
+  .validation-foot .hint { color: var(--text-muted); font-size: 11.5px; }
+
+  .launch-panel { align-items: center; border: 1px solid var(--border-subtle); border-radius: 6px; display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr) auto; padding: 16px; }
+  .launch-panel h2 { color: var(--text-primary); font-size: 14px; font-weight: 700; margin: 0 0 4px; }
+  .launch-panel p { color: var(--text-secondary); font-size: 12px; line-height: 1.5; margin: 0; }
+  .launch-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+
+  .automation-popup[hidden] { display: none; }
+  .automation-popup { align-items: start; background: rgba(26, 31, 46, .45); display: grid; inset: 0; overflow: auto; padding: 6vh 24px 24px; position: fixed; z-index: 40; }
+  .automation-dialog { background: #fff; border: 1px solid var(--border-default); border-radius: 6px; margin: 0 auto; width: min(760px, 100%); }
+  .automation-dialog header { align-items: center; border-bottom: 1px solid var(--border-subtle); display: flex; justify-content: space-between; padding: 13px 16px; }
+  .automation-dialog h2 { color: var(--text-primary); font-size: 14px; font-weight: 700; margin: 0; }
+  .automation-close { background: #fff; border: 1px solid var(--border-default); border-radius: 4px; color: var(--text-secondary); cursor: pointer; font-family: inherit; font-size: 11px; font-weight: 650; padding: 4px 10px; }
+  .automation-body { display: grid; gap: 20px; grid-template-columns: minmax(0, 1fr) minmax(280px, 1fr); padding: 16px; }
+  .automation-path article + article { border-top: 1px solid var(--border-subtle); margin-top: 11px; padding-top: 11px; }
+  .automation-path h3 { color: var(--text-primary); font-size: 12px; font-weight: 700; margin: 0 0 4px; }
+  .automation-path p { color: var(--text-secondary); font-size: 11.5px; line-height: 1.55; margin: 0; }
+  .automation-path b { color: var(--accent-purple); font-weight: 700; }
+  .automation-path code { background: var(--surface-overlay); border-radius: 3px; color: var(--text-primary); font-family: var(--font-mono); font-size: 10.5px; padding: 1px 4px; }
+  .automation-detail { border-top: 1px solid var(--border-subtle); color: var(--text-secondary); font-size: 11.5px; margin-top: 11px; padding-top: 11px; }
+  .automation-detail summary { cursor: pointer; font-weight: 650; }
+  .scope-list { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+  .scope-list code { background: var(--surface-overlay); border-radius: 3px; color: var(--text-primary); font-family: var(--font-mono); font-size: 10px; padding: 2px 5px; }
+  .automation-terminal { align-content: start; display: grid; gap: 12px; }
+  .command-block h3 { color: var(--text-muted); font-size: 10.5px; font-weight: 700; letter-spacing: .06em; margin: 0 0 6px; text-transform: uppercase; }
+  .automation-note { color: var(--text-muted); font-size: 11px; line-height: 1.5; margin: 6px 0 0; }
+  .automation-note code { background: var(--surface-overlay); border-radius: 3px; font-family: var(--font-mono); font-size: 10.5px; padding: 1px 4px; }
+
+  @media (max-width: 1080px) {
+    .caracal-layout, .automation-body { grid-template-columns: 1fr; }
+    .env-aside { position: static; }
+    .provider-head, .provider-row summary { grid-template-columns: 16px minmax(120px, 1fr) 170px 110px; }
+    .provider-head span:nth-child(3), .provider-row summary .p-cat,
+    .provider-head span:nth-child(5), .provider-row summary .p-proto { display: none; }
+  }
+  @media (max-width: 860px) {
+    .setup-page { width: min(100% - 28px, 720px); }
+    .setup-header { align-items: flex-start; flex-direction: column; }
+    .progress-strip { gap: 14px; overflow-x: auto; }
+    .provider-head { display: none; }
+    .provider-row summary { grid-template-columns: 16px minmax(0, 1fr) 110px; }
+    .provider-row summary .p-auth { display: none; }
+    .provider-detail { padding-left: 12px; }
+    .validation-row { gap: 4px 12px; grid-template-columns: 86px minmax(0, 1fr); }
+    .validation-row p { grid-column: 2; }
+    .launch-panel { grid-template-columns: 1fr; }
+    .launch-actions { justify-content: flex-start; }
+  }
 </style>
 
-<div class="setup-wrap">
-  <h1>Setup</h1>
-  <p class="sub">Confirm your environment is ready to run the {{ company }} demo.</p>
+<div class="setup-page">
+  <header class="setup-header">
+    <div>
+      <h1>Setup</h1>
+      <p class="sub">Connect Lynx Capital to Caracal: zone, applications, providers, views, and policy set.</p>
+    </div>
+    <div class="setup-meta">
+      <span class="ready-meter" title="Zone, application credentials, provider provisioning, model key"><b>{{ setup_progress.ready }}/{{ setup_progress.total }}</b> configured</span>
+      <button class="btn btn-primary" id="automation-open" type="button">Automate Setup</button>
+    </div>
+  </header>
 
-  <div class="panel">
-    <h2>1 · Configure environment</h2>
-    <p>Copy the template and fill in <code>OPENAI_API_KEY</code>. Provider credentials are normal integration settings supplied through <code>.env</code>.</p>
-<pre class="cmd">cp .env.example .env
-<span class="c"># edit .env → set OPENAI_API_KEY=sk-...</span></pre>
-  </div>
+  <nav class="progress-strip" aria-label="Setup stages">
+    <button type="button" class="progress-step" data-setup-tab="caracal" aria-selected="true"><span>01</span>Caracal<i class="step-dot{% if setup_status.caracal %} done{% endif %}" aria-hidden="true"></i></button>
+    <button type="button" class="progress-step" data-setup-tab="providers" aria-selected="false"><span>02</span>Providers<i class="step-dot{% if setup_status.providers %} done{% endif %}" aria-hidden="true"></i></button>
+    <button type="button" class="progress-step" data-setup-tab="validation" aria-selected="false"><span>03</span>Validation<i class="step-dot" id="validation-dot" aria-hidden="true"></i></button>
+    <button type="button" class="progress-step" data-setup-tab="launch" aria-selected="false"><span>04</span>Launch<i class="step-dot" id="launch-dot" aria-hidden="true"></i></button>
+  </nav>
 
-  <div class="panel">
-    <h2>2 · Start the local provider network</h2>
-    <p>The local provider network is isolated under <code>_mock/</code>. The Lynx app calls providers through its real registry and transport clients.</p>
-<pre class="cmd">docker compose -f _mock/docker-compose.yml up -d --build --wait</pre>
-  </div>
+  <section class="setup-panel" data-setup-panel="caracal" aria-labelledby="caracal-heading">
+    <div class="section-head">
+      <h2 id="caracal-heading">Caracal configuration</h2>
+      <p>Console and provisioning steps. Automate Setup runs steps 03–05 from <code class="mono">config/tenancy.yaml</code>.</p>
+    </div>
+    <div class="caracal-layout">
+      <ol class="step-list">
+        {% for step in setup_caracal_steps %}
+        <li class="config-step">
+          <span class="num">{{ step.step }}</span>
+          <h3>{{ step.title }}</h3>
+          <p class="console-path">{{ step.path }}</p>
+          <dl class="field-list">
+            {% for field in step.consoleFields %}
+            <div class="field-row">
+              <dt class="field-name">{{ field.label }}</dt>
+              <dd class="field-value">{{ field.value }}</dd>
+            </div>
+            {% endfor %}
+          </dl>
+          <p class="why">{{ step.why }}</p>
+          {% if step.field %}<pre><code>{{ step.field }}={{ step.value }}</code></pre>{% endif %}
+        </li>
+        {% endfor %}
+      </ol>
+      <aside class="env-aside" aria-label="Workload environment file">
+        <header>
+          <h3>Workload <code>examples/lynxCapital/.env</code></h3>
+          <button class="copy-btn" id="env-copy" type="button">Copy</button>
+        </header>
+        <pre class="script" id="env-block">CARACAL_ZONE_ID={{ setup_env.zone }}
+{% for app in setup_env.applications %}
+# {{ app.name }}
+{{ app.envId }}={{ app.applicationId }}
+{{ app.envSecret }}={{ app.secret }}
+{% endfor %}
+OPENAI_API_KEY={{ setup_env.openaiKey }}</pre>
+        <p class="note"><code>scripts/provision.py</code> prints each Application ID and one-time client secret. Lynx loads <code>.env</code> at startup; without Caracal, provider access fails closed. Set <code>LYNX_SIMULATION=1</code> only for the offline simulators.</p>
+      </aside>
+    </div>
+  </section>
 
-  <div class="panel">
-    <h2>3 · Run Lynx Capital</h2>
-<pre class="cmd">uv run uvicorn app.main:app --reload --port 8000</pre>
-  </div>
+  <section class="setup-panel" data-setup-panel="providers" aria-labelledby="providers-heading" hidden>
+    <div class="section-head">
+      <h2 id="providers-heading">Providers</h2>
+      <p><span class="mono">{{ setup_mapped_count }}/{{ setup_providers|length }}</span> provisioned · created by <code class="mono">scripts/provision.py</code> from <code class="mono">config/tenancy.yaml</code> · expand a row for views and credentials.</p>
+    </div>
+    <div class="provider-table">
+      <div class="provider-head" aria-hidden="true">
+        <span></span><span>Provider</span><span>Category</span><span>Auth</span><span>Proto</span><span>Status</span>
+      </div>
+      {% for provider in setup_providers %}
+      <details class="provider-row">
+        <summary>
+          <span class="caret" aria-hidden="true">&#9654;</span>
+          <span class="p-name">{{ provider.name }}</span>
+          <span class="p-cat">{{ provider.category }}</span>
+          <span class="p-auth">{{ provider.auth }}</span>
+          <span class="p-proto">{{ provider.protocol }}</span>
+          <span class="status status-{{ provider.status|lower }}">{{ provider.status }}</span>
+        </summary>
+        <div class="provider-detail">
+          <p class="purpose">{{ provider.purpose }}</p>
+          <dl>
+            <div class="map-row"><dt>Provider</dt><dd>{{ provider.providerIdentifier }}</dd></div>
+            <div class="map-row"><dt>Kind</dt><dd>{{ provider.kind }}</dd></div>
+            <div class="map-row"><dt>Scopes</dt><dd>{{ provider.scopes }}</dd></div>
+            <div class="map-row"><dt>Credentials</dt><dd>{{ provider.credentials }}</dd></div>
+            {% for view in provider.views %}
+            <div class="map-row"><dt>View ({{ view.application }})</dt><dd>{{ view.identifier }} — {{ view.scopes }}</dd></div>
+            {% endfor %}
+            {% if provider.configEnv %}
+            <div class="map-row"><dt>Env</dt><dd>{{ provider.configEnv|join(', ') }}</dd></div>
+            {% endif %}
+          </dl>
+          <div class="provider-links">
+            <a href="{{ provider.dashboardUrl }}" target="_blank" rel="noreferrer">Open provider console</a>
+            <a href="{{ provider.credentialUrl }}" target="_blank" rel="noreferrer">Create credentials</a>
+            <a href="{{ provider.documentationUrl }}" target="_blank" rel="noreferrer">Provider docs</a>
+          </div>
+        </div>
+      </details>
+      {% endfor %}
+    </div>
+  </section>
 
-  <div class="panel">
-    <h2>4 · Validate</h2>
-    <p>Confirms <code>OPENAI_API_KEY</code>, the local provider network, and provider webhook secrets.</p>
+  <section class="setup-panel" data-setup-panel="validation" aria-labelledby="validation-heading" hidden>
+    <div class="section-head">
+      <h2 id="validation-heading">Validation</h2>
+      <p>Checks your configuration only — not backend services. Runs when this tab opens.</p>
+    </div>
+    <div class="validation-list" id="validation-results" aria-live="polite">
+      <div class="validation-row" data-check="identity">
+        <span class="status status-pending">Pending</span>
+        <strong>Zone</strong>
+        <p>CARACAL_ZONE_ID is set</p>
+      </div>
+      <div class="validation-row" data-check="applications">
+        <span class="status status-pending">Pending</span>
+        <strong>Application boundaries</strong>
+        <p>Every application has an id and secret</p>
+      </div>
+      <div class="validation-row" data-check="providers">
+        <span class="status status-pending">Pending</span>
+        <strong>Credential providers</strong>
+        <p>All partners registered with Caracal</p>
+      </div>
+      <div class="validation-row" data-check="resources">
+        <span class="status status-pending">Pending</span>
+        <strong>Resource views</strong>
+        <p>Per-application views created and bound</p>
+      </div>
+    </div>
+    <div class="validation-foot">
+      <button type="button" class="btn btn-secondary validate-trigger">Run Validation</button>
+      <span class="hint" id="validation-hint"></span>
+    </div>
+  </section>
 
-    <div class="validate-bar">
-      <button id="validate-btn">Validate configuration</button>
-      <button id="start-demo-btn" style="display:none">Start Demo →</button>
-      <div id="validate-out"></div>
+  <section class="launch-panel setup-panel" data-setup-panel="launch" aria-labelledby="launch-heading" hidden>
+    <div>
+      <h2 id="launch-heading">Launch</h2>
+      <p id="launch-copy">Locked until validation passes.</p>
+    </div>
+    <div class="launch-actions">
+      <button type="button" class="btn btn-secondary validate-trigger">Run Validation</button>
+      <button id="launch-demo-btn" type="button" class="btn btn-primary ready-action" data-target="/demo" disabled>Launch Demo</button>
+      <button id="open-workspace-btn" type="button" class="btn btn-secondary ready-action" data-target="/demo" disabled>Open Workspace</button>
+      <button id="first-workflow-btn" type="button" class="btn btn-secondary ready-action" data-target="/prompts" disabled>Start First Workflow</button>
+    </div>
+  </section>
+</div>
+
+<div class="automation-popup" id="automation-popup" role="dialog" aria-modal="true" aria-labelledby="automation-title" hidden>
+  <div class="automation-dialog">
+    <header>
+      <h2 id="automation-title">Automate setup</h2>
+      <button class="automation-close" id="automation-close" type="button">Close</button>
+    </header>
+    <div class="automation-body">
+      <div class="automation-path">
+        <article>
+          <h3>1. Create the zone</h3>
+          <p>Go to Caracal Console &gt; Zones &gt; New. Set <b>name</b> = <code>"Lynx Capital"</code>. One zone backs the whole platform.</p>
+        </article>
+        <article>
+          <h3>2. Create the control key</h3>
+          <p>Go to Control &gt; control key create. Set <b>name</b> = <code>"Lynx Capital Bootstrap"</code>, <b>max token TTL</b> = <code>300</code>, and <b>expires in days</b> = <code>30</code>.</p>
+        </article>
+        <article>
+          <h3>3. Export credentials and run</h3>
+          <p>Copy the returned <b>client_id</b> and <b>client_secret</b>.</p>
+        </article>
+        <details class="automation-detail">
+          <summary>Required control access</summary>
+          <div class="scope-list">
+            {% for scope in setup_automate.scopes %}<code>{{ scope }}</code>{% endfor %}
+          </div>
+        </details>
+      </div>
+      <div class="automation-terminal">
+        <div class="command-block">
+          <h3>Add to examples/lynxCapital/.env.provision</h3>
+          <pre class="script">CONTROL_CLIENT_ID="{{ setup_env.controlClient }}"
+CONTROL_CLIENT_SECRET="{{ setup_env.controlSecret }}"</pre>
+          <p class="automation-note">Provisioning credentials stay in <code>.env.provision</code>, separate from the workload <code>.env</code>. The script idempotently creates the applications, providers, resource views, and policy set, then prints the per-application credential exports.</p>
+        </div>
+        <div class="command-block">
+          <h3>Run</h3>
+          <pre class="script">python scripts/provision.py</pre>
+          <p class="automation-note"><code>python scripts/teardown.py</code> removes the demo objects.</p>
+        </div>
+      </div>
     </div>
   </div>
 </div>
 
 <script type="module">
-  const validateBtn = document.getElementById('validate-btn');
-  const startDemoBtn = document.getElementById('start-demo-btn');
-  const validateOut = document.getElementById('validate-out');
+  const setupTabs = [...document.querySelectorAll('[data-setup-tab]')];
+  const setupPanels = [...document.querySelectorAll('[data-setup-panel]')];
+  const validateTriggers = [...document.querySelectorAll('.validate-trigger')];
+  const validationResults = document.getElementById('validation-results');
+  const validationHint = document.getElementById('validation-hint');
+  const validationDot = document.getElementById('validation-dot');
+  const launchDot = document.getElementById('launch-dot');
+  const launchCopy = document.getElementById('launch-copy');
+  const readyActions = [...document.querySelectorAll('.ready-action')];
+  const automationOpen = document.getElementById('automation-open');
+  const automationClose = document.getElementById('automation-close');
+  const automationPopup = document.getElementById('automation-popup');
+  const envCopy = document.getElementById('env-copy');
+  const envBlock = document.getElementById('env-block');
 
-  validateBtn.addEventListener('click', async () => {
-    validateBtn.disabled = true;
-    validateBtn.textContent = 'Checking...';
-    validateOut.replaceChildren();
-    startDemoBtn.style.display = 'none';
-    try {
-      const r = await fetch('/api/setup/validate');
-      const data = await r.json();
-      for (const s of data.steps) {
-        const row = document.createElement('div');
-        row.className = 'rs';
-        const badge = document.createElement('div');
-        badge.className = `badge ${s.ok ? 'badge-ok' : 'badge-fail'}`;
-        badge.textContent = s.ok ? '✓' : '✗';
-        const label = document.createElement('span');
-        label.textContent = s.label;
-        row.appendChild(badge);
-        row.appendChild(label);
-        validateOut.appendChild(row);
-        if (s.detail) {
-          const detail = document.createElement('div');
-          detail.className = 'rd';
-          detail.textContent = s.detail;
-          validateOut.appendChild(detail);
-        }
-      }
-      if (data.ok) startDemoBtn.style.display = 'inline-block';
-    } catch (e) {
-      validateOut.textContent = 'Validation failed: ' + e.message;
-    } finally {
-      validateBtn.disabled = false;
-      validateBtn.textContent = 'Validate configuration';
+  const labels = { passed: 'Passed', warning: 'Warning', missing: 'Missing', pending: 'Pending', checking: 'Checking' };
+  let validationStarted = false;
+
+  function showSetupSection(name) {
+    for (const tab of setupTabs) {
+      tab.setAttribute('aria-selected', String(tab.dataset.setupTab === name));
     }
+    for (const panel of setupPanels) {
+      panel.hidden = panel.dataset.setupPanel !== name;
+    }
+    if ((name === 'validation' || name === 'launch') && !validationStarted) runValidation();
+  }
+
+  setupTabs.forEach((tab) => {
+    tab.addEventListener('click', () => showSetupSection(tab.dataset.setupTab));
   });
 
-  startDemoBtn.addEventListener('click', async () => {
-    startDemoBtn.disabled = true;
-    await fetch('/api/session/setup-complete', {method: 'POST'});
-    window.location = '/demo';
+  automationOpen.addEventListener('click', () => { automationPopup.hidden = false; automationClose.focus(); });
+  automationClose.addEventListener('click', () => { automationPopup.hidden = true; automationOpen.focus(); });
+  automationPopup.addEventListener('click', (event) => {
+    if (event.target === automationPopup) automationPopup.hidden = true;
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !automationPopup.hidden) { automationPopup.hidden = true; automationOpen.focus(); }
+  });
+
+  envCopy.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(envBlock.textContent.trim());
+      envCopy.textContent = 'Copied';
+    } catch {
+      envCopy.textContent = 'Copy failed';
+    }
+    setTimeout(() => { envCopy.textContent = 'Copy'; }, 1600);
+  });
+
+  function setRow(row, state, detail) {
+    const status = row.querySelector('.status');
+    status.className = `status status-${state}`;
+    status.textContent = labels[state] || state;
+    if (detail) row.querySelector('p').textContent = detail;
+  }
+
+  function applyValidation(steps) {
+    for (const step of steps) {
+      const state = step.status || (step.ok ? 'passed' : 'missing');
+      let row = validationResults.querySelector(`[data-check="${step.id}"]`);
+      if (!row) {
+        row = document.createElement('div');
+        row.className = 'validation-row';
+        row.dataset.check = step.id;
+        row.append(document.createElement('span'), document.createElement('strong'), document.createElement('p'));
+        row.querySelector('span').className = 'status';
+        validationResults.appendChild(row);
+      }
+      row.querySelector('strong').textContent = step.label;
+      setRow(row, state, step.detail);
+    }
+  }
+
+  async function runValidation() {
+    validationStarted = true;
+    validateTriggers.forEach((button) => { button.disabled = true; });
+    validationHint.textContent = 'Checking configuration';
+    validationResults.querySelectorAll('.validation-row').forEach((row) => setRow(row, 'checking'));
+    try {
+      const response = await fetch('/api/setup/validate');
+      const data = await response.json();
+      applyValidation(data.steps || []);
+      readyActions.forEach((button) => { button.disabled = !data.ok; });
+      validationDot.classList.toggle('done', Boolean(data.ok));
+      launchDot.classList.toggle('done', Boolean(data.ok));
+      validationHint.textContent = '';
+      launchCopy.textContent = data.ok
+        ? 'Configuration complete. Open the workspace or start the first workflow.'
+        : 'Resolve the missing items, then run validation again. Warnings indicate partial provider coverage.';
+    } catch (error) {
+      validationResults.querySelectorAll('.validation-row').forEach((row) => setRow(row, 'pending'));
+      validationHint.textContent = `Validation request failed: ${error.message}`;
+      readyActions.forEach((button) => { button.disabled = true; });
+    } finally {
+      validateTriggers.forEach((button) => { button.disabled = false; });
+    }
+  }
+
+  async function completeSetup(target) {
+    const response = await fetch('/api/session/setup-complete', { method: 'POST' });
+    if (!response.ok) throw new Error('Setup acknowledgement failed.');
+    window.location = target;
+  }
+
+  validateTriggers.forEach((button) => button.addEventListener('click', runValidation));
+  readyActions.forEach((button) => {
+    button.addEventListener('click', async () => {
+      button.disabled = true;
+      try { await completeSetup(button.dataset.target); }
+      catch (error) { launchCopy.textContent = error.message; button.disabled = false; }
+    });
   });
 </script>
 {% endblock %}

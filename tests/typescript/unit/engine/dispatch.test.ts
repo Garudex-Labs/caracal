@@ -46,7 +46,7 @@ describe('validateFlags', () => {
     expect(() => validateFlags(Object.fromEntries(Array.from({ length: 33 }, (_, i) => [`k${i}`, true]))))
       .toThrow(/too many flags/)
     expect(() => validateFlags({ '': true })).toThrow(/out of range/)
-    expect(() => validateFlags({ long: 'x'.repeat(4097) })).toThrow(/string too long/)
+    expect(() => validateFlags({ long: 'x'.repeat(32769) })).toThrow(/string too long/)
     expect(() => validateFlags({ list: Array.from({ length: 65 }, () => 'x') })).toThrow(/array too long/)
     expect(() => validateFlags({ list: [{}] as never })).toThrow(/unsupported array element/)
     expect(() => validateFlags({ object: {} as never })).toThrow(/unsupported type/)

@@ -44,7 +44,21 @@ function parseArgs(argv) {
     const arg = argv[i]
     if (!arg.startsWith('--')) die(`unexpected positional argument: ${arg}`)
     const key = arg.slice(2)
-    if (['base-version', 'manifest', 'npm-registry', 'pypi-index', 'oci-registry', 'github-release-base', 'suffix', 'ref', 'from', 'to'].includes(key)) {
+    if (
+      [
+        'base-version',
+        'manifest',
+        'npm-registry',
+        'pypi-index',
+        'oci-registry',
+        'github-release-base',
+        'suffix',
+        'package-suffix',
+        'ref',
+        'from',
+        'to',
+      ].includes(key)
+    ) {
       args.values[key] = argv[++i]
       if (!args.values[key]) die(`--${key} requires a value`)
     } else {
@@ -133,21 +147,25 @@ function pythonRcVersion(version, suffix) {
 }
 
 function readPackageVersions(paths, suffix) {
-  return Object.fromEntries(paths.map((path) => {
-    const pkg = JSON.parse(readFileSync(join(repoRoot, path, 'package.json'), 'utf8'))
-    if (!pkg.name || !pkg.version) die(`missing name or version in ${path}/package.json`)
-    return [pkg.name, npmRcBase(pkg.version, suffix)]
-  }))
+  return Object.fromEntries(
+    paths.map((path) => {
+      const pkg = JSON.parse(readFileSync(join(repoRoot, path, 'package.json'), 'utf8'))
+      if (!pkg.name || !pkg.version) die(`missing name or version in ${path}/package.json`)
+      return [pkg.name, npmRcBase(pkg.version, suffix)]
+    }),
+  )
 }
 
 function readPythonVersions(paths, suffix) {
-  return Object.fromEntries(paths.map((path) => {
-    const text = readFileSync(join(repoRoot, path, 'pyproject.toml'), 'utf8')
-    const name = text.match(/^name = "([^"]+)"/m)?.[1]
-    const version = text.match(/^version = "([^"]+)"/m)?.[1]
-    if (!name || !version) die(`missing name or version in ${path}/pyproject.toml`)
-    return [name, pythonRcBase(version, suffix)]
-  }))
+  return Object.fromEntries(
+    paths.map((path) => {
+      const text = readFileSync(join(repoRoot, path, 'pyproject.toml'), 'utf8')
+      const name = text.match(/^name = "([^"]+)"/m)?.[1]
+      const version = text.match(/^version = "([^"]+)"/m)?.[1]
+      if (!name || !version) die(`missing name or version in ${path}/pyproject.toml`)
+      return [name, pythonRcBase(version, suffix)]
+    }),
+  )
 }
 
 function registries(options) {
@@ -155,7 +173,10 @@ function registries(options) {
     npm: options['npm-registry'] ?? process.env.CARACAL_NPM_REGISTRY ?? 'https://registry.npmjs.org/',
     pypi: options['pypi-index'] ?? process.env.CARACAL_PYPI_INDEX ?? 'https://pypi.org/simple/',
     oci: options['oci-registry'] ?? process.env.CARACAL_OCI_REGISTRY ?? 'ghcr.io/garudex-labs',
-    githubReleases: options['github-release-base'] ?? process.env.CARACAL_GITHUB_RELEASE_BASE ?? 'https://github.com/Garudex-Labs/caracal/releases/download',
+    githubReleases:
+      options['github-release-base'] ??
+      process.env.CARACAL_GITHUB_RELEASE_BASE ??
+      'https://github.com/Garudex-Labs/caracal/releases/download',
   }
 }
 
@@ -170,11 +191,25 @@ function helmChartVersion(value) {
 function makeManifest(options = {}) {
   const sha = shortSha()
   const suffix = rcSuffix(options)
+  // Package versions are SemVer and independent of the date-based release tag.
+  // A package rc number only resets when its base version advances after a
+  // stable publish, so the package suffix may differ from the tag suffix.
+  const packageSuffix = options['package-suffix'] ?? process.env.CARACAL_PACKAGE_SUFFIX ?? suffix
   const baseVersion = cleanBase(options['base-version'] ?? process.env.CARACAL_BASE_VERSION ?? currentCalVer())
   const version = `${baseVersion}-${suffix}`
   const tag = `v${version}`
-  const npm = Object.fromEntries(Object.entries(readPackageVersions(npmPaths, suffix)).map(([name, base]) => [name, npmRcVersion(base, suffix)]))
-  const pypi = Object.fromEntries(Object.entries(readPythonVersions(pyPaths, suffix)).map(([name, base]) => [name, pythonRcVersion(base, suffix)]))
+  const npm = Object.fromEntries(
+    Object.entries(readPackageVersions(npmPaths, packageSuffix)).map(([name, base]) => [
+      name,
+      npmRcVersion(base, packageSuffix),
+    ]),
+  )
+  const pypi = Object.fromEntries(
+    Object.entries(readPythonVersions(pyPaths, packageSuffix)).map(([name, base]) => [
+      name,
+      pythonRcVersion(base, packageSuffix),
+    ]),
+  )
   const reg = registries(options)
   return {
     release: tag,
@@ -193,7 +228,9 @@ function makeManifest(options = {}) {
     runtimeImage: version,
     containers: Object.fromEntries(containers.map((name) => [name, version])),
     helm: { chartVersion: helmChartVersion(version), appVersion: version, imageTag: version },
-    images: Object.fromEntries([...containers, 'runtime'].map((name) => [name, `${reg.oci.replace(/\/$/, '')}/caracal-${name}:v${version}`])),
+    images: Object.fromEntries(
+      [...containers, 'runtime'].map((name) => [name, `${reg.oci.replace(/\/$/, '')}/caracal-${name}:v${version}`]),
+    ),
     npm,
     pypi,
     packages: {
@@ -208,18 +245,22 @@ function makeManifest(options = {}) {
 }
 
 function makeStableManifest(version, tag) {
-  const npm = Object.fromEntries(npmPaths.map((path) => {
-    const pkg = JSON.parse(readFileSync(join(repoRoot, path, 'package.json'), 'utf8'))
-    if (!pkg.name || !pkg.version) die(`missing name or version in ${path}/package.json`)
-    return [pkg.name, pkg.version]
-  }))
-  const pypi = Object.fromEntries(pyPaths.map((path) => {
-    const text = readFileSync(join(repoRoot, path, 'pyproject.toml'), 'utf8')
-    const name = text.match(/^name = "([^"]+)"/m)?.[1]
-    const pkgVersion = text.match(/^version = "([^"]+)"/m)?.[1]
-    if (!name || !pkgVersion) die(`missing name or version in ${path}/pyproject.toml`)
-    return [name, pkgVersion]
-  }))
+  const npm = Object.fromEntries(
+    npmPaths.map((path) => {
+      const pkg = JSON.parse(readFileSync(join(repoRoot, path, 'package.json'), 'utf8'))
+      if (!pkg.name || !pkg.version) die(`missing name or version in ${path}/package.json`)
+      return [pkg.name, pkg.version]
+    }),
+  )
+  const pypi = Object.fromEntries(
+    pyPaths.map((path) => {
+      const text = readFileSync(join(repoRoot, path, 'pyproject.toml'), 'utf8')
+      const name = text.match(/^name = "([^"]+)"/m)?.[1]
+      const pkgVersion = text.match(/^version = "([^"]+)"/m)?.[1]
+      if (!name || !pkgVersion) die(`missing name or version in ${path}/pyproject.toml`)
+      return [name, pkgVersion]
+    }),
+  )
   const chartVersion = helmChartVersion(version)
   return {
     release: tag,
@@ -253,7 +294,10 @@ function nextStableTag() {
   const today = currentCalVer()
   const prefix = `v${today}`
   let maxSuffix = -1
-  for (const existing of run('git', ['tag', '--list', `${prefix}*`]).trim().split('\n').filter(Boolean)) {
+  for (const existing of run('git', ['tag', '--list', `${prefix}*`])
+    .trim()
+    .split('\n')
+    .filter(Boolean)) {
     const suffix = existing.slice(prefix.length)
     if (!suffix) {
       if (maxSuffix < 0) maxSuffix = 0
@@ -276,9 +320,7 @@ function remoteTagExists(tag) {
 
 function pendingChangesets() {
   try {
-    return readdirSync(join(repoRoot, '.changeset'))
-      .filter((name) => name.endsWith('.md') && name !== 'README.md')
-      .length
+    return readdirSync(join(repoRoot, '.changeset')).filter((name) => name.endsWith('.md') && name !== 'README.md').length
   } catch {
     return 0
   }
@@ -333,7 +375,20 @@ function stable(options) {
     }
     writeStableManifest(makeStableManifest(version, tag))
     say('dry-run diff')
-    execFileSync('git', ['--no-pager', 'diff', '--', '**/package.json', '**/pyproject.toml', 'infra/helm/caracal/Chart.yaml', 'infra/helm/caracal/values.yaml', `releases/${tag}/manifest.json`], { cwd: repoRoot, stdio: 'inherit' })
+    execFileSync(
+      'git',
+      [
+        '--no-pager',
+        'diff',
+        '--',
+        '**/package.json',
+        '**/pyproject.toml',
+        'infra/helm/caracal/Chart.yaml',
+        'infra/helm/caracal/values.yaml',
+        `releases/${tag}/manifest.json`,
+      ],
+      { cwd: repoRoot, stdio: 'inherit' },
+    )
     execFileSync('git', ['restore', '--worktree', '--staged', '.'], { cwd: repoRoot, stdio: 'inherit' })
     execFileSync('git', ['clean', '-fd', '--', '.changeset', 'packages', 'apps', 'releases'], { cwd: repoRoot, stdio: 'inherit' })
     if (dirtyTree()) die('dry-run cleanup failed')
@@ -549,7 +604,8 @@ function stripNpmRc(version) {
 }
 
 function promote(options) {
-  const fromTag = options.values.from ?? die('--from <rc-tag> required')
+  const fromTag = options.values.from
+  if (!fromTag) die('--from <rc-tag> required')
   const stableTag = options.values.to ?? stableTagFromRc(fromTag)
   const stableVersion = stableTag.replace(/^v/, '')
   const rcManifestPath = join(repoRoot, 'releases', fromTag, 'manifest.json')
@@ -559,10 +615,12 @@ function promote(options) {
   if (rcManifest.release !== fromTag) die(`manifest release ${rcManifest.release} does not match ${fromTag}`)
   const reg = registries(options)
   const npm = Object.fromEntries(Object.entries(rcManifest.npm ?? {}).map(([name, ver]) => [name, stripNpmRc(ver)]))
-  const pypi = Object.fromEntries(Object.entries(npm).map(([name, ver]) => {
-    const pyName = name.replace(/^@caracalai\//, 'caracalai-')
-    return [pyName, stripNpmRc(rcManifest.pypi?.[pyName] ?? ver).replace(/rc[0-9]+(\+sha[0-9A-Za-z]+)?$/, '')]
-  }))
+  const pypi = Object.fromEntries(
+    Object.entries(npm).map(([name, ver]) => {
+      const pyName = name.replace(/^@caracalai\//, 'caracalai-')
+      return [pyName, stripNpmRc(rcManifest.pypi?.[pyName] ?? ver).replace(/rc[0-9]+(\+sha[0-9A-Za-z]+)?$/, '')]
+    }),
+  )
   const manifest = {
     release: stableTag,
     mode: 'stable',
@@ -577,7 +635,9 @@ function promote(options) {
     runtimeImage: stableVersion,
     containers: Object.fromEntries(Object.keys(rcManifest.containers ?? {}).map((name) => [name, stableVersion])),
     helm: { chartVersion: helmChartVersion(stableVersion), appVersion: stableVersion, imageTag: stableVersion },
-    images: Object.fromEntries(Object.keys(rcManifest.images ?? {}).map((name) => [name, `${reg.oci.replace(/\/$/, '')}/caracal-${name}:${stableTag}`])),
+    images: Object.fromEntries(
+      Object.keys(rcManifest.images ?? {}).map((name) => [name, `${reg.oci.replace(/\/$/, '')}/caracal-${name}:${stableTag}`]),
+    ),
     sourceImages: rcManifest.images,
     npm,
     pypi,
@@ -650,6 +710,7 @@ Options:
   --from TAG              Source rc tag for promote.
   --to TAG                Override target stable tag for promote.
   --suffix VALUE          rc suffix. Default: rc.sha<gitsha>.
+  --package-suffix VALUE  Package rc suffix when it differs from the tag suffix. Default: --suffix.
   --ref REF               Dry-run ref. Default: current branch.
   --manifest PATH|TAG     rc manifest path or tag.
   --npm-registry URL      npm registry.

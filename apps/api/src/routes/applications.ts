@@ -3,7 +3,7 @@
 //
 // Application CRUD routes: managed and DCR app registration.
 
-import type { FastifyPluginAsync } from 'fastify'
+import type { FastifyPluginAsync, FastifyRequest } from 'fastify'
 import { z } from 'zod'
 import { v7 as uuidv7 } from 'uuid'
 import { randomBytes } from 'node:crypto'
@@ -15,7 +15,6 @@ import { zoneExists } from '../zone-guard.js'
 import { appendKeysetCondition, parseListPagination, setNextLink } from './list-pagination.js'
 import { validateTraits } from '../traits.js'
 
-const APPLICATION_INTERNALS_HEADER = 'x-caracal-application-internals'
 const DCR_DEFAULT_LIFETIME_SECONDS = 3600
 const DCR_MAX_LIFETIME_SECONDS = 3600
 
@@ -40,8 +39,8 @@ function generateClientSecret(): string {
   return `cs_${randomBytes(32).toString('base64url')}`
 }
 
-function applicationSelect(req: { headers: Record<string, unknown> }): string {
-  return req.headers[APPLICATION_INTERNALS_HEADER] === 'control'
+function applicationSelect(req: FastifyRequest): string {
+  return req.actor?.scope === 'global'
     ? 'id, zone_id, name, registration_method, traits, expires_at, created_at'
     : 'id, zone_id, name, registration_method, expires_at, created_at'
 }
@@ -161,7 +160,6 @@ export const applicationsRoutes: FastifyPluginAsync = async (fastify) => {
     }
 
     const id = uuidv7()
-    const expiresAt = new Date(Date.now() + body.expires_in * 1000)
     return withTransaction(fastify.db, async (client) => {
       const { rows: zones } = await client.query(
         `SELECT dcr_enabled FROM zones WHERE id = $1 AND archived_at IS NULL FOR UPDATE`,
@@ -183,9 +181,9 @@ export const applicationsRoutes: FastifyPluginAsync = async (fastify) => {
       const dcrSecretHash = await hashClientSecret(clientSecret)
       const { rows } = await client.query(
         `INSERT INTO applications (id, zone_id, name, registration_method, credential_type, client_secret_hash, traits, expires_at)
-         VALUES ($1, $2, $3, 'dcr', $4, $5, $6, $7)
+         VALUES ($1, $2, $3, 'dcr', $4, $5, $6, now() + ($7::int * interval '1 second'))
          RETURNING id, zone_id, name, registration_method, expires_at, created_at`,
-        [id, params.zoneId, body.name, 'token', dcrSecretHash, [], expiresAt],
+        [id, params.zoneId, body.name, 'token', dcrSecretHash, [], body.expires_in],
       )
       return reply.code(201).send({ ...rows[0], client_secret: clientSecret })
     })

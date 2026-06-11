@@ -252,7 +252,7 @@ func writeReadyFailure(w http.ResponseWriter, reason string) {
 
 func (s *Server) metricsAuthorized(r *http.Request) bool {
 	if s.cfg.MetricsBearer == "" {
-		return true
+		return s.cfg.Mode == "dev"
 	}
 	auth := r.Header.Get("Authorization")
 	expected := "Bearer " + s.cfg.MetricsBearer

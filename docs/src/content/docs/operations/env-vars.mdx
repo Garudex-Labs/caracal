@@ -28,7 +28,7 @@ Published modes require valid HMAC keys, deny unsafe Gateway fail-open settings,
 | `REDIS_URL` / `REDIS_URL_FILE` | all | API, STS, Gateway, Audit, Coordinator | Redis connection. |
 | `STREAMS_HMAC_KEY` / `STREAMS_HMAC_KEY_FILE` | rc+stable | API, STS, Gateway, Coordinator | Signs Redis stream messages. |
 | `AUDIT_HMAC_KEY` / `AUDIT_HMAC_KEY_FILE` | rc+stable | API, STS, Gateway, Audit, Control | Signs or verifies audit events. |
-| `METRICS_BEARER` / `METRICS_BEARER_FILE` | optional | STS, Gateway, API | Metrics endpoint bearer token. |
+| `METRICS_BEARER` / `METRICS_BEARER_FILE` | optional | STS, Gateway, API, Audit, Coordinator | Metrics endpoint bearer token. In published mode (`rc`/`stable`) the metrics endpoints fail closed (401) until this is set. |
 
 ## Service-Specific Variables
 

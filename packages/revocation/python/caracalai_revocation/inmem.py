@@ -22,7 +22,7 @@ class InMemoryRevocationStore:
             expiry = self._entries.get(sid)
             if expiry is None:
                 return False
-            if time.time() * 1000 >= expiry:
+            if time.monotonic() * 1000 >= expiry:
                 del self._entries[sid]
                 return False
             return True
@@ -30,4 +30,4 @@ class InMemoryRevocationStore:
     def mark_revoked(self, sid: str, ttl_ms: int | None = None) -> None:
         with self._lock:
             ttl = self._default_ttl_ms if ttl_ms is None else ttl_ms
-            self._entries[sid] = time.time() * 1000 + ttl
+            self._entries[sid] = time.monotonic() * 1000 + ttl

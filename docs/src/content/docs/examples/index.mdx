@@ -11,7 +11,7 @@ Examples show Caracal integrated into concrete applications and automation scrip
 | Goal | Start here | Code path |
 | --- | --- | --- |
 | Need a local protected target for the first Gateway call. | [Run Echo Upstream](/examples/echo-upstream/) | `examples/echoUpstream` |
-| Want repeatable demo setup through the Control API. | [Bootstrap Control State](/examples/control-bootstrap/) | `examples/controlBootstrap` |
+| Want to automate zone setup from a script or pipeline through the Control API. | [Bootstrap Control State](/examples/control-bootstrap/) | `examples/controlBootstrap` |
 | Need to prove a provider-backed resource is ready. | [Check Provider Readiness](/examples/provider-preflight/) | `examples/providerPreflight` |
 | Need to turn a denial into a safe policy fix. | [Iterate Policy Safely](/examples/policy-iterate/) | `examples/policyIterate` |
 | Want to launch a plain CLI agent with injected provider credentials. | [Launch Research Agent](/examples/research-agent/) | `examples/ResearchAgent` |
@@ -20,7 +20,7 @@ Examples show Caracal integrated into concrete applications and automation scrip
 ## Recommended order
 
 1. Start with [Run Echo Upstream](/examples/echo-upstream/) if you have not completed a Gateway-mediated request yet.
-2. Use [Bootstrap Control State](/examples/control-bootstrap/) when you need repeatable setup instead of manual Console clicks.
+2. Use [Bootstrap Control State](/examples/control-bootstrap/) when automation should own zone setup instead of manual Console clicks.
 3. Run [Check Provider Readiness](/examples/provider-preflight/) before the first real provider-backed Gateway call.
 4. Use [Iterate Policy Safely](/examples/policy-iterate/) when an audit denial needs to become a tested policy change.
 5. Try [Launch Research Agent](/examples/research-agent/) to see `caracal run` inject provider-native credentials into an existing-style CLI process.

@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// TTL sweeper: terminates expired agents and their descendants transactionally.
+// TTL sweeper: terminates expired task agents and their descendants transactionally.
 
 import type { Pool } from 'pg'
 import { cfg } from '../config.js'
@@ -31,6 +31,7 @@ export async function runTTLSweep(db: Pool): Promise<number> {
     const { rows: expired } = await client.query<{ id: string; zone_id: string }>(
       `SELECT id, zone_id FROM agent_sessions
        WHERE status IN ('active','suspended')
+         AND lifecycle <> 'service'
          AND ttl_seconds IS NOT NULL
          AND spawned_at + (ttl_seconds * interval '1 second') < now()
        ORDER BY id

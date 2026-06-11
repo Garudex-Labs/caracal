@@ -12,22 +12,36 @@ Open `diagnostics` with `d`. The Console Doctor view runs the shared engine diag
 
 | Section | Checks |
 | --- | --- |
-| `health` | API health and basic management reachability. |
-| `readiness` | Service readiness, dependencies, metrics, and runtime endpoints. |
+| `health` | API reachability, admin authentication, and operator clock skew against the platform. |
+| `readiness` | Per-service `/ready` probes plus threshold evaluation of STS, Gateway, audit, and Coordinator operator metrics. |
 | `zones` | Visible zones, resources, policy sets, and audit queryability. |
-| `preflight` | Local deployment and operator environment checks. |
+| `preflight` | Local secrets, keys, TLS material, and Postgres/Redis reachability. |
 
-Useful Doctor controls include reload, all-zones or selected-zone checks, preflight-only checks, and strict readiness where warnings fail automation gates.
+Doctor does more than report liveness: it evaluates the operator metrics it collects and raises a warning or failure when a signal needs action. Notable deeper checks include:
+
+| Signal | Result | Why it matters |
+| --- | --- | --- |
+| Clock skew vs the API exceeds 30s | `fail` | Token `iat`/`nbf`/`exp` validation and audit ordering break when hosts are not NTP-synced. |
+| STS OPA `compile_errors` > 0 | `fail` | A policy bundle will not compile, so token exchanges deny or run on a stale bundle. |
+| Audit `tamper_mismatch_total` or `chain_breaks` > 0 | `fail` | Audit chain integrity is broken — treat as a security incident. |
+| Audit `dlq_size` or `hmac_failures` > 0 | `warn` | Events are failing processing or HMAC verification before they age out. |
+| Coordinator outbox `dead` rows, or a large `pending` backlog | `warn` | Spawn and revocation events are not propagating downstream. |
+
+Useful Doctor controls include reload, all-zones or selected-zone checks, preflight-only checks, and strict readiness where warnings fail automation gates. The `Next actions` block collects the advice for every non-passing check.
+
+This view is deeper than `caracal status`: `status` answers "is the stack up", while Doctor inspects internal health — policy compilation, audit integrity, event propagation, clock alignment, and local key material — that keeps the platform working correctly over time.
 
 ## Audit
 
 Open `audit` with `a`. Audit records tie STS, Gateway, Coordinator, policy, and Control decisions to request IDs and authority anchors. Use the audit view to filter recent events, inspect denials, and gather incident context.
 
-The audit view opens recent events immediately. Use row actions to open request details or trace the selected request. Advanced filters remain available for decision, event type, time window, request ID, and result limit.
+The audit view opens recent events immediately and streams new ones as they arrive. Press `f` for advanced filters: decision, event type, time window, request ID, agent session, agent label, and result limit. Time-window fields accept a relative window such as `15m`, `2h`, or `7d`, an ISO timestamp, or a date — the Console converts the value before querying the API. Use row actions to open the full event group (`enter`) or the decision trace (`x`) for the selected request.
+
+Audit is an event ledger: it records what authorization decided. It is distinct from the `sessions` views, which show the live state of authority sessions, agent sessions, and delegation edges. Filter audit by `agent session` or `agent label` to connect a decision back to the session that made it.
 
 ## Request Trace
 
-Open `request trace` with `t` when you already have a request ID and need the decision trace directly. Trace output connects the request, selected resource, subject, scopes, determining policies, diagnostics, and result.
+Open `request trace` with `t` when you already have a request ID — from a log line, error response, or Gateway header — and need the decision trace directly without scanning the audit list. It is the same trace reached by `x` on an audit row, exposed as a direct entry point. Trace output connects the request, selected resource, subject, scopes, determining policies, diagnostics, and result.
 
 ## Troubleshooting
 
@@ -40,7 +54,7 @@ Open `request trace` with `t` when you already have a request ID and need the de
 For a symptom-first path from a failing application call to the right surface and tool, see [Troubleshoot by Symptom](/operations/troubleshooting/).
 
 :::note[FAQ]
-[Why is an audit event missing?](/reference/faq/#faq-missing-audit-event)
+[Why is an audit event missing?](/reference/faq/#faq-018)
 :::
 
 ## Next Step

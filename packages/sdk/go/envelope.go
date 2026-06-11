@@ -179,9 +179,9 @@ func InjectHTTP(env Envelope, h http.Header) {
 	})
 }
 
-// ToMap serializes the envelope to a plain string map (for gRPC metadata,
+// ToHeaders serializes the envelope to a plain string map (for gRPC metadata,
 // MCP _meta, queue headers, etc.).
-func ToMap(env Envelope) map[string]string {
+func ToHeaders(env Envelope) map[string]string {
 	out := make(map[string]string, 4)
 	EncodeEnvelope(env, func(name, value string) {
 		out[name] = value
@@ -189,8 +189,8 @@ func ToMap(env Envelope) map[string]string {
 	return out
 }
 
-// FromMap deserializes an Envelope from a plain string map.
-func FromMap(m map[string]string) Envelope {
+// FromHeaders deserializes an Envelope from a plain string map.
+func FromHeaders(m map[string]string) Envelope {
 	get := func(name string) string {
 		lower := strings.ToLower(name)
 		for k, v := range m {

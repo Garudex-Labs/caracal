@@ -5,7 +5,7 @@
 
 import { buildApp } from './app.js'
 import { loadConfig } from './config.js'
-import { newDB } from './db.js'
+import { newDB, scopedDB } from './db.js'
 import { newRedis } from './redis.js'
 import { startDCRGC } from './jobs/dcr-gc.js'
 import { startSessionsReaper } from './jobs/sessions-reaper.js'
@@ -32,7 +32,7 @@ process.on('uncaughtException', (err) => {
   process.exit(1)
 })
 
-const db = newDB({
+const pool = newDB({
   connectionString: cfg.databaseUrl,
   max: cfg.db.poolMax,
   statementTimeoutMs: cfg.db.statementTimeoutMs,
@@ -42,6 +42,7 @@ const db = newDB({
   applicationName: cfg.workerId,
   onZoneGUCError: (err) => log('error', 'zone_guc_set_failed', { error: err instanceof Error ? err.message : String(err) }),
 })
+const db = scopedDB(pool)
 const redis = newRedis(cfg.redisUrl)
 
 const shutdown = new ShutdownRegistry({
@@ -49,7 +50,7 @@ const shutdown = new ShutdownRegistry({
   log,
 })
 shutdown.register('redis', async () => { await redis.quit() })
-shutdown.register('postgres', () => db.end())
+shutdown.register('postgres', () => pool.end())
 shutdown.register('telemetry', shutdownTelemetry)
 shutdown.install()
 

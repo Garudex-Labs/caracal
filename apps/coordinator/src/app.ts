@@ -5,11 +5,12 @@
 
 import Fastify from 'fastify'
 import { hostname } from 'node:os'
+import { timingSafeEqual } from 'node:crypto'
 import pino from 'pino'
 import type { Pool } from 'pg'
 import type { Redis as RedisClient } from 'ioredis'
 import { ZodError } from 'zod'
-import { getTraceContext, parseTraceparent, bindTrace, renderObservabilityMetrics, devLogMetrics, buildPinoRedactPaths, instrumentFastifyApp, withTimeout, CaracalError } from '@caracalai/core'
+import { getTraceContext, parseTraceparent, bindTrace, renderObservabilityMetrics, devLogMetrics, buildPinoRedactPaths, instrumentFastifyApp, withTimeout, CaracalError, isPublished } from '@caracalai/core'
 import { agentsRoutes } from './routes/agents.js'
 import { agentServicesRoutes } from './routes/agent-services.js'
 import { delegationsRoutes } from './routes/delegations.js'
@@ -21,6 +22,7 @@ import { registerAdminAuditHook } from './admin-audit.js'
 import { ttlSweeperStats } from './jobs/ttl-sweeper.js'
 import { serviceLeaseSweeperStats } from './jobs/service-lease-sweeper.js'
 import { retentionCleanerStats } from './jobs/retention-cleaner.js'
+import { redisMinuteBucket } from './redis.js'
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -49,7 +51,7 @@ export async function buildApp({ cfg, db, redis, isDraining }: CoordinatorDeps) 
   let runtimeStats: RuntimeStats | null = null
   let runtimeStatsRefresh: Promise<RuntimeStats> | null = null
   const loadRuntimeStats = async (): Promise<RuntimeStats> => {
-    const now = Date.now()
+    const now = performance.now()
     if (runtimeStats && runtimeStats.expiresAt > now) return runtimeStats
     if (runtimeStatsRefresh) return runtimeStatsRefresh
     runtimeStatsRefresh = (async () => {
@@ -62,7 +64,7 @@ export async function buildApp({ cfg, db, redis, isDraining }: CoordinatorDeps) 
       runtimeStats = {
         invocations: Object.fromEntries(invocations.map((row) => [row.status, Number(row.n)])),
         outbox: Object.fromEntries(outbox.map((row) => [row.status, Number(row.n)])),
-        expiresAt: Date.now() + RUNTIME_STATS_TTL_MS,
+        expiresAt: performance.now() + RUNTIME_STATS_TTL_MS,
       }
       return runtimeStats
     })().finally(() => { runtimeStatsRefresh = null })
@@ -124,7 +126,7 @@ export async function buildApp({ cfg, db, redis, isDraining }: CoordinatorDeps) 
     const tc = parseTraceparent(value)
     bindTrace({ traceId: tc.traceId, spanId: tc.spanId || req.id })
     if (cfg.coordinatorRateLimitPerMin <= 0) return
-    const minute = Math.floor(Date.now() / 60_000)
+    const minute = await redisMinuteBucket(redis)
     const key = `coordinator:global_rl:${req.ip}:${minute}`
     const count = await redis.incr(key)
     if (count === 1) await redis.expire(key, 90)
@@ -133,11 +135,11 @@ export async function buildApp({ cfg, db, redis, isDraining }: CoordinatorDeps) 
     }
   })
   app.addHook('preHandler', verifyBearer)
-  registerAdminAuditHook(app, db)
+  registerAdminAuditHook(app, db, cfg.auditHmacKey)
   app.get('/health', async () => ({ ok: true }))
   app.get('/ready', async (req, reply) => {
     if (cfg.readyRateLimitPerMin > 0) {
-      const minute = Math.floor(Date.now() / 60_000)
+      const minute = await redisMinuteBucket(redis)
       const key = `coordinator:ready_rl:${req.ip}:${minute}`
       const count = await redis.incr(key)
       if (count === 1) await redis.expire(key, 90)
@@ -166,7 +168,18 @@ export async function buildApp({ cfg, db, redis, isDraining }: CoordinatorDeps) 
     }
     return { ok: true }
   })
-  app.get('/metrics', async (_req, reply) => {
+  app.get('/metrics', async (req, reply) => {
+    if (cfg.metricsBearer) {
+      const auth = req.headers.authorization
+      const expected = `Bearer ${cfg.metricsBearer}`
+      if (typeof auth !== 'string' || auth.length !== expected.length || !timingSafeEqual(Buffer.from(auth), Buffer.from(expected))) {
+        return reply.code(401).send({ error: 'unauthorized' })
+      }
+    } else if (isPublished()) {
+      // Published builds bind to 0.0.0.0; refuse to expose operational metrics
+      // on the network unless an operator has provisioned METRICS_BEARER.
+      return reply.code(401).send({ error: 'unauthorized' })
+    }
     const stats = await loadRuntimeStats()
     const lines: string[] = []
     lines.push('# HELP caracal_invocations_total Coordinator invocations by status')

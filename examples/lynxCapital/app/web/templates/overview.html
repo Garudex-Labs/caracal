@@ -1,0 +1,271 @@
+{#
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
+Route-based Lynx Capital overview page.
+#}
+{% extends "layout.html" %}
+{% block title %}{{ overview_page.title }} - {{ company }}{% endblock %}
+{% block content %}
+<style>
+  .overview-flow {
+    min-height: calc(100vh - 44px);
+    background: var(--surface);
+    display: grid;
+    place-items: center;
+    padding: clamp(20px, 4vw, 44px);
+  }
+  .overview-shell {
+    width: min(980px, 100%);
+    min-height: 560px;
+    background: #fff;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+  }
+  .overview-head,
+  .overview-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    padding: 22px clamp(24px, 4vw, 42px);
+  }
+  .overview-head {
+    border-bottom: 1px solid #e1e7f0;
+  }
+  .step-label {
+    color: #5a6478;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .step-nav {
+    display: flex;
+    gap: 7px;
+  }
+  .step-dot {
+    width: 34px;
+    height: 3px;
+    background: #d0d7e3;
+  }
+  .step-dot.active {
+    background: var(--accent);
+  }
+  .overview-body {
+    display: grid;
+    grid-template-columns: minmax(0, 0.92fr) minmax(280px, 0.58fr);
+    gap: clamp(28px, 5vw, 54px);
+    align-content: center;
+    padding: clamp(30px, 5vw, 54px) clamp(24px, 4vw, 42px);
+  }
+  .overview-body h1 {
+    color: var(--primary);
+    font-size: clamp(34px, 5vw, 56px);
+    letter-spacing: -0.045em;
+    line-height: 1;
+    margin-bottom: 18px;
+  }
+  .overview-intro {
+    color: #3f4a5f;
+    font-size: 16px;
+    line-height: 1.62;
+    margin-bottom: 18px;
+  }
+  .overview-copy {
+    color: #5a6478;
+    display: grid;
+    gap: 10px;
+    font-size: 13px;
+    line-height: 1.58;
+  }
+  .overview-facts {
+    border-left: 1px solid #d0d7e3;
+    display: grid;
+    gap: 18px;
+    align-content: start;
+    padding-left: 24px;
+  }
+  .fact strong {
+    color: var(--text);
+    display: block;
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    margin-bottom: 7px;
+    text-transform: uppercase;
+  }
+  .fact span {
+    color: #4b5567;
+    display: block;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .ack-row {
+    border-top: 1px solid #ead6a8;
+    color: #4b5567;
+    display: flex;
+    gap: 10px;
+    font-size: 12.5px;
+    line-height: 1.5;
+    margin-top: 22px;
+    padding-top: 14px;
+  }
+  .ack-row input {
+    margin-top: 2px;
+  }
+  .overview-foot {
+    border-top: 1px solid #e1e7f0;
+  }
+  .foot-actions {
+    display: flex;
+    gap: 9px;
+    align-items: center;
+  }
+  .nav-btn,
+  .primary-btn,
+  .disabled-btn {
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 750;
+    min-height: 38px;
+    padding: 0 14px;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+  }
+  .nav-btn {
+    background: #fff;
+    border: 1px solid #b9c5d6;
+    color: var(--text);
+  }
+  .primary-btn {
+    background: var(--primary);
+    border: 1px solid var(--primary);
+    color: #fff;
+    cursor: pointer;
+  }
+  .disabled-btn {
+    background: #f5f7fa;
+    border: 1px solid #d0d7e3;
+    color: #8a9bae;
+  }
+  .primary-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.4;
+  }
+  .nav-btn:focus-visible,
+  .primary-btn:focus-visible {
+    outline: 2px solid #8fb0ef;
+    outline-offset: 2px;
+  }
+  @media (max-width: 780px) {
+    .overview-flow {
+      place-items: stretch;
+      padding: 0;
+    }
+    .overview-shell {
+      min-height: calc(100vh - 44px);
+    }
+    .overview-head,
+    .overview-foot {
+      align-items: flex-start;
+      flex-direction: column;
+    }
+    .overview-body {
+      grid-template-columns: 1fr;
+    }
+    .overview-facts {
+      border-left: 0;
+      border-top: 1px solid #d0d7e3;
+      padding-left: 0;
+      padding-top: 22px;
+    }
+    .foot-actions {
+      width: 100%;
+    }
+    .foot-actions a,
+    .foot-actions button,
+    .disabled-btn {
+      justify-content: center;
+      flex: 1;
+    }
+  }
+</style>
+
+<section class="overview-flow">
+  <article class="overview-shell" aria-labelledby="overview-title">
+    <header class="overview-head">
+      <div>
+        <div class="step-label">Overview {{ overview_index }} of {{ overview_total }}</div>
+      </div>
+      <div class="step-nav" aria-label="Overview progress">
+        {% for item in overview_pages %}
+        <span class="step-dot{% if item.route == overview_page.route %} active{% endif %}" aria-hidden="true"></span>
+        {% endfor %}
+      </div>
+    </header>
+
+    <div class="overview-body">
+      <div>
+        <h1 id="overview-title">{{ overview_page.title }}</h1>
+        <p class="overview-intro">{{ overview_page.intro }}</p>
+        <div class="overview-copy">
+          {% for paragraph in overview_page.body %}
+          <p>{{ paragraph }}</p>
+          {% endfor %}
+        </div>
+        {% if requires_ack %}
+        <label class="ack-row">
+          <input type="checkbox" id="overview-ack">
+          <span>I understand that this is a demonstration environment and have reviewed the overview.</span>
+        </label>
+        {% endif %}
+      </div>
+
+      <aside class="overview-facts" aria-label="{{ overview_page.title }} summary">
+        {% for item in overview_page["items"] %}
+        <div class="fact">
+          <strong>{{ item.label }}</strong>
+          <span>{{ item.value }}</span>
+        </div>
+        {% endfor %}
+      </aside>
+    </div>
+
+    <footer class="overview-foot">
+      <a class="nav-btn" href="/">Close</a>
+      <div class="foot-actions">
+        {% if overview_page.previous %}
+        <a class="nav-btn" href="{{ overview_page.previous }}">Previous</a>
+        {% else %}
+        <span class="disabled-btn">Previous</span>
+        {% endif %}
+        {% if overview_page.next %}
+        <a class="primary-btn" href="{{ overview_page.next }}">Next</a>
+        {% else %}
+        <button class="primary-btn" id="proceed-setup" type="button" disabled>Proceed to Setup</button>
+        {% endif %}
+      </div>
+    </footer>
+  </article>
+</section>
+
+{% if requires_ack %}
+<script>
+  const ack = document.getElementById('overview-ack');
+  const proceedSetup = document.getElementById('proceed-setup');
+  ack.addEventListener('change', () => { proceedSetup.disabled = !ack.checked; });
+  proceedSetup.addEventListener('click', async () => {
+    if (!ack.checked) return;
+    proceedSetup.disabled = true;
+    const response = await fetch('/api/session/accept', {method: 'POST'});
+    if (!response.ok) {
+      proceedSetup.disabled = false;
+      return;
+    }
+    window.location = '/setup';
+  });
+</script>
+{% endif %}
+{% endblock %}

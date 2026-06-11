@@ -1,1 +1,0 @@
-{"area":"examples","artifact":"lynxCapital","platform":"linux-amd64","pm":"pnpm","runtime":"-","severity":"major","status":"fail","evidence":"","repro":"pnpm install"}

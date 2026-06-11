@@ -1,0 +1,24 @@
+[
+  {
+    "name": "reporting app keeps read access",
+    "expect": "allow",
+    "input": {
+      "schema_version": "2026-05-20",
+      "principal": { "type": "Application", "id": "app-reporting", "zone_id": "zone-prod" },
+      "resource": { "type": "Resource", "identifier": "resource://pipernet", "scopes": ["pipernet:read"] },
+      "action": { "id": "TokenExchange" },
+      "context": { "actor_claims": {}, "requested_scopes": ["pipernet:read"], "challenge_resolved": false }
+    }
+  },
+  {
+    "name": "unknown app stays denied for write",
+    "expect": "deny",
+    "input": {
+      "schema_version": "2026-05-20",
+      "principal": { "type": "Application", "id": "app-unknown", "zone_id": "zone-prod" },
+      "resource": { "type": "Resource", "identifier": "resource://pipernet", "scopes": ["pipernet:write"] },
+      "action": { "id": "TokenExchange" },
+      "context": { "actor_claims": {}, "requested_scopes": ["pipernet:write"], "challenge_resolved": false }
+    }
+  }
+]

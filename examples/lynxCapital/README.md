@@ -1,16 +1,22 @@
 # Lynx Capital
 
-Autonomous financial execution reference lab. A FastAPI + LangGraph swarm that processes a global SaaS payout cycle (~4,200 invoices, 5 regions) end-to-end with a live agent topology view and SSE log stream.
+A production-grade reference for running an autonomous agent swarm on Caracal. Lynx Capital
+is a finance-operations platform whose LLM swarm — orchestrators, regional workflows, and
+thousands of ephemeral domain workers — executes payout cycles across twenty partner
+providers, with every agent and every provider call governed by Caracal.
 
-## Requirements
+The model is one zone with **one managed application per permission boundary**
+(`lynx-operations`, `lynx-intake`, `lynx-ledger`, `lynx-compliance`, `lynx-treasury`,
+`lynx-payments`, `lynx-audit`). Every spawned agent runs as its own labeled Caracal agent
+session under its role's application, narrowed by a delegation edge to its role's scopes;
+every partner is a registered credential provider reached only through per-application
+resource views at the Gateway. Workers acting on one customer's records spawn with a
+`customer:<id>` label and a `customer_id` metadata key — the label is policy-enforced
+(customer-labeled agents mint customer-record scopes only) and the metadata key makes
+per-customer audit a direct filter over the shared zone trail. The single source of truth
+is [`config/tenancy.yaml`](config/tenancy.yaml).
 
-- Python 3.14+
-- Docker
-- An OpenAI API key
-
-## Quick start
-
-### 1: Install dependencies
+## 1. Install
 
 ```bash
 cd caracal/examples/lynxCapital
@@ -20,74 +26,72 @@ python -m pip install --upgrade pip
 pip install -e ".[dev]"
 ```
 
-### 2: Configure environment
+## 2. Run
+
+```bash
+docker compose -f _mock/docker-compose.yml up -d --build --waitD   # start mock providers
+python -m uvicorn app.main:app --reload --port 8000               # run the app
+```
+
+Open `http://localhost:8000`.
+
+## 3. Configure the workload
+
+After the wizard, copy the values it shows into `.env`:
 
 ```bash
 cp -n .env.example .env
 ```
 
-Open `.env` and set `OPENAI_API_KEY=sk-...`.
+`.env` holds only the Caracal variables the app reads at runtime: the zone and one
+`LYNX_CARACAL_<APP>_APPLICATION_ID` / `_CLIENT_SECRET` pair per application boundary.
+Without Caracal configured, provider access fails closed; set `LYNX_SIMULATION=1` only to
+exercise the offline simulators.
 
-### 3: Start the local provider network
+## 4. Provision automatically
 
-Each provider runs on its own localhost port (`9400`–`9419`) with a small control UI and behaves like a real third-party vendor.
-
-```bash
-docker compose -f _mock/docker-compose.yml up -d --build --wait
-```
-
-To re-check status later:
+Create a **scoped Control key** in Console, then replay the whole Console setup from a
+script:
 
 ```bash
-docker compose -f _mock/docker-compose.yml ps -a
+cp -n .env.provision.example .env.provision   # fill in CONTROL_CLIENT_ID / _SECRET
+. .env.provision
+python scripts/provision.py                   # python scripts/teardown.py to undo
 ```
 
-### 4: Run Lynx Capital
+It reads `config/tenancy.yaml` + `policies/` and idempotently creates the seven managed
+applications, registers the twenty credential providers in their exact provider-kind
+config shapes, creates the per-application resource views, renders the application-id
+bindings into the policy library, and activates the `lynx-finance-ops` policy set. It
+prints the per-application credential exports for the workload `.env`; each client secret
+is shown exactly once. The Control key has no runtime data authority.
 
-Pick one path:
+## 5. Run the SDK reference
 
 ```bash
-# Local Python (development)
-python -m uvicorn app.main:app --reload --port 8000
+python scripts/reference.py
 ```
 
-Open **http://localhost:8000**.
+[`scripts/reference.py`](scripts/reference.py) is the canonical SDK walkthrough: it prints
+the application/role/scope/view plan offline, and when Caracal is configured spawns one
+labeled worker session per boundary with a narrowed grant and mints a resource mandate
+under policy.
 
-## Tests
+Application code uses two seams: [`app/caracal.py`](app/caracal.py) (per-application
+runtimes, worker authority, mandate minting, gateway calls) and
+[`app/agents/runner.py`](app/agents/runner.py) (per-agent session lifecycle):
+
+```python
+handle = await runner.aspawn("payment-execution", "payments.us", parent=fc, layer="worker")
+result = partners.call("meridian-pay", "create_payout", payload, authority=handle.authority)
+```
+
+## 6. Test
 
 ```bash
-python -m pytest tests/test_caracal_integration.py -q
-python -m pytest -q
+opa test policies/ -v                        # policy decision tests
+python -m pytest -q                          # full example suite
 ```
 
-## Tear down
-
-```bash
-docker compose -f _mock/docker-compose.yml down
-```
-
-## Provider ecosystem
-
-| Provider | Domain | Auth | Protocol | Port |
-|---|---|---|---|---|
-| Halcyon Bank | Open/business banking | OAuth 2.0 auth code (PKCE) | REST + webhooks | 9400 |
-| Meridian Pay | Card/wallet accept + payouts | API key (header) | REST + webhooks | 9401 |
-| Cordoba FX | Cross-border FX | OAuth 2.0 client credentials (basic) | REST | 9402 |
-| Ironbark ERP | Enterprise ERP | OAuth 2.0 client credentials (post + audience) | REST async-job | 9403 |
-| Tallyhall Books | SMB accounting | OAuth 2.0 auth code (offline refresh) | REST | 9404 |
-| Slate Ledger | Double-entry GL + close | Bearer token | REST async-job | 9405 |
-| Inkwell OCR | Invoice/document extraction | API key (query) | REST async-job + LLM | 9406 |
-| Aegis Screening | Sanctions/AML/KYB | Caracal mandate | REST + LLM | 9407 |
-| Verafin Monitor | Txn monitoring + filing | Caracal mandate (delegation) | REST async-job | 9408 |
-| Lumen Identity | Internal directory | none (internal) | REST | 9409 |
-| Beacon CRM | Vendor/customer CRM | OAuth 2.0 auth code (refresh) | REST + webhooks | 9410 |
-| Atlas Vendor Network | Vendor master data | MCP (bearer) | MCP JSON-RPC | 9411 |
-| Keystone Treasury | Cash/forecast/hedge | API key (metadata) | gRPC-style | 9412 |
-| Sabre Tax | Tax determination | SDK (api key) | SDK shim over REST | 9413 |
-| Quetzal Payouts | Global mass payouts | SDK (api key) | SDK shim + webhooks | 9414 |
-| Vela Notify | Email/SMS dunning | Bearer (custom header) | REST | 9415 |
-| Core Billing | Internal AR/billing | none (internal) | REST | 9416 |
-| Relay Automation | Workflow/job automation | MCP (mandate, delegation) | MCP JSON-RPC | 9417 |
-| Pulse Market Data | Real-time FX/reference | API key (header) | SSE + REST | 9418 |
-| Junction Procurement | Procure-to-pay | OAuth 2.0 client credentials | REST | 9419 |
-
+Full policy documentation and expected access behavior are in
+[`policies/README.md`](policies/README.md).

@@ -2,7 +2,7 @@
 
 Copy this folder into the root of a project where Codex will help integrate Caracal SDKs.
 
-This setup mirrors the Claude Code and GitHub Copilot SDK playbooks. It makes Codex understand the product and architecture first, confirm the plan with the user, then integrate Caracal with official SDK APIs and minimal native changes.
+This setup mirrors the Claude Code and GitHub Copilot SDK playbooks. It makes Codex understand the product, user needs, and architecture first, confirm the plan with the user, then integrate Caracal with official SDK APIs and minimal native changes.
 
 ## Use
 
@@ -13,9 +13,7 @@ This setup mirrors the Claude Code and GitHub Copilot SDK playbooks. It makes Co
 
 ## Contents
 
-- `.codex/AGENTS.md`: primary operating guide.
-- `.codex/agents/`: specialist discovery, review, planning, and implementation agents.
-- `.codex/skills/`: reusable SDK integration skills.
-- `.codex/config.toml`: documentation, MCP, approval, and safety guidance.
+- `.codex/AGENTS.md`: primary operating guide containing senior Platform Engineer instructions, discovery guidelines, planning and implementation rules.
+- `.codex/config.toml`: documentation, MCP, approval, and safety configuration.
 
 Do not paste raw provider secrets into chat. Use redacted values or environment variable names.

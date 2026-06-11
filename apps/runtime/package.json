@@ -1,6 +1,6 @@
 {
   "name": "@caracalai/runtime",
-  "version": "0.1.4-rc.1",
+  "version": "0.1.5-rc.2",
   "private": true,
   "description": "Caracal runtime shell for local stack lifecycle and workload execution.",
   "license": "Apache-2.0",

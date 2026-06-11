@@ -14,11 +14,7 @@ import {
   type AuthOverrides,
   type MandateVerifier,
 } from '@caracalai/transport-mcp'
-import {
-  bind,
-  fromHeaders,
-  type CaracalContext,
-} from '@caracalai/sdk/advanced'
+import { bind, fromHeaders, type CaracalContext } from '@caracalai/sdk/advanced'
 
 export interface MiddlewareOptions extends AuthDeps {
   bindContext?: boolean
@@ -44,9 +40,7 @@ export function caracalAuth(opts: MiddlewareOptions | VerifierMiddlewareOptions,
       return
     }
 
-    const result = 'verifier' in opts
-      ? await opts.verifier.authenticate(token, route)
-      : await authenticate(token, { ...opts, ...route })
+    const result = 'verifier' in opts ? await opts.verifier.authenticate(token, route) : await authenticate(token, { ...opts, ...route })
     if (!result.ok) {
       const { status, body } = mapError(result.error)
       res.status(status).json(body)
@@ -60,7 +54,7 @@ export function caracalAuth(opts: MiddlewareOptions | VerifierMiddlewareOptions,
     const baseCtx: CaracalContext = {
       subjectToken: token,
       zoneId: result.principal.zoneId ?? middlewareZone(opts) ?? '',
-      clientId: result.principal.clientId ?? '',
+      applicationId: result.principal.clientId ?? '',
       agentSessionId: env.agentSessionId ?? result.principal.agentSessionId,
       delegationEdgeId: env.delegationEdgeId ?? result.principal.delegationEdgeId,
       parentEdgeId: env.parentEdgeId,

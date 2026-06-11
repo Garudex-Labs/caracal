@@ -2,72 +2,80 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-Setup validation endpoint confirming OpenAI credentials and the local provider network.
+Setup validation endpoint for end-user Caracal configuration completeness.
 """
 from __future__ import annotations
 
 import os
 
-import httpx
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
+from app import caracal, tenancy
+from app.services import setup_catalog
+
 router = APIRouter()
 
-_PROVIDER_HEALTH_DEFAULT = "http://127.0.0.1:9400/healthz"
 
-
-async def _ping(url: str) -> tuple[bool, str]:
-    try:
-        async with httpx.AsyncClient(timeout=2.0) as http:
-            r = await http.get(url)
-        return (r.status_code < 500, f"{url} → {r.status_code}")
-    except Exception as exc:
-        return (False, f"{url} unreachable: {exc.__class__.__name__}")
+def _step(step_id: str, label: str, status: str, detail: str) -> dict:
+    return {"id": step_id, "label": label, "status": status, "ok": status != "missing", "detail": detail}
 
 
 @router.get("/validate")
 async def validate_setup():
+    model = tenancy.load_model()
     steps: list[dict] = []
 
-    api_key = os.environ.get("OPENAI_API_KEY", "")
-    steps.append({
-        "id": "openai_key",
-        "label": "OPENAI_API_KEY set",
-        "ok": bool(api_key),
-        "detail": "Found in environment." if api_key
-                  else "Missing: add it to .env or your shell.",
-    })
+    zone_ok = bool(os.environ.get("CARACAL_ZONE_ID"))
+    steps.append(_step(
+        "identity",
+        "Zone",
+        "passed" if zone_ok else "missing",
+        "The zone is set." if zone_ok else "Add CARACAL_ZONE_ID from the Caracal Console.",
+    ))
 
-    provider_health = os.environ.get("LYNX_PROVIDER_HEALTH_URL", _PROVIDER_HEALTH_DEFAULT)
-    ok, detail = await _ping(provider_health)
-    steps.append({
-        "id": "provider_network",
-        "label": "Provider network reachable",
-        "ok": ok,
-        "detail": detail,
-    })
+    credentialed = [
+        app.id for app in model.applications
+        if caracal.application_credentials(app.id) == (True, True)
+    ]
+    if len(credentialed) == len(model.applications):
+        app_status = "passed"
+        app_detail = f"All {len(model.applications)} application boundaries have an id and secret."
+    elif credentialed:
+        app_status = "warning"
+        app_detail = (
+            f"{len(credentialed)} of {len(model.applications)} applications configured. "
+            "Export the LYNX_CARACAL_<APP>_APPLICATION_ID and _CLIENT_SECRET values printed by provision.py."
+        )
+    else:
+        app_status = "missing"
+        app_detail = "Run scripts/provision.py and export the printed application credentials."
+    steps.append(_step("applications", "Application boundaries", app_status, app_detail))
 
-    from app.api.hooks import required_secret_envs
-    missing_secrets = [k for k in required_secret_envs() if not os.environ.get(k)]
-    steps.append({
-        "id": "webhook_secrets",
-        "label": "Webhook signing secrets set",
-        "ok": not missing_secrets,
-        "detail": "All provider hook secrets present." if not missing_secrets
-                  else f"Missing: {', '.join(missing_secrets)}",
-    })
+    provisioned_providers, provisioned_resources = setup_catalog.provisioned_state()
+    providers_ready = sum(1 for p in model.providers if p.identifier in provisioned_providers)
+    if providers_ready == len(model.providers):
+        provider_status = "passed"
+        provider_detail = f"All {len(model.providers)} credential providers are registered."
+    elif providers_ready:
+        provider_status = "warning"
+        provider_detail = f"{providers_ready} of {len(model.providers)} providers registered. Re-run scripts/provision.py."
+    else:
+        provider_status = "missing"
+        provider_detail = "Register the partner credential providers with scripts/provision.py."
+    steps.append(_step("providers", "Credential providers", provider_status, provider_detail))
 
-    from app import caracal
-    if caracal.enabled():
-        for sid, label, default in (
-            ("CARACAL_STS_URL", "Caracal STS reachable", "http://localhost:8080"),
-            ("CARACAL_COORDINATOR_URL", "Caracal Coordinator reachable", "http://localhost:4000"),
-            ("CARACAL_GATEWAY_URL", "Caracal Gateway reachable", "http://localhost:8081"),
-        ):
-            base = os.environ.get(sid, default).rstrip("/")
-            ok, detail = await _ping(f"{base}/healthz")
-            steps.append({"id": sid.lower(), "label": label, "ok": ok, "detail": detail})
+    views_ready = sum(1 for r in model.resources if r.identifier in provisioned_resources)
+    if views_ready == len(model.resources):
+        view_status = "passed"
+        view_detail = f"All {len(model.resources)} resource views are bound to their applications."
+    elif views_ready:
+        view_status = "warning"
+        view_detail = f"{views_ready} of {len(model.resources)} resource views created. Re-run scripts/provision.py."
+    else:
+        view_status = "missing"
+        view_detail = "Create the per-application resource views with scripts/provision.py."
+    steps.append(_step("resources", "Resource views", view_status, view_detail))
 
-    overall = all(s["ok"] for s in steps)
+    overall = not any(step["status"] == "missing" for step in steps)
     return JSONResponse({"ok": overall, "steps": steps})

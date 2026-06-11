@@ -1,6 +1,6 @@
 {
   "name": "@caracalai/sdk",
-  "version": "0.1.4-rc.1",
+  "version": "0.1.5-rc.2",
   "description": "Caracal agent identity and delegation SDK.",
   "license": "Apache-2.0",
   "homepage": "https://github.com/Garudex-Labs/caracal",
@@ -40,7 +40,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@caracalai/oauth": "0.1.4-rc.1",
+    "@caracalai/oauth": "0.1.5-rc.2",
     "smol-toml": "^1.4.2"
   },
   "scripts": {

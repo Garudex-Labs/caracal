@@ -46,6 +46,16 @@ function textResponse(text: string, ok = false, status = 500): Response {
   } as unknown as Response
 }
 
+function jsonResponseWithDate(body: unknown, date: string): Response {
+  return {
+    ok: true,
+    status: 200,
+    headers: { get: (name: string) => (name.toLowerCase() === 'date' ? date : null) },
+    json: async () => body,
+    text: async () => JSON.stringify(body),
+  } as unknown as Response
+}
+
 function fakeAdminContext(overrides: Record<string, unknown> = {}) {
   return {
     apiUrl: 'http://localhost:3000',
@@ -169,6 +179,94 @@ describe('runDoctorDiagnostics — full system run', () => {
     expect(report.context.zoneScope).toBe('selected')
     expect(report.context.zoneIds).toEqual(['zone-x'])
     expect(report.checks.some((c) => c.check === 'zone-x lookup')).toBe(true)
+    fetchSpy.mockRestore()
+  })
+
+  it('fails when audit reports a chain integrity violation', async () => {
+    vi.mocked(buildAdminClient).mockReturnValue(fakeAdminContext() as never)
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input)
+      if (url.endsWith('/health') || url.endsWith('/ready')) return jsonResponse({}, true)
+      if (url.endsWith('/stats')) return jsonResponse({ outbox: { pending: 0, dead: 0 }, invocations: { running: 0 } })
+      if (url.includes(':9090')) return jsonResponse({ consumer_lag: 0, dlq_size: 0, tamper_mismatch_total: 3 })
+      return jsonResponse({ opa: { compile_errors: 0 } })
+    })
+
+    const report = await runDoctorDiagnostics({})
+    const auditMetrics = report.checks.find((c) => c.check === 'audit metrics')
+    expect(auditMetrics?.status).toBe('fail')
+    expect(auditMetrics?.advice).toMatch(/integrity/i)
+    expect(report.ready).toBe(false)
+    fetchSpy.mockRestore()
+  })
+
+  it('fails when STS cannot compile a policy bundle', async () => {
+    vi.mocked(buildAdminClient).mockReturnValue(fakeAdminContext() as never)
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input)
+      if (url.endsWith('/health') || url.endsWith('/ready')) return jsonResponse({}, true)
+      if (url.endsWith('/stats')) return jsonResponse({ outbox: { pending: 0, dead: 0 } })
+      if (url.includes(':8080')) return jsonResponse({ opa: { compile_errors: 1, eval_errors: 0 } })
+      return jsonResponse({})
+    })
+
+    const report = await runDoctorDiagnostics({})
+    const stsMetrics = report.checks.find((c) => c.check === 'sts metrics')
+    expect(stsMetrics?.status).toBe('fail')
+    expect(report.ready).toBe(false)
+    fetchSpy.mockRestore()
+  })
+
+  it('warns when the coordinator outbox has dead rows', async () => {
+    vi.mocked(buildAdminClient).mockReturnValue(fakeAdminContext() as never)
+    vi.mocked(discoverCoordinatorToken).mockReturnValue('coord-token')
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input)
+      if (url.endsWith('/health') || url.endsWith('/ready')) return jsonResponse({}, true)
+      if (url.endsWith('/stats')) return jsonResponse({ outbox: { pending: 0, dead: 4 }, invocations: { running: 0 } })
+      return jsonResponse({ opa: { compile_errors: 0 } })
+    })
+
+    const report = await runDoctorDiagnostics({})
+    const coordMetrics = report.checks.find((c) => c.check === 'coordinator metrics')
+    expect(coordMetrics?.status).toBe('warn')
+    expect(coordMetrics?.advice).toMatch(/dead outbox/i)
+    expect(report.ready).toBe(true)
+    fetchSpy.mockRestore()
+  })
+
+  it('fails the clock skew check when the api clock is far from the operator', async () => {
+    vi.mocked(buildAdminClient).mockReturnValue(fakeAdminContext() as never)
+    const farDate = new Date(Date.now() - 5 * 60 * 1000).toUTCString()
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input)
+      if (url.endsWith('/health')) return jsonResponseWithDate({}, farDate)
+      if (url.endsWith('/ready')) return jsonResponse({}, true)
+      if (url.endsWith('/stats')) return jsonResponse({ outbox: { pending: 0, dead: 0 } })
+      return jsonResponse({ opa: { compile_errors: 0 } })
+    })
+
+    const report = await runDoctorDiagnostics({})
+    const skew = report.checks.find((c) => c.section === 'health' && c.check === 'clock skew')
+    expect(skew?.status).toBe('fail')
+    expect(skew?.advice).toMatch(/NTP/)
+    expect(report.ready).toBe(false)
+    fetchSpy.mockRestore()
+  })
+
+  it('passes the clock skew check when the api clock matches', async () => {
+    vi.mocked(buildAdminClient).mockReturnValue(fakeAdminContext() as never)
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input)
+      if (url.endsWith('/health')) return jsonResponseWithDate({}, new Date().toUTCString())
+      if (url.endsWith('/ready')) return jsonResponse({}, true)
+      if (url.endsWith('/stats')) return jsonResponse({ outbox: { pending: 0, dead: 0 } })
+      return jsonResponse({ opa: { compile_errors: 0 } })
+    })
+
+    const report = await runDoctorDiagnostics({})
+    const skew = report.checks.find((c) => c.section === 'health' && c.check === 'clock skew')
+    expect(skew?.status).toBe('ok')
     fetchSpy.mockRestore()
   })
 })

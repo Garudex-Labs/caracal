@@ -2,16 +2,18 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-Tests for the approval gate, keyword session-memory recall, and event-log persistence.
+Tests for the approval gate, session memory, event bus, agent memory compaction, and job registry.
 """
 from __future__ import annotations
 
 import asyncio
 import json
 
-import pytest
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
 from app.core.approvals import ApprovalGate
+from app.core.jobs import JobRegistry
+from app.core.memory import AgentMemory
 from app.core.session_memory import RunRecord, SessionMemory
 from app.events.bus import EventBus
 from app.events import types as ev
@@ -93,3 +95,72 @@ def test_event_log_disabled_by_default(tmp_path, monkeypatch):
     bus = EventBus()
     bus.publish(ev.run_start("run-y", "no persistence"))
     assert not list(tmp_path.iterdir())
+
+
+def test_publish_from_thread_reaches_loop_subscriber():
+    async def scenario():
+        bus = EventBus()
+        q = bus.subscribe("run-t")
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, bus.publish, ev.run_start("run-t", "cross-thread"))
+        event = await asyncio.wait_for(q.get(), timeout=2)
+        assert event.kind == "run_start"
+
+    asyncio.run(scenario())
+
+
+class StubLLM:
+    async def ainvoke(self, prompt):
+        return AIMessage(content="summary of prior work")
+
+
+def test_compaction_tail_never_starts_with_tool_message():
+    mem = AgentMemory(
+        agent_id="w1", model="gpt-5.4-mini", system=SystemMessage(content="sys"),
+    )
+    for i in range(3):
+        mem.append(HumanMessage(content=f"step {i}"))
+    mem.append(AIMessage(content="", tool_calls=[
+        {"name": "lookup", "args": {}, "id": "call-1"},
+        {"name": "lookup", "args": {}, "id": "call-2"},
+    ]))
+    mem.append(ToolMessage(content="result 1", tool_call_id="call-1"))
+    mem.append(ToolMessage(content="result 2", tool_call_id="call-2"))
+    for i in range(4):
+        mem.append(HumanMessage(content=f"follow-up {i}"))
+
+    summary = asyncio.run(mem.compact(StubLLM()))
+    assert summary == "summary of prior work"
+    assert not isinstance(mem.messages[0], ToolMessage)
+    assert mem.seed_summary == summary
+    assert mem.compactions == 1
+
+
+def test_compaction_skips_when_no_clean_cut_exists():
+    mem = AgentMemory(
+        agent_id="w2", model="gpt-5.4-mini", system=SystemMessage(content="sys"),
+    )
+    for i in range(10):
+        mem.append(ToolMessage(content=f"result {i}", tool_call_id=f"call-{i}"))
+    assert asyncio.run(mem.compact(StubLLM())) is None
+    assert mem.compactions == 0
+
+
+def test_jobs_cancel_pending_settles_running_tasks():
+    async def scenario():
+        jobs = JobRegistry("run-j")
+        started = asyncio.Event()
+
+        async def slow():
+            started.set()
+            await asyncio.sleep(60)
+
+        jobs.start(slow(), kind="region", target="emea")
+        jobs.start(slow(), kind="workflow", target="close")
+        await started.wait()
+        cancelled = await jobs.cancel_pending()
+        assert cancelled == 2
+        assert all(j.task.done() for j in jobs.all_jobs())
+        assert await jobs.cancel_pending() == 0
+
+    asyncio.run(scenario())

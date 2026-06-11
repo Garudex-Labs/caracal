@@ -36,26 +36,42 @@ Read the full documentation at [docs.caracal.run](https://docs.caracal.run).
 ## Community
 
 <div align="center">
-<table>
-<tr>
-<td align="center">
-<a href="https://www.youtube.com/live/tZ4FdO-zjeE" target="_blank" rel="noopener">
-<img src="https://img.youtube.com/vi/tZ4FdO-zjeE/hqdefault.jpg" alt="Open Source Friday: Preview" height="180"><br>
-<strong>GitHub's Open Source Friday</strong>
-</a>
-</td>
-<td align="center">
-<div style="width:320px;height:180px;display:flex;align-items:center;justify-content:center;border-radius:6px;border:1px solid #ddd;background:#f8f8f8;font-weight:600">
-More coming soon
-</div>
-</td>
-</tr>
-</table>
-</div>
-
-</div>
-
-<div align="center">
+  <table width="100%">
+    <tr>
+      <td align="center" valign="middle" width="33%" height="140">
+        <a href="https://www.youtube.com/live/tZ4FdO-zjeE" target="_blank" rel="noopener">
+          <img src="https://img.youtube.com/vi/tZ4FdO-zjeE/hqdefault.jpg" alt="GitHub Open Source Friday preview" width="165">
+        </a>
+      </td>
+      <td align="center" valign="middle" width="33%" height="140">
+        <a href="https://mentorship.lfx.linuxfoundation.org/project/9cfe285b-7006-4610-84a8-1a52b0dff662" target="_blank" rel="noopener">
+          <img src="public/programs/lfx-mentorship.png" alt="LFX Mentorship 2026" width="90" />
+        </a>
+      </td>
+      <td align="center" valign="middle" width="33%" height="140">
+        <a href="https://www.microsoft.com/startups" target="_blank" rel="noopener">
+          <img src="public/programs/microsoftStartup.png" alt="Microsoft for Startups" width="170" />
+        </a>
+      </td>
+    </tr>
+    <tr>
+      <td align="center" valign="top" width="33%" height="40">
+        <a href="https://www.youtube.com/live/tZ4FdO-zjeE" target="_blank" rel="noopener">
+          <strong>GitHub's Open Source Friday</strong>
+        </a>
+      </td>
+      <td align="center" valign="top" width="33%" height="40">
+        <a href="https://mentorship.lfx.linuxfoundation.org/project/9cfe285b-7006-4610-84a8-1a52b0dff662" target="_blank" rel="noopener">
+          <strong>LFX Mentorship 2026</strong>
+        </a>
+      </td>
+      <td align="center" valign="top" width="33%" height="40">
+        <a href="https://www.microsoft.com/startups" target="_blank" rel="noopener">
+          <strong>Microsoft for Startups</strong>
+        </a>
+      </td>
+    </tr>
+  </table>
 </div>
 
 -----
@@ -75,9 +91,10 @@ More coming soon
 
 The installer provides the thin `caracal` runtime CLI and the `caracal-console` management interface.
 
-> Version examples below pin `v2026.06.04-rc.1`. Check [GitHub Releases](https://github.com/Garudex-Labs/caracal/releases) for the latest available tag. Unpinned installs follow GitHub's latest stable release.
+> Version examples below pin `v2026.06.10-rc.1`. Check [GitHub Releases](https://github.com/Garudex-Labs/caracal/releases) for the latest available tag. Unpinned installs follow GitHub's latest stable release.
 > Pin a version: `--version vYYYY.MM.DD` on Unix or `-Version vYYYY.MM.DD` in PowerShell.  
-> Change install directory: `--install-dir /path` on Unix or `-InstallDir C:\path` in PowerShell.
+> Change install directory: `--install-dir /path` on Unix or `-InstallDir C:\path` in PowerShell. Unix installers also honor `PREFIX`/`CARACAL_PREFIX` and `DESTDIR` for staged installs.
+> Uninstall: rerun the installer with `--uninstall` on Unix or `-Uninstall` in PowerShell.
 > Provenance verification is required by default.
 
 <details>
@@ -86,10 +103,10 @@ The installer provides the thin `caracal` runtime CLI and the `caracal-console` 
 ```bash
 # Console
 curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-console.sh | \
-  sh -s -- --version v2026.06.04-rc.1
+  sh -s -- --version v2026.06.10-rc.1
 ```
 
-Installs to `~/.local/bin` and verifies release provenance by default. Override with `--install-dir /usr/local/bin` (may need `sudo`).
+Installs to `~/.local/bin` and verifies release provenance by default. Override with `--install-dir /usr/local/bin` (may need `sudo`) or use packaging-style roots such as `PREFIX=/usr DESTDIR=/tmp/pkg`.
 
 </details>
 
@@ -99,7 +116,7 @@ Installs to `~/.local/bin` and verifies release provenance by default. Override 
 ```bash
 # Console
 curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-console.sh | \
-  sh -s -- --version v2026.06.04-rc.1
+  sh -s -- --version v2026.06.10-rc.1
 ```
 
 If Gatekeeper blocks the binary: `xattr -d com.apple.quarantine ~/.local/bin/caracal`.
@@ -113,10 +130,10 @@ If Gatekeeper blocks the binary: `xattr -d com.apple.quarantine ~/.local/bin/car
 # Console
 $installer = "$env:TEMP\install-console.ps1"
 iwr -useb https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-console.ps1 -OutFile $installer
-powershell -ExecutionPolicy Bypass -File $installer -Version v2026.06.04-rc.1
+powershell -ExecutionPolicy Bypass -File $installer -Version v2026.06.10-rc.1
 ```
 
-Installs to `%LOCALAPPDATA%\Programs\caracal` and verifies release provenance by default. Requires Docker Desktop with WSL2.
+Installs to `%LOCALAPPDATA%\Programs\caracal` and verifies release provenance by default. Remove installed binaries and the user `Path` entry with `-Uninstall`. Requires Docker Desktop with WSL2.
 
 </details>
 
@@ -126,7 +143,7 @@ Installs to `%LOCALAPPDATA%\Programs\caracal` and verifies release provenance by
 caracal up                            # start all services, override with `CARACAL_VERSION=vYYYY.MM.DD caracal up`
 caracal status [--ready]              # probe all services
 caracal down                          # stop; add -v to remove volumes
-caracal purge                         # interactive cleanup (containers, volumes, config, runtime, caches)
+caracal purge                         # interactive cleanup (containers, volumes, config, runtime, examples, caches)
 caracal console                       # launch Console
 caracal run -- node worker.js         # workload execution
 ```
@@ -147,6 +164,8 @@ caracal run -- node worker.js         # workload execution
 - Go 1.26+ (only when changing Go services or shared Go packages)
 - Python 3.14+ (only when changing Python packages)
 - Bun (only when building distributable runtime/console binaries)
+
+Run `pnpm install` after cloning for the standard Node workspace setup. Run `pnpm run setup` when you need the full cross-platform developer environment with Go modules, Python test/style tooling, and editable Python packages.
 
 See [CONTRIBUTING.md](./.github/CONTRIBUTING.md) for clone, setup, testing, and pull request workflow.
 
@@ -186,20 +205,6 @@ See [CONTRIBUTING.md](./.github/CONTRIBUTING.md) for clone, setup, testing, and 
         </a>
       </p>
     </td>
-    <td valign="top" width="33%">
-      <a href="https://github.com/yashgo0018" target="_blank">
-        <img src="https://avatars.githubusercontent.com/yashgo0018?s=150" width="120" alt="yashgo0018"/><br/>
-        <strong>yashgo0018</strong>
-      </a>
-      <p>
-        <a href="https://github.com/yashgo0018" target="_blank">
-          <img src="https://img.shields.io/badge/GitHub-100000?style=flat&logo=github&logoColor=white" alt="GitHub"/>
-        </a>
-        <a href="https://www.linkedin.com/in/yash-goyal-0018" target="_blank">
-          <img src="https://img.shields.io/badge/LinkedIn-0077B5?style=flat&logo=linkedin&logoColor=white" alt="LinkedIn"/>
-        </a>
-      </p>
-    </td>
   </tr>
 </table>
 
@@ -208,21 +213,6 @@ See [CONTRIBUTING.md](./.github/CONTRIBUTING.md) for clone, setup, testing, and 
 ## Contributing
 
 See [CONTRIBUTING.md](./.github/CONTRIBUTING.md) for setup, workflow, tests, and pull request standards.
-
------
-
-## Programs
-
-<div align="center">
-  <div style="display:flex;align-items:center;gap:24px;flex-wrap:wrap;justify-content:center;max-width:960px;">
-    <a href="https://mentorship.lfx.linuxfoundation.org/project/9cfe285b-7006-4610-84a8-1a52b0dff662" target="_blank" rel="noopener">
-      <img src="public/lfx-mentorship.png" alt="LFX Mentorship 2026" width="90" />
-    </a>
-    <div style="max-width:520px;text-align:left;">
-      <p style="margin:0;">This project is part of the <a href="https://mentorship.lfx.linuxfoundation.org/project/9cfe285b-7006-4610-84a8-1a52b0dff662" target="_blank" rel="noopener">LFX Mentorship 2026</a> program under the <a href="https://www.lfdecentralizedtrust.org" target="_blank" rel="noopener">LF Decentralized Trust</a> organization, improving security and open source awareness.</p>
-    </div>
-  </div>
-</div>
 
 -----
 

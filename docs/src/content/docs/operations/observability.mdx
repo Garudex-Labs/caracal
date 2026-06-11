@@ -17,6 +17,10 @@ Every service exposes health/readiness endpoints; most services also expose metr
 | Coordinator | `/health` | `/ready` | `/metrics` |
 | Control | `/health` | `/ready` | Not primary operator surface |
 
+## Metrics Authentication
+
+In published builds (`CARACAL_MODE=rc` or `stable`), every metrics endpoint fails closed: it returns `401` unless `METRICS_BEARER` is set and the scraper presents `Authorization: Bearer <token>`. This applies to API, STS, Gateway, Audit, and Coordinator, all of which are reachable on the internal service network. Provision `METRICS_BEARER` (or `METRICS_BEARER_FILE`) and configure the scraper with the same token to enable collection. In `dev` mode metrics stay open for local inspection.
+
 ## Readiness Ladder
 
 ```mermaid
@@ -64,7 +68,7 @@ Use Console `diagnostics` for API health, readiness, zone diagnostics, and local
 | Symptom | Check |
 | --- | --- |
 | Health passes but readiness fails | Dependency, stream, outbox, policy, revocation, or audit readiness. |
-| Metrics scrape returns unauthorized | Match scraper bearer token to `METRICS_BEARER`. |
+| Metrics scrape returns unauthorized | Published builds require `METRICS_BEARER`; set it and match the scraper's bearer token. |
 | Readiness flaps | CPU throttling, OOM, Postgres/Redis latency, probe timeouts, or dependency restarts. |
 | Smoke test fails only for API `/health` | Confirm the API liveness endpoint responds in the deployment shape being tested. |
 

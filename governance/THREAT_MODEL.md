@@ -4,6 +4,33 @@
 
 This model identifies what can go wrong, who owns the response, what mitigation is expected, and how maintainers verify the system remains safe.
 
+## Assurance Case
+
+**Claim:** Caracal's security requirements — pre-execution authority, deny-by-default authorization, tamper-evident audit, secret confidentiality, and a trusted release path — are met for the in-scope open-source product.
+
+The argument rests on four pillars, each substantiated by the sections and code referenced below.
+
+1. **Threat model.** The threats are enumerated as T1–T12 in [What Can Go Wrong, and How Caracal Handles It](#what-can-go-wrong-and-how-caracal-handles-it). Each entry pairs the problem an adversary would exploit with the controls Caracal enforces against it, how maintainers verify those controls, and who owns them. [Review Triggers](#review-triggers) keeps the model current as boundaries change.
+
+2. **Trust boundaries.** Boundaries are identified explicitly in [Trust Boundaries](#trust-boundaries): client→API/coordinator, API/coordinator→PostgreSQL/Redis, STS→keys/policy/sessions, gateway→upstreams, control→API/coordinator, producers→stream consumers, audit producers→audit service, containers→host, and OSS→enterprise. Every boundary states what is untrusted and where mediation occurs.
+
+3. **Secure design principles are applied.** The design embodies the standard principles, and each is enforced in code:
+   - *Deny-by-default / fail-safe defaults:* STS rejects partial policy results and fails closed on policy, key, replay, revocation, and signing errors; control is disabled unless `CARACAL_CONTROL_ENABLED=true`; the audit HMAC key is required in `rc`/`stable` (T2, T6, T9).
+   - *Complete mediation:* the gateway performs a fresh STS exchange per proxied request and validates bindings before dispatch; protected routes require mandatory auth hooks (T1, T3).
+   - *Least privilege:* STS issues narrowly scoped ES256 mandates; control enforces per-resource `control:<command>:<verb>` scopes; zone-scoped admin tokens limit blast radius (T2, T9, T12).
+   - *Defense in depth:* application-layer zone guards are backed by row-level security, request size/timeout limits, SSRF egress blocking, and hardened containers (T1, T3, T8, T12).
+   - *Separation of privilege and economy of mechanism:* OPA/Rego is the sole policy engine, the gateway is the only proxied-access path, and STS-issued tokens are the only accepted runtime authority ([Assumptions](#assumptions)).
+
+4. **Common implementation weaknesses are countered.** The mitigations map to the recognized weakness classes, and each countermeasure is tested:
+   - *Injection / malformed input:* schema validation (zod, OPA input contracts) on every untrusted request before database or Redis access (T1; route, property, and fuzz tests).
+   - *Broken authentication / token confusion:* ES256 verification pins `WithValidMethods`, with issuer, audience, expiry, replay (JTI), and revocation checks (T2; STS negative tests).
+   - *SSRF and unsafe egress:* the gateway resolves and blocks private, loopback, link-local, CGNAT, and metadata addresses and disables redirects before connecting (T3; gateway SSRF tests).
+   - *Sensitive data exposure:* secrets resolve from files, logs and responses redact key material and credentials, and the audit ledger never stores plaintext claims (T5, T6; redaction and audit tests).
+   - *Tampering / integrity loss:* append-only audit writes with an HMAC chain, HMAC-signed Redis stream messages, and dedupe with ack-after-durable-handling (T6, T7; audit and stream tests).
+   - *Supply-chain compromise:* reviewed lockfiles and module sums, CodeQL/Semgrep/Trivy/Scorecard scanning, and signed, provenance-attested release artifacts verifiable per [Verify a Release](https://caracal.run/security/verify-releases/) (T10; release checks).
+
+Residual, knowingly-open items are tracked in [Known Limits and How Caracal Contains Them](#known-limits-and-how-caracal-contains-them) so the assurance case stays honest about its current limits and the containment already in place.
+
 ## Scope
 
 In scope:
@@ -58,53 +85,121 @@ Out of scope: enterprise-only code, customer deployments outside the provided de
 - External upstreams, registries, package mirrors, S3-compatible export targets, and user-provided provider data are untrusted.
 - Maintainers can challenge any assumption during design review, incident response, or release hardening.
 
-## What Can Go Wrong
+### Known Limits and How Caracal Contains Them
 
-| ID | Threat | Target area | Primary owner |
-|---|---|---|---|
-| T1 | A request bypasses auth, zone ownership, scope checks, or input schemas and mutates control-plane state. | `apps/api`, `apps/coordinator` | API/coordinator maintainers |
-| T2 | STS issues a token with excessive authority because policy, grant, session, step-up, replay, or key validation fails open. | `services/sts`, policy/grant storage | STS maintainers |
-| T3 | Gateway forwards a request to an unsafe or unintended upstream, leaks routing headers, reuses authority, or misses replay/revocation state. | `services/gateway`, resource bindings | Gateway maintainers |
-| T4 | Agent lifecycle or delegation state becomes inconsistent through races, missing transactions, outbox gaps, or relay replay. | `apps/coordinator`, `services/coordinator-relay`, Redis Streams | Coordinator/relay maintainers |
-| T5 | Secrets or sensitive claims appear in logs, API responses, audit payloads, metrics, config, fixtures, release artifacts, or examples. | All services, apps, packages, infra | Owning component maintainer |
-| T6 | Audit evidence is missing, forgeable, mutable, unverifiable, or loses ordering during dependency failures. | `services/audit`, audit producers, Redis Streams, PostgreSQL | Audit and producer maintainers |
-| T7 | Redis Streams messages are forged, replayed, dropped, processed twice, or acknowledged before durable handling. | STS, API, coordinator, audit, relay, gateway revocation consumers | Stream producer/consumer maintainers |
-| T8 | Runtime availability degrades enough to disable enforcement, token exchange, audit, revocation, or control invocation. | Compose stack, PostgreSQL, Redis, STS, gateway, audit, control | Infra and service maintainers |
-| T9 | Optional control invocation becomes a command execution path outside `engine.dispatch`, without audit, or with remote scopes that expand zone-bound tokens into global admin authority. | `apps/control`, `packages/engine`, `packages/admin` | Control maintainers |
-| T10 | A compromised dependency, generated artifact, installer, image, or release process ships malicious or vulnerable code. | `package.json`, `pnpm-lock.yaml`, Go modules, Dockerfiles, installers, releases | Release maintainers |
-| T11 | Security boundaries drift when new services, ports, packages, transports, provider integrations, or enterprise references are added. | Repo architecture and governance | Maintainers approving the change |
+These are the consciously-accepted limits of the open-source product. Each names the limit honestly, the containment Caracal already enforces so the limit cannot become a single point of failure, and the path to closing it fully.
 
-## Mitigations / Actions
+- **Row-level security is enabled and fail-closed, but not yet `FORCE`d.**
+  - *The limit.* Services connect as the table owner, which bypasses `ENABLE`-only RLS, so database-level zone isolation is not yet self-enforcing.
+  - *How Caracal contains it.* Application-layer zone guards mediate every mutation (T1), and each request already binds a per-request Postgres `caracal.zone_id`, so RLS is a forward-compatible backstop that activates the moment `FORCE ROW LEVEL SECURITY` or non-owner service roles are adopted — without an application rewrite.
+  - *Path to closure.* Set the `caracal.zone_id` GUC in every service that touches zone tables, then enable `FORCE ROW LEVEL SECURITY` (or move services to non-owner roles).
 
-| Threats | Required mitigation | Target area | Owner |
-|---|---|---|---|
-| T1 | Keep auth plugins/hooks mandatory for protected routes; validate every request with schemas before database or Redis access; enforce zone, application, team, and scope guards at mutation points. | API/coordinator routes | API/coordinator maintainers |
-| T2 | Keep STS deny-by-default; reject partial policy results; verify stored ownership/session state; require step-up where configured; fail closed on policy, key, replay, revocation, and signing errors. | STS exchange, OPA, key cache, session and grant queries | STS maintainers |
-| T3 | Perform fresh STS exchange per proxied request; strip hop-by-hop and `X-Caracal-*` headers; enforce request size/timeouts; block private, loopback, link-local, CGNAT, and metadata upstreams unless explicitly allowed. | Gateway proxy and safety guard | Gateway maintainers |
-| T4 | Use transactions and advisory locks for graph mutations; publish lifecycle/delegation/invalidation events through the outbox; keep relay dedupe and idle-claim behavior bounded. | Coordinator DB writes, jobs, relay | Coordinator/relay maintainers |
-| T5 | Resolve secrets from secret files; redact known sensitive log paths; never return plaintext key material, client secrets, bearer tokens, subject claims, database URLs, or Redis URLs. | Logging, responses, audit payloads, config | Owning component maintainer |
-| T6 | Keep `audit_events` append-only; sign audit chain entries with HMAC when configured; acknowledge streams only after insert, duplicate handling, or DLQ routing; run tamper sweeps and retention/export jobs under leader locks. | Audit service and producers | Audit maintainers |
-| T7 | Require stream HMAC keys in rc and stable; verify producer signatures where configured; dedupe stream messages; leave transient failures in the pending-entry list for reclaim. | Redis Streams producers and consumers | Stream producer/consumer maintainers |
-| T8 | Preserve bounded request bodies, timeouts, rate limits, health/readiness checks, resource limits, restart policies, and localhost-only port bindings; fail readiness when PostgreSQL, Redis, STS, or required upstreams are unavailable. | Compose, service servers, config | Infra and service maintainers |
-| T9 | Keep control disabled unless `CARACAL_CONTROL_ENABLED=true`; allow only `POST /v1/control/invoke`; require the per-resource `control:<command>:<verb>` scope derived from the engine catalog; validate commands through `engine.dispatch`; enforce zone binding before any admin call that can affect zone-scoped state, and require an explicit global-control model for zone CRUD or other global operations; audit accepted and rejected requests; never shell out. | Control service (`apps/control`), engine catalog (`packages/engine`), and admin client (`packages/admin`) | Control maintainers |
-| T10 | Keep lockfiles and module sums reviewed; publish versioned images and archives only from trusted release paths; verify installers, Dockerfiles, and generated artifacts do not embed secrets or uncontrolled network fetches. | Release tooling and dependencies | Release maintainers |
-| T11 | Update this model, service instructions, tests, and governance when boundaries change; reject OSS changes that depend on enterprise-only code or undocumented controls. | Architecture and governance | Reviewing maintainers |
+- **The global bootstrap admin token can administer every zone.**
+  - *The limit.* A single shared credential carries cross-zone authority.
+  - *How Caracal contains it.* Zone-scoped, per-operator tokens are mintable through the global-only `POST /v1/admin-tokens` route (with `GET`/`DELETE` for listing and revocation), so routine administration uses one token per zone and the day-to-day blast radius is a single zone per credential. Minting is API-only and never exposed on the remote control/engine surface, keeping the privilege-issuance surface narrow.
+  - *Path to closure.* Reserve the global bootstrap token for break-glass and operate exclusively with zone-scoped tokens.
 
-## Validation / How to Verify
+- **`GATEWAY_STS_HMAC_KEY` is shared process-wide rather than per-zone.**
+  - *The limit.* Compromise of this key affects gateway↔STS binding integrity across all zones, not just one.
+  - *How Caracal contains it.* The key is delivered as a secret file, never logged or returned, and protects only the gateway↔STS binding channel; runtime authority itself remains independently ES256-signed and verified, so this key is not a standalone authority. It is required in rc/stable.
+  - *Path to closure.* Derive per-zone binding keys so a single key compromise is contained to one zone.
 
-| Threats | Verification |
-|---|---|
-| T1 | Run API/coordinator route, security, property, fuzz, and contract tests; review new routes for auth hooks, schema validation, zone guards, and admin audit coverage. |
-| T2 | Run `go test ./services/sts/...`; include negative tests for policy denial, partial evaluation, bad keys, revoked sessions, replayed JTIs, expired step-up, and malformed JWT claims. |
-| T3 | Run `go test ./services/gateway/...`; include SSRF, metadata IP, private network, header stripping, request-size, timeout, replay, revocation, and STS-failure cases. |
-| T4 | Run coordinator tests and relay tests; verify graph mutations use transactions/locks and lifecycle events are produced through outbox or relay-safe paths. |
-| T5 | Review logs, metrics, API responses, audit events, fixtures, and generated artifacts for secrets; confirm redaction paths cover new credential fields. |
-| T6 | Run `go test ./services/audit/...`; verify append-only writes, HMAC chain checks, tamper mismatch metrics, DLQ paths, retention rotation, and export behavior. |
-| T7 | Run stream consumer tests for valid signature, missing signature in runtime, duplicate message, transient dependency failure, PEL reclaim, and DLQ routing. |
-| T8 | Run service readiness checks in the Compose stack; confirm dependency outages return unavailable status and do not produce success-shaped responses. |
-| T9 | Run `pnpm --dir apps/control test` and `pnpm --dir packages/engine test`; verify disabled startup, missing scope, hidden-command refusal, invalid flags, replay, rate limit, upstream failure, audit emission, zone-bound dispatch, and explicit denial or separate governance of global zone operations. |
-| T10 | Run dependency review, lockfile diff review, release smoke tests, image build checks, and installer/archive secret scans before publishing. |
-| T11 | During review, compare changed files against this model, `go.work`, workspace packages, service instructions, and Compose boundaries. |
+- **Admin-audit completeness is best-effort, not atomic with the mutation.**
+  - *The limit.* The generic per-mutation record is written in an `onResponse` hook on a separate transaction after the response is sent, with insert failures logged but not surfaced, so a mutation can commit while its audit row is absent if the audit write fails or the service crashes after responding.
+  - *How Caracal contains it.* For recorded rows the per-zone HMAC chain is tamper-evident, so existing evidence cannot be silently altered or reordered; specific cascading semantic events (e.g., DCR shutdown) are already written inside the mutation's transaction; and audit-write failures are logged for reconciliation.
+  - *Path to closure.* Emit the generic audit record inside the mutation's transaction or via the existing transactional outbox so audit durability is atomic with the change it records.
+
+## What Can Go Wrong, and How Caracal Handles It
+
+Each threat (T1–T12) states the **problem** an adversary would exploit, **how Caracal handles it** in code and architecture, **how we verify** the control holds, and the **area and owner** accountable. The intent is to stay honest about the risk while making the enforced defense explicit.
+
+### T1 — Control-plane request bypass
+
+- **Problem.** A request tries to bypass auth, zone ownership, scope checks, or input schemas to mutate control-plane state.
+- **How Caracal handles it.** Auth plugins/hooks are mandatory on every protected route; each request is schema-validated before any database or Redis access; and zone, application, team, and scope guards are enforced at the mutation point.
+- **How we verify.** API/coordinator route, security, property, fuzz, and contract tests; every new route is reviewed for auth hooks, schema validation, zone guards, and admin-audit coverage.
+- **Area & owner.** `apps/api`, `apps/coordinator` — API/coordinator maintainers.
+
+### T2 — STS over-issuance / fail-open
+
+- **Problem.** STS could issue a token with excessive authority if policy, grant, session, step-up, replay, or key validation fails open.
+- **How Caracal handles it.** STS is deny-by-default: it rejects partial policy results, verifies stored ownership/session state, requires step-up where configured, and fails closed on policy, key, replay, revocation, and signing errors.
+- **How we verify.** `go test ./services/sts/...` with negative tests for policy denial, partial evaluation, bad keys, revoked sessions, replayed JTIs, expired step-up, and malformed JWT claims.
+- **Area & owner.** `services/sts`, policy/grant storage — STS maintainers.
+
+### T3 — Gateway egress / SSRF and authority reuse
+
+- **Problem.** The gateway could forward a request to an unsafe or unintended upstream, leak routing headers, reuse authority, or miss replay/revocation state.
+- **How Caracal handles it.** It performs a fresh STS exchange per proxied request; strips hop-by-hop and `X-Caracal-*` headers; enforces request size and timeouts; and blocks private, loopback, link-local, CGNAT, and metadata upstreams — including NAT64-embedded forms of those addresses — and disables redirects unless an upstream is explicitly allowed.
+- **How we verify.** `go test ./services/gateway/...` covering SSRF, metadata IP, private network, NAT64-embedded, header stripping, request-size, timeout, replay, revocation, and STS-failure cases.
+- **Area & owner.** `services/gateway`, resource bindings — Gateway maintainers.
+
+### T4 — Lifecycle / delegation state inconsistency
+
+- **Problem.** Agent lifecycle or delegation state could become inconsistent through races, missing transactions, outbox gaps, or relay replay.
+- **How Caracal handles it.** Graph mutations use transactions and advisory locks; lifecycle, delegation, and invalidation events are published through the outbox; and relay dedupe and idle-claim behavior is bounded.
+- **How we verify.** Coordinator and relay tests confirm graph mutations use transactions/locks and that lifecycle events flow through the outbox or relay-safe paths.
+- **Area & owner.** `apps/coordinator`, `services/coordinator-relay`, Redis Streams — Coordinator/relay maintainers.
+
+### T5 — Secret / sensitive-claim exposure
+
+- **Problem.** Secrets or sensitive claims could appear in logs, API responses, audit payloads, metrics, config, fixtures, release artifacts, or examples.
+- **How Caracal handles it.** Secrets resolve from secret files; known sensitive log paths are redacted; and responses never return plaintext key material, client secrets, bearer tokens, subject claims, database URLs, or Redis URLs.
+- **How we verify.** Review of logs, metrics, API responses, audit events, fixtures, and generated artifacts for secrets, confirming redaction covers any new credential fields.
+- **Area & owner.** All services, apps, packages, infra — owning component maintainer.
+
+### T6 — Audit integrity / ordering loss
+
+- **Problem.** Audit evidence could be missing, forgeable, mutable, unverifiable, or lose ordering during dependency failures.
+- **How Caracal handles it.** `audit_events` is append-only; chain entries are HMAC-signed when configured; streams are acknowledged only after insert, duplicate handling, or DLQ routing; and tamper sweeps plus retention/export jobs run under leader locks.
+- **How we verify.** `go test ./services/audit/...` for append-only writes, HMAC chain checks, tamper-mismatch metrics, DLQ paths, retention rotation, and export behavior.
+- **Area & owner.** `services/audit`, audit producers, Redis Streams, PostgreSQL — Audit and producer maintainers.
+
+### T7 — Stream forgery / replay / double-processing
+
+- **Problem.** Redis Streams messages could be forged, replayed, dropped, processed twice, or acknowledged before durable handling.
+- **How Caracal handles it.** Stream HMAC keys are required in rc and stable; producer signatures are verified where configured; messages are deduped; and transient failures stay in the pending-entry list for reclaim.
+- **How we verify.** Stream consumer tests for valid signature, missing signature in runtime, duplicate message, transient dependency failure, PEL reclaim, and DLQ routing.
+- **Area & owner.** STS, API, coordinator, audit, relay, gateway revocation consumers — Stream producer/consumer maintainers.
+
+### T8 — Availability degradation disabling enforcement
+
+- **Problem.** Runtime availability could degrade enough to disable enforcement, token exchange, audit, revocation, or control invocation.
+- **How Caracal handles it.** Bounded request bodies, timeouts, rate limits, health/readiness checks, resource limits, restart policies, and localhost-only port bindings are preserved; readiness fails when PostgreSQL, Redis, STS, or required upstreams are unavailable, so enforcement never silently returns success-shaped responses.
+- **How we verify.** Service readiness checks in the Compose stack confirm dependency outages return unavailable status rather than success-shaped responses.
+- **Area & owner.** Compose stack, PostgreSQL, Redis, STS, gateway, audit, control — Infra and service maintainers.
+
+### T9 — Control invocation as a privilege-escalation path
+
+- **Problem.** Optional control invocation could become a command-execution path outside `engine.dispatch`, run without audit, or use remote scopes that expand zone-bound tokens into global admin authority.
+- **How Caracal handles it.** Control is disabled unless `CARACAL_CONTROL_ENABLED=true`; only `POST /v1/control/invoke` is allowed; each call requires the per-resource `control:<command>:<verb>` scope derived from the engine catalog; commands are validated through `engine.dispatch` and never shelled out; zone binding is enforced before any admin call that affects zone-scoped state; zone CRUD and other global operations require an explicit global-control model; and both accepted and rejected requests are audited.
+- **How we verify.** `pnpm --dir apps/control test` and `pnpm --dir packages/engine test` for disabled startup, missing scope, hidden-command refusal, invalid flags, replay, rate limit, upstream failure, audit emission, zone-bound dispatch, and explicit denial or separate governance of global zone operations.
+- **Area & owner.** `apps/control`, `packages/engine`, `packages/admin` — Control maintainers.
+
+### T10 — Supply-chain / release compromise
+
+- **Problem.** A compromised dependency, generated artifact, installer, image, or release process could ship malicious or vulnerable code.
+- **How Caracal handles it.** Lockfiles and module sums are reviewed; images and archives are published only from trusted release paths; installers, Dockerfiles, and generated artifacts are checked for embedded secrets and uncontrolled network fetches; and CodeQL, Semgrep, Trivy, and Scorecard scanning plus signed, provenance-attested artifacts make releases independently verifiable per [Verify a Release](https://caracal.run/security/verify-releases/).
+- **How we verify.** Dependency review, lockfile diff review, release smoke tests, image build checks, and installer/archive secret scans before publishing.
+- **Area & owner.** `package.json`, `pnpm-lock.yaml`, Go modules, Dockerfiles, installers, releases — Release maintainers.
+
+### T11 — Boundary drift as the system grows
+
+- **Problem.** Security boundaries could drift when new services, ports, packages, transports, provider integrations, or enterprise references are added.
+- **How Caracal handles it.** This model, service instructions, tests, and governance are updated whenever boundaries change, and OSS changes that depend on enterprise-only code or undocumented controls are rejected.
+- **How we verify.** During review, changed files are compared against this model, `go.work`, workspace packages, service instructions, and Compose boundaries.
+- **Area & owner.** Repo architecture and governance — Maintainers approving the change.
+
+### T12 — Admin-foothold expansion and audit evasion
+
+- **Problem.** A compromised or shared admin credential, a spoofed internal header, an unauthenticated metrics/docs surface, or a forgeable admin-audit record could expand a single control-plane foothold into broad multi-zone compromise — or hide the act.
+- **How Caracal handles it.**
+  - *Intent comes from identity, not headers.* Control-resource and internal-trait intent is derived from the authenticated actor scope (`actor.scope === 'global'`), never from caller-supplied `X-Caracal-*` headers; the step-up approver is bound to the authenticated actor, never to a request-body field.
+  - *Operational surfaces are closed by default.* The network-bound `/metrics` requires a metrics bearer (or refuses) in rc/stable, and OpenAPI/docs default off in published builds.
+  - *Audit is tamper-evident.* Admin-audit rows redact OAuth `code`/`state` and all query strings, and are chained per zone with a tamper-evident HMAC chain (advisory-locked head read and insert kept atomic). Audit completeness is best-effort rather than transactional (see [Known Limits and How Caracal Contains Them](#known-limits-and-how-caracal-contains-them)).
+  - *Blast radius is contained.* Distinct zone-scoped, per-operator admin tokens are mintable through the global-only `POST /v1/admin-tokens` route, reserving the shared global bootstrap token for break-glass; and each zone-scoped request binds Postgres `caracal.zone_id` so RLS becomes an enforced backstop the moment `FORCE ROW LEVEL SECURITY` (or non-owner roles) is enabled.
+- **How we verify.** `tests/typescript/unit/api/routes/{applications,resources,step-up-challenges,admin-tokens}.test.ts`, `api/app.test.ts`, `api/config.test.ts`, `api/admin-audit.test.ts`, and `api/zone-scope.test.ts`; confirm header spoofing cannot alter control-resource/trait visibility, the step-up approver is the actor, `/metrics` denies unauthenticated access in published mode, docs default off when published, admin-token minting is global-only, and admin-audit rows redact query strings and link a verifiable per-zone HMAC chain.
+- **Area & owner.** `apps/api`, `apps/coordinator`, `packages/admin`, admin tokens, admin audit ledger — API/coordinator maintainers.
 
 ## Review Triggers
 

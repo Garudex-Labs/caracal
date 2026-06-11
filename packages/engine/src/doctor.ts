@@ -53,12 +53,23 @@ export interface DoctorOptions {
   preflightOnly?: boolean
 }
 
+interface MetricEvaluation {
+  detail: string
+  status: DoctorStatus
+  advice?: string
+}
+
 interface ServiceTarget {
   name: string
   baseUrl: string
   metricsPath?: string
-  summarizeMetrics?: (value: unknown) => string
+  evaluateMetrics?: (value: unknown) => MetricEvaluation
 }
+
+const AUDIT_LAG_WARN = 1000
+const OUTBOX_PENDING_WARN = 500
+const CLOCK_SKEW_WARN_MS = 2000
+const CLOCK_SKEW_FAIL_MS = 30000
 
 export const DOCTOR_SECTION_LABELS: Record<DoctorSection, string> = {
   health: 'System health',
@@ -112,32 +123,61 @@ function nestedNumber(value: unknown, path: string[]): number | undefined {
   return typeof current === 'number' ? current : undefined
 }
 
-function summarizeSTS(value: unknown): string {
+function evaluateSTS(value: unknown): MetricEvaluation {
   const compileErrors = nestedNumber(value, ['opa', 'compile_errors'])
   const evalErrors = nestedNumber(value, ['opa', 'eval_errors'])
   const maxPolicyAge = nestedNumber(value, ['opa', 'max_policy_age_seconds'])
-  return `opa compile_errors=${compileErrors ?? '-'} eval_errors=${evalErrors ?? '-'} max_policy_age_seconds=${maxPolicyAge ?? '-'}`
+  const detail = `opa compile_errors=${compileErrors ?? '-'} eval_errors=${evalErrors ?? '-'} max_policy_age_seconds=${maxPolicyAge ?? '-'}`
+  if ((compileErrors ?? 0) > 0) {
+    return { detail, status: 'fail', advice: 'STS cannot compile a policy bundle; token exchanges may deny or run on a stale bundle. Inspect the active policy set version and STS logs.' }
+  }
+  if ((evalErrors ?? 0) > 0) {
+    return { detail, status: 'warn', advice: 'STS reported policy evaluation errors; review recent policy changes and STS logs.' }
+  }
+  return { detail, status: 'ok' }
 }
 
-function summarizeGateway(value: unknown): string {
+function evaluateGateway(value: unknown): MetricEvaluation {
   const bindings = nestedNumber(value, ['bindings_loaded'])
   const revocations = nestedNumber(value, ['revocations_active'])
   const denied = nestedNumber(value, ['requests_denied'])
-  return `bindings=${bindings ?? '-'} revocations=${revocations ?? '-'} denied=${denied ?? '-'}`
+  return { detail: `bindings=${bindings ?? '-'} revocations=${revocations ?? '-'} denied=${denied ?? '-'}`, status: 'ok' }
 }
 
-function summarizeAudit(value: unknown): string {
+function evaluateAudit(value: unknown): MetricEvaluation {
   const lag = nestedNumber(value, ['consumer_lag'])
   const dlq = nestedNumber(value, ['dlq_size'])
-  const tamper = nestedNumber(value, ['tamper_mismatch_total'])
-  return `consumer_lag=${lag ?? '-'} dlq_size=${dlq ?? '-'} tamper_mismatch_total=${tamper ?? '-'}`
+  const tamperMismatch = nestedNumber(value, ['tamper_mismatch_total'])
+  const chainBreaks = nestedNumber(value, ['tamper_chain_breaks'])
+  const hmacFailures = nestedNumber(value, ['hmac_failures_total'])
+  const detail = `consumer_lag=${lag ?? '-'} dlq_size=${dlq ?? '-'} tamper_mismatch_total=${tamperMismatch ?? '-'} chain_breaks=${chainBreaks ?? '-'} hmac_failures=${hmacFailures ?? '-'}`
+  if ((tamperMismatch ?? 0) > 0 || (chainBreaks ?? 0) > 0) {
+    return { detail, status: 'fail', advice: 'Audit chain integrity failure detected (tamper mismatch or chain break). Treat as a security incident: preserve evidence and investigate audit writers and key consistency.' }
+  }
+  if ((hmacFailures ?? 0) > 0) {
+    return { detail, status: 'warn', advice: 'Audit HMAC verification failures detected; verify AUDIT_HMAC_KEY is identical across every audit writer.' }
+  }
+  if ((dlq ?? 0) > 0) {
+    return { detail, status: 'warn', advice: 'Audit events are landing in the dead-letter queue; inspect parse or processing failures before they age out.' }
+  }
+  if ((lag ?? 0) > AUDIT_LAG_WARN) {
+    return { detail, status: 'warn', advice: 'Audit consumer is lagging; recorded events may be delayed. Check audit consumer throughput and stream backlog.' }
+  }
+  return { detail, status: 'ok' }
 }
 
-function summarizeCoordinator(value: unknown): string {
+function evaluateCoordinator(value: unknown): MetricEvaluation {
   const outboxDead = nestedNumber(value, ['outbox', 'dead'])
   const outboxPending = nestedNumber(value, ['outbox', 'pending'])
   const invocationsRunning = nestedNumber(value, ['invocations', 'running'])
-  return `outbox_pending=${outboxPending ?? '-'} outbox_dead=${outboxDead ?? '-'} invocations_running=${invocationsRunning ?? '-'}`
+  const detail = `outbox_pending=${outboxPending ?? '-'} outbox_dead=${outboxDead ?? '-'} invocations_running=${invocationsRunning ?? '-'}`
+  if ((outboxDead ?? 0) > 0) {
+    return { detail, status: 'warn', advice: 'Coordinator outbox has dead rows; spawn or revocation events failed delivery. Inspect and requeue the dead outbox rows.' }
+  }
+  if ((outboxPending ?? 0) > OUTBOX_PENDING_WARN) {
+    return { detail, status: 'warn', advice: 'Coordinator outbox backlog is high; downstream propagation may be delayed. Confirm the outbox processor is running.' }
+  }
+  return { detail, status: 'ok' }
 }
 
 function addCheck(checks: DoctorCheck[], check: DoctorCheck): DoctorCheck {
@@ -196,10 +236,10 @@ function serviceTarget(
   envKeys: string[],
   devDefault: string,
   metricsPath: string,
-  summarizeMetrics: (value: unknown) => string,
+  evaluateMetrics: (value: unknown) => MetricEvaluation,
 ): ServiceTarget | undefined {
   try {
-    return { name, baseUrl: serviceUrl(envKeys, devDefault), metricsPath, summarizeMetrics }
+    return { name, baseUrl: serviceUrl(envKeys, devDefault), metricsPath, evaluateMetrics }
   } catch (err) {
     addCheck(checks, {
       section: 'readiness',
@@ -217,16 +257,22 @@ function coordinatorTokenHeaders(): ProbeHeaders | undefined {
   return token ? { Authorization: `Bearer ${token}` } : undefined
 }
 
+async function runMetricsCheck(checks: DoctorCheck[], target: ServiceTarget, headers?: ProbeHeaders): Promise<void> {
+  const body = await fetchJSON(`${target.baseUrl}${target.metricsPath}`, headers)
+  const evaluation = target.evaluateMetrics ? target.evaluateMetrics(body) : { detail: 'queryable', status: 'ok' as DoctorStatus }
+  addCheck(checks, {
+    section: 'readiness',
+    check: `${target.name} metrics`,
+    status: evaluation.status,
+    detail: evaluation.detail,
+    advice: evaluation.advice,
+  })
+}
+
 async function runCoordinatorMetrics(checks: DoctorCheck[], target: ServiceTarget): Promise<void> {
   const headers = coordinatorTokenHeaders()
   try {
-    const body = await fetchJSON(`${target.baseUrl}${target.metricsPath}`, headers)
-    addCheck(checks, {
-      section: 'readiness',
-      check: 'coordinator metrics',
-      status: 'ok',
-      detail: target.summarizeMetrics ? target.summarizeMetrics(body) : 'queryable',
-    })
+    await runMetricsCheck(checks, target, headers)
   } catch (err) {
     const detail = message(err)
     if (!headers && /^HTTP 401\b/.test(detail)) {
@@ -252,10 +298,10 @@ async function runCoordinatorMetrics(checks: DoctorCheck[], target: ServiceTarge
 async function runServiceChecks(checks: DoctorCheck[], apiUrl: string): Promise<void> {
   const targets = [
     { name: 'api', baseUrl: apiUrl },
-    serviceTarget(checks, 'sts', ['CARACAL_STS_URL', 'CARACAL_ZONE_URL'], DEFAULT_ZONE_URL, '/metrics.json', summarizeSTS),
-    serviceTarget(checks, 'gateway', ['CARACAL_GATEWAY_URL'], DEFAULT_GATEWAY_URL, '/metrics.json', summarizeGateway),
-    serviceTarget(checks, 'audit', ['CARACAL_AUDIT_URL'], 'http://localhost:9090', '/metrics.json', summarizeAudit),
-    serviceTarget(checks, 'coordinator', ['CARACAL_COORDINATOR_URL'], DEFAULT_COORDINATOR_URL, '/stats', summarizeCoordinator),
+    serviceTarget(checks, 'sts', ['CARACAL_STS_URL', 'CARACAL_ZONE_URL'], DEFAULT_ZONE_URL, '/metrics.json', evaluateSTS),
+    serviceTarget(checks, 'gateway', ['CARACAL_GATEWAY_URL'], DEFAULT_GATEWAY_URL, '/metrics.json', evaluateGateway),
+    serviceTarget(checks, 'audit', ['CARACAL_AUDIT_URL'], 'http://localhost:9090', '/metrics.json', evaluateAudit),
+    serviceTarget(checks, 'coordinator', ['CARACAL_COORDINATOR_URL'], DEFAULT_COORDINATOR_URL, '/stats', evaluateCoordinator),
   ].filter((target): target is ServiceTarget => target !== undefined)
   for (const target of targets) {
     await runCheck(
@@ -270,10 +316,17 @@ async function runServiceChecks(checks: DoctorCheck[], apiUrl: string): Promise<
         await runCoordinatorMetrics(checks, target)
         continue
       }
-      await runCheck(checks, 'readiness', `${target.name} metrics`, async () => {
-        const body = await fetchJSON(`${target.baseUrl}${target.metricsPath}`)
-        return target.summarizeMetrics ? target.summarizeMetrics(body) : 'queryable'
-      }, `Confirm ${target.name} exposes operator metrics on ${target.metricsPath}.`)
+      try {
+        await runMetricsCheck(checks, target)
+      } catch (err) {
+        addCheck(checks, {
+          section: 'readiness',
+          check: `${target.name} metrics`,
+          status: 'fail',
+          detail: message(err),
+          advice: `Confirm ${target.name} exposes operator metrics on ${target.metricsPath}.`,
+        })
+      }
     }
   }
 }
@@ -369,6 +422,65 @@ async function runZoneChecks(checks: DoctorCheck[], ctx: AdminContext, zoneId: s
   }, 'Inspect audit service and storage connectivity for the selected zone.')
 }
 
+async function runClockSkewCheck(checks: DoctorCheck[], apiUrl: string): Promise<void> {
+  try {
+    const target = normalizeHttpUrl(`${apiUrl}/health`, 'doctor probe')
+    const before = Date.now()
+    const res = await fetch(target, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS), redirect: 'error' })
+    const after = Date.now()
+    const dateHeader = res.headers?.get?.('date') ?? null
+    if (!dateHeader) {
+      addCheck(checks, {
+        section: 'health',
+        check: 'clock skew',
+        status: 'warn',
+        detail: 'api did not return a Date header; clock drift could not be measured',
+        advice: 'Confirm the API emits a Date response header so operator clock drift can be checked.',
+      })
+      return
+    }
+    const serverMs = Date.parse(dateHeader)
+    if (Number.isNaN(serverMs)) {
+      addCheck(checks, { section: 'health', check: 'clock skew', status: 'warn', detail: `unparseable Date header: ${dateHeader}` })
+      return
+    }
+    const roundTrip = after - before
+    const localMidpoint = before + roundTrip / 2
+    const rawSkew = Math.abs(serverMs - localMidpoint)
+    const skew = Math.max(0, rawSkew - 1000 - roundTrip)
+    const detail = `~${Math.round(skew / 1000)}s vs api (HTTP Date resolution ~1s)`
+    if (skew >= CLOCK_SKEW_FAIL_MS) {
+      addCheck(checks, {
+        section: 'health',
+        check: 'clock skew',
+        status: 'fail',
+        detail,
+        advice: 'Operator clock differs from the platform by more than 30s; token iat/nbf/exp validation and audit ordering will break. Sync the host clock with NTP.',
+      })
+      return
+    }
+    if (skew >= CLOCK_SKEW_WARN_MS) {
+      addCheck(checks, {
+        section: 'health',
+        check: 'clock skew',
+        status: 'warn',
+        detail,
+        advice: 'Operator clock drift detected; keep all hosts NTP-synced to avoid token timing and audit ordering issues.',
+      })
+      return
+    }
+    addCheck(checks, { section: 'health', check: 'clock skew', status: 'ok', detail })
+  } catch (err) {
+    addCheck(checks, {
+      section: 'health',
+      check: 'clock skew',
+      status: 'warn',
+      detail: message(err),
+      advice: 'Could not measure clock skew; ensure the API is reachable.',
+    })
+  }
+}
+
 async function runHealthAndZoneChecks(
   checks: DoctorCheck[],
   ctx: AdminContext | undefined,
@@ -382,6 +494,7 @@ async function runHealthAndZoneChecks(
     async () => fetchOk(`${apiUrl}/health`),
     'Start the stack with `pnpm caracal up` or inspect API service logs.',
   )
+  await runClockSkewCheck(checks, apiUrl)
   if (!ctx) return { zoneScope: 'none', zoneIds: [] }
 
   let zones: Zone[] = []

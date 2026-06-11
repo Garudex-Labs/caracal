@@ -1,6 +1,6 @@
 {
   "name": "@caracalai/admin-audit",
-  "version": "0.1.4-rc.1",
+  "version": "0.1.5-rc.2",
   "private": true,
   "description": "Internal admin audit persistence utilities for Caracal services.",
   "license": "Apache-2.0",
@@ -21,6 +21,7 @@
     "uuid": "^14.0.0"
   },
   "devDependencies": {
+    "@types/node": "^24.12.2",
     "typescript": "^6.0.3"
   }
 }

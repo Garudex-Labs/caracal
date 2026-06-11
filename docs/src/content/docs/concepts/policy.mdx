@@ -51,22 +51,41 @@ Example input values:
 
 | Input | Example |
 | --- | --- |
-| `input.principal.id` | `user:finance-operator@example.com` |
-| `input.application.id` | `app_lynx_control` |
+| `input.principal.id` | `app_lynx_control` (the acting application, user, or agent) |
+| `input.principal.registration_method` | `managed` or `dcr` |
 | `input.resource.identifier` | `resource://mercury-bank` |
 | `input.context.requested_scopes` | `["payments:read", "payments:write"]` |
 | `input.delegation_edge` | Present when authority was delegated from another agent session. |
 
-## Common Input Areas
+## Policy Input Contract
 
-| Input area | Contains | Common check |
+Every evaluation receives this exact input shape (`schema_version` `2026-05-20`). There is no `input.application` or `input.grant` object — the acting application is the principal, and grant bounds are enforced by the STS before the policy runs. Author rules only against the fields below.
+
+| Path | Type | Meaning |
 | --- | --- | --- |
-| `input.principal` | Acting subject or agent identity. | Match a user, service, or agent allowlist. |
-| `input.application` | Registered application requesting exchange. | Restrict a client to approved resources. |
-| `input.resource` | Target resource and requested scopes. | Compare requested scopes with resource policy. |
-| `input.context` | Session, requested scopes, exchange metadata, and challenge state. | Require step-up or session freshness. |
-| `input.grant` | Matching grant data when available. | Enforce grant expiry and scope bounds. |
-| `input.delegation_edge` | Delegation path and typed constraints when exchange is delegated. | Enforce hop count, chain match, and constraint limits. |
+| `input.principal.type` | string | `Application`, user, service, or agent principal class. |
+| `input.principal.id` | string | Stable identifier of the acting application/user/agent. |
+| `input.principal.zone_id` | string | Zone the principal belongs to. |
+| `input.principal.registration_method` | string | `managed` or `dcr`; match `dcr` to scope dynamically registered workloads. |
+| `input.principal.lifecycle` | string | `task` or `service` for agent sessions. |
+| `input.principal.labels` | string[] | Role descriptors set at `spawn(labels=[...])`; drive least-privilege role checks. |
+| `input.principal.agent_session_id` | string | Agent session that initiated the exchange, when present. |
+| `input.resource.type` | string | Resource class, e.g. `Resource`. |
+| `input.resource.id` | string | Internal resource id. |
+| `input.resource.identifier` | string | Stable audience URI, e.g. `resource://mercury-bank`. |
+| `input.resource.scopes` | string[] | Scopes the resource defines (the full allowlist). |
+| `input.action.id` | string | The exchange action, currently `TokenExchange`. |
+| `input.session.id` | string | Present when the request is bound to a session. |
+| `input.delegation_edge` | object | Present only on delegated exchange (see below). |
+| `input.context.requested_scopes` | string[] | Scopes the caller is requesting now; gate these against the allowlist. |
+| `input.context.actor_claims` | object | Verified claims of the acting credential. |
+| `input.context.subject_claims` | object | Verified claims of the delegated subject, when present. |
+| `input.context.challenge_resolved` | bool | `true` after a step-up challenge is satisfied. |
+| `input.context.trace_id` | string | Request trace id for audit correlation. |
+
+When `input.delegation_edge` is present it carries: `id`, `source_session_id`, `target_session_id`, `issuer_application_id`, `receiver_application_id`, `resource_id`, `scopes` (the narrowed grant), `edge_version`, `path` (the full delegation chain), `graph_epoch`, and `constraints_json` (typed delegation constraints such as a cost budget). Use these to enforce hop count, chain membership, and constraint limits.
+
+External lookup tables are referenced through `data.*` (for example `data.allowed_scopes[principal][resource]`). You supply that data; the policy only reads it.
 
 ## Policy Outcomes
 

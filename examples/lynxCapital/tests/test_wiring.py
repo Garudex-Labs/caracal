@@ -74,6 +74,24 @@ def test_identity_directory_reachable(providerlab):
     assert "items" in res["data"]
 
 
+def test_identity_org_and_access_tools_reachable(providerlab):
+    chain = tool_fns.resolve_approver_chain("r", "a", "EMP-1002")
+    assert _provider_of(chain) == "lumen-identity"
+    assert chain["data"]["chain"][-1]["id"] == "EMP-1001"
+
+    access = tool_fns.check_user_access("r", "a", "EMP-1001")
+    assert _provider_of(access) == "lumen-identity"
+    assert "directory:read" in access["data"]["permissions"]
+
+    members = tool_fns.list_team_members("r", "a", "TEAM-ap")
+    assert _provider_of(members) == "lumen-identity"
+    assert all(u["teamId"] == "TEAM-ap" for u in members["data"]["items"])
+
+    svc = tool_fns.get_service_identity("r", "a", "SVC-ap-bot")
+    assert _provider_of(svc) == "lumen-identity"
+    assert svc["data"]["ownerTeamId"] == "TEAM-ap"
+
+
 def test_market_snapshot_reachable(providerlab):
     res = tool_fns.get_market_snapshot("r", "a", "USD/EUR")
     assert _provider_of(res) == "pulse-market"
@@ -83,6 +101,25 @@ def test_market_snapshot_reachable(providerlab):
 def test_crm_activity_reachable(providerlab):
     res = tool_fns.log_supplier_activity("r", "a", "CONT-00001", "call")
     assert _provider_of(res) == "beacon-crm"
+
+
+def test_crm_account_and_pipeline_reachable(providerlab):
+    contact = tool_fns.get_supplier_contact("r", "a", "CONT-00001")["data"]
+    account_id = contact["accountId"]
+
+    account = tool_fns.get_supplier_account("r", "a", account_id)
+    assert _provider_of(account) == "beacon-crm"
+    assert account["data"]["id"] == account_id
+
+    contacts = tool_fns.list_supplier_contacts("r", "a", account_id)
+    assert all(ct["accountId"] == account_id for ct in contacts["data"]["items"])
+
+    deals = tool_fns.list_supplier_deals("r", "a", account_id)
+    assert _provider_of(deals) == "beacon-crm"
+    assert all(d["status"] == "open" for d in deals["data"]["items"])
+
+    note = tool_fns.add_supplier_note("r", "a", "CONT-00001", "Reviewed payment terms.")
+    assert note["data"]["body"] == "Reviewed payment terms."
 
 
 # --------------------------------------------------------------------------- #
@@ -144,3 +181,37 @@ def test_settle_vendor_fx_payment_chains_conversion_beneficiary_payment(provider
     settled = tool_fns.get_fx_settlement_status("r", "a", payment["id"])
     assert settled["data"]["status"] in ("submitted", "completed")
 
+
+
+# --------------------------------------------------------------------------- #
+# Treasury tools reach Keystone over its gRPC-style surface
+# --------------------------------------------------------------------------- #
+def test_cash_position_and_summary_reach_keystone(providerlab):
+    pos = tool_fns.get_cash_position("r", "a", "US")
+    assert _provider_of(pos) == "keystone-treasury" and pos["operation"] == "get_position"
+    assert pos["data"]["currency"] == "USD" and pos["data"]["accountCount"] >= 1
+
+    summary = tool_fns.get_treasury_summary("r", "a")
+    assert _provider_of(summary) == "keystone-treasury"
+    assert summary["data"]["reportingCurrency"] == "USD"
+    assert summary["data"]["byCurrency"]
+
+
+def test_forecast_and_exposure_reach_keystone(providerlab):
+    fc = tool_fns.forecast_liquidity("r", "a", 30, "stress")
+    assert _provider_of(fc) == "keystone-treasury" and fc["data"]["scenario"] == "stress"
+    assert fc["data"]["points"]
+
+    exp = tool_fns.get_fx_exposure("r", "a", "EUR")
+    assert _provider_of(exp) == "keystone-treasury" and exp["operation"] == "get_exposure"
+    assert "unhedgedAmount" in exp["data"]
+
+
+def test_hedge_and_transfer_reach_keystone(providerlab):
+    hedge = tool_fns.place_fx_hedge("r", "a", "EUR", "USD", 1_000_000.0, 90)
+    assert _provider_of(hedge) == "keystone-treasury" and hedge["operation"] == "place_hedge"
+    assert hedge["data"]["status"] == "booked" and hedge["data"]["instrument"] == "forward"
+
+    transfer = tool_fns.transfer_funds("r", "a", "US", "DE", 25_000.0)
+    assert _provider_of(transfer) == "keystone-treasury"
+    assert transfer["data"]["type"] == "intercompany"

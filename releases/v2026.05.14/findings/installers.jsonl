@@ -1,4 +1,0 @@
-{"area":"installers","artifact":"install.sh","platform":"windows-amd64","pm":"shell","runtime":"-","severity":"info","status":"pass","evidence":"installer placed caracal on PATH","repro":"bash install.sh --version v2026.05.14"}
-{"area":"installers","artifact":"install.ps1","platform":"windows-amd64","pm":"pwsh","runtime":"-","severity":"info","status":"pass","evidence":"PowerShell installer completed","repro":"pwsh -File install.ps1 -Version v2026.05.14"}
-{"area":"installers","artifact":"install.sh","platform":"linux-amd64","pm":"shell","runtime":"-","severity":"info","status":"pass","evidence":"installer placed caracal on PATH","repro":"bash install.sh --version v2026.05.14"}
-{"area":"installers","artifact":"install.ps1","platform":"linux-amd64","pm":"pwsh","runtime":"-","severity":"info","status":"warn","evidence":"PowerShell installer is only exercised on Windows runners","repro":"pwsh -File install.ps1 -Version v2026.05.14"}

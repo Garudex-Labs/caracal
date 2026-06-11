@@ -1,0 +1,59 @@
+---
+/*
+ * Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+ * Caracal, a product of Garudex Labs
+ *
+ * Editorial article shell for blog posts with a back link, category chip, author byline, and post body slot.
+ */
+
+import community from "../data/community.json";
+
+interface Props {
+  title: string;
+  post: {
+    category: string;
+    author: string;
+    role?: string;
+    date: string | Date;
+    readingTime?: string;
+  };
+}
+
+const { title, post } = Astro.props;
+const published = new Date(post.date);
+const tint = (community.blogCategories as { name: string; tint: string }[]).find((c) => c.name === post.category)?.tint ?? "#60a5fa";
+const initials = post.author
+  .split(/\s+/)
+  .map((word) => word[0])
+  .slice(0, 2)
+  .join("")
+  .toUpperCase();
+const formatted = published.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+---
+
+<section class="media-page">
+  <article class="post-article" style={`--tint: ${tint}`}>
+    <a class="post-article__back" href="/blogs/">
+      <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" />
+      </svg>
+      <span>All posts</span>
+    </a>
+    <span class="chip">{post.category}</span>
+    <h1 class="post-article__title">{title}</h1>
+    <div class="post-article__byline">
+      <span class="avatar" aria-hidden="true">{initials}</span>
+      <span class="bcard__byline">
+        <span class="bcard__author">{post.author}</span>
+        {post.role && <span class="bcard__role">{post.role}</span>}
+      </span>
+      <span class="bcard__when">
+        <time datetime={published.toISOString()}>{formatted}</time>
+        {post.readingTime && <span>{post.readingTime}</span>}
+      </span>
+    </div>
+    <div class="post-article__body">
+      <slot />
+    </div>
+  </article>
+</section>

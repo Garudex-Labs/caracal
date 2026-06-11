@@ -9,14 +9,14 @@ build-backend = "hatchling.build"
 
 [project]
 name = "caracalai-identity"
-version = "0.1.4rc1"
+version = "0.1.5rc2"
 description = "Caracal JWT verification, JWKS cache, scope evaluation, and claim shapes"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-  "caracalai-core==0.1.4rc1",
+  "caracalai-core==0.1.5rc2",
   "PyJWT>=2.10.0",
   "httpx>=0.28.0",
   "idna>=3.15",

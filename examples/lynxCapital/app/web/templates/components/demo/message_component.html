@@ -2,130 +2,118 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-Demo message templates for user prompts, agent turns, tool calls, controls, and provider telemetry.
+Demo message templates for user prompts, agent turns, activity step groups, tool calls, and controls.
 #}
 <template id="tpl-user-message">
-  <article class="msg-card msg-user">
-    <div class="msg-container">
-      <header class="msg-header">
-        <div class="msg-ident">
-          <span class="msg-author">You</span>
-        </div>
+  <article class="msg msg-user">
+    <div class="msg-body">
+      <header class="msg-meta">
+        <span class="msg-author">You</span>
+        <span class="msg-spacer"></span>
         <span class="msg-time"></span>
       </header>
-      <div class="msg-body">
-        <div class="msg-content"></div>
-      </div>
+      <div class="msg-content"></div>
     </div>
   </article>
 </template>
 
 <template id="tpl-assistant-message">
-  <article class="msg-card msg-assistant tone-worker">
-    <div class="msg-container">
-      <header class="msg-header">
-        <div class="msg-ident">
-          <span class="msg-avatar-dot" aria-hidden="true"></span>
-          <span class="msg-author">Agent</span>
-          <span class="msg-model-tag"></span>
-        </div>
-        <div class="msg-ident">
-          <span class="msg-status-indicator">Thinking</span>
-          <span class="msg-time"></span>
-        </div>
+  <article class="msg msg-assistant tone-worker">
+    <span class="msg-avatar" aria-hidden="true"></span>
+    <div class="msg-body">
+      <header class="msg-meta">
+        <span class="msg-author">Agent</span>
+        <span class="msg-model-tag"></span>
+        <span class="msg-spacer"></span>
+        <span class="msg-status-indicator">Working</span>
+        <span class="msg-time"></span>
       </header>
-      <div class="msg-body">
-        <div class="msg-content"></div>
-      </div>
+      <div class="msg-flow"></div>
     </div>
   </article>
 </template>
 
+<template id="tpl-step-group">
+  <details class="msg-steps">
+    <summary class="msg-steps-line">
+      <span class="msg-caret" aria-hidden="true"></span>
+      <span class="msg-steps-spinner" aria-hidden="true"></span>
+      <span class="msg-steps-title">Working</span>
+    </summary>
+    <div class="msg-steps-body"></div>
+  </details>
+</template>
+
 <template id="tpl-tool-card">
-  <article class="msg-card msg-tool">
-    <div class="msg-container">
-      <header class="msg-header">
-        <div class="msg-ident">
-          <span class="msg-icon" aria-hidden="true">◆</span>
-          <span class="msg-tool-name">tool_call</span>
-          <span class="msg-tool-status-badge status-executing">executing</span>
-        </div>
+  <article class="msg msg-tool">
+    <details class="msg-detail-shell">
+      <summary class="msg-line">
+        <span class="msg-caret" aria-hidden="true"></span>
+        <span class="msg-tool-name">tool_call</span>
+        <span class="msg-tool-summary"></span>
+        <span class="msg-spacer"></span>
+        <span class="msg-tool-duration"></span>
+        <span class="msg-tool-status-badge status-executing">executing</span>
         <span class="msg-time"></span>
-      </header>
-      <details class="msg-tool-args">
-        <summary>Arguments</summary>
-        <pre class="msg-json-block"></pre>
-      </details>
-      <details class="msg-tool-output" hidden>
-        <summary>Output</summary>
-        <pre class="msg-json-block"></pre>
-      </details>
-    </div>
+      </summary>
+      <div class="msg-detail-body">
+        <div class="msg-detail-block msg-tool-args">
+          <span class="msg-detail-label">Arguments</span>
+          <pre class="msg-json-block"></pre>
+        </div>
+        <div class="msg-detail-block msg-tool-output" hidden>
+          <span class="msg-detail-label">Output</span>
+          <pre class="msg-json-block"></pre>
+        </div>
+      </div>
+    </details>
   </article>
 </template>
 
 <template id="tpl-system-row">
   <div class="msg-system-row">
-    <span class="msg-system-icon" aria-hidden="true"></span>
     <span class="msg-system-kicker">SYSTEM</span>
     <span class="msg-system-text"></span>
+    <span class="msg-spacer"></span>
     <span class="msg-system-time msg-time"></span>
   </div>
 </template>
 
 <template id="tpl-security-card">
-  <article class="msg-card msg-security">
-    <div class="msg-container">
-      <header class="msg-header">
-        <div class="msg-ident">
-          <span class="msg-icon" aria-hidden="true">!</span>
-          <span class="msg-security-rule">Control violation</span>
+  <article class="msg msg-security">
+    <details class="msg-detail-shell">
+      <summary class="msg-line">
+        <span class="msg-caret" aria-hidden="true"></span>
+        <span class="msg-security-rule">Policy check</span>
+        <span class="msg-security-reason"></span>
+        <span class="msg-spacer"></span>
+        <span class="msg-security-action-badge">checked</span>
+        <span class="msg-time"></span>
+      </summary>
+      <div class="msg-detail-body">
+        <div class="msg-security-policy"></div>
+        <div class="msg-detail-block">
+          <span class="msg-detail-label">Decision record</span>
+          <pre class="msg-json-block"></pre>
         </div>
-        <span class="msg-security-action-badge">Intercepted</span>
-      </header>
-      <div class="msg-security-policy"></div>
-      <div class="msg-security-reason"></div>
-      <details class="msg-security-details">
-        <summary>Details</summary>
-        <pre class="msg-json-block"></pre>
-      </details>
-    </div>
+      </div>
+    </details>
   </article>
 </template>
 
 <template id="tpl-approval-card">
-  <article class="msg-card msg-approval">
-    <div class="msg-container">
-      <header class="msg-header">
-        <div class="msg-ident">
-          <span class="msg-icon" aria-hidden="true">?</span>
-          <span class="msg-approval-title">Approval required</span>
-        </div>
-        <span class="msg-approval-timeout">Awaiting decision</span>
-      </header>
-      <div class="msg-approval-context"></div>
-      <div class="msg-approval-actions">
-        <button type="button" class="btn btn-primary btn-approve">Approve</button>
-        <button type="button" class="btn btn-stop btn-reject">Reject</button>
-      </div>
+  <article class="msg msg-approval">
+    <header class="msg-meta">
+      <span class="msg-approval-title">Approval required</span>
+      <span class="msg-spacer"></span>
+      <span class="msg-approval-state">Awaiting decision</span>
+      <span class="msg-time"></span>
+    </header>
+    <div class="msg-approval-context"></div>
+    <div class="msg-approval-actions">
+      <button type="button" class="btn btn-primary btn-approve">Approve</button>
+      <button type="button" class="btn btn-stop btn-reject">Reject</button>
     </div>
   </article>
 </template>
 
-<template id="tpl-provider-card">
-  <article class="msg-card msg-provider">
-    <div class="msg-container">
-      <header class="msg-header">
-        <div class="msg-ident">
-          <span class="msg-provider-name">Provider</span>
-          <span class="msg-provider-tokens">0 tokens</span>
-        </div>
-        <span class="msg-provider-latency">0ms</span>
-      </header>
-      <details class="msg-provider-headers">
-        <summary>Provider details</summary>
-        <pre class="msg-json-block"></pre>
-      </details>
-    </div>
-  </article>
-</template>

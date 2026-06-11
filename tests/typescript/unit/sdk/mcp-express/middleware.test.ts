@@ -26,7 +26,10 @@ vi.mock('@caracalai/transport-mcp', async () => ({
 function makeMockRes(): Partial<Response> & { statusCode?: number; body?: unknown } {
   const res: Partial<Response> & { statusCode?: number; body?: unknown } = {}
   res.status = vi.fn().mockReturnValue(res) as unknown as Response['status']
-  res.json = vi.fn((body) => { res.body = body; return res }) as unknown as Response['json']
+  res.json = vi.fn((body) => {
+    res.body = body
+    return res
+  }) as unknown as Response['json']
   return res
 }
 
@@ -132,7 +135,13 @@ describe('caracalAuth middleware', () => {
     await middleware(req, res as Response, next as unknown as NextFunction)
 
     expect(next).toHaveBeenCalledOnce()
-    expect((req as Request & { caracalContext?: { zoneId: string; agentSessionId: string; delegationEdgeId: string; parentEdgeId: string; hop: number } }).caracalContext).toMatchObject({
+    expect(
+      (
+        req as Request & {
+          caracalContext?: { zoneId: string; agentSessionId: string; delegationEdgeId: string; parentEdgeId: string; hop: number }
+        }
+      ).caracalContext,
+    ).toMatchObject({
       zoneId: 'zone-1',
       agentSessionId: 'agent-header',
       delegationEdgeId: 'edge-header',

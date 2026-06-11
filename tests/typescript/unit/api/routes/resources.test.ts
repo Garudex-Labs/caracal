@@ -29,7 +29,7 @@ describe('GET /v1/zones/:zoneId/resources', () => {
   })
 
   it('lets the Control path include the Control API resource', async () => {
-    const { app, db } = buildRouteApp(resourcesRoutes)
+    const { app, db } = buildRouteApp(resourcesRoutes, { prefix: '/v1' }, { actor: { scope: 'global' } })
     db.query.mockResolvedValueOnce({
       rows: [{ id: 'res-control', identifier: 'caracal-control', created_at: '2026-05-25T00:00:00.000Z' }],
     })
@@ -38,7 +38,6 @@ describe('GET /v1/zones/:zoneId/resources', () => {
     const res = await app.inject({
       method: 'GET',
       url: '/v1/zones/z1/resources',
-      headers: { 'x-caracal-control-resource': 'manage' },
     })
 
     expect(res.statusCode).toBe(200)
@@ -203,7 +202,7 @@ describe('POST /v1/zones/:zoneId/resources', () => {
     db.query
       .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
       .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
-      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
+      .mockResolvedValueOnce({ rows: [{ registration_method: 'managed' }] })
     db.connect.mockResolvedValueOnce(client)
 
     await app.ready()
@@ -256,7 +255,7 @@ describe('POST /v1/zones/:zoneId/resources', () => {
       .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
-      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
+      .mockResolvedValueOnce({ rows: [{ registration_method: 'managed' }] })
     db.connect.mockResolvedValueOnce(client)
 
     await app.ready()
@@ -297,7 +296,7 @@ describe('POST /v1/zones/:zoneId/resources', () => {
     db.query
       .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
       .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
-      .mockResolvedValueOnce({ rows: [{ resource_count: '0' }] })
+      .mockResolvedValueOnce({ rows: [{ registration_method: 'managed' }] })
     db.connect.mockResolvedValueOnce(client)
 
     await app.ready()
@@ -325,7 +324,7 @@ describe('POST /v1/zones/:zoneId/resources', () => {
     db.query
       .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
       .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
-      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
+      .mockResolvedValueOnce({ rows: [{ registration_method: 'managed' }] })
       .mockResolvedValueOnce({ rows: [{ resource_count: '1' }] })
 
     await app.ready()
@@ -343,6 +342,31 @@ describe('POST /v1/zones/:zoneId/resources', () => {
 
     expect(res.statusCode).toBe(409)
     expect(JSON.parse(res.body)).toMatchObject({ error: 'resource_quota_exceeded' })
+    expect(db.connect).not.toHaveBeenCalled()
+  })
+
+  it('rejects binding a DCR application as the Gateway identity', async () => {
+    const { app, db } = buildRouteApp(resourcesRoutes)
+    db.query
+      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
+      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
+      .mockResolvedValueOnce({ rows: [{ registration_method: 'dcr' }] })
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/resources',
+      payload: {
+        identifier: 'resource://api',
+        upstream_url: 'https://api.example.com',
+        scopes: ['read'],
+        gateway_application_id: 'dcr-app',
+        credential_provider_id: 'provider-1',
+      },
+    })
+
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'gateway_exchange_application_must_be_managed' })
     expect(db.connect).not.toHaveBeenCalled()
   })
 
@@ -366,7 +390,7 @@ describe('POST /v1/zones/:zoneId/resources', () => {
   })
 
   it('allows the Control path to create the Control API resource', async () => {
-    const { app, db } = buildRouteApp(resourcesRoutes)
+    const { app, db } = buildRouteApp(resourcesRoutes, { prefix: '/v1' }, { actor: { scope: 'global' } })
     db.query
       .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
       .mockResolvedValueOnce({ rows: [{ id: 'provider-none-z1' }] })
@@ -377,7 +401,6 @@ describe('POST /v1/zones/:zoneId/resources', () => {
     const res = await app.inject({
       method: 'POST',
       url: '/v1/zones/z1/resources',
-      headers: { 'x-caracal-control-resource': 'manage' },
       payload: {
         identifier: 'caracal-control',
         scopes: ['control:agent:write'],

@@ -20,7 +20,7 @@ on:
         default: ''
         type: string
       releaseVersion:
-        description: 'Release tag to dry-run, such as v2026.06.04-rc.1'
+        description: 'Release tag to dry-run, such as v2026.06.10-rc.1'
         required: true
         type: string
       dryRun:

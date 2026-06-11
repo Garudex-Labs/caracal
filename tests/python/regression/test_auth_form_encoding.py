@@ -11,16 +11,18 @@ from unittest.mock import patch
 
 import httpx
 
-from caracalai_sdk.auth import ClientSecretExchanger
+from caracalai.auth import ClientSecretExchanger
 
 _RealClient = httpx.Client
 
 
 def _jwt_with_exp() -> str:
     header = base64.urlsafe_b64encode(b'{"alg":"none"}').rstrip(b"=").decode("ascii")
-    body = base64.urlsafe_b64encode(
-        json.dumps({"exp": time.time() + 3600}).encode()
-    ).rstrip(b"=").decode("ascii")
+    body = (
+        base64.urlsafe_b64encode(json.dumps({"exp": time.time() + 3600}).encode())
+        .rstrip(b"=")
+        .decode("ascii")
+    )
     return f"{header}.{body}.sig"
 
 
@@ -47,7 +49,7 @@ class MultiResourceBodyRegression(unittest.TestCase):
             resources=["urn:res:a", "urn:res:b", "urn:res:c"],
         )
 
-        with patch("caracalai_sdk.auth.httpx.Client", factory):
+        with patch("caracalai.auth.httpx.Client", factory):
             token = exchanger.get_token()
 
         self.assertTrue(token)

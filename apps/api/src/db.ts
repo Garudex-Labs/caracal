@@ -4,13 +4,29 @@
 // PostgreSQL connection pool for the API service.
 
 import pg from 'pg'
+import { currentZoneScope, GLOBAL_ZONE_SCOPE } from './zone-context.js'
 
-export type DB = pg.Pool
 type QueryParam = string | number | boolean | null | string[]
 
 export interface Queryable {
   query: <T = unknown>(text: string, params?: QueryParam[]) => Promise<{ rows: T[] }>
 }
+
+export interface QueryResultLike<T> {
+  rows: T[]
+  rowCount: number | null
+}
+
+// Request-scoped database handle. For zone-scoped actors every query runs with
+// the caracal.zone_id RLS GUC bound to the actor's zone so the database enforces
+// tenant isolation as a backstop to the application-layer zone checks. Global
+// actors and background workers operate with the '*' sentinel (RLS open).
+export interface DB {
+  query: <T = any>(text: string, params?: unknown[]) => Promise<QueryResultLike<T>>
+  connect: () => Promise<TxClient>
+}
+
+const ZONE_GUC_SQL = "SELECT set_config('caracal.zone_id', $1, true)"
 
 export interface DBOptions {
   connectionString: string
@@ -23,7 +39,7 @@ export interface DBOptions {
   onZoneGUCError?: (err: unknown) => void
 }
 
-export function newDB(options: DBOptions): DB {
+export function newDB(options: DBOptions): pg.Pool {
   const stmt = options.statementTimeoutMs ?? 15_000
   const idleTx = options.idleInTxTimeoutMs ?? 30_000
   const pool = new pg.Pool({
@@ -42,6 +58,38 @@ export function newDB(options: DBOptions): DB {
     })
   })
   return pool
+}
+
+// Wraps the raw pool so every db.query honors the request-scoped zone GUC. For a
+// specific zone the query runs inside a transaction with a transaction-local
+// caracal.zone_id; for the '*' sentinel it uses the pooled connection directly
+// (whose session GUC is already '*').
+export function scopedDB(pool: pg.Pool): DB {
+  return {
+    async query<T = any>(text: string, params?: unknown[]): Promise<QueryResultLike<T>> {
+      const scope = currentZoneScope()
+      if (scope === GLOBAL_ZONE_SCOPE) {
+        const result = await pool.query(text, params as unknown[])
+        return { rows: result.rows as T[], rowCount: result.rowCount }
+      }
+      const client = await pool.connect()
+      try {
+        await client.query('BEGIN')
+        await client.query(ZONE_GUC_SQL, [scope])
+        const result = await client.query(text, params as unknown[])
+        await client.query('COMMIT')
+        return { rows: result.rows as T[], rowCount: result.rowCount }
+      } catch (err) {
+        await client.query('ROLLBACK').catch(() => {})
+        throw err
+      } finally {
+        client.release()
+      }
+    },
+    connect() {
+      return pool.connect()
+    },
+  }
 }
 
 export type TxClient = pg.PoolClient
@@ -78,6 +126,10 @@ export async function withTransaction<T>(
     for (let attempt = 1; ; attempt++) {
       try {
         await client.query('BEGIN')
+        const scope = currentZoneScope()
+        if (scope !== GLOBAL_ZONE_SCOPE) {
+          await client.query(ZONE_GUC_SQL, [scope])
+        }
         const value = await fn(client)
         await client.query('COMMIT')
         return value

@@ -48,10 +48,10 @@ Determine:
 - protected resource identifier and available scopes
 - requested scopes and whether every scope must match an allowlist
 - actor identity from `input.principal` and relevant subject claims from `input.context`
-- application attributes from `input.application` when available
+- principal attributes from `input.principal` (`registration_method`, `lifecycle`, `labels`)
 - session requirements from `input.session` or `input.context`
 - delegation constraints from `input.delegation_edge` when delegated access is involved
-- grant-aware requirements from `input.grant` when grant context is available
+- subject claims from `input.context.subject_claims` when access is delegated
 - expected allow decision
 - expected deny decision and diagnostics
 - representative allow and deny simulation inputs
@@ -61,7 +61,9 @@ Determine:
 Only use documented or supplied input fields. Common Caracal policy input areas include:
 
 - `input.principal`
-- `input.application`
+- `input.principal.registration_method`
+- `input.principal.lifecycle`
+- `input.principal.labels`
 - `input.resource`
 - `input.action`
 - `input.context.requested_scopes`
@@ -69,7 +71,6 @@ Only use documented or supplied input fields. Common Caracal policy input areas 
 - `input.context.subject_claims`
 - `input.context.challenge_resolved`
 - `input.session`
-- `input.grant`
 - `input.delegation_edge`
 
 Never assume a field exists because it would be convenient. Ask for the sample policy input or schema when uncertain.

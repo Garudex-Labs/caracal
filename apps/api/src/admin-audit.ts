@@ -6,6 +6,7 @@
 import { pathOnly } from '@caracalai/core'
 import { MUTATING_METHODS, insertAdminAuditRecord } from '@caracalai/admin-audit'
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
+import { withTransaction } from './db.js'
 import type { DB } from './db.js'
 import type { Actor } from './auth.js'
 
@@ -24,7 +25,13 @@ function entityFromUrl(url: string): { type: string | null; id: string | null } 
   for (let i = segments.length - 2; i >= 0; i--) {
     const candidate = segments[i]
     const next = segments[i + 1]
-    if (candidate && next && /^(zones|applications|resources|providers|provider-grants|policies|policy-sets|policy-templates|grants|step-up-challenges)$/.test(candidate)) {
+    if (
+      candidate &&
+      next &&
+      /^(zones|applications|resources|providers|provider-grants|policies|policy-sets|policy-templates|grants|step-up-challenges|admin-tokens)$/.test(
+        candidate,
+      )
+    ) {
       return { type: candidate, id: next }
     }
   }
@@ -39,6 +46,7 @@ function isProviderOAuthCallback(method: string, url: string): boolean {
 export interface AuditPluginOptions {
   db: DB
   enabled?: boolean
+  hmacKey?: Buffer | null
 }
 
 export function registerAdminAuditHook(app: FastifyInstance, opts: AuditPluginOptions): void {
@@ -52,25 +60,31 @@ export function registerAdminAuditHook(app: FastifyInstance, opts: AuditPluginOp
 
     const actor: Actor | null = req.actor ?? null
     const entity = entityFromUrl(req.url)
+    const path = pathOnly(req.url)
+    const zoneScoped = actor?.scope === 'zone' && actor.zoneId ? actor.zoneId : null
     try {
-      await insertAdminAuditRecord(opts.db, {
-        requestId: req.id,
-        actorId: actor?.id ?? null,
-        actorName: actor?.name ?? null,
-        actorScope: actor?.scope ?? null,
-        action: `${req.method} ${req.url}`,
-        method: req.method,
-        path: req.url,
-        zoneId: zoneFromUrl(req.url),
-        entityType: entity.type,
-        entityId: entity.id,
-        statusCode: reply.statusCode,
-        payloadJson: {
-          rls_bypass: true,
-          rls_mode: 'control_plane_wildcard',
-          rls_zone_guc: '*',
-        },
-      })
+      await withTransaction(opts.db, (client) =>
+        insertAdminAuditRecord(
+          client,
+          {
+            requestId: req.id,
+            actorId: actor?.id ?? null,
+            actorName: actor?.name ?? null,
+            actorScope: actor?.scope ?? null,
+            action: `${req.method} ${path}`,
+            method: req.method,
+            path,
+            zoneId: zoneFromUrl(req.url),
+            entityType: entity.type,
+            entityId: entity.id,
+            statusCode: reply.statusCode,
+            payloadJson: zoneScoped
+              ? { rls_mode: 'zone_scoped', rls_zone_guc: zoneScoped }
+              : { rls_mode: 'control_plane_wildcard', rls_zone_guc: '*' },
+          },
+          opts.hmacKey ?? null,
+        ),
+      )
     } catch (err) {
       req.log.warn({ err, requestId: req.id }, 'failed to record admin audit event')
     }

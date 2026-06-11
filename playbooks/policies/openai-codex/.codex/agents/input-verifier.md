@@ -12,12 +12,12 @@ Verify which policy input fields are available and safe to use.
 ## Verify
 
 - `input.principal`
-- `input.application`
+- `input.principal.registration_method`
+- `input.principal.labels`
 - `input.resource`
 - `input.action`
 - `input.context`
 - `input.session`
-- `input.grant`
 - `input.delegation_edge`
 - sample allow input
 - sample deny input

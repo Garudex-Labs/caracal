@@ -7,12 +7,21 @@
 ARG PNPM_VERSION=11.1.1
 
 FROM golang:1.26-alpine@sha256:f85330846cde1e57ca9ec309382da3b8e6ae3ab943d2739500e08c86393a21b1 AS health-builder
-ENV CGO_ENABLED=0 GOOS=linux
+ARG CGO_ENABLED=0
+ARG CC
+ARG CFLAGS
+ARG CXX
+ARG CXXFLAGS
+ARG LDFLAGS
+ARG GOFLAGS
+ARG GO_BUILDFLAGS
+ARG GO_LDFLAGS
+ENV CGO_ENABLED=${CGO_ENABLED} GOOS=linux
 WORKDIR /healthcheck
 COPY infra/healthcheck/ ./
 RUN --mount=type=cache,target=/root/.cache/go-build,sharing=locked \
     --mount=type=cache,target=/go/pkg/mod,sharing=locked \
-    GOWORK=off go build -trimpath -ldflags='-s -w' -o /healthcheck-bin ./
+    GOWORK=off go build -mod=readonly -trimpath ${GO_BUILDFLAGS} -ldflags="${GO_LDFLAGS}" -o /healthcheck-bin ./
 
 FROM node:24-slim@sha256:24dc26ef1e3c3690f27ebc4136c9c186c3133b25563ae4d7f0692e4d1fe5db0e AS builder
 ARG PNPM_VERSION

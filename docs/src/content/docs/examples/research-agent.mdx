@@ -68,14 +68,18 @@ export CARACAL_CONFIG="$HOME/.config/caracal/research-agent/caracal.toml"
 caracal run -- node agent.mjs
 ```
 
-The agent opens an interactive prompt:
+The agent confirms the injected credentials (values masked) and opens an interactive prompt:
 
 ```text
+[agent] credential preflight (values masked, injected by launcher):
+[agent]   GOOGLE_DRIVE_ACCESS_TOKEN  present  -> Google Drive (read-only scope)
+[agent]   GOOGLE_CALENDAR_ACCESS_TOKEN  present  -> Google Calendar (read-only scope)
+[agent]   OPENAI_API_KEY  present  -> OpenAI
 Caracal run research agent ready. Ask about Drive docs or Calendar events. Type "exit" to quit.
 >
 ```
 
-Credentials disappear with the child-process environment when the process exits.
+Started directly with `node agent.mjs`, the preflight fails with exit code 2 before any network call. Credentials disappear with the child-process environment when the process exits.
 
 ## Test
 

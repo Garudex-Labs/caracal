@@ -4,7 +4,13 @@
 // Unit tests for the syntactic Rego validator.
 
 import { describe, it, expect } from 'vitest'
-import { analyzeAuthzPolicy, parseRego, validatePolicySource, validateAuthzPolicy } from '../../../../apps/api/src/rego.js'
+import {
+  analyzeAuthzPolicy,
+  parseRego,
+  previewAuthzPolicy,
+  validatePolicySource,
+  validateAuthzPolicy,
+} from '../../../../apps/api/src/rego.js'
 
 describe('parseRego', () => {
   it('extracts package and rule names', () => {
@@ -65,7 +71,47 @@ describe('validateAuthzPolicy', () => {
 
 describe('analyzeAuthzPolicy', () => {
   it('warns for broad policies without requested scope checks', () => {
-    const warnings = analyzeAuthzPolicy('package caracal.authz\ndefault result := { "decision": "allow", "evaluation_status": "complete", "determining_policies": [], "diagnostics": [] }')
+    const warnings = analyzeAuthzPolicy(`package caracal.authz
+default result := { "decision": "allow", "evaluation_status": "complete", "determining_policies": [], "diagnostics": [] }`)
     expect(warnings).toEqual(expect.arrayContaining(['default_result_allows_access', 'missing_requested_scope_check']))
+  })
+
+  it('warns when no default result deny fallback is declared', () => {
+    const warnings = analyzeAuthzPolicy(`package caracal.authz
+result := { "decision": "allow" } if { "read" in input.context.requested_scopes }`)
+    expect(warnings).toContain('missing_default_result')
+  })
+
+  it('does not flag a deny default followed by allow rules', () => {
+    const warnings = analyzeAuthzPolicy(`package caracal.authz
+default result := { "decision": "deny", "evaluation_status": "complete", "determining_policies": [], "diagnostics": [] }
+result := { "decision": "allow", "evaluation_status": "complete", "determining_policies": [], "diagnostics": [] } if {
+  every scope in input.context.requested_scopes { scope in {"read"} }
+}`)
+    expect(warnings).not.toContain('default_result_allows_access')
+  })
+})
+
+describe('previewAuthzPolicy', () => {
+  it('reports the parsed shape and referenced contract paths', () => {
+    const preview = previewAuthzPolicy(`package caracal.authz
+default result := {"decision": "deny", "evaluation_status": "complete", "determining_policies": [], "diagnostics": []}
+result := {"decision": "allow", "evaluation_status": "complete", "determining_policies": [], "diagnostics": []} if {
+  input.resource.identifier == "resource://api"
+  every scope in input.context.requested_scopes { scope in data.allowed_scopes }
+}`)
+    expect(preview).not.toBeNull()
+    expect(preview).toMatchObject({
+      package: 'caracal.authz',
+      rules: ['result'],
+      default_result: true,
+      decisions: ['allow', 'deny'],
+      inputs_referenced: ['input.context.requested_scopes', 'input.resource.identifier'],
+      data_referenced: ['data.allowed_scopes'],
+    })
+  })
+
+  it('returns null for non-authz policies', () => {
+    expect(previewAuthzPolicy('package other\nresult := true')).toBeNull()
   })
 })

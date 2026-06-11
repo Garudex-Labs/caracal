@@ -2,8 +2,9 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-Run lifecycle endpoints: start, SSE event stream, lineage, and graph.
+Run lifecycle endpoints: start, SSE event stream, status, cancel, and approvals.
 """
+
 from __future__ import annotations
 
 from uuid import uuid4
@@ -75,99 +76,13 @@ def cancel(run_id: str) -> dict:
     return {"runId": run_id, "cancelled": ok}
 
 
-@router.get("/{run_id}/approvals")
-def pending_approvals(run_id: str) -> dict:
-    """List approval requests awaiting a decision for this run."""
-    return {"runId": run_id, "pending": approvals.list_pending(run_id)}
-
-
 @router.post("/{run_id}/approve")
-def approve(run_id: str, body: ApprovalDecision) -> dict:
-    """Resolve a pending human-in-the-loop approval request."""
+async def approve(run_id: str, body: ApprovalDecision) -> dict:
+    """Resolve a pending human-in-the-loop approval request. Runs on the event
+    loop so the waiter's asyncio.Event is set from its own thread."""
     ok = approvals.resolve(run_id, body.requestId, body.approved, body.note)
     if not ok:
-        raise HTTPException(status_code=404, detail="Unknown or already-resolved approval request")
+        raise HTTPException(
+            status_code=404, detail="Unknown or already-resolved approval request"
+        )
     return {"runId": run_id, "requestId": body.requestId, "approved": body.approved}
-
-
-@router.get("/{run_id}/lineage")
-def lineage(run_id: str) -> dict:
-    history = bus.history(run_id)
-    if not history:
-        raise HTTPException(status_code=404, detail="Run not found")
-
-    spawns = {e.payload["agent_id"]: e for e in history if e.kind == "agent_spawn"}
-    terminates = {e.payload["agent_id"]: e for e in history if e.kind == "agent_terminate"}
-    starts = {e.payload["agent_id"]: e for e in history if e.kind == "agent_start"}
-
-    nodes = []
-    for agent_id, spawn_ev in spawns.items():
-        term_ev = terminates.get(agent_id)
-        start_ev = starts.get(agent_id)
-        status = "spawned"
-        if start_ev and not term_ev:
-            status = "running"
-        elif term_ev:
-            status = term_ev.payload.get("status", "completed")
-
-        nodes.append({
-            "id": agent_id,
-            "role": spawn_ev.payload.get("role"),
-            "layer": spawn_ev.payload.get("layer"),
-            "region": spawn_ev.payload.get("region"),
-            "parent": spawn_ev.payload.get("parent_id"),
-            "status": status,
-            "ts_spawn": spawn_ev.ts,
-            "ts_terminate": term_ev.ts if term_ev else None,
-        })
-
-    return {"runId": run_id, "nodes": nodes}
-
-
-@router.get("/{run_id}/graph")
-def graph(run_id: str) -> dict:
-    history = bus.history(run_id)
-    if not history:
-        raise HTTPException(status_code=404, detail="Run not found")
-
-    spawns = {e.payload["agent_id"]: e for e in history if e.kind == "agent_spawn"}
-    terminates = {e.payload["agent_id"]: e for e in history if e.kind == "agent_terminate"}
-    starts = {e.payload["agent_id"]: e for e in history if e.kind == "agent_start"}
-    delegations = [e for e in history if e.kind == "delegation"]
-
-    nodes = []
-    for agent_id, spawn_ev in spawns.items():
-        term_ev = terminates.get(agent_id)
-        start_ev = starts.get(agent_id)
-        status = "spawned"
-        if start_ev and not term_ev:
-            status = "running"
-        elif term_ev:
-            status = term_ev.payload.get("status", "completed")
-
-        nodes.append({
-            "id": agent_id,
-            "role": spawn_ev.payload.get("role"),
-            "layer": spawn_ev.payload.get("layer"),
-            "region": spawn_ev.payload.get("region"),
-            "parent": spawn_ev.payload.get("parent_id"),
-            "status": status,
-        })
-
-    edges = []
-    for spawn_ev in spawns.values():
-        parent = spawn_ev.payload.get("parent_id")
-        if parent:
-            edges.append({
-                "from": parent,
-                "to": spawn_ev.payload["agent_id"],
-                "kind": "spawn",
-            })
-    for d in delegations:
-        edges.append({
-            "from": d.payload["parent_id"],
-            "to": d.payload["child_id"],
-            "kind": "delegation",
-        })
-
-    return {"runId": run_id, "nodes": nodes, "edges": edges}

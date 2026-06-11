@@ -92,6 +92,20 @@ describe('POST /v1/zones/:zoneId/delegations', () => {
 
   it('rejects expired delegation edges', async () => {
     const { app, db } = buildApp()
+    const client = {
+      query: vi.fn()
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [
+          { id: 'src-1', application_id: 'issuer-1' },
+          { id: 'dst-1', application_id: 'receiver-1' },
+        ] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [] }),
+      release: vi.fn(),
+    }
+    db.connect.mockResolvedValueOnce(client)
 
     await app.ready()
     const res = await app.inject({
@@ -102,7 +116,7 @@ describe('POST /v1/zones/:zoneId/delegations', () => {
 
     expect(res.statusCode).toBe(400)
     expect(JSON.parse(res.body)).toMatchObject({ error: 'delegation_expired' })
-    expect(db.connect).not.toHaveBeenCalled()
+    expect(client.query).toHaveBeenCalledWith('ROLLBACK')
   })
 
   it('rejects self delegation', async () => {
@@ -337,6 +351,45 @@ describe('POST /v1/zones/:zoneId/delegations', () => {
 
     expect(res.statusCode).toBe(403)
     expect(JSON.parse(res.body)).toMatchObject({ error: 'delegation_scopes_exceed_resource' })
+  })
+
+  it('allows scopes drawn from the union of multiple constrained resources', async () => {
+    const { app, db } = buildApp()
+    const client = {
+      query: vi.fn()
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [
+          { id: 'src-1', application_id: 'issuer-1' },
+          { id: 'dst-1', application_id: 'receiver-1' },
+        ] })
+        .mockResolvedValueOnce({ rows: [
+          { id: 'res-1', identifier: 'calendar', application_id: 'issuer-1', scopes: ['read'] },
+          { id: 'res-2', identifier: 'ledger', application_id: 'issuer-1', scopes: ['write'] },
+        ] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [{ id: 'edge-union' }] })
+        .mockResolvedValueOnce({ rows: [{ epoch: '1' }] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValue({ rows: [] }),
+      release: vi.fn(),
+    }
+    db.connect.mockResolvedValueOnce(client)
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/delegations',
+      payload: {
+        ...delegationBody,
+        scopes: ['read', 'write'],
+        constraints: { resources: ['calendar', 'ledger'] },
+      },
+    })
+
+    expect(res.statusCode).toBe(201)
+    expect(JSON.parse(res.body)).toMatchObject({ id: 'edge-union' })
   })
 
   it('accepts the SDK wire shape and returns the edge row with id', async () => {
@@ -851,6 +904,7 @@ describe('PATCH /v1/zones/:zoneId/delegations/:id/revoke', () => {
           { id: 'agent-2', subject_session_id: 'sid-shared', parent_id: null },
           { id: 'agent-3', subject_session_id: 'sid-shared', parent_id: 'agent-2' },
         ] })
+        .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [{ epoch: '5' }] })
         .mockResolvedValueOnce({ rows: [] })

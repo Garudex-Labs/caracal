@@ -36,6 +36,15 @@ flowchart TD
 
 Most of these are configured directly. A *grant* is a permission binding for resource scopes that policy can read during evaluation; it is not the mandate a resource server verifies.
 
+## One Application, Many Agents
+
+An application and an agent are different layers, and they scale differently:
+
+- An **application** is the credentialed security boundary — operator-provisioned or dynamically registered, holding the secret Caracal authenticates. It is created deliberately.
+- An **agent session** is the runtime unit — created the moment a workload acts, with no secret and no registration step.
+
+One application backs many agent sessions. A durable workload registers **one managed application**, then spawns, delegates, and fans out as many agent sessions as it needs under that single credential. You do not create an application per agent; per-agent attribution comes from the agent session, not a new application. See [Should I create one application per agent?](/reference/faq/#faq-006).
+
 ## Three Runtime Verbs
 
 | Verb | Meaning |
