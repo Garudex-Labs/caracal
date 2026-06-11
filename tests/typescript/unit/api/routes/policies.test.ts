@@ -76,6 +76,10 @@ describe('POST /v1/zones/:zoneId/policies', () => {
       payload: { name: 'p1', content: validRego },
     })
     expect(res.statusCode).toBe(201)
+    const body = JSON.parse(res.body)
+    expect(body.id).toBeDefined()
+    expect(body.version_id).toBe('pv-1')
+    expect(body.version).toMatchObject({ id: 'pv-1' })
   })
 })
 
@@ -150,7 +154,7 @@ describe('POST /v1/zones/:zoneId/policies/:id/versions', () => {
     })
 
     expect(res.statusCode).toBe(201)
-    expect(JSON.parse(res.body)).toMatchObject({ id: 'pv-2', version: 2 })
+    expect(JSON.parse(res.body)).toMatchObject({ id: 'pv-2', version_id: 'pv-2', version: 2 })
     expect(clientQuery.mock.calls[1][0]).toContain('pg_advisory_xact_lock')
   })
 

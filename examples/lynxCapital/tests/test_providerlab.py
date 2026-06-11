@@ -1156,6 +1156,7 @@ def caracal_zone(monkeypatch):
     jwk.update({"kid": "sts-key-1", "alg": "ES256", "use": "sig"})
     monkeypatch.setattr(caracalai_identity.verify, "_cache", _StubJwks([jwk]))
     monkeypatch.setenv("CARACAL_STS_URL", _STS)
+    monkeypatch.setenv("CARACAL_STS_ISSUER", _STS)
     monkeypatch.setenv("CARACAL_ZONE_ID", _ZONE)
     monkeypatch.setenv(
         partnership.ENV,

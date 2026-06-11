@@ -401,7 +401,7 @@ describe('POST /v1/zones/:zoneId/policy-sets/:id/versions', () => {
     })
 
     expect(res.statusCode).toBe(201)
-    expect(JSON.parse(res.body)).toMatchObject({ id: 'psv-1', version: 1 })
+    expect(JSON.parse(res.body)).toMatchObject({ id: 'psv-1', version_id: 'psv-1', version: 1 })
     expect(client.query.mock.calls[1][0]).toContain('pg_advisory_xact_lock')
   })
 

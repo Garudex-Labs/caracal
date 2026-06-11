@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from app import tenancy
 from control_client import (
     ControlClient,
+    ControlError,
     config_from_env,
     find_by_identifier,
     find_by_name,
@@ -26,27 +27,16 @@ ROOT = Path(__file__).resolve().parent.parent
 OUTPUTS_PATH = ROOT / "config" / "provisioned.json"
 
 
-def _id_of(result: object, fallback: str) -> str:
-    if isinstance(result, dict):
-        return str(result.get("id") or result.get("identifier") or fallback)
-    return fallback
+def _id_of(result: object) -> str:
+    if not isinstance(result, dict) or not result.get("id"):
+        raise ControlError(f"control response missing id: {result!r}")
+    return str(result["id"])
 
 
 def _version_id(result: object) -> str:
-    if not isinstance(result, dict):
-        return ""
-    for key in ("version_id", "active_version_id", "latest_version_id"):
-        if result.get(key):
-            return str(result[key])
-    version = result.get("version") or result.get("latest_version")
-    if isinstance(version, dict) and version.get("id"):
-        return str(version["id"])
-    if result.get("policy_id") and result.get("id"):
-        return str(result["id"])
-    versions = result.get("versions")
-    if isinstance(versions, list) and versions and isinstance(versions[-1], dict):
-        return str(versions[-1].get("id", ""))
-    return ""
+    if not isinstance(result, dict) or not result.get("version_id"):
+        raise ControlError(f"control response missing version_id: {result!r}")
+    return str(result["version_id"])
 
 
 def ensure_applications(client: ControlClient, model: tenancy.TenancyModel) -> dict[str, str]:
@@ -59,7 +49,7 @@ def ensure_applications(client: ControlClient, model: tenancy.TenancyModel) -> d
         found = find_by_name(existing, app.applicationName)
         result = found if found else client.invoke("app", "create", {"name": app.applicationName})
         print(f"application {'exists' if found else 'created'}: {app.applicationName}")
-        application_ids[app.id] = _id_of(result, app.applicationName)
+        application_ids[app.id] = _id_of(result)
         env_key = app.id.upper().replace("-", "_")
         if not found and isinstance(result, dict) and result.get("client_secret"):
             print(f"  export LYNX_CARACAL_{env_key}_CLIENT_SECRET={result['client_secret']}")
@@ -78,7 +68,7 @@ def ensure_providers(client: ControlClient, model: tenancy.TenancyModel) -> dict
         found = find_by_identifier(existing, identifier)
         if found:
             client.invoke("identity-provider", "patch", {
-                "id": _id_of(found, identifier),
+                "id": _id_of(found),
                 "kind": command["flags"]["kind"],
                 "config": command["flags"]["config"],
             })
@@ -87,7 +77,7 @@ def ensure_providers(client: ControlClient, model: tenancy.TenancyModel) -> dict
         else:
             result = client.run(command)
             print(f"provider created: {identifier}")
-        provider_ids[identifier] = _id_of(result, identifier)
+        provider_ids[identifier] = _id_of(result)
     return provider_ids
 
 
@@ -105,7 +95,7 @@ def ensure_resources(
         found = find_by_identifier(existing, identifier)
         if found:
             client.invoke("resource", "patch", {
-                "id": _id_of(found, identifier),
+                "id": _id_of(found),
                 "scopes": command["flags"]["scopes"],
                 "upstream-url": command["flags"]["upstream-url"],
                 "credential-provider-id": command["flags"]["credential-provider-id"],
@@ -139,9 +129,7 @@ def ensure_policy_set(client: ControlClient, model: tenancy.TenancyModel, applic
         else:
             result = client.run(command)
             print(f"policy created: {name}")
-        version = _version_id(result)
-        if version:
-            version_ids.append(version)
+        version_ids.append(_version_id(result))
 
     set_name = model.policySet.name
     existing_set = find_by_name(client.invoke("policy-set", "list"), set_name)
@@ -153,7 +141,7 @@ def ensure_policy_set(client: ControlClient, model: tenancy.TenancyModel, applic
             "name": set_name,
             "description": model.policySet.description,
         })
-        set_id = _id_of(created, set_name)
+        set_id = _id_of(created)
         print(f"policy-set created: {set_name}")
 
     if not version_ids:
@@ -163,7 +151,7 @@ def ensure_policy_set(client: ControlClient, model: tenancy.TenancyModel, applic
         "id": set_id,
         "policy-versions": ",".join(version_ids),
     })
-    set_version_id = _version_id(version) or _id_of(version, "")
+    set_version_id = _version_id(version)
     client.invoke("policy-set", "activate", {"id": set_id, "version": set_version_id})
     print(f"policy-set activated: {set_name} ({set_version_id})")
 
