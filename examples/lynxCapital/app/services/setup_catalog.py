@@ -15,8 +15,6 @@ from app.services import partners
 KIND_LABELS = {
     "api_key": "API key",
     "bearer_token": "Bearer token",
-    "oauth2_client_credentials": "OAuth client credentials",
-    "oauth2_authorization_code": "OAuth authorization code",
     "none": "No credential",
     "caracal_mandate": "Caracal mandate",
 }
@@ -24,8 +22,6 @@ KIND_LABELS = {
 CREDENTIAL_REQUIREMENTS = {
     "api_key": "API key",
     "bearer_token": "Bearer token",
-    "oauth2_client_credentials": "Client ID and client secret",
-    "oauth2_authorization_code": "Client ID, client secret, and redirect configuration",
     "none": "No provider credential",
     "caracal_mandate": "None — the Gateway forwards the agent's Caracal mandate",
 }
@@ -72,9 +68,7 @@ def provider_entries(config_providers: list[Any]) -> list[dict[str, object]]:
             status = "Partial"
         else:
             status = "Unprovisioned"
-        credential_url = (
-            f"{url}/__lab/clients" if provider.kind.startswith("oauth2") else f"{url}/__lab/credentials"
-        )
+        credential_url = f"{url}/__lab/credentials"
         entries.append({
             "id": spec.id,
             "name": meta.name if meta else provider.name,

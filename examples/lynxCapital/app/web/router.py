@@ -270,7 +270,7 @@ def _caracal_steps() -> list[dict[str, object]]:
             "path": "Control key > identity-provider create (scripts/provision.py)",
             "consoleFields": [
                 {"label": "Providers", "value": f"{len(model.providers)} partners, identifier provider://<slug>"},
-                {"label": "Kinds", "value": "api_key, bearer_token, oauth2_client_credentials, oauth2_authorization_code, caracal_mandate, none"},
+                {"label": "Kinds", "value": "api_key, bearer_token, caracal_mandate, none"},
             ],
             "why": "Each partner is registered in the exact config shape its kind supports. The Gateway holds these credentials; agents never do.",
         },

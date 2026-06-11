@@ -69,14 +69,23 @@ def ensure_applications(client: ControlClient, model: tenancy.TenancyModel) -> d
 
 def ensure_providers(client: ControlClient, model: tenancy.TenancyModel) -> dict[str, str]:
     """Register each upstream credential provider, returning a map of provider identifier to
-    the control-plane id so resources can bind to it."""
+    the control-plane id so resources can bind to it. Existing providers are patched so
+    config changes (endpoints, credentials, token host allowlists) reconcile on re-run."""
     existing = client.invoke("identity-provider", "list")
     provider_ids: dict[str, str] = {}
     for command in tenancy.provider_commands(model):
         identifier = command["flags"]["identifier"]
         found = find_by_identifier(existing, identifier)
-        result = found if found else client.run(command)
-        print(f"provider {'exists' if found else 'created'}: {identifier}")
+        if found:
+            client.invoke("identity-provider", "patch", {
+                "id": _id_of(found, identifier),
+                "config": command["flags"]["config"],
+            })
+            result = found
+            print(f"provider patched: {identifier}")
+        else:
+            result = client.run(command)
+            print(f"provider created: {identifier}")
         provider_ids[identifier] = _id_of(result, identifier)
     return provider_ids
 
