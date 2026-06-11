@@ -133,7 +133,12 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
           await client.query('ROLLBACK')
           return reply.code(403).send({ error: 'resource_ownership_required' })
         }
-        if (!scopesAllowed(body.scopes, resource.scopes)) {
+      }
+      // Scopes are validated against the union of the constrained resources:
+      // the STS narrows to each resource's own scopes at mandate minting.
+      if (resources.items.length > 0) {
+        const available = [...new Set(resources.items.flatMap((resource) => resource.scopes))]
+        if (!scopesAllowed(body.scopes, available)) {
           await client.query('ROLLBACK')
           return reply.code(403).send({ error: 'delegation_scopes_exceed_resource' })
         }

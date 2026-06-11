@@ -5,7 +5,6 @@
  * Coordinator REST client used by SDK primitives.
  */
 
-import { createHash } from 'node:crypto'
 import type { JsonObject } from './json.js'
 
 export interface CoordinatorClient {
@@ -93,8 +92,7 @@ async function call<T>(
 }
 
 export async function spawnAgent(client: CoordinatorClient, bearer: string, req: SpawnRequest): Promise<SpawnResponse> {
-  const key = req.idempotencyKey ?? deriveIdempotencyKey(req)
-  const headers = key ? { 'idempotency-key': key } : undefined
+  const headers = req.idempotencyKey ? { 'idempotency-key': req.idempotencyKey } : undefined
   const res = await call<SpawnResponse>(
     client,
     'POST',
@@ -113,27 +111,6 @@ export async function spawnAgent(client: CoordinatorClient, bearer: string, req:
     headers,
   )
   return res
-}
-
-/**
- * Stable key for SDK-issued spawn retries. Returns undefined when no stable
- * inputs are present: in that case the caller's retry would still require a
- * fresh session.
- */
-function deriveIdempotencyKey(req: SpawnRequest): string | undefined {
-  if (!req.subjectSessionId && !req.parentId) return undefined
-  const seed = [
-    req.applicationId,
-    req.subjectSessionId ?? '',
-    req.parentId ?? '',
-    String(req.lifecycle ?? ''),
-    (req.labels ?? []).join(','),
-  ].join('|')
-  return sha256Hex(seed)
-}
-
-function sha256Hex(input: string): string {
-  return createHash('sha256').update(input).digest('hex')
 }
 
 export async function terminateAgent(client: CoordinatorClient, bearer: string, zoneId: string, agentSessionId: string): Promise<void> {

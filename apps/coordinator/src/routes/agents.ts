@@ -137,11 +137,10 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
                     ORDER BY e.created_at DESC LIMIT 1
                   ) AS delegation_edge_id
            FROM agent_sessions
-           WHERE zone_id = $1 AND application_id = $2 AND subject_session_id = $3
-             AND COALESCE(parent_id, '') = COALESCE($4, '')
+           WHERE zone_id = $1 AND application_id = $2 AND idempotency_key = $3
              AND status IN ('active','suspended')
            LIMIT 1`,
-          [zoneId, body.application_id, subjectSessionId, body.parent_id],
+          [zoneId, body.application_id, idempotencyKey],
         )
         if (existing[0]) {
           await client.query('ROLLBACK')
@@ -250,8 +249,9 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
       const { rows } = await client.query(
          `INSERT INTO agent_sessions
           (id, zone_id, application_id, parent_id, subject_session_id, lifecycle, depth,
-            labels, max_children, ttl_seconds, metadata_json, last_heartbeat_at, heartbeat_deadline_at)
-          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,
+            labels, max_children, ttl_seconds, metadata_json, idempotency_key,
+            last_heartbeat_at, heartbeat_deadline_at)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$13,
                   CASE WHEN $6 = 'service' THEN now() ELSE NULL END,
                   CASE WHEN $6 = 'service' THEN now() + ($12::int * interval '1 second') ELSE NULL END)
            RETURNING id AS agent_session_id, zone_id, application_id, parent_id,
@@ -260,7 +260,7 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
                      spawned_at, last_heartbeat_at, heartbeat_deadline_at`,
         [id, zoneId, body.application_id, body.parent_id, subjectSessionId,
           lifecycle, depth, body.labels, MAX_CHILDREN, ttlSeconds, body.metadata,
-          cfg.serviceAgentLeaseSeconds],
+          cfg.serviceAgentLeaseSeconds, idempotencyKey],
       )
       if (body.parent_id) {
         await client.query(
@@ -546,6 +546,7 @@ export async function suspendSubtree(
     [rootIds, zoneId],
   )
   if (rows.length === 0) return 0
+  const exemptSessions = await revocationExemptSessions(client, zoneId, rows)
   const items: OutboxItem[] = []
   for (const row of rows) {
     items.push({
@@ -556,6 +557,7 @@ export async function suspendSubtree(
         parent_id: row.parent_id, reason,
       },
     })
+    if (exemptSessions.has(row.subject_session_id)) continue
     items.push({
       topic: Topics.SessionsRevoke,
       dedupeKey: `agent_suspend:${row.id}`,
@@ -611,6 +613,7 @@ export async function terminateSubtree(
     [rootIds, zoneId],
   )
   if (rows.length === 0) return 0
+  const exemptSessions = await revocationExemptSessions(client, zoneId, rows)
   const items: OutboxItem[] = []
   for (const row of rows) {
     items.push({
@@ -621,6 +624,7 @@ export async function terminateSubtree(
         parent_id: row.parent_id, reason,
       },
     })
+    if (exemptSessions.has(row.subject_session_id)) continue
     items.push({
       topic: Topics.SessionsRevoke,
       dedupeKey: `agent_terminate:${row.id}`,
@@ -629,4 +633,34 @@ export async function terminateSubtree(
   }
   await enqueueMany(client as Queryable, items)
   return rows.length
+}
+
+// A subject session may bootstrap many agents (an application reuses its STS
+// session token across spawns). Revoking it while other agents still run under
+// it would sever their credential lineage, and revoking an application's own
+// bootstrap session would invalidate a credential the application can simply
+// re-mint, breaking unrelated in-flight calls for no security gain. Revocation
+// therefore skips sessions that still have live referents and application-type
+// sessions entirely.
+async function revocationExemptSessions(
+  client: PoolClient,
+  zoneId: string,
+  affected: Array<{ id: string; subject_session_id: string }>,
+): Promise<Set<string>> {
+  const sessionIds = [...new Set(affected.map((row) => row.subject_session_id))]
+  const affectedIds = affected.map((row) => row.id)
+  const { rows } = await client.query<{ subject_session_id: string }>(
+    `SELECT DISTINCT subject_session_id FROM agent_sessions
+     WHERE zone_id = $1
+       AND subject_session_id = ANY($2::text[])
+       AND id <> ALL($3::text[])
+       AND status IN ('active', 'suspended')
+     UNION
+     SELECT id AS subject_session_id FROM sessions
+     WHERE zone_id = $1
+       AND id = ANY($2::text[])
+       AND session_type = 'application'`,
+    [zoneId, sessionIds, affectedIds],
+  )
+  return new Set(rows.map((row) => row.subject_session_id))
 }
