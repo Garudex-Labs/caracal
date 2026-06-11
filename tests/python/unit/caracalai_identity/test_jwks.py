@@ -51,31 +51,55 @@ class JwksCacheTests(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self) -> None:
         jwks.httpx.AsyncClient = self.original_client
 
-    async def test_fetches_jwks_from_standard_issuer_path(self) -> None:
+    async def test_fetches_zone_scoped_jwks_from_issuer(self) -> None:
         cache = jwks.JwksCache()
 
-        keys = await cache.get_keys("https://issuer.example/")
+        keys = await cache.get_keys("https://issuer.example/", "zone1")
 
         self.assertEqual(keys, [{"kid": "kid1"}])
-        self.assertEqual(FakeAsyncClient.urls, ["https://issuer.example/.well-known/jwks.json"])
+        self.assertEqual(
+            FakeAsyncClient.urls,
+            ["https://issuer.example/.well-known/jwks.json?zone_id=zone1"],
+        )
 
-    async def test_reuses_cached_keys_for_same_issuer(self) -> None:
+    async def test_rejects_missing_zone(self) -> None:
         cache = jwks.JwksCache()
 
-        first = await cache.get_keys("https://issuer.example")
+        with self.assertRaises(ValueError):
+            await cache.get_keys("https://issuer.example", "")
+        self.assertEqual(FakeAsyncClient.urls, [])
+
+    async def test_reuses_cached_keys_for_same_issuer_zone(self) -> None:
+        cache = jwks.JwksCache()
+
+        first = await cache.get_keys("https://issuer.example", "zone1")
         FakeAsyncClient.body = {"keys": [{"kid": "kid2"}]}
-        second = await cache.get_keys("https://issuer.example")
+        second = await cache.get_keys("https://issuer.example", "zone1")
 
         self.assertIs(first, second)
         self.assertEqual(second, [{"kid": "kid1"}])
         self.assertEqual(len(FakeAsyncClient.urls), 1)
+
+    async def test_distinct_zones_fetch_separately(self) -> None:
+        cache = jwks.JwksCache()
+
+        await cache.get_keys("https://issuer.example", "zone1")
+        await cache.get_keys("https://issuer.example", "zone2")
+
+        self.assertEqual(
+            FakeAsyncClient.urls,
+            [
+                "https://issuer.example/.well-known/jwks.json?zone_id=zone1",
+                "https://issuer.example/.well-known/jwks.json?zone_id=zone2",
+            ],
+        )
 
     async def test_concurrent_callers_share_a_single_fetch(self) -> None:
         FakeAsyncClient.fetch_delay = 0.05
         cache = jwks.JwksCache()
 
         results = await asyncio.gather(
-            *[cache.get_keys("https://issuer.example") for _ in range(10)]
+            *[cache.get_keys("https://issuer.example", "zone1") for _ in range(10)]
         )
 
         for r in results:
@@ -88,7 +112,7 @@ class JwksCacheTests(unittest.IsolatedAsyncioTestCase):
 
         coros = []
         for issuer in ("https://a.example", "https://b.example", "https://c.example"):
-            coros.extend([cache.get_keys(issuer) for _ in range(5)])
+            coros.extend([cache.get_keys(issuer, "zone1") for _ in range(5)])
         await asyncio.gather(*coros)
 
         self.assertEqual(len(FakeAsyncClient.urls), 3)

@@ -18,10 +18,10 @@ from caracalai_identity import verify
 class StubCache:
     def __init__(self) -> None:
         self.keys: list[dict[str, object]] = []
-        self.issuers: list[str] = []
+        self.requests: list[tuple[str, str]] = []
 
-    async def get_keys(self, issuer: str) -> list[dict[str, object]]:
-        self.issuers.append(issuer)
+    async def get_keys(self, issuer: str, zone_id: str) -> list[dict[str, object]]:
+        self.requests.append((issuer, zone_id))
         return self.keys
 
 
@@ -50,7 +50,32 @@ class VerifyTokenTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(claims["sub"], "user1")
         self.assertEqual(claims["root_sid"], "root1")
         self.assertEqual(claims["sub_type"], "user")
-        self.assertEqual(self.cache.issuers, ["https://sts.example.com"])
+        self.assertEqual(self.cache.requests, [("https://sts.example.com", "zone1")])
+
+    async def test_derives_jwks_zone_from_token_claim_when_unconfigured(self) -> None:
+        token, jwk = mint_es256_token(scopes=("read",))
+        self.cache.keys = [jwk]
+
+        claims = await verify.verify_token(
+            token,
+            "https://sts.example.com",
+            "resource://api",
+        )
+
+        self.assertEqual(claims["zone_id"], "zone1")
+        self.assertEqual(self.cache.requests, [("https://sts.example.com", "zone1")])
+
+    async def test_rejects_token_without_zone_claim_when_unconfigured(self) -> None:
+        token, jwk = mint_es256_token(scopes=("read",), zone_id="")
+        self.cache.keys = [jwk]
+
+        with self.assertRaises(verify.ZoneInvalidError):
+            await verify.verify_token(
+                token,
+                "https://sts.example.com",
+                "resource://api",
+            )
+        self.assertEqual(self.cache.requests, [])
 
 
 if __name__ == "__main__":

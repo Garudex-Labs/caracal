@@ -20,7 +20,7 @@ class StubCache:
     def __init__(self) -> None:
         self.keys: list[dict[str, object]] = []
 
-    async def get_keys(self, issuer: str) -> list[dict[str, object]]:
+    async def get_keys(self, issuer: str, zone_id: str) -> list[dict[str, object]]:
         return self.keys
 
 
