@@ -1,0 +1,54 @@
+{
+  "blogCategories": ["Engineering", "Security", "Tutorials", "Community", "Releases"],
+  "blogs": [
+    {
+      "id": "caracal-joins-lfx-mentorship",
+      "title": "Caracal Joins LFX Mentorship",
+      "description": "Open source grows when people contribute, learn, and help others build with confidence. Why Caracal is taking part in the Linux Foundation's LFX Mentorship program, and what mentees and the project get out of it.",
+      "category": "Community",
+      "href": "/blog/caracal-joins-lfx-mentorship/",
+      "author": "Caracal Team",
+      "date": "2026-06-11",
+      "readingTime": "3 min read",
+      "tags": ["lfx", "mentorship", "open source", "community"],
+      "featured": true
+    }
+  ],
+  "vlogCategories": ["Community Talks", "Conference Presentations", "Tutorials & Walkthroughs", "Project Updates"],
+  "vlogs": [
+    {
+      "id": "open-source-friday",
+      "title": "Open Source Friday: Caracal",
+      "description": "A live walkthrough of Caracal on GitHub's Open Source Friday: why agents need an authority plane, how mandates and policy work, and how to get involved as a contributor.",
+      "category": "Community Talks",
+      "youtubeId": "tZ4FdO-zjeE",
+      "href": "https://www.youtube.com/live/tZ4FdO-zjeE",
+      "host": "GitHub",
+      "featured": true
+    }
+  ],
+  "highlights": [
+    {
+      "id": "lfx-mentorship",
+      "title": "LFX Mentorship 2026",
+      "description": "Caracal mentors contributors through the Linux Foundation's LFX Mentorship program.",
+      "href": "https://mentorship.lfx.linuxfoundation.org/project/9cfe285b-7006-4610-84a8-1a52b0dff662",
+      "linkText": "View the program"
+    },
+    {
+      "id": "microsoft-startups",
+      "title": "Microsoft for Startups",
+      "description": "Garudex Labs builds Caracal as part of the Microsoft for Startups program.",
+      "href": "https://www.microsoft.com/startups",
+      "linkText": "About the program"
+    },
+    {
+      "id": "weekly-dev-call",
+      "title": "Weekly Dev Call",
+      "description": "Join maintainers and contributors every Thursday at 9pm IST on Discord for roadmap, reviews, and Q&A.",
+      "href": "https://discord.gg/xB3xVVzcvk",
+      "linkText": "Join on Discord"
+    }
+  ],
+  "discordInvite": "https://discord.gg/xB3xVVzcvk"
+}
