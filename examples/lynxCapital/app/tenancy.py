@@ -10,6 +10,7 @@ import json
 import os
 import re
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import yaml
 from pydantic import BaseModel
@@ -59,8 +60,11 @@ class ProviderSpec(BaseModel):
 
     def resolved_config(self, env: dict[str, str] | None = None) -> dict:
         """The provider config with ${ENV} and ${ENV:default} values substituted, in the
-        exact shape the Control API validates for this provider kind."""
+        exact shape the Control API validates for this provider kind. Endpoint paths and
+        token host allowlists are anchored to the provider's upstream URL so the gateway
+        and STS always target the host the resource actually proxies to."""
         env = dict(os.environ) if env is None else env
+        upstream = self.upstream_url()
         resolved: dict = {}
         for key, value in self.config.items():
             if isinstance(value, str):
@@ -70,7 +74,11 @@ class ProviderSpec(BaseModel):
                     value = env.get(name, "") or (default or "")
                     if not value:
                         raise KeyError(f"provider {self.id}: config {key} requires env {name}")
+                if key.endswith("_endpoint") and value.startswith("/"):
+                    value = f"{upstream}{value}"
             resolved[key] = value
+        if self.kind in ("oauth2_authorization_code", "oauth2_client_credentials", "bearer_token"):
+            resolved["allowed_token_hosts"] = [urlsplit(upstream).hostname or ""]
         return resolved
 
 

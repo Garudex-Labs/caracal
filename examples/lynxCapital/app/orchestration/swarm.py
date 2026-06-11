@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
 import logging
 import os
 import time
@@ -381,8 +382,13 @@ def _build_regional_domain_tools(run_id, runner, parent, region):
         return w
 
     def _finish(w, result):
-        w.end(result)
-        w.terminate("completed")
+        exc = sys.exc_info()[1]
+        if exc is None:
+            w.end(result)
+            w.terminate("completed")
+        else:
+            w.end({**result, "error": str(exc)})
+            w.terminate("failed")
 
     @tool
     def list_pending_invoices(limit: int = 3) -> str:
@@ -835,8 +841,13 @@ def _build_workflow_domain_tools(run_id, runner, parent, workflow_id):
         return w
 
     def _finish(w, result):
-        w.end(result)
-        w.terminate("completed")
+        exc = sys.exc_info()[1]
+        if exc is None:
+            w.end(result)
+            w.terminate("completed")
+        else:
+            w.end({**result, "error": str(exc)})
+            w.terminate("failed")
 
     @tool
     def kyb_screen_vendor(vendor_id: str) -> str:

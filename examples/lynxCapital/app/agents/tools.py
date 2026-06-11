@@ -41,7 +41,13 @@ def _run(run_id: str, agent_id: str, tool_name: str, provider_id: str,
         bus.publish(ev.tool_result(run_id, agent_id, tool_name, cached))
         return cached
     bus.publish(ev.service_call(run_id, agent_id, provider_id, operation, payload))
-    result = _partner(provider_id, operation, payload, authority=authority)
+    try:
+        result = _partner(provider_id, operation, payload, authority=authority)
+    except Exception as exc:
+        result = {"provider": provider_id, "operation": operation, "error": str(exc)}
+        bus.publish(ev.service_result(run_id, agent_id, provider_id, operation, result))
+        bus.publish(ev.tool_result(run_id, agent_id, tool_name, result))
+        raise
     _memoize_denial(run_id, key, result)
     bus.publish(ev.service_result(run_id, agent_id, provider_id, operation, result))
     bus.publish(ev.tool_result(run_id, agent_id, tool_name, result))
@@ -885,7 +891,13 @@ def partner_operation(run_id: str, agent_id: str, provider_id: str, operation: s
         bus.publish(ev.tool_result(run_id, agent_id, "partner_operation", cached))
         return cached
     bus.publish(ev.service_call(run_id, agent_id, provider_id, operation, args["payload"]))
-    result = _partner(provider_id, operation, payload or {}, authority=authority)
+    try:
+        result = _partner(provider_id, operation, payload or {}, authority=authority)
+    except Exception as exc:
+        result = {"provider": provider_id, "operation": operation, "error": str(exc)}
+        bus.publish(ev.service_result(run_id, agent_id, provider_id, operation, result))
+        bus.publish(ev.tool_result(run_id, agent_id, "partner_operation", result))
+        raise
     _memoize_denial(run_id, key, result)
     bus.publish(ev.service_result(run_id, agent_id, provider_id, operation, result))
     bus.publish(ev.tool_result(run_id, agent_id, "partner_operation", result))
