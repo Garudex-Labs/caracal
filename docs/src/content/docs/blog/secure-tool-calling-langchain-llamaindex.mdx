@@ -1,0 +1,36 @@
+---
+title: "Secure Tool-Calling: Enforcing Rego Policies on AI Agents"
+description: A practical guide to integrating the Caracal TypeScript and Python SDKs into your LangChain or LlamaIndex agent workloads.
+template: splash
+editUrl: false
+post:
+  category: Engineering
+  author: Devin Chen
+  date: 2026-05-28
+  readingTime: 8 min read
+  tags: [engineering, SDK, langchain, llamaindex]
+  featured: false
+---
+
+import BlogPost from '../../../components/BlogPost.astro'
+import LandingFooter from '../../../components/LandingFooter.astro'
+
+<BlogPost title={frontmatter.title} post={frontmatter.post}>
+
+Integrating security gates into AI tool-calling workflows should not require rewriting your agent's core reasoning loops. In this guide, we walk through how to wrap agent tool execution using Caracal's TypeScript and Python SDKs.
+
+We demonstrate how to intercept tool calls, obtain short-lived OPA-approved mandates, and pass cryptographically verifiable tokens to downstream resource servers. By doing so, you bind the agent's actions directly to the authenticated user's session, establishing clear boundaries of delegation.
+
+### Wrapping Tool Execution
+
+Using the Caracal SDK, tools can be wrapped transparently. When the LLM decides to call a tool:
+1. The SDK intercepts the arguments and context.
+2. It requests a signed mandate from the Caracal Security Token Service (STS).
+3. The STS evaluates OPA policies and, if approved, returns a short-lived token.
+4. The token is attached to the outgoing tool request, allowing the resource server to verify the caller's authority.
+
+This process ensures that your agent can only execute actions that the user is authorized to perform, with minimum engineering overhead.
+
+</BlogPost>
+
+<LandingFooter />

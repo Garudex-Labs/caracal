@@ -22,6 +22,46 @@
       "href": "https://www.youtube.com/live/tZ4FdO-zjeE",
       "host": "GitHub",
       "featured": true
+    },
+    {
+      "id": "getting-started-5m",
+      "title": "Getting Started with Caracal in 5 Minutes",
+      "description": "Learn the basics of Caracal: how to run the STS and Gateway local stack, define your first Rego policy, and secure an HTTP API route.",
+      "category": "Tutorials & Walkthroughs",
+      "youtubeId": "placeholder",
+      "href": "#",
+      "host": "Garudex Labs",
+      "featured": false
+    },
+    {
+      "id": "protect-fastmcp-express",
+      "title": "How to Protect FastMCP and Express Applications",
+      "description": "Step-by-step walkthrough of integrating the Caracal Express and FastMCP connectors to intercept agent requests and validate mandates.",
+      "category": "Tutorials & Walkthroughs",
+      "youtubeId": "placeholder",
+      "href": "#",
+      "host": "Garudex Labs",
+      "featured": false
+    },
+    {
+      "id": "caracal-lynx-capital",
+      "title": "Caracal at Lynx Capital: Secure Agentic Investing",
+      "description": "A deep-dive demo showcasing Caracal's agent delegation and policy enforcement within Lynx Capital's automated trading system.",
+      "category": "Community Talks",
+      "youtubeId": "placeholder",
+      "href": "#",
+      "host": "Garudex Labs",
+      "featured": false
+    },
+    {
+      "id": "future-ai-identity",
+      "title": "The Future of AI Identity and Immutable Audit Trails",
+      "description": "Keynote speech from Garudex Labs on establishing secure identity boundaries for multi-agent systems and cryptographically verified tool execution.",
+      "category": "Conference Presentations",
+      "youtubeId": "placeholder",
+      "href": "#",
+      "host": "Garudex Labs",
+      "featured": false
     }
   ],
   "discordInvite": "https://discord.gg/xB3xVVzcvk"

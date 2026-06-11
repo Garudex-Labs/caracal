@@ -1,0 +1,35 @@
+---
+title: "Announcing Caracal v0.1.4: Production-Grade Audit Streams"
+description: Explore the new features in Caracal 0.1.4, including structured JSON audit trails, OPA sandboxes, and Redis stream replication.
+template: splash
+editUrl: false
+post:
+  category: Releases
+  author: Garudex Labs Team
+  date: 2026-06-05
+  readingTime: 4 min read
+  tags: [releases, audit, observability, helm]
+  featured: false
+---
+
+import BlogPost from '../../../components/BlogPost.astro'
+import LandingFooter from '../../../components/LandingFooter.astro'
+
+<BlogPost title={frontmatter.title} post={frontmatter.post}>
+
+We are excited to release Caracal v0.1.4. This release focuses on enterprise observability and resilience.
+
+Key additions include structured JSON audit logs that can be pushed to remote SIEM platforms, network sandboxing for OPA policy evaluation, and horizontal scaling of the STS service backed by Redis Stream replication. We have also simplified our Kubernetes Helm charts for seamless production rollouts.
+
+### Highlights of v0.1.4
+
+- **Structured JSON Audit Trails:** Export full request lineages directly to Elasticsearch, Datadog, or Splunk.
+- **OPA Sandboxing:** Ensure that policy evaluation runs in an isolated context, preventing side-channel leaks.
+- **STS Clustering:** Scale Security Token Service instances horizontally using Redis streams for state synchronization.
+- **Simplified Helm Charts:** Roll out Caracal clusters to production Kubernetes in minutes.
+
+Upgrade today to take advantage of these enterprise-grade features.
+
+</BlogPost>
+
+<LandingFooter />

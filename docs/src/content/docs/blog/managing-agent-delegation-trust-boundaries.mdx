@@ -1,0 +1,36 @@
+---
+title: "Managing Agent Delegation: Trust Boundaries in Multi-Agent Workloads"
+description: How to handle authority exchange when agents spawn sub-agents to execute specialized workflows, ensuring proper constraints.
+template: splash
+editUrl: false
+post:
+  category: Tutorials
+  author: Sarah Jenkins
+  date: 2026-06-02
+  readingTime: 5 min read
+  tags: [tutorials, delegation, multi-agent, trust]
+  featured: false
+---
+
+import BlogPost from '../../../components/BlogPost.astro'
+import LandingFooter from '../../../components/LandingFooter.astro'
+
+<BlogPost title={frontmatter.title} post={frontmatter.post}>
+
+When a planning agent spawns a specialized researcher or executing agent, how does it pass along authority? Without constraints, the sub-agent could abuse the developer's credentials.
+
+Caracal's Delegation Graph solves this by allowing parent agents to issue constrained tokens to sub-agents. These tokens contain specific constraints (such as spending limits, path restrictions, or time boundaries) that are evaluated downstream by Caracal resource gateways, ensuring that authority is safely partitioned.
+
+### Restricting Sub-Agent Scopes
+
+With Caracal delegation:
+- A parent agent can request a delegated token for a child agent.
+- The parent can apply constraints that *shrink* the parent's own authority (delegation can only narrow scope, never expand it).
+- The child agent receives a token cryptographically bound to the parent's delegation chain.
+- Resource gateways verify the entire delegation path before authorizing the tool call.
+
+This allows developers to build complex, multi-agent cooperative workflows without risking credential leakage or escalation of privilege.
+
+</BlogPost>
+
+<LandingFooter />
