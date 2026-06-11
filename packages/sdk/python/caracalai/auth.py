@@ -92,6 +92,14 @@ class ClientSecretExchanger:
             )
             return self._token
 
+    def invalidate(self) -> None:
+        """Drop the cached lifecycle token so the next get_token() exchanges a
+        fresh one. Called when a verifier rejects the token before its `exp`,
+        e.g. after server-side session revocation."""
+        with self._lock:
+            self._token = None
+            self._exp = None
+
     def mint_mandate(
         self,
         *,

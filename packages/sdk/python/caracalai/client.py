@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import os
 import sys
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 from collections.abc import AsyncGenerator, Callable, Mapping
@@ -839,23 +839,37 @@ class Caracal:
             if self._agent_end_hooks
             else None
         )
-        async with spawn(
-            coordinator=self.config.coordinator,
-            zone_id=self.config.zone_id,
-            application_id=self.config.application_id,
-            subject_token=self.config.subject_token,
-            parent_id=parent_id,
-            parent_ctx=parent_ctx,
-            grant=grant,
-            ttl_seconds=ttl_seconds
-            if ttl_seconds is not None
-            else self.config.default_ttl_seconds,
-            metadata=metadata,
-            labels=labels,
-            trace_id=trace_id,
-            on_agent_start=on_start,
-            on_agent_end=on_end,
-        ) as ctx:
+
+        def opener():
+            return spawn(
+                coordinator=self.config.coordinator,
+                zone_id=self.config.zone_id,
+                application_id=self.config.application_id,
+                subject_token=self.config.subject_token,
+                parent_id=parent_id,
+                parent_ctx=parent_ctx,
+                grant=grant,
+                ttl_seconds=ttl_seconds
+                if ttl_seconds is not None
+                else self.config.default_ttl_seconds,
+                metadata=metadata,
+                labels=labels,
+                trace_id=trace_id,
+                on_agent_start=on_start,
+                on_agent_end=on_end,
+            )
+
+        async with AsyncExitStack() as stack:
+            try:
+                ctx = await stack.enter_async_context(opener())
+            except httpx.HTTPStatusError as exc:
+                # A verifier may reject a cached subject token before its exp
+                # (server-side session revocation); exchange a fresh one and
+                # retry the spawn once.
+                if exc.response.status_code != 401 or self.config.exchanger is None:
+                    raise
+                self.config.exchanger.invalidate()
+                ctx = await stack.enter_async_context(opener())
             yield ctx
 
     async def spawn_service(

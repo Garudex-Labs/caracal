@@ -132,9 +132,8 @@ async def spawn_agent(
         body["inherit_parent_edge_id"] = req.inherit_parent_edge_id
 
     headers = {"authorization": f"Bearer {bearer}"}
-    key = req.idempotency_key or _derive_idempotency_key(req)
-    if key:
-        headers["idempotency-key"] = key
+    if req.idempotency_key:
+        headers["idempotency-key"] = req.idempotency_key
 
     resp = await client._http().post(
         f"{client.base_url}/zones/{req.zone_id}/agents",
@@ -150,26 +149,6 @@ async def spawn_agent(
         agent_session_id=agent_session_id,
         delegation_edge_id=data.get("delegation_edge_id"),
     )
-
-
-def _derive_idempotency_key(req: SpawnRequest) -> str | None:
-    """Stable key for SDK-issued spawn retries. Skipped when the caller has
-    given no stable inputs (no subject_session_id and no parent_id): in that case a
-    retry would still need a fresh session anyway."""
-    import hashlib
-
-    if not req.subject_session_id and not req.parent_id:
-        return None
-    seed = "|".join(
-        [
-            req.application_id,
-            req.subject_session_id or "",
-            req.parent_id or "",
-            str(req.lifecycle or ""),
-            ",".join(req.labels or []),
-        ]
-    )
-    return hashlib.sha256(seed.encode("utf-8")).hexdigest()
 
 
 async def terminate_agent(
