@@ -19,6 +19,10 @@ const isLanding = route?.entry?.data?.template === 'splash'
         <img class="site-nav__logo" src="/img/caracal.png" alt="" width="28" height="28" />
         <span>Caracal</span>
       </a>
+      <nav class="site-nav__menu" aria-label="Main navigation">
+        <a class="site-nav__link" href="/blogs/">Blogs</a>
+        <a class="site-nav__link" href="/vlogs/">Vlogs</a>
+      </nav>
       <div class="site-nav__end">
         <details class="edition-menu">
           <summary class="edition-menu__button">
@@ -159,6 +163,33 @@ const isLanding = route?.entry?.data?.template === 'splash'
     background: transparent;
     border-bottom: 1px solid transparent;
     transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+  }
+
+  .site-nav__menu {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+  }
+
+  .site-nav__link {
+    font-family: 'Space Grotesk', var(--sl-font);
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.76);
+    text-decoration: none;
+    transition: color 0.16s ease;
+  }
+
+  .site-nav__link:hover {
+    color: #fff;
+  }
+
+  .site-nav[data-over-hero='false'] .site-nav__link {
+    color: var(--caracal-text-muted, var(--sl-color-text));
+  }
+
+  .site-nav[data-over-hero='false'] .site-nav__link:hover {
+    color: var(--sl-color-text);
   }
 
   .site-nav[data-over-hero='false'] {

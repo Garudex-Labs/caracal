@@ -1,0 +1,22 @@
+---
+title: Vlogs
+description: "Watch community talks, conferences, tutorials and walkthroughs of integrating and operating Caracal."
+template: splash
+---
+
+import VlogContainer from "../../components/VlogContainer"
+import LandingFooter from "../../components/LandingFooter.astro"
+
+<div class="docs-body">
+  <div class="docs-body__inner">
+    <header class="docs-section__head">
+      <p class="docs-section__eyebrow">Caracal Video Library</p>
+      <h1 class="docs-section__heading">Video walkthroughs, talks, and conference sessions</h1>
+    </header>
+
+    <VlogContainer client:load />
+  </div>
+</div>
+
+<LandingFooter />
+---

@@ -1,0 +1,42 @@
+[
+  {
+    "slug": "pre-execution-auth-vs-post-execution-monitoring",
+    "title": "Pre-Execution Authorization vs. Post-Execution Monitoring for AI Agents",
+    "summary": "Why traditional post-execution auditing is not enough to secure autonomous AI agents, and how pre-execution policies prevent catastrophic actions.",
+    "content": "Autonomous AI agents are increasingly tasked with executing actions on behalf of users: calling APIs, executing database operations, and orchestrating other agents. However, securing these agents poses unique challenges. Traditional application security relies on post-execution monitoring—recording what an agent did after the action has finished. But for agents executing real-world tools (like sending money or deleting databases), post-execution detection is too late. Caracal introduces pre-execution authorization. By validating agent intent against dynamic Open Policy Agent (OPA) Rego rules *before* a tool is executed, Caracal ensures unauthorized actions are blocked in real-time.",
+    "category": "Security",
+    "author": "Laura Vance",
+    "publishDate": "2026-05-18",
+    "readTime": "6 min read"
+  },
+  {
+    "slug": "secure-tool-calling-langchain-llamaindex",
+    "title": "Secure Tool-Calling: Enforcing Rego Policies on AI Agents",
+    "summary": "A practical guide to integrating the Caracal TypeScript and Python SDKs into your LangChain or LlamaIndex agent workloads.",
+    "content": "Integrating security gates into AI tool-calling workflows should not require rewriting your agent's core reasoning loops. In this guide, we walk through how to wrap agent tool execution using Caracal's TypeScript and Python SDKs. We demonstrate how to intercept tool calls, obtain short-lived OPA-approved mandates, and pass cryptographically verifiable tokens to downstream resource servers. By doing so, you bind the agent's actions directly to the authenticated user's session, establishing clear boundaries of delegation.",
+    "category": "Engineering",
+    "author": "Devin Chen",
+    "publishDate": "2026-05-28",
+    "readTime": "8 min read"
+  },
+  {
+    "slug": "managing-agent-delegation-trust-boundaries",
+    "title": "Managing Agent Delegation: Trust Boundaries in Multi-Agent Workloads",
+    "summary": "How to handle authority exchange when agents spawn sub-agents to execute specialized workflows, ensuring proper constraints.",
+    "content": "When a planning agent spawns a specialized researcher or executing agent, how does it pass along authority? Without constraints, the sub-agent could abuse the developer's credentials. Caracal's Delegation Graph solves this by allowing parent agents to issue constrained tokens to sub-agents. These tokens contain specific constraints (such as spending limits, path restrictions, or time boundaries) that are evaluated downstream by Caracal resource gateways, ensuring that authority is safely partitioned.",
+    "category": "Agents",
+    "author": "Sarah Jenkins",
+    "publishDate": "2026-06-02",
+    "readTime": "5 min read"
+  },
+  {
+    "slug": "announcing-caracal-v0-1-4-audit-streams",
+    "title": "Announcing Caracal v0.1.4: Production-Grade Audit Streams",
+    "summary": "Explore the new features in Caracal 0.1.4, including structured JSON audit trails, OPA sandboxes, and Redis stream replication.",
+    "content": "We are excited to release Caracal v0.1.4. This release focuses on enterprise observability and resilience. Key additions include structured JSON audit logs that can be pushed to remote SIEM platforms, network sandboxing for OPA policy evaluation, and horizontal scaling of the STS service backed by Redis Stream replication. We have also simplified our Kubernetes Helm charts for seamless production rollouts.",
+    "category": "Announcements",
+    "author": "Garudex Labs Team",
+    "publishDate": "2026-06-05",
+    "readTime": "4 min read"
+  }
+]
