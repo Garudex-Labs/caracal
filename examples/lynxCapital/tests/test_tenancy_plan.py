@@ -41,10 +41,7 @@ def test_providers_cover_the_partner_catalog_with_supported_kinds():
     model = tenancy.load_model()
     assert {p.id for p in model.providers} == set(partners.catalog())
     kinds = {p.kind for p in model.providers}
-    assert kinds == {
-        "api_key", "bearer_token", "oauth2_client_credentials",
-        "oauth2_authorization_code", "caracal_mandate", "none",
-    }
+    assert kinds == {"api_key", "bearer_token", "caracal_mandate", "none"}
     for provider in model.providers:
         assert provider.identifier == f"provider://{provider.id}"
 

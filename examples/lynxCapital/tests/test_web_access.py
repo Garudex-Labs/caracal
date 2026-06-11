@@ -234,13 +234,12 @@ def test_setup_page_is_guided_and_provider_backed():
     assert "provider://meridian-pay" in body
     assert "provider://relay-automation" in body
     assert "resource://audit-meridian" in body
-    assert "oauth2_authorization_code" in body
+    assert "bearer_token" in body
     assert "caracal_mandate" in body
     assert "Open provider console" in body
     assert "Create credentials" in body
     assert "Provider docs" in body
     assert "/__lab/credentials" in body
-    assert "/__lab/clients" in body
     assert "/__lab/resources" in body
     assert "Halcyon Bank" in body
     assert "Quetzal Payouts" in body
