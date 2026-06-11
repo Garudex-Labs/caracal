@@ -171,6 +171,30 @@ const isLanding = route?.entry?.data?.template === 'splash'
     gap: 1.5rem;
   }
 
+  @media (max-width: 44rem) {
+    .site-nav__menu {
+      gap: 1rem;
+    }
+  }
+
+  @media (max-width: 32rem) {
+    .site-nav__menu {
+      gap: 0.75rem;
+    }
+    .site-nav__link {
+      font-size: 0.85rem;
+    }
+    .site-nav__brand span {
+      display: none;
+    }
+    .edition-menu__button {
+      padding: 0 0.5rem;
+    }
+    .edition-menu__button span {
+      display: none;
+    }
+  }
+
   .site-nav__link {
     font-family: 'Space Grotesk', var(--sl-font);
     font-size: 0.9rem;
