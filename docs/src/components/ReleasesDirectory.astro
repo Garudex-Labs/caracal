@@ -3,39 +3,14 @@
  * Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
  * Caracal, a product of Garudex Labs
  *
- * Changelog-style release timeline with per-version validation status, artifact versions, and downloads.
+ * Release timeline with channel filters, version search, and per-platform downloads.
  */
-
-interface ValidationArea {
-  id: string;
-  label: string;
-  pass: number;
-  warn: number;
-  fail: number;
-}
-
-interface Validation {
-  score: number;
-  pass: number;
-  warn: number;
-  fail: number;
-  blockers: number;
-  areas: ValidationArea[];
-  notes: string[];
-}
 
 interface ReleaseRecord {
   release: string;
   channel: "rc" | "stable";
   date: string;
-  sha: string | null;
-  binaries: Record<string, string>;
-  images: Record<string, string>;
-  npm: Record<string, string>;
-  pypi: Record<string, string>;
-  helm: string | null;
   assets: string[];
-  validation: Validation | null;
 }
 
 const modules = import.meta.glob<ReleaseRecord>("../data/releases/*.json", {
@@ -79,32 +54,6 @@ const groupAssets = (record: ReleaseRecord) => {
   const extras = record.assets.filter((a) => !archives.includes(a));
   return { components, extras };
 };
-
-const artifactRows = (record: ReleaseRecord) => {
-  const first = (entries: Record<string, string>) => Object.values(entries)[0];
-  const rows: { label: string; value: string }[] = [];
-  const binary = record.binaries.runtime ?? record.binaries.cli ?? record.binaries.shell;
-  if (binary) rows.push({ label: "Binaries", value: binary });
-  if (Object.keys(record.images).length) {
-    const ref = first(record.images);
-    rows.push({ label: "Containers", value: ref.includes(":") ? ref.slice(ref.lastIndexOf(":") + 1) : ref });
-  }
-  if (Object.keys(record.npm).length) rows.push({ label: "npm", value: first(record.npm) });
-  if (Object.keys(record.pypi).length) rows.push({ label: "PyPI", value: first(record.pypi) });
-  if (record.helm) rows.push({ label: "Helm", value: record.helm });
-  return rows;
-};
-
-const grade = (v: Validation) => (v.fail > 0 ? "fail" : v.warn > 0 ? "warn" : "pass");
-const areaGrade = (a: ValidationArea) => (a.fail > 0 ? "fail" : a.warn > 0 ? "warn" : "pass");
-const barWidths = (v: Validation) => {
-  const total = Math.max(v.pass + v.warn + v.fail, 1);
-  return {
-    pass: (v.pass / total) * 100,
-    warn: (v.warn / total) * 100,
-    fail: (v.fail / total) * 100,
-  };
-};
 ---
 
 <section class="media-page releases-page not-content" aria-labelledby="releases-heading">
@@ -122,18 +71,35 @@ const barWidths = (v: Validation) => {
         )}
       </div>
       <p class="media-head__lede">
-        Every Caracal release ships binaries, container images, SDK packages, and a Helm chart, then
-        runs a post-release validation matrix across registries, installs, containers, and provenance.
+        Download Caracal binaries and installers for any published version. Container images live on
+        <code>ghcr.io/garudex-labs</code>, SDK packages on npm and PyPI.
       </p>
     </header>
 
-    <ol class="rel-timeline">
+    <div class="media-toolbar">
+      <div class="media-filterset" role="group" aria-label="Filter releases by channel">
+        <button class="media-tab isActive" type="button" data-rel-filter="all">All releases</button>
+        <button class="media-tab" type="button" data-rel-filter="stable" style="--tint: var(--sl-color-green)">Stable</button>
+        <button class="media-tab" type="button" data-rel-filter="rc" style="--tint: var(--sl-color-orange)">Release candidates</button>
+      </div>
+      <label class="media-search">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+        </svg>
+        <input type="search" placeholder="Find a version" aria-label="Search releases" data-rel-search />
+      </label>
+    </div>
+
+    <ol class="rel-timeline" data-rel-list>
       {releases.map((record) => {
         const { components, extras } = groupAssets(record);
-        const v = record.validation;
-        const w = v ? barWidths(v) : null;
         return (
-          <li class="rel-entry">
+          <li
+            class="rel-entry"
+            data-rel-item
+            data-rel-channel={record.channel}
+            data-rel-text={`${record.release} ${formatDate(record.date)} ${record.channel}`.toLowerCase()}
+          >
             <div class="rel-rail">
               <span class="rel-rail__dot" data-channel={record.channel} aria-hidden="true"></span>
               <time class="rel-rail__date" datetime={record.date}>{formatDate(record.date)}</time>
@@ -143,138 +109,97 @@ const barWidths = (v: Validation) => {
             </div>
 
             <article class="rel-body">
-              <header class="rel-head">
-                <a class="rel-head__version" href={releaseUrl(record.release)}>
-                  {record.release}
-                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" />
-                  </svg>
-                </a>
-                {v ? (
-                  <span class="rel-verdict" data-grade={grade(v)}>
-                    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                      {grade(v) === "pass" ? (
-                        <polyline points="20 6 9 17 4 12" />
-                      ) : (
-                        <><path d="M12 9v4" /><path d="M12 17h.01" /><circle cx="12" cy="12" r="10" /></>
-                      )}
-                    </svg>
-                    {v.score}% verified
-                  </span>
-                ) : (
-                  <span class="rel-verdict" data-grade="none">Validation pending</span>
-                )}
-              </header>
+              <a class="rel-version" href={releaseUrl(record.release)}>
+                {record.release}
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" />
+                </svg>
+              </a>
 
-              <dl class="rel-artifacts">
-                {artifactRows(record).map((row) => (
-                  <div class="rel-artifacts__cell">
-                    <dt>{row.label}</dt>
-                    <dd>{row.value}</dd>
+              <div class="rel-downloads">
+                {[...components.entries()].map(([label, files]) => (
+                  <div class="rel-downloads__row">
+                    <span class="rel-downloads__label">{label}</span>
+                    <span class="rel-downloads__links">
+                      {files.map((file) => (
+                        <a href={assetUrl(record.release, file.name)} download>
+                          <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
+                          </svg>
+                          {file.label}
+                        </a>
+                      ))}
+                    </span>
                   </div>
                 ))}
-              </dl>
-
-              {v && w && (
-                <div class="rel-validation">
-                  <div class="rel-validation__bar" role="img" aria-label={`${v.pass} passed, ${v.warn} warnings, ${v.fail} failed`}>
-                    {w.pass > 0 && <span class="isPass" style={`width:${w.pass}%`}></span>}
-                    {w.warn > 0 && <span class="isWarn" style={`width:${w.warn}%`}></span>}
-                    {w.fail > 0 && <span class="isFail" style={`width:${w.fail}%`}></span>}
+                {extras.length > 0 && (
+                  <div class="rel-downloads__row">
+                    <span class="rel-downloads__label">Installers &amp; checksums</span>
+                    <span class="rel-downloads__links">
+                      {extras.map((name) => (
+                        <a href={assetUrl(record.release, name)} download>{name}</a>
+                      ))}
+                    </span>
                   </div>
-                  <p class="rel-validation__count">
-                    {v.pass + v.warn + v.fail} checks · {v.pass} passed
-                    {v.warn > 0 && ` · ${v.warn} warnings`}
-                    {v.fail > 0 && ` · ${v.fail} failed`}
-                  </p>
-                  <div class="rel-validation__areas">
-                    {v.areas.map((area) => (
-                      <span class="rel-area" data-grade={areaGrade(area)}>
-                        <span class="rel-area__dot" aria-hidden="true"></span>
-                        {area.label}
-                      </span>
-                    ))}
-                  </div>
-                  {v.notes.length > 0 && v.notes.length <= 3 && (
-                    <ul class="rel-validation__notes">
-                      {v.notes.map((note) => <li>{note}</li>)}
-                    </ul>
-                  )}
-                  {v.notes.length > 3 && (
-                    <details class="rel-notesFold">
-                      <summary>
-                        <svg class="rel-notesFold__chevron" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                          <polyline points="9 18 15 12 9 6" />
-                        </svg>
-                        {v.notes.length} validation notes
-                      </summary>
-                      <ul class="rel-validation__notes">
-                        {v.notes.map((note) => <li>{note}</li>)}
-                      </ul>
-                    </details>
-                  )}
-                </div>
-              )}
-
-              {record.assets.length > 0 && (
-                <details class="rel-downloads">
-                  <summary>
-                    <svg class="rel-downloads__chevron" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                      <polyline points="9 18 15 12 9 6" />
-                    </svg>
-                    Downloads
-                    <span class="rel-downloads__count">{record.assets.length} assets</span>
-                  </summary>
-                  <div class="rel-downloads__grid">
-                    {[...components.entries()].map(([label, files]) => (
-                      <div class="rel-downloads__row">
-                        <span class="rel-downloads__label">{label}</span>
-                        <span class="rel-downloads__links">
-                          {files.map((file) => (
-                            <a href={assetUrl(record.release, file.name)} download>
-                              <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
-                              </svg>
-                              {file.label}
-                            </a>
-                          ))}
-                        </span>
-                      </div>
-                    ))}
-                    {extras.length > 0 && (
-                      <div class="rel-downloads__row">
-                        <span class="rel-downloads__label">Installers &amp; metadata</span>
-                        <span class="rel-downloads__links">
-                          {extras.map((name) => (
-                            <a href={assetUrl(record.release, name)} download>{name}</a>
-                          ))}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                </details>
-              )}
+                )}
+              </div>
             </article>
           </li>
         );
       })}
     </ol>
 
+    <p class="media-empty" data-rel-noresults hidden>No releases match that search.</p>
+
     <footer class="rel-footer">
       <p>
-        Container images are published to <code>ghcr.io/garudex-labs</code>. Verify any download against
-        the release <code>SHA256SUMS</code> — see <a href="/security/verify-releases/">Verify a Release</a>.
+        Verify any download against the release <code>SHA256SUMS</code> — see
+        <a href="/security/verify-releases/">Verify a Release</a>.
       </p>
     </footer>
   </div>
 </section>
 
-<style>
-  .releases-page__inner {
-    max-width: 54rem;
+<script>
+  const search = document.querySelector<HTMLInputElement>("[data-rel-search]");
+  const filters = Array.from(document.querySelectorAll<HTMLButtonElement>("[data-rel-filter]"));
+  const items = Array.from(document.querySelectorAll<HTMLElement>("[data-rel-item]"));
+  const noResults = document.querySelector<HTMLElement>("[data-rel-noresults]");
+
+  let channel = "all";
+  let query = "";
+
+  const apply = () => {
+    let visible = 0;
+    for (const item of items) {
+      const show =
+        (channel === "all" || item.dataset.relChannel === channel) &&
+        (!query || (item.dataset.relText ?? "").includes(query));
+      item.hidden = !show;
+      if (show) visible += 1;
+    }
+    if (noResults) noResults.hidden = visible > 0;
+  };
+
+  for (const button of filters) {
+    button.addEventListener("click", () => {
+      channel = button.dataset.relFilter ?? "all";
+      for (const other of filters) other.classList.toggle("isActive", other === button);
+      apply();
+    });
   }
 
-  /* Timeline */
+  search?.addEventListener("input", () => {
+    query = search.value.trim().toLowerCase();
+    apply();
+  });
+</script>
+
+<style>
+  .releases-page__inner {
+    max-width: 52rem;
+  }
+
   .rel-timeline {
     list-style: none;
     margin: 0;
@@ -286,9 +211,13 @@ const barWidths = (v: Validation) => {
   .rel-entry {
     position: relative;
     display: grid;
-    grid-template-columns: 11rem 1fr;
-    gap: clamp(1.25rem, 3vw, 2.5rem);
-    padding-bottom: clamp(2.25rem, 4vw, 3.25rem);
+    grid-template-columns: 10.5rem 1fr;
+    gap: clamp(1.25rem, 3vw, 2.25rem);
+    padding-bottom: clamp(2rem, 4vw, 2.75rem);
+  }
+
+  .rel-entry[hidden] {
+    display: none;
   }
 
   .rel-entry::before {
@@ -296,7 +225,7 @@ const barWidths = (v: Validation) => {
     position: absolute;
     top: 0.55rem;
     bottom: -0.55rem;
-    left: calc(11rem + clamp(1.25rem, 3vw, 2.5rem) / 2 - 0.5px);
+    left: calc(10.5rem + clamp(1.25rem, 3vw, 2.25rem) / 2 - 0.5px);
     width: 1px;
     background: var(--sl-color-hairline);
   }
@@ -309,14 +238,14 @@ const barWidths = (v: Validation) => {
     display: flex;
     flex-direction: column;
     align-items: flex-end;
-    gap: 0.45rem;
+    gap: 0.4rem;
     text-align: right;
   }
 
   .rel-rail__dot {
     position: absolute;
     top: 0.32rem;
-    left: calc(11rem + clamp(1.25rem, 3vw, 2.5rem) / 2 - 4.5px);
+    left: calc(10.5rem + clamp(1.25rem, 3vw, 2.25rem) / 2 - 4.5px);
     width: 9px;
     height: 9px;
     border-radius: 50%;
@@ -339,7 +268,6 @@ const barWidths = (v: Validation) => {
     font-weight: 660;
     letter-spacing: 0.05em;
     text-transform: uppercase;
-    color: var(--sl-color-gray-4);
   }
 
   .rel-badge[data-channel="stable"] {
@@ -350,28 +278,20 @@ const barWidths = (v: Validation) => {
     color: var(--sl-color-orange-high, var(--sl-color-orange));
   }
 
-  /* Entry body */
   .rel-body {
     min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: 1rem;
+    gap: 0.9rem;
   }
 
-  .rel-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    flex-wrap: wrap;
-    gap: 0.6rem;
-  }
-
-  .rel-head__version {
+  .rel-version {
     display: inline-flex;
     align-items: center;
     gap: 0.45rem;
+    align-self: flex-start;
     font-family: "Space Grotesk", var(--sl-font);
-    font-size: clamp(1.25rem, 2.6vw, 1.55rem);
+    font-size: clamp(1.2rem, 2.4vw, 1.45rem);
     font-weight: 740;
     letter-spacing: -0.02em;
     line-height: 1.15;
@@ -380,234 +300,31 @@ const barWidths = (v: Validation) => {
     transition: color 140ms ease;
   }
 
-  .rel-head__version svg {
+  .rel-version svg {
     color: var(--sl-color-gray-4);
     opacity: 0;
     transform: translate(-3px, 3px);
     transition: opacity 140ms ease, transform 140ms ease;
   }
 
-  .rel-head__version:hover {
+  .rel-version:hover {
     color: var(--sl-color-text-accent);
   }
 
-  .rel-head__version:hover svg {
+  .rel-version:hover svg {
     opacity: 1;
     transform: translate(0, 0);
   }
 
-  .rel-verdict {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-    padding: 0.22rem 0.65rem;
-    border-radius: 999px;
-    font-size: 0.76rem;
-    font-weight: 650;
-  }
-
-  .rel-verdict[data-grade="pass"] {
-    background: color-mix(in srgb, var(--sl-color-green) 13%, transparent);
-    color: var(--sl-color-green-high, var(--sl-color-green));
-  }
-
-  .rel-verdict[data-grade="warn"] {
-    background: color-mix(in srgb, var(--sl-color-orange) 13%, transparent);
-    color: var(--sl-color-orange-high, var(--sl-color-orange));
-  }
-
-  .rel-verdict[data-grade="fail"] {
-    background: color-mix(in srgb, var(--sl-color-red) 13%, transparent);
-    color: var(--sl-color-red-high, var(--sl-color-red));
-  }
-
-  .rel-verdict[data-grade="none"] {
-    background: color-mix(in srgb, var(--sl-color-gray-4) 12%, transparent);
-    color: var(--sl-color-gray-3);
-  }
-
-  /* Artifact versions */
-  .rel-artifacts {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(7.5rem, max-content));
-    gap: 0.5rem 2rem;
-    margin: 0;
-    padding: 0.8rem 1rem;
-    border: 1px solid var(--sl-color-hairline);
-    border-radius: 10px;
-    background: color-mix(in srgb, var(--sl-color-bg-nav) 45%, transparent);
-  }
-
-  .rel-artifacts__cell dt {
-    font-size: 0.68rem;
-    font-weight: 660;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--sl-color-gray-4);
-  }
-
-  .rel-artifacts__cell dd {
-    margin: 0.15rem 0 0;
-    font-family: var(--sl-font-mono);
-    font-size: 0.8rem;
-    color: var(--sl-color-text);
-  }
-
-  /* Validation */
-  .rel-validation {
-    display: flex;
-    flex-direction: column;
-    gap: 0.55rem;
-  }
-
-  .rel-validation__bar {
-    display: flex;
-    height: 5px;
-    border-radius: 999px;
-    overflow: hidden;
-    background: color-mix(in srgb, var(--sl-color-gray-5) 50%, transparent);
-  }
-
-  .rel-validation__bar .isPass {
-    background: var(--sl-color-green);
-  }
-
-  .rel-validation__bar .isWarn {
-    background: var(--sl-color-orange);
-  }
-
-  .rel-validation__bar .isFail {
-    background: var(--sl-color-red);
-  }
-
-  .rel-validation__count {
-    margin: 0;
-    font-size: 0.78rem;
-    color: var(--sl-color-gray-3);
-  }
-
-  .rel-validation__areas {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.35rem;
-  }
-
-  .rel-area {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.4rem;
-    padding: 0.18rem 0.6rem;
-    border: 1px solid var(--sl-color-hairline);
-    border-radius: 999px;
-    font-size: 0.74rem;
-    color: var(--sl-color-gray-2);
-  }
-
-  .rel-area__dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--sl-color-green);
-  }
-
-  .rel-area[data-grade="warn"] .rel-area__dot {
-    background: var(--sl-color-orange);
-  }
-
-  .rel-area[data-grade="fail"] .rel-area__dot {
-    background: var(--sl-color-red);
-  }
-
-  .rel-validation__notes {
-    margin: 0;
-    padding-left: 1.1rem;
-    display: grid;
-    gap: 0.25rem;
-    font-size: 0.78rem;
-    line-height: 1.5;
-    color: var(--sl-color-gray-3);
-  }
-
-  .rel-notesFold summary {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.4rem;
-    font-size: 0.78rem;
-    font-weight: 620;
-    color: var(--sl-color-gray-3);
-    cursor: var(--caracal-cursor-pointer, pointer);
-    list-style: none;
-    user-select: none;
-  }
-
-  .rel-notesFold summary::-webkit-details-marker {
-    display: none;
-  }
-
-  .rel-notesFold__chevron {
-    transition: transform 140ms ease;
-  }
-
-  .rel-notesFold[open] .rel-notesFold__chevron {
-    transform: rotate(90deg);
-  }
-
-  .rel-notesFold .rel-validation__notes {
-    margin-top: 0.5rem;
-  }
-
-  /* Downloads */
   .rel-downloads {
-    margin: 0;
-    padding: 0;
-    border: 0;
-  }
-
-  .rel-downloads summary::marker {
-    content: none;
-  }
-
-  .rel-downloads summary {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.45rem;
-    font-size: 0.85rem;
-    font-weight: 650;
-    color: var(--sl-color-text);
-    cursor: var(--caracal-cursor-pointer, pointer);
-    list-style: none;
-    user-select: none;
-  }
-
-  .rel-downloads summary::-webkit-details-marker {
-    display: none;
-  }
-
-  .rel-downloads__chevron {
-    color: var(--sl-color-gray-4);
-    transition: transform 140ms ease;
-  }
-
-  .rel-downloads[open] .rel-downloads__chevron {
-    transform: rotate(90deg);
-  }
-
-  .rel-downloads__count {
-    font-size: 0.76rem;
-    font-weight: 480;
-    color: var(--sl-color-gray-4);
-  }
-
-  .rel-downloads__grid {
     display: flex;
     flex-direction: column;
-    gap: 0.7rem;
-    margin-top: 0.85rem;
+    gap: 0.65rem;
   }
 
   .rel-downloads__row {
     display: grid;
-    grid-template-columns: 9rem 1fr;
+    grid-template-columns: 8.5rem 1fr;
     gap: 0.6rem;
     align-items: start;
   }
@@ -652,9 +369,8 @@ const barWidths = (v: Validation) => {
     color: currentColor;
   }
 
-  /* Footer note */
   .rel-footer {
-    padding-top: 1.5rem;
+    padding-top: 1.4rem;
     border-top: 1px solid var(--sl-color-hairline);
     font-size: 0.82rem;
     line-height: 1.6;
