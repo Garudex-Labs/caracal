@@ -1,0 +1,39 @@
+---
+title: Pre-Execution Authorization vs. Post-Execution Monitoring for AI Agents
+description: Why traditional post-execution auditing is not enough to secure autonomous AI agents, and how pre-execution policies prevent catastrophic actions.
+template: splash
+editUrl: false
+post:
+  category: Security
+  author: Laura Vance
+  date: 2026-05-18
+  readingTime: 6 min read
+  tags: [security, authorization, agents, opa]
+  featured: false
+---
+
+import BlogPost from '../../../components/BlogPost.astro'
+import LandingFooter from '../../../components/LandingFooter.astro'
+
+<BlogPost title={frontmatter.title} post={frontmatter.post}>
+
+Autonomous AI agents are increasingly tasked with executing actions on behalf of users: calling APIs, executing database operations, and orchestrating other agents. However, securing these agents poses unique challenges.
+
+Traditional application security relies on post-execution monitoring—recording what an agent did after the action has finished. But for agents executing real-world tools (like sending money or deleting databases), post-execution detection is too late.
+
+Caracal introduces pre-execution authorization. By validating agent intent against dynamic Open Policy Agent (OPA) Rego rules *before* a tool is executed, Caracal ensures unauthorized actions are blocked in real-time.
+
+### Why Post-Execution Auditing Falls Short
+
+When an agent operates autonomously, any error in its reasoning or prompt injection attack can lead to irreversible side-effects. An audit log that records "Agent deleted database at 10:00 AM" tells you the system was compromised, but it does not prevent the damage.
+
+With pre-execution authorization:
+- Every tool call is intercepted at the boundary.
+- The request is evaluated against user-defined Rego security policies.
+- Execution only proceeds if explicit cryptographic authorization is granted.
+
+This shifts the security paradigm from reactive detection to proactive prevention.
+
+</BlogPost>
+
+<LandingFooter />

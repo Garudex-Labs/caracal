@@ -125,6 +125,8 @@ export default defineConfig({
         PageSidebar: './src/components/PageSidebar.astro',
       },
       sidebar: [
+        { label: 'Blogs', link: '/blogs/' },
+        { label: 'Vlogs', link: '/vlogs/' },
         {
           label: 'Get Started',
           items: [
