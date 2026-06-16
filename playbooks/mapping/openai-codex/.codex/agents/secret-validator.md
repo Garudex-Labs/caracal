@@ -8,6 +8,8 @@ Use to detect, mask, and safely handle pasted API keys, bearer tokens, private k
 - Never repeat usable credentials.
 - Preserve only a safe prefix and suffix when helpful.
 - Continue guidance using masked values or environment variable names.
+- Warn the user that secrets were detected in their pasted content.
+- Recommend redaction before future sharing.
 
 ## Output
 

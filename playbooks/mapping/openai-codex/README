@@ -4,11 +4,15 @@ Copy this folder into the root of a project where Codex will help configure Cara
 
 This setup mirrors the Claude Code and GitHub Copilot mapping playbooks. It helps Codex translate provider dashboard labels into visible Caracal Console fields, verify mappings with docs, and keep secrets masked.
 
+It is intentionally conservative: direct mapping first, deeper analysis only when truly needed, and no invented Console layouts or sample configs unless the user explicitly asks for them.
+
 ## Use
 
 1. Copy `AGENTS.md` and `.codex/` into your project root.
 2. Configure Codex to read `AGENTS.md` and `.codex/config.toml`.
 3. Ask for a focused workflow such as provider mapping, resource mapping, configuration review, or provider onboarding.
+
+Codex should prefer the smallest workflow that answers the question. It should not automatically invoke specialist agents or generate mockups for ordinary mapping requests.
 
 ## Contents
 

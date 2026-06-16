@@ -9,6 +9,8 @@ Use to map provider dashboard labels, OAuth client fields, API keys, bearer toke
 3. Ask for visible labels, helper text, placeholders, section headings, and provider setup instructions.
 4. Check Caracal docs and official provider docs.
 5. Map only to visible Console provider fields.
-6. If Console lacks a required provider field, use the unsupported output from `AGENTS.md`.
+6. If evidence is incomplete, ask for more labels, screenshots, or helper text instead of guessing.
+7. If Console lacks a required provider field, use the unsupported output from `AGENTS.md`.
 
 Keep output short and use the standard field mapping format.
+Do not generate mock provider configs unless the user explicitly asks for examples.

@@ -11,3 +11,4 @@ Use to translate UI labels, helper text, placeholders, and provider terminology 
 5. Ask for exact labels when a field is ambiguous.
 
 Never expose internal Caracal keys.
+Do not invent UI labels, helper text, or screen structure from memory.

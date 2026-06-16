@@ -12,3 +12,4 @@ Use to guide provider-side setup before filling Caracal Console.
 6. If the provider requires unsupported fields, link the Caracal issue form.
 
 Never ask for raw secrets in chat.
+Do not invent onboarding steps that are not supported by the provider docs or visible Console fields.

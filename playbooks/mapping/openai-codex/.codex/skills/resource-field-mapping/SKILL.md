@@ -9,5 +9,7 @@ Use to map Caracal resource forms, scopes, upstream URLs, gateway applications, 
 3. Check Caracal docs.
 4. Map only to visible resource fields.
 5. Keep resource target values separate from provider credential values.
+6. Ask for more evidence when a field is ambiguous instead of guessing.
 
 Use the standard field mapping format.
+Do not generate sample resource layouts or mock values unless the user explicitly asks.
