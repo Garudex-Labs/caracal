@@ -82,12 +82,12 @@ func TestIsControlKeyExchangeRestrictions(t *testing.T) {
 	scope := []string{"control:agent:read"}
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 
-	if isControlKeyExchange(&Application{ID: "app-1", Traits: []string{
+	if !isControlKeyExchange(&Application{ID: "app-1", Traits: []string{
 		controlInvokeTrait,
 		controlScopeTrait + "control:agent:read",
 		controlMaxTTLTrait + "60",
 	}}, TokenExchangeRequest{ApplicationID: "app-1", TTLSeconds: 300}, resource, scope, now) {
-		t.Fatalf("expected ttl above key maximum to be denied")
+		t.Fatalf("expected ttl above key maximum to remain eligible for capping")
 	}
 
 	if isControlKeyExchange(&Application{ID: "app-1", Traits: []string{

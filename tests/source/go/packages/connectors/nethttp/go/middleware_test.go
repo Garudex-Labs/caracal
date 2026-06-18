@@ -155,11 +155,11 @@ func TestGetJWKSCachesKeysPerIssuer(t *testing.T) {
 	var calls int64
 	issuer := jwksServer(t, &privateKey.PublicKey, &calls)
 
-	first, err := identity.GetJWKS(issuer)
+	first, err := identity.GetJWKS(issuer, "zone1")
 	if err != nil {
 		t.Fatalf("first jwks fetch: %v", err)
 	}
-	second, err := identity.GetJWKS(issuer)
+	second, err := identity.GetJWKS(issuer, "zone1")
 	if err != nil {
 		t.Fatalf("second jwks fetch: %v", err)
 	}

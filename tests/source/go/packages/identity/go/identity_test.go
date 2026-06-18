@@ -253,14 +253,14 @@ func TestGetJWKSValidatesIssuersParsesAndCaches(t *testing.T) {
 	})
 	defer srv.Close()
 
-	keys, err := GetJWKS(srv.URL)
+	keys, err := GetJWKS(srv.URL, "zone-1")
 	if err != nil {
 		t.Fatalf("jwks: %v", err)
 	}
 	if keys["kid-1"] == nil || len(keys) != 1 {
 		t.Fatalf("unexpected keys: %#v", keys)
 	}
-	cached, err := GetJWKSContext(context.Background(), srv.URL)
+	cached, err := GetJWKSContext(context.Background(), srv.URL, "zone-1")
 	if err != nil {
 		t.Fatalf("cached jwks: %v", err)
 	}
@@ -268,10 +268,10 @@ func TestGetJWKSValidatesIssuersParsesAndCaches(t *testing.T) {
 		t.Fatalf("expected cached key, calls=%d", calls.Load())
 	}
 
-	if _, err := GetJWKS("ftp://issuer.example"); err == nil {
+	if _, err := GetJWKS("ftp://issuer.example", "zone-1"); err == nil {
 		t.Fatal("expected unsupported scheme error")
 	}
-	if _, err := GetJWKS("http://issuer.example"); err == nil {
+	if _, err := GetJWKS("http://issuer.example", "zone-1"); err == nil {
 		t.Fatal("expected insecure issuer error")
 	}
 	t.Setenv("CARACAL_ALLOW_INSECURE_CONFIG_URLS", "true")
@@ -286,7 +286,7 @@ func TestGetJWKSHandlesFetchDecodeAndConcurrentCalls(t *testing.T) {
 		http.Error(w, "down", http.StatusBadGateway)
 	}))
 	defer errorSrv.Close()
-	if _, err := GetJWKS(errorSrv.URL); err == nil {
+	if _, err := GetJWKS(errorSrv.URL, "zone-1"); err == nil {
 		t.Fatal("expected status error")
 	}
 
@@ -294,7 +294,7 @@ func TestGetJWKSHandlesFetchDecodeAndConcurrentCalls(t *testing.T) {
 		_, _ = w.Write([]byte(`{`))
 	}))
 	defer badJSON.Close()
-	if _, err := GetJWKS(badJSON.URL); err == nil {
+	if _, err := GetJWKS(badJSON.URL, "zone-1"); err == nil {
 		t.Fatal("expected decode error")
 	}
 
@@ -309,7 +309,7 @@ func TestGetJWKSHandlesFetchDecodeAndConcurrentCalls(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if _, err := GetJWKS(good.URL); err != nil {
+			if _, err := GetJWKS(good.URL, "zone-1"); err != nil {
 				t.Errorf("concurrent jwks: %v", err)
 			}
 		}()
