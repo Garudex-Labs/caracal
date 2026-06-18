@@ -27,4 +27,5 @@ overrides:
   devalue: 5.8.1
   qs: 6.15.2
   vite: 7.3.5
+  dompurify: 3.4.9
 reporter: silent
