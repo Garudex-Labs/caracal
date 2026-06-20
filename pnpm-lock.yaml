@@ -255,6 +255,9 @@ importers:
       react-dom:
         specifier: ^19.2.7
         version: 19.2.7(react@19.2.7)
+      remark-gfm:
+        specifier: 4.0.1
+        version: 4.0.1
       three:
         specifier: ^0.184.0
         version: 0.184.0
@@ -4927,7 +4930,7 @@ snapshots:
 
   '@astrojs/starlight@0.39.2(astro@6.4.8(@types/node@24.12.2)(ioredis@5.10.1)(jiti@2.7.0)(rollup@4.60.3)(tsx@4.21.0)(yaml@2.9.0))(typescript@6.0.3)':
     dependencies:
-      '@astrojs/markdown-remark': 7.1.1
+      '@astrojs/markdown-remark': 7.2.0
       '@astrojs/mdx': 5.0.4(astro@6.4.8(@types/node@24.12.2)(ioredis@5.10.1)(jiti@2.7.0)(rollup@4.60.3)(tsx@4.21.0)(yaml@2.9.0))
       '@astrojs/sitemap': 3.7.2
       '@pagefind/default-ui': 1.5.2

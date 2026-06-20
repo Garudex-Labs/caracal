@@ -9,6 +9,7 @@ import { defineConfig } from 'astro/config'
 import react from '@astrojs/react'
 import starlight from '@astrojs/starlight'
 import sitemap from '@astrojs/sitemap'
+import remarkGfm from 'remark-gfm'
 import { remarkMermaid } from './src/plugins/remarkMermaid.mjs'
 
 const site = 'https://docs.caracal.run'
@@ -36,7 +37,7 @@ export default defineConfig({
     '/guides/production-integration-patterns/': '/guides/enterprise-runtime-patterns/',
   },
   markdown: {
-    remarkPlugins: [remarkMermaid],
+    remarkPlugins: [remarkGfm, remarkMermaid],
   },
   site,
   trailingSlash: 'always',
