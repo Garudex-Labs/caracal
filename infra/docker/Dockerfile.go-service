@@ -44,7 +44,7 @@ ARG STATE_DIRS=""
 RUN set -e; mkdir -p /rootfs/var; \
     for d in ${STATE_DIRS}; do mkdir -p "/rootfs/var/lib/caracal/${d}"; done
 
-FROM gcr.io/distroless/static-debian12:nonroot@sha256:188ddfb9e497f861177352057cb21913d840ecae6c843d39e00d44fa64daa51c
+FROM gcr.io/distroless/static-debian12:nonroot@sha256:d093aa3e30dbadd3efe1310db061a14da60299baff8450a17fe0ccc514a16639
 ARG PORT
 ARG HEALTH_PATH=/ready
 COPY --from=builder /service /service

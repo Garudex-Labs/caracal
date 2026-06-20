@@ -4,7 +4,7 @@
 # Redis 8 image for the Caracal message bus.
 
 # syntax=docker/dockerfile:1.7
-FROM redis:8-alpine@sha256:69f2c586c8a7e9cce4ae1ee9bbaf60bc4bb5f4bb3880e4ed022b1fd758a7cab9
+FROM redis:8-alpine@sha256:09160599abd229764c0fb44cb6be640294e1d360a54b19985ab4843dcf2d90f1
 
 RUN apk add --no-cache tini
 COPY redis.conf /etc/caracal/redis.conf
