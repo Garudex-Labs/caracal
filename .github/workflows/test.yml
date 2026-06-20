@@ -14,6 +14,7 @@ on:
       - '.prettierrc.json'
       - 'scripts/checkStyle.sh'
       - 'scripts/pythonStyleRequirements.in'
+      - 'scripts/pythonStyleRequirements.lock'
       - 'scripts/pythonTestRequirements.in'
       - 'scripts/pythonTestRequirements.lock'
       - 'scripts/setupDev.mjs'
@@ -34,6 +35,7 @@ on:
       - '.prettierrc.json'
       - 'scripts/checkStyle.sh'
       - 'scripts/pythonStyleRequirements.in'
+      - 'scripts/pythonStyleRequirements.lock'
       - 'scripts/pythonTestRequirements.in'
       - 'scripts/pythonTestRequirements.lock'
       - 'scripts/setupDev.mjs'
@@ -188,7 +190,7 @@ jobs:
                   ;;
               esac
               case "$path" in
-                .github/workflows/test.yml|scripts/pythonStyleRequirements.in|scripts/setupDev.mjs|packages/*/python/**|packages/connectors/*/python/**|packages/transport/*/python/**|tests/python/**|tests/shared/test-utils/python/**)
+                .github/workflows/test.yml|scripts/pythonStyleRequirements.in|scripts/pythonStyleRequirements.lock|scripts/setupDev.mjs|packages/*/python/**|packages/connectors/*/python/**|packages/transport/*/python/**|tests/python/**|tests/shared/test-utils/python/**)
                   python=true
                   style=true
                   ;;
@@ -258,12 +260,12 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
-          cache-dependency-path: scripts/pythonStyleRequirements.in
+          cache-dependency-path: scripts/pythonStyleRequirements.lock
 
       - name: Install style dependencies
         run: |
           pnpm install --frozen-lockfile --prefer-offline
-          python -m pip install --requirement scripts/pythonStyleRequirements.in
+          python -m pip install --require-hashes --requirement scripts/pythonStyleRequirements.lock
 
       - name: Check changed source style
         env:
