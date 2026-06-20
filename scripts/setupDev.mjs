@@ -44,7 +44,7 @@ if (!existsSync(venvPython)) {
 }
 
 run(venvPython, ['-m', 'pip', 'install', '--require-hashes', '--requirement', 'scripts/pythonTestRequirements.lock'])
-run(venvPython, ['-m', 'pip', 'install', '--requirement', 'scripts/pythonStyleRequirements.in'])
+run(venvPython, ['-m', 'pip', 'install', '--require-hashes', '--requirement', 'scripts/pythonStyleRequirements.lock'])
 run(venvPython, ['-m', 'pip', 'install', ...editablePackages.flatMap((path) => ['-e', path])])
 
 const activate = isWindows ? `${venvDir}\\Scripts\\Activate.ps1` : `. ${venvDir}/bin/activate`

@@ -9,7 +9,11 @@
       "devalue": "5.8.1",
       "qs": "6.15.2",
       "vite": "7.3.5",
-      "dompurify": "3.4.9"
+      "dompurify": "3.4.11",
+      "esbuild": "0.28.1",
+      "js-yaml": "4.2.0",
+      "read-yaml-file": "^2.1.0",
+      "@opentelemetry/core": "2.8.0"
     }
   },
   "bin": {
