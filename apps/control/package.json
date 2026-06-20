@@ -13,9 +13,9 @@
     "@caracalai/admin": "workspace:*",
     "@caracalai/core": "workspace:*",
     "@caracalai/engine": "workspace:*",
-    "@fastify/rate-limit": "^10.3.0",
+    "@fastify/rate-limit": "^11.0.0",
     "fastify": "^5.2.1",
-    "ioredis": "^5.6.0",
+    "ioredis": "^5.11.1",
     "jose": "^6.2.3"
   },
   "devDependencies": {

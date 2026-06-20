@@ -10,8 +10,8 @@
   },
   "dependencies": {
     "@astrojs/react": "^5.0.7",
-    "@astrojs/sitemap": "^3.7.2",
-    "@astrojs/starlight": "0.39.2",
+    "@astrojs/sitemap": "^3.7.3",
+    "@astrojs/starlight": "0.40.0",
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.6.1",
     "astro": "^6.4.8",

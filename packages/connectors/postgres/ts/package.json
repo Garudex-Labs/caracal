@@ -41,7 +41,7 @@
     "prepublishOnly": "tsc"
   },
   "dependencies": {
-    "pg": "^8.14.1"
+    "pg": "^8.22.0"
   },
   "devDependencies": {
     "@types/node": "^26.0.0",
