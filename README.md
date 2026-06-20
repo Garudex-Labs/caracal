@@ -173,6 +173,12 @@ See [CONTRIBUTING.md](./.github/CONTRIBUTING.md) for setup, workflow, tests, and
 
 -----
 
+## Security & Trust
+
+See the [Enterprise Security Readiness](https://docs.caracal.run/security/enterprise-readiness/) guide for the security posture, supply-chain controls, release signing, SBOMs, and the enterprise-adoption review checklist. Report vulnerabilities privately through [SECURITY.md](./.github/SECURITY.md).
+
+-----
+
 ## Community & Partnerships
 
 <div align="center">

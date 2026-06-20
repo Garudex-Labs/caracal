@@ -154,6 +154,16 @@ Changes are proposed against `main`, and the review required to merge depends on
 - **Security and boundaries:** input is validated, secrets are not exposed, trust boundaries in `governance/THREAT_MODEL.md` are respected, and no open-source code depends on enterprise-only code.
 - **Docs:** behavior, API, command, config, and operations changes update the affected documentation.
 
+### Reviewing dependency changes
+
+Dependency changes get extra scrutiny because they are a common supply-chain attack vector.
+
+- A scheduled dependency review runs every two days over the changes merged to `main` in that window and fails on newly introduced High-or-higher vulnerabilities and on a copyleft license deny-list.
+- Confirm a lockfile change accompanies every manifest change so installs stay pinned (`pnpm-lock.yaml`, `go.sum`, Python `*.lock`).
+- For a new or upgraded dependency, check that the package is the expected one (no typosquats), is actively maintained, and that the version bump is explained.
+- Dependabot pull requests follow the same review and CI as any other change; do not merge them solely because they are automated.
+- See the [Enterprise Security Readiness](https://docs.caracal.run/security/enterprise-readiness/) guide for the full supply-chain posture.
+
 ### What is required to be acceptable
 
 A contributor pull request is acceptable to merge only when it has at least one approving review from a maintainer, all required CI checks pass, review comments are resolved, and the change is judged a worthwhile improvement free of known defects that would argue against inclusion. Maintainers and admins are trusted to hold the changes they merge directly to the same standard.

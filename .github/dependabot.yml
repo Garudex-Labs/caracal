@@ -1,0 +1,84 @@
+# Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+# Caracal, a product of Garudex Labs
+#
+# Automated dependency update cadence across every Caracal ecosystem.
+
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: ci
+    groups:
+      actions:
+        patterns:
+          - "*"
+
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: deps
+    groups:
+      npm-development:
+        dependency-type: development
+      npm-production:
+        dependency-type: production
+
+  - package-ecosystem: gomod
+    directories:
+      - /infra/healthcheck
+      - /packages/**/go
+      - /services/*
+      - /tests/go
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: deps
+    groups:
+      gomod:
+        patterns:
+          - "*"
+
+  - package-ecosystem: pip
+    directories:
+      - /packages/**/python
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: deps
+    groups:
+      pip:
+        patterns:
+          - "*"
+
+  - package-ecosystem: docker
+    directories:
+      - /apps/api
+      - /apps/coordinator
+      - /apps/control
+      - /apps/runtime
+      - /infra/docker
+      - /infra/postgres
+      - /infra/redis
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: deps
+    groups:
+      docker:
+        patterns:
+          - "*"

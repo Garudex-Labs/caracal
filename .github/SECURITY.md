@@ -4,6 +4,8 @@
 
 If you discover a security vulnerability in **caracal**, please report it responsibly. Security is a critical part of the system, and responsible disclosure helps ensure that issues are resolved safely without exposing users or infrastructure to unnecessary risk. We expect reports to be clear, structured, and actionable so that they can be reviewed efficiently by a small team.
 
+For the project's overall security posture, supply-chain trust, release signing, SBOMs, and enterprise-adoption review checklist, see the [Enterprise Security Readiness](https://docs.caracal.run/security/enterprise-readiness/) guide.
+
 ---
 
 ## Reporting Channels
