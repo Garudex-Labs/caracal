@@ -15,8 +15,6 @@ import { cfg } from '../config.js'
 
 export const MAX_DEPTH = 10
 const MAX_CHILDREN = 10
-const MAX_PER_ZONE = 50
-const MAX_PER_APP = 200
 const DEFAULT_TTL = 3600
 const LIST_DEFAULT_LIMIT = 100
 const LIST_MAX_LIMIT = 500
@@ -191,10 +189,13 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
            COUNT(*) FILTER (WHERE application_id = $2) AS app_n,
            COUNT(*) AS zone_n
          FROM agent_sessions
-         WHERE zone_id = $1 AND status IN ('active', 'suspended')`,
-        [zoneId, body.application_id],
+         WHERE zone_id = $1
+           AND status IN ('active', 'suspended')
+           AND spawned_at + make_interval(secs => COALESCE(ttl_seconds, $3)) > now()
+           AND (heartbeat_deadline_at IS NULL OR heartbeat_deadline_at > now())`,
+        [zoneId, body.application_id, DEFAULT_TTL],
       )
-      if (parseInt(cnt[0].zone_n, 10) >= MAX_PER_ZONE) {
+      if (parseInt(cnt[0].zone_n, 10) >= cfg.maxAgentsPerZone) {
         await client.query('ROLLBACK')
         return reply.code(429).send({ error: 'agent_zone_limit_exceeded' })
       }
@@ -202,7 +203,7 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
         await client.query('ROLLBACK')
         return reply.code(409).send({ error: 'dcr_application_already_bound' })
       }
-      if (parseInt(cnt[0].app_n, 10) >= MAX_PER_APP) {
+      if (parseInt(cnt[0].app_n, 10) >= cfg.maxAgentsPerApp) {
         await client.query('ROLLBACK')
         return reply.code(429).send({ error: 'agent_limit_exceeded' })
       }

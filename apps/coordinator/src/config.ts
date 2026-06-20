@@ -32,6 +32,8 @@ function buildCfg() {
     metricsBearer: getenv('METRICS_BEARER', ''),
     dbPoolMax: intEnv('DB_POOL_MAX', 20),
     dbStatementTimeoutMs: intEnv('DB_STATEMENT_TIMEOUT_MS', 10_000),
+    maxAgentsPerZone: intEnv('MAX_AGENTS_PER_ZONE', 50),
+    maxAgentsPerApp: intEnv('MAX_AGENTS_PER_APP', 200),
     dbConnectionTimeoutMs: intEnv('DB_CONNECTION_TIMEOUT_MS', 5_000),
     dbIdleTimeoutMs: intEnv('DB_IDLE_TIMEOUT_MS', 30_000),
     outboxIntervalMs: intEnv('OUTBOX_INTERVAL_MS', 1_000),
