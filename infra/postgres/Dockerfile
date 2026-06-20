@@ -6,7 +6,7 @@
 # compose to remain environment-aware.
 
 # syntax=docker/dockerfile:1.7
-FROM postgres:18-alpine@sha256:54451ecb8ab38c24c3ec123f2fd501303a3a1856a5c66e98cecf2460d5e1e9d7
+FROM postgres:18-alpine@sha256:1b1689b20d16a014a3d195653381cf2caa75a41a92d93b255a9d6ea29fd353aa
 
 ENV POSTGRES_DB=caracal \
     POSTGRES_INITDB_ARGS="--data-checksums --auth-host=scram-sha-256"
