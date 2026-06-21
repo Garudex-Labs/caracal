@@ -218,14 +218,29 @@ jobs:
           python - "$name" "$ver" <<'PY'
           import json
           import sys
+          import time
           import urllib.request
 
           name, expected = sys.argv[1:]
-          with urllib.request.urlopen(f"https://pypi.org/pypi/{name}/json", timeout=30) as response:
-              body = json.load(response)
-          versions = body.get("releases", {})
-          if expected not in versions:
-              raise SystemExit(f"{name}=={expected} is missing from PyPI releases")
+          deadline = time.monotonic() + 300
+          attempt = 0
+          while True:
+              attempt += 1
+              request = urllib.request.Request(
+                  f"https://pypi.org/pypi/{name}/json",
+                  headers={"Cache-Control": "no-cache", "Pragma": "no-cache"},
+              )
+              try:
+                  with urllib.request.urlopen(request, timeout=30) as response:
+                      versions = json.load(response).get("releases", {})
+              except urllib.error.URLError:
+                  versions = {}
+              if expected in versions:
+                  print(f"{name}=={expected} is published")
+                  break
+              if time.monotonic() >= deadline:
+                  raise SystemExit(f"{name}=={expected} is missing from PyPI releases after {attempt} checks")
+              time.sleep(15)
           PY
 
       - name: Dry-run summary
