@@ -93,8 +93,8 @@ importers:
         specifier: ^10.3.1
         version: 10.3.1
       uuid:
-        specifier: ^14.0.0
-        version: 14.0.0
+        specifier: ^14.0.1
+        version: 14.0.1
       zod:
         specifier: ^4.4.3
         version: 4.4.3
@@ -164,8 +164,8 @@ importers:
         specifier: ^10.3.1
         version: 10.3.1
       uuid:
-        specifier: ^14.0.0
-        version: 14.0.0
+        specifier: ^14.0.1
+        version: 14.0.1
       zod:
         specifier: ^4.4.3
         version: 4.4.3
@@ -267,8 +267,8 @@ importers:
   packages/adminAudit/ts:
     dependencies:
       uuid:
-        specifier: ^14.0.0
-        version: 14.0.0
+        specifier: ^14.0.1
+        version: 14.0.1
     devDependencies:
       '@types/node':
         specifier: ^26.0.0
@@ -4605,8 +4605,8 @@ packages:
     resolution: {integrity: sha512-6Z7Ma2aVEWisaL6TvBCy7P8rm2LQoPv6dJ7ecIaIixHcwfbJ0x7mWdbcwlIM5IGQxPZSFYeqRCqlOOeKoJYMkw==}
     engines: {node: '>= 4'}
 
-  uuid@14.0.0:
-    resolution: {integrity: sha512-Qo+uWgilfSmAhXCMav1uYFynlQO7fMFiMVZsQqZRMIXp0O7rR7qjkj+cPvBHLgBqi960QCoo/PH2/6ZtVqKvrg==}
+  uuid@14.0.1:
+    resolution: {integrity: sha512-6ZxzVpzDXDa3bJWaHilVayA+BH/1zmxCJoVgvmqJnid/gPoKHxUrS/aC/T6LGQtNHT+XHG9fXPJB4d+IrU30Ew==}
     hasBin: true
 
   vary@1.1.2:
@@ -8238,7 +8238,7 @@ snapshots:
       roughjs: 4.6.6
       stylis: 4.4.0
       ts-dedent: 2.2.0
-      uuid: 14.0.0
+      uuid: 14.0.1
 
   meshline@3.3.1(three@0.184.0):
     dependencies:
@@ -9578,7 +9578,7 @@ snapshots:
 
   utility-types@3.11.0: {}
 
-  uuid@14.0.0: {}
+  uuid@14.0.1: {}
 
   vary@1.1.2: {}
 
