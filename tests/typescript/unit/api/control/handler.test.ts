@@ -1,17 +1,16 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Unit tests for the control invoke route registration and pre-authentication request limiting.
+// Unit tests for the control invoke route registration: gating, replay, per-subject limiting, and dispatch.
 
 import Fastify from 'fastify'
-import rateLimit from '@fastify/rate-limit'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { AuthError, type Authenticator, type ControlClaims } from '../../../../apps/control/src/auth.js'
-import { registerInvokeRoute, type InvokeDeps } from '../../../../apps/control/src/handler.js'
-import { RateLimiter } from '../../../../apps/control/src/ratelimit.js'
-import type { EventSink } from '../../../../apps/control/src/audit.js'
-import type { Replay } from '../../../../apps/control/src/replay.js'
-import type { DispatchContext } from '../../../../packages/engine/src/dispatch.js'
+import { AuthError, type Authenticator, type Claims } from '../../../../../apps/api/src/control/auth.js'
+import { registerInvokeRoute, type InvokeDeps } from '../../../../../apps/api/src/control/handler.js'
+import { RateLimiter } from '../../../../../apps/api/src/control/ratelimit.js'
+import type { EventSink } from '../../../../../apps/api/src/control/audit.js'
+import type { Replay } from '../../../../../apps/api/src/control/replay.js'
+import type { DispatchContext } from '../../../../../packages/engine/src/dispatch.js'
 
 const apps: { close(): Promise<void> }[] = []
 
@@ -24,14 +23,13 @@ function deps(verify: Authenticator['verify']): InvokeDeps {
     auth: { verify } as Authenticator,
     replay: { mark: vi.fn(), ping: vi.fn() } as unknown as Replay,
     rate: new RateLimiter(10, 60_000),
-    routeRateLimit: { max: 1, timeWindow: 60_000 },
     sink: { emit: vi.fn(async () => {}) } as EventSink,
     ctx: { admin: {} } as DispatchContext,
     gate: { enabled: () => true },
   }
 }
 
-function claims(overrides: Partial<ControlClaims> = {}): ControlClaims {
+function claims(overrides: Partial<Claims> = {}): Claims {
   return {
     sub: 'subject-1',
     jti: 'jti-1',
@@ -44,34 +42,6 @@ function claims(overrides: Partial<ControlClaims> = {}): ControlClaims {
 }
 
 describe('registerInvokeRoute', () => {
-  it('rate-limits invoke requests before authentication work runs', async () => {
-    const app = Fastify()
-    apps.push(app)
-    const verify = vi.fn(async () => {
-      throw new AuthError('invalid token')
-    })
-
-    await app.register(rateLimit, { global: false, max: 1, timeWindow: 60_000 })
-    registerInvokeRoute(app, deps(verify))
-
-    const first = await app.inject({
-      method: 'POST',
-      url: '/v1/control/invoke',
-      headers: { authorization: 'Bearer bad' },
-      payload: {},
-    })
-    const second = await app.inject({
-      method: 'POST',
-      url: '/v1/control/invoke',
-      headers: { authorization: 'Bearer bad' },
-      payload: {},
-    })
-
-    expect(first.statusCode).toBe(401)
-    expect(second.statusCode).toBe(429)
-    expect(verify).toHaveBeenCalledTimes(1)
-  })
-
   it('blocks invoke requests when the runtime endpoint gate is closed', async () => {
     const app = Fastify()
     apps.push(app)
@@ -79,7 +49,6 @@ describe('registerInvokeRoute', () => {
     const d = deps(verify)
     d.gate = { enabled: () => false }
 
-    await app.register(rateLimit, { global: false, max: 1, timeWindow: 60_000 })
     registerInvokeRoute(app, d)
 
     const res = await app.inject({

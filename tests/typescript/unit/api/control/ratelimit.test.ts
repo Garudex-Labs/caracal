@@ -4,7 +4,7 @@
 // Unit tests for per-subject token-bucket rate limiter.
 
 import { describe, it, expect, vi } from 'vitest'
-import { RateLimiter } from '../../../../apps/control/src/ratelimit.js'
+import { RateLimiter } from '../../../../../apps/api/src/control/ratelimit.js'
 
 describe('RateLimiter', () => {
   it('allows up to capacity then rejects', () => {

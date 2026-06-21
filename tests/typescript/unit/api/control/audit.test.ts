@@ -8,10 +8,9 @@ import { describe, it, expect, vi } from 'vitest'
 import {
   buildAuditPayload,
   newRequestId,
-  LogSink,
   RedisSink,
   type AuditEvent,
-} from '../../../../apps/control/src/audit.js'
+} from '../../../../../apps/api/src/control/audit.js'
 
 function event(overrides: Partial<AuditEvent> = {}): AuditEvent {
   return {
@@ -86,18 +85,6 @@ describe('buildAuditPayload', () => {
       subcommand: '',
       reason: '',
     })
-  })
-})
-
-describe('LogSink', () => {
-  it('logs the event under the audit stream', async () => {
-    const info = vi.fn()
-    const sink = new LogSink({ info } as never)
-    await sink.emit(event())
-    expect(info).toHaveBeenCalledOnce()
-    const [, meta] = info.mock.calls[0]
-    expect(meta.type).toBe('control.invoke')
-    expect(meta.event).toMatchObject({ decision: 'allow' })
   })
 })
 

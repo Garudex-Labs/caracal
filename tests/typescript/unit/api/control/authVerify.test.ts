@@ -4,7 +4,7 @@
 // Unit tests for Control bearer-token verification: signature checks, zone validation, JWKS refresh, and claim extraction.
 
 import { describe, expect, it } from 'vitest'
-import { Authenticator, AuthError } from '../../../../apps/control/src/auth.js'
+import { Authenticator, AuthError } from '../../../../../apps/api/src/control/auth.js'
 
 const ISSUER = 'http://sts:8080'
 const AUDIENCE = 'caracal-control'

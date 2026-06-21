@@ -15,7 +15,6 @@ import {
   stackPurge,
   stackStatus,
 } from '../../../../packages/engine/src/stack.js'
-import { setControlMounted } from '../../../../packages/engine/src/controlState.js'
 
 const spawnSyncMock = vi.hoisted(() => vi.fn())
 
@@ -30,7 +29,6 @@ describe('stack probes', () => {
 
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), 'caracal-stack-'))
-    process.env.CARACAL_CONTROL_STATE_DIR = dir
   })
 
   afterEach(() => {
@@ -39,15 +37,12 @@ describe('stack probes', () => {
     rmSync(dir, { recursive: true, force: true })
   })
 
-  it('adds the enabled Control service to ready probes', () => {
-    setControlMounted(true, true)
+  it('targets every deployable on its ready endpoint without a separate control probe', () => {
+    const probes = defaultServiceProbes('ready')
 
-    expect(defaultServiceProbes(undefined, 'ready')).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        name: 'control',
-        url: expect.stringContaining('/ready'),
-      }),
-    ]))
+    expect(probes.every((p) => p.url.endsWith('/ready'))).toBe(true)
+    expect(probes.some((p) => p.name === 'control')).toBe(false)
+    expect(probes.map((p) => p.name)).toEqual(expect.arrayContaining(['api', 'sts', 'gateway', 'audit', 'coordinator']))
   })
 
   it('returns status details for ok, JSON error, text error, and fetch failures', async () => {

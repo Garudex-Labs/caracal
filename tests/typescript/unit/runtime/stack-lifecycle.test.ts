@@ -10,11 +10,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { StackPaths } from '../../../../packages/engine/src/stack.ts'
 
 const runExecMock = vi.hoisted(() => vi.fn())
-const spawnSyncMock = vi.hoisted(() => vi.fn(() => ({ status: 0, stdout: 'control-container-id\n' })))
+const spawnSyncMock = vi.hoisted(() => vi.fn(() => ({ status: 0, stdout: '' })))
 const controlEnabledMock = vi.hoisted(() => vi.fn(() => false))
-const readControlStateMock = vi.hoisted(() => vi.fn(() => undefined))
 const setControlEnabledMock = vi.hoisted(() => vi.fn())
-const setControlMountedMock = vi.hoisted(() => vi.fn())
 
 vi.mock('../../../../packages/engine/src/run.js', () => ({
   runExec: runExecMock,
@@ -27,22 +25,16 @@ vi.mock('node:child_process', async (importOriginal) => ({
 
 vi.mock('../../../../packages/engine/src/controlState.js', () => ({
   controlRuntimeSettings: () => ({
-    service: 'control',
-    profile: 'control',
-    port: Number(process.env.CONTROL_PORT ?? 8087),
-    endpoint: `http://localhost:${Number(process.env.CONTROL_PORT ?? 8087)}`,
-    healthUrl: `http://localhost:${Number(process.env.CONTROL_PORT ?? 8087)}/health`,
-    readyUrl: `http://localhost:${Number(process.env.CONTROL_PORT ?? 8087)}/ready`,
-    invokeUrl: `http://localhost:${Number(process.env.CONTROL_PORT ?? 8087)}/v1/control/invoke`,
+    port: 3000,
+    endpoint: 'http://localhost:3000',
+    healthUrl: 'http://localhost:3000/health',
+    readyUrl: 'http://localhost:3000/ready',
+    invokeUrl: 'http://localhost:3000/v1/control/invoke',
     bind: '127.0.0.1',
   }),
   controlGateFile: () => '/tmp/caracal/control/enabled',
-  controlStateFile: () => '/tmp/caracal/control.json',
-  ensureControlGateDir: () => '/tmp/caracal/control',
   isControlEnabled: controlEnabledMock,
-  readControlState: readControlStateMock,
   setControlEnabled: setControlEnabledMock,
-  setControlMounted: setControlMountedMock,
 }))
 
 vi.mock('../../../../packages/engine/src/controlAccess.js', () => ({
@@ -51,9 +43,7 @@ vi.mock('../../../../packages/engine/src/controlAccess.js', () => ({
 
 import {
   applyControlLifecycleAction,
-  composeRun,
   controlServiceStatus,
-  defaultServiceProbes,
   stackDown,
   stackUp,
 } from '../../../../packages/engine/src/stack.ts'
@@ -88,12 +78,9 @@ afterEach(() => {
   rmSync('/tmp/caracal', { recursive: true, force: true })
   runExecMock.mockReset()
   spawnSyncMock.mockReset()
-  spawnSyncMock.mockReturnValue({ status: 0, stdout: 'control-container-id\n' })
+  spawnSyncMock.mockReturnValue({ status: 0, stdout: '' })
   controlEnabledMock.mockReset()
-  readControlStateMock.mockReset()
   setControlEnabledMock.mockReset()
-  setControlMountedMock.mockReset()
-  delete process.env.CONTROL_PORT
 })
 
 describe('stack lifecycle compose commands', () => {
@@ -221,41 +208,6 @@ describe('stack lifecycle compose commands', () => {
     })
   })
 
-  it('adds the control profile only when control runtime state is enabled', () => {
-    controlEnabledMock.mockReturnValue(true)
-
-    stackDown({ paths: paths('stable', []), args: [], env: { CARACAL_MODE: 'stable' } })
-
-    expect(calls[0].argv).toEqual([
-      'docker',
-      'compose',
-      '-f',
-      join(dir, 'stable.yml'),
-      '--profile',
-      'control',
-      'down',
-    ])
-    expect(calls[0].env).toEqual({
-      CARACAL_MODE: 'stable',
-      CARACAL_ENGINE_CONTROL_ENABLED: 'true',
-      CARACAL_CONTROL_STATE_DIR: '/tmp/caracal/control',
-    })
-  })
-
-  it('rejects direct Control service targets from stack commands', () => {
-    expect(() => stackUp({
-      paths: paths('stable', []),
-      args: ['control'],
-      env: { CARACAL_MODE: 'stable' },
-    })).toThrow(/managed only through the Console Control menu/)
-
-    expect(() => stackDown({
-      paths: paths('stable', []),
-      args: ['--profile', 'api,control'],
-      env: { CARACAL_MODE: 'stable' },
-    })).toThrow(/managed only through the Console Control menu/)
-  })
-
   it('filters absent env files through the filesystem boundary', () => {
     const envFile = join(dir, 'present.env')
     writeFileSync(envFile, 'LOG_LEVEL=info\n')
@@ -275,488 +227,96 @@ describe('stack lifecycle compose commands', () => {
   })
 })
 
-describe('stack compose helpers', () => {
-  it('composeRun includes the control profile only when control is enabled', async () => {
-    const envFile = join(dir, 'caracal.env')
-    writeFileSync(envFile, '# operator env\n')
+describe('control lifecycle', () => {
+  const home = '/tmp/home'
 
-    controlEnabledMock.mockReturnValueOnce(true)
-    await composeRun({
-      paths: paths('stable', [envFile]),
-      args: ['ps'],
-      env: { CARACAL_MODE: 'stable' },
-    }).exitCode
-
-    controlEnabledMock.mockReturnValueOnce(false)
-    await composeRun({
-      paths: paths('stable', [envFile]),
-      args: ['ps'],
-      env: { CARACAL_MODE: 'stable' },
-    }).exitCode
-
-    expect(calls[0].argv).toEqual([
-      'docker',
-      'compose',
-      '--env-file',
-      envFile,
-      '-f',
-      join(dir, 'stable.yml'),
-      '--profile',
-      'control',
-      'ps',
-    ])
-    expect(calls[0].env).toEqual({
-      CARACAL_MODE: 'stable',
-      CARACAL_ENGINE_CONTROL_ENABLED: 'true',
-      CARACAL_CONTROL_STATE_DIR: '/tmp/caracal/control',
-    })
-    expect(calls[1].argv).toEqual([
-      'docker',
-      'compose',
-      '--env-file',
-      envFile,
-      '-f',
-      join(dir, 'stable.yml'),
-      'ps',
-    ])
-  })
-
-  it('defaultServiceProbes includes control only when runtime state is enabled', () => {
-    process.env.CONTROL_PORT = '9100'
-    readControlStateMock.mockReturnValueOnce({
-      mounted: true,
-      enabled: true,
-      managedBy: 'engine',
-      updatedAt: '2026-05-21T00:00:00.000Z',
-      service: 'control',
-      profile: 'control',
-      port: 9100,
-      endpoint: 'http://localhost:9100',
-      healthUrl: 'http://localhost:9100/health',
-      readyUrl: 'http://localhost:9100/ready',
-      invokeUrl: 'http://localhost:9100/v1/control/invoke',
-      bind: '127.0.0.1',
-    })
-    const enabled = defaultServiceProbes('/tmp/home')
-    expect(enabled.some((p) => p.name === 'control' && p.port === 9100)).toBe(true)
-
-    readControlStateMock.mockReturnValueOnce({
-      mounted: true,
-      enabled: false,
-      mountedAt: '2026-05-21T00:00:00.000Z',
-      managedBy: 'engine',
-      updatedAt: '2026-05-21T00:00:00.000Z',
-      service: 'control',
-      profile: 'control',
-      port: 9100,
-      endpoint: 'http://localhost:9100',
-      healthUrl: 'http://localhost:9100/health',
-      readyUrl: 'http://localhost:9100/ready',
-      invokeUrl: 'http://localhost:9100/v1/control/invoke',
-      bind: '127.0.0.1',
-    })
-    const mountedDisabled = defaultServiceProbes('/tmp/home')
-    expect(mountedDisabled.some((p) => p.name === 'control')).toBe(false)
-
-    readControlStateMock.mockReturnValueOnce(undefined)
-    const disabled = defaultServiceProbes('/tmp/home')
-    expect(disabled.some((p) => p.name === 'control')).toBe(false)
-    delete process.env.CONTROL_PORT
-  })
-
-  it('reports structured control status for disabled and enabled states', async () => {
-    readControlStateMock.mockReturnValueOnce(undefined)
-    await expect(controlServiceStatus({ home: '/tmp/home' })).resolves.toMatchObject({
-      state: 'unmounted',
-      service: 'unmounted',
-      mounted: false,
-      enabled: false,
-      marker: '/tmp/caracal/control.json',
-      endpoint: 'http://localhost:8087',
-      invokeUrl: 'http://localhost:8087/v1/control/invoke',
-      profile: 'control',
-      lifecycle: 'unmounted',
-      optimization: 'control container is removed; no control background process is kept running',
-    })
-
-    readControlStateMock.mockReturnValueOnce({
-      mounted: true,
-      enabled: true,
-      managedBy: 'engine',
-      updatedAt: '2026-05-21T00:00:00.000Z',
-      service: 'control',
-      profile: 'control',
-      port: 8087,
-      endpoint: 'http://localhost:8087',
-      healthUrl: 'http://localhost:8087/health',
-      readyUrl: 'http://localhost:8087/ready',
-      invokeUrl: 'http://localhost:8087/v1/control/invoke',
-      bind: '127.0.0.1',
-    })
-    mkdirSync('/tmp/caracal/control', { recursive: true })
-    writeFileSync('/tmp/caracal/control/enabled', 'enabled\n')
+  it('enables the endpoint by writing the gate and confirming the API health probe', async () => {
+    controlEnabledMock.mockReturnValue(true)
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, status: 200 } as Response)
     try {
-      await expect(controlServiceStatus({ home: '/tmp/home' })).resolves.toMatchObject({
+      await expect(applyControlLifecycleAction({ home, action: 'enable' })).resolves.toMatchObject({
+        action: 'enable',
         state: 'enabled',
         service: 'ok',
-        mounted: true,
         enabled: true,
-        marker: '/tmp/caracal/control.json',
-        endpoint: 'http://localhost:8087',
-        invokeUrl: 'http://localhost:8087/v1/control/invoke',
-        profile: 'control',
-        detail: '200',
-        lifecycle: 'mounted and enabled',
+        marker: '/tmp/caracal/control/enabled',
+        endpoint: 'http://localhost:3000',
+        invokeUrl: 'http://localhost:3000/v1/control/invoke',
+        lifecycle: 'enabled',
       })
-      expect(fetchSpy).toHaveBeenCalledWith('http://localhost:8087/ready', expect.objectContaining({ signal: expect.any(AbortSignal) }))
+      expect(fetchSpy).toHaveBeenCalledWith('http://localhost:3000/health', expect.objectContaining({ signal: expect.any(AbortSignal) }))
     } finally {
       fetchSpy.mockRestore()
-      rmSync('/tmp/caracal', { recursive: true, force: true })
     }
+    expect(setControlEnabledMock).toHaveBeenCalledWith(true, { home })
+    expect(calls).toEqual([])
   })
 
-  it('clears stale mounted state when the control container is absent', async () => {
-    const stable = paths('stable', [])
-    readControlStateMock.mockReturnValue({
-      mounted: true,
-      enabled: false,
-      mountedAt: '2026-05-21T00:00:00.000Z',
-      managedBy: 'engine',
-      updatedAt: '2026-05-21T00:00:00.000Z',
-      service: 'control',
-      profile: 'control',
-      port: 8087,
-      endpoint: 'http://localhost:8087',
-      healthUrl: 'http://localhost:8087/health',
-      readyUrl: 'http://localhost:8087/ready',
-      invokeUrl: 'http://localhost:8087/v1/control/invoke',
-      bind: '127.0.0.1',
-    })
-    spawnSyncMock.mockReturnValue({ status: 0, stdout: '' })
-
-    await expect(controlServiceStatus({
-      home: '/tmp/home',
-      paths: stable,
-      env: { CARACAL_MODE: 'stable' },
-    })).resolves.toMatchObject({
-      state: 'unmounted',
-      service: 'unmounted',
-      mounted: false,
-      enabled: false,
-      detail: 'not mounted',
-    })
-
-    expect(spawnSyncMock).toHaveBeenCalledWith(
-      'docker',
-      [
-        'compose',
-        '-f',
-        join(dir, 'stable.yml'),
-        '--profile',
-        'control',
-        'ps',
-        '--all',
-        '-q',
-        'control',
-      ],
-      expect.objectContaining({ cwd: dir }),
-    )
-    expect(setControlMountedMock).toHaveBeenCalledWith(false, false, { home: '/tmp/home' })
+  it('rolls back the gate when the API health probe stays closed', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: false, status: 503, text: async () => '' } as Response)
+    try {
+      await expect(applyControlLifecycleAction({ home, action: 'enable' })).rejects.toThrow(/could not be confirmed/)
+    } finally {
+      fetchSpy.mockRestore()
+    }
+    expect(setControlEnabledMock).toHaveBeenNthCalledWith(1, true, { home })
+    expect(setControlEnabledMock).toHaveBeenNthCalledWith(2, false, { home })
+    expect(calls).toEqual([])
   })
 
-  it('clears disabled mounted state that lacks explicit mount provenance', async () => {
-    const stable = paths('stable', [])
-    readControlStateMock.mockReturnValue({
-      mounted: true,
+  it('disables the endpoint by closing the gate without probing', async () => {
+    await expect(applyControlLifecycleAction({ home, action: 'disable' })).resolves.toMatchObject({
+      action: 'disable',
+      state: 'disabled',
+      service: 'gated',
       enabled: false,
-      managedBy: 'engine',
-      updatedAt: '2026-05-21T00:00:00.000Z',
-      service: 'control',
-      profile: 'control',
-      port: 8087,
-      endpoint: 'http://localhost:8087',
-      healthUrl: 'http://localhost:8087/health',
-      readyUrl: 'http://localhost:8087/ready',
-      invokeUrl: 'http://localhost:8087/v1/control/invoke',
-      bind: '127.0.0.1',
+      marker: '/tmp/caracal/control/enabled',
+      endpoint: 'http://localhost:3000',
+      lifecycle: 'disabled',
     })
-
-    await expect(controlServiceStatus({
-      home: '/tmp/home',
-      paths: stable,
-      env: { CARACAL_MODE: 'stable' },
-    })).resolves.toMatchObject({
-      state: 'unmounted',
-      mounted: false,
-      enabled: false,
-    })
-
-    expect(spawnSyncMock).not.toHaveBeenCalled()
-    expect(setControlMountedMock).toHaveBeenCalledWith(false, false, { home: '/tmp/home' })
+    expect(setControlEnabledMock).toHaveBeenCalledWith(false, { home })
+    expect(calls).toEqual([])
   })
 
-  it('applies control lifecycle actions only through managed compose environment', async () => {
-    const stable = paths('stable', [])
-    readControlStateMock
-      .mockReturnValueOnce({
-        mounted: true,
-        enabled: false,
-        managedBy: 'engine',
-        updatedAt: '2026-05-21T00:00:00.000Z',
-        service: 'control',
-        profile: 'control',
-        port: 8087,
-        endpoint: 'http://localhost:8087',
-        healthUrl: 'http://localhost:8087/health',
-        readyUrl: 'http://localhost:8087/ready',
-        invokeUrl: 'http://localhost:8087/v1/control/invoke',
-        bind: '127.0.0.1',
-      })
-      .mockReturnValueOnce({
-        mounted: true,
-        enabled: true,
-        managedBy: 'engine',
-        updatedAt: '2026-05-21T00:00:00.000Z',
-        service: 'control',
-        profile: 'control',
-        port: 8087,
-        endpoint: 'http://localhost:8087',
-        healthUrl: 'http://localhost:8087/health',
-        readyUrl: 'http://localhost:8087/ready',
-        invokeUrl: 'http://localhost:8087/v1/control/invoke',
-        bind: '127.0.0.1',
-      })
+  it('reports a gated status when the endpoint gate is closed', async () => {
+    controlEnabledMock.mockReturnValue(false)
+    await expect(controlServiceStatus({ home })).resolves.toMatchObject({
+      state: 'disabled',
+      service: 'gated',
+      enabled: false,
+      marker: '/tmp/caracal/control/enabled',
+      endpoint: 'http://localhost:3000',
+      invokeUrl: 'http://localhost:3000/v1/control/invoke',
+      detail: 'endpoint disabled',
+    })
+  })
 
+  it('probes the API health endpoint when the gate is open', async () => {
+    controlEnabledMock.mockReturnValue(true)
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, status: 200 } as Response)
     try {
-      await expect(applyControlLifecycleAction({
-        paths: stable,
-        action: 'enable',
-        env: { CARACAL_MODE: 'stable' },
-      })).resolves.toMatchObject({
-        action: 'enable',
+      await expect(controlServiceStatus({ home })).resolves.toMatchObject({
         state: 'enabled',
-        service: 'running',
-        mounted: true,
+        service: 'ok',
         enabled: true,
-        marker: '/tmp/caracal/control.json',
-        endpoint: 'http://localhost:8087',
-        invokeUrl: 'http://localhost:8087/v1/control/invoke',
-        profile: 'control',
-        lifecycle: 'mounted and enabled',
-        optimization: 'uses the existing stack services; no dedicated persistent volume is created',
+        detail: '200',
       })
-
-      await expect(applyControlLifecycleAction({
-        paths: stable,
-        action: 'disable',
-        env: { CARACAL_MODE: 'stable' },
-      })).resolves.toMatchObject({
-        action: 'disable',
-        state: 'disabled',
-        service: 'gated',
-        mounted: true,
-        enabled: false,
-        marker: '/tmp/caracal/control.json',
-        endpoint: 'http://localhost:8087',
-        invokeUrl: 'http://localhost:8087/v1/control/invoke',
-        profile: 'control',
-        lifecycle: 'mounted but disabled',
-        optimization: 'runtime remains loaded; the Control endpoint is blocked by the local gate',
-      })
+      expect(fetchSpy).toHaveBeenCalledWith('http://localhost:3000/health', expect.objectContaining({ signal: expect.any(AbortSignal) }))
     } finally {
       fetchSpy.mockRestore()
     }
-
-    expect(setControlEnabledMock).toHaveBeenNthCalledWith(1, true)
-    expect(setControlEnabledMock).toHaveBeenNthCalledWith(2, false)
-    expect(calls).toEqual([])
   })
 
-  it('does not mount runtime as a side effect of endpoint enable', async () => {
-    const stable = paths('stable', [])
-    readControlStateMock.mockReturnValue(undefined)
-
-    await expect(applyControlLifecycleAction({
-      paths: stable,
-      action: 'enable',
-      env: { CARACAL_MODE: 'stable' },
-    })).rejects.toThrow(/not mounted/)
-
-    expect(calls).toEqual([])
-    expect(setControlEnabledMock).not.toHaveBeenCalled()
-  })
-
-  it('rolls back endpoint enable when the ready gate stays closed', async () => {
-    const stable = paths('stable', [])
-    readControlStateMock.mockReturnValue({
-      mounted: true,
-      enabled: false,
-      mountedAt: '2026-05-21T00:00:00.000Z',
-      managedBy: 'engine',
-      updatedAt: '2026-05-21T00:00:00.000Z',
-      service: 'control',
-      profile: 'control',
-      port: 8087,
-      endpoint: 'http://localhost:8087',
-      healthUrl: 'http://localhost:8087/health',
-      readyUrl: 'http://localhost:8087/ready',
-      invokeUrl: 'http://localhost:8087/v1/control/invoke',
-      bind: '127.0.0.1',
-    })
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: false, status: 503 } as Response)
+  it('marks the endpoint down when the gate is open but the probe fails', async () => {
+    controlEnabledMock.mockReturnValue(true)
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: false, status: 503, text: async () => '' } as Response)
     try {
-      await expect(applyControlLifecycleAction({
-        paths: stable,
-        action: 'enable',
-        env: { CARACAL_MODE: 'stable' },
-      })).rejects.toThrow(/gate did not open/)
+      await expect(controlServiceStatus({ home })).resolves.toMatchObject({
+        state: 'enabled',
+        service: 'down',
+      })
     } finally {
       fetchSpy.mockRestore()
     }
-
-    expect(setControlEnabledMock).toHaveBeenNthCalledWith(1, true)
-    expect(setControlEnabledMock).toHaveBeenNthCalledWith(2, false)
-    expect(calls).toEqual([])
-  })
-
-  it('mounts and unmounts control runtime as long-term lifecycle actions', async () => {
-    const stable = paths('stable', [])
-    readControlStateMock
-      .mockReturnValueOnce(undefined)
-      .mockReturnValueOnce({
-        mounted: true,
-        enabled: false,
-        managedBy: 'engine',
-        updatedAt: '2026-05-21T00:00:00.000Z',
-        service: 'control',
-        profile: 'control',
-        port: 8087,
-        endpoint: 'http://localhost:8087',
-        healthUrl: 'http://localhost:8087/health',
-        readyUrl: 'http://localhost:8087/ready',
-        invokeUrl: 'http://localhost:8087/v1/control/invoke',
-        bind: '127.0.0.1',
-      })
-
-    await expect(applyControlLifecycleAction({
-      paths: stable,
-      action: 'mount',
-      env: { CARACAL_MODE: 'stable' },
-    })).resolves.toMatchObject({
-      action: 'mount',
-      state: 'disabled',
-      service: 'gated',
-      mounted: true,
-      enabled: false,
-      lifecycle: 'mounted but disabled',
-    })
-
-    await expect(applyControlLifecycleAction({
-      paths: stable,
-      action: 'unmount',
-      env: { CARACAL_MODE: 'stable' },
-    })).resolves.toMatchObject({
-      action: 'unmount',
-      state: 'unmounted',
-      service: 'removed',
-      mounted: false,
-      enabled: false,
-      lifecycle: 'unmounted',
-    })
-
-    expect(setControlMountedMock).toHaveBeenNthCalledWith(1, true, false)
-    expect(setControlMountedMock).toHaveBeenNthCalledWith(2, false, false)
-    expect(calls[0].env).toEqual({
-      CARACAL_MODE: 'stable',
-      CARACAL_ENGINE_CONTROL_ENABLED: 'true',
-      CARACAL_CONTROL_STATE_DIR: '/tmp/caracal/control',
-    })
-    expect(calls[0].argv).toEqual([
-      'docker',
-      'compose',
-      '-f',
-      join(dir, 'stable.yml'),
-      '--profile',
-      'control',
-      'up',
-      '-d',
-      'control',
-    ])
-    expect(typeof calls[0].onLine).toBe('function')
-    expect(calls[1].env).toEqual({
-      CARACAL_MODE: 'stable',
-      CARACAL_ENGINE_CONTROL_ENABLED: 'true',
-      CARACAL_CONTROL_STATE_DIR: '/tmp/caracal/control',
-    })
-    expect(calls[1].argv).toEqual([
-      'docker',
-      'compose',
-      '-f',
-      join(dir, 'stable.yml'),
-      '--profile',
-      'control',
-      'rm',
-      '-sf',
-      'control',
-    ])
-    expect(typeof calls[1].onLine).toBe('function')
-  })
-
-  it('includes compose output tail when control lifecycle commands fail', async () => {
-    const stable = paths('stable', [])
-    const lines: string[] = []
-    readControlStateMock.mockReturnValue(undefined)
-    runExecMock.mockImplementationOnce((opts: { onLine?: (line: string, stream: 'stdout' | 'stderr') => void }) => {
-      opts.onLine?.('Container caracal-db starting', 'stdout')
-      opts.onLine?.('dependency failed to start', 'stderr')
-      return { dispose: vi.fn(), exitCode: Promise.resolve(1) }
-    })
-
-    await expect(applyControlLifecycleAction({
-      paths: stable,
-      action: 'mount',
-      onLine: (line, stream) => lines.push(`${stream}:${line}`),
-    })).rejects.toThrow('control mount failed with exit code 1: stdout: Container caracal-db starting | stderr: dependency failed to start')
-
-    expect(lines).toEqual([
-      'stdout:Container caracal-db starting',
-      'stderr:dependency failed to start',
-    ])
-    expect(setControlMountedMock).not.toHaveBeenCalled()
-  })
-
-  it('does not remount control when runtime is already mounted', async () => {
-    const stable = paths('stable', [])
-    readControlStateMock.mockReturnValue({
-      mounted: true,
-      enabled: false,
-      managedBy: 'engine',
-      updatedAt: '2026-05-21T00:00:00.000Z',
-      service: 'control',
-      profile: 'control',
-      port: 8087,
-      endpoint: 'http://localhost:8087',
-      healthUrl: 'http://localhost:8087/health',
-      readyUrl: 'http://localhost:8087/ready',
-      invokeUrl: 'http://localhost:8087/v1/control/invoke',
-      bind: '127.0.0.1',
-    })
-
-    await expect(applyControlLifecycleAction({
-      paths: stable,
-      action: 'mount',
-      env: { CARACAL_MODE: 'stable' },
-    })).resolves.toMatchObject({
-      action: 'mount',
-      state: 'disabled',
-      service: 'gated',
-      mounted: true,
-      enabled: false,
-    })
-
-    expect(calls).toEqual([])
-    expect(setControlMountedMock).not.toHaveBeenCalled()
   })
 })

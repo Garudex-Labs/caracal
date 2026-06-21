@@ -7,7 +7,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, it, expect } from 'vitest'
-import { fileGate } from '../../../../apps/control/src/gate.js'
+import { fileGate } from '../../../../../apps/api/src/control/gate.js'
 
 let dir: string | undefined
 

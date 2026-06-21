@@ -11,8 +11,8 @@ import {
   validateFlags,
   type DispatchContext,
   type Principal,
-} from '../../../../packages/engine/src/dispatch.js'
-import type { AdminClient } from '../../../../packages/admin/ts/src/client.js'
+} from '../../../../../packages/engine/src/dispatch.js'
+import type { AdminClient } from '../../../../../packages/admin/ts/src/client.js'
 
 const stubAdmin = {
   resources: { list: async (zoneId: string) => [zoneId] },

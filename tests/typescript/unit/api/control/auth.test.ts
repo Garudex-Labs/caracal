@@ -4,7 +4,7 @@
 // Unit tests for Control API bearer-token authentication.
 
 import { describe, expect, it } from 'vitest'
-import { Authenticator } from '../../../../apps/control/src/auth.js'
+import { Authenticator } from '../../../../../apps/api/src/control/auth.js'
 
 type KeySetLoader = { keySet(zoneId: string, force: boolean): Promise<unknown> }
 

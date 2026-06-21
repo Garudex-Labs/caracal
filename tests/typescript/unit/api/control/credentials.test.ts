@@ -5,8 +5,8 @@
 
 import { describe, expect, it, vi } from 'vitest'
 
-import { controlKeyCreate, ensureControlResource } from '../../../../packages/engine/src/control.ts'
-import type { AdminClient, Resource } from '../../../../packages/admin/ts/src/index.ts'
+import { controlKeyCreate, ensureControlResource } from '../../../../../packages/engine/src/control.ts'
+import type { AdminClient, Resource } from '../../../../../packages/admin/ts/src/index.ts'
 
 function client(resources: Resource[] = []): AdminClient {
   return {
