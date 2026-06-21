@@ -165,15 +165,13 @@ export const ENV_SCHEMA = {
   AUDIT_EXPORT_S3_BUCKET: { kind: 'string', description: 'S3 bucket for Parquet export.', default: '', exposed: true },
   AUDIT_EXPORT_S3_REGION: { kind: 'string', description: 'S3 region for Parquet export.', default: 'us-east-1', exposed: true },
 
-  // ─── Control automation API (optional, profile-gated) ──────────────────────
+  // ─── Control plane (optional, in-process API plugin, gate-file toggled) ─────
   CONTROL_AUDIENCE: {
     kind: 'string',
-    description: 'OAuth2 `aud` claim the Control service requires on inbound tokens.',
+    description: 'OAuth2 `aud` claim the in-process control plane requires on inbound tokens.',
     default: 'caracal-control',
     exposed: true,
   },
-  CONTROL_PORT: { kind: 'int', description: 'Control service listen port.', default: '8087' },
-  CONTROL_HOST: { kind: 'string', description: 'Control service bind address inside the container.', default: '0.0.0.0' },
   CONTROL_RATE_CAPACITY: { kind: 'int', description: 'Token-bucket capacity per Control client.', default: '60', exposed: true },
   CONTROL_RATE_WINDOW_SEC: { kind: 'int', description: 'Token-bucket window in seconds.', default: '60', exposed: true },
   CONTROL_REPLAY_TTL_SEC: { kind: 'int', description: 'JTI replay-cache TTL in seconds.', default: '3600', exposed: true },

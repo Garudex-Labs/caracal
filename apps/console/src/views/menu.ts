@@ -17,20 +17,16 @@ import {
   DEFAULT_CONTROL_AUDIENCE,
   detectActiveLocalStackRuntime,
   credentialRead,
-  readControlState,
-  resolveStackPaths,
   type ControlLifecycleAction,
   type ControlLifecycleResult,
   type ControlKeyRecord,
   type ControlServiceStatus,
   type ActiveLocalStackRuntime,
-  type StackMode,
-  type StackPaths,
 } from '@caracalai/engine'
 import {
   resolveStsUrl,
 } from '@caracalai/engine/runtime-config'
-import { pad, sanitizeAnsi, ui } from '../ansi.ts'
+import { pad, ui } from '../ansi.ts'
 import { explainError, maskSecretField } from '../errors.ts'
 import type { Key } from '../keys.ts'
 import type { App, View, ViewContext } from '../screen.ts'
@@ -55,7 +51,7 @@ import {
   zonesView,
   type Ctx,
 } from './factory.ts'
-import { CARACAL_CONSOLE_MODE, CARACAL_CONSOLE_SHA, CARACAL_CONSOLE_VERSION } from '../version.gen.ts'
+import { CARACAL_CONSOLE_MODE, CARACAL_CONSOLE_VERSION } from '../version.gen.ts'
 
 interface Entry {
   key: string
@@ -85,10 +81,6 @@ function resolveControlStackRuntime(): ControlStackRuntime {
   }
 }
 
-function resolveControlStackPaths(runtime: ControlStackRuntime): StackPaths {
-  return resolveStackPaths({ mode: runtime.mode, home: runtime.home, repoRoot: runtime.repoRoot })
-}
-
 function controlAccessEnv(runtime: ControlStackRuntime): NodeJS.ProcessEnv {
   return {
     ...process.env,
@@ -96,21 +88,6 @@ function controlAccessEnv(runtime: ControlStackRuntime): NodeJS.ProcessEnv {
     CARACAL_HOME: runtime.home ?? process.env.CARACAL_HOME,
     CARACAL_SECRETS_DIR: runtime.secretsDir ?? process.env.CARACAL_SECRETS_DIR,
   }
-}
-
-function controlComposeEnv(paths: StackPaths, runtime: ControlStackRuntime): Record<string, string | undefined> {
-  const env: Record<string, string | undefined> = {
-    CARACAL_MODE: paths.mode,
-    CARACAL_SECRETS_DIR: paths.secretsDir,
-  }
-  if (paths.mode !== 'dev') {
-    env.CARACAL_VERSION = runtime.version ?? CARACAL_CONSOLE_VERSION
-    env.CARACAL_REGISTRY = runtime.registry ?? process.env.CARACAL_REGISTRY
-  } else {
-    env.CARACAL_DEV_SHA = CARACAL_CONSOLE_SHA
-    env.CARACAL_DEV_VERSION = runtime.version ?? CARACAL_CONSOLE_VERSION
-  }
-  return env
 }
 
 function splitList(list: string): string[] {
@@ -216,7 +193,7 @@ class ControlMenuView implements View {
   readonly title = 'control'
   private cursor = 0
   private readonly ctx: Ctx
-  private status: Pick<ControlServiceStatus, 'mounted' | 'enabled'> | undefined
+  private enabled: boolean | undefined
 
   constructor(ctx: Ctx) {
     this.ctx = ctx
@@ -226,8 +203,8 @@ class ControlMenuView implements View {
     try {
       const runtime = resolveControlStackRuntime()
       authorizeControlManagementAccess({ env: controlAccessEnv(runtime) })
-      const paths = resolveControlStackPaths(runtime)
-      this.status = await controlServiceStatus({ home: runtime.home, paths, env: controlComposeEnv(paths, runtime), timeoutMs: 300 })
+      const status = await controlServiceStatus({ home: runtime.home, timeoutMs: 300 })
+      this.enabled = status.enabled
       app.invalidate()
     } catch (err) {
       app.setStatus(`control status: ${explainError(err)}`, 'error')
@@ -235,12 +212,9 @@ class ControlMenuView implements View {
   }
 
   private items(): { key: string; label: string; build: () => View }[] {
-    const state = this.lifecycleState()
-    const mounted = state.mounted
-    const enabled = state.enabled
+    const enabled = this.enabled === true
     return [
-      { key: 'm', label: mounted ? 'unmount runtime' : 'mount runtime', build: () => this.lifecycleConfirm(mounted ? 'unmount' : 'mount') },
-      { key: 'e', label: !mounted ? 'enable endpoint (mount first)' : enabled ? 'disable endpoint' : 'enable endpoint', build: () => mounted ? this.lifecycleConfirm(enabled ? 'disable' : 'enable') : this.statusView() },
+      { key: 'e', label: enabled ? 'disable endpoint' : 'enable endpoint', build: () => this.lifecycleConfirm(enabled ? 'disable' : 'enable') },
       { key: 's', label: 'management status', build: () => this.statusView() },
       { key: 'l', label: 'list keys', build: () => this.listView() },
       { key: 'g', label: 'get key', build: () => this.getForm() },
@@ -251,23 +225,13 @@ class ControlMenuView implements View {
     ]
   }
 
-  private lifecycleState(): { mounted: boolean; enabled: boolean } {
-    if (this.status) return this.status
-    try {
-      const state = readControlState()
-      return { mounted: state?.mounted === true, enabled: state?.enabled === true }
-    } catch {
-      return { mounted: false, enabled: false }
-    }
-  }
-
   hints(): string[] { return ['↑/↓:select', 'enter:open', '?:info', 'esc:back'] }
 
   render(_ctx: ViewContext): string[] {
     const lines: string[] = [
       '',
       ' ' + ui.title('Control API'),
-      ' ' + ui.muted('Toggle runtime mount state, toggle endpoint exposure, and manage credentials.'),
+      ' ' + ui.muted('Toggle the in-process endpoint and manage credentials.'),
       '',
     ]
     const items = this.items()
@@ -306,13 +270,12 @@ class ControlMenuView implements View {
     return new ControlLifecycleView({
       title: `control / ${action}`,
       action,
-      run: async (onLine) => {
+      run: async () => {
         const runtime = resolveControlStackRuntime()
         const accessEnv = controlAccessEnv(runtime)
         authorizeControlManagementAccess({ env: accessEnv })
-        const paths = resolveControlStackPaths(runtime)
-        const result = await applyControlLifecycleAction({ home: runtime.home, accessEnv, paths, action, env: controlComposeEnv(paths, runtime), onLine })
-        this.status = result
+        const result = await applyControlLifecycleAction({ home: runtime.home, accessEnv, action })
+        this.enabled = result.enabled
         return result
       },
     })
@@ -324,9 +287,8 @@ class ControlMenuView implements View {
       load: async () => {
         const runtime = resolveControlStackRuntime()
         authorizeControlManagementAccess({ env: controlAccessEnv(runtime) })
-        const paths = resolveControlStackPaths(runtime)
-        const status = await controlServiceStatus({ home: runtime.home, paths, env: controlComposeEnv(paths, runtime) })
-        this.status = status
+        const status = await controlServiceStatus({ home: runtime.home })
+        this.enabled = status.enabled
         return status
       },
     })
@@ -546,10 +508,8 @@ class ControlStatusView implements View {
 interface ControlLifecycleViewOptions {
   title: string
   action: ControlLifecycleAction
-  run: (onLine: (line: string, stream: 'stdout' | 'stderr') => void) => Promise<ControlLifecycleResult>
+  run: () => Promise<ControlLifecycleResult>
 }
-
-const CONTROL_EVENT_TAIL_LINES = 8
 
 class ControlLifecycleView implements View {
   readonly title: string
@@ -558,8 +518,6 @@ class ControlLifecycleView implements View {
   private result: ControlLifecycleResult | undefined
   private loading = true
   private error: string | undefined
-  private lineCount = 0
-  private eventLines: string[] = []
   private app: App | undefined
   private aborted = false
 
@@ -572,10 +530,7 @@ class ControlLifecycleView implements View {
   hints(): string[] { return ['esc:back'] }
 
   private progress(): string {
-    if (this.action === 'enable') return 'opening endpoint gate'
-    if (this.action === 'disable') return 'closing endpoint gate'
-    if (this.action === 'unmount') return 'detaching Control runtime'
-    return 'loading Control runtime'
+    return this.action === 'enable' ? 'opening endpoint gate' : 'closing endpoint gate'
   }
 
   async init(app: App): Promise<void> {
@@ -583,16 +538,7 @@ class ControlLifecycleView implements View {
     app.setStatus(`control ${this.action}: ${this.progress()}`)
     app.invalidate()
     try {
-      const result = await this.runAction((line, stream) => {
-        this.lineCount++
-        const clean = sanitizeAnsi(`${stream}: ${line}`).trim()
-        if (clean.length > 0) {
-          this.eventLines.push(clean)
-          if (this.eventLines.length > CONTROL_EVENT_TAIL_LINES) {
-            this.eventLines.splice(0, this.eventLines.length - CONTROL_EVENT_TAIL_LINES)
-          }
-        }
-      })
+      const result = await this.runAction()
       if (this.aborted) return
       this.result = result
       app.setStatus(result.summary)
@@ -612,28 +558,19 @@ class ControlLifecycleView implements View {
 
   render(_ctx: ViewContext): string[] {
     if (this.loading) {
-      const progress = this.progress()
       return [
         '',
         ' ' + ui.title(`Control ${this.action}`),
-        ' ' + ui.muted(progress),
+        ' ' + ui.muted(this.progress()),
         '',
         ` ${ui.muted('state')} ${ui.info('in progress')}`,
       ]
     }
     if (this.error) {
-      const lines = ['', ' ' + ui.error('error: ') + this.error]
-      if (this.eventLines.length > 0) {
-        lines.push('', ' ' + ui.muted('Recent runtime output'))
-        for (const line of this.eventLines) lines.push(' ' + line)
-      }
-      return lines
+      return ['', ' ' + ui.error('error: ') + this.error]
     }
     if (!this.result) return ['', ' ' + ui.warn('Control action did not produce a result')]
-    const eventSummary = (this.action === 'mount' || this.action === 'unmount') && this.lineCount > 0
-      ? `${this.lineCount} runtime line${this.lineCount === 1 ? '' : 's'} captured`
-      : undefined
-    return renderControlStatus(this.result, eventSummary)
+    return renderControlStatus(this.result)
   }
 
   onKey(key: Key, ctx: ViewContext): void {
@@ -647,29 +584,24 @@ function controlStateText(state: ControlServiceStatus['state']): string {
   return ui.muted(state)
 }
 
-function controlServiceText(service: ControlServiceStatus['service'] | ControlLifecycleResult['service']): string {
-  if (service === 'ok' || service === 'running') return ui.success(service)
+function controlServiceText(service: ControlServiceStatus['service']): string {
+  if (service === 'ok') return ui.success(service)
   if (service === 'gated') return ui.warn(service)
   if (service === 'down') return ui.error(service)
   return ui.muted(service)
 }
 
-function renderControlStatus(
-  status: ControlServiceStatus | ControlLifecycleResult,
-  eventSummary: string | undefined,
-): string[] {
+function renderControlStatus(status: ControlServiceStatus | ControlLifecycleResult): string[] {
   const lines = ['', ' ' + ui.title('Control API management'), '']
   lines.push(` ${ui.muted('state')}      ${controlStateText(status.state)}`)
   lines.push(` ${ui.muted('runtime')}    ${controlServiceText(status.service)}`)
-  lines.push(` ${ui.muted('mounted')}    ${status.mounted ? ui.success('yes') : ui.muted('no')}`)
   lines.push(` ${ui.muted('enabled')}    ${status.enabled ? ui.success('yes') : ui.muted('no')}`)
   const endpoint = status.enabled ? ui.input(status.invokeUrl) : ui.muted(`not exposed (${status.invokeUrl})`)
   lines.push(` ${ui.muted('endpoint')}   ${endpoint}`)
   lines.push(` ${ui.muted('lifecycle')}  ${status.lifecycle}`)
   lines.push(` ${ui.muted('optimize')}   ${status.optimization}`)
   if ('detail' in status) lines.push(` ${ui.muted('health')}     ${status.detail}`)
-  if (eventSummary) lines.push(` ${ui.muted('events')}     ${eventSummary}`)
-  lines.push(` ${ui.muted('state file')} ${status.marker}`)
+  lines.push(` ${ui.muted('gate file')} ${status.marker}`)
   lines.push('')
   return lines
 }
