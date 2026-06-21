@@ -11,6 +11,7 @@ import { startTTLSweeper } from './jobs/ttl-sweeper.js'
 import { startServiceLeaseSweeper } from './jobs/service-lease-sweeper.js'
 import { startDeadlineEnforcer } from './jobs/deadline-enforcer.js'
 import { startRetentionCleaner } from './jobs/retention-cleaner.js'
+import { startLifecycleRelay } from './jobs/lifecycle-relay.js'
 import { cfg } from './config.js'
 import { assertPublishedSafe, createLogger, initNodeTelemetry, ShutdownRegistry, withTimeout } from '@caracalai/core'
 
@@ -54,7 +55,9 @@ try {
   const serviceLease = startServiceLeaseSweeper(db, { log: app.log })
   const deadline = startDeadlineEnforcer(db, { log: app.log })
   const retention = startRetentionCleaner(db, { log: app.log })
+  const lifecycleRelay = startLifecycleRelay(redis, { log: app.log })
 
+  shutdown.register('lifecycle-relay', () => lifecycleRelay.stop())
   shutdown.register('retention-cleaner', () => retention.stop())
   shutdown.register('deadline-enforcer', () => deadline.stop())
   shutdown.register('service-lease-sweeper', () => serviceLease.stop())

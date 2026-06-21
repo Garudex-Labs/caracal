@@ -129,7 +129,7 @@ export async function statusCommand(argv: string[] = []): Promise<void> {
   const kind: ProbeKind = flagBool(flags, 'ready') ? 'ready' : 'health'
   const json = flagBool(flags, 'json')
   const paths = resolvePaths(json)
-  const probes = defaultServiceProbes(undefined, kind)
+  const probes = defaultServiceProbes(kind)
   const results = await stackStatus({ probes })
   if (json) {
     printJSON({ mode: kind, services: results })

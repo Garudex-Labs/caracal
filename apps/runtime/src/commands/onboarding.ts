@@ -24,7 +24,7 @@ function summarize(results: readonly ProbeResult[]): string {
 }
 
 export async function completeRuntimeOnboarding(): Promise<void> {
-  const probes = defaultServiceProbes(undefined, 'ready')
+  const probes = defaultServiceProbes('ready')
   const deadline = Date.now() + TIMEOUT_MS
   let results: readonly ProbeResult[] = []
   while (Date.now() < deadline) {
