@@ -121,6 +121,7 @@ providers:
       api_key: "${LYNX_PARTNER_INKWELL_OCR_API_KEY}"
     scopes:
       inkwell:extract: ["submit_document", "get_document", "get_extraction", "list_documents", "list_models"]
+      inkwell:manage: ["delete_document"]
   - id: "aegis-screening"
     name: "Aegis Screening"
     kind: "caracal_mandate"
@@ -181,7 +182,7 @@ providers:
       header_name: "x-api-key"
       api_key: "${LYNX_PARTNER_KEYSTONE_TREASURY_API_KEY}"
     scopes:
-      keystone:read: ["list_positions", "get_position", "get_account", "get_position_summary", "forecast_liquidity", "list_hedges", "get_hedge", "get_transfer", "list_transfers", "get_exposure", "list_exposures", "list_operations", "get_operation"]
+      keystone:read: ["list_positions", "get_position", "get_account", "get_position_summary", "watch_positions", "forecast_liquidity", "list_hedges", "get_hedge", "get_transfer", "list_transfers", "get_exposure", "list_exposures", "list_operations", "get_operation"]
       keystone:move: ["place_hedge", "cancel_hedge", "transfer_funds"]
   - id: "sabre-tax"
     name: "Sabre Tax"
@@ -194,6 +195,8 @@ providers:
       api_key: "${LYNX_PARTNER_SABRE_TAX_API_KEY}"
     scopes:
       sabre:tax: ["calculate_tax", "resolve_jurisdiction", "validate_tax_id", "determine_withholding", "get_exemption_certificate", "list_tax_codes"]
+      sabre:read: ["get_transaction"]
+      sabre:commit: ["commit_transaction", "void_transaction"]
   - id: "quetzal-payouts"
     name: "Quetzal Payouts"
     kind: "bearer_token"
@@ -202,7 +205,8 @@ providers:
     config:
       bearer_token: "${LYNX_PARTNER_QUETZAL_PAYOUTS_TOKEN}"
     scopes:
-      quetzal:payout: ["create_recipient", "get_recipient", "verify_recipient", "get_quote", "create_payout", "get_payout", "cancel_payout", "list_payouts", "get_balance"]
+      quetzal:payout: ["create_recipient", "get_recipient", "verify_recipient", "get_quote", "create_payout", "get_payout", "cancel_payout", "list_payouts", "create_batch", "get_balance"]
+      quetzal:read: ["list_recipients", "get_batch", "list_batches", "list_settlements"]
   - id: "vela-notify"
     name: "Vela Notify"
     kind: "bearer_token"
@@ -214,7 +218,8 @@ providers:
       auth_scheme: "Token"
     scopes:
       vela:send: ["send_message", "send_batch"]
-      vela:read: ["get_message", "list_messages", "get_message_events", "get_delivery_stats"]
+      vela:read: ["get_message", "list_messages", "get_message_events", "get_delivery_stats", "list_templates", "get_template", "render_template", "list_suppressions", "list_webhooks", "get_webhook"]
+      vela:manage: ["create_template", "create_suppression", "delete_suppression", "create_webhook"]
   - id: "core-billing"
     name: "Core Billing"
     kind: "none"
@@ -223,7 +228,7 @@ providers:
     config: {}
     scopes:
       corebilling:read: ["list_customers", "get_customer", "get_invoice", "list_invoices", "get_payment", "list_payments", "list_dunning", "list_collections", "get_ar_aging", "get_ar_summary", "get_audit_trail"]
-      corebilling:post: ["create_invoice", "apply_payment", "record_payment", "write_off_invoice", "issue_credit_memo", "apply_credit_memo"]
+      corebilling:post: ["create_invoice", "apply_payment", "record_payment", "write_off_invoice", "void_invoice", "dispute_invoice", "issue_credit_memo", "apply_credit_memo"]
       corebilling:collect: ["issue_dunning", "run_dunning_cycle", "open_collection_case"]
   - id: "relay-automation"
     name: "Relay Automation"
@@ -245,7 +250,8 @@ providers:
       header_name: "X-Api-Key"
       api_key: "${LYNX_PARTNER_PULSE_MARKET_API_KEY}"
     scopes:
-      pulse:read: ["list_instruments", "get_instrument", "get_snapshot", "get_quotes", "get_bars", "get_market_status", "list_reference_rates", "get_reference_rate"]
+      pulse:read: ["list_instruments", "get_instrument", "get_snapshot", "get_quotes", "get_bars", "get_market_status", "list_reference_rates", "get_reference_rate", "list_subscriptions", "get_subscription", "stream_rates"]
+      pulse:subscribe: ["create_subscription", "cancel_subscription"]
   - id: "junction-procure"
     name: "Junction Procurement"
     kind: "bearer_token"
@@ -352,7 +358,7 @@ resources:
     name: "Compliance · Sabre Tax"
     application: "compliance"
     provider: "sabre-tax"
-    scopes: ["sabre:tax"]
+    scopes: ["sabre:tax", "sabre:read"]
   - id: "compliance-lumen"
     identifier: "resource://compliance-lumen"
     name: "Compliance · Lumen Identity directory"
@@ -406,7 +412,7 @@ resources:
     name: "Payments · Quetzal cross-border payouts"
     application: "payments"
     provider: "quetzal-payouts"
-    scopes: ["quetzal:payout"]
+    scopes: ["quetzal:payout", "quetzal:read"]
   - id: "payments-halcyon"
     identifier: "resource://payments-halcyon"
     name: "Payments · Halcyon open-banking rails"

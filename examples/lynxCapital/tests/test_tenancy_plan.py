@@ -193,3 +193,27 @@ def test_agent_labels_and_metadata_identify_the_agent():
     metadata = tenancy.agent_metadata("run-1", "agent-9", "payments.us", "US")
     assert metadata == {"run_id": "run-1", "agent_id": "agent-9", "scope": "payments.us", "region": "US"}
     assert "region" not in tenancy.agent_metadata("run-1", "agent-9", "payments.us")
+
+
+def test_every_partner_operation_maps_to_a_governed_scope():
+    model = tenancy.load_model()
+    for provider in model.providers:
+        partner_ops = set(partners.spec(provider.id).operations)
+        governed = {op for ops in provider.scopes.values() for op in ops}
+        assert partner_ops == governed, provider.id
+
+
+def test_ungoverned_operation_fails_config_load():
+    model = tenancy.load_model()
+    provider = model.provider("keystone-treasury")
+    provider.scopes["keystone:read"].remove("watch_positions")
+    with pytest.raises(ValueError, match="map to no governed scope"):
+        tenancy._validate_operation_governance(model)
+
+
+def test_phantom_operation_fails_config_load():
+    model = tenancy.load_model()
+    provider = model.provider("sabre-tax")
+    provider.scopes["sabre:read"].append("operation_that_does_not_exist")
+    with pytest.raises(ValueError, match="map to no governed scope|does not expose"):
+        tenancy._validate_operation_governance(model)

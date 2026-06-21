@@ -25,6 +25,23 @@ describe('POST /v1/zones/:zoneId/policy-sets/:id/activate', () => {
     expect(JSON.parse(res.body)).toMatchObject({ error: 'invalid_policy_contract' })
   })
 
+  it('rejects a set composed only of data documents with no decision policy', async () => {
+    const { app, db } = buildRouteApp(policySetsRoutes)
+    db.query
+      .mockResolvedValueOnce({ rows: [{ id: 'psv-1', manifest_json: [{ policy_version_id: 'pv-1' }], schema_version: '2026-05-20' }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'pv-1', content: '# caracal:data-document\npackage caracal.authz\ngrants := { "agent-1": ["read"] }', zone_id: 'z1', schema_version: '2026-05-20' }] })
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/policy-sets/ps-1/activate',
+      payload: { version_id: 'psv-1' },
+    })
+
+    expect(res.statusCode).toBe(422)
+    expect(JSON.parse(res.body).detail).toMatch(/at least one decision policy/)
+  })
+
   it('rejects manifests that reference policies in another zone', async () => {
     const { app, db } = buildRouteApp(policySetsRoutes)
     db.query
