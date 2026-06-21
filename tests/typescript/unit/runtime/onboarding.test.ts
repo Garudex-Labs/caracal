@@ -31,7 +31,7 @@ describe('completeRuntimeOnboarding', () => {
     engineMocks.stackStatus.mockResolvedValueOnce([{ name: 'api', ok: true, detail: '200' }])
     try {
       await completeRuntimeOnboarding()
-      expect(engineMocks.defaultServiceProbes).toHaveBeenCalledWith(undefined, 'ready')
+      expect(engineMocks.defaultServiceProbes).toHaveBeenCalledWith('ready')
       expect(engineMocks.stackStatus).toHaveBeenCalledWith({ probes: [{ name: 'api' }] })
       expect(stdout).toContain('runtime services ready')
     } finally {

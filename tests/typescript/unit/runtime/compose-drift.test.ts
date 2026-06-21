@@ -63,12 +63,14 @@ describe('docker-compose default substitutions', () => {
     expect(yaml).not.toMatch(/\n\s+name: caracalData\n/)
   })
 
-  it('dev control service consumes the admin token as a file-backed secret', () => {
+  it('dev api hosts the in-process control plane with a file-backed admin token', () => {
     const yaml = readFileSync(resolve(repoRoot, 'infra', 'docker', 'docker-compose.yml'), 'utf8')
     expect(yaml).toContain('source: caracalAdminToken')
     expect(yaml).toContain('CONTROL_API_TOKEN_FILE: /run/secrets/caracalAdminToken')
-    expect(yaml).toContain('PORT: "8087"')
+    expect(yaml).toContain('CARACAL_CONTROL_ENABLED: "true"')
+    expect(yaml).toContain('CONTROL_GATE_FILE: /run/caracal-control/enabled')
     expect(yaml).not.toContain('CONTROL_API_TOKEN: ${CARACAL_ADMIN_TOKEN:-}')
+    expect(yaml).not.toMatch(/\n {2}control:\n/)
   })
 })
 
@@ -120,9 +122,11 @@ describe('runtime-compose default substitutions', () => {
     expect(yaml).not.toMatch(/^\s*-\s*"0\.0\.0\.0:\d+:\d+"/m)
   })
 
-  it('runtime control healthcheck probes the Control HTTP port', () => {
+  it('runtime api hosts the in-process control plane without a separate service', () => {
     const yaml = readFileSync(resolve(repoRoot, 'infra', 'docker', 'runtime-compose.yml'), 'utf8')
-    expect(yaml).toContain('CONTROL_PORT: "8087"')
-    expect(yaml).toContain('PORT: "8087"')
+    expect(yaml).toContain('CARACAL_CONTROL_ENABLED: "true"')
+    expect(yaml).toContain('CONTROL_GATE_FILE: /run/caracal-control/enabled')
+    expect(yaml).not.toContain('CONTROL_PORT')
+    expect(yaml).not.toMatch(/\n {2}control:\n/)
   })
 })

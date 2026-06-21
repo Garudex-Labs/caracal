@@ -19,8 +19,6 @@ const engineMocks = vi.hoisted(() => ({
   controlServiceStatus: vi.fn(),
   detectActiveLocalStackRuntime: vi.fn(),
   credentialRead: vi.fn(),
-  readControlState: vi.fn(),
-  resolveStackPaths: vi.fn(),
 }))
 
 vi.mock('@caracalai/engine', async (importOriginal) => {
@@ -61,13 +59,12 @@ function latest<T>(app: App): T {
 function controlStatus(overrides: Record<string, unknown> = {}) {
   return {
     state: 'enabled',
-    service: 'running',
-    mounted: true,
+    service: 'ok',
     enabled: true,
     invokeUrl: 'https://control.pipernet.example/v1/control/invoke',
-    lifecycle: 'ready',
+    lifecycle: 'enabled',
     optimization: 'warm',
-    marker: '/tmp/caracal-control.json',
+    marker: '/tmp/caracal/control/enabled',
     detail: 'healthy',
     ...overrides,
   }
@@ -75,7 +72,7 @@ function controlStatus(overrides: Record<string, unknown> = {}) {
 
 function controlResult(overrides: Record<string, unknown> = {}) {
   return {
-    ...controlStatus({ service: 'ok' }),
+    ...controlStatus(),
     summary: 'control lifecycle complete',
     ...overrides,
   }
@@ -93,18 +90,9 @@ function text(view: View, app: App): string {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  engineMocks.resolveStackPaths.mockReturnValue({
-    mode: 'dev',
-    secretsDir: '/tmp/caracal-secrets',
-  })
   engineMocks.detectActiveLocalStackRuntime.mockReturnValue(undefined)
-  engineMocks.readControlState.mockReturnValue({ mounted: true, enabled: true })
   engineMocks.controlServiceStatus.mockResolvedValue(controlStatus())
-  engineMocks.applyControlLifecycleAction.mockImplementation(async ({ onLine }) => {
-    onLine('mounting', 'stdout')
-    onLine('ready', 'stdout')
-    return controlResult({ state: 'enabled', mounted: true, enabled: true })
-  })
+  engineMocks.applyControlLifecycleAction.mockResolvedValue(controlResult())
   engineMocks.controlKeyList.mockResolvedValue([{ name: 'PiperNet automation', client_id: 'control-client-1' }])
   engineMocks.controlKeyGet.mockResolvedValue({
     client_id: 'control-client-1',
@@ -167,13 +155,6 @@ describe('Control menu views', () => {
       home: '/home/raw/.config/caracal',
       secretsDir: '/home/raw/.config/caracal/secrets',
     })
-    engineMocks.resolveStackPaths.mockReturnValueOnce({
-      mode: 'rc',
-      cwd: '/home/raw/.config/caracal',
-      composeFile: '/home/raw/.config/caracal/compose.yml',
-      envFiles: ['/home/raw/.config/caracal/caracal.env'],
-      secretsDir: '/home/raw/.config/caracal/secrets',
-    })
 
     await control.init?.(app)
 
@@ -184,36 +165,24 @@ describe('Control menu views', () => {
         CARACAL_SECRETS_DIR: '/home/raw/.config/caracal/secrets',
       }),
     }))
-    expect(engineMocks.resolveStackPaths).toHaveBeenCalledWith({
-      mode: 'rc',
-      home: '/home/raw/.config/caracal',
-      repoRoot: undefined,
-    })
     expect(engineMocks.controlServiceStatus).toHaveBeenCalledWith(expect.objectContaining({
       home: '/home/raw/.config/caracal',
-      env: expect.objectContaining({
-        CARACAL_MODE: 'rc',
-        CARACAL_VERSION: '2026.06.20-rc.1',
-        CARACAL_REGISTRY: 'ghcr.io/garudex-labs/',
-        CARACAL_SECRETS_DIR: '/home/raw/.config/caracal/secrets',
-      }),
     }))
   })
 
-  it('confirms and renders lifecycle output including captured runtime events', async () => {
+  it('confirms and renders lifecycle output for a successful toggle', async () => {
     const app = fakeApp()
     const control = await openControl(app)
+    await control.init?.(app)
 
-    await control.onKey('m', { app, size: { rows: 25, cols: 120 }, status: '' })
+    await control.onKey('e', { app, size: { rows: 25, cols: 120 }, status: '' })
     const confirm = latest<View>(app)
-    expect(text(confirm, app)).toContain('Confirm Control unmount')
+    expect(text(confirm, app)).toContain('Confirm Control disable')
     await confirm.onKey('y', { app, size: { rows: 25, cols: 120 }, status: '' })
     const lifecycle = latest<View>(app)
     await lifecycle.init?.(app)
 
-    const rendered = text(lifecycle, app)
-    expect(rendered).toContain('Control API management')
-    expect(rendered).toContain('2 runtime lines captured')
+    expect(text(lifecycle, app)).toContain('Control API management')
     expect(app.setStatus).toHaveBeenCalledWith('control lifecycle complete')
     lifecycle.onKey('esc', { app, size: { rows: 25, cols: 120 }, status: '' })
     expect(app.pop).toHaveBeenCalled()
@@ -222,10 +191,8 @@ describe('Control menu views', () => {
   it('renders lifecycle errors when engine actions fail', async () => {
     const app = fakeApp()
     const control = await openControl(app)
-    engineMocks.applyControlLifecycleAction.mockImplementationOnce(async ({ onLine }) => {
-      onLine('dependency failed to start', 'stderr')
-      throw new Error('compose failed')
-    })
+    await control.init?.(app)
+    engineMocks.applyControlLifecycleAction.mockRejectedValueOnce(new Error('gate could not be confirmed'))
 
     await control.onKey('e', { app, size: { rows: 25, cols: 120 }, status: '' })
     const confirm = latest<View>(app)
@@ -233,10 +200,8 @@ describe('Control menu views', () => {
     const lifecycle = latest<View>(app)
     await lifecycle.init?.(app)
 
-    expect(text(lifecycle, app)).toContain('compose failed')
-    expect(text(lifecycle, app)).toContain('Recent runtime output')
-    expect(text(lifecycle, app)).toContain('stderr: dependency failed to start')
-    expect(app.setStatus).toHaveBeenCalledWith('control disable: compose failed', 'error')
+    expect(text(lifecycle, app)).toContain('gate could not be confirmed')
+    expect(app.setStatus).toHaveBeenCalledWith('control disable: gate could not be confirmed', 'error')
   })
 
   it('submits create, get, rotate, revoke, and token forms with deterministic values', async () => {

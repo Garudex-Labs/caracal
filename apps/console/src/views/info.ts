@@ -432,7 +432,7 @@ function actionMeaning(normalized: string, label: string): string {
   if (normalized.includes('activate')) return 'Makes a selected version the effective policy set used for authorization decisions.'
   if (normalized.includes('revoke')) return 'Stops a delegation, token, or key from being used again.'
   if (normalized.includes('rotate')) return 'Issues replacement credentials while keeping the managed object identity.'
-  if (normalized.includes('control')) return 'Opens a Control service workflow for automation keys, tokens, or lifecycle state.'
+  if (normalized.includes('control')) return 'Opens a Control workflow for automation keys, tokens, or lifecycle state.'
   return `${label} opens the focused Console workflow for the current page.`
 }
 
