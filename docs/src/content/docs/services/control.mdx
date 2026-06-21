@@ -4,46 +4,51 @@ description: Service reference for optional remote management invocation.
 pageType: reference
 ---
 
-Control is an optional automation surface for remote management operations. It dispatches through the shared engine after gate, authentication, replay, rate-limit, and scope checks.
+Control is an optional automation surface for remote management operations. It runs as an in-process plugin inside the API service and dispatches through the shared engine after gate, authentication, replay, rate-limit, and scope checks.
 
 ## Runtime
 
+Control has no separate deployable or port. The plugin is mounted inside API when
+`CARACAL_CONTROL_ENABLED=true` and serves on the API port. A runtime gate file
+(`CONTROL_GATE_FILE`) is the instant on/off switch: when the file is absent the
+endpoint returns `503` without a restart.
+
 | Property | Value |
 | --- | --- |
-| Port | `8087` |
+| Host | API service (port `3000`) |
 | Health | `GET /health` |
 | Readiness | `GET /ready` |
 | Invoke | `POST /v1/control/invoke` |
-| Compose profile | `control` |
-| Helm default | disabled |
+| Enablement | `CARACAL_CONTROL_ENABLED=true` |
+| Runtime gate | `CONTROL_GATE_FILE` present |
+| Helm default | disabled (`control.enabled=false`) |
 
 ## Invoke Flow
 
 ```mermaid
 sequenceDiagram
   participant Client
-  participant Control
+  participant API as API (control plugin)
   participant Redis
-  participant API
-  Client->>Control: POST /v1/control/invoke
-  Control->>Control: gate enabled?
-  Control->>Control: verify JWT and scope
-  Control->>Redis: mark JTI replay key
-  Control->>Control: subject rate limit
-  Control->>API: dispatch supported management operation
+  participant Engine
+  Client->>API: POST /v1/control/invoke
+  API->>API: gate enabled?
+  API->>API: verify JWT and scope
+  API->>Redis: mark JTI replay key
+  API->>API: subject rate limit
+  API->>Engine: dispatch supported management operation
 ```
 
 ## Required Config
 
 | Variable | Purpose |
 | --- | --- |
+| `CARACAL_CONTROL_ENABLED` | Mounts the control plugin inside API. |
 | `STS_JWKS_URL` | JWT verification keys. |
 | `STS_ISSUER_URL` | Expected issuer. |
 | `CONTROL_AUDIENCE` | Expected token audience. |
-| `CONTROL_REDIS_URL` | Replay protection and rate state in published modes. |
 | `CONTROL_API_TOKEN` | API token used for downstream dispatch. |
-| `CARACAL_API_URL` | API base URL. |
-| `CONTROL_GATE_FILE` | File gate that must exist before invoke is available. |
+| `CONTROL_GATE_FILE` | Runtime gate file that must exist before invoke is available. |
 
 ## Non-Interactive Automation
 
@@ -70,7 +75,7 @@ receives the root admin token; it uses a scoped control key.
 3. Invoke a management command with the returned token.
 
    ```bash
-   curl -s -X POST "$CONTROL_URL/v1/control/invoke" \
+   curl -s -X POST "$CARACAL_API_URL/v1/control/invoke" \
      -H "authorization: Bearer $TOKEN" \
      -H "content-type: application/json" \
      -d '{"command":"resource","subcommand":"create","flags":{"name":"PiperNet","identifier":"resource://pipernet","scopes":["pipernet.read"]}}'

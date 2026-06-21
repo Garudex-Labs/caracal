@@ -76,13 +76,13 @@ Admin, Coordinator, database, Redis, HMAC, and KEK material are operator secrets
 
 Run agents with workload credentials only. If an agent must execute untrusted code, run it as a separate OS user, container, VM, or sandbox that cannot read `CARACAL_SECRETS_DIR`, `$CARACAL_HOME/secrets`, Docker socket credentials, or repository control-plane files.
 
-## Control Profile
+## Control Plugin
 
-The Control service is behind the `control` Compose profile and a runtime gate. Enable it only when the Console or platform automation is ready to manage Control exposure and credentials.
-
-```bash
-docker compose -f infra/docker/runtime-compose.yml --profile control up -d control
-```
+Control runs as an optional in-process plugin inside the API service rather than a
+separate container. Set `CARACAL_CONTROL_ENABLED=true` on API to mount the plugin,
+then toggle availability at runtime with the gate file (`CONTROL_GATE_FILE`). Enable
+it only when the Console or platform automation is ready to manage Control exposure
+and credentials.
 
 ## Rollback
 

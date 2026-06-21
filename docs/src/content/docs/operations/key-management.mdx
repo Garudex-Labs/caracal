@@ -51,7 +51,7 @@ flowchart LR
 | `AUDIT_HMAC_KEY` | Producers and Audit verifier: API, STS, Gateway, Audit, Control. | Audit ingestion accepts new events and rejects mismatched signatures. |
 | `STREAMS_HMAC_KEY` | Producers and consumers: API, STS, Gateway, Coordinator, Audit. | Consumers accept new stream messages and pending entries drain. |
 | `GATEWAY_STS_HMAC_KEY` | API, STS, and Gateway. | Gateway exchange succeeds and failed HMAC attempts are denied. |
-| `CARACAL_ADMIN_TOKEN` | API, Console/Control clients, Control service. | Old token fails; Console and automation authenticate with the replacement. |
+| `CARACAL_ADMIN_TOKEN` | API, Console/Control clients, Control plugin. | Old token fails; Console and automation authenticate with the replacement. |
 | `CARACAL_COORDINATOR_TOKEN` | Coordinator and Console/operator clients. | Agent/delegation views load and old token fails. |
 
 ## Troubleshooting
