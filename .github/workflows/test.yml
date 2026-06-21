@@ -360,7 +360,6 @@ jobs:
           run_pkg packages/connectors/postgres/ts tokenstate-postgres tests/typescript/unit/connectors/postgres
           run_pkg packages/connectors/redis/ts tokenstate-redis tests/typescript/unit/connectors/redis
           run_pkg packages/identity/ts identity tests/typescript/unit/identity
-          run_pkg apps/control control tests/typescript/unit/control tests/typescript/integration/control
 
       - name: List TypeScript coverage outputs
         if: always()

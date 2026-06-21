@@ -27,7 +27,6 @@
       { "name": "gateway", "context": ".", "dockerfile": "infra/docker/Dockerfile.go-service", "buildArgs": { "SERVICE": "gateway", "PORT": "8081" }, "tier": "internal" },
       { "name": "audit", "context": ".", "dockerfile": "infra/docker/Dockerfile.go-service", "buildArgs": { "SERVICE": "audit", "PORT": "9090" }, "tier": "internal" },
       { "name": "coordinator", "context": ".", "dockerfile": "apps/coordinator/Dockerfile", "tier": "runtime" },
-      { "name": "control", "context": ".", "dockerfile": "apps/control/Dockerfile", "tier": "runtime" },
       { "name": "postgres", "context": "infra/postgres", "dockerfile": "infra/postgres/Dockerfile", "tier": "internal" },
       { "name": "redis", "context": "infra/redis", "dockerfile": "infra/redis/Dockerfile", "tier": "internal" },
       { "name": "runtime", "context": ".", "dockerfile": "apps/runtime/Dockerfile", "tier": "runtime" }

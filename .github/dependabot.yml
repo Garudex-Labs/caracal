@@ -67,7 +67,6 @@ updates:
     directories:
       - /apps/api
       - /apps/coordinator
-      - /apps/control
       - /apps/runtime
       - /infra/docker
       - /infra/postgres

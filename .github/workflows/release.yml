@@ -384,10 +384,6 @@ jobs:
             context: .
             dockerfile: apps/coordinator/Dockerfile
             build_args: ""
-          - name: control
-            context: .
-            dockerfile: apps/control/Dockerfile
-            build_args: ""
           - name: postgres
             context: infra/postgres
             dockerfile: infra/postgres/Dockerfile
@@ -662,7 +658,7 @@ jobs:
         run: |
           set -euo pipefail
           series="${RELEASE_TAG:0:8}"
-          images=(api coordinator control audit gateway sts postgres redis runtime)
+          images=(api coordinator audit gateway sts postgres redis runtime)
           for name in "${images[@]}"; do
             image="${REGISTRY}/${IMAGE_OWNER}/caracal-${name}"
             docker buildx imagetools create \
