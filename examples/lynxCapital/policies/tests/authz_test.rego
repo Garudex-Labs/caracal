@@ -43,19 +43,19 @@ mint_input(app_id, labels, resource, edge_scopes, requested) := {
 	},
 }
 
-use_input(app_id, labels, resource, target) := {
+use_input(app_id, labels, resource, target, path, scope) := {
 	"principal": {
 		"type": "Application", "id": app_id, "zone_id": "zone-1",
 		"registration_method": "managed", "agent_session_id": "agent-1",
 		"lifecycle": "task", "labels": labels,
 	},
 	"resource": {"type": "Resource", "id": "res-1", "identifier": resource, "scopes": ["agent:lifecycle"]},
-	"action": {"id": "TokenExchange"},
+	"action": {"id": "TokenExchange", "method": "POST", "path": path},
 	"context": {
 		"actor_claims": {"caracal_client_id": "gateway"},
 		"subject_claims": {
 			"sub": app_id, "agent_session_id": "agent-1",
-			"delegation_edge_id": "edge-1", "target": target,
+			"delegation_edge_id": "edge-1", "target": target, "scope": scope,
 		},
 		"trace_id": "t-1",
 		"agent_session_id": "agent-1",
@@ -170,6 +170,7 @@ test_use_allows_targeted_mandate if {
 	authz.result.decision == "allow" with input as use_input(
 		"app-payments", ["payment-execution", "lynx-swarm"],
 		"resource://payments-meridian", ["resource://payments-meridian"],
+		"/api/create_payout", "meridian:payout",
 	)
 }
 
@@ -177,6 +178,7 @@ test_use_determining_policy_names_application if {
 	decided := authz.result with input as use_input(
 		"app-ledger", ["ledger-match", "lynx-swarm"],
 		"resource://ledger-ironbark", ["resource://ledger-ironbark"],
+		"/api/match_invoice", "ironbark:post",
 	)
 	decided.determining_policies == [{"policy": "lynx-ledger-use"}]
 }
@@ -185,6 +187,7 @@ test_use_denies_resource_outside_target if {
 	authz.result.decision == "deny" with input as use_input(
 		"app-payments", ["payment-execution", "lynx-swarm"],
 		"resource://payments-quetzal", ["resource://payments-meridian"],
+		"/api/create_recipient", "quetzal:payout",
 	)
 }
 
@@ -192,6 +195,7 @@ test_use_denies_role_without_grant if {
 	authz.result.decision == "deny" with input as use_input(
 		"app-payments", ["payments", "lynx-swarm"],
 		"resource://payments-meridian", ["resource://payments-meridian"],
+		"/api/create_payout", "meridian:payout",
 	)
 }
 
@@ -199,7 +203,27 @@ test_use_denies_without_delegation_claim if {
 	base := use_input(
 		"app-payments", ["payment-execution", "lynx-swarm"],
 		"resource://payments-meridian", ["resource://payments-meridian"],
+		"/api/create_payout", "meridian:payout",
 	)
 	denied := json.remove(base, ["/context/subject_claims/delegation_edge_id"])
 	authz.result.decision == "deny" with input as denied
+}
+
+# Operation authority: a mandate minted for one operation cannot drive another on
+# the same view, and an unknown operation path is denied, both enforced by the
+# generated operation-scope map rather than the calling client.
+test_use_denies_operation_scope_not_in_mandate if {
+	authz.result.decision == "deny" with input as use_input(
+		"app-payments", ["payment-execution", "lynx-swarm"],
+		"resource://payments-meridian", ["resource://payments-meridian"],
+		"/api/create_payout", "meridian:read",
+	)
+}
+
+test_use_denies_unknown_operation_path if {
+	authz.result.decision == "deny" with input as use_input(
+		"app-payments", ["payment-execution", "lynx-swarm"],
+		"resource://payments-meridian", ["resource://payments-meridian"],
+		"/api/drain_account", "meridian:payout",
+	)
 }
