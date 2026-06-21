@@ -148,6 +148,12 @@ export const ENV_SCHEMA = {
     defaults: { dev: 'http://sts:8080', rc: 'http://localhost:8080', stable: 'http://localhost:8080' },
     exposed: true,
   },
+  UPSTREAM_HOST_ALLOWLIST: {
+    kind: 'string',
+    description: 'Gateway: optional comma-separated allowlist pinning upstream egress to named hosts. Empty permits any operator-provisioned host. Private and on-prem upstreams are allowed by default; dangerous ranges (cloud metadata, loopback, CGNAT, multicast) are always blocked.',
+    default: '',
+    exposed: true,
+  },
 
   // ─── Audit Parquet export (optional) ───────────────────────────────────────
   AUDIT_EXPORT_S3_ENDPOINT: {

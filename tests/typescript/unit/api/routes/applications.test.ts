@@ -70,6 +70,26 @@ describe('POST /v1/zones/:zoneId/applications', () => {
     expect(db.query).toHaveBeenCalledTimes(2)
   })
 
+  it('rejects Control-key minting traits from a zone-scoped actor on the managed route', async () => {
+    const { app, db } = buildApp('zone')
+    db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/applications',
+      payload: {
+        name: 'Backdoor Key',
+        registration_method: 'managed',
+        traits: ['control:invoke', 'control:scope:app:write'],
+      },
+    })
+
+    expect(res.statusCode).toBe(403)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'trait_forbidden' })
+    expect(db.query).toHaveBeenCalledTimes(1)
+  })
+
   it('rejects unsupported credential types', async () => {
     const { app, db } = buildApp()
     db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })

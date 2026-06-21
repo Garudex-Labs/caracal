@@ -23,6 +23,21 @@ export function isPrivateAddress(address) {
   return PRIVATE_V4.some((re) => re.test(address));
 }
 
+// isBlockedUpstreamAddress mirrors the Gateway's always-blocked ranges: cloud
+// metadata / link-local (169.254.0.0/16, fe80::/10), multicast, and unspecified
+// addresses. Loopback, RFC1918 private, unique-local, and carrier-grade NAT
+// addresses are NOT blocked: they are valid operator-provisioned upstreams
+// (internal tools, local MCPs, on-prem providers).
+export function isBlockedUpstreamAddress(address) {
+  if (!address) return true;
+  const lower = address.toLowerCase();
+  if (lower === "::" || lower.startsWith("fe80") || lower.startsWith("ff")) return true;
+  if (lower.startsWith("::ffff:")) return isBlockedUpstreamAddress(lower.slice(7));
+  if (address === "0.0.0.0" || /^169\.254\./.test(address)) return true;
+  if (/^22[4-9]\.|^23[0-9]\./.test(address)) return true;
+  return false;
+}
+
 function result(phase, id, status, detail, remediation) {
   return remediation ? { phase, id, status, detail, remediation } : { phase, id, status, detail };
 }
@@ -282,10 +297,10 @@ export async function checkUpstreamReachable(resource, probe, resolveHost) {
   }
   try {
     const addresses = await resolveHost(url.hostname);
-    const privateHit = addresses.find((a) => isPrivateAddress(a));
-    if (privateHit) {
-      return warn("connectivity", id, `${url.hostname} resolves to private address ${privateHit}`,
-        "The Gateway rejects private upstream addresses unless explicitly allowed (ALLOW_PRIVATE_UPSTREAMS); confirm this is intentional.");
+    const blockedHit = addresses.find((a) => isBlockedUpstreamAddress(a));
+    if (blockedHit) {
+      return fail("connectivity", id, `${url.hostname} resolves to blocked address ${blockedHit}`,
+        "The Gateway always blocks cloud metadata, link-local, and multicast upstreams. Point the resource at a routable provider host.");
     }
   } catch {
     // TCP probe below reports unresolvable hosts.
