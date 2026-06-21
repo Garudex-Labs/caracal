@@ -43,6 +43,7 @@ vi.mock('../../../../apps/runtime/src/commands/stack.ts', () => ({
   upCommand: state.upCommand,
   downCommand: state.downCommand,
   statusCommand: state.statusCommand,
+  upgradeCommand: state.upgradeCommand,
 }))
 vi.mock('../../../../apps/runtime/src/commands/purge.ts', () => ({ purgeCommand: state.purgeCommand }))
 vi.mock('../../../../apps/runtime/src/commands/dispatch.ts', () => ({

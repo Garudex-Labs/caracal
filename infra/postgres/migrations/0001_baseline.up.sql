@@ -1,0 +1,2902 @@
+-- Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+-- Caracal, a product of Garudex Labs
+--
+-- Consolidated baseline schema: service roles, tables, RLS policies, functions, triggers, and grants for the Caracal control plane.
+
+-- Service roles
+CREATE ROLE caracalapi;
+ALTER ROLE caracalapi WITH NOSUPERUSER INHERIT NOCREATEROLE NOCREATEDB NOLOGIN NOREPLICATION NOBYPASSRLS;
+CREATE ROLE caracalaudit;
+ALTER ROLE caracalaudit WITH NOSUPERUSER INHERIT NOCREATEROLE NOCREATEDB NOLOGIN NOREPLICATION NOBYPASSRLS;
+CREATE ROLE caracalcoordinator;
+ALTER ROLE caracalcoordinator WITH NOSUPERUSER INHERIT NOCREATEROLE NOCREATEDB NOLOGIN NOREPLICATION NOBYPASSRLS;
+CREATE ROLE caracalgateway;
+ALTER ROLE caracalgateway WITH NOSUPERUSER INHERIT NOCREATEROLE NOCREATEDB NOLOGIN NOREPLICATION NOBYPASSRLS;
+CREATE ROLE caracalsts;
+ALTER ROLE caracalsts WITH NOSUPERUSER INHERIT NOCREATEROLE NOCREATEDB NOLOGIN NOREPLICATION NOBYPASSRLS;
+
+-- Schema
+--
+-- PostgreSQL database dump
+--
+
+
+
+SET statement_timeout = 0;
+SET lock_timeout = 0;
+SET idle_in_transaction_session_timeout = 0;
+SET transaction_timeout = 0;
+SET client_encoding = 'UTF8';
+SET standard_conforming_strings = on;
+SELECT pg_catalog.set_config('search_path', '', false);
+SET check_function_bodies = false;
+SET xmloption = content;
+SET client_min_messages = warning;
+SET row_security = off;
+
+--
+-- Name: public; Type: SCHEMA; Schema: -; Owner: -
+--
+
+
+
+--
+-- Name: SCHEMA public; Type: COMMENT; Schema: -; Owner: -
+--
+
+
+
+--
+-- Name: reject_policy_version_mutation(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.reject_policy_version_mutation() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    RAISE EXCEPTION 'policy_versions rows are immutable';
+END $$;
+
+
+SET default_tablespace = '';
+
+SET default_table_access_method = heap;
+
+--
+-- Name: admin_audit_events; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.admin_audit_events (
+    id text NOT NULL,
+    request_id text NOT NULL,
+    actor_id text,
+    actor_name text,
+    actor_scope text,
+    action text NOT NULL,
+    method text NOT NULL,
+    path text NOT NULL,
+    zone_id text,
+    entity_type text,
+    entity_id text,
+    status_code integer NOT NULL,
+    payload_json jsonb,
+    occurred_at timestamp with time zone DEFAULT now() NOT NULL,
+    content_sha256 text,
+    prev_content_sha256 text,
+    chain_hmac text,
+    chain_seq bigint
+);
+
+
+--
+-- Name: admin_tokens; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.admin_tokens (
+    id text NOT NULL,
+    name text NOT NULL,
+    token_sha256 bytea NOT NULL,
+    scope text NOT NULL,
+    zone_id text,
+    created_by text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    last_used_at timestamp with time zone,
+    revoked_at timestamp with time zone,
+    token_hash text,
+    CONSTRAINT admin_token_scope_zone_pair CHECK ((((scope = 'global'::text) AND (zone_id IS NULL)) OR ((scope = 'zone'::text) AND (zone_id IS NOT NULL)))),
+    CONSTRAINT admin_tokens_scope_check CHECK ((scope = ANY (ARRAY['global'::text, 'zone'::text])))
+);
+
+
+--
+-- Name: agent_invocations; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.agent_invocations (
+    id text NOT NULL,
+    zone_id text NOT NULL,
+    service_id text NOT NULL,
+    source_session_id text,
+    target_session_id text,
+    idempotency_key text NOT NULL,
+    method text NOT NULL,
+    params_json jsonb DEFAULT '{}'::jsonb NOT NULL,
+    metadata_json jsonb DEFAULT '{}'::jsonb NOT NULL,
+    status text DEFAULT 'pending'::text NOT NULL,
+    attempts integer DEFAULT 0 NOT NULL,
+    max_attempts integer DEFAULT 3 NOT NULL,
+    timeout_ms integer DEFAULT 30000 NOT NULL,
+    retry_policy_json jsonb DEFAULT '{}'::jsonb NOT NULL,
+    error_json jsonb,
+    deadline_at timestamp with time zone,
+    cancel_requested_at timestamp with time zone,
+    started_at timestamp with time zone,
+    completed_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT agent_invocations_max_attempts_check CHECK ((max_attempts > 0)),
+    CONSTRAINT agent_invocations_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'running'::text, 'succeeded'::text, 'failed'::text, 'cancel_requested'::text, 'canceled'::text, 'timed_out'::text, 'dead'::text]))),
+    CONSTRAINT agent_invocations_timeout_ms_check CHECK ((timeout_ms > 0))
+);
+
+
+--
+-- Name: agent_services; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.agent_services (
+    id text NOT NULL,
+    zone_id text NOT NULL,
+    application_id text NOT NULL,
+    endpoint_url text NOT NULL,
+    protocol_versions text[] DEFAULT '{}'::text[] NOT NULL,
+    framework_name text,
+    framework_version text,
+    capabilities text[] DEFAULT '{}'::text[] NOT NULL,
+    health text DEFAULT 'starting'::text NOT NULL,
+    metadata_json jsonb DEFAULT '{}'::jsonb NOT NULL,
+    last_heartbeat_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT agent_services_health_check CHECK ((health = ANY (ARRAY['starting'::text, 'healthy'::text, 'degraded'::text, 'unhealthy'::text])))
+);
+
+
+--
+-- Name: agent_sessions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.agent_sessions (
+    id text NOT NULL,
+    zone_id text NOT NULL,
+    application_id text NOT NULL,
+    parent_id text,
+    subject_session_id text CONSTRAINT agent_sessions_session_sid_not_null NOT NULL,
+    status text DEFAULT 'active'::text NOT NULL,
+    depth integer DEFAULT 0 NOT NULL,
+    labels text[] DEFAULT '{}'::text[] CONSTRAINT agent_sessions_capabilities_not_null NOT NULL,
+    max_children integer DEFAULT 10 NOT NULL,
+    child_count integer DEFAULT 0 NOT NULL,
+    spawned_at timestamp with time zone DEFAULT now() NOT NULL,
+    last_active_at timestamp with time zone DEFAULT now() NOT NULL,
+    terminated_at timestamp with time zone,
+    ttl_seconds integer DEFAULT 3600,
+    metadata_json jsonb,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    lifecycle text DEFAULT 'task'::text CONSTRAINT agent_sessions_agent_kind_not_null NOT NULL,
+    last_heartbeat_at timestamp with time zone,
+    heartbeat_deadline_at timestamp with time zone,
+    idempotency_key text,
+    CONSTRAINT agent_sessions_lifecycle_check CHECK ((lifecycle = ANY (ARRAY['task'::text, 'service'::text]))),
+    CONSTRAINT agent_sessions_status_check CHECK ((status = ANY (ARRAY['active'::text, 'suspended'::text, 'terminated'::text, 'expired'::text])))
+);
+
+
+--
+-- Name: agent_topology; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.agent_topology (
+    parent_id text NOT NULL,
+    child_id text NOT NULL
+);
+
+
+--
+-- Name: applications; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.applications (
+    id text NOT NULL,
+    zone_id text NOT NULL,
+    name text NOT NULL,
+    registration_method text NOT NULL,
+    credential_type text DEFAULT 'token'::text NOT NULL,
+    client_secret_hash text,
+    traits text[] DEFAULT '{}'::text[] NOT NULL,
+    expires_at timestamp with time zone,
+    archived_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT applications_credential_type_check CHECK ((credential_type = 'token'::text)),
+    CONSTRAINT applications_dcr_expires_at_required CHECK (((registration_method <> 'dcr'::text) OR (expires_at IS NOT NULL))),
+    CONSTRAINT applications_registration_method_check CHECK ((registration_method = ANY (ARRAY['managed'::text, 'dcr'::text])))
+);
+
+
+--
+-- Name: audit_chain_rehash; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.audit_chain_rehash (
+    id smallint DEFAULT 1 NOT NULL,
+    completed_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT audit_chain_rehash_id_check CHECK ((id = 1))
+);
+
+
+--
+-- Name: audit_events; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.audit_events (
+    id text NOT NULL,
+    zone_id text NOT NULL,
+    event_type text NOT NULL,
+    request_id text,
+    decision text,
+    policy_set_id text,
+    policy_set_version_id text,
+    manifest_sha text,
+    evaluation_status text,
+    determining_policies_json jsonb,
+    diagnostics_json jsonb,
+    metadata_json jsonb,
+    occurred_at timestamp with time zone NOT NULL,
+    ingested_at timestamp with time zone DEFAULT now() NOT NULL,
+    content_sha256 text,
+    prev_content_sha256 text,
+    chain_hmac text,
+    chain_seq bigint,
+    ingest_signature text
+)
+PARTITION BY RANGE (occurred_at);
+
+
+--
+-- Name: audit_events_default; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.audit_events_default (
+    id text CONSTRAINT audit_events_id_not_null NOT NULL,
+    zone_id text CONSTRAINT audit_events_zone_id_not_null NOT NULL,
+    event_type text CONSTRAINT audit_events_event_type_not_null NOT NULL,
+    request_id text,
+    decision text,
+    policy_set_id text,
+    policy_set_version_id text,
+    manifest_sha text,
+    evaluation_status text,
+    determining_policies_json jsonb,
+    diagnostics_json jsonb,
+    metadata_json jsonb,
+    occurred_at timestamp with time zone CONSTRAINT audit_events_occurred_at_not_null NOT NULL,
+    ingested_at timestamp with time zone DEFAULT now() CONSTRAINT audit_events_ingested_at_not_null NOT NULL,
+    content_sha256 text,
+    prev_content_sha256 text,
+    chain_hmac text,
+    chain_seq bigint,
+    ingest_signature text
+);
+
+
+--
+-- Name: audit_events_y2026m06; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.audit_events_y2026m06 (
+    id text CONSTRAINT audit_events_id_not_null NOT NULL,
+    zone_id text CONSTRAINT audit_events_zone_id_not_null NOT NULL,
+    event_type text CONSTRAINT audit_events_event_type_not_null NOT NULL,
+    request_id text,
+    decision text,
+    policy_set_id text,
+    policy_set_version_id text,
+    manifest_sha text,
+    evaluation_status text,
+    determining_policies_json jsonb,
+    diagnostics_json jsonb,
+    metadata_json jsonb,
+    occurred_at timestamp with time zone CONSTRAINT audit_events_occurred_at_not_null NOT NULL,
+    ingested_at timestamp with time zone DEFAULT now() CONSTRAINT audit_events_ingested_at_not_null NOT NULL,
+    content_sha256 text,
+    prev_content_sha256 text,
+    chain_hmac text,
+    chain_seq bigint,
+    ingest_signature text
+);
+
+
+--
+-- Name: audit_events_y2026m07; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.audit_events_y2026m07 (
+    id text CONSTRAINT audit_events_id_not_null NOT NULL,
+    zone_id text CONSTRAINT audit_events_zone_id_not_null NOT NULL,
+    event_type text CONSTRAINT audit_events_event_type_not_null NOT NULL,
+    request_id text,
+    decision text,
+    policy_set_id text,
+    policy_set_version_id text,
+    manifest_sha text,
+    evaluation_status text,
+    determining_policies_json jsonb,
+    diagnostics_json jsonb,
+    metadata_json jsonb,
+    occurred_at timestamp with time zone CONSTRAINT audit_events_occurred_at_not_null NOT NULL,
+    ingested_at timestamp with time zone DEFAULT now() CONSTRAINT audit_events_ingested_at_not_null NOT NULL,
+    content_sha256 text,
+    prev_content_sha256 text,
+    chain_hmac text,
+    chain_seq bigint,
+    ingest_signature text
+);
+
+
+--
+-- Name: audit_events_y2026m08; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.audit_events_y2026m08 (
+    id text CONSTRAINT audit_events_id_not_null NOT NULL,
+    zone_id text CONSTRAINT audit_events_zone_id_not_null NOT NULL,
+    event_type text CONSTRAINT audit_events_event_type_not_null NOT NULL,
+    request_id text,
+    decision text,
+    policy_set_id text,
+    policy_set_version_id text,
+    manifest_sha text,
+    evaluation_status text,
+    determining_policies_json jsonb,
+    diagnostics_json jsonb,
+    metadata_json jsonb,
+    occurred_at timestamp with time zone CONSTRAINT audit_events_occurred_at_not_null NOT NULL,
+    ingested_at timestamp with time zone DEFAULT now() CONSTRAINT audit_events_ingested_at_not_null NOT NULL,
+    content_sha256 text,
+    prev_content_sha256 text,
+    chain_hmac text,
+    chain_seq bigint,
+    ingest_signature text
+);
+
+
+--
+-- Name: audit_events_y2026m09; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.audit_events_y2026m09 (
+    id text CONSTRAINT audit_events_id_not_null NOT NULL,
+    zone_id text CONSTRAINT audit_events_zone_id_not_null NOT NULL,
+    event_type text CONSTRAINT audit_events_event_type_not_null NOT NULL,
+    request_id text,
+    decision text,
+    policy_set_id text,
+    policy_set_version_id text,
+    manifest_sha text,
+    evaluation_status text,
+    determining_policies_json jsonb,
+    diagnostics_json jsonb,
+    metadata_json jsonb,
+    occurred_at timestamp with time zone CONSTRAINT audit_events_occurred_at_not_null NOT NULL,
+    ingested_at timestamp with time zone DEFAULT now() CONSTRAINT audit_events_ingested_at_not_null NOT NULL,
+    content_sha256 text,
+    prev_content_sha256 text,
+    chain_hmac text,
+    chain_seq bigint,
+    ingest_signature text
+);
+
+
+--
+-- Name: audit_export_watermark; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.audit_export_watermark (
+    name text NOT NULL,
+    last_exported_hour timestamp with time zone NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: audit_ingest_alerts; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.audit_ingest_alerts (
+    id bigint NOT NULL,
+    event_id text NOT NULL,
+    zone_id text NOT NULL,
+    kind text NOT NULL,
+    detail text,
+    observed_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: audit_ingest_alerts_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.audit_ingest_alerts_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: audit_ingest_alerts_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.audit_ingest_alerts_id_seq OWNED BY public.audit_ingest_alerts.id;
+
+
+--
+-- Name: caracal_outbox; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.caracal_outbox (
+    id text NOT NULL,
+    producer text NOT NULL,
+    topic text NOT NULL,
+    dedupe_key text NOT NULL,
+    payload_json jsonb NOT NULL,
+    status text DEFAULT 'pending'::text NOT NULL,
+    attempts integer DEFAULT 0 NOT NULL,
+    available_at timestamp with time zone DEFAULT now() NOT NULL,
+    published_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT caracal_outbox_producer_check CHECK ((producer = ANY (ARRAY['api'::text, 'coordinator'::text]))),
+    CONSTRAINT caracal_outbox_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'published'::text, 'dead'::text])))
+);
+
+
+--
+-- Name: delegated_grants; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.delegated_grants (
+    id text NOT NULL,
+    zone_id text NOT NULL,
+    application_id text,
+    user_id text NOT NULL,
+    resource_id text NOT NULL,
+    scopes text[] NOT NULL,
+    status text DEFAULT 'active'::text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT delegated_grants_status_check CHECK ((status = ANY (ARRAY['active'::text, 'revoked'::text, 'expired'::text])))
+);
+
+
+--
+-- Name: delegation_edges; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.delegation_edges (
+    id text NOT NULL,
+    zone_id text NOT NULL,
+    source_session_id text NOT NULL,
+    target_session_id text NOT NULL,
+    issuer_application_id text NOT NULL,
+    receiver_application_id text NOT NULL,
+    resource_id text,
+    scopes text[] DEFAULT '{}'::text[] NOT NULL,
+    constraints_json jsonb DEFAULT '{}'::jsonb NOT NULL,
+    status text DEFAULT 'active'::text NOT NULL,
+    expires_at timestamp with time zone NOT NULL,
+    edge_version integer DEFAULT 0 NOT NULL,
+    revoked_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    parent_edge_id text,
+    CONSTRAINT delegation_edges_check CHECK ((source_session_id <> target_session_id)),
+    CONSTRAINT delegation_edges_status_check CHECK ((status = ANY (ARRAY['active'::text, 'revoked'::text, 'expired'::text])))
+);
+
+
+--
+-- Name: delegation_graph_epochs; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.delegation_graph_epochs (
+    zone_id text NOT NULL,
+    epoch bigint DEFAULT 0 NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: event_outbox; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.event_outbox (
+    id text NOT NULL,
+    stream_name text NOT NULL,
+    payload_json jsonb NOT NULL,
+    attempts integer DEFAULT 0 NOT NULL,
+    available_at timestamp with time zone DEFAULT now() NOT NULL,
+    locked_until timestamp with time zone,
+    locked_by text,
+    last_error text,
+    dispatched_at timestamp with time zone,
+    request_id text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: gateway_binding_revision; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.gateway_binding_revision (
+    id boolean DEFAULT true NOT NULL,
+    version bigint DEFAULT 0 NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT gateway_binding_revision_id_check CHECK (id)
+);
+
+
+--
+-- Name: gateway_resource_bindings; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.gateway_resource_bindings (
+    resource_identifier text NOT NULL,
+    application_id text CONSTRAINT gateway_resource_bindings_client_id_not_null NOT NULL,
+    zone_id text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: policies; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.policies (
+    id text NOT NULL,
+    zone_id text NOT NULL,
+    name text NOT NULL,
+    description text,
+    owner_type text DEFAULT 'customer'::text NOT NULL,
+    archived_at timestamp with time zone,
+    created_by text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: policy_set_bindings; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.policy_set_bindings (
+    zone_id text NOT NULL,
+    policy_set_id text NOT NULL,
+    active_version_id text,
+    shadow_version_id text,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: policy_set_versions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.policy_set_versions (
+    id text NOT NULL,
+    policy_set_id text NOT NULL,
+    version integer NOT NULL,
+    manifest_json jsonb NOT NULL,
+    manifest_sha256 text NOT NULL,
+    schema_version text NOT NULL,
+    created_by text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    archived_at timestamp with time zone
+);
+
+
+--
+-- Name: policy_sets; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.policy_sets (
+    id text NOT NULL,
+    zone_id text NOT NULL,
+    name text NOT NULL,
+    description text,
+    scope_type text DEFAULT 'zone'::text NOT NULL,
+    owner_type text DEFAULT 'customer'::text NOT NULL,
+    archived_at timestamp with time zone,
+    created_by text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: policy_versions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.policy_versions (
+    id text NOT NULL,
+    policy_id text NOT NULL,
+    version integer NOT NULL,
+    content text NOT NULL,
+    content_sha256 text NOT NULL,
+    schema_version text NOT NULL,
+    created_by text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    archived_at timestamp with time zone
+);
+
+
+--
+-- Name: provider_grants; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.provider_grants (
+    id text NOT NULL,
+    zone_id text NOT NULL,
+    user_id text NOT NULL,
+    resource_id text NOT NULL,
+    provider_id text NOT NULL,
+    scopes text[] DEFAULT '{}'::text[] NOT NULL,
+    status text DEFAULT 'active'::text NOT NULL,
+    access_token_ct bytea,
+    refresh_token_ct bytea,
+    expires_at timestamp with time zone,
+    refreshed_at timestamp with time zone,
+    refresh_token_version integer DEFAULT 0 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT provider_grants_status_check CHECK ((status = ANY (ARRAY['active'::text, 'revoked'::text, 'expired'::text])))
+);
+
+
+--
+-- Name: providers; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.providers (
+    id text NOT NULL,
+    zone_id text NOT NULL,
+    name text NOT NULL,
+    identifier text NOT NULL,
+    config_json jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    archived_at timestamp with time zone,
+    secret_config_ct bytea,
+    secret_config_nonce bytea,
+    secret_config_keys text[] DEFAULT '{}'::text[] NOT NULL,
+    provider_kind text NOT NULL,
+    CONSTRAINT providers_provider_kind_check CHECK ((provider_kind = ANY (ARRAY['none'::text, 'caracal_mandate'::text, 'oauth2_authorization_code'::text, 'oauth2_client_credentials'::text, 'api_key'::text, 'bearer_token'::text])))
+);
+
+
+--
+-- Name: resources; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.resources (
+    id text NOT NULL,
+    zone_id text NOT NULL,
+    name text NOT NULL,
+    identifier text NOT NULL,
+    upstream_url text,
+    credential_provider_id text NOT NULL,
+    scopes text[] DEFAULT '{}'::text[] NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    archived_at timestamp with time zone
+);
+
+
+--
+-- Name: secrets; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.secrets (
+    id text NOT NULL,
+    zone_id text NOT NULL,
+    entity_id text NOT NULL,
+    name text NOT NULL,
+    type text NOT NULL,
+    ciphertext bytea NOT NULL,
+    nonce bytea NOT NULL,
+    dek_id text NOT NULL,
+    version integer DEFAULT 1 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT secrets_type_check CHECK ((type = ANY (ARRAY['token'::text, 'password'::text])))
+);
+
+
+--
+-- Name: sessions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.sessions (
+    id text NOT NULL,
+    zone_id text NOT NULL,
+    session_type text NOT NULL,
+    subject_id text,
+    parent_id text,
+    status text DEFAULT 'active'::text NOT NULL,
+    expires_at timestamp with time zone NOT NULL,
+    authenticated_at timestamp with time zone NOT NULL,
+    claims_json jsonb,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT sessions_session_type_check CHECK ((session_type = ANY (ARRAY['user'::text, 'application'::text]))),
+    CONSTRAINT sessions_status_check CHECK ((status = ANY (ARRAY['active'::text, 'revoked'::text, 'expired'::text])))
+);
+
+
+--
+-- Name: step_up_challenges; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.step_up_challenges (
+    id text NOT NULL,
+    zone_id text NOT NULL,
+    session_id text,
+    challenge_type text NOT NULL,
+    metadata_json jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    expires_at timestamp with time zone NOT NULL,
+    satisfied_at timestamp with time zone,
+    challenge_secret_hash bytea,
+    principal_id text,
+    resource_set_hash bytea,
+    consumed_at timestamp with time zone,
+    approver_subject_id text,
+    CONSTRAINT step_up_challenges_challenge_type_check CHECK ((challenge_type = ANY (ARRAY['human_approval'::text, 'mfa'::text, 'software_attestation'::text])))
+);
+
+
+--
+-- Name: zones; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.zones (
+    id text NOT NULL,
+    name text NOT NULL,
+    slug text NOT NULL,
+    dek_ciphertext bytea NOT NULL,
+    kek_arn text,
+    dcr_enabled boolean DEFAULT false NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    archived_at timestamp with time zone
+);
+
+
+--
+-- Name: audit_events_default; Type: TABLE ATTACH; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_events ATTACH PARTITION public.audit_events_default DEFAULT;
+
+
+--
+-- Name: audit_events_y2026m06; Type: TABLE ATTACH; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_events ATTACH PARTITION public.audit_events_y2026m06 FOR VALUES FROM ('2026-06-01 00:00:00+00') TO ('2026-07-01 00:00:00+00');
+
+
+--
+-- Name: audit_events_y2026m07; Type: TABLE ATTACH; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_events ATTACH PARTITION public.audit_events_y2026m07 FOR VALUES FROM ('2026-07-01 00:00:00+00') TO ('2026-08-01 00:00:00+00');
+
+
+--
+-- Name: audit_events_y2026m08; Type: TABLE ATTACH; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_events ATTACH PARTITION public.audit_events_y2026m08 FOR VALUES FROM ('2026-08-01 00:00:00+00') TO ('2026-09-01 00:00:00+00');
+
+
+--
+-- Name: audit_events_y2026m09; Type: TABLE ATTACH; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_events ATTACH PARTITION public.audit_events_y2026m09 FOR VALUES FROM ('2026-09-01 00:00:00+00') TO ('2026-10-01 00:00:00+00');
+
+
+--
+-- Name: audit_ingest_alerts id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_ingest_alerts ALTER COLUMN id SET DEFAULT nextval('public.audit_ingest_alerts_id_seq'::regclass);
+
+
+--
+-- Name: admin_audit_events admin_audit_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.admin_audit_events
+    ADD CONSTRAINT admin_audit_events_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: admin_tokens admin_tokens_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.admin_tokens
+    ADD CONSTRAINT admin_tokens_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: agent_invocations agent_invocations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.agent_invocations
+    ADD CONSTRAINT agent_invocations_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: agent_invocations agent_invocations_zone_id_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.agent_invocations
+    ADD CONSTRAINT agent_invocations_zone_id_id_unique UNIQUE (zone_id, id);
+
+
+--
+-- Name: agent_invocations agent_invocations_zone_id_service_id_idempotency_key_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.agent_invocations
+    ADD CONSTRAINT agent_invocations_zone_id_service_id_idempotency_key_key UNIQUE (zone_id, service_id, idempotency_key);
+
+
+--
+-- Name: agent_services agent_services_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.agent_services
+    ADD CONSTRAINT agent_services_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: agent_services agent_services_zone_id_application_id_endpoint_url_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.agent_services
+    ADD CONSTRAINT agent_services_zone_id_application_id_endpoint_url_key UNIQUE (zone_id, application_id, endpoint_url);
+
+
+--
+-- Name: agent_services agent_services_zone_id_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.agent_services
+    ADD CONSTRAINT agent_services_zone_id_id_unique UNIQUE (zone_id, id);
+
+
+--
+-- Name: agent_sessions agent_sessions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.agent_sessions
+    ADD CONSTRAINT agent_sessions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: agent_sessions agent_sessions_zone_id_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.agent_sessions
+    ADD CONSTRAINT agent_sessions_zone_id_id_unique UNIQUE (zone_id, id);
+
+
+--
+-- Name: agent_topology agent_topology_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.agent_topology
+    ADD CONSTRAINT agent_topology_pkey PRIMARY KEY (parent_id, child_id);
+
+
+--
+-- Name: applications applications_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.applications
+    ADD CONSTRAINT applications_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: applications applications_zone_id_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.applications
+    ADD CONSTRAINT applications_zone_id_id_unique UNIQUE (zone_id, id);
+
+
+--
+-- Name: audit_chain_rehash audit_chain_rehash_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_chain_rehash
+    ADD CONSTRAINT audit_chain_rehash_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: audit_events audit_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_events
+    ADD CONSTRAINT audit_events_pkey PRIMARY KEY (id, occurred_at);
+
+
+--
+-- Name: audit_events_default audit_events_default_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_events_default
+    ADD CONSTRAINT audit_events_default_pkey PRIMARY KEY (id, occurred_at);
+
+
+--
+-- Name: audit_events_y2026m06 audit_events_y2026m06_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_events_y2026m06
+    ADD CONSTRAINT audit_events_y2026m06_pkey PRIMARY KEY (id, occurred_at);
+
+
+--
+-- Name: audit_events_y2026m07 audit_events_y2026m07_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_events_y2026m07
+    ADD CONSTRAINT audit_events_y2026m07_pkey PRIMARY KEY (id, occurred_at);
+
+
+--
+-- Name: audit_events_y2026m08 audit_events_y2026m08_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_events_y2026m08
+    ADD CONSTRAINT audit_events_y2026m08_pkey PRIMARY KEY (id, occurred_at);
+
+
+--
+-- Name: audit_events_y2026m09 audit_events_y2026m09_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_events_y2026m09
+    ADD CONSTRAINT audit_events_y2026m09_pkey PRIMARY KEY (id, occurred_at);
+
+
+--
+-- Name: audit_export_watermark audit_export_watermark_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_export_watermark
+    ADD CONSTRAINT audit_export_watermark_pkey PRIMARY KEY (name);
+
+
+--
+-- Name: audit_ingest_alerts audit_ingest_alerts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_ingest_alerts
+    ADD CONSTRAINT audit_ingest_alerts_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: caracal_outbox caracal_outbox_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.caracal_outbox
+    ADD CONSTRAINT caracal_outbox_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: caracal_outbox caracal_outbox_producer_topic_dedupe_key_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.caracal_outbox
+    ADD CONSTRAINT caracal_outbox_producer_topic_dedupe_key_key UNIQUE (producer, topic, dedupe_key);
+
+
+--
+-- Name: delegated_grants delegated_grants_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.delegated_grants
+    ADD CONSTRAINT delegated_grants_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: delegation_edges delegation_edges_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.delegation_edges
+    ADD CONSTRAINT delegation_edges_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: delegation_graph_epochs delegation_graph_epochs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.delegation_graph_epochs
+    ADD CONSTRAINT delegation_graph_epochs_pkey PRIMARY KEY (zone_id);
+
+
+--
+-- Name: event_outbox event_outbox_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.event_outbox
+    ADD CONSTRAINT event_outbox_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: gateway_binding_revision gateway_binding_revision_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.gateway_binding_revision
+    ADD CONSTRAINT gateway_binding_revision_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: gateway_resource_bindings gateway_resource_bindings_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.gateway_resource_bindings
+    ADD CONSTRAINT gateway_resource_bindings_pkey PRIMARY KEY (zone_id, resource_identifier);
+
+
+--
+-- Name: policies policies_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.policies
+    ADD CONSTRAINT policies_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: policies policies_zone_id_name_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.policies
+    ADD CONSTRAINT policies_zone_id_name_key UNIQUE (zone_id, name);
+
+
+--
+-- Name: policy_set_bindings policy_set_bindings_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.policy_set_bindings
+    ADD CONSTRAINT policy_set_bindings_pkey PRIMARY KEY (zone_id, policy_set_id);
+
+
+--
+-- Name: policy_set_versions policy_set_versions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.policy_set_versions
+    ADD CONSTRAINT policy_set_versions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: policy_set_versions policy_set_versions_policy_set_id_version_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.policy_set_versions
+    ADD CONSTRAINT policy_set_versions_policy_set_id_version_key UNIQUE (policy_set_id, version);
+
+
+--
+-- Name: policy_sets policy_sets_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.policy_sets
+    ADD CONSTRAINT policy_sets_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: policy_sets policy_sets_zone_id_name_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.policy_sets
+    ADD CONSTRAINT policy_sets_zone_id_name_key UNIQUE (zone_id, name);
+
+
+--
+-- Name: policy_versions policy_versions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.policy_versions
+    ADD CONSTRAINT policy_versions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: policy_versions policy_versions_policy_id_version_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.policy_versions
+    ADD CONSTRAINT policy_versions_policy_id_version_key UNIQUE (policy_id, version);
+
+
+--
+-- Name: provider_grants provider_grants_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.provider_grants
+    ADD CONSTRAINT provider_grants_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: providers providers_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.providers
+    ADD CONSTRAINT providers_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: providers providers_zone_id_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.providers
+    ADD CONSTRAINT providers_zone_id_id_unique UNIQUE (zone_id, id);
+
+
+--
+-- Name: resources resources_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.resources
+    ADD CONSTRAINT resources_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: resources resources_zone_id_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.resources
+    ADD CONSTRAINT resources_zone_id_id_unique UNIQUE (zone_id, id);
+
+
+--
+-- Name: resources resources_zone_id_identifier_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.resources
+    ADD CONSTRAINT resources_zone_id_identifier_key UNIQUE (zone_id, identifier);
+
+
+--
+-- Name: secrets secrets_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.secrets
+    ADD CONSTRAINT secrets_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: sessions sessions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sessions
+    ADD CONSTRAINT sessions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: sessions sessions_zone_id_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sessions
+    ADD CONSTRAINT sessions_zone_id_id_unique UNIQUE (zone_id, id);
+
+
+--
+-- Name: step_up_challenges step_up_challenges_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.step_up_challenges
+    ADD CONSTRAINT step_up_challenges_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: zones zones_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.zones
+    ADD CONSTRAINT zones_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: zones zones_slug_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.zones
+    ADD CONSTRAINT zones_slug_key UNIQUE (slug);
+
+
+--
+-- Name: admin_audit_events_actor_time; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX admin_audit_events_actor_time ON public.admin_audit_events USING btree (actor_id, occurred_at DESC) WHERE (actor_id IS NOT NULL);
+
+
+--
+-- Name: admin_audit_events_chain; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX admin_audit_events_chain ON public.admin_audit_events USING btree (zone_id, chain_seq DESC);
+
+
+--
+-- Name: admin_audit_events_request; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX admin_audit_events_request ON public.admin_audit_events USING btree (request_id);
+
+
+--
+-- Name: admin_audit_events_zone_time; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX admin_audit_events_zone_time ON public.admin_audit_events USING btree (zone_id, occurred_at DESC);
+
+
+--
+-- Name: admin_tokens_token_sha256_active; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX admin_tokens_token_sha256_active ON public.admin_tokens USING btree (token_sha256) WHERE (revoked_at IS NULL);
+
+
+--
+-- Name: admin_tokens_zone_active; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX admin_tokens_zone_active ON public.admin_tokens USING btree (zone_id) WHERE ((revoked_at IS NULL) AND (scope = 'zone'::text));
+
+
+--
+-- Name: agent_invocations_deadline_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX agent_invocations_deadline_at_idx ON public.agent_invocations USING btree (deadline_at) WHERE (status = 'running'::text);
+
+
+--
+-- Name: agent_invocations_zone_id_service_id_status_created_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX agent_invocations_zone_id_service_id_status_created_at_idx ON public.agent_invocations USING btree (zone_id, service_id, status, created_at DESC);
+
+
+--
+-- Name: agent_invocations_zone_id_source_session_id_status_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX agent_invocations_zone_id_source_session_id_status_idx ON public.agent_invocations USING btree (zone_id, source_session_id, status) WHERE (source_session_id IS NOT NULL);
+
+
+--
+-- Name: agent_invocations_zone_id_target_session_id_status_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX agent_invocations_zone_id_target_session_id_status_idx ON public.agent_invocations USING btree (zone_id, target_session_id, status) WHERE (target_session_id IS NOT NULL);
+
+
+--
+-- Name: agent_services_last_heartbeat_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX agent_services_last_heartbeat_at_idx ON public.agent_services USING btree (last_heartbeat_at) WHERE (health = ANY (ARRAY['healthy'::text, 'degraded'::text]));
+
+
+--
+-- Name: agent_services_zone_id_application_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX agent_services_zone_id_application_id_idx ON public.agent_services USING btree (zone_id, application_id);
+
+
+--
+-- Name: agent_services_zone_id_health_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX agent_services_zone_id_health_idx ON public.agent_services USING btree (zone_id, health);
+
+
+--
+-- Name: agent_sessions_idempotency_key_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX agent_sessions_idempotency_key_idx ON public.agent_sessions USING btree (zone_id, application_id, idempotency_key) WHERE ((idempotency_key IS NOT NULL) AND (status = ANY (ARRAY['active'::text, 'suspended'::text])));
+
+
+--
+-- Name: agent_sessions_last_active_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX agent_sessions_last_active_at_idx ON public.agent_sessions USING btree (last_active_at) WHERE (status = 'active'::text);
+
+
+--
+-- Name: agent_sessions_service_heartbeat_deadline_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX agent_sessions_service_heartbeat_deadline_idx ON public.agent_sessions USING btree (heartbeat_deadline_at) WHERE ((status = 'active'::text) AND (lifecycle = 'service'::text));
+
+
+--
+-- Name: agent_sessions_subject_session_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX agent_sessions_subject_session_id_idx ON public.agent_sessions USING btree (subject_session_id);
+
+
+--
+-- Name: agent_sessions_zone_id_parent_id_status_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX agent_sessions_zone_id_parent_id_status_idx ON public.agent_sessions USING btree (zone_id, parent_id, status);
+
+
+--
+-- Name: applications_zone_id_expires_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX applications_zone_id_expires_at_idx ON public.applications USING btree (zone_id, expires_at) WHERE (expires_at IS NOT NULL);
+
+
+--
+-- Name: applications_zone_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX applications_zone_id_idx ON public.applications USING btree (zone_id);
+
+
+--
+-- Name: audit_events_agent_labels_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_agent_labels_idx ON ONLY public.audit_events USING gin (((metadata_json -> 'agent_labels'::text)));
+
+
+--
+-- Name: audit_events_agent_session_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_agent_session_idx ON ONLY public.audit_events USING btree (((metadata_json ->> 'agent_session_id'::text))) WHERE (metadata_json ? 'agent_session_id'::text);
+
+
+--
+-- Name: audit_events_default_expr_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_default_expr_idx ON public.audit_events_default USING btree (((metadata_json ->> 'agent_session_id'::text))) WHERE (metadata_json ? 'agent_session_id'::text);
+
+
+--
+-- Name: audit_events_default_expr_idx1; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_default_expr_idx1 ON public.audit_events_default USING gin (((metadata_json -> 'agent_labels'::text)));
+
+
+--
+-- Name: audit_events_request_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_request_id_idx ON ONLY public.audit_events USING btree (request_id) WHERE (request_id IS NOT NULL);
+
+
+--
+-- Name: audit_events_default_request_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_default_request_id_idx ON public.audit_events_default USING btree (request_id) WHERE (request_id IS NOT NULL);
+
+
+--
+-- Name: audit_events_zone_chain; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_zone_chain ON ONLY public.audit_events USING btree (zone_id, chain_seq DESC);
+
+
+--
+-- Name: audit_events_default_zone_id_chain_seq_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_default_zone_id_chain_seq_idx ON public.audit_events_default USING btree (zone_id, chain_seq DESC);
+
+
+--
+-- Name: audit_events_zone_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_zone_id_occurred_at_idx ON ONLY public.audit_events USING btree (zone_id, occurred_at DESC);
+
+
+--
+-- Name: audit_events_default_zone_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_default_zone_id_occurred_at_idx ON public.audit_events_default USING btree (zone_id, occurred_at DESC);
+
+
+--
+-- Name: audit_events_y2026m06_expr_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_y2026m06_expr_idx ON public.audit_events_y2026m06 USING btree (((metadata_json ->> 'agent_session_id'::text))) WHERE (metadata_json ? 'agent_session_id'::text);
+
+
+--
+-- Name: audit_events_y2026m06_expr_idx1; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_y2026m06_expr_idx1 ON public.audit_events_y2026m06 USING gin (((metadata_json -> 'agent_labels'::text)));
+
+
+--
+-- Name: audit_events_y2026m06_request_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_y2026m06_request_id_idx ON public.audit_events_y2026m06 USING btree (request_id) WHERE (request_id IS NOT NULL);
+
+
+--
+-- Name: audit_events_y2026m06_zone_id_chain_seq_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_y2026m06_zone_id_chain_seq_idx ON public.audit_events_y2026m06 USING btree (zone_id, chain_seq DESC);
+
+
+--
+-- Name: audit_events_y2026m06_zone_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_y2026m06_zone_id_occurred_at_idx ON public.audit_events_y2026m06 USING btree (zone_id, occurred_at DESC);
+
+
+--
+-- Name: audit_events_y2026m07_expr_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_y2026m07_expr_idx ON public.audit_events_y2026m07 USING btree (((metadata_json ->> 'agent_session_id'::text))) WHERE (metadata_json ? 'agent_session_id'::text);
+
+
+--
+-- Name: audit_events_y2026m07_expr_idx1; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_y2026m07_expr_idx1 ON public.audit_events_y2026m07 USING gin (((metadata_json -> 'agent_labels'::text)));
+
+
+--
+-- Name: audit_events_y2026m07_request_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_y2026m07_request_id_idx ON public.audit_events_y2026m07 USING btree (request_id) WHERE (request_id IS NOT NULL);
+
+
+--
+-- Name: audit_events_y2026m07_zone_id_chain_seq_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_y2026m07_zone_id_chain_seq_idx ON public.audit_events_y2026m07 USING btree (zone_id, chain_seq DESC);
+
+
+--
+-- Name: audit_events_y2026m07_zone_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_y2026m07_zone_id_occurred_at_idx ON public.audit_events_y2026m07 USING btree (zone_id, occurred_at DESC);
+
+
+--
+-- Name: audit_events_y2026m08_expr_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_y2026m08_expr_idx ON public.audit_events_y2026m08 USING btree (((metadata_json ->> 'agent_session_id'::text))) WHERE (metadata_json ? 'agent_session_id'::text);
+
+
+--
+-- Name: audit_events_y2026m08_expr_idx1; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_y2026m08_expr_idx1 ON public.audit_events_y2026m08 USING gin (((metadata_json -> 'agent_labels'::text)));
+
+
+--
+-- Name: audit_events_y2026m08_request_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_y2026m08_request_id_idx ON public.audit_events_y2026m08 USING btree (request_id) WHERE (request_id IS NOT NULL);
+
+
+--
+-- Name: audit_events_y2026m08_zone_id_chain_seq_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_y2026m08_zone_id_chain_seq_idx ON public.audit_events_y2026m08 USING btree (zone_id, chain_seq DESC);
+
+
+--
+-- Name: audit_events_y2026m08_zone_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_y2026m08_zone_id_occurred_at_idx ON public.audit_events_y2026m08 USING btree (zone_id, occurred_at DESC);
+
+
+--
+-- Name: audit_events_y2026m09_expr_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_y2026m09_expr_idx ON public.audit_events_y2026m09 USING btree (((metadata_json ->> 'agent_session_id'::text))) WHERE (metadata_json ? 'agent_session_id'::text);
+
+
+--
+-- Name: audit_events_y2026m09_expr_idx1; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_y2026m09_expr_idx1 ON public.audit_events_y2026m09 USING gin (((metadata_json -> 'agent_labels'::text)));
+
+
+--
+-- Name: audit_events_y2026m09_request_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_y2026m09_request_id_idx ON public.audit_events_y2026m09 USING btree (request_id) WHERE (request_id IS NOT NULL);
+
+
+--
+-- Name: audit_events_y2026m09_zone_id_chain_seq_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_y2026m09_zone_id_chain_seq_idx ON public.audit_events_y2026m09 USING btree (zone_id, chain_seq DESC);
+
+
+--
+-- Name: audit_events_y2026m09_zone_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_y2026m09_zone_id_occurred_at_idx ON public.audit_events_y2026m09 USING btree (zone_id, occurred_at DESC);
+
+
+--
+-- Name: audit_ingest_alerts_zone_time; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_ingest_alerts_zone_time ON public.audit_ingest_alerts USING btree (zone_id, observed_at DESC);
+
+
+--
+-- Name: caracal_outbox_status_available_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX caracal_outbox_status_available_at_idx ON public.caracal_outbox USING btree (status, available_at);
+
+
+--
+-- Name: caracal_outbox_topic_status_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX caracal_outbox_topic_status_idx ON public.caracal_outbox USING btree (topic, status);
+
+
+--
+-- Name: delegated_grants_zone_id_user_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX delegated_grants_zone_id_user_id_idx ON public.delegated_grants USING btree (zone_id, user_id);
+
+
+--
+-- Name: delegated_grants_zone_id_user_id_resource_id_status_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX delegated_grants_zone_id_user_id_resource_id_status_idx ON public.delegated_grants USING btree (zone_id, user_id, resource_id, status);
+
+
+--
+-- Name: delegation_edges_expires_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX delegation_edges_expires_at_idx ON public.delegation_edges USING btree (expires_at) WHERE (status = 'active'::text);
+
+
+--
+-- Name: delegation_edges_zone_id_parent_edge_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX delegation_edges_zone_id_parent_edge_id_idx ON public.delegation_edges USING btree (zone_id, parent_edge_id) WHERE (parent_edge_id IS NOT NULL);
+
+
+--
+-- Name: delegation_edges_zone_id_resource_id_status_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX delegation_edges_zone_id_resource_id_status_idx ON public.delegation_edges USING btree (zone_id, resource_id, status) WHERE (resource_id IS NOT NULL);
+
+
+--
+-- Name: delegation_edges_zone_id_source_session_id_status_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX delegation_edges_zone_id_source_session_id_status_idx ON public.delegation_edges USING btree (zone_id, source_session_id, status);
+
+
+--
+-- Name: delegation_edges_zone_id_target_session_id_status_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX delegation_edges_zone_id_target_session_id_status_idx ON public.delegation_edges USING btree (zone_id, target_session_id, status);
+
+
+--
+-- Name: event_outbox_dispatch_ready; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX event_outbox_dispatch_ready ON public.event_outbox USING btree (available_at) WHERE (dispatched_at IS NULL);
+
+
+--
+-- Name: event_outbox_undispatched_age; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX event_outbox_undispatched_age ON public.event_outbox USING btree (created_at) WHERE (dispatched_at IS NULL);
+
+
+--
+-- Name: gateway_resource_bindings_zone_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX gateway_resource_bindings_zone_id_idx ON public.gateway_resource_bindings USING btree (zone_id);
+
+
+--
+-- Name: policy_versions_policy_id_created_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX policy_versions_policy_id_created_at_idx ON public.policy_versions USING btree (policy_id, created_at DESC);
+
+
+--
+-- Name: provider_grants_active_subject_provider_uidx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX provider_grants_active_subject_provider_uidx ON public.provider_grants USING btree (zone_id, user_id, resource_id, provider_id) WHERE (status = 'active'::text);
+
+
+--
+-- Name: provider_grants_zone_provider_status_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX provider_grants_zone_provider_status_idx ON public.provider_grants USING btree (zone_id, provider_id, status);
+
+
+--
+-- Name: provider_grants_zone_user_resource_status_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX provider_grants_zone_user_resource_status_idx ON public.provider_grants USING btree (zone_id, user_id, resource_id, status);
+
+
+--
+-- Name: providers_active_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX providers_active_idx ON public.providers USING btree (id) WHERE (archived_at IS NULL);
+
+
+--
+-- Name: providers_zone_identifier_active_uidx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX providers_zone_identifier_active_uidx ON public.providers USING btree (zone_id, identifier) WHERE (archived_at IS NULL);
+
+
+--
+-- Name: resources_active_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX resources_active_idx ON public.resources USING btree (id) WHERE (archived_at IS NULL);
+
+
+--
+-- Name: resources_credential_provider_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX resources_credential_provider_id_idx ON public.resources USING btree (credential_provider_id);
+
+
+--
+-- Name: secrets_zone_id_entity_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX secrets_zone_id_entity_id_idx ON public.secrets USING btree (zone_id, entity_id);
+
+
+--
+-- Name: sessions_expires_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX sessions_expires_at_idx ON public.sessions USING btree (expires_at) WHERE (status = 'active'::text);
+
+
+--
+-- Name: sessions_zone_id_subject_id_status_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX sessions_zone_id_subject_id_status_idx ON public.sessions USING btree (zone_id, subject_id, status);
+
+
+--
+-- Name: step_up_challenges_approver; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX step_up_challenges_approver ON public.step_up_challenges USING btree (approver_subject_id) WHERE (approver_subject_id IS NOT NULL);
+
+
+--
+-- Name: step_up_challenges_consume_uniq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX step_up_challenges_consume_uniq ON public.step_up_challenges USING btree (id) WHERE (consumed_at IS NOT NULL);
+
+
+--
+-- Name: step_up_challenges_session_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX step_up_challenges_session_id_idx ON public.step_up_challenges USING btree (session_id);
+
+
+--
+-- Name: step_up_challenges_zone_principal; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX step_up_challenges_zone_principal ON public.step_up_challenges USING btree (zone_id, principal_id) WHERE (consumed_at IS NULL);
+
+
+--
+-- Name: zones_active_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX zones_active_idx ON public.zones USING btree (id) WHERE (archived_at IS NULL);
+
+
+--
+-- Name: audit_events_default_expr_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_events_agent_session_idx ATTACH PARTITION public.audit_events_default_expr_idx;
+
+
+--
+-- Name: audit_events_default_expr_idx1; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_events_agent_labels_idx ATTACH PARTITION public.audit_events_default_expr_idx1;
+
+
+--
+-- Name: audit_events_default_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_events_pkey ATTACH PARTITION public.audit_events_default_pkey;
+
+
+--
+-- Name: audit_events_default_request_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_events_request_id_idx ATTACH PARTITION public.audit_events_default_request_id_idx;
+
+
+--
+-- Name: audit_events_default_zone_id_chain_seq_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_events_zone_chain ATTACH PARTITION public.audit_events_default_zone_id_chain_seq_idx;
+
+
+--
+-- Name: audit_events_default_zone_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_events_zone_id_occurred_at_idx ATTACH PARTITION public.audit_events_default_zone_id_occurred_at_idx;
+
+
+--
+-- Name: audit_events_y2026m06_expr_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_events_agent_session_idx ATTACH PARTITION public.audit_events_y2026m06_expr_idx;
+
+
+--
+-- Name: audit_events_y2026m06_expr_idx1; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_events_agent_labels_idx ATTACH PARTITION public.audit_events_y2026m06_expr_idx1;
+
+
+--
+-- Name: audit_events_y2026m06_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_events_pkey ATTACH PARTITION public.audit_events_y2026m06_pkey;
+
+
+--
+-- Name: audit_events_y2026m06_request_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_events_request_id_idx ATTACH PARTITION public.audit_events_y2026m06_request_id_idx;
+
+
+--
+-- Name: audit_events_y2026m06_zone_id_chain_seq_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_events_zone_chain ATTACH PARTITION public.audit_events_y2026m06_zone_id_chain_seq_idx;
+
+
+--
+-- Name: audit_events_y2026m06_zone_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_events_zone_id_occurred_at_idx ATTACH PARTITION public.audit_events_y2026m06_zone_id_occurred_at_idx;
+
+
+--
+-- Name: audit_events_y2026m07_expr_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_events_agent_session_idx ATTACH PARTITION public.audit_events_y2026m07_expr_idx;
+
+
+--
+-- Name: audit_events_y2026m07_expr_idx1; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_events_agent_labels_idx ATTACH PARTITION public.audit_events_y2026m07_expr_idx1;
+
+
+--
+-- Name: audit_events_y2026m07_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_events_pkey ATTACH PARTITION public.audit_events_y2026m07_pkey;
+
+
+--
+-- Name: audit_events_y2026m07_request_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_events_request_id_idx ATTACH PARTITION public.audit_events_y2026m07_request_id_idx;
+
+
+--
+-- Name: audit_events_y2026m07_zone_id_chain_seq_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_events_zone_chain ATTACH PARTITION public.audit_events_y2026m07_zone_id_chain_seq_idx;
+
+
+--
+-- Name: audit_events_y2026m07_zone_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_events_zone_id_occurred_at_idx ATTACH PARTITION public.audit_events_y2026m07_zone_id_occurred_at_idx;
+
+
+--
+-- Name: audit_events_y2026m08_expr_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_events_agent_session_idx ATTACH PARTITION public.audit_events_y2026m08_expr_idx;
+
+
+--
+-- Name: audit_events_y2026m08_expr_idx1; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_events_agent_labels_idx ATTACH PARTITION public.audit_events_y2026m08_expr_idx1;
+
+
+--
+-- Name: audit_events_y2026m08_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_events_pkey ATTACH PARTITION public.audit_events_y2026m08_pkey;
+
+
+--
+-- Name: audit_events_y2026m08_request_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_events_request_id_idx ATTACH PARTITION public.audit_events_y2026m08_request_id_idx;
+
+
+--
+-- Name: audit_events_y2026m08_zone_id_chain_seq_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_events_zone_chain ATTACH PARTITION public.audit_events_y2026m08_zone_id_chain_seq_idx;
+
+
+--
+-- Name: audit_events_y2026m08_zone_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_events_zone_id_occurred_at_idx ATTACH PARTITION public.audit_events_y2026m08_zone_id_occurred_at_idx;
+
+
+--
+-- Name: audit_events_y2026m09_expr_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_events_agent_session_idx ATTACH PARTITION public.audit_events_y2026m09_expr_idx;
+
+
+--
+-- Name: audit_events_y2026m09_expr_idx1; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_events_agent_labels_idx ATTACH PARTITION public.audit_events_y2026m09_expr_idx1;
+
+
+--
+-- Name: audit_events_y2026m09_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_events_pkey ATTACH PARTITION public.audit_events_y2026m09_pkey;
+
+
+--
+-- Name: audit_events_y2026m09_request_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_events_request_id_idx ATTACH PARTITION public.audit_events_y2026m09_request_id_idx;
+
+
+--
+-- Name: audit_events_y2026m09_zone_id_chain_seq_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_events_zone_chain ATTACH PARTITION public.audit_events_y2026m09_zone_id_chain_seq_idx;
+
+
+--
+-- Name: audit_events_y2026m09_zone_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_events_zone_id_occurred_at_idx ATTACH PARTITION public.audit_events_y2026m09_zone_id_occurred_at_idx;
+
+
+--
+-- Name: policy_versions policy_versions_immutable; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER policy_versions_immutable BEFORE DELETE OR UPDATE ON public.policy_versions FOR EACH ROW EXECUTE FUNCTION public.reject_policy_version_mutation();
+
+
+--
+-- Name: admin_tokens admin_tokens_zone_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.admin_tokens
+    ADD CONSTRAINT admin_tokens_zone_id_fkey FOREIGN KEY (zone_id) REFERENCES public.zones(id) ON DELETE CASCADE;
+
+
+--
+-- Name: agent_invocations agent_invocations_service_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.agent_invocations
+    ADD CONSTRAINT agent_invocations_service_id_fkey FOREIGN KEY (service_id) REFERENCES public.agent_services(id) ON DELETE CASCADE;
+
+
+--
+-- Name: agent_invocations agent_invocations_source_session_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.agent_invocations
+    ADD CONSTRAINT agent_invocations_source_session_id_fkey FOREIGN KEY (source_session_id) REFERENCES public.agent_sessions(id) ON DELETE SET NULL;
+
+
+--
+-- Name: agent_invocations agent_invocations_target_session_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.agent_invocations
+    ADD CONSTRAINT agent_invocations_target_session_id_fkey FOREIGN KEY (target_session_id) REFERENCES public.agent_sessions(id) ON DELETE SET NULL;
+
+
+--
+-- Name: agent_invocations agent_invocations_zone_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.agent_invocations
+    ADD CONSTRAINT agent_invocations_zone_id_fkey FOREIGN KEY (zone_id) REFERENCES public.zones(id) ON DELETE CASCADE;
+
+
+--
+-- Name: agent_invocations agent_invocations_zone_service_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.agent_invocations
+    ADD CONSTRAINT agent_invocations_zone_service_fk FOREIGN KEY (zone_id, service_id) REFERENCES public.agent_services(zone_id, id) ON DELETE CASCADE;
+
+
+--
+-- Name: agent_invocations agent_invocations_zone_source_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.agent_invocations
+    ADD CONSTRAINT agent_invocations_zone_source_fk FOREIGN KEY (zone_id, source_session_id) REFERENCES public.agent_sessions(zone_id, id);
+
+
+--
+-- Name: agent_invocations agent_invocations_zone_target_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.agent_invocations
+    ADD CONSTRAINT agent_invocations_zone_target_fk FOREIGN KEY (zone_id, target_session_id) REFERENCES public.agent_sessions(zone_id, id);
+
+
+--
+-- Name: agent_services agent_services_application_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.agent_services
+    ADD CONSTRAINT agent_services_application_id_fkey FOREIGN KEY (application_id) REFERENCES public.applications(id) ON DELETE CASCADE;
+
+
+--
+-- Name: agent_services agent_services_zone_application_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.agent_services
+    ADD CONSTRAINT agent_services_zone_application_fk FOREIGN KEY (zone_id, application_id) REFERENCES public.applications(zone_id, id);
+
+
+--
+-- Name: agent_services agent_services_zone_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.agent_services
+    ADD CONSTRAINT agent_services_zone_id_fkey FOREIGN KEY (zone_id) REFERENCES public.zones(id) ON DELETE CASCADE;
+
+
+--
+-- Name: agent_sessions agent_sessions_parent_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.agent_sessions
+    ADD CONSTRAINT agent_sessions_parent_id_fkey FOREIGN KEY (parent_id) REFERENCES public.agent_sessions(id);
+
+
+--
+-- Name: agent_sessions agent_sessions_zone_application_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.agent_sessions
+    ADD CONSTRAINT agent_sessions_zone_application_fk FOREIGN KEY (zone_id, application_id) REFERENCES public.applications(zone_id, id);
+
+
+--
+-- Name: agent_sessions agent_sessions_zone_parent_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.agent_sessions
+    ADD CONSTRAINT agent_sessions_zone_parent_fk FOREIGN KEY (zone_id, parent_id) REFERENCES public.agent_sessions(zone_id, id);
+
+
+--
+-- Name: agent_sessions agent_sessions_zone_session_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.agent_sessions
+    ADD CONSTRAINT agent_sessions_zone_session_fk FOREIGN KEY (zone_id, subject_session_id) REFERENCES public.sessions(zone_id, id);
+
+
+--
+-- Name: agent_topology agent_topology_child_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.agent_topology
+    ADD CONSTRAINT agent_topology_child_id_fkey FOREIGN KEY (child_id) REFERENCES public.agent_sessions(id) ON DELETE CASCADE;
+
+
+--
+-- Name: agent_topology agent_topology_parent_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.agent_topology
+    ADD CONSTRAINT agent_topology_parent_id_fkey FOREIGN KEY (parent_id) REFERENCES public.agent_sessions(id) ON DELETE CASCADE;
+
+
+--
+-- Name: applications applications_zone_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.applications
+    ADD CONSTRAINT applications_zone_id_fkey FOREIGN KEY (zone_id) REFERENCES public.zones(id);
+
+
+--
+-- Name: delegated_grants delegated_grants_application_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.delegated_grants
+    ADD CONSTRAINT delegated_grants_application_id_fkey FOREIGN KEY (application_id) REFERENCES public.applications(id);
+
+
+--
+-- Name: delegated_grants delegated_grants_resource_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.delegated_grants
+    ADD CONSTRAINT delegated_grants_resource_id_fkey FOREIGN KEY (resource_id) REFERENCES public.resources(id);
+
+
+--
+-- Name: delegated_grants delegated_grants_zone_application_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.delegated_grants
+    ADD CONSTRAINT delegated_grants_zone_application_fk FOREIGN KEY (zone_id, application_id) REFERENCES public.applications(zone_id, id);
+
+
+--
+-- Name: delegated_grants delegated_grants_zone_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.delegated_grants
+    ADD CONSTRAINT delegated_grants_zone_id_fkey FOREIGN KEY (zone_id) REFERENCES public.zones(id);
+
+
+--
+-- Name: delegated_grants delegated_grants_zone_resource_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.delegated_grants
+    ADD CONSTRAINT delegated_grants_zone_resource_fk FOREIGN KEY (zone_id, resource_id) REFERENCES public.resources(zone_id, id);
+
+
+--
+-- Name: delegation_edges delegation_edges_parent_edge_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.delegation_edges
+    ADD CONSTRAINT delegation_edges_parent_edge_id_fkey FOREIGN KEY (parent_edge_id) REFERENCES public.delegation_edges(id) ON DELETE SET NULL;
+
+
+--
+-- Name: delegation_edges delegation_edges_resource_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.delegation_edges
+    ADD CONSTRAINT delegation_edges_resource_id_fkey FOREIGN KEY (resource_id) REFERENCES public.resources(id);
+
+
+--
+-- Name: delegation_edges delegation_edges_source_session_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.delegation_edges
+    ADD CONSTRAINT delegation_edges_source_session_id_fkey FOREIGN KEY (source_session_id) REFERENCES public.agent_sessions(id) ON DELETE CASCADE;
+
+
+--
+-- Name: delegation_edges delegation_edges_target_session_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.delegation_edges
+    ADD CONSTRAINT delegation_edges_target_session_id_fkey FOREIGN KEY (target_session_id) REFERENCES public.agent_sessions(id) ON DELETE CASCADE;
+
+
+--
+-- Name: delegation_edges delegation_edges_zone_issuer_application_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.delegation_edges
+    ADD CONSTRAINT delegation_edges_zone_issuer_application_fk FOREIGN KEY (zone_id, issuer_application_id) REFERENCES public.applications(zone_id, id);
+
+
+--
+-- Name: delegation_edges delegation_edges_zone_receiver_application_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.delegation_edges
+    ADD CONSTRAINT delegation_edges_zone_receiver_application_fk FOREIGN KEY (zone_id, receiver_application_id) REFERENCES public.applications(zone_id, id);
+
+
+--
+-- Name: delegation_edges delegation_edges_zone_resource_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.delegation_edges
+    ADD CONSTRAINT delegation_edges_zone_resource_fk FOREIGN KEY (zone_id, resource_id) REFERENCES public.resources(zone_id, id);
+
+
+--
+-- Name: delegation_edges delegation_edges_zone_source_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.delegation_edges
+    ADD CONSTRAINT delegation_edges_zone_source_fk FOREIGN KEY (zone_id, source_session_id) REFERENCES public.agent_sessions(zone_id, id) ON DELETE CASCADE;
+
+
+--
+-- Name: delegation_edges delegation_edges_zone_target_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.delegation_edges
+    ADD CONSTRAINT delegation_edges_zone_target_fk FOREIGN KEY (zone_id, target_session_id) REFERENCES public.agent_sessions(zone_id, id) ON DELETE CASCADE;
+
+
+--
+-- Name: delegation_graph_epochs delegation_graph_epochs_zone_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.delegation_graph_epochs
+    ADD CONSTRAINT delegation_graph_epochs_zone_id_fkey FOREIGN KEY (zone_id) REFERENCES public.zones(id) ON DELETE CASCADE;
+
+
+--
+-- Name: policies policies_zone_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.policies
+    ADD CONSTRAINT policies_zone_id_fkey FOREIGN KEY (zone_id) REFERENCES public.zones(id);
+
+
+--
+-- Name: policy_set_bindings policy_set_bindings_active_version_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.policy_set_bindings
+    ADD CONSTRAINT policy_set_bindings_active_version_id_fkey FOREIGN KEY (active_version_id) REFERENCES public.policy_set_versions(id);
+
+
+--
+-- Name: policy_set_bindings policy_set_bindings_policy_set_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.policy_set_bindings
+    ADD CONSTRAINT policy_set_bindings_policy_set_id_fkey FOREIGN KEY (policy_set_id) REFERENCES public.policy_sets(id);
+
+
+--
+-- Name: policy_set_bindings policy_set_bindings_shadow_version_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.policy_set_bindings
+    ADD CONSTRAINT policy_set_bindings_shadow_version_id_fkey FOREIGN KEY (shadow_version_id) REFERENCES public.policy_set_versions(id);
+
+
+--
+-- Name: policy_set_bindings policy_set_bindings_zone_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.policy_set_bindings
+    ADD CONSTRAINT policy_set_bindings_zone_id_fkey FOREIGN KEY (zone_id) REFERENCES public.zones(id);
+
+
+--
+-- Name: policy_set_versions policy_set_versions_policy_set_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.policy_set_versions
+    ADD CONSTRAINT policy_set_versions_policy_set_id_fkey FOREIGN KEY (policy_set_id) REFERENCES public.policy_sets(id);
+
+
+--
+-- Name: policy_sets policy_sets_zone_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.policy_sets
+    ADD CONSTRAINT policy_sets_zone_id_fkey FOREIGN KEY (zone_id) REFERENCES public.zones(id);
+
+
+--
+-- Name: policy_versions policy_versions_policy_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.policy_versions
+    ADD CONSTRAINT policy_versions_policy_id_fkey FOREIGN KEY (policy_id) REFERENCES public.policies(id);
+
+
+--
+-- Name: provider_grants provider_grants_zone_provider_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.provider_grants
+    ADD CONSTRAINT provider_grants_zone_provider_fk FOREIGN KEY (zone_id, provider_id) REFERENCES public.providers(zone_id, id);
+
+
+--
+-- Name: provider_grants provider_grants_zone_resource_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.provider_grants
+    ADD CONSTRAINT provider_grants_zone_resource_fk FOREIGN KEY (zone_id, resource_id) REFERENCES public.resources(zone_id, id);
+
+
+--
+-- Name: providers providers_zone_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.providers
+    ADD CONSTRAINT providers_zone_id_fkey FOREIGN KEY (zone_id) REFERENCES public.zones(id);
+
+
+--
+-- Name: resources resources_credential_provider_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.resources
+    ADD CONSTRAINT resources_credential_provider_id_fkey FOREIGN KEY (credential_provider_id) REFERENCES public.providers(id);
+
+
+--
+-- Name: resources resources_zone_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.resources
+    ADD CONSTRAINT resources_zone_id_fkey FOREIGN KEY (zone_id) REFERENCES public.zones(id);
+
+
+--
+-- Name: resources resources_zone_provider_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.resources
+    ADD CONSTRAINT resources_zone_provider_fk FOREIGN KEY (zone_id, credential_provider_id) REFERENCES public.providers(zone_id, id);
+
+
+--
+-- Name: secrets secrets_zone_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.secrets
+    ADD CONSTRAINT secrets_zone_id_fkey FOREIGN KEY (zone_id) REFERENCES public.zones(id);
+
+
+--
+-- Name: sessions sessions_parent_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sessions
+    ADD CONSTRAINT sessions_parent_id_fkey FOREIGN KEY (parent_id) REFERENCES public.sessions(id);
+
+
+--
+-- Name: sessions sessions_zone_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sessions
+    ADD CONSTRAINT sessions_zone_id_fkey FOREIGN KEY (zone_id) REFERENCES public.zones(id);
+
+
+--
+-- Name: step_up_challenges step_up_challenges_zone_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.step_up_challenges
+    ADD CONSTRAINT step_up_challenges_zone_id_fkey FOREIGN KEY (zone_id) REFERENCES public.zones(id) ON DELETE CASCADE;
+
+
+--
+-- Name: admin_audit_events; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.admin_audit_events ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: admin_tokens; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.admin_tokens ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: agent_invocations; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.agent_invocations ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: agent_services; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.agent_services ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: agent_sessions; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.agent_sessions ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: applications; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.applications ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: audit_events; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.audit_events ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: delegated_grants; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.delegated_grants ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: delegation_edges; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.delegation_edges ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: delegation_graph_epochs; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.delegation_graph_epochs ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: gateway_resource_bindings; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.gateway_resource_bindings ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: policies; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.policies ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: policy_set_bindings; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.policy_set_bindings ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: policy_sets; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.policy_sets ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: provider_grants; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.provider_grants ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: providers; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.providers ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: resources; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.resources ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: secrets; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.secrets ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: sessions; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.sessions ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: step_up_challenges; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.step_up_challenges ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: admin_audit_events zone_isolation; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY zone_isolation ON public.admin_audit_events USING (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true)))) WITH CHECK (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true))));
+
+
+--
+-- Name: admin_tokens zone_isolation; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY zone_isolation ON public.admin_tokens USING (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true)))) WITH CHECK (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true))));
+
+
+--
+-- Name: agent_invocations zone_isolation; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY zone_isolation ON public.agent_invocations USING (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true)))) WITH CHECK (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true))));
+
+
+--
+-- Name: agent_services zone_isolation; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY zone_isolation ON public.agent_services USING (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true)))) WITH CHECK (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true))));
+
+
+--
+-- Name: agent_sessions zone_isolation; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY zone_isolation ON public.agent_sessions USING (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true)))) WITH CHECK (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true))));
+
+
+--
+-- Name: applications zone_isolation; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY zone_isolation ON public.applications USING (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true)))) WITH CHECK (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true))));
+
+
+--
+-- Name: audit_events zone_isolation; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY zone_isolation ON public.audit_events USING (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true)))) WITH CHECK (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true))));
+
+
+--
+-- Name: delegated_grants zone_isolation; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY zone_isolation ON public.delegated_grants USING (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true)))) WITH CHECK (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true))));
+
+
+--
+-- Name: delegation_edges zone_isolation; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY zone_isolation ON public.delegation_edges USING (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true)))) WITH CHECK (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true))));
+
+
+--
+-- Name: delegation_graph_epochs zone_isolation; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY zone_isolation ON public.delegation_graph_epochs USING (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true)))) WITH CHECK (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true))));
+
+
+--
+-- Name: gateway_resource_bindings zone_isolation; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY zone_isolation ON public.gateway_resource_bindings USING (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true)))) WITH CHECK (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true))));
+
+
+--
+-- Name: policies zone_isolation; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY zone_isolation ON public.policies USING (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true)))) WITH CHECK (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true))));
+
+
+--
+-- Name: policy_set_bindings zone_isolation; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY zone_isolation ON public.policy_set_bindings USING (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true)))) WITH CHECK (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true))));
+
+
+--
+-- Name: policy_sets zone_isolation; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY zone_isolation ON public.policy_sets USING (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true)))) WITH CHECK (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true))));
+
+
+--
+-- Name: provider_grants zone_isolation; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY zone_isolation ON public.provider_grants USING (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true)))) WITH CHECK (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true))));
+
+
+--
+-- Name: providers zone_isolation; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY zone_isolation ON public.providers USING (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true)))) WITH CHECK (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true))));
+
+
+--
+-- Name: resources zone_isolation; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY zone_isolation ON public.resources USING (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true)))) WITH CHECK (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true))));
+
+
+--
+-- Name: secrets zone_isolation; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY zone_isolation ON public.secrets USING (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true)))) WITH CHECK (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true))));
+
+
+--
+-- Name: sessions zone_isolation; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY zone_isolation ON public.sessions USING (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true)))) WITH CHECK (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true))));
+
+
+--
+-- Name: step_up_challenges zone_isolation; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY zone_isolation ON public.step_up_challenges USING (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true)))) WITH CHECK (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true))));
+
+
+--
+-- Name: TABLE agent_invocations; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE public.agent_invocations TO caracalcoordinator;
+GRANT SELECT ON TABLE public.agent_invocations TO caracalapi;
+GRANT SELECT ON TABLE public.agent_invocations TO caracalsts;
+
+
+--
+-- Name: TABLE agent_services; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE public.agent_services TO caracalcoordinator;
+GRANT SELECT ON TABLE public.agent_services TO caracalapi;
+GRANT SELECT ON TABLE public.agent_services TO caracalsts;
+
+
+--
+-- Name: TABLE agent_sessions; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE public.agent_sessions TO caracalcoordinator;
+GRANT SELECT,UPDATE ON TABLE public.agent_sessions TO caracalapi;
+
+
+--
+-- Name: TABLE agent_topology; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE public.agent_topology TO caracalcoordinator;
+
+
+--
+-- Name: TABLE applications; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT ON TABLE public.applications TO caracalsts;
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.applications TO caracalapi;
+GRANT SELECT ON TABLE public.applications TO caracalcoordinator;
+GRANT SELECT ON TABLE public.applications TO caracalgateway;
+
+
+--
+-- Name: TABLE audit_events; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT ON TABLE public.audit_events TO caracalaudit;
+
+
+--
+-- Name: TABLE audit_export_watermark; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE public.audit_export_watermark TO caracalaudit;
+
+
+--
+-- Name: TABLE audit_ingest_alerts; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT ON TABLE public.audit_ingest_alerts TO caracalaudit;
+
+
+--
+-- Name: SEQUENCE audit_ingest_alerts_id_seq; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,USAGE ON SEQUENCE public.audit_ingest_alerts_id_seq TO caracalaudit;
+
+
+--
+-- Name: TABLE caracal_outbox; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE public.caracal_outbox TO caracalapi;
+GRANT SELECT,INSERT,UPDATE ON TABLE public.caracal_outbox TO caracalcoordinator;
+
+
+--
+-- Name: TABLE delegated_grants; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE public.delegated_grants TO caracalsts;
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.delegated_grants TO caracalapi;
+
+
+--
+-- Name: TABLE delegation_edges; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE public.delegation_edges TO caracalcoordinator;
+GRANT SELECT ON TABLE public.delegation_edges TO caracalsts;
+GRANT SELECT,UPDATE ON TABLE public.delegation_edges TO caracalapi;
+
+
+--
+-- Name: TABLE delegation_graph_epochs; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE public.delegation_graph_epochs TO caracalcoordinator;
+GRANT SELECT ON TABLE public.delegation_graph_epochs TO caracalapi;
+GRANT SELECT ON TABLE public.delegation_graph_epochs TO caracalsts;
+
+
+--
+-- Name: TABLE gateway_binding_revision; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,UPDATE ON TABLE public.gateway_binding_revision TO caracalapi;
+GRANT SELECT ON TABLE public.gateway_binding_revision TO caracalgateway;
+
+
+--
+-- Name: TABLE gateway_resource_bindings; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.gateway_resource_bindings TO caracalapi;
+GRANT SELECT ON TABLE public.gateway_resource_bindings TO caracalgateway;
+GRANT SELECT ON TABLE public.gateway_resource_bindings TO caracalcoordinator;
+
+
+--
+-- Name: TABLE policies; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT ON TABLE public.policies TO caracalsts;
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.policies TO caracalapi;
+
+
+--
+-- Name: TABLE policy_set_bindings; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT ON TABLE public.policy_set_bindings TO caracalsts;
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.policy_set_bindings TO caracalapi;
+
+
+--
+-- Name: TABLE policy_set_versions; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT ON TABLE public.policy_set_versions TO caracalsts;
+GRANT SELECT,INSERT ON TABLE public.policy_set_versions TO caracalapi;
+
+
+--
+-- Name: TABLE policy_sets; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT ON TABLE public.policy_sets TO caracalsts;
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.policy_sets TO caracalapi;
+
+
+--
+-- Name: TABLE policy_versions; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT ON TABLE public.policy_versions TO caracalsts;
+GRANT SELECT,INSERT ON TABLE public.policy_versions TO caracalapi;
+
+
+--
+-- Name: TABLE provider_grants; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE public.provider_grants TO caracalsts;
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.provider_grants TO caracalapi;
+
+
+--
+-- Name: TABLE providers; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT ON TABLE public.providers TO caracalsts;
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.providers TO caracalapi;
+GRANT SELECT ON TABLE public.providers TO caracalgateway;
+
+
+--
+-- Name: TABLE resources; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT ON TABLE public.resources TO caracalsts;
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.resources TO caracalapi;
+GRANT SELECT ON TABLE public.resources TO caracalgateway;
+GRANT SELECT ON TABLE public.resources TO caracalcoordinator;
+
+
+--
+-- Name: TABLE secrets; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE public.secrets TO caracalsts;
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.secrets TO caracalapi;
+
+
+--
+-- Name: TABLE sessions; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE public.sessions TO caracalsts;
+GRANT SELECT,UPDATE ON TABLE public.sessions TO caracalapi;
+GRANT SELECT ON TABLE public.sessions TO caracalcoordinator;
+
+
+--
+-- Name: TABLE step_up_challenges; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE public.step_up_challenges TO caracalsts;
+
+
+--
+-- Name: TABLE zones; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT ON TABLE public.zones TO caracalsts;
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.zones TO caracalapi;
+GRANT SELECT ON TABLE public.zones TO caracalcoordinator;
+GRANT SELECT ON TABLE public.zones TO caracalgateway;
+
+
+--
+-- PostgreSQL database dump complete
+--
+
+

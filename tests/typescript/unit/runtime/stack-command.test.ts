@@ -9,6 +9,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const engineMocks = vi.hoisted(() => ({
+  composeRun: vi.fn(),
   defaultServiceProbes: vi.fn(() => []),
   resolveStackPaths: vi.fn(),
   stackDown: vi.fn(),
@@ -28,7 +29,7 @@ vi.mock('@caracalai/engine', async (importOriginal) => {
   return { ...actual, ...engineMocks }
 })
 
-import { downCommand, upCommand } from '../../../../apps/runtime/src/commands/stack.ts'
+import { downCommand, upCommand, upgradeCommand } from '../../../../apps/runtime/src/commands/stack.ts'
 
 describe('stack commands', () => {
   let stderr = ''
@@ -51,6 +52,7 @@ describe('stack commands', () => {
     })
     engineMocks.stackDown.mockReturnValue({ dispose: vi.fn(), exitCode: Promise.resolve(0) })
     engineMocks.stackUp.mockReturnValue({ dispose: vi.fn(), exitCode: Promise.resolve(0) })
+    engineMocks.composeRun.mockReturnValue({ dispose: vi.fn(), exitCode: Promise.resolve(0) })
     engineMocks.stackStatus.mockResolvedValue([{ name: 'api', port: 3000, url: 'http://localhost:3000/ready', ok: true, detail: '200' }])
     spawnSyncMock.mockReturnValue({ status: 0 })
     vi.spyOn(process.stderr, 'write').mockImplementation((chunk: string | Uint8Array) => {
@@ -158,5 +160,45 @@ describe('stack commands', () => {
         }),
       }),
     )
+  })
+
+  it('upgrade stages images, migrates expand-first, rolls, then gates readiness', async () => {
+    await expect(upgradeCommand([])).rejects.toThrow('exit:0')
+
+    const calls = engineMocks.composeRun.mock.calls.map((c) => (c[0] as { args: string[] }).args)
+    expect(calls).toContainEqual(['build'])
+    const migrateIndex = calls.findIndex((a) => a[0] === 'run' && a.includes('dbMigrate'))
+    expect(migrateIndex).toBeGreaterThanOrEqual(0)
+    expect(engineMocks.stackUp).toHaveBeenCalledTimes(1)
+    expect(engineMocks.stackStatus).toHaveBeenCalled()
+    expect(stdout).toContain('runtime services ready')
+  })
+
+  it('upgrade pulls the pinned release in non-dev mode', async () => {
+    engineMocks.resolveStackPaths.mockReturnValue({
+      mode: 'stable',
+      composeFile: '/tmp/caracal/docker-compose.yml',
+      envFiles: [],
+      cwd: '/tmp/caracal',
+      secretsDir: '/tmp/caracal-secrets',
+    })
+
+    await expect(upgradeCommand([])).rejects.toThrow('exit:0')
+
+    const calls = engineMocks.composeRun.mock.calls.map((c) => (c[0] as { args: string[] }).args)
+    expect(calls).toContainEqual(['pull'])
+    expect(calls).not.toContainEqual(['build'])
+  })
+
+  it('upgrade aborts before rolling services when the migration fails', async () => {
+    engineMocks.composeRun.mockImplementation((opts: { args: string[] }) => ({
+      dispose: vi.fn(),
+      exitCode: Promise.resolve(opts.args[0] === 'run' ? 1 : 0),
+    }))
+
+    await expect(upgradeCommand([])).rejects.toThrow('exit:1')
+
+    expect(stderr).toContain('migration failed; the stack still runs the previous version')
+    expect(engineMocks.stackUp).not.toHaveBeenCalled()
   })
 })
