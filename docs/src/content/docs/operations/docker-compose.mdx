@@ -98,7 +98,7 @@ docker compose -f infra/docker/runtime-compose.yml --profile control up -d contr
 | Postgres or Redis never becomes healthy | Check secret files, mounted volumes, and host port conflicts on `5432` or `6379`. |
 | API ready fails | Confirm migrations completed and `DATABASE_URL_FILE`, `REDIS_URL_FILE`, and `CARACAL_ADMIN_TOKEN_FILE` resolve. |
 | STS or Gateway fails in `rc`/`stable` | Confirm `AUDIT_HMAC_KEY`, `STREAMS_HMAC_KEY`, and `GATEWAY_STS_HMAC_KEY` are hex-encoded and at least 32 bytes. |
-| Gateway rejects upstreams | In published modes, configure `UPSTREAM_HOST_ALLOWLIST` when private upstreams are allowed. |
+| Gateway rejects upstreams | Operator-provisioned private upstreams are allowed by default; if set, confirm the host is in `UPSTREAM_HOST_ALLOWLIST`. Cloud metadata, loopback, CGNAT, and multicast are always blocked. |
 | Audit gaps appear after Redis outage | Keep STS and Gateway replay volumes intact and wait for replay metrics to drain. |
 
 ## Next Step

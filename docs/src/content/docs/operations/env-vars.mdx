@@ -36,7 +36,7 @@ Published modes require valid HMAC keys, deny unsafe Gateway fail-open settings,
 | --- | --- |
 | API | `CARACAL_ADMIN_TOKEN`, `ZONE_KEK`, `GATEWAY_STS_HMAC_KEY`, `STS_URL`, `API_BODY_LIMIT_BYTES`, `API_V1_RATE_LIMIT_PER_MIN`, `API_READY_OUTBOX_DEAD_MAX`, `TRUST_PROXY` |
 | STS | `ISSUER_URL`, `ZONE_KEK`, `ZONE_KEK_PROVIDER`, `GATEWAY_STS_HMAC_KEY`, `STS_ADMIN_TOKEN`, `MAX_GRANT_TTL_SECONDS`, `OPA_POLL_SECONDS`, `AUDIT_REPLAY_DIR` |
-| Gateway | `STS_URL`, `GATEWAY_STS_HMAC_KEY`, `ALLOW_PRIVATE_UPSTREAMS`, `UPSTREAM_HOST_ALLOWLIST`, `TLS_CERT_FILE`, `TLS_KEY_FILE`, `MAX_REQUEST_BYTES`, `JTI_FAIL_OPEN`, `AUDIT_REPLAY_DIR` |
+| Gateway | `STS_URL`, `GATEWAY_STS_HMAC_KEY`, `UPSTREAM_HOST_ALLOWLIST`, `TLS_CERT_FILE`, `TLS_KEY_FILE`, `MAX_REQUEST_BYTES`, `JTI_FAIL_OPEN`, `AUDIT_REPLAY_DIR` |
 | Audit | `AUDIT_ADMIN_TOKEN`, `AUDIT_RETENTION_DAYS`, `AUDIT_MAX_DELIVERIES`, `AUDIT_CLAIM_IDLE_SECS`, `AUDIT_TAMPER_ROLLING_HOURS`, `AUDIT_EXPORT_S3_*`, readiness thresholds |
 | Coordinator | `ISSUER_URL`, `STS_URL`, `AGENT_COORDINATOR_SCOPE`, `CARACAL_COORDINATOR_TOKEN`, sweep intervals, retention windows, rate limits |
 | Control | `STS_JWKS_URL`, `STS_ISSUER_URL`, `CONTROL_AUDIENCE`, `CONTROL_REDIS_URL`, `CONTROL_API_TOKEN`, `CARACAL_API_URL`, rate and replay controls |
@@ -80,7 +80,7 @@ Before a published deployment becomes ready:
 1. `GATEWAY_STS_HMAC_KEY` must be hex-encoded and at least 32 bytes for STS and Gateway.
 2. `AUDIT_HMAC_KEY` must be present for Audit, Gateway, and Control.
 3. Gateway must not run with `JTI_FAIL_OPEN=true`.
-4. Gateway must set `UPSTREAM_HOST_ALLOWLIST` when private upstreams are allowed.
+4. Gateway allows operator-provisioned private upstreams by default; set `UPSTREAM_HOST_ALLOWLIST` to pin egress to named hosts.
 5. STS caps `OPA_POLL_SECONDS` at `300`.
 
 ## Troubleshooting

@@ -20,14 +20,16 @@ Production Caracal should run in `CARACAL_MODE=stable` or `rc`, use TLS at exter
 
 ## Gateway Upstream Safety
 
-Gateway protects against unsafe upstream routing. In `rc` and `stable`, private upstreams require both:
+Upstream hosts are operator-provisioned through the Control API, never client-supplied, so the
+Gateway routes to private and on-prem upstreams (internal tools, local MCPs) by default. Dangerous
+infrastructure ranges that are never a legitimate upstream — cloud metadata (`169.254.0.0/16`),
+loopback, carrier-grade NAT, and multicast — are always blocked, including under DNS rebinding.
+
+To pin egress to an explicit set of hosts as a hardening control, set:
 
 ```bash
-ALLOW_PRIVATE_UPSTREAMS=true
 UPSTREAM_HOST_ALLOWLIST=internal-api.example.svc,provider.example.com
 ```
-
-Do not enable broad private upstream access for production. Prefer exact hosts.
 
 ## HMAC and Signing Keys
 
