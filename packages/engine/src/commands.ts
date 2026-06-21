@@ -297,8 +297,8 @@ export const MANAGEMENT_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
   { name: 'delegation', group: 'multiagent', summary: 'Manage delegation edges', subcommands: ['active', 'inbound', 'outbound', 'traverse', 'revoke'], requiresZone: true },
 
   {
-    name: 'control', group: 'admin', summary: 'Manage the optional engine-owned Control automation service',
-    subcommands: ['mount', 'enable', 'disable', 'unmount', 'status', 'key', 'rotate', 'revoke'],
+    name: 'control', group: 'admin', summary: 'Manage the optional in-process API control plane',
+    subcommands: ['enable', 'disable', 'status', 'key', 'rotate', 'revoke'],
     localOnly: true,
     flags: {
       key: [

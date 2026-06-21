@@ -14,6 +14,7 @@ Workload templates for Caracal control-plane services.
 {{- $stsAdminTokenSecretName := include "caracal.stsAdminTokenSecretName" $root -}}
 {{- $auditAdminTokenSecretName := include "caracal.auditAdminTokenSecretName" $root -}}
 {{- $metricsBearerSecretName := include "caracal.metricsBearerSecretName" $root -}}
+{{- $controlEnabled := and (eq $name "api") $root.Values.control.enabled -}}
 {{- if $service.enabled }}
 apiVersion: apps/v1
 kind: {{ ternary "StatefulSet" "Deployment" $statefulReplay }}
@@ -116,19 +117,19 @@ spec:
               value: caracal-{{ $name }}
             - name: OTEL_RESOURCE_ATTRIBUTES
               value: service.namespace=caracal,deployment.environment={{ $root.Values.global.mode }}
-            {{- if eq $name "control" }}
+            {{- if $controlEnabled }}
             - name: CARACAL_CONTROL_ENABLED
               value: "true"
-            - name: CONTROL_REDIS_URL_FILE
-              value: /run/secrets/redisUrl
+            - name: CONTROL_GATE_FILE
+              value: /run/caracal-control/enabled
+            - name: STS_ISSUER_URL
+              value: {{ default (printf "http://%s-sts:%v" (include "caracal.fullname" $root) $root.Values.services.sts.port) $root.Values.services.sts.issuerUrl | quote }}
+            - name: STS_JWKS_URL
+              value: {{ printf "%s/.well-known/jwks.json" (default (printf "http://%s-sts:%v" (include "caracal.fullname" $root) $root.Values.services.sts.port) $root.Values.services.sts.issuerUrl) | quote }}
+            - name: CONTROL_AUDIENCE
+              value: {{ default "caracal-control" $root.Values.control.audience | quote }}
             - name: CONTROL_API_TOKEN_FILE
               value: /run/secrets/caracalAdminToken
-            - name: CONTROL_HOST
-              value: "0.0.0.0"
-            - name: CONTROL_PORT
-              value: {{ $service.port | quote }}
-            - name: CARACAL_API_URL
-              value: http://{{ include "caracal.fullname" $root }}-api:{{ $root.Values.services.api.port }}
             {{- end }}
             {{- if eq $name "coordinator" }}
             - name: CARACAL_COORDINATOR_TOKEN_FILE
@@ -158,6 +159,11 @@ spec:
             {{- if $replayService }}
             - name: replay
               mountPath: /var/lib/caracal
+            {{- end }}
+            {{- if $controlEnabled }}
+            - name: control-gate
+              mountPath: /run/caracal-control
+              readOnly: true
             {{- end }}
           startupProbe:
             httpGet:
@@ -216,6 +222,11 @@ spec:
         - name: replay
           emptyDir: {}
         {{- end }}
+        {{- if $controlEnabled }}
+        - name: control-gate
+          configMap:
+            name: {{ include "caracal.fullname" $root }}-control-gate
+        {{- end }}
       {{- if $statefulReplay }}
   volumeClaimTemplates:
     - metadata:
@@ -242,4 +253,3 @@ spec:
 {{ include "caracal.deployment" (dict "root" . "name" "gateway") }}
 {{ include "caracal.deployment" (dict "root" . "name" "audit") }}
 {{ include "caracal.deployment" (dict "root" . "name" "coordinator") }}
-{{ include "caracal.deployment" (dict "root" . "name" "control") }}

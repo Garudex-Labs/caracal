@@ -4,7 +4,7 @@ Caracal, a product of Garudex Labs
 
 Gate file mounted into the API pod to enable the in-process control plane.
 */}}
-{{- if .Values.services.control.enabled }}
+{{- if .Values.control.enabled }}
 apiVersion: v1
 kind: ConfigMap
 metadata:

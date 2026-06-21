@@ -35,4 +35,3 @@ spec:
 {{ include "caracal.service" (dict "root" . "name" "gateway") }}
 {{ include "caracal.service" (dict "root" . "name" "audit") }}
 {{ include "caracal.service" (dict "root" . "name" "coordinator") }}
-{{ include "caracal.service" (dict "root" . "name" "control") }}
