@@ -34,6 +34,7 @@ Coordinator owns agent and delegation runtime state. SDKs and Console use it to 
 | Deadline enforcer | Handles invocation deadlines. |
 | Retention cleaner | Removes expired historical coordination records. |
 | Outbox publisher | Publishes Coordinator outbox messages to Redis. |
+| Lifecycle relay | Observes `caracal.agents.lifecycle` delivery with HMAC origin verification and dedupe. |
 
 ## Event Topics
 

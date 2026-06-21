@@ -4,7 +4,7 @@
 - Covers independently deployed Go services under `services/`.
 
 ## Architecture Design
-- `sts/`, `gateway/`, `audit/`, `control/`, and `coordinator-relay/` are separate Go modules listed in `go.work`.
+- `sts/`, `gateway/`, and `audit/` are separate Go modules listed in `go.work`.
 - Shared Go behavior belongs in `packages/core/go` or another package module, never in a service sibling.
 - Service images are built by shared Go-service Docker packaging under `infra/docker/`.
 

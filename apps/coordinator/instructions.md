@@ -5,7 +5,7 @@
 
 ## Architecture Design
 - Routes under `src/routes/` own agents, agent services, delegations, and invocations.
-- Jobs under `src/jobs/` enforce deadlines, TTLs, retention, and outbox publishing.
+- Jobs under `src/jobs/` enforce deadlines, TTLs, retention, outbox publishing, and lifecycle relay observation.
 - PostgreSQL owns authoritative agent state; Redis Streams distribute lifecycle and delegation events.
 - The service listens on port 4000 in Compose.
 
