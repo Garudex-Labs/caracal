@@ -13,6 +13,7 @@ const runExecMock = vi.hoisted(() => vi.fn())
 const spawnSyncMock = vi.hoisted(() => vi.fn(() => ({ status: 0, stdout: '' })))
 const controlEnabledMock = vi.hoisted(() => vi.fn(() => false))
 const setControlEnabledMock = vi.hoisted(() => vi.fn())
+const ensureControlGateDirMock = vi.hoisted(() => vi.fn((home: string) => `${home}/control`))
 
 vi.mock('../../../../packages/engine/src/run.js', () => ({
   runExec: runExecMock,
@@ -33,6 +34,7 @@ vi.mock('../../../../packages/engine/src/controlState.js', () => ({
     bind: '127.0.0.1',
   }),
   controlGateFile: () => '/tmp/caracal/control/enabled',
+  ensureControlGateDir: ensureControlGateDirMock,
   isControlEnabled: controlEnabledMock,
   setControlEnabled: setControlEnabledMock,
 }))
@@ -81,6 +83,8 @@ afterEach(() => {
   spawnSyncMock.mockReturnValue({ status: 0, stdout: '' })
   controlEnabledMock.mockReset()
   setControlEnabledMock.mockReset()
+  ensureControlGateDirMock.mockReset()
+  ensureControlGateDirMock.mockImplementation((home: string) => `${home}/control`)
 })
 
 describe('stack lifecycle compose commands', () => {
@@ -128,6 +132,7 @@ describe('stack lifecycle compose commands', () => {
       'rm',
       '-f',
     ])
+    expect(ensureControlGateDirMock).toHaveBeenCalledWith(dir)
   })
 
   it('starts rc and stable stacks without build and skips missing env files', async () => {

@@ -10,6 +10,7 @@ import { authorizeControlManagementAccess } from './controlAccess.js'
 import {
   controlRuntimeSettings,
   controlGateFile,
+  ensureControlGateDir,
   isControlEnabled,
   setControlEnabled,
   type ControlRuntimeSettings,
@@ -41,6 +42,10 @@ function composeArgv(paths: StackPaths, args: string[]): string[] {
 }
 
 export function stackUp(opts: StackComposeOpts): StackComposeHandle {
+  // Create the control gate directory before compose runs so the bind mount
+  // source exists and is owned by the invoking user. Without this the Docker
+  // daemon creates it as root, leaving the Console unable to write the gate file.
+  ensureControlGateDir(opts.paths.cwd)
   const args = opts.paths.mode === 'dev'
     ? ['up', '-d', '--build', '--remove-orphans', ...opts.args]
     : ['up', '-d', '--remove-orphans', ...opts.args]

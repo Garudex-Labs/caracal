@@ -47,6 +47,14 @@ SET row_security = off;
 
 
 --
+-- Name: pgcrypto; Type: EXTENSION; Schema: public; Owner: -
+--
+
+CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public;
+
+
+
+--
 -- Name: reject_policy_version_mutation(); Type: FUNCTION; Schema: public; Owner: -
 --
 
