@@ -1898,6 +1898,10 @@ async function ensureResource(
         upstream_url: upstreamUrl,
         gateway_application_id: applicationId,
         credential_provider_id: providerId,
+        // Guided setup does not collect per-operation authority, so the resource opens on the
+        // single-surface transport mode; operators declare operations and switch to enforced
+        // from the resource editor once the upstream operation set is known.
+        operation_enforcement: 'transport_uniform',
       }),
       created: true,
       updated: false,

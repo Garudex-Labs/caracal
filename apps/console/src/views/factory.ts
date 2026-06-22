@@ -20,6 +20,8 @@ import type {
   ProviderPatchInput,
   Resource,
   ResourceInput,
+  ResourceOperation,
+  ResourceOperationEnforcement,
   Session,
   SessionQuery,
   AgentListQuery,
@@ -205,6 +207,41 @@ function validateResourceIdentifier(value: string): string | undefined {
   } catch {
     return 'resource identifier must be an absolute resource audience URI and must not use provider://'
   }
+}
+
+const operationEnforcementLabels: Record<ResourceOperationEnforcement, string> = {
+  enforced: 'enforced (deny undeclared operations)',
+  transport_uniform: 'transport_uniform (single upstream surface)',
+}
+
+function parseResourceOperations(raw: string): { value: ResourceOperation[] | undefined; error: string | undefined } {
+  const text = raw.trim()
+  if (!text) return { value: undefined, error: undefined }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    return { value: undefined, error: 'operations must be a JSON array of {method, path, scope}' }
+  }
+  if (!Array.isArray(parsed)) return { value: undefined, error: 'operations must be a JSON array of {method, path, scope}' }
+  const value: ResourceOperation[] = []
+  for (const entry of parsed) {
+    if (typeof entry !== 'object' || entry === null) return { value: undefined, error: 'each operation must be an object with method, path, and scope' }
+    const op = entry as Record<string, unknown>
+    if (typeof op.method !== 'string' || typeof op.path !== 'string' || typeof op.scope !== 'string') {
+      return { value: undefined, error: 'each operation must have string method, path, and scope' }
+    }
+    value.push({ method: op.method, path: op.path, scope: op.scope })
+  }
+  return { value, error: undefined }
+}
+
+function validateResourceOperations(value: string): string | undefined {
+  return parseResourceOperations(value).error
+}
+
+function operationsDefault(operations: ResourceOperation[] | undefined): string {
+  return operations && operations.length > 0 ? JSON.stringify(operations) : ''
 }
 
 function requireHttpsUrl(config: JsonObject, key: string, message: string): void {
@@ -1460,8 +1497,29 @@ export function resourcesView(ctx: Ctx): View {
                 resolve: providerResolver(ctx),
                 hint: 'required; pick a provider for external auth, Caracal mandate for verifier-backed services, or a None provider for Gateway-only enforcement',
               },
+              {
+                key: 'operation_enforcement',
+                label: 'operation authority',
+                kind: 'select',
+                options: ['enforced', 'transport_uniform'],
+                optionLabels: operationEnforcementLabels,
+                default: 'enforced',
+                advanced: true,
+                hint: 'enforced denies any Gateway operation not listed below; transport_uniform trusts a single upstream surface (MCP-style)',
+              },
+              {
+                key: 'operations',
+                label: 'authorized operations',
+                kind: 'multiline',
+                advanced: true,
+                validate: validateResourceOperations,
+                visible: (values) => values.operation_enforcement !== 'transport_uniform',
+                hint: 'JSON array of {method, path, scope}; the Gateway authorizes only these operations when enforcement is enforced',
+              },
             ],
             onSubmit: async (v, app) => {
+              const operations = parseResourceOperations(v.operations ?? '')
+              if (operations.error) throw new Error(operations.error)
               await ctx.client.resources.create(ctx.zoneId, {
                 ...(v.identifier ? { identifier: v.identifier } : {}),
                 scopes: splitList(v.scopes ?? ''),
@@ -1469,6 +1527,8 @@ export function resourcesView(ctx: Ctx): View {
                 upstream_url: v.upstream_url,
                 gateway_application_id: v.gateway_application_id,
                 credential_provider_id: v.credential_provider_id,
+                operation_enforcement: (v.operation_enforcement || undefined) as ResourceOperationEnforcement | undefined,
+                operations: operations.value,
               })
               await popAndReload(app, list as unknown as ListView<unknown>)
             },
@@ -1519,8 +1579,30 @@ export function resourcesView(ctx: Ctx): View {
                 default: (row.scopes ?? []).join(','),
                 hint: 'comma-separated authorization scopes for this resource',
               },
+              {
+                key: 'operation_enforcement',
+                label: 'operation authority',
+                kind: 'select',
+                options: ['enforced', 'transport_uniform'],
+                optionLabels: operationEnforcementLabels,
+                default: row.operation_enforcement ?? 'enforced',
+                advanced: true,
+                hint: 'enforced denies any Gateway operation not listed below; transport_uniform trusts a single upstream surface (MCP-style)',
+              },
+              {
+                key: 'operations',
+                label: 'authorized operations',
+                kind: 'multiline',
+                default: operationsDefault(row.operations),
+                advanced: true,
+                validate: validateResourceOperations,
+                visible: (values) => values.operation_enforcement !== 'transport_uniform',
+                hint: 'JSON array of {method, path, scope}; the Gateway authorizes only these operations when enforcement is enforced',
+              },
             ],
             onSubmit: async (v, app) => {
+              const operations = parseResourceOperations(v.operations ?? '')
+              if (operations.error) throw new Error(operations.error)
               await ctx.client.resources.patch(ctx.zoneId, row.id, {
                 name: v.name || undefined,
                 identifier: v.identifier || undefined,
@@ -1528,6 +1610,8 @@ export function resourcesView(ctx: Ctx): View {
                 gateway_application_id: v.gateway_application_id,
                 credential_provider_id: v.credential_provider_id,
                 scopes: v.scopes ? splitList(v.scopes) : undefined,
+                operation_enforcement: (v.operation_enforcement || undefined) as ResourceOperationEnforcement | undefined,
+                operations: operations.value,
               } as Partial<ResourceInput>)
               await popAndReload(app, list as unknown as ListView<unknown>)
             },
