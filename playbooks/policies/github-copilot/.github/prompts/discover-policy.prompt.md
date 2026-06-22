@@ -1,11 +1,11 @@
 ---
-description: "Discover a Caracal policy requirement before writing Rego."
+description: "Discover a Caracal policy requirement before authoring a data document."
 argument-hint: "Policy request, protected resource, actor, scopes, or sample input"
 tools: [read, search, web]
 ---
 # Discover Policy Requirement
 
-Analyze the policy request before writing Rego.
+Analyze the policy request before authoring a data document.
 
 Return:
 
@@ -14,4 +14,4 @@ Return:
 - Missing Information:
 - Questions for confirmation:
 
-Do not generate policy code yet.
+Do not author data documents yet.

@@ -1,5 +1,5 @@
 ---
-description: "Update an existing Caracal Rego policy while preserving current behavior and making the smallest safe change."
+description: "Update an existing Caracal policy data document while preserving current behavior and making the smallest safe change."
 argument-hint: "Existing policy, intended behavior change, and regression constraints"
 tools: [read, search, edit, web]
 ---
