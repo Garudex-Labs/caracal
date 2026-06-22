@@ -75,40 +75,41 @@ async with caracal.spawn(
     await collect_overdue(ctx)
 ```
 
-Labels are policy input, so one bundle-wide rule can confine every customer-labeled agent to the customer-record surface — whatever its role would otherwise allow:
+Labels drive the platform decision contract's confinement: a `confinement` data document caps every customer-labeled agent to the customer-record surface — whatever its role would otherwise allow:
 
 ```text
-customer_labeled if {
-    some label in input.principal.labels
-    startswith(label, "customer:")
-}
+# caracal:data-document
+package caracal.authz
 
-customer_confined if { not customer_labeled }
+import rego.v1
 
-customer_confined if {
-    customer_labeled
-    every scope in input.context.requested_scopes {
-        scope in customer_scopes
-    }
+confinement := [{
+  "label_prefix": "customer:",
+  "scopes": ["billing:collect", "billing:read"],
+}]
+```
+
+Publish this `confinement` document and a worker spawned for one customer can never mint authority outside that surface, even by accident. The [Lynx Capital example](/examples/lynx-capital/) ships this confinement data with tests.
+
+## Step 4: Differentiate Authority per Customer
+
+All customers share one zone policy set, but authority is per-request and label-aware. The agent's role labels and the delegation edge are in the platform decision contract's input, and your `grants` map roles to scopes per resource. Model plan or tier differences as roles: give the scale-plan role the resource scope, withhold it from the others, and label each customer's session with the role it earns.
+
+```text
+# caracal:data-document
+package caracal.authz
+
+import rego.v1
+
+grants := {
+  "resource://payouts": {
+    "application": "payments",
+    "roles": {"scale-plan": ["payouts:run"]},
+  },
 }
 ```
 
-Add `customer_confined` to the conditions of your mint rule and a worker spawned for one customer can never mint authority outside that surface, even by accident. The [Lynx Capital example](/examples/lynx-capital/) ships this rule with tests.
-
-## Step 4: Differentiate Policy per Customer
-
-All customers share one zone policy set, but policy decisions are per-request and subject-aware. The customer's `sub` and claims, the agent's labels, and the delegation edge are all in the policy input, so one policy set can allow different customers different authority at the same time.
-
-```text
-# Allow a resource only for customers on the plan that includes it.
-allow if {
-    input.action.id == "TokenExchange"
-    input.resource.id == "resource://payouts"
-    input.context.subject_claims.plan == "scale"
-}
-```
-
-Express customer differences as conditional rules keyed on the subject and claims — not as a separate policy set per customer. There is one active policy set per zone. See [Author a Rego Policy](/guides/author-policy/).
+A session spawned for a scale-plan customer carries the `scale-plan` label and mints `payouts:run`; a starter-plan session never holds that role, so the platform contract denies it. Express customer differences as roles in `grants` and prefixes in `confinement` — not as a separate policy set per customer. There is one active policy set per zone. See [Author Policy Data](/guides/author-policy/).
 
 ## Step 5: Attribute and Revoke per Customer
 
@@ -134,7 +135,7 @@ In the open-source edition you provision and automate those zones yourself throu
 ## Validate the Pattern
 
 - Sign in as two different customers, run the same workflow, and confirm each produces a distinct subject and agent session in the Console.
-- Author policy that allows one customer a resource and denies another, then confirm both decisions in the audit trail.
+- Author grant data that gives one customer's role a resource and withholds it from another, then confirm both decisions in the audit trail.
 - Revoke one customer's session and confirm its in-flight agents lose authority while the other customer is unaffected.
 
 ## Related
@@ -143,6 +144,6 @@ In the open-source edition you provision and automate those zones yourself throu
 - [Zones](/concepts/zone/)
 - [Identities and Applications](/concepts/principal/)
 - [Implement Multi-Agent Delegation](/guides/delegation/)
-- [Author a Rego Policy](/guides/author-policy/)
+- [Author Policy Data](/guides/author-policy/)
 - [Sessions and Revocation](/concepts/sessions-revocation/)
 - [Audit and Request Traces](/concepts/audit-ledger/)
