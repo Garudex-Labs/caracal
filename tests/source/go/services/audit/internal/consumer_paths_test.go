@@ -103,6 +103,10 @@ func (f *fakeAuditRedis) XReadGroup(context.Context, *redis.XReadGroupArgs) *red
 	return redis.NewXStreamSliceCmdResult(result.streams, result.err)
 }
 
+func (f *fakeAuditRedis) ConfigGet(context.Context, string) *redis.MapStringStringCmd {
+	return redis.NewMapStringStringResult(map[string]string{"maxmemory-policy": "noeviction"}, nil)
+}
+
 func validAuditEventJSON() string {
 	return `{"id":"event-1","zone_id":"zone-1","event_type":"token_exchange","request_id":"req-1","decision":"allow","evaluation_status":"complete","determining_policies_json":[],"diagnostics_json":[],"occurred_at":"2026-01-01T00:00:00Z"}`
 }

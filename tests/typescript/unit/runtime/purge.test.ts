@@ -179,7 +179,6 @@ describe('purgeCommand', () => {
     expect(engineMocks.composeRun).toHaveBeenCalledTimes(3)
     expect(engineMocks.composeRun).toHaveBeenCalledWith(expect.objectContaining({
       args: ['down', '-v', '--remove-orphans'],
-      includeControlProfile: false,
       paths: expect.objectContaining({
         composeFile: join(repoRoot, 'examples', 'echoUpstream', 'compose.yml'),
         cwd: join(repoRoot, 'examples', 'echoUpstream'),

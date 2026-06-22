@@ -48,7 +48,6 @@ interface ComposeStack {
   envFiles: string[]
   cwd: string
   secretsDir: string
-  includeControlProfile?: boolean
 }
 
 interface PurgeContext {
@@ -175,7 +174,6 @@ function exampleComposeStacks(ctx: PurgeContext): ComposeStack[] {
     envFiles: [],
     cwd: dirname(composeFile),
     secretsDir: ctx.cwd,
-    includeControlProfile: false,
   }))
 }
 
@@ -228,7 +226,6 @@ async function runCompose(args: string[], ctx: PurgeContext, stack?: ComposeStac
     paths: { composeFile: s.composeFile, envFiles: s.envFiles, cwd: s.cwd, mode: ctx.mode, secretsDir: s.secretsDir },
     args,
     env,
-    includeControlProfile: s.includeControlProfile,
   })
   return handle.exitCode
 }

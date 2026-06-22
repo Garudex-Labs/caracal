@@ -1,6 +1,6 @@
 {
   "name": "@caracalai/transport-a2a",
-  "version": "0.1.5",
+  "version": "0.1.6-rc.1",
   "description": "Caracal agent-to-agent transport primitives.",
   "license": "Apache-2.0",
   "homepage": "https://github.com/Garudex-Labs/caracal",
@@ -41,8 +41,8 @@
     "prepublishOnly": "tsc"
   },
   "dependencies": {
-    "@caracalai/oauth": "0.1.5",
-    "@caracalai/sdk": "0.1.5"
+    "@caracalai/oauth": "0.1.6-rc.1",
+    "@caracalai/sdk": "0.1.6-rc.1"
   },
   "devDependencies": {
     "@types/node": "26.0.0",

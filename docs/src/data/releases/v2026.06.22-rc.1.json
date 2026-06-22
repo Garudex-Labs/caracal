@@ -1,0 +1,21 @@
+{
+  "release": "v2026.06.22-rc.1",
+  "channel": "rc",
+  "date": "2026-06-22",
+  "assets": [
+    "SHA256SUMS",
+    "caracal-console-darwin-amd64-v2026.06.22-rc.1.tar.gz",
+    "caracal-console-darwin-arm64-v2026.06.22-rc.1.tar.gz",
+    "caracal-console-linux-amd64-v2026.06.22-rc.1.tar.gz",
+    "caracal-console-linux-arm64-v2026.06.22-rc.1.tar.gz",
+    "caracal-console-windows-amd64-v2026.06.22-rc.1.zip",
+    "caracal-runtime-darwin-amd64-v2026.06.22-rc.1.tar.gz",
+    "caracal-runtime-darwin-arm64-v2026.06.22-rc.1.tar.gz",
+    "caracal-runtime-linux-amd64-v2026.06.22-rc.1.tar.gz",
+    "caracal-runtime-linux-arm64-v2026.06.22-rc.1.tar.gz",
+    "caracal-runtime-windows-amd64-v2026.06.22-rc.1.zip",
+    "install-console.ps1",
+    "install-console.sh",
+    "manifest.json"
+  ]
+}

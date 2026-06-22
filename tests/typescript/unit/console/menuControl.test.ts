@@ -150,7 +150,7 @@ describe('Control menu views', () => {
     const control = await openControl(app)
     engineMocks.detectActiveLocalStackRuntime.mockReturnValueOnce({
       mode: 'rc',
-      version: '2026.06.20-rc.1',
+      version: '2026.06.22-rc.1',
       registry: 'ghcr.io/garudex-labs/',
       home: '/home/raw/.config/caracal',
       secretsDir: '/home/raw/.config/caracal/secrets',

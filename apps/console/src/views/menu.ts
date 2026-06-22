@@ -496,7 +496,7 @@ class ControlStatusView implements View {
     if (this.loading) return ['', ' ' + ui.muted('Loading Control status...')]
     if (this.error) return ['', ' ' + ui.error('error: ') + this.error]
     if (!this.status) return ['', ' ' + ui.warn('Control status unavailable')]
-    return renderControlStatus(this.status, undefined)
+    return renderControlStatus(this.status)
   }
 
   async onKey(key: Key, ctx: ViewContext): Promise<void> {

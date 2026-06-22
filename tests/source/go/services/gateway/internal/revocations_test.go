@@ -237,6 +237,10 @@ func (f *fakeRevocationRedis) EnsureGroup(_ context.Context, _, _ string) error 
 	return nil
 }
 
+func (f *fakeRevocationRedis) EvictionPolicy(_ context.Context) (string, error) {
+	return "noeviction", nil
+}
+
 func (f *fakeRevocationRedis) XReadGroup(_ context.Context, _, _, _ string, _ int64) ([]redis.XMessage, error) {
 	return nil, nil
 }

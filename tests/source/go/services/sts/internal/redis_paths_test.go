@@ -35,6 +35,9 @@ type fakeSTSRedis struct {
 }
 
 func (f *fakeSTSRedis) Ping(context.Context) error { return f.pingErr }
+func (f *fakeSTSRedis) EvictionPolicy(context.Context) (string, error) {
+	return "noeviction", nil
+}
 func (f *fakeSTSRedis) SetNXTTL(context.Context, string, string, time.Duration) (bool, error) {
 	return f.setNX, f.setNXErr
 }

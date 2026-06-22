@@ -57,7 +57,7 @@ The installer provides the thin `caracal` runtime CLI and the `caracal-console` 
 ```bash
 # Console
 curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-console.sh | \
-  sh -s -- --version v2026.06.21
+  sh -s -- --version v2026.06.22-rc.1
 ```
 
 </details>
@@ -68,7 +68,7 @@ curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-c
 ```bash
 # Console
 curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-console.sh | \
-  sh -s -- --version v2026.06.21
+  sh -s -- --version v2026.06.22-rc.1
 ```
 
 </details>
@@ -80,7 +80,7 @@ curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-c
 # Console
 $installer = "$env:TEMP\install-console.ps1"
 iwr -useb https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-console.ps1 -OutFile $installer
-powershell -ExecutionPolicy Bypass -File $installer -Version v2026.06.21
+powershell -ExecutionPolicy Bypass -File $installer -Version v2026.06.22-rc.1
 ```
 
 </details>

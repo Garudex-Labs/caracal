@@ -9,15 +9,15 @@ build-backend = "hatchling.build"
 
 [project]
 name = "caracalai-transport-mcp"
-version = "0.1.5"
+version = "0.1.6rc1"
 description = "Transport-neutral MCP authentication for Caracal-issued JWTs"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-  "caracalai-identity==0.1.5",
-  "caracalai-revocation==0.1.5",
+  "caracalai-identity==0.1.6rc1",
+  "caracalai-revocation==0.1.6rc1",
 ]
 
 [tool.hatch.build.targets.wheel]
