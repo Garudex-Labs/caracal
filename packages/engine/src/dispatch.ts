@@ -4,12 +4,8 @@
 // Shared command dispatcher: validates management requests and forwards them to AdminClient for Control automation.
 
 import type { AdminClient } from '@caracalai/admin'
-import {
-  MANAGEMENT_COMMANDS,
-  findCommand,
-  scopeName,
-  type CommandDescriptor,
-} from './commands.js'
+import { MANAGEMENT_COMMANDS, findCommand, scopeName, scopeFor, type CommandDescriptor, type ScopeVerb } from './commands.js'
+import { reconcile, ensure, parseDesiredState, OBJECT_KINDS, type ReconcileDeps, type ReconcileReport } from './reconcile.js'
 
 export type FlagValue = string | number | boolean | null | readonly (string | number | boolean | null)[]
 export type FlagMap = { readonly [key: string]: FlagValue }
@@ -35,7 +31,11 @@ export interface DispatchContext {
 }
 
 export class DispatchError extends Error {
-  constructor(readonly code: 'denied' | 'unsupported' | 'invalid', message: string) {
+  constructor(
+    readonly code: 'denied' | 'unsupported' | 'invalid' | 'zone_mismatch' | 'conflict' | 'not_found' | 'upstream',
+    message: string,
+    readonly remediation?: string,
+  ) {
     super(message)
     this.name = 'DispatchError'
   }
@@ -46,9 +46,15 @@ const MAX_FLAG_KEY_LEN = 64
 const MAX_FLAG_STR_LEN = 32768
 const MAX_FLAG_ARRAY_LEN = 64
 
-function denied(msg: string): never { throw new DispatchError('denied', msg) }
-function unsupported(msg: string): never { throw new DispatchError('unsupported', msg) }
-function invalid(msg: string): never { throw new DispatchError('invalid', msg) }
+function denied(msg: string): never {
+  throw new DispatchError('denied', msg)
+}
+function unsupported(msg: string): never {
+  throw new DispatchError('unsupported', msg)
+}
+function invalid(msg: string): never {
+  throw new DispatchError('invalid', msg)
+}
 
 /** Reject flag payloads outside the bounded, flat shape Control accepts. */
 export function validateFlags(flags: FlagMap | undefined): void {
@@ -81,6 +87,7 @@ export function validateFlags(flags: FlagMap | undefined): void {
 
 function assertScope(principal: Principal, desc: CommandDescriptor, sub: string): void {
   if (principal.kind === 'local') return
+  if (desc.delegatesScope) return
   const required = scopeName(desc, sub)
   if (principal.scopes.includes(required)) return
   denied(`missing scope ${required}`)
@@ -153,10 +160,15 @@ function getDcrShutdown(flags: FlagMap | undefined): 'keep_live' | 'revoke_live'
 
 function getList(flags: FlagMap | undefined, key: string): string[] | undefined {
   const v = flags?.[key]
-  if (typeof v === 'string') return v.split(',').map(s => s.trim()).filter(Boolean)
+  if (typeof v === 'string')
+    return v
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
   if (Array.isArray(v)) {
-    return v.flatMap(item => (typeof item === 'string' ? item.split(',') : []))
-      .map(s => s.trim())
+    return v
+      .flatMap((item) => (typeof item === 'string' ? item.split(',') : []))
+      .map((s) => s.trim())
       .filter(Boolean)
   }
   return undefined
@@ -167,12 +179,7 @@ function requireZone(principal: Principal): string {
   return principal.zoneId
 }
 
-type Handler = (input: {
-  sub: string
-  flags: FlagMap
-  principal: Principal
-  ctx: DispatchContext
-}) => Promise<unknown>
+type Handler = (input: { sub: string; flags: FlagMap; principal: Principal; ctx: DispatchContext }) => Promise<unknown>
 
 function bySubcommand(handlers: Record<string, Handler>): Handler {
   return async (input) => {
@@ -185,110 +192,110 @@ function bySubcommand(handlers: Record<string, Handler>): Handler {
 const zoneHandler = bySubcommand({
   list: ({ ctx }) => ctx.admin.zones.list(),
   get: ({ flags, ctx }) => ctx.admin.zones.get(mustStr(flags, 'id')),
-  create: ({ flags, ctx }) => ctx.admin.zones.create({
-    name: mustStr(flags, 'name'),
-    slug: getStr(flags, 'slug'),
-    dcr_enabled: getBool(flags, 'dcr'),
-  }),
-  patch: ({ flags, ctx }) => ctx.admin.zones.patch(mustStr(flags, 'id'), {
-    name: getStr(flags, 'name'),
-    slug: getStr(flags, 'slug'),
-    dcr_enabled: getBool(flags, 'dcr'),
-    dcr_shutdown: getDcrShutdown(flags),
-  }),
+  create: ({ flags, ctx }) =>
+    ctx.admin.zones.create({
+      name: mustStr(flags, 'name'),
+      slug: getStr(flags, 'slug'),
+      dcr_enabled: getBool(flags, 'dcr'),
+    }),
+  patch: ({ flags, ctx }) =>
+    ctx.admin.zones.patch(mustStr(flags, 'id'), {
+      name: getStr(flags, 'name'),
+      slug: getStr(flags, 'slug'),
+      dcr_enabled: getBool(flags, 'dcr'),
+      dcr_shutdown: getDcrShutdown(flags),
+    }),
   delete: ({ flags, ctx }) => ctx.admin.zones.delete(mustStr(flags, 'id')),
 })
 
 const appHandler = bySubcommand({
   list: ({ principal, ctx }) => ctx.admin.applications.list(requireZone(principal)),
   get: ({ principal, flags, ctx }) => ctx.admin.applications.get(requireZone(principal), mustStr(flags, 'id')),
-  create: ({ principal, flags, ctx }) => ctx.admin.applications.create(requireZone(principal), {
-    name: mustStr(flags, 'name'),
-    registration_method: 'managed',
-  }),
-  patch: ({ principal, flags, ctx }) => ctx.admin.applications.patch(requireZone(principal), mustStr(flags, 'id'), {
-    name: getStr(flags, 'name'),
-    client_secret: getStr(flags, 'client-secret'),
-  }),
+  create: ({ principal, flags, ctx }) =>
+    ctx.admin.applications.create(requireZone(principal), {
+      name: mustStr(flags, 'name'),
+      registration_method: 'managed',
+    }),
+  patch: ({ principal, flags, ctx }) =>
+    ctx.admin.applications.patch(requireZone(principal), mustStr(flags, 'id'), {
+      name: getStr(flags, 'name'),
+      client_secret: getStr(flags, 'client-secret'),
+    }),
   delete: ({ principal, flags, ctx }) => ctx.admin.applications.delete(requireZone(principal), mustStr(flags, 'id')),
-  dcr: ({ principal, flags, ctx }) => ctx.admin.applications.dcr(requireZone(principal), {
-    name: mustStr(flags, 'name'),
-    expires_in: getNum(flags, 'expires-in'),
-  }),
+  dcr: ({ principal, flags, ctx }) =>
+    ctx.admin.applications.dcr(requireZone(principal), {
+      name: mustStr(flags, 'name'),
+      expires_in: getNum(flags, 'expires-in'),
+    }),
 })
 
 const resourceHandler = bySubcommand({
   list: ({ principal, ctx }) => ctx.admin.resources.list(requireZone(principal)),
   get: ({ principal, flags, ctx }) => ctx.admin.resources.get(requireZone(principal), mustStr(flags, 'id')),
-  create: ({ principal, flags, ctx }) => ctx.admin.resources.create(requireZone(principal), {
-    name: getStr(flags, 'name'),
-    identifier: getStr(flags, 'identifier'),
-    scopes: getList(flags, 'scopes') ?? [],
-    upstream_url: getStr(flags, 'upstream-url'),
-    gateway_application_id: getStr(flags, 'gateway-application-id'),
-    credential_provider_id: getStr(flags, 'credential-provider-id'),
-  } as never),
-  patch: ({ principal, flags, ctx }) => ctx.admin.resources.patch(requireZone(principal), mustStr(flags, 'id'), {
-    identifier: getStr(flags, 'identifier'),
-    name: getStr(flags, 'name'),
-    scopes: getList(flags, 'scopes'),
-    upstream_url: getNullableStr(flags, 'upstream-url'),
-    gateway_application_id: getNullableStr(flags, 'gateway-application-id'),
-    credential_provider_id: getNullableStr(flags, 'credential-provider-id'),
-  } as never),
+  create: ({ principal, flags, ctx }) =>
+    ctx.admin.resources.create(requireZone(principal), {
+      name: getStr(flags, 'name'),
+      identifier: getStr(flags, 'identifier'),
+      scopes: getList(flags, 'scopes') ?? [],
+      upstream_url: getStr(flags, 'upstream-url'),
+      gateway_application_id: getStr(flags, 'gateway-application-id'),
+      credential_provider_id: getStr(flags, 'credential-provider-id'),
+    } as never),
+  patch: ({ principal, flags, ctx }) =>
+    ctx.admin.resources.patch(requireZone(principal), mustStr(flags, 'id'), {
+      identifier: getStr(flags, 'identifier'),
+      name: getStr(flags, 'name'),
+      scopes: getList(flags, 'scopes'),
+      upstream_url: getNullableStr(flags, 'upstream-url'),
+      gateway_application_id: getNullableStr(flags, 'gateway-application-id'),
+      credential_provider_id: getNullableStr(flags, 'credential-provider-id'),
+    } as never),
   delete: ({ principal, flags, ctx }) => ctx.admin.resources.delete(requireZone(principal), mustStr(flags, 'id')),
 })
 
 const providerHandler = bySubcommand({
   list: ({ principal, ctx }) => ctx.admin.providers.list(requireZone(principal)),
   get: ({ principal, flags, ctx }) => ctx.admin.providers.get(requireZone(principal), mustStr(flags, 'id')),
-  create: ({ principal, flags, ctx }) => ctx.admin.providers.create(requireZone(principal), {
-    name: mustStr(flags, 'name'),
-    identifier: mustStr(flags, 'identifier'),
-    kind: mustStr(flags, 'kind') as never,
-    config_json: mustJsonObject(flags, 'config'),
-  } as never),
-  patch: ({ principal, flags, ctx }) => ctx.admin.providers.patch(requireZone(principal), mustStr(flags, 'id'), {
-    name: getStr(flags, 'name'),
-    identifier: getStr(flags, 'identifier'),
-    kind: getStr(flags, 'kind') as never,
-    config_json: getJsonObject(flags, 'config'),
-  } as never),
+  create: ({ principal, flags, ctx }) =>
+    ctx.admin.providers.create(requireZone(principal), {
+      name: mustStr(flags, 'name'),
+      identifier: mustStr(flags, 'identifier'),
+      kind: mustStr(flags, 'kind') as never,
+      config_json: mustJsonObject(flags, 'config'),
+    } as never),
+  patch: ({ principal, flags, ctx }) =>
+    ctx.admin.providers.patch(requireZone(principal), mustStr(flags, 'id'), {
+      name: getStr(flags, 'name'),
+      identifier: getStr(flags, 'identifier'),
+      kind: getStr(flags, 'kind') as never,
+      config_json: getJsonObject(flags, 'config'),
+    } as never),
   delete: ({ principal, flags, ctx }) => ctx.admin.providers.delete(requireZone(principal), mustStr(flags, 'id')),
 })
 
 const policyHandler = bySubcommand({
   list: ({ principal, ctx }) => ctx.admin.policies.list(requireZone(principal)),
   get: ({ principal, flags, ctx }) => ctx.admin.policies.get(requireZone(principal), mustStr(flags, 'id')),
-  create: ({ principal, flags, ctx }) => ctx.admin.policies.create(requireZone(principal), {
-    name: mustStr(flags, 'name'),
-    description: getStr(flags, 'description'),
-    content: mustStr(flags, 'content'),
-    schema_version: getStr(flags, 'schema-version'),
-    owner_type: getStr(flags, 'owner-type'),
-    shadow: getBool(flags, 'shadow'),
-  } as never),
-  validate: ({ flags, ctx }) => ctx.admin.policies.validate(
-    mustStr(flags, 'content'),
-    getStr(flags, 'schema-version'),
-  ),
-  version: ({ principal, flags, ctx }) => ctx.admin.policies.addVersion(
-    requireZone(principal),
-    mustStr(flags, 'id'),
-    mustStr(flags, 'content'),
-    getStr(flags, 'schema-version'),
-  ),
+  create: ({ principal, flags, ctx }) =>
+    ctx.admin.policies.create(requireZone(principal), {
+      name: mustStr(flags, 'name'),
+      description: getStr(flags, 'description'),
+      content: mustStr(flags, 'content'),
+      schema_version: getStr(flags, 'schema-version'),
+      owner_type: getStr(flags, 'owner-type'),
+      shadow: getBool(flags, 'shadow'),
+    } as never),
+  validate: ({ flags, ctx }) => ctx.admin.policies.validate(mustStr(flags, 'content'), getStr(flags, 'schema-version')),
+  version: ({ principal, flags, ctx }) =>
+    ctx.admin.policies.addVersion(requireZone(principal), mustStr(flags, 'id'), mustStr(flags, 'content'), getStr(flags, 'schema-version')),
   delete: ({ principal, flags, ctx }) => ctx.admin.policies.delete(requireZone(principal), mustStr(flags, 'id')),
 })
 
 const policySetHandler = bySubcommand({
   list: ({ principal, ctx }) => ctx.admin.policySets.list(requireZone(principal)),
   get: ({ principal, flags, ctx }) => ctx.admin.policySets.get(requireZone(principal), mustStr(flags, 'id')),
-  create: ({ principal, flags, ctx }) => ctx.admin.policySets.create(
-    requireZone(principal),
-    mustStr(flags, 'name'),
-    getStr(flags, 'description'),
-  ),
+  create: ({ principal, flags, ctx }) =>
+    ctx.admin.policySets.create(requireZone(principal), mustStr(flags, 'name'), getStr(flags, 'description')),
   version: ({ principal, flags, ctx }) => {
     const versions = getList(flags, 'policy-versions')
     if (!versions || versions.length === 0) invalid('flag "policy-versions" is required')
@@ -298,12 +305,8 @@ const policySetHandler = bySubcommand({
       versions.map((policy_version_id) => ({ policy_version_id })),
     )
   },
-  activate: ({ principal, flags, ctx }) => ctx.admin.policySets.activate(
-    requireZone(principal),
-    mustStr(flags, 'id'),
-    mustStr(flags, 'version'),
-    getStr(flags, 'shadow'),
-  ),
+  activate: ({ principal, flags, ctx }) =>
+    ctx.admin.policySets.activate(requireZone(principal), mustStr(flags, 'id'), mustStr(flags, 'version'), getStr(flags, 'shadow')),
   simulate: ({ principal, flags, ctx }) => {
     const rawInput = getStr(flags, 'input')
     let input: Record<string, unknown> | undefined
@@ -312,33 +315,30 @@ const policySetHandler = bySubcommand({
       if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) invalid('flag "input" must be a JSON object')
       input = parsed as Record<string, unknown>
     }
-    return ctx.admin.policySets.simulate(
-      requireZone(principal),
-      mustStr(flags, 'id'),
-      mustStr(flags, 'version'),
-      input,
-    )
+    return ctx.admin.policySets.simulate(requireZone(principal), mustStr(flags, 'id'), mustStr(flags, 'version'), input)
   },
   delete: ({ principal, flags, ctx }) => ctx.admin.policySets.delete(requireZone(principal), mustStr(flags, 'id')),
 })
 
 const sessionHandler = bySubcommand({
-  list: ({ principal, flags, ctx }) => ctx.admin.sessions.list(requireZone(principal), {
-    subject: getStr(flags, 'subject'),
-    status: getStr(flags, 'status'),
-    limit: getNum(flags, 'limit'),
-  } as never),
+  list: ({ principal, flags, ctx }) =>
+    ctx.admin.sessions.list(requireZone(principal), {
+      subject: getStr(flags, 'subject'),
+      status: getStr(flags, 'status'),
+      limit: getNum(flags, 'limit'),
+    } as never),
 })
 
 const auditHandler = bySubcommand({
-  tail: ({ principal, flags, ctx }) => ctx.admin.audit.list(requireZone(principal), {
-    since: getStr(flags, 'since'),
-    until: getStr(flags, 'until'),
-    decision: getStr(flags, 'decision'),
-    event_type: getStr(flags, 'event-type'),
-    request_id: getStr(flags, 'request-id'),
-    limit: getNum(flags, 'limit'),
-  } as never),
+  tail: ({ principal, flags, ctx }) =>
+    ctx.admin.audit.list(requireZone(principal), {
+      since: getStr(flags, 'since'),
+      until: getStr(flags, 'until'),
+      decision: getStr(flags, 'decision'),
+      event_type: getStr(flags, 'event-type'),
+      request_id: getStr(flags, 'request-id'),
+      limit: getNum(flags, 'limit'),
+    } as never),
 })
 
 const explainHandler: Handler = async ({ principal, flags, ctx }) =>
@@ -365,21 +365,90 @@ const delegationHandler = bySubcommand({
   revoke: ({ principal, flags, ctx }) => ctx.admin.delegations.revoke(requireZone(principal), mustStr(flags, 'id')),
 })
 
+/** Build the per-noun authorizer the declarative surface uses for least-privilege scope checks. */
+function authorizeFor(principal: Principal): ReconcileDeps['authorize'] {
+  return (command: string, verb: ScopeVerb) => {
+    if (principal.kind === 'local') return
+    const required = `control:${command}:${verb}`
+    if (!principal.scopes.includes(required)) denied(`missing scope ${required}`)
+  }
+}
+
+function parseJsonObjectFlag(flags: FlagMap, key: string): Record<string, unknown> {
+  const raw = getStr(flags, key)
+  if (!raw) invalid(`flag "${key}" is required`)
+  try {
+    return JSON.parse(raw) as Record<string, unknown>
+  } catch {
+    invalid(`flag "${key}" must be valid JSON`)
+  }
+}
+
+function reconcileDeps(ctx: DispatchContext, principal: Principal): ReconcileDeps {
+  return { admin: ctx.admin, authorize: authorizeFor(principal) }
+}
+
+const stateHandler = bySubcommand({
+  apply: ({ principal, flags, ctx }): Promise<ReconcileReport> =>
+    reconcile(requireZone(principal), parseDesiredState(parseJsonObjectFlag(flags, 'document')), reconcileDeps(ctx, principal), {
+      dryRun: getBool(flags, 'dry-run') === true,
+      prune: getBool(flags, 'prune') === true,
+    }),
+  plan: ({ principal, flags, ctx }): Promise<ReconcileReport> =>
+    reconcile(requireZone(principal), parseDesiredState(parseJsonObjectFlag(flags, 'document')), reconcileDeps(ctx, principal), {
+      dryRun: true,
+      prune: getBool(flags, 'prune') === true,
+    }),
+  verify: ({ principal, flags, ctx }): Promise<ReconcileReport> =>
+    reconcile(requireZone(principal), parseDesiredState(parseJsonObjectFlag(flags, 'document')), reconcileDeps(ctx, principal), {
+      dryRun: true,
+      prune: getBool(flags, 'prune') === true,
+    }),
+})
+
+const ensureHandler: Handler = ({ sub, principal, flags, ctx }): Promise<ReconcileReport> =>
+  ensure(requireZone(principal), sub, parseJsonObjectFlag(flags, 'spec'), reconcileDeps(ctx, principal), {
+    dryRun: getBool(flags, 'dry-run') === true,
+  })
+
+const catalogHandler = bySubcommand({
+  describe: async () => describeControlSurface(),
+})
+
 function commandHandler(command: string): Handler | undefined {
   switch (command) {
-    case 'zone': return zoneHandler
-    case 'app': return appHandler
-    case 'resource': return resourceHandler
-    case 'identity-provider': return providerHandler
-    case 'policy': return policyHandler
-    case 'policy-set': return policySetHandler
-    case 'session': return sessionHandler
-    case 'audit': return auditHandler
-    case 'explain': return explainHandler
-    case 'debug': return debugHandler
-    case 'agent': return agentHandler
-    case 'delegation': return delegationHandler
-    default: return undefined
+    case 'zone':
+      return zoneHandler
+    case 'app':
+      return appHandler
+    case 'resource':
+      return resourceHandler
+    case 'identity-provider':
+      return providerHandler
+    case 'policy':
+      return policyHandler
+    case 'policy-set':
+      return policySetHandler
+    case 'state':
+      return stateHandler
+    case 'ensure':
+      return ensureHandler
+    case 'catalog':
+      return catalogHandler
+    case 'session':
+      return sessionHandler
+    case 'audit':
+      return auditHandler
+    case 'explain':
+      return explainHandler
+    case 'debug':
+      return debugHandler
+    case 'agent':
+      return agentHandler
+    case 'delegation':
+      return delegationHandler
+    default:
+      return undefined
   }
 }
 
@@ -388,11 +457,7 @@ function commandHandler(command: string): Handler | undefined {
  * Local principals skip scope checks. Remote principals (Control) must carry the per-resource scope
  * derived from `scopeName(descriptor, subcommand)`.
  */
-export async function dispatch(
-  req: DispatchRequest,
-  principal: Principal,
-  ctx: DispatchContext,
-): Promise<unknown> {
+export async function dispatch(req: DispatchRequest, principal: Principal, ctx: DispatchContext): Promise<unknown> {
   const desc = findCommand(MANAGEMENT_COMMANDS, req.command)
   if (!desc) denied(`unknown command "${req.command}"`)
   if (desc.hidden && principal.kind === 'remote') denied(`command "${req.command}" not exposed`)
@@ -423,6 +488,7 @@ export function describeRemoteSurface(): readonly { command: string; subcommand:
   for (const desc of MANAGEMENT_COMMANDS) {
     if (desc.hidden) continue
     if (desc.localOnly) continue
+    if (desc.delegatesScope) continue
     if (!desc.requiresZone) continue
     if (!commandHandler(desc.name)) continue
     const subs = desc.subcommands && desc.subcommands.length > 0 ? desc.subcommands : ['']
@@ -431,4 +497,61 @@ export function describeRemoteSurface(): readonly { command: string; subcommand:
     }
   }
   return out
+}
+
+/** One command entry in the self-describing control surface. */
+export interface ControlSurfaceCommand {
+  command: string
+  summary: string
+  subcommands: { subcommand: string; scope: string | null; flags: { name: string; summary: string }[] }[]
+  delegatesScope: boolean
+}
+
+/** The desired-state contract a machine client needs to author documents without copying examples. */
+export interface DeclarativeContract {
+  kinds: { kind: string; identityField: string; command: string }[]
+  documentSchema: string
+}
+
+export interface ControlSurface {
+  commands: ControlSurfaceCommand[]
+  declarative: DeclarativeContract
+}
+
+/**
+ * Self-describing control surface: the catalog of remotely invocable commands with their scopes
+ * and flag schemas, plus the declarative desired-state contract. A generic machine client or agent
+ * reads this at runtime instead of hardcoding scope lists or copying a bootstrap example.
+ */
+export function describeControlSurface(): ControlSurface {
+  const commands: ControlSurfaceCommand[] = []
+  for (const desc of MANAGEMENT_COMMANDS) {
+    if (desc.hidden) continue
+    if (desc.localOnly) continue
+    if (!desc.requiresZone) continue
+    if (!commandHandler(desc.name)) continue
+    const subs = desc.subcommands && desc.subcommands.length > 0 ? desc.subcommands : ['']
+    commands.push({
+      command: desc.name,
+      summary: desc.summary,
+      delegatesScope: desc.delegatesScope === true,
+      subcommands: subs.map((sub) => ({
+        subcommand: sub,
+        scope: desc.delegatesScope ? null : scopeName(desc, sub),
+        flags: [...(desc.flags?.[sub] ?? [])].map((flag) => ({ name: flag.name, summary: flag.summary })),
+      })),
+    })
+  }
+  const kinds = OBJECT_KINDS.map((kind) => {
+    const identityField = kind === 'resource' || kind === 'identity-provider' ? 'identifier' : 'name'
+    const command = kind === 'application' ? 'app' : kind
+    return { kind, identityField, command }
+  })
+  return {
+    commands,
+    declarative: {
+      kinds,
+      documentSchema: '{ "objects": [ { "kind": <kind>, "spec": { <fields> } } ], "prune": false }',
+    },
+  }
 }

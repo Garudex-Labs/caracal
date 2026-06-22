@@ -18,6 +18,7 @@ export interface AuditEvent {
   decision: 'allow' | 'deny'
   reason?: string
   requestId: string
+  idempotencyKey?: string
 }
 
 export interface EventSink {
@@ -58,6 +59,7 @@ export function buildAuditPayload(ev: AuditEvent, key: Buffer | undefined): Reco
     command: ev.command ?? '',
     subcommand: ev.subcommand ?? '',
     reason: ev.reason ?? '',
+    idempotency_key: ev.idempotencyKey ?? '',
   })
   const occurredAt = (ev.at ?? new Date()).toISOString()
   const event = {

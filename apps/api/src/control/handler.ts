@@ -34,10 +34,14 @@ export interface InvokeDeps {
 }
 
 export function registerInvokeRoute(app: FastifyInstance, deps: InvokeDeps): void {
-  app.post('/v1/control/invoke', {
-    bodyLimit: MAX_BODY_BYTES,
-    config: { rawBody: false },
-  }, (req, reply) => handle(req, reply, deps))
+  app.post(
+    '/v1/control/invoke',
+    {
+      bodyLimit: MAX_BODY_BYTES,
+      config: { rawBody: false },
+    },
+    (req, reply) => handle(req, reply, deps),
+  )
 }
 
 async function handle(req: FastifyRequest, reply: FastifyReply, deps: InvokeDeps): Promise<void> {
@@ -45,16 +49,24 @@ async function handle(req: FastifyRequest, reply: FastifyReply, deps: InvokeDeps
   reply.header('x-request-id', requestId)
   if (!deps.gate.enabled()) {
     await deps.sink.emit({
-      at: new Date(), subject: 'anonymous', jti: '',
-      decision: 'deny', reason: 'control disabled', requestId,
+      at: new Date(),
+      subject: 'anonymous',
+      jti: '',
+      decision: 'deny',
+      reason: 'control disabled',
+      requestId,
     })
     return reply.code(503).send({ error: 'control disabled' })
   }
 
   if (await ipRateExceeded(deps.redis, req.ip, deps.ipRateLimitPerMin)) {
     await deps.sink.emit({
-      at: new Date(), subject: 'anonymous', jti: '',
-      decision: 'deny', reason: 'ip rate limited', requestId,
+      at: new Date(),
+      subject: 'anonymous',
+      jti: '',
+      decision: 'deny',
+      reason: 'ip rate limited',
+      requestId,
     })
     return reply.code(429).send({ error: 'rate limited' })
   }
@@ -64,23 +76,39 @@ async function handle(req: FastifyRequest, reply: FastifyReply, deps: InvokeDeps
     claims = await deps.auth.verify(req.headers.authorization)
   } catch (err) {
     await deps.sink.emit({
-      at: new Date(), subject: 'anonymous', jti: '',
-      decision: 'deny', reason: 'auth: ' + describe(err), requestId,
+      at: new Date(),
+      subject: 'anonymous',
+      jti: '',
+      decision: 'deny',
+      reason: 'auth: ' + describe(err),
+      requestId,
     })
     return reply.code(401).send({ error: 'unauthorized' })
   }
 
   if (!(await deps.replay.mark(claims.jti, claims.exp))) {
     await deps.sink.emit({
-      at: new Date(), zoneId: claims.zoneId, clientId: claims.clientId,
-      subject: claims.sub, jti: claims.jti, decision: 'deny', reason: 'replay', requestId,
+      at: new Date(),
+      zoneId: claims.zoneId,
+      clientId: claims.clientId,
+      subject: claims.sub,
+      jti: claims.jti,
+      decision: 'deny',
+      reason: 'replay',
+      requestId,
     })
     return reply.code(401).send({ error: 'token replay' })
   }
   if (!deps.rate.allow(claims.sub)) {
     await deps.sink.emit({
-      at: new Date(), zoneId: claims.zoneId, clientId: claims.clientId,
-      subject: claims.sub, jti: claims.jti, decision: 'deny', reason: 'rate limited', requestId,
+      at: new Date(),
+      zoneId: claims.zoneId,
+      clientId: claims.clientId,
+      subject: claims.sub,
+      jti: claims.jti,
+      decision: 'deny',
+      reason: 'rate limited',
+      requestId,
     })
     return reply.code(429).send({ error: 'rate limited' })
   }
@@ -88,9 +116,8 @@ async function handle(req: FastifyRequest, reply: FastifyReply, deps: InvokeDeps
   const body = req.body as InvokeBody | null
   const command = typeof body?.command === 'string' ? body.command : ''
   const subcommand = typeof body?.subcommand === 'string' ? body.subcommand : ''
-  const flags = (body?.flags && typeof body.flags === 'object' && !Array.isArray(body.flags))
-    ? body.flags as FlagMap
-    : undefined
+  const flags = body?.flags && typeof body.flags === 'object' && !Array.isArray(body.flags) ? (body.flags as FlagMap) : undefined
+  const idempotencyKey = typeof flags?.['idempotency-key'] === 'string' ? (flags['idempotency-key'] as string) : undefined
 
   const principal: Principal = {
     kind: 'remote',
@@ -103,26 +130,54 @@ async function handle(req: FastifyRequest, reply: FastifyReply, deps: InvokeDeps
   try {
     const result = await dispatch({ command, subcommand, flags }, principal, deps.ctx)
     await deps.sink.emit({
-      at: new Date(), zoneId: claims.zoneId, clientId: claims.clientId,
-      subject: claims.sub, jti: claims.jti, command, subcommand,
-      decision: 'allow', requestId,
+      at: new Date(),
+      zoneId: claims.zoneId,
+      clientId: claims.clientId,
+      subject: claims.sub,
+      jti: claims.jti,
+      command,
+      subcommand,
+      decision: 'allow',
+      requestId,
+      idempotencyKey,
     })
     return reply.code(200).send({ ok: true, result })
   } catch (err) {
     const reason = describe(err)
     await deps.sink.emit({
-      at: new Date(), zoneId: claims.zoneId, clientId: claims.clientId,
-      subject: claims.sub, jti: claims.jti, command, subcommand,
-      decision: 'deny', reason, requestId,
+      at: new Date(),
+      zoneId: claims.zoneId,
+      clientId: claims.clientId,
+      subject: claims.sub,
+      jti: claims.jti,
+      command,
+      subcommand,
+      decision: 'deny',
+      reason,
+      requestId,
+      idempotencyKey,
     })
     if (err instanceof DispatchError) {
-      if (err.code === 'denied') return reply.code(403).send({ error: 'denied' })
-      if (err.code === 'invalid') return reply.code(400).send({ error: 'invalid request' })
-      return reply.code(501).send({ error: 'unsupported' })
+      const status = STATUS_FOR_CODE[err.code] ?? 400
+      return reply.code(status).send({ ok: false, error: errorBody(err.code, reason, err.remediation) })
     }
     req.log.error({ command }, 'upstream error: ' + reason)
-    return reply.code(502).send({ error: 'upstream error' })
+    return reply.code(502).send({ ok: false, error: errorBody('upstream', 'upstream error') })
   }
+}
+
+const STATUS_FOR_CODE: Record<string, number> = {
+  denied: 403,
+  invalid: 400,
+  unsupported: 501,
+  zone_mismatch: 409,
+  conflict: 409,
+  not_found: 404,
+  upstream: 502,
+}
+
+function errorBody(code: string, reason: string, remediation?: string): Record<string, string> {
+  return remediation ? { code, reason, remediation } : { code, reason }
 }
 
 function describe(err: unknown): string {
