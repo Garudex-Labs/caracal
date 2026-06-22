@@ -31,7 +31,7 @@ func TestCreateChallengePersistsBoundHashedSecret(t *testing.T) {
 	db := &challengeInsertDB{}
 	server := &Server{db: db}
 	before := time.Now()
-	challenge, err := server.createChallenge(context.Background(), "zone-1", "session-1", "principal-1", "webauthn", []string{" Resource://B ", "resource://a"})
+	challenge, err := server.createChallenge(context.Background(), "zone-1", "session-1", "principal-1", "webauthn", []string{" Resource://B ", "resource://a"}, nil)
 	if err != nil {
 		t.Fatalf("create challenge: %v", err)
 	}
@@ -59,7 +59,7 @@ func TestCreateChallengePersistsBoundHashedSecret(t *testing.T) {
 
 func TestCreateChallengeReturnsStoreErrors(t *testing.T) {
 	want := errors.New("database unavailable")
-	_, err := (&Server{db: &challengeInsertDB{err: want}}).createChallenge(context.Background(), "zone-1", "session-1", "principal-1", "webauthn", nil)
+	_, err := (&Server{db: &challengeInsertDB{err: want}}).createChallenge(context.Background(), "zone-1", "session-1", "principal-1", "webauthn", nil, nil)
 	if !errors.Is(err, want) {
 		t.Fatalf("want store error, got %v", err)
 	}

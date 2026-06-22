@@ -103,6 +103,37 @@ func TestDecisionContractDelegatedMintNarrowing(t *testing.T) {
 	}
 }
 
+func TestDecisionContractApprovalGate(t *testing.T) {
+	approval := `package caracal.authz
+
+import rego.v1
+
+approval := [{"scope": "nucleus:pay"}]
+`
+	input := OPAInput{
+		Principal:      OPAPrincipal{ID: "app-payments", ZoneID: "z1", Type: "application", Labels: []string{"payment-execution"}},
+		Resource:       OPAResource{Identifier: "resource://nucleus"},
+		Action:         OPAAction{ID: "token_exchange"},
+		DelegationEdge: &OPADelegationEdge{ID: "edge1", Scopes: []string{"nucleus:pay"}},
+		Context: OPAContext{
+			AgentSessionID:  "agent-1",
+			RequestedScopes: []string{"nucleus:pay"},
+			ActorClaims:     map[string]any{},
+		},
+	}
+	gated := simulateContract(t, input, dataModules(OPAPolicyModule{ID: "approval", Content: approval}))
+	if gated.Decision != "allow" {
+		t.Fatalf("an approval-gated mint stays allow pending approval, got %q", gated.Decision)
+	}
+	if stepUpRequired(gated) != "human_approval" {
+		t.Fatalf("an approval-gated mint must mark human_approval step-up, diagnostics %+v", gated.Diagnostics)
+	}
+	ungated := simulateContract(t, input, dataModules())
+	if ungated.Decision != "allow" || stepUpRequired(ungated) != "" {
+		t.Fatalf("a mint with no approval data must allow without a step-up gate, got %q diagnostics %+v", ungated.Decision, ungated.Diagnostics)
+	}
+}
+
 func TestDecisionContractConfinementDeny(t *testing.T) {
 	res := simulateContract(t, OPAInput{
 		Principal:      OPAPrincipal{ID: "app-payments", ZoneID: "z1", Type: "application", Labels: []string{"payment-execution", "customer:acme"}},

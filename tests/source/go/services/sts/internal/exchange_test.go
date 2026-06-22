@@ -321,6 +321,10 @@ func (s *stubDB) SatisfyStepUpChallenge(_ context.Context, _ string) error { ret
 func (s *stubDB) ConsumeStepUpChallenge(_ context.Context, _ ConsumeStepUpParams) error {
 	return nil
 }
+func (s *stubDB) ApproveStepUpChallenge(_ context.Context, _, _, _ string) error { return nil }
+func (s *stubDB) ConsumeApprovalChallenge(_ context.Context, _ ConsumeApprovalParams) error {
+	return nil
+}
 func (s *stubDB) EnsureZoneSigningKeySecret(_ context.Context, _ string, _, _ []byte) (*SecretRow, error) {
 	return nil, errors.New("stub")
 }
