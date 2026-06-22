@@ -106,6 +106,9 @@ func New(ctx context.Context) (*Server, error) {
 
 	keys := newKeyCache(db, kek)
 	opa := newOPAEngine(db, log)
+	if err := verifyDecisionContract(); err != nil {
+		return nil, fmt.Errorf("decision contract: %w", err)
+	}
 	opa.SetPollInterval(time.Duration(cfg.OPAPollSeconds) * time.Second)
 	metrics := &STSMetrics{}
 	buf, err := newAuditBuffer(rdb, log, cfg.IsPublished(), cfg.AuditReplayDir, metrics)

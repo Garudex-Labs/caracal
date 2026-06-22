@@ -87,14 +87,16 @@ type OPAPolicyModule struct {
 }
 
 type OPAMetricsSnapshot struct {
-	EvalTotal           uint64  `json:"eval_total"`
-	EvalErrors          uint64  `json:"eval_errors"`
-	EvalDurationNs      uint64  `json:"eval_duration_ns"`
-	CompileTotal        uint64  `json:"compile_total"`
-	CompileErrors       uint64  `json:"compile_errors"`
-	CompileDurationNs   uint64  `json:"compile_duration_ns"`
-	MaxPolicyAgeSeconds float64 `json:"max_policy_age_seconds"`
-	PollIntervalSeconds float64 `json:"poll_interval_seconds"`
+	EvalTotal               uint64  `json:"eval_total"`
+	EvalErrors              uint64  `json:"eval_errors"`
+	EvalDurationNs          uint64  `json:"eval_duration_ns"`
+	CompileTotal            uint64  `json:"compile_total"`
+	CompileErrors           uint64  `json:"compile_errors"`
+	CompileDurationNs       uint64  `json:"compile_duration_ns"`
+	MaxPolicyAgeSeconds     float64 `json:"max_policy_age_seconds"`
+	PollIntervalSeconds     float64 `json:"poll_interval_seconds"`
+	DecisionContractVersion string  `json:"decision_contract_version"`
+	DecisionContractSHA     string  `json:"decision_contract_sha256"`
 }
 
 func newOPAEngine(db DBQuerier, log ...zerolog.Logger) *OPAEngine {
@@ -157,10 +159,18 @@ func (e *OPAEngine) Simulate(ctx context.Context, input OPAInput, policies []OPA
 	} else if input.SchemaVersion != opaInputSchemaVersion {
 		return nil, fmt.Errorf("unsupported opa input schema_version %s", input.SchemaVersion)
 	}
-	modules := make([]func(*rego.Rego), 0, len(policies)+2)
+	modules := make([]func(*rego.Rego), 0, len(policies)+3)
 	for _, policy := range policies {
+		defines, perr := moduleDefinesResult(policy.ID, policy.Content)
+		if perr != nil {
+			return nil, perr
+		}
+		if defines {
+			return nil, fmt.Errorf("simulation policy %s defines result; adopters supply data documents only", policy.ID)
+		}
 		modules = append(modules, rego.Module(policy.ID+".rego", policy.Content))
 	}
+	modules = append(modules, rego.Module(decisionContractModuleID+".rego", decisionContractSource))
 	modules = append(modules, rego.Query("result = data.caracal.authz.result"))
 	modules = append(modules, rego.Capabilities(safeCapabilities()))
 	pq, err := rego.New(modules...).PrepareForEval(ctx)
@@ -219,23 +229,32 @@ func validateOPAResult(result OPAResult) error {
 }
 
 // ZoneBundleInfo identifies the policy_set version backing a zone's compiled bundle so
-// callers can stamp audit events with the exact manifest used for the decision.
+// callers can stamp audit events with the exact manifest used for the decision. The
+// decision contract version and hash name the platform authorization brain that
+// produced the decision, which is global to the build rather than per zone.
 type ZoneBundleInfo struct {
-	PolicySetVersionID string
-	ManifestSHA        string
-	LoadedAt           time.Time
+	PolicySetVersionID      string
+	ManifestSHA             string
+	LoadedAt                time.Time
+	DecisionContractVersion string
+	DecisionContractSHA     string
 }
 
 // BundleInfo returns the manifest SHA and policy_set version ID currently installed
-// for a zone, or an empty struct when no bundle is loaded yet.
+// for a zone alongside the build's decision contract provenance. The contract fields
+// are always populated; the zone fields are empty when no bundle is loaded yet.
 func (e *OPAEngine) BundleInfo(zoneID string) ZoneBundleInfo {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
+	info := ZoneBundleInfo{DecisionContractVersion: DecisionContractVersion, DecisionContractSHA: decisionContractSHA256}
 	state, ok := e.zones[zoneID]
 	if !ok {
-		return ZoneBundleInfo{}
+		return info
 	}
-	return ZoneBundleInfo{PolicySetVersionID: state.policySetVersionID, ManifestSHA: state.manifestSHA, LoadedAt: state.loadedAt}
+	info.PolicySetVersionID = state.policySetVersionID
+	info.ManifestSHA = state.manifestSHA
+	info.LoadedAt = state.loadedAt
+	return info
 }
 
 // MetricsSnapshot returns a point-in-time copy of OPA evaluation and compilation counters.
@@ -253,14 +272,16 @@ func (e *OPAEngine) MetricsSnapshot() OPAMetricsSnapshot {
 	}
 	e.mu.RUnlock()
 	return OPAMetricsSnapshot{
-		EvalTotal:           e.metrics.EvalTotal.Load(),
-		EvalErrors:          e.metrics.EvalErrors.Load(),
-		EvalDurationNs:      e.metrics.EvalNanos.Load(),
-		CompileTotal:        e.metrics.CompileTotal.Load(),
-		CompileErrors:       e.metrics.CompileErrors.Load(),
-		CompileDurationNs:   e.metrics.CompileNanos.Load(),
-		MaxPolicyAgeSeconds: maxAge.Seconds(),
-		PollIntervalSeconds: e.pollInterval.Seconds(),
+		EvalTotal:               e.metrics.EvalTotal.Load(),
+		EvalErrors:              e.metrics.EvalErrors.Load(),
+		EvalDurationNs:          e.metrics.EvalNanos.Load(),
+		CompileTotal:            e.metrics.CompileTotal.Load(),
+		CompileErrors:           e.metrics.CompileErrors.Load(),
+		CompileDurationNs:       e.metrics.CompileNanos.Load(),
+		MaxPolicyAgeSeconds:     maxAge.Seconds(),
+		PollIntervalSeconds:     e.pollInterval.Seconds(),
+		DecisionContractVersion: DecisionContractVersion,
+		DecisionContractSHA:     decisionContractSHA256,
 	}
 }
 
@@ -378,10 +399,20 @@ func (e *OPAEngine) loadZone(ctx context.Context, zoneID string) error {
 		return fmt.Errorf("policy bundle incomplete for zone %s: manifest requires %d versions, got %d", zoneID, len(manifest), len(versions))
 	}
 
-	modules := make([]func(*rego.Rego), 0, len(versions)+2)
+	modules := make([]func(*rego.Rego), 0, len(versions)+3)
 	for _, v := range versions {
+		defines, perr := moduleDefinesResult(v.ID, v.Content)
+		if perr != nil {
+			e.storeFallback(zoneID)
+			return fmt.Errorf("parse policy bundle for zone %s: %w", zoneID, perr)
+		}
+		if defines {
+			e.storeFallback(zoneID)
+			return fmt.Errorf("zone %s policy version %s defines result; adopters supply data documents only", zoneID, v.ID)
+		}
 		modules = append(modules, rego.Module(v.ID+".rego", v.Content))
 	}
+	modules = append(modules, rego.Module(decisionContractModuleID+".rego", decisionContractSource))
 	modules = append(modules, rego.Query("result = data.caracal.authz.result"))
 	modules = append(modules, rego.Capabilities(safeCapabilities()))
 

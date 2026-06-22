@@ -363,8 +363,11 @@ func TestOPAEngineIntervalAndBundleInfo(t *testing.T) {
 	if e.pollInterval != time.Second {
 		t.Fatalf("poll interval = %v", e.pollInterval)
 	}
-	if info := e.BundleInfo("missing"); info != (ZoneBundleInfo{}) {
-		t.Fatalf("missing bundle info should be empty: %+v", info)
+	if info := e.BundleInfo("missing"); info.PolicySetVersionID != "" || info.ManifestSHA != "" || !info.LoadedAt.IsZero() {
+		t.Fatalf("missing bundle info should have empty zone fields: %+v", info)
+	}
+	if info := e.BundleInfo("missing"); info.DecisionContractVersion != DecisionContractVersion || info.DecisionContractSHA == "" {
+		t.Fatalf("bundle info must always carry decision contract provenance: %+v", info)
 	}
 	loadedAt := time.Now()
 	e.zones["zone-1"] = &opaZoneState{policySetVersionID: "psv-1", manifestSHA: "sha", loadedAt: loadedAt}
