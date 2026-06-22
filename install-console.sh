@@ -389,6 +389,7 @@ fi
 checkShadow() {
     binName="$1"
     shadow=""
+    oldIFS="${IFS}"
     IFS=":"
     for dir in ${PATH}; do
         [ -z "${dir}" ] && continue
@@ -398,7 +399,7 @@ checkShadow() {
             break
         fi
     done
-    unset IFS
+    IFS="${oldIFS}"
     if [ -n "${shadow}" ]; then
         warn "${shadow} appears earlier in PATH than ${INSTALL_DIR}"
         warn "Remove it to use the installed binary: rm \"${shadow}\""

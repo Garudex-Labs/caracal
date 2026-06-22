@@ -387,7 +387,7 @@ def _authorize_error(provider: catalog.Provider, store, params: dict) -> JSONRes
     if params.get("response_type", "code") != "code":
         return JSONResponse(status_code=400, content={"error": "unsupported_response_type"})
     redirect_uri = params.get("redirect_uri")
-    if redirect_uri and client["redirectUris"] and redirect_uri not in client["redirectUris"]:
+    if redirect_uri and redirect_uri not in client["redirectUris"]:
         return JSONResponse(status_code=400, content={"error": "invalid_redirect_uri"})
     if provider.use_pkce:
         if not params.get("code_challenge"):

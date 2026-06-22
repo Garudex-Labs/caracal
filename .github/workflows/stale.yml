@@ -21,6 +21,7 @@ permissions:
 
 jobs:
   follow-up:
+    if: github.repository == 'Garudex-Labs/caracal'
     runs-on: ubuntu-latest
     steps:
       - name: Run Caracal follow-up automation
