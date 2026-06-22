@@ -208,22 +208,3 @@ test_use_denies_without_delegation_claim if {
 	denied := json.remove(base, ["/context/subject_claims/delegation_edge_id"])
 	authz.result.decision == "deny" with input as denied
 }
-
-# Operation authority: a mandate minted for one operation cannot drive another on
-# the same view, and an unknown operation path is denied, both enforced by the
-# generated operation-scope map rather than the calling client.
-test_use_denies_operation_scope_not_in_mandate if {
-	authz.result.decision == "deny" with input as use_input(
-		"app-payments", ["payment-execution", "lynx-swarm"],
-		"resource://payments-meridian", ["resource://payments-meridian"],
-		"/api/create_payout", "meridian:read",
-	)
-}
-
-test_use_denies_unknown_operation_path if {
-	authz.result.decision == "deny" with input as use_input(
-		"app-payments", ["payment-execution", "lynx-swarm"],
-		"resource://payments-meridian", ["resource://payments-meridian"],
-		"/api/drain_account", "meridian:payout",
-	)
-}

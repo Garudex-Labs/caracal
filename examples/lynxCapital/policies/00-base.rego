@@ -102,44 +102,19 @@ customer_confined if {
 
 # A spawned agent presenting its minted mandate at the Gateway: the mandate must be
 # delegation-bound and name this resource in its target audience. The Gateway
-# exchange requests no scopes; authority rides in the mandate claims.
+# exchange requests no scopes; authority rides in the mandate claims. Per-operation
+# scope authority is enforced natively by the Caracal Gateway and STS against the
+# resource's declared operations, so this policy decides delegation and view binding
+# only.
 mandate_use if {
 	input.context.subject_claims.delegation_edge_id != ""
 	some target in input.context.subject_claims.target
 	target == input.resource.identifier
 	not requested_scopes_present
-	operation_authorized
 }
 
 requested_scopes_present if {
 	count(input.context.requested_scopes) > 0
-}
-
-# The narrowed scopes the presented mandate carries, parsed from its space-delimited
-# scope claim. Empty when the mandate carries no scope claim, which fails operation
-# authority closed for any path-addressed view.
-mandate_scopes := {scope |
-	some scope in split(object.get(input.context.subject_claims, "scope", ""), " ")
-	scope != ""
-}
-
-# The operation-authority map for the view under evaluation, present only for
-# path-addressed (REST) views (see the generated 03-operations document).
-view_operations := operation_scopes[input.resource.identifier]
-
-# Gateway operation authority. A view that addresses every call at one transport
-# path (e.g. MCP) carries no per-operation map, so its mandate's mint-time scope is
-# the authority boundary and no path rule applies. A path-addressed view requires
-# that the named operation path is governed and that the mandate carries the scope
-# that operation demands — so a mandate minted for one operation cannot drive
-# another, and an unknown path is denied.
-operation_authorized if {
-	not view_operations
-}
-
-operation_authorized if {
-	required := view_operations[input.action.path]
-	required in mandate_scopes
 }
 
 # The presenting agent session must carry a role label granted on this resource.

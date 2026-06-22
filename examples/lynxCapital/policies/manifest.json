@@ -6,7 +6,6 @@
     "00-base",
     "01-bindings",
     "02-grants",
-    "03-operations",
     "10-decisions"
   ]
 }
