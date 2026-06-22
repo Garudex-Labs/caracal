@@ -227,6 +227,7 @@ jobs:
         with:
           packages-dir: ${{ matrix.dir }}/dist
           skip-existing: true
+          attestations: false
 
       - name: Verify published package
         if: inputs.dryRun != true
