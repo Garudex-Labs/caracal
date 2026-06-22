@@ -23,6 +23,7 @@ const (
 	PayloadTooLarge       Code = "payload_too_large"
 	ZoneInvalid           Code = "zone_invalid"
 	ScopeInsufficient     Code = "scope_insufficient"
+	OperationNotPermitted Code = "operation_not_permitted"
 	AgentIdentityRequired Code = "agent_identity_required"
 	DelegationRequired    Code = "delegation_required"
 	ChainMismatch         Code = "chain_mismatch"

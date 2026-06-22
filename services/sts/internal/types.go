@@ -84,6 +84,22 @@ type OPAResource struct {
 	Scopes     []string `json:"scopes"`
 }
 
+// Operation enforcement modes for a resource. enforced denies any upstream
+// operation the resource does not declare; transport_uniform addresses every call
+// at one surface (e.g. MCP) so the mandate's mint-time scope is the only boundary.
+const (
+	OperationEnforcementEnforced = "enforced"
+	OperationEnforcementUniform  = "transport_uniform"
+)
+
+// ResourceOperation binds one upstream operation (HTTP method and path) to the
+// scope a mandate must carry to invoke it.
+type ResourceOperation struct {
+	Method string `json:"method"`
+	Path   string `json:"path"`
+	Scope  string `json:"scope"`
+}
+
 type OPAAction struct {
 	ID     string `json:"id"`
 	Method string `json:"method,omitempty"`

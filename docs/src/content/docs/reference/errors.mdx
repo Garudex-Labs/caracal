@@ -35,6 +35,7 @@ The **Likely source** column names the surface that most often emits the code, a
 | `payload_too_large` | Request body or token exceeded the configured limit. | Gateway or API preflight. | Reduce payload size or adjust the configured limit. |
 | `zone_invalid` | Zone claim or route zone is invalid. | Gateway or STS. | Confirm the request targets the correct zone and the mandate carries a matching zone claim. |
 | `scope_insufficient` | Required scope is missing. | A resource verifier, or Gateway. | Confirm the resource defines the scope and the active policy authorizes it for this subject. |
+| `operation_not_permitted` | The Gateway operation is not declared on an enforced resource, or its required scope is absent from the mandate. | STS native operation floor, on Gateway-authenticated mandate use. | Declare the operation on the resource (`operations`), or set `operation_enforcement` to `transport_uniform`; confirm the mandate carries the operation's scope. |
 | `agent_identity_required` | A verifier requires an agent identity. | In-process verifier or MCP transport. | Run the call from an agent session, not a bare subject session. |
 | `delegation_required` | A verifier requires delegated authority. | In-process verifier. | Confirm the call carries a delegation edge granting the required scopes. |
 | `chain_mismatch` | Delegation chain does not contain a required application/session. | Verifier delegation check. | Inspect the delegation edge in the Console; confirm the chain includes the required hop. |
