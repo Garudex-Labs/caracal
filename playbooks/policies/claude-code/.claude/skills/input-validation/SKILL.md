@@ -1,6 +1,6 @@
 ---
 name: input-validation
-description: Use to validate Caracal policy input fields, schemas, sample inputs, and assumptions before using them in a Rego policy.
+description: Use to validate Caracal policy input fields, schemas, sample inputs, and assumptions before using them in a policy data document.
 ---
 # Input Validation
 
@@ -12,4 +12,4 @@ description: Use to validate Caracal policy input fields, schemas, sample inputs
 4. Mark undocumented or missing fields as unknown.
 5. Ask for clarification instead of inventing fields.
 
-Only documented or supplied fields may appear in policy logic.
+Only documented or supplied fields may appear in policy data.
