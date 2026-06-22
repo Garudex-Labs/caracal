@@ -1,3 +1,8 @@
+# Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+# Caracal, a product of Garudex Labs
+#
+# Greets contributors the first time they open an issue or a pull request in the Caracal repository.
+
 name: Greetings
 
 on: [pull_request_target, issues]
@@ -5,47 +10,63 @@ on: [pull_request_target, issues]
 jobs:
   greeting:
     runs-on: ubuntu-latest
-    if: ${{ github.repository == 'Garudex-Labs/caracal' && !endsWith(github.actor, '[bot]') && github.actor != 'dependabot' }}
+    if: ${{ github.repository == 'Garudex-Labs/caracal' && github.event.action == 'opened' && !endsWith(github.actor, '[bot]') && github.actor != 'dependabot' }}
     permissions:
       issues: write
       pull-requests: write
     steps:
-    - name: Pick greeting messages
-      id: greetings
-      run: |
-        issueMessages=(
-          "👀 First issue unlocked. Thanks for helping us spot things worth fixing."
-          "🛠️ Thanks for opening your first issue. Your report helps make Caracal stronger."
-          "🌱 Welcome, and thanks for starting your Caracal contributor journey with an issue."
-          "🔎 First issue received. We appreciate you taking the time to help improve Caracal."
-          "✨ Thanks for your first issue. Community feedback like this helps shape Caracal."
-        )
-        prMessages=(
-          "⚡ New contributor energy! Thanks for sending your first PR."
-          "🚀 First PR submitted. Thanks for helping move Caracal forward."
-          "🧩 Welcome, and thanks for contributing your first code change to Caracal."
-          "🔥 First PR unlocked. We appreciate you jumping in and contributing."
-          "🌟 Thanks for your first PR. Contributions like this help the Caracal project grow."
-        )
-        footer="Welcome to the Caracal Community: https://discord.gg/WX7dNMhM7E"
-        issueMessage="${issueMessages[$((RANDOM % ${#issueMessages[@]}))]}"
-        prMessage="${prMessages[$((RANDOM % ${#prMessages[@]}))]}"
+      - name: Greet first-time contributors
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const issueMessages = [
+              '👀 First issue unlocked. Thanks for helping us spot things worth fixing.',
+              '🛠️ Thanks for opening your first issue. Your report helps make Caracal stronger.',
+              '🌱 Welcome, and thanks for starting your Caracal contributor journey with an issue.',
+              '🔎 First issue received. We appreciate you taking the time to help improve Caracal.',
+              '✨ Thanks for your first issue. Community feedback like this helps shape Caracal.',
+            ];
+            const prMessages = [
+              '⚡ New contributor energy! Thanks for sending your first PR.',
+              '🚀 First PR submitted. Thanks for helping move Caracal forward.',
+              '🧩 Welcome, and thanks for contributing your first code change to Caracal.',
+              '🔥 First PR unlocked. We appreciate you jumping in and contributing.',
+              '🌟 Thanks for your first PR. Contributions like this help the Caracal project grow.',
+            ];
+            const footer = 'Welcome to the Caracal Community: https://discord.gg/WX7dNMhM7E';
 
-        {
-          echo "issue-message<<EOF"
-          echo "${issueMessage}"
-          echo
-          echo "${footer}"
-          echo "EOF"
-          echo "pr-message<<EOF"
-          echo "${prMessage}"
-          echo
-          echo "${footer}"
-          echo "EOF"
-        } >> "${GITHUB_OUTPUT}"
+            const isPullRequest = context.payload.pull_request !== undefined;
+            const number = isPullRequest
+              ? context.payload.pull_request.number
+              : context.payload.issue.number;
+            const author = context.payload.sender.login;
 
-    - uses: actions/first-interaction@1c4688942c71f71d4f5502a26ea67c331730fa4d # v3.1.0
-      with:
-        repo_token: ${{ secrets.GITHUB_TOKEN }}
-        issue_message: ${{ steps.greetings.outputs.issue-message }}
-        pr_message: ${{ steps.greetings.outputs.pr-message }}
+            // The REST issues endpoint returns pull requests too, so a single
+            // author-scoped listing covers both types; the item type is told
+            // apart by the presence of `pull_request`.
+            const authored = await github.paginate(github.rest.issues.listForRepo, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              creator: author,
+              state: 'all',
+              per_page: 100,
+            });
+
+            // Greet only when no earlier item of the same type already exists.
+            const priorOfSameType = authored.filter(
+              (item) => (item.pull_request !== undefined) === isPullRequest && item.number < number,
+            );
+            if (priorOfSameType.length > 0) {
+              core.info("Not the author's first contribution of this type. Skipping greeting.");
+              return;
+            }
+
+            const pool = isPullRequest ? prMessages : issueMessages;
+            const message = pool[Math.floor(Math.random() * pool.length)];
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: number,
+              body: `${message}\n\n${footer}`,
+            });
