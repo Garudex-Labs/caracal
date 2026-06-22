@@ -10,7 +10,7 @@ require (
 	github.com/garudex-labs/caracal/packages/core/go v0.0.0
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/parquet-go/parquet-go v0.30.1
-	github.com/redis/go-redis/v9 v9.20.1
+	github.com/redis/go-redis/v9 v9.21.0
 	github.com/rs/zerolog v1.35.1
 	golang.org/x/sync v0.21.0
 )
