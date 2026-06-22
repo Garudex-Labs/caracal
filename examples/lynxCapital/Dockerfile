@@ -14,6 +14,9 @@ COPY app ./app
 
 RUN python -m pip install --no-cache-dir --require-hashes -r requirements.lock
 
+RUN useradd --create-home --uid 10001 lynx && chown -R lynx:lynx /app
+USER lynx
+
 ENV PYTHONUNBUFFERED=1
 EXPOSE 8000
 

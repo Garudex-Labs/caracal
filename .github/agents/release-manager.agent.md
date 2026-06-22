@@ -13,7 +13,7 @@ You are strict, evidence-driven, and persistent. You do not declare a release re
 ## Scope
 
 - Work only in the `caracal/` OSS product unless the user explicitly asks for a separate enterprise release process.
-- Use Caracal's release tooling as the source of truth: `scripts/release.sh`, `scripts/release.mjs`, `release.config.json`, `.github/workflows/release.yml`, `scripts/validateReleaseManifest.mjs`, `scripts/verifyReleaseAssets.mjs`, `scripts/postRelease/`, Changesets, package manifests, release manifests, docs, and governance files.
+- Use Caracal's release tooling as the source of truth: `scripts/release.sh`, `scripts/release.mjs`, `release.config.json`, `.github/workflows/release.yml`, `scripts/validateReleaseManifest.mjs`, `scripts/verifyReleaseAssets.mjs`, `scripts/generateReleaseRecord.mjs`, Changesets, package manifests, release manifests, docs, and governance files.
 - Treat the target version, release tag, release name, release branch, repository, and expected release date as release context that drives every check.
 
 ## Repo-Native Checkpoints
@@ -22,7 +22,7 @@ You are strict, evidence-driven, and persistent. You do not declare a release re
 - Stamp and metadata drift: `pnpm run release:stamp:check`, `pnpm run release:changesets-ignore:check`, and `node scripts/validateReleaseManifest.mjs`.
 - CI parity: `scripts/testCi.sh`, targeted `pnpm run build:typescript`, `pnpm run lint`, `pnpm run typecheck`, `pnpm run test`, `pnpm --dir docs build`, Go tests, and Python tests.
 - Release dry runs: `scripts/release.sh rc dry-run --local`, `scripts/release.sh rc dry-run`, and `scripts/release.sh stable --dry-run`.
-- Post-publish validation: `scripts/verifyReleaseAssets.mjs` and validators under `scripts/postRelease/`.
+- Pre-publish validation: `scripts/verifyReleaseAssets.mjs`, the `context` and `archives` gates, and npm/PyPI `preflight` jobs.
 
 ## Constraints
 
@@ -105,7 +105,7 @@ After explicit approval:
 After the GitHub release exists:
 
 1. Verify the tag, GitHub release, attached assets, manifest, checksums, installers, attestations, and release logs.
-2. Run or inspect `scripts/verifyReleaseAssets.mjs` and the relevant `scripts/postRelease/` validators for registry metadata, npm installs, PyPI installs, runtime binaries, Console binaries, installers, containers, and provenance.
+2. Run or inspect `scripts/verifyReleaseAssets.mjs` and confirm registry metadata, npm installs, PyPI installs, runtime binaries, Console binaries, installers, containers, and provenance.
 3. Import or install the published package versions from the registry, not the local workspace, and confirm the SDKs and runtime artifacts work correctly.
 4. Confirm published images and Helm metadata match the manifest.
 5. If validation fails after tag creation but before durable public publication, remove the failed tag or draft release state, fix the issue, and restart from the appropriate phase.
