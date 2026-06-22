@@ -12,4 +12,4 @@ description: Use when Caracal policy authoring mentions secrets, tokens, credent
 4. Use placeholders such as `<RESOURCE_IDENTIFIER>`, `<APPLICATION_ID>`, `<PRINCIPAL_ID>`, and `<SCOPE>`.
 5. Use synthetic identifiers in examples.
 
-Policies should evaluate documented input fields, not embed usable secrets.
+Policy data should reference documented input fields, not embed usable secrets.
