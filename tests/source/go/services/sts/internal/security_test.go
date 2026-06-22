@@ -174,6 +174,48 @@ func TestVerifyAndConsumeChallengeRejectsEmpty(t *testing.T) {
 	}
 }
 
+func TestHashApprovalBindingBindsScopes(t *testing.T) {
+	a := hashApprovalBinding([]string{"resource://nucleus"}, []string{"nucleus:pay"})
+	b := hashApprovalBinding([]string{"resource://nucleus"}, []string{"nucleus:read"})
+	if hex.EncodeToString(a) == hex.EncodeToString(b) {
+		t.Fatal("an approval for one scope must not match a different scope on the same resource")
+	}
+	same := hashApprovalBinding([]string{" resource://nucleus "}, []string{"nucleus:pay"})
+	if hex.EncodeToString(a) != hex.EncodeToString(same) {
+		t.Fatal("approval binding must be whitespace invariant on resources")
+	}
+}
+
+// stubApprovalDB captures ConsumeApprovalChallenge calls.
+type stubApprovalDB struct {
+	stubDB
+	gotParams  ConsumeApprovalParams
+	consumeErr error
+}
+
+func (s *stubApprovalDB) ConsumeApprovalChallenge(_ context.Context, p ConsumeApprovalParams) error {
+	s.gotParams = p
+	return s.consumeErr
+}
+
+func TestVerifyAndConsumeApprovalBindsRequestHash(t *testing.T) {
+	db := &stubApprovalDB{}
+	srv := &Server{db: db}
+	if err := srv.verifyAndConsumeApproval(context.Background(), "z", "p", "", []string{"r"}, []string{"s"}); err != ErrChallengeInvalid {
+		t.Fatalf("empty id must reject, got %v", err)
+	}
+	if err := srv.verifyAndConsumeApproval(context.Background(), "z", "p", "id", []string{"resource://nucleus"}, []string{"nucleus:pay"}); err != nil {
+		t.Fatalf("consume: %v", err)
+	}
+	want := hashApprovalBinding([]string{"resource://nucleus"}, []string{"nucleus:pay"})
+	if hex.EncodeToString(db.gotParams.ResourceSetHash) != hex.EncodeToString(want) {
+		t.Fatal("approval consume must bind the resource and scope set")
+	}
+	if db.gotParams.ID != "id" || db.gotParams.ZoneID != "z" || db.gotParams.PrincipalID != "p" {
+		t.Fatalf("unexpected consume params: %+v", db.gotParams)
+	}
+}
+
 func TestVerifyAndConsumeChallengePassesBindings(t *testing.T) {
 	db := &stubChallengeDB{}
 	srv := &Server{db: db}

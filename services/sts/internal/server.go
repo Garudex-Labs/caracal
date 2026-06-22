@@ -144,6 +144,7 @@ func (s *Server) Run(ctx context.Context) error {
 	mux.HandleFunc("POST /oauth/2/token", s.handleTokenExchange)
 	mux.HandleFunc("GET /.well-known/jwks.json", s.handleJWKS)
 	mux.HandleFunc("GET /step-up/{id}", s.handleStepUpStatus)
+	mux.HandleFunc("POST /internal/step-up/{id}/approve", s.handleApproveStepUp)
 	mux.HandleFunc("GET /health", handleHealth)
 	mux.HandleFunc("GET /ready", s.handleReady)
 	mux.HandleFunc("GET /metrics", s.handleMetrics)
@@ -249,6 +250,10 @@ func (s *Server) handleStepUpStatus(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, sharederr.New(sharederr.ResourceNotFound, "challenge not found"))
 		return
 	}
+	metadata := c.MetadataJSON
+	if len(metadata) == 0 {
+		metadata = []byte("{}")
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
 		"id":             c.ID,
@@ -256,7 +261,44 @@ func (s *Server) handleStepUpStatus(w http.ResponseWriter, r *http.Request) {
 		"satisfied":      c.SatisfiedAt != nil,
 		"consumed":       c.ConsumedAt != nil,
 		"expires_at":     c.ExpiresAt.Format(time.RFC3339),
+		"approver":       c.ApproverSubjectID,
+		"metadata":       json.RawMessage(metadata),
 	})
+}
+
+// handleApproveStepUp lets the control plane record an authenticated approver
+// satisfying a pending human-approval challenge. The control plane authenticates the
+// human approver and presents the approver's subject id; STS owns the durable artifact
+// and the single-use, bound consumption that the mandate mint then requires. The update
+// only lands on a live, unsatisfied human-approval challenge, so it can neither approve
+// an mfa challenge nor resurrect an expired or already consumed one.
+func (s *Server) handleApproveStepUp(w http.ResponseWriter, r *http.Request) {
+	if !s.adminAuthorized(w, r) {
+		return
+	}
+	challengeID := r.PathValue("id")
+	if _, err := uuid.Parse(challengeID); err != nil {
+		writeError(w, http.StatusNotFound, sharederr.New(sharederr.ResourceNotFound, "challenge not found"))
+		return
+	}
+	var body struct {
+		ZoneID            string `json:"zone_id"`
+		ApproverSubjectID string `json:"approver_subject_id"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "malformed request body"))
+		return
+	}
+	if body.ZoneID == "" || body.ApproverSubjectID == "" {
+		writeError(w, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "zone_id and approver_subject_id required"))
+		return
+	}
+	if err := s.db.ApproveStepUpChallenge(r.Context(), challengeID, body.ZoneID, body.ApproverSubjectID); err != nil {
+		writeError(w, http.StatusNotFound, sharederr.New(sharederr.ResourceNotFound, "no pending human-approval challenge for this id"))
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"approved": true, "challenge_id": challengeID})
 }
 
 func (s *Server) handleRotateZoneSigningKey(w http.ResponseWriter, r *http.Request) {

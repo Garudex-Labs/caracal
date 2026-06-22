@@ -10,6 +10,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"sort"
 	"strings"
@@ -20,8 +21,13 @@ import (
 
 const (
 	challengeTTL          = 5 * time.Minute
+	approvalChallengeTTL  = 30 * time.Minute
 	challengeSecretBytes  = 32
 	resourceSetHashLength = 32
+
+	// humanApprovalChallengeType is the step-up type STS holds asynchronously: it is
+	// satisfied by a named approver out-of-band rather than by a secret the caller echoes.
+	humanApprovalChallengeType = "human_approval"
 )
 
 // challengeState is the in-memory representation of an active step-up challenge.
@@ -34,10 +40,47 @@ type challengeState struct {
 	ExpiresAt     time.Time
 }
 
-// createChallenge persists a new step-up challenge bound to (zone, principal, resource set).
-// The plaintext secret is returned to the caller exactly once; only its SHA-256 is stored.
-func (s *Server) createChallenge(ctx context.Context, zoneID, sessionID, principalID, challengeType string, resources []string) (*challengeState, error) {
+// createChallenge persists a new step-up challenge bound to (zone, principal, request).
+// A human-approval challenge carries no secret: it is satisfied out-of-band by a named
+// approver, holds longer, and binds to the requested scopes as well as the resource set
+// so an approval granted for one scope set cannot be replayed to mint another. Every
+// other challenge type returns a high-entropy single-use secret to the caller exactly
+// once; only its SHA-256 is stored.
+func (s *Server) createChallenge(ctx context.Context, zoneID, sessionID, principalID, challengeType string, resources, scopes []string) (*challengeState, error) {
 	id, _ := uuid.NewV7()
+	now, err := s.db.CurrentTime(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if challengeType == humanApprovalChallengeType {
+		expiresAt := now.Add(approvalChallengeTTL)
+		metadata, _ := json.Marshal(map[string]any{
+			"requested_scopes": scopes,
+			"resources":        resources,
+		})
+		c := &challengeState{
+			ID:            id.String(),
+			ZoneID:        zoneID,
+			SessionID:     sessionID,
+			ChallengeType: challengeType,
+			ExpiresAt:     expiresAt,
+		}
+		if err := s.db.InsertStepUpChallenge(ctx, &StepUpChallengePG{
+			ID:              c.ID,
+			ZoneID:          zoneID,
+			SessionID:       sessionID,
+			ChallengeType:   challengeType,
+			PrincipalID:     principalID,
+			ResourceSetHash: hashApprovalBinding(resources, scopes),
+			ExpiresAt:       expiresAt,
+			MetadataJSON:    metadata,
+		}); err != nil {
+			return nil, err
+		}
+		return c, nil
+	}
+
 	secretBytes := make([]byte, challengeSecretBytes)
 	if _, err := rand.Read(secretBytes); err != nil {
 		return nil, err
@@ -45,10 +88,6 @@ func (s *Server) createChallenge(ctx context.Context, zoneID, sessionID, princip
 	secret := base64.RawURLEncoding.EncodeToString(secretBytes)
 	hash := sha256.Sum256([]byte(secret))
 	resHash := hashResourceSet(resources)
-	now, err := s.db.CurrentTime(ctx)
-	if err != nil {
-		return nil, err
-	}
 	expiresAt := now.Add(challengeTTL)
 
 	c := &challengeState{
@@ -100,6 +139,27 @@ func (s *Server) verifyAndConsumeChallenge(ctx context.Context, zoneID, principa
 	})
 }
 
+// verifyAndConsumeApproval atomically consumes a human-approval challenge iff a named
+// approver has satisfied it and every binding matches: zone, principal, and the request
+// hash over the resource set and requested scopes. It presents no secret, so an agent
+// can never satisfy its own approval; only an out-of-band approver can.
+func (s *Server) verifyAndConsumeApproval(ctx context.Context, zoneID, principalID, challengeID string, resources, scopes []string) error {
+	if challengeID == "" {
+		return ErrChallengeInvalid
+	}
+	now, err := s.db.CurrentTime(ctx)
+	if err != nil {
+		return err
+	}
+	return s.db.ConsumeApprovalChallenge(ctx, ConsumeApprovalParams{
+		ID:              challengeID,
+		ZoneID:          zoneID,
+		PrincipalID:     principalID,
+		ResourceSetHash: hashApprovalBinding(resources, scopes),
+		Now:             now,
+	})
+}
+
 // ErrChallengeInvalid means the supplied challenge response did not match a live binding.
 var ErrChallengeInvalid = errors.New("step-up challenge invalid or expired")
 
@@ -116,5 +176,25 @@ func hashResourceSet(resources []string) []byte {
 	}
 	sort.Strings(canon)
 	sum := sha256.Sum256([]byte(strings.Join(canon, "\n")))
+	return sum[:]
+}
+
+// hashApprovalBinding binds a human-approval challenge to both the resource set and the
+// requested scope set. Binding the scopes is what stops an approval granted for one
+// scope from being replayed to mint a mandate carrying a different, more powerful scope
+// on the same resources. The two canonical lists are joined under disjoint section
+// markers so a resource and a scope of the same text cannot collide.
+func hashApprovalBinding(resources, scopes []string) []byte {
+	canonResources := make([]string, 0, len(resources))
+	for _, r := range resources {
+		canonResources = append(canonResources, strings.ToLower(strings.TrimSpace(r)))
+	}
+	sort.Strings(canonResources)
+	canonScopes := make([]string, 0, len(scopes))
+	for _, scope := range scopes {
+		canonScopes = append(canonScopes, strings.TrimSpace(scope))
+	}
+	sort.Strings(canonScopes)
+	sum := sha256.Sum256([]byte("resources\x00" + strings.Join(canonResources, "\n") + "\x00scopes\x00" + strings.Join(canonScopes, "\n")))
 	return sum[:]
 }
