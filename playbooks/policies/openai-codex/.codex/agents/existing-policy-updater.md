@@ -1,6 +1,6 @@
 ---
 name: existing-policy-updater
-description: Use when modifying an existing Caracal Rego policy while preserving current behavior and making the smallest safe change.
+description: Use when modifying an existing Caracal policy data document while preserving current behavior and making the smallest safe change.
 tools: [read, search, edit, web]
 ---
 # Existing Policy Updater Agent
@@ -24,8 +24,8 @@ Modify existing policies only after current and intended behavior are understood
 - Preserve existing behavior unless explicitly changed.
 - Keep `package caracal.authz`.
 - Keep `import rego.v1`.
-- Keep deny-by-default behavior.
-- Keep the Caracal result contract.
+- Keep the `# caracal:data-document` directive; the platform decision contract denies by default.
+- Define only data documents; never author a `result` rule.
 - Do not add undocumented fields or speculative logic.
 
 ## Output

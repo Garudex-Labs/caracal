@@ -1,6 +1,6 @@
 ---
 name: docs-verifier
-description: Use when validating Caracal policy behavior, input fields, Rego syntax, OPA behavior, policy versions, policy sets, simulation, or activation against documentation.
+description: Use when validating Caracal policy data documents, input fields, Rego data syntax, OPA behavior, policy versions, policy sets, simulation, or activation against documentation.
 tools: [read, search, web]
 ---
 # Documentation Verifier Agent
@@ -20,9 +20,9 @@ Use documentation MCPs such as Context7 or connected internal documentation MCPs
 
 ## Verify
 
-- policy decision contract
+- platform decision contract version and shape
 - policy input shape
-- result shape
+- data document shape
 - supported Rego syntax
 - validation workflow
 - policy version workflow

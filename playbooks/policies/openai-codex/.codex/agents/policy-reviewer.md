@@ -1,6 +1,6 @@
 ---
 name: policy-reviewer
-description: Use when reviewing a Caracal Rego policy for correctness, least privilege, deterministic behavior, deny-by-default behavior, and decision contract compliance.
+description: Use when reviewing a Caracal policy data document for correctness, least privilege, deterministic data, data document shape, and platform decision contract alignment.
 tools: [read, search, web]
 ---
 # Policy Reviewer Agent
@@ -13,14 +13,14 @@ Review a Caracal policy without rewriting it unless a focused correction is need
 
 - `package caracal.authz`
 - `import rego.v1`
-- deny-by-default behavior
-- result object contract
+- the platform decision contract that denies by default (data only grants or narrows)
+- data document shape (`app_ids`, `grants`, `confinement`, or `restrict`, never a `result` rule)
 - least-privilege scope checks
 - resource identifier checks
-- actor, subject, session, grant, or delegation checks
-- diagnostics for deny or step-up cases
-- deterministic and side-effect-free logic
-- duplicated or unnecessary helper rules
+- actor, subject, session, grant, or delegation data
+- confinement and restriction overlays that only narrow authority
+- deterministic and side-effect-free data
+- duplicated or unnecessary data documents
 - invented or undocumented input fields
 
 ## Output
