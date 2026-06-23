@@ -8,7 +8,18 @@ import { authClient } from "@/editions/community/auth/client";
 import { config } from "@/platform/config";
 
 export const auth = authClient;
-export const { useSession, signIn, signUp, signOut, getSession } = authClient;
+export const {
+  useSession,
+  signIn,
+  signUp,
+  signOut,
+  getSession,
+  updateUser,
+  changePassword,
+  listSessions,
+  revokeSession,
+  revokeOtherSessions,
+} = authClient;
 
 export type Operator = {
   id: string;
@@ -34,12 +45,4 @@ export async function fetchEnabledProviders(): Promise<EnabledProviders> {
   } catch {
     return { email: true, google: false, github: false };
   }
-}
-
-/** Temporary testing helper: wipe all auth accounts and sessions on the local auth service. */
-export async function resetAuthAccounts(): Promise<void> {
-  await fetch(`${config.authBaseUrl}/dev/reset`, {
-    method: "POST",
-    credentials: "include",
-  }).catch(() => undefined);
 }

@@ -10,7 +10,6 @@ import { toNodeHandler } from "better-auth/node";
 import { auth } from "./auth.ts";
 import { loadConfig } from "./config.ts";
 import { handleConsole } from "./console.ts";
-import { devReset } from "./devReset.ts";
 import { enabledProviders } from "./providers.ts";
 
 const cfg = loadConfig();
@@ -63,14 +62,6 @@ const server = createServer((req, res) => {
     res.statusCode = 200;
     res.setHeader("Content-Type", "application/json");
     res.end(JSON.stringify(enabledProviders(cfg)));
-    return;
-  }
-
-  if (req.url === "/dev/reset" && req.method === "POST") {
-    const result = devReset(cfg);
-    res.statusCode = 200;
-    res.setHeader("Content-Type", "application/json");
-    res.end(JSON.stringify({ status: "reset", ...result }));
     return;
   }
 

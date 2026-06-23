@@ -22,6 +22,8 @@ import type {
   Session,
   Zone,
   ZoneInput,
+  ZonePatchInput,
+  ZoneDcrStatus,
 } from "./types";
 
 export class ConsoleApiError extends Error {
@@ -85,8 +87,15 @@ export const consoleApi = {
   zones: {
     list: () => request<Zone[]>("/v1/zones"),
     get: (id: string) => request<Zone>(`/v1/zones/${encodeURIComponent(id)}`),
+    dcrStatus: (id: string) =>
+      request<ZoneDcrStatus>(`/v1/zones/${encodeURIComponent(id)}/dcr-status`),
     create: (input: ZoneInput) =>
       request<Zone>("/v1/zones", { method: "POST", body: JSON.stringify(input) }),
+    patch: (id: string, input: ZonePatchInput) =>
+      request<Zone>(`/v1/zones/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        body: JSON.stringify(input),
+      }),
     delete: (id: string) =>
       request<void>(`/v1/zones/${encodeURIComponent(id)}`, { method: "DELETE" }),
   },
