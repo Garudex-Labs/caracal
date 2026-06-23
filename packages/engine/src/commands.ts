@@ -102,6 +102,18 @@ export const SHELL_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
     requiresArgs: true,
   },
   { name: 'console', group: 'runtime', summary: 'Launch the Caracal Console' },
+  {
+    name: 'web',
+    group: 'runtime',
+    summary: 'Launch the Caracal web console (UI + backend-for-frontend)',
+    flags: {
+      '': [
+        { name: '--web-port', summary: 'Port for the web UI (default 3001)' },
+        { name: '--auth-port', summary: 'Port for the backend-for-frontend (default 3002)' },
+        { name: '--build', summary: 'Serve the production build instead of the dev server' },
+      ],
+    },
+  },
 ])
 
 export const MANAGEMENT_COMMANDS: readonly CommandDescriptor[] = Object.freeze([

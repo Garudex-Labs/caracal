@@ -12,6 +12,7 @@ import {
   Mono,
   ResourceWorkspace,
 } from "@/components/console/ResourceWorkspace";
+import { LiveBadge } from "@/components/console/LiveBadge";
 import { ZoneScopedPage } from "@/components/console/ZoneScope";
 import { Badge, type Column } from "@/components/ui";
 import { ConsoleApiError } from "@/platform/api/client";
@@ -96,6 +97,7 @@ function SessionsPage({ zoneId }: { zoneId: string }) {
       title="Sessions"
       description="Authenticated subject sessions issued in this zone. Sessions end by expiry, grant revocation, or agent termination."
       breadcrumbs={[{ label: "Console", to: "/app" }, { label: "Sessions" }]}
+      headerExtra={<LiveBadge label="Live · refreshes every 10s" />}
       rows={rows}
       loading={query.isLoading}
       columns={columns}
