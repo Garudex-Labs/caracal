@@ -25,8 +25,8 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [{ id: "dashboard", label: "Dashboard", to: "/app" }],
   },
   {
-    id: "zone-management",
-    label: "Zone Management",
+    id: "access",
+    label: "Access",
     items: [
       { id: "zones", label: "Zones", to: "/app/zones" },
       { id: "applications", label: "Applications", to: "/app/applications", zoneScoped: true },
@@ -43,12 +43,12 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    id: "authority",
-    label: "Authority",
+    id: "runtime",
+    label: "Runtime",
     items: [
-      { id: "sessions", label: "Sessions", to: "/app/sessions", zoneScoped: true },
       { id: "agents", label: "Agents", to: "/app/agents", zoneScoped: true },
       { id: "delegation", label: "Delegation", to: "/app/delegation", zoneScoped: true },
+      { id: "sessions", label: "Sessions", to: "/app/sessions", zoneScoped: true },
     ],
   },
   {
@@ -56,7 +56,6 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Observability",
     items: [
       { id: "audit", label: "Audit", to: "/app/audit", zoneScoped: true },
-      { id: "trace", label: "Request Trace", to: "/app/trace", zoneScoped: true },
       { id: "diagnostics", label: "Diagnostics", to: "/app/diagnostics" },
     ],
   },
