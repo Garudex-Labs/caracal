@@ -5,193 +5,308 @@ Caracal, a product of Garudex Labs
 This file defines the guided onboarding route.
 */
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
-import { OnboardingLayout } from "@/components/onboarding/OnboardingLayout";
-import { Button, Field } from "@/components/ui";
+import { AvatarPicker } from "@/components/onboarding/AvatarPicker";
+import { OnboardingLayout, type OnboardingStep } from "@/components/onboarding/OnboardingLayout";
+import { Button, Card, Field, SectionTitle, Textarea } from "@/components/ui";
 import { useSession } from "@/platform/auth";
 import { requirePendingOnboarding } from "@/platform/auth/guards";
-import { content } from "@/platform/content/resolver";
-import { addZone, completeOnboarding, seedSampleData } from "@/platform/state/localInstall";
+import { addZone, completeOnboarding, type ProfileRecord } from "@/platform/state/localInstall";
 
 export const Route = createFileRoute("/onboarding")({
   beforeLoad: requirePendingOnboarding,
   component: OnboardingPage,
 });
 
-const TEMPLATES = [
-  { id: "blank", label: "Blank zone", desc: "Start empty and configure everything yourself." },
+const STEPS: OnboardingStep[] = [
+  { title: "Profile", summary: "Tell us who you are" },
+  { title: "Zone", summary: "Create your first zone" },
+  { title: "Review", summary: "Confirm and finish" },
+];
+
+const STEP_HEAD = [
   {
-    id: "gateway",
-    label: "API gateway starter",
-    desc: "A resource and policy set for upstream routing.",
+    eyebrow: "Step 1",
+    title: "Set up your profile",
+    description: "This personalizes your Caracal environment. You can change it later in Settings.",
   },
   {
-    id: "agents",
-    label: "Multi-agent starter",
-    desc: "Applications and delegation for agent workflows.",
+    eyebrow: "Step 2",
+    title: "Create your first zone",
+    description:
+      "A zone is Caracal's primary trust boundary. It isolates applications, resources, policies, and audit.",
+  },
+  {
+    eyebrow: "Step 3",
+    title: "Review and confirm",
+    description: "Check the details below. You own this environment as its single user.",
   },
 ];
 
 function OnboardingPage() {
   const navigate = useNavigate();
-  const labels = content.onboarding.steps;
-  const steps = [labels.installation, labels.zone, labels.admin, labels.samples, labels.review];
   const session = useSession();
-  const operatorEmail = session.data?.user?.email ?? "your account";
+  const ownerEmail = session.data?.user?.email ?? "";
+  const sessionName = session.data?.user?.name ?? "";
 
   const [step, setStep] = useState(0);
-  const [installName, setInstallName] = useState("");
+
+  const [fullName, setFullName] = useState(sessionName);
+  const [displayName, setDisplayName] = useState("");
+  const [organization, setOrganization] = useState("");
+  const [avatar, setAvatar] = useState("");
+
   const [zoneName, setZoneName] = useState("Production");
   const [zoneDesc, setZoneDesc] = useState("Live workloads and production agents.");
-  const [withSamples, setWithSamples] = useState(true);
-  const [template, setTemplate] = useState("blank");
 
-  function next() {
-    setStep((value) => Math.min(value + 1, steps.length - 1));
+  const [submitting, setSubmitting] = useState(false);
+  const [showErrors, setShowErrors] = useState(false);
+
+  useEffect(() => {
+    if (!fullName && sessionName) setFullName(sessionName);
+  }, [sessionName, fullName]);
+
+  const profileValid = fullName.trim().length > 0;
+  const zoneValid = zoneName.trim().length > 0;
+
+  function goNext() {
+    if (step === 0 && !profileValid) {
+      setShowErrors(true);
+      return;
+    }
+    if (step === 1 && !zoneValid) {
+      setShowErrors(true);
+      return;
+    }
+    setShowErrors(false);
+    setStep((value) => Math.min(value + 1, STEPS.length - 1));
   }
-  function back() {
+
+  function goBack() {
+    setShowErrors(false);
     setStep((value) => Math.max(value - 1, 0));
   }
 
   function finish() {
-    addZone({ name: zoneName, description: zoneDesc });
-    if (withSamples) seedSampleData();
-    completeOnboarding(installName || "Caracal");
+    if (!profileValid || !zoneValid) return;
+    setSubmitting(true);
+    const profile: ProfileRecord = {
+      fullName: fullName.trim(),
+      displayName: displayName.trim(),
+      organization: organization.trim(),
+      avatar,
+    };
+    addZone({ name: zoneName.trim(), description: zoneDesc.trim() });
+    completeOnboarding(profile);
     navigate({ to: "/app" });
   }
 
+  const head = STEP_HEAD[step];
+
   return (
-    <OnboardingLayout steps={steps} current={step}>
+    <OnboardingLayout
+      steps={STEPS}
+      current={step}
+      eyebrow={head.eyebrow}
+      title={head.title}
+      description={head.description}
+      footer={
+        <FooterNav
+          step={step}
+          submitting={submitting}
+          onBack={goBack}
+          onNext={goNext}
+          onFinish={finish}
+        />
+      }
+    >
       {step === 0 ? (
-        <div className="flex flex-col gap-5">
-          <p className="text-sm text-muted-foreground">
-            Name this installation. It appears across the Console and audit trail.
-          </p>
-          <Field
-            label="Installation name"
-            placeholder="Acme Platform"
-            value={installName}
-            onChange={(e) => setInstallName(e.target.value)}
+        <div className="flex flex-col gap-6">
+          <AvatarPicker
+            value={avatar}
+            fallbackName={fullName || displayName}
+            onChange={setAvatar}
           />
-          <div className="flex justify-end">
-            <Button onClick={next} disabled={!installName.trim()}>
-              Continue
-            </Button>
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+            <Field
+              label="Full name"
+              placeholder="Ada Lovelace"
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              error={showErrors && !profileValid ? "Full name is required." : undefined}
+              autoFocus
+            />
+            <Field
+              label="Display name"
+              hint="Optional. How you appear in the Console."
+              placeholder="ada"
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+            />
+            <Field
+              label="Organization"
+              hint="Optional. Your company or team name."
+              placeholder="Acme"
+              value={organization}
+              onChange={(e) => setOrganization(e.target.value)}
+            />
+            <Field label="Email" value={ownerEmail} readOnly disabled hint="From your account." />
           </div>
         </div>
       ) : null}
 
       {step === 1 ? (
-        <div className="flex flex-col gap-5">
-          <p className="text-sm text-muted-foreground">
-            Create your first zone. A zone is Caracal's primary trust boundary.
-          </p>
-          <Field label="Zone name" value={zoneName} onChange={(e) => setZoneName(e.target.value)} />
-          <Field
-            label="Zone description"
-            value={zoneDesc}
-            onChange={(e) => setZoneDesc(e.target.value)}
-          />
-          <div className="flex justify-between">
-            <Button variant="secondary" onClick={back}>
-              Back
-            </Button>
-            <Button onClick={next} disabled={!zoneName.trim()}>
-              Continue
-            </Button>
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_280px]">
+          <div className="flex flex-col gap-5">
+            <Field
+              label="Zone name"
+              placeholder="Production"
+              value={zoneName}
+              onChange={(e) => setZoneName(e.target.value)}
+              error={showErrors && !zoneValid ? "Zone name is required." : undefined}
+              autoFocus
+            />
+            <Textarea
+              label="Description"
+              hint="Optional. What this zone is for."
+              placeholder="Live workloads and production agents."
+              value={zoneDesc}
+              onChange={(e) => setZoneDesc(e.target.value)}
+            />
           </div>
+          <Card className="h-fit bg-muted/30">
+            <SectionTitle>What is a zone</SectionTitle>
+            <ul className="mt-3 flex flex-col gap-2.5 text-sm text-muted-foreground">
+              <li className="flex items-start gap-2">
+                <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-muted-foreground" />
+                <span>An isolated trust boundary for one environment.</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-muted-foreground" />
+                <span>Holds its own applications, resources, and policies.</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-muted-foreground" />
+                <span>You can add more zones at any time.</span>
+              </li>
+            </ul>
+          </Card>
         </div>
       ) : null}
 
       {step === 2 ? (
-        <div className="flex flex-col gap-5">
-          <p className="text-sm text-muted-foreground">
-            The first operator becomes the installation administrator.
-          </p>
-          <div className="rounded-md border border-border bg-background px-4 py-3 text-sm">
-            <div className="font-medium text-foreground">Administrator</div>
-            <div className="mt-1 font-mono text-muted-foreground">{operatorEmail}</div>
-          </div>
-          <div className="flex justify-between">
-            <Button variant="secondary" onClick={back}>
-              Back
-            </Button>
-            <Button onClick={next}>Continue</Button>
-          </div>
-        </div>
-      ) : null}
-
-      {step === 3 ? (
-        <div className="flex flex-col gap-5">
-          <p className="text-sm text-muted-foreground">
-            Optionally seed sample data and pick a quick-start template.
-          </p>
-          <label className="flex items-center gap-3 rounded-md border border-border bg-background px-4 py-3 text-sm">
-            <input
-              type="checkbox"
-              checked={withSamples}
-              onChange={(e) => setWithSamples(e.target.checked)}
-            />
-            <span className="text-foreground">Add sample zones and example objects</span>
-          </label>
-          <div className="flex flex-col gap-2">
-            {TEMPLATES.map((option) => (
-              <label
-                key={option.id}
-                className="flex cursor-pointer items-start gap-3 rounded-md border border-border bg-background px-4 py-3 text-sm"
-              >
-                <input
-                  type="radio"
-                  name="template"
-                  checked={template === option.id}
-                  onChange={() => setTemplate(option.id)}
-                  className="mt-1"
-                />
-                <span>
-                  <span className="block font-medium text-foreground">{option.label}</span>
-                  <span className="block text-muted-foreground">{option.desc}</span>
-                </span>
-              </label>
-            ))}
-          </div>
-          <div className="flex justify-between">
-            <Button variant="secondary" onClick={back}>
-              Back
-            </Button>
-            <Button onClick={next}>Continue</Button>
-          </div>
-        </div>
-      ) : null}
-
-      {step === 4 ? (
-        <div className="flex flex-col gap-5">
-          <p className="text-sm text-muted-foreground">Review and finish setup.</p>
-          <dl className="divide-y divide-border rounded-md border border-border">
-            {[
-              ["Installation", installName || "Caracal"],
-              ["First zone", zoneName],
-              ["Administrator", operatorEmail],
-              ["Sample data", withSamples ? "Enabled" : "Skipped"],
-              [
-                "Template",
-                TEMPLATES.find((option) => option.id === template)?.label ?? "Blank zone",
-              ],
-            ].map(([key, value]) => (
-              <div key={key} className="flex justify-between px-4 py-2.5 text-sm">
-                <dt className="text-muted-foreground">{key}</dt>
-                <dd className="font-medium text-foreground">{value}</dd>
-              </div>
-            ))}
-          </dl>
-          <div className="flex justify-between">
-            <Button variant="secondary" onClick={back}>
-              Back
-            </Button>
-            <Button onClick={finish}>Finish setup</Button>
-          </div>
+        <div className="flex flex-col gap-4">
+          <ReviewSection
+            title="Profile"
+            onEdit={() => setStep(0)}
+            rows={[
+              ["Full name", fullName.trim()],
+              ["Display name", displayName.trim() || "—"],
+              ["Organization", organization.trim() || "—"],
+              ["Email", ownerEmail || "—"],
+            ]}
+            avatar={avatar}
+            avatarName={fullName || displayName}
+          />
+          <ReviewSection
+            title="First zone"
+            onEdit={() => setStep(1)}
+            rows={[
+              ["Name", zoneName.trim()],
+              ["Description", zoneDesc.trim() || "—"],
+            ]}
+          />
+          <Card>
+            <SectionTitle>Ownership</SectionTitle>
+            <p className="mt-3 text-sm text-foreground">
+              You are the single owner of this environment.
+            </p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              The Community Edition runs as a single user. There are no teams, roles, or invitations
+              to manage.
+            </p>
+          </Card>
         </div>
       ) : null}
     </OnboardingLayout>
+  );
+}
+
+function FooterNav({
+  step,
+  submitting,
+  onBack,
+  onNext,
+  onFinish,
+}: {
+  step: number;
+  submitting: boolean;
+  onBack: () => void;
+  onNext: () => void;
+  onFinish: () => void;
+}) {
+  const isLast = step === STEPS.length - 1;
+  return (
+    <>
+      {step > 0 ? (
+        <Button variant="secondary" onClick={onBack} disabled={submitting}>
+          Back
+        </Button>
+      ) : (
+        <span />
+      )}
+      {isLast ? (
+        <Button onClick={onFinish} loading={submitting}>
+          {submitting ? "Finishing…" : "Finish setup"}
+        </Button>
+      ) : (
+        <Button onClick={onNext}>Continue</Button>
+      )}
+    </>
+  );
+}
+
+function ReviewSection({
+  title,
+  rows,
+  onEdit,
+  avatar,
+  avatarName,
+}: {
+  title: string;
+  rows: [string, string][];
+  onEdit: () => void;
+  avatar?: string;
+  avatarName?: string;
+}) {
+  return (
+    <Card>
+      <div className="flex items-center justify-between">
+        <SectionTitle>{title}</SectionTitle>
+        <Button variant="ghost" size="sm" onClick={onEdit}>
+          Edit
+        </Button>
+      </div>
+      <div className="mt-3 flex items-start gap-4">
+        {avatar !== undefined ? (
+          <div className="grid h-12 w-12 flex-shrink-0 place-items-center overflow-hidden rounded-full border border-border bg-muted text-sm font-semibold text-muted-foreground">
+            {avatar ? (
+              <img src={avatar} alt="" className="h-full w-full object-cover" />
+            ) : (
+              (avatarName ?? "").trim().slice(0, 1).toUpperCase() || "U"
+            )}
+          </div>
+        ) : null}
+        <dl className="min-w-0 flex-1 divide-y divide-border">
+          {rows.map(([label, value]) => (
+            <div key={label} className="flex justify-between gap-4 py-2 text-sm">
+              <dt className="text-muted-foreground">{label}</dt>
+              <dd className="truncate font-medium text-foreground">{value}</dd>
+            </div>
+          ))}
+        </dl>
+      </div>
+    </Card>
   );
 }

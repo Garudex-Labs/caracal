@@ -9,7 +9,7 @@ import { useEffect, useState } from "react";
 
 import { ModulePage } from "@/components/console/ModulePage";
 import { Badge, Button, Card, SectionTitle, Skeleton, Stat } from "@/components/ui";
-import { activeZones, getActiveZone, getInstallation } from "@/platform/state/localInstall";
+import { activeZones, getActiveZone, workspaceLabel } from "@/platform/state/localInstall";
 
 export const Route = createFileRoute("/app/")({
   component: DashboardPage,
@@ -30,7 +30,7 @@ const RECENT = [
 ];
 
 function DashboardPage() {
-  const installation = getInstallation();
+  const workspace = workspaceLabel();
   const [loading, setLoading] = useState(true);
   const [zoneCount, setZoneCount] = useState(0);
   const [activeName, setActiveName] = useState<string | null>(null);
@@ -47,7 +47,7 @@ function DashboardPage() {
   return (
     <ModulePage
       title="Dashboard"
-      description={`${installation.name || "Caracal"} · ${activeName ? `active zone ${activeName}` : "no active zone"}`}
+      description={`${workspace} · ${activeName ? `active zone ${activeName}` : "no active zone"}`}
       breadcrumbs={[{ label: "Console", to: "/app" }, { label: "Dashboard" }]}
     >
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">

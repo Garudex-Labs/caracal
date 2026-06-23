@@ -20,9 +20,17 @@ export interface InstallationRecord {
   onboarded: boolean;
 }
 
+export interface ProfileRecord {
+  fullName: string;
+  displayName: string;
+  organization: string;
+  avatar: string;
+}
+
 const INSTALL_KEY = "caracal.install";
 const ZONES_KEY = "caracal.zones";
 const ACTIVE_ZONE_KEY = "caracal.activeZone";
+const PROFILE_KEY = "caracal.profile";
 
 function read<T>(key: string, fallback: T): T {
   if (typeof localStorage === "undefined") return fallback;
@@ -105,14 +113,33 @@ export function getActiveZone(): ZoneRecord | null {
   return zones.find((zone) => zone.id === id) ?? zones[0] ?? null;
 }
 
-export function seedSampleData(): void {
-  if (listZones().length > 0) return;
-  addZone({ name: "Production", description: "Live workloads and production agents." });
-  addZone({ name: "Staging", description: "Pre-production validation zone." });
+export function getProfile(): ProfileRecord {
+  return read<ProfileRecord>(PROFILE_KEY, {
+    fullName: "",
+    displayName: "",
+    organization: "",
+    avatar: "",
+  });
 }
 
-export function completeOnboarding(name: string): void {
-  setInstallation({ name, onboarded: true });
+export function setProfile(record: ProfileRecord): void {
+  write(PROFILE_KEY, record);
+}
+
+/** Human label for the active workspace shown in the Console chrome. */
+export function workspaceLabel(): string {
+  const profile = getProfile();
+  return (
+    profile.organization.trim() ||
+    profile.displayName.trim() ||
+    profile.fullName.trim() ||
+    "Caracal"
+  );
+}
+
+export function completeOnboarding(profile: ProfileRecord): void {
+  setProfile(profile);
+  setInstallation({ name: workspaceLabel(), onboarded: true });
 }
 
 export function resetInstallation(): void {
@@ -120,4 +147,5 @@ export function resetInstallation(): void {
   localStorage.removeItem(INSTALL_KEY);
   localStorage.removeItem(ZONES_KEY);
   localStorage.removeItem(ACTIVE_ZONE_KEY);
+  localStorage.removeItem(PROFILE_KEY);
 }
