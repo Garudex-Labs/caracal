@@ -3,10 +3,10 @@
 //
 // Better Auth instance for Community Edition: unified email, Google, and GitHub identity backed by local SQLite.
 
-import { DatabaseSync } from "node:sqlite";
 import { betterAuth } from "better-auth";
 import type { BetterAuthOptions } from "better-auth";
 
+import { authDatabase } from "./database.ts";
 import { loadConfig } from "./config.ts";
 import { githubCredentials, googleCredentials } from "./providers.ts";
 
@@ -24,7 +24,7 @@ function socialProviders(): NonNullable<BetterAuthOptions["socialProviders"]> {
 export const auth = betterAuth({
   baseURL: cfg.baseURL,
   secret: cfg.secret,
-  database: new DatabaseSync(cfg.databasePath),
+  database: authDatabase,
   trustedOrigins: [cfg.webOrigin],
   emailAndPassword: {
     enabled: true,

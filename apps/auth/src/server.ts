@@ -8,6 +8,7 @@ import { getMigrations } from "better-auth/db/migration";
 import { toNodeHandler } from "better-auth/node";
 
 import { auth } from "./auth.ts";
+import { handleAccount } from "./account.ts";
 import { loadConfig } from "./config.ts";
 import { handleConsole } from "./console.ts";
 import { enabledProviders } from "./providers.ts";
@@ -46,6 +47,17 @@ const server = createServer((req, res) => {
         res.statusCode = 500;
         res.setHeader("Content-Type", "application/json");
         res.end(JSON.stringify({ error: "console_proxy_failed" }));
+      }
+    });
+    return;
+  }
+
+  if (req.url === "/account") {
+    void handleAccount(req, res).catch(() => {
+      if (!res.headersSent) {
+        res.statusCode = 500;
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ error: "account_lifecycle_failed" }));
       }
     });
     return;
