@@ -17,6 +17,11 @@ from caracalai.auth import (
     ClientSecretExchanger,
     _decode_jwt_exp,
 )
+from caracalai.errors import (
+    AccessDenied,
+    CaracalError,
+    ZoneMismatch,
+)
 
 
 def _jwt(payload: dict) -> str:
@@ -138,8 +143,10 @@ class RefreshErrorTests(unittest.TestCase):
             return httpx.Response(500, json={"error": "boom"})
 
         with _patch_client(handler):
-            with self.assertRaises(httpx.HTTPStatusError):
+            with self.assertRaises(CaracalError) as caught:
                 _exchanger().get_token()
+        self.assertEqual(caught.exception.code, "boom")
+        self.assertEqual(caught.exception.http_status, 500)
 
     def test_raises_when_access_token_missing(self):
         def handler(req: httpx.Request) -> httpx.Response:
@@ -301,6 +308,55 @@ class MintMandateTests(unittest.TestCase):
                 approval_id="chal_1",
             )
         self.assertIn("challenge_id=chal_1", captured[0].decode())
+
+
+class TypedErrorTests(unittest.TestCase):
+    def _raise_on(self, status: int, body: dict):
+        def handler(req: httpx.Request) -> httpx.Response:
+            return httpx.Response(status, json=body)
+
+        with _patch_client(handler):
+            _exchanger().get_token()
+
+    def test_maps_zone_invalid_to_zone_mismatch(self):
+        with self.assertRaises(ZoneMismatch) as caught:
+            self._raise_on(
+                403,
+                {
+                    "error": "zone_invalid",
+                    "error_description": "application is registered in zone zone-1",
+                    "requestId": "req-9",
+                },
+            )
+        self.assertEqual(caught.exception.code, "zone_invalid")
+        self.assertEqual(caught.exception.request_id, "req-9")
+        self.assertEqual(caught.exception.http_status, 403)
+
+    def test_maps_access_denied(self):
+        with self.assertRaises(AccessDenied) as caught:
+            self._raise_on(
+                401, {"error": "access_denied", "error_description": "policy denied"}
+            )
+        self.assertEqual(caught.exception.description, "policy denied")
+
+    def test_unknown_code_falls_back_to_base_with_code(self):
+        with self.assertRaises(CaracalError) as caught:
+            self._raise_on(500, {"error": "internal_error"})
+        self.assertEqual(type(caught.exception), CaracalError)
+        self.assertEqual(caught.exception.code, "internal_error")
+
+    def test_typed_errors_are_caracal_errors(self):
+        self.assertTrue(issubclass(ZoneMismatch, CaracalError))
+        self.assertTrue(issubclass(ApprovalRequired, CaracalError))
+
+    def test_non_json_error_body_still_raises_caracal_error(self):
+        def handler(req: httpx.Request) -> httpx.Response:
+            return httpx.Response(502, text="bad gateway")
+
+        with _patch_client(handler):
+            with self.assertRaises(CaracalError) as caught:
+                _exchanger().get_token()
+        self.assertEqual(caught.exception.http_status, 502)
 
 
 if __name__ == "__main__":

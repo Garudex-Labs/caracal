@@ -2283,6 +2283,25 @@ func TestValidateSubjectTokenGracePeriodAndRotation(t *testing.T) {
 	})
 }
 
+func TestMintScopeSelfDescribesGatewayMandate(t *testing.T) {
+	presented := map[string]any{"scope": "cordoba:read treasury:wire"}
+
+	gateway := mintScope(TokenExchangeRequest{GatewayAuthenticated: true}, presented)
+	if gateway != "cordoba:read treasury:wire" {
+		t.Fatalf("a Gateway re-exchange must inherit the presented mandate's scope, got %q", gateway)
+	}
+
+	explicit := mintScope(TokenExchangeRequest{Scope: "agent:lifecycle"}, presented)
+	if explicit != "agent:lifecycle" {
+		t.Fatalf("an explicit scope request must mint exactly those scopes, got %q", explicit)
+	}
+
+	bootstrap := mintScope(TokenExchangeRequest{GatewayAuthenticated: true}, map[string]any{})
+	if bootstrap != "" {
+		t.Fatalf("a presented mandate with no scope claim must mint no scope, got %q", bootstrap)
+	}
+}
+
 func TestGatewayActionInputSurfacesOperationOnlyForGatewayAuth(t *testing.T) {
 	withOp := gatewayActionInput(TokenExchangeRequest{
 		GatewayAuthenticated: true,

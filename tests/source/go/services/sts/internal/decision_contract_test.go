@@ -104,11 +104,13 @@ func TestDecisionContractDelegatedMintNarrowing(t *testing.T) {
 }
 
 func TestDecisionContractApprovalGate(t *testing.T) {
-	approval := `package caracal.authz
+	risk := `package caracal.authz
 
 import rego.v1
 
-approval := [{"scope": "nucleus:pay"}]
+risk := [{"scope": "nucleus:pay", "tier": "money"}]
+
+approval_tiers := ["money"]
 `
 	input := OPAInput{
 		Principal:      OPAPrincipal{ID: "app-payments", ZoneID: "z1", Type: "application", Labels: []string{"payment-execution"}},
@@ -121,17 +123,70 @@ approval := [{"scope": "nucleus:pay"}]
 			ActorClaims:     map[string]any{},
 		},
 	}
-	gated := simulateContract(t, input, dataModules(OPAPolicyModule{ID: "approval", Content: approval}))
+	gated := simulateContract(t, input, dataModules(OPAPolicyModule{ID: "risk", Content: risk}))
 	if gated.Decision != "allow" {
 		t.Fatalf("an approval-gated mint stays allow pending approval, got %q", gated.Decision)
 	}
 	if stepUpRequired(gated) != "human_approval" {
 		t.Fatalf("an approval-gated mint must mark human_approval step-up, diagnostics %+v", gated.Diagnostics)
 	}
+	if riskTier(gated, "nucleus:pay") != "money" {
+		t.Fatalf("a gated mint must carry the classified risk tier in diagnostics, got %+v", gated.Diagnostics)
+	}
 	ungated := simulateContract(t, input, dataModules())
 	if ungated.Decision != "allow" || stepUpRequired(ungated) != "" {
-		t.Fatalf("a mint with no approval data must allow without a step-up gate, got %q diagnostics %+v", ungated.Decision, ungated.Diagnostics)
+		t.Fatalf("a mint with no risk data must allow without a step-up gate, got %q diagnostics %+v", ungated.Decision, ungated.Diagnostics)
 	}
+	if riskTier(ungated, "nucleus:pay") != "" {
+		t.Fatalf("an unclassified scope must carry no risk diagnostic, got %+v", ungated.Diagnostics)
+	}
+}
+
+func TestDecisionContractRiskClassifiedWithoutGate(t *testing.T) {
+	risk := `package caracal.authz
+
+import rego.v1
+
+risk := [{"scope": "nucleus:pay", "tier": "sensitive"}]
+`
+	input := OPAInput{
+		Principal:      OPAPrincipal{ID: "app-payments", ZoneID: "z1", Type: "application", Labels: []string{"payment-execution"}},
+		Resource:       OPAResource{Identifier: "resource://nucleus"},
+		Action:         OPAAction{ID: "token_exchange"},
+		DelegationEdge: &OPADelegationEdge{ID: "edge1", Scopes: []string{"nucleus:pay"}},
+		Context: OPAContext{
+			AgentSessionID:  "agent-1",
+			RequestedScopes: []string{"nucleus:pay"},
+			ActorClaims:     map[string]any{},
+		},
+	}
+	res := simulateContract(t, input, dataModules(OPAPolicyModule{ID: "risk", Content: risk}))
+	if res.Decision != "allow" || stepUpRequired(res) != "" {
+		t.Fatalf("a classified tier the zone does not gate must allow without step-up, got %q diagnostics %+v", res.Decision, res.Diagnostics)
+	}
+	if riskTier(res, "nucleus:pay") != "sensitive" {
+		t.Fatalf("a classified scope must ride in diagnostics for audit even when ungated, got %+v", res.Diagnostics)
+	}
+}
+
+func riskTier(result *OPAResult, scope string) string {
+	for _, d := range result.Diagnostics {
+		entries, ok := d["risk"].([]any)
+		if !ok {
+			continue
+		}
+		for _, raw := range entries {
+			entry, ok := raw.(map[string]any)
+			if !ok {
+				continue
+			}
+			if entry["scope"] == scope {
+				tier, _ := entry["tier"].(string)
+				return tier
+			}
+		}
+	}
+	return ""
 }
 
 func TestDecisionContractConfinementDeny(t *testing.T) {
