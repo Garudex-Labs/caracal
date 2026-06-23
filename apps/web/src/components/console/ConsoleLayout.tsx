@@ -15,8 +15,8 @@ import { NAV_GROUPS } from "@/platform/nav/navModel";
 import {
   activeZones,
   getActiveZone,
-  getInstallation,
   setActiveZoneId,
+  workspaceLabel,
 } from "@/platform/state/localInstall";
 
 function isActive(pathname: string, to: string): boolean {
@@ -27,7 +27,7 @@ function isActive(pathname: string, to: string): boolean {
 export function ConsoleLayout() {
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
-  const installation = getInstallation();
+  const workspace = workspaceLabel();
   const [zones] = useState(() => activeZones());
   const [activeZoneId, setActive] = useState<string | null>(() => getActiveZone()?.id ?? null);
 
@@ -44,9 +44,7 @@ export function ConsoleLayout() {
             <div className="grid h-7 w-7 place-items-center rounded-sm bg-foreground text-sm font-bold text-background">
               C
             </div>
-            <span className="font-mono text-sm font-semibold tracking-tight">
-              {installation.name || "Caracal"}
-            </span>
+            <span className="font-mono text-sm font-semibold tracking-tight">{workspace}</span>
           </Link>
           <span className="hidden text-xs text-muted-foreground sm:inline">Community Edition</span>
           <div className="ml-2">
