@@ -163,7 +163,7 @@ export function ResourceWorkspace<T>({
       />
 
       {!loading && filtered.length > 0 ? (
-        <div className="mt-3 overflow-hidden rounded-lg border border-border bg-card">
+        <div className="border-x border-b border-border bg-card">
           <Pagination
             page={page}
             pageSize={pageSizeValue}

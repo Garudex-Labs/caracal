@@ -74,7 +74,7 @@ export function DataTable<T>({
   const minHeight = 45 + Math.max(skeletonRows, 1) * 49;
 
   return (
-    <div className="overflow-hidden rounded-lg border border-border bg-card" style={{ minHeight }}>
+    <div className="overflow-hidden border border-border bg-card" style={{ minHeight }}>
       <div className="scrollbar-thin overflow-x-auto">
         <table className="w-full min-w-full text-sm">
           <thead>
@@ -124,9 +124,22 @@ export function DataTable<T>({
                   <tr
                     key={rowKey(row)}
                     onClick={onRowClick ? () => onRowClick(row) : undefined}
+                    onKeyDown={
+                      onRowClick
+                        ? (event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              onRowClick(row);
+                            }
+                          }
+                        : undefined
+                    }
+                    tabIndex={onRowClick ? 0 : undefined}
+                    role={onRowClick ? "button" : undefined}
                     className={cx(
-                      "transition-colors",
-                      onRowClick && "cursor-pointer hover:bg-accent/50",
+                      "transition-colors outline-none",
+                      onRowClick &&
+                        "cursor-pointer hover:bg-accent/50 focus-visible:bg-accent/50 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring",
                     )}
                   >
                     {columns.map((col) => (
