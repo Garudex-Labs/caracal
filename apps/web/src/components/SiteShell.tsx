@@ -91,13 +91,22 @@ export function SiteShell({ children }: { children: ReactNode }) {
               </Link>
             ))}
           </div>
-          <Link
-            to="/pricing"
-            onClick={() => setMobileOpen(false)}
-            className="mt-2 block rounded-md bg-foreground px-3 py-2 text-center text-sm font-medium text-background"
-          >
-            Request a demo
-          </Link>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <Link
+              to="/sign-in"
+              onClick={() => setMobileOpen(false)}
+              className="block rounded-md border border-border px-3 py-2 text-center text-sm font-medium text-foreground hover:bg-surface"
+            >
+              Log in
+            </Link>
+            <Link
+              to="/sign-up"
+              onClick={() => setMobileOpen(false)}
+              className="block rounded-md bg-foreground px-3 py-2 text-center text-sm font-medium text-background"
+            >
+              Sign up
+            </Link>
+          </div>
         </div>
       )}
 
@@ -321,7 +330,7 @@ function TopTabs() {
   };
 
   return (
-    <div className="sticky top-0 z-30 hidden lg:grid grid-cols-5 border-b border-border bg-background/85 backdrop-blur">
+    <div className="sticky top-0 z-30 hidden lg:grid grid-cols-6 border-b border-border bg-background/85 backdrop-blur">
       {NAV.map((n) => {
         const active = isActive(n.to);
         const content = (
@@ -367,10 +376,16 @@ function TopTabs() {
         );
       })}
       <Link
-        to="/pricing"
+        to="/sign-in"
+        className="flex items-center justify-center gap-1 border-r border-border px-2 py-4 text-[11px] font-medium tracking-[0.14em] text-muted-foreground transition hover:text-foreground"
+      >
+        SIGN IN
+      </Link>
+      <Link
+        to="/sign-up"
         className="flex items-center justify-center gap-1 bg-foreground px-4 py-4 text-[11px] font-medium tracking-[0.14em] text-background hover:bg-foreground/90"
       >
-        Request a demo <span>↗</span>
+        Sign up <span>↗</span>
       </Link>
     </div>
   );
