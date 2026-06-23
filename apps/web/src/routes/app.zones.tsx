@@ -7,6 +7,7 @@ This file defines the zones management route.
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 
+import { DcrField } from "@/components/console/DcrField";
 import { ModulePage } from "@/components/console/ModulePage";
 import {
   Badge,
@@ -35,7 +36,7 @@ import {
 } from "@/platform/api/hooks";
 import { useSession } from "@/platform/auth";
 import { getActiveZoneId } from "@/platform/state/localInstall";
-import type { Zone } from "@/platform/api/types";
+import type { Zone, ZonePatchInput } from "@/platform/api/types";
 
 const PAGE_SIZE = 8;
 
@@ -284,7 +285,11 @@ function ZonesPage() {
         onClose={() => setCreateOpen(false)}
         onSubmit={async (values) => {
           try {
-            const zone = await createZone.mutateAsync({ name: values.name, slug: values.slug });
+            const zone = await createZone.mutateAsync({
+              name: values.name,
+              slug: values.slug,
+              dcr_enabled: values.dcrEnabled,
+            });
             setCreateOpen(false);
             toast({ tone: "success", title: "Zone created", description: zone.name });
           } catch (err) {
@@ -301,11 +306,18 @@ function ZonesPage() {
         onClose={() => setEditTarget(null)}
         onSubmit={async (values) => {
           if (!editTarget) return;
+          const input: ZonePatchInput = {
+            name: values.name,
+            slug: values.slug,
+            dcr_enabled: values.dcrEnabled,
+          };
+          // Disabling DCR on a zone with live dynamic clients keeps them running
+          // rather than silently revoking runtime sessions.
+          if (editTarget.dcr_enabled && !values.dcrEnabled) {
+            input.dcr_shutdown = "keep_live";
+          }
           try {
-            await updateZone.mutateAsync({
-              id: editTarget.id,
-              input: { name: values.name, slug: values.slug },
-            });
+            await updateZone.mutateAsync({ id: editTarget.id, input });
             setEditTarget(null);
             toast({ tone: "success", title: "Zone updated", description: values.name });
           } catch (err) {
@@ -360,17 +372,19 @@ function ZoneFormModal({
   zone?: Zone;
   busy: boolean;
   onClose: () => void;
-  onSubmit: (values: { name: string; slug: string }) => void;
+  onSubmit: (values: { name: string; slug: string; dcrEnabled: boolean }) => void;
 }) {
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const [slugDirty, setSlugDirty] = useState(false);
+  const [dcrEnabled, setDcrEnabled] = useState(false);
 
   useEffect(() => {
     if (open) {
       setName(zone?.name ?? "");
       setSlug(zone?.slug ?? "");
       setSlugDirty(mode === "edit");
+      setDcrEnabled(zone?.dcr_enabled ?? false);
     }
   }, [open, zone, mode]);
 
@@ -389,7 +403,8 @@ function ZoneFormModal({
           </Button>
           <Button
             onClick={() =>
-              name.trim() && onSubmit({ name: name.trim(), slug: effectiveSlug.trim() })
+              name.trim() &&
+              onSubmit({ name: name.trim(), slug: effectiveSlug.trim(), dcrEnabled })
             }
             loading={busy}
             disabled={!name.trim() || !effectiveSlug.trim()}
@@ -417,6 +432,7 @@ function ZoneFormModal({
             setSlug(slugify(e.target.value));
           }}
         />
+        <DcrField enabled={dcrEnabled} onChange={setDcrEnabled} />
       </div>
     </Modal>
   );
