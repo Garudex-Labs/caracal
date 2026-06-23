@@ -10,6 +10,7 @@ lerna-debug.log*
 .nx/
 .vite/
 .vitest/
+vite.config.*.timestamp-*
 
 # Build outputs
 dist/
@@ -103,6 +104,7 @@ caracal.toml
 packages/engine/src/embedded.ts
 apps/runtime/src/runtime/version.gen.ts
 apps/console/src/version.gen.ts
+apps/web/src/routeTree.gen.ts
 
 # Generated evidence packs
 /evidence/
