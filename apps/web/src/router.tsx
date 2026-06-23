@@ -9,8 +9,25 @@ import { createRouter } from "@tanstack/react-router";
 
 import { routeTree } from "./routeTree.gen";
 
+// Centralized data contract for every console query: cache briefly, never retry
+// (the BFF returns structured errors that retrying cannot fix), and refresh on
+// reconnect so the control plane recovers cleanly after a dropped connection.
+export function buildQueryClient(): QueryClient {
+  return new QueryClient({
+    defaultOptions: {
+      queries: {
+        staleTime: 15_000,
+        gcTime: 5 * 60_000,
+        retry: false,
+        refetchOnWindowFocus: false,
+        refetchOnReconnect: true,
+      },
+    },
+  });
+}
+
 export const getRouter = () => {
-  const queryClient = new QueryClient();
+  const queryClient = buildQueryClient();
 
   const router = createRouter({
     routeTree,
