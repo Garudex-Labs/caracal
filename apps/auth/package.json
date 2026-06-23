@@ -1,0 +1,30 @@
+{
+  "name": "@caracalai/auth",
+  "version": "0.1.6-rc.1",
+  "private": true,
+  "description": "Caracal Community Edition authentication service built on Better Auth.",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "migrate": "tsx src/migrate.ts",
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "better-auth": "^1.3.4"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.32.0",
+    "@types/node": "^26.0.0",
+    "eslint": "^9.32.0",
+    "tsx": "^4.22.4",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.56.1",
+    "globals": "^15.15.0"
+  }
+}
