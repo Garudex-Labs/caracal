@@ -11,6 +11,7 @@ import { runCommand } from './commands/run.ts'
 import { upCommand, downCommand, statusCommand, upgradeCommand } from './commands/stack.ts'
 import { purgeCommand } from './commands/purge.ts'
 import { availableInterfaceCommands, consoleDispatch } from './commands/dispatch.ts'
+import { webCommand, webInterfaceAvailable } from './commands/web.ts'
 import { checkMcpGovernance } from './mcp.ts'
 import { CARACAL_MODE, CARACAL_SHA, CARACAL_VERSION } from './runtime/version.gen.ts'
 import { SHELL_COMMANDS } from '@caracalai/engine/commands'
@@ -31,9 +32,14 @@ const executors: Record<string, Executor> = {
     return runCommand([...argv], cfg)
   },
   console: (argv) => { consoleDispatch([...argv]) },
+  web: (argv) => { webCommand([...argv]) },
 }
 
-const availableCommands = new Set(['up', 'down', 'status', 'upgrade', 'purge', 'run', ...availableInterfaceCommands()])
+// `web` is a workspace-only launcher: include it only when both the descriptor
+// exists in the canonical surface and the workspace packages are present, so the
+// registry's descriptor/executor symmetry holds in every build.
+const webAvailable = webInterfaceAvailable() && SHELL_COMMANDS.some((command) => command.name === 'web')
+const availableCommands = new Set(['up', 'down', 'status', 'upgrade', 'purge', 'run', ...availableInterfaceCommands(), ...(webAvailable ? ['web'] : [])])
 const shellCommands = SHELL_COMMANDS.filter((command) => availableCommands.has(command.name))
 const shellExecutors = Object.fromEntries(Object.entries(executors).filter(([name]) => availableCommands.has(name)))
 const registry = buildRegistry(shellCommands, shellExecutors)

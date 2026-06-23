@@ -94,7 +94,8 @@ caracal status [--ready]              # probe all services
 caracal down                          # stop; add -v to remove volumes
 caracal purge                         # interactive cleanup (containers, volumes, config, runtime, examples, caches)
 
-caracal console                       # launch Console
+caracal console                       # launch Console (terminal)
+caracal web                           # launch the web console (UI + backend-for-frontend)
 caracal run -- node worker.js         # workload execution
 ```
 
