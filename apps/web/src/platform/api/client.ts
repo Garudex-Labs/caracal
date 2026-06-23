@@ -9,6 +9,7 @@ import { config } from "@/platform/config";
 import type {
   Application,
   ApplicationInput,
+  ApplicationPatchInput,
   AuditDetail,
   AuditEvent,
   ConsoleStatus,
@@ -108,6 +109,11 @@ export const consoleApi = {
         method: "POST",
         body: JSON.stringify(input),
       }),
+    patch: (zoneId: string, id: string, input: ApplicationPatchInput) =>
+      request<{ id: string; name: string }>(
+        `/v1/zones/${encodeURIComponent(zoneId)}/applications/${encodeURIComponent(id)}`,
+        { method: "PATCH", body: JSON.stringify(input) },
+      ),
     delete: (zoneId: string, id: string) =>
       request<void>(
         `/v1/zones/${encodeURIComponent(zoneId)}/applications/${encodeURIComponent(id)}`,

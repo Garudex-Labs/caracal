@@ -53,6 +53,12 @@ export interface ApplicationInput {
   traits?: string[];
 }
 
+export interface ApplicationPatchInput {
+  name?: string;
+  client_secret?: string;
+  traits?: string[];
+}
+
 export type ResourceOperationEnforcement = "enforced" | "transport_uniform";
 
 export interface ResourceOperation {

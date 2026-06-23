@@ -10,7 +10,14 @@ import { useSyncExternalStore } from "react";
 import { getActiveZoneId, setActiveZoneId } from "@/platform/state/localInstall";
 
 import { consoleApi } from "./client";
-import type { Application, ApplicationInput, Zone, ZoneInput, ZonePatchInput } from "./types";
+import type {
+  Application,
+  ApplicationInput,
+  ApplicationPatchInput,
+  Zone,
+  ZoneInput,
+  ZonePatchInput,
+} from "./types";
 
 // Operational data that benefits from staying live while the tab is focused.
 const LIVE_MS = 10_000;
@@ -96,6 +103,15 @@ export function useCreateApplication(zoneId: string | null) {
   return useMutation({
     mutationFn: (input: ApplicationInput) =>
       consoleApi.applications.create(zoneId as string, input),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.applications(zoneId) }),
+  });
+}
+
+export function useUpdateApplication(zoneId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: ApplicationPatchInput }) =>
+      consoleApi.applications.patch(zoneId as string, id, input),
     onSuccess: () => qc.invalidateQueries({ queryKey: keys.applications(zoneId) }),
   });
 }
