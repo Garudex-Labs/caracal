@@ -5,9 +5,11 @@ Caracal, a product of Garudex Labs
 This file defines the Diagnostics route.
 */
 import { createFileRoute } from "@tanstack/react-router";
+import type { ReactNode } from "react";
 
+import { SectionLabel } from "@/components/SiteShell";
 import { ModulePage } from "@/components/console/ModulePage";
-import { Badge, Button, Card, SectionTitle, Skeleton } from "@/components/ui";
+import { Badge, Button, Skeleton } from "@/components/ui";
 import { cx } from "@/lib/cx";
 import { useActiveZone, useConsoleStatus, useZones } from "@/platform/api/hooks";
 
@@ -64,6 +66,9 @@ function DiagnosticsPage() {
     });
   }
 
+  const failing = checks.filter((c) => c.level === "down").length;
+  const attention = checks.filter((c) => c.level === "warn").length;
+
   return (
     <ModulePage
       title="Diagnostics"
@@ -83,45 +88,77 @@ function DiagnosticsPage() {
         </Button>
       }
     >
-      <Card>
-        <SectionTitle>Control plane</SectionTitle>
-        {loading ? (
-          <div className="mt-3 flex flex-col gap-2">
-            <Skeleton className="h-12 w-full" />
-            <Skeleton className="h-12 w-full" />
-          </div>
-        ) : (
-          <ul className="mt-3 divide-y divide-border">
-            {checks.map((check) => (
-              <li key={check.id} className="flex items-start gap-3 py-3">
-                <Dot level={check.level} />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-foreground">{check.label}</span>
-                    <LevelBadge level={check.level} />
-                  </div>
-                  <p className="mt-0.5 text-xs text-muted-foreground">{check.detail}</p>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Card>
-
-      <Card className="mt-4">
-        <SectionTitle>Endpoint</SectionTitle>
-        <div className="mt-3 flex items-center justify-between text-sm">
-          <span className="text-foreground">Admin API</span>
-          <span className="truncate font-mono text-xs text-muted-foreground">
-            {status.data?.apiUrl ?? "—"}
-          </span>
+      <div className="border border-border">
+        <div className="grid gap-px bg-border sm:grid-cols-3 [&>*]:bg-background">
+          <Summary label="Checks" value={loading ? "—" : String(checks.length)} />
+          <Summary
+            label="Attention"
+            value={loading ? "—" : String(attention)}
+            tone={attention > 0 ? "warn" : undefined}
+          />
+          <Summary
+            label="Failing"
+            value={loading ? "—" : String(failing)}
+            tone={failing > 0 ? "down" : undefined}
+          />
         </div>
-        <p className="mt-3 text-xs text-muted-foreground">
-          The web client reaches the control plane through the session-guarded console backend.
-          Admin credentials never leave the server.
-        </p>
-      </Card>
+
+        <div className="border-t border-border p-6">
+          <SectionLabel>Control plane</SectionLabel>
+          {loading ? (
+            <div className="mt-5 flex flex-col gap-2">
+              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-12 w-full" />
+            </div>
+          ) : (
+            <ul className="mt-5 divide-y divide-border border-y border-border">
+              {checks.map((check) => (
+                <li key={check.id} className="flex items-start gap-3 py-3.5">
+                  <Dot level={check.level} />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-foreground">{check.label}</span>
+                      <LevelBadge level={check.level} />
+                    </div>
+                    <p className="mt-0.5 text-xs text-muted-foreground">{check.detail}</p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <div className="border-t border-border p-6">
+          <SectionLabel>Endpoint</SectionLabel>
+          <dl className="mt-5 grid gap-4 sm:grid-cols-3">
+            <KeyValue label="Admin API" value={status.data?.apiUrl ?? "—"} mono />
+            <KeyValue label="Configured" value={status.data?.configured ? "Yes" : "No"} />
+            <KeyValue label="Reachable" value={status.data?.reachable ? "Yes" : "No"} />
+          </dl>
+          <p className="mt-5 max-w-2xl text-xs text-muted-foreground">
+            The web client reaches the control plane through the session-guarded console backend.
+            Admin credentials never leave the server.
+          </p>
+        </div>
+      </div>
     </ModulePage>
+  );
+}
+
+function Summary({ label, value, tone }: { label: string; value: string; tone?: Level }) {
+  const color =
+    tone === "down"
+      ? "text-destructive"
+      : tone === "warn"
+        ? "text-amber-600 dark:text-amber-400"
+        : "text-foreground";
+  return (
+    <div className="p-5">
+      <div className="font-mono text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+        {label}
+      </div>
+      <div className={cx("mt-3 text-3xl font-semibold tracking-tight", color)}>{value}</div>
+    </div>
   );
 }
 
@@ -134,4 +171,23 @@ function LevelBadge({ level }: { level: Level }) {
   if (level === "ok") return <Badge tone="success">OK</Badge>;
   if (level === "warn") return <Badge tone="warning">Attention</Badge>;
   return <Badge tone="danger">Failed</Badge>;
+}
+
+function KeyValue({
+  label,
+  value,
+  mono = false,
+}: {
+  label: string;
+  value: ReactNode;
+  mono?: boolean;
+}) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd className={cx("mt-1 truncate text-sm text-foreground", mono && "font-mono text-xs")}>
+        {value}
+      </dd>
+    </div>
+  );
 }

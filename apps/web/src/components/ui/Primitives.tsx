@@ -263,9 +263,7 @@ export function SearchInput({ className, ...props }: InputHTMLAttributes<HTMLInp
 }
 
 export function Card({ children, className }: { children: ReactNode; className?: string }) {
-  return (
-    <div className={cx("rounded-lg border border-border bg-card p-5", className)}>{children}</div>
-  );
+  return <div className={cx("border border-border bg-card p-5", className)}>{children}</div>;
 }
 
 export function SectionTitle({ children }: { children: ReactNode }) {
@@ -333,7 +331,7 @@ export function EmptyState({
   icon?: ReactNode;
 }) {
   return (
-    <div className="flex animate-fade-in flex-col items-center justify-center rounded-lg border border-dashed border-border bg-card/40 px-6 py-16 text-center">
+    <div className="flex animate-fade-in flex-col items-center justify-center border border-dashed border-border bg-card/40 px-6 py-16 text-center">
       {icon ? <div className="mb-4 text-muted-foreground">{icon}</div> : null}
       <h3 className="text-base font-semibold tracking-tight text-foreground">{title}</h3>
       <p className="mt-2 max-w-md text-sm text-muted-foreground">{description}</p>
