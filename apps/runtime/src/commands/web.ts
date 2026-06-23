@@ -147,8 +147,30 @@ export function webCommand(argv: string[]): void {
   const children: ChildProcess[] = []
   let shuttingDown = false
 
+  type Role = 'backend' | 'web'
+  const procs: Record<Role, ChildProcess | null> = { backend: null, web: null }
+
+  const backendArgs = parsed.build
+    ? ['--dir', 'apps/auth', 'start']
+    : ['--dir', 'apps/auth', 'dev']
+  const webArgs = parsed.build
+    ? ['--dir', 'apps/web', 'exec', 'vite', 'preview', '--port', String(parsed.webPort), '--strictPort']
+    : ['--dir', 'apps/web', 'exec', 'vite', 'dev', '--port', String(parsed.webPort), '--strictPort']
+
+  const SPEC: Record<Role, { label: string; args: string[]; env: NodeJS.ProcessEnv }> = {
+    // The auth service is the only CORS-enabled, browser-facing service and hosts
+    // the BFF proxy; the web UI must point at it for both sign-in and console data.
+    backend: {
+      label: 'backend-for-frontend',
+      args: backendArgs,
+      env: { CARACAL_AUTH_PORT: String(parsed.authPort), CARACAL_WEB_ORIGIN: webOrigin },
+    },
+    web: { label: 'web UI', args: webArgs, env: { VITE_CARACAL_AUTH_URL: authUrl } },
+  }
+
   function shutdown(code: number): never {
     shuttingDown = true
+    restoreStdin()
     for (const child of children) {
       try {
         child.kill('SIGTERM')
@@ -159,37 +181,86 @@ export function webCommand(argv: string[]): void {
     process.exit(code)
   }
 
-  function start(label: string, args: string[], env: NodeJS.ProcessEnv): ChildProcess {
-    const child = spawn(pnpmCmd, [...pnpmPrefix, ...args], {
+  function spawnRole(role: Role): void {
+    const spec = SPEC[role]
+    const child = spawn(pnpmCmd, [...pnpmPrefix, ...spec.args], {
       cwd: root,
-      stdio: 'inherit',
-      env: { ...process.env, ...env },
+      // The parent owns stdin so it can handle restart keys; children only write output.
+      stdio: ['ignore', 'inherit', 'inherit'],
+      env: { ...process.env, ...spec.env },
     })
+    procs[role] = child
+    children.push(child)
     child.on('error', (err) => {
-      printError(`web: failed to start ${label}: ${err.message}`)
+      printError(`web: failed to start ${spec.label}: ${err.message}`)
       if (!shuttingDown) shutdown(1)
     })
-    child.on('exit', (status) => {
-      if (!shuttingDown) {
-        printError(`web: ${label} exited unexpectedly.`)
-        shutdown(status ?? 1)
+    child.on('exit', () => {
+      if (shuttingDown) return
+      // An exit during an explicit restart is expected; only a stale current
+      // process exiting on its own is a real failure.
+      if (procs[role] === child) {
+        printError(`web: ${spec.label} exited unexpectedly.`)
+        shutdown(1)
       }
     })
-    children.push(child)
-    return child
   }
 
-  // The auth service is the only CORS-enabled, browser-facing service and hosts
-  // the BFF proxy; the web UI must point at it for both sign-in and console data.
-  start('backend-for-frontend', ['--dir', 'apps/auth', 'start'], {
-    CARACAL_AUTH_PORT: String(parsed.authPort),
-    CARACAL_WEB_ORIGIN: webOrigin,
-  })
+  function restartRole(role: Role): void {
+    const current = procs[role]
+    procs[role] = null
+    if (current) {
+      try {
+        current.kill('SIGTERM')
+      } catch {
+        /* already gone */
+      }
+    }
+    printInfo(`Restarting ${SPEC[role].label}…`)
+    spawnRole(role)
+  }
 
-  const webArgs = parsed.build
-    ? ['--dir', 'apps/web', 'exec', 'vite', 'preview', '--port', String(parsed.webPort), '--strictPort']
-    : ['--dir', 'apps/web', 'exec', 'vite', 'dev', '--port', String(parsed.webPort), '--strictPort']
-  start('web UI', webArgs, { VITE_CARACAL_AUTH_URL: authUrl })
+  let rawStdin = false
+  function restoreStdin(): void {
+    if (rawStdin && process.stdin.isTTY) {
+      try {
+        process.stdin.setRawMode(false)
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  function listenForKeys(): void {
+    if (!process.stdin.isTTY) return
+    rawStdin = true
+    process.stdin.setRawMode(true)
+    process.stdin.resume()
+    process.stdin.setEncoding('utf8')
+    process.stdin.on('data', (key: string) => {
+      switch (key) {
+        case '\u0003': // Ctrl+C
+        case 'q':
+          shutdown(0)
+          break
+        case 'r':
+          restartRole('backend')
+          restartRole('web')
+          break
+        case 'f':
+          restartRole('web')
+          break
+        case 'b':
+          restartRole('backend')
+          break
+        default:
+          break
+      }
+    })
+  }
+
+  spawnRole('backend')
+  spawnRole('web')
 
   process.stdout.write(
     [
@@ -199,11 +270,13 @@ export function webCommand(argv: string[]): void {
       `  ${style.label('Backend')}   ${authUrl}  (session-guarded; proxies the admin API)`,
       `  ${style.label('Mode')}      ${parsed.build ? 'production build' : 'development'}`,
       '',
-      '  Press Ctrl+C to stop both services.',
+      `  ${style.label('r')} restart both   ${style.label('f')} restart frontend   ${style.label('b')} restart backend`,
+      `  ${style.label('q')} or ${style.label('Ctrl+C')} to stop`,
       '',
     ].join('\n') + '\n',
   )
 
   process.on('SIGINT', () => shutdown(0))
   process.on('SIGTERM', () => shutdown(0))
+  listenForKeys()
 }

@@ -46,8 +46,8 @@ export function LanguageMenu() {
         onClick={() => setOpen((v) => !v)}
         aria-label="Change language"
         className={cx(
-          "flex items-center gap-1.5 rounded-lg border border-border bg-background px-2.5 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
-          open && "bg-accent text-foreground",
+          "flex items-center gap-1.5 rounded-md px-1.5 py-1 text-sm text-muted-foreground transition-colors hover:text-foreground",
+          open && "text-foreground",
         )}
       >
         <svg
@@ -63,7 +63,9 @@ export function LanguageMenu() {
           <circle cx="12" cy="12" r="9" />
           <path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18" />
         </svg>
-        <span className="hidden text-xs font-medium uppercase sm:inline">{current.code}</span>
+        <span className="hidden text-xs font-medium uppercase tracking-wide sm:inline">
+          {current.code}
+        </span>
       </button>
 
       {open ? (

@@ -11,6 +11,7 @@ import { NavIcon } from "@/components/console/NavIcon";
 import { LockBadge } from "@/components/ui";
 import { cx } from "@/lib/cx";
 import { NAV_GROUPS } from "@/platform/nav/navModel";
+import { useTheme } from "@/platform/theme";
 
 function isActive(pathname: string, to: string): boolean {
   if (to === "/app") return pathname === "/app";
@@ -90,6 +91,8 @@ export function Sidebar({
   onToggle: () => void;
   onNavigate?: () => void;
 }) {
+  const theme = useTheme();
+
   return (
     <div className="flex h-full flex-col bg-background">
       <div
@@ -108,7 +111,7 @@ export function Sidebar({
           )}
         >
           <img
-            src="/caracal_sq.png"
+            src={theme === "light" ? "/caracal_sq_light.png" : "/caracal_sq.png"}
             alt="Caracal"
             className="h-8 w-8 flex-shrink-0 rounded-md object-cover"
           />
