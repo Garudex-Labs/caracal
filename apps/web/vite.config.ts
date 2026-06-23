@@ -17,7 +17,12 @@ export default defineConfig({
     tailwindcss(),
     viteReact(),
   ],
-  server: { port: 3001 },
+  server: {
+    port: 3001,
+    // Editors that save atomically (e.g. VS Code safe-write) replace the file
+    // inode, which native inotify watches miss; polling makes HMR fire reliably.
+    watch: { usePolling: true, interval: 120 },
+  },
   preview: { port: 3001 },
   resolve: {
     alias: {

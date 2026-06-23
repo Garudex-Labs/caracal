@@ -403,8 +403,7 @@ function ZoneFormModal({
           </Button>
           <Button
             onClick={() =>
-              name.trim() &&
-              onSubmit({ name: name.trim(), slug: effectiveSlug.trim(), dcrEnabled })
+              name.trim() && onSubmit({ name: name.trim(), slug: effectiveSlug.trim(), dcrEnabled })
             }
             loading={busy}
             disabled={!name.trim() || !effectiveSlug.trim()}

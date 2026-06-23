@@ -72,25 +72,19 @@ export function ProfileMenu() {
       <button
         onClick={() => setOpen((v) => !v)}
         className={cx(
-          "flex items-center gap-2 rounded-full border border-border bg-background py-1 pl-1 pr-2.5 text-sm transition-colors hover:bg-accent",
+          "flex items-center gap-2.5 rounded-lg bg-background py-1.5 pl-1.5 pr-2.5 text-left transition-colors hover:bg-accent",
           open && "bg-accent",
         )}
       >
-        <Avatar avatar={profile.avatar} name={fullName} size={26} />
-        <span className="hidden max-w-[10rem] truncate font-medium text-foreground sm:inline">
-          {fullName}
+        <Avatar avatar={profile.avatar} name={fullName} size={30} />
+        <span className="hidden min-w-0 flex-col leading-tight sm:flex">
+          <span className="max-w-[12rem] truncate text-sm font-medium text-foreground">
+            {fullName}
+          </span>
+          <span className="max-w-[12rem] truncate text-[11px] text-muted-foreground">
+            {activeZone ? activeZone.name : "No active zone"}
+          </span>
         </span>
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          className="text-muted-foreground"
-        >
-          <path d="m6 9 6 6 6-6" />
-        </svg>
       </button>
 
       {open ? (
