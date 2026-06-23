@@ -10,27 +10,32 @@ import { useSyncExternalStore } from "react";
 import { getActiveZoneId, setActiveZoneId } from "@/platform/state/localInstall";
 
 import { consoleApi } from "./client";
-import type { ApplicationInput, Zone, ZoneInput } from "./types";
+import type { Application, ApplicationInput, Zone, ZoneInput } from "./types";
 
-const STALE_MS = 15_000;
+// Operational data that benefits from staying live while the tab is focused.
+const LIVE_MS = 10_000;
+
+const keys = {
+  status: ["console", "status"] as const,
+  zones: ["console", "zones"] as const,
+  applications: (zoneId: string | null) => ["console", "applications", zoneId] as const,
+  resources: (zoneId: string | null) => ["console", "resources", zoneId] as const,
+  providers: (zoneId: string | null) => ["console", "providers", zoneId] as const,
+  policies: (zoneId: string | null) => ["console", "policies", zoneId] as const,
+  policy: (zoneId: string | null, id: string | null) => ["console", "policy", zoneId, id] as const,
+  policySets: (zoneId: string | null) => ["console", "policy-sets", zoneId] as const,
+  sessions: (zoneId: string | null) => ["console", "sessions", zoneId] as const,
+  audit: (zoneId: string | null) => ["console", "audit", zoneId] as const,
+  auditExplain: (zoneId: string | null, requestId: string | null) =>
+    ["console", "audit-explain", zoneId, requestId] as const,
+};
 
 export function useConsoleStatus() {
-  return useQuery({
-    queryKey: ["console", "status"],
-    queryFn: () => consoleApi.status(),
-    staleTime: STALE_MS,
-    refetchOnWindowFocus: false,
-    retry: false,
-  });
+  return useQuery({ queryKey: keys.status, queryFn: () => consoleApi.status() });
 }
 
 export function useZones() {
-  return useQuery({
-    queryKey: ["console", "zones"],
-    queryFn: () => consoleApi.zones.list(),
-    staleTime: STALE_MS,
-    retry: false,
-  });
+  return useQuery({ queryKey: keys.zones, queryFn: () => consoleApi.zones.list() });
 }
 
 export function useCreateZone() {
@@ -38,7 +43,7 @@ export function useCreateZone() {
   return useMutation({
     mutationFn: (input: ZoneInput) => consoleApi.zones.create(input),
     onSuccess: (zone) => {
-      qc.invalidateQueries({ queryKey: ["console", "zones"] });
+      qc.invalidateQueries({ queryKey: keys.zones });
       if (!getActiveZoneId()) selectZone(zone.id);
     },
   });
@@ -48,17 +53,24 @@ export function useDeleteZone() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => consoleApi.zones.delete(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["console", "zones"] }),
+    onMutate: async (id) => {
+      await qc.cancelQueries({ queryKey: keys.zones });
+      const previous = qc.getQueryData<Zone[]>(keys.zones);
+      qc.setQueryData<Zone[]>(keys.zones, (old) => old?.filter((zone) => zone.id !== id));
+      return { previous };
+    },
+    onError: (_error, _id, context) => {
+      if (context?.previous) qc.setQueryData(keys.zones, context.previous);
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: keys.zones }),
   });
 }
 
 export function useApplications(zoneId: string | null) {
   return useQuery({
-    queryKey: ["console", "applications", zoneId],
+    queryKey: keys.applications(zoneId),
     queryFn: () => consoleApi.applications.list(zoneId as string),
     enabled: Boolean(zoneId),
-    staleTime: STALE_MS,
-    retry: false,
   });
 }
 
@@ -67,7 +79,7 @@ export function useCreateApplication(zoneId: string | null) {
   return useMutation({
     mutationFn: (input: ApplicationInput) =>
       consoleApi.applications.create(zoneId as string, input),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["console", "applications", zoneId] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.applications(zoneId) }),
   });
 }
 
@@ -75,87 +87,84 @@ export function useDeleteApplication(zoneId: string | null) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => consoleApi.applications.delete(zoneId as string, id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["console", "applications", zoneId] }),
+    onMutate: async (id) => {
+      await qc.cancelQueries({ queryKey: keys.applications(zoneId) });
+      const previous = qc.getQueryData<Application[]>(keys.applications(zoneId));
+      qc.setQueryData<Application[]>(keys.applications(zoneId), (old) =>
+        old?.filter((app) => app.id !== id),
+      );
+      return { previous };
+    },
+    onError: (_error, _id, context) => {
+      if (context?.previous) qc.setQueryData(keys.applications(zoneId), context.previous);
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: keys.applications(zoneId) }),
   });
 }
 
 export function useResources(zoneId: string | null) {
   return useQuery({
-    queryKey: ["console", "resources", zoneId],
+    queryKey: keys.resources(zoneId),
     queryFn: () => consoleApi.resources.list(zoneId as string),
     enabled: Boolean(zoneId),
-    staleTime: STALE_MS,
-    retry: false,
   });
 }
 
 export function useProviders(zoneId: string | null) {
   return useQuery({
-    queryKey: ["console", "providers", zoneId],
+    queryKey: keys.providers(zoneId),
     queryFn: () => consoleApi.providers.list(zoneId as string),
     enabled: Boolean(zoneId),
-    staleTime: STALE_MS,
-    retry: false,
   });
 }
 
 export function usePolicies(zoneId: string | null) {
   return useQuery({
-    queryKey: ["console", "policies", zoneId],
+    queryKey: keys.policies(zoneId),
     queryFn: () => consoleApi.policies.list(zoneId as string),
     enabled: Boolean(zoneId),
-    staleTime: STALE_MS,
-    retry: false,
   });
 }
 
 export function usePolicySets(zoneId: string | null) {
   return useQuery({
-    queryKey: ["console", "policy-sets", zoneId],
+    queryKey: keys.policySets(zoneId),
     queryFn: () => consoleApi.policySets.list(zoneId as string),
     enabled: Boolean(zoneId),
-    staleTime: STALE_MS,
-    retry: false,
   });
 }
 
 export function usePolicy(zoneId: string | null, id: string | null) {
   return useQuery({
-    queryKey: ["console", "policy", zoneId, id],
+    queryKey: keys.policy(zoneId, id),
     queryFn: () => consoleApi.policies.get(zoneId as string, id as string),
     enabled: Boolean(zoneId && id),
-    staleTime: STALE_MS,
-    retry: false,
   });
 }
 
 export function useSessions(zoneId: string | null) {
   return useQuery({
-    queryKey: ["console", "sessions", zoneId],
+    queryKey: keys.sessions(zoneId),
     queryFn: () => consoleApi.sessions.list(zoneId as string),
     enabled: Boolean(zoneId),
-    staleTime: STALE_MS,
-    retry: false,
+    refetchInterval: LIVE_MS,
   });
 }
 
 export function useAudit(zoneId: string | null) {
   return useQuery({
-    queryKey: ["console", "audit", zoneId],
+    queryKey: keys.audit(zoneId),
     queryFn: () => consoleApi.audit.list(zoneId as string),
     enabled: Boolean(zoneId),
-    staleTime: STALE_MS,
-    retry: false,
+    refetchInterval: LIVE_MS,
   });
 }
 
 export function useDecisionTrace(zoneId: string | null, requestId: string | null) {
   return useQuery({
-    queryKey: ["console", "audit-explain", zoneId, requestId],
+    queryKey: keys.auditExplain(zoneId, requestId),
     queryFn: () => consoleApi.audit.explain(zoneId as string, requestId as string),
     enabled: Boolean(zoneId && requestId),
-    staleTime: STALE_MS,
-    retry: false,
   });
 }
 
