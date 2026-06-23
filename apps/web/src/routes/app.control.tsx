@@ -2,7 +2,7 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-This file defines the Applications route.
+This file defines the Control API route.
 */
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
@@ -10,17 +10,17 @@ import { useState } from "react";
 import { ModulePage } from "@/components/console/ModulePage";
 import { Badge, Card, EmptyState, SectionTitle, Tabs } from "@/components/ui";
 
-export const Route = createFileRoute("/app/applications")({
-  component: ApplicationsPage,
+export const Route = createFileRoute("/app/control")({
+  component: ControlAPIPage,
 });
 
-function ApplicationsPage() {
+function ControlAPIPage() {
   const [tab, setTab] = useState("overview");
   return (
     <ModulePage
-      title="Applications"
-      description="Manage agent applications in the active zone."
-      breadcrumbs={[{ label: "Console", to: "/app" }, { label: "Applications" }]}
+      title="Control API"
+      description="Manage the optional Control automation service."
+      breadcrumbs={[{ label: "Console", to: "/app" }, { label: "Control API" }]}
       actions={<Badge tone="muted">UI in progress</Badge>}
     >
       <div className="mb-5">
@@ -40,19 +40,19 @@ function ApplicationsPage() {
           <ul className="mt-3 flex flex-col gap-2.5">
             <li className="flex items-start gap-2 text-sm text-foreground">
               <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-muted-foreground" />
-              <span>Create, patch, and delete applications</span>
+              <span>Enable or disable the Control endpoint</span>
             </li>
             <li className="flex items-start gap-2 text-sm text-foreground">
               <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-muted-foreground" />
-              <span>Issue and rotate client credentials</span>
+              <span>Create, rotate, and revoke Control keys</span>
             </li>
             <li className="flex items-start gap-2 text-sm text-foreground">
               <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-muted-foreground" />
-              <span>Enable dynamic client registration (DCR)</span>
+              <span>Issue short-lived invocation tokens</span>
             </li>
             <li className="flex items-start gap-2 text-sm text-foreground">
               <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-muted-foreground" />
-              <span>Inspect application identity and traits</span>
+              <span>Scope keys with control permissions</span>
             </li>{" "}
           </ul>
           <p className="mt-4 text-xs text-muted-foreground">

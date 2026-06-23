@@ -2,7 +2,7 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-This file defines the Applications route.
+This file defines the Audit route.
 */
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
@@ -10,17 +10,17 @@ import { useState } from "react";
 import { ModulePage } from "@/components/console/ModulePage";
 import { Badge, Card, EmptyState, SectionTitle, Tabs } from "@/components/ui";
 
-export const Route = createFileRoute("/app/applications")({
-  component: ApplicationsPage,
+export const Route = createFileRoute("/app/audit")({
+  component: AuditPage,
 });
 
-function ApplicationsPage() {
+function AuditPage() {
   const [tab, setTab] = useState("overview");
   return (
     <ModulePage
-      title="Applications"
-      description="Manage agent applications in the active zone."
-      breadcrumbs={[{ label: "Console", to: "/app" }, { label: "Applications" }]}
+      title="Audit"
+      description="Search audit events across the active zone."
+      breadcrumbs={[{ label: "Console", to: "/app" }, { label: "Audit" }]}
       actions={<Badge tone="muted">UI in progress</Badge>}
     >
       <div className="mb-5">
@@ -40,19 +40,15 @@ function ApplicationsPage() {
           <ul className="mt-3 flex flex-col gap-2.5">
             <li className="flex items-start gap-2 text-sm text-foreground">
               <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-muted-foreground" />
-              <span>Create, patch, and delete applications</span>
+              <span>Filter by decision, event type, and request ID</span>
             </li>
             <li className="flex items-start gap-2 text-sm text-foreground">
               <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-muted-foreground" />
-              <span>Issue and rotate client credentials</span>
+              <span>Scope by time window</span>
             </li>
             <li className="flex items-start gap-2 text-sm text-foreground">
               <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-muted-foreground" />
-              <span>Enable dynamic client registration (DCR)</span>
-            </li>
-            <li className="flex items-start gap-2 text-sm text-foreground">
-              <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-muted-foreground" />
-              <span>Inspect application identity and traits</span>
+              <span>Open an event to inspect detail</span>
             </li>{" "}
           </ul>
           <p className="mt-4 text-xs text-muted-foreground">
