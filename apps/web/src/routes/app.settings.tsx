@@ -25,7 +25,7 @@ function SettingsPage() {
   const profile = getProfile();
   const [fullName, setFullName] = useState(profile.fullName);
   const [displayName, setDisplayName] = useState(profile.displayName);
-  const [organization, setOrganization] = useState(profile.organization);
+  const accountId = profile.accountId;
   const [saving, setSaving] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
 
@@ -35,7 +35,6 @@ function SettingsPage() {
       ...getProfile(),
       fullName: fullName.trim() || "Owner",
       displayName: displayName.trim(),
-      organization: organization.trim(),
     });
     setSaving(false);
     toast({ tone: "success", title: "Profile saved" });
@@ -82,10 +81,11 @@ function SettingsPage() {
               onChange={(e) => setDisplayName(e.target.value)}
             />
             <Field
-              label="Organization"
-              hint="Optional. Shown in the Console header."
-              value={organization}
-              onChange={(e) => setOrganization(e.target.value)}
+              label="Account ID"
+              value={accountId}
+              readOnly
+              disabled
+              hint="Generated and locked. Your internal identifier."
             />
             <div>
               <Button onClick={saveProfile} loading={saving}>

@@ -210,6 +210,41 @@ This file defines the application theme and global styles.
     }
   }
 
+  @keyframes caracalSheen {
+    0% {
+      transform: translateX(-120%) skewX(-18deg);
+      opacity: 0;
+    }
+    18% {
+      opacity: 0.65;
+    }
+    40% {
+      transform: translateX(120%) skewX(-18deg);
+      opacity: 0;
+    }
+    100% {
+      transform: translateX(120%) skewX(-18deg);
+      opacity: 0;
+    }
+  }
+  @keyframes caracalCardIn {
+    from {
+      opacity: 0;
+      transform: translateY(10px) rotateX(8deg);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) rotateX(0deg);
+    }
+  }
+
+  .animate-sheen {
+    animation: caracalSheen 5s ease-in-out infinite;
+  }
+  .animate-card-in {
+    animation: caracalCardIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
   .animate-fade-in {
     animation: caracalFadeIn 0.18s ease-out both;
   }
@@ -256,6 +291,8 @@ This file defines the application theme and global styles.
     .animate-pop-in,
     .animate-slide-in-right,
     .animate-toast-in,
+    .animate-sheen,
+    .animate-card-in,
     .skeleton,
     .marquee {
       animation: none;
