@@ -9,11 +9,17 @@ import { config } from "@/platform/config";
 import type {
   Application,
   ApplicationInput,
+  AuditDetail,
+  AuditEvent,
   ConsoleStatus,
+  DecisionTrace,
   Policy,
+  PolicyDetail,
   PolicySet,
   Provider,
   Resource,
+  RowList,
+  Session,
   Zone,
   ZoneInput,
 } from "./types";
@@ -108,14 +114,52 @@ export const consoleApi = {
   providers: {
     list: (zoneId: string) =>
       request<Provider[]>(`/v1/zones/${encodeURIComponent(zoneId)}/providers`),
+    get: (zoneId: string, id: string) =>
+      request<Provider>(
+        `/v1/zones/${encodeURIComponent(zoneId)}/providers/${encodeURIComponent(id)}`,
+      ),
   },
 
   policies: {
     list: (zoneId: string) => request<Policy[]>(`/v1/zones/${encodeURIComponent(zoneId)}/policies`),
+    get: (zoneId: string, id: string) =>
+      request<PolicyDetail>(
+        `/v1/zones/${encodeURIComponent(zoneId)}/policies/${encodeURIComponent(id)}`,
+      ),
   },
 
   policySets: {
     list: (zoneId: string) =>
       request<PolicySet[]>(`/v1/zones/${encodeURIComponent(zoneId)}/policy-sets`),
+    get: (zoneId: string, id: string) =>
+      request<PolicySet>(
+        `/v1/zones/${encodeURIComponent(zoneId)}/policy-sets/${encodeURIComponent(id)}`,
+      ),
+  },
+
+  sessions: {
+    list: async (zoneId: string, limit = 100) => {
+      const res = await request<RowList<Session>>(
+        `/v1/zones/${encodeURIComponent(zoneId)}/sessions?limit=${limit}`,
+      );
+      return res.rows;
+    },
+  },
+
+  audit: {
+    list: async (zoneId: string, limit = 100) => {
+      const res = await request<RowList<AuditEvent>>(
+        `/v1/zones/${encodeURIComponent(zoneId)}/audit?limit=${limit}`,
+      );
+      return res.rows;
+    },
+    byRequest: (zoneId: string, requestId: string) =>
+      request<AuditDetail[]>(
+        `/v1/zones/${encodeURIComponent(zoneId)}/audit/by-request/${encodeURIComponent(requestId)}`,
+      ),
+    explain: (zoneId: string, requestId: string) =>
+      request<DecisionTrace>(
+        `/v1/zones/${encodeURIComponent(zoneId)}/audit/by-request/${encodeURIComponent(requestId)}/explain`,
+      ),
   },
 };
