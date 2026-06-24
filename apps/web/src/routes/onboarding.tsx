@@ -10,6 +10,7 @@ import { useEffect, useState } from "react";
 import { DcrField } from "@/components/console/DcrField";
 import { IdentityCard } from "@/components/onboarding/IdentityCard";
 import { OnboardingLayout, type OnboardingStep } from "@/components/onboarding/OnboardingLayout";
+import { ZoneExplainer } from "@/components/onboarding/ZoneExplainer";
 import { AvatarPicker, Button, Card, Field, SectionTitle, useToast } from "@/components/ui";
 import { ConsoleApiError, consoleApi } from "@/platform/api/client";
 import { selectZone } from "@/platform/api/hooks";
@@ -38,18 +39,15 @@ const STEPS: OnboardingStep[] = [
 
 const STEP_HEAD = [
   {
-    eyebrow: "Step 1",
     title: "Set up your profile",
     description: "This personalizes your Caracal environment. You can change it later in Settings.",
   },
   {
-    eyebrow: "Step 2",
     title: "Create your first zone",
     description:
       "A zone is Caracal's primary trust boundary. It isolates applications, resources, policies, and audit.",
   },
   {
-    eyebrow: "Step 3",
     title: "Review and confirm",
     description: "Check the details below. You own this environment as its single user.",
   },
@@ -69,7 +67,7 @@ function OnboardingPage() {
   const [displayName, setDisplayName] = useState("");
   const [avatar, setAvatar] = useState("");
 
-  const [zoneName, setZoneName] = useState("Production");
+  const [zoneName, setZoneName] = useState("");
   const [zoneDcr, setZoneDcr] = useState(false);
 
   const [submitting, setSubmitting] = useState(false);
@@ -146,7 +144,6 @@ function OnboardingPage() {
     <OnboardingLayout
       steps={STEPS}
       current={step}
-      eyebrow={head.eyebrow}
       title={head.title}
       description={head.description}
       footer={
@@ -160,15 +157,8 @@ function OnboardingPage() {
       }
     >
       {step === 0 ? (
-        <div className="flex flex-col gap-8">
-          <IdentityCard
-            accountId={accountId}
-            fullName={fullName}
-            displayName={displayName}
-            email={ownerEmail}
-            avatar={avatar}
-          />
-          <div className="flex flex-col gap-6">
+        <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,400px)] lg:gap-12">
+          <div className="order-2 flex min-w-0 flex-col gap-6 lg:order-1">
             <AvatarPicker
               value={avatar}
               fallbackName={fullName || displayName}
@@ -206,15 +196,31 @@ function OnboardingPage() {
               organizations or teams.
             </p>
           </div>
+
+          <div className="order-1 lg:order-2">
+            <div className="flex flex-col gap-3 lg:sticky lg:top-0">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                Live preview
+              </span>
+              <IdentityCard
+                accountId={accountId}
+                fullName={fullName}
+                displayName={displayName}
+                email={ownerEmail}
+                avatar={avatar}
+              />
+            </div>
+          </div>
         </div>
       ) : null}
 
       {step === 1 ? (
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_280px]">
-          <div className="flex flex-col gap-5">
+        <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,360px)] lg:gap-12">
+          <div className="order-2 flex min-w-0 flex-col gap-5 lg:order-1">
             <Field
               label="Zone name"
-              placeholder="Production"
+              placeholder="e.g. Production"
+              hint="A recognizable name for this environment, like Production, Staging, or Development."
               value={zoneName}
               onChange={(e) => setZoneName(e.target.value)}
               error={showErrors && !zoneValid ? "Zone name is required." : undefined}
@@ -222,28 +228,14 @@ function OnboardingPage() {
             />
             <DcrField enabled={zoneDcr} onChange={setZoneDcr} />
           </div>
-          <Card className="h-fit bg-muted/30">
-            <SectionTitle>What is a zone</SectionTitle>
-            <ul className="mt-3 flex flex-col gap-2.5 text-sm text-muted-foreground">
-              <li className="flex items-start gap-2">
-                <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-muted-foreground" />
-                <span>An isolated trust boundary for one environment.</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-muted-foreground" />
-                <span>Holds its own applications, resources, and policies.</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-muted-foreground" />
-                <span>You can add more zones at any time.</span>
-              </li>
-            </ul>
-          </Card>
+          <div className="order-1 h-fit lg:order-2 lg:sticky lg:top-0">
+            <ZoneExplainer />
+          </div>
         </div>
       ) : null}
 
       {step === 2 ? (
-        <div className="flex flex-col gap-4">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:items-start">
           <ReviewSection
             title="Profile"
             onEdit={() => setStep(0)}
@@ -264,7 +256,7 @@ function OnboardingPage() {
               ["Dynamic Client Registration", zoneDcr ? "Enabled" : "Off"],
             ]}
           />
-          <Card>
+          <Card className="lg:col-span-2">
             <SectionTitle>Ownership</SectionTitle>
             <p className="mt-3 text-sm text-foreground">
               You are the single owner of this environment.
@@ -348,8 +340,13 @@ function ReviewSection({
         <dl className="min-w-0 flex-1 divide-y divide-border">
           {rows.map(([label, value]) => (
             <div key={label} className="flex justify-between gap-4 py-2 text-sm">
-              <dt className="text-muted-foreground">{label}</dt>
-              <dd className="truncate font-medium text-foreground">{value}</dd>
+              <dt className="shrink-0 text-muted-foreground">{label}</dt>
+              <dd
+                className="min-w-0 text-right font-medium text-foreground [overflow-wrap:anywhere]"
+                title={value}
+              >
+                {value}
+              </dd>
             </div>
           ))}
         </dl>

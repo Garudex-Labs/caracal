@@ -68,22 +68,26 @@ export function Modal({
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="animate-pop-in relative z-10 w-full max-w-lg border border-border bg-card shadow-xl"
+        className="animate-pop-in relative z-10 flex max-h-[calc(100dvh-2rem)] w-full max-w-lg flex-col border border-border bg-card shadow-xl"
       >
-        <div className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
-          <div>
-            <h2 className="text-sm font-semibold tracking-tight text-foreground">{title}</h2>
-            {description ? (
-              <p className="mt-1 text-xs text-muted-foreground">{description}</p>
-            ) : null}
-          </div>
-          <IconButton label="Close" onClick={onClose}>
+        <div className="flex flex-shrink-0 items-start justify-between gap-4 border-b border-border px-5 py-4">
+          <h2 className="min-w-0 break-words text-sm font-semibold tracking-tight text-foreground">
+            {title}
+          </h2>
+          <IconButton label="Close" onClick={onClose} className="flex-shrink-0">
             <CloseIcon />
           </IconButton>
         </div>
-        {children ? <div className="px-5 py-5">{children}</div> : null}
+        {description || children ? (
+          <div className="scrollbar-thin min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-5">
+            {description ? (
+              <p className="break-words text-xs leading-5 text-muted-foreground">{description}</p>
+            ) : null}
+            {children}
+          </div>
+        ) : null}
         {footer ? (
-          <div className="flex items-center justify-end gap-2 border-t border-border px-5 py-4">
+          <div className="flex flex-shrink-0 flex-wrap items-center justify-end gap-2 border-t border-border px-5 py-4">
             {footer}
           </div>
         ) : null}
@@ -127,20 +131,22 @@ export function Drawer({
           width,
         )}
       >
-        <div className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
-          <div>
-            <h2 className="text-sm font-semibold tracking-tight text-foreground">{title}</h2>
+        <div className="flex flex-shrink-0 items-start justify-between gap-4 border-b border-border px-5 py-4">
+          <div className="min-w-0">
+            <h2 className="break-words text-sm font-semibold tracking-tight text-foreground">
+              {title}
+            </h2>
             {description ? (
-              <p className="mt-1 text-xs text-muted-foreground">{description}</p>
+              <p className="mt-1 break-words text-xs text-muted-foreground">{description}</p>
             ) : null}
           </div>
-          <IconButton label="Close" onClick={onClose}>
+          <IconButton label="Close" onClick={onClose} className="flex-shrink-0">
             <CloseIcon />
           </IconButton>
         </div>
         <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto px-5 py-5">{children}</div>
         {footer ? (
-          <div className="flex items-center justify-end gap-2 border-t border-border px-5 py-4">
+          <div className="flex flex-shrink-0 items-center justify-end gap-2 border-t border-border px-5 py-4">
             {footer}
           </div>
         ) : null}
