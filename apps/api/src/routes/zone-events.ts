@@ -91,6 +91,17 @@ const SessionQuery = z.object({
   limit: z.coerce.number().int().min(1).max(1000).default(100),
 })
 
+const AdminAuditQuery = z.object({
+  since: z.string().datetime().optional(),
+  until: z.string().datetime().optional(),
+  actor_id: z.string().min(1).max(128).optional(),
+  entity_type: z.string().min(1).max(64).optional(),
+  entity_id: z.string().min(1).max(128).optional(),
+  method: z.enum(['POST', 'PUT', 'PATCH', 'DELETE']).optional(),
+  cursor: z.string().min(1).max(512).optional(),
+  limit: z.coerce.number().int().min(1).max(1000).default(100),
+})
+
 const AgentSessionQuery = z.object({
   status: z.enum(['active', 'suspended', 'terminated', 'expired']).optional(),
   lifecycle: z.enum(['task', 'service']).optional(),

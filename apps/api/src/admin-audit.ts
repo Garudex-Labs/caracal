@@ -82,6 +82,10 @@ export function registerAdminAuditHook(app: FastifyInstance, opts: AuditPluginOp
     const entity = entityFromUrl(req.url)
     const path = pathOnly(req.url)
     const zoneScoped = actor?.scope === 'zone' && actor.zoneId ? actor.zoneId : null
+    const rls = zoneScoped
+      ? { rls_mode: 'zone_scoped', rls_zone_guc: zoneScoped }
+      : { rls_mode: 'control_plane_wildcard', rls_zone_guc: '*' }
+    const change = success ? changeSummary(req.method, req.body) : null
     try {
       await withTransaction(opts.db, (client) =>
         insertAdminAuditRecord(
@@ -98,9 +102,7 @@ export function registerAdminAuditHook(app: FastifyInstance, opts: AuditPluginOp
             entityType: entity.type,
             entityId: entity.id,
             statusCode: reply.statusCode,
-            payloadJson: zoneScoped
-              ? { rls_mode: 'zone_scoped', rls_zone_guc: zoneScoped }
-              : { rls_mode: 'control_plane_wildcard', rls_zone_guc: '*' },
+            payloadJson: change ? { ...rls, ...change } : rls,
           },
           opts.hmacKey ?? null,
         ),

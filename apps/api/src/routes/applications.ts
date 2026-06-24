@@ -138,13 +138,28 @@ export const applicationsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.delete('/zones/:zoneId/applications/:id', async (req, reply) => {
     const params = parseParams(ZoneIdParams, req, reply)
     if (!params) return
-    const { rowCount } = await fastify.db.query(
-      `UPDATE applications SET archived_at = now()
-       WHERE id = $1 AND zone_id = $2 AND archived_at IS NULL`,
-      [params.id, params.zoneId],
-    )
-    if (!rowCount) return reply.code(404).send({ error: 'application_not_found' })
-    return reply.code(204).send()
+    return withTransaction(fastify.db, async (client) => {
+      const { rowCount } = await client.query(
+        `UPDATE applications SET archived_at = now()
+         WHERE id = $1 AND zone_id = $2 AND archived_at IS NULL`,
+        [params.id, params.zoneId],
+      )
+      if (!rowCount) throw new TxAbort(reply.code(404).send({ error: 'application_not_found' }))
+      // Clear any Gateway resource bindings that named this application as their
+      // exchange identity so no binding is left pointing at an archived app, and
+      // bump the binding revision so the Gateway drops the stale route from cache.
+      const { rowCount: unbound } = await client.query(
+        `DELETE FROM gateway_resource_bindings
+         WHERE zone_id = $1 AND application_id = $2`,
+        [params.zoneId, params.id],
+      )
+      if (unbound) {
+        await client.query(
+          `UPDATE gateway_binding_revision SET version = version + 1, updated_at = now() WHERE id = true`,
+        )
+      }
+      return reply.code(204).send()
+    })
   })
 
   fastify.post('/zones/:zoneId/applications/dcr', async (req, reply) => {
