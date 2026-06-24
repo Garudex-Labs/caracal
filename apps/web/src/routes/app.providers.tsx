@@ -38,6 +38,7 @@ import {
   useRevokeProviderGrant,
   useUpdateProvider,
 } from "@/platform/api/hooks";
+import { useCreateDeepLink } from "@/platform/nav/createDeepLink";
 import type {
   Provider,
   ProviderGrant,
@@ -48,6 +49,9 @@ import type {
 
 export const Route = createFileRoute("/app/providers")({
   component: ProvidersRoute,
+  validateSearch: (search: Record<string, unknown>): { create?: string } => ({
+    create: typeof search.create === "string" ? search.create : undefined,
+  }),
 });
 
 const KIND_LABEL: Record<ProviderKind, string> = {
@@ -132,6 +136,11 @@ function ProvidersPage({ zoneId, zoneName }: { zoneId: string; zoneName: string 
   const deleteProvider = useDeleteProvider(zoneId);
 
   const [createOpen, setCreateOpen] = useState(false);
+  useCreateDeepLink({
+    to: "/app/providers",
+    value: Route.useSearch().create,
+    open: () => setCreateOpen(true),
+  });
   const [editTarget, setEditTarget] = useState<Provider | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Provider | null>(null);
   const [kindFilter, setKindFilter] = useState<ProviderKind | "all">("all");
