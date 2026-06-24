@@ -70,6 +70,21 @@ describe('POST /v1/zones/:zoneId/applications', () => {
     expect(db.query).toHaveBeenCalledTimes(2)
   })
 
+  it('rejects an application name longer than the maximum length', async () => {
+    const { app, db } = buildApp()
+    db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/applications',
+      payload: { name: 'a'.repeat(201), registration_method: 'managed' },
+    })
+
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'invalid_application' })
+  })
+
   it('rejects Control-key minting traits from a zone-scoped actor on the managed route', async () => {
     const { app, db } = buildApp('zone')
     db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })

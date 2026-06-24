@@ -194,6 +194,36 @@ describe('GET /v1/zones/:zoneId/audit/by-request/:requestId/explain', () => {
     expect(input.schema_version).toBe('2026-05-20')
   })
 
+  it('reconstructs policy_input from raw metadata while keeping the displayed metadata redacted', async () => {
+    const { app, db } = buildRouteApp(zoneEventsRoutes)
+    db.query.mockResolvedValueOnce({
+      rows: [{
+        id: 'a1',
+        event_type: 'token_exchange',
+        request_id: 'r1',
+        decision: 'deny',
+        evaluation_status: 'complete',
+        metadata_json: {
+          application_id: 'app-1',
+          resource: 'resource://pipernet',
+          requested_scopes: ['pipernet:read'],
+          session_id: 'sess-secret-123',
+        },
+      }],
+    })
+
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/audit/by-request/r1/explain' })
+
+    expect(res.statusCode).toBe(200)
+    const denied = JSON.parse(res.body).denied[0]
+    // policy_input is reconstructed from the raw metadata so the session survives.
+    expect(denied.policy_input.session).toEqual({ id: 'sess-secret-123' })
+    expect(denied.policy_input.context.session_id).toBe('sess-secret-123')
+    // the displayed metadata copy is still redacted.
+    expect(denied.metadata.session_id).toBe('[redacted]')
+  })
+
   it('returns 404 for missing explanations and reports allow when no deny events exist', async () => {
     const missing = buildRouteApp(zoneEventsRoutes)
     missing.db.query.mockResolvedValueOnce({ rows: [] })
@@ -328,6 +358,59 @@ describe('GET /v1/zones/:zoneId/agent-sessions', () => {
 
     await app.ready()
     const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/agent-sessions?status=bogus' })
+
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body)).toEqual({ error: 'invalid_query' })
+    expect(db.query).not.toHaveBeenCalled()
+  })
+})
+
+describe('GET /v1/zones/:zoneId/admin-audit', () => {
+  it('returns admin mutation records with a signed flag and redacted payloads', async () => {
+    const { app, db } = buildRouteApp(zoneEventsRoutes)
+    db.query.mockResolvedValueOnce({
+      rows: [{
+        id: 'aa-1',
+        request_id: 'req-1',
+        actor_id: 'tok-1',
+        actor_name: 'operator',
+        actor_scope: 'zone',
+        action: 'PATCH /v1/zones/z1/applications/app-1',
+        method: 'PATCH',
+        path: '/v1/zones/z1/applications/app-1',
+        entity_type: 'applications',
+        entity_id: 'app-1',
+        status_code: 200,
+        payload_json: { changed_fields: ['name'], secret: 'leak-me' },
+        occurred_at: '2026-05-02T00:00:00.000Z',
+        chain_seq: 7,
+        signed: true,
+      }],
+    })
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/zones/z1/admin-audit?method=PATCH&entity_type=applications&limit=50',
+    })
+
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(body.rows[0].signed).toBe(true)
+    expect(body.rows[0].payload_json.changed_fields).toEqual(['name'])
+    expect(body.rows[0].payload_json.secret).toBe('[redacted]')
+    expect(body.next_cursor).toBeNull()
+    expect(db.query).toHaveBeenCalledWith(
+      expect.stringContaining('FROM admin_audit_events'),
+      ['z1', 'applications', 'PATCH', 50],
+    )
+  })
+
+  it('rejects an invalid method filter', async () => {
+    const { app, db } = buildRouteApp(zoneEventsRoutes)
+
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/admin-audit?method=GET' })
 
     expect(res.statusCode).toBe(400)
     expect(JSON.parse(res.body)).toEqual({ error: 'invalid_query' })
