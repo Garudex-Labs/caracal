@@ -6,7 +6,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 
 import { auth } from "./auth.ts";
-import { authDatabase } from "./database.ts";
 
 const MAX_BODY_BYTES = 4096;
 
@@ -80,17 +79,15 @@ export async function handleAccount(req: IncomingMessage, res: ServerResponse): 
     return true;
   }
 
-  authDatabase.exec("BEGIN IMMEDIATE");
-  try {
-    authDatabase.prepare('DELETE FROM "verification" WHERE "identifier" = ?').run(email);
-    authDatabase.prepare('DELETE FROM "account" WHERE "userId" = ?').run(session.user.id);
-    authDatabase.prepare('DELETE FROM "session" WHERE "userId" = ?').run(session.user.id);
-    authDatabase.prepare('DELETE FROM "user" WHERE "id" = ?').run(session.user.id);
-    authDatabase.exec("COMMIT");
-  } catch (err) {
-    authDatabase.exec("ROLLBACK");
-    throw err;
-  }
+  // Delete through Better Auth's internal adapter so the cascade (sessions, accounts,
+  // user) runs identically on PostgreSQL and SQLite. Pending verification rows are keyed
+  // by email identifier rather than user id, so clear them explicitly.
+  const ctx = await auth.$context;
+  await ctx.internalAdapter.deleteUser(session.user.id);
+  await ctx.adapter.deleteMany({
+    model: "verification",
+    where: [{ field: "identifier", value: email }],
+  });
 
   res.statusCode = 204;
   res.setHeader("Cache-Control", "no-store");

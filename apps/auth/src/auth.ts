@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Better Auth instance for Community Edition: unified email, Google, and GitHub identity backed by local SQLite.
+// Better Auth instance for Community Edition: unified email, Google, and GitHub identity backed by PostgreSQL or local SQLite.
 
 import { betterAuth } from "better-auth";
 import type { BetterAuthOptions } from "better-auth";
