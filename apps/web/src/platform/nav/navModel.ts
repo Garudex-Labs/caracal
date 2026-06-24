@@ -64,9 +64,4 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Automation",
     items: [{ id: "control", label: "Control API", to: "/app/control", zoneScoped: true }],
   },
-  {
-    id: "settings",
-    label: "Settings",
-    items: [{ id: "settings", label: "Settings", to: "/app/settings" }],
-  },
 ];

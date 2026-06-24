@@ -171,7 +171,7 @@ export function clearLocalIdentity(): void {
 // The browser caches the operator profile and onboarding state in localStorage, but
 // the authentication backend is the source of truth for the account. Bind the cached
 // identity to the signed-in user id and drop it whenever the server reports a different
-// account or none at all — so a backend `caracal purge` (which deletes the account)
+// account or none at all, so a backend `caracal purge` (which deletes the account)
 // fully resets the web identity on the next session check instead of resurfacing a
 // profile whose account no longer exists.
 export function reconcileLocalIdentity(serverUserId: string | null): void {
