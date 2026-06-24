@@ -360,10 +360,12 @@ export interface CoordinatorList<T> {
 
 export interface EffectiveAuthority {
   agent_session_id: string;
-  inbound_edges: DelegationEdge[];
+  inbound_edges: string[];
   effective_scopes: string[];
   effective_resources: string[];
-  effective_max_hops: number;
+  effective_resource_ids?: string[];
+  effective_resource_constrained?: boolean;
+  effective_max_hops: number | null;
   effective_ttl_seconds: number | null;
   earliest_expires_at: string | null;
 }
@@ -506,6 +508,13 @@ export interface AgentQuery {
   lifecycle?: string;
   application_id?: string;
   label?: string;
+  limit?: number;
+  cursor?: string;
+}
+
+export interface DelegationQuery {
+  limit?: number;
+  cursor?: string;
 }
 
 export interface DiagnosticsOptions {

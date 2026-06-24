@@ -455,12 +455,25 @@ export function useDecisionTrace(zoneId: string | null, requestId: string | null
   });
 }
 
-export function useAgents(zoneId: string | null, enabled = true, query: AgentQuery = {}) {
-  return useQuery({
-    queryKey: [...keys.agents(zoneId), query],
-    queryFn: () => consoleApi.agents.list(zoneId as string, query),
+// Cursor-paginated agent feed with server-side filters (status/lifecycle/application/label),
+// so enterprise zones with thousands of live agents stay searchable and bounded.
+export function useAgentsFeed(zoneId: string | null, query: AgentQuery, enabled = true) {
+  return useInfiniteQuery({
+    queryKey: [...keys.agents(zoneId), "feed", query],
+    queryFn: ({ pageParam }) =>
+      consoleApi.agents.list(zoneId as string, { ...query, cursor: pageParam ?? undefined }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
     enabled: Boolean(zoneId) && enabled,
     refetchInterval: LIVE_MS,
+  });
+}
+
+export function useAgent(zoneId: string | null, id: string | null) {
+  return useQuery({
+    queryKey: keys.agent(zoneId, id),
+    queryFn: () => consoleApi.agents.get(zoneId as string, id as string),
+    enabled: Boolean(zoneId && id),
   });
 }
 
@@ -477,6 +490,24 @@ export function useAgentChildren(zoneId: string | null, id: string | null) {
     queryKey: [...keys.agent(zoneId, id), "children"],
     queryFn: () => consoleApi.agents.children(zoneId as string, id as string),
     enabled: Boolean(zoneId && id),
+  });
+}
+
+// Per-agent delegation edges. The agent's authority flows through its subject session, so
+// inbound/outbound delegation views are keyed by subject_session_id.
+export function useAgentInboundDelegations(zoneId: string | null, sessionId: string | null) {
+  return useQuery({
+    queryKey: ["console", "delegations-inbound", zoneId, sessionId],
+    queryFn: () => consoleApi.delegations.inbound(zoneId as string, sessionId as string),
+    enabled: Boolean(zoneId && sessionId),
+  });
+}
+
+export function useAgentOutboundDelegations(zoneId: string | null, sessionId: string | null) {
+  return useQuery({
+    queryKey: ["console", "delegations-outbound", zoneId, sessionId],
+    queryFn: () => consoleApi.delegations.outbound(zoneId as string, sessionId as string),
+    enabled: Boolean(zoneId && sessionId),
   });
 }
 
@@ -498,10 +529,14 @@ export function useAgentLifecycle(zoneId: string | null) {
   });
 }
 
-export function useActiveDelegations(zoneId: string | null, enabled = true) {
-  return useQuery({
-    queryKey: keys.delegationsActive(zoneId),
-    queryFn: () => consoleApi.delegations.active(zoneId as string),
+// Cursor-paginated active delegation feed.
+export function useDelegationsFeed(zoneId: string | null, enabled = true) {
+  return useInfiniteQuery({
+    queryKey: [...keys.delegationsActive(zoneId), "feed"],
+    queryFn: ({ pageParam }) =>
+      consoleApi.delegations.active(zoneId as string, { cursor: pageParam ?? undefined }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
     enabled: Boolean(zoneId) && enabled,
     refetchInterval: LIVE_MS,
   });

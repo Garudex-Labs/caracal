@@ -25,6 +25,7 @@ import type {
   DelegationEdge,
   DelegationHop,
   DelegationImpactRow,
+  DelegationQuery,
   DiagnosticsOptions,
   DiagnosticsReport,
   EffectiveAuthority,
@@ -510,16 +511,18 @@ export const consoleApi = {
   },
 
   agents: {
-    list: async (zoneId: string, query: AgentQuery = {}) => {
+    list: async (zoneId: string, query: AgentQuery = {}): Promise<Paged<Agent>> => {
       const res = await request<CoordinatorList<Agent>>(
         `/coord/zones/${encodeURIComponent(zoneId)}/agents${queryString({
           status: query.status,
           lifecycle: query.lifecycle,
           application_id: query.application_id,
           label: query.label,
+          limit: query.limit,
+          cursor: query.cursor,
         })}`,
       );
-      return res.items;
+      return { rows: res.items, nextCursor: res.next_cursor };
     },
     get: (zoneId: string, id: string) =>
       request<Agent>(`/coord/zones/${encodeURIComponent(zoneId)}/agents/${encodeURIComponent(id)}`),
@@ -549,11 +552,14 @@ export const consoleApi = {
   },
 
   delegations: {
-    active: async (zoneId: string) => {
+    active: async (zoneId: string, query: DelegationQuery = {}): Promise<Paged<DelegationEdge>> => {
       const res = await request<CoordinatorList<DelegationEdge>>(
-        `/coord/zones/${encodeURIComponent(zoneId)}/delegations/active`,
+        `/coord/zones/${encodeURIComponent(zoneId)}/delegations/active${queryString({
+          limit: query.limit,
+          cursor: query.cursor,
+        })}`,
       );
-      return res.items;
+      return { rows: res.items, nextCursor: res.next_cursor };
     },
     inbound: (zoneId: string, sessionId: string) =>
       request<DelegationEdge[]>(
