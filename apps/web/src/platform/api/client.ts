@@ -8,6 +8,7 @@ import { config } from "@/platform/config";
 
 import type {
   Agent,
+  AgentService,
   Application,
   ApplicationInput,
   ApplicationPatchInput,
@@ -30,6 +31,7 @@ import type {
   DiagnosticsReport,
   EffectiveAuthority,
   ActivationStatus,
+  Invocation,
   Paged,
   Policy,
   PolicyDetail,
@@ -549,6 +551,29 @@ export const consoleApi = {
       request<void>(`/coord/zones/${encodeURIComponent(zoneId)}/agents/${encodeURIComponent(id)}`, {
         method: "DELETE",
       }),
+  },
+
+  execution: {
+    services: async (zoneId: string) => {
+      const res = await request<CoordinatorList<AgentService>>(
+        `/coord/zones/${encodeURIComponent(zoneId)}/agent-services`,
+      );
+      return res.items;
+    },
+    invocations: async (
+      zoneId: string,
+      query: { session_id?: string; status?: string; service_id?: string; limit?: number } = {},
+    ) => {
+      const res = await request<CoordinatorList<Invocation>>(
+        `/coord/zones/${encodeURIComponent(zoneId)}/invocations${queryString({
+          session_id: query.session_id,
+          status: query.status,
+          service_id: query.service_id,
+          limit: query.limit,
+        })}`,
+      );
+      return res.items;
+    },
   },
 
   delegations: {

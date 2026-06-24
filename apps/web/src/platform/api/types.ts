@@ -490,6 +490,37 @@ export interface AuditQuery {
   decision?: string;
   event_type?: string;
   request_id?: string;
+  agent_session_id?: string;
+  label?: string;
+  since?: string;
+  until?: string;
+  limit?: number;
+  cursor?: string;
+}
+
+export interface AdminAuditEvent {
+  id: string;
+  request_id: string | null;
+  actor_id: string | null;
+  actor_name: string | null;
+  actor_scope: string | null;
+  action: string;
+  method: string;
+  path: string;
+  entity_type: string | null;
+  entity_id: string | null;
+  status_code: number;
+  payload_json: Record<string, unknown> | null;
+  occurred_at: string;
+  chain_seq: number | null;
+  signed: boolean;
+}
+
+export interface AdminAuditQuery {
+  actor_id?: string;
+  entity_type?: string;
+  entity_id?: string;
+  method?: string;
   since?: string;
   until?: string;
   limit?: number;
@@ -515,6 +546,47 @@ export interface AgentQuery {
 export interface DelegationQuery {
   limit?: number;
   cursor?: string;
+}
+
+export type InvocationStatus =
+  | "pending"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "cancel_requested"
+  | "canceled"
+  | "timed_out"
+  | "dead";
+
+// Operator-safe invocation view: lifecycle and timing only, never call payloads.
+export interface Invocation {
+  id: string;
+  zone_id: string;
+  service_id: string;
+  source_session_id: string | null;
+  target_session_id: string | null;
+  method: string;
+  status: InvocationStatus;
+  attempts: number;
+  max_attempts: number;
+  timeout_ms: number;
+  deadline_at: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+}
+
+export interface AgentService {
+  id: string;
+  zone_id: string;
+  application_id: string;
+  endpoint_url: string;
+  protocol_versions: string[];
+  framework_name: string | null;
+  framework_version: string | null;
+  capabilities: unknown;
+  health: string | null;
+  last_heartbeat_at: string | null;
 }
 
 export interface DiagnosticsOptions {

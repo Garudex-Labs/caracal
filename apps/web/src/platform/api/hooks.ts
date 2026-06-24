@@ -511,6 +511,31 @@ export function useAgentOutboundDelegations(zoneId: string | null, sessionId: st
   });
 }
 
+// Read-only execution visibility: invocations targeting/originating from this agent, and
+// the registered services in the zone. Mutations remain runtime-identity gated.
+export function useAgentInvocations(zoneId: string | null, sessionId: string | null) {
+  return useQuery({
+    queryKey: ["console", "invocations", zoneId, sessionId],
+    queryFn: () =>
+      consoleApi.execution.invocations(zoneId as string, { session_id: sessionId as string, limit: 50 }),
+    enabled: Boolean(zoneId && sessionId),
+    refetchInterval: LIVE_MS,
+  });
+}
+
+export function useAgentServices(zoneId: string | null, application_id: string | null) {
+  return useQuery({
+    queryKey: ["console", "agent-services", zoneId, application_id],
+    queryFn: async () => {
+      const services = await consoleApi.execution.services(zoneId as string);
+      return application_id
+        ? services.filter((s) => s.application_id === application_id)
+        : services;
+    },
+    enabled: Boolean(zoneId && application_id),
+  });
+}
+
 export function useAgentLifecycle(zoneId: string | null) {
   const qc = useQueryClient();
   return useMutation({
