@@ -10,7 +10,7 @@ import { SectionLabel } from "@/components/SiteShell";
 export const Route = createFileRoute("/pricing")({
   head: () => ({
     meta: [
-      { title: "Pricing — Caracal" },
+      { title: "Pricing · Caracal" },
       {
         name: "description",
         content:
@@ -50,7 +50,7 @@ const PLANS = [
     features: [
       "Managed multi-tenancy: tenants, organizations, workspaces",
       "Hosted management UI for every tenant",
-      "Fully managed data plane — no services to run",
+      "Fully managed data plane, no services to run",
       "SAML and OIDC SSO with SCIM provisioning",
       "Commercial SLA, priority support, and onboarding",
     ],

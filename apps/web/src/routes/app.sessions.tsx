@@ -52,7 +52,7 @@ function errorMessage(error: unknown): string {
 type EffectiveStatus = "active" | "expired" | "revoked";
 
 // The control plane stores a session's status as active/revoked/expired, but the
-// reaper only flips orphaned (zone-deleted) sessions to expired — a session whose
+// reaper only flips orphaned (zone-deleted) sessions to expired, and a session whose
 // expires_at has passed keeps status='active' in the database until then. The STS
 // runtime, however, denies any exchange unless `status === 'active' && expires_at > now`
 // (exchange.go: "session inactive or expired"). So a stored-active session past its
@@ -65,7 +65,7 @@ function effectiveStatus(session: Session, now: number): EffectiveStatus {
 }
 
 // True when the database still says active but the session has actually lapsed and is
-// awaiting reaping — worth flagging so operators understand the record/runtime drift.
+// awaiting reaping, worth flagging so operators understand the record/runtime drift.
 function isStaleActive(session: Session, now: number): boolean {
   return session.status === "active" && Date.parse(session.expires_at) <= now;
 }
@@ -348,7 +348,7 @@ function AuthoritySummary({
   if (effective === "revoked") {
     return (
       <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-        <div className="font-medium">No authority — revoked</div>
+        <div className="font-medium">No authority: revoked</div>
         <p className="mt-0.5 text-destructive/80">
           The runtime rejects every exchange for this session. Revocation is irreversible.
         </p>
@@ -357,7 +357,7 @@ function AuthoritySummary({
   }
   return (
     <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
-      <div className="font-medium">No authority — expired</div>
+      <div className="font-medium">No authority: expired</div>
       <p className="mt-0.5 text-amber-700/80 dark:text-amber-400/80">
         Expiry passed {relativeTime(session.expires_at, now)}, so the runtime rejects every
         exchange.

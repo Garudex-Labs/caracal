@@ -117,7 +117,7 @@ function ResourcesPage({ zoneId }: { zoneId: string }) {
       header: "Upstream",
       cell: (r) => (
         <span className="truncate font-mono text-xs text-muted-foreground">
-          {r.upstream_url ? hostOf(r.upstream_url) : "—"}
+          {r.upstream_url ? hostOf(r.upstream_url) : "-"}
         </span>
       ),
     },
@@ -328,7 +328,7 @@ function RelationCell({
       <span className="font-mono text-[10px] uppercase tracking-wide text-muted-foreground/70">
         {label}
       </span>
-      <span className="text-muted-foreground/50">—</span>
+      <span className="text-muted-foreground/50">-</span>
     </span>
   );
 }
@@ -407,7 +407,7 @@ function ResourceDetail({
           <Mono>{resource.identifier}</Mono>
         </DetailField>
         <DetailField label="Upstream URL">
-          <Mono>{resource.upstream_url ?? "—"}</Mono>
+          <Mono>{resource.upstream_url ?? "-"}</Mono>
         </DetailField>
         <DetailField label="Created">{new Date(resource.created_at).toLocaleString()}</DetailField>
       </DetailGroup>
