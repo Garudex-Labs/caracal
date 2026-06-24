@@ -61,6 +61,7 @@ interface TargetRect {
 }
 
 function readRect(selector: string): TargetRect | null {
+  if (!selector) return null;
   const element = document.querySelector(selector);
   if (!element) return null;
   const rect = element.getBoundingClientRect();
@@ -213,6 +214,7 @@ function CoachmarkOverlay({
 
   useEffect(() => {
     update();
+    if (!step.targetSelector) return;
     window.addEventListener("resize", update);
     window.addEventListener("scroll", update, true);
     const target = document.querySelector(step.targetSelector);
@@ -241,30 +243,75 @@ function CoachmarkOverlay({
 
   const primaryLabel = step.actionLabel ?? (manualCompletion ? "Mark complete" : "Take me there");
 
-  if (!rect) {
+  const cardBody = (
+    <>
+      <div className="mb-2">
+        <h3 id="coachmark-title" className="text-sm font-semibold text-foreground">
+          {step.title}
+        </h3>
+        <p className="mt-0.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+          Step {stepIndex + 1} of {totalSteps}
+        </p>
+      </div>
+
+      <div className="scrollbar-thin max-h-[min(56vh,30rem)] overflow-y-auto pr-0.5">
+        {step.description ? (
+          <p className="text-sm text-foreground">{step.description}</p>
+        ) : null}
+        {step.details ? <div className="mt-3">{step.details}</div> : null}
+      </div>
+
+      <div className="mt-4 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={onPrev}
+            disabled={isFirst}
+            aria-label="Previous step"
+          >
+            <ChevronLeftIcon className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={onNext}
+            disabled={isLast}
+            aria-label="Next step"
+          >
+            <ChevronRightIcon className="h-4 w-4" />
+          </Button>
+        </div>
+        <Button size="sm" onClick={onPrimary}>
+          {primaryLabel}
+        </Button>
+      </div>
+    </>
+  );
+
+  // Intentional centered card: a step with no target (orientation/summary), or an anchored
+  // step whose element is not on the current screen. Both dim the page and present the same
+  // lesson card centered, so the tour never shows a broken or empty spotlight.
+  const isIntro = step.targetSelector === "";
+  if (isIntro || !rect) {
     return (
       <div
-        className="animate-fade-in fixed inset-0 z-[60] flex items-center justify-center bg-foreground/40 backdrop-blur-[1px]"
+        className="animate-fade-in fixed inset-0 z-[60] flex items-center justify-center bg-foreground/45 p-4 backdrop-blur-[1px]"
         role="dialog"
         aria-modal="true"
         aria-labelledby="coachmark-title"
+        onClick={onClose}
       >
-        <div className="animate-pop-in mx-4 max-w-md rounded-xl border border-border bg-card p-6 shadow-xl">
-          <h3 id="coachmark-title" className="mb-2 text-base font-semibold text-foreground">
-            {step.title}
-          </h3>
-          <p className="mb-4 text-sm text-muted-foreground">
-            We couldn&apos;t find the element for this step on the current screen. Navigate to the
-            relevant page, or continue.
-          </p>
-          <div className="flex justify-end gap-2">
-            <Button variant="secondary" size="sm" onClick={onClose}>
-              Close
-            </Button>
-            <Button size="sm" onClick={onPrimary}>
-              {primaryLabel}
-            </Button>
-          </div>
+        <div
+          className="animate-pop-in w-full max-w-md rounded-xl border border-border bg-card p-5 shadow-xl"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {!isIntro ? (
+            <p className="mb-3 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+              Open the related page to see this in context — the lesson stays the same.
+            </p>
+          ) : null}
+          {cardBody}
         </div>
       </div>
     );
@@ -300,44 +347,7 @@ function CoachmarkOverlay({
         className="animate-pop-in pointer-events-auto absolute rounded-xl border border-border bg-card p-4 shadow-xl"
         style={{ top: card.top, left: card.left, width: CARD_WIDTH }}
       >
-        <div className="mb-2">
-          <h3 id="coachmark-title" className="text-sm font-semibold text-foreground">
-            {step.title}
-          </h3>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            Step {stepIndex + 1} of {totalSteps}
-          </p>
-        </div>
-
-        {step.description ? (
-          <p className="mb-4 text-sm text-foreground">{step.description}</p>
-        ) : null}
-
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5">
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={onPrev}
-              disabled={isFirst}
-              aria-label="Previous step"
-            >
-              <ChevronLeftIcon className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={onNext}
-              disabled={isLast}
-              aria-label="Next step"
-            >
-              <ChevronRightIcon className="h-4 w-4" />
-            </Button>
-          </div>
-          <Button size="sm" onClick={onPrimary}>
-            {primaryLabel}
-          </Button>
-        </div>
+        {cardBody}
       </div>
     </div>
   );
@@ -437,6 +447,7 @@ export function InteractiveOnboardingChecklist({
 
   function primaryAction(stepId: string) {
     onActivateStep?.(stepId);
+    const step = steps.find((s) => s.id === stepId);
     if (manualCompletion) {
       setLocalCompleted((prev) => new Set([...prev, stepId]));
       const idx = steps.findIndex((s) => s.id === stepId);
@@ -444,8 +455,15 @@ export function InteractiveOnboardingChecklist({
       const next = steps.slice(idx + 1).find((s) => !merged.has(s.id));
       setActiveId(next ? next.id : null);
       if (steps.every((s) => merged.has(s.id))) setTimeout(() => onFinish?.(), 120);
+    } else if (step?.advanceOnAction) {
+      // Informational step (orientation/summary): its CTA does not navigate, so advance the
+      // coachmark to the next remaining step in place to keep the tour moving.
+      const idx = steps.findIndex((s) => s.id === stepId);
+      const next = steps.slice(idx + 1).find((s) => !completed.has(s.id));
+      setActiveId(next ? next.id : null);
     } else {
-      // Data-driven: keep the coachmark open on this step; completion arrives via `completed`.
+      // Data-driven build step: the CTA opened the real page/form, so close the coachmark
+      // and let completion arrive when the object actually exists (via `completed`).
       setActiveId(null);
     }
   }

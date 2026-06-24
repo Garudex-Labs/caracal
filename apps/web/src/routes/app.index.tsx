@@ -22,7 +22,6 @@ import {
   useZones,
 } from "@/platform/api/hooks";
 import type { Application, AuditEvent, Zone } from "@/platform/api/types";
-import { workspaceLabel } from "@/platform/state/localInstall";
 
 export const Route = createFileRoute("/app/")({
   component: DashboardPage,
@@ -31,14 +30,13 @@ export const Route = createFileRoute("/app/")({
 type Tone = "ok" | "warn" | "danger" | "muted";
 
 function DashboardPage() {
-  const workspace = workspaceLabel();
   const zonesQuery = useZones();
   const { zones, activeZone } = useActiveZone();
 
   const frame = (body: ReactNode, actions?: ReactNode) => (
     <ModulePage
       title="Dashboard"
-      description={activeZone ? `${workspace} · ${activeZone.name}` : workspace}
+      description="Your zone's authority posture, recent activity, and setup at a glance."
       breadcrumbs={[{ label: "Console", to: "/app" }, { label: "Dashboard" }]}
       actions={actions}
     >
@@ -68,7 +66,6 @@ function DashboardPage() {
 }
 
 function ConnectedDashboard({ zone }: { zone: Zone }) {
-  const workspace = workspaceLabel();
   const zoneId = zone.id;
 
   const apps = useApplications(zoneId);
@@ -118,7 +115,7 @@ function ConnectedDashboard({ zone }: { zone: Zone }) {
   return (
     <ModulePage
       title="Dashboard"
-      description={`${workspace} · ${zone.name}`}
+      description="Your zone's authority posture, recent activity, and setup at a glance."
       breadcrumbs={[{ label: "Console", to: "/app" }, { label: "Dashboard" }]}
     >
       <div className="space-y-6">
