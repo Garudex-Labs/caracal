@@ -8,6 +8,7 @@ import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 
 import { NavIcon } from "@/components/console/NavIcon";
+import { ProfileMenu } from "@/components/console/ProfileMenu";
 import { LockBadge } from "@/components/ui";
 import { cx } from "@/lib/cx";
 import { NAV_GROUPS } from "@/platform/nav/navModel";
@@ -158,6 +159,15 @@ export function Sidebar({
           ))}
         </div>
       </nav>
+
+      <div
+        className={cx(
+          "flex-shrink-0 border-t border-border py-2",
+          collapsed ? "flex justify-center px-2" : "px-2",
+        )}
+      >
+        <ProfileMenu collapsed={collapsed} />
+      </div>
     </div>
   );
 }

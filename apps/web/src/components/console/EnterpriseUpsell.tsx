@@ -128,7 +128,7 @@ export function EnterpriseUpsell({
               <LockBadge />
             </div>
             <p className="mt-2 text-xs text-muted-foreground">
-              {feature.title} activates in this exact place when you upgrade — no migration, the
+              {feature.title} activates in this exact place when you upgrade, with no migration, the
               Community security model is unchanged.
             </p>
           </div>
