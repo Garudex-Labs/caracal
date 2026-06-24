@@ -1489,6 +1489,7 @@ export function resourcesView(ctx: Ctx): View {
                 label: 'upstream URL',
                 kind: 'text',
                 required: true,
+                validate: validateUpstreamUrl,
                 hint: 'Gateway target for REST APIs, gRPC gateways, MCP servers, or SDK-backed services',
               },
               {
@@ -1571,7 +1572,7 @@ export function resourcesView(ctx: Ctx): View {
                 advanced: true,
                 validate: validateResourceIdentifier,
               },
-              { key: 'upstream_url', label: 'upstream URL', kind: 'text', default: row.upstream_url ?? '', required: true },
+              { key: 'upstream_url', label: 'upstream URL', kind: 'text', default: row.upstream_url ?? '', required: true, validate: validateUpstreamUrl },
               {
                 key: 'gateway_application_id',
                 label: 'gateway application',

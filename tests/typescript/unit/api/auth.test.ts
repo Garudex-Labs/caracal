@@ -161,6 +161,41 @@ describe('adminAuthPlugin', () => {
     expect(res.statusCode).toBe(200)
     await app.close()
   })
+
+  it('caches a successful verification so the static token is not re-verified per request', async () => {
+    const db = makeDb({ token: 'secret' })
+    const app = await buildPluginApp(db)
+    const headers = { authorization: 'Bearer secret' }
+    const first = await app.inject({ method: 'GET', url: '/v1/zones', headers })
+    const second = await app.inject({ method: 'GET', url: '/v1/zones', headers })
+    expect(first.statusCode).toBe(200)
+    expect(second.statusCode).toBe(200)
+    // The argon2 verification and its admin_tokens SELECT run once; the second request
+    // is served from the short-lived verification cache.
+    expect(countTokenSelects(db)).toBe(1)
+    await app.close()
+  })
+
+  it('does not cache failed verifications', async () => {
+    const db = makeDb({ token: 'secret' })
+    const app = await buildPluginApp(db)
+    const headers = { authorization: 'Bearer wrong' }
+    await app.inject({ method: 'GET', url: '/v1/zones', headers })
+    await app.inject({ method: 'GET', url: '/v1/zones', headers })
+    // Every failed attempt pays the full lookup so brute force stays rate-limited.
+    expect(countTokenSelects(db)).toBe(2)
+    await app.close()
+  })
+
+  it('re-verifies every request when the cache is disabled', async () => {
+    const db = makeDb({ token: 'secret' })
+    const app = await buildPluginApp(db, undefined, { verifyCacheTtlMs: 0 })
+    const headers = { authorization: 'Bearer secret' }
+    await app.inject({ method: 'GET', url: '/v1/zones', headers })
+    await app.inject({ method: 'GET', url: '/v1/zones', headers })
+    expect(countTokenSelects(db)).toBe(2)
+    await app.close()
+  })
 })
 
 describe('admin auth failed-attempt limiter', () => {

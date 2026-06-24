@@ -200,7 +200,11 @@ function PolicySetsTab({
   // zone, so confirm that specific case. First activations (zone currently deny-all) and
   // shadow deployments (which never touch the live version) are safe and proceed directly.
   async function handleCompose(result: ComposerResult) {
-    if (result.deploy === "activate" && composer?.mode === "version" && composer.set?.active_version_id) {
+    if (
+      result.deploy === "activate" &&
+      composer?.mode === "version" &&
+      composer.set?.active_version_id
+    ) {
       setComposer(null);
       setConfirmActivation({ set: composer.set, result });
       return;
@@ -1219,8 +1223,8 @@ function DeletePolicyDialog({
         ) : refs && refs.length > 0 ? (
           <div className="border border-amber-500/40 bg-amber-500/10 px-3 py-3 text-xs text-amber-700 dark:text-amber-400">
             <div className="font-medium">
-              {refs.length} active policy set{refs.length === 1 ? "" : "s"} enforce a version of this
-              policy
+              {refs.length} active policy set{refs.length === 1 ? "" : "s"} enforce a version of
+              this policy
             </div>
             <ul className="mt-2 flex flex-col gap-1">
               {refs.map((r) => (
@@ -1230,8 +1234,8 @@ function DeletePolicyDialog({
               ))}
             </ul>
             <p className="mt-2 text-amber-700/90 dark:text-amber-400/90">
-              Those sets keep enforcing their pinned versions, but this policy leaves the library and
-              can no longer be composed into new policy-set versions.
+              Those sets keep enforcing their pinned versions, but this policy leaves the library
+              and can no longer be composed into new policy-set versions.
             </p>
           </div>
         ) : refs ? (
