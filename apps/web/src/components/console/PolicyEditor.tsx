@@ -2,23 +2,37 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-This file provides the Rego policy editor with inline validation for authoring policies and versions.
+This file provides the Rego data-document policy editor with templates, inline validation, and contract preview.
 */
 import { useEffect, useRef, useState } from "react";
 
 import { Button, Field, Modal } from "@/components/ui";
 import { cx } from "@/lib/cx";
 import { consoleApi } from "@/platform/api/client";
-import type { PolicyValidateResult } from "@/platform/api/types";
+import type { PolicyPreview, PolicyTemplate, PolicyValidateResult } from "@/platform/api/types";
 
-const STARTER = `package caracal.authz
+// A valid adopter policy is a Rego DATA document: it supplies data the signed platform
+// decision contract reads, and must never define `result`. This starter mirrors the
+// backend contract so the prefilled example saves cleanly.
+const STARTER = `# caracal:data-document
+package caracal.authz
 
 import rego.v1
 
-default result := {"decision": "deny", "evaluation_status": "complete"}
+# Adopter policies supply DATA only. The platform decision contract reads this
+# data and owns every allow/deny decision — never define \`result\` here.
 
-result := {"decision": "allow", "evaluation_status": "complete"} if {
-\tinput.subject.traits[_] == "billing:read"
+# Map the application keys used in grants to control-plane application ids.
+app_ids := {
+\t"payments": "app-payments",
+}
+
+# Grant a scope set to each role on a resource view.
+grants := {
+\t"resource://example": {
+\t\t"application": "payments",
+\t\t"roles": {"payment-execution": ["example:read"]},
+\t},
 }
 `;
 
@@ -50,6 +64,7 @@ export function PolicyEditorModal({
   const [description, setDescription] = useState("");
   const [content, setContent] = useState("");
   const [validation, setValidation] = useState<ValidationState>({ status: "idle" });
+  const [templates, setTemplates] = useState<PolicyTemplate[] | null>(null);
   const seedRef = useRef("");
 
   if (open && seedRef.current !== `${open}:${mode}:${policyName ?? ""}`) {
@@ -59,6 +74,24 @@ export function PolicyEditorModal({
     setContent(initialContent ?? (isCreate ? STARTER : ""));
     setValidation({ status: "idle" });
   }
+
+  // The canonical data-document starters come from the control plane so the editor
+  // always offers the same building blocks the platform contract is designed to read.
+  useEffect(() => {
+    if (!open || templates !== null) return;
+    let cancelled = false;
+    consoleApi.policies
+      .templates()
+      .then((list) => {
+        if (!cancelled) setTemplates(list);
+      })
+      .catch(() => {
+        if (!cancelled) setTemplates([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, templates]);
 
   // Validation is invalidated whenever content changes.
   useEffect(() => {
@@ -79,7 +112,7 @@ export function PolicyEditorModal({
       }
       setValidation({
         status: "invalid",
-        message: result.detail ?? result.error ?? "Invalid Rego.",
+        message: humanizeRegoError(result.detail ?? result.error),
       });
       return false;
     } catch (error) {
@@ -102,6 +135,13 @@ export function PolicyEditorModal({
     });
   }
 
+  function applyTemplate(id: string) {
+    const template = templates?.find((t) => t.id === id);
+    if (!template) return;
+    setContent(template.content);
+    setValidation({ status: "idle" });
+  }
+
   return (
     <Modal
       open={open}
@@ -109,7 +149,7 @@ export function PolicyEditorModal({
       title={isCreate ? "New policy" : `New version · ${policyName ?? ""}`}
       description={
         isCreate
-          ? "Author a Rego authorization rule. It is validated before it is saved."
+          ? "Author a Rego data document. It supplies data the platform decision contract reads — it never decides on its own. Validated before it is saved."
           : "Add an immutable version. Existing versions are never modified."
       }
       footer={
@@ -138,16 +178,35 @@ export function PolicyEditorModal({
             />
             <Field
               label="Description"
-              placeholder="Optional summary of what this policy authorizes"
+              placeholder="Optional summary of what data this policy supplies"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
             />
           </>
         ) : null}
 
+        {templates && templates.length > 0 ? (
+          <div>
+            <div className="mb-1.5 text-sm font-medium text-foreground">Start from a template</div>
+            <div className="flex flex-wrap gap-2">
+              {templates.map((template) => (
+                <button
+                  key={template.id}
+                  type="button"
+                  title={template.description}
+                  onClick={() => applyTemplate(template.id)}
+                  className="rounded-md border border-border px-2.5 py-1.5 text-left text-xs text-foreground transition-colors hover:border-foreground/40"
+                >
+                  {template.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
         <div>
           <div className="mb-1.5 flex items-center justify-between">
-            <span className="text-sm font-medium text-foreground">Rego source</span>
+            <span className="text-sm font-medium text-foreground">Rego data document</span>
             <label className="cursor-pointer font-mono text-[10px] uppercase tracking-wide text-muted-foreground transition-colors hover:text-foreground">
               Load from file
               <input
@@ -174,8 +233,13 @@ export function PolicyEditorModal({
             spellCheck={false}
             rows={16}
             className="scrollbar-thin w-full resize-y rounded-md border border-border bg-[#0d1117] px-3 py-2.5 font-mono text-xs leading-relaxed text-[#e6edf3] outline-none focus:border-ring dark:bg-[#0d1117]"
-            placeholder="package caracal.authz…"
+            placeholder="# caracal:data-document&#10;package caracal.authz…"
           />
+          <p className="mt-1 text-xs text-muted-foreground">
+            Must start with <span className="font-mono">{"# caracal:data-document"}</span>, use
+            package <span className="font-mono">caracal.authz</span>, and define data only — never{" "}
+            <span className="font-mono">result</span>.
+          </p>
         </div>
 
         <ValidationBanner state={validation} />
@@ -184,11 +248,42 @@ export function PolicyEditorModal({
   );
 }
 
+// The backend returns machine error codes; translate the ones an author can act on into
+// guidance that names the data-document contract rather than leaking internal tokens.
+function humanizeRegoError(code: string | undefined): string {
+  switch (code) {
+    case "must_be_data_document":
+      return "Add the `# caracal:data-document` directive at the top. Adopter policies supply data, not decisions.";
+    case "must_use_package_caracal_authz":
+      return "The policy must declare `package caracal.authz`.";
+    case "data_document_must_not_define_result":
+      return "Remove the `result` rule. The platform decision contract owns every allow/deny — your policy supplies data only.";
+    case "data_document_must_define_data":
+      return "Define at least one data rule (for example `grants`, `app_ids`, `confinement`, or `restrict`).";
+    case "missing_package_declaration":
+      return "Add a `package caracal.authz` declaration.";
+    case "unbalanced_delimiters":
+      return "Unbalanced delimiters: check your braces, brackets, and parentheses.";
+    case "unterminated_string":
+      return "A string literal is not closed.";
+    case "empty_policy":
+      return "Policy content is required.";
+    default:
+      if (code?.startsWith("forbidden_builtin:")) {
+        return `Built-in ${code.slice("forbidden_builtin:".length)} is not allowed in tenant policies.`;
+      }
+      if (code?.startsWith("unsupported_schema_version:")) {
+        return `Unsupported schema version ${code.slice("unsupported_schema_version:".length)}.`;
+      }
+      return code ?? "Invalid Rego.";
+  }
+}
+
 function ValidationBanner({ state }: { state: ValidationState }) {
   if (state.status === "idle") {
     return (
       <p className="text-xs text-muted-foreground">
-        Validation checks Rego syntax and the policy contract before saving.
+        Validation checks Rego syntax and the data-document contract before saving.
       </p>
     );
   }
@@ -196,21 +291,11 @@ function ValidationBanner({ state }: { state: ValidationState }) {
     return <p className="text-xs text-muted-foreground">Validating…</p>;
   }
   if (state.status === "valid") {
-    return (
-      <div className="flex items-start gap-2 border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-400">
-        <Dot className="bg-emerald-500" />
-        <div>
-          <div className="font-medium">Valid policy</div>
-          <div className="mt-0.5 text-emerald-700/80 dark:text-emerald-400/80">
-            Schema {state.result.schema_version ?? "current"} · contract caracal.authz.result
-          </div>
-        </div>
-      </div>
-    );
+    return <ValidPreview result={state.result} />;
   }
   return (
     <div className="flex items-start gap-2 border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-      <Dot className="bg-destructive" />
+      <Dot className="mt-1 bg-destructive" />
       <div>
         <div className="font-medium">Validation failed</div>
         <div className="mt-0.5 whitespace-pre-wrap break-words text-destructive/80">
@@ -221,8 +306,46 @@ function ValidationBanner({ state }: { state: ValidationState }) {
   );
 }
 
-function Dot({ className }: { className: string }) {
+function ValidPreview({ result }: { result: PolicyValidateResult }) {
+  const preview: PolicyPreview | null = result.preview ?? null;
   return (
-    <span className={cx("mt-1 inline-block h-1.5 w-1.5 flex-shrink-0 rounded-full", className)} />
+    <div className="flex flex-col gap-2 border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-400">
+      <div className="flex items-start gap-2">
+        <Dot className="mt-1 bg-emerald-500" />
+        <div>
+          <div className="font-medium">Valid data document</div>
+          <div className="mt-0.5 text-emerald-700/80 dark:text-emerald-400/80">
+            Schema {result.schema_version ?? "current"} · package{" "}
+            {preview?.package ?? "caracal.authz"}
+          </div>
+        </div>
+      </div>
+      {preview ? (
+        <dl className="grid grid-cols-[auto,1fr] gap-x-3 gap-y-1 pl-4 text-emerald-700/80 dark:text-emerald-400/80">
+          {preview.rules.length > 0 ? (
+            <>
+              <dt className="font-medium">Data</dt>
+              <dd className="break-words font-mono">{preview.rules.join(", ")}</dd>
+            </>
+          ) : null}
+          {preview.data_referenced.length > 0 ? (
+            <>
+              <dt className="font-medium">Reads</dt>
+              <dd className="break-words font-mono">{preview.data_referenced.join(", ")}</dd>
+            </>
+          ) : null}
+          {preview.inputs_referenced.length > 0 ? (
+            <>
+              <dt className="font-medium">Input</dt>
+              <dd className="break-words font-mono">{preview.inputs_referenced.join(", ")}</dd>
+            </>
+          ) : null}
+        </dl>
+      ) : null}
+    </div>
   );
+}
+
+function Dot({ className }: { className: string }) {
+  return <span className={cx("inline-block h-1.5 w-1.5 flex-shrink-0 rounded-full", className)} />;
 }

@@ -75,6 +75,25 @@ function errorMessage(error: unknown): string {
   return "Unexpected error.";
 }
 
+// Mirrors the backend OPA input contract (OPA_INPUT_SCHEMA_VERSION). The simulate
+// endpoint warns when principal.zone_id, resource, action, or context are missing, so
+// the scaffold below seeds a shape that validates instead of one that always warns.
+const INPUT_SCHEMA_VERSION = "2026-05-20";
+
+function exampleSimulationInput(zoneId: string): string {
+  return JSON.stringify(
+    {
+      schema_version: INPUT_SCHEMA_VERSION,
+      principal: { zone_id: zoneId, id: "app-payments", traits: ["payment-execution"] },
+      resource: { identifier: "resource://example" },
+      action: { scopes: ["example:read"] },
+      context: {},
+    },
+    null,
+    2,
+  );
+}
+
 function PolicyWorkspace({ zoneId }: { zoneId: string }) {
   const [tab, setTab] = useState<TabId>("sets");
   const policies = usePolicies(zoneId);

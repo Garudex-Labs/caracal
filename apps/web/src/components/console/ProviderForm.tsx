@@ -453,16 +453,28 @@ export function ProviderFormModal({
   function missingRequired(): string | null {
     if (!isEdit && !name.trim()) return "Provider name is required.";
     const kindUnchanged = isEdit && kind === provider?.kind;
+    const secretStored = (key: string) =>
+      kindUnchanged && Boolean(provider?.secret_config_keys.includes(key as never));
     for (const field of basicFields) {
       if (!field.required) continue;
       const raw = (values[field.key] ?? "").trim();
-      if (
-        SECRET_KEYS.has(field.key) &&
-        kindUnchanged &&
-        provider?.secret_config_keys.includes(field.key as never)
-      )
-        continue;
+      if (SECRET_KEYS.has(field.key) && secretStored(field.key)) continue;
       if (raw === "") return `${field.label} is required.`;
+    }
+    // OAuth client authentication makes a credential conditionally mandatory, exactly as the
+    // control plane enforces: a client secret for the secret-based methods, or a private key
+    // for private_key_jwt. 'none' needs neither.
+    if (kind === "oauth2_authorization_code" || kind === "oauth2_client_credentials") {
+      const method = (values.client_auth_method || "client_secret_basic").trim();
+      if (method === "private_key_jwt") {
+        if ((values.private_key ?? "").trim() === "" && !secretStored("private_key")) {
+          return "A private key is required for private_key_jwt.";
+        }
+      } else if (method !== "none") {
+        if ((values.client_secret ?? "").trim() === "" && !secretStored("client_secret")) {
+          return "Client secret is required for this authentication method.";
+        }
+      }
     }
     return null;
   }
