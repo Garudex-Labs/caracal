@@ -260,7 +260,7 @@ function ResourcesPage({ zoneId }: { zoneId: string }) {
         open={deleteTarget !== null}
         onClose={() => setDeleteTarget(null)}
         title="Delete resource"
-        description={`Deleting "${deleteTarget?.name ?? ""}" removes its Gateway route and authorization. Agents will lose access to this upstream. This cannot be undone.`}
+        description={`Archiving "${deleteTarget?.name ?? ""}" removes its Gateway route and authorization, so agents lose access to this upstream. The record is retained for audit.`}
         confirmLabel="Delete resource"
         tone="danger"
         onConfirm={async () => {

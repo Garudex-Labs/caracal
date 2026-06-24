@@ -18,7 +18,12 @@ import { Badge, Button, Field, Select, Skeleton, type Column } from "@/component
 import { cx } from "@/lib/cx";
 import { ConsoleApiError } from "@/platform/api/client";
 import { useAdminAuditFeed, useAuditFeed, useDecisionTrace } from "@/platform/api/hooks";
-import type { AdminAuditEvent, AdminAuditQuery, AuditEvent, AuditQuery } from "@/platform/api/types";
+import type {
+  AdminAuditEvent,
+  AdminAuditQuery,
+  AuditEvent,
+  AuditQuery,
+} from "@/platform/api/types";
 
 export const Route = createFileRoute("/app/audit")({
   component: AuditRoute,
@@ -542,7 +547,11 @@ function AdminAuditPage({
         const fields = changedFields(e.payload_json);
         const secret = e.payload_json?.secret_rotated === true;
         if (fields.length === 0 && !secret) {
-          return <span className="text-xs text-muted-foreground">{e.method === "DELETE" ? "deleted" : "—"}</span>;
+          return (
+            <span className="text-xs text-muted-foreground">
+              {e.method === "DELETE" ? "deleted" : "—"}
+            </span>
+          );
         }
         return (
           <div className="flex flex-wrap gap-1">

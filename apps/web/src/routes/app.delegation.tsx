@@ -230,7 +230,18 @@ function DelegationPage({ zoneId }: { zoneId: string }) {
             e.target_session_id.toLowerCase().includes(q) ||
             e.scopes.some((s) => s.toLowerCase().includes(q)),
         }}
-        sortOptions={[{ id: "recent", label: "Most recent" }]}
+        sortOptions={[
+          { id: "recent", label: "Most recent" },
+          { id: "expiring", label: "Expiring soon" },
+          { id: "scopes", label: "Most scopes" },
+        ]}
+        sortComparators={{
+          recent: (a, b) => Date.parse(b.created_at) - Date.parse(a.created_at),
+          expiring: (a, b) =>
+            (a.expires_at ? Date.parse(a.expires_at) : Infinity) -
+            (b.expires_at ? Date.parse(b.expires_at) : Infinity),
+          scopes: (a, b) => b.scopes.length - a.scopes.length,
+        }}
         empty={{
           title: feed.isError ? "Could not load delegations" : "No active delegations",
           description: feed.isError
@@ -302,13 +313,19 @@ function DelegationInspector({
       .finally(() => setLoading(false));
   }
 
+  const constraints = useMemo(
+    () => decodeConstraints(edge.constraints_json),
+    [edge.constraints_json],
+  );
+
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center gap-2">
-        <Badge tone="success">{edge.status}</Badge>
+        <Badge tone={statusTone(edge)}>{statusLabel(edge)}</Badge>
         {edge.resource_id ? <Badge tone="neutral">resource-bound</Badge> : null}
+        {edge.parent_edge_id ? <Badge tone="muted">inherited</Badge> : null}
         <div className="ml-auto">
-          <Button variant="danger" size="sm" onClick={onRevoke}>
+          <Button variant="danger" size="sm" onClick={onRevoke} disabled={edge.status !== "active"}>
             Revoke
           </Button>
         </div>
@@ -324,16 +341,40 @@ function DelegationInspector({
         <DetailField label="Target session">
           <Mono>{edge.target_session_id}</Mono>
         </DetailField>
+        {edge.issuer_application_id ? (
+          <DetailField label="Issuer application">
+            <Mono>{edge.issuer_application_id}</Mono>
+          </DetailField>
+        ) : null}
+        {edge.receiver_application_id ? (
+          <DetailField label="Receiver application">
+            <Mono>{edge.receiver_application_id}</Mono>
+          </DetailField>
+        ) : null}
         {edge.parent_edge_id ? (
           <DetailField label="Parent edge">
             <Mono>{edge.parent_edge_id}</Mono>
           </DetailField>
         ) : null}
+        <DetailField label="Edge version">{edge.edge_version}</DetailField>
         <DetailField label="Created">{new Date(edge.created_at).toLocaleString()}</DetailField>
         {edge.expires_at ? (
           <DetailField label="Expires">{new Date(edge.expires_at).toLocaleString()}</DetailField>
         ) : null}
+        {edge.revoked_at ? (
+          <DetailField label="Revoked">{new Date(edge.revoked_at).toLocaleString()}</DetailField>
+        ) : null}
       </DetailGroup>
+
+      {constraints.length > 0 ? (
+        <DetailGroup title="Authority constraints">
+          {constraints.map((constraint) => (
+            <DetailField key={constraint.label} label={constraint.label}>
+              {constraint.value}
+            </DetailField>
+          ))}
+        </DetailGroup>
+      ) : null}
 
       <section className="border-t border-border pt-4">
         <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
