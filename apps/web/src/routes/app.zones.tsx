@@ -659,9 +659,8 @@ function DeleteZoneDialog({
                   {deps.liveDcr === 1 ? "it expires" : "they expire"}.
                 </p>
                 <p className="mt-1 text-xs text-amber-700/90 dark:text-amber-400/90">
-                  Deleting the zone does not revoke them. To cut off access immediately,
-                  revoke them first — this archives the identities and revokes their sessions
-                  and agents.
+                  Deleting the zone does not revoke them. To cut off access immediately, revoke them
+                  first — this archives the identities and revokes their sessions and agents.
                 </p>
                 <Button
                   variant="secondary"

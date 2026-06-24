@@ -8,6 +8,14 @@ import { useMemo, useState } from "react";
 
 import { Button, Field, Modal, PasswordField, Select, Textarea } from "@/components/ui";
 import { cx } from "@/lib/cx";
+import {
+  crossFieldIssues,
+  parseParams,
+  reservedParamsFor,
+  serializeParams,
+  validateFieldFormat,
+  validateIdentifier,
+} from "@/components/console/providerValidation";
 import type { Provider, ProviderInput, ProviderKind } from "@/platform/api/types";
 
 const KIND_OPTIONS: { value: ProviderKind; label: string }[] = [
@@ -31,7 +39,7 @@ const KIND_SUMMARY: Record<ProviderKind, string> = {
   none: "Placeholder provider. No credential routing.",
 };
 
-type FieldKind = "text" | "secret" | "secret-multiline" | "list" | "bool" | "select";
+type FieldKind = "text" | "secret" | "secret-multiline" | "list" | "params" | "bool" | "select";
 
 interface ProviderField {
   key: string;
@@ -101,14 +109,14 @@ const FIELDS: Record<ProviderKind, ProviderField[]> = {
     {
       key: "authorization_params",
       label: "Authorization parameters",
-      kind: "list",
+      kind: "params",
       advanced: true,
       hint: "Optional key=value pairs, e.g. access_type=offline, prompt=consent.",
     },
     {
       key: "token_params",
       label: "Token parameters",
-      kind: "list",
+      kind: "params",
       advanced: true,
       hint: "Optional key=value token endpoint parameters.",
     },
@@ -210,7 +218,7 @@ const FIELDS: Record<ProviderKind, ProviderField[]> = {
     {
       key: "token_params",
       label: "Token parameters",
-      kind: "list",
+      kind: "params",
       advanced: true,
       hint: "Optional key=value token endpoint parameters.",
     },
@@ -337,12 +345,16 @@ const SECRET_KEYS = new Set(["client_secret", "private_key", "api_key", "bearer_
 
 type Values = Record<string, string>;
 
+const PARAM_KEYS = new Set(["authorization_params", "token_params"]);
+
 function initialValues(provider?: Provider): Values {
   const values: Values = {};
   if (!provider) return values;
   const config = provider.config_json ?? {};
   for (const [key, raw] of Object.entries(config)) {
-    if (Array.isArray(raw)) values[key] = raw.join(", ");
+    if (PARAM_KEYS.has(key) && raw != null && typeof raw === "object" && !Array.isArray(raw)) {
+      values[key] = serializeParams(raw as Record<string, string>);
+    } else if (Array.isArray(raw)) values[key] = raw.join(", ");
     else if (typeof raw === "boolean") values[key] = String(raw);
     else if (raw != null && typeof raw === "object") values[key] = JSON.stringify(raw);
     else if (raw != null) values[key] = String(raw);
@@ -361,7 +373,10 @@ function buildConfig(kind: ProviderKind, values: Values, isEdit: boolean): Recor
     }
     if (raw === "") continue;
     if (SECRET_KEYS.has(field.key) && isEdit && raw === KEEP_SECRET) continue;
-    if (field.kind === "list") {
+    if (field.kind === "params") {
+      const parsed = parseParams(raw, reservedParamsFor(field.key));
+      if (Object.keys(parsed.value).length > 0) config[field.key] = parsed.value;
+    } else if (field.kind === "list") {
       config[field.key] = raw
         .split(",")
         .map((item) => item.trim())
