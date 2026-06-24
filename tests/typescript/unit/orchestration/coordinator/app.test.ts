@@ -68,5 +68,42 @@ describe('buildApp operational endpoints', () => {
       expect(res.json()).toMatchObject({ ok: false, error: 'postgres_unreachable', dependency: 'postgres' })
       await app.close()
     })
+
+    it('reports a fast ok when both dependencies respond, probing them concurrently', async () => {
+      vi.useRealTimers()
+      const db = { query: vi.fn(async () => ({ rows: [{ '?column?': 1 }] })) }
+      const redis = { ping: vi.fn(async () => 'PONG') }
+      const app = await buildApp({
+        cfg: { requestTimeoutMs: 1000, trustProxy: false, coordinatorRateLimitPerMin: 0 },
+        db,
+        redis,
+      } as never)
+
+      const res = await app.inject({ method: 'GET', url: '/ready' })
+
+      expect(res.statusCode).toBe(200)
+      expect(res.json()).toMatchObject({ ok: true })
+      expect(db.query).toHaveBeenCalledTimes(1)
+      expect(redis.ping).toHaveBeenCalledTimes(1)
+      await app.close()
+    })
+
+    it('returns 503 redis_unreachable when only Redis is unhealthy', async () => {
+      const db = { query: vi.fn(async () => ({ rows: [{ '?column?': 1 }] })) }
+      const redis = { ping: vi.fn(() => new Promise(() => {})) }
+      const app = await buildApp({
+        cfg: { requestTimeoutMs: 1000, trustProxy: false, coordinatorRateLimitPerMin: 0 },
+        db,
+        redis,
+      } as never)
+
+      const response = app.inject({ method: 'GET', url: '/ready' })
+      await vi.advanceTimersByTimeAsync(5_000)
+      const res = await response
+
+      expect(res.statusCode).toBe(503)
+      expect(res.json()).toMatchObject({ ok: false, error: 'redis_unreachable', dependency: 'redis' })
+      await app.close()
+    })
   })
 })

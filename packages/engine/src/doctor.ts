@@ -80,9 +80,41 @@ export const DOCTOR_SECTION_LABELS: Record<DoctorSection, string> = {
 export const DOCTOR_SECTION_ORDER: DoctorSection[] = ['health', 'readiness', 'zones', 'preflight']
 
 const FETCH_TIMEOUT_MS = 5000
+// Readiness and health probes hit live services whose dependency connections can briefly
+// go cold (idle-evicted pools, failovers, GC pauses, network blips), making a single
+// attempt occasionally exceed the timeout. Industry-standard probing tolerates that with a
+// small number of retries before declaring a failure, so a transient spike never reports a
+// healthy service as down. Only transport-level failures (timeout/abort/network) are
+// retried; a definitive HTTP response is always taken at face value.
+const PROBE_MAX_ATTEMPTS = 3
+const PROBE_RETRY_BACKOFF_MS = 250
 
 function message(err: unknown): string {
   return scrubTokens(err instanceof Error ? err.message : String(err))
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+// Performs the probe request, retrying only when fetch itself fails (an aborted timeout or
+// a network error). A resolved Response — success or error status — is returned to the
+// caller unchanged so HTTP-level outcomes are never masked by retries.
+async function probeFetch(url: string, headers?: ProbeHeaders): Promise<Response> {
+  let lastError: unknown
+  for (let attempt = 1; attempt <= PROBE_MAX_ATTEMPTS; attempt++) {
+    try {
+      return await fetch(url, {
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+        redirect: 'error',
+        headers,
+      })
+    } catch (err) {
+      lastError = err
+      if (attempt < PROBE_MAX_ATTEMPTS) await delay(PROBE_RETRY_BACKOFF_MS * attempt)
+    }
+  }
+  throw lastError
 }
 
 function sanitize(value: string): string {
@@ -201,14 +233,14 @@ async function runCheck(
 
 async function fetchOk(url: string, headers?: ProbeHeaders): Promise<string> {
   const target = normalizeHttpUrl(url, 'doctor probe')
-  const res = await fetch(target, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS), redirect: 'error', headers })
+  const res = await probeFetch(target, headers)
   if (!res.ok) throw new Error(`HTTP ${res.status}${await failureReason(res)}`)
   return target
 }
 
 async function fetchJSON(url: string, headers?: ProbeHeaders): Promise<unknown> {
   const target = normalizeHttpUrl(url, 'doctor probe')
-  const res = await fetch(target, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS), redirect: 'error', headers })
+  const res = await probeFetch(target, headers)
   if (!res.ok) throw new Error(`HTTP ${res.status}${await failureReason(res)}`)
   return await res.json()
 }

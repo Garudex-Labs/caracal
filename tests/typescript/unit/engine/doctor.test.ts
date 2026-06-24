@@ -243,6 +243,54 @@ describe('runDoctorDiagnostics — full system run', () => {
     fetchSpy.mockRestore()
   })
 
+  it('recovers a coordinator readiness probe that times out once before responding', async () => {
+    vi.mocked(buildAdminClient).mockReturnValue(fakeAdminContext() as never)
+    const readyAttempts = { count: 0 }
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input)
+      if (url.endsWith(':4000/ready')) {
+        readyAttempts.count += 1
+        // First attempt simulates a cold-start abort; the retry hits a warm service.
+        if (readyAttempts.count === 1) {
+          throw new DOMException("The operation was aborted due to timeout", "TimeoutError")
+        }
+        return jsonResponse({}, true)
+      }
+      if (url.endsWith('/health') || url.endsWith('/ready')) return jsonResponse({}, true)
+      if (url.endsWith('/stats')) return jsonResponse({ outbox: { pending: 0, dead: 0 }, invocations: { running: 0 } })
+      return jsonResponse({}, true)
+    })
+
+    const report = await runDoctorDiagnostics({})
+    const coordReadiness = report.checks.find((c) => c.check === 'coordinator readiness')
+    expect(coordReadiness?.status).toBe('ok')
+    expect(readyAttempts.count).toBeGreaterThanOrEqual(2)
+    fetchSpy.mockRestore()
+  })
+
+  it('fails a readiness probe that times out on every attempt', async () => {
+    vi.mocked(buildAdminClient).mockReturnValue(fakeAdminContext() as never)
+    const readyAttempts = { count: 0 }
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input)
+      if (url.endsWith(':4000/ready')) {
+        readyAttempts.count += 1
+        throw new DOMException("The operation was aborted due to timeout", "TimeoutError")
+      }
+      if (url.endsWith('/health') || url.endsWith('/ready')) return jsonResponse({}, true)
+      if (url.endsWith('/stats')) return jsonResponse({ outbox: { pending: 0, dead: 0 }, invocations: { running: 0 } })
+      return jsonResponse({}, true)
+    })
+
+    const report = await runDoctorDiagnostics({})
+    const coordReadiness = report.checks.find((c) => c.check === 'coordinator readiness')
+    expect(coordReadiness?.status).toBe('fail')
+    expect(coordReadiness?.advice).toMatch(/coordinator logs/i)
+    // The probe is retried the full budget before declaring a failure.
+    expect(readyAttempts.count).toBe(3)
+    fetchSpy.mockRestore()
+  })
+
   it('fails when STS cannot compile a policy bundle', async () => {
     vi.mocked(buildAdminClient).mockReturnValue(fakeAdminContext() as never)
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {

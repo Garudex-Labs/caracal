@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Creates or updates the authentication database schema for the local SQLite store.
+// Creates or updates the authentication database schema for the configured backend.
 
 import { getMigrations } from "better-auth/db/migration";
 
