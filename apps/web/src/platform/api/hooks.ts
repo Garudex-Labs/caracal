@@ -14,6 +14,8 @@ import type {
   Application,
   ApplicationInput,
   ApplicationPatchInput,
+  DiagnosticsReport,
+  DiagnosticStatus,
   PolicyInput,
   PolicyManifestEntry,
   Provider,
@@ -29,9 +31,29 @@ import type {
 
 // Operational data that benefits from staying live while the tab is focused.
 const LIVE_MS = 10_000;
+// Platform health drives the always-visible navbar indicator; poll on a calm cadence
+// while the tab is focused. The backend caches the report, so this never stampedes the
+// control plane, and React Query pauses the interval while the tab is hidden.
+const DIAGNOSTICS_POLL_MS = 20_000;
+
+export type PlatformHealth = "healthy" | "attention" | "unhealthy" | "unknown";
+
+/** Collapse a diagnostics report into the three-state platform health signal. */
+export function platformHealthOf(report: DiagnosticsReport | undefined): PlatformHealth {
+  if (!report) return "unknown";
+  if (report.summary.fail > 0) return "unhealthy";
+  if (report.summary.warn > 0) return "attention";
+  return "healthy";
+}
+
+/** Severity ranking so failing checks always sort above warnings above healthy ones. */
+export function diagnosticSeverityRank(status: DiagnosticStatus): number {
+  return status === "fail" ? 0 : status === "warn" ? 1 : 2;
+}
 
 const keys = {
   status: ["console", "status"] as const,
+  diagnostics: ["console", "diagnostics"] as const,
   zones: ["console", "zones"] as const,
   applications: (zoneId: string | null) => ["console", "applications", zoneId] as const,
   resources: (zoneId: string | null) => ["console", "resources", zoneId] as const,
@@ -50,6 +72,17 @@ const keys = {
 
 export function useConsoleStatus() {
   return useQuery({ queryKey: keys.status, queryFn: () => consoleApi.status() });
+}
+
+export function useDiagnostics() {
+  return useQuery<DiagnosticsReport>({
+    queryKey: keys.diagnostics,
+    queryFn: () => consoleApi.diagnostics(),
+    refetchInterval: DIAGNOSTICS_POLL_MS,
+    staleTime: DIAGNOSTICS_POLL_MS / 2,
+    refetchOnWindowFocus: true,
+    retry: false,
+  });
 }
 
 export function useZones() {

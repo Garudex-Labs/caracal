@@ -274,6 +274,42 @@ export interface ConsoleStatus {
   coordinatorUrl?: string;
 }
 
+export type DiagnosticStatus = "ok" | "warn" | "fail";
+export type DiagnosticSection = "health" | "readiness" | "zones" | "preflight";
+export type DiagnosticZoneScope = "all" | "selected" | "none";
+
+export interface DiagnosticCheck {
+  section: DiagnosticSection;
+  check: string;
+  status: DiagnosticStatus;
+  detail: string;
+  advice?: string;
+}
+
+export interface DiagnosticSummary {
+  ok: number;
+  warn: number;
+  fail: number;
+  total: number;
+}
+
+export interface DiagnosticContext {
+  apiUrl: string;
+  zoneScope: DiagnosticZoneScope;
+  zoneIds: string[];
+}
+
+export interface DiagnosticsReport {
+  command: "doctor";
+  mode: "system" | "preflight";
+  ready: boolean;
+  strict: boolean;
+  context: DiagnosticContext;
+  summary: DiagnosticSummary;
+  checks: DiagnosticCheck[];
+  generatedAt: string;
+}
+
 export type AgentStatus = "active" | "suspended" | "terminated";
 
 export interface Agent {

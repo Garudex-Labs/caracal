@@ -18,6 +18,28 @@ export interface ProfileRecord {
   avatar: string;
 }
 
+// Shared limits and rules for operator name fields, kept here so onboarding, Settings,
+// and the Console chrome enforce one identical pattern.
+export const NAME_MAX = 40;
+export const HANDLE_MAX = 24;
+
+/** A display name is a compact, space-free handle: keep letters, digits, _, ., - only. */
+export function sanitizeHandle(value: string): string {
+  return value.replace(/[^a-zA-Z0-9_.-]/g, "").slice(0, HANDLE_MAX);
+}
+
+/**
+ * Resolve the handle shown in the Console. An explicit display name wins; otherwise the
+ * full name's first token (the part before any space) becomes the handle, so the fallback
+ * never carries a space the field itself would reject.
+ */
+export function resolveDisplayName(fullName: string, displayName: string): string {
+  const handle = sanitizeHandle(displayName.trim());
+  if (handle) return handle;
+  const firstName = fullName.trim().split(/\s+/)[0] ?? "";
+  return sanitizeHandle(firstName);
+}
+
 const INSTALL_KEY = "caracal.install";
 const ACTIVE_ZONE_KEY = "caracal.activeZone";
 const PROFILE_KEY = "caracal.profile";
@@ -151,7 +173,7 @@ function hasStoredIdentity(): boolean {
 /** Human label for the active workspace shown in the Console chrome. */
 export function workspaceLabel(): string {
   const profile = getProfile();
-  return profile.displayName.trim() || profile.fullName.trim() || "Caracal";
+  return resolveDisplayName(profile.fullName, profile.displayName) || "Caracal";
 }
 
 export function completeOnboarding(profile: ProfileRecord): void {
