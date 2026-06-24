@@ -467,9 +467,27 @@ export function ProviderFormModal({
     return null;
   }
 
+  // Field-level format and cross-field credential errors at control-plane parity, so invalid
+  // input is caught and pinpointed in the form before any round-trip.
+  function fieldErrors(): Record<string, string> {
+    const errors: Record<string, string> = {};
+    const identifierError = validateIdentifier(identifier);
+    if (identifierError) errors.identifier = identifierError;
+    for (const field of visibleFields) {
+      if (field.kind === "bool" || field.kind === "select") continue;
+      const message = validateFieldFormat(field.key, values[field.key] ?? "");
+      if (message) errors[field.key] = message;
+    }
+    for (const issue of crossFieldIssues(kind, values)) {
+      if (issue.key && !errors[issue.key]) errors[issue.key] = issue.message;
+    }
+    return errors;
+  }
+
   function submit() {
     setTouched(true);
     if (missingRequired()) return;
+    if (Object.keys(fieldErrors()).length > 0) return;
     const config = buildConfig(kind, values, isEdit);
     const input: ProviderInput = {
       kind,
@@ -480,7 +498,10 @@ export function ProviderFormModal({
     onSubmit(input);
   }
 
+  const errors = touched ? fieldErrors() : {};
   const error = touched ? missingRequired() : null;
+  const hasFieldError = Object.keys(errors).length > 0;
+  const hasAdvancedError = advancedFields.some((f) => errors[f.key]);
 
   return (
     <Modal
@@ -536,6 +557,7 @@ export function ProviderFormModal({
             value={values[field.key] ?? ""}
             stored={Boolean(provider?.secret_config_keys.includes(field.key as never))}
             isEdit={isEdit}
+            error={errors[field.key]}
             onChange={(v) => setValue(field.key, v)}
           />
         ))}
@@ -559,8 +581,11 @@ export function ProviderFormModal({
                 <path d="m9 6 6 6-6 6" />
               </svg>
               Advanced ({advancedFields.length})
+              {hasAdvancedError ? (
+                <span className="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-destructive" />
+              ) : null}
             </button>
-            {showAdvanced ? (
+            {showAdvanced || hasAdvancedError ? (
               <div className="mt-4 flex flex-col gap-4">
                 {advancedFields.map((field) => (
                   <ProviderFieldInput
@@ -569,6 +594,7 @@ export function ProviderFormModal({
                     value={values[field.key] ?? ""}
                     stored={Boolean(provider?.secret_config_keys.includes(field.key as never))}
                     isEdit={isEdit}
+                    error={errors[field.key]}
                     onChange={(v) => setValue(field.key, v)}
                   />
                 ))}
@@ -583,11 +609,16 @@ export function ProviderFormModal({
             placeholder="provider://stripe-prod"
             hint="Optional. Generated from the name when blank. Must match provider://lowercase-slug."
             value={identifier}
+            error={errors.identifier}
             onChange={(e) => setIdentifier(e.target.value)}
           />
         </div>
 
-        {error ? <p className="text-sm text-destructive">{error}</p> : null}
+        {error ? (
+          <p className="text-sm text-destructive">{error}</p>
+        ) : hasFieldError ? (
+          <p className="text-sm text-destructive">Fix the highlighted fields before continuing.</p>
+        ) : null}
       </div>
     </Modal>
   );
@@ -598,17 +629,24 @@ function ProviderFieldInput({
   value,
   stored,
   isEdit,
+  error,
   onChange,
 }: {
   field: ProviderField;
   value: string;
   stored: boolean;
   isEdit: boolean;
+  error?: string;
   onChange: (value: string) => void;
 }) {
   const isSecret = field.kind === "secret" || field.kind === "secret-multiline";
   const hint =
     isSecret && isEdit && stored ? "Stored. Leave blank to keep the current value." : field.hint;
+  const note = error ? (
+    <span className="mt-1 block text-xs text-destructive">{error}</span>
+  ) : hint ? (
+    <span className="mt-1 block text-xs text-muted-foreground">{hint}</span>
+  ) : null;
 
   if (field.kind === "bool") {
     return (
@@ -647,13 +685,15 @@ function ProviderFieldInput({
 
   if (field.kind === "secret-multiline") {
     return (
-      <Textarea
-        label={field.label}
-        hint={hint}
-        value={value}
-        placeholder={field.placeholder}
-        onChange={(e) => onChange(e.target.value)}
-      />
+      <div>
+        <Textarea
+          label={field.label}
+          value={value}
+          placeholder={field.placeholder}
+          onChange={(e) => onChange(e.target.value)}
+        />
+        {note}
+      </div>
     );
   }
 
@@ -666,7 +706,7 @@ function ProviderFieldInput({
           placeholder={field.placeholder}
           onChange={(e) => onChange(e.target.value)}
         />
-        {hint ? <span className="mt-1 block text-xs text-muted-foreground">{hint}</span> : null}
+        {note}
       </div>
     );
   }
@@ -675,6 +715,7 @@ function ProviderFieldInput({
     <Field
       label={field.label}
       hint={hint}
+      error={error}
       placeholder={field.placeholder}
       value={value}
       onChange={(e) => onChange(e.target.value)}

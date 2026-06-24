@@ -243,11 +243,21 @@ export function useProviders(zoneId: string | null) {
   });
 }
 
+// Providers supply the credential routing that resources bind to, so any provider mutation
+// must also refresh the resources view to avoid showing a stale binding state.
+function invalidateProviderAndBindings(
+  qc: ReturnType<typeof useQueryClient>,
+  zoneId: string | null,
+): void {
+  qc.invalidateQueries({ queryKey: keys.providers(zoneId) });
+  qc.invalidateQueries({ queryKey: keys.resources(zoneId) });
+}
+
 export function useCreateProvider(zoneId: string | null) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (input: ProviderInput) => consoleApi.providers.create(zoneId as string, input),
-    onSuccess: () => qc.invalidateQueries({ queryKey: keys.providers(zoneId) }),
+    onSuccess: () => invalidateProviderAndBindings(qc, zoneId),
   });
 }
 
@@ -256,7 +266,7 @@ export function useUpdateProvider(zoneId: string | null) {
   return useMutation({
     mutationFn: ({ id, input }: { id: string; input: ProviderPatchInput }) =>
       consoleApi.providers.patch(zoneId as string, id, input),
-    onSuccess: () => qc.invalidateQueries({ queryKey: keys.providers(zoneId) }),
+    onSuccess: () => invalidateProviderAndBindings(qc, zoneId),
   });
 }
 
@@ -275,7 +285,9 @@ export function useDeleteProvider(zoneId: string | null) {
     onError: (_error, _id, context) => {
       if (context?.previous) qc.setQueryData(keys.providers(zoneId), context.previous);
     },
-    onSettled: () => qc.invalidateQueries({ queryKey: keys.providers(zoneId) }),
+    // A provider change alters credential routing for every bound resource, so refresh the
+    // resources view too instead of leaving it showing a stale binding.
+    onSettled: () => invalidateProviderAndBindings(qc, zoneId),
   });
 }
 
