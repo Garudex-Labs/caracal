@@ -243,16 +243,16 @@ function CoachmarkOverlay({
 
   const cardBody = (
     <>
-      <h3 id="coachmark-title" className="mb-2 text-sm font-semibold text-foreground">
+      <h3 id="coachmark-title" className="mb-2 shrink-0 text-sm font-semibold text-foreground">
         {step.title}
       </h3>
 
-      <div className="scrollbar-thin max-h-[min(56vh,30rem)] overflow-y-auto pr-0.5">
+      <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto pr-0.5">
         {step.description ? <p className="text-sm text-foreground">{step.description}</p> : null}
         {step.details ? <div className="mt-3">{step.details}</div> : null}
       </div>
 
-      <div className="mt-4 flex items-center justify-between gap-2">
+      <div className="mt-4 flex shrink-0 items-center justify-between gap-2">
         <div className="flex items-center gap-1.5">
           <Button
             variant="secondary"
@@ -294,11 +294,11 @@ function CoachmarkOverlay({
         onClick={onClose}
       >
         <div
-          className="animate-pop-in w-full max-w-md rounded-xl border border-border bg-card p-5 shadow-xl"
+          className="animate-pop-in flex max-h-[calc(100dvh-2rem)] w-full max-w-md flex-col rounded-xl border border-border bg-card p-5 shadow-xl"
           onClick={(e) => e.stopPropagation()}
         >
           {!isIntro ? (
-            <p className="mb-3 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+            <p className="mb-3 shrink-0 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
               Open the related page to see this in context. The lesson stays the same.
             </p>
           ) : null}
@@ -335,8 +335,13 @@ function CoachmarkOverlay({
       />
 
       <div
-        className="animate-pop-in pointer-events-auto absolute rounded-xl border border-border bg-card p-4 shadow-xl"
-        style={{ top: card.top, left: card.left, width: CARD_WIDTH }}
+        className="animate-pop-in pointer-events-auto absolute flex flex-col rounded-xl border border-border bg-card p-4 shadow-xl"
+        style={{
+          top: card.top,
+          left: card.left,
+          width: CARD_WIDTH,
+          maxHeight: Math.max(CARD_MARGIN * 8, window.innerHeight - card.top - CARD_MARGIN),
+        }}
       >
         {cardBody}
       </div>
@@ -471,7 +476,7 @@ export function InteractiveOnboardingChecklist({
     <>
       {open ? (
         <div
-          className="animate-slide-in-right fixed bottom-4 right-4 z-[55] flex max-h-[calc(100vh-2rem)] w-80 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-xl"
+          className="animate-slide-in-right fixed bottom-4 right-4 z-[55] flex max-h-[calc(100dvh-2rem)] w-80 max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-xl border border-border bg-card shadow-xl"
           role="dialog"
           aria-label={title}
         >

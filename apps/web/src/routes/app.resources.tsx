@@ -105,6 +105,7 @@ function ResourcesPage({ zoneId }: { zoneId: string }) {
       id: "name",
       header: "Resource",
       sortable: true,
+      truncate: true,
       cell: (r) => (
         <div className="min-w-0">
           <div className="truncate font-medium text-foreground">{r.name}</div>
@@ -115,8 +116,9 @@ function ResourcesPage({ zoneId }: { zoneId: string }) {
     {
       id: "upstream",
       header: "Upstream",
+      truncate: true,
       cell: (r) => (
-        <span className="truncate font-mono text-xs text-muted-foreground">
+        <span className="block truncate font-mono text-xs text-muted-foreground">
           {r.upstream_url ? hostOf(r.upstream_url) : "-"}
         </span>
       ),
@@ -124,6 +126,7 @@ function ResourcesPage({ zoneId }: { zoneId: string }) {
     {
       id: "binding",
       header: "Binding",
+      truncate: true,
       cell: (r) => (
         <div className="flex min-w-0 flex-col gap-0.5 text-xs">
           <RelationCell
@@ -441,7 +444,7 @@ function ResourceDetail({
             {scopes.map((scope) => (
               <span
                 key={scope}
-                className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground"
+                className="max-w-full break-all rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground"
               >
                 {scope}
               </span>
@@ -466,11 +469,13 @@ function ResourceDetail({
               <tbody className="divide-y divide-border">
                 {operations.map((op) => (
                   <tr key={`${op.method}-${op.path}`}>
-                    <td className="px-3 py-2">
+                    <td className="px-3 py-2 align-top">
                       <Badge tone="neutral">{op.method}</Badge>
                     </td>
-                    <td className="px-3 py-2 font-mono text-xs text-foreground">{op.path}</td>
-                    <td className="px-3 py-2 text-right font-mono text-xs text-muted-foreground">
+                    <td className="break-all px-3 py-2 align-top font-mono text-xs text-foreground">
+                      {op.path}
+                    </td>
+                    <td className="break-all px-3 py-2 text-right align-top font-mono text-xs text-muted-foreground">
                       {op.scope}
                     </td>
                   </tr>

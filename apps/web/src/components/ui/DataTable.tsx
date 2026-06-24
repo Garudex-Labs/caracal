@@ -17,6 +17,10 @@ export interface Column<T> {
   sortable?: boolean;
   align?: "left" | "right";
   width?: string;
+  // When set, the column is allowed to shrink and its cell content truncates instead of
+  // forcing the table wider. Use for free-form text (names, identifiers, URLs) that can be
+  // arbitrarily long. The cell itself must render a truncating/min-w-0 node.
+  truncate?: boolean;
   cell: (row: T) => ReactNode;
 }
 
@@ -86,8 +90,9 @@ export function DataTable<T>({
                     key={col.id}
                     style={col.width ? { width: col.width } : undefined}
                     className={cx(
-                      "px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground",
+                      "px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground whitespace-nowrap",
                       col.align === "right" && "text-right",
+                      col.truncate && "max-w-0",
                     )}
                   >
                     {col.sortable && onSortChange ? (
@@ -114,8 +119,8 @@ export function DataTable<T>({
               ? Array.from({ length: skeletonRows }).map((_, rowIndex) => (
                   <tr key={`skeleton-${rowIndex}`}>
                     {columns.map((col) => (
-                      <td key={col.id} className="px-4 py-3">
-                        <Skeleton className="h-4 w-full max-w-[160px]" />
+                      <td key={col.id} className={cx("px-4 py-3", col.truncate && "max-w-0")}>
+                        <Skeleton className="h-4 w-28" />
                       </td>
                     ))}
                   </tr>
@@ -148,6 +153,7 @@ export function DataTable<T>({
                         className={cx(
                           "px-4 py-3 align-middle",
                           col.align === "right" && "text-right",
+                          col.truncate && "max-w-0",
                         )}
                       >
                         {col.cell(row)}
