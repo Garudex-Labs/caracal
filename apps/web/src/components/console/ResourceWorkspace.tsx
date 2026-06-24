@@ -134,11 +134,21 @@ export function ResourceWorkspace<T>({
     );
   }
 
+  // A filter group is "active" when it has moved off its default (first) option. We track
+  // this so a filter that excludes everything does not get mistaken for an empty dataset.
+  const filtersActive = (filters ?? []).some(
+    (group) => group.value !== (group.options[0]?.id ?? ""),
+  );
+  const searchActive = query.trim().length > 0;
+
   // The toolbar is always present so the page frame never reflows between empty, loading,
-  // and populated states. Its controls lock when there is nothing to act on (loading, or no
-  // data at all) and unlock as soon as real rows arrive. A zero-result search still keeps
-  // them enabled so the operator can edit or clear the query.
-  const controlsLocked = loading || rows.length === 0;
+  // and populated states. Controls lock only when there is genuinely nothing to act on:
+  // loading, or no data at all. When the visible rows are empty *because* a search or filter
+  // excluded them, the controls stay enabled so the operator can always change or clear them
+  // and recover — they are never trapped by their own selection.
+  const controlsLocked = loading || (rows.length === 0 && !filtersActive && !searchActive);
+
+  const noMatches = (searchActive || filtersActive) && paged.length === 0;
 
   return (
     <ModulePage title={title} description={description} breadcrumbs={breadcrumbs}>
@@ -188,10 +198,27 @@ export function ResourceWorkspace<T>({
         onRowClick={detail ? (row) => setSelected(row) : undefined}
         empty={
           <EmptyState
-            title={query ? "No matches" : empty.title}
-            description={query ? "Try a different search term." : empty.description}
+            title={noMatches ? "No matches" : empty.title}
+            description={
+              noMatches
+                ? "No items match the current search and filters. Adjust or clear them to see more."
+                : empty.description
+            }
             action={
-              !query && empty.actionLabel && empty.onAction ? (
+              noMatches ? (
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    setQuery("");
+                    for (const group of filters ?? []) {
+                      const first = group.options[0]?.id;
+                      if (first !== undefined && group.value !== first) group.onChange(first);
+                    }
+                  }}
+                >
+                  Clear filters
+                </Button>
+              ) : empty.actionLabel && empty.onAction ? (
                 <Button onClick={empty.onAction}>{empty.actionLabel}</Button>
               ) : undefined
             }
