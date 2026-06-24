@@ -255,9 +255,7 @@ function CoachmarkOverlay({
       </div>
 
       <div className="scrollbar-thin max-h-[min(56vh,30rem)] overflow-y-auto pr-0.5">
-        {step.description ? (
-          <p className="text-sm text-foreground">{step.description}</p>
-        ) : null}
+        {step.description ? <p className="text-sm text-foreground">{step.description}</p> : null}
         {step.details ? <div className="mt-3">{step.details}</div> : null}
       </div>
 

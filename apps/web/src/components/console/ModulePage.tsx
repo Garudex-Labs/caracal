@@ -6,7 +6,7 @@ This file provides the standard header frame for Console module pages.
 */
 import type { ReactNode } from "react";
 
-import { Breadcrumbs, type Crumb } from "@/components/ui";
+import { Breadcrumbs, Tooltip, type Crumb } from "@/components/ui";
 
 export function ModulePage({
   title,
@@ -21,21 +21,44 @@ export function ModulePage({
   breadcrumbs?: Crumb[];
   children: ReactNode;
 }) {
+  const crumbs: Crumb[] =
+    breadcrumbs && breadcrumbs.length > 0
+      ? breadcrumbs
+      : [{ label: "Console", to: "/app" }, { label: title }];
+
   return (
     <div className="animate-fade-in">
-      {breadcrumbs && breadcrumbs.length > 0 ? (
-        <div className="mb-4">
-          <Breadcrumbs items={breadcrumbs} />
+      <div className="mb-6 flex items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center">
+          <Breadcrumbs items={crumbs} />
         </div>
-      ) : null}
-      <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h1 className="text-xl font-semibold tracking-tight text-foreground">{title}</h1>
+        <div className="flex flex-shrink-0 items-center gap-2">
+          {actions}
           {description ? (
-            <p className="mt-1 max-w-4xl text-sm text-muted-foreground">{description}</p>
+            <Tooltip label={description} side="bottom" align="end">
+              <button
+                type="button"
+                aria-label={`About ${title}`}
+                className="inline-grid h-7 w-7 flex-shrink-0 place-items-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  className="h-4 w-4"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <circle cx="12" cy="12" r="10" />
+                  <path d="M12 16v-4" />
+                  <path d="M12 8h.01" />
+                </svg>
+              </button>
+            </Tooltip>
           ) : null}
         </div>
-        {actions ? <div className="flex flex-shrink-0 items-center gap-2">{actions}</div> : null}
       </div>
       {children}
     </div>
