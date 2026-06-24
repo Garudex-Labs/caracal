@@ -48,10 +48,44 @@ function errorMessage(error: unknown): string {
   return "Unexpected error.";
 }
 
-function statusTone(status: string): "success" | "muted" | "danger" {
+type EffectiveStatus = "active" | "expired" | "revoked";
+
+// The control plane stores a session's status as active/revoked/expired, but the
+// reaper only flips orphaned (zone-deleted) sessions to expired — a session whose
+// expires_at has passed keeps status='active' in the database until then. The STS
+// runtime, however, denies any exchange unless `status === 'active' && expires_at > now`
+// (exchange.go: "session inactive or expired"). So a stored-active session past its
+// expiry carries no usable authority. Derive the status the runtime actually enforces
+// so the console never shows lapsed authority as live.
+function effectiveStatus(session: Session, now: number): EffectiveStatus {
+  if (session.status === "revoked") return "revoked";
+  if (session.status === "expired") return "expired";
+  return Date.parse(session.expires_at) > now ? "active" : "expired";
+}
+
+// True when the database still says active but the session has actually lapsed and is
+// awaiting reaping — worth flagging so operators understand the record/runtime drift.
+function isStaleActive(session: Session, now: number): boolean {
+  return session.status === "active" && Date.parse(session.expires_at) <= now;
+}
+
+function statusTone(status: EffectiveStatus): "success" | "muted" | "danger" {
   if (status === "active") return "success";
   if (status === "revoked") return "danger";
   return "muted";
+}
+
+function relativeTime(iso: string, now = Date.now()): string {
+  const diff = Date.parse(iso) - now;
+  const abs = Math.abs(diff);
+  const suffix = diff >= 0 ? "from now" : "ago";
+  const mins = Math.floor(abs / 60000);
+  if (mins < 1) return diff >= 0 ? "in <1m" : "<1m ago";
+  if (mins < 60) return `${mins}m ${suffix}`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ${suffix}`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ${suffix}`;
 }
 
 function SessionsPage({ zoneId, initialSubject }: { zoneId: string; initialSubject?: string }) {

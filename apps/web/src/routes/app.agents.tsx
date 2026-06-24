@@ -32,11 +32,13 @@ import {
   useAgentChildren,
   useAgentEffectiveAuthority,
   useAgentInboundDelegations,
+  useAgentInvocations,
   useAgentLifecycle,
   useAgentOutboundDelegations,
+  useAgentServices,
   useAgentsFeed,
 } from "@/platform/api/hooks";
-import type { Agent, AgentStatus, AgentQuery } from "@/platform/api/types";
+import type { Agent, AgentStatus, AgentQuery, InvocationStatus } from "@/platform/api/types";
 
 export const Route = createFileRoute("/app/agents")({
   component: AgentsRoute,
@@ -722,6 +724,13 @@ function AgentInspector({
 
       <AgentDelegations zoneId={zoneId} subjectSessionId={agent.subject_session_id} />
 
+      <AgentExecution
+        zoneId={zoneId}
+        sessionId={agent.agent_session_id}
+        applicationId={agent.application_id}
+        isService={agent.lifecycle === "service"}
+      />
+
       <section className="border-t border-border pt-4">
         <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
           Child sessions
@@ -993,6 +1002,111 @@ function AgentDelegations({
           ))}
         </ul>
       )}
+    </section>
+  );
+}
+
+function invocationTone(status: InvocationStatus): "success" | "warning" | "danger" | "muted" {
+  if (status === "succeeded") return "success";
+  if (status === "running" || status === "pending") return "warning";
+  if (status === "failed" || status === "timed_out" || status === "dead") return "danger";
+  return "muted";
+}
+
+// Read-only execution lens. Surfaces durable invocations involving this agent and, for
+// service agents, the registered service endpoint + health. Payloads are never exposed;
+// all mutation stays with the runtime identity.
+function AgentExecution({
+  zoneId,
+  sessionId,
+  applicationId,
+  isService,
+}: {
+  zoneId: string;
+  sessionId: string;
+  applicationId: string;
+  isService: boolean;
+}) {
+  const invocations = useAgentInvocations(zoneId, sessionId);
+  const services = useAgentServices(zoneId, isService ? applicationId : null);
+  const rows = invocations.data ?? [];
+  const svc = services.data ?? [];
+
+  return (
+    <section className="border-t border-border pt-4">
+      <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+        Execution
+      </h3>
+
+      {isService ? (
+        services.isLoading ? (
+          <Skeleton className="mt-3 h-10 w-full" />
+        ) : svc.length > 0 ? (
+          <div className="mt-3 flex flex-col gap-2">
+            {svc.map((s) => (
+              <div key={s.id} className="border border-border p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="truncate font-mono text-xs text-foreground">
+                    {s.endpoint_url}
+                  </span>
+                  <Badge tone={s.health === "healthy" ? "success" : s.health ? "warning" : "muted"}>
+                    {s.health ?? "unknown"}
+                  </Badge>
+                </div>
+                <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+                  {s.framework_name ? (
+                    <span>
+                      {s.framework_name}
+                      {s.framework_version ? ` ${s.framework_version}` : ""}
+                    </span>
+                  ) : null}
+                  {s.protocol_versions.length > 0 ? (
+                    <span>proto {s.protocol_versions.join(", ")}</span>
+                  ) : null}
+                  {s.last_heartbeat_at ? (
+                    <span>heartbeat {relativeTime(s.last_heartbeat_at)}</span>
+                  ) : null}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-2 text-xs text-muted-foreground">
+            No registered service endpoint for this agent&apos;s application.
+          </p>
+        )
+      ) : null}
+
+      <div className="mt-3">
+        <span className="text-xs text-muted-foreground">Recent invocations ({rows.length})</span>
+        {invocations.isLoading ? (
+          <Skeleton className="mt-2 h-12 w-full" />
+        ) : rows.length === 0 ? (
+          <p className="mt-1 text-xs text-muted-foreground">
+            No invocations involve this agent session. Invocations are issued by the runtime; this
+            view is read-only.
+          </p>
+        ) : (
+          <ul className="mt-2 divide-y divide-border border-y border-border">
+            {rows.slice(0, 8).map((inv) => (
+              <li key={inv.id} className="flex items-center justify-between gap-3 py-2">
+                <div className="min-w-0">
+                  <div className="truncate font-mono text-xs text-foreground">{inv.method}</div>
+                  <div className="font-mono text-[10px] text-muted-foreground">
+                    {inv.attempts}/{inv.max_attempts} attempts ·{" "}
+                    {inv.completed_at
+                      ? `done ${relativeTime(inv.completed_at)}`
+                      : inv.deadline_at
+                        ? `deadline ${relativeTime(inv.deadline_at)}`
+                        : `created ${relativeTime(inv.created_at)}`}
+                  </div>
+                </div>
+                <Badge tone={invocationTone(inv.status)}>{inv.status.replace(/_/g, " ")}</Badge>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
     </section>
   );
 }

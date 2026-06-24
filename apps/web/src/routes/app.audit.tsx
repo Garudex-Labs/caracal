@@ -52,28 +52,47 @@ function decisionTone(decision: string | null): "success" | "danger" | "warning"
   return "muted";
 }
 
+// Accepts a relative window (e.g. 15m, 2h, 7d, 30s), an ISO timestamp, or a
+// datetime-local value and returns an ISO string the control plane understands.
+function parseTimeInput(value: string): string | undefined {
+  const text = value.trim();
+  if (!text) return undefined;
+  const relative = /^(\d+)\s*(s|m|h|d)$/.exec(text.toLowerCase());
+  if (relative) {
+    const amount = Number(relative[1]);
+    const unit = relative[2];
+    const ms = { s: 1_000, m: 60_000, h: 3_600_000, d: 86_400_000 }[unit] ?? 0;
+    return new Date(Date.now() - amount * ms).toISOString();
+  }
+  const ts = Date.parse(text);
+  return Number.isFinite(ts) ? new Date(ts).toISOString() : undefined;
+}
+
 function AuditPage({ zoneId }: { zoneId: string }) {
   const [decision, setDecision] = useState<string>("all");
   const [eventType, setEventType] = useState("");
+  const [requestId, setRequestId] = useState("");
+  const [agentSession, setAgentSession] = useState("");
+  const [label, setLabel] = useState("");
   const [since, setSince] = useState("");
   const [until, setUntil] = useState("");
+  const [live, setLive] = useState(true);
 
   const serverQuery = useMemo<AuditQuery>(() => {
     const q: AuditQuery = {};
     if (decision !== "all") q.decision = decision;
     if (eventType.trim()) q.event_type = eventType.trim();
-    if (since) {
-      const ts = Date.parse(since);
-      if (Number.isFinite(ts)) q.since = new Date(ts).toISOString();
-    }
-    if (until) {
-      const ts = Date.parse(until);
-      if (Number.isFinite(ts)) q.until = new Date(ts).toISOString();
-    }
+    if (requestId.trim()) q.request_id = requestId.trim();
+    if (agentSession.trim()) q.agent_session_id = agentSession.trim();
+    if (label.trim()) q.label = label.trim();
+    const sinceTs = parseTimeInput(since);
+    if (sinceTs) q.since = sinceTs;
+    const untilTs = parseTimeInput(until);
+    if (untilTs) q.until = untilTs;
     return q;
-  }, [decision, eventType, since, until]);
+  }, [decision, eventType, requestId, agentSession, label, since, until]);
 
-  const feed = useAuditFeed(zoneId, serverQuery);
+  const feed = useAuditFeed(zoneId, serverQuery, live);
   const rows = useMemo(() => (feed.data?.pages ?? []).flatMap((page) => page.rows), [feed.data]);
 
   const columns: Column<AuditEvent>[] = [
@@ -135,20 +154,28 @@ function AuditPage({ zoneId }: { zoneId: string }) {
         <AuditFilterBar
           decision={decision}
           eventType={eventType}
+          requestId={requestId}
+          agentSession={agentSession}
+          label={label}
           since={since}
           until={until}
+          live={live}
           loaded={rows.length}
           hasMore={Boolean(feed.hasNextPage)}
           fetchingMore={feed.isFetchingNextPage}
           onDecision={setDecision}
           onEventType={setEventType}
+          onRequestId={setRequestId}
+          onAgentSession={setAgentSession}
+          onLabel={setLabel}
           onSince={setSince}
           onUntil={setUntil}
+          onToggleLive={() => setLive((v) => !v)}
           onLoadMore={() => feed.fetchNextPage()}
         />
       }
       search={{
-        placeholder: "Search loaded events by type or request ID…",
+        placeholder: "Filter loaded events by type or request ID…",
         match: (e, q) =>
           e.event_type.toLowerCase().includes(q) ||
           (e.request_id ?? "").toLowerCase().includes(q) ||
@@ -177,28 +204,44 @@ function AuditPage({ zoneId }: { zoneId: string }) {
 function AuditFilterBar({
   decision,
   eventType,
+  requestId,
+  agentSession,
+  label,
   since,
   until,
+  live,
   loaded,
   hasMore,
   fetchingMore,
   onDecision,
   onEventType,
+  onRequestId,
+  onAgentSession,
+  onLabel,
   onSince,
   onUntil,
+  onToggleLive,
   onLoadMore,
 }: {
   decision: string;
   eventType: string;
+  requestId: string;
+  agentSession: string;
+  label: string;
   since: string;
   until: string;
+  live: boolean;
   loaded: number;
   hasMore: boolean;
   fetchingMore: boolean;
   onDecision: (v: string) => void;
   onEventType: (v: string) => void;
+  onRequestId: (v: string) => void;
+  onAgentSession: (v: string) => void;
+  onLabel: (v: string) => void;
   onSince: (v: string) => void;
   onUntil: (v: string) => void;
+  onToggleLive: () => void;
   onLoadMore: () => void;
 }) {
   return (
@@ -217,32 +260,56 @@ function AuditFilterBar({
           onChange={(e) => onEventType(e.target.value)}
         />
         <Field
+          label="Request ID"
+          placeholder="Correlate one request"
+          value={requestId}
+          onChange={(e) => onRequestId(e.target.value)}
+        />
+        <Field
+          label="Agent session"
+          placeholder="Follow one agent session"
+          value={agentSession}
+          onChange={(e) => onAgentSession(e.target.value)}
+        />
+        <Field
+          label="Agent label"
+          placeholder="Scope to one agent role"
+          value={label}
+          onChange={(e) => onLabel(e.target.value)}
+        />
+        <Field
           label="Since"
-          type="datetime-local"
+          placeholder="15m, 2h, 7d, or a date"
           value={since}
           onChange={(e) => onSince(e.target.value)}
         />
         <Field
           label="Until"
-          type="datetime-local"
+          placeholder="15m, 2h, or a date"
           value={until}
           onChange={(e) => onUntil(e.target.value)}
         />
       </div>
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <span className="text-xs text-muted-foreground">
           {loaded} event{loaded === 1 ? "" : "s"} loaded
           {hasMore ? " · more available" : ""}
+          {live ? " · live" : " · paused"}
         </span>
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={onLoadMore}
-          disabled={!hasMore}
-          loading={fetchingMore}
-        >
-          {hasMore ? "Load more" : "All loaded"}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="sm" onClick={onToggleLive}>
+            {live ? "Pause" : "Resume"}
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={onLoadMore}
+            disabled={!hasMore}
+            loading={fetchingMore}
+          >
+            {hasMore ? "Load more" : "All loaded"}
+          </Button>
+        </div>
       </div>
     </div>
   );
