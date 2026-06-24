@@ -4,7 +4,7 @@ Caracal, a product of Garudex Labs
 
 This file exposes React Query hooks and active-zone state for the control-plane console screens.
 */
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSyncExternalStore } from "react";
 
 import { getActiveZoneId, setActiveZoneId } from "@/platform/state/localInstall";
@@ -14,16 +14,23 @@ import type {
   Application,
   ApplicationInput,
   ApplicationPatchInput,
+  AgentQuery,
+  AuditQuery,
+  ControlKeyCreateInput,
+  DiagnosticsOptions,
   DiagnosticsReport,
   DiagnosticStatus,
   PolicyInput,
   PolicyManifestEntry,
   Provider,
+  ProviderGrantAuthorizeInput,
+  ProviderGrantRevokeInput,
   ProviderInput,
   ProviderPatchInput,
   Resource,
   ResourceInput,
   ResourcePatchInput,
+  SessionQuery,
   Zone,
   ZoneInput,
   ZonePatchInput,
@@ -74,10 +81,10 @@ export function useConsoleStatus() {
   return useQuery({ queryKey: keys.status, queryFn: () => consoleApi.status() });
 }
 
-export function useDiagnostics() {
+export function useDiagnostics(options: DiagnosticsOptions = {}) {
   return useQuery<DiagnosticsReport>({
-    queryKey: keys.diagnostics,
-    queryFn: () => consoleApi.diagnostics(),
+    queryKey: [...keys.diagnostics, options.zoneId ?? "all", options.strict ?? false, options.preflight ?? false],
+    queryFn: () => consoleApi.diagnostics(options),
     refetchInterval: DIAGNOSTICS_POLL_MS,
     staleTime: DIAGNOSTICS_POLL_MS / 2,
     refetchOnWindowFocus: true,
@@ -381,7 +388,21 @@ export function useDeletePolicySet(zoneId: string | null) {
 export function useSessions(zoneId: string | null) {
   return useQuery({
     queryKey: keys.sessions(zoneId),
-    queryFn: () => consoleApi.sessions.list(zoneId as string),
+    queryFn: async () => (await consoleApi.sessions.list(zoneId as string)).rows,
+    enabled: Boolean(zoneId),
+    refetchInterval: LIVE_MS,
+  });
+}
+
+// Filtered, cursor-paginated session feed for the Sessions workspace. Server-side
+// filters keep enterprise-scale zones searchable instead of scanning the first page.
+export function useSessionsFeed(zoneId: string | null, query: SessionQuery) {
+  return useInfiniteQuery({
+    queryKey: [...keys.sessions(zoneId), "feed", query],
+    queryFn: ({ pageParam }) =>
+      consoleApi.sessions.list(zoneId as string, { ...query, cursor: pageParam ?? undefined }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
     enabled: Boolean(zoneId),
     refetchInterval: LIVE_MS,
   });
@@ -390,7 +411,20 @@ export function useSessions(zoneId: string | null) {
 export function useAudit(zoneId: string | null) {
   return useQuery({
     queryKey: keys.audit(zoneId),
-    queryFn: () => consoleApi.audit.list(zoneId as string),
+    queryFn: async () => (await consoleApi.audit.list(zoneId as string)).rows,
+    enabled: Boolean(zoneId),
+    refetchInterval: LIVE_MS,
+  });
+}
+
+// Filtered, cursor-paginated audit feed for the Audit workspace.
+export function useAuditFeed(zoneId: string | null, query: AuditQuery) {
+  return useInfiniteQuery({
+    queryKey: [...keys.audit(zoneId), "feed", query],
+    queryFn: ({ pageParam }) =>
+      consoleApi.audit.list(zoneId as string, { ...query, cursor: pageParam ?? undefined }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
     enabled: Boolean(zoneId),
     refetchInterval: LIVE_MS,
   });
@@ -404,10 +438,10 @@ export function useDecisionTrace(zoneId: string | null, requestId: string | null
   });
 }
 
-export function useAgents(zoneId: string | null, enabled = true) {
+export function useAgents(zoneId: string | null, enabled = true, query: AgentQuery = {}) {
   return useQuery({
-    queryKey: keys.agents(zoneId),
-    queryFn: () => consoleApi.agents.list(zoneId as string),
+    queryKey: [...keys.agents(zoneId), query],
+    queryFn: () => consoleApi.agents.list(zoneId as string, query),
     enabled: Boolean(zoneId) && enabled,
     refetchInterval: LIVE_MS,
   });
@@ -461,6 +495,74 @@ export function useRevokeDelegation(zoneId: string | null) {
   return useMutation({
     mutationFn: (id: string) => consoleApi.delegations.revoke(zoneId as string, id),
     onSuccess: () => qc.invalidateQueries({ queryKey: keys.delegationsActive(zoneId) }),
+  });
+}
+
+/* ------------------------------ Provider grants ----------------------------- */
+
+export function useProviderGrants(zoneId: string | null, providerId: string | null) {
+  return useQuery({
+    queryKey: ["console", "provider-grants", zoneId, providerId],
+    queryFn: () =>
+      consoleApi.providerGrants.list(zoneId as string, { provider_id: providerId as string }),
+    enabled: Boolean(zoneId && providerId),
+  });
+}
+
+export function useAuthorizeProviderGrant(zoneId: string | null) {
+  return useMutation({
+    mutationFn: (input: ProviderGrantAuthorizeInput) =>
+      consoleApi.providerGrants.authorize(zoneId as string, input),
+  });
+}
+
+export function useRevokeProviderGrant(zoneId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: ProviderGrantRevokeInput) =>
+      consoleApi.providerGrants.revoke(zoneId as string, input),
+    onSuccess: (_data, vars) =>
+      qc.invalidateQueries({ queryKey: ["console", "provider-grants", zoneId, vars.provider_id] }),
+  });
+}
+
+/* -------------------------------- Control API ------------------------------- */
+
+const controlKeysKey = (zoneId: string | null) => ["console", "control-keys", zoneId] as const;
+
+export function useControlKeys(zoneId: string | null) {
+  return useQuery({
+    queryKey: controlKeysKey(zoneId),
+    queryFn: () => consoleApi.control.list(zoneId as string),
+    enabled: Boolean(zoneId),
+  });
+}
+
+export function useCreateControlKey(zoneId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: ControlKeyCreateInput) => consoleApi.control.create(zoneId as string, input),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: controlKeysKey(zoneId) });
+      qc.invalidateQueries({ queryKey: keys.applications(zoneId) });
+    },
+  });
+}
+
+export function useRotateControlKey(zoneId: string | null) {
+  return useMutation({
+    mutationFn: (id: string) => consoleApi.control.rotate(zoneId as string, id),
+  });
+}
+
+export function useRevokeControlKey(zoneId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => consoleApi.control.revoke(zoneId as string, id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: controlKeysKey(zoneId) });
+      qc.invalidateQueries({ queryKey: keys.applications(zoneId) });
+    },
   });
 }
 

@@ -8,7 +8,9 @@ import { homedir } from 'node:os'
 import { spawnSync } from 'node:child_process'
 import { createInterface } from 'node:readline'
 import { dirname, join, relative } from 'node:path'
-import { devSecretsHome, silenceSqliteExperimentalWarning } from '@caracalai/core'
+import pg from 'pg'
+import { devSecretsHome } from '@caracalai/core'
+import { authMaintenanceUrl, configuredAuthDatabaseName } from './authStore.ts'
 import { resolveRuntimeConfigPath } from '@caracalai/engine/runtime-config'
 import {
   caracalBinaries as caracalBinariesCore,
@@ -123,53 +125,43 @@ function uniqueSecretTargets(ctx: PurgeContext): SecretCleanupTarget[] {
   return targets
 }
 
-// The web console keeps its operator accounts and sessions in a local SQLite
-// database owned by the auth backend-for-frontend. It resolves to
-// $CARACAL_AUTH_DB, or apps/auth/caracal-auth.sqlite under the repo root for the
-// workspace-only web console. SQLite may leave -wal/-shm/-journal sidecars.
-function webConsoleStateBase(ctx: PurgeContext): string | undefined {
-  if (process.env.CARACAL_AUTH_DB) return process.env.CARACAL_AUTH_DB
-  if (ctx.repoRoot) return join(ctx.repoRoot, 'apps', 'auth', 'caracal-auth.sqlite')
-  return undefined
+// The web console keeps its operator accounts and sessions in a dedicated PostgreSQL
+// database owned by the auth backend-for-frontend. Purging the web console means dropping
+// that database so no operator identity survives. The name is derived from an explicit
+// CARACAL_AUTH_DATABASE_URL when configured, otherwise the dev default (caracal_auth).
+function authDatabaseTarget(): { name: string; maintenanceUrl: string } | undefined {
+  const maintenanceUrl = authMaintenanceUrl()
+  if (!maintenanceUrl) return undefined
+  return { name: configuredAuthDatabaseName(), maintenanceUrl }
 }
 
-function webConsoleStatePaths(ctx: PurgeContext): string[] {
-  const base = webConsoleStateBase(ctx)
-  if (!base) return []
-  return [base, `${base}-wal`, `${base}-shm`, `${base}-journal`]
-}
-
-// Deleting the SQLite file does not log out an operator while `caracal web` is
-// running: the auth backend keeps the unlinked inode open and goes on serving the
-// cached identity. Mirror the web "Delete profile" command (apps/auth account
-// endpoint) by clearing every row in-place first, so a live auth connection sees
-// an empty database immediately, then the file itself is removed for a clean slate.
-async function clearAuthDatabase(path: string, ctx: PurgeContext, label: string): Promise<void> {
-  if (!existsSync(path)) return
+// Dropping the database (rather than truncating tables) guarantees a clean slate even while
+// `caracal web` is running: WITH FORCE terminates the auth service's live connections so the
+// operator is logged out immediately, and the next launch recreates an empty database.
+async function dropAuthDatabase(
+  target: { name: string; maintenanceUrl: string },
+  ctx: PurgeContext,
+  label: string,
+): Promise<void> {
   if (ctx.dryRun) {
-    process.stdout.write(`  ${style.label('[dry-run]')} clear identity rows ${style.code(label)}: ${path}\n`)
+    process.stdout.write(`  ${style.label('[dry-run]')} drop database ${style.code(label)}: ${target.name}\n`)
     return
   }
+  const client = new pg.Client({ connectionString: target.maintenanceUrl })
   try {
-    // node:sqlite emits its experimental warning on first load; install the targeted
-    // filter before importing it so the cleanup stays quiet without muting other warnings.
-    silenceSqliteExperimentalWarning()
-    const { DatabaseSync } = await import('node:sqlite')
-    const db = new DatabaseSync(path)
-    try {
-      const tables = db
-        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")
-        .all() as { name: string }[]
-      db.exec('BEGIN IMMEDIATE')
-      for (const { name } of tables) db.prepare(`DELETE FROM "${name}"`).run()
-      db.exec('COMMIT')
-    } finally {
-      db.close()
+    await client.connect()
+    const existing = await client.query('SELECT 1 FROM pg_database WHERE datname = $1', [target.name])
+    if (existing.rowCount === 0) {
+      process.stdout.write(`  ${style.label(`(skip) ${label}:`)} database ${target.name} not present\n`)
+      return
     }
-    process.stdout.write(`  ${style.success(SYMBOL.ok)} cleared ${style.code(label)} identity records\n`)
+    await client.query(`DROP DATABASE "${target.name.replace(/"/g, '""')}" WITH (FORCE)`)
+    process.stdout.write(`  ${style.success(SYMBOL.ok)} dropped ${style.code(label)}: database ${target.name}\n`)
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
-    process.stdout.write(`  ${style.label(`(skip) ${label} row clear:`)} ${message}\n`)
+    process.stdout.write(`  ${style.label(`(skip) ${label}:`)} ${message}\n`)
+  } finally {
+    await client.end().catch(() => {})
   }
 }
 
@@ -190,7 +182,7 @@ function purgeHelp(): never {
       '  config      Remove caracal.toml (zone client secret and config)',
       '  runtime     Remove runtime assets at $CARACAL_HOME (.env, compose.yml)',
       '  secrets     Remove operator overrides and generated secret files',
-      '  web         Remove web console operator accounts and sessions ($CARACAL_AUTH_DB / apps/auth SQLite)',
+      '  web         Drop the web console operator database (PostgreSQL caracal_auth)',
       '',
       'Developer artifacts (dev) — dev only:',
       '  cache       Remove build artifacts: apps/*/dist, coverage/, node_modules/.cache',
@@ -442,17 +434,16 @@ const TARGETS: Target[] = [
   {
     id: 'web',
     label: 'Remove web console accounts & sessions (DESTRUCTIVE)',
-    describe: (ctx) => {
-      const base = webConsoleStateBase(ctx)
-      return base ? `${base}: web console operator accounts and sessions (SQLite)` : '(no web console state found)'
+    describe: () => {
+      const target = authDatabaseTarget()
+      return target
+        ? `Drop PostgreSQL database "${target.name}": web console operator accounts and sessions`
+        : '(no web console database reachable)'
     },
-    available: (ctx) => webConsoleStateBase(ctx) !== undefined,
+    available: () => authDatabaseTarget() !== undefined,
     run: async (ctx) => {
-      const base = webConsoleStateBase(ctx)
-      if (base) await clearAuthDatabase(base, ctx, `web/${base.split('/').pop()}`)
-      for (const path of webConsoleStatePaths(ctx)) {
-        removePath(path, ctx, `web/${path.split('/').pop()}`)
-      }
+      const target = authDatabaseTarget()
+      if (target) await dropAuthDatabase(target, ctx, 'web/auth')
     },
   },
   {
