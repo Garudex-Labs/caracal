@@ -48,6 +48,57 @@ function short(id: string): string {
   return id.length > 12 ? `${id.slice(0, 8)}…${id.slice(-4)}` : id;
 }
 
+// A delegation edge can be active, revoked, or expired; render each with an honest tone so a
+// no-longer-usable edge never appears healthy. (The coordinator's active feed returns active
+// edges, but the status is authoritative and an edge can expire while loaded.)
+function statusTone(edge: DelegationEdge): "success" | "danger" | "muted" {
+  if (edge.status === "revoked") return "danger";
+  if (edge.status === "expired") return "danger";
+  if (edge.expires_at && Date.parse(edge.expires_at) <= Date.now()) return "muted";
+  return "success";
+}
+
+function statusLabel(edge: DelegationEdge): string {
+  if (edge.status === "active" && edge.expires_at && Date.parse(edge.expires_at) <= Date.now()) {
+    return "expiring";
+  }
+  return edge.status;
+}
+
+interface DecodedConstraint {
+  label: string;
+  value: string;
+}
+
+// constraints_json carries the typed limits the control plane enforces (max hops, scope
+// budget, TTL, resource set, policy approval, hard expiry). Surfacing them lets an operator
+// understand WHY an edge's authority is bounded rather than treating the edge as opaque.
+function decodeConstraints(raw: Record<string, unknown> | null): DecodedConstraint[] {
+  if (!raw) return [];
+  const out: DecodedConstraint[] = [];
+  const num = (key: string, label: string, suffix = "") => {
+    const v = raw[key];
+    if (typeof v === "number" && Number.isFinite(v)) out.push({ label, value: `${v}${suffix}` });
+  };
+  num("max_hops", "Max hops");
+  num("max_depth", "Max depth");
+  num("budget", "Scope budget");
+  num("ttl_seconds", "Max TTL", "s");
+  if (typeof raw.expires_at === "string") {
+    out.push({ label: "Hard expiry", value: new Date(raw.expires_at).toLocaleString() });
+  }
+  if (Array.isArray(raw.resources) && raw.resources.length > 0) {
+    out.push({ label: "Resource set", value: raw.resources.join(", ") });
+  }
+  if (typeof raw.policy_approved === "boolean") {
+    out.push({ label: "Policy approved", value: raw.policy_approved ? "yes" : "no" });
+  }
+  if (typeof raw.broad_reason === "string" && raw.broad_reason.trim() !== "") {
+    out.push({ label: "Broad reason", value: raw.broad_reason });
+  }
+  return out;
+}
+
 function DelegationGate({ zoneId }: { zoneId: string }) {
   return <DelegationPage zoneId={zoneId} />;
 }
@@ -130,7 +181,7 @@ function DelegationPage({ zoneId }: { zoneId: string }) {
     {
       id: "status",
       header: "Status",
-      cell: (e) => <Badge tone="success">{e.status}</Badge>,
+      cell: (e) => <Badge tone={statusTone(e)}>{statusLabel(e)}</Badge>,
     },
     {
       id: "expires",

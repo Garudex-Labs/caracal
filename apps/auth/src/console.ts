@@ -266,7 +266,7 @@ export async function handleConsole(req: IncomingMessage, res: ServerResponse): 
   const url = req.url ?? "";
   if (!url.startsWith(API_PREFIX)) return false;
 
-  const session = await auth.api.getSession({ headers: toWebHeaders(req) });
+  const session = await validateSession(req);
   if (!session) {
     sendJson(res, 401, { error: "unauthenticated" });
     return true;

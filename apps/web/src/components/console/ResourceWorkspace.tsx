@@ -43,6 +43,7 @@ export function ResourceWorkspace<T>({
   rowKey,
   search,
   sortOptions,
+  sortComparators,
   initialSort,
   pageSize = 8,
   empty,
@@ -59,6 +60,10 @@ export function ResourceWorkspace<T>({
   rowKey: (row: T) => string;
   search: { placeholder: string; match: (row: T, query: string) => boolean };
   sortOptions?: SortOption[];
+  // Comparator per sort option id. When provided, the selected option actually orders the
+  // rows; without it the sort dropdown is inert (legacy behavior preserved for callers that
+  // do not pass comparators).
+  sortComparators?: Record<string, (a: T, b: T) => number>;
   initialSort?: SortState;
   pageSize?: number;
   empty: WorkspaceEmpty;
@@ -86,9 +91,15 @@ export function ResourceWorkspace<T>({
     return rows.filter((row) => search.match(row, query.toLowerCase()));
   }, [rows, query, search]);
 
+  const sorted = useMemo(() => {
+    const comparator = sortComparators?.[sortChoice];
+    if (!comparator) return filtered;
+    return [...filtered].sort(comparator);
+  }, [filtered, sortComparators, sortChoice]);
+
   const paged = useMemo(
-    () => filtered.slice((page - 1) * pageSizeValue, page * pageSizeValue),
-    [filtered, page, pageSizeValue],
+    () => sorted.slice((page - 1) * pageSizeValue, page * pageSizeValue),
+    [sorted, page, pageSizeValue],
   );
 
   function toggleSort(column: string) {
