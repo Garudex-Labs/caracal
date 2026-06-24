@@ -167,9 +167,7 @@ const ADMIN_PAGE_SIZE = 500;
 
 // Follows keyset pagination to assemble a complete admin list. Returns the rows plus
 // a flag indicating the safety cap was hit so the UI can prompt for server-side search.
-async function fetchAllPages<T>(
-  basePath: string,
-): Promise<{ rows: T[]; truncated: boolean }> {
+async function fetchAllPages<T>(basePath: string): Promise<{ rows: T[]; truncated: boolean }> {
   const sep = basePath.includes("?") ? "&" : "?";
   let cursor: string | null = null;
   const rows: T[] = [];
@@ -205,17 +203,83 @@ export const CONTROL_MAX_TTL_SECONDS = 900;
 // engine exposes (control:<noun>:<verb>). Used to compose least-privilege key scopes
 // and to size the control resource that STS validates tokens against.
 export const CONTROL_PERMISSIONS: ControlPermission[] = [
-  { command: "agent", verb: "read", action: "read", scope: "control:agent:read", summary: "List and inspect agent sessions." },
-  { command: "agent", verb: "write", action: "write", scope: "control:agent:write", summary: "Suspend and resume sessions." },
-  { command: "agent", verb: "delete", action: "delete", scope: "control:agent:delete", summary: "Terminate agent sessions." },
-  { command: "app", verb: "read", action: "read", scope: "control:app:read", summary: "List and inspect applications." },
-  { command: "app", verb: "write", action: "write", scope: "control:app:write", summary: "Create and update applications." },
-  { command: "app", verb: "delete", action: "delete", scope: "control:app:delete", summary: "Delete applications." },
-  { command: "resource", verb: "read", action: "read", scope: "control:resource:read", summary: "List and inspect resources." },
-  { command: "resource", verb: "write", action: "write", scope: "control:resource:write", summary: "Create and update resources." },
-  { command: "resource", verb: "delete", action: "delete", scope: "control:resource:delete", summary: "Delete resources." },
-  { command: "delegation", verb: "read", action: "read", scope: "control:delegation:read", summary: "Inspect delegation edges." },
-  { command: "delegation", verb: "delete", action: "delete", scope: "control:delegation:delete", summary: "Revoke delegation edges." },
+  {
+    command: "agent",
+    verb: "read",
+    action: "read",
+    scope: "control:agent:read",
+    summary: "List and inspect agent sessions.",
+  },
+  {
+    command: "agent",
+    verb: "write",
+    action: "write",
+    scope: "control:agent:write",
+    summary: "Suspend and resume sessions.",
+  },
+  {
+    command: "agent",
+    verb: "delete",
+    action: "delete",
+    scope: "control:agent:delete",
+    summary: "Terminate agent sessions.",
+  },
+  {
+    command: "app",
+    verb: "read",
+    action: "read",
+    scope: "control:app:read",
+    summary: "List and inspect applications.",
+  },
+  {
+    command: "app",
+    verb: "write",
+    action: "write",
+    scope: "control:app:write",
+    summary: "Create and update applications.",
+  },
+  {
+    command: "app",
+    verb: "delete",
+    action: "delete",
+    scope: "control:app:delete",
+    summary: "Delete applications.",
+  },
+  {
+    command: "resource",
+    verb: "read",
+    action: "read",
+    scope: "control:resource:read",
+    summary: "List and inspect resources.",
+  },
+  {
+    command: "resource",
+    verb: "write",
+    action: "write",
+    scope: "control:resource:write",
+    summary: "Create and update resources.",
+  },
+  {
+    command: "resource",
+    verb: "delete",
+    action: "delete",
+    scope: "control:resource:delete",
+    summary: "Delete resources.",
+  },
+  {
+    command: "delegation",
+    verb: "read",
+    action: "read",
+    scope: "control:delegation:read",
+    summary: "Inspect delegation edges.",
+  },
+  {
+    command: "delegation",
+    verb: "delete",
+    action: "delete",
+    scope: "control:delegation:delete",
+    summary: "Revoke delegation edges.",
+  },
 ];
 
 const CONTROL_SCOPES = CONTROL_PERMISSIONS.map((permission) => permission.scope).sort();
@@ -228,7 +292,9 @@ function controlKeyFromApplication(app: Application): ControlKey {
     .sort();
   const ttlTrait = traits.find((trait) => trait.startsWith(CONTROL_MAX_TTL_PREFIX));
   const expiresTrait = traits.find((trait) => trait.startsWith(CONTROL_EXPIRES_PREFIX));
-  const ttl = ttlTrait ? Number.parseInt(ttlTrait.slice(CONTROL_MAX_TTL_PREFIX.length), 10) : undefined;
+  const ttl = ttlTrait
+    ? Number.parseInt(ttlTrait.slice(CONTROL_MAX_TTL_PREFIX.length), 10)
+    : undefined;
   return {
     id: app.id,
     name: app.name,
@@ -283,7 +349,8 @@ export const consoleApi = {
 
   applications: {
     list: async (zoneId: string) =>
-      (await fetchAllPages<Application>(`/v1/zones/${encodeURIComponent(zoneId)}/applications`)).rows,
+      (await fetchAllPages<Application>(`/v1/zones/${encodeURIComponent(zoneId)}/applications`))
+        .rows,
     create: (zoneId: string, input: ApplicationInput) =>
       request<Application>(`/v1/zones/${encodeURIComponent(zoneId)}/applications`, {
         method: "POST",
@@ -560,9 +627,9 @@ export const consoleApi = {
 
   control: {
     list: async (zoneId: string): Promise<ControlKey[]> => {
-      const apps = (await fetchAllPages<Application>(
-        `/v1/zones/${encodeURIComponent(zoneId)}/applications`,
-      )).rows;
+      const apps = (
+        await fetchAllPages<Application>(`/v1/zones/${encodeURIComponent(zoneId)}/applications`)
+      ).rows;
       return apps.filter(isControlKeyApplication).map(controlKeyFromApplication);
     },
     create: async (
@@ -612,9 +679,9 @@ export const consoleApi = {
 // Ensures the zone-bound control resource exists with the full permission surface so STS
 // can validate control tokens. Mirrors the engine's ensureControlResource for the browser.
 async function ensureControlResource(zoneId: string): Promise<void> {
-  const resources = (await fetchAllPages<Resource>(
-    `/v1/zones/${encodeURIComponent(zoneId)}/resources`,
-  )).rows;
+  const resources = (
+    await fetchAllPages<Resource>(`/v1/zones/${encodeURIComponent(zoneId)}/resources`)
+  ).rows;
   const current = resources.find((resource) => resource.identifier === CONTROL_AUDIENCE);
   if (!current) {
     await request<Resource>(`/v1/zones/${encodeURIComponent(zoneId)}/resources`, {

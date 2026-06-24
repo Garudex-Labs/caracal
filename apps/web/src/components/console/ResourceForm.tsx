@@ -8,6 +8,7 @@ import { useMemo, useState } from "react";
 
 import { Button, Field, Modal, Select } from "@/components/ui";
 import { cx } from "@/lib/cx";
+import { validateResourceIdentifier } from "@/platform/api/validation";
 import type {
   Application,
   Provider,
@@ -98,6 +99,8 @@ export function ResourceFormModal({
     if (!upstreamUrl.trim()) return "Upstream URL is required.";
     if (!gatewayApp) return "Gateway application is required.";
     if (!credentialProvider) return "Credential provider is required.";
+    const identifierError = validateResourceIdentifier(identifier);
+    if (identifierError) return identifierError;
     if (enforcement === "enforced") {
       for (const op of operations) {
         if (!op.path.trim()) continue;

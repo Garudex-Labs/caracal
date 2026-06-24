@@ -511,12 +511,16 @@ function DeleteZoneDialog({
   zone,
   isActive,
   busy,
+  revoking,
+  onRevokeDcr,
   onClose,
   onConfirm,
 }: {
   zone: Zone | null;
   isActive: boolean;
   busy: boolean;
+  revoking: boolean;
+  onRevokeDcr: () => Promise<void>;
   onClose: () => void;
   onConfirm: () => void;
 }) {
@@ -524,6 +528,8 @@ function DeleteZoneDialog({
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [confirmText, setConfirmText] = useState("");
+  const [reloadToken, setReloadToken] = useState(0);
+  const [revokeError, setRevokeError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!zone) return;
@@ -540,9 +546,9 @@ function DeleteZoneDialog({
           consoleApi.providers.list(zone.id),
           consoleApi.policies.list(zone.id),
           consoleApi.policySets.list(zone.id),
-          zone.dcr_enabled
-            ? consoleApi.zones.dcrStatus(zone.id)
-            : Promise.resolve({ live_dcr_applications: 0 }),
+          // A zone can still hold live DCR clients even after DCR is switched off
+          // (existing identities live until they expire), so always check the count.
+          consoleApi.zones.dcrStatus(zone.id).catch(() => ({ live_dcr_applications: 0 })),
         ]);
         if (cancelled) return;
         setDeps({
@@ -562,7 +568,7 @@ function DeleteZoneDialog({
     return () => {
       cancelled = true;
     };
-  }, [zone]);
+  }, [zone, reloadToken]);
 
   const total = deps
     ? deps.applications + deps.resources + deps.providers + deps.policies + deps.policySets
@@ -579,22 +585,32 @@ function DeleteZoneDialog({
       ]
     : [];
 
+  async function revokeNow() {
+    setRevokeError(null);
+    try {
+      await onRevokeDcr();
+      setReloadToken((n) => n + 1);
+    } catch (err) {
+      setRevokeError(errorMessage(err));
+    }
+  }
+
   return (
     <Modal
       open={zone !== null}
       onClose={onClose}
       title="Delete zone"
-      description={`This permanently deletes "${zone?.name ?? ""}" and everything inside it. This cannot be undone.`}
+      description={`Deleting archives "${zone?.name ?? ""}" and removes console and admin-API access to everything it contains. This cannot be undone.`}
       footer={
         <>
-          <Button variant="secondary" onClick={onClose} disabled={busy}>
+          <Button variant="secondary" onClick={onClose} disabled={busy || revoking}>
             Cancel
           </Button>
           <Button
             variant="danger"
             onClick={onConfirm}
             loading={busy}
-            disabled={!confirmed || loading || loadError !== null}
+            disabled={!confirmed || loading || revoking || loadError !== null}
           >
             Delete zone
           </Button>
@@ -616,7 +632,7 @@ function DeleteZoneDialog({
               <p className="text-sm text-foreground">
                 {total === 0
                   ? "This zone has no dependent objects."
-                  : `This will permanently remove ${total} object${total === 1 ? "" : "s"} in this zone:`}
+                  : `Deleting will archive this zone and make ${total} object${total === 1 ? "" : "s"} inside it inaccessible:`}
               </p>
               {total > 0 ? (
                 <ul className="mt-2 divide-y divide-border rounded-md border border-border">
@@ -636,10 +652,31 @@ function DeleteZoneDialog({
             </div>
 
             {deps.liveDcr > 0 ? (
-              <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
-                {deps.liveDcr} live dynamically-registered client
-                {deps.liveDcr === 1 ? "" : "s"} will be revoked along with their runtime sessions.
-              </p>
+              <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-3">
+                <p className="text-xs font-medium text-amber-700 dark:text-amber-400">
+                  {deps.liveDcr} live dynamically-registered client
+                  {deps.liveDcr === 1 ? "" : "s"} will keep authenticating until{" "}
+                  {deps.liveDcr === 1 ? "it expires" : "they expire"}.
+                </p>
+                <p className="mt-1 text-xs text-amber-700/90 dark:text-amber-400/90">
+                  Deleting the zone does not revoke them. To cut off access immediately,
+                  revoke them first — this archives the identities and revokes their sessions
+                  and agents.
+                </p>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="mt-2"
+                  onClick={revokeNow}
+                  loading={revoking}
+                  disabled={busy}
+                >
+                  Disable DCR &amp; revoke live clients
+                </Button>
+                {revokeError ? (
+                  <p className="mt-2 text-xs text-destructive">Revoke failed: {revokeError}</p>
+                ) : null}
+              </div>
             ) : null}
 
             {isActive ? (
