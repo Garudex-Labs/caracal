@@ -6,6 +6,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const engineMocks = vi.hoisted(() => ({
@@ -241,21 +242,35 @@ describe('purgeCommand', () => {
     }
   })
 
-  it('removes web console accounts and sessions including sqlite sidecars', async () => {
+  it('clears identity records and removes the web console database', async () => {
     const authDir = join(repoRoot, 'apps', 'auth')
     mkdirSync(authDir, { recursive: true })
     const dbBase = join(authDir, 'caracal-auth.sqlite')
-    for (const suffix of ['', '-wal', '-shm', '-journal']) {
-      writeFileSync(`${dbBase}${suffix}`, '')
-    }
+    // A real SQLite identity database the way the auth backend leaves it on disk.
+    const seed = new DatabaseSync(dbBase)
+    seed.exec('CREATE TABLE "user" (id TEXT PRIMARY KEY, email TEXT)')
+    seed.exec('CREATE TABLE "session" (id TEXT PRIMARY KEY, userId TEXT)')
+    seed.prepare('INSERT INTO "user" (id, email) VALUES (?, ?)').run('u1', 'op@example.com')
+    seed.prepare('INSERT INTO "session" (id, userId) VALUES (?, ?)').run('s1', 'u1')
+    seed.close()
+    // WAL/SHM sidecars are removed when present.
+    writeFileSync(`${dbBase}-wal`, '')
+    writeFileSync(`${dbBase}-shm`, '')
 
     await purgeCommand(['web', '--yes'])
+
+    // removeFsPath is mocked to a no-op, so the file survives and we can prove the
+    // operator identity was wiped in-place (mirrors the web "Delete profile" flow)
+    // before the file removal would have run.
+    const after = new DatabaseSync(dbBase)
+    expect(after.prepare('SELECT COUNT(*) c FROM "user"').get()).toEqual({ c: 0 })
+    expect(after.prepare('SELECT COUNT(*) c FROM "session"').get()).toEqual({ c: 0 })
+    after.close()
 
     const removed = engineMocks.removeFsPath.mock.calls.map((call) => call[0])
     expect(removed).toContain(dbBase)
     expect(removed).toContain(`${dbBase}-wal`)
     expect(removed).toContain(`${dbBase}-shm`)
-    expect(removed).toContain(`${dbBase}-journal`)
   })
 
   it('honors CARACAL_AUTH_DB override for the web target', async () => {
@@ -263,10 +278,17 @@ describe('purgeCommand', () => {
     const dbBase = join(custom, 'auth.sqlite')
     try {
       process.env.CARACAL_AUTH_DB = dbBase
-      writeFileSync(dbBase, '')
+      const seed = new DatabaseSync(dbBase)
+      seed.exec('CREATE TABLE "user" (id TEXT PRIMARY KEY)')
+      seed.prepare('INSERT INTO "user" (id) VALUES (?)').run('u1')
+      seed.close()
       writeFileSync(`${dbBase}-wal`, '')
 
       await purgeCommand(['web', '--yes'])
+
+      const after = new DatabaseSync(dbBase)
+      expect(after.prepare('SELECT COUNT(*) c FROM "user"').get()).toEqual({ c: 0 })
+      after.close()
 
       const removed = engineMocks.removeFsPath.mock.calls.map((call) => call[0])
       expect(removed).toContain(dbBase)

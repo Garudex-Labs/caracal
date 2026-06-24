@@ -69,7 +69,12 @@ describe('webCommand stack preflight', () => {
     await webCommand([])
 
     expect(exit).not.toHaveBeenCalled()
-    expect(spawnMock).toHaveBeenCalled()
+    expect(spawnMock).toHaveBeenCalledTimes(2)
+    // Each service must be spawned detached so it leads its own process group and a
+    // single Ctrl+C can tear down the whole tree (pnpm + vite/tsx descendants).
+    for (const call of spawnMock.mock.calls) {
+      expect(call[2]).toMatchObject({ detached: true })
+    }
     expect(output()).toContain('Caracal web console')
   })
 
