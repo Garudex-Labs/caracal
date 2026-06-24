@@ -83,7 +83,12 @@ export function useConsoleStatus() {
 
 export function useDiagnostics(options: DiagnosticsOptions = {}) {
   return useQuery<DiagnosticsReport>({
-    queryKey: [...keys.diagnostics, options.zoneId ?? "all", options.strict ?? false, options.preflight ?? false],
+    queryKey: [
+      ...keys.diagnostics,
+      options.zoneId ?? "all",
+      options.strict ?? false,
+      options.preflight ?? false,
+    ],
     queryFn: () => consoleApi.diagnostics(options),
     refetchInterval: DIAGNOSTICS_POLL_MS,
     staleTime: DIAGNOSTICS_POLL_MS / 2,
@@ -541,7 +546,8 @@ export function useControlKeys(zoneId: string | null) {
 export function useCreateControlKey(zoneId: string | null) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (input: ControlKeyCreateInput) => consoleApi.control.create(zoneId as string, input),
+    mutationFn: (input: ControlKeyCreateInput) =>
+      consoleApi.control.create(zoneId as string, input),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: controlKeysKey(zoneId) });
       qc.invalidateQueries({ queryKey: keys.applications(zoneId) });

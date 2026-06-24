@@ -542,56 +542,125 @@ function InventoryPanel({
 /* ------------------------------- setup strip ------------------------------ */
 
 function SetupStrip({
+  hasApplication,
   hasProvider,
+  hasResource,
   hasPolicySet,
 }: {
+  hasApplication: boolean;
   hasProvider: boolean;
+  hasResource: boolean;
   hasPolicySet: boolean;
 }) {
-  const steps = [
-    { label: "Create a zone", done: true, to: "/app/zones" },
-    { label: "Add a provider", done: hasProvider, to: "/app/providers" },
-    { label: "Activate a policy set", done: hasPolicySet, to: "/app/policy-sets" },
+  // Ordered onboarding chain mirroring the Console guided setup. Unlike a blocking
+  // linear wizard, every step is resumable and the next incomplete step is highlighted,
+  // so operators can complete setup in any order without losing their place.
+  const steps: { label: string; detail: string; done: boolean; to: string }[] = [
+    {
+      label: "Create a zone",
+      detail: "The trust boundary for everything below.",
+      done: true,
+      to: "/app/zones",
+    },
+    {
+      label: "Register an application",
+      detail: "A managed identity the Gateway uses for upstream exchanges.",
+      done: hasApplication,
+      to: "/app/applications",
+    },
+    {
+      label: "Add a provider",
+      detail: "The credential source that issues upstream access.",
+      done: hasProvider,
+      to: "/app/providers",
+    },
+    {
+      label: "Protect a resource",
+      detail: "Bind an upstream behind the Gateway with scopes.",
+      done: hasResource,
+      to: "/app/resources",
+    },
+    {
+      label: "Activate a policy set",
+      detail: "Authorize traffic — without one the zone denies by default.",
+      done: hasPolicySet,
+      to: "/app/policies",
+    },
   ];
   const done = steps.filter((s) => s.done).length;
+  const nextIndex = steps.findIndex((s) => !s.done);
 
   return (
     <section className="border border-border">
       <header className="flex items-center justify-between gap-3 border-b border-border px-5 py-3.5">
-        <SectionLabel>Finish setup</SectionLabel>
-        <span className="text-xs font-medium text-muted-foreground">{done}/3 complete</span>
+        <SectionLabel>Guided setup</SectionLabel>
+        <span className="text-xs font-medium text-muted-foreground">
+          {done}/{steps.length} complete
+        </span>
       </header>
-      <div className="grid divide-y divide-border sm:grid-cols-3 sm:divide-x sm:divide-y-0">
-        {steps.map((step) => (
-          <Link
-            key={step.label}
-            to={step.to}
-            className="flex items-center justify-between gap-3 px-5 py-4 transition-colors hover:bg-surface"
-          >
-            <span
-              className={cx("text-sm", step.done ? "text-muted-foreground" : "text-foreground")}
-            >
-              {step.label}
-            </span>
-            {step.done ? (
-              <span className="text-emerald-600 dark:text-emerald-400">
-                <svg
-                  width="15"
-                  height="15"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.5"
+      <ol className="divide-y divide-border">
+        {steps.map((step, index) => {
+          const isNext = index === nextIndex;
+          return (
+            <li key={step.label}>
+              <Link
+                to={step.to}
+                className={cx(
+                  "flex items-center gap-4 px-5 py-3.5 transition-colors hover:bg-surface",
+                  isNext && "bg-surface/60",
+                )}
+              >
+                <span
+                  className={cx(
+                    "grid h-6 w-6 shrink-0 place-items-center rounded-full border text-[11px] font-semibold",
+                    step.done
+                      ? "border-emerald-500 bg-emerald-500 text-white"
+                      : isNext
+                        ? "border-foreground text-foreground"
+                        : "border-border text-muted-foreground",
+                  )}
                 >
-                  <path d="M20 6 9 17l-5-5" />
-                </svg>
-              </span>
-            ) : (
-              <span className="text-xs font-medium text-foreground">Do this</span>
-            )}
-          </Link>
-        ))}
-      </div>
+                  {step.done ? (
+                    <svg
+                      width="13"
+                      height="13"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="3"
+                    >
+                      <path d="M20 6 9 17l-5-5" />
+                    </svg>
+                  ) : (
+                    index + 1
+                  )}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div
+                    className={cx(
+                      "text-sm font-medium",
+                      step.done ? "text-muted-foreground" : "text-foreground",
+                    )}
+                  >
+                    {step.label}
+                  </div>
+                  <div className="truncate text-xs text-muted-foreground">{step.detail}</div>
+                </div>
+                {!step.done ? (
+                  <span
+                    className={cx(
+                      "shrink-0 text-xs font-medium",
+                      isNext ? "text-foreground" : "text-muted-foreground",
+                    )}
+                  >
+                    {isNext ? "Start →" : "Do this"}
+                  </span>
+                ) : null}
+              </Link>
+            </li>
+          );
+        })}
+      </ol>
     </section>
   );
 }
