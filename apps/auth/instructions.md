@@ -7,15 +7,16 @@
 - `src/auth.ts` owns the Better Auth instance and enabled capabilities.
 - `src/providers.ts` owns provider credential resolution and the enabled-provider report.
 - `src/server.ts` exposes the Better Auth handler over HTTP with CORS for the web client.
-- `src/config.ts` owns runtime configuration and defaults, including database backend selection.
-- `src/database.ts` builds the database handle: PostgreSQL (production) or SQLite (local dev).
+- `src/config.ts` owns runtime configuration and defaults, including database connection.
+- `src/database.ts` builds the PostgreSQL pool and ensures the auth database exists.
 - `src/migrate.ts` creates or updates the authentication schema.
 
 ## Database
-- Selects the backend from configuration: a Postgres connection string (`CARACAL_AUTH_DATABASE_URL`, falling back to `DATABASE_URL`, both `_FILE`-secret aware) chooses PostgreSQL; otherwise an embedded SQLite file is used for local development.
-- Better Auth detects the dialect from the handle and runs schema migrations for either backend.
-- A Postgres-backed deployment must set `BETTER_AUTH_SECRET`; the service fails closed otherwise.
-- Account deletion goes through Better Auth's adapter so the cascade works on both backends.
+- Runs on PostgreSQL in every environment — one uniform backend for development and production.
+- The connection string comes from `CARACAL_AUTH_DATABASE_URL` (falling back to `DATABASE_URL`), both `_FILE`-secret aware. `caracal web` points it at the dev stack's Postgres automatically.
+- The auth database is created on startup if absent (when the role may create databases); Better Auth then runs the schema migrations.
+- The signing secret comes from `CARACAL_AUTH_SECRET` (provisioned automatically by `caracal web`); the service fails closed without one.
+- Account deletion goes through Better Auth's adapter so the cascade is backend-correct.
 
 ## Required
 - Must own operator identity only: authentication, sessions, and Better Auth capabilities.
