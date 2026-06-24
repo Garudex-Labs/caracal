@@ -66,6 +66,27 @@ describe('GET /v1/zones/:zoneId/resources/:id', () => {
 })
 
 describe('POST /v1/zones/:zoneId/resources', () => {
+  it('rejects a resource name longer than the maximum length', async () => {
+    const { app, db } = buildRouteApp(resourcesRoutes)
+    db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/resources',
+      payload: {
+        name: 'a'.repeat(201),
+        upstream_url: 'https://api.pipernet.example',
+        scopes: ['read'],
+        gateway_application_id: 'app-1',
+        credential_provider_id: 'provider-1',
+      },
+    })
+
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'invalid_resource' })
+  })
+
   it('rejects provider references outside the zone', async () => {
     const { app, db } = buildRouteApp(resourcesRoutes)
     db.query

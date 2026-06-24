@@ -49,7 +49,7 @@ function makeDb(opts: { token?: string; tokenHash?: string | null; scope?: 'glob
 async function buildPluginApp(
   db: ReturnType<typeof makeDb>,
   redis?: { incr: (k: string) => Promise<number>; expire: (k: string, s: number) => Promise<number>; set: (k: string, v: string, ...args: unknown[]) => Promise<'OK' | null> },
-  options: { authFailLimitPerMin?: number; lastUsedDebounceSec?: number } = {},
+  options: { authFailLimitPerMin?: number; lastUsedDebounceSec?: number; verifyCacheTtlMs?: number } = {},
 ) {
   const app = Fastify({ logger: false })
   await app.register(adminAuthPlugin, {
@@ -57,11 +57,19 @@ async function buildPluginApp(
     redis: redis as never,
     authFailLimitPerMin: options.authFailLimitPerMin,
     lastUsedDebounceSec: options.lastUsedDebounceSec,
+    verifyCacheTtlMs: options.verifyCacheTtlMs,
   })
   app.get('/v1/zones', async (req) => ({ ok: true, actor: req.actor }))
   app.get('/v1/zones/:zoneId/things', async (req) => ({ ok: true, params: req.params }))
   app.get('/v1/zones/:zoneId/provider-grants/oauth/callback', async () => ({ ok: true }))
   return app
+}
+
+function countTokenSelects(db: ReturnType<typeof makeDb>): number {
+  const query = db.query as unknown as { mock: { calls: unknown[][] } }
+  return query.mock.calls.filter(
+    (call) => typeof call[0] === 'string' && (call[0] as string).includes('FROM admin_tokens'),
+  ).length
 }
 
 describe('lookupAdminToken', () => {

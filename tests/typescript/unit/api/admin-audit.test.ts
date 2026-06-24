@@ -59,6 +59,24 @@ describe('admin audit hook', () => {
     expect(params[17]).toBe(1)
   })
 
+  it('records a secret-free change summary distinguishing field edits from secret rotation', async () => {
+    const captured: Captured[] = []
+    const app = buildApp(captured)
+    await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/policies/p1',
+      payload: { name: 'renamed', client_secret: 'should-not-be-stored' },
+    })
+    await app.close()
+    const ins = insertCall(captured)
+    expect(ins).toBeDefined()
+    const payload = ins!.params![12] as Record<string, unknown>
+    expect(payload.changed_fields).toEqual(['name'])
+    expect(payload.secret_rotated).toBe(true)
+    // the secret value is never persisted to the audit record.
+    expect(JSON.stringify(payload)).not.toContain('should-not-be-stored')
+  })
+
   it('does not record GET requests', async () => {
     const captured: Captured[] = []
     const app = buildApp(captured)
