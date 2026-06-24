@@ -5,7 +5,7 @@ Caracal, a product of Garudex Labs
 This file defines the Applications route.
 */
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 import {
   DetailField,
@@ -14,17 +14,7 @@ import {
   ResourceWorkspace,
 } from "@/components/console/ResourceWorkspace";
 import { ZoneScopedPage } from "@/components/console/ZoneScope";
-import {
-  Badge,
-  Button,
-  ConfirmDialog,
-  Field,
-  Modal,
-  Textarea,
-  useToast,
-  type Column,
-} from "@/components/ui";
-import { cx } from "@/lib/cx";
+import { Badge, Button, ConfirmDialog, Field, Modal, useToast, type Column } from "@/components/ui";
 import { ConsoleApiError } from "@/platform/api/client";
 import {
   useApplications,
@@ -33,7 +23,6 @@ import {
   useUpdateApplication,
 } from "@/platform/api/hooks";
 import { useCreateDeepLink } from "@/platform/nav/createDeepLink";
-import { parseList, privilegedTraits, validateTraits } from "@/platform/api/validation";
 import type { Application } from "@/platform/api/types";
 
 export const Route = createFileRoute("/app/applications")({
@@ -74,11 +63,6 @@ function errorMessage(error: unknown): string {
   if (error instanceof ConsoleApiError) {
     if (error.notConfigured) return "Control plane not connected.";
     if (error.unreachable) return "Control plane unreachable.";
-    if (error.code === "trait_forbidden")
-      return "That trait namespace requires global admin scope.";
-    if (error.code === "trait_invalid") return "A trait has an invalid format.";
-    if (error.code === "trait_duplicate") return "Traits must be unique.";
-    if (error.code === "trait_count_exceeded") return "Too many traits (max 32).";
     return error.code;
   }
   return "Unexpected error.";
@@ -131,11 +115,6 @@ function ApplicationsPage({ zoneId, zoneName }: { zoneId: string; zoneName: stri
       cell: (app) => <Badge tone="neutral">{isManaged(app) ? "Managed" : "Dynamic (DCR)"}</Badge>,
     },
     {
-      id: "authority",
-      header: "Authority",
-      cell: (app) => <TraitChips traits={app.traits} />,
-    },
-    {
       id: "credential",
       header: "Credential",
       cell: (app) => <CredentialBadge app={app} />,
@@ -166,10 +145,7 @@ function ApplicationsPage({ zoneId, zoneName }: { zoneId: string; zoneName: stri
         rowKey={(app) => app.id}
         search={{
           placeholder: "Search applications…",
-          match: (app, q) =>
-            app.name.toLowerCase().includes(q) ||
-            app.id.toLowerCase().includes(q) ||
-            (app.traits ?? []).some((t) => t.toLowerCase().includes(q)),
+          match: (app, q) => app.name.toLowerCase().includes(q) || app.id.toLowerCase().includes(q),
         }}
         sortOptions={[
           { id: "recent", label: "Recently created" },
@@ -200,15 +176,6 @@ function ApplicationsPage({ zoneId, zoneName }: { zoneId: string; zoneName: stri
                   throw err;
                 }
               }}
-              onSaveTraits={async (traits) => {
-                try {
-                  await updateApp.mutateAsync({ id: app.id, input: { traits } });
-                  toast({ tone: "success", title: "Authority updated", description: app.name });
-                } catch (err) {
-                  toast({ tone: "error", title: "Update failed", description: errorMessage(err) });
-                  throw err;
-                }
-              }}
               onRotate={() => setRotateTarget(app)}
               onDelete={() => setDeleteTarget(app)}
             />
@@ -221,12 +188,11 @@ function ApplicationsPage({ zoneId, zoneName }: { zoneId: string; zoneName: stri
         zoneName={zoneName}
         busy={createApp.isPending}
         onClose={() => setCreateOpen(false)}
-        onSubmit={async (name, traits) => {
+        onSubmit={async (name) => {
           try {
             const app = await createApp.mutateAsync({
               name,
               registration_method: "managed",
-              traits,
             });
             setCreateOpen(false);
             if (app.client_secret) {
@@ -291,38 +257,6 @@ function ApplicationsPage({ zoneId, zoneName }: { zoneId: string; zoneName: stri
 
 /* ------------------------------ list cells ------------------------------ */
 
-function TraitChips({ traits }: { traits?: string[] }) {
-  if (!traits || traits.length === 0) {
-    return <span className="text-xs text-muted-foreground">No authority</span>;
-  }
-  const shown = traits.slice(0, 3);
-  const overflow = traits.length - shown.length;
-  return (
-    <div className="flex flex-wrap items-center gap-1">
-      {shown.map((trait) => (
-        <TraitChip key={trait} trait={trait} />
-      ))}
-      {overflow > 0 ? <span className="text-xs text-muted-foreground">+{overflow}</span> : null}
-    </div>
-  );
-}
-
-function TraitChip({ trait }: { trait: string }) {
-  const privileged = trait.startsWith("control:");
-  return (
-    <span
-      className={cx(
-        "inline-flex max-w-full items-center break-all rounded border px-1.5 py-0.5 font-mono text-[11px]",
-        privileged
-          ? "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400"
-          : "border-border bg-muted text-muted-foreground",
-      )}
-    >
-      {trait}
-    </span>
-  );
-}
-
 function CredentialBadge({ app }: { app: Application }) {
   const state = credentialState(app);
   if (state === "expired") return <Badge tone="danger">Expired</Badge>;
@@ -336,14 +270,12 @@ function ApplicationDetail({
   app,
   busy,
   onRename,
-  onSaveTraits,
   onRotate,
   onDelete,
 }: {
   app: Application;
   busy: boolean;
   onRename: (name: string) => Promise<void>;
-  onSaveTraits: (traits: string[]) => Promise<void>;
   onRotate: () => void;
   onDelete: () => void;
 }) {
@@ -376,30 +308,11 @@ function ApplicationDetail({
       )}
 
       {managed ? (
-        <AuthoritySection app={app} busy={busy} onSave={onSaveTraits} />
-      ) : (
-        <section className="border-t border-border pt-4">
-          <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-            Authority
-          </h3>
-          {app.traits && app.traits.length > 0 ? (
-            <div className="mt-3 flex flex-wrap gap-1.5">
-              {app.traits.map((trait) => (
-                <TraitChip key={trait} trait={trait} />
-              ))}
-            </div>
-          ) : (
-            <p className="mt-2 text-sm text-muted-foreground">No traits assigned.</p>
-          )}
-        </section>
-      )}
-
-      {managed ? (
         <CredentialsSection onRotate={onRotate} />
       ) : (
         <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-          Dynamic clients are registered programmatically and expire automatically. Their identity,
-          authority, and credentials are managed by the issuing system and are read-only here.
+          Dynamic clients are registered programmatically and expire automatically. Their identity
+          and credentials are managed by the issuing system and are read-only here.
         </p>
       )}
 
@@ -499,94 +412,6 @@ function IdentitySection({
   );
 }
 
-function AuthoritySection({
-  app,
-  busy,
-  onSave,
-}: {
-  app: Application;
-  busy: boolean;
-  onSave: (traits: string[]) => Promise<void>;
-}) {
-  const initial = useMemo(() => app.traits ?? [], [app.traits]);
-  const [editing, setEditing] = useState(false);
-  const [value, setValue] = useState(initial.join(", "));
-
-  useEffect(() => {
-    setValue(initial.join(", "));
-    setEditing(false);
-  }, [app.id, initial]);
-
-  const parsed = parseList(value);
-  const dirty = parsed.join("\u0000") !== initial.join("\u0000");
-  const traitError = validateTraits(parsed);
-  const privileged = privilegedTraits(parsed);
-
-  return (
-    <section className="border-t border-border pt-4">
-      <div className="flex items-center justify-between gap-2">
-        <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-          Authority
-        </h3>
-        {!editing ? (
-          <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>
-            Edit
-          </Button>
-        ) : null}
-      </div>
-
-      {editing ? (
-        <div className="mt-3 flex flex-col gap-2">
-          <Textarea
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            hint="Comma-separated traits. The control: namespace requires global admin scope."
-            placeholder="control:invoke, billing:read"
-            autoFocus
-          />
-          {traitError ? (
-            <p className="text-xs text-destructive">{traitError}</p>
-          ) : privileged.length > 0 ? (
-            <p className="text-xs text-amber-600 dark:text-amber-400">
-              The {privileged.join(", ")} namespace requires global admin scope.
-            </p>
-          ) : null}
-          <div className="flex items-center gap-2">
-            <Button
-              size="sm"
-              loading={busy}
-              disabled={!dirty || Boolean(traitError)}
-              onClick={() => void onSave(parsed).then(() => setEditing(false))}
-            >
-              Save authority
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                setValue(initial.join(", "));
-                setEditing(false);
-              }}
-            >
-              Cancel
-            </Button>
-          </div>
-        </div>
-      ) : initial.length > 0 ? (
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          {initial.map((trait) => (
-            <TraitChip key={trait} trait={trait} />
-          ))}
-        </div>
-      ) : (
-        <p className="mt-2 text-sm text-muted-foreground">
-          No authority assigned. This identity cannot act until it holds traits or grants.
-        </p>
-      )}
-    </section>
-  );
-}
-
 function CredentialsSection({ onRotate }: { onRotate: () => void }) {
   return (
     <section className="border-t border-border pt-4">
@@ -619,25 +444,17 @@ function CreateApplicationModal({
   zoneName: string;
   busy: boolean;
   onClose: () => void;
-  onSubmit: (name: string, traits: string[] | undefined) => void;
+  onSubmit: (name: string) => void;
 }) {
   const [name, setName] = useState("");
-  const [traits, setTraits] = useState("");
 
   useEffect(() => {
-    if (open) {
-      setName("");
-      setTraits("");
-    }
+    if (open) setName("");
   }, [open]);
 
-  const parsedTraits = useMemo(() => parseList(traits), [traits]);
-  const traitError = validateTraits(parsedTraits);
-  const privileged = privilegedTraits(parsedTraits);
-
   function submit() {
-    if (!name.trim() || traitError) return;
-    onSubmit(name.trim(), parsedTraits.length > 0 ? parsedTraits : undefined);
+    if (!name.trim()) return;
+    onSubmit(name.trim());
   }
 
   return (
@@ -651,7 +468,7 @@ function CreateApplicationModal({
           <Button variant="secondary" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button onClick={submit} loading={busy} disabled={!name.trim() || Boolean(traitError)}>
+          <Button onClick={submit} loading={busy} disabled={!name.trim()}>
             Create application
           </Button>
         </>
@@ -663,24 +480,15 @@ function CreateApplicationModal({
           placeholder="billing-worker"
           value={name}
           onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") submit();
+          }}
           autoFocus
         />
-        <div>
-          <Textarea
-            label="Traits"
-            hint="Optional. Comma-separated authority traits to attach to this application."
-            placeholder="control:invoke"
-            value={traits}
-            onChange={(e) => setTraits(e.target.value)}
-          />
-          {traitError ? (
-            <p className="mt-1 text-xs text-destructive">{traitError}</p>
-          ) : privileged.length > 0 ? (
-            <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
-              The {privileged.join(", ")} namespace requires global admin scope.
-            </p>
-          ) : null}
-        </div>
+        <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+          Creates a managed identity and reveals its client secret once. The application gains
+          authority only when a policy grants it scopes on a resource.
+        </p>
       </div>
     </Modal>
   );

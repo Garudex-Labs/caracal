@@ -413,6 +413,11 @@ function ResourceDetail({
           <Mono>{resource.upstream_url ?? "-"}</Mono>
         </DetailField>
         <DetailField label="Created">{new Date(resource.created_at).toLocaleString()}</DetailField>
+        {resource.updated_at && resource.updated_at !== resource.created_at ? (
+          <DetailField label="Updated">
+            {new Date(resource.updated_at).toLocaleString()}
+          </DetailField>
+        ) : null}
       </DetailGroup>
 
       <section className="border-t border-border pt-4">
