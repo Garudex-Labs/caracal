@@ -184,6 +184,7 @@ export interface AuthPluginOptions {
   protectedPrefix?: string
   authFailLimitPerMin?: number
   lastUsedDebounceSec?: number
+  verifyCacheTtlMs?: number
 }
 
 const adminAuthImpl: FastifyPluginAsync<AuthPluginOptions> = async (fastify, opts) => {
@@ -191,6 +192,47 @@ const adminAuthImpl: FastifyPluginAsync<AuthPluginOptions> = async (fastify, opt
   const redis = opts.redis ?? null
   const failLimit = opts.authFailLimitPerMin ?? 0
   const debounceSec = opts.lastUsedDebounceSec ?? 0
+
+  // The admin token is a static, high-entropy secret, yet every /v1/ request re-runs an
+  // Argon2id verification (64 MB, timeCost 3) plus a Postgres lookup. A single page fires
+  // many parallel admin requests, so that cost dominates latency even with little data.
+  // Successful verifications are therefore cached by token digest for a short window and
+  // concurrent verifications are de-duplicated onto one promise. The TTL is short so a
+  // revoked token (revoked_at filtered by lookupAdminToken) stops working within seconds,
+  // and only successes are cached, so failed/brute-force attempts still pay full cost and
+  // remain rate-limited. The cache is scoped to this plugin registration for test isolation.
+  const verifyTtlMs = opts.verifyCacheTtlMs ?? 5_000
+  const verifyCacheMax = 512
+  const verifiedCache = new Map<string, { at: number; actor: Actor }>()
+  const verifyInFlight = new Map<string, Promise<Actor | null>>()
+
+  async function verifyAdminToken(bearer: string): Promise<Actor | null> {
+    if (verifyTtlMs <= 0) return lookupAdminToken(opts.db, bearer)
+    const key = sha256(bearer).toString('base64')
+    const now = Date.now()
+    const cached = verifiedCache.get(key)
+    if (cached && now - cached.at < verifyTtlMs) return cached.actor
+    const existing = verifyInFlight.get(key)
+    if (existing) return existing
+    const lookup = lookupAdminToken(opts.db, bearer)
+      .then((actor) => {
+        if (actor) {
+          if (verifiedCache.size >= verifyCacheMax) {
+            for (const k of verifiedCache.keys()) {
+              verifiedCache.delete(k)
+              if (verifiedCache.size < verifyCacheMax) break
+            }
+          }
+          verifiedCache.set(key, { at: Date.now(), actor })
+        }
+        return actor
+      })
+      .finally(() => {
+        verifyInFlight.delete(key)
+      })
+    verifyInFlight.set(key, lookup)
+    return lookup
+  }
 
   fastify.addHook('preHandler', async (req, reply) => {
     if (!req.url.startsWith(prefix)) return
@@ -205,7 +247,7 @@ const adminAuthImpl: FastifyPluginAsync<AuthPluginOptions> = async (fastify, opt
       return reply.code(401).send({ error: 'invalid_admin_token' })
     }
 
-    const actor = await lookupAdminToken(opts.db, bearer)
+    const actor = await verifyAdminToken(bearer)
     if (!actor) {
       if (await recordAuthFailure(redis, req.ip, failLimit)) {
         return reply.code(429).send({ error: 'rate_limited' })

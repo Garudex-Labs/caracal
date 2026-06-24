@@ -215,7 +215,7 @@ export class AuditTailView implements View {
         when: 'Use this view during debugging, incident response, policy rollout checks, or when tracing one request through Caracal.',
         impact: 'Audit is read-only evidence; changing filters or opening request traces does not alter authorization state.',
         example: 'deny token_exchange req_123',
-        valid: 'Move to an event, cycle the decision filter, reload, pause streaming, filter, or open details/request trace for a row with a request ID.',
+        valid: 'Move to an event, cycle the decision filter, reload, pause streaming, filter, load older events, or open details/request trace for a row with a request ID.',
         after: 'Opening details shows the audit event group for the request; tracing shows the decision path for policies and evaluation status.',
         terms: [
           { label: 'Decision', value: 'The authorization result: allow, deny, partial, or absent when evaluation did not reach a decision.' },
@@ -235,6 +235,10 @@ export class AuditTailView implements View {
     }
     if (key === 'x') {
       this.openSelected(ctx.app, true)
+      return
+    }
+    if (key === 'm') {
+      await this.loadOlder()
       return
     }
     if (key === 'left' || key === 'esc') { ctx.app.pop() }

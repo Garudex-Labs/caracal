@@ -209,6 +209,18 @@ function validateResourceIdentifier(value: string): string | undefined {
   }
 }
 
+function validateUpstreamUrl(value: string): string | undefined {
+  const text = value.trim()
+  if (!text) return undefined
+  try {
+    const protocol = new URL(text).protocol
+    if (protocol !== 'http:' && protocol !== 'https:') return 'upstream URL must use http:// or https://'
+    return undefined
+  } catch {
+    return 'upstream URL must be a valid http(s) URL'
+  }
+}
+
 const operationEnforcementLabels: Record<ResourceOperationEnforcement, string> = {
   enforced: 'enforced (deny undeclared operations)',
   transport_uniform: 'transport_uniform (single upstream surface)',
