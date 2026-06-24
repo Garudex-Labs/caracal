@@ -8,8 +8,12 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
 import {
+  CopyValue,
+  DangerZone,
   DetailField,
   DetailGroup,
+  DetailHeader,
+  DetailSection,
   Mono,
   ResourceWorkspace,
 } from "@/components/console/ResourceWorkspace";

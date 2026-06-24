@@ -9,8 +9,12 @@ import { useMemo, useState } from "react";
 
 import { ResourceFormModal } from "@/components/console/ResourceForm";
 import {
+  CopyValue,
+  DangerZone,
   DetailField,
   DetailGroup,
+  DetailHeader,
+  DetailSection,
   Mono,
   ResourceWorkspace,
 } from "@/components/console/ResourceWorkspace";
@@ -392,25 +396,26 @@ function ResourceDetail({
   const operations = resource.operations ?? [];
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-center gap-2">
+      <DetailHeader
+        action={
+          <Button variant="secondary" size="sm" onClick={onEdit}>
+            Edit
+          </Button>
+        }
+      >
         {resource.operation_enforcement === "enforced" ? (
           <Badge tone="success">Operation enforced</Badge>
         ) : (
           <Badge tone="muted">Transport uniform</Badge>
         )}
-        <div className="ml-auto">
-          <Button variant="secondary" size="sm" onClick={onEdit}>
-            Edit
-          </Button>
-        </div>
-      </div>
+      </DetailHeader>
 
       <DetailGroup title="Routing">
         <DetailField label="Identifier">
-          <Mono>{resource.identifier}</Mono>
+          <CopyValue value={resource.identifier} />
         </DetailField>
         <DetailField label="Upstream URL">
-          <Mono>{resource.upstream_url ?? "-"}</Mono>
+          {resource.upstream_url ? <CopyValue value={resource.upstream_url} /> : <Mono>-</Mono>}
         </DetailField>
         <DetailField label="Created">{new Date(resource.created_at).toLocaleString()}</DetailField>
         {resource.updated_at && resource.updated_at !== resource.created_at ? (
@@ -420,11 +425,8 @@ function ResourceDetail({
         ) : null}
       </DetailGroup>
 
-      <section className="border-t border-border pt-4">
-        <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-          Bindings
-        </h3>
-        <div className="mt-3 grid gap-px border border-border bg-border sm:grid-cols-2 [&>*]:bg-background">
+      <DetailSection title="Bindings">
+        <div className="grid gap-px overflow-hidden rounded-lg border border-border bg-border sm:grid-cols-2 [&>*]:bg-card">
           <BindingCell
             label="Gateway application"
             value={gatewayApp?.name}
@@ -438,14 +440,11 @@ function ResourceDetail({
             to="/app/providers"
           />
         </div>
-      </section>
+      </DetailSection>
 
-      <section className="border-t border-border pt-4">
-        <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-          Scopes
-        </h3>
+      <DetailSection title="Scopes">
         {scopes.length > 0 ? (
-          <div className="mt-3 flex flex-wrap gap-1.5">
+          <div className="flex flex-wrap gap-1.5">
             {scopes.map((scope) => (
               <span
                 key={scope}
@@ -456,20 +455,17 @@ function ResourceDetail({
             ))}
           </div>
         ) : (
-          <p className="mt-2 text-sm text-muted-foreground">No scopes declared.</p>
+          <p className="text-sm text-muted-foreground">No scopes declared.</p>
         )}
-      </section>
+      </DetailSection>
 
-      <section className="border-t border-border pt-4">
-        <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-          Operations
-        </h3>
+      <DetailSection title="Operations">
         {resource.operation_enforcement === "transport_uniform" ? (
-          <p className="mt-2 text-sm text-muted-foreground">
+          <p className="text-sm text-muted-foreground">
             Authorization is uniform across the transport. Individual operations are not listed.
           </p>
         ) : operations.length > 0 ? (
-          <div className="mt-3 overflow-hidden border border-border">
+          <div className="overflow-hidden rounded-lg border border-border">
             <table className="w-full text-sm">
               <tbody className="divide-y divide-border">
                 {operations.map((op) => (
@@ -489,25 +485,17 @@ function ResourceDetail({
             </table>
           </div>
         ) : (
-          <p className="mt-2 text-sm text-muted-foreground">
+          <p className="text-sm text-muted-foreground">
             No declared operations. The Gateway denies every operation until you add some.
           </p>
         )}
-      </section>
+      </DetailSection>
 
-      <section className="border-t border-border pt-4">
-        <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-destructive">
-          Danger zone
-        </h3>
-        <div className="mt-3 flex items-center justify-between gap-3">
-          <p className="text-xs text-muted-foreground">
-            Remove this resource and its Gateway route.
-          </p>
-          <Button variant="danger" size="sm" onClick={onDelete}>
-            Delete
-          </Button>
-        </div>
-      </section>
+      <DangerZone
+        description="Remove this resource and its Gateway route."
+        actionLabel="Delete"
+        onAction={onDelete}
+      />
     </div>
   );
 }
