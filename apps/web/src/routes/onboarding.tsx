@@ -8,6 +8,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
 import { DcrField } from "@/components/console/DcrField";
+import { EnterpriseCallout } from "@/components/onboarding/EnterpriseCallout";
 import { IdentityCard } from "@/components/onboarding/IdentityCard";
 import { OnboardingLayout, type OnboardingStep } from "@/components/onboarding/OnboardingLayout";
 import { ZoneExplainer } from "@/components/onboarding/ZoneExplainer";
@@ -18,11 +19,13 @@ import { useSession } from "@/platform/auth";
 import { requirePendingOnboarding } from "@/platform/auth/guards";
 import {
   completeOnboarding,
+  getOnboardingDraft,
   getProfile,
   HANDLE_MAX,
   NAME_MAX,
   resolveDisplayName,
   sanitizeHandle,
+  setOnboardingDraft,
   type ProfileRecord,
 } from "@/platform/state/localInstall";
 
@@ -60,15 +63,17 @@ function OnboardingPage() {
   const ownerEmail = session.data?.user?.email ?? "";
   const sessionName = session.data?.user?.name ?? "";
 
-  const [step, setStep] = useState(0);
+  const [draft] = useState(() => getOnboardingDraft());
+
+  const [step, setStep] = useState(() => Math.min(Math.max(draft?.step ?? 0, 0), STEPS.length - 1));
 
   const [accountId] = useState(() => getProfile().accountId);
-  const [fullName, setFullName] = useState(sessionName);
-  const [displayName, setDisplayName] = useState("");
-  const [avatar, setAvatar] = useState("");
+  const [fullName, setFullName] = useState(() => draft?.fullName ?? sessionName);
+  const [displayName, setDisplayName] = useState(() => draft?.displayName ?? "");
+  const [avatar, setAvatar] = useState(() => draft?.avatar ?? "");
 
-  const [zoneName, setZoneName] = useState("");
-  const [zoneDcr, setZoneDcr] = useState(false);
+  const [zoneName, setZoneName] = useState(() => draft?.zoneName ?? "");
+  const [zoneDcr, setZoneDcr] = useState(() => draft?.zoneDcr ?? false);
 
   const [submitting, setSubmitting] = useState(false);
   const [showErrors, setShowErrors] = useState(false);
@@ -76,6 +81,10 @@ function OnboardingPage() {
   useEffect(() => {
     if (!fullName && sessionName) setFullName(sessionName);
   }, [sessionName, fullName]);
+
+  useEffect(() => {
+    setOnboardingDraft({ step, fullName, displayName, avatar, zoneName, zoneDcr });
+  }, [step, fullName, displayName, avatar, zoneName, zoneDcr]);
 
   const profileValid = fullName.trim().length > 0;
   const zoneValid = zoneName.trim().length > 0;
@@ -256,16 +265,9 @@ function OnboardingPage() {
               ["Dynamic Client Registration", zoneDcr ? "Enabled" : "Off"],
             ]}
           />
-          <Card className="lg:col-span-2">
-            <SectionTitle>Ownership</SectionTitle>
-            <p className="mt-3 text-sm text-foreground">
-              You are the single owner of this environment.
-            </p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              The Community Edition runs as a single user. All zones link directly to your account.
-              There are no organizations, teams, roles, or invitations to manage.
-            </p>
-          </Card>
+          <div className="lg:col-span-2">
+            <EnterpriseCallout />
+          </div>
         </div>
       ) : null}
     </OnboardingLayout>

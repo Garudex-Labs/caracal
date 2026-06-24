@@ -18,6 +18,17 @@ export interface ProfileRecord {
   avatar: string;
 }
 
+// In-progress onboarding wizard state, persisted so a reload mid-flow restores the
+// operator's step and entered values instead of resetting to a blank wizard.
+export interface OnboardingDraft {
+  step: number;
+  fullName: string;
+  displayName: string;
+  avatar: string;
+  zoneName: string;
+  zoneDcr: boolean;
+}
+
 // Shared limits and rules for operator name fields, kept here so onboarding, Settings,
 // and the Console chrome enforce one identical pattern.
 export const NAME_MAX = 40;
@@ -45,6 +56,7 @@ const ACTIVE_ZONE_KEY = "caracal.activeZone";
 const PROFILE_KEY = "caracal.profile";
 const OWNER_KEY = "caracal.owner";
 const GUIDED_SETUP_KEY = "caracal.guidedSetup";
+const ONBOARDING_DRAFT_KEY = "caracal.onboardingDraft";
 const profileListeners = new Set<() => void>();
 let profileSnapshot: ProfileRecord | null = null;
 
@@ -117,6 +129,18 @@ export function setGuidedSetup(record: GuidedSetupRecord): void {
   write(GUIDED_SETUP_KEY, record);
 }
 
+export function getOnboardingDraft(): OnboardingDraft | null {
+  return read<OnboardingDraft | null>(ONBOARDING_DRAFT_KEY, null);
+}
+
+export function setOnboardingDraft(draft: OnboardingDraft): void {
+  write(ONBOARDING_DRAFT_KEY, draft);
+}
+
+export function clearOnboardingDraft(): void {
+  remove(ONBOARDING_DRAFT_KEY);
+}
+
 /** Generate a stable, unique internal account identifier, formatted CRC-XXXX-XXXX-XXXX. */
 function generateAccountId(): string {
   const alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
@@ -165,6 +189,7 @@ export function clearLocalIdentity(): void {
   remove(PROFILE_KEY);
   remove(OWNER_KEY);
   remove(GUIDED_SETUP_KEY);
+  remove(ONBOARDING_DRAFT_KEY);
   emitProfileChange();
 }
 
@@ -200,4 +225,5 @@ export function workspaceLabel(): string {
 export function completeOnboarding(profile: ProfileRecord): void {
   setProfile(profile);
   setInstallation({ name: workspaceLabel(), onboarded: true });
+  clearOnboardingDraft();
 }

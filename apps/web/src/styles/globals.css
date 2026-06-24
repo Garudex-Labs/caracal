@@ -63,6 +63,11 @@ This file defines the application theme and global styles.
   --accent: oklch(0.95 0 0);
   --accent-foreground: oklch(0.18 0 0);
   --accent-purple: oklch(0.55 0.22 295);
+  --rainbow-1: oklch(0.62 0.23 295);
+  --rainbow-2: oklch(0.6 0.21 268);
+  --rainbow-3: oklch(0.66 0.18 230);
+  --rainbow-4: oklch(0.62 0.22 330);
+  --rainbow-5: oklch(0.64 0.2 300);
   --destructive: oklch(0.6 0.22 25);
   --destructive-foreground: oklch(0.985 0 0);
   --border: oklch(0.9 0 0);
@@ -237,12 +242,23 @@ This file defines the application theme and global styles.
       transform: translateY(0) rotateX(0deg);
     }
   }
+  @keyframes caracalRainbow {
+    0% {
+      background-position: 0% 50%;
+    }
+    100% {
+      background-position: 200% 50%;
+    }
+  }
 
   .animate-sheen {
     animation: caracalSheen 5s ease-in-out infinite;
   }
   .animate-card-in {
     animation: caracalCardIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  .animate-rainbow {
+    animation: caracalRainbow var(--rainbow-speed, 3s) linear infinite;
   }
 
   .animate-fade-in {
@@ -293,6 +309,7 @@ This file defines the application theme and global styles.
     .animate-toast-in,
     .animate-sheen,
     .animate-card-in,
+    .animate-rainbow,
     .skeleton,
     .marquee {
       animation: none;
