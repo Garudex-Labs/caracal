@@ -9,7 +9,6 @@ import { useState } from "react";
 
 import { NavIcon } from "@/components/console/NavIcon";
 import { ProfileMenu } from "@/components/console/ProfileMenu";
-import { SidebarActions } from "@/components/console/SidebarActions";
 import { LockBadge } from "@/components/ui";
 import { cx } from "@/lib/cx";
 import { NAV_GROUPS } from "@/platform/nav/navModel";
@@ -170,14 +169,11 @@ export function Sidebar({
 
       <div
         className={cx(
-          "flex-shrink-0 space-y-2 border-t border-border py-2",
-          collapsed ? "px-2" : "px-2",
+          "flex-shrink-0 border-t border-border py-2",
+          collapsed ? "flex justify-center px-2" : "px-2",
         )}
       >
-        <SidebarActions collapsed={collapsed} />
-        <div className={cx(collapsed && "flex justify-center")}>
-          <ProfileMenu collapsed={collapsed} />
-        </div>
+        <ProfileMenu collapsed={collapsed} />
       </div>
     </div>
   );

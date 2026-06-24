@@ -14,6 +14,7 @@ import { PlatformStatus } from "@/components/console/PlatformStatus";
 import { NotificationsMenu } from "@/components/console/NotificationsMenu";
 import { LanguageMenu } from "@/components/console/LanguageMenu";
 import { Sidebar } from "@/components/console/Sidebar";
+import { UtilityRail } from "@/components/console/UtilityRail";
 import { cx } from "@/lib/cx";
 
 const COLLAPSE_KEY = "caracal.sidebar.collapsed";
@@ -119,6 +120,8 @@ export function ConsoleLayout() {
           </div>
         </main>
       </div>
+
+      <UtilityRail />
 
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
       <GuidedSetup />
