@@ -55,6 +55,7 @@ export function ResourceWorkspace<T>({
   empty,
   detail,
   headerExtra,
+  toolbarExtra,
 }: {
   title: string;
   description: string;
@@ -88,6 +89,10 @@ export function ResourceWorkspace<T>({
     width?: string;
   };
   headerExtra?: ReactNode;
+  // Inline controls rendered in the toolbar (search) row itself, after the filter/sort
+  // controls and before any right-aligned primary action. Use for page-specific compact
+  // controls that belong on the same line as search rather than in a separate block.
+  toolbarExtra?: ReactNode;
 }) {
   const [query, setQuery] = useState("");
   const [sortChoice, setSortChoice] = useState(sortOptions?.[0]?.id ?? "");
@@ -164,6 +169,7 @@ export function ResourceWorkspace<T>({
           className="w-full sm:w-72"
         />
         {filters && filters.length > 0 && !controlsLocked ? <FilterMenu groups={filters} /> : null}
+        {toolbarExtra ?? null}
         {sortOptions && sortOptions.length > 0 ? (
           <div className="w-44">
             <Select

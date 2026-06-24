@@ -5,7 +5,7 @@ Caracal, a product of Garudex Labs
 This file defines the Audit route.
 */
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import {
   DetailField,
@@ -51,27 +51,137 @@ function AuditRoute() {
 }
 
 function ModeTabs({ mode, onMode }: { mode: AuditMode; onMode: (m: AuditMode) => void }) {
-  const tabs: { id: AuditMode; label: string }[] = [
-    { id: "decisions", label: "Authority decisions" },
-    { id: "admin", label: "Admin changes" },
-  ];
   return (
-    <div className="flex items-center gap-1.5">
-      {tabs.map((tab) => (
+    <select
+      value={mode}
+      onChange={(e) => onMode(e.target.value as AuditMode)}
+      aria-label="Audit feed"
+      className="h-8 cursor-pointer rounded-md border border-border bg-background px-2.5 pr-7 text-xs font-medium text-foreground outline-none transition-colors hover:bg-surface focus:border-ring focus:ring-2 focus:ring-ring/25"
+    >
+      <option value="decisions">Authority decisions</option>
+      <option value="admin">Admin changes</option>
+    </select>
+  );
+}
+
+// An inline audit toolbar designed to sit on the same row as the workspace search box. It
+// keeps everything on one line: the feed selector, a Filters button whose labeled fields
+// drop into a floating panel, and the live indicator plus cursor control pushed to the right.
+function AuditToolbar({
+  mode,
+  onMode,
+  activeFilters,
+  loaded,
+  noun,
+  hasMore,
+  fetchingMore,
+  live,
+  onToggleLive,
+  onLoadMore,
+  children,
+}: {
+  mode: AuditMode;
+  onMode: (m: AuditMode) => void;
+  activeFilters: number;
+  loaded: number;
+  noun: string;
+  hasMore: boolean;
+  fetchingMore: boolean;
+  live: boolean;
+  onToggleLive: () => void;
+  onLoadMore: () => void;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onPointer(e: PointerEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("pointerdown", onPointer, true);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointer, true);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  return (
+    <>
+      <ModeTabs mode={mode} onMode={onMode} />
+
+      <div ref={ref} className="relative">
         <button
-          key={tab.id}
-          onClick={() => onMode(tab.id)}
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          aria-haspopup="dialog"
           className={cx(
-            "inline-flex items-center rounded-md border px-2.5 py-1 text-xs font-medium transition-colors",
-            mode === tab.id
+            "inline-flex h-9 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-colors",
+            open || activeFilters > 0
               ? "border-foreground/20 bg-accent text-foreground"
               : "border-border text-muted-foreground hover:bg-surface hover:text-foreground",
           )}
         >
-          {tab.label}
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M3 5h18l-7 8v5l-4 2v-7z" />
+          </svg>
+          Filters
+          {activeFilters > 0 ? (
+            <span className="grid h-4 min-w-4 place-items-center rounded-full bg-foreground px-1 text-[10px] font-semibold text-background">
+              {activeFilters}
+            </span>
+          ) : null}
         </button>
-      ))}
-    </div>
+        {open ? (
+          <div className="animate-pop-in absolute left-0 top-full z-[60] mt-1.5 w-[min(32rem,calc(100vw-2rem))] rounded-lg border border-border bg-popover p-3 shadow-xl">
+            <div className="grid gap-2.5 sm:grid-cols-2">{children}</div>
+          </div>
+        ) : null}
+      </div>
+
+      <div className="ml-auto flex items-center gap-2">
+        <span className="hidden items-center gap-1.5 text-xs text-muted-foreground sm:inline-flex">
+          <span
+            className={cx(
+              "h-1.5 w-1.5 rounded-full",
+              live ? "bg-emerald-500" : "bg-muted-foreground/40",
+            )}
+          />
+          {loaded} {noun}
+          {loaded === 1 ? "" : "s"}
+        </span>
+        <button
+          onClick={onToggleLive}
+          className="rounded-md px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        >
+          {live ? "Pause" : "Resume"}
+        </button>
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={onLoadMore}
+          disabled={!hasMore}
+          loading={fetchingMore}
+        >
+          {hasMore ? "Load more" : "All loaded"}
+        </Button>
+      </div>
+    </>
   );
 }
 
@@ -197,7 +307,7 @@ function AuditPage({
       columns={columns}
       rowKey={(e) => e.id}
       pageSize={12}
-      headerExtra={
+      toolbarExtra={
         <AuditFilterBar
           mode={mode}
           onMode={onMode}
@@ -230,7 +340,6 @@ function AuditPage({
           (e.request_id ?? "").toLowerCase().includes(q) ||
           (e.evaluation_status ?? "").toLowerCase().includes(q),
       }}
-      sortOptions={[{ id: "recent", label: "Most recent" }]}
       empty={{
         title: feed.isError ? "Could not load audit" : "No audit events",
         description: feed.isError
@@ -297,75 +406,65 @@ function AuditFilterBar({
   onToggleLive: () => void;
   onLoadMore: () => void;
 }) {
+  const activeFilters =
+    (decision !== "all" ? 1 : 0) +
+    [eventType, requestId, agentSession, label, since, until].filter((v) => v.trim()).length;
   return (
-    <div className="flex flex-col gap-3 border border-border bg-muted/20 p-3">
-      <ModeTabs mode={mode} onMode={onMode} />
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Select label="Decision" value={decision} onChange={(e) => onDecision(e.target.value)}>
-          <option value="all">All decisions</option>
-          <option value="allow">Allow</option>
-          <option value="deny">Deny</option>
-          <option value="partial">Partial</option>
-        </Select>
-        <Field
-          label="Event type"
-          placeholder="TokenExchange"
-          value={eventType}
-          onChange={(e) => onEventType(e.target.value)}
-        />
-        <Field
-          label="Request ID"
-          placeholder="Correlate one request"
-          value={requestId}
-          onChange={(e) => onRequestId(e.target.value)}
-        />
-        <Field
-          label="Agent session"
-          placeholder="Follow one agent session"
-          value={agentSession}
-          onChange={(e) => onAgentSession(e.target.value)}
-        />
-        <Field
-          label="Agent label"
-          placeholder="Scope to one agent role"
-          value={label}
-          onChange={(e) => onLabel(e.target.value)}
-        />
-        <Field
-          label="Since"
-          placeholder="15m, 2h, 7d, or a date"
-          value={since}
-          onChange={(e) => onSince(e.target.value)}
-        />
-        <Field
-          label="Until"
-          placeholder="15m, 2h, or a date"
-          value={until}
-          onChange={(e) => onUntil(e.target.value)}
-        />
-      </div>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <span className="text-xs text-muted-foreground">
-          {loaded} event{loaded === 1 ? "" : "s"} loaded
-          {hasMore ? " · more available" : ""}
-          {live ? " · live" : " · paused"}
-        </span>
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" size="sm" onClick={onToggleLive}>
-            {live ? "Pause" : "Resume"}
-          </Button>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={onLoadMore}
-            disabled={!hasMore}
-            loading={fetchingMore}
-          >
-            {hasMore ? "Load more" : "All loaded"}
-          </Button>
-        </div>
-      </div>
-    </div>
+    <AuditToolbar
+      mode={mode}
+      onMode={onMode}
+      activeFilters={activeFilters}
+      loaded={loaded}
+      noun="event"
+      hasMore={hasMore}
+      fetchingMore={fetchingMore}
+      live={live}
+      onToggleLive={onToggleLive}
+      onLoadMore={onLoadMore}
+    >
+      <Select label="Decision" value={decision} onChange={(e) => onDecision(e.target.value)}>
+        <option value="all">All decisions</option>
+        <option value="allow">Allow</option>
+        <option value="deny">Deny</option>
+        <option value="partial">Partial</option>
+      </Select>
+      <Field
+        label="Event type"
+        placeholder="TokenExchange"
+        value={eventType}
+        onChange={(e) => onEventType(e.target.value)}
+      />
+      <Field
+        label="Request ID"
+        placeholder="Correlate one request"
+        value={requestId}
+        onChange={(e) => onRequestId(e.target.value)}
+      />
+      <Field
+        label="Agent session"
+        placeholder="Follow one agent session"
+        value={agentSession}
+        onChange={(e) => onAgentSession(e.target.value)}
+      />
+      <Field
+        label="Agent label"
+        placeholder="Scope to one agent role"
+        value={label}
+        onChange={(e) => onLabel(e.target.value)}
+      />
+      <Field
+        label="Since"
+        placeholder="15m, 2h, 7d, or a date"
+        value={since}
+        onChange={(e) => onSince(e.target.value)}
+      />
+      <Field
+        label="Until"
+        placeholder="15m, 2h, or a date"
+        value={until}
+        onChange={(e) => onUntil(e.target.value)}
+      />
+    </AuditToolbar>
   );
 }
 
@@ -598,7 +697,7 @@ function AdminAuditPage({
       columns={columns}
       rowKey={(e) => e.id}
       pageSize={12}
-      headerExtra={
+      toolbarExtra={
         <AdminAuditFilterBar
           mode={mode}
           onMode={onMode}
@@ -628,7 +727,6 @@ function AdminAuditPage({
           (e.entity_type ?? "").toLowerCase().includes(q) ||
           (e.entity_id ?? "").toLowerCase().includes(q),
       }}
-      sortOptions={[{ id: "recent", label: "Most recent" }]}
       empty={{
         title: feed.isError ? "Could not load admin changes" : "No admin changes",
         description: feed.isError
@@ -757,63 +855,52 @@ function AdminAuditFilterBar({
   onToggleLive: () => void;
   onLoadMore: () => void;
 }) {
+  const activeFilters =
+    (method ? 1 : 0) + [entityType, actorId, since, until].filter((v) => v.trim()).length;
   return (
-    <div className="flex flex-col gap-3 border border-border bg-muted/20 p-3">
-      <ModeTabs mode={mode} onMode={onMode} />
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Select label="Method" value={method} onChange={(e) => onMethod(e.target.value)}>
-          {ADMIN_METHODS.map((m) => (
-            <option key={m || "all"} value={m}>
-              {m || "All methods"}
-            </option>
-          ))}
-        </Select>
-        <Field
-          label="Entity type"
-          placeholder="applications, resources…"
-          value={entityType}
-          onChange={(e) => onEntityType(e.target.value)}
-        />
-        <Field
-          label="Actor ID"
-          placeholder="Admin token id"
-          value={actorId}
-          onChange={(e) => onActorId(e.target.value)}
-        />
-        <Field
-          label="Since"
-          placeholder="15m, 2h, 7d, or a date"
-          value={since}
-          onChange={(e) => onSince(e.target.value)}
-        />
-        <Field
-          label="Until"
-          placeholder="15m, 2h, or a date"
-          value={until}
-          onChange={(e) => onUntil(e.target.value)}
-        />
-      </div>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <span className="text-xs text-muted-foreground">
-          {loaded} change{loaded === 1 ? "" : "s"} loaded
-          {hasMore ? " · more available" : ""}
-          {live ? " · live" : " · paused"}
-        </span>
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" size="sm" onClick={onToggleLive}>
-            {live ? "Pause" : "Resume"}
-          </Button>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={onLoadMore}
-            disabled={!hasMore}
-            loading={fetchingMore}
-          >
-            {hasMore ? "Load more" : "All loaded"}
-          </Button>
-        </div>
-      </div>
-    </div>
+    <AuditToolbar
+      mode={mode}
+      onMode={onMode}
+      activeFilters={activeFilters}
+      loaded={loaded}
+      noun="change"
+      hasMore={hasMore}
+      fetchingMore={fetchingMore}
+      live={live}
+      onToggleLive={onToggleLive}
+      onLoadMore={onLoadMore}
+    >
+      <Select label="Method" value={method} onChange={(e) => onMethod(e.target.value)}>
+        {ADMIN_METHODS.map((m) => (
+          <option key={m || "all"} value={m}>
+            {m || "All methods"}
+          </option>
+        ))}
+      </Select>
+      <Field
+        label="Entity type"
+        placeholder="applications, resources…"
+        value={entityType}
+        onChange={(e) => onEntityType(e.target.value)}
+      />
+      <Field
+        label="Actor ID"
+        placeholder="Admin token id"
+        value={actorId}
+        onChange={(e) => onActorId(e.target.value)}
+      />
+      <Field
+        label="Since"
+        placeholder="15m, 2h, 7d, or a date"
+        value={since}
+        onChange={(e) => onSince(e.target.value)}
+      />
+      <Field
+        label="Until"
+        placeholder="15m, 2h, or a date"
+        value={until}
+        onChange={(e) => onUntil(e.target.value)}
+      />
+    </AuditToolbar>
   );
 }
