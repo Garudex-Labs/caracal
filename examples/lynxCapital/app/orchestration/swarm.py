@@ -1824,13 +1824,36 @@ def _build_workflow_domain_tools(run_id, runner, parent, workflow_id, board):
         """Resolve a user's effective roles and permissions for a segregation-of-duties check.
 
         `user_id` accepts an employee id, username, or work email. Returns the union of
-        permissions granted by the user's directly assigned roles and group-derived roles.
+        permissions granted by the user's directly assigned roles and group-derived roles,
+        along with any segregation-of-duties conflicts the holdings create.
         """
         w = _worker("compliance", f"identity:access:{user_id}")
         try:
             return json.dumps(tool_fns.check_user_access(run_id, w.id, user_id))
         finally:
             _finish(w, {"user_id": user_id})
+
+    @tool
+    def check_segregation_of_duties(user_id: str) -> str:
+        """Evaluate a user's effective roles against the segregation-of-duties policy.
+
+        `user_id` accepts an employee id, username, or work email. Returns each toxic
+        role combination the identity holds with its rationale, for access-review findings.
+        """
+        w = _worker("compliance", f"identity:sod:{user_id}")
+        try:
+            return json.dumps(tool_fns.check_segregation_of_duties(run_id, w.id, user_id))
+        finally:
+            _finish(w, {"user_id": user_id})
+
+    @tool
+    def list_privileged_users() -> str:
+        """List identities holding privileged roles for a privileged-access review."""
+        w = _worker("compliance", "identity:privileged")
+        try:
+            return json.dumps(tool_fns.list_privileged_users(run_id, w.id))
+        finally:
+            _finish(w, {"scope": "privileged"})
 
     @tool
     def record_audit(summary: str) -> str:
@@ -1968,6 +1991,8 @@ def _build_workflow_domain_tools(run_id, runner, parent, workflow_id, board):
         list_approver_groups,
         resolve_approver_chain,
         check_user_access,
+        check_segregation_of_duties,
+        list_privileged_users,
         record_audit,
         call_partner,
     ]

@@ -36,14 +36,33 @@ def _resolve_user(ctx: Ctx, key: str = "userId") -> dict:
     return user
 
 
-def _effective_access(ctx: Ctx, user: dict) -> dict:
-    roles = ctx.state.table("roles")
+def _assigned_role_ids(ctx: Ctx, user: dict) -> set[str]:
+    """Role ids from direct assignment plus the user's group memberships."""
     groups = ctx.state.table("groups")
     role_ids = set(user.get("roleIds", []))
     for gid in user.get("groupIds", []):
         group = groups.get(gid)
         if group:
             role_ids.update(group.get("roleIds", []))
+    return role_ids
+
+
+def _sod_conflicts(role_ids: set[str]) -> list[dict]:
+    """Toxic role pairs the identity holds, each with its segregation rationale."""
+    rules = gen.lumen_sod_rules()
+    held = sorted(role_ids)
+    conflicts = []
+    for i, a in enumerate(held):
+        for b in held[i + 1:]:
+            rationale = rules.get(frozenset((a, b)))
+            if rationale:
+                conflicts.append({"roleIds": [a, b], "rationale": rationale})
+    return conflicts
+
+
+def _effective_access(ctx: Ctx, user: dict) -> dict:
+    roles = ctx.state.table("roles")
+    role_ids = _assigned_role_ids(ctx, user)
     permissions: set[str] = set()
     privileged = False
     for rid in role_ids:
@@ -52,14 +71,20 @@ def _effective_access(ctx: Ctx, user: dict) -> dict:
             continue
         permissions.update(role.get("permissions", []))
         privileged = privileged or role.get("category") == "privileged"
+    conflicts = _sod_conflicts(role_ids)
     return {
         "userId": user["id"],
         "status": user["status"],
+        "accountEnabled": user.get("accountEnabled", user["status"] == "active"),
         "roleIds": sorted(role_ids),
         "groupIds": sorted(user.get("groupIds", [])),
         "permissions": sorted(permissions),
         "privileged": privileged,
         "mfaEnabled": user.get("mfaEnabled", False),
+        "mfaMethods": user.get("mfaMethods", []),
+        "sodConflicts": conflicts,
+        "hasSodConflict": bool(conflicts),
+        "accessReviewDueDate": user.get("accessReviewDueDate"),
         "active": user["status"] == "active",
     }
 
@@ -100,6 +125,62 @@ def list_users(ctx: Ctx) -> dict:
 @base.op(ID, "get_user_access")
 def get_user_access(ctx: Ctx) -> dict:
     return _effective_access(ctx, _resolve_user(ctx))
+
+
+@base.op(ID, "get_user_entitlements")
+def get_user_entitlements(ctx: Ctx) -> dict:
+    """Per-permission entitlement breakdown with the role and grant path that confer it."""
+    user = _resolve_user(ctx)
+    roles = ctx.state.table("roles")
+    groups = ctx.state.table("groups")
+    direct = set(user.get("roleIds", []))
+    grants: dict[str, list[dict]] = {}
+    for rid in direct:
+        role = roles.get(rid)
+        if role is None:
+            continue
+        for perm in role.get("permissions", []):
+            grants.setdefault(perm, []).append(
+                {"roleId": rid, "via": "direct"})
+    for gid in user.get("groupIds", []):
+        group = groups.get(gid)
+        if group is None:
+            continue
+        for rid in group.get("roleIds", []):
+            role = roles.get(rid)
+            if role is None:
+                continue
+            for perm in role.get("permissions", []):
+                grants.setdefault(perm, []).append(
+                    {"roleId": rid, "via": "group", "groupId": gid})
+    entitlements = [
+        {"permission": perm, "grantedBy": sources}
+        for perm, sources in sorted(grants.items())
+    ]
+    return {
+        "userId": user["id"],
+        "displayName": user["displayName"],
+        "entitlementCount": len(entitlements),
+        "entitlements": entitlements,
+    }
+
+
+@base.op(ID, "check_segregation_of_duties")
+def check_segregation_of_duties(ctx: Ctx) -> dict:
+    """Evaluate a user's effective roles against the segregation-of-duties policy."""
+    user = _resolve_user(ctx)
+    role_ids = _assigned_role_ids(ctx, user)
+    conflicts = _sod_conflicts(role_ids)
+    return {
+        "userId": user["id"],
+        "displayName": user["displayName"],
+        "departmentId": user["departmentId"],
+        "managerId": user.get("managerId"),
+        "roleIds": sorted(role_ids),
+        "conflicts": conflicts,
+        "conflictCount": len(conflicts),
+        "compliant": not conflicts,
+    }
 
 
 @base.op(ID, "list_direct_reports")
@@ -148,6 +229,57 @@ def get_role(ctx: Ctx) -> dict:
     assigned = [u["id"] for u in ctx.state.table("users").values()
                 if ctx.payload["roleId"] in u.get("roleIds", [])]
     return {**role, "assignedCount": len(assigned)}
+
+
+@base.op(ID, "list_role_members")
+def list_role_members(ctx: Ctx) -> dict:
+    """Identities holding a role, by direct assignment or group inheritance; for access reviews."""
+    ctx.require("roleId")
+    rid = ctx.payload["roleId"]
+    if ctx.state.table("roles").get(rid) is None:
+        raise DomainError(404, "role_not_found", rid)
+    groups = ctx.state.table("groups")
+    inheriting_groups = {gid for gid, g in groups.items() if rid in g.get("roleIds", [])}
+    members = []
+    for u in ctx.state.table("users").values():
+        direct = rid in u.get("roleIds", [])
+        via_group = sorted(inheriting_groups.intersection(u.get("groupIds", [])))
+        if direct or via_group:
+            members.append({
+                "userId": u["id"],
+                "displayName": u["displayName"],
+                "departmentId": u["departmentId"],
+                "status": u["status"],
+                "assignment": "direct" if direct else "group",
+                "viaGroupIds": via_group,
+            })
+    members.sort(key=lambda m: m["userId"])
+    return ctx.paginate(members, size_default=50)
+
+
+@base.op(ID, "list_privileged_users")
+def list_privileged_users(ctx: Ctx) -> dict:
+    """Active identities holding any privileged role; the privileged-access review population."""
+    roles = ctx.state.table("roles")
+    privileged_roles = {rid for rid, r in roles.items() if r.get("category") == "privileged"}
+    items = []
+    for u in ctx.state.table("users").values():
+        held = _assigned_role_ids(ctx, u)
+        priv = sorted(held.intersection(privileged_roles))
+        if not priv:
+            continue
+        items.append({
+            "userId": u["id"],
+            "displayName": u["displayName"],
+            "departmentId": u["departmentId"],
+            "status": u["status"],
+            "accountEnabled": u.get("accountEnabled", u["status"] == "active"),
+            "mfaEnabled": u.get("mfaEnabled", False),
+            "privilegedRoleIds": priv,
+            "accessReviewDueDate": u.get("accessReviewDueDate"),
+        })
+    items.sort(key=lambda m: m["userId"])
+    return ctx.paginate(items, size_default=50)
 
 
 @base.op(ID, "list_groups")

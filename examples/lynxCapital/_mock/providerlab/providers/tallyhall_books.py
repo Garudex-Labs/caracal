@@ -63,6 +63,13 @@ def _check_realm(ctx: Ctx) -> None:
                           f"token is not authorized for realm {requested}")
 
 
+def _guard(ctx: Ctx, scope: str) -> None:
+    """Every QBO call carries the company realm and a required scope; validate both
+    the way Intuit's gateway does before the operation touches the company file."""
+    ctx.require_scope(scope)
+    _check_realm(ctx)
+
+
 def _lookup(ctx: Ctx, table: str, field: str, code: str) -> dict:
     ctx.require(field)
     record = ctx.state.table(table).get(str(ctx.payload[field]))
@@ -89,8 +96,7 @@ def _amount(ctx: Ctx, *fields: str) -> float:
 # --------------------------------------------------------------------------- #
 @base.op(ID, "get_company_info")
 def get_company_info(ctx: Ctx) -> dict:
-    ctx.require_scope(ACCOUNTING)
-    _check_realm(ctx)
+    _guard(ctx, ACCOUNTING)
     return _company(ctx)
 
 
@@ -99,7 +105,7 @@ def get_company_info(ctx: Ctx) -> dict:
 # --------------------------------------------------------------------------- #
 @base.op(ID, "list_accounts")
 def list_accounts(ctx: Ctx) -> dict:
-    ctx.require_scope(ACCOUNTING)
+    _guard(ctx, ACCOUNTING)
     items = list(ctx.state.table("accounts").values())
     classification = ctx.get("classification")
     if classification:
@@ -113,7 +119,7 @@ def list_accounts(ctx: Ctx) -> dict:
 
 @base.op(ID, "get_account")
 def get_account(ctx: Ctx) -> dict:
-    ctx.require_scope(ACCOUNTING)
+    _guard(ctx, ACCOUNTING)
     accounts = ctx.state.table("accounts")
     account_id = ctx.payload.get("accountId")
     if account_id is None:
@@ -131,7 +137,7 @@ def get_account(ctx: Ctx) -> dict:
 # --------------------------------------------------------------------------- #
 @base.op(ID, "list_vendors")
 def list_vendors(ctx: Ctx) -> dict:
-    ctx.require_scope(ACCOUNTING)
+    _guard(ctx, ACCOUNTING)
     items = list(ctx.state.table("vendors").values())
     query = str(ctx.get("query", "")).lower()
     if query:
@@ -145,13 +151,13 @@ def list_vendors(ctx: Ctx) -> dict:
 
 @base.op(ID, "get_vendor")
 def get_vendor(ctx: Ctx) -> dict:
-    ctx.require_scope(ACCOUNTING)
+    _guard(ctx, ACCOUNTING)
     return _lookup(ctx, "vendors", "vendorId", "vendor_not_found")
 
 
 @base.op(ID, "create_vendor")
 def create_vendor(ctx: Ctx) -> dict:
-    ctx.require_scope(ACCOUNTING)
+    _guard(ctx, ACCOUNTING)
     ctx.require("displayName")
     name = str(ctx.payload["displayName"])
     for existing in ctx.state.table("vendors").values():
@@ -186,7 +192,7 @@ def create_vendor(ctx: Ctx) -> dict:
 # --------------------------------------------------------------------------- #
 @base.op(ID, "list_customers")
 def list_customers(ctx: Ctx) -> dict:
-    ctx.require_scope(ACCOUNTING)
+    _guard(ctx, ACCOUNTING)
     items = list(ctx.state.table("customers").values())
     query = str(ctx.get("query", "")).lower()
     if query:
@@ -200,13 +206,13 @@ def list_customers(ctx: Ctx) -> dict:
 
 @base.op(ID, "get_customer")
 def get_customer(ctx: Ctx) -> dict:
-    ctx.require_scope(ACCOUNTING)
+    _guard(ctx, ACCOUNTING)
     return _lookup(ctx, "customers", "customerId", "customer_not_found")
 
 
 @base.op(ID, "create_customer")
 def create_customer(ctx: Ctx) -> dict:
-    ctx.require_scope(ACCOUNTING)
+    _guard(ctx, ACCOUNTING)
     ctx.require("displayName")
     name = str(ctx.payload["displayName"])
     for existing in ctx.state.table("customers").values():
@@ -239,7 +245,7 @@ def create_customer(ctx: Ctx) -> dict:
 # --------------------------------------------------------------------------- #
 @base.op(ID, "list_items")
 def list_items(ctx: Ctx) -> dict:
-    ctx.require_scope(ACCOUNTING)
+    _guard(ctx, ACCOUNTING)
     items = sorted(ctx.state.table("items").values(), key=lambda i: int(i["Id"]))
     return ctx.paginate(items, size_default=25)
 
@@ -263,7 +269,7 @@ def _bill_view(bill: dict) -> dict:
 
 @base.op(ID, "list_bills")
 def list_bills(ctx: Ctx) -> dict:
-    ctx.require_scope(ACCOUNTING)
+    _guard(ctx, ACCOUNTING)
     items = list(ctx.state.table("bills").values())
     vendor_id = ctx.get("vendorId")
     if vendor_id:
@@ -277,13 +283,13 @@ def list_bills(ctx: Ctx) -> dict:
 
 @base.op(ID, "get_bill")
 def get_bill(ctx: Ctx) -> dict:
-    ctx.require_scope(ACCOUNTING)
+    _guard(ctx, ACCOUNTING)
     return _bill_view(_lookup(ctx, "bills", "billId", "bill_not_found"))
 
 
 @base.op(ID, "create_bill")
 def create_bill(ctx: Ctx) -> dict:
-    ctx.require_scope(ACCOUNTING)
+    _guard(ctx, ACCOUNTING)
     vendor = _lookup(ctx, "vendors", "vendorId", "vendor_not_found")
     if not vendor["Active"]:
         raise DomainError(400, "ObjectInactive",
@@ -337,7 +343,7 @@ def create_bill(ctx: Ctx) -> dict:
 def match_bill(ctx: Ctx) -> dict:
     """Link a vendor bill to its source document (a purchase order or expense
     reference) the way QBO threads transactions through LinkedTxn."""
-    ctx.require_scope(ACCOUNTING)
+    _guard(ctx, ACCOUNTING)
     bill = _lookup(ctx, "bills", "billId", "bill_not_found")
     if any(t.get("TxnType") == "PurchaseOrder" for t in bill["LinkedTxn"]):
         raise DomainError(400, "AlreadyLinked", f"bill {bill['Id']} is already matched")
@@ -351,7 +357,7 @@ def match_bill(ctx: Ctx) -> dict:
 @base.op(ID, "pay_bill")
 def pay_bill(ctx: Ctx) -> dict:
     """Settle a vendor bill, emitting a QBO BillPayment and clearing A/P."""
-    ctx.require_scope(PAYMENT)
+    _guard(ctx, PAYMENT)
     bill = _lookup(ctx, "bills", "billId", "bill_not_found")
     if bill["Balance"] == 0.0:
         raise DomainError(400, "AlreadyPaid", f"bill {bill['Id']} is fully paid")
@@ -420,7 +426,7 @@ def _invoice_view(inv: dict) -> dict:
 
 @base.op(ID, "list_invoices")
 def list_invoices(ctx: Ctx) -> dict:
-    ctx.require_scope(ACCOUNTING)
+    _guard(ctx, ACCOUNTING)
     items = list(ctx.state.table("invoices").values())
     customer_id = ctx.get("customerId")
     if customer_id:
@@ -434,13 +440,13 @@ def list_invoices(ctx: Ctx) -> dict:
 
 @base.op(ID, "get_invoice")
 def get_invoice(ctx: Ctx) -> dict:
-    ctx.require_scope(ACCOUNTING)
+    _guard(ctx, ACCOUNTING)
     return _invoice_view(_lookup(ctx, "invoices", "invoiceId", "invoice_not_found"))
 
 
 @base.op(ID, "create_invoice")
 def create_invoice(ctx: Ctx) -> dict:
-    ctx.require_scope(ACCOUNTING)
+    _guard(ctx, ACCOUNTING)
     customer = _resolve_customer(ctx)
     currency = ctx.get("currency", customer["CurrencyRef"]["value"])
     accounts = ctx.state.table("accounts")
@@ -486,7 +492,7 @@ def create_invoice(ctx: Ctx) -> dict:
 
 @base.op(ID, "send_invoice")
 def send_invoice(ctx: Ctx) -> dict:
-    ctx.require_scope(ACCOUNTING)
+    _guard(ctx, ACCOUNTING)
     invoice = _lookup(ctx, "invoices", "invoiceId", "invoice_not_found")
     email = ctx.get("email") or invoice.get("BillEmail", {}).get("Address")
     if not email:
@@ -499,7 +505,7 @@ def send_invoice(ctx: Ctx) -> dict:
 
 @base.op(ID, "void_invoice")
 def void_invoice(ctx: Ctx) -> dict:
-    ctx.require_scope(ACCOUNTING)
+    _guard(ctx, ACCOUNTING)
     invoice = _lookup(ctx, "invoices", "invoiceId", "invoice_not_found")
     if invoice.get("LinkedTxn"):
         raise DomainError(400, "VoidNotAllowed",
@@ -524,7 +530,7 @@ def void_invoice(ctx: Ctx) -> dict:
 @base.op(ID, "record_payment")
 def record_payment(ctx: Ctx) -> dict:
     """Receive a customer payment and apply it against an open invoice."""
-    ctx.require_scope(PAYMENT)
+    _guard(ctx, PAYMENT)
     invoice = _lookup(ctx, "invoices", "invoiceId", "invoice_not_found")
     if invoice["Balance"] == 0.0:
         raise DomainError(400, "AlreadyPaid", f"invoice {invoice['Id']} is fully paid")
@@ -572,7 +578,7 @@ def record_payment(ctx: Ctx) -> dict:
 # --------------------------------------------------------------------------- #
 @base.op(ID, "list_expenses")
 def list_expenses(ctx: Ctx) -> dict:
-    ctx.require_scope(ACCOUNTING)
+    _guard(ctx, ACCOUNTING)
     items = list(ctx.state.table("expenses").values())
     vendor_id = ctx.get("vendorId")
     if vendor_id:
@@ -583,13 +589,13 @@ def list_expenses(ctx: Ctx) -> dict:
 
 @base.op(ID, "get_expense")
 def get_expense(ctx: Ctx) -> dict:
-    ctx.require_scope(ACCOUNTING)
+    _guard(ctx, ACCOUNTING)
     return _lookup(ctx, "expenses", "expenseId", "expense_not_found")
 
 
 @base.op(ID, "create_expense")
 def create_expense(ctx: Ctx) -> dict:
-    ctx.require_scope(ACCOUNTING)
+    _guard(ctx, ACCOUNTING)
     vendor = _lookup(ctx, "vendors", "vendorId", "vendor_not_found")
     currency = ctx.get("currency", vendor["CurrencyRef"]["value"])
     accounts = ctx.state.table("accounts")
@@ -627,7 +633,7 @@ def create_expense(ctx: Ctx) -> dict:
 # --------------------------------------------------------------------------- #
 @base.op(ID, "list_journal_entries")
 def list_journal_entries(ctx: Ctx) -> dict:
-    ctx.require_scope(ACCOUNTING)
+    _guard(ctx, ACCOUNTING)
     items = sorted(ctx.state.table("journal_entries").values(),
                    key=lambda e: e["TxnDate"], reverse=True)
     return ctx.paginate(items, size_default=20)
@@ -635,13 +641,13 @@ def list_journal_entries(ctx: Ctx) -> dict:
 
 @base.op(ID, "get_journal_entry")
 def get_journal_entry(ctx: Ctx) -> dict:
-    ctx.require_scope(ACCOUNTING)
+    _guard(ctx, ACCOUNTING)
     return _lookup(ctx, "journal_entries", "entryId", "journal_entry_not_found")
 
 
 @base.op(ID, "post_journal_entry")
 def post_journal_entry(ctx: Ctx) -> dict:
-    ctx.require_scope(ACCOUNTING)
+    _guard(ctx, ACCOUNTING)
     raw_lines = ctx.get("lines") or []
     if len(raw_lines) < 2:
         raise DomainError(400, "ValidationFault", "a journal entry needs at least two lines")
@@ -698,7 +704,7 @@ def post_journal_entry(ctx: Ctx) -> dict:
 # --------------------------------------------------------------------------- #
 @base.op(ID, "get_report")
 def get_report(ctx: Ctx) -> dict:
-    ctx.require_scope(ACCOUNTING)
+    _guard(ctx, ACCOUNTING)
     name = ctx.get("reportType", "ProfitAndLoss")
     if name not in _REPORTS:
         raise DomainError(400, "InvalidReport",

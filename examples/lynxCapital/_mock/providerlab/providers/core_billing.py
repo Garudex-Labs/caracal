@@ -210,15 +210,19 @@ def create_invoice(ctx: Ctx) -> dict:
     if not lines:
         if ctx.get("amount") in (None, ""):
             raise DomainError(422, "invalid_request", "provide either lineItems or amount")
-        lines = [{"lineNo": 1, "sku": ctx.get("sku", "MISC"),
+        sku = ctx.get("sku", "MISC")
+        lines = [{"lineNo": 1, "sku": sku,
                   "description": ctx.get("description", "Billed charges"),
                   "quantity": 1, "unitPrice": round(float(ctx.payload["amount"]), 2),
-                  "amount": round(float(ctx.payload["amount"]), 2)}]
+                  "amount": round(float(ctx.payload["amount"]), 2),
+                  "revenueAccount": gen._CB_REVENUE_ACCOUNT.get(sku, "4000-SubscriptionRevenue")}]
     else:
         for n, line in enumerate(lines, start=1):
             line.setdefault("lineNo", n)
             line["amount"] = round(float(line.get("amount",
                                     float(line.get("quantity", 1)) * float(line.get("unitPrice", 0)))), 2)
+            line.setdefault("revenueAccount",
+                            gen._CB_REVENUE_ACCOUNT.get(line.get("sku", ""), "4000-SubscriptionRevenue"))
 
     subtotal = round(sum(l["amount"] for l in lines), 2)
     tax_rate = float(ctx.get("taxRate", gen._CB_TAX_RATE.get(cust["country"], 0.0)))
@@ -228,16 +232,20 @@ def create_invoice(ctx: Ctx) -> dict:
     issue = AS_OF
     due = issue + timedelta(days=_term_days(terms))
     seq = _next_seq(ctx, "invoiceNo")
+    status = ctx.get("status", "open")
     invoice = {
         "invoiceId": f"INV-2026-{seq:06d}",
         "customerId": cust["customerId"],
         "customerName": cust["name"],
-        "status": ctx.get("status", "open"),
+        "status": status,
         "currency": cust["currency"],
         "terms": terms,
         "issueDate": issue.isoformat(),
         "dueDate": due.isoformat(),
+        "billingPeriod": ctx.get("billingPeriod"),
         "poNumber": ctx.get("poNumber"),
+        "salesRep": ctx.get("salesRep", cust["accountManager"]),
+        "revenueAccount": ctx.get("revenueAccount", lines[0].get("revenueAccount", "4000-SubscriptionRevenue")),
         "lineItems": lines,
         "subtotal": subtotal,
         "taxRate": tax_rate,
@@ -257,10 +265,34 @@ def create_invoice(ctx: Ctx) -> dict:
     if invoice["status"] == "draft":
         invoice["amountDue"] = 0.0
     ctx.state.table("invoices")[invoice["invoiceId"]] = invoice
-    _audit(ctx, "invoice.issued", "invoice", invoice["invoiceId"],
+    action = "invoice.drafted" if invoice["status"] == "draft" else "invoice.issued"
+    _audit(ctx, action, "invoice", invoice["invoiceId"],
            {"customerId": cust["customerId"], "total": total, "currency": invoice["currency"]})
     _roll_customer(ctx, cust["customerId"])
     return invoice
+
+
+@base.op(ID, "send_invoice")
+def send_invoice(ctx: Ctx) -> dict:
+    """Finalize a draft invoice and present it to the customer: re-date it to the
+    issue date, open its balance, and stamp the delivery channel."""
+    ctx.require("invoiceId")
+    inv = _invoice(ctx, ctx.payload["invoiceId"])
+    if inv["status"] != "draft":
+        raise DomainError(409, "invalid_state", f"only draft invoices can be sent; {inv['invoiceId']} is {inv['status']}")
+    issue = AS_OF
+    inv["issueDate"] = issue.isoformat()
+    inv["dueDate"] = (issue + timedelta(days=_term_days(inv["terms"]))).isoformat()
+    inv["status"] = "open"
+    inv["amountDue"] = inv["total"]
+    inv["deliveryChannel"] = ctx.get("channel", "email")
+    inv["sentAt"] = _instant_now()
+    inv["updatedAt"] = _instant_now()
+    _reage(inv)
+    _audit(ctx, "invoice.sent", "invoice", inv["invoiceId"],
+           {"customerId": inv["customerId"], "total": inv["total"], "channel": inv["deliveryChannel"]})
+    _roll_customer(ctx, inv["customerId"])
+    return inv
 
 
 @base.op(ID, "get_invoice")
@@ -334,6 +366,52 @@ def dispute_invoice(ctx: Ctx) -> dict:
     return inv
 
 
+@base.op(ID, "resolve_dispute")
+def resolve_dispute(ctx: Ctx) -> dict:
+    """Close out a disputed invoice. ``credited`` concedes the dispute and writes
+    the agreed amount down with a credit memo; ``reinstated`` rejects it and
+    returns the invoice to the open/overdue receivable."""
+    ctx.require("invoiceId", "resolution")
+    inv = _reage(_invoice(ctx, ctx.payload["invoiceId"]))
+    if inv["status"] != "disputed":
+        raise DomainError(409, "invalid_state", f"{inv['invoiceId']} is not under dispute")
+    resolution = ctx.payload["resolution"]
+    if resolution not in ("credited", "reinstated"):
+        raise DomainError(422, "invalid_resolution", "resolution must be 'credited' or 'reinstated'")
+    inv["status"] = "open"
+    _reage(inv)
+    credit = None
+    if resolution == "credited":
+        amount = round(float(ctx.get("creditAmount", inv["amountDue"])), 2)
+        amount = min(amount, inv["amountDue"])
+        seq = _next_seq(ctx, "creditMemoNo")
+        cmid = f"CM-2026-{seq:04d}"
+        cust = _customer(ctx, inv["customerId"])
+        credit = {
+            "creditMemoId": cmid,
+            "customerId": inv["customerId"],
+            "customerName": cust["name"],
+            "currency": inv["currency"],
+            "amount": amount,
+            "appliedAmount": amount,
+            "remainingAmount": 0.0,
+            "reason": ctx.get("reason", "dispute_resolution"),
+            "status": "applied",
+            "issueDate": AS_OF.isoformat(),
+            "invoiceId": inv["invoiceId"],
+        }
+        ctx.state.table("creditMemos")[cmid] = credit
+        _settle_invoice(inv, amount)
+        inv["disputeAdjustment"] = amount
+    inv["disputeResolution"] = resolution
+    inv["disputeResolvedAt"] = _instant_now()
+    inv["updatedAt"] = _instant_now()
+    _audit(ctx, "invoice.dispute_resolved", "invoice", inv["invoiceId"],
+           {"resolution": resolution, "creditMemoId": credit["creditMemoId"] if credit else None})
+    _roll_customer(ctx, inv["customerId"])
+    return {"invoice": inv, "creditMemo": credit}
+
+
 # --------------------------------------------------------------------------- #
 # Cash application
 # --------------------------------------------------------------------------- #
@@ -363,6 +441,7 @@ def _record_payment(ctx: Ctx, customer_id: str, amount: float, allocations: list
         "createdAt": _instant_now(),
     }
     ctx.state.table("payments")[pid] = payment
+    cust["lastPaymentDate"] = payment["receivedDate"]
     _audit(ctx, "payment.applied", "payment", pid,
            {"customerId": customer_id, "amount": payment["amount"], "applied": applied,
             "unapplied": payment["unappliedAmount"]})
@@ -461,6 +540,42 @@ def list_payments(ctx: Ctx) -> dict:
     return ctx.paginate(items, size_default=25)
 
 
+@base.op(ID, "reverse_payment")
+def reverse_payment(ctx: Ctx) -> dict:
+    """Reverse a posted payment (returned check, NSF, or chargeback): unwind each
+    allocation, restore the open invoice balances, and clear any unapplied cash."""
+    ctx.require("paymentId")
+    payment = ctx.state.table("payments").get(ctx.payload["paymentId"])
+    if payment is None:
+        raise DomainError(404, "payment_not_found", ctx.payload["paymentId"])
+    if payment["status"] == "reversed":
+        raise DomainError(409, "already_reversed", f"{payment['paymentId']} was already reversed")
+    restored: list[dict] = []
+    for alloc in payment["allocations"]:
+        inv = ctx.state.table("invoices").get(alloc["invoiceId"])
+        if inv is None or inv["status"] in ("void", "writtenOff"):
+            continue
+        inv["amountPaid"] = round(max(0.0, inv["amountPaid"] - alloc["amount"]), 2)
+        inv["amountDue"] = round(inv["total"] - inv["amountPaid"], 2)
+        inv["status"] = "open" if inv["amountPaid"] <= 0.005 else "partiallyPaid"
+        inv["updatedAt"] = _instant_now()
+        _reage(inv)
+        restored.append({"invoiceId": inv["invoiceId"], "amount": alloc["amount"],
+                         "status": inv["status"]})
+    cust = _customer(ctx, payment["customerId"])
+    if payment["unappliedAmount"] > 0:
+        cust["unappliedCredit"] = round(max(0.0, cust.get("unappliedCredit", 0.0)
+                                            - payment["unappliedAmount"]), 2)
+    payment["status"] = "reversed"
+    payment["reversedAt"] = _instant_now()
+    payment["reversalReason"] = ctx.get("reason", "nsf")
+    _audit(ctx, "payment.reversed", "payment", payment["paymentId"],
+           {"customerId": payment["customerId"], "amount": payment["amount"],
+            "reason": payment["reversalReason"]})
+    _roll_customer(ctx, payment["customerId"])
+    return {"payment": payment, "restoredInvoices": restored}
+
+
 # --------------------------------------------------------------------------- #
 # Credit memos
 # --------------------------------------------------------------------------- #
@@ -513,6 +628,26 @@ def apply_credit_memo(ctx: Ctx) -> dict:
     return {"creditMemo": memo, "invoice": inv, "applied": used}
 
 
+@base.op(ID, "get_credit_memo")
+def get_credit_memo(ctx: Ctx) -> dict:
+    ctx.require("creditMemoId")
+    memo = ctx.state.table("creditMemos").get(ctx.payload["creditMemoId"])
+    if memo is None:
+        raise DomainError(404, "credit_memo_not_found", ctx.payload["creditMemoId"])
+    return memo
+
+
+@base.op(ID, "list_credit_memos")
+def list_credit_memos(ctx: Ctx) -> dict:
+    items = list(ctx.state.table("creditMemos").values())
+    if ctx.get("customerId"):
+        items = [m for m in items if m["customerId"] == ctx.payload["customerId"]]
+    if ctx.get("status"):
+        items = [m for m in items if m["status"] == ctx.payload["status"]]
+    items.sort(key=lambda m: m["creditMemoId"], reverse=True)
+    return ctx.paginate(items, size_default=25)
+
+
 # --------------------------------------------------------------------------- #
 # Dunning
 # --------------------------------------------------------------------------- #
@@ -552,17 +687,23 @@ def issue_dunning(ctx: Ctx) -> dict:
         raise DomainError(409, "invalid_state", f"cannot dun a {inv['status']} invoice")
     if inv["status"] == "disputed":
         raise DomainError(409, "invoice_disputed", "resolve the dispute before dunning")
+    cust = _customer(ctx, inv["customerId"])
+    if cust.get("dunningExempt"):
+        raise DomainError(409, "dunning_exempt",
+                          f"{cust['customerId']} is managed manually and exempt from dunning")
     return _send_dunning(ctx, inv)
 
 
 @base.op(ID, "run_dunning_cycle")
 def run_dunning_cycle(ctx: Ctx) -> dict:
     """Sweep overdue receivables and escalate dunning by policy, returning the
-    batch of notices the collections workflow would send."""
+    batch of notices the collections workflow would send. Customers flagged
+    ``dunningExempt`` are skipped and reported separately."""
     min_dpd = int(ctx.get("minDaysPastDue", 1))
     customer_id = ctx.get("customerId")
     notices: list[dict] = []
     by_level = {1: 0, 2: 0, 3: 0}
+    skipped_exempt = 0
     for inv in ctx.state.table("invoices").values():
         _reage(inv)
         if customer_id and inv["customerId"] != customer_id:
@@ -572,10 +713,15 @@ def run_dunning_cycle(ctx: Ctx) -> dict:
         target = _dunning_level(inv["daysPastDue"])
         if target <= inv.get("dunningLevel", 0):
             continue
+        cust = _customer(ctx, inv["customerId"])
+        if cust.get("dunningExempt"):
+            skipped_exempt += 1
+            continue
         notice = _send_dunning(ctx, inv)
         notices.append(notice)
         by_level[notice["level"]] += 1
-    return {"sent": len(notices), "byLevel": by_level, "notices": notices}
+    return {"sent": len(notices), "byLevel": by_level,
+            "skippedExempt": skipped_exempt, "notices": notices}
 
 
 @base.op(ID, "list_dunning")
@@ -637,6 +783,78 @@ def list_collections(ctx: Ctx) -> dict:
     return ctx.paginate(items, size_default=25)
 
 
+def _collection_case(ctx: Ctx, case_id: str) -> dict:
+    case = ctx.state.table("collections").get(case_id)
+    if case is None:
+        raise DomainError(404, "case_not_found", str(case_id))
+    return case
+
+
+@base.op(ID, "get_collection_case")
+def get_collection_case(ctx: Ctx) -> dict:
+    ctx.require("caseId")
+    case = _collection_case(ctx, ctx.payload["caseId"])
+    case["totalOutstanding"] = round(
+        sum(_reage(_invoice(ctx, i))["amountDue"] for i in case["invoiceIds"]
+            if i in ctx.state.table("invoices")), 2)
+    return case
+
+
+@base.op(ID, "add_collection_note")
+def add_collection_note(ctx: Ctx) -> dict:
+    """Log a collector's contact attempt on a case, optionally capturing a
+    promise-to-pay date and amount the customer committed to."""
+    ctx.require("caseId", "note")
+    case = _collection_case(ctx, ctx.payload["caseId"])
+    if case["status"] in ("resolved", "closed"):
+        raise DomainError(409, "case_closed", f"{case['caseId']} is {case['status']}")
+    note = {
+        "at": _instant_now(),
+        "author": ctx.get("author", str(ctx.principal.get("principal") or case["assignedTo"])),
+        "note": ctx.payload["note"],
+    }
+    promise = ctx.get("promiseToPayDate")
+    if promise:
+        note["promiseToPayDate"] = promise
+        case["promiseToPayDate"] = promise
+        if ctx.get("promiseAmount") is not None:
+            note["promiseAmount"] = round(float(ctx.payload["promiseAmount"]), 2)
+    case["notes"].append(note)
+    if case["status"] == "open":
+        case["status"] = "in_progress"
+    _audit(ctx, "collection.note_added", "collection", case["caseId"],
+           {"customerId": case["customerId"], "promiseToPayDate": promise})
+    return case
+
+
+@base.op(ID, "close_collection_case")
+def close_collection_case(ctx: Ctx) -> dict:
+    """Resolve a collection case once the account is settled, written off, or
+    handed to a third-party agency."""
+    ctx.require("caseId", "resolution")
+    case = _collection_case(ctx, ctx.payload["caseId"])
+    if case["status"] in ("resolved", "closed"):
+        raise DomainError(409, "case_closed", f"{case['caseId']} is already {case['status']}")
+    resolution = ctx.payload["resolution"]
+    if resolution not in ("paid", "written_off", "agency", "settled"):
+        raise DomainError(422, "invalid_resolution",
+                          "resolution must be one of paid, settled, written_off, agency")
+    case["status"] = "resolved"
+    case["resolution"] = resolution
+    case["closedDate"] = AS_OF.isoformat()
+    case["notes"].append({
+        "at": _instant_now(),
+        "author": str(ctx.principal.get("principal") or case["assignedTo"]),
+        "note": ctx.get("note", f"Case closed: {resolution}."),
+    })
+    cust = _roll_customer(ctx, case["customerId"])
+    if cust["collectionsStatus"] == "in_collections" and cust["overdueBalance"] <= 0:
+        cust["collectionsStatus"] = "current"
+    _audit(ctx, "collection.closed", "collection", case["caseId"],
+           {"customerId": case["customerId"], "resolution": resolution})
+    return case
+
+
 # --------------------------------------------------------------------------- #
 # Aging and reporting
 # --------------------------------------------------------------------------- #
@@ -686,7 +904,26 @@ def get_ar_summary(ctx: Ctx) -> dict:
         by_status[inv["status"]] = by_status.get(inv["status"], 0) + 1
     written_off = round(sum(i.get("writeOffAmount", 0.0) for i in invoices if i["status"] == "writtenOff"), 2)
     disputed = round(sum(i["amountDue"] for i in invoices if i["status"] == "disputed"), 2)
+    billed_total = round(sum(i["total"] for i in invoices if i["status"] not in ("void", "draft")), 2)
     customers = list(ctx.state.table("customers").values())
+    credit_memos = list(ctx.state.table("creditMemos").values())
+    payments = list(ctx.state.table("payments").values())
+    unapplied_cash = round(sum(p["unappliedAmount"] for p in payments
+                               if p["status"] != "reversed"), 2)
+    credit_outstanding = round(sum(m["remainingAmount"] for m in credit_memos
+                                   if m["status"] != "applied"), 2)
+    overdue_by_customer: dict[str, dict] = {}
+    for inv in invoices:
+        if inv["status"] not in _OPEN_STATES or inv["daysPastDue"] <= 0:
+            continue
+        row = overdue_by_customer.setdefault(
+            inv["customerId"], {"customerId": inv["customerId"],
+                                "customerName": inv["customerName"],
+                                "overdue": 0.0, "oldestDays": 0})
+        row["overdue"] = round(row["overdue"] + inv["amountDue"], 2)
+        row["oldestDays"] = max(row["oldestDays"], inv["daysPastDue"])
+    top_overdue = sorted(overdue_by_customer.values(),
+                         key=lambda r: r["overdue"], reverse=True)[:5]
     return {
         "asOf": AS_OF.isoformat(),
         "totalReceivable": total_ar,
@@ -699,10 +936,64 @@ def get_ar_summary(ctx: Ctx) -> dict:
         "invoicesByStatus": by_status,
         "disputedAmount": disputed,
         "writtenOffAmount": written_off,
+        "badDebtRatio": round(written_off / billed_total * 100, 2) if billed_total else 0.0,
+        "unappliedCash": unapplied_cash,
+        "creditMemoOutstanding": credit_outstanding,
         "customersOnCreditHold": sum(1 for c in customers if c["creditHold"]),
         "customersInCollections": sum(1 for c in customers if c["collectionsStatus"] == "in_collections"),
         "openCollectionCases": sum(1 for c in ctx.state.table("collections").values()
-                                   if c["status"] != "resolved"),
+                                   if c["status"] not in ("resolved", "closed")),
+        "topOverdueCustomers": top_overdue,
+    }
+
+
+@base.op(ID, "get_customer_statement")
+def get_customer_statement(ctx: Ctx) -> dict:
+    """Produce a statement of account: every open charge, the cash and credits
+    applied, the aging breakdown, and the closing balance an AR clerk would mail
+    the customer."""
+    ctx.require("customerId")
+    cust = _roll_customer(ctx, ctx.payload["customerId"])
+    invoices = _customer_invoices(ctx, cust["customerId"])
+    open_invoices = [i for i in invoices if i["status"] in _OPEN_STATES]
+    lines = [{
+        "type": "invoice",
+        "documentId": i["invoiceId"],
+        "date": i["issueDate"],
+        "dueDate": i["dueDate"],
+        "status": i["status"],
+        "amount": i["total"],
+        "balance": i["amountDue"],
+        "daysPastDue": i["daysPastDue"],
+    } for i in sorted(open_invoices, key=lambda i: i["issueDate"])]
+    payments = sorted(
+        (p for p in ctx.state.table("payments").values()
+         if p["customerId"] == cust["customerId"] and p["status"] != "reversed"),
+        key=lambda p: p["receivedDate"])
+    payment_lines = [{
+        "type": "payment",
+        "documentId": p["paymentId"],
+        "date": p["receivedDate"],
+        "method": p["method"],
+        "amount": p["amount"],
+    } for p in payments]
+    buckets = {"current": 0.0, "1-30": 0.0, "31-60": 0.0, "61-90": 0.0, "90+": 0.0}
+    for inv in open_invoices:
+        buckets[inv["agingBucket"]] = round(buckets[inv["agingBucket"]] + inv["amountDue"], 2)
+    return {
+        "asOf": AS_OF.isoformat(),
+        "customerId": cust["customerId"],
+        "customerName": cust["name"],
+        "currency": cust["currency"],
+        "paymentTerms": cust["paymentTerms"],
+        "creditLimit": cust["creditLimit"],
+        "availableCredit": round(cust["creditLimit"] - cust["arBalance"], 2),
+        "openingDocuments": lines,
+        "payments": payment_lines,
+        "aging": buckets,
+        "unappliedCredit": cust.get("unappliedCredit", 0.0),
+        "closingBalance": cust["arBalance"],
+        "overdueBalance": cust["overdueBalance"],
     }
 
 
