@@ -139,6 +139,69 @@ def list_vendor_contacts(ctx: Ctx) -> dict:
     return {"vendorId": vendor["id"], "items": vendor.get("contacts", [])}
 
 
+@base.op(
+    ID, "update_vendor_profile",
+    title="Update vendor profile",
+    description="Update mutable master-data fields on a vendor record (display name, "
+                "category, payment terms, website, currency).",
+    input_schema={"type": "object", "properties": {
+        "vendorId": {"type": "string"},
+        "displayName": {"type": "string"},
+        "category": {"type": "string"},
+        "paymentTerms": {"type": "string", "enum": ["NET15", "NET30", "NET45", "NET60"]},
+        "website": {"type": "string"},
+        "currency": {"type": "string", "description": "ISO 4217 currency code"}},
+        "required": ["vendorId"]},
+    output_schema=_VENDOR_OUTPUT,
+    annotations={"readOnlyHint": False, "idempotentHint": True})
+def update_vendor_profile(ctx: Ctx) -> dict:
+    vendor = _vendor(ctx)
+    changed = []
+    for field in _PROFILE_FIELDS:
+        value = ctx.get(field)
+        if value not in (None, "") and vendor.get(field) != value:
+            vendor[field] = value
+            changed.append(field)
+    if not changed:
+        raise DomainError(422, "no_changes", "no updatable fields were provided")
+    _record_event(vendor, "vendor.updated",
+                  f"Master data updated: {', '.join(changed)}", actor="api")
+    return _summary(vendor)
+
+
+@base.op(
+    ID, "add_vendor_contact",
+    title="Add vendor contact",
+    description="Register a business contact on a vendor record.",
+    input_schema={"type": "object", "properties": {
+        "vendorId": {"type": "string"},
+        "name": {"type": "string"},
+        "email": {"type": "string"},
+        "role": {"type": "string"},
+        "phone": {"type": "string"},
+        "primary": {"type": "boolean", "default": False}},
+        "required": ["vendorId", "name", "email"]},
+    annotations={"readOnlyHint": False, "idempotentHint": False})
+def add_vendor_contact(ctx: Ctx) -> dict:
+    ctx.require("vendorId", "name", "email")
+    vendor = _vendor(ctx)
+    contacts = vendor.setdefault("contacts", [])
+    primary = bool(ctx.get("primary"))
+    if primary:
+        for existing in contacts:
+            existing["primary"] = False
+    contact = {"contactId": f"{vendor['id']}-C{len(contacts) + 1}",
+               "name": ctx.payload["name"], "email": ctx.payload["email"],
+               "role": ctx.get("role", "Account Manager"), "phone": ctx.get("phone"),
+               "primary": primary or not contacts}
+    contacts.append(contact)
+    if contact["primary"]:
+        vendor["primaryContact"] = contact
+    _record_event(vendor, "contact.added",
+                  f"Contact added: {contact['name']}", actor="api")
+    return contact
+
+
 # --------------------------------------------------------------------------- #
 # Onboarding and registration
 # --------------------------------------------------------------------------- #

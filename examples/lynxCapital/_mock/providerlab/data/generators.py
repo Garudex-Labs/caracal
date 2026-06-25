@@ -3170,6 +3170,17 @@ _PULSE_CCY_NAME = {
     "MXN": "Mexican Peso",
     "INR": "Indian Rupee",
 }
+# ISO 4217 numeric codes, carried on instrument reference like real market-data feeds.
+_PULSE_CCY_NUMERIC = {
+    "USD": "840", "EUR": "978", "GBP": "826", "JPY": "392", "BRL": "986",
+    "SGD": "702", "CAD": "124", "CHF": "756", "AUD": "036", "MXN": "484",
+    "INR": "356",
+}
+# Majors trade tightest margins; EM and exotics post higher initial-margin rates.
+_PULSE_MARGIN_RATE = {
+    "EUR": 0.02, "GBP": 0.03, "CHF": 0.03, "CAD": 0.03, "JPY": 0.04,
+    "SGD": 0.05, "AUD": 0.03, "MXN": 0.08, "INR": 0.10, "BRL": 0.10,
+}
 _PULSE_EPOCH = datetime(2026, 1, 1, tzinfo=timezone.utc)
 _PULSE_FIXING_DAYS = 5
 
@@ -3199,23 +3210,42 @@ def pulse_instrument(seed: str, symbol: str) -> dict:
     pip = pulse_pip(quote)
     prev_close = round(mid * (1 + rng.uniform(-0.0015, 0.0015)), decimals)
     day_open = round(prev_close * (1 + rng.uniform(-0.0008, 0.0008)), decimals)
+    # pipLocation is the power-of-ten position of one pip: -2 for yen crosses, -4 elsewhere.
+    pip_location = -2 if quote == "JPY" else -4
+    # FX spot settles T+2, except USD/CAD which settles T+1.
+    settlement_days = 1 if {base, quote} == {"USD", "CAD"} else 2
+    margin_rate = max(_PULSE_MARGIN_RATE.get(base, 0.03), _PULSE_MARGIN_RATE.get(quote, 0.03))
     return {
         "symbol": symbol,
         "ticker": f"{base}{quote}",
+        "name": f"{base}/{quote}",
+        "displayName": f"{_PULSE_CCY_NAME.get(base, base)}/{_PULSE_CCY_NAME.get(quote, quote)}",
         "baseCurrency": base,
         "quoteCurrency": quote,
+        "baseCurrencyNumeric": _PULSE_CCY_NUMERIC.get(base, "000"),
+        "quoteCurrencyNumeric": _PULSE_CCY_NUMERIC.get(quote, "000"),
         "description": f"{_PULSE_CCY_NAME.get(base, base)} / {_PULSE_CCY_NAME.get(quote, quote)}",
         "assetClass": "fx_spot",
+        "type": "CURRENCY",
         "mid": mid,
         "pip": pip,
+        "pipLocation": pip_location,
         "priceDecimals": decimals,
+        "displayPrecision": decimals,
         "spreadBps": _pulse_spread_bps(base, quote),
         "minTickSize": round(pip / 10, decimals + 1),
+        "tradeUnitsPrecision": 0,
+        "minTradeSize": 1_000,
+        "maxTradeSize": 100_000_000,
         "contractSize": 100_000,
+        "marginRate": margin_rate,
+        "settlementDays": settlement_days,
         "venue": _PULSE_VENUE.get(base, "LDN"),
         "tradingSession": "24x5",
+        "tradingHours": {"openUtc": "Sun 22:00", "closeUtc": "Fri 22:00", "timezone": "UTC"},
         "prevClose": prev_close,
         "dayOpen": day_open,
+        "tradeable": True,
         "status": "active",
     }
 
@@ -3243,10 +3273,17 @@ def pulse_reference_rates(seed: str) -> list[dict]:
         base, quote = symbol.split("/")
         decimals = pulse_price_decimals(quote)
         mid = fx_mid_rate(base, quote)
-        for fixing_date in fixing_dates:
+        half_spread = mid * (_pulse_spread_bps(base, quote) / 2 / 10_000)
+        prior_rate = None
+        # Oldest date first so each fixing can reference the prior session's close.
+        for fixing_date in reversed(fixing_dates):
             rng = _rng(seed, "pulse-fixing", symbol, fixing_date.isoformat())
             rate = round(mid * (1 + rng.uniform(-0.004, 0.004)), decimals)
+            bid_rate = round(rate - half_spread, decimals)
+            ask_rate = round(rate + half_spread, decimals)
             published = datetime.combine(fixing_date, time(16, 0), tzinfo=timezone.utc)
+            change = round(rate - prior_rate, decimals) if prior_rate else 0.0
+            change_pct = round((rate - prior_rate) / prior_rate * 100, 4) if prior_rate else 0.0
             out.append(
                 {
                     "rateId": f"{base}{quote}-{fixing_date.isoformat()}",
@@ -3254,12 +3291,21 @@ def pulse_reference_rates(seed: str) -> list[dict]:
                     "baseCurrency": base,
                     "quoteCurrency": quote,
                     "rate": rate,
+                    "bidRate": bid_rate,
+                    "askRate": ask_rate,
                     "fixingDate": fixing_date.isoformat(),
+                    "fixingType": "WMR_1600_LON",
+                    "fixingTime": "16:00:00Z",
                     "publishedAt": _fx_iso(published).replace("+00:00", "Z"),
                     "source": "PULSE_REF",
                     "session": "EOD",
+                    "status": "published",
+                    "priorRate": prior_rate,
+                    "change": change,
+                    "changePct": change_pct,
                 }
             )
+            prior_rate = rate
     return out
 
 
@@ -7072,9 +7118,38 @@ def sabre_country_tax(country: str) -> dict | None:
     return _SABRE_COUNTRY_TAX.get(str(country).upper()) if country else None
 
 
+_SABRE_NON_PHYSICAL_PREFIXES = ("SW", "DC", "SC")
+
+
+def _sabre_taxcode_type(code: str) -> str:
+    """First letter of an Avalara-style tax code denotes its tax-code type."""
+    head = code[:1].upper()
+    return head if head.isalpha() else "O"
+
+
+def _sabre_taxcode_physical(code: str) -> bool:
+    """Tangible goods are physical; software, digital content, and services are not."""
+    if code == "NT":
+        return False
+    return not code.upper().startswith(_SABRE_NON_PHYSICAL_PREFIXES)
+
+
+def _sabre_taxcode_entry(code: str, category: str, description: str, taxable: bool) -> dict:
+    return {
+        "id": int(_rng("sabre-taxcode", code).randint(8_000_000, 8_999_999)),
+        "taxCode": code,
+        "taxCodeTypeId": _sabre_taxcode_type(code),
+        "category": category,
+        "description": description,
+        "isPhysical": _sabre_taxcode_physical(code),
+        "isActive": True,
+        "taxable": taxable,
+    }
+
+
 def sabre_tax_codes() -> list[dict]:
     return [
-        {"taxCode": c, "category": cat, "description": desc, "taxable": taxable}
+        _sabre_taxcode_entry(c, cat, desc, taxable)
         for c, cat, desc, taxable in _SABRE_TAX_CODES
     ]
 
@@ -7083,12 +7158,7 @@ def sabre_tax_code(code: str) -> dict | None:
     row = _SABRE_TAX_CODE_INDEX.get(str(code).upper())
     if row is None:
         return None
-    return {
-        "taxCode": row[0],
-        "category": row[1],
-        "description": row[2],
-        "taxable": row[3],
-    }
+    return _sabre_taxcode_entry(row[0], row[1], row[2], row[3])
 
 
 def sabre_taxid_rule(country: str) -> dict | None:
@@ -7101,6 +7171,40 @@ def sabre_treaty(country: str) -> dict | None:
 
 def sabre_income_code(income_type: str) -> str:
     return _SABRE_INCOME_CODES.get(str(income_type).lower(), "50")
+
+
+def sabre_income_code_description(code: str) -> str:
+    return _SABRE_INCOME_CODE_DESC.get(str(code), "Other income")
+
+
+def sabre_state_fips(region: str) -> str:
+    return _SABRE_STATE_FIPS.get(str(region).upper(), "")
+
+
+def sabre_coordinates(country: str, region: str | None = None) -> tuple[float, float] | None:
+    """Representative rooftop coordinates for a resolved address."""
+    country = str(country).upper()
+    if country == "US":
+        return _SABRE_STATE_CENTROID.get(str(region or "").upper())
+    return _SABRE_COUNTRY_CENTROID.get(country)
+
+
+def sabre_tax_authority_type(tax_type: str) -> int:
+    """Numeric tax-authority-type id mirroring Avalara's classification:
+    45 for US sales and use tax, 51 for VAT, 61 for GST-family regimes."""
+    tax_type = str(tax_type).upper()
+    if tax_type in ("VAT", "TVA", "BTW", "UST"):
+        return 51
+    if tax_type in ("GST", "JCT", "HST", "ICMS", "GSTIN"):
+        return 61
+    return 45
+
+
+def sabre_signature_code(country: str, region: str | None = None) -> str:
+    """Avalara-style jurisdiction signature code, e.g. WA000000 or GBR00000."""
+    if str(country).upper() == "US" and region:
+        return f"{str(region).upper()}000000"
+    return f"{str(country).upper()[:3]:0<3}00000"
 
 
 def sabre_withholding_rates() -> dict:
@@ -7141,6 +7245,9 @@ def _sabre_jurisdiction_rows(seed: str) -> dict:
             "region": region,
             "name": j["stateName"],
             "taxType": "SalesAndUse",
+            "taxAuthorityType": sabre_tax_authority_type("Sales"),
+            "stateFIPS": sabre_state_fips(region),
+            "signatureCode": sabre_signature_code("US", region),
             "combinedRate": _sabre_combined_rate(j),
             "components": {
                 "state": {"name": j["stateName"], "rate": j["stateRate"]},
@@ -7156,6 +7263,8 @@ def _sabre_jurisdiction_rows(seed: str) -> dict:
             "region": "",
             "name": c["taxName"],
             "taxType": c["taxType"],
+            "taxAuthorityType": sabre_tax_authority_type(c["taxType"]),
+            "signatureCode": sabre_signature_code(country),
             "combinedRate": c["standardRate"],
             "currency": c["currency"],
             "reducedRates": c["reducedRates"],
@@ -7183,24 +7292,32 @@ def _sabre_exemption_certificates(seed: str) -> dict:
         tax_number_type = "FEIN"
         business = f"{rng.randint(10, 99)}-{rng.randint(1000000, 9999999)}"
         partial = rng.random() < 0.15
+        reason = _SABRE_ENTITY_USE_CODES[code]
+        verified = not expired and rng.random() > 0.1
         certs[number] = {
+            "id": int(rng.randint(55_000, 59_999)),
             "exemptionNumber": number,
             "customerCode": customer,
             "entityUseCode": code,
-            "exemptionReason": _SABRE_ENTITY_USE_CODES[code],
+            "exemptionReason": {"code": code, "name": reason.upper()},
+            "validatedExemptionReason": {"code": code, "name": reason.upper()} if verified else None,
             "exposureZone": {
                 "region": zone,
                 "country": "US",
                 "name": _SABRE_US_JURISDICTIONS[zone]["stateName"],
+                "tag": zone,
             },
             "signedDate": signed.isoformat(),
             "expirationDate": expiration.isoformat(),
             "exemptPercentage": 50.0 if partial else 100.0,
             "taxNumberType": tax_number_type,
             "businessNumber": business,
-            "status": "EXPIRED" if expired else "ACTIVE",
+            "documentExists": True,
+            "filename": f"cert-{number}.pdf",
+            "status": "EXPIRED" if expired else "COMPLETE",
+            "ecmStatus": "EXPIRED" if expired else "COMPLETE",
             "valid": not expired,
-            "verified": not expired and rng.random() > 0.1,
+            "verified": verified,
         }
     return certs
 

@@ -1429,6 +1429,74 @@ def _build_workflow_domain_tools(run_id, runner, parent, workflow_id, board):
             _finish(w, {"customer_id": customer_id})
 
     @tool
+    def capture_receivable(customer_id: str, amount: float, currency: str,
+                           source: str = "tok_visa") -> str:
+        """Accept an inbound customer card payment on the Meridian Pay acceptance rail."""
+        w = _worker("receivables", f"accept:{customer_id}", customer_id=customer_id)
+        try:
+            return json.dumps(
+                tool_fns.capture_receivable(run_id, w.id, customer_id, float(amount),
+                                            currency, source)
+            )
+        finally:
+            _finish(w, {"customer_id": customer_id})
+
+    @tool
+    def refund_receivable(charge_id: str, amount: float = 0.0) -> str:
+        """Refund a captured Meridian Pay receivable in full, or in part when an amount is given."""
+        w = _worker("receivables", f"refund:{charge_id}")
+        try:
+            return json.dumps(
+                tool_fns.refund_receivable(run_id, w.id, charge_id,
+                                           float(amount) if amount else None)
+            )
+        finally:
+            _finish(w, {"charge_id": charge_id})
+
+    @tool
+    def list_payment_disputes(status: str = "") -> str:
+        """List chargeback disputes raised against captured Meridian Pay receivables."""
+        w = _worker("receivables", f"disputes:{status or 'all'}")
+        try:
+            return json.dumps(tool_fns.list_payment_disputes(run_id, w.id, status))
+        finally:
+            _finish(w, {"status": status})
+
+    @tool
+    def respond_to_payment_dispute(dispute_id: str, product_description: str = "",
+                                   customer_communication: str = "") -> str:
+        """Contest a chargeback by submitting evidence before the dispute response deadline."""
+        w = _worker("receivables", f"dispute-evidence:{dispute_id}")
+        evidence = {k: v for k, v in (
+            ("productDescription", product_description),
+            ("customerCommunication", customer_communication),
+        ) if v}
+        try:
+            return json.dumps(
+                tool_fns.respond_to_payment_dispute(run_id, w.id, dispute_id, evidence)
+            )
+        finally:
+            _finish(w, {"dispute_id": dispute_id})
+
+    @tool
+    def get_acceptance_balance() -> str:
+        """Read the Meridian Pay balance: funds available for payout and pending settlement."""
+        w = _worker("receivables", "acceptance-balance")
+        try:
+            return json.dumps(tool_fns.get_acceptance_balance(run_id, w.id))
+        finally:
+            _finish(w, {})
+
+    @tool
+    def reconcile_acceptance_settlements(status: str = "") -> str:
+        """List Meridian Pay settlement batches to reconcile net card deposits against the ledger."""
+        w = _worker("receivables", f"settlements:{status or 'all'}")
+        try:
+            return json.dumps(tool_fns.reconcile_acceptance_settlements(run_id, w.id, status))
+        finally:
+            _finish(w, {"status": status})
+
+    @tool
     def get_department_budget(department: str) -> str:
         """Check remaining budget for a department before raising a requisition."""
         w = _worker("vendor-lifecycle", f"budget:{department}")
@@ -1710,6 +1778,8 @@ def _build_workflow_domain_tools(run_id, runner, parent, workflow_id, board):
         sanctions_screen_batch,
         prepare_regulatory_filing,
         submit_regulatory_filing,
+        amend_regulatory_filing,
+        aml_monitoring_summary,
         attest_control,
         issue_customer_invoice,
         send_dunning_notice,
@@ -1722,6 +1792,12 @@ def _build_workflow_domain_tools(run_id, runner, parent, workflow_id, board):
         list_customer_invoices,
         write_off_invoice,
         open_collection_case,
+        capture_receivable,
+        refund_receivable,
+        list_payment_disputes,
+        respond_to_payment_dispute,
+        get_acceptance_balance,
+        reconcile_acceptance_settlements,
         send_remittance_advice,
         send_payment_confirmation,
         track_message_delivery,
