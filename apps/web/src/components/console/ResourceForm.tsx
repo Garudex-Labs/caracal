@@ -17,7 +17,10 @@ import type {
   ResourceOperationEnforcement,
 } from "@/platform/api/types";
 
-const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
+// Common methods offered as type-ahead suggestions. The Gateway authorizes any non-empty
+// method token (the control plane uppercases it), so the editor accepts free-form verbs
+// such as WebDAV or custom methods rather than restricting to this list.
+const METHOD_SUGGESTIONS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
 
 interface OperationRow {
   method: string;
@@ -115,10 +118,11 @@ export function ResourceFormModal({
       const seen = new Set<string>();
       for (const op of operations) {
         if (!op.path.trim()) continue;
+        if (!op.method.trim()) return `Operation "${op.path.trim()}" must declare a method.`;
         if (!op.path.startsWith("/")) return `Operation path "${op.path}" must be absolute.`;
         if (!scopes.includes(op.scope))
           return `Operation scope "${op.scope}" must be a declared scope.`;
-        const key = `${op.method.toUpperCase()} ${op.path.trim()}`;
+        const key = `${op.method.trim().toUpperCase()} ${op.path.trim()}`;
         if (seen.has(key)) return `Operation "${key}" is listed more than once.`;
         seen.add(key);
       }
@@ -139,7 +143,11 @@ export function ResourceFormModal({
         ? []
         : operations
             .filter((op) => op.path.trim())
-            .map((op) => ({ method: op.method, path: op.path.trim(), scope: op.scope }));
+            .map((op) => ({
+              method: op.method.trim().toUpperCase(),
+              path: op.path.trim(),
+              scope: op.scope,
+            }));
 
     const input: ResourceInput = {
       scopes,
@@ -318,17 +326,16 @@ export function ResourceFormModal({
                   <div className="flex flex-col gap-2">
                     {operations.map((op, index) => (
                       <div key={index} className="flex items-center gap-2">
-                        <select
+                        <input
                           value={op.method}
-                          onChange={(e) => updateOperation(index, { method: e.target.value })}
-                          className="h-9 w-24 flex-shrink-0 rounded-md border border-border bg-background px-2 text-xs text-foreground outline-none focus:border-ring"
-                        >
-                          {HTTP_METHODS.map((method) => (
-                            <option key={method} value={method}>
-                              {method}
-                            </option>
-                          ))}
-                        </select>
+                          onChange={(e) =>
+                            updateOperation(index, { method: e.target.value.toUpperCase() })
+                          }
+                          list="resource-operation-methods"
+                          placeholder="GET"
+                          aria-label="Method"
+                          className="h-9 w-24 shrink-0 rounded-md border border-border bg-background px-2 font-mono text-xs uppercase text-foreground outline-none focus:border-ring"
+                        />
                         <input
                           value={op.path}
                           onChange={(e) => updateOperation(index, { path: e.target.value })}
@@ -338,7 +345,7 @@ export function ResourceFormModal({
                         <select
                           value={op.scope}
                           onChange={(e) => updateOperation(index, { scope: e.target.value })}
-                          className="h-9 w-32 flex-shrink-0 rounded-md border border-border bg-background px-2 font-mono text-xs text-foreground outline-none focus:border-ring"
+                          className="h-9 w-32 shrink-0 rounded-md border border-border bg-background px-2 font-mono text-xs text-foreground outline-none focus:border-ring"
                         >
                           {scopes.map((scope) => (
                             <option key={scope} value={scope}>
@@ -350,7 +357,7 @@ export function ResourceFormModal({
                           type="button"
                           onClick={() => removeOperation(index)}
                           aria-label="Remove operation"
-                          className="grid h-9 w-9 flex-shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-destructive"
+                          className="grid h-9 w-9 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-destructive"
                         >
                           <svg
                             width="15"
@@ -365,6 +372,11 @@ export function ResourceFormModal({
                         </button>
                       </div>
                     ))}
+                    <datalist id="resource-operation-methods">
+                      {METHOD_SUGGESTIONS.map((method) => (
+                        <option key={method} value={method} />
+                      ))}
+                    </datalist>
                   </div>
                 )}
               </div>

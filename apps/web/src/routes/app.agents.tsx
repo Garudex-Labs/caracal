@@ -7,6 +7,7 @@ This file defines the Agents runtime workspace for live agent sessions and their
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 
+import { DelegationInspector, shortId } from "@/components/console/DelegationInspector";
 import {
   DetailField,
   DetailGroup,
@@ -18,6 +19,7 @@ import { ZoneScopedPage } from "@/components/console/ZoneScope";
 import {
   Badge,
   Button,
+  Drawer,
   Field,
   Modal,
   Select,
@@ -38,7 +40,7 @@ import {
   useAgentServices,
   useAgentsFeed,
 } from "@/platform/api/hooks";
-import type { Agent, AgentStatus, AgentQuery, InvocationStatus } from "@/platform/api/types";
+import type { Agent, AgentStatus, AgentQuery, DelegationEdge, InvocationStatus } from "@/platform/api/types";
 
 export const Route = createFileRoute("/app/agents")({
   component: AgentsRoute,
@@ -722,7 +724,7 @@ function AgentInspector({
 
       <AuthorityEnvelope authority={authority} />
 
-      <AgentDelegations zoneId={zoneId} subjectSessionId={agent.subject_session_id} />
+      <AgentDelegations zoneId={zoneId} sessionId={agent.agent_session_id} />
 
       <AgentExecution
         zoneId={zoneId}
@@ -907,36 +909,21 @@ function AuthorityEnvelope({
   );
 }
 
-// Inbound/outbound delegation edges for the agent, keyed by its subject session. Inbound =
+// Inbound/outbound delegation edges for the agent, keyed by its agent session. Inbound =
 // authority the agent received; outbound = authority it granted onward.
 function AgentDelegations({
   zoneId,
-  subjectSessionId,
+  sessionId,
 }: {
   zoneId: string;
-  subjectSessionId: string | null;
+  sessionId: string;
 }) {
   const [tab, setTab] = useState<"inbound" | "outbound">("inbound");
-  const inbound = useAgentInboundDelegations(zoneId, tab === "inbound" ? subjectSessionId : null);
-  const outbound = useAgentOutboundDelegations(
-    zoneId,
-    tab === "outbound" ? subjectSessionId : null,
-  );
+  const [inspect, setInspect] = useState<DelegationEdge | null>(null);
+  const inbound = useAgentInboundDelegations(zoneId, tab === "inbound" ? sessionId : null);
+  const outbound = useAgentOutboundDelegations(zoneId, tab === "outbound" ? sessionId : null);
   const active = tab === "inbound" ? inbound : outbound;
   const edges = active.data ?? [];
-
-  if (!subjectSessionId) {
-    return (
-      <section className="border-t border-border pt-4">
-        <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-          Delegations
-        </h3>
-        <p className="mt-2 text-sm text-muted-foreground">
-          This agent has no subject session, so it holds no delegation edges.
-        </p>
-      </section>
-    );
-  }
 
   return (
     <section className="border-t border-border pt-4">
@@ -973,35 +960,55 @@ function AgentDelegations({
       ) : (
         <ul className="mt-3 divide-y divide-border border-y border-border">
           {edges.map((edge) => (
-            <li key={edge.id} className="flex flex-col gap-1 py-2.5">
-              <div className="flex items-center justify-between gap-2">
-                <span className="truncate font-mono text-[11px] text-muted-foreground">
-                  {tab === "inbound" ? edge.source_session_id : edge.target_session_id}
-                </span>
-                <Badge tone={edge.status === "active" ? "success" : "muted"}>{edge.status}</Badge>
-              </div>
-              <div className="flex flex-wrap items-center gap-1">
-                {edge.scopes.slice(0, 4).map((s) => (
-                  <span
-                    key={s}
-                    className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
-                  >
-                    {s}
+            <li key={edge.id}>
+              <button
+                type="button"
+                onClick={() => setInspect(edge)}
+                className="flex w-full flex-col gap-1 py-2.5 text-left transition-colors hover:bg-muted/40"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="truncate font-mono text-[11px] text-muted-foreground">
+                    {tab === "inbound" ? edge.source_session_id : edge.target_session_id}
                   </span>
-                ))}
-                {edge.scopes.length > 4 ? (
-                  <span className="text-[10px] text-muted-foreground">
-                    +{edge.scopes.length - 4}
-                  </span>
-                ) : null}
-                {edge.scopes.length === 0 ? (
-                  <span className="text-[10px] text-muted-foreground">no scopes</span>
-                ) : null}
-              </div>
+                  <Badge tone={edge.status === "active" ? "success" : "muted"}>{edge.status}</Badge>
+                </div>
+                <div className="flex flex-wrap items-center gap-1">
+                  {edge.scopes.slice(0, 4).map((s) => (
+                    <span
+                      key={s}
+                      className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
+                    >
+                      {s}
+                    </span>
+                  ))}
+                  {edge.scopes.length > 4 ? (
+                    <span className="text-[10px] text-muted-foreground">
+                      +{edge.scopes.length - 4}
+                    </span>
+                  ) : null}
+                  {edge.scopes.length === 0 ? (
+                    <span className="text-[10px] text-muted-foreground">no scopes</span>
+                  ) : null}
+                </div>
+              </button>
             </li>
           ))}
         </ul>
       )}
+
+      <Drawer
+        open={inspect !== null}
+        onClose={() => setInspect(null)}
+        title={
+          inspect ? `${shortId(inspect.source_session_id)} → ${shortId(inspect.target_session_id)}` : ""
+        }
+        description={inspect?.id}
+        width="max-w-2xl"
+      >
+        {inspect ? (
+          <DelegationInspector zoneId={zoneId} edge={inspect} onRevoked={() => setInspect(null)} />
+        ) : null}
+      </Drawer>
     </section>
   );
 }

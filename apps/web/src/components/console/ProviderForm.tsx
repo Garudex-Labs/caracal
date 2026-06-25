@@ -61,7 +61,7 @@ interface ProviderField {
   dependsOn?: Partial<Record<string, string>>;
 }
 
-const AUTH_CODE_METHODS = ["client_secret_basic", "client_secret_post", "private_key_jwt", "none"];
+const AUTH_CODE_METHODS = ["client_secret_basic", "client_secret_post", "none"];
 const CC_METHODS = ["client_secret_basic", "client_secret_post", "private_key_jwt", "none"];
 
 // Mirrors apps/api PUBLIC/SECRET provider config keys so the form never sends
