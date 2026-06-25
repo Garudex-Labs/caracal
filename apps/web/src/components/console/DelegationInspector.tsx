@@ -230,7 +230,11 @@ export function DelegationInspector({
             toast({ tone: "info", title: "Delegation revoked" });
             onRevoked?.();
           } catch (err) {
-            toast({ tone: "error", title: "Revoke failed", description: delegationErrorMessage(err) });
+            toast({
+              tone: "error",
+              title: "Revoke failed",
+              description: delegationErrorMessage(err),
+            });
           }
         }}
       />

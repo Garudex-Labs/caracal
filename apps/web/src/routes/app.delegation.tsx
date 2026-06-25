@@ -7,13 +7,13 @@ This file defines the Delegation workspace for authority relationships, chains, 
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo } from "react";
 
+import { DelegationInspector } from "@/components/console/DelegationInspector";
 import {
-  DelegationInspector,
   delegationErrorMessage,
   edgeStatusLabel,
   edgeStatusTone,
   shortId,
-} from "@/components/console/DelegationInspector";
+} from "@/components/console/delegationFormat";
 import { Mono, ResourceWorkspace } from "@/components/console/ResourceWorkspace";
 import { ZoneScopedPage } from "@/components/console/ZoneScope";
 import { Badge, Button, type Column } from "@/components/ui";

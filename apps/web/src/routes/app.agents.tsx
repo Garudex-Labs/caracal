@@ -7,7 +7,8 @@ This file defines the Agents runtime workspace for live agent sessions and their
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 
-import { DelegationInspector, shortId } from "@/components/console/DelegationInspector";
+import { DelegationInspector } from "@/components/console/DelegationInspector";
+import { shortId } from "@/components/console/delegationFormat";
 import {
   DetailField,
   DetailGroup,
@@ -40,7 +41,13 @@ import {
   useAgentServices,
   useAgentsFeed,
 } from "@/platform/api/hooks";
-import type { Agent, AgentStatus, AgentQuery, DelegationEdge, InvocationStatus } from "@/platform/api/types";
+import type {
+  Agent,
+  AgentStatus,
+  AgentQuery,
+  DelegationEdge,
+  InvocationStatus,
+} from "@/platform/api/types";
 
 export const Route = createFileRoute("/app/agents")({
   component: AgentsRoute,
@@ -911,13 +918,7 @@ function AuthorityEnvelope({
 
 // Inbound/outbound delegation edges for the agent, keyed by its agent session. Inbound =
 // authority the agent received; outbound = authority it granted onward.
-function AgentDelegations({
-  zoneId,
-  sessionId,
-}: {
-  zoneId: string;
-  sessionId: string;
-}) {
+function AgentDelegations({ zoneId, sessionId }: { zoneId: string; sessionId: string }) {
   const [tab, setTab] = useState<"inbound" | "outbound">("inbound");
   const [inspect, setInspect] = useState<DelegationEdge | null>(null);
   const inbound = useAgentInboundDelegations(zoneId, tab === "inbound" ? sessionId : null);
@@ -1000,7 +1001,9 @@ function AgentDelegations({
         open={inspect !== null}
         onClose={() => setInspect(null)}
         title={
-          inspect ? `${shortId(inspect.source_session_id)} → ${shortId(inspect.target_session_id)}` : ""
+          inspect
+            ? `${shortId(inspect.source_session_id)} → ${shortId(inspect.target_session_id)}`
+            : ""
         }
         description={inspect?.id}
         width="max-w-2xl"
