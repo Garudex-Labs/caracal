@@ -659,6 +659,16 @@ def submit_regulatory_filing(run_id: str, agent_id: str, filing_id: str) -> dict
                 {"filingId": filing_id})
 
 
+def amend_regulatory_filing(run_id: str, agent_id: str, filing_id: str, reason: str) -> dict[str, object]:
+    return _run(run_id, agent_id, "amend_regulatory_filing", "verafin-monitor", "amend_filing",
+                {"filingId": filing_id, "reason": reason})
+
+
+def aml_monitoring_summary(run_id: str, agent_id: str) -> dict[str, object]:
+    return _run(run_id, agent_id, "aml_monitoring_summary", "verafin-monitor",
+                "get_monitoring_summary", {})
+
+
 def attest_control(run_id: str, agent_id: str, control_id: str,
                    effectiveness: str = "effective") -> dict[str, object]:
     return _run(run_id, agent_id, "attest_control", "verafin-monitor", "attest_control",

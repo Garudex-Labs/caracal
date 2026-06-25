@@ -105,6 +105,24 @@ def _delivery(method: str, created: int) -> dict:
 # --------------------------------------------------------------------------- #
 # seed data
 # --------------------------------------------------------------------------- #
+def _kyc_block(status: str, created: int, rng) -> dict:
+    """The recipient's verification state as a payout platform records it: the
+    diligence level reached, when it was confirmed, and the check that ran."""
+    if status == "verified":
+        level = rng.choices(("standard", "enhanced"), weights=(78, 22))[0]
+        return {"status": "approved", "level": level,
+                "verifiedAt": created + rng.randint(1, 5) * 86_400,
+                "method": rng.choice(("document", "bank_account", "registry"))}
+    if status == "pending":
+        return {"status": "in_review", "level": "standard",
+                "verifiedAt": None, "method": "document"}
+    if status == "rejected":
+        return {"status": "rejected", "level": "standard", "verifiedAt": None,
+                "method": "document", "reason": rng.choice(
+                    ("document_unreadable", "sanctions_match", "details_mismatch"))}
+    return {"status": "not_started", "level": None, "verifiedAt": None, "method": None}
+
+
 def _recipient(seed: str, i: int) -> dict:
     rng = gen._rng(seed, "quetzal-recipient", i)
     country, currency = rng.choice(gen._COUNTRIES)
@@ -125,8 +143,12 @@ def _recipient(seed: str, i: int) -> dict:
         "country": country,
         "currency": currency,
         "payoutMethod": method,
+        "supportedPayoutMethods": [method],
+        "defaultPurposeCode": "SUPP" if is_business else "SALA",
+        "riskRating": rng.choices(("low", "medium", "high"), weights=(70, 24, 6))[0],
         "status": status,
         "verified": status == "verified",
+        "kyc": _kyc_block(status, created, rng),
         "address": {
             "line1": f"{rng.randint(10, 9999)} {gen._company(rng).split()[0]} Street",
             "city": gen._CITY_BY_COUNTRY.get(country, "Metropolis"),
@@ -136,11 +158,15 @@ def _recipient(seed: str, i: int) -> dict:
         "createdAt": created,
         "updatedAt": created,
     }
+    if is_business:
+        record["registrationNumber"] = f"{country}{rng.randint(1000000, 9999999)}"
+    else:
+        record["dateOfBirth"] = gen._day(rng, -22000, -8000)
     if method == "bank_transfer":
         record["bankAccount"] = {
             "accountHolderName": name,
             "bankName": f"{country} National Bank",
-            "country": country,
+            "bankCountry": country,
             "currency": currency,
             "accountNumber": routing["account_number"],
             "iban": routing["iban"],

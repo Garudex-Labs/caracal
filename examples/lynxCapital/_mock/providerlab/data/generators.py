@@ -2841,6 +2841,8 @@ def _junction_purchase_order(
     po_status = (
         "received" if received else rng.choice(("issued", "acknowledged", "issued"))
     )
+    po_type = "services" if req.get("purchaseType") == "services" else "standard"
+    freight = round(req["subtotal"] * rng.choice((0.0, 0.0, 0.015, 0.03)), 2)
     lines = []
     for line in req["lines"]:
         qty_received = line["quantity"] if received else 0
@@ -2855,11 +2857,14 @@ def _junction_purchase_order(
                 "unitPrice": line["unitPrice"],
                 "lineTotal": line["lineTotal"],
                 "glAccount": line["glAccount"],
+                "costCenter": line.get("costCenter", req["costCenter"]),
             }
         )
     return {
         "poId": f"PO-{300000 + idx}",
         "poNumber": f"PO-2026-{idx:06d}",
+        "poType": po_type,
+        "revision": 0,
         "requisitionId": req["requisitionId"],
         "supplierId": supplier["supplierId"],
         "supplierName": supplier["displayName"],
@@ -2870,11 +2875,13 @@ def _junction_purchase_order(
         "buyer": {"id": "EMP-2300", "name": "Lena Novak"},
         "paymentTerms": supplier["paymentTerms"],
         "shipTo": req["shipTo"],
+        "billTo": _JUNCTION_BILL_TO,
         "lines": lines,
         "subtotal": req["subtotal"],
         "tax": req["estimatedTax"],
-        "total": req["total"],
-        "amount": req["total"],
+        "shippingAmount": freight,
+        "total": round(req["total"] + freight, 2),
+        "amount": round(req["total"] + freight, 2),
         "issuedAt": issued,
         "acknowledgedAt": issued if po_status in ("acknowledged", "received") else None,
         "expectedDeliveryDate": req["neededByDate"],
@@ -2883,12 +2890,14 @@ def _junction_purchase_order(
                 {
                     "receiptId": f"GRN-{400000 + idx}",
                     "receiptNumber": f"GRN-2026-{idx:06d}",
+                    "deliveryNote": f"DN-{rng.randint(100000, 999999)}",
                     "receivedBy": {"id": "EMP-2400", "name": "Hassan Haddad"},
                     "receivedAt": _day(rng, -20, -1),
                     "lines": [
                         {
                             "lineNumber": l["lineNumber"],
                             "quantityReceived": l["quantity"],
+                            "condition": "good",
                         }
                         for l in lines
                     ],
