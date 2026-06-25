@@ -232,8 +232,6 @@ function ApplicationsPage({ zoneId, zoneName }: { zoneId: string; zoneName: stri
           description: query.isError
             ? errorMessage(query.error)
             : "Create an application to give an agent a scoped identity in this zone.",
-          actionLabel: query.isError ? undefined : "New application",
-          onAction: query.isError ? undefined : () => setCreateOpen(true),
         }}
         detail={{
           title: (app) => app.name,

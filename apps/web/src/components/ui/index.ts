@@ -15,6 +15,8 @@ export * from "./Breadcrumbs";
 export * from "./Pagination";
 export * from "./DataTable";
 export * from "./AvatarPicker";
+export * from "./Disclosure";
+export * from "./neon-dither";
 export * from "./FilterMenu";
 export * from "./InfoHint";
 export * from "./OnboardingChecklist";
