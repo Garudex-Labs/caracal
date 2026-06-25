@@ -1,0 +1,68 @@
+# Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+# Caracal, a product of Garudex Labs
+#
+# Web image: builds the SPA and serves it same-origin from the session-guarded backend-for-frontend.
+
+# syntax=docker/dockerfile:1.7
+ARG PNPM_VERSION=11.1.1
+
+FROM golang:1.26-alpine@sha256:3ad57304ad93bbec8548a0437ad9e06a455660655d9af011d58b993f6f615648 AS health-builder
+ARG CGO_ENABLED=0
+ARG GO_BUILDFLAGS
+ARG GO_LDFLAGS
+ENV CGO_ENABLED=${CGO_ENABLED} GOOS=linux
+WORKDIR /healthcheck
+COPY infra/healthcheck/ ./
+RUN --mount=type=cache,target=/root/.cache/go-build,sharing=locked \
+    --mount=type=cache,target=/go/pkg/mod,sharing=locked \
+    GOWORK=off go build -mod=readonly -trimpath ${GO_BUILDFLAGS} -ldflags="${GO_LDFLAGS}" -o /healthcheck-bin ./
+
+FROM node:26-slim@sha256:191ef878ecb351d68b78219593de18bd8942afd59af59f29960dc4b24805a3f1 AS builder
+ARG PNPM_VERSION
+ENV PNPM_HOME=/pnpm \
+    PATH=/pnpm:$PATH \
+    CI=1
+RUN npm install -g corepack@latest && corepack enable && corepack prepare pnpm@${PNPM_VERSION} --activate
+WORKDIR /workspace
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/web/package.json apps/web/package.json
+COPY apps/auth/package.json apps/auth/package.json
+COPY packages/ packages/
+COPY infra/docker/runtime-compose.yml infra/docker/runtime-compose.yml
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store,sharing=locked \
+    pnpm config set store-dir /pnpm/store && \
+    pnpm install --frozen-lockfile --ignore-scripts \
+      --filter @caracalai/web... --filter @caracalai/auth...
+COPY apps/web/ apps/web/
+COPY apps/auth/ apps/auth/
+# The SPA is served same-origin by the BFF, so the client resolves the API base from the page
+# origin at runtime; no build-time backend URL is baked in. Passed as a build ARG (not a
+# persisted ENV) so it never lingers in the final image layers.
+ARG VITE_CARACAL_AUTH_URL=""
+RUN set -e; \
+    pnpm --filter @caracalai/core build; \
+    pnpm --filter @caracalai/admin build; \
+    pnpm --filter @caracalai/oauth build; \
+    pnpm --filter @caracalai/engine build; \
+    pnpm --filter @caracalai/web build; \
+    pnpm --filter @caracalai/auth build; \
+    pnpm --config.inject-workspace-packages=true --filter @caracalai/auth deploy --prod /out/auth; \
+    mkdir -p /out/auth/web && cp -r apps/web/dist/* /out/auth/web/; \
+    find /out -type d \( -name test -o -name tests -o -name __tests__ \) -prune -exec rm -rf {} + 2>/dev/null || true; \
+    find /out -type f \( -name '*.md' -o -name '*.markdown' -o -name '*.map' -o -name 'CHANGELOG*' -o -name '.npmignore' -o -name '.eslintrc*' -o -name '.prettierrc*' \) -delete 2>/dev/null || true
+
+FROM gcr.io/distroless/nodejs24-debian12:nonroot@sha256:14d42e2511532589a7c7e01a753667a74fcc96266e137e8125006b87b0c32d0a
+ENV NODE_ENV=production \
+    NODE_OPTIONS=--enable-source-maps \
+    NPM_CONFIG_UPDATE_NOTIFIER=false \
+    HEALTH_PATH=/health \
+    PORT=3002 \
+    CARACAL_WEB_ROOT=/app/auth/web
+WORKDIR /app
+COPY --from=builder --chown=nonroot:nonroot /out/auth ./auth
+COPY --from=health-builder /healthcheck-bin /healthcheck
+USER nonroot
+EXPOSE 3002
+HEALTHCHECK --interval=10s --timeout=3s --start-period=20s --retries=3 \
+    CMD ["/healthcheck"]
+CMD ["/app/auth/dist/server.js"]
