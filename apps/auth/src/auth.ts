@@ -25,7 +25,7 @@ export const auth = betterAuth({
   baseURL: cfg.baseURL,
   secret: cfg.secret,
   database: authDatabase,
-  trustedOrigins: [cfg.webOrigin],
+  trustedOrigins: cfg.webOrigins,
   emailAndPassword: {
     enabled: true,
     minPasswordLength: 8,
@@ -40,5 +40,27 @@ export const auth = betterAuth({
   session: {
     expiresIn: 60 * 60 * 24 * 7,
     updateAge: 60 * 60 * 24,
+  },
+  // Throttle credential endpoints so a directly reachable auth surface cannot be brute-forced
+  // or enumerated. The window is shared across all auth routes with a tighter ceiling on the
+  // sign-in and sign-up paths.
+  rateLimit: {
+    enabled: true,
+    window: 60,
+    max: 120,
+    customRules: {
+      "/sign-in/email": { window: 60, max: 10 },
+      "/sign-up/email": { window: 60, max: 10 },
+      "/forget-password": { window: 60, max: 5 },
+    },
+  },
+  advanced: {
+    // The signing edge is HTTPS in production; pin Secure explicitly rather than inferring it
+    // from the internal baseURL scheme, which is plain HTTP behind a TLS-terminating proxy.
+    useSecureCookies: cfg.secureCookies,
+    defaultCookieAttributes: {
+      httpOnly: true,
+      sameSite: "lax",
+    },
   },
 });

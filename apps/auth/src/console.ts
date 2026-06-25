@@ -364,10 +364,10 @@ function targetPath(target: string): string {
   }
 }
 
-// Validates that a proxied path stays within the engine's /v1 surface after URL normalization,
-// closing a prefix-check bypass (e.g. `/v1/../metrics`) that would otherwise reach operational
-// endpoints. Returns the safe absolute target, or undefined when the path escapes /v1.
-function safeApiTarget(base: string, rest: string): string | undefined {
+// Validates that a proxied path stays within an allowed prefix after URL normalization, closing
+// a prefix-check bypass (e.g. `/v1/../metrics`) that would otherwise reach operational endpoints.
+// Returns the safe absolute target, or undefined when the path escapes the allowed prefix.
+function safeTarget(base: string, rest: string, allowedPrefix: string): string | undefined {
   if (rest.includes('..')) return undefined
   let resolved: URL
   try {
@@ -375,7 +375,7 @@ function safeApiTarget(base: string, rest: string): string | undefined {
   } catch {
     return undefined
   }
-  if (!resolved.pathname.startsWith('/v1/')) return undefined
+  if (!resolved.pathname.startsWith(allowedPrefix)) return undefined
   return resolved.toString()
 }
 
@@ -385,7 +385,7 @@ async function handleProxy(req: IncomingMessage, res: ServerResponse, rest: stri
     sendJson(res, 503, { error: 'control_plane_not_configured' })
     return
   }
-  const target = safeApiTarget(apiUrl(), rest)
+  const target = safeTarget(apiUrl(), rest, '/v1/')
   if (!target) {
     sendJson(res, 404, { error: 'not_found' })
     return
@@ -404,10 +404,6 @@ function controlAudience(): string {
   return process.env.CONTROL_AUDIENCE ?? DEFAULT_CONTROL_AUDIENCE
 }
 
-function errorText(err: unknown): string {
-  return err instanceof Error ? err.message : String(err)
-}
-
 // Reports the local Control endpoint gate state. Manageability is decided by whether this
 // host holds the managed admin secret, behind the session gate already enforced upstream.
 // A failure is reported as unmanageable rather than an error so the UI can degrade
@@ -417,11 +413,12 @@ async function handleControlStatus(res: ServerResponse): Promise<void> {
     const status = await controlServiceStatus({ accessEnv: process.env })
     sendJson(res, 200, { manageable: true, ...status })
   } catch (err) {
-    sendJson(res, 200, { manageable: false, reason: errorText(err) })
+    // Manageability is best-effort; report unmanageable without echoing internal detail.
+    sendJson(res, 200, { manageable: false })
   }
 }
 
-async function handleControlLifecycle(res: ServerResponse, action: 'enable' | 'disable'): Promise<void> {
+async function handleControlLifecycle(res: ServerResponse, action: 'enable' | 'disable', id: string): Promise<void> {
   try {
     const result = await applyControlLifecycleAction({
       action,
@@ -430,7 +427,8 @@ async function handleControlLifecycle(res: ServerResponse, action: 'enable' | 'd
     invalidateDiagnostics()
     sendJson(res, 200, { manageable: true, ...result })
   } catch (err) {
-    sendJson(res, 409, { error: 'control_lifecycle_failed', detail: errorText(err) })
+    logger.warn('control lifecycle failed', { id, action, err })
+    sendJson(res, 409, { error: 'control_lifecycle_failed' })
   }
 }
 
@@ -445,7 +443,7 @@ interface ControlTokenRequest {
 // Exchanges a control key for a short-lived STS invocation token. Mirrors the Console token
 // flow exactly: the requested scopes must be a subset of the key's grant and the TTL must not
 // exceed the key maximum, both checked before the secret is exchanged at STS.
-async function handleControlToken(req: IncomingMessage, res: ServerResponse): Promise<void> {
+async function handleControlToken(req: IncomingMessage, res: ServerResponse, id: string): Promise<void> {
   const token = adminToken()
   if (!token) {
     sendJson(res, 503, { error: 'control_plane_not_configured' })
@@ -484,7 +482,7 @@ async function handleControlToken(req: IncomingMessage, res: ServerResponse): Pr
   let application: Parameters<typeof controlKeyRecord>[0]
   try {
     const upstream = await fetch(`${apiUrl()}/v1/zones/${encodeURIComponent(zoneId)}/applications/${encodeURIComponent(keyId)}`, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Authorization: `Bearer ${token}`, ...downstreamHeaders(id) },
     })
     if (upstream.status === 404) {
       sendJson(res, 404, { error: 'control_key_not_found' })
@@ -533,7 +531,8 @@ async function handleControlToken(req: IncomingMessage, res: ServerResponse): Pr
       ttlSeconds,
     })
   } catch (err) {
-    sendJson(res, 502, { error: 'token_exchange_failed', detail: errorText(err) })
+    logger.warn('control token exchange failed', { id, err })
+    sendJson(res, 502, { error: 'token_exchange_failed' })
     return
   }
   sendJson(res, 200, {
@@ -548,39 +547,44 @@ async function handleControlToken(req: IncomingMessage, res: ServerResponse): Pr
 
 // Routes the local-only Control management surface (endpoint gate + token exchange) that the
 // Console exposes, so the web client reaches functional parity without a TTY.
-async function handleControl(req: IncomingMessage, res: ServerResponse, path: string): Promise<boolean> {
+async function handleControl(req: IncomingMessage, res: ServerResponse, path: string, id: string): Promise<boolean> {
   const method = (req.method ?? 'GET').toUpperCase()
   if (path === '/control/status' && method === 'GET') {
     await handleControlStatus(res)
     return true
   }
   if (path === '/control/enable' && method === 'POST') {
-    await handleControlLifecycle(res, 'enable')
+    await handleControlLifecycle(res, 'enable', id)
     return true
   }
   if (path === '/control/disable' && method === 'POST') {
-    await handleControlLifecycle(res, 'disable')
+    await handleControlLifecycle(res, 'disable', id)
     return true
   }
   if (path === '/control/token' && method === 'POST') {
-    await handleControlToken(req, res)
+    await handleControlToken(req, res, id)
     return true
   }
   return false
 }
 
 // Proxies the agent and delegation runtime surfaces served by the Coordinator.
-async function handleCoordProxy(req: IncomingMessage, res: ServerResponse, rest: string): Promise<void> {
+async function handleCoordProxy(req: IncomingMessage, res: ServerResponse, rest: string, id: string): Promise<void> {
   const token = coordinatorToken()
   if (!token) {
     sendJson(res, 503, { error: 'coordinator_not_configured' })
     return
   }
-  await forwardProxy(req, res, `${coordinatorUrl()}${rest}`, token)
+  const target = safeTarget(coordinatorUrl(), rest, '/zones/')
+  if (!target) {
+    sendJson(res, 404, { error: 'not_found' })
+    return
+  }
+  await forwardProxy(req, res, target, token, id)
 }
 
 // Returns true when the request was a console route and has been handled.
-export async function handleConsole(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
+export async function handleConsole(req: IncomingMessage, res: ServerResponse, ctx: ConsoleContext): Promise<boolean> {
   const url = req.url ?? ''
   if (!url.startsWith(API_PREFIX)) return false
 
@@ -591,7 +595,7 @@ export async function handleConsole(req: IncomingMessage, res: ServerResponse): 
   }
 
   if (url.startsWith(`${COORD_PREFIX}/`)) {
-    await handleCoordProxy(req, res, url.slice(COORD_PREFIX.length))
+    await handleCoordProxy(req, res, url.slice(COORD_PREFIX.length), ctx.id)
     return true
   }
 
@@ -605,12 +609,12 @@ export async function handleConsole(req: IncomingMessage, res: ServerResponse): 
     return true
   }
   if (path.startsWith('/control/')) {
-    if (await handleControl(req, res, path)) return true
+    if (await handleControl(req, res, path, ctx.id)) return true
     sendJson(res, 404, { error: 'not_found' })
     return true
   }
   if (path.startsWith('/v1/')) {
-    await handleProxy(req, res, path)
+    await handleProxy(req, res, path, ctx.id)
     return true
   }
 
