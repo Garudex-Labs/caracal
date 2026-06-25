@@ -952,6 +952,79 @@ def open_collection_case(run_id: str, agent_id: str, customer_id: str) -> dict[s
                 {"customerId": customer_id})
 
 
+def send_customer_invoice(run_id: str, agent_id: str, invoice_id: str,
+                          channel: str = "email") -> dict[str, object]:
+    """Finalize and deliver a draft customer invoice."""
+    return _run(run_id, agent_id, "send_customer_invoice", "core-billing", "send_invoice",
+                {"invoiceId": invoice_id, "channel": channel})
+
+
+def get_customer_statement(run_id: str, agent_id: str, customer_id: str) -> dict[str, object]:
+    """Produce a statement of account for a customer."""
+    return _run(run_id, agent_id, "get_customer_statement", "core-billing", "get_customer_statement",
+                {"customerId": customer_id})
+
+
+def dispute_customer_invoice(run_id: str, agent_id: str, invoice_id: str,
+                             reason: str) -> dict[str, object]:
+    return _run(run_id, agent_id, "dispute_customer_invoice", "core-billing", "dispute_invoice",
+                {"invoiceId": invoice_id, "reason": reason})
+
+
+def resolve_invoice_dispute(run_id: str, agent_id: str, invoice_id: str, resolution: str,
+                            credit_amount: float | None = None) -> dict[str, object]:
+    """Close a disputed invoice by crediting it down or reinstating the balance."""
+    payload: dict[str, object] = {"invoiceId": invoice_id, "resolution": resolution}
+    if credit_amount is not None:
+        payload["creditAmount"] = credit_amount
+    return _run(run_id, agent_id, "resolve_invoice_dispute", "core-billing", "resolve_dispute",
+                payload)
+
+
+def reverse_customer_payment(run_id: str, agent_id: str, payment_id: str,
+                             reason: str = "nsf") -> dict[str, object]:
+    """Reverse a returned or failed customer payment and restore invoice balances."""
+    return _run(run_id, agent_id, "reverse_customer_payment", "core-billing", "reverse_payment",
+                {"paymentId": payment_id, "reason": reason})
+
+
+def issue_credit_memo(run_id: str, agent_id: str, customer_id: str, amount: float,
+                      reason: str) -> dict[str, object]:
+    return _run(run_id, agent_id, "issue_credit_memo", "core-billing", "issue_credit_memo",
+                {"customerId": customer_id, "amount": amount, "reason": reason})
+
+
+def apply_credit_memo(run_id: str, agent_id: str, credit_memo_id: str,
+                      invoice_id: str) -> dict[str, object]:
+    return _run(run_id, agent_id, "apply_credit_memo", "core-billing", "apply_credit_memo",
+                {"creditMemoId": credit_memo_id, "invoiceId": invoice_id})
+
+
+def list_credit_memos(run_id: str, agent_id: str, customer_id: str | None = None) -> dict[str, object]:
+    payload: dict[str, object] = {}
+    if customer_id:
+        payload["customerId"] = customer_id
+    return _run(run_id, agent_id, "list_credit_memos", "core-billing", "list_credit_memos", payload)
+
+
+def add_collection_note(run_id: str, agent_id: str, case_id: str, note: str,
+                        promise_to_pay_date: str | None = None,
+                        promise_amount: float | None = None) -> dict[str, object]:
+    payload: dict[str, object] = {"caseId": case_id, "note": note}
+    if promise_to_pay_date:
+        payload["promiseToPayDate"] = promise_to_pay_date
+    if promise_amount is not None:
+        payload["promiseAmount"] = promise_amount
+    return _run(run_id, agent_id, "add_collection_note", "core-billing", "add_collection_note",
+                payload)
+
+
+def close_collection_case(run_id: str, agent_id: str, case_id: str,
+                          resolution: str = "paid") -> dict[str, object]:
+    return _run(run_id, agent_id, "close_collection_case", "core-billing", "close_collection_case",
+                {"caseId": case_id, "resolution": resolution})
+
+
 # -- procurement tools (junction-procure) --
 
 def procurement_list_suppliers(run_id: str, agent_id: str, status: str = "active",
@@ -1122,6 +1195,16 @@ def resolve_approver_chain(run_id: str, agent_id: str, user_id: str) -> dict[str
 def check_user_access(run_id: str, agent_id: str, user_id: str) -> dict[str, object]:
     return _run(run_id, agent_id, "check_user_access", "lumen-identity", "get_user_access",
                 {"userId": user_id})
+
+
+def check_segregation_of_duties(run_id: str, agent_id: str, user_id: str) -> dict[str, object]:
+    return _run(run_id, agent_id, "check_segregation_of_duties", "lumen-identity",
+                "check_segregation_of_duties", {"userId": user_id})
+
+
+def list_privileged_users(run_id: str, agent_id: str) -> dict[str, object]:
+    return _run(run_id, agent_id, "list_privileged_users", "lumen-identity",
+                "list_privileged_users", {"pageSize": 100})
 
 
 def list_team_members(run_id: str, agent_id: str, team_id: str) -> dict[str, object]:
@@ -1301,6 +1384,16 @@ TOOLS: dict[str, Callable] = {
     "run_dunning_cycle": run_dunning_cycle,
     "write_off_invoice": write_off_invoice,
     "open_collection_case": open_collection_case,
+    "send_customer_invoice": send_customer_invoice,
+    "get_customer_statement": get_customer_statement,
+    "dispute_customer_invoice": dispute_customer_invoice,
+    "resolve_invoice_dispute": resolve_invoice_dispute,
+    "reverse_customer_payment": reverse_customer_payment,
+    "issue_credit_memo": issue_credit_memo,
+    "apply_credit_memo": apply_credit_memo,
+    "list_credit_memos": list_credit_memos,
+    "add_collection_note": add_collection_note,
+    "close_collection_case": close_collection_case,
     "procurement_list_suppliers": procurement_list_suppliers,
     "procurement_get_supplier": procurement_get_supplier,
     "create_requisition": create_requisition,
@@ -1329,6 +1422,8 @@ TOOLS: dict[str, Callable] = {
     "list_approver_groups": list_approver_groups,
     "resolve_approver_chain": resolve_approver_chain,
     "check_user_access": check_user_access,
+    "check_segregation_of_duties": check_segregation_of_duties,
+    "list_privileged_users": list_privileged_users,
     "list_team_members": list_team_members,
     "get_service_identity": get_service_identity,
     "get_market_snapshot": get_market_snapshot,

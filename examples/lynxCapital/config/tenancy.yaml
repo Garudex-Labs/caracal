@@ -151,7 +151,7 @@ providers:
     integrationView: "compliance-lumen"
     config: {}
     scopes:
-      lumen:read: ["get_user", "lookup_user", "list_users", "get_user_access", "list_direct_reports", "get_manager_chain", "list_roles", "get_role", "list_groups", "get_group", "list_teams", "get_team", "list_departments", "get_department", "list_service_accounts", "get_service_account"]
+      lumen:read: ["get_user", "lookup_user", "list_users", "get_user_access", "get_user_entitlements", "check_segregation_of_duties", "list_direct_reports", "get_manager_chain", "list_roles", "get_role", "list_role_members", "list_privileged_users", "list_groups", "get_group", "list_teams", "get_team", "list_departments", "get_department", "list_service_accounts", "get_service_account"]
   - id: "beacon-crm"
     name: "Beacon CRM"
     kind: "bearer_token"

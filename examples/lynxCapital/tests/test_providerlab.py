@@ -2745,18 +2745,27 @@ def test_lumen_identity_directory_model():
         "userPrincipalName",
         "displayName",
         "status",
+        "accountEnabled",
         "employmentType",
         "jobTitle",
+        "jobLevel",
+        "division",
         "departmentId",
         "teamId",
         "costCenter",
+        "badgeId",
+        "provisioningSource",
         "roleIds",
         "groupIds",
         "mfaEnabled",
+        "mfaMethods",
+        "accessReviewDueDate",
         "hireDate",
+        "startDate",
     ):
         assert field in ceo, f"missing employee field {field}"
     assert ceo["managerId"] is None  # CEO sits at the top of the chart
+    assert ceo["accountEnabled"] is True
 
     # Users are resolvable by username / email, not only by id.
     by_email = idn.post("/api/get_user", json={"userId": ceo["workEmail"]}).json()[

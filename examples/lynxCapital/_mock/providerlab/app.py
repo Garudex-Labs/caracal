@@ -304,6 +304,8 @@ def _install_oauth(app: FastAPI, provider: catalog.Provider) -> None:
             )
             sep = "&" if "?" in form.get("redirect_uri", "") else "?"
             target = f"{form.get('redirect_uri')}{sep}code={code}&state={form.get('state','')}"
+            if provider.realm_id:
+                target = f"{target}&realmId={provider.realm_id}"
             return RedirectResponse(target, status_code=303)
 
     @app.post("/oauth/token")
@@ -438,6 +440,8 @@ def _token_response(issued: dict) -> JSONResponse:
     }
     if "refreshToken" in issued:
         body["refresh_token"] = issued["refreshToken"]
+        if "refreshExpiresAt" in issued:
+            body["x_refresh_token_expires_in"] = max(0, issued["refreshExpiresAt"] - credentials._now())
     return JSONResponse(body)
 
 
