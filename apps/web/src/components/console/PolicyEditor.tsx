@@ -67,12 +67,18 @@ export function PolicyEditorModal({
   const [templates, setTemplates] = useState<PolicyTemplate[] | null>(null);
   const seedRef = useRef("");
 
-  if (open && seedRef.current !== `${open}:${mode}:${policyName ?? ""}`) {
-    seedRef.current = `${open}:${mode}:${policyName ?? ""}`;
+  // Seed on open; clear the seed ref on close so every reopen re-seeds. For "create" the
+  // seed key is otherwise constant, which would carry the previous draft (name, description,
+  // policy content) into the next New — fixed by resetting when the editor closes.
+  const seedKey = `${mode}:${policyName ?? ""}`;
+  if (open && seedRef.current !== seedKey) {
+    seedRef.current = seedKey;
     setName("");
     setDescription("");
     setContent(initialContent ?? (isCreate ? STARTER : ""));
     setValidation({ status: "idle" });
+  } else if (!open && seedRef.current !== "") {
+    seedRef.current = "";
   }
 
   // The canonical data-document starters come from the control plane so the editor

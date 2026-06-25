@@ -23,6 +23,7 @@ import {
   Badge,
   Button,
   ConfirmDialog,
+  IdentityAvatar,
   useToast,
   type Column,
   type FilterGroup,
@@ -224,6 +225,7 @@ function ResourcesPage({ zoneId }: { zoneId: string }) {
           title: (r) => r.name,
           description: (r) => r.identifier,
           width: "max-w-xl",
+          icon: (r) => <IdentityAvatar seed={r.id || r.identifier} size="lg" />,
           render: (r) => (
             <ResourceDetail
               resource={r}

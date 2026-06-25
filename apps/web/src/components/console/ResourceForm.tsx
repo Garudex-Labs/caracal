@@ -60,8 +60,11 @@ export function ResourceFormModal({
   const [operations, setOperations] = useState<OperationRow[]>([]);
   const [touched, setTouched] = useState(false);
 
-  const seedKey = `${open}:${resource?.id ?? "new"}`;
-  const [seedRef, setSeedRef] = useState("");
+  // Seed (or fully reset) the form each time the modal opens, and clear the seed ref on
+  // close so every reopen starts fresh. Without the close-reset, "create" keeps a constant
+  // seed key and would carry the previous entry into the next New.
+  const seedKey = `${resource?.id ?? "new"}:${mode}`;
+  const [seedRef, setSeedRef] = useState<string | null>(null);
   if (open && seedKey !== seedRef) {
     setSeedRef(seedKey);
     setName(resource?.name ?? "");
@@ -73,6 +76,8 @@ export function ResourceFormModal({
     setEnforcement(resource?.operation_enforcement ?? "enforced");
     setOperations((resource?.operations ?? []).map((op) => ({ ...op })));
     setTouched(false);
+  } else if (!open && seedRef !== null) {
+    setSeedRef(null);
   }
 
   const managedApps = useMemo(

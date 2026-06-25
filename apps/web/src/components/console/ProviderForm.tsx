@@ -4,7 +4,7 @@ Caracal, a product of Garudex Labs
 
 This file builds the kind-aware create and edit form for upstream credential providers.
 */
-import { useMemo, useState } from "react";
+import { useState } from "react";
 
 import {
   Button,
@@ -434,17 +434,21 @@ export function ProviderFormModal({
   const [values, setValues] = useState<Values>({});
   const [touched, setTouched] = useState(false);
 
-  // Reset whenever the modal opens for a different target.
-  const seedKey = `${open}:${provider?.id ?? "new"}`;
-  const seeded = useMemo(() => seedKey, [seedKey]);
-  const [seedRef, setSeedRef] = useState("");
-  if (open && seeded !== seedRef) {
-    setSeedRef(seeded);
+  // Seed (or fully reset) the form each time the modal opens. Resetting the seed ref on
+  // close is essential: for "create" the seed key is constant, so without this the previous
+  // entry — including secret fields — would persist into the next New. Clearing on close
+  // guarantees every reopen starts from a clean slate.
+  const seedKey = `${provider?.id ?? "new"}:${mode}`;
+  const [seedRef, setSeedRef] = useState<string | null>(null);
+  if (open && seedKey !== seedRef) {
+    setSeedRef(seedKey);
     setName(provider?.name ?? "");
     setIdentifier(provider?.identifier ?? "");
     setKind(provider?.kind ?? "caracal_mandate");
     setValues(initialValues(provider));
     setTouched(false);
+  } else if (!open && seedRef !== null) {
+    setSeedRef(null);
   }
 
   const fields = FIELDS[kind];
