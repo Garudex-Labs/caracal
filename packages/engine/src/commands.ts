@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Canonical command catalog shared by Caracal runtime, console management, and Control automation surfaces.
+// Canonical command catalog shared by the Caracal runtime CLI and Control automation surfaces.
 
 export type CommandGroup = 'stack' | 'runtime' | 'admin' | 'observability' | 'multiagent'
 
@@ -101,7 +101,6 @@ export const SHELL_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
     requiresConfig: true,
     requiresArgs: true,
   },
-  { name: 'console', group: 'runtime', summary: 'Launch the Caracal Console' },
   {
     name: 'web',
     group: 'runtime',
