@@ -15,8 +15,8 @@ const state = vi.hoisted(() => ({
   statusCommand: vi.fn(),
   upgradeCommand: vi.fn(),
   purgeCommand: vi.fn(),
-  consoleDispatch: vi.fn(),
-  availableInterfaceCommands: vi.fn(() => ['console']),
+  webCommand: vi.fn(),
+  webInterfaceAvailable: vi.fn(() => true),
   checkMcpGovernance: vi.fn(),
 }))
 
@@ -30,7 +30,7 @@ vi.mock('@caracalai/engine/commands', () => ({
     { name: 'upgrade', summary: 'upgrade', group: 'stack' },
     { name: 'purge', summary: 'purge', group: 'runtime' },
     { name: 'run', summary: 'run', group: 'runtime', requiresArgs: true, requiresConfig: true },
-    { name: 'console', summary: 'console', group: 'runtime' },
+    { name: 'web', summary: 'web', group: 'runtime' },
   ],
 }))
 vi.mock('../../../../apps/runtime/src/runtime/version.gen.ts', () => ({
@@ -46,9 +46,9 @@ vi.mock('../../../../apps/runtime/src/commands/stack.ts', () => ({
   upgradeCommand: state.upgradeCommand,
 }))
 vi.mock('../../../../apps/runtime/src/commands/purge.ts', () => ({ purgeCommand: state.purgeCommand }))
-vi.mock('../../../../apps/runtime/src/commands/dispatch.ts', () => ({
-  availableInterfaceCommands: state.availableInterfaceCommands,
-  consoleDispatch: state.consoleDispatch,
+vi.mock('../../../../apps/runtime/src/commands/web.ts', () => ({
+  webCommand: state.webCommand,
+  webInterfaceAvailable: state.webInterfaceAvailable,
 }))
 vi.mock('../../../../apps/runtime/src/mcp.ts', () => ({ checkMcpGovernance: state.checkMcpGovernance }))
 vi.mock('../../../../apps/runtime/src/dispatcher.ts', () => ({ dispatch: state.dispatch }))
@@ -73,7 +73,7 @@ describe('runtime shell entrypoint', () => {
     const opts = await importShell()
 
     expect(state.installCrashHandlers).toHaveBeenCalledWith('caracal')
-    expect(state.availableInterfaceCommands).toHaveBeenCalledOnce()
+    expect(state.webInterfaceAvailable).toHaveBeenCalledOnce()
     expect(state.dispatch).toHaveBeenCalledWith(expect.objectContaining({
       binary: 'caracal',
       version: '0.0.0-test',
@@ -81,15 +81,15 @@ describe('runtime shell entrypoint', () => {
       sha: 'sha-test',
       loadConfig: true,
     }), process.argv.slice(2))
-    expect(opts.registry.byName.has('console')).toBe(true)
+    expect(opts.registry.byName.has('web')).toBe(true)
   })
 
-  it('wires stack, purge, run, and console executors without exposing unavailable interfaces', async () => {
-    state.availableInterfaceCommands.mockReturnValueOnce([])
+  it('wires stack, purge, and run executors without exposing unavailable interfaces', async () => {
+    state.webInterfaceAvailable.mockReturnValueOnce(false)
     const opts = await importShell()
     const cfg = { zone_url: 'https://sts.example.com' } as RuntimeConfig
 
-    expect(opts.registry.byName.has('console')).toBe(false)
+    expect(opts.registry.byName.has('web')).toBe(false)
     await opts.registry.byName.get('up')!.run(['--detach'], cfg)
     await opts.registry.byName.get('down')!.run(['--volumes'], cfg)
     await opts.registry.byName.get('status')!.run(['--json'], cfg)
@@ -109,11 +109,11 @@ describe('runtime shell entrypoint', () => {
 
     await opts.registry.byName.get('run')!.run([], undefined)
     await opts.registry.byName.get('run')!.run(['python', 'tool.py'], undefined)
-    await opts.registry.byName.get('console')!.run(['zones'])
+    await opts.registry.byName.get('web')!.run(['--allow-offline'])
 
     expect(state.checkMcpGovernance).not.toHaveBeenCalled()
     expect(state.runCommand).toHaveBeenCalledWith([], undefined)
     expect(state.runCommand).toHaveBeenCalledWith(['python', 'tool.py'], undefined)
-    expect(state.consoleDispatch).toHaveBeenCalledWith(['zones'])
+    expect(state.webCommand).toHaveBeenCalledWith(['--allow-offline'])
   })
 })

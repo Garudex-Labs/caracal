@@ -87,10 +87,10 @@ describe('dispatch', () => {
     const executors = Object.fromEntries(SHELL_COMMANDS.map((c) => [c.name, vi.fn() as Executor]))
     const registry = buildRegistry(SHELL_COMMANDS, executors)
     await expect(
-      dispatch({ binary: 'caracal console', version: '0.0.0', mode: 'dev', registry }, ['--help']),
+      dispatch({ binary: 'caracal web', version: '0.0.0', mode: 'dev', registry }, ['--help']),
     ).rejects.toThrow('exit:0')
     const out = stdout.mock.calls.map((c) => String(c[0])).join('')
-    expect(out).toContain('Usage: caracal console')
+    expect(out).toContain('Usage: caracal web')
   })
 
   it('keeps runtime help limited to visible commands and global options', async () => {    exitSpy()
@@ -98,7 +98,7 @@ describe('dispatch', () => {
     const executors = Object.fromEntries(MANAGEMENT_COMMANDS.map((c) => [c.name, vi.fn() as Executor]))
     const registry = buildRegistry(MANAGEMENT_COMMANDS, executors)
     await expect(
-      dispatch({ binary: 'caracal-console', version: '0.0.0', mode: 'dev', registry }, ['--help']),
+      dispatch({ binary: 'caracal', version: '0.0.0', mode: 'dev', registry }, ['--help']),
     ).rejects.toThrow('exit:0')
     const out = stdout.mock.calls.map((c) => String(c[0])).join('')
     expect(out).toContain('zone')

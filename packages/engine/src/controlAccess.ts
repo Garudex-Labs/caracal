@@ -10,9 +10,6 @@ import { installedHome, managedSecretDirs } from '@caracalai/core'
 
 export interface ControlManagementAccessOptions {
   env?: NodeJS.ProcessEnv
-  stdinIsTTY?: boolean
-  stdoutIsTTY?: boolean
-  requireTty?: boolean
 }
 
 interface ControlTokenSource {
@@ -54,14 +51,6 @@ function tokenMatches(left: string, right: string): boolean {
 
 export function authorizeControlManagementAccess(opts: ControlManagementAccessOptions = {}): void {
   const env = opts.env ?? process.env
-  const requireTty = opts.requireTty ?? true
-  if (requireTty) {
-    const stdinIsTTY = opts.stdinIsTTY ?? process.stdin.isTTY === true
-    const stdoutIsTTY = opts.stdoutIsTTY ?? process.stdout.isTTY === true
-    if (!stdinIsTTY || !stdoutIsTTY) {
-      throw new Error('Control management requires an authenticated interactive Console session.')
-    }
-  }
   const local = managedTokenSources(env)[0]
   if (!local) {
     throw new Error(

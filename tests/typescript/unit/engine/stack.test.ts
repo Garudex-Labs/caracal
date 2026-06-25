@@ -118,13 +118,11 @@ describe('stack cleanup helpers', () => {
     const install = mkdtempSync(join(tmpdir(), 'caracal-bin-install-'))
     const extra = mkdtempSync(join(tmpdir(), 'caracal-bin-extra-'))
     writeFileSync(join(install, 'caracal'), '')
-    writeFileSync(join(extra, 'caracal-console'), '')
     writeFileSync(join(extra, 'caracal-web'), '')
     const events: string[] = []
 
     expect(caracalBinaries(install, [extra])).toEqual([
       join(install, 'caracal'),
-      join(extra, 'caracal-console'),
       join(extra, 'caracal-web'),
     ])
 
