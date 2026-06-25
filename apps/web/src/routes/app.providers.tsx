@@ -362,6 +362,7 @@ function ProviderDetail({
   onDelete: () => void;
   zoneId: string;
 }) {
+  const toast = useToast();
   const secretKeys = new Set(provider.secret_config_keys);
   const configEntries = Object.entries(provider.config_json ?? {}).filter(
     ([key]) => !secretKeys.has(key as never),
@@ -372,9 +373,21 @@ function ProviderDetail({
     <div className="flex flex-col gap-6">
       <DetailHeader
         action={
-          <Button variant="secondary" size="sm" onClick={onEdit}>
-            Edit
-          </Button>
+          <>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                void navigator.clipboard?.writeText(JSON.stringify(provider, null, 2));
+                toast({ tone: "success", title: "Provider JSON copied" });
+              }}
+            >
+              Copy JSON
+            </Button>
+            <Button variant="secondary" size="sm" onClick={onEdit}>
+              Edit
+            </Button>
+          </>
         }
       >
         <Badge tone="neutral">{KIND_LABEL[provider.kind]}</Badge>
@@ -389,6 +402,9 @@ function ProviderDetail({
         <DetailField label="Name">{provider.name}</DetailField>
         <DetailField label="Identifier">
           <CopyValue value={provider.identifier} />
+        </DetailField>
+        <DetailField label="Provider ID">
+          <CopyValue value={provider.id} />
         </DetailField>
         <DetailField label="Type">{KIND_LABEL[provider.kind]}</DetailField>
         <DetailField label="Created">{new Date(provider.created_at).toLocaleString()}</DetailField>

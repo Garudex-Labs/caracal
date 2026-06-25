@@ -8,9 +8,9 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 
 import {
+  CopyValue,
   DetailField,
   DetailGroup,
-  Mono,
   ResourceWorkspace,
 } from "@/components/console/ResourceWorkspace";
 import { ZoneScopedPage } from "@/components/console/ZoneScope";
@@ -108,6 +108,7 @@ function SessionsPage({ zoneId, initialSubject }: { zoneId: string; initialSubje
     {
       id: "subject",
       header: "Subject",
+      sortable: true,
       cell: (s) => (
         <div>
           <div className="font-mono text-xs text-foreground">{s.subject_id}</div>
@@ -148,6 +149,7 @@ function SessionsPage({ zoneId, initialSubject }: { zoneId: string; initialSubje
       id: "expires",
       header: "Expires",
       align: "right",
+      sortable: true,
       cell: (s) => {
         const eff = effectiveStatus(s, now);
         const lapsed = eff !== "active" && Date.parse(s.expires_at) <= now;
@@ -192,10 +194,12 @@ function SessionsPage({ zoneId, initialSubject }: { zoneId: string; initialSubje
         match: (s, q) =>
           s.subject_id.toLowerCase().includes(q) || s.session_type.toLowerCase().includes(q),
       }}
-      sortOptions={[
-        { id: "recent", label: "Most recent" },
-        { id: "subject", label: "Subject" },
-      ]}
+      initialSort={{ column: "authenticated", direction: "desc" }}
+      sortValues={{
+        subject: (s) => s.subject_id.toLowerCase(),
+        authenticated: (s) => Date.parse(s.authenticated_at) || 0,
+        expires: (s) => Date.parse(s.expires_at) || 0,
+      }}
       empty={{
         title: feed.isError ? "Could not load sessions" : "No sessions",
         description: feed.isError
@@ -271,6 +275,26 @@ function SessionFilterBar({
   );
 }
 
+// Copies the raw session object operators would otherwise be unable to extract from the
+// structured panel, preserving the full backend record (including zone_id) for debugging
+// and sharing.
+function CopyJsonButton({ session }: { session: Session }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <Button
+      variant="secondary"
+      size="sm"
+      onClick={() => {
+        void navigator.clipboard?.writeText(JSON.stringify(session, null, 2));
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1200);
+      }}
+    >
+      {copied ? "Copied" : "Copy JSON"}
+    </Button>
+  );
+}
+
 function SessionDetail({ session }: { session: Session }) {
   const now = Date.now();
   const eff = effectiveStatus(session, now);
@@ -278,24 +302,27 @@ function SessionDetail({ session }: { session: Session }) {
 
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex items-center gap-2">
-        <Badge tone={statusTone(eff)}>{eff}</Badge>
-        <Badge tone="neutral">{session.session_type}</Badge>
-        {stale ? <Badge tone="warning">awaiting reap</Badge> : null}
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Badge tone={statusTone(eff)}>{eff}</Badge>
+          <Badge tone="neutral">{session.session_type}</Badge>
+          {stale ? <Badge tone="warning">awaiting reap</Badge> : null}
+        </div>
+        <CopyJsonButton session={session} />
       </div>
 
       <AuthoritySummary session={session} effective={eff} stale={stale} now={now} />
 
       <DetailGroup title="Session">
         <DetailField label="Session ID">
-          <Mono>{session.id}</Mono>
+          <CopyValue value={session.id} />
         </DetailField>
         <DetailField label="Subject ID">
-          <Mono>{session.subject_id}</Mono>
+          <CopyValue value={session.subject_id} />
         </DetailField>
         {session.parent_id ? (
           <DetailField label="Parent">
-            <Mono>{session.parent_id}</Mono>
+            <CopyValue value={session.parent_id} />
           </DetailField>
         ) : null}
       </DetailGroup>
