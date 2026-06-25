@@ -18,7 +18,16 @@ import {
 } from "@/components/console/ResourceWorkspace";
 import type { FilterGroup } from "@/components/ui";
 import { ZoneScopedPage } from "@/components/console/ZoneScope";
-import { Badge, Button, ConfirmDialog, Field, Modal, useToast, type Column } from "@/components/ui";
+import {
+  Badge,
+  Button,
+  ConfirmDialog,
+  Field,
+  IdentityAvatar,
+  Modal,
+  useToast,
+  type Column,
+} from "@/components/ui";
 import { ConsoleApiError } from "@/platform/api/client";
 import {
   useApplications,
@@ -169,9 +178,7 @@ function ApplicationsPage({ zoneId, zoneName }: { zoneId: string; zoneName: stri
       truncate: true,
       cell: (app) => (
         <div className="flex items-center gap-3">
-          <span className="grid h-8 w-8 flex-shrink-0 place-items-center rounded-md bg-muted text-xs font-semibold text-muted-foreground">
-            {app.name.slice(0, 2).toUpperCase()}
-          </span>
+          <IdentityAvatar seed={app.id || app.name} />
           <div className="min-w-0">
             <div className="truncate font-medium text-foreground">{app.name}</div>
             <div className="truncate font-mono text-xs text-muted-foreground">{app.id}</div>

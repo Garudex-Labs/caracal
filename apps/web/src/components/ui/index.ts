@@ -16,6 +16,7 @@ export * from "./Pagination";
 export * from "./DataTable";
 export * from "./AvatarPicker";
 export * from "./Disclosure";
+export * from "./IdentityAvatar";
 export * from "./neon-dither";
 export * from "./FilterMenu";
 export * from "./InfoHint";
