@@ -161,7 +161,12 @@ function evaluateSTS(value: unknown): MetricEvaluation {
   const maxPolicyAge = nestedNumber(value, ['opa', 'max_policy_age_seconds'])
   const detail = `opa compile_errors=${compileErrors ?? '-'} eval_errors=${evalErrors ?? '-'} max_policy_age_seconds=${maxPolicyAge ?? '-'}`
   if ((compileErrors ?? 0) > 0) {
-    return { detail, status: 'fail', advice: 'STS cannot compile a policy bundle; token exchanges may deny or run on a stale bundle. Inspect the active policy set version and STS logs.' }
+    return {
+      detail,
+      status: 'fail',
+      advice:
+        'STS cannot compile a policy bundle; token exchanges may deny or run on a stale bundle. Inspect the active policy set version and STS logs.',
+    }
   }
   if ((evalErrors ?? 0) > 0) {
     return { detail, status: 'warn', advice: 'STS reported policy evaluation errors; review recent policy changes and STS logs.' }
@@ -184,16 +189,33 @@ function evaluateAudit(value: unknown): MetricEvaluation {
   const hmacFailures = nestedNumber(value, ['hmac_failures_total'])
   const detail = `consumer_lag=${lag ?? '-'} dlq_size=${dlq ?? '-'} tamper_mismatch_total=${tamperMismatch ?? '-'} chain_breaks=${chainBreaks ?? '-'} hmac_failures=${hmacFailures ?? '-'}`
   if ((tamperMismatch ?? 0) > 0 || (chainBreaks ?? 0) > 0) {
-    return { detail, status: 'fail', advice: 'Audit chain integrity failure detected (tamper mismatch or chain break). Treat as a security incident: preserve evidence and investigate audit writers and key consistency.' }
+    return {
+      detail,
+      status: 'fail',
+      advice:
+        'Audit chain integrity failure detected (tamper mismatch or chain break). Treat as a security incident: preserve evidence and investigate audit writers and key consistency.',
+    }
   }
   if ((hmacFailures ?? 0) > 0) {
-    return { detail, status: 'warn', advice: 'Audit HMAC verification failures detected; verify AUDIT_HMAC_KEY is identical across every audit writer.' }
+    return {
+      detail,
+      status: 'warn',
+      advice: 'Audit HMAC verification failures detected; verify AUDIT_HMAC_KEY is identical across every audit writer.',
+    }
   }
   if ((dlq ?? 0) > 0) {
-    return { detail, status: 'warn', advice: 'Audit events are landing in the dead-letter queue; inspect parse or processing failures before they age out.' }
+    return {
+      detail,
+      status: 'warn',
+      advice: 'Audit events are landing in the dead-letter queue; inspect parse or processing failures before they age out.',
+    }
   }
   if ((lag ?? 0) > AUDIT_LAG_WARN) {
-    return { detail, status: 'warn', advice: 'Audit consumer is lagging; recorded events may be delayed. Check audit consumer throughput and stream backlog.' }
+    return {
+      detail,
+      status: 'warn',
+      advice: 'Audit consumer is lagging; recorded events may be delayed. Check audit consumer throughput and stream backlog.',
+    }
   }
   return { detail, status: 'ok' }
 }
@@ -204,10 +226,18 @@ function evaluateCoordinator(value: unknown): MetricEvaluation {
   const invocationsRunning = nestedNumber(value, ['invocations', 'running'])
   const detail = `outbox_pending=${outboxPending ?? '-'} outbox_dead=${outboxDead ?? '-'} invocations_running=${invocationsRunning ?? '-'}`
   if ((outboxDead ?? 0) > 0) {
-    return { detail, status: 'warn', advice: 'Coordinator outbox has dead rows; spawn or revocation events failed delivery. Inspect and requeue the dead outbox rows.' }
+    return {
+      detail,
+      status: 'warn',
+      advice: 'Coordinator outbox has dead rows; spawn or revocation events failed delivery. Inspect and requeue the dead outbox rows.',
+    }
   }
   if ((outboxPending ?? 0) > OUTBOX_PENDING_WARN) {
-    return { detail, status: 'warn', advice: 'Coordinator outbox backlog is high; downstream propagation may be delayed. Confirm the outbox processor is running.' }
+    return {
+      detail,
+      status: 'warn',
+      advice: 'Coordinator outbox backlog is high; downstream propagation may be delayed. Confirm the outbox processor is running.',
+    }
   }
   return { detail, status: 'ok' }
 }
@@ -354,12 +384,7 @@ async function runServiceChecks(checks: DoctorCheck[], apiUrl: string): Promise<
     )
     if (target.metricsPath) {
       const headers = target.name === 'coordinator' ? coordinatorTokenHeaders() : metricsBearerHeaders()
-      await runProtectedMetrics(
-        checks,
-        target,
-        headers,
-        `Confirm ${target.name} exposes operator metrics on ${target.metricsPath}.`,
-      )
+      await runProtectedMetrics(checks, target, headers, `Confirm ${target.name} exposes operator metrics on ${target.metricsPath}.`)
     }
   }
 }
@@ -440,19 +465,37 @@ async function runZoneChecks(checks: DoctorCheck[], ctx: AdminContext, zoneId: s
   )
   if (zoneCheck.status !== 'ok') return
 
-  await runCheck(checks, 'zones', `${zoneId} resources`, async () => {
-    const rows = await ctx.client.resources.list(zoneId)
-    return rows.length === 0 ? 'none registered' : `${rows.length} registered`
-  }, 'Check the resource API and database state for the selected zone.')
-  await runCheck(checks, 'zones', `${zoneId} policy sets`, async () => {
-    const rows = await ctx.client.policySets.list(zoneId)
-    const active = rows.filter((row) => row.active_version_id).length
-    return active === 0 ? `${rows.length} registered; none active` : `${active} active`
-  }, 'Inspect policy-set activation state for the selected zone.')
-  await runCheck(checks, 'zones', `${zoneId} audit query`, async () => {
-    await ctx.client.audit.list(zoneId, { limit: 1 })
-    return 'queryable'
-  }, 'Inspect audit service and storage connectivity for the selected zone.')
+  await runCheck(
+    checks,
+    'zones',
+    `${zoneId} resources`,
+    async () => {
+      const rows = await ctx.client.resources.list(zoneId)
+      return rows.length === 0 ? 'none registered' : `${rows.length} registered`
+    },
+    'Check the resource API and database state for the selected zone.',
+  )
+  await runCheck(
+    checks,
+    'zones',
+    `${zoneId} policy sets`,
+    async () => {
+      const rows = await ctx.client.policySets.list(zoneId)
+      const active = rows.filter((row) => row.active_version_id).length
+      return active === 0 ? `${rows.length} registered; none active` : `${active} active`
+    },
+    'Inspect policy-set activation state for the selected zone.',
+  )
+  await runCheck(
+    checks,
+    'zones',
+    `${zoneId} audit query`,
+    async () => {
+      await ctx.client.audit.list(zoneId, { limit: 1 })
+      return 'queryable'
+    },
+    'Inspect audit service and storage connectivity for the selected zone.',
+  )
 }
 
 async function runClockSkewCheck(checks: DoctorCheck[], apiUrl: string): Promise<void> {
@@ -488,7 +531,8 @@ async function runClockSkewCheck(checks: DoctorCheck[], apiUrl: string): Promise
         check: 'clock skew',
         status: 'fail',
         detail,
-        advice: 'Operator clock differs from the platform by more than 30s; token iat/nbf/exp validation and audit ordering will break. Sync the host clock with NTP.',
+        advice:
+          'Operator clock differs from the platform by more than 30s; token iat/nbf/exp validation and audit ordering will break. Sync the host clock with NTP.',
       })
       return
     }

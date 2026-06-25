@@ -37,7 +37,7 @@ export interface StackComposeHandle {
 }
 
 function composeArgv(paths: StackPaths, args: string[]): string[] {
-  const envFlags = paths.envFiles.flatMap((f) => existsSync(f) ? ['--env-file', f] : [])
+  const envFlags = paths.envFiles.flatMap((f) => (existsSync(f) ? ['--env-file', f] : []))
   return ['docker', 'compose', ...envFlags, '-f', paths.composeFile, ...args]
 }
 
@@ -46,9 +46,8 @@ export function stackUp(opts: StackComposeOpts): StackComposeHandle {
   // source exists and is owned by the invoking user. Without this the Docker
   // daemon creates it as root, leaving the local operator unable to write the gate file.
   ensureControlGateDir(opts.paths.cwd)
-  const args = opts.paths.mode === 'dev'
-    ? ['up', '-d', '--build', '--remove-orphans', ...opts.args]
-    : ['up', '-d', '--remove-orphans', ...opts.args]
+  const args =
+    opts.paths.mode === 'dev' ? ['up', '-d', '--build', '--remove-orphans', ...opts.args] : ['up', '-d', '--remove-orphans', ...opts.args]
   const handle = runExec({
     argv: composeArgv(opts.paths, args),
     env: opts.env,
@@ -208,7 +207,10 @@ export interface ControlLifecycleResult {
   summary: string
 }
 
-function controlLifecycleText(action: ControlLifecycleAction, state: ControlLifecycleState): Pick<ControlLifecycleResult, 'lifecycle' | 'optimization' | 'summary'> {
+function controlLifecycleText(
+  action: ControlLifecycleAction,
+  state: ControlLifecycleState,
+): Pick<ControlLifecycleResult, 'lifecycle' | 'optimization' | 'summary'> {
   if (state === 'enabled') {
     return {
       lifecycle: 'enabled',
@@ -316,11 +318,7 @@ export async function controlServiceStatus(opts: ControlServiceStatusOpts = {}):
   return controlStatus('enabled', probe?.ok ? 'ok' : 'down', probe?.detail ?? 'unreachable', settings, opts.home)
 }
 
-const CARACAL_IMAGE_PREFIXES = [
-  'caracal/',
-  'localhost/caracal-',
-  'ghcr.io/garudex-labs/caracal-',
-] as const
+const CARACAL_IMAGE_PREFIXES = ['caracal/', 'localhost/caracal-', 'ghcr.io/garudex-labs/caracal-'] as const
 
 export function listCaracalImages(): string[] {
   const out = spawnSync('docker', ['images', '--format', '{{.Repository}}:{{.Tag}}'], { encoding: 'utf8' })
@@ -331,10 +329,7 @@ export function listCaracalImages(): string[] {
     .filter((s) => s.length > 0 && CARACAL_IMAGE_PREFIXES.some((p) => s.startsWith(p)))
 }
 
-export function removeImages(
-  images: string[],
-  onLine?: (line: string, stream: 'stdout' | 'stderr') => void,
-): Promise<number> {
+export function removeImages(images: string[], onLine?: (line: string, stream: 'stdout' | 'stderr') => void): Promise<number> {
   const handle = runExec({
     argv: ['docker', 'image', 'rm', '-f', ...images],
     onLine,

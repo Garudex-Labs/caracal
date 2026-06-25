@@ -206,7 +206,12 @@ function checkTLS(): PreflightCheck[] {
   return [{ check: 'TLS cert', status: 'ok', detail: `${x509.subject}; ${daysLeft} day(s) until expiry` }]
 }
 
-async function tcpProbe(name: string, host: string, port: number, hello?: { send: Buffer; expectPrefix?: Buffer; expectContains?: Buffer }): Promise<PreflightCheck> {
+async function tcpProbe(
+  name: string,
+  host: string,
+  port: number,
+  hello?: { send: Buffer; expectPrefix?: Buffer; expectContains?: Buffer },
+): Promise<PreflightCheck> {
   return new Promise((resolve) => {
     const socket = connect({ host, port, timeout: TCP_TIMEOUT_MS })
     let settled = false
@@ -232,7 +237,8 @@ async function tcpProbe(name: string, host: string, port: number, hello?: { send
         finish({ check: name, status: 'ok', detail: `${host}:${port} responded` })
       } else {
         const text = received.toString('utf8')
-        if (text.startsWith('-')) finish({ check: name, status: 'fail', detail: `${host}:${port} unexpected response: ${text.slice(0, 60)}` })
+        if (text.startsWith('-'))
+          finish({ check: name, status: 'fail', detail: `${host}:${port} unexpected response: ${text.slice(0, 60)}` })
       }
     })
   })

@@ -31,39 +31,41 @@ const BLOCKED_CREDENTIAL_ENV = new Set([
   'DYLD_LIBRARY_PATH',
 ])
 
-const INHERITED_ENV_KEYS = new Set([
-  'PATH',
-  'HOME',
-  'USER',
-  'LOGNAME',
-  'SHELL',
-  'TMPDIR',
-  'TEMP',
-  'TMP',
-  'LANG',
-  'LC_ALL',
-  'LC_CTYPE',
-  'TERM',
-  'COLORTERM',
-  'NO_COLOR',
-  'FORCE_COLOR',
-  'CI',
-  'XDG_RUNTIME_DIR',
-  'XDG_CONFIG_HOME',
-  'XDG_CACHE_HOME',
-  'XDG_DATA_HOME',
-  'USERPROFILE',
-  'HOMEDRIVE',
-  'HOMEPATH',
-  'APPDATA',
-  'LOCALAPPDATA',
-  'PROGRAMDATA',
-  'PROGRAMFILES',
-  'PROGRAMFILES(X86)',
-  'SYSTEMROOT',
-  'WINDIR',
-  'COMSPEC',
-].map((key) => key.toUpperCase()))
+const INHERITED_ENV_KEYS = new Set(
+  [
+    'PATH',
+    'HOME',
+    'USER',
+    'LOGNAME',
+    'SHELL',
+    'TMPDIR',
+    'TEMP',
+    'TMP',
+    'LANG',
+    'LC_ALL',
+    'LC_CTYPE',
+    'TERM',
+    'COLORTERM',
+    'NO_COLOR',
+    'FORCE_COLOR',
+    'CI',
+    'XDG_RUNTIME_DIR',
+    'XDG_CONFIG_HOME',
+    'XDG_CACHE_HOME',
+    'XDG_DATA_HOME',
+    'USERPROFILE',
+    'HOMEDRIVE',
+    'HOMEPATH',
+    'APPDATA',
+    'LOCALAPPDATA',
+    'PROGRAMDATA',
+    'PROGRAMFILES',
+    'PROGRAMFILES(X86)',
+    'SYSTEMROOT',
+    'WINDIR',
+    'COMSPEC',
+  ].map((key) => key.toUpperCase()),
+)
 
 export type RunLineSink = (line: string, stream: 'stdout' | 'stderr') => void
 
@@ -273,7 +275,11 @@ export function runExec(opts: RunExecOpts): RunExecHandle {
     const forward: NodeJS.Signals[] = ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGQUIT']
     signalHandlers = forward.map((sig) => {
       const h = (): void => {
-        try { child.kill(sig) } catch { /* already exited */ }
+        try {
+          child.kill(sig)
+        } catch {
+          /* already exited */
+        }
       }
       process.on(sig, h)
       return [sig, h] as const
@@ -285,7 +291,11 @@ export function runExec(opts: RunExecOpts): RunExecHandle {
     if (disposed) return
     disposed = true
     for (const [sig, h] of signalHandlers) process.off(sig, h)
-    try { child.kill('SIGTERM') } catch { /* already exited */ }
+    try {
+      child.kill('SIGTERM')
+    } catch {
+      /* already exited */
+    }
   }
 
   const exitCode = new Promise<number>((resolve) => {
