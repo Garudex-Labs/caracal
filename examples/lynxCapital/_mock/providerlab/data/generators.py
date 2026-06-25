@@ -8246,7 +8246,7 @@ def _vela_suppressions(seed: str) -> dict[str, dict]:
 
 def _vela_webhooks(seed: str) -> dict[str, dict]:
     """Registered webhook endpoints that receive delivery, bounce, and complaint
-    callbacks, with a short delivery-attempt history."""
+    callbacks, with per-event triggers and a short delivery-attempt history."""
     out: dict[str, dict] = {}
     plan = (
         (
@@ -8275,6 +8275,7 @@ def _vela_webhooks(seed: str) -> dict[str, dict]:
                     "event": rng.choice(evts),
                     "responseStatus": status,
                     "succeeded": status == 200,
+                    "attempt": d + 1,
                     "occurredAt": ddt,
                 }
             )
@@ -8283,7 +8284,12 @@ def _vela_webhooks(seed: str) -> dict[str, dict]:
             "url": url,
             "messageStream": stream,
             "events": evts,
+            "triggers": {e: {"enabled": True} for e in evts},
             "enabled": enabled,
+            "httpAuth": None,
+            "httpHeaders": [
+                {"name": "X-Lynx-Source", "value": "vela-notify"},
+            ],
             "secret": f"whsec_{rng.getrandbits(80):020x}",
             "createdAt": _instant(rng, 60, 120),
             "deliveries": deliveries,
@@ -8292,12 +8298,14 @@ def _vela_webhooks(seed: str) -> dict[str, dict]:
 
 
 def vela_dataset(seed: str) -> dict[str, dict]:
-    """Seed Vela Notify with its template catalogue, a roll of messages spanning the
-    delivery lifecycle, their event timelines, a suppression list, and webhooks."""
+    """Seed Vela Notify with its template catalogue, message streams, a roll of
+    messages spanning the delivery lifecycle, their event timelines, a suppression
+    list, and webhooks."""
     templates = _vela_templates(seed)
     messages, events = _vela_messages(seed, templates)
     return {
         "templates": templates,
+        "message_streams": _vela_message_streams(seed),
         "messages": messages,
         "events": events,
         "suppressions": _vela_suppressions(seed),

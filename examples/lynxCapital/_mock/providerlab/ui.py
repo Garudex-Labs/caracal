@@ -421,7 +421,9 @@ def _auth_summary(provider: catalog.Provider) -> str:
         loc = "query parameter" if provider.apikey_location == "query" else "header"
         return f"Send the API key in the <code>{_esc(provider.apikey_field)}</code> {loc}."
     if catalog.bearer_auth(provider):
-        return f"Send the static token as <code>{_esc(provider.auth_header)}: {_esc(provider.auth_scheme)} &lt;token&gt;</code>."
+        if provider.auth_scheme:
+            return f"Send the static token as <code>{_esc(provider.auth_header)}: {_esc(provider.auth_scheme)} &lt;token&gt;</code>."
+        return f"Send the static token in the <code>{_esc(provider.auth_header)}</code> header."
     if c == "oauth2_client_credentials":
         return (f"Exchange client credentials at <code>POST /oauth/token</code> "
                 f"(grant_type=client_credentials, {_esc(provider.client_auth_method)}), then call with the access token.")

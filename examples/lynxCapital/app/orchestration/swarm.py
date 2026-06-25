@@ -602,7 +602,7 @@ def _build_regional_domain_tools(run_id, runner, parent, region, board):
         Use for third-party services beyond the core flow: meridian-pay/quetzal-payouts/halcyon-bank
         (payments, payouts, open banking), inkwell-ocr (document extraction), slate-ledger (journals),
         vela-notify (transactional email/SMS, templates, delivery tracking, suppressions, webhooks), cordoba-fx (fx quotes/conversions/settlement payments), ironbark-erp (NetSuite-style vendors/purchase-orders/item-receipts/bills/payments/AP-aging/ledger)/tallyhall-books (vendors/bills),
-        beacon-crm (CRM accounts/contacts/deal pipeline/activities), core-billing (internal AR: customers/invoices/payments/dunning/collections/aging), lumen-identity (directory),
+        beacon-crm (CRM accounts/contacts/deal pipeline/owners/activities), core-billing (internal AR: customers/invoices/payments/dunning/collections/aging), lumen-identity (directory),
         atlas-vendor (vendor MDM/onboarding/verification/compliance over MCP: search/list/update vendors, register and progress onboarding, screen KYB/sanctions, verify banking, review documents, audit change history, contracts),
         sabre-tax, pulse-market (market data: instruments, quotes, OHLC bars, conversions, top movers, end-of-day reference fixings, streaming subscriptions), junction-procure (procure-to-pay: suppliers, commodity catalog, cost-center budgets, tiered requisition approvals, purchase orders, goods receipts),
         relay-automation, aegis-screening, and verafin-monitor.
@@ -1737,6 +1737,45 @@ def _build_workflow_domain_tools(run_id, runner, parent, workflow_id, board):
             _finish(w, {"deal_id": deal_id})
 
     @tool
+    def create_supplier_deal(account_id: str, title: str, amount: float,
+                             deal_type: str = "renewal") -> str:
+        """Open a new CRM deal on a supplier account (deal_type: new_business, renewal, upsell, expansion)."""
+        w = _worker("vendor-lifecycle", f"crm-deal-new:{account_id}")
+        try:
+            return json.dumps(
+                tool_fns.create_supplier_deal(run_id, w.id, account_id, title, amount, deal_type)
+            )
+        finally:
+            _finish(w, {"account_id": account_id})
+
+    @tool
+    def list_crm_pipeline() -> str:
+        """List the CRM sales pipeline and its ordered stages with win probabilities."""
+        w = _worker("vendor-lifecycle", "crm-pipeline")
+        try:
+            return json.dumps(tool_fns.list_crm_pipeline(run_id, w.id))
+        finally:
+            _finish(w, {"scope": "pipeline"})
+
+    @tool
+    def list_crm_owners(team: str = "") -> str:
+        """List active CRM owners (sales users), optionally filtered by team."""
+        w = _worker("vendor-lifecycle", f"crm-owners:{team or 'all'}")
+        try:
+            return json.dumps(tool_fns.list_crm_owners(run_id, w.id, team or None))
+        finally:
+            _finish(w, {"team": team})
+
+    @tool
+    def get_crm_owner(owner_id: str) -> str:
+        """Resolve a CRM owner (account/deal owner) to their name, role, and team."""
+        w = _worker("vendor-lifecycle", f"crm-owner:{owner_id}")
+        try:
+            return json.dumps(tool_fns.get_crm_owner(run_id, w.id, owner_id))
+        finally:
+            _finish(w, {"owner_id": owner_id})
+
+    @tool
     def log_supplier_activity(contact_id: str, activity_type: str) -> str:
         """Record a supplier interaction (call, email, meeting, note, task) against a CRM contact."""
         w = _worker("vendor-lifecycle", f"crm-log:{contact_id}")
@@ -1920,6 +1959,10 @@ def _build_workflow_domain_tools(run_id, runner, parent, workflow_id, board):
         list_supplier_contacts,
         list_supplier_deals,
         advance_supplier_deal,
+        create_supplier_deal,
+        list_crm_pipeline,
+        list_crm_owners,
+        get_crm_owner,
         log_supplier_activity,
         add_supplier_note,
         list_approver_groups,

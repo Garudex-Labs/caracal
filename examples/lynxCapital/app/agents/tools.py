@@ -1069,6 +1069,29 @@ def advance_supplier_deal(run_id: str, agent_id: str, deal_id: str, stage: str) 
                 {"dealId": deal_id, "stage": stage})
 
 
+def create_supplier_deal(run_id: str, agent_id: str, account_id: str, title: str,
+                         amount: float, deal_type: str = "renewal") -> dict[str, object]:
+    return _run(run_id, agent_id, "create_supplier_deal", "beacon-crm", "create_deal",
+                {"accountId": account_id, "title": title, "amount": amount,
+                 "dealType": deal_type})
+
+
+def list_crm_pipeline(run_id: str, agent_id: str) -> dict[str, object]:
+    return _run(run_id, agent_id, "list_crm_pipeline", "beacon-crm", "list_pipelines", {})
+
+
+def get_crm_owner(run_id: str, agent_id: str, owner_id: str) -> dict[str, object]:
+    return _run(run_id, agent_id, "get_crm_owner", "beacon-crm", "get_owner",
+                {"ownerId": owner_id})
+
+
+def list_crm_owners(run_id: str, agent_id: str, team: str | None = None) -> dict[str, object]:
+    payload: dict[str, object] = {"active": True}
+    if team:
+        payload["team"] = team
+    return _run(run_id, agent_id, "list_crm_owners", "beacon-crm", "list_owners", payload)
+
+
 def log_supplier_activity(run_id: str, agent_id: str, contact_id: str, activity_type: str) -> dict[str, object]:
     return _run(run_id, agent_id, "log_supplier_activity", "beacon-crm", "log_activity",
                 {"contactId": contact_id, "type": activity_type})
@@ -1296,6 +1319,10 @@ TOOLS: dict[str, Callable] = {
     "get_supplier_account": get_supplier_account,
     "list_supplier_deals": list_supplier_deals,
     "advance_supplier_deal": advance_supplier_deal,
+    "create_supplier_deal": create_supplier_deal,
+    "list_crm_pipeline": list_crm_pipeline,
+    "get_crm_owner": get_crm_owner,
+    "list_crm_owners": list_crm_owners,
     "log_supplier_activity": log_supplier_activity,
     "add_supplier_note": add_supplier_note,
     "resolve_user": resolve_user,
