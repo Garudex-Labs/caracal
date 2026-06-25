@@ -65,7 +65,7 @@ ROLES: dict[str, RoleDef] = {
     "route-optimization": RoleDef(
         name="route-optimization",
         scope_template="route:{subject}",
-        allowed_tools=("get_fx_rate", "get_withholding_rate", "get_market_snapshot", "get_reference_rate", "convert_currency", "get_market_movers"),
+        allowed_tools=("get_fx_rate", "get_withholding_rate", "get_market_snapshot", "get_reference_rate", "convert_market_amount", "get_market_movers"),
         emits=WORKER_EMITS,
     ),
     "payment-execution": RoleDef(
@@ -117,7 +117,8 @@ ROLES: dict[str, RoleDef] = {
         scope_template="treasury:{subject}",
         allowed_tools=(
             "get_cash_position", "get_treasury_summary", "forecast_liquidity",
-            "get_fx_exposure", "place_fx_hedge", "transfer_funds",
+            "get_fx_exposure", "place_fx_hedge", "settle_fx_hedge",
+            "transfer_funds", "approve_fund_transfer",
         ),
         emits=WORKER_EMITS,
     ),
@@ -126,8 +127,7 @@ ROLES: dict[str, RoleDef] = {
         scope_template="close:{subject}",
         allowed_tools=(
             "post_journal_entry", "list_ledger_accounts", "reconcile_account",
-            "compute_accrual", "list_accrual_schedules", "get_trial_balance",
-            "close_period", "reopen_accounting_period",
+            "compute_accrual", "get_trial_balance", "close_period",
         ),
         emits=WORKER_EMITS,
     ),

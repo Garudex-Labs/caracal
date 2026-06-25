@@ -378,6 +378,16 @@ def _mcp_panel(provider: catalog.Provider) -> str:
            f'<div class="panel"><table><tr><th>uri</th><th>resource</th></tr>{res_rows}</table></div>'
            '<p class="hint">Discoverable via <code>resources/list</code>; '
            'fetched with <code>resources/read</code>.</p></section>')
+    templates = base.RESOURCE_TEMPLATES.get(provider.id, [])
+    if templates:
+        tmpl_rows = "".join(
+            f"<tr><td><code>{_esc(t['uriTemplate'])}</code></td><td>{_esc(t['name'])}<br>"
+            f'<span class="muted">{_esc(t["description"])}</span></td></tr>'
+            for t in templates)
+        res += (f'<section><h2>MCP resource templates <span class="count">{len(templates)}</span></h2>'
+                f'<div class="panel"><table><tr><th>uriTemplate</th><th>resource</th></tr>{tmpl_rows}</table></div>'
+                '<p class="hint">Discoverable via <code>resources/templates/list</code>; '
+                'fetched with <code>resources/read</code> using a concrete uri.</p></section>')
     return tools + res
 
 

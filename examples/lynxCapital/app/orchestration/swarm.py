@@ -532,7 +532,7 @@ def _build_regional_domain_tools(run_id, runner, parent, region, board):
         w = _worker("route-optimization", f"fx:{from_currency}:{to_currency}")
         try:
             return json.dumps(
-                tool_fns.convert_currency(run_id, w.id, from_currency, to_currency, amount)
+                tool_fns.convert_market_amount(run_id, w.id, from_currency, to_currency, amount)
             )
         finally:
             _finish(w, {"from": from_currency, "to": to_currency})
@@ -601,7 +601,7 @@ def _build_regional_domain_tools(run_id, runner, parent, region, board):
 
         Use for third-party services beyond the core flow: meridian-pay/quetzal-payouts/halcyon-bank
         (payments, payouts, open banking), inkwell-ocr (document extraction), slate-ledger (journals),
-        vela-notify (transactional email/SMS, templates, delivery tracking, suppressions, webhooks), cordoba-fx (fx quotes/conversions/settlement payments), ironbark-erp/tallyhall-books (vendors/bills),
+        vela-notify (transactional email/SMS, templates, delivery tracking, suppressions, webhooks), cordoba-fx (fx quotes/conversions/settlement payments), ironbark-erp (NetSuite-style vendors/purchase-orders/item-receipts/bills/payments/AP-aging/ledger)/tallyhall-books (vendors/bills),
         beacon-crm (CRM accounts/contacts/deal pipeline/activities), core-billing (internal AR: customers/invoices/payments/dunning/collections/aging), lumen-identity (directory),
         atlas-vendor (vendor MDM/onboarding/verification/compliance over MCP: search/list/update vendors, register and progress onboarding, screen KYB/sanctions, verify banking, review documents, audit change history, contracts),
         sabre-tax, pulse-market (market data: instruments, quotes, OHLC bars, conversions, top movers, end-of-day reference fixings, streaming subscriptions), junction-procure (procure-to-pay: suppliers, commodity catalog, cost-center budgets, tiered requisition approvals, purchase orders, goods receipts),
@@ -1115,16 +1115,6 @@ def _build_workflow_domain_tools(run_id, runner, parent, workflow_id, board):
             _finish(w, {"from": from_currency, "to": to_currency})
 
     @tool
-    def settle_fx_hedge(hedge_id: str) -> str:
-        """Settle a booked FX hedge at maturity, realizing its mark-to-market.
-        Use this to close out a hedge placed earlier in the workflow."""
-        w = _worker("treasury", f"settle:{hedge_id}")
-        try:
-            return json.dumps(tool_fns.settle_fx_hedge(run_id, w.id, hedge_id))
-        finally:
-            _finish(w, {"hedgeId": hedge_id})
-
-    @tool
     async def transfer_funds(
         from_region: str, to_region: str, amount_usd: float
     ) -> str:
@@ -1150,17 +1140,6 @@ def _build_workflow_domain_tools(run_id, runner, parent, workflow_id, board):
             )
         finally:
             _finish(w, {"from": from_region, "to": to_region})
-
-    @tool
-    def approve_fund_transfer(transfer_id: str) -> str:
-        """Release an intercompany transfer that is held for second-pair-of-eyes
-        approval. Large transfers return status 'pending_approval' and only move
-        once approved here (maker-checker control)."""
-        w = _worker("treasury", f"approve:{transfer_id}")
-        try:
-            return json.dumps(tool_fns.approve_fund_transfer(run_id, w.id, transfer_id))
-        finally:
-            _finish(w, {"transferId": transfer_id})
 
     @tool
     def list_ledger_accounts(account_type: str = "") -> str:
@@ -1798,7 +1777,7 @@ def _build_workflow_domain_tools(run_id, runner, parent, workflow_id, board):
         """Call an external partner provider over its real auth surface.
 
         Use for partner operations beyond the dedicated tools: cordoba-fx (fx quotes/
-        conversions/settlement payments), ironbark-erp/tallyhall-books (vendors/bills),
+        conversions/settlement payments), ironbark-erp (NetSuite-style vendors/purchase-orders/item-receipts/bills/payments/AP-aging/ledger)/tallyhall-books (vendors/bills),
         pulse-market (quotes, OHLC bars, conversions, movers, end-of-day reference fixings), inkwell-ocr
         (document extraction), slate-ledger (journals), vela-notify (notifications),
         meridian-pay/quetzal-payouts/halcyon-bank (payments, payouts, open banking),
@@ -1856,15 +1835,15 @@ def _build_workflow_domain_tools(run_id, runner, parent, workflow_id, board):
         forecast_liquidity,
         get_fx_exposure,
         place_fx_hedge,
+        settle_fx_hedge,
         transfer_funds,
+        approve_fund_transfer,
         post_journal_entry,
         list_ledger_accounts,
         reconcile_account,
         compute_accrual,
-        list_accrual_schedules,
         get_trial_balance,
         close_period,
-        reopen_accounting_period,
         aml_monitor_transaction,
         sanctions_screen_batch,
         prepare_regulatory_filing,
