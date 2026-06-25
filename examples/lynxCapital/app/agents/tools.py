@@ -872,6 +872,11 @@ def create_purchase_order(run_id: str, agent_id: str, requisition_id: str, vendo
                 {"requisitionId": requisition_id, "supplierId": vendor_id})
 
 
+def acknowledge_purchase_order(run_id: str, agent_id: str, po_id: str) -> dict[str, object]:
+    return _run(run_id, agent_id, "acknowledge_purchase_order", "junction-procure",
+                "acknowledge_order", {"poId": po_id})
+
+
 def receive_purchase_order(run_id: str, agent_id: str, po_id: str) -> dict[str, object]:
     return _run(run_id, agent_id, "receive_purchase_order", "junction-procure", "receive_order",
                 {"poId": po_id})
@@ -1111,6 +1116,7 @@ TOOLS: dict[str, Callable] = {
     "list_requisitions": list_requisitions,
     "get_approval_chain": get_approval_chain,
     "create_purchase_order": create_purchase_order,
+    "acknowledge_purchase_order": acknowledge_purchase_order,
     "receive_purchase_order": receive_purchase_order,
     "get_purchase_order_status": get_purchase_order_status,
     "get_budget": get_budget,

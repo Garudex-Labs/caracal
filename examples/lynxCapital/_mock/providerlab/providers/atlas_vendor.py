@@ -627,6 +627,7 @@ def _res_directory(ctx: Ctx) -> dict:
 
 
 @base.resource(ID, uri="atlas://onboarding/queue", name="Onboarding queue",
+               title="Onboarding queue",
                description="Vendors with open onboarding cases and their current step.")
 def _res_onboarding_queue(ctx: Ctx) -> dict:
     queue = []
@@ -640,6 +641,7 @@ def _res_onboarding_queue(ctx: Ctx) -> dict:
 
 
 @base.resource(ID, uri="atlas://compliance/review", name="Compliance review list",
+               title="Compliance review list",
                description="Vendors with blocking compliance checks or high risk.")
 def _res_compliance_review(ctx: Ctx) -> dict:
     flagged = []
@@ -650,3 +652,50 @@ def _res_compliance_review(ctx: Ctx) -> dict:
                             "riskTier": v["riskTier"], "kyb": c.get("kyb"),
                             "sanctions": c.get("sanctions")})
     return {"total": len(flagged), "items": flagged[:50]}
+
+
+@base.resource(ID, uri="atlas://catalog/categories", name="Vendor category taxonomy",
+               title="Vendor category taxonomy",
+               description="The UNSPSC commodity taxonomy vendors are classified against.")
+def _res_categories(ctx: Ctx) -> dict:
+    items = list(ctx.state.table("categories").values())
+    return {"total": len(items), "items": items}
+
+
+@base.resource(ID, uri="atlas://activity/feed", name="Vendor activity feed",
+               title="Vendor activity feed",
+               description="Most recent change-history events across the vendor network.")
+def _res_activity_feed(ctx: Ctx) -> dict:
+    events = []
+    for v in ctx.state.table("vendors").values():
+        for e in v.get("events", [])[:3]:
+            events.append({**e, "vendorId": v["id"], "displayName": v["displayName"]})
+    events.sort(key=lambda e: e["occurredAt"], reverse=True)
+    return {"total": len(events), "items": events[:50]}
+
+
+# --------------------------------------------------------------------------- #
+# MCP resource templates (per-vendor discovery)
+# --------------------------------------------------------------------------- #
+@base.resource_template(ID, uri_template="atlas://vendors/{vendorId}",
+                        name="Vendor record",
+                        title="Vendor record",
+                        description="Full master-data profile for a single vendor by id.")
+def _tmpl_vendor(ctx: Ctx) -> dict:
+    return _vendor(ctx)
+
+
+@base.resource_template(ID, uri_template="atlas://vendors/{vendorId}/onboarding",
+                        name="Vendor onboarding case",
+                        title="Vendor onboarding case",
+                        description="The onboarding case and checklist for a single vendor.")
+def _tmpl_onboarding(ctx: Ctx) -> dict:
+    return get_onboarding_status(ctx)
+
+
+@base.resource_template(ID, uri_template="atlas://vendors/{vendorId}/compliance",
+                        name="Vendor compliance posture",
+                        title="Vendor compliance posture",
+                        description="The consolidated compliance posture for a single vendor.")
+def _tmpl_compliance(ctx: Ctx) -> dict:
+    return get_compliance_status(ctx)

@@ -147,10 +147,13 @@ _SPECS: dict[str, PartnerSpec] = {
     "atlas-vendor": PartnerSpec(
         "atlas-vendor", "mcp_bearer", 9411,
         ("search_vendors", "list_vendors", "get_vendor_profile",
-         "list_vendor_contacts", "register_vendor", "get_onboarding_status",
+         "list_vendor_contacts", "update_vendor_profile", "add_vendor_contact",
+         "register_vendor", "get_onboarding_status",
          "advance_onboarding", "verify_vendor_banking", "get_compliance_status",
-         "list_vendor_documents", "submit_vendor_document", "set_vendor_status",
-         "list_contracts", "get_contract_terms"),
+         "run_compliance_screening", "list_vendor_documents",
+         "submit_vendor_document", "get_vendor_document", "review_vendor_document",
+         "set_vendor_status", "list_contracts", "get_contract_terms",
+         "list_categories", "list_vendor_events"),
         auth_header="Authorization", auth_scheme="Bearer"),
     "keystone-treasury": PartnerSpec(
         "keystone-treasury", "api_key", 9412,
@@ -218,7 +221,8 @@ _SPECS: dict[str, PartnerSpec] = {
          "create_purchase_order", "acknowledge_order", "receive_order",
          "list_purchase_orders", "get_purchase_order",
          "list_budgets", "get_budget"),
-        client_auth_method="client_secret_basic", scopes=("procure.read", "procure.write")),
+        client_auth_method="client_secret_basic", scopes=("procure.read", "procure.write"),
+        audience="https://api.junction-procure.test"),
 }
 
 

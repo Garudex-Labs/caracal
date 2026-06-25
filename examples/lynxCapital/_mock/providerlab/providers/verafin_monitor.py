@@ -1087,6 +1087,9 @@ def list_filings(ctx: Ctx) -> dict:
         items = [f for f in items if f["status"] == ctx.get("status")]
     if ctx.get("filingType"):
         items = [f for f in items if f["filingType"] == ctx.get("filingType")]
+    if ctx.get("overdue"):
+        now = _ts()
+        items = [f for f in items if f["status"] == "draft" and now > f["deadlineAt"]]
     items.sort(key=lambda f: f["createdAt"], reverse=True)
     return ctx.paginate(items)
 
@@ -1117,6 +1120,43 @@ def submit_filing(ctx: Ctx) -> dict:
         )
     _submit_filing(ctx.state, filing, ctx)
     return _public(filing)
+
+
+@base.op(ID, "amend_filing")
+def amend_filing(ctx: Ctx) -> dict:
+    """Prepare a corrected SAR or CTR that supersedes an acknowledged filing, carrying
+    the prior BSA confirmation number forward as FinCEN requires for corrected reports."""
+    ctx.require_scope("filings.write")
+    ctx.require("filingId", "reason")
+    original = ctx.state.table("filings").get(ctx.payload["filingId"])
+    if original is None:
+        raise DomainError(404, "filing_not_found", ctx.payload["filingId"])
+    if original["status"] != "acknowledged":
+        raise DomainError(
+            409,
+            "filing_not_amendable",
+            "only an acknowledged filing can be corrected",
+        )
+    if original.get("amendedByFilingId"):
+        raise DomainError(
+            409,
+            "filing_already_amended",
+            f"filing already corrected by {original['amendedByFilingId']}",
+        )
+    alert = ctx.state.table("alerts").get(original["alertId"])
+    if alert is None:
+        raise DomainError(404, "alert_not_found", original["alertId"])
+    amendment = _prepare_filing(
+        ctx.state,
+        alert,
+        original["filingType"],
+        ctx,
+        amends=original,
+        amendment_reason=str(ctx.payload["reason"]),
+    )
+    original["amendedByFilingId"] = amendment["filingId"]
+    original["updatedAt"] = _ts()
+    return _public(amendment)
 
 
 # --------------------------------------------------------------------------- #
