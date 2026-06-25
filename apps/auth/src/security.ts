@@ -104,3 +104,21 @@ export function downstreamHeaders(id: string): Record<string, string> {
 export function traceFromRequest(req: IncomingMessage): ReturnType<typeof parseTraceparent> {
   return parseTraceparent(headerValue(req, 'traceparent'))
 }
+
+// Validates that a proxied path stays within an allowed prefix after URL normalization, closing a
+// prefix-check bypass (e.g. `/v1/../metrics`) that would otherwise reach operational endpoints.
+// Percent-encoded traversal and separators (`%2e`, `%2f`, `%5c`) are rejected outright so an
+// encoded sequence the upstream might later decode cannot escape the prefix. Returns the safe
+// absolute target, or undefined when the path escapes the allowed prefix.
+export function safeTarget(base: string, rest: string, allowedPrefix: string): string | undefined {
+  if (rest.includes('..')) return undefined
+  if (/%2e|%2f|%5c/i.test(rest)) return undefined
+  let resolved: URL
+  try {
+    resolved = new URL(base + rest)
+  } catch {
+    return undefined
+  }
+  if (!resolved.pathname.startsWith(allowedPrefix)) return undefined
+  return resolved.toString()
+}

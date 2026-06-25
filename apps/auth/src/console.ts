@@ -4,7 +4,7 @@
 // Session-guarded backend-for-frontend that proxies the Community Edition web client to the Caracal admin API.
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { discoverAdminToken, discoverCoordinatorToken } from '@caracalai/core'
+import { discoverAdminToken, discoverCoordinatorToken, pathOnly } from '@caracalai/core'
 import {
   applyControlLifecycleAction,
   controlKeyRecord,
@@ -16,7 +16,7 @@ import {
   type DoctorReport,
 } from '@caracalai/engine'
 import { resolveStsUrl } from '@caracalai/engine/runtime-config'
-import { downstreamHeaders } from './security.ts'
+import { downstreamHeaders, safeTarget } from './security.ts'
 import { logger } from './logger.ts'
 
 export interface ConsoleContext {
@@ -72,8 +72,8 @@ type SessionResult = Awaited<ReturnType<typeof auth.api.getSession>>
 
 // A single page load fires many parallel console requests carrying the same session
 // cookie, and each getSession() is a Postgres round-trip. Validation is therefore cached
-// per cookie for a short window and concurrent lookups are de-duplicated onto one promise,
-// collapsing N auth round-trips into one. The TTL is intentionally short so revoked or
+// per session token for a short window and concurrent lookups are de-duplicated onto one
+// promise, collapsing N auth round-trips into one. The TTL is intentionally short so revoked or
 // expired sessions stop working within seconds; the upstream control plane still enforces
 // its own admin token, so this gate only answers "is this operator signed in".
 const SESSION_TTL_MS = 3_000
@@ -81,15 +81,33 @@ const SESSION_CACHE_MAX = 1_000
 const sessionCache = new Map<string, { at: number; session: SessionResult }>()
 const sessionInFlight = new Map<string, Promise<SessionResult>>()
 
+// Better Auth names its session cookie `<prefix>.session_token`, optionally carrying a
+// `__Secure-`/`__Host-` prefix. Keying the validation cache on just that cookie keeps unrelated
+// cookies (load-balancer affinity, analytics) from fragmenting the cache or holding the raw
+// session token under churn, while still keying on exactly the material that decides identity.
+function sessionCacheKey(cookie: string): string | undefined {
+  const parts: string[] = []
+  for (const pair of cookie.split(';')) {
+    const eq = pair.indexOf('=')
+    if (eq === -1) continue
+    const name = pair.slice(0, eq).trim()
+    if (/(^|\.)session_token$/.test(name)) parts.push(pair.trim())
+  }
+  return parts.length > 0 ? parts.sort().join('; ') : undefined
+}
+
 async function validateSession(req: IncomingMessage): Promise<SessionResult> {
   const cookie = req.headers.cookie
   if (!cookie) return auth.api.getSession({ headers: toWebHeaders(req) })
 
+  const cacheKey = sessionCacheKey(cookie)
+  if (!cacheKey) return auth.api.getSession({ headers: toWebHeaders(req) })
+
   const now = Date.now()
-  const cached = sessionCache.get(cookie)
+  const cached = sessionCache.get(cacheKey)
   if (cached && now - cached.at < SESSION_TTL_MS) return cached.session
 
-  const existing = sessionInFlight.get(cookie)
+  const existing = sessionInFlight.get(cacheKey)
   if (existing) return existing
 
   const lookup = auth.api
@@ -101,13 +119,13 @@ async function validateSession(req: IncomingMessage): Promise<SessionResult> {
           if (sessionCache.size < SESSION_CACHE_MAX) break
         }
       }
-      sessionCache.set(cookie, { at: Date.now(), session })
+      sessionCache.set(cacheKey, { at: Date.now(), session })
       return session
     })
     .finally(() => {
-      sessionInFlight.delete(cookie)
+      sessionInFlight.delete(cacheKey)
     })
-  sessionInFlight.set(cookie, lookup)
+  sessionInFlight.set(cacheKey, lookup)
   return lookup
 }
 
@@ -359,20 +377,8 @@ function targetPath(target: string): string {
 }
 
 // Validates that a proxied path stays within an allowed prefix after URL normalization, closing
-// a prefix-check bypass (e.g. `/v1/../metrics`) that would otherwise reach operational endpoints.
-// Returns the safe absolute target, or undefined when the path escapes the allowed prefix.
-function safeTarget(base: string, rest: string, allowedPrefix: string): string | undefined {
-  if (rest.includes('..')) return undefined
-  let resolved: URL
-  try {
-    resolved = new URL(base + rest)
-  } catch {
-    return undefined
-  }
-  if (!resolved.pathname.startsWith(allowedPrefix)) return undefined
-  return resolved.toString()
-}
-
+// a prefix-check bypass (e.g. `/v1/../metrics`). Defined in security.ts as a path-confinement
+// primitive and reused here for both the API and coordinator proxy surfaces.
 async function handleProxy(req: IncomingMessage, res: ServerResponse, rest: string, id: string): Promise<void> {
   const token = adminToken()
   if (!token) {
@@ -586,6 +592,21 @@ export async function handleConsole(req: IncomingMessage, res: ServerResponse, c
   if (!session) {
     sendJson(res, 401, { error: 'unauthenticated' })
     return true
+  }
+
+  // Attribute every state-changing proxied action to the authenticated operator. The proxy
+  // forwards this request id downstream as `x-request-id`, which the control plane records as
+  // the admin-audit `request_id`, so this line is the join that maps a tamper-evident audit row
+  // back to the operator even though the proxy uses the shared global admin token.
+  const method = (req.method ?? 'GET').toUpperCase()
+  if (method !== 'GET' && method !== 'HEAD') {
+    logger.info('operator action', {
+      id: ctx.id,
+      operatorId: session.user.id,
+      operatorEmail: session.user.email,
+      method,
+      path: pathOnly(url),
+    })
   }
 
   if (url.startsWith(`${COORD_PREFIX}/`)) {

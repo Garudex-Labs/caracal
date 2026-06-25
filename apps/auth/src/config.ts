@@ -22,6 +22,8 @@ export interface AuthConfig {
   production: boolean
   secureCookies: boolean
   autoProvisionDatabase: boolean
+  operatorAllowlist: string[]
+  openRegistration: boolean
 }
 
 function resolveDatabaseUrl(): string {
@@ -85,6 +87,21 @@ function resolveWebOrigins(baseURL: string): string[] {
   return [...origins]
 }
 
+// The operators permitted to register and sign in. A signed-in operator is proxied with the
+// shared global admin token, so registration is an authority boundary: only listed identities
+// may create an account. Entries are exact emails (case-insensitive) or domain suffixes written
+// as `@example.com`. An empty list means no explicit allowlist is configured.
+function resolveOperatorAllowlist(): string[] {
+  resolveFileSecrets(['CARACAL_OPERATOR_EMAILS'])
+  const configured = process.env.CARACAL_OPERATOR_EMAILS ?? ''
+  const entries = new Set<string>()
+  for (const raw of configured.split(',')) {
+    const value = raw.trim().toLowerCase()
+    if (value) entries.add(value)
+  }
+  return [...entries]
+}
+
 export function loadConfig(): AuthConfig {
   const production = (process.env.NODE_ENV ?? '').toLowerCase() === 'production'
   const port = Number(process.env.PORT ?? process.env.CARACAL_AUTH_PORT ?? 3002)
@@ -104,6 +121,16 @@ export function loadConfig(): AuthConfig {
   // An explicit CARACAL_AUTH_AUTO_MIGRATE wins either way, so a single-node self-host can opt in.
   const autoProvisionDatabase =
     process.env.CARACAL_AUTH_AUTO_MIGRATE !== undefined ? /^(1|true|yes|on)$/i.test(process.env.CARACAL_AUTH_AUTO_MIGRATE) : !production
+  const operatorAllowlist = resolveOperatorAllowlist()
+  // A signed-in operator wields the shared global admin token, so registration is fail-closed in
+  // production: without an explicit allowlist no one may register. Local development stays open so
+  // a fresh stack is usable without configuration. An explicit allowlist always takes precedence.
+  const openRegistration =
+    operatorAllowlist.length > 0
+      ? false
+      : process.env.CARACAL_OPEN_REGISTRATION !== undefined
+        ? /^(1|true|yes|on)$/i.test(process.env.CARACAL_OPEN_REGISTRATION)
+        : !production
   return {
     port,
     host,
@@ -115,6 +142,26 @@ export function loadConfig(): AuthConfig {
     production,
     secureCookies,
     autoProvisionDatabase,
+    operatorAllowlist,
+    openRegistration,
     secret: resolveSecret(),
   }
+}
+
+// Decides whether an email may register or sign in. An explicit allowlist is authoritative:
+// the email must match an exact entry or an `@domain` suffix. With no allowlist, registration
+// follows the open-registration default (open in dev, closed in production).
+export function isOperatorAllowed(email: string, cfg: Pick<AuthConfig, 'operatorAllowlist' | 'openRegistration'>): boolean {
+  const normalized = email.trim().toLowerCase()
+  if (!normalized) return false
+  if (cfg.operatorAllowlist.length === 0) return cfg.openRegistration
+  const domain = normalized.slice(normalized.indexOf('@'))
+  for (const entry of cfg.operatorAllowlist) {
+    if (entry.startsWith('@')) {
+      if (domain === entry) return true
+    } else if (normalized === entry) {
+      return true
+    }
+  }
+  return false
 }

@@ -5,10 +5,12 @@
 
 import { betterAuth } from 'better-auth'
 import type { BetterAuthOptions } from 'better-auth'
+import { APIError } from 'better-auth/api'
 
 import { authDatabase } from './database.ts'
-import { loadConfig } from './config.ts'
+import { loadConfig, isOperatorAllowed } from './config.ts'
 import { githubCredentials, googleCredentials } from './providers.ts'
+import { logger } from './logger.ts'
 
 const cfg = loadConfig()
 
@@ -35,6 +37,21 @@ export const auth = betterAuth({
     accountLinking: {
       enabled: true,
       trustedProviders: ['email-password', 'google', 'github'],
+    },
+  },
+  // Registration is an authority boundary: a signed-in operator is proxied with the shared global
+  // admin token, so only allowlisted identities may create an account. This runs before any user
+  // row is written and covers every path — email/password sign-up and social provider callbacks —
+  // so an unlisted identity can never bootstrap a session in production.
+  databaseHooks: {
+    user: {
+      create: {
+        before: async (user) => {
+          if (isOperatorAllowed(user.email, cfg)) return
+          logger.warn('registration denied for unlisted operator', { email: user.email })
+          throw new APIError('FORBIDDEN', { message: 'registration_not_permitted' })
+        },
+      },
     },
   },
   session: {
