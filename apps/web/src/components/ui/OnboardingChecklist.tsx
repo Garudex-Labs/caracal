@@ -49,6 +49,8 @@ export interface InteractiveOnboardingChecklistProps {
   onOpenChange?(open: boolean): void;
   onActivateStep?(id: string): void;
   onFinish?(): void;
+  /** Dismiss the whole walkthrough from the intro step's Skip action. */
+  onSkip?(): void;
   /**
    * When true (default), the coachmark's primary action marks the step complete locally.
    * When false, completion is driven entirely by each step's `completed` flag so the
@@ -299,6 +301,7 @@ function CoachmarkOverlay({
   onPrev,
   onPrimary,
   onClose,
+  onSkip,
 }: {
   step: Step;
   isFirst: boolean;
@@ -308,6 +311,7 @@ function CoachmarkOverlay({
   onPrev: () => void;
   onPrimary: () => void;
   onClose: () => void;
+  onSkip?: () => void;
 }) {
   const [rect, setRect] = useState<TargetRect | null>(() => readRect(step.targetSelector));
 
@@ -377,9 +381,16 @@ function CoachmarkOverlay({
             <ChevronRightIcon className="h-4 w-4" />
           </Button>
         </div>
-        <Button size="sm" onClick={onPrimary}>
-          {primaryLabel}
-        </Button>
+        <div className="flex items-center gap-2">
+          {onSkip && isFirst && !isLast && step.targetSelector === "" ? (
+            <Button variant="ghost" size="sm" onClick={onSkip}>
+              Skip
+            </Button>
+          ) : null}
+          <Button size="sm" onClick={onPrimary}>
+            {primaryLabel}
+          </Button>
+        </div>
       </div>
     </>
   );
@@ -461,6 +472,7 @@ export function InteractiveOnboardingChecklist({
   onOpenChange,
   onActivateStep,
   onFinish,
+  onSkip,
   manualCompletion = true,
 }: InteractiveOnboardingChecklistProps) {
   const portal = usePortalTarget();
@@ -702,6 +714,7 @@ export function InteractiveOnboardingChecklist({
           onPrev={() => gotoIncomplete(activeIndex - 1, -1)}
           onPrimary={() => primaryAction(activeStep.id)}
           onClose={() => setActiveId(null)}
+          onSkip={onSkip}
         />
       ) : null}
     </>,

@@ -296,11 +296,12 @@ function ActivityFeed({
           Audit activity is unavailable right now.
         </p>
       ) : recent.length === 0 ? (
-        <div className="flex flex-1 flex-col items-center justify-center px-5 py-12 text-center">
-          <p className="text-sm font-medium text-foreground">No activity yet</p>
-          <p className="mt-1 max-w-xs text-xs text-muted-foreground">
-            Authority decisions and security events appear here as traffic flows through this zone.
-          </p>
+        <div className="flex flex-1">
+          <EmptyState
+            bordered={false}
+            title="No activity yet"
+            description="Authority decisions and security events appear here as traffic flows through this zone."
+          />
         </div>
       ) : (
         <ul className="divide-y divide-border">

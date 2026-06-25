@@ -6,6 +6,7 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
 import { existsSync, statSync } from 'node:fs'
 import { delimiter, join } from 'node:path'
+import { scrubTokens } from '@caracalai/engine/crash'
 import { printError, printInfo, printWarn, style } from '../style.ts'
 import { devAuthDatabaseUrl, devAuthSecret } from './authStore.ts'
 
@@ -106,6 +107,113 @@ function pnpmInvocation(): { cmd: string; prefix: string[] } | undefined {
   const onPath = locate(PNPM_BIN)
   if (onPath) return { cmd: onPath, prefix: [] }
   return undefined
+}
+
+// The launcher aggregates two child servers (the web UI and the backend-for-frontend)
+// into one terminal. Their raw output is noisy: the backend logs structured JSON and
+// the UI logs free text, with no source attribution and no redaction. Every line is
+// routed through this formatter so the operator sees a single, clean, source-tagged
+// stream with secrets scrubbed and JSON logs rendered as readable fields.
+
+// Base log fields that identify the process rather than the event. They are constant
+// for the whole session, so repeating them on every line is pure noise.
+const NOISE_FIELDS = new Set(['level', 'time', 'msg', 'service', 'hostname', 'pid', 'version', 'env', 'trace_id', 'span_id'])
+
+// Redact bearer/JWT tokens (scrubTokens) and inline connection-string credentials
+// (e.g. postgres://user:secret@host) before anything reaches the terminal.
+function scrubLine(line: string): string {
+  return scrubTokens(line).replace(/([a-z][a-z0-9+.-]*:\/\/[^:/\s]+:)[^@\s]+@/gi, '$1***@')
+}
+
+function paintLevel(level: string, text: string): string {
+  switch (level) {
+    case 'warn':
+      return style.warn(text)
+    case 'error':
+    case 'fatal':
+      return style.error(text)
+    case 'debug':
+    case 'trace':
+      return style.debug(text)
+    default:
+      return style.info(text)
+  }
+}
+
+function paintTag(tag: string): string {
+  return tag === 'web' ? style.accent(tag) : style.progress(tag)
+}
+
+function gutter(tag: string): string {
+  return `${paintTag(tag)} ${style.dim('│')}`
+}
+
+function fmtValue(value: unknown): string {
+  const text = typeof value === 'string' ? value : (JSON.stringify(value) ?? String(value))
+  return text.length > 200 ? `${text.slice(0, 199)}…` : text
+}
+
+// Render one structured log record (the JSON our services emit) as a compact line:
+// `HH:MM:SS LEVEL message  key=value …`, dropping process-identity noise. Returns null
+// when the object is not one of our log records so the caller can fall back to verbatim.
+function formatRecord(record: Record<string, unknown>): string | null {
+  if (typeof record.msg !== 'string' || typeof record.level !== 'string') return null
+  const level = record.level.toLowerCase()
+  const badge = paintLevel(level, record.level.toUpperCase().padEnd(5))
+  const time = typeof record.time === 'string' ? record.time.slice(11, 19) : ''
+  const fields = Object.entries(record)
+    .filter(([key, value]) => !NOISE_FIELDS.has(key) && value !== undefined && value !== null && value !== '')
+    .map(([key, value]) => `${key}=${fmtValue(value)}`)
+  const tail = fields.length > 0 ? `  ${style.dim(fields.join(' '))}` : ''
+  return `${style.dim(time)} ${badge} ${record.msg}${tail}`
+}
+
+// Parse a line as one of our structured log records, or null if it is plain text.
+function tryRecord(text: string): Record<string, unknown> | null {
+  if (!(text.startsWith('{') && text.endsWith('}'))) return null
+  try {
+    const parsed = JSON.parse(text) as unknown
+    return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null
+  } catch {
+    return null
+  }
+}
+
+function emitLine(tag: string, raw: string): void {
+  const trimmed = raw.replace(/\s+$/u, '')
+  if (trimmed === '') return
+  // Render structured records into a readable line first, then scrub. Scrubbing the
+  // rendered line (not the JSON source) keeps the record parseable while still
+  // redacting any secret that survives into a field value.
+  const record = tryRecord(trimmed)
+  const body = scrubLine(record ? (formatRecord(record) ?? trimmed) : trimmed)
+  if (body === '') return
+  process.stdout.write(`${gutter(tag)} ${body}\n`)
+}
+
+// Line-buffer a child stream and hand each complete line to the formatter. Partial
+// lines are held until their newline arrives so JSON records are never split.
+function pipeStream(tag: string, stream: NodeJS.ReadableStream | null | undefined): void {
+  if (!stream) return
+  stream.setEncoding('utf8')
+  let buffer = ''
+  stream.on('data', (chunk: string) => {
+    buffer += chunk
+    let nl = buffer.indexOf('\n')
+    while (nl >= 0) {
+      emitLine(tag, buffer.slice(0, nl))
+      buffer = buffer.slice(nl + 1)
+      nl = buffer.indexOf('\n')
+    }
+  })
+  stream.on('end', () => {
+    if (buffer !== '') {
+      emitLine(tag, buffer)
+      buffer = ''
+    }
+  })
 }
 
 interface WebOptions {
@@ -246,11 +354,12 @@ export async function webCommand(argv: string[]): Promise<void> {
     ? ['--dir', 'apps/web', 'exec', 'vite', 'preview', '--port', String(parsed.webPort), '--strictPort']
     : ['--dir', 'apps/web', 'exec', 'vite', 'dev', '--port', String(parsed.webPort), '--strictPort']
 
-  const SPEC: Record<Role, { label: string; args: string[]; env: NodeJS.ProcessEnv }> = {
+  const SPEC: Record<Role, { label: string; tag: string; args: string[]; env: NodeJS.ProcessEnv }> = {
     // The auth service is the only CORS-enabled, browser-facing service and hosts
     // the BFF proxy; the web UI must point at it for both sign-in and console data.
     backend: {
       label: 'backend-for-frontend',
+      tag: 'bff',
       args: backendArgs,
       env: {
         CARACAL_AUTH_PORT: String(parsed.authPort),
@@ -258,7 +367,7 @@ export async function webCommand(argv: string[]): Promise<void> {
         ...authStoreEnv(),
       },
     },
-    web: { label: 'web UI', args: webArgs, env: { VITE_CARACAL_AUTH_URL: authUrl } },
+    web: { label: 'web UI', tag: 'web', args: webArgs, env: { VITE_CARACAL_AUTH_URL: authUrl } },
   }
 
   // Each child is a detached process-group leader (see spawnRole), so the pnpm
@@ -309,16 +418,26 @@ export async function webCommand(argv: string[]): Promise<void> {
     const spec = SPEC[role]
     const child = spawn(pnpmCmd, [...pnpmPrefix, ...spec.args], {
       cwd: root,
-      // The parent owns stdin so it can handle restart keys; children only write output.
-      stdio: ['ignore', 'inherit', 'inherit'],
+      // The parent owns stdin so it can handle restart keys; child output is captured
+      // and re-rendered through the formatter rather than inherited raw.
+      stdio: ['ignore', 'pipe', 'pipe'],
       // Detach so each child leads its own process group: it stays out of the TTY's
       // foreground group (a single Ctrl+C reaches only the launcher) and can be torn
       // down as a whole group, descendants included.
       detached: true,
-      env: { ...process.env, ...spec.env },
+      // Children pipe to a non-TTY, which makes tools like Vite drop their colors.
+      // Force color on when the launcher itself owns a TTY so the aggregated stream
+      // stays readable; respect an explicit operator override.
+      env: {
+        ...process.env,
+        ...(process.stdout.isTTY ? { FORCE_COLOR: process.env.FORCE_COLOR ?? '1' } : {}),
+        ...spec.env,
+      },
     })
     procs[role] = child
     children.push(child)
+    pipeStream(spec.tag, child.stdout)
+    pipeStream(spec.tag, child.stderr)
     child.on('error', (err) => {
       printError(`web: failed to start ${spec.label}: ${err.message}`)
       if (!shuttingDown) void shutdown(1)
@@ -394,6 +513,8 @@ export async function webCommand(argv: string[]): Promise<void> {
       '',
       `  ${style.label('r')} restart both   ${style.label('f')} restart frontend   ${style.label('b')} restart backend`,
       `  ${style.label('q')} or ${style.label('Ctrl+C')} to stop`,
+      '',
+      `  ${style.dim('logs')}  ${paintTag('web')} ${style.dim('web UI')}   ${paintTag('bff')} ${style.dim('backend')}   ${style.dim('· structured, secret-scrubbed')}`,
       '',
     ].join('\n') + '\n',
   )

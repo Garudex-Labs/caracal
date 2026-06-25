@@ -327,6 +327,7 @@ export function GuidedSetup() {
           if (step?.to) navigate({ to: step.to, search: step.search ?? {} });
         }}
         onFinish={() => updatePref({ dismissed: true, finished: true })}
+        onSkip={() => updatePref({ dismissed: true, finished: true })}
       />
 
       {!open && settled ? (

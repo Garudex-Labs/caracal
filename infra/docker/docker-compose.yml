@@ -394,6 +394,8 @@ services:
   gateway:
     <<: [*appService, *appResources]
     image: localhost/caracal-go:${CARACAL_DEV_VERSION:-${CARACAL_BASE_VERSION:-2026.05.26}-dev.sha${CARACAL_DEV_SHA:-local}}
+    # Reuses the image built by sts; never reach for the localhost registry.
+    pull_policy: never
     command: ["/usr/local/bin/gateway"]
     depends_on:
       replayVolumeInit:
@@ -450,6 +452,8 @@ services:
   audit:
     <<: [*appService, *appResources]
     image: localhost/caracal-go:${CARACAL_DEV_VERSION:-${CARACAL_BASE_VERSION:-2026.05.26}-dev.sha${CARACAL_DEV_SHA:-local}}
+    # Reuses the image built by sts; never reach for the localhost registry.
+    pull_policy: never
     command: ["/usr/local/bin/audit"]
     depends_on:
       postgres:
@@ -494,6 +498,8 @@ services:
   coordinator:
     <<: [*appService, *appResources]
     image: localhost/caracal-node:${CARACAL_DEV_VERSION:-${CARACAL_BASE_VERSION:-2026.05.26}-dev.sha${CARACAL_DEV_SHA:-local}}
+    # Reuses the image built by api; never reach for the localhost registry.
+    pull_policy: never
     command: ["/app/coordinator/dist/main.js"]
     depends_on:
       sts:
