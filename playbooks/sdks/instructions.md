@@ -3,6 +3,9 @@
 - Must keep SDK examples framework-neutral unless the guide explicitly names a framework.
 - Must separate Admin API setup from runtime application code.
 - Must tell agents to read the user's existing auth, routing, middleware, and environment patterns before editing code.
+- Must tell agents to verify the SDK surface, framework integration points, and version compatibility against Caracal documentation, official SDK documentation, and the relevant framework or provider documentation before planning or editing code.
+- Must instruct agents to recommend stable or release-candidate SDK versions and to avoid alpha or experimental versions unless the user explicitly requests them.
+- Must instruct agents to escalate unsupported integration cases by directing users to `https://github.com/Garudex-Labs/caracal/issues/new/choose` and, when deeper support is needed, `contact@caracal.run`.
 - Must use placeholders for Caracal API URLs, zone IDs, app IDs, resource identifiers, scopes, client IDs, and secrets.
 - Must instruct agents to store secrets in environment variables or the user's existing secret manager.
 - Must not hard-code secrets, tokens, private keys, tenant values, or provider credentials in generated code.

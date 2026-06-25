@@ -23,8 +23,9 @@ Never generate a data document immediately after a request. First understand the
 ## Caracal policy facts
 
 - The platform decision contract — signed, versioned, embedded in the STS — owns every allow/deny decision in `package caracal.authz`.
-- You author data documents that the contract reads: `app_ids` (bindings), `grants` (owning application and per-role scopes), `confinement` (label-prefix scope caps), and `restrict` (deny overlay).
-- Data documents never define `result`; they only supply data. `confinement` and `restrict` can only narrow authority, never widen it.
+- You author data documents that the contract reads: `app_ids` (bindings), `grants` (owning application and per-role scopes), `confinement` (label-prefix scope caps), `restrict` (deny overlay), `risk` (scope-to-tier classification), and `approval_tiers` (tiers that require human approval).
+- Data documents never define `result`; they only supply data. `confinement` and `restrict` can only narrow authority; `risk` and `approval_tiers` only add an approval gate and classification metadata. None can widen authority.
+- A scope whose `risk` tier appears in `approval_tiers` keeps an allow decision but rides a `{"step_up_required": "human_approval"}` diagnostic, so STS holds the mandate behind a durable human approval before minting. Every classified scope rides a `{"risk": [...]}` diagnostic for audit whether or not a gate fires.
 - Data documents do not create grants in the control plane, resources, applications, tokens, clients, API keys, or provider credentials.
 - Every data document uses `package caracal.authz` and the `# caracal:data-document` directive on its first line.
 - Policy content is versioned immutably, bundled into policy-set versions, simulated, and activated per zone. The active policy-set version is what STS evaluates.

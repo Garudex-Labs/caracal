@@ -60,6 +60,18 @@ Before implementation, present:
 
 Ask the user to confirm. Do not proceed to implementation without explicit confirmation.
 
+## Documentation & Knowledge Sources
+
+Verify behavior against documentation before planning or writing integration code. Use sources in this order:
+
+1. Caracal documentation at `docs.caracal.run`.
+2. Official Caracal SDK documentation for the target language.
+3. The relevant framework, agent-runtime, and provider documentation for the user's stack.
+4. Connected documentation MCPs (such as Context7) when available.
+5. The user's own dependency manifests, lockfiles, and existing code patterns.
+
+Documentation and installed package versions override memory and assumptions. When the SDK surface, a framework integration point, or a version compatibility detail cannot be verified, say so plainly and ask for the documentation or a sample instead of guessing.
+
 ## SDK Version Selection Guidelines
 
 1. **Scan Dependencies**: Inspect manifest files (e.g. `package.json`, `Cargo.toml`, `go.mod`, `requirements.txt`, `pyproject.toml`) to detect existing dependency versions.

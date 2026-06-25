@@ -1,0 +1,36 @@
+# GitHub Copilot Caracal SDK Playbook
+
+This folder is a copy-paste GitHub Copilot setup for integrating Caracal SDKs into real applications, services, agents, and platforms.
+
+## Use it for
+
+- understanding the user's product, architecture, frameworks, agent runtimes, and deployment modes before integrating
+- scoping complete versus feature-specific Caracal integrations
+- verifying the SDK surface against Caracal, SDK, and framework/provider documentation
+- selecting stable or release-candidate SDK versions for the detected runtime
+- implementing thin, production-grade integrations that reuse existing patterns
+- validating integrations with the codebase's existing tests and checks
+
+## Install
+
+Copy `AGENTS.md` and `.github/` into the repository where users want GitHub Copilot to help integrate Caracal.
+
+## Behavior
+
+Copilot should:
+
+- understand the codebase and confirm scope before writing code
+- verify SDK, framework, and provider behavior from documentation before assumptions
+- prefer stable or release-candidate SDK versions, never alpha unless asked
+- generate complete integrations, never mock or placeholder wiring unless requested
+- invoke deeper agent analysis only when explicitly needed
+- store secrets in environment variables or the user's secret manager
+- suggest thin workaround layers when direct support is limited
+
+## Not for
+
+- Rego policy authoring
+- provider dashboard field mapping
+- hardcoding secrets or inventing undocumented SDK APIs
+
+If an integration case is unsupported or needs larger product changes, direct the user to [the Caracal issue form](https://github.com/Garudex-Labs/caracal/issues/new/choose) and, when deeper support is needed, `contact@caracal.run`.
