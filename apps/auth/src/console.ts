@@ -291,13 +291,7 @@ async function handleDiagnostics(res: ServerResponse, path: string): Promise<voi
   sendJson(res, 200, entry.payload)
 }
 
-async function forwardProxy(
-  req: IncomingMessage,
-  res: ServerResponse,
-  target: string,
-  token: string,
-  id: string,
-): Promise<void> {
+async function forwardProxy(req: IncomingMessage, res: ServerResponse, target: string, token: string, id: string): Promise<void> {
   const method = req.method ?? 'GET'
   const headers: Record<string, string> = {
     Authorization: `Bearer ${token}`,

@@ -3,11 +3,11 @@
 //
 // Shared structured logger and per-request context for the authentication backend-for-frontend.
 
-import { createLogger, type Logger } from "@caracalai/core";
+import { createLogger, type Logger } from '@caracalai/core'
 
-export const logger: Logger = createLogger("caracal-auth");
+export const logger: Logger = createLogger('caracal-auth')
 
 export interface RequestContext {
-  id: string;
-  log: Logger;
+  id: string
+  log: Logger
 }

@@ -10,7 +10,18 @@ import pino from 'pino'
 import type { Pool } from 'pg'
 import type { Redis as RedisClient } from 'ioredis'
 import { ZodError } from 'zod'
-import { getTraceContext, parseTraceparent, bindTrace, renderObservabilityMetrics, devLogMetrics, buildPinoRedactPaths, instrumentFastifyApp, withTimeout, CaracalError, isPublished } from '@caracalai/core'
+import {
+  getTraceContext,
+  parseTraceparent,
+  bindTrace,
+  renderObservabilityMetrics,
+  devLogMetrics,
+  buildPinoRedactPaths,
+  instrumentFastifyApp,
+  withTimeout,
+  CaracalError,
+  isPublished,
+} from '@caracalai/core'
 import { agentsRoutes } from './routes/agents.js'
 import { agentServicesRoutes } from './routes/agent-services.js'
 import { delegationsRoutes } from './routes/delegations.js'
@@ -67,7 +78,9 @@ export async function buildApp({ cfg, db, redis, isDraining }: CoordinatorDeps) 
         expiresAt: performance.now() + RUNTIME_STATS_TTL_MS,
       }
       return runtimeStats
-    })().finally(() => { runtimeStatsRefresh = null })
+    })().finally(() => {
+      runtimeStatsRefresh = null
+    })
     return runtimeStatsRefresh
   }
 

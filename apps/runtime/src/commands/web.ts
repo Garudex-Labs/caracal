@@ -241,9 +241,7 @@ export async function webCommand(argv: string[]): Promise<void> {
   type Role = 'backend' | 'web'
   const procs: Record<Role, ChildProcess | null> = { backend: null, web: null }
 
-  const backendArgs = parsed.build
-    ? ['--dir', 'apps/auth', 'start']
-    : ['--dir', 'apps/auth', 'dev']
+  const backendArgs = parsed.build ? ['--dir', 'apps/auth', 'start'] : ['--dir', 'apps/auth', 'dev']
   const webArgs = parsed.build
     ? ['--dir', 'apps/web', 'exec', 'vite', 'preview', '--port', String(parsed.webPort), '--strictPort']
     : ['--dir', 'apps/web', 'exec', 'vite', 'dev', '--port', String(parsed.webPort), '--strictPort']
@@ -295,9 +293,7 @@ export async function webCommand(argv: string[]): Promise<void> {
 
     // Wait for every service to actually exit before leaving, so a single Ctrl+C
     // never returns the prompt while a server is still holding a port or the DB.
-    const exits = alive.map(
-      (child) => new Promise<void>((resolve) => child.once('exit', () => resolve())),
-    )
+    const exits = alive.map((child) => new Promise<void>((resolve) => child.once('exit', () => resolve())))
     for (const child of alive) killTree(child, 'SIGTERM')
     const force = setTimeout(() => {
       for (const child of alive) killTree(child, 'SIGKILL')
