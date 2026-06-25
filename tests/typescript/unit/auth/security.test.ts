@@ -14,6 +14,7 @@ import {
   isSafeMethod,
   method,
   requestId,
+  safeTarget,
   traceFromRequest,
 } from '../../../../apps/auth/src/security.ts'
 
@@ -139,5 +140,36 @@ describe('downstreamHeaders and traceFromRequest', () => {
     const tc = traceFromRequest(req({ headers: { traceparent: `00-${traceId}-${spanId}-01` } }))
     expect(tc.traceId).toBe(traceId)
     expect(tc.spanId).toBe(spanId)
+  })
+})
+
+describe('safeTarget', () => {
+  const BASE = 'http://localhost:3000'
+
+  it('allows paths within the prefix', () => {
+    expect(safeTarget(BASE, '/v1/zones', '/v1/')).toBe('http://localhost:3000/v1/zones')
+  })
+
+  it('rejects literal dot-dot traversal', () => {
+    expect(safeTarget(BASE, '/v1/../metrics', '/v1/')).toBeUndefined()
+  })
+
+  it('rejects percent-encoded dot and slash traversal the upstream might decode', () => {
+    expect(safeTarget(BASE, '/v1/%2e%2e/metrics', '/v1/')).toBeUndefined()
+    expect(safeTarget(BASE, '/v1/%2e%2e%2fmetrics', '/v1/')).toBeUndefined()
+    expect(safeTarget(BASE, '/v1/foo%2f..%2fmetrics', '/v1/')).toBeUndefined()
+    expect(safeTarget(BASE, '/v1/%5c..%5cmetrics', '/v1/')).toBeUndefined()
+  })
+
+  it('rejects paths outside the allowed prefix', () => {
+    expect(safeTarget(BASE, '/metrics', '/v1/')).toBeUndefined()
+    expect(safeTarget(BASE, '//evil.com/x', '/v1/')).toBeUndefined()
+  })
+
+  it('confines the coordinator surface to its own prefix', () => {
+    expect(safeTarget('http://localhost:4000', '/zones/abc/agents', '/zones/')).toBe(
+      'http://localhost:4000/zones/abc/agents',
+    )
+    expect(safeTarget('http://localhost:4000', '/metrics', '/zones/')).toBeUndefined()
   })
 })

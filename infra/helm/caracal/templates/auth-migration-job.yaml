@@ -1,0 +1,64 @@
+{{/*
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
+Schema migration job for the web tier's Better Auth session database.
+*/}}
+
+{{- $service := .Values.services.web -}}
+{{- if and $service.enabled .Values.migrations.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "caracal.fullname" . }}-auth-migrate
+  labels:
+    {{- include "caracal.labels" . | nindent 4 }}
+    app.kubernetes.io/component: auth-migrate
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: {{ .Values.migrations.backoffLimit }}
+  template:
+    metadata:
+      labels:
+        {{- include "caracal.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: auth-migrate
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: {{ include "caracal.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.serviceAccount.automountToken }}
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: auth-migrate
+          image: {{ include "caracal.image" (dict "root" . "image" $service.image) }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          command: ["/app/auth/dist/migrate.js"]
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: LOG_LEVEL
+              value: {{ .Values.global.logLevel | quote }}
+            - name: CARACAL_AUTH_DATABASE_SSL
+              value: {{ $service.databaseSsl | quote }}
+            - name: CARACAL_AUTH_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "caracal.runtimeSecretName" . | quote }}
+                  key: authDatabaseUrl
+            - name: CARACAL_AUTH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "caracal.runtimeSecretName" . | quote }}
+                  key: caracalAuthSecret
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+{{- end }}
