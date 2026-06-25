@@ -3,7 +3,7 @@ title: Implement Multi-Agent Delegation
 description: Spawn child agents, attach typed constraints, inspect graph impact, and revoke safely.
 ---
 
-Use delegation when one agent needs to hand a narrower slice of authority to another agent. The SDK creates the edge and carries the context; the Console shows the graph and impact.
+Use delegation when one agent needs to hand a narrower slice of authority to another agent. The SDK creates the edge and carries the context; the web console shows the graph and impact.
 
 `spawn()` always creates the child under the **same application** as the parent — `spawn()` never moves a child into a different application. Use a narrowing grant only when the child should hold *less* than the parent. To hand authority across applications, use `delegate()` against a peer session that already exists under that other application.
 
@@ -41,11 +41,11 @@ await caracal.spawn(async () => {
 
 ## Review the graph
 
-1. Open `caracal console`.
-2. Select `delegation`.
+1. Open `caracal web`.
+2. Select **Delegation**.
 3. Inspect active edges, inbound edges, outbound edges, and traversal.
 4. Use impact before revoking an edge.
-5. Check `audit` for the delegated exchange and resource decision.
+5. Check **Audit** for the delegated exchange and resource decision.
 
 ## Safe constraints
 

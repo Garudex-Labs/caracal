@@ -233,15 +233,15 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro';
       <p>The concrete setup fields are in <a href="/guides/provider-recipes/">Provider Recipes</a>.</p>
       <p className="faqRelated">Related: <a href="#faq-013">FAQ-013</a>, <a href="#faq-016">FAQ-016</a></p>
     </details>
-    <details id="faq-015" className="faqEntry" data-faq-entry data-faq-category="runtime" data-faq-id="FAQ-015" data-faq-title="Why are zone and policy commands in the Console instead of the caracal CLI?" data-keywords="caracal CLI Console Admin API SDK commands runtime lifecycle zones policies management surface">
+    <details id="faq-015" className="faqEntry" data-faq-entry data-faq-category="runtime" data-faq-id="FAQ-015" data-faq-title="Why are zone and policy commands in the web console instead of the caracal CLI?" data-keywords="caracal CLI web console Admin API SDK commands runtime lifecycle zones policies management surface">
       <summary className="faqEntryHeader">
         <span className="faqNumber">FAQ-015</span>
         <span className="faqTag faqTagRuntime">Runtime</span>
-        <h3>Why are zone and policy commands in the Console instead of the <code>caracal</code> CLI?</h3>
+        <h3>Why are zone and policy commands in the web console instead of the <code>caracal</code> CLI?</h3>
         <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-015">Share</button>
       </summary>
       <span id="faq-why-console-instead-of-cli" className="faqAnchor"></span>
-      <p>The top-level <code>caracal</code> CLI is intentionally limited to local runtime lifecycle and process execution: <code>up</code>, <code>down</code>, <code>status</code>, <code>purge</code>, <code>run</code>, and <code>console</code>. Product-management workflows such as zones, applications, providers, resources, policies, audit, diagnostics, agents, and delegation live in the Console, Admin API, and SDKs so they use one management surface and do not drift into duplicated CLI commands.</p>
+      <p>The top-level <code>caracal</code> CLI is intentionally limited to local runtime lifecycle, process execution, upgrades, and web console launch: <code>up</code>, <code>down</code>, <code>status</code>, <code>upgrade</code>, <code>purge</code>, <code>run</code>, and <code>web</code>. Product-management workflows such as zones, applications, providers, resources, policies, audit, diagnostics, agents, and delegation live in the web console, Control API, and Admin SDK so they use one management surface and do not drift into duplicated CLI commands.</p>
       <p>See <a href="/runtime-console/cli-and-console/">Choose the Right Surface</a>.</p>
       <p className="faqRelated">Related: <a href="#faq-017">FAQ-017</a>, <a href="#faq-018">FAQ-018</a></p>
     </details>
@@ -267,7 +267,7 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro';
         <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-017">Share</button>
       </summary>
       <span id="faq-diagnostic-bundle" className="faqAnchor"></span>
-      <p>The diagnostic bundle is exposed through existing surfaces instead of a separate top-level command. Use <code>caracal status --json</code> for runtime status, Console <code>diagnostics</code> for Doctor checks (<code>health</code>, <code>readiness</code>, <code>zones</code>, <code>preflight</code>), <code>audit</code> for recent decisions, and <code>request trace</code> for a known request ID.</p>
+      <p>The diagnostic bundle is exposed through existing surfaces instead of a separate top-level command. Use <code>caracal status --json</code> for runtime status, web console <strong>Diagnostics</strong> for Doctor checks (<code>health</code>, <code>readiness</code>, <code>zones</code>, <code>preflight</code>), <code>audit</code> for recent decisions, and <code>request trace</code> for a known request ID.</p>
       <p>See <a href="/operations/troubleshooting/#diagnostic-bundle">Troubleshoot by Symptom</a>.</p>
       <p className="faqRelated">Related: <a href="#faq-015">FAQ-015</a>, <a href="#faq-016">FAQ-016</a>, <a href="#faq-018">FAQ-018</a></p>
     </details>
@@ -292,7 +292,7 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro';
         <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-019">Share</button>
       </summary>
       <span id="faq-enterprise-only-features" className="faqAnchor"></span>
-      <p>Managed multi-tenancy, hosted management UI, managed Gateway and service operation, SSO, SCIM provisioning, teams, organization-level RBAC, commercial support, and enterprise lifecycle features are Enterprise Edition features. The Community Edition remains self-hosted and uses zones, Admin API automation, Console workflows, SDKs, and connectors.</p>
+      <p>Managed multi-tenancy, hosted management UI, managed Gateway and service operation, SSO, SCIM provisioning, teams, organization-level RBAC, commercial support, and enterprise lifecycle features are Enterprise Edition features. The Community Edition remains self-hosted and uses zones, Admin API automation, web console workflows, SDKs, and connectors.</p>
       <p>See <a href="/enterprise/">Compare Editions</a> or <a href="https://cal.com/rawx18/caracal-enterprise-sales">book an enterprise call</a>.</p>
       <p className="faqRelated">Related: <a href="#faq-004">FAQ-004</a></p>
     </details>
@@ -307,7 +307,7 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro';
       <span id="faq-which-agent-session-acted" className="faqAnchor"></span>
       <p>Every agent has exactly one canonical identity: the server-minted <code>agent_session_id</code>. It is unique, returned to the caller the moment <code>spawn()</code> or <code>service()</code> creates the session, and stamped onto every token exchange and audit event that session produces. That id — not the application, lifecycle, or labels — is the answer to "which agent did this?". Even two sessions that share the same application, labels, and metadata are still separated by their <code>agent_session_id</code> in audit.</p>
       <p>Identical sessions are interchangeable on purpose. A hundred <code>["pricing-worker"]</code> sessions fanned out under one application are meant to be fungible — that is how fan-out works, and it is why labels are a descriptor rather than a unique name. When you need to tell sessions apart by <em>meaning</em> rather than by raw id, give them distinguishing <code>labels</code>, attach business correlation in <code>metadata</code>, or propagate a <code>trace_id</code> through the work.</p>
-      <p>To investigate, the zone audit endpoint filters directly on these fields: query <code>agent_session_id</code> to follow one exact session end to end, or <code>label</code> to scope to a role across a whole fleet of sessions. The Console audit view exposes both filters.</p>
+      <p>To investigate, the zone audit endpoint filters directly on these fields: query <code>agent_session_id</code> to follow one exact session end to end, or <code>label</code> to scope to a role across a whole fleet of sessions. The web console audit view exposes both filters.</p>
       <p>To see the sessions themselves — including ones that have ended — the management API exposes <code>GET /v1/zones/&#123;zone&#125;/agent-sessions</code>, filterable by <code>status</code> (<code>active</code>, <code>suspended</code>, <code>terminated</code>, <code>expired</code>), <code>lifecycle</code>, <code>label</code>, <code>parent_id</code>, and <code>application_id</code>. Rows are never deleted on termination — a session keeps its row and its <code>status</code> flips to <code>terminated</code> or <code>suspended</code> — so this is the authoritative place to review past agents. Add <code>format=csv</code> to the same endpoint to export the filtered set for offline analysis.</p>
       <p className="faqRelated">Related: <a href="#faq-006">FAQ-006</a>, <a href="#faq-008">FAQ-008</a>, <a href="#faq-021">FAQ-021</a></p>
     </details>
@@ -443,6 +443,6 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro';
 
 ## Next Step
 
-Use [Glossary](/reference/glossary/) when you need canonical terms for concepts, API names, Console labels, and examples.
+Use [Glossary](/reference/glossary/) when you need canonical terms for concepts, API names, web console labels, and examples.
 
 <FaqRegistryScript />

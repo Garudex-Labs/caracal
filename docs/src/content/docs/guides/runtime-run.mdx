@@ -8,8 +8,8 @@ description: Use a generated runtime profile to inject scoped Caracal access int
 ## Prepare a profile
 
 1. Run `caracal up`.
-2. Open `caracal console`.
-3. Select `guided setup`.
+2. Open `caracal web`.
+3. Select **Guided setup**.
 4. Fill in the upstream URL, resource identifier, runtime profile, profile path, secret file, and first request path.
 5. Enable **write profile files**.
 6. Save the generated profile and secret file.
@@ -31,7 +31,7 @@ The child process receives the Caracal variables needed to locate the profile, e
 | Runtime is ready | `caracal status --ready` |
 | Profile is readable | `caracal run -- env | grep CARACAL` |
 | First request succeeds | Use the guided setup first request path. |
-| Audit captured the request | Console `audit` or `request trace`. |
+| Audit captured the request | web console **Audit** or **Request Traces**. |
 
 ## Troubleshooting
 

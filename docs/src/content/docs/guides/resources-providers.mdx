@@ -1,6 +1,6 @@
 ---
 title: Define Resources and Providers
-description: Register protected upstream resources and explicit provider auth modes from the Console.
+description: Register protected upstream resources and explicit provider auth modes from the web console.
 ---
 
 Resources tell Caracal what protected target is being accessed. Providers describe how Gateway authenticates to that target, including no-credential and Caracal mandate flows.
@@ -19,11 +19,11 @@ Resource fields should answer “what is being protected and where does Gateway 
 [What is the difference between a resource and a provider?](/reference/faq/#faq-009) and [is an application secret the same as a provider credential?](/reference/faq/#faq-013)
 :::
 
-## Console workflow
+## Web Console Workflow
 
 1. Start the local runtime with `caracal up`.
-2. Open `caracal console`.
-3. Select `resource`.
+2. Open `caracal web`.
+3. Select **Resources**.
 4. Create a resource with a stable identifier, such as `resource://pipernet`.
 5. Add action-oriented scopes, such as `payments:read` and `payments:refund`.
 6. Set the upstream URL, Gateway application, and upstream credential provider for the protected service.
@@ -47,7 +47,7 @@ OAuth 2.0 authorization-code providers are for delegated user consent. Register 
 
 The callback endpoint is intentionally public so external providers can redirect browsers back to Caracal. Security comes from short-lived Redis-backed state, one-time state consumption, PKCE, resource/upstream credential provider binding checks, scope checks, sealed token storage, HTTPS-only token exchange, redirect blocking, host allow-listing, and private-address rejection. In cloud deployments, all API replicas must share Redis so a callback can validate state created by any replica. Reconnecting the same user, resource, and provider replaces the active provider grant instead of creating duplicate active credentials. Use the provider `disconnect` action to revoke the active delegated provider grant for a user and resource.
 
-OAuth 2.0 client credentials keeps common machine-to-machine setup in the main form and moves provider-specific controls to Advanced. Use upstream OAuth scopes when the token endpoint expects OAuth scopes, OAuth token audience when the provider requires an `audience` parameter, OAuth resource indicator when the provider expects a resource indicator, and OAuth token parameters only for documented provider-specific token endpoint parameters. OAuth token endpoint hosts constrain outbound token acquisition; Console infers the host from the token endpoint when the Advanced field is blank.
+OAuth 2.0 client credentials keeps common machine-to-machine setup in the main form and moves provider-specific controls to Advanced. Use upstream OAuth scopes when the token endpoint expects OAuth scopes, OAuth token audience when the provider requires an `audience` parameter, OAuth resource indicator when the provider expects a resource indicator, and OAuth token parameters only for documented provider-specific token endpoint parameters. OAuth token endpoint hosts constrain outbound token acquisition; web console infers the host from the token endpoint when the Advanced field is blank.
 
 API key providers use one required routing field: the exact header the upstream expects. Use `X-API-Key` or another vendor header when the API wants the raw key value, use `Authorization` plus the Advanced auth scheme `Bearer` for bearer-style API keys, and use a vendor scheme such as `Token` only when the provider documents that format. `auth_header` is not part of API-key provider config; OAuth and bearer-token providers use that field because their default upstream header is `Authorization`.
 
@@ -64,7 +64,7 @@ A resource declares which upstream operations the Gateway may invoke and how str
 | `operations` | The operations the Gateway may forward, each a `{method, path, scope}` triple. `method` and `path` match the upstream call; `scope` is the Caracal resource scope the mandate must carry for that operation, and must be one of the resource's declared scopes. |
 | `operation_enforcement` | `enforced` denies any Gateway operation not listed in `operations` and requires its scope on the mandate. `transport_uniform` treats the upstream as a single surface and relies on the mint-time scope check, for protocols such as MCP that address every call through one transport path. |
 
-When `operation_enforcement` is `enforced`, the Gateway authorizes only declared operations and denies everything else with `operation_not_permitted` before any upstream call. A resource that is `enforced` with an empty `operations` list is fully closed: every Gateway operation is denied until operations are declared. New resources created through the Control API default to `enforced`, so authority stays closed until you describe it; guided Console setup opens resources as `transport_uniform` because it does not collect per-operation detail, and you tighten them from the resource editor once the operation set is known.
+When `operation_enforcement` is `enforced`, the Gateway authorizes only declared operations and denies everything else with `operation_not_permitted` before any upstream call. A resource that is `enforced` with an empty `operations` list is fully closed: every Gateway operation is denied until operations are declared. New resources created through the Control API default to `enforced`, so authority stays closed until you describe it; web console guided setup opens resources as `transport_uniform` because it does not collect per-operation detail, and you tighten them from the resource editor once the operation set is known.
 
 Because the floor is enforced in the platform rather than in adopter policy, a policy can further restrict an operation but can never widen authority beyond the declared operations and their scopes.
 
@@ -89,7 +89,7 @@ Do not put provider-specific credential details on a resource. Do not use mutabl
 
 ## Validate the setup
 
-- Open the resource in the Console and confirm scopes are present.
+- Open the resource in the web console and confirm scopes are present.
 - Author and activate a policy that allows the application and subject to request the scopes.
 - Send a Gateway request and inspect the audit event. For Caracal mandate upstreams, also confirm the resource uses a Caracal verifier or connector.
 

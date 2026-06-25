@@ -1,101 +1,89 @@
 ---
-title: Use the Console
-description: Launch, navigate, and operate caracal-console.
+title: Use the Web Console
+description: Launch, navigate, and operate the browser-based Caracal web console.
 pageType: reference
 ---
 
-`caracal-console` is the terminal Console for setting up and operating protected agent access. It fetches from the management API, renders a full-screen TTY interface, and keeps product management out of the top-level runtime CLI.
+The web console is the supported browser UI for setting up and operating protected agent access. It launches with `caracal web` and serves a web UI plus a session-guarded backend-for-frontend that proxies the admin and Control APIs.
 
 ## Launch
 
 ```bash
-caracal console
+caracal web
 ```
 
-or:
+The web console expects the local stack to be running:
 
 ```bash
-caracal-console
+caracal up
+caracal status --ready
+caracal web
 ```
 
-The Console requires an interactive TTY. In non-interactive environments, use the Control API or Admin SDK.
+Use `--allow-offline` when you only need sign-in or UI-only checks and the stack is not ready:
+
+```bash
+caracal web --allow-offline
+```
+
+## Launcher Options
+
+| Option | Purpose |
+| --- | --- |
+| `--web-port <port>` | Bind the browser UI to a specific port. |
+| `--auth-port <port>` | Bind the session/auth backend to a specific port. |
+| `--build` | Build the web assets before launching. |
+| `--allow-offline` | Start the UI even when local Caracal services are not ready. |
 
 ## Credentials and Endpoints
 
 | Input | Purpose |
 | --- | --- |
-| `CARACAL_API_URL` | Cloud/custom Management API URL override. |
+| `CARACAL_API_URL` | Cloud/custom admin API URL override. |
 | `CARACAL_ADMIN_TOKEN` or `CARACAL_ADMIN_TOKEN_FILE` | Admin bearer token for management views. |
-| `CARACAL_COORDINATOR_URL` | Cloud/custom Coordinator URL override for `agent session` and `delegation`. |
+| `CARACAL_COORDINATOR_URL` | Cloud/custom Coordinator URL override for agent and delegation views. |
 | `CARACAL_COORDINATOR_TOKEN` or `CARACAL_COORDINATOR_TOKEN_FILE` | Coordinator token for agent and delegation views. |
 
 For default local services, generated secret files from `caracal up` are preferred over exported token values so local reset cycles do not keep stale shell credentials. Those files live outside the source workspace by default and must not be mounted into agent workspaces.
 
-## Screen Model
+## Browser Model
 
-```text
-+------------------------------------------------------------------+
-| Caracal Console                                      API endpoint |
-| > menu > selected view                              breadcrumb   |
-+------------------------------------------------------------------+
-|                                                                  |
-|  view content                                                     |
-|                                                                  |
-+------------------------------------------------------------------+
-| status message                                                   |
-| key hints                                                        |
-+------------------------------------------------------------------+
-```
+The launcher prints the local URL after startup. Open that URL in a browser, sign in to the session-guarded UI, and navigate by sections instead of terminal keys.
 
-The Console redraws when content changes and reacts to terminal resize events.
-
-## Main Menu
-
-| Group | Key | Label | Zone required |
-| --- | --- | --- | --- |
-| start | `s` | `guided setup` | No |
-| manage | `1` | `zone` | No |
-| manage | `2` | `application` | Yes |
-| manage | `3` | `provider` | Yes |
-| manage | `4` | `resource` | Yes |
-| manage | `5` | `policy` | Yes |
-| manage | `6` | `policy set` | Yes |
-| sessions | `7` | `authority session` | Yes |
-| sessions | `r` | `agent session` | Yes |
-| sessions | `g` | `delegation` | Yes |
-| observe | `a` | `audit` | Yes |
-| observe | `t` | `request trace` | Yes |
-| runtime | `c` | `control` | Yes |
-| runtime | `d` | `diagnostics` | No |
-
-Press `z` to open the zone picker before navigating to zone-scoped views.
+| Section | What it manages |
+| --- | --- |
+| **Guided setup** | First zone, agent app, provider, resource, access policy, and runtime profile. |
+| **Zones** | Zone records and active zone selection. |
+| **Applications** | Confidential agent applications and one-time client secrets. |
+| **Providers** | Gateway upstream auth modes for Caracal mandates, OAuth 2.0 authorization code, OAuth 2.0 client credentials, API-key, and bearer-token upstreams. |
+| **Resources** | Protected resource identifiers, scopes, upstream URLs, Gateway application bindings, and upstream credential provider bindings. |
+| **Policies** | Policy content and versions. |
+| **Policy Sets** | Policy-set composition, simulation, activation, and shadow evaluation. |
+| **Sessions** | Active authority-session records. |
+| **Agents** | Agent sessions, lifecycle, lease health, and session trees. |
+| **Delegation** | Authority edges between agent sessions. |
+| **Audit** | Recent decisions, filters, event details, and request trace entry points. |
+| **Request Traces** | Direct lookup for one known request ID. |
+| **Control** | Control API exposure and Control credentials. |
+| **Diagnostics** | Health, readiness, zone, and preflight checks. |
 
 ## Sessions Views
 
-The `sessions` group observes the three runtime identity objects. They are read-only in the
-Console — authority is minted by the STS and delegation is authored through the agent SDK; the
-Console lists and inspects them.
+The session, agent, and delegation pages observe the runtime identity objects. Authority is minted by the STS, and delegation is authored through the agent SDK; the web console lists and inspects them.
 
 | View | What it shows | Object |
 | --- | --- | --- |
-| `authority session` | STS-minted subject sessions for a user or application | a `sessions` row |
-| `agent session` | A spawned agent's runtime session, lifecycle, and lease health | an `agent_sessions` row |
-| `delegation` | Authority edges between agent sessions (who narrowed whom) | a `delegation_edges` row |
+| **Sessions** | STS-minted subject sessions for a user or application | a `sessions` row |
+| **Agents** | A spawned agent's runtime session, lifecycle, and lease health | an `agent_sessions` row |
+| **Delegation** | Authority edges between agent sessions | a `delegation_edges` row |
 
-An **authority session** is the root credential a principal holds after a token exchange. An
-**agent session** is one spawned agent under an application; a *delegated* session is simply an
-agent session that has an inbound delegation edge — not a separate object. A **delegation** edge
-connects two agent sessions, so inbound and outbound edges are anchored on the agent session id.
+An **authority session** is the root credential a principal holds after a token exchange. An **agent session** is one spawned agent under an application; a *delegated* session is an agent session with an inbound delegation edge. A **delegation** edge connects two agent sessions, so inbound and outbound edges are anchored on the agent session id.
 
-The `agent session` view supports filtering (`f`) by `status` (active, suspended, terminated),
-`lifecycle` (task, service), `application`, and `label`. The `expires` column surfaces lease
-health: a task agent shows its TTL deadline; a service agent shows its heartbeat-lease deadline
-(or `no lease` if it has stopped renewing). Use `i`/`o` on an agent row to view its inbound and
-outbound delegation edges.
+The **Agents** page supports filtering by `status` (active, suspended, terminated), `lifecycle` (task, service), `application`, and `label`. The lease fields surface task TTL deadlines and service heartbeat deadlines. Use the session detail pages to view inbound and outbound delegation edges.
 
 ## Guided Setup
 
-`guided setup` creates or selects the first working objects:
+Guided setup creates or selects the first working objects:
 
 1. Zone
 2. Agent app
@@ -106,36 +94,18 @@ outbound delegation edges.
 
 Important guided fields include `upstream URL`, `first request path`, `runtime profile`, `write profile files`, `profile path`, `secret file`, `resource identifier`, and `resource scopes`.
 
-Use file writing when you want the Console to create the runtime profile and secret file locally. Leave it disabled when a platform secret manager or CI system will provide those values.
-
-## Navigation Keys
-
-| Key | Action |
-| --- | --- |
-| `q`, `ctrl-c` | Quit |
-| `h`, `esc`, `left` | Back |
-| `up`, `j` | Move up |
-| `down`, `k` | Move down |
-| `pgup`, `pgdn` | Page through long lists |
-| `home`, `g` | First row |
-| `end`, `G` | Last row |
-| `enter` | Open or submit |
-| `r` | Reload |
-| `z` | Zone picker |
-| `?` | Contextual help |
-
-Forms can expose advanced options for manual identifiers, raw JSON, shadow versions, overwrite behavior, and other non-default settings.
+Use file writing when you want the web console to create the runtime profile and secret file locally. Leave it disabled when a platform secret manager or CI system will provide those values.
 
 ## Troubleshooting
 
 | Symptom | Check |
 | --- | --- |
-| Console exits immediately | Ensure stdin is a TTY. |
+| Browser cannot reach the web console | Confirm the `caracal web` process is still running and no other service is using the selected ports. |
+| Product views show connection errors | Run `caracal status --ready`; custom deployments should confirm the admin API URL override. |
 | `401 Unauthorized` | Check `CARACAL_ADMIN_TOKEN` or `CARACAL_ADMIN_TOKEN_FILE`. |
 | `403 Forbidden` | The token lacks the required management scope. |
-| Connection error | Run `caracal status --ready`; custom deployments should confirm the Management API URL override. |
-| Coordinator views fail | Confirm the Coordinator token and, for custom deployments, the Coordinator URL override. |
-| A zone-scoped view will not open | Press `z` and select a zone first. |
+| Coordinator-backed views fail | Confirm the Coordinator token and, for custom deployments, the Coordinator URL override. |
+| A zone-scoped page has no data | Select a zone before opening zone-scoped views. |
 
 ## Next Step
 

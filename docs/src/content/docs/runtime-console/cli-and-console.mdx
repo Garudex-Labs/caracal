@@ -1,6 +1,6 @@
 ---
 title: Choose the Right Surface
-description: Decide whether a task belongs in the runtime CLI, Console, Control API, or Admin SDK.
+description: Decide whether a task belongs in the runtime CLI, web console, Control API, or Admin SDK.
 pageType: reference
 ---
 
@@ -10,14 +10,14 @@ Use this page before reaching for a command. Caracal separates local runtime lif
 
 ```text
 local lifecycle and process execution -> caracal
-human product management              -> caracal console / caracal-console
+human product management              -> caracal web (web console)
 scripted product management           -> Control API or Admin SDK
 ```
 
-The top-level runtime CLI intentionally contains only `up`, `down`, `status`, `purge`, `run`, and `console`.
+The top-level runtime CLI intentionally contains only `up`, `down`, `status`, `upgrade`, `purge`, `run`, and `web`.
 
 :::note[FAQ]
-[Why are zone and policy commands in the Console instead of the `caracal` CLI?](/reference/faq/#faq-015)
+[Why are zone and policy commands in the web console instead of the `caracal` CLI?](/reference/faq/#faq-015)
 :::
 
 ## Runtime CLI Tasks
@@ -30,35 +30,36 @@ The top-level runtime CLI intentionally contains only `up`, `down`, `status`, `p
 | Probe service health | `caracal status` |
 | Probe dependency readiness | `caracal status --ready` |
 | Emit structured status | `caracal status --json` |
+| Upgrade local runtime assets | `caracal upgrade` |
 | Remove local stack/runtime state | `caracal purge` |
 | Run a process with resource tokens | `caracal run -- <command>` |
-| Open the Console | `caracal console` |
+| Open the web console | `caracal web` |
 
 Runtime CLI commands must not require admin tokens, selected zones, product credentials, or Control credentials.
 
-## Console Tasks
+## Web Console Tasks
 
-| Outcome | Console menu |
+| Outcome | Web console section |
 | --- | --- |
-| Create or select zones | `zone` |
-| Register confidential agent applications | `application` |
-| Configure provider credential sources | `provider` |
-| Register protected resources and scopes | `resource` |
-| Author access policies | `policy` |
-| Simulate and activate policy sets | `policy set` |
-| Inspect authority sessions | `authority session` |
-| Enable and manage Control API access | `control` |
-| Search audit records and trace selected requests | `audit` |
-| Trace one known request ID | `request trace` |
-| Inspect or manage agent sessions | `agent session` |
-| Inspect or revoke delegation edges | `delegation` |
-| Run health, readiness, zone, and preflight checks | `diagnostics` |
+| Create or select zones | **Zones** |
+| Register confidential agent applications | **Applications** |
+| Configure provider credential sources | **Providers** |
+| Register protected resources and scopes | **Resources** |
+| Author access policies | **Policies** |
+| Simulate and activate policy sets | **Policy Sets** |
+| Inspect authority sessions | **Sessions** |
+| Enable and manage Control API access | **Control** |
+| Search audit records and trace selected requests | **Audit** |
+| Trace one known request ID | **Request Traces** |
+| Inspect or manage agent sessions | **Agents** |
+| Inspect or revoke delegation edges | **Delegation** |
+| Run health, readiness, zone, and preflight checks | **Diagnostics** |
 
-Product-management workflows are not mirrored as top-level runtime CLI commands. Keeping them in the Console prevents command drift and keeps interactive operations tied to the same engine/admin helpers.
+Product-management workflows are not mirrored as top-level runtime CLI commands. Keeping them in the web console prevents command drift and keeps human operations tied to the same engine/admin helpers.
 
 ## Automation Tasks
 
-Use the Admin SDK from trusted operator environments when scripts need to create zones. Use the Control API for zone-bound automation over applications, resources, policies, authority sessions, agents, delegation edges, audit queries, and Control credentials. Enable Control from the Console `control` menu, then call the authenticated HTTP surface from CI or automation.
+Use the Admin SDK from trusted operator environments when scripts need to create zones. Use the Control API for zone-bound automation over applications, resources, policies, authority sessions, agents, delegation edges, audit queries, and Control credentials. Enable Control from the web console's **Control** section, then call the authenticated HTTP surface from CI or automation.
 
 Automation must run with operator credentials only in trusted control-plane environments. Agent workloads should use `caracal run` or application credentials and must not receive `CARACAL_ADMIN_TOKEN`, `CARACAL_COORDINATOR_TOKEN`, `CARACAL_SECRETS_DIR`, or mounted operator secret files.
 
@@ -66,9 +67,9 @@ Automation must run with operator credentials only in trusted control-plane envi
 
 | Symptom | Check |
 | --- | --- |
-| `caracal console` is hidden or unavailable | Use `caracal-console` directly, or reinstall so the Console binary/workspace shim is available. Runtime lifecycle commands remain available. |
-| A command for zones, policies, or audit is missing from `caracal` | Open the Console. Those workflows are intentionally Console-owned. |
-| Console fails in CI | Use the Control API or Admin SDK. The Console requires an interactive TTY. |
+| The web console cannot reach product data | Run `caracal up` and confirm `caracal status --ready`; use `caracal web --allow-offline` only for sign-in or UI-only checks. |
+| A command for zones, policies, or audit is missing from `caracal` | Open the web console. Those workflows are intentionally web-console-owned. |
+| Product management is needed in CI | Use the Control API or Admin SDK with scoped operator credentials. |
 | Runtime command asks for product-management context | Treat it as a bug; runtime lifecycle must not depend on admin or zone state. |
 
 ## Next Step
