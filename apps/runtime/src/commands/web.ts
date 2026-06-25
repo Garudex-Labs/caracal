@@ -223,6 +223,15 @@ export async function webCommand(argv: string[]): Promise<void> {
       printError('web: production build failed.')
       process.exit(build.status ?? 1)
     }
+    printInfo('Building the backend-for-frontend…')
+    const authBuild = spawnSync(pnpmCmd, [...pnpmPrefix, '--dir', 'apps/auth', 'build'], {
+      cwd: root,
+      stdio: 'inherit',
+    })
+    if (authBuild.status !== 0) {
+      printError('web: backend-for-frontend build failed.')
+      process.exit(authBuild.status ?? 1)
+    }
   }
 
   const children: ChildProcess[] = []

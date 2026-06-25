@@ -86,7 +86,7 @@ function resolveWebOrigins(baseURL: string): string[] {
 
 export function loadConfig(): AuthConfig {
   const production = (process.env.NODE_ENV ?? "").toLowerCase() === "production";
-  const port = Number(process.env.CARACAL_AUTH_PORT ?? 3002);
+  const port = Number(process.env.PORT ?? process.env.CARACAL_AUTH_PORT ?? 3002);
   const host = process.env.HOST ?? (production ? "0.0.0.0" : "127.0.0.1");
   const baseURL = process.env.CARACAL_AUTH_URL ?? `http://localhost:${port}`;
   // Cookies must carry Secure whenever the public edge is HTTPS. Production is HTTPS by
