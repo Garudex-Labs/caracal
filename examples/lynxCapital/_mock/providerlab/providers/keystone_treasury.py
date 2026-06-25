@@ -18,6 +18,12 @@ _REPORTING_CCY = "USD"
 _FORECAST_SCENARIOS = ("base", "optimistic", "stress")
 _HEDGE_INSTRUMENTS = ("forward", "fx_swap", "ndf")
 _HEDGE_DESIGNATIONS = ("cash_flow_hedge", "fair_value_hedge", "net_investment_hedge")
+_CPTY_RATING = {
+    "Halcyon Bank": "A+",
+    "Corvus Bank": "A",
+    "Northwind Bank": "AA-",
+    "Sterling National": "A-",
+}
 _SETTLEMENT_DAYS = 2
 
 # Above this group-reporting-currency notional an intercompany transfer needs a
@@ -475,7 +481,7 @@ def place_hedge(ctx: Ctx) -> dict:
         "settlementDate": settlement.date().isoformat(),
         "tenorDays": tenor_days,
         "counterparty": counterparty,
-        "counterpartyRating": gen.keystone_counterparty_rating(counterparty),
+        "counterpartyRating": _CPTY_RATING.get(counterparty, "A"),
         "isdaMasterAgreementRef": f"ISDA-{counterparty.replace(' ', '')[:6].upper()}-2024",
         "csaId": f"csa_{counterparty.replace(' ', '').lower()[:6]}",
         "settlementType": "deliverable" if deliverable else "non_deliverable",

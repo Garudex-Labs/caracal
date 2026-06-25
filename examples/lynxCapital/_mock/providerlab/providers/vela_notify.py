@@ -20,7 +20,6 @@ _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _PHONE_RE = re.compile(r"^\+?[0-9][0-9 \-]{5,}$")
 _VALID_EVENTS = ("Delivery", "Bounce", "SpamComplaint", "Open", "Click",
                  "sent", "delivered", "undelivered", "failed")
-_SMS_UNDELIVERED = (30003, "Unreachable destination handset")
 
 
 @base.seeder(ID)
@@ -53,13 +52,29 @@ def _route(channel: str, recipient: str) -> str:
     if channel == "email":
         if "bounce" in target:
             return "bounced"
+        if "softbounce" in target or "mailboxfull" in target:
+            return "softbounce"
         if "complaint" in target or "spam" in target:
             return "spam"
         return "delivered"
     digits = re.sub(r"\D", "", recipient)
+    if digits.endswith("0007"):
+        return "failed"
     if digits.endswith(("0009", "0003")):
         return "undelivered"
     return "delivered"
+
+
+def _sms_region(recipient: str) -> str:
+    """Best-effort destination region from the dialing prefix for SMS pricing."""
+    digits = re.sub(r"\D", "", recipient)
+    if digits.startswith("44"):
+        return "GB"
+    if digits.startswith("49"):
+        return "DE"
+    if digits.startswith("65"):
+        return "SG"
+    return "US"
 
 
 def _events_for(ctx: Ctx, message_id: str) -> list[dict]:
@@ -106,37 +121,44 @@ def _advance(ctx: Ctx, message: dict) -> None:
             message["status"] = "sent"
             _record_event(ctx, message, "Sent")
         elif status == "sent":
-            if outcome == "bounced":
-                detail = dict(gen._VELA_BOUNCE_DETAIL)
+            if outcome in ("bounced", "softbounce"):
+                detail = dict(gen._VELA_SOFTBOUNCE_DETAIL if outcome == "softbounce"
+                              else gen._VELA_BOUNCE_DETAIL)
                 message["status"] = "bounced"
                 message["bounce"] = detail
                 message["errorCode"] = detail["code"]
                 message["error"] = detail["description"]
                 _record_event(ctx, message, "Bounce", detail)
-                _suppress(ctx, message, "HardBounce")
+                if detail["type"] == "HardBounce":
+                    _suppress(ctx, message, "HardBounce")
             elif outcome == "spam":
                 message["status"] = "delivered"
-                _record_event(ctx, message, "Delivery")
+                _record_event(ctx, message, "Delivery", {"smtpResponse": "250 2.0.0 OK"})
                 _record_event(ctx, message, "SpamComplaint", {"origin": "Recipient"})
                 _suppress(ctx, message, "SpamComplaint")
             else:
                 message["status"] = "delivered"
-                _record_event(ctx, message, "Delivery")
+                _record_event(ctx, message, "Delivery", {"smtpResponse": "250 2.0.0 OK"})
     else:
         if status == "queued":
             message["status"] = "sending"
             _record_event(ctx, message, "sending")
         elif status == "sending":
-            if outcome == "undelivered":
-                code, reason = _SMS_UNDELIVERED
-                message["status"] = "undelivered"
+            if outcome in ("undelivered", "failed"):
+                code, reason = gen._VELA_SMS_ERRORS[outcome]
+                message["status"] = outcome
                 message["errorCode"] = code
                 message["error"] = reason
-                _record_event(ctx, message, "undelivered", {"errorCode": code, "reason": reason})
+                _record_event(ctx, message, outcome,
+                              {"errorCode": code, "reason": reason,
+                               "carrier": message.get("carrier")})
             else:
                 message["status"] = "delivered"
                 _record_event(ctx, message, "sent")
-                _record_event(ctx, message, "delivered")
+                _record_event(ctx, message, "delivered",
+                              {"carrier": message.get("carrier"),
+                               "segments": message.get("segments"),
+                               "price": message.get("price")})
     message["updatedAt"] = _iso(base.now())
 
 
@@ -167,7 +189,7 @@ def _build_message(ctx: Ctx, channel: str, recipient: str, template: dict) -> di
     message_id = base.new_id("msg")
     sender = ctx.get("from") or (gen._VELA_SMS_SENDER if channel == "sms"
                                  else f"no-reply@{gen._VELA_EMAIL_DOMAIN}")
-    return {
+    message = {
         "messageId": message_id,
         "providerMessageId": base.new_id("carrier" if channel == "sms" else "esp"),
         "channel": channel,
@@ -186,6 +208,26 @@ def _build_message(ctx: Ctx, channel: str, recipient: str, template: dict) -> di
         "submittedAt": _iso(base.now()),
         "updatedAt": None,
     }
+    if channel == "email":
+        track_links = ctx.get("trackLinks", "HtmlAndText")
+        message.update({
+            "cc": list(ctx.get("cc", [])),
+            "bcc": list(ctx.get("bcc", [])),
+            "replyTo": ctx.get("replyTo") or f"ap@{gen._VELA_EMAIL_DOMAIN}",
+            "trackOpens": bool(ctx.get("trackOpens", True)),
+            "trackLinks": track_links,
+            "openCount": 0,
+            "clickCount": 0,
+        })
+    else:
+        region = _sms_region(recipient)
+        message.update({
+            "segments": gen._vela_segments(template.get("smsBody")),
+            "price": {"amount": gen._VELA_SMS_PRICE.get(region, 0.05),
+                      "currency": "USD"},
+            "carrier": gen._VELA_SMS_CARRIERS[0],
+        })
+    return message
 
 
 # --------------------------------------------------------------------------- #

@@ -1014,6 +1014,17 @@ def get_reference_rate(run_id: str, agent_id: str, symbol: str,
     return _run(run_id, agent_id, "get_reference_rate", "pulse-market", "get_reference_rate", payload)
 
 
+def convert_currency(run_id: str, agent_id: str, from_currency: str, to_currency: str,
+                     amount: float) -> dict[str, object]:
+    return _run(run_id, agent_id, "convert_currency", "pulse-market", "convert",
+                {"from": from_currency, "to": to_currency, "amount": amount})
+
+
+def get_market_movers(run_id: str, agent_id: str, limit: int = 5) -> dict[str, object]:
+    return _run(run_id, agent_id, "get_market_movers", "pulse-market", "list_movers",
+                {"limit": limit})
+
+
 # -- external partner integration tool --
 
 def partner_operation(run_id: str, agent_id: str, provider_id: str, operation: str,
@@ -1167,5 +1178,7 @@ TOOLS: dict[str, Callable] = {
     "list_market_instruments": list_market_instruments,
     "get_market_bars": get_market_bars,
     "get_reference_rate": get_reference_rate,
+    "convert_currency": convert_currency,
+    "get_market_movers": get_market_movers,
     "partner_operation": partner_operation,
 }

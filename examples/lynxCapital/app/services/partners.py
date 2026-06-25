@@ -96,9 +96,11 @@ _SPECS: dict[str, PartnerSpec] = {
     "slate-ledger": PartnerSpec(
         "slate-ledger", "bearer", 9405,
         ("list_accounts", "get_account",
-         "post_entry", "get_entry", "list_entries", "reverse_entry",
-         "reconcile_account", "get_reconciliation", "create_accrual",
-         "trial_balance", "close_period", "get_period", "list_periods"),
+         "post_entry", "approve_entry", "get_entry", "list_entries", "reverse_entry",
+         "reconcile_account", "get_reconciliation", "list_reconciliations",
+         "create_accrual", "list_accruals", "get_accrual", "post_accrual",
+         "trial_balance", "close_period", "reopen_period",
+         "get_period", "list_periods"),
         auth_header="Authorization", auth_scheme="Bearer"),
     "inkwell-ocr": PartnerSpec(
         "inkwell-ocr", "api_key", 9406,
@@ -223,8 +225,7 @@ _SPECS: dict[str, PartnerSpec] = {
          "create_purchase_order", "acknowledge_order", "receive_order",
          "list_purchase_orders", "get_purchase_order",
          "list_budgets", "get_budget"),
-        client_auth_method="client_secret_basic", scopes=("procure.read", "procure.write"),
-        audience="https://api.junction-procure.test"),
+        client_auth_method="client_secret_basic", scopes=("procure.read", "procure.write")),
 }
 
 
