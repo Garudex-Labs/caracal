@@ -445,6 +445,10 @@ def place_hedge(ctx: Ctx) -> dict:
     tenor_days = int(ctx.get("tenorDays", 90))
     if tenor_days <= 0 or tenor_days > 730:
         raise _fail("INVALID_ARGUMENT", "invalid_tenor", "tenorDays must be 1..730")
+    designation = str(ctx.get("designation", "cash_flow_hedge")).lower()
+    if designation not in _HEDGE_DESIGNATIONS:
+        raise _fail("INVALID_ARGUMENT", "invalid_designation",
+                    f"designation must be one of {', '.join(_HEDGE_DESIGNATIONS)}")
 
     now = _now()
     value_date = _value_date(ctx, now)
@@ -452,6 +456,8 @@ def place_hedge(ctx: Ctx) -> dict:
     spot = gen.fx_mid_rate(sell, buy)
     forward_points = round((tenor_days / 365.0) * spot * 0.004, 6)
     all_in = spot + forward_points
+    counterparty = str(ctx.get("counterparty", "Halcyon Bank"))
+    deliverable = instrument != "ndf"
     hedge = {
         "hedgeId": base.new_id("hdg"),
         "dealRef": f"FX{now:%Y%m%d}-{base.new_id('ref').split('_')[-1][:6].upper()}",
@@ -468,12 +474,23 @@ def place_hedge(ctx: Ctx) -> dict:
         "valueDate": value_date.date().isoformat(),
         "settlementDate": settlement.date().isoformat(),
         "tenorDays": tenor_days,
-        "counterparty": str(ctx.get("counterparty", "Halcyon Bank")),
+        "counterparty": counterparty,
+        "counterpartyRating": gen.keystone_counterparty_rating(counterparty),
+        "isdaMasterAgreementRef": f"ISDA-{counterparty.replace(' ', '')[:6].upper()}-2024",
+        "csaId": f"csa_{counterparty.replace(' ', '').lower()[:6]}",
+        "settlementType": "deliverable" if deliverable else "non_deliverable",
+        "fixingSource": None if deliverable else "WMR_LONDON_1600",
         "hedgeType": str(ctx.get("hedgeType", "cashflow")),
+        "accountingDesignation": designation,
+        "hedgeAccounting": designation != "fair_value_hedge",
+        "effectivenessRatio": 1.0,
+        "effectivenessMethod": "dollar_offset",
         "portfolio": str(ctx.get("portfolio", "FX-CORE")),
         "status": "booked",
         "markToMarket": 0.0,
         "markToMarketCurrency": _REPORTING_CCY,
+        "markToMarketAsOf": _iso(now),
+        "realizedPnl": 0.0,
     }
     ctx.state.table("hedges")[hedge["hedgeId"]] = hedge
     return hedge

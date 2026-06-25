@@ -51,24 +51,7 @@ def test_metadata_advertises_client_credentials():
     doc = _client().get("/.well-known/oauth-authorization-server").json()
     assert doc["grant_types_supported"] == ["client_credentials"]
     assert set(doc["scopes_supported"]) == {"procure.read", "procure.write"}
-    assert doc["resource"] == "https://api.junction-procure.test"
-    assert doc["resource_indicators_supported"] is True
-
-
-def _token_with_resource(c: TestClient, resource: str):
-    s = _seed()
-    return c.post("/oauth/token", data={
-        "grant_type": "client_credentials", "client_id": s["clientId"],
-        "client_secret": s["clientSecret"], "scope": "procure.read",
-        "resource": resource})
-
-
-def test_token_honors_resource_indicator():
-    c = _client()
-    good = _token_with_resource(c, "https://api.junction-procure.test")
-    assert good.status_code == 200 and good.json()["access_token"]
-    bad = _token_with_resource(c, "https://api.someone-else.test")
-    assert bad.status_code == 400 and bad.json()["error"] == "invalid_target"
+    assert "resource" not in doc
 
 
 def test_invalid_client_is_rejected():

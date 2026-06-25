@@ -335,7 +335,6 @@ CATALOG: tuple[Provider, ...] = (
                     "list_budgets", "get_budget"),
         failure_profile="strict",
         client_auth_method="client_secret_basic", scopes=("procure.read", "procure.write"),
-        audience="https://api.junction-procure.test",
     ),
 )
 

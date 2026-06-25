@@ -2355,11 +2355,28 @@ def _po_lines(rng: random.Random) -> list[dict]:
     return lines
 
 
+def _po_received_status(status: str) -> str:
+    if status in ("pendingBilling", "fullyBilled", "closed"):
+        return "fullyReceived"
+    if status == "partiallyReceived":
+        return "partiallyReceived"
+    return "notReceived"
+
+
+def _po_billing_status(status: str) -> str:
+    if status in ("fullyBilled", "closed"):
+        return "fullyBilled"
+    if status == "pendingBilling":
+        return "pendingBilling"
+    return "notBilled"
+
+
 def _purchase_order(seed: str, idx: int, vendor: dict) -> dict:
     rng = _rng(seed, "po", idx)
     lines = _po_lines(rng)
     subtotal = round(sum(l["amount"] for l in lines), 2)
-    rate = _TAX_RATE_BY_COUNTRY.get(vendor["addressBook"][0]["country"], 0.0)
+    country = vendor["addressBook"][0]["country"]
+    rate = _TAX_RATE_BY_COUNTRY.get(country, 0.0)
     tax_total = round(subtotal * rate, 2)
     created = _instant(rng, -240, -10)
     status = rng.choices(_PO_STATUSES, weights=(28, 16, 22, 24, 10))[0]
@@ -2372,19 +2389,30 @@ def _purchase_order(seed: str, idx: int, vendor: dict) -> dict:
             else (line["quantity"] // 2 if status == "partiallyReceived" else 0)
         )
         line["quantityBilled"] = line["quantity"] if billed_all else 0
+    currency = vendor["currency"]
     return {
         "id": f"PO-{idx:05d}",
         "tranId": f"PO-2026-{idx:05d}",
         "type": "purchaseOrder",
+        "tranDate": created[:10],
+        "entity": vendor["id"],
         "vendorId": vendor["id"],
         "vendorName": vendor["companyName"],
         "status": status,
+        "receivedStatus": _po_received_status(status),
+        "billingStatus": _po_billing_status(status),
         "approvalStatus": "approved"
         if status != "pendingReceipt" or rng.random() > 0.2
         else "pendingApproval",
         "subsidiary": vendor["subsidiary"],
         "department": rng.choice(_DEPARTMENTS),
-        "currency": vendor["currency"],
+        "location": rng.choice(_ERP_LOCATIONS),
+        "class": rng.choice(_ERP_CLASSES),
+        "employee": rng.choice(_ERP_BUYERS),
+        "currency": currency,
+        "exchangeRate": _fx_rate(currency),
+        "incoterm": vendor["incoterm"],
+        "shipMethod": rng.choice(_SHIP_METHODS),
         "memo": f"Commitment to {vendor['companyName']}",
         "lines": lines,
         "subtotal": subtotal,
@@ -2425,8 +2453,9 @@ def _vendor_bill(seed: str, idx: int, vendor: dict, po: dict | None) -> dict:
     tax_total = round(subtotal * _TAX_RATE_BY_COUNTRY.get(country, 0.0), 2)
     total = round(subtotal + tax_total, 2)
     created = _instant(rng, -150, -3)
+    created_day = date.fromisoformat(created[:10])
     term_days = _term_days(vendor["terms"])
-    due = (date.fromisoformat(created[:10]) + timedelta(days=term_days)).isoformat()
+    due = (created_day + timedelta(days=term_days)).isoformat()
     status = rng.choices(
         ("open", "paidInFull", "pendingApproval", "cancelled"), weights=(50, 34, 12, 4)
     )[0]
@@ -2439,10 +2468,14 @@ def _vendor_bill(seed: str, idx: int, vendor: dict, po: dict | None) -> dict:
             else 0.0
         )
     )
+    discount_pct = _DISCOUNT_PCT_BY_TERM.get(vendor["terms"], 0.0)
+    currency = vendor["currency"]
     return {
         "id": f"BILL-{idx:06d}",
         "tranId": f"VENDBILL-{idx:06d}",
         "type": "vendorBill",
+        "tranDate": created[:10],
+        "entity": vendor["id"],
         "vendorId": vendor["id"],
         "vendorName": vendor["companyName"],
         "referenceNumber": f"{vendor['companyName'][:3].upper()}-{rng.randint(10000, 99999)}",
@@ -2451,10 +2484,15 @@ def _vendor_bill(seed: str, idx: int, vendor: dict, po: dict | None) -> dict:
         "approvalStatus": "approved"
         if status != "pendingApproval"
         else "pendingApproval",
+        "paymentHold": status == "open" and rng.random() < 0.08,
         "subsidiary": vendor["subsidiary"],
         "account": vendor["defaultPayablesAccount"],
-        "currency": vendor["currency"],
+        "nexus": country,
+        "currency": currency,
+        "exchangeRate": _fx_rate(currency),
         "terms": vendor["terms"],
+        "discountDate": (created_day + timedelta(days=10)).isoformat() if discount_pct else None,
+        "discountAmount": round(subtotal * discount_pct, 2) if discount_pct else 0.0,
         "lines": lines,
         "subtotal": subtotal,
         "taxTotal": tax_total,
@@ -7750,7 +7788,7 @@ def _vela_messages(
     for idx, (channel, alias, terminal, with_open) in enumerate(_VELA_MESSAGE_PLAN):
         rng = _rng(seed, "vela-message", idx)
         template = templates[alias]
-        display, address = _vela_recipient(rng, channel)
+        display, address, region = _vela_recipient(rng, channel)
         submitted = datetime.combine(
             _EPOCH + timedelta(days=rng.randint(150, 178)), time.min, timezone.utc
         ) + timedelta(seconds=rng.randint(0, 86_399))
@@ -7782,6 +7820,24 @@ def _vela_messages(
             .replace("+00:00", "Z"),
             "updatedAt": None,
         }
+        if channel == "email":
+            message.update({
+                "cc": [],
+                "bcc": [],
+                "replyTo": f"ap@{_VELA_EMAIL_DOMAIN}",
+                "trackOpens": True,
+                "trackLinks": "HtmlAndText",
+                "openCount": 0,
+                "clickCount": 0,
+            })
+        else:
+            body = template["smsBody"]
+            message.update({
+                "segments": _vela_segments(body),
+                "price": {"amount": _VELA_SMS_PRICE.get(region, 0.05),
+                          "currency": "USD"},
+                "carrier": rng.choice(_VELA_SMS_CARRIERS),
+            })
 
         # Build the event timeline that produced the terminal status.
         if channel == "email":
@@ -7793,6 +7849,13 @@ def _vela_messages(
                 message["bounce"] = dict(_VELA_BOUNCE_DETAIL)
                 message["errorCode"] = _VELA_BOUNCE_DETAIL["code"]
                 message["error"] = _VELA_BOUNCE_DETAIL["description"]
+            elif terminal == "softbounce":
+                add_event(
+                    rng, message, "Bounce", submitted, 6, dict(_VELA_SOFTBOUNCE_DETAIL)
+                )
+                message["bounce"] = dict(_VELA_SOFTBOUNCE_DETAIL)
+                message["errorCode"] = _VELA_SOFTBOUNCE_DETAIL["code"]
+                message["error"] = _VELA_SOFTBOUNCE_DETAIL["description"]
             elif terminal == "spam":
                 add_event(rng, message, "Delivery", submitted, 5)
                 add_event(
@@ -7805,7 +7868,8 @@ def _vela_messages(
                 )
                 message["status"] = "delivered"
             elif terminal == "delivered":
-                add_event(rng, message, "Delivery", submitted, 5)
+                add_event(rng, message, "Delivery", submitted, 5,
+                          {"smtpResponse": "250 2.0.0 OK"})
                 if with_open:
                     add_event(
                         rng,
@@ -7816,6 +7880,9 @@ def _vela_messages(
                         {
                             "client": rng.choice(("Gmail", "Outlook", "Apple Mail")),
                             "os": rng.choice(("iOS", "Windows", "macOS")),
+                            "userAgent": "Mozilla/5.0",
+                            "geo": rng.choice(("US", "GB", "DE", "SG")),
+                            "firstOpen": True,
                         },
                     )
                     add_event(
@@ -7824,8 +7891,11 @@ def _vela_messages(
                         "Click",
                         submitted,
                         960,
-                        {"url": "https://portal.lynxcapital.test/payments"},
+                        {"url": "https://portal.lynxcapital.test/payments",
+                         "linkLocation": "HTML"},
                     )
+                    message["openCount"] = 1
+                    message["clickCount"] = 1
             elif terminal == "sent":
                 pass  # in flight, no delivery confirmation yet
             # queued -> no events beyond submission
@@ -7834,17 +7904,23 @@ def _vela_messages(
                 add_event(rng, message, "sending", submitted, 1)
             if terminal == "delivered":
                 add_event(rng, message, "sent", submitted, 3)
-                add_event(rng, message, "delivered", submitted, 8)
-            elif terminal == "undelivered":
-                code, reason = _VELA_SMS_ERRORS["undelivered"]
+                add_event(rng, message, "delivered", submitted, 8,
+                          {"carrier": message["carrier"],
+                           "segments": message["segments"],
+                           "price": message["price"]})
+            elif terminal in _VELA_SMS_ERRORS:
+                code, reason = _VELA_SMS_ERRORS[terminal]
+                final = "undelivered" if terminal == "undelivered" else "failed"
                 add_event(
                     rng,
                     message,
-                    "undelivered",
+                    final,
                     submitted,
                     7,
-                    {"errorCode": code, "reason": reason},
+                    {"errorCode": code, "reason": reason,
+                     "carrier": message["carrier"]},
                 )
+                message["status"] = final
                 message["errorCode"] = code
                 message["error"] = reason
 
