@@ -199,6 +199,22 @@ This file defines the application theme and global styles.
       transform: translateX(0);
     }
   }
+  @keyframes caracalSheetIn {
+    from {
+      transform: translateX(100%);
+    }
+    to {
+      transform: translateX(0);
+    }
+  }
+  @keyframes caracalSheetOut {
+    from {
+      transform: translateX(0);
+    }
+    to {
+      transform: translateX(100%);
+    }
+  }
   @keyframes caracalToastIn {
     from {
       opacity: 0;
@@ -276,6 +292,12 @@ This file defines the application theme and global styles.
   .animate-slide-in-right {
     animation: caracalSlideInRight 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
   }
+  .animate-sheet-in {
+    animation: caracalSheetIn 0.24s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  .animate-sheet-out {
+    animation: caracalSheetOut 0.2s cubic-bezier(0.4, 0, 1, 1) both;
+  }
   .animate-toast-in {
     animation: caracalToastIn 0.18s cubic-bezier(0.16, 1, 0.3, 1) both;
   }
@@ -309,6 +331,8 @@ This file defines the application theme and global styles.
     .animate-overlay-in,
     .animate-pop-in,
     .animate-slide-in-right,
+    .animate-sheet-in,
+    .animate-sheet-out,
     .animate-toast-in,
     .animate-sheen,
     .animate-card-in,

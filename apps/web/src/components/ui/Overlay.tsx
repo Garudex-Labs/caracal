@@ -68,7 +68,8 @@ export function Modal({
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="animate-pop-in relative z-10 flex max-h-[calc(100dvh-2rem)] w-full max-w-lg flex-col border border-border bg-card shadow-xl"
+        data-modal-surface=""
+        className="animate-pop-in relative z-10 flex max-h-[calc(100dvh-2rem)] w-full max-w-lg flex-col overflow-hidden border border-border bg-card shadow-xl"
       >
         <div className="flex flex-shrink-0 items-start justify-between gap-4 border-b border-border px-5 py-4">
           <h2 className="min-w-0 break-words text-sm font-semibold tracking-tight text-foreground">
