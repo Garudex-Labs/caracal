@@ -1,6 +1,6 @@
 ---
 name: provider-field-mapping
-description: Map provider dashboard labels, OAuth client fields, API keys, bearer tokens, and connector setup to visible Caracal Console Provider fields.
+description: Map provider dashboard labels, OAuth client fields, API keys, bearer tokens, and connector setup to visible Caracal web console Provider fields.
 allowed-tools: Read, Grep, WebFetch
 ---
 

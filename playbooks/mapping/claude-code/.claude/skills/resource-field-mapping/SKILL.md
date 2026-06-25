@@ -1,6 +1,6 @@
 ---
 name: resource-field-mapping
-description: Map Resource forms, scopes, upstream URLs, gateway applications, resource identifiers, and upstream credential providers to visible Caracal Console Resource fields.
+description: Map Resource forms, scopes, upstream URLs, gateway applications, resource identifiers, and upstream credential providers to visible Caracal web console Resource fields.
 allowed-tools: Read, Grep, WebFetch
 ---
 

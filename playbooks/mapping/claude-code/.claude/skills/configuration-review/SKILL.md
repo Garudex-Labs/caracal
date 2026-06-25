@@ -1,6 +1,6 @@
 ---
 name: configuration-review
-description: Review pasted provider configuration, resource configuration, screenshot text, field lists, or completed Caracal Console setup for safe field mapping.
+description: Review pasted provider configuration, resource configuration, screenshot text, field lists, or completed Caracal web console setup for safe field mapping.
 allowed-tools: Read, Grep, WebFetch
 ---
 
