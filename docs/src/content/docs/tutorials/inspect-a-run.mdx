@@ -10,13 +10,13 @@ The flow assumes you already completed [Protect Your First Real API](../protect-
 
 ## 1. Find the Request
 
-Open the Console:
+Open the web console:
 
 ```sh
-caracal console
+caracal web
 ```
 
-Use these Console entries:
+Use these web console sections:
 
 | Entry | Use it for |
 | --- | --- |
@@ -25,11 +25,11 @@ Use these Console entries:
 | **agent session** | Find the tracked agent session for the selected zone. |
 | **authority session** | Inspect underlying authority sessions and parent relationships. |
 
-Record the request ID from the SDK, Gateway, STS error, audit event, or Console trace.
+Record the request ID from the SDK, Gateway, STS error, audit event, or web console trace.
 
 ## 2. Read the Audit Timeline
 
-Open **audit**. The live audit view opens recent events immediately and supports request details, request tracing, advanced filters, reload, and pause/resume.
+Open **Audit**. The live audit view opens recent events immediately and supports request details, request tracing, advanced filters, reload, and pause/resume.
 
 A Gateway-routed protected call usually produces:
 
@@ -42,7 +42,7 @@ If you see authorization events without matching action-result events, check whe
 
 ## 3. Trace the Decision
 
-Pick an audit event with a request ID. Press the trace action on the selected event in **audit**, or open **request trace** and paste the request ID.
+Pick an audit event with a request ID. Press the trace action on the selected event in **audit**, or open **Request Traces** and paste the request ID.
 
 The request trace should show:
 

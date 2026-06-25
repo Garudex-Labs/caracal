@@ -4,7 +4,7 @@ description: Verify Caracal release signatures, provenance, and checksums before
 pageType: reference
 ---
 
-Every published Caracal release is cryptographically signed and verifiable. Verify a download before you install or deploy it, especially when you fetch archives or images directly instead of through the installer.
+Every published Caracal release is cryptographically signed and verifiable. Verify a download before you install or deploy it, especially when you fetch archives or images directly.
 
 ## How Releases Are Signed
 
@@ -24,9 +24,9 @@ gh auth login
 
 `gh attestation verify` needs network access to the Sigstore transparency log on first use.
 
-## Verify CLI and Console Archives
+## Verify Runtime Archives
 
-Download the archives, `SHA256SUMS`, and installers from the release page, then verify checksums and provenance:
+Download the runtime archives, `manifest.json`, and `SHA256SUMS` from the release page, then verify checksums and provenance:
 
 ```sh
 # 1. Confirm archive integrity against the published checksums.
@@ -34,10 +34,10 @@ sha256sum --check SHA256SUMS
 
 # 2. Confirm each archive was built by the Caracal release workflow.
 gh attestation verify caracal-runtime-*.tar.gz --repo Garudex-Labs/caracal
-gh attestation verify caracal-console-*.tar.gz --repo Garudex-Labs/caracal
+gh attestation verify caracal-runtime-*.zip --repo Garudex-Labs/caracal
 ```
 
-`gh attestation verify` exits non-zero and prints the failing policy if the signature, identity, or transparency-log entry does not match. The bundled installers run the same `gh attestation verify ... --repo Garudex-Labs/caracal` check automatically; pass `--no-verify-provenance` (Unix) or `-NoVerifyProvenance` (Windows) only when you must skip it.
+`gh attestation verify` exits non-zero and prints the failing policy if the signature, identity, or transparency-log entry does not match.
 
 ## Verify Container Images
 

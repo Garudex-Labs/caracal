@@ -4,7 +4,7 @@ description: Use caracal up, down, status, and purge to manage the local runtime
 pageType: reference
 ---
 
-Runtime lifecycle commands manage local infrastructure only. They delegate to Docker Compose and keep product state changes in the Console.
+Runtime lifecycle commands manage local infrastructure only. They delegate to Docker Compose and keep product state changes in the web console.
 
 ## Service Layout
 
@@ -16,7 +16,7 @@ Runtime lifecycle commands manage local infrastructure only. They delegate to Do
 | Audit | `9090` |
 | Coordinator | `4000` |
 
-Control runtime exposure is managed through the Console `control` menu, not by targeting a stack service directly from the runtime CLI.
+Control runtime exposure is managed through the web console **Control** section, not by targeting a stack service directly from the runtime CLI.
 
 ## Start
 
@@ -53,17 +53,17 @@ caracal purge
 
 `purge` can remove stack artifacts, volumes, logs, config, runtime state, secrets, example containers and images, cached assets, or all local runtime state depending on the selected purge target. Use it when you intentionally want a clean local environment.
 
-After a full purge, recreate product state through the Console: zones, applications, providers, resources, policies, Control keys, and generated runtime profiles.
+After a full purge, recreate product state through the web console: zones, applications, providers, resources, policies, Control keys, and generated runtime profiles.
 
 ## Troubleshooting
 
 | Symptom | Likely cause |
 | --- | --- |
 | `status` passes but `status --ready` fails | A service is alive but one of its dependencies or readiness checks is not ready. |
-| Console cannot connect after `up` | Check `caracal status --ready`; custom deployments should confirm the Management API URL override. |
+| Web console cannot connect after `up` | Check `caracal status --ready`; custom deployments should confirm the Management API URL override. |
 | Workloads cannot exchange tokens | Readiness for STS, Gateway, and audit must pass before debugging workload config. |
-| Local tokens are stale after `purge` and `up` | Prefer local generated secret files over exported shell tokens for localhost Console sessions. |
+| Local tokens are stale after `purge` and `up` | Prefer local generated secret files over exported shell tokens for localhost web-console sessions. |
 
 ## Next Step
 
-Continue to [Use the Console](/runtime-console/console/) to create the first zone, application, provider, resource, policy, and runtime profile.
+Continue to [Use the Web Console](/runtime-console/console/) to create the first zone, application, provider, resource, policy, and runtime profile.

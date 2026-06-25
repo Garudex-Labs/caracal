@@ -40,7 +40,7 @@ Injected tokens have a 15-minute TTL from the runtime exchange.
 | Client secret | Auto-detected local client-secret file or explicit cloud/custom secret-file config. |
 | Credential manifest | Auto-detected local credential manifest or `credentials[]` / `optional_credentials[]` in a profile. |
 
-Console `guided setup` is the recommended way to generate the first profile and one-time client secret file.
+Web console **Guided setup** is the recommended way to generate the first profile and one-time client secret file.
 Local dev and stable launches auto-detect credential files under the OS Caracal
 config directory after the zone and application IDs are known. Service URLs use
 local defaults automatically unless cloud/custom deployment docs configure
@@ -67,7 +67,7 @@ mode = "block"
 
 | Symptom | Check |
 | --- | --- |
-| `runtime config not found` | Run Console `guided setup`, set platform env vars, or point `CARACAL_CONFIG` at a profile. |
+| `runtime config not found` | Run Web console **Guided setup**, set platform env vars, or point `CARACAL_CONFIG` at a profile. |
 | Secret-file validation fails | Store the secret value in the file and ensure it is not group- or world-writable. |
 | Token exchange fails | Confirm `caracal status --ready`, zone ID, application ID, client secret, resource ID, and policy coverage. |
 | Child command never starts | Required credential exchange, step-up, config validation, or MCP governance failed before spawn. |
@@ -75,4 +75,4 @@ mode = "block"
 
 ## Next Step
 
-Use [Manage Product Objects](/runtime-console/admin/) for ongoing Console work after the workload path is running.
+Use [Manage Product Objects](/runtime-console/admin/) for ongoing web console work after the workload path is running.

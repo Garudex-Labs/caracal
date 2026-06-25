@@ -1,21 +1,21 @@
 ---
 title: Inspect Diagnostics and Audit
-description: Inspect diagnostics, audit events, and request traces through the Console.
+description: Inspect diagnostics, audit events, and request traces through the web console.
 pageType: reference
 ---
 
-Observability workflows live in the Console because they need operator context, selected zones, and structured API responses.
+Observability workflows live in the web console because they need operator context, selected zones, and structured API responses.
 
 ## Diagnostics
 
-Open `diagnostics` with `d`. The Console Doctor view runs the shared engine diagnostics across four sections:
+Open **Diagnostics**. The Doctor view runs the shared engine diagnostics across four sections:
 
 | Section | Checks |
 | --- | --- |
-| `health` | API reachability, admin authentication, and operator clock skew against the platform. |
-| `readiness` | Per-service `/ready` probes plus threshold evaluation of STS, Gateway, audit, and Coordinator operator metrics. |
-| `zones` | Visible zones, resources, policy sets, and audit queryability. |
-| `preflight` | Local secrets, keys, TLS material, and Postgres/Redis reachability. |
+| **Health** | API reachability, admin authentication, and operator clock skew against the platform. |
+| **Readiness** | Per-service `/ready` probes plus threshold evaluation of STS, Gateway, audit, and Coordinator operator metrics. |
+| **Zones** | Visible zones, resources, policy sets, and audit queryability. |
+| **Preflight** | Local secrets, keys, TLS material, and Postgres/Redis reachability. |
 
 Doctor does more than report liveness: it evaluates the operator metrics it collects and raises a warning or failure when a signal needs action. Notable deeper checks include:
 
@@ -33,21 +33,21 @@ This view is deeper than `caracal status`: `status` answers "is the stack up", w
 
 ## Audit
 
-Open `audit` with `a`. Audit records tie STS, Gateway, Coordinator, policy, and Control decisions to request IDs and authority anchors. Use the audit view to filter recent events, inspect denials, and gather incident context.
+Open **Audit**. Audit records tie STS, Gateway, Coordinator, policy, and Control decisions to request IDs and authority anchors. Use the audit view to filter recent events, inspect denials, and gather incident context.
 
-The audit view opens recent events immediately and streams new ones as they arrive. Press `f` for advanced filters: decision, event type, time window, request ID, agent session, agent label, and result limit. Time-window fields accept a relative window such as `15m`, `2h`, or `7d`, an ISO timestamp, or a date — the Console converts the value before querying the API. Use row actions to open the full event group (`enter`) or the decision trace (`x`) for the selected request.
+The audit view opens recent events immediately and streams new ones as they arrive. Advanced filters include decision, event type, time window, request ID, agent session, agent label, and result limit. Time-window fields accept a relative window such as `15m`, `2h`, or `7d`, an ISO timestamp, or a date. Use row actions to open the full event group or the decision trace for the selected request.
 
-Audit is an event ledger: it records what authorization decided. It is distinct from the `sessions` views, which show the live state of authority sessions, agent sessions, and delegation edges. Filter audit by `agent session` or `agent label` to connect a decision back to the session that made it.
+Audit is an event ledger: it records what authorization decided. It is distinct from the session views, which show the live state of authority sessions, agent sessions, and delegation edges. Filter audit by `agent session` or `agent label` to connect a decision back to the session that made it.
 
 ## Request Trace
 
-Open `request trace` with `t` when you already have a request ID — from a log line, error response, or Gateway header — and need the decision trace directly without scanning the audit list. It is the same trace reached by `x` on an audit row, exposed as a direct entry point. Trace output connects the request, selected resource, subject, scopes, determining policies, diagnostics, and result.
+Open **Request Traces** when you already have a request ID — from a log line, error response, or Gateway header — and need the decision trace directly without scanning the audit list. It is the same trace reached from an audit row, exposed as a direct entry point. Trace output connects the request, selected resource, subject, scopes, determining policies, diagnostics, and result.
 
 ## Troubleshooting
 
 | Symptom | Check |
 | --- | --- |
-| Diagnostics cannot reach API | Run `caracal status --ready`; custom deployments should confirm the Management API URL override. |
+| Diagnostics cannot reach API | Run `caracal status --ready`; custom deployments should confirm the admin API URL override. |
 | Zone diagnostics show no zones | Confirm the admin token has visibility into the expected zone. |
 | Audit records are missing | Confirm the selected zone, time window, and audit service readiness. |
 
