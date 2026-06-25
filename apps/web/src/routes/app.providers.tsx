@@ -23,6 +23,7 @@ import {
   Button,
   ConfirmDialog,
   Field,
+  IdentityAvatar,
   Modal,
   Select,
   Spinner,
@@ -275,6 +276,7 @@ function ProvidersPage({ zoneId, zoneName }: { zoneId: string; zoneName: string 
           title: (p) => p.name,
           description: (p) => p.identifier,
           width: "max-w-xl",
+          icon: (p) => <IdentityAvatar seed={p.id || p.identifier} size="lg" />,
           render: (p) => (
             <ProviderDetail
               provider={p}

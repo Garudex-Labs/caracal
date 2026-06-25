@@ -16,7 +16,6 @@ import {
   DetailGroup,
   DetailHeader,
   DetailSection,
-  Monogram,
 } from "@/components/console/ResourceWorkspace";
 import {
   Badge,
@@ -25,6 +24,7 @@ import {
   Drawer,
   EmptyState,
   Field,
+  IdentityAvatar,
   Modal,
   Pagination,
   SearchInput,
@@ -660,7 +660,7 @@ function ZoneDetailDrawer({
       onClose={onClose}
       title={zone?.name ?? ""}
       description={zone?.slug ?? undefined}
-      icon={zone ? <Monogram label={zone.name} /> : undefined}
+      icon={zone ? <IdentityAvatar seed={zone.id || zone.slug} size="lg" /> : undefined}
       width="max-w-lg"
     >
       {zone ? (

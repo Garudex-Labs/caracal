@@ -88,6 +88,14 @@ export function Disclosure({
 
   function closeSheet() {
     if (hasError) return; // keep the operator on the unresolved error
+    // With reduced motion the slide-out animation never fires animationend, so close directly.
+    const reduced =
+      typeof window !== "undefined" &&
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    if (reduced) {
+      setOpen(false);
+      return;
+    }
     setClosing(true);
   }
 
