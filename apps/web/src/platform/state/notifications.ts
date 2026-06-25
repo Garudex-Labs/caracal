@@ -19,6 +19,9 @@ export interface NotificationRecord {
 
 const STORE_KEY = "caracal.notifications";
 const MAX_ENTRIES = 50;
+// Notifications are transient: anything older than this is pruned automatically so the
+// bell stays a recent, relevant feed instead of an ever-growing log.
+const TTL_MS = 24 * 60 * 60 * 1000;
 
 const listeners = new Set<() => void>();
 let snapshot: NotificationRecord[] | null = null;
@@ -33,6 +36,14 @@ function load(): NotificationRecord[] {
   } catch {
     return [];
   }
+}
+
+// Drops entries past their TTL. Returns the same reference when nothing expired so callers
+// can cheaply detect whether a persist is needed.
+function prune(list: NotificationRecord[]): NotificationRecord[] {
+  const cutoff = Date.now() - TTL_MS;
+  const kept = list.filter((n) => n.ts >= cutoff);
+  return kept.length === list.length ? list : kept;
 }
 
 function persist(next: NotificationRecord[]): void {
@@ -88,6 +99,14 @@ export function removeNotification(id: string): void {
 export function clearNotifications(): void {
   if (current().length === 0) return;
   persist([]);
+}
+
+// Removes any entries past their TTL, persisting only when something actually expired.
+// Driven on an interval and on menu open so the feed self-cleans without a backend.
+export function pruneExpired(): void {
+  const list = current();
+  const next = prune(list);
+  if (next !== list) persist(next);
 }
 
 export function useNotifications(): NotificationRecord[] {

@@ -21,6 +21,7 @@ import {
   Card,
   ConfirmDialog,
   Field,
+  InfoHint,
   Modal,
   Tabs,
   useToast,
@@ -31,7 +32,6 @@ import { highlightCode, TERMINAL_HIGHLIGHT } from "@/lib/codeHighlight";
 import {
   CONTROL_MAX_TTL_SECONDS,
   CONTROL_MIN_TTL_SECONDS,
-  CONTROL_NOUN_DESCRIPTIONS,
   CONTROL_PERMISSIONS,
   ConsoleApiError,
 } from "@/platform/api/client";
@@ -104,15 +104,13 @@ function ControlPage({ zoneId, zoneSlug }: { zoneId: string; zoneSlug: string })
     );
   }
 
+  if (tab === "reference") {
+    return <ReferenceTab zoneSlug={zoneSlug} headerExtra={tabs} />;
+  }
+
   return (
     <ResourceWorkspaceShell headerExtra={tabs}>
-      {tab === "auth" ? (
-        <AuthTab zoneId={zoneId} />
-      ) : tab === "reference" ? (
-        <ReferenceTab zoneSlug={zoneSlug} />
-      ) : (
-        <SettingsTab />
-      )}
+      {tab === "auth" ? <AuthTab zoneId={zoneId} /> : <SettingsTab />}
     </ResourceWorkspaceShell>
   );
 }
@@ -1175,73 +1173,127 @@ function Step({ n, children }: { n: number; children: ReactNode }) {
 
 /* ------------------------------ Reference tab ------------------------------ */
 
-interface SurfaceGroup {
+interface SurfaceRow {
   noun: string;
-  description: string;
-  actions: { verb: string; scope: string; summary: string }[];
+  verb: string;
+  scope: string;
+  summary: string;
 }
 
 // Derived from the single permission catalog so the reference can never drift from the
 // scopes a key can actually be granted.
-function buildSurface(): SurfaceGroup[] {
-  const groups = new Map<string, SurfaceGroup>();
-  for (const permission of CONTROL_PERMISSIONS) {
-    let group = groups.get(permission.command);
-    if (!group) {
-      group = {
-        noun: permission.command,
-        description: CONTROL_NOUN_DESCRIPTIONS[permission.command] ?? "",
-        actions: [],
-      };
-      groups.set(permission.command, group);
-    }
-    group.actions.push({
-      verb: permission.verb,
-      scope: permission.scope,
-      summary: permission.summary,
-    });
-  }
-  return [...groups.values()];
+const SURFACE_ROWS: SurfaceRow[] = CONTROL_PERMISSIONS.map((permission) => ({
+  noun: permission.command,
+  verb: permission.verb,
+  scope: permission.scope,
+  summary: permission.summary,
+}));
+
+const SURFACE_NOUNS = [...new Set(SURFACE_ROWS.map((row) => row.noun))].sort();
+const SURFACE_VERBS = [...new Set(SURFACE_ROWS.map((row) => row.verb))].sort();
+
+function verbTone(verb: string): "muted" | "warning" | "danger" {
+  if (verb === "delete") return "danger";
+  if (verb === "write") return "warning";
+  return "muted";
 }
 
-const SURFACE: SurfaceGroup[] = buildSurface();
+function ReferenceTab({ zoneSlug, headerExtra }: { zoneSlug: string; headerExtra: ReactNode }) {
+  const [noun, setNoun] = useState("all");
+  const [verb, setVerb] = useState("all");
 
-function ReferenceTab({ zoneSlug }: { zoneSlug: string }) {
+  const rows = useMemo(
+    () =>
+      SURFACE_ROWS.filter(
+        (row) => (noun === "all" || row.noun === noun) && (verb === "all" || row.verb === verb),
+      ),
+    [noun, verb],
+  );
+
+  const columns: Column<SurfaceRow>[] = [
+    {
+      id: "noun",
+      header: "Noun",
+      sortable: true,
+      cell: (row) => (
+        <span className="font-mono text-xs font-medium text-foreground">{row.noun}</span>
+      ),
+    },
+    {
+      id: "verb",
+      header: "Verb",
+      sortable: true,
+      cell: (row) => <Badge tone={verbTone(row.verb)}>{row.verb}</Badge>,
+    },
+    {
+      id: "scope",
+      header: "Scope",
+      cell: (row) => <span className="font-mono text-xs text-muted-foreground">{row.scope}</span>,
+    },
+    {
+      id: "summary",
+      header: "Summary",
+      cell: (row) => <span className="text-xs text-muted-foreground">{row.summary}</span>,
+    },
+  ];
+
   return (
-    <div className="flex flex-col gap-6">
-      <p className="max-w-3xl text-sm text-muted-foreground">
-        The Control API exposes zone management as <Mono>noun:verb</Mono> permissions. A control key
-        is granted a subset of these scopes; its STS tokens can never exceed them. Operating on zone{" "}
-        <Mono>{zoneSlug}</Mono>.
-      </p>
-      <div className="border border-border">
-        {SURFACE.map((group, index) => (
-          <div key={group.noun} className={cx(index > 0 && "border-t border-border")}>
-            <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border bg-muted/30 px-4 py-2.5">
-              <span className="font-mono text-sm font-semibold text-foreground">{group.noun}</span>
-              <span className="text-xs text-muted-foreground">{group.description}</span>
-            </div>
-            <table className="w-full text-sm">
-              <tbody className="divide-y divide-border">
-                {group.actions.map((action) => (
-                  <tr key={action.scope}>
-                    <td className="w-24 px-4 py-2.5 align-top">
-                      <Badge tone="neutral">{action.verb}</Badge>
-                    </td>
-                    <td className="px-4 py-2.5 align-top font-mono text-xs text-foreground">
-                      {action.scope}
-                    </td>
-                    <td className="px-4 py-2.5 align-top text-xs text-muted-foreground">
-                      {action.summary}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ))}
-      </div>
-    </div>
+    <ResourceWorkspace
+      title="Control API"
+      description="Programmatic, scoped automation of zone management."
+      breadcrumbs={[{ label: "Console", to: "/app" }, { label: "Control API" }]}
+      headerExtra={headerExtra}
+      toolbarExtra={
+        <div className="ml-auto">
+          <InfoHint
+            label={`The Control API exposes zone management as noun:verb permissions. A control key is granted a subset of these scopes; its STS tokens can never exceed them. Operating on zone ${zoneSlug}.`}
+          />
+        </div>
+      }
+      rows={rows}
+      loading={false}
+      columns={columns}
+      rowKey={(row) => row.scope}
+      pageSize={12}
+      search={{
+        placeholder: "Search permissions by noun, verb, scope, or summary…",
+        match: (row, q) =>
+          row.noun.toLowerCase().includes(q) ||
+          row.verb.toLowerCase().includes(q) ||
+          row.scope.toLowerCase().includes(q) ||
+          row.summary.toLowerCase().includes(q),
+      }}
+      filters={[
+        {
+          id: "noun",
+          label: "Noun",
+          value: noun,
+          onChange: setNoun,
+          options: [
+            { id: "all", label: "All nouns" },
+            ...SURFACE_NOUNS.map((n) => ({ id: n, label: n })),
+          ],
+        },
+        {
+          id: "verb",
+          label: "Verb",
+          value: verb,
+          onChange: setVerb,
+          options: [
+            { id: "all", label: "All verbs" },
+            ...SURFACE_VERBS.map((v) => ({ id: v, label: v })),
+          ],
+        },
+      ]}
+      sortValues={{
+        noun: (row) => row.noun,
+        verb: (row) => row.verb,
+      }}
+      empty={{
+        title: "No permissions",
+        description: "No control permissions match the current search and filters.",
+      }}
+    />
   );
 }
 

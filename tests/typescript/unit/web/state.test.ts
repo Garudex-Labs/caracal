@@ -98,6 +98,23 @@ describe('notifications center', () => {
     expect(() => n.pushNotification({ tone: 'info', title: 'ok' })).not.toThrow()
     expect(readNotifications().map((r) => r.title)).toEqual(['ok'])
   })
+
+  it('prunes entries past their TTL', async () => {
+    const dayMs = 24 * 60 * 60 * 1000
+    const fresh = { id: 'a', tone: 'info', title: 'Fresh', ts: Date.now(), read: false }
+    const stale = { id: 'b', tone: 'info', title: 'Stale', ts: Date.now() - dayMs - 1000, read: false }
+    globalThis.localStorage.setItem(NOTIF_KEY, JSON.stringify([fresh, stale]))
+    const n = await notifications()
+    n.pruneExpired()
+    expect(readNotifications().map((r) => r.title)).toEqual(['Fresh'])
+  })
+
+  it('pruneExpired leaves a fresh-only feed untouched', async () => {
+    const n = await notifications()
+    n.pushNotification({ tone: 'info', title: 'Recent' })
+    n.pruneExpired()
+    expect(readNotifications().map((r) => r.title)).toEqual(['Recent'])
+  })
 })
 
 describe('sidebar hide preferences', () => {

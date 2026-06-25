@@ -25,7 +25,6 @@ function AiGovernorPage() {
     >
       <div className="flex flex-col gap-4">
         <Console />
-        <Commands />
         <Comparison />
         <Trust />
       </div>
@@ -238,34 +237,6 @@ const COMMAND_GROUPS: { label: string; phrases: string[] }[] = [
     ],
   },
 ];
-
-function Commands() {
-  return (
-    <section>
-      <SectionHead className="mb-3">Things you can say</SectionHead>
-      <div className="grid gap-px border border-border bg-border md:grid-cols-3 [&>*]:bg-card">
-        {COMMAND_GROUPS.map((group) => (
-          <div key={group.label} className="flex flex-col gap-3 p-5">
-            <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-              {group.label}
-            </span>
-            <ul className="flex flex-col gap-2">
-              {group.phrases.map((phrase) => (
-                <li
-                  key={phrase}
-                  className="flex items-start gap-2 border border-dashed border-border bg-muted/30 px-2.5 py-1.5 text-sm text-foreground"
-                >
-                  <span className="mt-1 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-muted-foreground/50" />
-                  <span className="min-w-0">{phrase}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
 
 /* ----------------------------- comparison ----------------------------- */
 
