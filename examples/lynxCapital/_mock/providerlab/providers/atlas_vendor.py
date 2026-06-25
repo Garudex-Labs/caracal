@@ -613,6 +613,7 @@ def list_vendor_events(ctx: Ctx) -> dict:
 # MCP resources (discovery surface)
 # --------------------------------------------------------------------------- #
 @base.resource(ID, uri="atlas://vendors/directory", name="Vendor directory",
+               title="Vendor directory",
                description="Aggregate vendor counts by status and risk tier with a sample.")
 def _res_directory(ctx: Ctx) -> dict:
     vendors = list(ctx.state.table("vendors").values())

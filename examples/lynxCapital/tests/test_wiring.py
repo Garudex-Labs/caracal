@@ -158,6 +158,32 @@ def test_payment_dispute_listing_reaches_meridian(providerlab):
     assert "items" in res["data"]
 
 
+def test_acceptance_balance_reaches_meridian(providerlab):
+    res = tool_fns.get_acceptance_balance("r", "a")
+    assert _provider_of(res) == "meridian-pay" and res["operation"] == "get_balance"
+    assert res["data"]["object"] == "balance"
+    assert res["data"]["available"]
+
+
+def test_settlement_reconciliation_reaches_meridian(providerlab):
+    res = tool_fns.reconcile_acceptance_settlements("r", "a")
+    assert _provider_of(res) == "meridian-pay" and res["operation"] == "list_settlements"
+    assert "items" in res["data"]
+
+
+def test_dispute_evidence_response_reaches_meridian(providerlab):
+    listing = tool_fns.list_payment_disputes("r", "a", "needs_response")
+    items = listing["data"]["items"]
+    if not items:
+        pytest.skip("no open dispute in the seeded dataset")
+    dispute_id = items[0]["disputeId"]
+    res = tool_fns.respond_to_payment_dispute(
+        "r", "a", dispute_id, {"productDescription": "Delivered SaaS subscription"})
+    assert _provider_of(res) == "meridian-pay"
+    assert res["operation"] == "submit_dispute_evidence"
+    assert res["data"]["status"] == "under_review"
+
+
 # --------------------------------------------------------------------------- #
 # FX conversion and end-to-end settlement reach Cordoba FX
 # --------------------------------------------------------------------------- #

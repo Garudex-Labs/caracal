@@ -500,19 +500,22 @@ def receive_order(ctx: Ctx) -> dict:
                 raise DomainError(422, "invalid_quantity",
                                   f"line {line['lineNumber']} can receive up to {remaining}")
             line["quantityReceived"] = round(line["quantityReceived"] + qty, 4)
-            receipt_lines.append({"lineNumber": line["lineNumber"], "quantityReceived": qty})
+            receipt_lines.append({"lineNumber": line["lineNumber"], "quantityReceived": qty,
+                                  "condition": entry.get("condition", "good")})
     else:
         for line in po["lines"]:
             remaining = line["quantity"] - line["quantityReceived"]
             if remaining > 0:
                 line["quantityReceived"] = line["quantity"]
-                receipt_lines.append({"lineNumber": line["lineNumber"], "quantityReceived": remaining})
+                receipt_lines.append({"lineNumber": line["lineNumber"], "quantityReceived": remaining,
+                                      "condition": "good"})
 
     now = base.now()
     receipt = {
         "receiptId": base.new_id("grn"),
         "receiptNumber": f"GRN-2026-{now}",
         "poId": po["poId"],
+        "deliveryNote": ctx.get("deliveryNote"),
         "receivedBy": ctx.get("receivedBy", {"id": "EMP-2400", "name": "Hassan Haddad"}),
         "receivedAt": _iso(now),
         "lines": receipt_lines,

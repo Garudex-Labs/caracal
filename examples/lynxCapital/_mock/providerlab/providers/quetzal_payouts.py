@@ -2,7 +2,7 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-Quetzal Payouts domain: global recipient onboarding with KYC, FX-aware payout quotes, single and batch disbursement, settlement funding, and balances.
+Quetzal Payouts domain: global recipient onboarding with KYC, FX-aware payout quotes, single and batch disbursement, settlement funding, balances, and sandbox payout-outcome simulation.
 """
 from __future__ import annotations
 
@@ -612,46 +612,63 @@ def create_batch(ctx: Ctx) -> dict:
     now = base.now()
     batch_id = base.new_id("bat")
     source = _supported(ctx.get("sourceCurrency", "USD"))
+    batch_ref = ctx.get("reference") or ("BATCH-" + batch_id.split("_")[-1].upper()[:10])
     line_items: list[dict] = []
     accepted = rejected = 0
     total = 0.0
 
-    for item in items:
+    for index, item in enumerate(items):
         amount = item.get("amount")
         rec = recipients.get(item.get("recipientId"))
-        line = {"recipientId": item.get("recipientId"), "amount": amount,
-                "currency": item.get("currency", source)}
+        line = {"index": index, "recipientId": item.get("recipientId"), "amount": amount,
+                "currency": item.get("currency", source), "status": "rejected",
+                "payoutId": None, "failureCode": None}
+        try:
+            numeric = float(amount)
+        except (TypeError, ValueError):
+            numeric = None
         if rec is None:
-            line.update(status="rejected", reason="recipient_not_found")
+            line.update(failureCode="recipient_not_found")
             rejected += 1
         elif not rec["verified"]:
-            line.update(status="rejected", reason="recipient_unverified")
+            line.update(failureCode="recipient_unverified")
+            rejected += 1
+        elif numeric is None or numeric <= 0:
+            line.update(failureCode="invalid_amount")
             rejected += 1
         else:
             rate = _rate(source, rec["currency"])
+            method = rec["payoutMethod"]
             payout_id = base.new_id("po")
             payouts[payout_id] = {
                 "id": payout_id, "payoutId": payout_id, "object": "payout",
                 "recipientId": rec["id"], "recipientName": rec["name"],
-                "sourceCurrency": source, "sourceAmount": _money(amount, source),
+                "sourceCurrency": source, "sourceAmount": _money(numeric, source),
                 "targetCurrency": rec["currency"],
-                "targetAmount": _money(float(amount) * rate, rec["currency"]),
-                "rate": rate, "method": rec["payoutMethod"],
+                "targetAmount": _money(numeric * rate, rec["currency"]),
+                "rate": rate, "method": method,
+                "scheme": _scheme(method, source, rec["currency"]),
                 "reference": item.get("reference", payout_id),
-                "status": "processing", "failureReason": None,
+                "trackingReference": _tracking_reference(payout_id),
+                "statementDescriptor": "QUETZAL PAYOUT",
+                "purpose": item.get("purpose", "supplier invoice"),
+                "purposeCode": _purpose_code(item.get("purpose") or ""),
+                "complianceStatus": "cleared",
+                "status": "processing", "failureCode": None, "failureMessage": None,
                 "createdAt": now, "updatedAt": now,
                 "statusHistory": [{"status": "processing", "at": now}],
                 "batchId": batch_id,
             }
-            line.update(status="accepted", payoutId=payout_id)
+            line.update(status="accepted", payoutId=payout_id, failureCode=None)
             accepted += 1
-            total += float(amount or 0)
+            total += numeric
         line_items.append(line)
 
     batch = {
         "id": batch_id,
         "batchId": batch_id,
         "object": "batch",
+        "reference": batch_ref,
         "status": "processing",
         "fundingStatus": "pending",
         "sourceCurrency": source,
@@ -659,6 +676,9 @@ def create_batch(ctx: Ctx) -> dict:
         "acceptedCount": accepted,
         "rejectedCount": rejected,
         "totalAmount": _money(total, source),
+        "summary": {"requested": len(items), "accepted": accepted,
+                    "rejected": rejected, "totalAmount": _money(total, source),
+                    "currency": source},
         "items": line_items,
         "createdAt": now,
         "completedAt": None,
@@ -720,7 +740,8 @@ def get_balance(ctx: Ctx) -> dict:
         code = _supported(currency)
         row = balances.get(code)
         if row is None:
-            return {"object": "balance", "currency": code, "available": 0.0, "reserved": 0.0}
+            return {"object": "balance", "currency": code, "available": 0.0,
+                    "reserved": 0.0, "pending": 0.0}
         return row
     return {"object": "balance_list",
             "balances": [balances[c] for c in sorted(balances)]}
