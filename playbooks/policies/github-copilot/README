@@ -7,7 +7,7 @@ This folder is a copy-paste GitHub Copilot setup for designing, authoring, revie
 - discovering policy requirements before authoring data
 - comparing policy data approaches and tradeoffs before implementation
 - validating that data documents match the platform contract's shapes
-- writing `app_ids`, `grants`, `confinement`, and `restrict` data documents
+- writing `app_ids`, `grants`, `confinement`, `restrict`, `risk`, and `approval_tiers` data documents
 - reviewing existing data documents
 - explaining policy behavior in plain language
 - debugging denied or confusing policy behavior with validation and simulation inputs
@@ -25,9 +25,9 @@ Copilot should:
 - suggest the simplest safe policy data shape before generating Rego
 - use Caracal docs, OPA docs, and documentation MCPs before assumptions
 - use `package caracal.authz`, `import rego.v1`, and the `# caracal:data-document` directive
-- author only `app_ids`, `grants`, `confinement`, and `restrict` data, never a `result` rule
+- author only `app_ids`, `grants`, `confinement`, `restrict`, `risk`, and `approval_tiers` data, never a `result` rule
 - distinguish grants from data documents
-- explain tradeoffs between grants, confinement, and restriction overlays when more than one design is possible
+- explain tradeoffs between grants, confinement, restriction, and risk-tier approval gating overlays when more than one design is possible
 - recommend safer or thinner workarounds when the desired behavior is not directly supported
 - provide a suggested GitHub issue write-up when functionality is missing from Caracal policy support
 - keep examples limited to app, resource, scope, role, confinement, and restriction data

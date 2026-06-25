@@ -45,9 +45,10 @@ Use documentation MCPs such as Context7 or connected internal documentation MCPs
 
 Determine:
 
-- data document needed: application bindings, resource grants, label confinement, or zone restriction
+- data document needed: application bindings, resource grants, label confinement, zone restriction, scope risk classification, or approval-tier gating
 - protected resource identifier and available scopes
 - requested scopes and the role that should hold them
+- scopes that carry a risk tier and which tiers require human approval before minting
 - actor identity from `input.principal` and relevant subject claims from `input.context`
 - principal attributes from `input.principal` (`registration_method`, `lifecycle`, `labels`)
 - session requirements from `input.session` or `input.context`
@@ -80,7 +81,7 @@ Never assume a field exists because it would be convenient. Ask for the sample p
 
 - Start every document with the `# caracal:data-document` directive on its first line.
 - Use `package caracal.authz` and `import rego.v1`.
-- Define only data: `app_ids`, `grants`, `confinement`, or `restrict`. Never define `result` or any decision rule.
+- Define only data: `app_ids`, `grants`, `confinement`, `restrict`, `risk`, or `approval_tiers`. Never define `result` or any decision rule.
 - Keep one concern per document (bindings, grants, confinement, restriction) so ownership and review stay clear.
 - Use the exact data shapes the contract reads; do not invent keys.
 - Model least privilege: give each role only the scopes it needs, and confine label prefixes that must never exceed a fixed surface.
@@ -133,6 +134,22 @@ confinement := [{
 restrict := {}
 ```
 
+Classify a scope's risk tier and gate a tier behind human approval:
+
+```rego
+# caracal:data-document
+package caracal.authz
+
+import rego.v1
+
+risk := [{
+  "scope": "example:transfer",
+  "tier": "money",
+}]
+
+approval_tiers := ["money"]
+```
+
 ## Clarification rules
 
 Ask for missing information when:
@@ -160,7 +177,7 @@ Before modifying an existing policy:
 
 When more than one data design could satisfy the requirement, present the options before authoring:
 
-- compare role grants, label `confinement`, and zone `restrict` for the requirement
+- compare role grants, label `confinement`, zone `restrict`, and `risk`/`approval_tiers` gating for the requirement
 - state the tradeoffs of each: blast radius, least privilege, maintainability, and review clarity
 - recommend the simplest safe shape that meets the requirement
 - prefer the smallest clear data document over a broad or clever one
@@ -172,6 +189,7 @@ When asked to explain a policy, or when a mapping is not obvious:
 - describe in plain language which application, role, scopes, resource, and labels the data affects
 - state what the platform decision contract will allow and deny given the data
 - explain `confinement` and `restrict` as narrowing-only overlays
+- explain `risk` as scope classification and `approval_tiers` as the gate that holds a mint behind human approval without changing the allow decision
 - avoid Rego jargon; tie each statement back to the business requirement
 
 ## Debugging policies
@@ -183,8 +201,9 @@ When access is denied or behaves unexpectedly, work backward from evidence:
 3. Check that `app_ids` binds the application key to the correct control-plane id.
 4. Check that `grants` give the intended role the requested scopes on the resource identifier.
 5. Check whether `confinement` or `restrict` is narrowing the authority away.
-6. Confirm every referenced `input` field is documented and present in the sample input.
-7. Report the single most likely cause and the smallest safe data change that resolves it.
+6. Check whether a `risk` tier in `approval_tiers` is holding the mint behind a `human_approval` step-up rather than denying it.
+7. Confirm every referenced `input` field is documented and present in the sample input.
+8. Report the single most likely cause and the smallest safe data change that resolves it.
 
 ## Accuracy and unsupported capabilities
 

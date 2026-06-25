@@ -14,9 +14,10 @@ Author Caracal-compatible policy data documents after requirement discovery and 
 - Use `package caracal.authz`.
 - Use `import rego.v1`.
 - Rely on the platform decision contract, which denies by default; data only grants or narrows.
-- Define only `app_ids`, `grants`, `confinement`, or `restrict` data; never author a `result` rule.
+- Define only `app_ids`, `grants`, `confinement`, `restrict`, `risk`, or `approval_tiers` data; never author a `result` rule.
 - Keep data static, deterministic, and side-effect free.
 - Add `confinement` or `restrict` overlays only when the narrowing is documented.
+- Add `risk` and `approval_tiers` only when human approval for high-risk scopes is required; they add an approval gate, never authority.
 - Use documented or supplied input fields only.
 - Keep examples limited to application bindings, resource grants, label confinement, and zone restriction data.
 - Prefer the smallest clear data document shape that satisfies the requirement.
