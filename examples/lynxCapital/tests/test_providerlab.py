@@ -1335,8 +1335,9 @@ def test_verafin_filing_amendment_flow():
     h = {"Authorization": f"Bearer {_mint('verafin-monitor')}"}
     res = c.post(
         "/api/monitor_transaction",
-        json={"transactionId": "f1", "amount": 850000, "currency": "USD",
-              "customerId": "cust_0002", "accountId": "acct_0002_0", "channel": "wire"},
+        json={"transactionId": "f1", "amount": 9500, "currency": "USD",
+              "customerId": "cust_0002", "accountId": "acct_0002_0",
+              "channel": "cash", "country": "IR"},
         headers=h,
     ).json()["data"]
     c.post("/api/resolve_alert", json={"alertId": res["alertId"], "disposition": "file_sar"}, headers=h)

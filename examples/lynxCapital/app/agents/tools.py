@@ -1108,9 +1108,9 @@ def get_reference_rate(run_id: str, agent_id: str, symbol: str,
     return _run(run_id, agent_id, "get_reference_rate", "pulse-market", "get_reference_rate", payload)
 
 
-def convert_currency(run_id: str, agent_id: str, from_currency: str, to_currency: str,
-                     amount: float) -> dict[str, object]:
-    return _run(run_id, agent_id, "convert_currency", "pulse-market", "convert",
+def convert_market_amount(run_id: str, agent_id: str, from_currency: str, to_currency: str,
+                          amount: float) -> dict[str, object]:
+    return _run(run_id, agent_id, "convert_market_amount", "pulse-market", "convert",
                 {"from": from_currency, "to": to_currency, "amount": amount})
 
 
@@ -1224,9 +1224,7 @@ TOOLS: dict[str, Callable] = {
     "forecast_liquidity": forecast_liquidity,
     "get_fx_exposure": get_fx_exposure,
     "place_fx_hedge": place_fx_hedge,
-    "settle_fx_hedge": settle_fx_hedge,
     "transfer_funds": transfer_funds,
-    "approve_fund_transfer": approve_fund_transfer,
     "post_journal_entry": post_journal_entry,
     "list_ledger_accounts": list_ledger_accounts,
     "reconcile_account": reconcile_account,
@@ -1282,7 +1280,7 @@ TOOLS: dict[str, Callable] = {
     "list_market_instruments": list_market_instruments,
     "get_market_bars": get_market_bars,
     "get_reference_rate": get_reference_rate,
-    "convert_currency": convert_currency,
+    "convert_market_amount": convert_market_amount,
     "get_market_movers": get_market_movers,
     "partner_operation": partner_operation,
 }

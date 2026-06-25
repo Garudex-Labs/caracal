@@ -459,7 +459,7 @@ prompts:
        - Receivables: issue_customer_invoice, get_customer_account, list_customer_invoices, record_customer_payment, apply_customer_payment, send_dunning_notice, run_dunning_cycle, open_collection_case, write_off_invoice, get_ar_aging, get_ar_summary
        - Procurement: get_department_budget, raise_requisition, approve_requisition, raise_purchase_order
        - Supplier & identity: get_supplier_contact, log_supplier_activity, list_approver_groups
-       - Partner access: call_partner(provider_id, operation, payload_json) for any governed partner operation beyond the dedicated tools (e.g. cordoba-fx quotes and conversions, ironbark-erp/tallyhall-books vendor bills, pulse-market reference rates)
+       - Partner access: call_partner(provider_id, operation, payload_json) for any governed partner operation beyond the dedicated tools (e.g. cordoba-fx quotes and conversions, ironbark-erp purchase orders/item receipts/vendor bills/payments and AP aging, tallyhall-books vendor bills, pulse-market reference rates)
        - Shared: post_finding, read_findings, write_file, read_file, ls_files, record_audit
 
     4. FINAL TURN: mark all todos completed via write_todos, then output ONE short status paragraph with the concrete figures and identifiers you produced (amounts, balances, references). This text is returned to the dispatching agent as your result — never finish with an empty message. If detailed rows live in a stored file, include the file path in this paragraph. Do not call more tools.

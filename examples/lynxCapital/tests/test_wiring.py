@@ -99,7 +99,7 @@ def test_market_snapshot_reachable(providerlab):
 
 
 def test_market_conversion_reachable(providerlab):
-    res = tool_fns.convert_currency("r", "a", "USD", "EUR", 1000.0)
+    res = tool_fns.convert_market_amount("r", "a", "USD", "EUR", 1000.0)
     assert _provider_of(res) == "pulse-market"
     data = res["data"]
     assert data["fromCurrency"] == "USD" and data["toCurrency"] == "EUR"
