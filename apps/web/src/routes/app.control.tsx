@@ -222,8 +222,6 @@ function ControlKeysTab({
           description:
             error ??
             "Control keys grant scoped, zone-bound automation. Create one to drive zone management from the Control API.",
-          actionLabel: error ? undefined : "New control key",
-          onAction: error ? undefined : () => setCreateOpen(true),
         }}
         detail={{
           title: (k) => k.name,

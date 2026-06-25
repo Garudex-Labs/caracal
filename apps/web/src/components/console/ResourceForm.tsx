@@ -6,8 +6,7 @@ This file builds the create and edit form for Gateway-routed resources, includin
 */
 import { useMemo, useState } from "react";
 
-import { Button, Field, Modal, Select } from "@/components/ui";
-import { cx } from "@/lib/cx";
+import { Button, Disclosure, Field, Modal, Select } from "@/components/ui";
 import { validateResourceIdentifier } from "@/platform/api/validation";
 import type {
   Application,
@@ -59,7 +58,6 @@ export function ResourceFormModal({
   const [credentialProvider, setCredentialProvider] = useState("");
   const [enforcement, setEnforcement] = useState<ResourceOperationEnforcement>("enforced");
   const [operations, setOperations] = useState<OperationRow[]>([]);
-  const [showAdvanced, setShowAdvanced] = useState(false);
   const [touched, setTouched] = useState(false);
 
   const seedKey = `${open}:${resource?.id ?? "new"}`;
@@ -74,7 +72,6 @@ export function ResourceFormModal({
     setCredentialProvider(resource?.credential_provider_id ?? "");
     setEnforcement(resource?.operation_enforcement ?? "enforced");
     setOperations((resource?.operations ?? []).map((op) => ({ ...op })));
-    setShowAdvanced(false);
     setTouched(false);
   }
 
@@ -374,38 +371,16 @@ export function ResourceFormModal({
           </div>
         </div>
 
-        <div className="border-t border-border pt-3">
-          <button
-            type="button"
-            onClick={() => setShowAdvanced((v) => !v)}
-            className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
-          >
-            <svg
-              width="12"
-              height="12"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              className={cx("transition-transform", showAdvanced && "rotate-90")}
-            >
-              <path d="m9 6 6 6-6 6" />
-            </svg>
-            Advanced
-          </button>
-          {showAdvanced ? (
-            <div className="mt-4">
-              <Field
-                label="Identifier"
-                info="The stable audience URI used in tokens and policy. Generated from the name when blank; must use the resource:// namespace or be an absolute URI."
-                placeholder="resource://payments-api"
-                hint="Optional. Generated from the name when blank. Must match resource:// or an absolute URI."
-                value={identifier}
-                onChange={(e) => setIdentifier(e.target.value)}
-              />
-            </div>
-          ) : null}
-        </div>
+        <Disclosure title="Advanced options" description="Override the auto-generated identifier.">
+          <Field
+            label="Identifier"
+            info="The stable audience URI used in tokens and policy. Generated from the name when blank; must use the resource:// namespace or be an absolute URI."
+            placeholder="resource://payments-api"
+            hint="Optional. Generated from the name when blank. Must match resource:// or an absolute URI."
+            value={identifier}
+            onChange={(e) => setIdentifier(e.target.value)}
+          />
+        </Disclosure>
 
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
         {!error && droppedOps > 0 ? (

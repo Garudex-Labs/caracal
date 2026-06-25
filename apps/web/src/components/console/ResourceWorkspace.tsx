@@ -32,8 +32,6 @@ export interface SortOption {
 export interface WorkspaceEmpty {
   title: string;
   description: string;
-  actionLabel?: string;
-  onAction?: () => void;
 }
 
 export function ResourceWorkspace<T>({
@@ -104,6 +102,14 @@ export function ResourceWorkspace<T>({
   useEffect(() => {
     setPage(1);
   }, [query, sortChoice, sort, pageSizeValue]);
+
+  // When the selected row leaves the dataset (e.g. it was deleted), close the detail drawer
+  // so it never lingers on a stale item.
+  useEffect(() => {
+    if (selected === null) return;
+    const key = rowKey(selected);
+    if (!rows.some((row) => rowKey(row) === key)) setSelected(null);
+  }, [rows, selected, rowKey]);
 
   const filtered = useMemo(() => {
     if (!query.trim()) return rows;
@@ -204,6 +210,7 @@ export function ResourceWorkspace<T>({
         onRowClick={detail ? (row) => setSelected(row) : undefined}
         empty={
           <EmptyState
+            bordered={false}
             title={noMatches ? "No matches" : empty.title}
             description={
               noMatches
@@ -224,8 +231,6 @@ export function ResourceWorkspace<T>({
                 >
                   Clear filters
                 </Button>
-              ) : empty.actionLabel && empty.onAction ? (
-                <Button onClick={empty.onAction}>{empty.actionLabel}</Button>
               ) : undefined
             }
           />
