@@ -311,8 +311,17 @@ jobs:
           set -euo pipefail
           name="$(node -p "require('./package.json').name")"
           ver="$(node -p "require('./package.json').version")"
-          published="$(npm view "${name}@${ver}" version)"
-          test "$published" = "$ver"
+          deadline=$((SECONDS + 300))
+          attempt=0
+          until [ "$(npm view "${name}@${ver}" version 2>/dev/null)" = "$ver" ]; do
+            attempt=$((attempt + 1))
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "::error::${name}@${ver} is missing from the npm registry after ${attempt} checks"
+              exit 1
+            fi
+            sleep 15
+          done
+          echo "${name}@${ver} is published"
 
       - name: Dry-run summary
         if: inputs.dryRun == true
