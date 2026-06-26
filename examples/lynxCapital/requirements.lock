@@ -27,46 +27,46 @@ bracex==2.6 \
     --hash=sha256:0b0049264e7340b3ec782b5cb99beb325f36c3782a32e36e876452fd49a09952 \
     --hash=sha256:98f1347cd77e22ee8d967a30ad4e310b233f7754dbf31ff3fceb76145ba47dc7
     # via wcmatch
-caracalai-core==0.1.6rc1 \
-    --hash=sha256:5ea86e7e1537588f1a57a6cf660694ab3a1e0bcb274bed114ff0fa81f4b51e5e \
-    --hash=sha256:ac0d446580c366a8516884f66cd81d56d174204a9983774d4353b0ea6f38b6f1
+caracalai-core==0.1.6rc2 \
+    --hash=sha256:80f1a4fbcb9b8f4671d108268ba34a721d9f6ebf8d0069c2461a1224a26a2d09 \
+    --hash=sha256:9836da9f48294335f6567f07a54ec0a7e1b9d69a0f1f88c97e7cdfe9aed56271
     # via
     #   caracalai-identity
     #   lynx-capital
-caracalai-identity==0.1.6rc1 \
-    --hash=sha256:25db48b51f59a705d68f47684311fca424afb3d9ea35abde61a9b61d031401d8 \
-    --hash=sha256:8fd24bfe799542a81e3f8058f073abbac2ba73083173fad5f7c9400c39f5ad93
+caracalai-identity==0.1.6rc2 \
+    --hash=sha256:04ff094cf54a1304ec73bf6dcf7c6a7f8dcfad5578b0fd2f4bf9be8e78abde21 \
+    --hash=sha256:fc85af2e4061dbee95415f1d693a306acec9b29e7ce8fa071428c92700140db3
     # via
     #   caracalai-sdk
     #   caracalai-transport-mcp
     #   lynx-capital
-caracalai-mcp-fastmcp==0.1.6rc1 \
-    --hash=sha256:07b8cd6a7c2a7951f75612b8e2e008d2d7756a161acdb79fc93c29b3ef8f28aa \
-    --hash=sha256:48b9ce5a0998dee0209db53f6fee5a7974b4175f4563ab0560985ae0073170e7
+caracalai-mcp-fastmcp==0.1.6rc2 \
+    --hash=sha256:a040fa84de3d15f48a839a0e51884317e41baffad06e5332b77e675e2e7c5474 \
+    --hash=sha256:cb658f20579b13c431f85450312fb9edfa0928dfad4d59b234be66776584b9ab
     # via lynx-capital
-caracalai-oauth==0.1.6rc1 \
-    --hash=sha256:53880ddea45607f870ddeb4f4f2af8c54ed175ba3bb11d872db0d4ef726a7d8d \
-    --hash=sha256:6eb7be1f8ddcfb39a06197087355d8ad3d28b30e9e13ea55300e3b3283e1eb20
+caracalai-oauth==0.1.6rc2 \
+    --hash=sha256:a58885b09c4ff66e4d4695396c52f9db2b5851e9fa3eb50f57a67bfcb54eca70 \
+    --hash=sha256:fe6681e614b230b957d1e98ac0b2eb62f6d2c98f12f42ed4176891edec53f5b4
     # via lynx-capital
-caracalai-revocation==0.1.6rc1 \
-    --hash=sha256:51b8fe8853e825e7daf595a8b60dd0add3e8aace59b65d1333b78e1906e2a161 \
-    --hash=sha256:c0fea7417e6f81dae3d4b0dad66f205f3a800ff9de867e416a0c1c51a866881e
+caracalai-revocation==0.1.6rc2 \
+    --hash=sha256:51bb1e70a4304a16ef88967b8b8240362386de1610177c618b058b3f719eb9fc \
+    --hash=sha256:b1cbe9d7f53582e3dc9eb1835ab5af1c591488336e503aa9653e3293440167e9
     # via
     #   caracalai-mcp-fastmcp
     #   caracalai-revocation-redis
     #   caracalai-transport-mcp
     #   lynx-capital
-caracalai-revocation-redis==0.1.6rc1 \
-    --hash=sha256:e9b6164eccb5daaf6713992d3f1309bc5ca4fcb7abb0884f340da5f3fef71858 \
-    --hash=sha256:ef2b14f4ce900a23c81f1c335a9207004862c4bde699ee7837291ad0548b322a
+caracalai-revocation-redis==0.1.6rc2 \
+    --hash=sha256:5c5eb34890120a81743878067468b974e11db565d45cd66050c0cbbc243b4868 \
+    --hash=sha256:ebdab5bf66c7733f34c9490c4c5df531a5c33f510f9bbe377f759d53ff4f91ec
     # via lynx-capital
-caracalai-sdk==0.1.6rc1 \
-    --hash=sha256:645ba45efc40d9213b4786dbbbb01e34143893f8a5dd3cb3c8db6171674917d1 \
-    --hash=sha256:fdf4596da12ecb7e42e178a47ff9a19d0cce29ec7ca2f9732801d50b5480a3c1
+caracalai-sdk==0.1.6rc2 \
+    --hash=sha256:5fdb6d6ba26889c3cb6315cd10747d884c74dcf68ffb4dd8829a3f88fc67f103 \
+    --hash=sha256:9d325e2ccbbe79da217d3e0bbffcfcb3f54c70b648749574360cd015fde29a04
     # via lynx-capital
-caracalai-transport-mcp==0.1.6rc1 \
-    --hash=sha256:fd7ea9a7a2120f973fc2739ca20084f20b1f2aa2a78ac7c38e0be315aa36f9ab \
-    --hash=sha256:ffa9d3e1a9791903fe4208ed0f1f845bb0e942f5a0dbe83365dfe21f11aa7d8e
+caracalai-transport-mcp==0.1.6rc2 \
+    --hash=sha256:0950fafba80e933e676e56e128fccac7f25675e4617d99e5817e0bbafd0c7a2f \
+    --hash=sha256:5d8dba91c7b0cc93ff28b8311a7fc4f8dedb76504f97603d7c48a892312bc9f0
     # via
     #   caracalai-mcp-fastmcp
     #   lynx-capital

@@ -170,7 +170,7 @@ Lynx Capital guided setup page for Caracal configuration, providers, and launch.
   <section class="setup-panel" data-setup-panel="caracal" aria-labelledby="caracal-heading">
     <div class="section-head">
       <h2 id="caracal-heading">Caracal configuration</h2>
-      <p>Console and provisioning steps. Automate Setup runs steps 03–05 from <code class="mono">config/tenancy.yaml</code>.</p>
+      <p>Control plane and provisioning steps. Automate Setup runs steps 03–05 from <code class="mono">config/tenancy.yaml</code>.</p>
     </div>
     <div class="caracal-layout">
       <ol class="step-list">
@@ -310,11 +310,11 @@ OPENAI_API_KEY={{ setup_env.openaiKey }}</pre>
       <div class="automation-path">
         <article>
           <h3>1. Create the zone</h3>
-          <p>Go to Caracal Console &gt; Zones &gt; New. Set <b>name</b> = <code>"Lynx Capital"</code>. One zone backs the whole platform.</p>
+          <p>In the web console, go to Zones &gt; New. Set <b>name</b> = <code>"Lynx Capital"</code>. One zone backs the whole platform.</p>
         </article>
         <article>
           <h3>2. Create the control key</h3>
-          <p>Go to Control &gt; control key create. Set <b>name</b> = <code>"Lynx Capital Bootstrap"</code>, <b>max token TTL</b> = <code>300</code>, and <b>expires in days</b> = <code>30</code>.</p>
+          <p>In the web console, go to Control &gt; New control key. Set <b>name</b> = <code>"Lynx Capital Bootstrap"</code>, <b>max token TTL</b> = <code>300</code>, and <b>expires in days</b> = <code>30</code>.</p>
         </article>
         <article>
           <h3>3. Export credentials and run</h3>
