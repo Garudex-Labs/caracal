@@ -62,6 +62,17 @@ import type {
   Session,
   SessionQuery,
   SimulateResult,
+  OperatorCapability,
+  OperatorConversation,
+  OperatorContext,
+  OperatorAiStatus,
+  OperatorExecutionResult,
+  OperatorMessageResult,
+  OperatorNarrativeInput,
+  OperatorPlanDecisionInput,
+  OperatorPlanInput,
+  OperatorPlanValidation,
+  OperatorTurn,
   Zone,
   ZoneInput,
   ZonePatchInput,
@@ -483,6 +494,126 @@ export const consoleApi = {
       );
       return { rows: res.rows, nextCursor: res.next_cursor };
     },
+  },
+
+  operator: {
+    status: async (signal?: AbortSignal) => {
+      const res = await request<{ enabled: boolean }>("/v1/operator/status", { signal });
+      return res.enabled;
+    },
+    aiStatus: (signal?: AbortSignal) =>
+      request<OperatorAiStatus>("/v1/operator/ai/status", { signal }),
+    capabilities: async (signal?: AbortSignal) => {
+      const res = await request<{ capabilities: OperatorCapability[] }>(
+        "/v1/operator/capabilities",
+        { signal },
+      );
+      return res.capabilities;
+    },
+    conversations: {
+      list: async (
+        zoneId: string,
+        options: { q?: string; signal?: AbortSignal } = {},
+      ): Promise<OperatorConversation[]> =>
+        (
+          await fetchAllPages<OperatorConversation>(
+            `/v1/zones/${encodeURIComponent(zoneId)}/operator-conversations${queryString({
+              q: options.q,
+            })}`,
+            options.signal,
+          )
+        ).rows,
+      get: (zoneId: string, id: string, signal?: AbortSignal) =>
+        request<OperatorConversation>(
+          `/v1/zones/${encodeURIComponent(zoneId)}/operator-conversations/${encodeURIComponent(id)}`,
+          { signal },
+        ),
+      create: (zoneId: string, title: string) =>
+        request<OperatorConversation>(
+          `/v1/zones/${encodeURIComponent(zoneId)}/operator-conversations`,
+          { method: "POST", body: JSON.stringify({ title }) },
+        ),
+      archive: (zoneId: string, id: string) =>
+        request<OperatorConversation>(
+          `/v1/zones/${encodeURIComponent(zoneId)}/operator-conversations/${encodeURIComponent(id)}`,
+          { method: "PATCH", body: JSON.stringify({ status: "archived" }) },
+        ),
+    },
+    appendTurn: (zoneId: string, conversationId: string, turn: OperatorNarrativeInput) =>
+      request<OperatorTurn>(
+        `/v1/zones/${encodeURIComponent(zoneId)}/operator-conversations/${encodeURIComponent(
+          conversationId,
+        )}/turns`,
+        { method: "POST", body: JSON.stringify(turn) },
+      ),
+    context: (zoneId: string, conversationId: string, signal?: AbortSignal) =>
+      request<OperatorContext>(
+        `/v1/zones/${encodeURIComponent(zoneId)}/operator-conversations/${encodeURIComponent(
+          conversationId,
+        )}/context`,
+        { signal },
+      ),
+    listTurns: async (
+      zoneId: string,
+      conversationId: string,
+      signal?: AbortSignal,
+    ): Promise<OperatorTurn[]> => {
+      // The turns endpoint returns up to `limit` rows ordered by sequence and
+      // signals more by returning a full page, so follow `after_seq` until a short
+      // page arrives. The cap bounds a single conversation's fan-out.
+      const pageSize = 200;
+      const maxPages = 50;
+      const base = `/v1/zones/${encodeURIComponent(zoneId)}/operator-conversations/${encodeURIComponent(
+        conversationId,
+      )}/turns`;
+      const turns: OperatorTurn[] = [];
+      let afterSeq = 0;
+      for (let page = 0; page < maxPages; page++) {
+        const rows = await request<OperatorTurn[]>(
+          `${base}?after_seq=${afterSeq}&limit=${pageSize}`,
+          { signal },
+        );
+        turns.push(...rows);
+        if (rows.length < pageSize) break;
+        afterSeq = rows[rows.length - 1]!.seq;
+      }
+      return turns;
+    },
+    validatePlan: (zoneId: string, conversationId: string, plan: OperatorPlanInput) =>
+      request<OperatorPlanValidation>(
+        `/v1/zones/${encodeURIComponent(zoneId)}/operator-conversations/${encodeURIComponent(
+          conversationId,
+        )}/plan/validate`,
+        { method: "POST", body: JSON.stringify(plan) },
+      ),
+    createPlan: (zoneId: string, conversationId: string, plan: OperatorPlanInput) =>
+      request<{ turn: OperatorTurn; validation: OperatorPlanValidation }>(
+        `/v1/zones/${encodeURIComponent(zoneId)}/operator-conversations/${encodeURIComponent(
+          conversationId,
+        )}/plan`,
+        { method: "POST", body: JSON.stringify(plan) },
+      ),
+    decidePlan: (zoneId: string, conversationId: string, decision: OperatorPlanDecisionInput) =>
+      request<OperatorTurn>(
+        `/v1/zones/${encodeURIComponent(zoneId)}/operator-conversations/${encodeURIComponent(
+          conversationId,
+        )}/plan/decision`,
+        { method: "POST", body: JSON.stringify(decision) },
+      ),
+    executePlan: (zoneId: string, conversationId: string, planSeq: number) =>
+      request<OperatorExecutionResult>(
+        `/v1/zones/${encodeURIComponent(zoneId)}/operator-conversations/${encodeURIComponent(
+          conversationId,
+        )}/plan/execute`,
+        { method: "POST", body: JSON.stringify({ plan_seq: planSeq }) },
+      ),
+    sendMessage: (zoneId: string, conversationId: string, message: string) =>
+      request<OperatorMessageResult>(
+        `/v1/zones/${encodeURIComponent(zoneId)}/operator-conversations/${encodeURIComponent(
+          conversationId,
+        )}/message`,
+        { method: "POST", body: JSON.stringify({ message }) },
+      ),
   },
 
   agents: {

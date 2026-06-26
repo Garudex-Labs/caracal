@@ -78,10 +78,133 @@ const keys = {
   agents: (zoneId: string | null) => ["console", "agents", zoneId] as const,
   agent: (zoneId: string | null, id: string | null) => ["console", "agent", zoneId, id] as const,
   delegationsActive: (zoneId: string | null) => ["console", "delegations-active", zoneId] as const,
+  operatorCapabilities: ["console", "operator-capabilities"] as const,
+  operatorStatus: ["console", "operator-status"] as const,
+  operatorAiStatus: ["console", "operator-ai-status"] as const,
+  operatorConversations: (zoneId: string | null) =>
+    ["console", "operator-conversations", zoneId] as const,
+  operatorTurns: (zoneId: string | null, conversationId: string | null) =>
+    ["console", "operator-turns", zoneId, conversationId] as const,
+  operatorContext: (zoneId: string | null, conversationId: string | null) =>
+    ["console", "operator-context", zoneId, conversationId] as const,
 };
 
 export function useConsoleStatus() {
   return useQuery({ queryKey: keys.status, queryFn: () => consoleApi.status() });
+}
+
+// Reflects whether the optional Operator service is enabled on this deployment.
+// Static for the process lifetime, so it is held for the session rather than polled.
+export function useOperatorStatus() {
+  return useQuery({
+    queryKey: keys.operatorStatus,
+    queryFn: ({ signal }) => consoleApi.operator.status(signal),
+    staleTime: Infinity,
+  });
+}
+
+// Reflects which AI providers are configured for the Operator, in failover order.
+// Provider configuration is static per deployment, so it is held for the session.
+export function useOperatorAiStatus(enabled: boolean) {
+  return useQuery({
+    queryKey: keys.operatorAiStatus,
+    queryFn: ({ signal }) => consoleApi.operator.aiStatus(signal),
+    enabled,
+    staleTime: Infinity,
+  });
+}
+
+// The capability catalog is static for a deployment, so it is fetched once and held
+// for the session rather than polled.
+export function useOperatorCapabilities() {
+  return useQuery({
+    queryKey: keys.operatorCapabilities,
+    queryFn: ({ signal }) => consoleApi.operator.capabilities(signal),
+    staleTime: Infinity,
+  });
+}
+
+export function useOperatorConversations(zoneId: string | null, q?: string) {
+  const term = q?.trim() || undefined;
+  return useQuery({
+    queryKey: [...keys.operatorConversations(zoneId), term ?? ""],
+    queryFn: ({ signal }) =>
+      consoleApi.operator.conversations.list(zoneId as string, { q: term, signal }),
+    enabled: !!zoneId,
+  });
+}
+
+export function useCreateOperatorConversation(zoneId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (title: string) =>
+      consoleApi.operator.conversations.create(zoneId as string, title),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.operatorConversations(zoneId) }),
+  });
+}
+
+export function useOperatorTurns(zoneId: string | null, conversationId: string | null) {
+  return useQuery({
+    queryKey: keys.operatorTurns(zoneId, conversationId),
+    queryFn: ({ signal }) =>
+      consoleApi.operator.listTurns(zoneId as string, conversationId as string, signal),
+    enabled: !!zoneId && !!conversationId,
+  });
+}
+
+// The compressed session memory and working-memory snapshot for a conversation,
+// used to show continuity (applied changes, operations the operator has rejected)
+// without scrolling the whole timeline.
+export function useOperatorContext(zoneId: string | null, conversationId: string | null) {
+  return useQuery({
+    queryKey: keys.operatorContext(zoneId, conversationId),
+    queryFn: ({ signal }) =>
+      consoleApi.operator.context(zoneId as string, conversationId as string, signal),
+    enabled: !!zoneId && !!conversationId,
+  });
+}
+
+// A turn-producing action refreshes both the timeline and the compressed session
+// memory, so the two never disagree about what has happened.
+function invalidateConversation(
+  qc: ReturnType<typeof useQueryClient>,
+  zoneId: string | null,
+  conversationId: string | null,
+) {
+  qc.invalidateQueries({ queryKey: keys.operatorTurns(zoneId, conversationId) });
+  qc.invalidateQueries({ queryKey: keys.operatorContext(zoneId, conversationId) });
+}
+
+// Sending a message can append several turns (the message plus a plan or note), so a
+// success refreshes the timeline rather than trying to patch it locally.
+export function useSendOperatorMessage(zoneId: string | null, conversationId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (message: string) =>
+      consoleApi.operator.sendMessage(zoneId as string, conversationId as string, message),
+    onSuccess: () => invalidateConversation(qc, zoneId, conversationId),
+  });
+}
+
+export function useDecideOperatorPlan(zoneId: string | null, conversationId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (decision: {
+      plan_seq: number;
+      decision: "approved" | "rejected";
+      reason?: string;
+    }) => consoleApi.operator.decidePlan(zoneId as string, conversationId as string, decision),
+    onSuccess: () => invalidateConversation(qc, zoneId, conversationId),
+  });
+}
+
+export function useExecuteOperatorPlan(zoneId: string | null, conversationId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (planSeq: number) =>
+      consoleApi.operator.executePlan(zoneId as string, conversationId as string, planSeq),
+    onSuccess: () => invalidateConversation(qc, zoneId, conversationId),
+  });
 }
 
 export function useDiagnostics(options: DiagnosticsOptions = {}) {
