@@ -31,6 +31,10 @@ function makeCfg(overrides: Partial<Config> = {}): Config {
     readyOutboxDeadMax: 0,
     trustProxy: false,
     enableDocs: false,
+    operatorEnabled: false,
+    operatorAllowedCapabilities: null,
+    operatorSystemZones: [],
+    operatorAiProviders: [],
     stsUrl: 'http://localhost:8080',
     gatewayStsHmacKey: null,
     metricsBearer: null,
@@ -179,12 +183,14 @@ describe('/metrics endpoint', () => {
     const cfg = makeCfg({ metricsBearer: 'metrics-token' })
     const db = {
       query: vi.fn(async () => ({
-        rows: [{
-          pending_count: '3',
-          dead_count: '0',
-          oldest_pending_age_seconds: '12.5',
-          oldest_dead_age_seconds: null,
-        }],
+        rows: [
+          {
+            pending_count: '3',
+            dead_count: '0',
+            oldest_pending_age_seconds: '12.5',
+            oldest_dead_age_seconds: null,
+          },
+        ],
         rowCount: 1,
       })),
       connect: vi.fn(),
@@ -203,8 +209,12 @@ describe('/metrics endpoint', () => {
 })
 
 describe('/ready endpoint', () => {
-  beforeEach(() => { vi.useFakeTimers() })
-  afterEach(() => { vi.useRealTimers() })
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
 
   it('returns 503 instead of hanging when a dependency check times out', async () => {
     const cfg = makeCfg()
@@ -227,15 +237,18 @@ describe('/ready endpoint', () => {
   it('returns 503 when abandoned outbox rows exceed the readiness limit', async () => {
     const cfg = makeCfg({ readyOutboxDeadMax: 0 })
     const db = {
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce({ rows: [{ '?column?': 1 }], rowCount: 1 })
         .mockResolvedValueOnce({
-          rows: [{
-            pending_count: 0,
-            dead_count: 1,
-            oldest_pending_age_seconds: 0,
-            oldest_dead_age_seconds: 30,
-          }],
+          rows: [
+            {
+              pending_count: 0,
+              dead_count: 1,
+              oldest_pending_age_seconds: 0,
+              oldest_dead_age_seconds: 30,
+            },
+          ],
           rowCount: 1,
         }),
       connect: vi.fn(),
@@ -283,7 +296,8 @@ describe('/ready endpoint', () => {
   it('returns outbox dependency failures separately from postgres health', async () => {
     const cfg = makeCfg()
     const db = {
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce({ rows: [{ '?column?': 1 }], rowCount: 1 })
         .mockRejectedValueOnce(new Error('outbox failed')),
       connect: vi.fn(),

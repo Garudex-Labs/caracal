@@ -84,3 +84,295 @@ describe('request cancellation', () => {
     await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
   })
 })
+
+describe('operator capabilities', () => {
+  it('reports whether the operator service is enabled', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse(200, { enabled: false }))
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+    const enabled = await consoleApi.operator.status()
+    expect(enabled).toBe(false)
+    expect(fetchMock.mock.calls[0]![0]).toContain('/v1/operator/status')
+  })
+
+  it('reports configured AI providers', async () => {
+    const aiStatus = { enabled: true, providers: [{ id: 'primary', model: 'gpt-x', available: true }] }
+    const fetchMock = vi.fn(async () => jsonResponse(200, aiStatus))
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+    const result = await consoleApi.operator.aiStatus()
+    expect(result).toEqual(aiStatus)
+    expect(fetchMock.mock.calls[0]![0]).toContain('/v1/operator/ai/status')
+  })
+
+  it('unwraps the capabilities envelope from the live catalog', async () => {
+    const capabilities = [
+      { id: 'grantAccess', title: 'Grant access', summary: 's', domain: 'grant', mutating: true },
+      { id: 'listZones', title: 'List zones', summary: 's', domain: 'zone', mutating: false },
+    ]
+    const fetchMock = vi.fn(async () => jsonResponse(200, { capabilities }))
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const result = await consoleApi.operator.capabilities()
+    expect(result).toEqual(capabilities)
+    expect(fetchMock.mock.calls[0]![0]).toContain('/v1/operator/capabilities')
+  })
+})
+
+describe('operator plan validation', () => {
+  it('posts the proposed plan to the conversation validate endpoint', async () => {
+    const validation = {
+      ok: true,
+      mutating: true,
+      mutating_step_count: 1,
+      steps: [{ id: 's1', capability: 'createZone', title: 'Create a zone', domain: 'zone', mutating: true }],
+      diagnostics: [],
+    }
+    const fetchMock = vi.fn(async () => jsonResponse(200, validation))
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const plan = { summary: 'Stand up prod', steps: [{ id: 's1', capability: 'createZone', args: { name: 'Prod' } }] }
+    const result = await consoleApi.operator.validatePlan('z1', 'conv-1', plan)
+    expect(result).toEqual(validation)
+    const [url, init] = fetchMock.mock.calls[0]! as [string, RequestInit]
+    expect(url).toContain('/v1/zones/z1/operator-conversations/conv-1/plan/validate')
+    expect(init.method).toBe('POST')
+    expect(JSON.parse(init.body as string)).toEqual(plan)
+  })
+
+  it('maps a missing conversation to a ConsoleApiError', async () => {
+    globalThis.fetch = vi.fn(async () => jsonResponse(404, { error: 'conversation_not_found' })) as unknown as typeof fetch
+    await expect(consoleApi.operator.validatePlan('z1', 'missing', { summary: 'x', steps: [] })).rejects.toMatchObject({
+      status: 404,
+      code: 'conversation_not_found',
+    })
+  })
+})
+
+describe('operator conversation lifecycle', () => {
+  it('lists conversations by following keyset pages', async () => {
+    const conv = {
+      id: 'conv-1',
+      zone_id: 'z1',
+      title: 'Connect GitHub',
+      status: 'active',
+      created_by: 'actor-1',
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+      last_activity_at: '2026-01-01T00:00:00Z',
+      archived_at: null,
+    }
+    globalThis.fetch = vi.fn(async () => jsonResponse(200, [conv])) as unknown as typeof fetch
+    const rows = await consoleApi.operator.conversations.list('z1')
+    expect(rows).toEqual([conv])
+  })
+
+  it('passes a search term through to the conversations query', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse(200, []))
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+    await consoleApi.operator.conversations.list('z1', { q: 'github' })
+    expect(fetchMock.mock.calls[0]![0]).toContain('q=github')
+  })
+
+  it('creates a conversation with a title', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse(201, { id: 'conv-1', title: 'Audit' }))
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+    await consoleApi.operator.conversations.create('z1', 'Audit')
+    const [url, init] = fetchMock.mock.calls[0]! as [string, RequestInit]
+    expect(url).toContain('/v1/zones/z1/operator-conversations')
+    expect(init.method).toBe('POST')
+    expect(JSON.parse(init.body as string)).toEqual({ title: 'Audit' })
+  })
+
+  it('fetches the working-memory context snapshot', async () => {
+    const context = {
+      conversation_id: 'conv-1',
+      status: 'active',
+      turn_count: 3,
+      facts: { decided_plans: [], rejected_capabilities: [], applied_change_count: 0, last_error: null },
+      latest_plan: null,
+      pending_approval: false,
+      recent_messages: [],
+      last_error: null,
+    }
+    const fetchMock = vi.fn(async () => jsonResponse(200, context))
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+    const result = await consoleApi.operator.context('z1', 'conv-1')
+    expect(result).toEqual(context)
+    expect(fetchMock.mock.calls[0]![0]).toContain('/v1/zones/z1/operator-conversations/conv-1/context')
+  })
+
+  it('assembles all turns by following after_seq pagination', async () => {
+    const firstPage = Array.from({ length: 200 }, (_, i) => ({
+      id: `t${i + 1}`,
+      conversation_id: 'conv-1',
+      seq: i + 1,
+      role: 'user',
+      kind: 'message',
+      content: {},
+      actor_id: 'a',
+      created_at: '2026-01-01T00:00:00Z',
+    }))
+    const secondPage = [
+      {
+        id: 't201',
+        conversation_id: 'conv-1',
+        seq: 201,
+        role: 'user',
+        kind: 'message',
+        content: {},
+        actor_id: 'a',
+        created_at: '2026-01-01T00:00:00Z',
+      },
+    ]
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(200, firstPage)).mockResolvedValueOnce(jsonResponse(200, secondPage))
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+    const turns = await consoleApi.operator.listTurns('z1', 'conv-1')
+    expect(turns).toHaveLength(201)
+    expect(fetchMock.mock.calls[0]![0]).toContain('after_seq=0')
+    expect(fetchMock.mock.calls[1]![0]).toContain('after_seq=200')
+  })
+
+  it('stops paginating turns after a short page', async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse(200, [
+        {
+          id: 't1',
+          conversation_id: 'conv-1',
+          seq: 1,
+          role: 'user',
+          kind: 'message',
+          content: {},
+          actor_id: 'a',
+          created_at: '2026-01-01T00:00:00Z',
+        },
+      ]),
+    )
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+    const turns = await consoleApi.operator.listTurns('z1', 'conv-1')
+    expect(turns).toHaveLength(1)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('creates a plan and returns the persisted turn and validation', async () => {
+    const body = {
+      turn: {
+        id: 'turn-2',
+        conversation_id: 'conv-1',
+        seq: 2,
+        role: 'operator',
+        kind: 'plan',
+        content: {},
+        actor_id: 'actor-1',
+        created_at: '2026-01-01T00:00:02Z',
+      },
+      validation: { ok: true, mutating: true, mutating_step_count: 1, steps: [], diagnostics: [] },
+    }
+    const fetchMock = vi.fn(async () => jsonResponse(201, body))
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+    const plan = {
+      summary: 'Connect GitHub',
+      steps: [{ id: 's1', capability: 'connectProvider', args: { name: 'GitHub', kind: 'oauth2_authorization_code' } }],
+    }
+    const result = await consoleApi.operator.createPlan('z1', 'conv-1', plan)
+    expect(result).toEqual(body)
+    const [url, init] = fetchMock.mock.calls[0]! as [string, RequestInit]
+    expect(url).toContain('/v1/zones/z1/operator-conversations/conv-1/plan')
+    expect(init.method).toBe('POST')
+  })
+
+  it('posts a plan decision', async () => {
+    const turn = {
+      id: 'turn-3',
+      conversation_id: 'conv-1',
+      seq: 3,
+      role: 'user',
+      kind: 'approval',
+      content: { plan_seq: 2 },
+      actor_id: 'actor-1',
+      created_at: '2026-01-01T00:00:03Z',
+    }
+    const fetchMock = vi.fn(async () => jsonResponse(201, turn))
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+    const result = await consoleApi.operator.decidePlan('z1', 'conv-1', { plan_seq: 2, decision: 'approved' })
+    expect(result).toEqual(turn)
+    const [url, init] = fetchMock.mock.calls[0]! as [string, RequestInit]
+    expect(url).toContain('/v1/zones/z1/operator-conversations/conv-1/plan/decision')
+    expect(JSON.parse(init.body as string)).toEqual({ plan_seq: 2, decision: 'approved' })
+  })
+
+  it('maps an already-decided plan to a ConsoleApiError', async () => {
+    globalThis.fetch = vi.fn(async () => jsonResponse(409, { error: 'plan_already_decided' })) as unknown as typeof fetch
+    await expect(consoleApi.operator.decidePlan('z1', 'conv-1', { plan_seq: 2, decision: 'approved' })).rejects.toMatchObject({
+      status: 409,
+      code: 'plan_already_decided',
+    })
+  })
+
+  it('executes an approved plan and returns outputs', async () => {
+    const result = {
+      ok: true,
+      plan_seq: 2,
+      executed: [
+        {
+          id: 'turn-x',
+          conversation_id: 'conv-1',
+          seq: 5,
+          role: 'operator',
+          kind: 'execution',
+          content: {},
+          actor_id: 'actor-1',
+          created_at: '2026-01-01T00:00:05Z',
+        },
+      ],
+      outputs: { s1: { zone_id: 'z-new' } },
+    }
+    const fetchMock = vi.fn(async () => jsonResponse(201, result))
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+    const out = await consoleApi.operator.executePlan('z1', 'conv-1', 2)
+    expect(out).toEqual(result)
+    const [url, init] = fetchMock.mock.calls[0]! as [string, RequestInit]
+    expect(url).toContain('/v1/zones/z1/operator-conversations/conv-1/plan/execute')
+    expect(JSON.parse(init.body as string)).toEqual({ plan_seq: 2 })
+  })
+
+  it('maps a non-executable plan to a ConsoleApiError', async () => {
+    globalThis.fetch = vi.fn(async () => jsonResponse(422, { error: 'capability_not_executable' })) as unknown as typeof fetch
+    await expect(consoleApi.operator.executePlan('z1', 'conv-1', 2)).rejects.toMatchObject({
+      status: 422,
+      code: 'capability_not_executable',
+    })
+  })
+
+  it('sends a natural-language message and returns the agent result', async () => {
+    const result = {
+      intent: 'plan',
+      ok: true,
+      turn: {
+        id: 'turn-2',
+        conversation_id: 'conv-1',
+        seq: 2,
+        role: 'operator',
+        kind: 'plan',
+        content: {},
+        actor_id: 'actor-1',
+        created_at: '2026-01-01T00:00:02Z',
+      },
+      validation: { ok: true, mutating: true, mutating_step_count: 1, steps: [], diagnostics: [] },
+      preview: { ok: true, mutating: true, steps: [] },
+    }
+    const fetchMock = vi.fn(async () => jsonResponse(201, result))
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+    const out = await consoleApi.operator.sendMessage('z1', 'conv-1', 'connect github')
+    expect(out).toEqual(result)
+    const [url, init] = fetchMock.mock.calls[0]! as [string, RequestInit]
+    expect(url).toContain('/v1/zones/z1/operator-conversations/conv-1/message')
+    expect(JSON.parse(init.body as string)).toEqual({ message: 'connect github' })
+  })
+
+  it('maps a disabled AI tier on message to a ConsoleApiError', async () => {
+    globalThis.fetch = vi.fn(async () => jsonResponse(409, { error: 'ai_unavailable' })) as unknown as typeof fetch
+    await expect(consoleApi.operator.sendMessage('z1', 'conv-1', 'hi')).rejects.toMatchObject({
+      status: 409,
+      code: 'ai_unavailable',
+    })
+  })
+})
