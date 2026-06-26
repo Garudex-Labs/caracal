@@ -83,7 +83,7 @@ function resolveWebOrigins(baseURL: string, production: boolean): string[] {
   const origins = new Set<string>()
   const self = originOf(baseURL)
   if (self) origins.add(self)
-  const configured = process.env.CARACAL_WEB_ORIGIN ?? (production ? '' : 'http://localhost:3001')
+  const configured = process.env.CARACAL_WEB_ORIGIN ?? (production ? '' : 'http://localhost:3011')
   for (const entry of configured.split(',')) {
     const origin = originOf(entry.trim())
     if (origin) origins.add(origin)

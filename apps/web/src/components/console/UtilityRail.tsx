@@ -79,7 +79,7 @@ export function UtilityRail() {
         />
 
         <RailButton
-          label="AI Governor"
+          label="Caracal Operator"
           to="/app/ai"
           active={pathname.startsWith("/app/ai")}
           locked

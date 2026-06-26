@@ -11,7 +11,11 @@ import { printError, printInfo, printWarn, style } from '../style.ts'
 import { devAuthDatabaseUrl, devAuthSecret } from './authStore.ts'
 import { killTree, resolvePnpm, spawnSyncTree, spawnTree } from '../processTree.ts'
 
-const DEFAULT_WEB_PORT = 3001
+// The development launcher runs alongside a live stack (`caracal up`), whose packaged
+// web container already publishes host port 3001. Defaulting the dev UI to 3011 keeps the
+// two consoles on distinct ports so the Vite server never contends with the container for
+// 3001. The backend-for-frontend stays on 3002, which the packaged stack does not publish.
+const DEFAULT_WEB_PORT = 3011
 const DEFAULT_AUTH_PORT = 3002
 // The web console is a control-plane surface: its backend-for-frontend only proxies
 // the local stack started by `caracal up`. Mirror the BFF's own service-URL defaults
@@ -236,7 +240,7 @@ function printWebUsage(): void {
     'backend-for-frontend, which proxies the admin API without exposing credentials.',
     '',
     style.header('Options'),
-    '  --web-port <port>    Port for the web UI (default 3001)',
+    '  --web-port <port>    Port for the web UI (default 3011)',
     '  --auth-port <port>   Port for the backend-for-frontend (default 3002)',
     '  --build              Serve the production build instead of the dev server',
     '  --allow-offline      Launch even if the stack is not running (UI/sign-in only)',

@@ -2,7 +2,7 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-This file defines the AI Governor route, an enterprise placeholder for natural-language control-plane management.
+This file defines the Caracal Operator route, an enterprise placeholder for natural-language control-plane management.
 */
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState, type ReactNode } from "react";
@@ -12,15 +12,15 @@ import { Badge, Button, LockBadge } from "@/components/ui";
 import { config } from "@/platform/config";
 
 export const Route = createFileRoute("/app/ai")({
-  component: AiGovernorPage,
+  component: CaracalOperatorPage,
 });
 
-function AiGovernorPage() {
+function CaracalOperatorPage() {
   return (
     <ModulePage
-      title="AI Governor"
-      description="Operate your entire Caracal control plane in natural language. Tell the AI Governor what you want; it resolves the intent into concrete control-plane changes, shows the plan, and applies it through the same guarded APIs you use by hand — within your operator scope and recorded in the audit log."
-      breadcrumbs={[{ label: "Console", to: "/app" }, { label: "AI Governor" }]}
+      title="Caracal Operator"
+      description="Operate your entire Caracal control plane in natural language. Tell Caracal Operator what you want; it resolves the intent into concrete control-plane changes, shows the plan, and applies it through the same guarded APIs you use by hand — within your operator scope and recorded in the audit log."
+      breadcrumbs={[{ label: "Console", to: "/app" }, { label: "Caracal Operator" }]}
       actions={<LockBadge />}
     >
       <div className="flex flex-col gap-4">
@@ -32,7 +32,7 @@ function AiGovernorPage() {
   );
 }
 
-function GovernorMark({ className }: { className?: string }) {
+function OperatorMark({ className }: { className?: string }) {
   return (
     <svg
       viewBox="0 0 24 24"
@@ -102,7 +102,7 @@ function Console() {
     <section className="overflow-hidden border border-border bg-card">
       <div className="flex items-center gap-2.5 border-b border-border px-4 py-3">
         <span className="grid h-8 w-8 place-items-center border border-border bg-muted text-foreground">
-          <GovernorMark className="h-5 w-5" />
+          <OperatorMark className="h-5 w-5" />
         </span>
         <div className="min-w-0">
           <h2 className="text-sm font-semibold tracking-tight text-foreground">
@@ -156,7 +156,7 @@ function Console() {
 
           <div className="flex items-start gap-2 px-4 pb-4 pt-3">
             <span className="mt-0.5 grid h-6 w-6 flex-shrink-0 place-items-center border border-border bg-muted text-foreground">
-              <GovernorMark className="h-3.5 w-3.5" />
+              <OperatorMark className="h-3.5 w-3.5" />
             </span>
             <div className="min-w-0 flex-1 border border-border bg-card">
               <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
@@ -282,8 +282,8 @@ function Comparison() {
         </div>
         <div className="flex flex-col">
           <div className="flex items-center gap-2 border-b border-border px-5 py-3 text-sm font-semibold text-foreground">
-            <GovernorMark className="h-4 w-4" />
-            With AI Governor
+            <OperatorMark className="h-4 w-4" />
+            With Caracal Operator
           </div>
           <ul className="flex flex-col">
             {FLOW.map((row) => (
@@ -356,7 +356,7 @@ function Trust() {
           Compare editions
         </Link>
         <span className="text-xs text-muted-foreground">
-          AI Governor activates in this exact place — no migration.
+          Caracal Operator activates in this exact place — no migration.
         </span>
       </div>
     </section>
