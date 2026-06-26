@@ -16,6 +16,7 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 
 import { ModulePage } from "@/components/console/ModulePage";
 import {
@@ -96,6 +97,15 @@ import {
   ConfirmationTitle,
   type ConfirmationApproval,
 } from "@/components/ai-elements/confirmation";
+import {
+  Agent,
+  AgentContent,
+  AgentHeader,
+  AgentInstructions,
+  AgentOutput,
+  AgentTool,
+  AgentTools,
+} from "@/components/ai-elements/agent";
 import { Badge, Button, ConfirmDialog, Tooltip, useToast } from "@/components/ui";
 import { cx } from "@/lib/cx";
 import {
@@ -160,6 +170,11 @@ function CaracalOperatorPage() {
       title="Caracal Operator"
       description="Operate your entire Caracal control plane in natural language. Describe what you want; the Operator resolves it into concrete changes, shows the plan, previews the effect against live state, and applies it through the same guarded APIs you use by hand — within your operator scope and recorded in the audit log."
       breadcrumbs={[{ label: "Console", to: "/app" }, { label: "Caracal Operator" }]}
+      titleAccessory={
+        <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-accent-purple">
+          Beta
+        </span>
+      }
       actions={<SecureByCaracal />}
       fill
     >
@@ -213,9 +228,10 @@ const SHELL_COLUMNS =
   "grid overflow-hidden lg:grid-cols-[minmax(0,1fr)_min(var(--rail-width),25%)]";
 
 // Full-screen mode lifts the whole workspace out of the Console chrome to cover the
-// viewport, keeping the chat pane beside the sessions rail under the same column track.
+// viewport. It is portaled to the document body and sits above all console chrome, so the
+// navbar, sidebars, and rails never show through.
 const SHELL_FULLSCREEN =
-  "fixed inset-0 z-50 grid overflow-hidden bg-background lg:grid-cols-[minmax(0,1fr)_min(var(--rail-width),25%)]";
+  "fixed inset-0 z-[60] grid overflow-hidden bg-background lg:grid-cols-[minmax(0,1fr)_min(var(--rail-width),25%)]";
 
 // The sessions rail collapse and width preferences survive reloads so the operator
 // keeps the layout they chose for the workspace.
@@ -421,7 +437,7 @@ function OperatorWorkspace() {
     return <NoZoneState />;
   }
 
-  return (
+  const workspace = (
     <div
       ref={shellRef}
       className={cx(fullscreen ? SHELL_FULLSCREEN : cx(SHELL, SHELL_COLUMNS))}
@@ -512,6 +528,12 @@ function OperatorWorkspace() {
       />
     </div>
   );
+
+  // In full screen the workspace is portaled to the document body so it escapes the
+  // Console layout entirely and reliably covers the navbar, sidebar, and utility rail.
+  return fullscreen && typeof document !== "undefined"
+    ? createPortal(workspace, document.body)
+    : workspace;
 }
 
 // Real cumulative token usage observed for one session this page load, with the model
@@ -1311,7 +1333,7 @@ function OperatorInput({
 
   if (elevated) {
     return (
-      <div className="flex flex-col gap-2 rounded-2xl border border-border/70 bg-card/70 p-3 shadow-xl shadow-black/20 ring-1 ring-inset ring-foreground/[0.03] backdrop-blur-xl transition-colors focus-within:border-accent-purple/40 focus-within:ring-accent-purple/20">
+      <div className="flex flex-col gap-2 rounded-2xl border border-border bg-card p-3 shadow-xl shadow-black/10 transition-colors focus-within:border-accent-purple/40 focus-within:ring-2 focus-within:ring-accent-purple/20">
         <div className="px-1 pt-0.5">{textarea}</div>
         <div className="flex items-center justify-between gap-2">
           {onModelChange ? (
@@ -1631,7 +1653,7 @@ function NewChatHero({
       <div className="relative z-10 flex min-h-full flex-col items-center justify-center px-4 py-12">
         <div className="flex w-full max-w-2xl flex-col items-center gap-8">
           <div className="flex animate-fade-in flex-col items-center gap-2.5 text-center">
-            <h2 className="bg-gradient-to-b from-foreground to-foreground/55 bg-clip-text text-3xl font-semibold tracking-tight text-transparent sm:text-4xl">
+            <h2 className="text-3xl font-semibold tracking-tight text-foreground sm:text-4xl dark:bg-gradient-to-b dark:from-foreground dark:to-foreground/55 dark:bg-clip-text dark:text-transparent">
               {greeting}
             </h2>
             <p className="max-w-md text-sm leading-relaxed text-muted-foreground">{message}</p>
@@ -1673,7 +1695,7 @@ function NewChatHero({
                     onClick={() => onPick(suggestion.title)}
                     disabled={pending}
                     title={suggestion.hint}
-                    className="group inline-flex h-8 shrink-0 items-center gap-2 rounded-full border border-border/70 bg-card/60 px-3.5 text-xs text-muted-foreground shadow-sm backdrop-blur-md transition-colors hover:border-accent-purple/40 hover:bg-card hover:text-foreground disabled:opacity-50"
+                    className="group inline-flex h-8 shrink-0 items-center gap-2 rounded-full border border-border bg-card px-3.5 text-xs text-muted-foreground shadow-sm transition-colors hover:border-accent-purple/40 hover:bg-accent hover:text-foreground disabled:opacity-50"
                   >
                     <Icon className="h-3.5 w-3.5 text-muted-foreground transition-colors group-hover:text-accent-purple" />
                     {suggestion.title}

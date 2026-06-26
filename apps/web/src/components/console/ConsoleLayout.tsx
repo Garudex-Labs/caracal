@@ -27,9 +27,9 @@ function readCollapsed(): boolean {
 export function ConsoleLayout() {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
 
-  // Full-height workspace routes (the Operator) fill the content region exactly so the
-  // navbar frames them from above and the utility rail from the side, matching how the
-  // left sidebar bounds the rest of the console. Other routes keep the scrolling main.
+  // The Operator is a full-height workspace, so its route fills the content region
+  // exactly: the main area stops scrolling and the workspace flexes to fit between the
+  // navbar above and the utility rail beside it, matching how the left sidebar bounds it.
   const flush = pathname === "/app/ai";
 
   const [collapsed, setCollapsed] = useState(readCollapsed);
@@ -90,12 +90,7 @@ export function ConsoleLayout() {
       ) : null}
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header
-          className={cx(
-            "sticky top-0 z-20 flex h-14 flex-shrink-0 items-center justify-between gap-3 border-b border-border bg-background/95 px-4 backdrop-blur",
-            flush && "lg:hidden",
-          )}
-        >
+        <header className="sticky top-0 z-20 flex h-14 flex-shrink-0 items-center justify-between gap-3 border-b border-border bg-background/95 px-4 backdrop-blur">
           <button
             onClick={() => setMobileOpen(true)}
             aria-label="Open navigation"
@@ -136,7 +131,7 @@ export function ConsoleLayout() {
         </main>
       </div>
 
-      <UtilityRail className={flush ? "lg:hidden" : undefined} />
+      <UtilityRail />
 
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
       <GuidedSetup />

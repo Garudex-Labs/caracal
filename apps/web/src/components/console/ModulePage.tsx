@@ -13,6 +13,7 @@ export function ModulePage({
   title,
   description,
   actions,
+  titleAccessory,
   breadcrumbs,
   children,
   fill = false,
@@ -20,6 +21,7 @@ export function ModulePage({
   title: string;
   description?: string;
   actions?: ReactNode;
+  titleAccessory?: ReactNode;
   breadcrumbs?: Crumb[];
   children: ReactNode;
   fill?: boolean;
@@ -32,8 +34,9 @@ export function ModulePage({
   return (
     <div className={cx("animate-fade-in", fill && "flex min-h-0 flex-1 flex-col")}>
       <div className={cx("mb-6 flex items-center justify-between gap-3", fill && "flex-shrink-0")}>
-        <div className="flex min-w-0 items-center">
+        <div className="flex min-w-0 items-center gap-2">
           <Breadcrumbs items={crumbs} />
+          {titleAccessory}
         </div>
         <div className="flex flex-shrink-0 items-center gap-2">
           {actions}
