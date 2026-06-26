@@ -32,7 +32,7 @@ pip install -e ".[dev]"
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install.sh | \
-  sh -s -- --version v2026.06.22-rc.1
+  sh -s -- --version v2026.06.25-rc.1
 ```
 
 ```bash
@@ -47,7 +47,9 @@ they join so mandate-aware providers can verify Caracal mandates against the zon
 The provider lab runs on this private Docker network; the Gateway reaches operator-provisioned
 private upstreams by default, so no SSRF allowlist step is required.
 
-Open `http://localhost:8000`.
+`caracal up` also starts the **Caracal web console** — the operator UI for the control
+plane — at `http://localhost:3001`. Use it to create the zone and a scoped Control key
+(steps 3–4). The Lynx Capital app itself runs at `http://localhost:8000`.
 
 ## 3. Configure the workload
 
@@ -64,10 +66,11 @@ exercise the offline simulators.
 
 ## 4. Provision automatically
 
-Create a **scoped Control key** in Console, then replay the whole Console setup from a
-script. Control keys are minted only through the interactive Console (`Control` menu →
-`key create`): pick the scopes, TTL, and expiry, and Console reveals the `client_id` and
-one-time `client_secret`. Save them into `.env.provision`:
+Create a **scoped Control key** in the Caracal web console, then replay the whole zone
+setup from a script. Open the web console at `http://localhost:3001` (started by
+`caracal up`) and go to **Control → New control key**: pick the scopes, max token TTL,
+and expiry, and the console reveals the `client_id` and one-time `client_secret`. Save
+them into `.env.provision`:
 
 ```bash
 cp -n .env.provision.example .env.provision   # fill in CONTROL_CLIENT_ID / _SECRET

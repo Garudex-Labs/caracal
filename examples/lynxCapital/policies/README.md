@@ -2,7 +2,7 @@
 
 Caracal authorization data for the Lynx Capital finance-ops swarm. Every file is a Rego
 data document in the `caracal.authz` package using the `2026-05-20` policy input contract,
-so each one imports cleanly into the Caracal Console or activates through the Control API as
+so each one imports cleanly into the Caracal web console or activates through the Control API as
 part of the `lynx-finance-ops` policy set.
 
 ## Decision model

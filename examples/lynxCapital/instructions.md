@@ -26,7 +26,7 @@
 - Must not hard-code company copy, product labels, providers, regions, scenarios, or theme values outside `config/company.yaml`.
 - Must not put mock-shaped code under `app/`.
 - Must not use Node, npm, Vite, React, or bundled frontend assets.
-- Must not leave spawned agents without a matching Console lifecycle event.
+- Must not leave spawned agents without a matching session lifecycle event.
 - Must not reintroduce a single shared allow-all baseline policy, a single application for the whole swarm, or direct provider access outside `_mock/` and explicit simulation mode.
 - Must not hard-code role names, resource scopes, view identifiers, or grants outside `config/tenancy.yaml` and `policies/`.
 - Must not introduce environment variables that are not real Caracal workload variables; provisioning credentials stay in the separate operator file.
