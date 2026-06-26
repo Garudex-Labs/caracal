@@ -13,9 +13,7 @@ import type { Actor } from './auth.js'
 // Field names whose presence is recorded but whose values are never persisted to
 // the admin audit log, so a secret rotation is distinguishable from a rename
 // without the secret ever entering the audit record.
-const SECRET_FIELD_NAMES = new Set([
-  'client_secret', 'secret', 'password', 'token', 'private_key', 'api_key', 'assertion',
-])
+const SECRET_FIELD_NAMES = new Set(['client_secret', 'secret', 'password', 'token', 'private_key', 'api_key', 'assertion'])
 
 // changeSummary captures which top-level fields a mutation touched, never their
 // values, so a rename, a trait change, and a secret rotation are distinguishable
@@ -48,7 +46,7 @@ function entityFromUrl(url: string): { type: string | null; id: string | null } 
     if (
       candidate &&
       next &&
-      /^(zones|applications|resources|providers|provider-grants|policies|policy-sets|policy-templates|grants|step-up-challenges|admin-tokens)$/.test(
+      /^(zones|applications|resources|providers|provider-grants|policies|policy-sets|policy-templates|grants|step-up-challenges|admin-tokens|operator-conversations)$/.test(
         candidate,
       )
     ) {

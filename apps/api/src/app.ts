@@ -41,6 +41,7 @@ import { stepUpChallengesRoutes } from './routes/step-up-challenges.js'
 import { policyTemplatesRoutes } from './routes/policy-templates.js'
 import { zoneEventsRoutes } from './routes/zone-events.js'
 import { adminTokensRoutes } from './routes/admin-tokens.js'
+import { operatorRoutes } from './routes/operator.js'
 
 import './fastify-augmentation.js'
 
@@ -271,6 +272,13 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
   await app.register(policyTemplatesRoutes, { prefix: '/v1' })
   await app.register(zoneEventsRoutes, { prefix: '/v1' })
   await app.register(adminTokensRoutes, { prefix: '/v1' })
+  await app.register(operatorRoutes, {
+    prefix: '/v1',
+    enabled: cfg.operatorEnabled,
+    allowedCapabilities: cfg.operatorAllowedCapabilities,
+    systemZones: cfg.operatorSystemZones,
+    aiProviders: cfg.operatorAiProviders,
+  })
 
   if (cfg.control) {
     await app.register(controlPlugin, {
