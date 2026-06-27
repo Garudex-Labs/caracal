@@ -392,6 +392,12 @@ services:
       API_OPERATOR_AI_LOCAL_MODEL: ${API_OPERATOR_AI_LOCAL_MODEL:-}
       API_OPERATOR_AI_LOCAL_API_KEY: ${API_OPERATOR_AI_LOCAL_API_KEY:-}
       API_OPERATOR_AI_LOCAL_CONTEXT_WINDOW: ${API_OPERATOR_AI_LOCAL_CONTEXT_WINDOW:-}
+      # Operator governed-execution control identity (reserved caracal.sys control key).
+      # Internal-only: supplied by sealed platform config so the Operator self-governs its
+      # zone through the control plane. Absent leaves governed execution unconfigured.
+      API_OPERATOR_CONTROL_CLIENT_ID: ${API_OPERATOR_CONTROL_CLIENT_ID:-}
+      API_OPERATOR_CONTROL_CLIENT_SECRET: ${API_OPERATOR_CONTROL_CLIENT_SECRET:-}
+      API_OPERATOR_CONTROL_ZONE_ID: ${API_OPERATOR_CONTROL_ZONE_ID:-}
       PORT: 3000
       HOST: 0.0.0.0
     ports:
