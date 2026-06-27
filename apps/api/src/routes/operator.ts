@@ -17,6 +17,7 @@ import { applyPlanSteps, unsupportedSteps, StepExecutionError } from '../operato
 import { buildOperatorAuthority, isZoneIsolated, authorizePlanSteps, type OperatorAuthority } from '../operator-authority.js'
 import { insertAdminAuditRecord } from '@caracalai/admin-audit'
 import { pathOnly } from '@caracalai/core'
+import type { OperatorControlIdentity } from '../config.js'
 import {
   createGateway,
   withUsage,
@@ -288,6 +289,10 @@ export interface OperatorRoutesOptions {
   // every other control-plane change. Null leaves the chain hash-linked but unsigned,
   // matching the rest of the audit log when no key is configured.
   auditHmacKey?: Buffer | null
+  // Internal-only: the Operator's reserved caracal.sys control identity used to execute
+  // through the governed control plane. Null leaves governed execution unconfigured. Never
+  // an end-user surface; supplied by sealed platform config.
+  controlIdentity?: OperatorControlIdentity | null
   // Injectable transport so the gateway path can be exercised in tests without a
   // live AI backend; defaults to the platform fetch in production.
   fetchImpl?: typeof fetch
@@ -316,6 +321,10 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
       enabled: true,
       principal: authority.principal,
       allowed_capabilities: [...authority.allowedCapabilities].sort(),
+      // Whether the Operator's governed-execution identity is provisioned, and the single
+      // zone it governs. Surfaced so an operator can confirm the dogfooding identity is
+      // configured without inspecting secrets; the credential itself is never exposed.
+      governed_execution: opts.controlIdentity ? { configured: true, zone_id: opts.controlIdentity.zoneId } : { configured: false },
     }
   })
 

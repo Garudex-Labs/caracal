@@ -32,6 +32,9 @@ const SAVED_KEYS = [
   'API_OPERATOR_AI_OPENAI_API_KEY',
   'API_OPERATOR_AI_LOCAL_BASE_URL',
   'API_OPERATOR_AI_LOCAL_MODEL',
+  'API_OPERATOR_CONTROL_CLIENT_ID',
+  'API_OPERATOR_CONTROL_CLIENT_SECRET',
+  'API_OPERATOR_CONTROL_ZONE_ID',
   'API_MAX_RESOURCES_PER_ZONE',
   'API_READY_OUTBOX_DEAD_MAX',
   'CARACAL_MODE',
@@ -154,6 +157,42 @@ describe('api config trustProxy', () => {
     expect(loadConfig().trustProxy).toBe(true)
   })
 
+  test('leaves operatorControl null when its config is absent', async () => {
+    const { loadConfig } = (await import(CONFIG_PATH)) as typeof import('../../../../apps/api/src/config')
+    expect(loadConfig().operatorControl).toBeNull()
+  })
+
+  test('leaves operatorControl null when the identity is only partially configured', async () => {
+    process.env.API_OPERATOR_CONTROL_CLIENT_ID = 'app-operator'
+    process.env.API_OPERATOR_CONTROL_ZONE_ID = 'zone-sys'
+    // Missing the secret: a partial identity must not load.
+    const { loadConfig } = (await import(CONFIG_PATH)) as typeof import('../../../../apps/api/src/config')
+    expect(loadConfig().operatorControl).toBeNull()
+  })
+
+  test('loads the operatorControl identity when all three values are present', async () => {
+    process.env.API_OPERATOR_CONTROL_CLIENT_ID = 'app-operator'
+    process.env.API_OPERATOR_CONTROL_CLIENT_SECRET = 'cs_operator_secret'
+    process.env.API_OPERATOR_CONTROL_ZONE_ID = 'zone-sys'
+    const { loadConfig } = (await import(CONFIG_PATH)) as typeof import('../../../../apps/api/src/config')
+    expect(loadConfig().operatorControl).toEqual({
+      applicationId: 'app-operator',
+      clientSecret: 'cs_operator_secret',
+      zoneId: 'zone-sys',
+    })
+  })
+
+  test('resolves the operator control secret from a secret file', async () => {
+    const secretFile = join(dir, 'operatorControlSecret')
+    writeFileSync(secretFile, 'cs_from_file\n')
+    process.env.API_OPERATOR_CONTROL_CLIENT_ID = 'app-operator'
+    process.env.API_OPERATOR_CONTROL_CLIENT_SECRET_FILE = secretFile
+    process.env.API_OPERATOR_CONTROL_ZONE_ID = 'zone-sys'
+    const { loadConfig } = (await import(CONFIG_PATH)) as typeof import('../../../../apps/api/src/config')
+    expect(loadConfig().operatorControl?.clientSecret).toBe('cs_from_file')
+    delete process.env.API_OPERATOR_CONTROL_CLIENT_SECRET_FILE
+  })
+
   test('resolves required database and redis URLs from secret files', async () => {
     const databaseFile = join(dir, 'databaseUrl')
     const redisFile = join(dir, 'redisUrl')
@@ -229,7 +268,14 @@ describe('api config trustProxy', () => {
     process.env.API_OPERATOR_AI_OPENAI_CONTEXT_WINDOW = '128000'
     const providers = loadConfig().operatorAiProviders
     expect(providers).toEqual([
-      { id: 'openai', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini', apiKey: 'sk-test', timeoutMs: 30000, contextWindow: 128000 },
+      {
+        id: 'openai',
+        baseUrl: 'https://api.openai.com/v1',
+        model: 'gpt-4o-mini',
+        apiKey: 'sk-test',
+        timeoutMs: 30000,
+        contextWindow: 128000,
+      },
       { id: 'local', baseUrl: 'http://localhost:11434/v1', model: 'llama3', apiKey: undefined, timeoutMs: 30000, contextWindow: 0 },
     ])
     delete process.env.API_OPERATOR_AI_PROVIDERS

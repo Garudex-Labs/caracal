@@ -42,6 +42,7 @@ resolveFileSecrets([
   'GATEWAY_STS_HMAC_KEY',
   'METRICS_BEARER',
   'CONTROL_API_TOKEN',
+  'API_OPERATOR_CONTROL_CLIENT_SECRET',
 ])
 
 export interface Config {
@@ -85,8 +86,24 @@ export interface Config {
   operatorAllowedCapabilities: string[] | null
   operatorSystemZones: string[]
   operatorAiProviders: ProviderConfig[]
+  // Internal-only: the Operator's reserved caracal.sys control identity. The Operator
+  // dogfoods Caracal by executing through the governed control plane as this real
+  // least-privilege application — exactly as a customer's control key does — rather than
+  // borrowing the admin token. It is provisioned from sealed platform config because the
+  // Operator is a Caracal-internal system, not authored by an end user. Null disables
+  // governed execution. Control tokens are zone-bound, so this identity governs the one
+  // zone it belongs to (the caracal.sys system zone the Operator self-manages).
+  operatorControl: OperatorControlIdentity | null
   metricsBearer: string | null
   control: ControlConfig | null
+}
+
+// Internal-only: credentials and zone binding for the Operator's caracal.sys control
+// identity. Strictly a platform-internal adapter; never exposed to or set by end users.
+export interface OperatorControlIdentity {
+  applicationId: string
+  clientSecret: string
+  zoneId: string
 }
 
 export interface ControlConfig {
@@ -167,6 +184,18 @@ function loadOperatorAiProviders(): ProviderConfig[] {
   return providers
 }
 
+// Internal-only: resolves the Operator's caracal.sys control identity from sealed platform
+// config. All three values are required together; any missing one disables governed
+// execution rather than running with a partial identity. The secret is _FILE-resolvable
+// like every other platform secret and never leaves config.
+function loadOperatorControlIdentity(): OperatorControlIdentity | null {
+  const applicationId = process.env.API_OPERATOR_CONTROL_CLIENT_ID?.trim()
+  const clientSecret = process.env.API_OPERATOR_CONTROL_CLIENT_SECRET
+  const zoneId = process.env.API_OPERATOR_CONTROL_ZONE_ID?.trim()
+  if (!applicationId || !clientSecret || !zoneId) return null
+  return { applicationId, clientSecret, zoneId }
+}
+
 export function loadConfig(): Config {
   const gatewayStsHmacKey = process.env.GATEWAY_STS_HMAC_KEY ? Buffer.from(process.env.GATEWAY_STS_HMAC_KEY, 'hex') : null
   if (gatewayStsHmacKey && gatewayStsHmacKey.length < 32) {
@@ -225,6 +254,7 @@ export function loadConfig(): Config {
     operatorAllowedCapabilities: csvEnv('API_OPERATOR_ALLOWED_CAPABILITIES'),
     operatorSystemZones: csvEnv('API_OPERATOR_SYSTEM_ZONES') ?? [],
     operatorAiProviders: loadOperatorAiProviders(),
+    operatorControl: loadOperatorControlIdentity(),
     metricsBearer: process.env.METRICS_BEARER ?? null,
     control,
   }

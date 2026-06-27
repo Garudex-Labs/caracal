@@ -16,6 +16,7 @@ function buildApp(
     allowedCapabilities?: string[]
     systemZones?: string[]
     aiProviders?: { id: string; baseUrl: string; model: string; apiKey?: string; timeoutMs: number; contextWindow: number }[]
+    controlIdentity?: { applicationId: string; clientSecret: string; zoneId: string }
     fetchImpl?: typeof fetch
   } = {},
 ) {
@@ -43,6 +44,7 @@ function buildApp(
     allowedCapabilities: authorityOpts.allowedCapabilities ?? null,
     systemZones: authorityOpts.systemZones ?? null,
     aiProviders: authorityOpts.aiProviders,
+    controlIdentity: authorityOpts.controlIdentity ?? null,
     fetchImpl: authorityOpts.fetchImpl,
   })
   return { app, db, clientQuery }
@@ -72,6 +74,24 @@ describe('operator enablement gating', () => {
     expect(body.allowed_capabilities).toEqual(['createZone', 'grantAccess', 'registerApplication', 'rotateApplicationSecret'])
     const caps = await app.inject({ method: 'GET', url: '/v1/operator/capabilities' })
     expect(caps.statusCode).toBe(200)
+  })
+
+  it('reports governed execution as unconfigured when no control identity is supplied', async () => {
+    const { app } = buildApp(true)
+    await app.ready()
+    const status = await app.inject({ method: 'GET', url: '/v1/operator/status' })
+    expect(JSON.parse(status.body).governed_execution).toEqual({ configured: false })
+  })
+
+  it('reports governed execution configured with its zone, never the secret, when a control identity is supplied', async () => {
+    const { app } = buildApp(true, {
+      controlIdentity: { applicationId: 'caracal-sys-operator', clientSecret: 'cs_sealed', zoneId: 'zone-sys' },
+    })
+    await app.ready()
+    const status = await app.inject({ method: 'GET', url: '/v1/operator/status' })
+    expect(JSON.parse(status.body).governed_execution).toEqual({ configured: true, zone_id: 'zone-sys' })
+    // The credential must never reach the status surface.
+    expect(status.body).not.toContain('cs_sealed')
   })
 
   it('always serves a disabled status but registers no functional routes when disabled', async () => {
