@@ -30,6 +30,7 @@ import {
 } from '../operator-gateway.js'
 import { type AgentContext } from '../operator-agents.js'
 import { createOrchestrator } from '../operator-orchestrator.js'
+import { createStateResearcher } from '../operator-research.js'
 import { summarizeHistory, type ConversationFacts } from '../operator-memory.js'
 
 const TITLE_MAX_LENGTH = 200
@@ -1000,10 +1001,19 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
     }
 
     try {
+      // For a read tier the orchestrator first gathers live state through governed reads, so
+      // the answer is grounded in current state rather than the model's guess. The researcher is
+      // the Operator's own scoped, read-only control identity — the same dogfooded path a change
+      // executes through. The identity is zone-bound, so it is used only when it is bound to this
+      // conversation's zone; otherwise it would read another zone's state, so no researcher is
+      // built and the answer falls back to conversation context alone.
+      const governed = resolveControlClient()
+      const researcher = governed && governed.identity.zoneId === params.zoneId ? createStateResearcher(governed.client) : null
+
       // The orchestrator triages the request to its tier and runs the one skill that handles
       // it. A plan outcome flows through validate → preview → store-for-approval; an answer
       // outcome is recorded as a note. The model only proposes — every plan is governed below.
-      const { tier, outcome } = await orchestrator.handle(tracked.gateway, parsed.data.message, context)
+      const { tier, outcome } = await orchestrator.handle(tracked.gateway, parsed.data.message, context, { researcher })
 
       if (outcome.kind === 'plan') {
         const planned = outcome.result

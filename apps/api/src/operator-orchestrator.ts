@@ -6,6 +6,7 @@
 import {
   runTriage,
   tierPlans,
+  tierReadsState,
   runPlanner,
   runExplainer,
   type AgentContext,
@@ -13,6 +14,7 @@ import {
   type OperatorTier,
 } from './operator-agents.js'
 import type { ProposedPlanInput } from './operator-capabilities.js'
+import type { Researcher } from './operator-research.js'
 import type { Gateway } from './operator-gateway.js'
 
 // A skill is a capability the orchestrator can invoke, not a pipeline stage. answer skills
@@ -82,24 +84,51 @@ export function createSkillRegistry(): SkillRegistry {
 }
 
 export interface Orchestrator {
-  handle(gateway: Gateway, message: string, context: AgentContext): Promise<OrchestrationResult>
+  handle(gateway: Gateway, message: string, context: AgentContext, options?: HandleOptions): Promise<OrchestrationResult>
+}
+
+// Per-turn collaborators the orchestrator may invoke. researcher is an ephemeral, read-only
+// worker bound to the Operator's scoped identity; when present and the tier inspects state, the
+// orchestrator gathers live evidence before answering. It is null when governed reads are not
+// configured, in which case the answer falls back to conversation context alone.
+export interface HandleOptions {
+  researcher?: Researcher | null
+}
+
+// Gathers live state evidence without ever failing the turn. The researcher already isolates a
+// single read's failure into a typed evidence entry; this also guards against an unexpected
+// throw, degrading to no evidence so an answer is still produced.
+async function gatherEvidence(researcher: Researcher): Promise<AgentContext['evidence']> {
+  try {
+    const blackboard = await researcher.gather()
+    return blackboard.evidence
+  } catch {
+    return undefined
+  }
 }
 
 // Builds the orchestrator over a skill registry. Per turn it triages the request to its tier
 // then runs the one skill the registry maps that tier to. A triage that fails the schema
 // defaults to the read tier, which answers as text and never acts — the safe direction on
-// ambiguity. The orchestrator selects and runs a skill; it never validates, previews, persists,
-// or applies — those stay in the deterministic spine the route owns.
+// ambiguity. For a read tier with a researcher, the orchestrator first gathers live state
+// evidence through governed reads and grounds the answer in it. The orchestrator selects and
+// runs skills and may gather read-only evidence; it never validates, previews, persists, or
+// applies — those stay in the deterministic spine the route owns.
 export function createOrchestrator(registry: SkillRegistry = createSkillRegistry()): Orchestrator {
   return {
-    async handle(gateway, message, context): Promise<OrchestrationResult> {
+    async handle(gateway, message, context, options = {}): Promise<OrchestrationResult> {
       const triage = await runTriage(gateway, message)
       const tier: OperatorTier = triage.ok ? triage.value : 'read'
       const skill = registry.forTier(tier)
       if (skill.kind === 'plan') {
         return { tier, outcome: { kind: 'plan', result: await skill.run(gateway, message, context) } }
       }
-      return { tier, outcome: { kind: 'answer', result: await skill.run(gateway, message, context) } }
+      let answerContext = context
+      if (options.researcher && tierReadsState(tier)) {
+        const evidence = await gatherEvidence(options.researcher)
+        if (evidence) answerContext = { ...context, evidence }
+      }
+      return { tier, outcome: { kind: 'answer', result: await skill.run(gateway, message, answerContext) } }
     },
   }
 }

@@ -1514,6 +1514,143 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
     expect((fetchImpl as unknown as { mock: { calls: unknown[] } }).mock.calls).toHaveLength(2)
   })
 
+  it('grounds a read answer in evidence gathered through governed reads', async () => {
+    // A read tier inspects state, so the orchestrator gathers live evidence through the
+    // Operator's own scoped control identity before the explainer answers — the same dogfooded
+    // path a change executes through. The combined fetch answers the AI chat completions, the STS
+    // token mint, and each governed list invoke by URL.
+    let aiCall = 0
+    const aiContents = ['{"tier":"read"}', 'You have one provider connected: GitHub.']
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.endsWith('/chat/completions')) {
+        return new Response(JSON.stringify({ choices: [{ message: { content: aiContents[aiCall++] } }] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      }
+      if (url.endsWith('/oauth/2/token')) return jsonResponse({ access_token: 'control-token' })
+      if (url.endsWith('/v1/control/invoke')) {
+        const body = JSON.parse(String(init?.body))
+        const rows = body.command === 'identity-provider' ? [{ id: 'p1', name: 'GitHub' }] : []
+        return jsonResponse({ result: rows })
+      }
+      throw new Error(`unexpected fetch ${url}`)
+    })
+    const { app, clientQuery, db } = buildApp(true, {
+      aiProviders: [provider],
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      ...governedControl,
+    })
+    clientQuery
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ rows: [{ status: 'active', next_seq: 1 }] })
+      .mockResolvedValueOnce({ rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: 'turn-1', seq: 1 }] })
+      .mockResolvedValueOnce(undefined)
+    db.query
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+    clientQuery
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ rows: [{ status: 'active', next_seq: 2 }] })
+      .mockResolvedValueOnce({ rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: 'turn-2', seq: 2, kind: 'note' }] })
+      .mockResolvedValueOnce(undefined)
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/operator-conversations/conv-1/message',
+      payload: { message: 'what providers do i have' },
+    })
+    expect(res.statusCode).toBe(201)
+    const body = JSON.parse(res.body)
+    expect(body).toMatchObject({ intent: 'explain', tier: 'read', ok: true })
+    // The governed reads ran: one control invoke per governed read capability, each a list
+    // subcommand, so a read answer is grounded in live state and never reaches a mutating command.
+    const invokeCalls = fetchImpl.mock.calls.filter((c) => String(c[0]).endsWith('/v1/control/invoke'))
+    expect(invokeCalls).toHaveLength(4)
+    for (const call of invokeCalls) {
+      expect(JSON.parse(String((call[1] as RequestInit).body)).subcommand).toBe('list')
+    }
+  })
+
+  it('answers a read tier without governed reads when no control identity is configured', async () => {
+    // With no control identity the researcher is absent, so the read answer falls back to
+    // conversation context alone — exactly the behavior before evidence-gathering existed.
+    const fetchImpl = fetchReturning('{"tier":"read"}', 'I cannot read your live state right now.')
+    const { app, clientQuery, db } = buildApp(true, { aiProviders: [provider], fetchImpl })
+    clientQuery
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ rows: [{ status: 'active', next_seq: 1 }] })
+      .mockResolvedValueOnce({ rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: 'turn-1', seq: 1 }] })
+      .mockResolvedValueOnce(undefined)
+    db.query
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+    clientQuery
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ rows: [{ status: 'active', next_seq: 2 }] })
+      .mockResolvedValueOnce({ rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: 'turn-2', seq: 2, kind: 'note' }] })
+      .mockResolvedValueOnce(undefined)
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/operator-conversations/conv-1/message',
+      payload: { message: 'what providers do i have' },
+    })
+    expect(res.statusCode).toBe(201)
+    expect(JSON.parse(res.body)).toMatchObject({ intent: 'explain', tier: 'read', ok: true })
+    // Exactly two model calls and no control traffic: triage + the text answer.
+    expect((fetchImpl as unknown as { mock: { calls: unknown[] } }).mock.calls).toHaveLength(2)
+  })
+
+  it('does not gather evidence when the control identity is bound to another zone', async () => {
+    // The Operator's control identity is zone-bound. A conversation in a zone the identity is
+    // not bound to has no in-zone read authority, so the researcher is not built and the answer
+    // never reads — it can never surface another zone's state.
+    const fetchImpl = fetchReturning('{"tier":"read"}', 'I cannot read this zone right now.')
+    const { app, clientQuery, db } = buildApp(true, {
+      aiProviders: [provider],
+      fetchImpl,
+      controlIdentity: { applicationId: 'caracal-sys-operator', clientSecret: 'cs_sealed', zoneId: 'other-zone' },
+      controlEndpoints: governedControl.controlEndpoints,
+    })
+    clientQuery
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ rows: [{ status: 'active', next_seq: 1 }] })
+      .mockResolvedValueOnce({ rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: 'turn-1', seq: 1 }] })
+      .mockResolvedValueOnce(undefined)
+    db.query
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+    clientQuery
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ rows: [{ status: 'active', next_seq: 2 }] })
+      .mockResolvedValueOnce({ rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: 'turn-2', seq: 2, kind: 'note' }] })
+      .mockResolvedValueOnce(undefined)
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/operator-conversations/conv-1/message',
+      payload: { message: 'what providers do i have' },
+    })
+    expect(res.statusCode).toBe(201)
+    expect(JSON.parse(res.body)).toMatchObject({ intent: 'explain', tier: 'read', ok: true })
+    // No control traffic at all: only the two model calls (triage + answer) were made.
+    expect((fetchImpl as unknown as { mock: { calls: unknown[] } }).mock.calls).toHaveLength(2)
+  })
+
   it('reports real token usage, model, and context window with the answer', async () => {
     const usageProvider = { ...provider, contextWindow: 128000 }
     function fetchWithUsage(...turns: { content: string; prompt: number; completion: number }[]) {

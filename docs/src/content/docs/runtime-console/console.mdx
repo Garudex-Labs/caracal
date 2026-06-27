@@ -130,7 +130,7 @@ When you send a message, the Operator first judges how much handling it needs an
 
 The result is that natural language only ever produces a draft that enters the same propose → preview → decide → apply lifecycle. The model accelerates describing what you want; every safety property — validation, least-privilege authority, approval, audit — is enforced by Caracal, not by the model.
 
-Explanations are read-only. The assistant answers from the current conversation and state, never makes a change, and will tell you to ask for a change so it can be planned and approved.
+Explanations are read-only. When you ask about your current state, the Operator first reads that state through the same governed control plane it would use to make a change — listing your applications, providers, resources, and policies under its own least-privilege, audited identity — and grounds its answer in what it just read rather than in a guess. Each read is governed independently, so a read it is not permitted simply narrows the evidence instead of failing the answer, and only the names and counts it found inform the response, never the underlying records. A question that needs no live state, such as what the Operator can do, is answered without any read. The Operator never makes a change while explaining, and will tell you to ask for a change so it can be planned and approved.
 
 ### Memory across a long session
 

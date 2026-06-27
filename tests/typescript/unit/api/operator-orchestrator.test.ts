@@ -101,4 +101,61 @@ describe('createOrchestrator', () => {
     expect(calls).toEqual(['probe'])
     expect(result.outcome.kind).toBe('answer')
   })
+
+  it('grounds a read tier in evidence gathered through the researcher', async () => {
+    const evidence = [{ capability: 'listProviders', domain: 'provider', ok: true, count: 1, names: ['GitHub'] }]
+    const researcher = { gather: vi.fn().mockResolvedValue({ evidence }) }
+    let seen: unknown
+    const registry: SkillRegistry = {
+      forTier: () => ({
+        id: 'probe',
+        kind: 'answer',
+        run: async (_g, _m, context) => {
+          seen = context.evidence
+          return { ok: true, value: { text: 'grounded' } }
+        },
+      }),
+    }
+    await createOrchestrator(registry).handle(gatewayFor('read'), 'what providers do i have', emptyContext, { researcher })
+    // A read tier inspects state, so the researcher is invoked and its evidence reaches the
+    // answering skill's context.
+    expect(researcher.gather).toHaveBeenCalledTimes(1)
+    expect(seen).toEqual(evidence)
+  })
+
+  it('does not gather evidence for a conversational tier', async () => {
+    const researcher = { gather: vi.fn().mockResolvedValue({ evidence: [] }) }
+    await createOrchestrator().handle(gatewayFor('conversational'), 'hi', emptyContext, { researcher })
+    // Greetings and capability questions need no state read, so the governed reads never run.
+    expect(researcher.gather).not.toHaveBeenCalled()
+  })
+
+  it('does not gather evidence for a planning tier', async () => {
+    const plan = {
+      summary: 'Connect GitHub',
+      steps: [{ id: 's1', capability: 'connectProvider', args: { name: 'GitHub', kind: 'api_key' } }],
+    }
+    const researcher = { gather: vi.fn().mockResolvedValue({ evidence: [] }) }
+    await createOrchestrator().handle(planningGateway('change', plan), 'connect github', emptyContext, { researcher })
+    expect(researcher.gather).not.toHaveBeenCalled()
+  })
+
+  it('answers without evidence when the researcher throws', async () => {
+    const researcher = { gather: vi.fn().mockRejectedValue(new Error('control unreachable')) }
+    let seen: unknown = 'unset'
+    const registry: SkillRegistry = {
+      forTier: () => ({
+        id: 'probe',
+        kind: 'answer',
+        run: async (_g, _m, context) => {
+          seen = context.evidence
+          return { ok: true, value: { text: 'degraded' } }
+        },
+      }),
+    }
+    const result = await createOrchestrator(registry).handle(gatewayFor('read'), 'state', emptyContext, { researcher })
+    // A researcher failure degrades to no evidence; the turn still answers rather than erroring.
+    expect(result.outcome.kind).toBe('answer')
+    expect(seen).toBeUndefined()
+  })
 })

@@ -6,9 +6,11 @@
 import { describe, it, expect, vi } from 'vitest'
 import {
   buildPlannerMessages,
+  buildExplainerMessages,
   buildTriageMessages,
   runTriage,
   tierPlans,
+  tierReadsState,
   runPlanner,
   runExplainer,
 } from '../../../../apps/api/src/operator-agents.js'
@@ -120,6 +122,57 @@ describe('buildPlannerMessages', () => {
     expect(content).toContain('Previously rejected operations')
     expect(content).toContain('grantAccess')
     expect(content).toContain('3 change(s) already applied')
+  })
+})
+
+describe('buildExplainerMessages', () => {
+  it('grounds the answer in live state evidence with names and counts', () => {
+    const messages = buildExplainerMessages('what providers do i have', {
+      facts: null,
+      state: null,
+      evidence: [
+        { capability: 'listProviders', domain: 'provider', ok: true, count: 2, names: ['GitHub', 'Stripe'] },
+        { capability: 'listResources', domain: 'resource', ok: true, count: 0, names: [] },
+      ],
+    })
+    const content = messages[1].content
+    expect(content).toContain('Live state (read just now)')
+    expect(content).toContain('provider (2): GitHub, Stripe')
+    expect(content).toContain('resource: none')
+    // The system prompt instructs the model to ground in the live state and not invent entities.
+    expect(messages[0].content).toContain('do not invent')
+  })
+
+  it('truncates the names list while keeping the live count', () => {
+    const messages = buildExplainerMessages('list apps', {
+      facts: null,
+      state: null,
+      evidence: [{ capability: 'listApplications', domain: 'application', ok: true, count: 9, names: ['a', 'b', 'c'] }],
+    })
+    expect(messages[1].content).toContain('application (9): a, b, c, …')
+  })
+
+  it('reports a read that could not be gathered without failing the answer', () => {
+    const messages = buildExplainerMessages('what policies', {
+      facts: null,
+      state: null,
+      evidence: [{ capability: 'listPolicies', domain: 'policy', ok: false, error: 'missing scope control:policy:read' }],
+    })
+    expect(messages[1].content).toContain('policy: could not read (missing scope control:policy:read)')
+  })
+
+  it('omits the live state block when no evidence was gathered', () => {
+    const messages = buildExplainerMessages('what is a zone', { facts: null, state: null })
+    expect(messages[1].content).not.toContain('Live state')
+  })
+})
+
+describe('tierReadsState', () => {
+  it('reads state only for the read tier', () => {
+    expect(tierReadsState('read')).toBe(true)
+    expect(tierReadsState('conversational')).toBe(false)
+    expect(tierReadsState('change')).toBe(false)
+    expect(tierReadsState('compound')).toBe(false)
   })
 })
 

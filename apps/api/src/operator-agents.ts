@@ -7,6 +7,7 @@ import { z } from 'zod'
 import { describeCapabilitiesForPrompt, ProposedPlan, type ProposedPlanInput } from './operator-capabilities.js'
 import type { ConversationState } from './operator-state.js'
 import { describeFacts, type ConversationFacts } from './operator-memory.js'
+import type { Evidence } from './operator-research.js'
 import type { Gateway, GatewayMessage } from './operator-gateway.js'
 
 // The agents never hold authority. Each one produces a typed artifact — an intent,
@@ -31,6 +32,13 @@ export type AgentResult<T> = { ok: true; value: T } | { ok: false; error: string
 // is the single deterministic branch the orchestrator takes on a triaged tier.
 export function tierPlans(tier: OperatorTier): boolean {
   return tier === 'change' || tier === 'compound'
+}
+
+// Whether a tier should be grounded in freshly read live state. read inspects current state, so
+// it is gathered through governed reads before answering; conversational is greetings, concepts,
+// and capability questions that need no state read, so it pays nothing.
+export function tierReadsState(tier: OperatorTier): boolean {
+  return tier === 'read'
 }
 
 const TriageOutput = z.object({ tier: z.enum(['conversational', 'read', 'change', 'compound']) }).strict()
@@ -69,20 +77,41 @@ export async function runTriage(gateway: Gateway, message: string): Promise<Agen
 }
 
 // The context an agent reasons over: the compressed facts of the older history plus
-// the live working-memory snapshot of the recent window. Together they give an agent
-// continuity across a long conversation at a bounded token cost.
+// the live working-memory snapshot of the recent window, and the live state evidence a
+// researcher gathered for this turn. Together they give an agent continuity across a long
+// conversation and grounding in current state, both at a bounded token cost.
 export interface AgentContext {
   facts: ConversationFacts | null
   state: ConversationState | null
+  evidence?: Evidence[]
+}
+
+// Renders the live state evidence into a compact block: one line per governed read, with the
+// live count and a bounded list of names, or the typed reason a read could not be gathered. Only
+// names reach the prompt, never whole rows, so a read never leaks an arbitrary field.
+function describeEvidence(evidence: Evidence[] | undefined): string | null {
+  if (!evidence || evidence.length === 0) return null
+  const lines = evidence.map((item) => {
+    if (!item.ok) return `- ${item.domain}: could not read (${item.error ?? 'read failed'})`
+    const count = item.count ?? 0
+    const names = item.names ?? []
+    if (count === 0) return `- ${item.domain}: none`
+    const listed = names.length > 0 ? `: ${names.join(', ')}${count > names.length ? ', …' : ''}` : ''
+    return `- ${item.domain} (${count})${listed}`
+  })
+  return `Live state (read just now):\n${lines.join('\n')}`
 }
 
 // Renders the agent context into a compact block: the compressed session facts first,
-// then the recent working memory. Older history is summarized rather than replayed,
-// so the prompt stays small no matter how long the conversation is.
+// then the live state evidence, then the recent working memory. Older history is summarized
+// rather than replayed, so the prompt stays small no matter how long the conversation is.
 function describeContext(context: AgentContext): string {
   const sections: string[] = []
   const facts = describeFacts(context.facts)
   if (facts) sections.push(`Session facts:\n${facts}`)
+
+  const evidence = describeEvidence(context.evidence)
+  if (evidence) sections.push(evidence)
 
   const recent: string[] = []
   if (context.state?.latest_plan) {
@@ -148,9 +177,11 @@ export function buildExplainerMessages(message: string, context: AgentContext): 
       role: 'system',
       content:
         'You are a read-only Caracal operator assistant. Explain clearly and concisely in plain ' +
-        'language for an operator who should not need to know Caracal internals. You never make ' +
-        'changes and must not claim to; if the operator wants to change something, tell them to ask ' +
-        'for that change so it can be planned and approved.',
+        'language for an operator who should not need to know Caracal internals. When the context ' +
+        'includes live state read just now, ground your answer in it and do not invent applications, ' +
+        'providers, resources, or policies it does not list. You never make changes and must not ' +
+        'claim to; if the operator wants to change something, tell them to ask for that change so it ' +
+        'can be planned and approved.',
     },
     { role: 'user', content: `Context:\n${describeContext(context)}\n\nQuestion: ${message}` },
   ]
