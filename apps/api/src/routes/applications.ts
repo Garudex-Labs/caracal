@@ -14,6 +14,7 @@ import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
 import { zoneExists } from '../zone-guard.js'
 import { appendKeysetCondition, parseListPagination, setNextLink } from './list-pagination.js'
 import { validateTraits } from '../traits.js'
+import { assertReservedNamespace } from '../reserved-namespace.js'
 
 const DCR_DEFAULT_LIFETIME_SECONDS = 3600
 const DCR_MAX_LIFETIME_SECONDS = 3600
@@ -133,6 +134,8 @@ export const applicationsRoutes: FastifyPluginAsync = async (fastify) => {
     const parsed = AppBody.safeParse(req.body)
     if (!parsed.success) return reply.code(400).send({ error: 'invalid_application' })
     const body = parsed.data
+    const reservedErr = assertReservedNamespace('applicationName', body.name, req.actor)
+    if (reservedErr) return reply.code(409).send(reservedErr)
     const traitErr = validateTraits(body.traits, req.actor)
     if (traitErr) return reply.code(403).send(traitErr)
     const { row, clientSecret } = await createManagedApplication(fastify.db, params.zoneId, {
@@ -148,6 +151,8 @@ export const applicationsRoutes: FastifyPluginAsync = async (fastify) => {
     const parsed = PatchBody.safeParse(req.body)
     if (!parsed.success) return reply.code(400).send({ error: 'invalid_application' })
     const body = parsed.data
+    const reservedErr = assertReservedNamespace('applicationName', body.name, req.actor)
+    if (reservedErr) return reply.code(409).send(reservedErr)
     const traitErr = validateTraits(body.traits, req.actor)
     if (traitErr) return reply.code(403).send(traitErr)
     if (body.client_secret !== undefined) {
@@ -205,6 +210,8 @@ export const applicationsRoutes: FastifyPluginAsync = async (fastify) => {
     const parsed = DCRBody.safeParse(req.body)
     if (!parsed.success) return reply.code(400).send({ error: 'invalid_application' })
     const body = parsed.data
+    const reservedErr = assertReservedNamespace('applicationName', body.name, req.actor)
+    if (reservedErr) return reply.code(409).send(reservedErr)
 
     const rlKey = `rl:dcr:${params.zoneId}:${req.actor.id}`
     await fastify.redis.set(rlKey, 0, 'EX', 1, 'NX')

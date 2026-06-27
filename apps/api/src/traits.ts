@@ -8,7 +8,7 @@ import type { Actor } from './auth.js'
 const TRAIT_MAX_COUNT = 32
 const TRAIT_MAX_LENGTH = 128
 const TRAIT_PATTERN = /^[A-Za-z][A-Za-z0-9._:-]*$/
-const PRIVILEGED_NAMESPACES = ['control'] as const
+const PRIVILEGED_NAMESPACES = ['control', 'caracal.sys'] as const
 
 export interface TraitError {
   error: string
@@ -33,7 +33,7 @@ export function validateTraits(traits: readonly string[] | undefined, actor: Act
     }
     seen.add(trait)
     const namespace = trait.split(':', 1)[0]!
-    if (PRIVILEGED_NAMESPACES.includes(namespace as typeof PRIVILEGED_NAMESPACES[number]) && actor.scope !== 'global') {
+    if (PRIVILEGED_NAMESPACES.includes(namespace as (typeof PRIVILEGED_NAMESPACES)[number]) && actor.scope !== 'global') {
       return { error: 'trait_forbidden', detail: `trait namespace '${namespace}' requires global admin scope` }
     }
   }

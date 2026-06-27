@@ -12,6 +12,7 @@ import { zoneExists } from '../zone-guard.js'
 import { withTransaction, TxAbort } from '../db.js'
 import { OPA_INPUT_SCHEMA_VERSION, previewAuthzPolicy, validateAuthzPolicy, validatePolicySchemaVersion } from '../rego.js'
 import { appendKeysetCondition, parseListPagination, setNextLink } from './list-pagination.js'
+import { assertReservedNamespace } from '../reserved-namespace.js'
 
 const PolicyBody = z.object({
   name: z.string().min(1),
@@ -61,10 +62,7 @@ export const policiesRoutes: FastifyPluginAsync = async (fastify) => {
     if (!params) return
     const page = parseListPagination(req, reply)
     if (!page) return
-    const keyset = appendKeysetCondition(
-      { conds: ['zone_id = $1', 'archived_at IS NULL'], values: [params.zoneId] },
-      page,
-    )
+    const keyset = appendKeysetCondition({ conds: ['zone_id = $1', 'archived_at IS NULL'], values: [params.zoneId] }, page)
     const { rows } = await fastify.db.query(
       `SELECT id, zone_id, name, description, owner_type, created_by, created_at
        FROM policies WHERE ${keyset.conds.join(' AND ')}
@@ -98,6 +96,8 @@ export const policiesRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.code(404).send({ error: 'zone_not_found' })
     }
     const body = PolicyBody.parse(req.body)
+    const reservedErr = assertReservedNamespace('policyName', body.name, req.actor)
+    if (reservedErr) return reply.code(409).send(reservedErr)
     const schemaErr = validatePolicySchemaVersion(body.schema_version)
     if (schemaErr) return reply.code(422).send({ error: 'invalid_schema_version', detail: schemaErr })
     const regoErr = validateRego(body.content)
@@ -119,7 +119,14 @@ export const policiesRoutes: FastifyPluginAsync = async (fastify) => {
          RETURNING id, policy_id, version, content_sha256, schema_version, created_at`,
         [versionId, policyId, body.content, contentSHA, body.schema_version, createdBy],
       )
-      return reply.code(201).send({ id: policyId, version_id: rows[0].id, zone_id: params.zoneId, name: body.name, description: body.description ?? null, version: rows[0] })
+      return reply.code(201).send({
+        id: policyId,
+        version_id: rows[0].id,
+        zone_id: params.zoneId,
+        name: body.name,
+        description: body.description ?? null,
+        version: rows[0],
+      })
     })
   })
 
@@ -136,10 +143,10 @@ export const policiesRoutes: FastifyPluginAsync = async (fastify) => {
     const contentSHA = sha256Hex(body.content)
     return withTransaction(fastify.db, async (client) => {
       await client.query(`SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`, [params.id])
-      const { rows: policyRows } = await client.query(
-        `SELECT id FROM policies WHERE id = $1 AND zone_id = $2 AND archived_at IS NULL`,
-        [params.id, params.zoneId],
-      )
+      const { rows: policyRows } = await client.query(`SELECT id FROM policies WHERE id = $1 AND zone_id = $2 AND archived_at IS NULL`, [
+        params.id,
+        params.zoneId,
+      ])
       if (!policyRows[0]) throw new TxAbort(reply.code(404).send({ error: 'policy_not_found' }))
       const { rows } = await client.query(
         `WITH next AS (

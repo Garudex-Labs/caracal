@@ -105,6 +105,41 @@ describe('POST /v1/zones/:zoneId/applications', () => {
     expect(db.query).toHaveBeenCalledTimes(1)
   })
 
+  it('rejects a reserved caracal.sys application name from a zone-scoped tenant', async () => {
+    const { app, db } = buildApp('zone')
+    db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/applications',
+      payload: { name: 'caracal.sys/operator', registration_method: 'managed' },
+    })
+
+    expect(res.statusCode).toBe(409)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'reserved_namespace' })
+    // The tenant is refused before any application row is written.
+    expect(db.query).toHaveBeenCalledTimes(1)
+  })
+
+  it('allows a global platform actor to register a reserved caracal.sys application', async () => {
+    const { app, db } = buildApp('global')
+    db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
+    db.query.mockResolvedValueOnce({
+      rows: [{ id: 'app-sys', zone_id: 'z1', name: 'caracal.sys/operator', registration_method: 'managed' }],
+    })
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/applications',
+      payload: { name: 'caracal.sys/operator', registration_method: 'managed' },
+    })
+
+    expect(res.statusCode).toBe(201)
+    expect(JSON.parse(res.body)).toMatchObject({ id: 'app-sys' })
+  })
+
   it('rejects unsupported credential types', async () => {
     const { app, db } = buildApp()
     db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
@@ -167,10 +202,7 @@ describe('POST /v1/zones/:zoneId/applications/dcr', () => {
   it('returns 404 when DCR targets a missing zone', async () => {
     const { app, clientQuery, redis } = buildApp()
     redis.incr.mockResolvedValueOnce(1)
-    clientQuery
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [] })
+    clientQuery.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [] })
 
     await app.ready()
     const res = await app.inject({
@@ -220,7 +252,12 @@ describe('POST /v1/zones/:zoneId/applications/dcr', () => {
     })
 
     expect(res.statusCode).toBe(201)
-    expect(JSON.parse(res.body)).toMatchObject({ id: 'app-1', registration_method: 'dcr', expires_at: '2026-05-28T09:00:00.000Z', client_secret: expect.stringMatching(/^cs_[A-Za-z0-9_-]+$/) })
+    expect(JSON.parse(res.body)).toMatchObject({
+      id: 'app-1',
+      registration_method: 'dcr',
+      expires_at: '2026-05-28T09:00:00.000Z',
+      client_secret: expect.stringMatching(/^cs_[A-Za-z0-9_-]+$/),
+    })
     const insertCall = clientQuery.mock.calls.find((call) => String(call[0]).includes('INSERT INTO applications'))
     expect(insertCall?.[1]?.[6]).toBe(3600)
   })
@@ -296,7 +333,12 @@ describe('POST /v1/zones/:zoneId/applications/dcr', () => {
 describe('GET /v1/zones/:zoneId/applications', () => {
   it('lists applications for the zone', async () => {
     const { app, db } = buildApp()
-    db.query.mockResolvedValueOnce({ rows: [{ id: 'app-1', name: 'One' }, { id: 'app-2', name: 'Two' }] })
+    db.query.mockResolvedValueOnce({
+      rows: [
+        { id: 'app-1', name: 'One' },
+        { id: 'app-2', name: 'Two' },
+      ],
+    })
 
     await app.ready()
     const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/applications' })
@@ -460,13 +502,8 @@ describe('DELETE /v1/zones/:zoneId/applications/:id', () => {
     const res = await app.inject({ method: 'DELETE', url: '/v1/zones/z1/applications/app-1' })
 
     expect(res.statusCode).toBe(204)
-    expect(client.query).toHaveBeenCalledWith(
-      expect.stringContaining('DELETE FROM gateway_resource_bindings'),
-      ['z1', 'app-1'],
-    )
-    expect(client.query).toHaveBeenCalledWith(
-      expect.stringContaining('UPDATE gateway_binding_revision'),
-    )
+    expect(client.query).toHaveBeenCalledWith(expect.stringContaining('DELETE FROM gateway_resource_bindings'), ['z1', 'app-1'])
+    expect(client.query).toHaveBeenCalledWith(expect.stringContaining('UPDATE gateway_binding_revision'))
   })
 
   it('returns 404 when archiving a missing application', async () => {

@@ -15,10 +15,16 @@ describe('validateTraits', () => {
     expect(validateTraits(undefined, zoneActor)).toBeNull()
     expect(validateTraits(['team:engineering', 'piper.net', 'A-1'], zoneActor)).toBeNull()
     expect(validateTraits(['control:operator'], globalActor)).toBeNull()
+    expect(validateTraits(['caracal.sys:operator'], globalActor)).toBeNull()
   })
 
   it('rejects too many, empty, oversized, malformed, duplicate, and privileged zone traits', () => {
-    expect(validateTraits(Array.from({ length: 33 }, (_, i) => `trait${i}`), globalActor)).toMatchObject({
+    expect(
+      validateTraits(
+        Array.from({ length: 33 }, (_, i) => `trait${i}`),
+        globalActor,
+      ),
+    ).toMatchObject({
       error: 'trait_count_exceeded',
     })
     expect(validateTraits([''], globalActor)).toMatchObject({ error: 'trait_invalid' })
@@ -26,5 +32,7 @@ describe('validateTraits', () => {
     expect(validateTraits(['1bad'], globalActor)).toMatchObject({ error: 'trait_invalid' })
     expect(validateTraits(['team:eng', 'team:eng'], globalActor)).toMatchObject({ error: 'trait_duplicate' })
     expect(validateTraits(['control:operator'], zoneActor)).toMatchObject({ error: 'trait_forbidden' })
+    // The reserved internal namespace is privileged exactly like control:, so a tenant cannot claim it.
+    expect(validateTraits(['caracal.sys:operator'], zoneActor)).toMatchObject({ error: 'trait_forbidden' })
   })
 })

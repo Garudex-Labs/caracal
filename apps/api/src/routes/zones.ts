@@ -11,6 +11,7 @@ import { buildPatchUpdate, patchColumn } from './patch.js'
 import { withTransaction, TxAbort } from '../db.js'
 import { IdParams, parseParams } from './params.js'
 import { appendKeysetCondition, parseListPagination, setNextLink } from './list-pagination.js'
+import { assertReservedNamespace } from '../reserved-namespace.js'
 import { enqueueOutbox } from '../outbox.js'
 import { STREAM_AGENTS_LIFECYCLE, STREAM_SESSIONS_REVOKE } from '../redis.js'
 import type { Actor } from '../auth.js'
@@ -314,6 +315,8 @@ export const zonesRoutes: FastifyPluginAsync = async (fastify) => {
     const parsed = ZoneCreateBody.safeParse(req.body)
     if (!parsed.success) return reply.code(400).send({ error: 'invalid_zone' })
     const body = parsed.data
+    const reserved = assertReservedNamespace('zoneName', body.name, req.actor) ?? assertReservedNamespace('zoneSlug', body.slug, req.actor)
+    if (reserved) return reply.code(409).send(reserved)
     try {
       const row = await createZoneRecord(fastify.db, {
         name: body.name,
@@ -365,6 +368,8 @@ export const zonesRoutes: FastifyPluginAsync = async (fastify) => {
     const parsed = ZoneUpdateBody.safeParse(req.body)
     if (!parsed.success) return reply.code(400).send({ error: 'invalid_zone' })
     const body = parsed.data
+    const reserved = assertReservedNamespace('zoneName', body.name, req.actor) ?? assertReservedNamespace('zoneSlug', body.slug, req.actor)
+    if (reserved) return reply.code(409).send(reserved)
     if (body.dcr_shutdown && body.dcr_enabled !== false) {
       return reply.code(400).send({ error: 'dcr_shutdown_not_applicable' })
     }
