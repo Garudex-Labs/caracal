@@ -426,6 +426,14 @@ export const MANAGEMENT_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
   },
 
   {
+    name: 'grant',
+    group: 'admin',
+    summary: 'Manage delegated grants binding an application and user to resource scopes',
+    subcommands: ['list', 'get', 'create', 'revoke'],
+    requiresZone: true,
+  },
+
+  {
     name: 'control',
     group: 'admin',
     summary: 'Manage the optional in-process API control plane',

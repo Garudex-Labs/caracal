@@ -385,6 +385,24 @@ const delegationHandler = bySubcommand({
   revoke: ({ principal, flags, ctx }) => ctx.admin.delegations.revoke(requireZone(principal), mustStr(flags, 'id')),
 })
 
+const grantHandler = bySubcommand({
+  list: ({ principal, flags, ctx }) =>
+    ctx.admin.grants.list(requireZone(principal), {
+      application_id: getStr(flags, 'application-id'),
+      user_id: getStr(flags, 'user-id'),
+      resource_id: getStr(flags, 'resource-id'),
+    }),
+  get: ({ principal, flags, ctx }) => ctx.admin.grants.get(requireZone(principal), mustStr(flags, 'id')),
+  create: ({ principal, flags, ctx }) =>
+    ctx.admin.grants.create(requireZone(principal), {
+      application_id: mustStr(flags, 'application-id'),
+      user_id: mustStr(flags, 'user-id'),
+      resource_id: mustStr(flags, 'resource-id'),
+      scopes: getList(flags, 'scopes') ?? [],
+    }),
+  revoke: ({ principal, flags, ctx }) => ctx.admin.grants.revoke(requireZone(principal), mustStr(flags, 'id')),
+})
+
 /** Build the per-noun authorizer the declarative surface uses for least-privilege scope checks. */
 function authorizeFor(principal: Principal): ReconcileDeps['authorize'] {
   return (command: string, verb: ScopeVerb) => {
@@ -467,6 +485,8 @@ function commandHandler(command: string): Handler | undefined {
       return agentHandler
     case 'delegation':
       return delegationHandler
+    case 'grant':
+      return grantHandler
     default:
       return undefined
   }

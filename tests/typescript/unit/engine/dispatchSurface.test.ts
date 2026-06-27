@@ -78,17 +78,21 @@ describe('dispatch handler surface', () => {
     const create = vi.fn(async () => ({}))
     const admin = { resources: { create } } as unknown as AdminClient
 
-    await dispatch({
-      command: 'resource',
-      subcommand: 'create',
-      flags: {
-        name: 'PiperNet',
-        scopes: 'pipernet:read',
-        'upstream-url': 'https://api.pipernet.example',
-        'gateway-application-id': 'app-1',
-        'credential-provider-id': 'provider-1',
+    await dispatch(
+      {
+        command: 'resource',
+        subcommand: 'create',
+        flags: {
+          name: 'PiperNet',
+          scopes: 'pipernet:read',
+          'upstream-url': 'https://api.pipernet.example',
+          'gateway-application-id': 'app-1',
+          'credential-provider-id': 'provider-1',
+        },
       },
-    }, localPrincipal(), { admin })
+      localPrincipal(),
+      { admin },
+    )
 
     expect(create).toHaveBeenCalledWith('z1', {
       name: 'PiperNet',
@@ -97,6 +101,33 @@ describe('dispatch handler surface', () => {
       upstream_url: 'https://api.pipernet.example',
       gateway_application_id: 'app-1',
       credential_provider_id: 'provider-1',
+    })
+  })
+
+  it('maps grant create flags to the delegated-grant body', async () => {
+    const create = vi.fn(async () => ({}))
+    const admin = { grants: { create } } as unknown as AdminClient
+
+    await dispatch(
+      {
+        command: 'grant',
+        subcommand: 'create',
+        flags: {
+          'application-id': 'app-1',
+          'user-id': 'user-1',
+          'resource-id': 'res-1',
+          scopes: 'invoices:read,invoices:write',
+        },
+      },
+      localPrincipal(),
+      { admin },
+    )
+
+    expect(create).toHaveBeenCalledWith('z1', {
+      application_id: 'app-1',
+      user_id: 'user-1',
+      resource_id: 'res-1',
+      scopes: ['invoices:read', 'invoices:write'],
     })
   })
 })
