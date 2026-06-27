@@ -12,6 +12,7 @@ import {
   GatewayError,
   type ProviderConfig,
 } from '../../../../apps/api/src/operator-gateway.js'
+import { ProposedPlan } from '../../../../apps/api/src/operator-capabilities.js'
 
 function provider(overrides: Partial<ProviderConfig> = {}): ProviderConfig {
   return { id: 'p1', baseUrl: 'https://api.example.com/v1', model: 'gpt-x', timeoutMs: 1000, contextWindow: 0, ...overrides }
@@ -164,6 +165,62 @@ describe('gateway active model', () => {
       provider({ id: 'primary', model: 'gpt-x', contextWindow: 128000 }),
     ])
     expect(gateway.active()).toEqual({ model: 'gpt-x', contextWindow: 128000 })
+  })
+})
+
+describe('gateway completeObject', () => {
+  const validPlan = { summary: 'Connect GitHub', steps: [{ id: 's1', capability: 'connectProvider', args: { name: 'GitHub' } }] }
+
+  function objectResponse(value: unknown, usage?: { prompt_tokens: number; completion_tokens: number }): Response {
+    return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(value) } }], usage }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    })
+  }
+
+  it('returns the schema-validated object with provider attribution and usage', async () => {
+    const fetchMock = vi.fn(async () => objectResponse(validPlan, { prompt_tokens: 6, completion_tokens: 2 }))
+    const gateway = createGateway([provider()], fetchMock as unknown as typeof fetch)
+    const result = await gateway.completeObject([{ role: 'user', content: 'connect github' }], ProposedPlan)
+    expect(result).toMatchObject({ value: validPlan, provider: 'p1', model: 'gpt-x', promptTokens: 6, completionTokens: 2 })
+  })
+
+  it('throws GatewayUnavailableError when nothing is configured', async () => {
+    const gateway = createGateway([])
+    await expect(gateway.completeObject([{ role: 'user', content: 'hi' }], ProposedPlan)).rejects.toBeInstanceOf(GatewayUnavailableError)
+  })
+
+  it('fails over to the next provider when a response does not satisfy the schema', async () => {
+    // An empty steps array violates the plan schema, so the first provider's response is
+    // rejected and the gateway fails over rather than returning an unvalidated object.
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(objectResponse({ summary: 'x', steps: [] }))
+      .mockResolvedValueOnce(objectResponse(validPlan))
+    const gateway = createGateway([provider({ id: 'primary' }), provider({ id: 'secondary' })], fetchMock as unknown as typeof fetch)
+    const result = await gateway.completeObject([{ role: 'user', content: 'connect' }], ProposedPlan)
+    expect(result).toMatchObject({ value: validPlan, provider: 'secondary' })
+  })
+
+  it('reports redacted attempts when every provider returns an off-schema object', async () => {
+    const fetchMock = vi.fn(async () => objectResponse({ summary: 'x', steps: [] }))
+    const gateway = createGateway(
+      [provider({ id: 'primary', apiKey: 'sk-secret' }), provider({ id: 'secondary', apiKey: 'sk-other' })],
+      fetchMock as unknown as typeof fetch,
+    )
+    const error = await gateway.completeObject([{ role: 'user', content: 'connect' }], ProposedPlan).catch((e) => e)
+    expect(error).toBeInstanceOf(GatewayError)
+    expect(error.attempts).toHaveLength(2)
+    expect(JSON.stringify(error.attempts)).not.toContain('sk-')
+  })
+
+  it('tallies usage and honors provider preference', async () => {
+    const fetchMock = vi.fn(async () => objectResponse(validPlan, { prompt_tokens: 10, completion_tokens: 4 }))
+    const base = createGateway([provider({ id: 'first' }), provider({ id: 'second' })], fetchMock as unknown as typeof fetch)
+    const { gateway, usage } = withUsage(preferProvider(base, 'second'))
+    const result = await gateway.completeObject([{ role: 'user', content: 'go' }], ProposedPlan)
+    expect(result.provider).toBe('second')
+    expect(usage()).toEqual({ inputTokens: 10, outputTokens: 4 })
   })
 })
 

@@ -124,18 +124,16 @@ type FetchImpl = typeof fetch
 function installStructuredOutputWarningFilter(): void {
   type WarningEntry = { type?: string; feature?: string }
   type WarningLogger = (options: { warnings: WarningEntry[]; provider?: string; model?: string }) => void
-  const globals = globalThis as typeof globalThis & {
-    AI_SDK_LOG_WARNINGS?: WarningLogger | false
-    caracalWarningFilterInstalled?: boolean
-  }
+  const globals = globalThis as Record<string, unknown>
   if (globals.caracalWarningFilterInstalled) return
-  const previous = typeof globals.AI_SDK_LOG_WARNINGS === 'function' ? globals.AI_SDK_LOG_WARNINGS : null
-  globals.AI_SDK_LOG_WARNINGS = ({ warnings, provider, model }) => {
+  const previous = typeof globals.AI_SDK_LOG_WARNINGS === 'function' ? (globals.AI_SDK_LOG_WARNINGS as WarningLogger) : null
+  const logger: WarningLogger = ({ warnings, provider, model }) => {
     const kept = warnings.filter((warning) => !(warning.type === 'unsupported' && warning.feature === 'responseFormat'))
     if (kept.length === 0) return
     if (previous) previous({ warnings: kept, provider, model })
     else console.warn('AI SDK Warning', { provider, model, warnings: kept })
   }
+  globals.AI_SDK_LOG_WARNINGS = logger
   globals.caracalWarningFilterInstalled = true
 }
 
@@ -373,6 +371,7 @@ export function preferProvider(gateway: Gateway, providerId: string | null): Gat
     status: () => gateway.status(),
     active: () => gateway.active(),
     complete: (messages, options = {}) => gateway.complete(messages, { ...options, preferredProvider: providerId }),
-    completeObject: (messages, schema, options = {}) => gateway.completeObject(messages, schema, { ...options, preferredProvider: providerId }),
+    completeObject: (messages, schema, options = {}) =>
+      gateway.completeObject(messages, schema, { ...options, preferredProvider: providerId }),
   }
 }
