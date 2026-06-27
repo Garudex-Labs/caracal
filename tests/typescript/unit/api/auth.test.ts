@@ -7,7 +7,8 @@ import { describe, it, expect, vi } from 'vitest'
 import { createHash } from 'node:crypto'
 import Fastify from 'fastify'
 import type { DB } from '../../../../apps/api/src/db.js'
-import { adminAuthPlugin, lookupAdminToken, seedBootstrapAdminToken } from '../../../../apps/api/src/auth.js'
+import { adminAuthPlugin, lookupAdminToken, seedBootstrapAdminToken, seedConsoleReadToken } from '../../../../apps/api/src/auth.js'
+import { deriveConsoleReadToken } from '../../../../packages/core/ts/src/consoleToken.js'
 
 function digest(token: string): Buffer {
   return createHash('sha256').update(token).digest()
@@ -360,5 +361,64 @@ describe('seedBootstrapAdminToken', () => {
     await seedBootstrapAdminToken(db, { envToken: 'tok', log: () => {} })
     expect(inserts.some((s) => s.startsWith('INSERT INTO admin_tokens'))).toBe(true)
     expect(inserts.some((s) => s.includes('token_sha256 <> $1'))).toBe(true)
+  })
+})
+
+describe('deriveConsoleReadToken', () => {
+  it('is deterministic for a given admin token and in the cat_ format', () => {
+    const a = deriveConsoleReadToken('cat_admin_secret')
+    const b = deriveConsoleReadToken('cat_admin_secret')
+    expect(a).toBe(b)
+    expect(a).toMatch(/^cat_[A-Za-z0-9_-]+$/)
+  })
+
+  it('differs for a different admin token and is never equal to it', () => {
+    const a = deriveConsoleReadToken('cat_admin_one')
+    const b = deriveConsoleReadToken('cat_admin_two')
+    expect(a).not.toBe(b)
+    expect(a).not.toBe('cat_admin_one')
+  })
+})
+
+describe('seedConsoleReadToken', () => {
+  it('does nothing when env token is not set', async () => {
+    const db = { query: vi.fn() } as unknown as DB
+    await seedConsoleReadToken(db, { envToken: null, log: () => {} })
+    expect(db.query).not.toHaveBeenCalled()
+  })
+
+  it('inserts a global read-capability row for the derived token when absent', async () => {
+    const inserts: { sql: string; params?: unknown[] }[] = []
+    const db = {
+      query: vi.fn().mockImplementation((sql: string, params?: unknown[]) => {
+        inserts.push({ sql, params })
+        if (sql.includes('SELECT token_hash')) return Promise.resolve({ rows: [] })
+        return Promise.resolve({ rows: [], rowCount: 1 })
+      }),
+    } as unknown as DB
+    await seedConsoleReadToken(db, { envToken: 'tok', log: () => {} })
+    const insert = inserts.find((q) => q.sql.startsWith('INSERT INTO admin_tokens'))
+    expect(insert).toBeDefined()
+    // Provisioned as a global, read-capability token under the reserved derived creator.
+    expect(insert!.sql).toContain("'global', 'read'")
+    expect(insert!.params).toContain('console-read-only')
+    expect(insert!.params).toContain('env-derived')
+    // Stale derived tokens are revoked so only one read credential is ever live.
+    expect(inserts.some((q) => q.sql.includes('created_by = $1') && q.sql.includes('revoked_at = now()'))).toBe(true)
+  })
+
+  it('is idempotent: no insert when the derived token row already exists with a verifier', async () => {
+    const seen: string[] = []
+    const db = {
+      query: vi.fn().mockImplementation((sql: string) => {
+        seen.push(sql)
+        if (sql.includes('SELECT token_hash')) return Promise.resolve({ rows: [{ token_hash: ARGON_HASHES.tok }] })
+        return Promise.resolve({ rows: [], rowCount: 1 })
+      }),
+    } as unknown as DB
+    await seedConsoleReadToken(db, { envToken: 'tok', log: () => {} })
+    expect(seen.some((s) => s.startsWith('INSERT INTO admin_tokens'))).toBe(false)
+    // Still reconciles stale derived tokens on every run.
+    expect(seen.some((s) => s.includes('created_by = $1') && s.includes('revoked_at = now()'))).toBe(true)
   })
 })

@@ -4,7 +4,7 @@
 // Session-guarded backend-for-frontend that proxies the Community Edition web client to the Caracal admin API.
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { discoverAdminToken, discoverCoordinatorToken, pathOnly } from '@caracalai/core'
+import { discoverAdminToken, discoverCoordinatorToken, deriveConsoleReadToken, pathOnly } from '@caracalai/core'
 import {
   applyControlLifecycleAction,
   controlKeyRecord,
@@ -52,6 +52,16 @@ function isLocalUrl(value: string): boolean {
 
 function adminToken(): string | undefined {
   return discoverAdminToken(undefined, { preferGenerated: isLocalUrl(apiUrl()) })
+}
+
+// The read-only admin token the BFF presents on read traffic, derived deterministically from
+// the deployment admin token so it matches the read-capability row the API provisions. The
+// admin token stays the credential for writes and the fallback when the read token is not yet
+// recognized, so least privilege on reads never costs availability. Returns undefined only
+// when no admin token is discoverable, in which case the proxy already reports unconfigured.
+function consoleReadToken(): string | undefined {
+  const admin = adminToken()
+  return admin ? deriveConsoleReadToken(admin) : undefined
 }
 
 function coordinatorToken(): string | undefined {
@@ -309,22 +319,34 @@ async function handleDiagnostics(res: ServerResponse, path: string): Promise<voi
   sendJson(res, 200, entry.payload)
 }
 
-async function forwardProxy(req: IncomingMessage, res: ServerResponse, target: string, token: string, id: string): Promise<void> {
+// Forwards a console request to an upstream control-plane service under a service credential.
+// When fallbackToken is given and the first attempt is rejected as an unrecognized token
+// (401), the request is retried once with the fallback before any byte is written to the
+// client. That lets the read path present the read-only credential first and transparently
+// fall back to the full admin token if the read token is not yet provisioned or its
+// derivation has drifted, so the console never breaks while still preferring least privilege.
+// The fallback only triggers on 401 (bad credential); a 403 is a genuine authorization denial
+// and is surfaced unchanged.
+async function forwardProxy(
+  req: IncomingMessage,
+  res: ServerResponse,
+  target: string,
+  token: string,
+  id: string,
+  fallbackToken?: string,
+): Promise<void> {
   const method = req.method ?? 'GET'
-  const headers: Record<string, string> = {
-    Authorization: `Bearer ${token}`,
-    ...downstreamHeaders(id),
-  }
+  const baseHeaders: Record<string, string> = downstreamHeaders(id)
 
   // Let the engine compress its response and pass the encoded bytes through untouched, so large
   // admin lists travel compressed across the real network between the browser and the BFF.
   const acceptEncoding = req.headers['accept-encoding']
-  if (typeof acceptEncoding === 'string' && acceptEncoding) headers['Accept-Encoding'] = acceptEncoding
+  if (typeof acceptEncoding === 'string' && acceptEncoding) baseHeaders['Accept-Encoding'] = acceptEncoding
 
   let body: Buffer | undefined
   if (method !== 'GET' && method !== 'HEAD') {
     body = await readBody(req)
-    if (body.length > 0) headers['Content-Type'] = 'application/json'
+    if (body.length > 0) baseHeaders['Content-Type'] = 'application/json'
   }
 
   // Abort the upstream request when the timeout elapses or the browser disconnects, so a
@@ -334,12 +356,20 @@ async function forwardProxy(req: IncomingMessage, res: ServerResponse, target: s
   const onClose = (): void => controller.abort()
   req.once('close', onClose)
   try {
-    const upstream = await fetch(target, {
-      method,
-      headers,
-      body: body && body.length > 0 ? body : undefined,
-      signal: controller.signal,
-    })
+    const attempt = (bearer: string): Promise<Response> =>
+      fetch(target, {
+        method,
+        headers: { ...baseHeaders, Authorization: `Bearer ${bearer}` },
+        body: body && body.length > 0 ? body : undefined,
+        signal: controller.signal,
+      })
+    let upstream = await attempt(token)
+    if (upstream.status === 401 && fallbackToken && fallbackToken !== token) {
+      logger.warn('read token rejected; retrying with admin token', { id, path: targetPath(target) })
+      // Release the rejected response's body so its connection is not held until GC.
+      await upstream.body?.cancel().catch(() => {})
+      upstream = await attempt(fallbackToken)
+    }
     const payload = Buffer.from(await upstream.arrayBuffer())
     res.statusCode = upstream.status
     res.setHeader('Content-Type', upstream.headers.get('content-type') ?? 'application/json')
@@ -390,12 +420,21 @@ async function handleProxy(req: IncomingMessage, res: ServerResponse, rest: stri
     sendJson(res, 404, { error: 'not_found' })
     return
   }
+  // Reads present the least-privilege read-only token and fall back to the admin token only if
+  // it is not recognized; writes always use the admin token, since the read token is denied
+  // any mutating request at the API. This keeps the god token off the dominant read path
+  // without ever risking a read failing closed.
+  const method = (req.method ?? 'GET').toUpperCase()
+  const isRead = method === 'GET' || method === 'HEAD'
+  if (isRead) {
+    await forwardProxy(req, res, target, consoleReadToken() ?? token, id, token)
+    return
+  }
   await forwardProxy(req, res, target, token, id)
   // A successful write to the control plane can change what diagnostics reports (zone
   // inventory, resources, policy enforcement, …); drop cached reports so the next read
   // recomputes against the new state instead of surfacing a stale warning.
-  const method = (req.method ?? 'GET').toUpperCase()
-  if (method !== 'GET' && method !== 'HEAD' && res.statusCode < 400) {
+  if (res.statusCode < 400) {
     invalidateDiagnostics()
   }
 }

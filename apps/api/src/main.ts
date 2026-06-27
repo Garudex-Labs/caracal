@@ -10,7 +10,7 @@ import { newRedis } from './redis.js'
 import { startDCRGC } from './jobs/dcr-gc.js'
 import { startSessionsReaper } from './jobs/sessions-reaper.js'
 import { OutboxDispatcher } from './outbox.js'
-import { seedBootstrapAdminToken } from './auth.js'
+import { seedBootstrapAdminToken, seedConsoleReadToken } from './auth.js'
 import { assertPublishedSafe, createLogger, initNodeTelemetry, ShutdownRegistry, withTimeout } from '@caracalai/core'
 
 assertPublishedSafe()
@@ -24,7 +24,7 @@ const log = (level: 'info' | 'warn' | 'error', msg: string, meta?: Record<string
 const shutdownTelemetry = initNodeTelemetry('caracal-api', { error: (msg, meta) => log('error', msg, meta) })
 
 process.on('unhandledRejection', (reason) => {
-  log('error', 'unhandledRejection', { reason: reason instanceof Error ? reason.stack ?? reason.message : String(reason) })
+  log('error', 'unhandledRejection', { reason: reason instanceof Error ? (reason.stack ?? reason.message) : String(reason) })
   process.exit(1)
 })
 process.on('uncaughtException', (err) => {
@@ -49,7 +49,9 @@ const shutdown = new ShutdownRegistry({
   timeoutMs: cfg.shutdownGraceMs,
   log,
 })
-shutdown.register('redis', async () => { await redis.quit() })
+shutdown.register('redis', async () => {
+  await redis.quit()
+})
 shutdown.register('postgres', () => pool.end())
 shutdown.register('telemetry', shutdownTelemetry)
 shutdown.install()
@@ -57,6 +59,10 @@ shutdown.install()
 try {
   await withTimeout(redis.ping(), cfg.shutdownGraceMs, 'startup redis ping timed out')
   await seedBootstrapAdminToken(db, {
+    envToken: cfg.bootstrapAdminToken,
+    log: (msg) => log('info', msg),
+  })
+  await seedConsoleReadToken(db, {
     envToken: cfg.bootstrapAdminToken,
     log: (msg) => log('info', msg),
   })
@@ -78,8 +84,12 @@ try {
   const dcrTimer = startDCRGC(db, app.log)
   const sessionsReaperTimer = startSessionsReaper(db, app.log)
 
-  shutdown.register('dcr-gc-timer', () => { clearInterval(dcrTimer) })
-  shutdown.register('sessions-reaper', () => { clearInterval(sessionsReaperTimer) })
+  shutdown.register('dcr-gc-timer', () => {
+    clearInterval(dcrTimer)
+  })
+  shutdown.register('sessions-reaper', () => {
+    clearInterval(sessionsReaperTimer)
+  })
   shutdown.register('outbox-dispatcher', () => dispatcher.stop())
   shutdown.register('fastify', () => app.close())
 
