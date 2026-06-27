@@ -44,6 +44,9 @@ describe('applyPlanSteps', () => {
     expect(result[0]).toMatchObject({ id: 's1', capability: 'createZone' })
     expect(result[0].detail).toContain('Prod')
     expect(result[0].output).toMatchObject({ zone_id: 'z-new' })
+    // The step carries the audit entity so the execution is recorded per entity in
+    // Caracal's own admin audit log, in the new zone's chain.
+    expect(result[0].audit).toEqual({ entityType: 'zones', entityId: 'z-new', zoneId: 'z-new' })
   })
 
   it('returns the issued secret as a one-time output, never in the detail', async () => {
@@ -120,6 +123,8 @@ describe('applyPlanSteps', () => {
     const result = await applyPlanSteps(client, 'z1', [{ id: 's1', capability: 'listZones', args: {} }])
     expect(result[0].output?.zones).toEqual([{ id: 'z-1', name: 'Prod', slug: 'prod' }])
     expect(result[0].detail).toContain('1 zone')
+    // A read changes nothing, so it carries no audit entity and is never recorded as a mutation.
+    expect(result[0].audit).toBeUndefined()
   })
 
   it('explains access from active grants as live output', async () => {

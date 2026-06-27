@@ -802,6 +802,9 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/plan/execute', () =>
       .mockResolvedValueOnce({ rows: [{ id: 'z-new', name: 'Prod', slug: 'prod' }] }) // INSERT zone
       .mockResolvedValueOnce({ rowCount: 1 }) // writeTurnLocked UPDATE next_seq
       .mockResolvedValueOnce({ rows: [executionTurn] }) // INSERT execution turn
+      .mockResolvedValueOnce({ rows: [] }) // admin audit: advisory lock
+      .mockResolvedValueOnce({ rows: [] }) // admin audit: chain head
+      .mockResolvedValueOnce({ rows: [] }) // admin audit: INSERT admin_audit_events
       .mockResolvedValueOnce(undefined) // COMMIT
     await app.ready()
     const res = await app.inject({
@@ -819,6 +822,17 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/plan/execute', () =>
     const insertExec = clientQuery.mock.calls[9]
     expect(insertExec[1][6]).toContain('succeeded')
     expect(insertExec[1][6]).toContain('system:caracal-operator')
+    // The change is also recorded in Caracal's own admin audit log, per entity, through
+    // the same primitive every manual mutation uses: the new zone is the entity, the
+    // human is the authorizing actor, and the Operator principal is carried in the payload.
+    const auditInsert = clientQuery.mock.calls.find((c) => String(c[0]).includes('INSERT INTO admin_audit_events'))
+    expect(auditInsert).toBeDefined()
+    const auditParams = auditInsert![1] as unknown[]
+    expect(auditParams[2]).toBe('actor-1') // actor_id: the human approver
+    expect(auditParams[5]).toBe('operator.execute:createZone') // action
+    expect(auditParams[9]).toBe('zones') // entity_type
+    expect(auditParams[10]).toBe('z-new') // entity_id: the created zone
+    expect(JSON.stringify(auditParams[12])).toContain('system:caracal-operator') // payload executed_by
   })
 
   it('refuses to execute a create plan whose target already exists, applying nothing', async () => {

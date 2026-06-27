@@ -115,7 +115,7 @@ const HANDLERS: Record<string, CapabilityHandler> = {
     return {
       detail: `Registered application “${asString(args.name)}” and issued a client secret.`,
       output: { application_id: row.id, client_secret: clientSecret },
-      audit: { entityType: 'applications', entityId: row.id, zoneId },
+      audit: { entityType: 'applications', entityId: asString(row.id), zoneId },
     }
   },
   rotateApplicationSecret: async (client, zoneId, args) => {
@@ -144,7 +144,7 @@ const HANDLERS: Record<string, CapabilityHandler> = {
     return {
       detail: `Granted ${scopes.join(', ')} to application ${asString(args.application_id)} on resource ${asString(args.resource_id)}.`,
       output: { grant_id: result.row.id },
-      audit: { entityType: 'grants', entityId: result.row.id, zoneId },
+      audit: { entityType: 'grants', entityId: asString(result.row.id), zoneId },
     }
   },
 }
