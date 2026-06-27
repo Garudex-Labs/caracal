@@ -109,7 +109,13 @@ describe('executeViaControlPlane', () => {
     )
 
     expect(result.applied.map((s) => s.id)).toEqual(['s1'])
-    expect(result.failure).toEqual({ stepId: 's2', capability: 'grantAccess', reason: 'missing scope control:grant:write', code: 'denied' })
+    expect(result.failure).toEqual({
+      stepId: 's2',
+      capability: 'grantAccess',
+      reason: 'missing scope control:grant:write',
+      code: 'denied',
+      terminal: false,
+    })
     // The plan stopped: the third step was never invoked.
     expect(calls).toHaveLength(2)
   })

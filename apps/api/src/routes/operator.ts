@@ -13,10 +13,11 @@ import { appendKeysetCondition, parseListPagination, setNextLink } from './list-
 import { parseTurnContent, deriveConversationState, type TurnKind, type TurnRecord } from '../operator-state.js'
 import { ProposedPlan, listCapabilities, validateProposedPlan, type PlanValidation } from '../operator-capabilities.js'
 import { previewPlan } from '../operator-preview.js'
-import { applyPlanSteps, unsupportedSteps, StepExecutionError } from '../operator-execute.js'
 import { buildOperatorAuthority, isZoneIsolated, authorizePlanSteps, type OperatorAuthority } from '../operator-authority.js'
-import { insertAdminAuditRecord } from '@caracalai/admin-audit'
-import { pathOnly } from '@caracalai/core'
+import { buildOperatorControlClient, type OperatorControlEndpoints } from '../operator-control-client.js'
+import { executeViaControlPlane, type GovernedPlanStep } from '../operator-governed-execute.js'
+import { isControlExecutable } from '../operator-control-map.js'
+import type { ControlClient } from '../control-client.js'
 import type { OperatorControlIdentity } from '../config.js'
 import {
   createGateway,
@@ -73,6 +74,18 @@ const PlanDecisionBody = z
   .strict()
 
 const ExecutePlanBody = z.object({ plan_seq: z.number().int().min(1) }).strict()
+
+// One in-flight governed execution per plan. Each step is its own authenticated control
+// call rather than one database transaction, so the conversation row cannot serialize
+// concurrent executes; a short-lived Redis lock does. The TTL only bounds a crashed
+// request — a handful of fast control calls complete well within it — while the permanent
+// dedup (an execution turn already exists) prevents re-running a completed plan.
+const EXECUTE_LOCK_TTL_SEC = 120
+
+// The outcome of the read-only execute pre-flight: the validated steps to apply, or a
+// business response to return unchanged. Pre-flight writes nothing, so the governed
+// control calls run outside any transaction.
+type PreflightResult = { ok: true; steps: GovernedPlanStep[] } | { ok: false; status: number; body: Record<string, unknown> }
 
 const MESSAGE_MAX_LENGTH = 4000
 const MessageBody = z
@@ -285,14 +298,14 @@ export interface OperatorRoutesOptions {
   allowedCapabilities?: string[] | null
   systemZones?: string[] | null
   aiProviders?: ProviderConfig[]
-  // Signs the Operator's own admin audit records into the same tamper-evident chain as
-  // every other control-plane change. Null leaves the chain hash-linked but unsigned,
-  // matching the rest of the audit log when no key is configured.
-  auditHmacKey?: Buffer | null
   // Internal-only: the Operator's reserved caracal.sys control identity used to execute
   // through the governed control plane. Null leaves governed execution unconfigured. Never
   // an end-user surface; supplied by sealed platform config.
   controlIdentity?: OperatorControlIdentity | null
+  // The deployment's control endpoints (STS plus the loopback control plane) the Operator's
+  // governed client talks to. Null when the control plane is disabled, which leaves governed
+  // execution unconfigured.
+  controlEndpoints?: OperatorControlEndpoints | null
   // Injectable transport so the gateway path can be exercised in tests without a
   // live AI backend; defaults to the platform fetch in production.
   fetchImpl?: typeof fetch
@@ -310,6 +323,14 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
   // The optional AI gateway. With no provider configured it reports disabled and
   // performs no work, so the AI tier costs nothing until an operator brings a key.
   const gateway: Gateway = createGateway(opts.aiProviders ?? [], opts.fetchImpl)
+
+  // The Operator's governed control client, built once from its reserved identity and the
+  // deployment's control endpoints. Null when governed execution is not fully configured —
+  // no identity, or the control plane is disabled — in which case execution refuses rather
+  // than falling back to any other authority.
+  const controlClient: ControlClient | null = opts.controlEndpoints
+    ? buildOperatorControlClient(opts.controlIdentity ?? null, opts.controlEndpoints, opts.fetchImpl)
+    : null
 
   // Always cheap and always present so the console can render a precise enabled/disabled
   // state without inferring it from a missing route. When enabled it also exposes the
@@ -704,24 +725,41 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
       return reply.code(403).send({ error: 'zone_forbidden' })
     }
 
+    // Governed execution is the only execution path. It requires the Operator's reserved
+    // control identity and an enabled control plane, and — because the control token is
+    // bound to the identity's zone and the control plane executes every command in that
+    // zone — it can only govern the one zone the identity is bound to. A conversation in
+    // any other zone has no governed identity, so execution refuses rather than applying
+    // changes in the wrong zone or as any other authority. There is no admin-actor fallback.
+    if (!controlClient || opts.controlIdentity?.zoneId !== params.zoneId) {
+      return reply.code(409).send({ error: 'governed_execution_unconfigured' })
+    }
+
+    const lockKey = `operator:exec:${params.zoneId}:${params.id}:${planSeq}`
+    // An owner token so the lock is only ever released by the request that holds it; a
+    // request whose lock expired must not delete a lock since acquired by another.
+    const lockOwner = uuidv7()
+    const locked = await fastify.redis.set(lockKey, lockOwner, 'EX', EXECUTE_LOCK_TTL_SEC, 'NX')
+    if (locked !== 'OK') return reply.code(409).send({ error: 'plan_already_executed' })
+
     try {
-      return await withTransaction(fastify.db, async (client) => {
-        const { rows: conv } = await client.query<{ status: string; next_seq: number }>(
-          `SELECT status, next_seq FROM operator_conversations
-           WHERE id = $1 AND zone_id = $2 FOR UPDATE`,
+      // Pre-flight: read-only validation in one short transaction. Resolves the approved,
+      // not-yet-executed, still-valid, still-unblocked plan to the steps to execute. It
+      // writes nothing, so the governed control calls below run outside any transaction.
+      const pre = await withTransaction(fastify.db, async (client): Promise<PreflightResult> => {
+        const { rows: conv } = await client.query<{ status: string }>(
+          `SELECT status FROM operator_conversations WHERE id = $1 AND zone_id = $2`,
           [params.id, params.zoneId],
         )
-        if (!conv[0]) throw new TxAbort(reply.code(404).send({ error: 'conversation_not_found' }))
-        if (conv[0].status !== 'active') {
-          throw new TxAbort(reply.code(409).send({ error: 'conversation_archived' }))
-        }
+        if (!conv[0]) return { ok: false, status: 404, body: { error: 'conversation_not_found' } }
+        if (conv[0].status !== 'active') return { ok: false, status: 409, body: { error: 'conversation_archived' } }
 
         const { rows: planRows } = await client.query<{ content: PlanTurnContent }>(
           `SELECT content FROM operator_turns
            WHERE conversation_id = $1 AND zone_id = $2 AND seq = $3 AND kind = 'plan'`,
           [params.id, params.zoneId, planSeq],
         )
-        if (!planRows[0]) throw new TxAbort(reply.code(404).send({ error: 'plan_not_found' }))
+        if (!planRows[0]) return { ok: false, status: 404, body: { error: 'plan_not_found' } }
 
         const { rows: decision } = await client.query<{ kind: string }>(
           `SELECT kind FROM operator_turns
@@ -731,10 +769,8 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
            LIMIT 1`,
           [params.id, params.zoneId, planSeq],
         )
-        if (!decision[0]) throw new TxAbort(reply.code(409).send({ error: 'plan_not_approved' }))
-        if (decision[0].kind === 'rejection') {
-          throw new TxAbort(reply.code(409).send({ error: 'plan_rejected' }))
-        }
+        if (!decision[0]) return { ok: false, status: 409, body: { error: 'plan_not_approved' } }
+        if (decision[0].kind === 'rejection') return { ok: false, status: 409, body: { error: 'plan_rejected' } }
 
         const { rows: executed } = await client.query(
           `SELECT 1 FROM operator_turns
@@ -743,7 +779,7 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
            LIMIT 1`,
           [params.id, params.zoneId, planSeq],
         )
-        if (executed[0]) throw new TxAbort(reply.code(409).send({ error: 'plan_already_executed' }))
+        if (executed[0]) return { ok: false, status: 409, body: { error: 'plan_already_executed' } }
 
         const steps = planRows[0].content.steps.map((step) => ({
           id: step.id,
@@ -751,75 +787,76 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
           args: step.args ?? {},
         }))
 
-        // Re-validate against the live catalog before applying anything, so a plan
-        // never half-applies.
+        // Re-validate against the live catalog before applying anything.
         const revalidation = validateProposedPlan({ summary: planRows[0].content.summary, steps })
-        if (!revalidation.ok) {
-          throw new TxAbort(reply.code(409).send({ error: 'plan_invalid', validation: revalidation }))
-        }
+        if (!revalidation.ok) return { ok: false, status: 409, body: { error: 'plan_invalid', validation: revalidation } }
 
-        // Authority is the primary boundary and is checked before implementation
-        // concerns: a step the Operator's least-privilege identity may not execute is
-        // refused as forbidden, even if it happens to also lack a handler.
+        // Authority is the primary boundary: a mutating step outside the Operator's
+        // least-privilege grant is forbidden before executability is even considered.
         const denials = authorizePlanSteps(authority, steps)
         if (denials.length > 0) {
-          throw new TxAbort(
-            reply.code(403).send({
-              error: 'capability_forbidden',
-              principal: authority.principal,
-              steps: denials,
-            }),
-          )
+          return { ok: false, status: 403, body: { error: 'capability_forbidden', principal: authority.principal, steps: denials } }
         }
 
-        // Every authorized step must also have an execution handler.
-        const unsupported = unsupportedSteps(steps)
+        // Every step must map to a governed control command; one that does not is refused
+        // rather than applied by any other means.
+        const unsupported = steps.filter((step) => !isControlExecutable(step.capability))
         if (unsupported.length > 0) {
-          throw new TxAbort(
-            reply.code(422).send({
-              error: 'capability_not_executable',
-              steps: unsupported.map((s) => ({ step_id: s.id, capability: s.capability })),
-            }),
-          )
+          return {
+            ok: false,
+            status: 422,
+            body: { error: 'capability_not_executable', steps: unsupported.map((s) => ({ step_id: s.id, capability: s.capability })) },
+          }
         }
 
-        // Re-preview against current state; a step that is now blocked stops the
-        // whole plan before any write.
-        const preview = await previewPlan(client, params.zoneId, {
-          summary: planRows[0].content.summary,
-          steps,
-        })
-        if (!preview.ok) {
-          throw new TxAbort(reply.code(409).send({ error: 'plan_blocked', preview }))
-        }
+        // Re-preview against current state; a now-blocked step stops the plan before any call.
+        const preview = await previewPlan(client, params.zoneId, { summary: planRows[0].content.summary, steps })
+        if (!preview.ok) return { ok: false, status: 409, body: { error: 'plan_blocked', preview } }
 
-        // A create step whose target now already exists would duplicate it, so the plan
-        // is refused rather than applied. This closes the window between preview and
-        // approval: the object may have been created in the meantime, and re-running the
-        // plan must never silently create a second one.
+        // A create step whose target now already exists would duplicate it, so the plan is
+        // refused rather than applied — re-running must never silently create a second one.
         const existing = preview.steps.filter((step) => step.effect === 'exists')
         if (existing.length > 0) {
-          throw new TxAbort(
-            reply.code(409).send({
+          return {
+            ok: false,
+            status: 409,
+            body: {
               error: 'plan_already_satisfied',
               steps: existing.map((step) => ({ step_id: step.id, capability: step.capability, detail: step.detail })),
-            }),
-          )
+            },
+          }
         }
 
-        const applied = await applyPlanSteps(client, params.zoneId, steps)
+        return { ok: true, steps }
+      })
 
+      if (!pre.ok) return reply.code(pre.status).send(pre.body)
+
+      // Apply the plan through the control plane as the Operator's scoped identity. Each
+      // step mints a least-privilege token and invokes its governed control command; the
+      // control plane authorizes, executes, and audits it natively. A denial or failure
+      // stops the plan, so it never silently half-applies.
+      const result = await executeViaControlPlane(controlClient, pre.steps)
+
+      // Record the applied steps and any failure in the ledger. The control plane already
+      // wrote the tamper-evident admin audit for each mutation, so no manual audit record
+      // is written here — the execution turn carries the Operator principal that applied it.
+      const recorded = await withTransaction(fastify.db, async (client) => {
+        const { rows: conv } = await client.query<{ status: string; next_seq: number }>(
+          `SELECT status, next_seq FROM operator_conversations WHERE id = $1 AND zone_id = $2 FOR UPDATE`,
+          [params.id, params.zoneId],
+        )
+        const turns: Record<string, unknown>[] = []
+        const outputs: Record<string, Record<string, unknown>> = {}
+        if (!conv[0] || conv[0].status !== 'active') return { turns, outputs }
         let seq = conv[0].next_seq
-        const turns = []
-        for (const step of applied) {
+        for (const step of result.applied) {
           const turn = await writeTurnLocked(client, {
             conversationId: params.id,
             zoneId: params.zoneId,
             seq,
             role: 'operator',
             kind: 'execution',
-            // executed_by records the reserved Operator principal that applied the
-            // change, distinct from the human approver recorded in the admin audit log.
             contentJson: JSON.stringify({
               plan_seq: planSeq,
               step_id: step.id,
@@ -831,71 +868,60 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
           })
           turns.push(turn)
           seq += 1
-
-          // Record the change in Caracal's own admin audit log, per entity, through the
-          // same tamper-evident primitive every manual control-plane mutation uses. The
-          // human who approved the plan is the authorizing actor; the Operator principal
-          // that applied it is carried in the payload, so the Operator dogfoods Caracal's
-          // audit exactly as a user-driven change would — no change bypasses the ledger.
-          if (step.audit) {
-            await insertAdminAuditRecord(
-              client,
-              {
-                requestId: req.id,
-                actorId: req.actor.id,
-                actorName: req.actor.name ?? null,
-                actorScope: req.actor.scope ?? null,
-                action: `operator.execute:${step.capability}`,
-                method: 'POST',
-                path: pathOnly(req.url),
-                zoneId: step.audit.zoneId,
-                entityType: step.audit.entityType,
-                entityId: step.audit.entityId,
-                statusCode: 201,
-                payloadJson: {
-                  executed_by: authority.principal,
-                  plan_seq: planSeq,
-                  step_id: step.id,
-                  capability: step.capability,
-                },
-              },
-              opts.auditHmacKey ?? null,
-            )
-          }
-        }
-
-        // One-time outputs (such as issued client secrets) are returned here only and
-        // are never written to the ledger.
-        const outputs: Record<string, Record<string, unknown>> = {}
-        for (const step of applied) {
           if (step.output) outputs[step.id] = step.output
         }
-        return reply.code(201).send({ ok: true, plan_seq: planSeq, executed_by: authority.principal, executed: turns, outputs })
+        if (result.failure) {
+          // When a step partially applied a plan, or its failure is terminal (the mutation
+          // may have been applied), record the failed step as an execution turn. That marks
+          // the step failed in plan state and — because any execution turn for this plan
+          // blocks a re-run — makes the plan non-retriable, so a possibly-applied mutation
+          // is never applied twice. A definitive, nothing-applied failure writes no
+          // execution turn, leaving the plan safe to retry.
+          if (result.applied.length > 0 || result.failure.terminal) {
+            await writeTurnLocked(client, {
+              conversationId: params.id,
+              zoneId: params.zoneId,
+              seq,
+              role: 'operator',
+              kind: 'execution',
+              contentJson: JSON.stringify({
+                plan_seq: planSeq,
+                step_id: result.failure.stepId,
+                status: 'failed',
+                detail: result.failure.reason.slice(0, 2000),
+                executed_by: authority.principal,
+              }),
+              actorId: req.actor.id,
+            })
+            seq += 1
+          }
+          await writeTurnLocked(client, {
+            conversationId: params.id,
+            zoneId: params.zoneId,
+            seq,
+            role: 'system',
+            kind: 'error',
+            contentJson: JSON.stringify({
+              message: `Step ${result.failure.stepId} (${result.failure.capability}) failed: ${result.failure.reason}`,
+            }),
+            actorId: req.actor.id,
+          })
+        }
+        return { turns, outputs }
       })
-    } catch (err) {
-      if (!(err instanceof StepExecutionError)) throw err
-      // The transaction rolled back, so no step persisted. Record a single error turn
-      // describing the failed step; the plan stays approved and may be retried.
-      await withTransaction(fastify.db, async (client) => {
-        const { rows: conv } = await client.query<{ status: string; next_seq: number }>(
-          `SELECT status, next_seq FROM operator_conversations
-           WHERE id = $1 AND zone_id = $2 FOR UPDATE`,
-          [params.id, params.zoneId],
-        )
-        if (!conv[0] || conv[0].status !== 'active') return
-        await writeTurnLocked(client, {
-          conversationId: params.id,
-          zoneId: params.zoneId,
-          seq: conv[0].next_seq,
-          role: 'system',
-          kind: 'error',
-          contentJson: JSON.stringify({
-            message: `Step ${err.stepId} (${err.capability}) failed: ${err.message}`,
-          }),
-          actorId: req.actor.id,
-        })
-      })
-      return reply.code(422).send({ error: 'execution_failed', step_id: err.stepId })
+
+      if (result.failure) {
+        return reply.code(422).send({ error: 'execution_failed', step_id: result.failure.stepId, applied: recorded.turns })
+      }
+      return reply
+        .code(201)
+        .send({ ok: true, plan_seq: planSeq, executed_by: authority.principal, executed: recorded.turns, outputs: recorded.outputs })
+    } finally {
+      // Release the lock only if this request still owns it: a compare-and-delete so an
+      // expired-then-reacquired lock held by another request is never deleted here.
+      await fastify.redis
+        .eval("if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end", 1, lockKey, lockOwner)
+        .catch(() => {})
     }
   })
 

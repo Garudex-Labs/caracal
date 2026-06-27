@@ -278,8 +278,10 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
     allowedCapabilities: cfg.operatorAllowedCapabilities,
     systemZones: cfg.operatorSystemZones,
     aiProviders: cfg.operatorAiProviders,
-    auditHmacKey: cfg.auditHmacKey,
     controlIdentity: cfg.operatorControl,
+    controlEndpoints: cfg.control
+      ? { stsUrl: cfg.stsUrl, audience: cfg.control.audience, controlUrl: cfg.control.apiUrl, controlEnabled: true }
+      : null,
   })
 
   if (cfg.control) {

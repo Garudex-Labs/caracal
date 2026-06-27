@@ -4,7 +4,7 @@
 // The reserved, least-privilege Operator identity and the authority checks that bound what it may execute and where.
 
 import { CAPABILITIES } from './operator-capabilities.js'
-import { isExecutable } from './operator-execute.js'
+import { isControlExecutable } from './operator-control-map.js'
 
 // The reserved principal the Operator executes as. It is distinct from the human
 // operator who approves a plan: the human's authorization is recorded in the admin
@@ -24,14 +24,14 @@ export interface OperatorAuthority {
   systemZones: ReadonlySet<string>
 }
 
-// The least-privilege default: exactly the mutating capabilities that have an
-// execution handler. The Operator cannot execute a newly added capability until it
-// is both implemented and explicitly granted, so the catalog can grow without
-// silently widening the Operator's authority.
+// The least-privilege default: exactly the mutating capabilities that are governed-
+// executable through the control plane. The Operator cannot execute a newly added
+// capability until it is both mapped to a governed control command and explicitly
+// granted, so the catalog can grow without silently widening the Operator's authority.
 function defaultAllowedCapabilities(): Set<string> {
   const allowed = new Set<string>()
   for (const capability of Object.values(CAPABILITIES)) {
-    if (capability.mutating && isExecutable(capability.id)) allowed.add(capability.id)
+    if (capability.mutating && isControlExecutable(capability.id)) allowed.add(capability.id)
   }
   return allowed
 }

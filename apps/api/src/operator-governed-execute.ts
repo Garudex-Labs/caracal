@@ -19,12 +19,17 @@ export interface GovernedStepResult {
 }
 
 // A step that failed to apply, carrying the structured control reason so the route can
-// record a precise error turn without leaking secrets or internal error text.
+// record a precise error turn without leaking secrets or internal error text. terminal is
+// true when the control command may already have been applied (an ambiguous server or
+// transport failure), so the plan must not be retried; it is false only when the failure
+// is definitive — the token was never minted, or the control plane rejected the command —
+// so nothing was applied and the plan is safe to retry.
 export interface GovernedStepFailure {
   stepId: string
   capability: string
   reason: string
   code?: string
+  terminal: boolean
 }
 
 // The outcome of applying a plan through the control plane. The governed path cannot wrap
@@ -67,7 +72,7 @@ export async function executeViaControlPlane(
     if (!capability) {
       return {
         applied,
-        failure: { stepId: step.id, capability: step.capability, reason: 'capability is not governed-executable' },
+        failure: { stepId: step.id, capability: step.capability, reason: 'capability is not governed-executable', terminal: false },
       }
     }
     const gen: ControlGen = { secret: genSecret() }
@@ -78,10 +83,16 @@ export async function executeViaControlPlane(
       applied.push({ id: step.id, capability: step.capability, detail: outcome.detail, output: outcome.output })
     } catch (err) {
       if (err instanceof ControlClientError) {
-        return { applied, failure: { stepId: step.id, capability: step.capability, reason: err.reason, code: err.code } }
+        // A definitive failure applies nothing and is safe to retry: the token was never
+        // minted (token stage), or the control plane rejected the command (a 4xx client
+        // error). An ambiguous failure — a server error or a lost response (5xx, or no
+        // status) at the invoke stage — may have applied the mutation, so it is terminal.
+        const terminal = err.stage === 'invoke' && (err.status >= 500 || err.status === 0)
+        return { applied, failure: { stepId: step.id, capability: step.capability, reason: err.reason, code: err.code, terminal } }
       }
+      // An unknown throw cannot be proven not to have applied, so it is treated as terminal.
       const reason = err instanceof Error ? err.message : 'step failed'
-      return { applied, failure: { stepId: step.id, capability: step.capability, reason } }
+      return { applied, failure: { stepId: step.id, capability: step.capability, reason, terminal: true } }
     }
   }
   return { applied, failure: null }

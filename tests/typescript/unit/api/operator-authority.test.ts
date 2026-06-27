@@ -13,15 +13,10 @@ import {
 } from '../../../../apps/api/src/operator-authority.js'
 
 describe('buildOperatorAuthority', () => {
-  it('defaults to the executable mutating capabilities only', () => {
+  it('defaults to the governed-executable mutating capabilities only', () => {
     const authority = buildOperatorAuthority()
     expect(authority.principal).toBe(OPERATOR_PRINCIPAL)
-    expect([...authority.allowedCapabilities].sort()).toEqual([
-      'createZone',
-      'grantAccess',
-      'registerApplication',
-      'rotateApplicationSecret',
-    ])
+    expect([...authority.allowedCapabilities].sort()).toEqual(['grantAccess', 'registerApplication', 'rotateApplicationSecret'])
     expect(authority.systemZones.size).toBe(0)
   })
 
@@ -54,7 +49,7 @@ describe('authorizeCapability', () => {
   })
 
   it('permits a granted mutating capability', () => {
-    expect(authorizeCapability(authority, 'createZone')).toEqual({ ok: true })
+    expect(authorizeCapability(authority, 'grantAccess')).toEqual({ ok: true })
   })
 
   it('forbids a mutating capability outside the grant', () => {
@@ -74,13 +69,13 @@ describe('authorizePlanSteps', () => {
     const authority = buildOperatorAuthority()
     expect(
       authorizePlanSteps(authority, [
-        { id: 's1', capability: 'createZone' },
+        { id: 's1', capability: 'grantAccess' },
         { id: 's2', capability: 'explainAccess' },
       ]),
     ).toEqual([])
 
     const denials = authorizePlanSteps(authority, [
-      { id: 's1', capability: 'createZone' },
+      { id: 's1', capability: 'grantAccess' },
       { id: 's2', capability: 'connectProvider' },
       { id: 's3', capability: 'defineResource' },
     ])
