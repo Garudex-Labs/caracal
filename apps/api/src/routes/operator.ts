@@ -15,6 +15,8 @@ import { ProposedPlan, listCapabilities, validateProposedPlan, type PlanValidati
 import { previewPlan } from '../operator-preview.js'
 import { applyPlanSteps, unsupportedSteps, StepExecutionError } from '../operator-execute.js'
 import { buildOperatorAuthority, isZoneIsolated, authorizePlanSteps, type OperatorAuthority } from '../operator-authority.js'
+import { insertAdminAuditRecord } from '@caracalai/admin-audit'
+import { pathOnly } from '@caracalai/core'
 import {
   createGateway,
   withUsage,
@@ -282,6 +284,10 @@ export interface OperatorRoutesOptions {
   allowedCapabilities?: string[] | null
   systemZones?: string[] | null
   aiProviders?: ProviderConfig[]
+  // Signs the Operator's own admin audit records into the same tamper-evident chain as
+  // every other control-plane change. Null leaves the chain hash-linked but unsigned,
+  // matching the rest of the audit log when no key is configured.
+  auditHmacKey?: Buffer | null
   // Injectable transport so the gateway path can be exercised in tests without a
   // live AI backend; defaults to the platform fetch in production.
   fetchImpl?: typeof fetch
@@ -816,6 +822,37 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
           })
           turns.push(turn)
           seq += 1
+
+          // Record the change in Caracal's own admin audit log, per entity, through the
+          // same tamper-evident primitive every manual control-plane mutation uses. The
+          // human who approved the plan is the authorizing actor; the Operator principal
+          // that applied it is carried in the payload, so the Operator dogfoods Caracal's
+          // audit exactly as a user-driven change would — no change bypasses the ledger.
+          if (step.audit) {
+            await insertAdminAuditRecord(
+              client,
+              {
+                requestId: req.id,
+                actorId: req.actor.id,
+                actorName: req.actor.name ?? null,
+                actorScope: req.actor.scope ?? null,
+                action: `operator.execute:${step.capability}`,
+                method: 'POST',
+                path: pathOnly(req.url),
+                zoneId: step.audit.zoneId,
+                entityType: step.audit.entityType,
+                entityId: step.audit.entityId,
+                statusCode: 201,
+                payloadJson: {
+                  executed_by: authority.principal,
+                  plan_seq: planSeq,
+                  step_id: step.id,
+                  capability: step.capability,
+                },
+              },
+              opts.auditHmacKey ?? null,
+            )
+          }
         }
 
         // One-time outputs (such as issued client secrets) are returned here only and

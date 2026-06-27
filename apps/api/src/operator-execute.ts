@@ -10,10 +10,22 @@ import { createDelegatedGrant } from './routes/grants.js'
 
 // The outcome of applying one step. detail is ledger-safe (never a secret); output
 // carries any one-time material that must reach the caller in the HTTP response only
-// and is never persisted to a turn.
+// and is never persisted to a turn; audit identifies the entity the step changed so the
+// execution can be recorded in Caracal's own admin audit log, per entity, the same way a
+// manual change through the API would be.
 export interface StepOutcome {
   detail: string
   output?: Record<string, unknown>
+  audit?: StepAudit
+}
+
+// Identifies the control-plane entity a mutating step created or changed, and the zone
+// whose tamper-evident audit chain the record belongs to. Read-only steps leave this
+// unset, so they are never recorded as mutations.
+export interface StepAudit {
+  entityType: string
+  entityId: string | null
+  zoneId: string
 }
 
 // A capability handler performs one real control-plane operation inside the caller's
@@ -88,7 +100,11 @@ const HANDLERS: Record<string, CapabilityHandler> = {
 
   createZone: async (client, _zoneId, args) => {
     const zone = await createZoneRecord(client, { name: asString(args.name) })
-    return { detail: `Created zone “${zone.name}”.`, output: { zone_id: zone.id, slug: zone.slug } }
+    return {
+      detail: `Created zone “${zone.name}”.`,
+      output: { zone_id: zone.id, slug: zone.slug },
+      audit: { entityType: 'zones', entityId: zone.id, zoneId: zone.id },
+    }
   },
   registerApplication: async (client, zoneId, args) => {
     const { row, clientSecret } = await createManagedApplication(client, zoneId, {
@@ -99,6 +115,7 @@ const HANDLERS: Record<string, CapabilityHandler> = {
     return {
       detail: `Registered application “${asString(args.name)}” and issued a client secret.`,
       output: { application_id: row.id, client_secret: clientSecret },
+      audit: { entityType: 'applications', entityId: row.id, zoneId },
     }
   },
   rotateApplicationSecret: async (client, zoneId, args) => {
@@ -110,6 +127,7 @@ const HANDLERS: Record<string, CapabilityHandler> = {
     return {
       detail: `Rotated the client secret for application ${applicationId} and retired the old one.`,
       output: { application_id: applicationId, client_secret: result.clientSecret },
+      audit: { entityType: 'applications', entityId: applicationId, zoneId },
     }
   },
   grantAccess: async (client, zoneId, args) => {
@@ -126,6 +144,7 @@ const HANDLERS: Record<string, CapabilityHandler> = {
     return {
       detail: `Granted ${scopes.join(', ')} to application ${asString(args.application_id)} on resource ${asString(args.resource_id)}.`,
       output: { grant_id: result.row.id },
+      audit: { entityType: 'grants', entityId: result.row.id, zoneId },
     }
   },
 }
@@ -164,6 +183,7 @@ export interface ExecutedStep {
   capability: string
   detail: string
   output?: Record<string, unknown>
+  audit?: StepAudit
 }
 
 // Applies every step in order within the caller's open transaction. Any handler
@@ -178,7 +198,7 @@ export async function applyPlanSteps(client: TxClient, zoneId: string, steps: Pl
     }
     try {
       const outcome = await handler(client, zoneId, step.args)
-      executed.push({ id: step.id, capability: step.capability, detail: outcome.detail, output: outcome.output })
+      executed.push({ id: step.id, capability: step.capability, detail: outcome.detail, output: outcome.output, audit: outcome.audit })
     } catch (err) {
       if (err instanceof StepExecutionError) throw err
       const message = err instanceof Error ? err.message : 'step failed'

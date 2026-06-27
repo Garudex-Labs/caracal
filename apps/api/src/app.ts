@@ -278,6 +278,7 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
     allowedCapabilities: cfg.operatorAllowedCapabilities,
     systemZones: cfg.operatorSystemZones,
     aiProviders: cfg.operatorAiProviders,
+    auditHmacKey: cfg.auditHmacKey,
   })
 
   if (cfg.control) {
