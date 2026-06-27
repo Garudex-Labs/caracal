@@ -1,11 +1,16 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// The Operator LLM gateway: a provider-agnostic, OpenAI-compatible completion client with multi-provider failover.
+// The Operator LLM gateway: a provider-agnostic completion client built on the Vercel AI SDK over any OpenAI-compatible endpoint with multi-provider failover.
+
+import { APICallError, extractReasoningMiddleware, generateText, wrapLanguageModel } from 'ai'
+import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 
 // A single configured backend. The OpenAI-compatible chat surface is the common
 // denominator across hosted providers (OpenAI, Together, Groq), local servers
-// (Ollama, vLLM), and gateways (LiteLLM), so one client reaches all of them. A
+// (Ollama, vLLM), and gateways (LiteLLM), so one client reaches all of them. In
+// production the recommended backend is a LiteLLM proxy, which owns per-provider
+// integration, BYOK, and key budgets so Caracal never maintains provider SDKs. A
 // missing apiKey is valid for local backends that need no credential.
 export interface ProviderConfig {
   id: string
@@ -101,27 +106,37 @@ function providerAvailable(provider: ProviderConfig): boolean {
   return provider.baseUrl.length > 0 && provider.model.length > 0
 }
 
-interface ChatCompletionResponse {
-  choices?: { message?: { content?: string; reasoning_content?: string } }[]
-  usage?: { prompt_tokens?: number; completion_tokens?: number }
+// Builds the AI SDK language model for one provider. The OpenAI-compatible provider
+// maps a reasoning model's reasoning_content channel into reasoningText, and the
+// reasoning middleware additionally extracts an inline <think>...</think> block, so a
+// model's chain of thought is captured however it is exposed. fetchImpl is injectable
+// so the transport can be exercised without a live backend.
+function buildModel(fetchImpl: FetchImpl, provider: ProviderConfig) {
+  const backend = createOpenAICompatible({
+    name: provider.id,
+    baseURL: provider.baseUrl,
+    apiKey: provider.apiKey,
+    fetch: fetchImpl,
+  })
+  return wrapLanguageModel({
+    model: backend.chatModel(provider.model),
+    middleware: extractReasoningMiddleware({ tagName: 'think' }),
+  })
 }
 
-// Separates a reasoning model's chain of thought from its answer. Reasoning arrives
-// either in the OpenAI-compatible reasoning_content channel or inline as a leading
-// <think>...</think> block; the answer is the content with any think block removed.
-function splitReasoning(content: string, reasoningField?: string): { text: string; reasoning?: string } {
-  const inline = content.match(/<think>([\s\S]*?)<\/think>/i)
-  const answer = inline ? content.replace(/<think>[\s\S]*?<\/think>/gi, '').trim() : content.trim()
-  const field = typeof reasoningField === 'string' ? reasoningField.trim() : ''
-  const reasoning = field.length > 0 ? field : inline ? inline[1].trim() : ''
-  return {
-    text: answer.length > 0 ? answer : content.trim(),
-    reasoning: reasoning.length > 0 ? reasoning : undefined,
-  }
+// Derives a failover reason from an error with no secret in it: the API key only
+// ever lives in the request's authorization header, never in the SDK's error text,
+// so the message and status are safe to surface.
+function failureReason(err: unknown): string {
+  if (APICallError.isInstance(err)) return `provider returned status ${err.statusCode ?? 'error'}`
+  if (err instanceof Error) return err.message.length > 0 ? err.message : err.name
+  return 'unknown error'
 }
 
-// Performs one OpenAI-compatible chat completion against a single provider. Network
-// failures, non-2xx responses, and timeouts all throw, so the caller can fail over.
+// Performs one chat completion against a single provider through the AI SDK. Per-call
+// retry is disabled so this gateway's own failover order owns retry semantics; network
+// failures, non-2xx responses, timeouts, and empty completions all throw so the caller
+// can fail over.
 async function callProvider(
   fetchImpl: FetchImpl,
   provider: ProviderConfig,
@@ -131,36 +146,32 @@ async function callProvider(
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), provider.timeoutMs)
   try {
-    const headers: Record<string, string> = { 'content-type': 'application/json' }
-    if (provider.apiKey) headers.authorization = `Bearer ${provider.apiKey}`
-    const res = await fetchImpl(`${provider.baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        model: provider.model,
-        messages,
-        max_tokens: options.maxTokens,
-        temperature: options.temperature,
-        stream: false,
-      }),
-      signal: controller.signal,
+    // The AI SDK takes system content through the system option rather than as a
+    // message role, so any system messages are hoisted out and joined here.
+    const system = messages
+      .filter((message) => message.role === 'system')
+      .map((message) => message.content)
+      .join('\n\n')
+    const conversation = messages.filter((message) => message.role !== 'system')
+    const result = await generateText({
+      model: buildModel(fetchImpl, provider),
+      system: system.length > 0 ? system : undefined,
+      messages: conversation,
+      maxOutputTokens: options.maxTokens,
+      temperature: options.temperature,
+      abortSignal: controller.signal,
+      maxRetries: 0,
     })
-    if (!res.ok) {
-      throw new Error(`provider returned status ${res.status}`)
-    }
-    const body = (await res.json()) as ChatCompletionResponse
-    const message = body.choices?.[0]?.message
-    if (typeof message?.content !== 'string' || message.content.length === 0) {
-      throw new Error('provider returned an empty completion')
-    }
-    const { text, reasoning } = splitReasoning(message.content, message.reasoning_content)
+    const text = result.text.trim()
+    if (text.length === 0) throw new Error('provider returned an empty completion')
+    const reasoning = result.reasoningText?.trim()
     return {
       text,
-      reasoning,
+      reasoning: reasoning && reasoning.length > 0 ? reasoning : undefined,
       provider: provider.id,
       model: provider.model,
-      promptTokens: body.usage?.prompt_tokens,
-      completionTokens: body.usage?.completion_tokens,
+      promptTokens: result.usage.inputTokens,
+      completionTokens: result.usage.outputTokens,
     }
   } finally {
     clearTimeout(timeout)
@@ -214,10 +225,9 @@ export function createGateway(providers: ProviderConfig[], fetchImpl: FetchImpl 
         try {
           return await callProvider(fetchImpl, provider, messages, options)
         } catch (err) {
-          // The reason is derived from the error message only; provider headers and
-          // keys never enter it, so attempts is safe to surface.
-          const reason = err instanceof Error ? err.message : 'unknown error'
-          attempts.push({ provider: provider.id, reason })
+          // The reason is derived from the error with secrets redacted, so attempts is
+          // safe to surface.
+          attempts.push({ provider: provider.id, reason: failureReason(err) })
         }
       }
       throw new GatewayError(attempts)

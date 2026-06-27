@@ -118,7 +118,7 @@ Because the Operator acts within a delegated subset of your operator authority a
 
 ### Natural-language provider
 
-Turning your words into a plan needs a language model, and that model is something you supply. The Operator talks to any OpenAI-compatible endpoint, so you can bring a hosted provider key, point at a local model server, or list several providers that are tried in order for resilience. Keys are read from the API service environment and never stored in or returned by the console.
+Turning your words into a plan needs a language model, and that model is something you supply. The Operator is built on the [Vercel AI SDK](https://ai-sdk.dev) and talks to any OpenAI-compatible endpoint, so you can bring a hosted provider key, point at a local model server, or list several providers that are tried in order for resilience. For production the recommended backend is a self-hosted [LiteLLM](https://docs.litellm.ai) proxy, which owns per-provider integration, bring-your-own-key budgets, and local-model routing behind one OpenAI-compatible endpoint — so Caracal never maintains provider SDKs itself. Keys are read from the API service environment and never stored in or returned by the console.
 
 The provider layer is optional and off by default. With nothing configured, the Operator runs without natural-language assistance and consumes no AI resources; the rest of the console — including everything you would do by hand — is unaffected. When you do configure providers, the AI panel shows them in failover order, and a connectivity check confirms a real request reaches your model before you rely on it.
 

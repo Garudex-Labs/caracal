@@ -57,7 +57,7 @@ describe('gateway complete', () => {
     const [url, init] = fetchMock.mock.calls[0]! as [string, RequestInit]
     expect(url).toBe('https://api.example.com/v1/chat/completions')
     expect((init.headers as Record<string, string>).authorization).toBe('Bearer sk-secret')
-    expect(JSON.parse(init.body as string)).toMatchObject({ model: 'gpt-x', max_tokens: 5, stream: false })
+    expect(JSON.parse(init.body as string)).toMatchObject({ model: 'gpt-x', max_tokens: 5 })
   })
 
   it('omits the authorization header for a keyless local provider', async () => {
