@@ -3,8 +3,9 @@
 //
 // The Operator LLM gateway: a provider-agnostic completion client built on the Vercel AI SDK over any OpenAI-compatible endpoint with multi-provider failover.
 
-import { APICallError, extractReasoningMiddleware, generateText, wrapLanguageModel } from 'ai'
+import { APICallError, extractReasoningMiddleware, generateObject, generateText, wrapLanguageModel } from 'ai'
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
+import type { ZodType } from 'zod'
 
 // A single configured backend. The OpenAI-compatible chat surface is the common
 // denominator across hosted providers (OpenAI, Together, Groq), local servers
@@ -44,6 +45,17 @@ export interface CompletionResult {
   // OpenAI-compatible reasoning_content channel or inline <think> tags. Absent for models
   // that return only an answer.
   reasoning?: string
+  provider: string
+  model: string
+  promptTokens?: number
+  completionTokens?: number
+}
+
+// A schema-validated structured completion: the model's JSON answer parsed into the
+// caller's type, with the same provider attribution and token counts as a text
+// completion. Used by the agents that need a typed artifact rather than prose.
+export interface CompletionObjectResult<T> {
+  value: T
   provider: string
   model: string
   promptTokens?: number
@@ -102,26 +114,71 @@ export class GatewayError extends Error {
 
 type FetchImpl = typeof fetch
 
+// The OpenAI-compatible provider emits one benign warning on every structured
+// completion that runs against a backend which does not advertise strict schema
+// support: the gateway deliberately uses the portable JSON-object mode and validates
+// the schema itself, so this warning is expected. It is filtered out once at the
+// process level while every other warning is forwarded, keeping production logs clean
+// without hiding real signal. Installation is idempotent and preserves any logger that
+// was already set.
+function installStructuredOutputWarningFilter(): void {
+  type WarningEntry = { type?: string; feature?: string }
+  type WarningLogger = (options: { warnings: WarningEntry[]; provider?: string; model?: string }) => void
+  const globals = globalThis as typeof globalThis & {
+    AI_SDK_LOG_WARNINGS?: WarningLogger | false
+    caracalWarningFilterInstalled?: boolean
+  }
+  if (globals.caracalWarningFilterInstalled) return
+  const previous = typeof globals.AI_SDK_LOG_WARNINGS === 'function' ? globals.AI_SDK_LOG_WARNINGS : null
+  globals.AI_SDK_LOG_WARNINGS = ({ warnings, provider, model }) => {
+    const kept = warnings.filter((warning) => !(warning.type === 'unsupported' && warning.feature === 'responseFormat'))
+    if (kept.length === 0) return
+    if (previous) previous({ warnings: kept, provider, model })
+    else console.warn('AI SDK Warning', { provider, model, warnings: kept })
+  }
+  globals.caracalWarningFilterInstalled = true
+}
+
+installStructuredOutputWarningFilter()
+
 function providerAvailable(provider: ProviderConfig): boolean {
   return provider.baseUrl.length > 0 && provider.model.length > 0
 }
 
-// Builds the AI SDK language model for one provider. The OpenAI-compatible provider
-// maps a reasoning model's reasoning_content channel into reasoningText, and the
-// reasoning middleware additionally extracts an inline <think>...</think> block, so a
-// model's chain of thought is captured however it is exposed. fetchImpl is injectable
-// so the transport can be exercised without a live backend.
-function buildModel(fetchImpl: FetchImpl, provider: ProviderConfig) {
-  const backend = createOpenAICompatible({
+// Builds the OpenAI-compatible backend for one provider. fetchImpl is injectable so the
+// transport can be exercised without a live backend. In production the recommended
+// backend is a LiteLLM proxy that fronts every provider behind this one wire format.
+function buildBackend(fetchImpl: FetchImpl, provider: ProviderConfig) {
+  return createOpenAICompatible({
     name: provider.id,
     baseURL: provider.baseUrl,
     apiKey: provider.apiKey,
     fetch: fetchImpl,
   })
+}
+
+// The chat model for free-text completions, wrapped so a reasoning model's chain of
+// thought is captured however it is exposed: the OpenAI-compatible reasoning_content
+// channel maps into reasoningText, and the middleware additionally extracts an inline
+// <think>...</think> block.
+function buildReasoningModel(fetchImpl: FetchImpl, provider: ProviderConfig) {
   return wrapLanguageModel({
-    model: backend.chatModel(provider.model),
+    model: buildBackend(fetchImpl, provider).chatModel(provider.model),
     middleware: extractReasoningMiddleware({ tagName: 'think' }),
   })
+}
+
+// The AI SDK takes system content through the system option rather than as a message
+// role, so system messages are hoisted out and joined, and the rest are passed through.
+function splitSystem(messages: GatewayMessage[]): { system?: string; conversation: GatewayMessage[] } {
+  const system = messages
+    .filter((message) => message.role === 'system')
+    .map((message) => message.content)
+    .join('\n\n')
+  return {
+    system: system.length > 0 ? system : undefined,
+    conversation: messages.filter((message) => message.role !== 'system'),
+  }
 }
 
 // Derives a failover reason from an error with no secret in it: the API key only
@@ -133,10 +190,10 @@ function failureReason(err: unknown): string {
   return 'unknown error'
 }
 
-// Performs one chat completion against a single provider through the AI SDK. Per-call
-// retry is disabled so this gateway's own failover order owns retry semantics; network
-// failures, non-2xx responses, timeouts, and empty completions all throw so the caller
-// can fail over.
+// Performs one free-text chat completion against a single provider through the AI SDK.
+// Per-call retry is disabled so this gateway's own failover order owns retry semantics;
+// network failures, non-2xx responses, timeouts, and empty completions all throw so the
+// caller can fail over.
 async function callProvider(
   fetchImpl: FetchImpl,
   provider: ProviderConfig,
@@ -146,16 +203,10 @@ async function callProvider(
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), provider.timeoutMs)
   try {
-    // The AI SDK takes system content through the system option rather than as a
-    // message role, so any system messages are hoisted out and joined here.
-    const system = messages
-      .filter((message) => message.role === 'system')
-      .map((message) => message.content)
-      .join('\n\n')
-    const conversation = messages.filter((message) => message.role !== 'system')
+    const { system, conversation } = splitSystem(messages)
     const result = await generateText({
-      model: buildModel(fetchImpl, provider),
-      system: system.length > 0 ? system : undefined,
+      model: buildReasoningModel(fetchImpl, provider),
+      system,
       messages: conversation,
       maxOutputTokens: options.maxTokens,
       temperature: options.temperature,
@@ -178,14 +229,83 @@ async function callProvider(
   }
 }
 
+// Performs one schema-validated structured completion against a single provider. The
+// model is asked for JSON and its answer is validated against the schema by the AI SDK,
+// so a malformed or off-schema response throws and the caller fails over rather than
+// acting on an unvalidated object. JSON-object mode is portable across hosted and local
+// OpenAI-compatible backends, so it does not require provider-side schema support.
+async function callProviderObject<T>(
+  fetchImpl: FetchImpl,
+  provider: ProviderConfig,
+  messages: GatewayMessage[],
+  schema: ZodType<T>,
+  options: CompletionOptions,
+): Promise<CompletionObjectResult<T>> {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), provider.timeoutMs)
+  try {
+    const { system, conversation } = splitSystem(messages)
+    const result = await generateObject({
+      model: buildBackend(fetchImpl, provider).chatModel(provider.model),
+      schema,
+      system,
+      messages: conversation,
+      maxOutputTokens: options.maxTokens,
+      temperature: options.temperature,
+      abortSignal: controller.signal,
+      maxRetries: 0,
+    })
+    return {
+      value: result.object,
+      provider: provider.id,
+      model: provider.model,
+      promptTokens: result.usage.inputTokens,
+      completionTokens: result.usage.outputTokens,
+    }
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
 export interface Gateway {
   status(): GatewayStatus
   active(): ActiveModel | null
   complete(messages: GatewayMessage[], options?: CompletionOptions): Promise<CompletionResult>
+  completeObject<T>(messages: GatewayMessage[], schema: ZodType<T>, options?: CompletionOptions): Promise<CompletionObjectResult<T>>
+}
+
+// Runs a per-provider call through the failover order and returns the first success.
+// The caller's preferred provider, when available, is tried ahead of the rest; a
+// preference for an unknown or unavailable provider is ignored so a stale preference
+// never disables the gateway. Every provider failing throws a GatewayError carrying the
+// redacted per-provider reasons.
+async function runWithFailover<T>(
+  available: ProviderConfig[],
+  preferredProvider: string | undefined,
+  call: (provider: ProviderConfig) => Promise<T>,
+): Promise<T> {
+  if (available.length === 0) throw new GatewayUnavailableError()
+  const order = [...available]
+  if (preferredProvider) {
+    const index = order.findIndex((provider) => provider.id === preferredProvider)
+    if (index > 0) {
+      const [preferred] = order.splice(index, 1)
+      order.unshift(preferred)
+    }
+  }
+  const attempts: { provider: string; reason: string }[] = []
+  for (const provider of order) {
+    try {
+      return await call(provider)
+    } catch (err) {
+      attempts.push({ provider: provider.id, reason: failureReason(err) })
+    }
+  }
+  throw new GatewayError(attempts)
 }
 
 // Builds a gateway over an ordered provider list. The order is the failover order:
-// complete() tries each available provider in turn and returns the first success.
+// each completion tries every available provider in turn and returns the first success.
 // fetchImpl is injectable so the transport can be exercised without a live backend.
 export function createGateway(providers: ProviderConfig[], fetchImpl: FetchImpl = fetch): Gateway {
   const available = providers.filter(providerAvailable)
@@ -208,29 +328,14 @@ export function createGateway(providers: ProviderConfig[], fetchImpl: FetchImpl 
       return provider ? { model: provider.model, contextWindow: provider.contextWindow } : null
     },
 
-    async complete(messages, options = {}) {
-      if (available.length === 0) throw new GatewayUnavailableError()
-      // Try the caller's preferred provider first when it is available, then the rest in
-      // failover order. A preference for an unknown or unavailable provider is ignored.
-      const order = [...available]
-      if (options.preferredProvider) {
-        const index = order.findIndex((provider) => provider.id === options.preferredProvider)
-        if (index > 0) {
-          const [preferred] = order.splice(index, 1)
-          order.unshift(preferred)
-        }
-      }
-      const attempts: { provider: string; reason: string }[] = []
-      for (const provider of order) {
-        try {
-          return await callProvider(fetchImpl, provider, messages, options)
-        } catch (err) {
-          // The reason is derived from the error with secrets redacted, so attempts is
-          // safe to surface.
-          attempts.push({ provider: provider.id, reason: failureReason(err) })
-        }
-      }
-      throw new GatewayError(attempts)
+    complete(messages, options = {}) {
+      return runWithFailover(available, options.preferredProvider, (provider) => callProvider(fetchImpl, provider, messages, options))
+    },
+
+    completeObject(messages, schema, options = {}) {
+      return runWithFailover(available, options.preferredProvider, (provider) =>
+        callProviderObject(fetchImpl, provider, messages, schema, options),
+      )
     },
   }
 }
@@ -250,17 +355,24 @@ export function withUsage(gateway: Gateway): { gateway: Gateway; usage: () => Ga
       outputTokens += result.completionTokens ?? 0
       return result
     },
+    async completeObject(messages, schema, options) {
+      const result = await gateway.completeObject(messages, schema, options)
+      inputTokens += result.promptTokens ?? 0
+      outputTokens += result.completionTokens ?? 0
+      return result
+    },
   }
   return { gateway: tracked, usage: () => ({ inputTokens, outputTokens }) }
 }
 
 // Wraps a gateway so every completion prefers the given provider, without touching the
-// agents that call complete(). A null id is a no-op, so callers can wrap unconditionally.
+// agents that call it. A null id is a no-op, so callers can wrap unconditionally.
 export function preferProvider(gateway: Gateway, providerId: string | null): Gateway {
   if (!providerId) return gateway
   return {
     status: () => gateway.status(),
     active: () => gateway.active(),
     complete: (messages, options = {}) => gateway.complete(messages, { ...options, preferredProvider: providerId }),
+    completeObject: (messages, schema, options = {}) => gateway.completeObject(messages, schema, { ...options, preferredProvider: providerId }),
   }
 }

@@ -17,22 +17,6 @@ const ROUTER_MAX_TOKENS = 16
 const PLANNER_MAX_TOKENS = 800
 const EXPLAINER_MAX_TOKENS = 600
 
-// Extracts the first JSON object from a model response, tolerating Markdown code
-// fences and surrounding prose, then parses it. Returns null when no parseable JSON
-// object is present so callers can fail closed rather than guess.
-export function extractJson(text: string): unknown {
-  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i)
-  const candidate = fenced ? fenced[1] : text
-  const start = candidate.indexOf('{')
-  const end = candidate.lastIndexOf('}')
-  if (start === -1 || end === -1 || end < start) return null
-  try {
-    return JSON.parse(candidate.slice(start, end + 1))
-  } catch {
-    return null
-  }
-}
-
 export type OperatorIntent = 'plan' | 'explain'
 
 export type AgentResult<T> = { ok: true; value: T } | { ok: false; error: string }
@@ -53,16 +37,19 @@ export function buildRouterMessages(message: string): GatewayMessage[] {
   ]
 }
 
-// Classifies a request into an actionable intent. Defaults closed: an unparseable
-// classification is an error, not a guessed action.
+// Classifies a request into an actionable intent. The model's answer is generated as a
+// schema-validated object, so an off-schema classification fails closed as an error
+// rather than a guessed action.
 export async function runRouter(gateway: Gateway, message: string): Promise<AgentResult<OperatorIntent>> {
-  const completion = await gateway.complete(buildRouterMessages(message), {
-    maxTokens: ROUTER_MAX_TOKENS,
-    temperature: 0,
-  })
-  const parsed = RouterOutput.safeParse(extractJson(completion.text))
-  if (!parsed.success) return { ok: false, error: 'router returned an unrecognized intent' }
-  return { ok: true, value: parsed.data.intent }
+  try {
+    const completion = await gateway.completeObject(buildRouterMessages(message), RouterOutput, {
+      maxTokens: ROUTER_MAX_TOKENS,
+      temperature: 0,
+    })
+    return { ok: true, value: completion.value.intent }
+  } catch {
+    return { ok: false, error: 'router returned an unrecognized intent' }
+  }
 }
 
 // The context an agent reasons over: the compressed facts of the older history plus
@@ -123,19 +110,20 @@ const PlannerPlan = z
   })
   .strict()
 
-// Produces a proposed plan from intent. The output is parsed against the planner schema;
-// anything malformed fails closed, so a hallucinated plan never leaves this function as a
-// success. An empty steps array is a valid "nothing maps" result.
+// Produces a proposed plan from intent. The model's answer is generated as a
+// schema-validated object, so anything malformed or off-schema fails closed and a
+// hallucinated plan never leaves this function as a success. An empty steps array is a
+// valid "nothing maps" result.
 export async function runPlanner(gateway: Gateway, message: string, context: AgentContext): Promise<AgentResult<ProposedPlanInput>> {
-  const completion = await gateway.complete(buildPlannerMessages(message, context), {
-    maxTokens: PLANNER_MAX_TOKENS,
-    temperature: 0,
-  })
-  const json = extractJson(completion.text)
-  if (json === null) return { ok: false, error: 'planner did not return JSON' }
-  const parsed = PlannerPlan.safeParse(json)
-  if (!parsed.success) return { ok: false, error: 'planner returned a plan that failed the schema' }
-  return { ok: true, value: parsed.data }
+  try {
+    const completion = await gateway.completeObject(buildPlannerMessages(message, context), PlannerPlan, {
+      maxTokens: PLANNER_MAX_TOKENS,
+      temperature: 0,
+    })
+    return { ok: true, value: completion.value }
+  } catch {
+    return { ok: false, error: 'planner returned a plan that failed the schema' }
+  }
 }
 
 export function buildExplainerMessages(message: string, context: AgentContext): GatewayMessage[] {

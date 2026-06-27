@@ -1,14 +1,14 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Unit tests for the Operator agents: JSON extraction, intent routing, planning, and explanation.
+// Unit tests for the Operator agents: intent routing, planning, and explanation.
 
 import { describe, it, expect, vi } from 'vitest'
-import { extractJson, buildPlannerMessages, runRouter, runPlanner, runExplainer } from '../../../../apps/api/src/operator-agents.js'
-import type { Gateway, CompletionResult } from '../../../../apps/api/src/operator-gateway.js'
+import { buildPlannerMessages, runRouter, runPlanner, runExplainer } from '../../../../apps/api/src/operator-agents.js'
+import type { Gateway, CompletionResult, CompletionObjectResult } from '../../../../apps/api/src/operator-gateway.js'
 
-// A gateway stub whose completions are scripted, so the agent's prompt construction
-// and output handling are exercised without a live model.
+// A gateway stub whose free-text completions are scripted, so the explainer's prompt
+// construction and output handling are exercised without a live model.
 function gatewayReturning(...texts: string[]): { gateway: Gateway; complete: ReturnType<typeof vi.fn> } {
   const complete = vi.fn()
   for (const text of texts) {
@@ -20,36 +20,32 @@ function gatewayReturning(...texts: string[]): { gateway: Gateway; complete: Ret
   }
 }
 
-describe('extractJson', () => {
-  it('parses a bare JSON object', () => {
-    expect(extractJson('{"intent":"plan"}')).toEqual({ intent: 'plan' })
-  })
-
-  it('parses JSON inside a fenced code block', () => {
-    expect(extractJson('Here:\n```json\n{"intent":"explain"}\n```')).toEqual({ intent: 'explain' })
-  })
-
-  it('parses JSON embedded in prose', () => {
-    expect(extractJson('Sure! {"summary":"x","steps":[]} done')).toEqual({ summary: 'x', steps: [] })
-  })
-
-  it('returns null when there is no JSON object', () => {
-    expect(extractJson('no json here')).toBeNull()
-  })
-
-  it('returns null on malformed JSON', () => {
-    expect(extractJson('{"a": }')).toBeNull()
-  })
-})
+// A gateway stub whose structured completions are scripted: a value resolves as the
+// schema-validated object, while an Error rejects as the SDK would on an off-schema
+// answer, so the router and planner are exercised against both real outcomes.
+function gatewayProducing(...results: (object | Error)[]): { gateway: Gateway; completeObject: ReturnType<typeof vi.fn> } {
+  const completeObject = vi.fn()
+  for (const result of results) {
+    if (result instanceof Error) {
+      completeObject.mockRejectedValueOnce(result)
+    } else {
+      completeObject.mockResolvedValueOnce({ value: result, provider: 'test', model: 'm' } satisfies CompletionObjectResult<object>)
+    }
+  }
+  return {
+    gateway: { status: () => ({ enabled: true, providers: [] }), completeObject } as unknown as Gateway,
+    completeObject,
+  }
+}
 
 describe('runRouter', () => {
   it('returns the classified intent', async () => {
-    const { gateway } = gatewayReturning('{"intent":"plan"}')
+    const { gateway } = gatewayProducing({ intent: 'plan' })
     expect(await runRouter(gateway, 'connect github')).toEqual({ ok: true, value: 'plan' })
   })
 
-  it('fails closed on an unrecognized classification', async () => {
-    const { gateway } = gatewayReturning('{"intent":"banana"}')
+  it('fails closed when classification does not pass the schema', async () => {
+    const { gateway } = gatewayProducing(new Error('schema validation failed'))
     const result = await runRouter(gateway, 'hmm')
     expect(result.ok).toBe(false)
   })
@@ -102,19 +98,19 @@ describe('runPlanner', () => {
       summary: 'Connect GitHub',
       steps: [{ id: 's1', capability: 'connectProvider', args: { name: 'GitHub', kind: 'oauth2_authorization_code' } }],
     }
-    const { gateway } = gatewayReturning('```json\n' + JSON.stringify(plan) + '\n```')
+    const { gateway } = gatewayProducing(plan)
     const result = await runPlanner(gateway, 'connect github', { facts: null, state: null })
     expect(result).toEqual({ ok: true, value: plan })
   })
 
-  it('fails closed when the model returns no JSON', async () => {
-    const { gateway } = gatewayReturning('I am not sure how to help.')
+  it('fails closed when the plan does not pass the schema', async () => {
+    const { gateway } = gatewayProducing(new Error('schema validation failed'))
     const result = await runPlanner(gateway, 'connect github', { facts: null, state: null })
     expect(result).toMatchObject({ ok: false })
   })
 
   it('accepts an empty plan as a valid "nothing maps" result', async () => {
-    const { gateway } = gatewayReturning('{"summary":"No matching action","steps":[]}')
+    const { gateway } = gatewayProducing({ summary: 'No matching action', steps: [] })
     const result = await runPlanner(gateway, 'order me a pizza', { facts: null, state: null })
     expect(result).toEqual({ ok: true, value: { summary: 'No matching action', steps: [] } })
   })
