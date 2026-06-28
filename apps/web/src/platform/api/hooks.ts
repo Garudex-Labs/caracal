@@ -1064,6 +1064,20 @@ export function useSystemZoneView(): boolean {
   return useState(detectSystemZoneView)[0];
 }
 
+// Leaves the read-only system-zone viewer and lands on the given Console path as a normal tab.
+// The viewer flag is latched per tab and read once on mount, so clearing it is paired with a
+// full navigation: the destination loads without the flag and resolves to the normal Console,
+// where the operator can pick and manage their own zones again.
+export function exitSystemZoneView(to: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.removeItem(SYSTEM_ZONE_VIEW_KEY);
+  } catch {
+    // sessionStorage may be unavailable; the absent flag still resolves to the normal Console.
+  }
+  window.location.assign(to);
+}
+
 const noopSelectZone = (): void => {};
 
 // The id of the reserved system zone, resolved from the Operator status probe. Static per

@@ -9,7 +9,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { ConfirmDialog } from "@/components/ui";
 import { cx } from "@/lib/cx";
-import { useActiveZone, useSystemZoneView } from "@/platform/api/hooks";
+import { useActiveZone, useSystemZoneView, exitSystemZoneView } from "@/platform/api/hooks";
 import { isHideLockedPath } from "@/platform/nav/hideLock";
 import { signOut, useSession } from "@/platform/auth";
 import { useProfile, resolveDisplayName } from "@/platform/state/localInstall";
@@ -107,7 +107,7 @@ export function ProfileMenu({ collapsed = false }: { collapsed?: boolean }) {
             <span className="flex min-w-0 flex-1 flex-col text-left leading-tight">
               <span className="truncate text-sm font-medium text-foreground">{profileName}</span>
               <span className="truncate text-[11px] text-muted-foreground">
-                {activeZone ? activeZone.name : "No active zone"}
+                {systemView ? "System zone" : activeZone ? activeZone.name : "No active zone"}
               </span>
             </span>
             <svg
@@ -145,73 +145,101 @@ export function ProfileMenu({ collapsed = false }: { collapsed?: boolean }) {
           </div>
 
           <div className="border-b border-border p-2">
-            <div className="flex items-center justify-between px-1.5 pb-1">
-              <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                Active zone
-              </span>
-              <Link
-                to="/app/zones"
-                onClick={() => setOpen(false)}
-                className="text-[11px] font-medium text-muted-foreground hover:text-foreground"
+            {systemView ? (
+              <button
+                onClick={() => exitSystemZoneView("/app/zones")}
+                className="flex w-full items-center gap-2 rounded-md px-1.5 py-2 text-left text-sm text-foreground hover:bg-accent"
               >
-                Manage
-              </Link>
-            </div>
-            {zones.length === 0 ? (
-              <Link
-                to="/app/zones"
-                onClick={() => setOpen(false)}
-                className="block rounded-md px-1.5 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"
-              >
-                No zones yet. Create one
-              </Link>
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="flex-shrink-0 text-muted-foreground"
+                  aria-hidden="true"
+                >
+                  <rect x="3" y="3" width="7" height="7" rx="1" />
+                  <rect x="14" y="3" width="7" height="7" rx="1" />
+                  <rect x="3" y="14" width="7" height="7" rx="1" />
+                  <rect x="14" y="14" width="7" height="7" rx="1" />
+                </svg>
+                <span className="truncate">Manage zones</span>
+              </button>
             ) : (
               <>
-                {zones.length > 6 ? (
-                  <input
-                    value={zoneSearch}
-                    onChange={(e) => setZoneSearch(e.target.value)}
-                    placeholder="Search zones…"
-                    className="mb-1 w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm outline-none focus:border-ring"
-                  />
-                ) : null}
-                <div className="scrollbar-thin max-h-44 overflow-y-auto">
-                  {filteredZones.map((zone) => {
-                    const isActive = zone.id === activeZone?.id;
-                    return (
-                      <button
-                        key={zone.id}
-                        onClick={() => {
-                          selectZone(zone.id);
-                          setOpen(false);
-                        }}
-                        className={cx(
-                          "flex w-full items-center justify-between gap-2 rounded-md px-1.5 py-1.5 text-left text-sm hover:bg-accent",
-                          isActive && "bg-accent",
-                        )}
-                      >
-                        <span className="truncate text-foreground">{zone.name}</span>
-                        {isActive ? (
-                          <svg
-                            width="14"
-                            height="14"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2.5"
-                            className="flex-shrink-0 text-foreground"
-                          >
-                            <path d="M20 6 9 17l-5-5" />
-                          </svg>
-                        ) : (
-                          <span className="truncate font-mono text-[10px] text-muted-foreground">
-                            {zone.slug}
-                          </span>
-                        )}
-                      </button>
-                    );
-                  })}
+                <div className="flex items-center justify-between px-1.5 pb-1">
+                  <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                    Active zone
+                  </span>
+                  <Link
+                    to="/app/zones"
+                    onClick={() => setOpen(false)}
+                    className="text-[11px] font-medium text-muted-foreground hover:text-foreground"
+                  >
+                    Manage
+                  </Link>
                 </div>
+                {zones.length === 0 ? (
+                  <Link
+                    to="/app/zones"
+                    onClick={() => setOpen(false)}
+                    className="block rounded-md px-1.5 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+                  >
+                    No zones yet. Create one
+                  </Link>
+                ) : (
+                  <>
+                    {zones.length > 6 ? (
+                      <input
+                        value={zoneSearch}
+                        onChange={(e) => setZoneSearch(e.target.value)}
+                        placeholder="Search zones…"
+                        className="mb-1 w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm outline-none focus:border-ring"
+                      />
+                    ) : null}
+                    <div className="scrollbar-thin max-h-44 overflow-y-auto">
+                      {filteredZones.map((zone) => {
+                        const isActive = zone.id === activeZone?.id;
+                        return (
+                          <button
+                            key={zone.id}
+                            onClick={() => {
+                              selectZone(zone.id);
+                              setOpen(false);
+                            }}
+                            className={cx(
+                              "flex w-full items-center justify-between gap-2 rounded-md px-1.5 py-1.5 text-left text-sm hover:bg-accent",
+                              isActive && "bg-accent",
+                            )}
+                          >
+                            <span className="truncate text-foreground">{zone.name}</span>
+                            {isActive ? (
+                              <svg
+                                width="14"
+                                height="14"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2.5"
+                                className="flex-shrink-0 text-foreground"
+                              >
+                                <path d="M20 6 9 17l-5-5" />
+                              </svg>
+                            ) : (
+                              <span className="truncate font-mono text-[10px] text-muted-foreground">
+                                {zone.slug}
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
               </>
             )}
           </div>
