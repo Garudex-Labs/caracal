@@ -39,8 +39,12 @@ export function DcrField({
         <div className="min-w-0">
           <div className="flex items-center gap-1.5">
             <span className="text-sm font-medium text-foreground">Dynamic Client Registration</span>
-            <Tooltip label="Lets agents self-register short-lived client identities through the zone's DCR endpoint. These clients auto-expire and are managed programmatically, not from the console. Leave off unless a workload needs to register itself at runtime.">
-              <span className="inline-flex cursor-help">
+            <Tooltip label="Self-registered clients auto-expire and are managed programmatically, not from the console.">
+              <span
+                tabIndex={0}
+                aria-label="About Dynamic Client Registration"
+                className="inline-flex cursor-help rounded outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+              >
                 <InfoIcon />
               </span>
             </Tooltip>

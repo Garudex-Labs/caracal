@@ -126,8 +126,11 @@ function SessionsPage({ zoneId, initialSubject }: { zoneId: string; initialSubje
           <div className="flex items-center gap-1.5">
             <Badge tone={statusTone(eff)}>{eff}</Badge>
             {isStaleActive(s, now) ? (
-              <Tooltip label="The stored status is still 'active', but this session's expiry has passed. The runtime already rejects it; it will be reaped to 'expired'.">
-                <span className="cursor-help text-[10px] uppercase tracking-wide text-amber-600 dark:text-amber-500">
+              <Tooltip label="Expired by time — the runtime already rejects it and will reap it to 'expired'.">
+                <span
+                  tabIndex={0}
+                  className="cursor-help rounded text-[10px] uppercase tracking-wide text-amber-600 outline-none focus-visible:ring-2 focus-visible:ring-ring/40 dark:text-amber-500"
+                >
                   lapsed
                 </span>
               </Tooltip>
