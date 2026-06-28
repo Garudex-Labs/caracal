@@ -11,7 +11,8 @@ import { createPortal } from "react-dom";
 import { NavIcon } from "@/components/console/NavIcon";
 import { LockBadge } from "@/components/ui";
 import { cx } from "@/lib/cx";
-import { useActiveZone } from "@/platform/api/hooks";
+import { useActiveZone, useSystemZoneView } from "@/platform/api/hooks";
+import { isHideLockedPath } from "@/platform/nav/hideLock";
 import { NAV_GROUPS } from "@/platform/nav/navModel";
 import { setTheme, useTheme } from "@/platform/theme";
 
@@ -48,6 +49,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
   const navigate = useNavigate();
   const { zones, activeZone, selectZone } = useActiveZone();
   const theme = useTheme();
+  const systemView = useSystemZoneView();
 
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
@@ -61,16 +63,18 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     };
 
     const nav: Command[] = NAV_GROUPS.flatMap((group) =>
-      group.items.map((item) => ({
-        id: `nav:${item.id}`,
-        section: group.label,
-        label: item.label,
-        hint: item.locked ? "Enterprise" : undefined,
-        icon: <NavIcon name={item.id} />,
-        locked: item.locked,
-        keywords: `${item.label} ${group.label}`.toLowerCase(),
-        run: go(item.to),
-      })),
+      group.items
+        .filter((item) => !isHideLockedPath(item.to, systemView))
+        .map((item) => ({
+          id: `nav:${item.id}`,
+          section: group.label,
+          label: item.label,
+          hint: item.locked ? "Enterprise" : undefined,
+          icon: <NavIcon name={item.id} />,
+          locked: item.locked,
+          keywords: `${item.label} ${group.label}`.toLowerCase(),
+          run: go(item.to),
+        })),
     );
 
     const zoneCommands: Command[] = zones.map((zone) => ({
@@ -145,7 +149,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     ];
 
     return [...nav, ...zoneCommands, ...actions];
-  }, [navigate, onClose, zones, activeZone, selectZone, theme]);
+  }, [navigate, onClose, zones, activeZone, selectZone, theme, systemView]);
 
   const results = useMemo(() => {
     const q = query.trim().toLowerCase();

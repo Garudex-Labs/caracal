@@ -10,6 +10,8 @@ import { useState } from "react";
 import { NavIcon } from "@/components/console/NavIcon";
 import { ProfileMenu } from "@/components/console/ProfileMenu";
 import { cx } from "@/lib/cx";
+import { useSystemZoneView } from "@/platform/api/hooks";
+import { isHideLockedPath } from "@/platform/nav/hideLock";
 import { NAV_GROUPS } from "@/platform/nav/navModel";
 import { useHiddenNavItems } from "@/platform/state/sidebarPrefs";
 import { useTheme } from "@/platform/theme";
@@ -121,11 +123,14 @@ export function Sidebar({
   onNavigate?: () => void;
 }) {
   const theme = useTheme();
+  const systemView = useSystemZoneView();
   const hidden = useHiddenNavItems();
   const hiddenSet = new Set(hidden);
   const groups = NAV_GROUPS.map((group) => ({
     ...group,
-    items: group.items.filter((item) => !hiddenSet.has(item.id)),
+    items: group.items.filter(
+      (item) => !hiddenSet.has(item.id) && !isHideLockedPath(item.to, systemView),
+    ),
   })).filter((group) => group.items.length > 0);
 
   return (

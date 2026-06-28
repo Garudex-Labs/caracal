@@ -15,9 +15,11 @@ import { NotificationsMenu } from "@/components/console/NotificationsMenu";
 import { LanguageMenu } from "@/components/console/LanguageMenu";
 import { Sidebar } from "@/components/console/Sidebar";
 import { UtilityRail } from "@/components/console/UtilityRail";
+import { ErrorState } from "@/components/ErrorState";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { ViewOnlyProvider } from "@/components/ui/ViewOnly";
 import { useSystemZoneView } from "@/platform/api/hooks";
+import { isHideLockedPath } from "@/platform/nav/hideLock";
 import { cx } from "@/lib/cx";
 
 const SYSTEM_ZONE_VIEW_REASON =
@@ -33,6 +35,10 @@ function readCollapsed(): boolean {
 export function ConsoleLayout() {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const systemView = useSystemZoneView();
+  // A hide-locked route is presented as if it does not exist: in the read-only system-zone
+  // viewer the enterprise, Operator, and settings screens render the same standalone not-found
+  // page a genuinely unknown route would, so a direct URL reveals nothing.
+  const hideLocked = isHideLockedPath(pathname, systemView);
 
   // The Operator is a full-height workspace, so its route fills the content region
   // exactly: the main area stops scrolling and the workspace flexes to fit between the
@@ -63,6 +69,11 @@ export function ConsoleLayout() {
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, []);
+
+  // Render the standalone not-found page for a hide-locked route, replacing the whole shell so
+  // the page is indistinguishable from one that does not exist. Placed after every hook so the
+  // hook order stays stable across renders.
+  if (hideLocked) return <ErrorState code={404} />;
 
   return (
     <ViewOnlyProvider readOnly={systemView} reason={SYSTEM_ZONE_VIEW_REASON}>

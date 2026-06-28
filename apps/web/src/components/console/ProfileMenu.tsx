@@ -9,7 +9,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { ConfirmDialog } from "@/components/ui";
 import { cx } from "@/lib/cx";
-import { useActiveZone } from "@/platform/api/hooks";
+import { useActiveZone, useSystemZoneView } from "@/platform/api/hooks";
+import { isHideLockedPath } from "@/platform/nav/hideLock";
 import { signOut, useSession } from "@/platform/auth";
 import { useProfile, resolveDisplayName } from "@/platform/state/localInstall";
 import { toggleTheme, useTheme } from "@/platform/theme";
@@ -44,6 +45,7 @@ export function ProfileMenu({ collapsed = false }: { collapsed?: boolean }) {
   const session = useSession();
   const { zones, activeZone, selectZone } = useActiveZone();
   const theme = useTheme();
+  const systemView = useSystemZoneView();
   const [open, setOpen] = useState(false);
   const [zoneSearch, setZoneSearch] = useState("");
   const [signOutOpen, setSignOutOpen] = useState(false);
@@ -215,10 +217,16 @@ export function ProfileMenu({ collapsed = false }: { collapsed?: boolean }) {
           </div>
 
           <div className="p-1.5">
-            <MenuLink to="/app/settings" onClick={() => setOpen(false)} label="Profile & settings">
-              <path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" />
-              <path d="M4 20a8 8 0 0 1 16 0" />
-            </MenuLink>
+            {isHideLockedPath("/app/settings", systemView) ? null : (
+              <MenuLink
+                to="/app/settings"
+                onClick={() => setOpen(false)}
+                label="Profile & settings"
+              >
+                <path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" />
+                <path d="M4 20a8 8 0 0 1 16 0" />
+              </MenuLink>
+            )}
 
             <button
               onClick={toggleTheme}

@@ -9,7 +9,9 @@ import { Link, useRouterState } from "@tanstack/react-router";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { cx } from "@/lib/cx";
+import { useSystemZoneView } from "@/platform/api/hooks";
 import { isCommunity } from "@/platform/edition/edition";
+import { isHideLockedPath } from "@/platform/nav/hideLock";
 import { NAV_GROUPS } from "@/platform/nav/navModel";
 import { PINNED_NAV_ITEMS, toggleNavItem, useHiddenNavItems } from "@/platform/state/sidebarPrefs";
 import { toggleTheme, useTheme } from "@/platform/theme";
@@ -25,6 +27,7 @@ export function UtilityRail({ className }: { className?: string }) {
   const rootRef = useRef<HTMLDivElement>(null);
   const theme = useTheme();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const systemView = useSystemZoneView();
 
   useEffect(() => {
     if (!open) return;
@@ -81,17 +84,19 @@ export function UtilityRail({ className }: { className?: string }) {
           }
         />
 
-        <RailButton
-          label="Caracal Operator"
-          to="/app/ai"
-          active={pathname.startsWith("/app/ai")}
-          icon={
-            <>
-              <path d="M12 3l1.6 4.4L18 9l-4.4 1.6L12 15l-1.6-4.4L6 9z" />
-              <path d="M19 14l.8 2.2L22 17l-2.2.8L19 20l-.8-2.2L16 17z" />
-            </>
-          }
-        />
+        {isHideLockedPath("/app/ai", systemView) ? null : (
+          <RailButton
+            label="Caracal Operator"
+            to="/app/ai"
+            active={pathname.startsWith("/app/ai")}
+            icon={
+              <>
+                <path d="M12 3l1.6 4.4L18 9l-4.4 1.6L12 15l-1.6-4.4L6 9z" />
+                <path d="M19 14l.8 2.2L22 17l-2.2.8L19 20l-.8-2.2L16 17z" />
+              </>
+            }
+          />
+        )}
       </div>
 
       <div className="mt-auto flex flex-col items-center gap-1.5 border-t border-border py-3">
@@ -236,8 +241,13 @@ function ContactPanel() {
 }
 
 function CustomizePanel() {
+  const systemView = useSystemZoneView();
   const hidden = useHiddenNavItems();
   const hiddenSet = new Set(hidden);
+  const groups = NAV_GROUPS.map((group) => ({
+    ...group,
+    items: group.items.filter((item) => !isHideLockedPath(item.to, systemView)),
+  })).filter((group) => group.items.length > 0);
 
   return (
     <div
@@ -249,7 +259,7 @@ function CustomizePanel() {
         <p className="mt-0.5 text-xs text-muted-foreground">Choose which pages appear.</p>
       </div>
       <div className="scrollbar-thin max-h-80 overflow-y-auto p-2">
-        {NAV_GROUPS.map((group) => (
+        {groups.map((group) => (
           <div key={group.id} className="mb-2 last:mb-0">
             <div className="px-1.5 pb-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
               {group.label}
