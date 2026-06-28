@@ -405,8 +405,14 @@ export class AdminClient {
       return response.items
     },
     get: (zoneId: string, id: string) => this.request<AgentSession>(`/zones/${zoneId}/agents/${id}`, { base: 'coordinator' }),
-    children: (zoneId: string, id: string) =>
-      this.request<AgentSession[]>(`/zones/${zoneId}/agents/${id}/children`, { base: 'coordinator' }),
+    children: async (zoneId: string, id: string, query?: AgentListQuery) => {
+      const response = await this.request<AgentListResponse>(`/zones/${zoneId}/agents/${id}/children`, {
+        base: 'coordinator',
+        query: { ...query },
+      })
+      if (!Array.isArray(response.items)) throw new Error('agent children response missing items')
+      return response.items
+    },
     suspend: (zoneId: string, id: string) =>
       this.request<{ suspended: true }>(`/zones/${zoneId}/agents/${id}/suspend`, { method: 'PATCH', base: 'coordinator' }),
     resume: (zoneId: string, id: string) =>

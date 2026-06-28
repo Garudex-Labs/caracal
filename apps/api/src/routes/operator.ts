@@ -26,9 +26,11 @@ import {
   preferProvider,
   GatewayUnavailableError,
   GatewayError,
+  GatewayBudgetError,
   type Gateway,
   type ProviderConfig,
 } from '../operator-gateway.js'
+import { type GovernanceLimits } from '../operator-ai-governance.js'
 import { type AgentContext, type OperatorMode, type SecurityAdvisory } from '../operator-agents.js'
 import { createOrchestrator } from '../operator-orchestrator.js'
 import { createStateResearcher } from '../operator-research.js'
@@ -348,6 +350,10 @@ export interface OperatorRoutesOptions {
   // auto-approved in agent mode. Defaults to a disabled policy that approves nothing, so the
   // routes are safe when no policy is supplied.
   autopilotPolicy?: AutopilotPolicy
+  // Caracal-set governance over the Operator's model usage: a per-call output-token ceiling
+  // applied uniformly across providers, and a per-turn model-call budget. Optional; when absent
+  // the gateway runs without a ceiling and the message turn without a call budget.
+  aiGovernance?: GovernanceLimits
 }
 
 export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (fastify, opts) => {
@@ -366,8 +372,9 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
   const autopilotPolicy: AutopilotPolicy = opts.autopilotPolicy ?? buildAutopilotPolicy()
 
   // The optional AI gateway. With no provider configured it reports disabled and
-  // performs no work, so the AI tier costs nothing until an operator brings a key.
-  const gateway: Gateway = createGateway(opts.aiProviders ?? [], opts.fetchImpl)
+  // performs no work, so the AI tier costs nothing until an operator brings a key. The Caracal
+  // governance limits, when supplied, install the output-token ceiling middleware on every call.
+  const gateway: Gateway = createGateway(opts.aiProviders ?? [], opts.fetchImpl, opts.aiGovernance)
 
   // The orchestrator triages each turn to its tier and runs the one skill that handles it,
   // returning a typed artifact the deterministic spine below validates, previews, and governs.
@@ -1050,8 +1057,9 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
     // Track the real token usage of every completion made while answering this one
     // message, and report it alongside the model that answered and its context window so
     // the console can show genuine usage. preferProvider routes to the chosen model while
-    // the context the agents reason over stays the full conversation history.
-    const tracked = withUsage(preferProvider(gateway, preference))
+    // the context the agents reason over stays the full conversation history. The per-turn
+    // model-call budget bounds how many completions this one message may make.
+    const tracked = withUsage(preferProvider(gateway, preference), { maxCalls: opts.aiGovernance?.maxCallsPerTurn })
     const effective = status.providers.find((p) => p.id === preference && p.available) ?? status.providers.find((p) => p.available) ?? null
     const meta = () => {
       const usage = tracked.usage()
@@ -1227,6 +1235,7 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
       })
     } catch (err) {
       if (err instanceof GatewayUnavailableError) return reply.code(409).send({ error: 'ai_unavailable' })
+      if (err instanceof GatewayBudgetError) return reply.code(429).send({ error: 'ai_budget_exceeded', max_calls: err.maxCalls })
       if (err instanceof GatewayError) return reply.code(502).send({ error: 'ai_unreachable', attempts: err.attempts })
       throw err
     }

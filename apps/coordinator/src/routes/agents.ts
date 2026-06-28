@@ -351,6 +351,24 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
     const params = parseParams(ZoneIdParams, req, reply)
     if (!params) return
     const { zoneId, id } = params
+    const query = ListQuery.safeParse(req.query)
+    if (!query.success) return reply.code(400).send({ error: 'invalid_query' })
+    const { limit, cursor } = query.data
+    if (cursor) {
+      const { rows: probe } = await fastify.db.query(
+        `SELECT 1 FROM agent_sessions WHERE id = $1 AND zone_id = $2`,
+        [cursor, zoneId],
+      )
+      if (!probe[0]) return reply.code(400).send({ error: 'invalid_cursor' })
+    }
+    const queryParams: unknown[] = [id, zoneId]
+    let cursorClause = ''
+    if (cursor) {
+      queryParams.push(cursor)
+      cursorClause = `AND s.id < $${queryParams.length}`
+    }
+    queryParams.push(limit)
+    const limitPlaceholder = `$${queryParams.length}`
     const { rows } = await fastify.db.query(
       `SELECT s.id AS agent_session_id, s.zone_id, s.application_id, s.parent_id,
               s.subject_session_id, s.lifecycle,
@@ -358,11 +376,12 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
               s.spawned_at, s.last_heartbeat_at, s.heartbeat_deadline_at
        FROM agent_sessions s
        JOIN agent_topology t ON t.child_id = s.id
-       WHERE t.parent_id = $1 AND s.zone_id = $2
-       ORDER BY s.spawned_at`,
-      [id, zoneId],
+       WHERE t.parent_id = $1 AND s.zone_id = $2 ${cursorClause}
+       ORDER BY s.id DESC LIMIT ${limitPlaceholder}`,
+      queryParams,
     )
-    return rows
+    const nextCursor = rows.length === limit ? rows[rows.length - 1].agent_session_id : null
+    return { items: rows, next_cursor: nextCursor }
   })
 
   fastify.patch('/zones/:zoneId/agents/:id/suspend', async (req, reply) => {
