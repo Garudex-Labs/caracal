@@ -17,6 +17,7 @@ import { buildOperatorAuthority, isZoneIsolated, authorizePlanSteps, type Operat
 import { buildOperatorControlClient, type OperatorControlEndpoints } from '../operator-control-client.js'
 import { executeViaControlPlane, type GovernedPlanStep } from '../operator-governed-execute.js'
 import { isControlExecutable } from '../operator-control-map.js'
+import { mayAutoApprove, autopilotAvailable, buildAutopilotPolicy, type AutopilotPolicy } from '../operator-autopilot.js'
 import type { ControlClient } from '../control-client.js'
 import type { OperatorControlIdentity } from '../config.js'
 import {
@@ -38,7 +39,8 @@ const CONTENT_MAX_BYTES = 64_000
 const DEFAULT_TURN_PAGE = 200
 const MAX_TURN_PAGE = 500
 
-const CONVERSATION_SELECT = 'id, zone_id, title, status, mode, created_by, created_at, updated_at, last_activity_at, archived_at'
+const CONVERSATION_SELECT =
+  'id, zone_id, title, status, mode, autopilot, created_by, created_at, updated_at, last_activity_at, archived_at'
 const TURN_SELECT = 'id, conversation_id, seq, role, kind, content, actor_id, created_at'
 
 const CreateConversationBody = z
@@ -50,6 +52,7 @@ const PatchConversationBody = z
     title: z.string().min(1).max(TITLE_MAX_LENGTH).optional(),
     status: z.enum(['active', 'archived']).optional(),
     mode: z.enum(['ask', 'agent']).optional(),
+    autopilot: z.boolean().optional(),
   })
   .strict()
 
@@ -267,14 +270,17 @@ async function loadConversationFacts(db: ContextQueryable, conversationId: strin
   return summarizeHistory(rows)
 }
 
-type AppendOutcome = { ok: true; turn: Record<string, unknown>; mode: OperatorMode } | { ok: false; reason: 'not_found' | 'archived' }
+type AppendOutcome =
+  | { ok: true; turn: Record<string, unknown>; mode: OperatorMode; autopilot: boolean }
+  | { ok: false; reason: 'not_found' | 'archived' }
 
 // Appends a single turn in its own transaction: locks the conversation, confirms it
 // is active, allocates the gapless seq, and writes. Used by the message orchestrator
 // to record the operator's message and the agent's response as distinct, ordered
 // turns without holding a transaction open across a model call. Returns the conversation's
-// operation mode read under the same lock, so the caller enforces ask mode against the exact
-// mode the turn was recorded under, with no extra query and no race.
+// operation mode and autopilot engage flag read under the same lock, so the caller enforces
+// ask mode and evaluates autopilot against the exact settings the turn was recorded under,
+// with no extra query and no race.
 async function appendTurnTx(
   db: DB,
   conversationId: string,
@@ -285,8 +291,8 @@ async function appendTurnTx(
   actorId: string,
 ): Promise<AppendOutcome> {
   return withTransaction(db, async (client) => {
-    const { rows: conv } = await client.query<{ status: string; mode: string; next_seq: number }>(
-      `SELECT status, mode, next_seq FROM operator_conversations
+    const { rows: conv } = await client.query<{ status: string; mode: string; autopilot: boolean; next_seq: number }>(
+      `SELECT status, mode, autopilot, next_seq FROM operator_conversations
        WHERE id = $1 AND zone_id = $2 FOR UPDATE`,
       [conversationId, zoneId],
     )
@@ -301,7 +307,7 @@ async function appendTurnTx(
       contentJson,
       actorId,
     })
-    return { ok: true as const, turn, mode: conv[0].mode === 'ask' ? 'ask' : 'agent' }
+    return { ok: true as const, turn, mode: conv[0].mode === 'ask' ? 'ask' : 'agent', autopilot: conv[0].autopilot === true }
   })
 }
 
@@ -323,6 +329,10 @@ export interface OperatorRoutesOptions {
   // Injectable transport so the gateway path can be exercised in tests without a
   // live AI backend; defaults to the platform fetch in production.
   fetchImpl?: typeof fetch
+  // The Caracal-governed autopilot policy: the deployment-set boundary of what may be
+  // auto-approved in agent mode. Defaults to a disabled policy that approves nothing, so the
+  // routes are safe when no policy is supplied.
+  autopilotPolicy?: AutopilotPolicy
 }
 
 export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (fastify, opts) => {
@@ -333,6 +343,12 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
     allowedCapabilities: opts.allowedCapabilities,
     systemZones: opts.systemZones,
   })
+
+  // The autopilot policy, defaulting to a disabled policy that approves nothing when none is
+  // supplied. The policy is the Caracal-side boundary of what may be auto-approved; it is read
+  // here and never derived from a request, so a conversation can engage autopilot but never widen
+  // what autopilot may do.
+  const autopilotPolicy: AutopilotPolicy = opts.autopilotPolicy ?? buildAutopilotPolicy()
 
   // The optional AI gateway. With no provider configured it reports disabled and
   // performs no work, so the AI tier costs nothing until an operator brings a key.
@@ -491,7 +507,7 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
     const parsed = PatchConversationBody.safeParse(req.body)
     if (!parsed.success) return reply.code(400).send({ error: 'invalid_conversation' })
     const body = parsed.data
-    if (body.title === undefined && body.status === undefined && body.mode === undefined) {
+    if (body.title === undefined && body.status === undefined && body.mode === undefined && body.autopilot === undefined) {
       return reply.code(400).send({ error: 'no_fields' })
     }
     const { rows } = await fastify.db.query(
@@ -499,6 +515,7 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
        SET title = COALESCE($3, title),
            status = COALESCE($4, status),
            mode = COALESCE($5, mode),
+           autopilot = COALESCE($6, autopilot),
            archived_at = CASE
              WHEN $4 = 'archived' THEN now()
              WHEN $4 = 'active' THEN NULL
@@ -507,7 +524,7 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
            updated_at = now()
        WHERE id = $1 AND zone_id = $2
        RETURNING ${CONVERSATION_SELECT}`,
-      [params.id, params.zoneId, body.title ?? null, body.status ?? null, body.mode ?? null],
+      [params.id, params.zoneId, body.title ?? null, body.status ?? null, body.mode ?? null, body.autopilot ?? null],
     )
     if (!rows[0]) return reply.code(404).send({ error: 'conversation_not_found' })
     return rows[0]
