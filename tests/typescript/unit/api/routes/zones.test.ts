@@ -155,10 +155,12 @@ describe('POST /v1/zones', () => {
 
   it('returns conflict for explicit duplicate zone slugs', async () => {
     const { app, db } = buildRouteApp(zonesRoutes)
-    db.query.mockRejectedValueOnce(Object.assign(new Error('duplicate zone slug'), {
-      code: '23505',
-      constraint: 'zones_slug_key',
-    }))
+    db.query.mockRejectedValueOnce(
+      Object.assign(new Error('duplicate zone slug'), {
+        code: '23505',
+        constraint: 'zones_slug_key',
+      }),
+    )
     await app.ready()
     const res = await app.inject({
       method: 'POST',
@@ -226,10 +228,7 @@ describe('PATCH /v1/zones/:id', () => {
 
   it('requires a shutdown choice when disabling DCR with live applications', async () => {
     const { app, db } = buildRouteApp(zonesRoutes)
-    const client = txClient([
-      [{ dcr_enabled: true }],
-      [{ id: 'app-1' }, { id: 'app-2' }],
-    ])
+    const client = txClient([[{ dcr_enabled: true }], [{ id: 'app-1' }, { id: 'app-2' }]])
     db.connect.mockResolvedValue(client)
     await app.ready()
 
@@ -247,12 +246,7 @@ describe('PATCH /v1/zones/:id', () => {
   it('keeps live DCR applications when disabling registration with keep_live', async () => {
     const { app, db } = buildRouteApp(zonesRoutes)
     const zone = { id: 'z1', name: 'Zone', slug: 'zone', dcr_enabled: false }
-    const client = txClient([
-      [{ dcr_enabled: true }],
-      [{ id: 'app-1' }],
-      [zone],
-      [],
-    ])
+    const client = txClient([[{ dcr_enabled: true }], [{ id: 'app-1' }], [zone], []])
     db.connect.mockResolvedValue(client)
     await app.ready()
 
@@ -279,7 +273,9 @@ describe('PATCH /v1/zones/:id', () => {
       [{ id: 'sid-1' }],
       [{ id: 'agent-1', subject_session_id: 'sid-agent', parent_id: null }],
       [{ id: 'edge-1' }],
-      [], [], [],
+      [],
+      [],
+      [],
       [],
     ])
     db.connect.mockResolvedValue(client)
@@ -305,16 +301,7 @@ describe('PATCH /v1/zones/:id', () => {
   it('revokes live DCR applications even when registration is already disabled', async () => {
     const { app, db } = buildRouteApp(zonesRoutes)
     const zone = { id: 'z1', name: 'Zone', slug: 'zone', dcr_enabled: false }
-    const client = txClient([
-      [{ dcr_enabled: false }],
-      [{ id: 'app-1' }],
-      [zone],
-      [{ id: 'app-1' }],
-      [],
-      [],
-      [],
-      [],
-    ])
+    const client = txClient([[{ dcr_enabled: false }], [{ id: 'app-1' }], [zone], [{ id: 'app-1' }], [], [], [], []])
     db.connect.mockResolvedValue(client)
     await app.ready()
 

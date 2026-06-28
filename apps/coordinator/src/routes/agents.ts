@@ -22,9 +22,7 @@ export const MAX_AGENT_LABELS = 32
 export const MAX_AGENT_LABEL_LENGTH = 64
 
 export const Lifecycle = z.enum(['task', 'service'])
-export const AgentLabels = z.array(
-  z.string().trim().min(1).max(MAX_AGENT_LABEL_LENGTH),
-).max(MAX_AGENT_LABELS).default([])
+export const AgentLabels = z.array(z.string().trim().min(1).max(MAX_AGENT_LABEL_LENGTH)).max(MAX_AGENT_LABELS).default([])
 
 const SpawnBody = z.object({
   application_id: z.string().min(1),
@@ -83,8 +81,19 @@ async function inheritParentEdge(
      (id, zone_id, source_session_id, target_session_id, issuer_application_id, receiver_application_id,
       parent_edge_id, resource_id, scopes, constraints_json, expires_at)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-    [edgeId, zoneId, body.parent_id, childId, parentEdge.receiver_application_id, body.application_id,
-      parentEdge.id, parentEdge.resource_id, parentEdge.scopes, parentEdge.constraints_json, parentEdge.expires_at],
+    [
+      edgeId,
+      zoneId,
+      body.parent_id,
+      childId,
+      parentEdge.receiver_application_id,
+      body.application_id,
+      parentEdge.id,
+      parentEdge.resource_id,
+      parentEdge.scopes,
+      parentEdge.constraints_json,
+      parentEdge.expires_at,
+    ],
   )
   const epoch = await bumpDelegationEpoch(client, zoneId)
   await enqueue(client, Topics.DelegationsInvalidate, `edge_create:${edgeId}`, {
@@ -108,8 +117,7 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
     if (!subjectSessionId) {
       return reply.code(400).send({ error: 'subject_session_id_required' })
     }
-    if (!ownsApplication(req, body.application_id)
-      && !requireScope(req, `coordinator.spawn_for:${body.application_id}`)) {
+    if (!ownsApplication(req, body.application_id) && !requireScope(req, `coordinator.spawn_for:${body.application_id}`)) {
       return reply.code(403).send({ error: 'application_ownership_required' })
     }
     const idempotencyKey = (req.headers['idempotency-key'] as string | undefined)?.trim() || null
@@ -117,10 +125,7 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
     const client = await fastify.db.connect()
     try {
       await client.query('BEGIN')
-      await client.query(
-        `SELECT pg_advisory_xact_lock(hashtext($1))`,
-        [spawnLockKey(zoneId)],
-      )
+      await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [spawnLockKey(zoneId)])
       if (idempotencyKey) {
         const { rows: existing } = await client.query(
           `SELECT id AS agent_session_id, zone_id, application_id, parent_id,
@@ -180,8 +185,7 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
         await client.query('ROLLBACK')
         return reply.code(404).send({
           error: 'session_not_found',
-          detail:
-            'subject_session_id must reference an STS sessions.id; for business correlation use metadata',
+          detail: 'subject_session_id must reference an STS sessions.id; for business correlation use metadata',
         })
       }
       const { rows: cnt } = await client.query(
@@ -231,8 +235,7 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
           await client.query('ROLLBACK')
           return reply.code(409).send({ error: 'task_agent_cannot_spawn_service' })
         }
-        if (parent[0].application_id !== body.application_id
-          && !requireScope(req, `coordinator.spawn_under:${parent[0].application_id}`)) {
+        if (parent[0].application_id !== body.application_id && !requireScope(req, `coordinator.spawn_under:${parent[0].application_id}`)) {
           await client.query('ROLLBACK')
           return reply.code(403).send({ error: 'parent_ownership_required' })
         }
@@ -248,7 +251,7 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
       }
       const ttlSeconds = body.ttl_seconds ?? (lifecycle === 'service' ? null : DEFAULT_TTL)
       const { rows } = await client.query(
-         `INSERT INTO agent_sessions
+        `INSERT INTO agent_sessions
           (id, zone_id, application_id, parent_id, subject_session_id, lifecycle, depth,
             labels, max_children, ttl_seconds, metadata_json, idempotency_key,
             last_heartbeat_at, heartbeat_deadline_at)
@@ -259,19 +262,25 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
                      subject_session_id, lifecycle,
                      labels, status, depth, ttl_seconds, metadata_json AS metadata,
                      spawned_at, last_heartbeat_at, heartbeat_deadline_at`,
-        [id, zoneId, body.application_id, body.parent_id, subjectSessionId,
-          lifecycle, depth, body.labels, MAX_CHILDREN, ttlSeconds, body.metadata,
-          cfg.serviceAgentLeaseSeconds, idempotencyKey],
+        [
+          id,
+          zoneId,
+          body.application_id,
+          body.parent_id,
+          subjectSessionId,
+          lifecycle,
+          depth,
+          body.labels,
+          MAX_CHILDREN,
+          ttlSeconds,
+          body.metadata,
+          cfg.serviceAgentLeaseSeconds,
+          idempotencyKey,
+        ],
       )
       if (body.parent_id) {
-        await client.query(
-          `INSERT INTO agent_topology (parent_id, child_id) VALUES ($1,$2)`,
-          [body.parent_id, id],
-        )
-        await client.query(
-          `UPDATE agent_sessions SET child_count = child_count + 1 WHERE id = $1`,
-          [body.parent_id],
-        )
+        await client.query(`INSERT INTO agent_topology (parent_id, child_id) VALUES ($1,$2)`, [body.parent_id, id])
+        await client.query(`UPDATE agent_sessions SET child_count = child_count + 1 WHERE id = $1`, [body.parent_id])
       }
       const inheritedEdgeId = await inheritParentEdge(client, zoneId, body, id)
       if (inheritedEdgeId === false) {
@@ -303,23 +312,35 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
     if (!query.success) return reply.code(400).send({ error: 'invalid_query' })
     const { limit, cursor, status, lifecycle, application_id, label } = query.data
     if (cursor) {
-      const { rows: probe } = await fastify.db.query(
-        `SELECT 1 FROM agent_sessions WHERE id = $1 AND zone_id = $2`,
-        [cursor, zoneId],
-      )
+      const { rows: probe } = await fastify.db.query(`SELECT 1 FROM agent_sessions WHERE id = $1 AND zone_id = $2`, [cursor, zoneId])
       if (!probe[0]) return reply.code(400).send({ error: 'invalid_cursor' })
     }
     const conds = ['zone_id = $1']
     const queryParams: unknown[] = [zoneId]
-    if (status) { queryParams.push(status); conds.push(`status = $${queryParams.length}`) }
-    if (lifecycle) { queryParams.push(lifecycle); conds.push(`lifecycle = $${queryParams.length}`) }
-    if (application_id) { queryParams.push(application_id); conds.push(`application_id = $${queryParams.length}`) }
-    if (label) { queryParams.push(label); conds.push(`$${queryParams.length} = ANY(labels)`) }
-    if (cursor) { queryParams.push(cursor); conds.push(`id < $${queryParams.length}`) }
+    if (status) {
+      queryParams.push(status)
+      conds.push(`status = $${queryParams.length}`)
+    }
+    if (lifecycle) {
+      queryParams.push(lifecycle)
+      conds.push(`lifecycle = $${queryParams.length}`)
+    }
+    if (application_id) {
+      queryParams.push(application_id)
+      conds.push(`application_id = $${queryParams.length}`)
+    }
+    if (label) {
+      queryParams.push(label)
+      conds.push(`$${queryParams.length} = ANY(labels)`)
+    }
+    if (cursor) {
+      queryParams.push(cursor)
+      conds.push(`id < $${queryParams.length}`)
+    }
     queryParams.push(limit)
     const limitPlaceholder = `$${queryParams.length}`
     const { rows } = await fastify.db.query(
-        `SELECT id AS agent_session_id, zone_id, application_id, parent_id,
+      `SELECT id AS agent_session_id, zone_id, application_id, parent_id,
                 subject_session_id, lifecycle,
                 labels, status, depth, ttl_seconds, metadata_json AS metadata,
                 spawned_at, terminated_at, last_heartbeat_at, heartbeat_deadline_at
@@ -336,7 +357,7 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
     if (!params) return
     const { zoneId, id } = params
     const { rows } = await fastify.db.query(
-        `SELECT id AS agent_session_id, zone_id, application_id, parent_id,
+      `SELECT id AS agent_session_id, zone_id, application_id, parent_id,
                 subject_session_id, lifecycle,
                 labels, status, depth, ttl_seconds, metadata_json AS metadata,
                 spawned_at, terminated_at, last_heartbeat_at, heartbeat_deadline_at
@@ -355,10 +376,7 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
     if (!query.success) return reply.code(400).send({ error: 'invalid_query' })
     const { limit, cursor } = query.data
     if (cursor) {
-      const { rows: probe } = await fastify.db.query(
-        `SELECT 1 FROM agent_sessions WHERE id = $1 AND zone_id = $2`,
-        [cursor, zoneId],
-      )
+      const { rows: probe } = await fastify.db.query(`SELECT 1 FROM agent_sessions WHERE id = $1 AND zone_id = $2`, [cursor, zoneId])
       if (!probe[0]) return reply.code(400).send({ error: 'invalid_cursor' })
     }
     const queryParams: unknown[] = [id, zoneId]
@@ -400,9 +418,11 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
         await client.query('ROLLBACK')
         return reply.code(404).send({ error: 'agent_not_found' })
       }
-      if (!ownsApplication(req, own[0].application_id)
-        && !requireScope(req, 'coordinator.admin')
-        && !requireScope(req, `coordinator.spawn_for:${own[0].application_id}`)) {
+      if (
+        !ownsApplication(req, own[0].application_id) &&
+        !requireScope(req, 'coordinator.admin') &&
+        !requireScope(req, `coordinator.spawn_for:${own[0].application_id}`)
+      ) {
         await client.query('ROLLBACK')
         return reply.code(403).send({ error: 'application_ownership_required' })
       }
@@ -437,9 +457,11 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
         await client.query('ROLLBACK')
         return reply.code(404).send({ error: 'agent_not_found' })
       }
-      if (!ownsApplication(req, own[0].application_id)
-        && !requireScope(req, 'coordinator.admin')
-        && !requireScope(req, `coordinator.spawn_for:${own[0].application_id}`)) {
+      if (
+        !ownsApplication(req, own[0].application_id) &&
+        !requireScope(req, 'coordinator.admin') &&
+        !requireScope(req, `coordinator.spawn_for:${own[0].application_id}`)
+      ) {
         await client.query('ROLLBACK')
         return reply.code(403).send({ error: 'application_ownership_required' })
       }
@@ -467,11 +489,16 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
         await client.query('ROLLBACK')
         return reply.code(409).send({ error: 'agent_not_found_or_not_suspended' })
       }
-      await enqueueMany(client, changed.map((row): OutboxItem => ({
-        topic: Topics.AgentsLifecycle,
-        dedupeKey: `resume:${row.id}`,
-        payload: { event: 'resume', zone_id: zoneId, agent_session_id: row.id, parent_id: row.parent_id },
-      })))
+      await enqueueMany(
+        client,
+        changed.map(
+          (row): OutboxItem => ({
+            topic: Topics.AgentsLifecycle,
+            dedupeKey: `resume:${row.id}`,
+            payload: { event: 'resume', zone_id: zoneId, agent_session_id: row.id, parent_id: row.parent_id },
+          }),
+        ),
+      )
       await client.query('COMMIT')
       return { resumed: changed.length }
     } catch (err) {
@@ -491,10 +518,7 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
     const client = await fastify.db.connect()
     try {
       await client.query('BEGIN')
-      await client.query(
-        `SELECT pg_advisory_xact_lock(hashtext($1))`,
-        [spawnLockKey(zoneId)],
-      )
+      await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [spawnLockKey(zoneId)])
       const { rows: own } = await client.query(
         `SELECT application_id FROM agent_sessions
          WHERE id = $1 AND zone_id = $2 FOR UPDATE`,
@@ -504,9 +528,11 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
         await client.query('ROLLBACK')
         return reply.code(404).send({ error: 'agent_not_found' })
       }
-      if (!ownsApplication(req, own[0].application_id)
-        && !requireScope(req, 'coordinator.admin')
-        && !requireScope(req, `coordinator.spawn_for:${own[0].application_id}`)) {
+      if (
+        !ownsApplication(req, own[0].application_id) &&
+        !requireScope(req, 'coordinator.admin') &&
+        !requireScope(req, `coordinator.spawn_for:${own[0].application_id}`)
+      ) {
         await client.query('ROLLBACK')
         return reply.code(403).send({ error: 'application_ownership_required' })
       }
@@ -538,12 +564,7 @@ interface SuspendedRow {
   parent_id: string | null
 }
 
-export async function suspendSubtree(
-  client: PoolClient,
-  zoneId: string,
-  rootIds: string[],
-  reason: string,
-): Promise<number> {
+export async function suspendSubtree(client: PoolClient, zoneId: string, rootIds: string[], reason: string): Promise<number> {
   if (rootIds.length === 0) return 0
   const { rows } = await client.query<SuspendedRow>(
     `WITH RECURSIVE tree AS (
@@ -573,8 +594,11 @@ export async function suspendSubtree(
       topic: Topics.AgentsLifecycle,
       dedupeKey: `suspend:${row.id}`,
       payload: {
-        event: 'suspend', zone_id: zoneId, agent_session_id: row.id,
-        parent_id: row.parent_id, reason,
+        event: 'suspend',
+        zone_id: zoneId,
+        agent_session_id: row.id,
+        parent_id: row.parent_id,
+        reason,
       },
     })
     if (exemptSessions.has(row.subject_session_id)) continue
@@ -582,8 +606,10 @@ export async function suspendSubtree(
       topic: Topics.SessionsRevoke,
       dedupeKey: `agent_suspend:${row.id}`,
       payload: {
-        zone_id: zoneId, session_id: row.subject_session_id,
-        agent_session_id: row.id, reason,
+        zone_id: zoneId,
+        session_id: row.subject_session_id,
+        agent_session_id: row.id,
+        reason,
       },
     })
   }
@@ -591,12 +617,7 @@ export async function suspendSubtree(
   return rows.length
 }
 
-export async function terminateSubtree(
-  client: PoolClient,
-  zoneId: string,
-  rootIds: string[],
-  reason: string,
-): Promise<number> {
+export async function terminateSubtree(client: PoolClient, zoneId: string, rootIds: string[], reason: string): Promise<number> {
   if (rootIds.length === 0) return 0
   const { rows } = await client.query<TerminatedRow>(
     `WITH RECURSIVE tree AS (
@@ -640,8 +661,11 @@ export async function terminateSubtree(
       topic: Topics.AgentsLifecycle,
       dedupeKey: `terminate:${row.id}`,
       payload: {
-        event: 'terminate', zone_id: zoneId, agent_session_id: row.id,
-        parent_id: row.parent_id, reason,
+        event: 'terminate',
+        zone_id: zoneId,
+        agent_session_id: row.id,
+        parent_id: row.parent_id,
+        reason,
       },
     })
     if (exemptSessions.has(row.subject_session_id)) continue

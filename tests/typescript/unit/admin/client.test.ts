@@ -87,7 +87,13 @@ describe('AdminClient', () => {
   })
 
   it('returns undefined for 204 / expectEmpty', async () => {
-    const f = vi.fn().mockResolvedValue({ ok: true, status: 204, statusText: 'No Content', text: async () => '', json: async () => undefined }) as unknown as typeof fetch
+    const f = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 204,
+      statusText: 'No Content',
+      text: async () => '',
+      json: async () => undefined,
+    }) as unknown as typeof fetch
     const c = new AdminClient({ apiUrl: 'http://api', adminToken: 't', fetchImpl: f })
     const out = await c.zones.delete('z1')
     expect(out).toBeUndefined()
@@ -111,8 +117,13 @@ describe('AdminClient', () => {
 
   it('falls back to status text when response is not JSON', async () => {
     const f = vi.fn().mockResolvedValue({
-      ok: false, status: 500, statusText: 'Server Error',
-      text: async () => '<html>nope</html>', json: async () => { throw new Error('x') },
+      ok: false,
+      status: 500,
+      statusText: 'Server Error',
+      text: async () => '<html>nope</html>',
+      json: async () => {
+        throw new Error('x')
+      },
     }) as unknown as typeof fetch
     const c = new AdminClient({ apiUrl: 'http://api', adminToken: 't', fetchImpl: f, retries: 0 })
     await expect(c.zones.list()).rejects.toMatchObject({ status: 500, code: 'Server Error' })
@@ -153,17 +164,19 @@ describe('AdminClient', () => {
 
   it('parses coordinator agent list responses', async () => {
     const f = fetchOk({
-      items: [{
-        agent_session_id: 'agent-1',
-        zone_id: 'z1',
-        application_id: 'app-1',
-        parent_id: null,
-        subject_session_id: 'subject-1',
-        status: 'active',
-        depth: 0,
-        spawned_at: '2026-01-01T00:00:00Z',
-        terminated_at: null,
-      }],
+      items: [
+        {
+          agent_session_id: 'agent-1',
+          zone_id: 'z1',
+          application_id: 'app-1',
+          parent_id: null,
+          subject_session_id: 'subject-1',
+          status: 'active',
+          depth: 0,
+          spawned_at: '2026-01-01T00:00:00Z',
+          terminated_at: null,
+        },
+      ],
       next_cursor: null,
     })
     const c = new AdminClient({
@@ -174,9 +187,7 @@ describe('AdminClient', () => {
       fetchImpl: f,
     })
 
-    await expect(c.agents.list('z1')).resolves.toEqual([
-      expect.objectContaining({ agent_session_id: 'agent-1' }),
-    ])
+    await expect(c.agents.list('z1')).resolves.toEqual([expect.objectContaining({ agent_session_id: 'agent-1' })])
   })
 
   it('rejects malformed coordinator agent list responses', async () => {
@@ -245,8 +256,11 @@ describe('AdminClient', () => {
   it('PATCH revoke sends method and parses body', async () => {
     const f = fetchOk({ revoked_edges: 3, affected_sessions: 2 })
     const c = new AdminClient({
-      apiUrl: 'http://api', coordinatorUrl: 'http://coord',
-      adminToken: 'a', coordinatorToken: 'jwt', fetchImpl: f,
+      apiUrl: 'http://api',
+      coordinatorUrl: 'http://coord',
+      adminToken: 'a',
+      coordinatorToken: 'jwt',
+      fetchImpl: f,
     })
     const out = await c.delegations.revoke('z1', 'edge-1')
     expect(out).toEqual({ revoked_edges: 3, affected_sessions: 2 })
@@ -255,7 +269,8 @@ describe('AdminClient', () => {
   })
 
   it('retries transient GET failures', async () => {
-    const f = vi.fn()
+    const f = vi
+      .fn()
       .mockResolvedValueOnce({
         ok: false,
         status: 503,
@@ -288,15 +303,23 @@ describe('AdminClient', () => {
 
   it('honours a date-based retry-after header', async () => {
     const when = new Date(Date.now() + 10).toUTCString()
-    const f = vi.fn()
+    const f = vi
+      .fn()
       .mockResolvedValueOnce({
-        ok: false, status: 429, statusText: 'Too Many',
+        ok: false,
+        status: 429,
+        statusText: 'Too Many',
         headers: new Headers({ 'retry-after': when }),
-        text: async () => '{}', json: async () => ({}),
+        text: async () => '{}',
+        json: async () => ({}),
       })
       .mockResolvedValueOnce({
-        ok: true, status: 200, statusText: 'OK', headers: new Headers(),
-        text: async () => '[]', json: async () => [],
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        headers: new Headers(),
+        text: async () => '[]',
+        json: async () => [],
       }) as unknown as typeof fetch
     const c = new AdminClient({ apiUrl: 'http://api', adminToken: 't', fetchImpl: f, retries: 1 })
     await expect(c.zones.list()).resolves.toEqual([])
@@ -310,7 +333,11 @@ describe('AdminClient', () => {
       return Promise.reject(new DOMException('aborted', 'AbortError'))
     }) as unknown as typeof fetch
     const c = new AdminClient({
-      apiUrl: 'http://api', adminToken: 't', fetchImpl: f, retries: 3, signal: controller.signal,
+      apiUrl: 'http://api',
+      adminToken: 't',
+      fetchImpl: f,
+      retries: 3,
+      signal: controller.signal,
     })
     await expect(c.zones.list()).rejects.toBeInstanceOf(DOMException)
     expect(f).toHaveBeenCalledTimes(1)
@@ -318,10 +345,13 @@ describe('AdminClient', () => {
 
   it('throws policy_template_not_found when a template id is missing', async () => {
     const c = new AdminClient({
-      apiUrl: 'http://api', adminToken: 't', fetchImpl: fetchOk([{ id: 'known' }]),
+      apiUrl: 'http://api',
+      adminToken: 't',
+      fetchImpl: fetchOk([{ id: 'known' }]),
     })
     await expect(c.policyTemplates.get('ghost')).rejects.toMatchObject({
-      status: 404, code: 'policy_template_not_found',
+      status: 404,
+      code: 'policy_template_not_found',
     })
   })
 
@@ -329,19 +359,27 @@ describe('AdminClient', () => {
     const calls: Array<{ url: string; method: string; body?: string }> = []
     const f = vi.fn().mockImplementation((url: string, init: RequestInit) => {
       calls.push({ url, method: init.method ?? 'GET', body: init.body as string | undefined })
-      const body = url.includes('/audit') || url.includes('/sessions')
-        ? { rows: [], next_cursor: null }
-        : url.includes('/children')
-        ? { items: [], next_cursor: null }
-        : {}
+      const body =
+        url.includes('/audit') || url.includes('/sessions')
+          ? { rows: [], next_cursor: null }
+          : url.includes('/children')
+            ? { items: [], next_cursor: null }
+            : {}
       return Promise.resolve({
-        ok: true, status: 200, statusText: 'OK', headers: new Headers(),
-        text: async () => JSON.stringify(body), json: async () => body,
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        headers: new Headers(),
+        text: async () => JSON.stringify(body),
+        json: async () => body,
       })
     }) as unknown as typeof fetch
     const c = new AdminClient({
-      apiUrl: 'http://api', coordinatorUrl: 'http://coord',
-      adminToken: 'a', coordinatorToken: 'c', fetchImpl: f,
+      apiUrl: 'http://api',
+      coordinatorUrl: 'http://coord',
+      adminToken: 'a',
+      coordinatorToken: 'c',
+      fetchImpl: f,
     })
 
     await c.zones.get('z1')
@@ -404,7 +442,9 @@ describe('AdminClient', () => {
 
     expect(calls.some((x) => x.url === 'http://api/v1/zones/z1' && x.method === 'DELETE')).toBe(true)
     expect(calls.some((x) => x.url === 'http://api/v1/policies/validate' && x.method === 'POST')).toBe(true)
-    expect(calls.some((x) => x.url === 'http://api/v1/zones/z1/grants?provider_id=provider-1&user_id=user-1&scopes=read%2Cwrite')).toBe(true)
+    expect(calls.some((x) => x.url === 'http://api/v1/zones/z1/grants?provider_id=provider-1&user_id=user-1&scopes=read%2Cwrite')).toBe(
+      true,
+    )
     expect(calls.some((x) => x.url === 'http://api/v1/zones/z1/provider-grants' && x.method === 'POST')).toBe(true)
     expect(calls.some((x) => x.url === 'http://api/v1/zones/z1/step-up-challenges/challenge1/satisfy' && x.method === 'POST')).toBe(true)
     expect(calls.some((x) => x.url === 'http://coord/zones/z1/agents/ag1/suspend' && x.method === 'PATCH')).toBe(true)
