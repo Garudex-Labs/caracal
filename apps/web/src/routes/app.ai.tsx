@@ -19,7 +19,8 @@ import {
 import { createPortal } from "react-dom";
 
 import { ModulePage } from "@/components/console/ModulePage";
-import { OperatorErrorLog, type OperatorErrorEvent } from "@/components/console/OperatorErrorLog";
+import { OperatorErrorLog, type OperatorNoticeEvent } from "@/components/console/OperatorErrorLog";
+import type { OperatorNoticeSeverity } from "@/platform/state/operatorNotices";
 import {
   Context,
   ContextCacheUsage,
@@ -255,11 +256,11 @@ const RAIL_COLLAPSED_WIDTH = "2.75rem";
 const DRAFT_MODE_KEY = "caracal.operator.draftMode";
 const DRAFT_AUTOPILOT_KEY = "caracal.operator.draftAutopilot";
 
-// Raised as an error label when a message is sent while no AI provider is connected. The Operator
-// turns natural language into governed plans through a model, so with no provider the send cannot
-// be acted on; rather than dispatch it into an upstream refusal, the send is held back and this is
-// surfaced in the error label so the operator sees why nothing happened.
-const AI_DISCONNECTED_ERROR =
+// Raised as a warning when a message is sent while no AI provider is connected. The Operator turns
+// natural language into governed plans through a model, so with no provider the send cannot be
+// acted on; rather than dispatch it into an upstream refusal, the send is held back and this is
+// surfaced as a non-blocking warning so the operator sees why nothing happened.
+const AI_DISCONNECTED_WARNING =
   "No AI provider is connected, so the Operator can't act on that. Connect a provider to continue.";
 
 function readRailCollapsed(): boolean {
@@ -302,10 +303,10 @@ function OperatorWorkspace() {
   const [railWidth, setRailWidth] = useState(readRailWidth);
   const [view, setView] = useState<"active" | "archived">("active");
   const [streamError, setStreamError] = useState(false);
-  // The error currently surfaced to the operator error label, as a discrete event so the same
-  // message raised again re-surfaces. Query and stream failures feed it through an effect; a send
-  // held back because no provider is connected reports one directly.
-  const [operatorError, setOperatorError] = useState<OperatorErrorEvent | null>(null);
+  // The notice currently surfaced to the operator label, as a discrete event so the same message
+  // raised again re-surfaces. Query and stream failures feed it through an effect; a send held back
+  // because no provider is connected reports one directly.
+  const [operatorNotice, setOperatorNotice] = useState<OperatorNoticeEvent | null>(null);
   const [fullscreen, setFullscreen] = useState(false);
   const shellRef = useRef<HTMLDivElement>(null);
 
@@ -325,10 +326,10 @@ function OperatorWorkspace() {
   const aiStatus = useOperatorAiStatus(true);
   const aiUnavailable = aiStatus.data?.enabled === false;
 
-  // Surfaces a message to the operator error label as a fresh occurrence, so an identical message
-  // raised again still re-opens the label.
-  const reportError = useCallback((message: string) => {
-    setOperatorError({ id: crypto.randomUUID(), message });
+  // Surfaces a notice to the operator label as a fresh occurrence, so an identical message raised
+  // again still re-opens the label. severity colours the label and is recorded in the audit log.
+  const reportNotice = useCallback((severity: OperatorNoticeSeverity, message: string) => {
+    setOperatorNotice({ id: crypto.randomUUID(), severity, message });
   }, []);
 
   useEffect(() => {
@@ -406,8 +407,8 @@ function OperatorWorkspace() {
   }, [conversations.isError, create.isError, streamError]);
 
   useEffect(() => {
-    if (errorMessage) reportError(errorMessage);
-  }, [errorMessage, reportError]);
+    if (errorMessage) reportNotice("error", errorMessage);
+  }, [errorMessage, reportNotice]);
 
   // Accumulate the real token usage reported by each answered message so the rail can
   // show genuine context consumption for the session rather than an estimate.
@@ -442,12 +443,12 @@ function OperatorWorkspace() {
   // Starting from intent: derive a session title from the message, create the session, then hand
   // the message to the stream to send as the opening turn. With no AI provider the request could
   // only be refused upstream, so the send is held back — no session is created — and the reason is
-  // reported in the error label instead.
+  // surfaced as a warning instead.
   function startFromIntent(text: string) {
     const value = text.trim();
     if (!value || create.isPending) return;
     if (aiUnavailable) {
-      reportError(AI_DISCONNECTED_ERROR);
+      reportNotice("warning", AI_DISCONNECTED_WARNING);
       return;
     }
     setPendingMessage(value);
@@ -551,7 +552,7 @@ function OperatorWorkspace() {
         >
           {fullscreen ? <ShrinkGlyph className="h-4 w-4" /> : <ExpandGlyph className="h-4 w-4" />}
         </button>
-        <OperatorErrorLog event={operatorError} />
+        <OperatorErrorLog event={operatorNotice} />
         <SessionStrip
           conversations={conversations.data ?? []}
           selectedId={selectedId}
@@ -576,7 +577,7 @@ function OperatorWorkspace() {
             model={selectedModel}
             onModelChange={setSelectedModel}
             aiUnavailable={aiUnavailable}
-            onBlockedSend={() => reportError(AI_DISCONNECTED_ERROR)}
+            onBlockedSend={() => reportNotice("warning", AI_DISCONNECTED_WARNING)}
           />
         ) : (
           <NewChatHero

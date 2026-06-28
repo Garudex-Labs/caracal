@@ -9,12 +9,13 @@ import { Link } from "@tanstack/react-router";
 
 import { cx } from "@/lib/cx";
 import {
-  clearOperatorErrors,
-  recordOperatorError,
-  useOperatorErrors,
-} from "@/platform/state/operatorErrors";
+  clearOperatorNotices,
+  recordOperatorNotice,
+  useOperatorNotices,
+  type OperatorNoticeSeverity,
+} from "@/platform/state/operatorNotices";
 
-// How long an error label rests before it auto-archives, and how long the shrink-into-audit
+// How long a notice label rests before it auto-archives, and how long the shrink-into-audit
 // animation runs. The animation duration is mirrored in the label's transition class.
 const AUTO_DISMISS_MS = 6000;
 const ARCHIVE_ANIM_MS = 450;
@@ -24,13 +25,27 @@ const ARCHIVE_ANIM_MS = 450;
 const PRE_REVEAL_MS = 2000;
 const ARCHIVE_LINGER_MS = 1500;
 
-// A discrete error to surface. The id identifies the occurrence, so the same message text raised
-// again (for example a second send while no provider is connected) is a new event and re-surfaces
-// the label rather than being suppressed as a duplicate.
-export interface OperatorErrorEvent {
+// A discrete notice to surface, carrying its severity so the label is coloured to match. The id
+// identifies the occurrence, so the same message text raised again (for example a second send while
+// no provider is connected) is a new event and re-surfaces the label rather than being suppressed
+// as a duplicate.
+export interface OperatorNoticeEvent {
   id: string;
+  severity: OperatorNoticeSeverity;
   message: string;
 }
+
+// The label palette per severity: a hard error reads destructive; a non-blocking warning reads
+// amber. The archive box tints to the active severity while a label is shrinking into it.
+const SEVERITY_LABEL: Record<OperatorNoticeSeverity, string> = {
+  error: "border-destructive/30 bg-destructive/10 text-destructive",
+  warning: "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-500",
+};
+
+const SEVERITY_ACCENT: Record<OperatorNoticeSeverity, string> = {
+  error: "text-destructive",
+  warning: "text-amber-600 dark:text-amber-500",
+};
 
 function ArchiveIcon({ className }: { className?: string }) {
   return (
@@ -95,13 +110,17 @@ function timeLabel(at: number): string {
   });
 }
 
-// The Operator error surface: a compact label (not a full-width banner) that enters from the left,
+// The Operator notice surface: a compact label (not a full-width banner) that enters from the left,
 // then shrinks back into the audit archive on the left after a few seconds or when dismissed. The
-// archive holds every error this session and opens a filterable log, so a transient error is never
-// just lost — it is recorded and reviewable.
-export function OperatorErrorLog({ event }: { event: OperatorErrorEvent | null }) {
-  const log = useOperatorErrors();
-  const [active, setActive] = useState<{ id: string; message: string } | null>(null);
+// archive holds every notice this session and opens a filterable log, so a transient warning or
+// error is never just lost — it is recorded and reviewable.
+export function OperatorErrorLog({ event }: { event: OperatorNoticeEvent | null }) {
+  const log = useOperatorNotices();
+  const [active, setActive] = useState<{
+    id: string;
+    severity: OperatorNoticeSeverity;
+    message: string;
+  } | null>(null);
   const [archiving, setArchiving] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
   const [filter, setFilter] = useState("");
@@ -117,7 +136,7 @@ export function OperatorErrorLog({ event }: { event: OperatorErrorEvent | null }
     if (!event) return;
     if (event.id === handled.current) return;
     handled.current = event.id;
-    setActive({ id: event.id, message: event.message });
+    setActive({ id: event.id, severity: event.severity, message: event.message });
     setArchiving(false);
     // A new label is shown, so the audit box auto-hides behind it until just before it archives.
     setRevealed(false);
@@ -147,9 +166,9 @@ export function OperatorErrorLog({ event }: { event: OperatorErrorEvent | null }
   // is the shared session store, so the same record appears on the Audit page.
   useEffect(() => {
     if (!archiving || !active) return;
-    const message = active.message;
+    const { severity, message } = active;
     const timer = setTimeout(() => {
-      recordOperatorError(message);
+      recordOperatorNotice(severity, message);
       setActive(null);
       setArchiving(false);
     }, ARCHIVE_ANIM_MS);
@@ -183,7 +202,7 @@ export function OperatorErrorLog({ event }: { event: OperatorErrorEvent | null }
             aria-expanded={panelOpen}
             className={cx(
               "grid h-9 w-9 place-items-center rounded-lg bg-card text-muted-foreground shadow-sm outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40",
-              archiving ? "text-destructive" : "",
+              archiving && active ? SEVERITY_ACCENT[active.severity] : "",
             )}
           >
             <ArchiveIcon className="h-4 w-4" />
@@ -201,14 +220,14 @@ export function OperatorErrorLog({ event }: { event: OperatorErrorEvent | null }
                 <input
                   value={filter}
                   onChange={(event) => setFilter(event.target.value)}
-                  placeholder="Filter operator errors"
-                  aria-label="Filter operator errors"
+                  placeholder="Filter operator notices"
+                  aria-label="Filter operator notices"
                   className="h-8 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-xs text-foreground outline-none placeholder:text-muted-foreground/70 focus:border-ring focus:ring-2 focus:ring-ring/25"
                 />
                 <button
                   type="button"
                   onClick={() => {
-                    clearOperatorErrors();
+                    clearOperatorNotices();
                     setFilter("");
                     setPanelOpen(false);
                   }}
@@ -221,8 +240,8 @@ export function OperatorErrorLog({ event }: { event: OperatorErrorEvent | null }
                 {filtered.length === 0 ? (
                   <p className="px-1 py-3 text-center text-xs text-muted-foreground">
                     {log.length === 0
-                      ? "No operator errors this session."
-                      : "No errors match the filter."}
+                      ? "No operator notices this session."
+                      : "No notices match the filter."}
                   </p>
                 ) : (
                   <ul className="flex flex-col gap-1">
@@ -231,10 +250,20 @@ export function OperatorErrorLog({ event }: { event: OperatorErrorEvent | null }
                         key={entry.id}
                         className="rounded-md border border-border/70 bg-background px-2 py-1.5"
                       >
-                        <div className="text-[10px] font-mono text-muted-foreground">
-                          {timeLabel(entry.at)}
+                        <div className="flex items-center gap-1.5">
+                          <span
+                            className={cx(
+                              "rounded px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide",
+                              SEVERITY_LABEL[entry.severity],
+                            )}
+                          >
+                            {entry.severity}
+                          </span>
+                          <span className="text-[10px] font-mono text-muted-foreground">
+                            {timeLabel(entry.at)}
+                          </span>
                         </div>
-                        <div className="text-xs leading-relaxed text-foreground">
+                        <div className="mt-0.5 text-xs leading-relaxed text-foreground">
                           {entry.message}
                         </div>
                       </li>
@@ -254,13 +283,15 @@ export function OperatorErrorLog({ event }: { event: OperatorErrorEvent | null }
         </div>
       ) : null}
 
-      {/* The active error label: compact, left-anchored, with the dismiss control on the left. */}
+      {/* The active notice label: compact, left-anchored, coloured by severity, with the dismiss
+          control on the left. */}
       {active ? (
         <div
           role="alert"
           aria-live="polite"
           className={cx(
-            "pointer-events-auto flex max-w-sm origin-left items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 py-1.5 pl-1.5 pr-2.5 text-destructive shadow-sm transition-all ease-in",
+            "pointer-events-auto flex max-w-sm origin-left items-start gap-2 rounded-lg border py-1.5 pl-1.5 pr-2.5 shadow-sm transition-all ease-in",
+            SEVERITY_LABEL[active.severity],
             archiving
               ? "-translate-x-6 scale-90 opacity-0 duration-[450ms]"
               : "translate-x-0 scale-100 opacity-100 duration-200",
@@ -269,8 +300,8 @@ export function OperatorErrorLog({ event }: { event: OperatorErrorEvent | null }
           <button
             type="button"
             onClick={() => setArchiving(true)}
-            aria-label="Dismiss error"
-            className="mt-px shrink-0 rounded-md p-0.5 text-destructive/70 outline-none transition-colors hover:text-destructive focus-visible:ring-2 focus-visible:ring-destructive/40"
+            aria-label="Dismiss notice"
+            className="mt-px shrink-0 rounded-md p-0.5 opacity-70 outline-none transition-opacity hover:opacity-100 focus-visible:ring-2 focus-visible:ring-current/40"
           >
             <CloseIcon className="h-3.5 w-3.5" />
           </button>

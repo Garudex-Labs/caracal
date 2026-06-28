@@ -15,14 +15,23 @@ import {
   ResourceWorkspace,
 } from "@/components/console/ResourceWorkspace";
 import { ZoneScopedPage } from "@/components/console/ZoneScope";
-import { Badge, Button, Field, Select, Skeleton, type Column } from "@/components/ui";
+import {
+  Badge,
+  Button,
+  Field,
+  Select,
+  Skeleton,
+  type Column,
+  type FilterGroup,
+} from "@/components/ui";
 import { ConsoleApiError } from "@/platform/api/client";
 import { useAdminAuditFeed, useAuditFeed, useDecisionTrace } from "@/platform/api/hooks";
 import {
-  clearOperatorErrors,
-  useOperatorErrors,
-  type OperatorErrorRecord,
-} from "@/platform/state/operatorErrors";
+  clearOperatorNotices,
+  useOperatorNotices,
+  type OperatorNoticeRecord,
+  type OperatorNoticeSeverity,
+} from "@/platform/state/operatorNotices";
 import type {
   AdminAuditEvent,
   AdminAuditQuery,
@@ -77,17 +86,59 @@ function ModeTabs({ mode, onMode }: { mode: AuditMode; onMode: (m: AuditMode) =>
   );
 }
 
-// The Operator errors feed: the session-scoped, client-side log of failures the Operator surfaced
-// (a send with no provider, a request that could not be processed). These are client-observed and
-// never sent to the server, so they are read from the shared in-memory store rather than a backend
-// feed, and they are not zone-scoped — they cover the whole console session.
-function OperatorErrorsPage({ mode, onMode }: { mode: AuditMode; onMode: (m: AuditMode) => void }) {
-  const errors = useOperatorErrors();
+// The Operator notices feed: the session-scoped, client-side log of conditions the Operator
+// surfaced (a send with no provider warning, a request that could not be processed error). These
+// are client-observed and never sent to the server, so they are read from the shared in-memory
+// store rather than a backend feed, and they are not zone-scoped — they cover the whole console
+// session. Notices are labelled and coloured by severity, filterable by severity and text, and
+// sortable by severity or time.
+function severityTone(severity: OperatorNoticeSeverity): "danger" | "warning" {
+  return severity === "error" ? "danger" : "warning";
+}
 
-  const columns: Column<OperatorErrorRecord>[] = [
+function OperatorErrorsPage({ mode, onMode }: { mode: AuditMode; onMode: (m: AuditMode) => void }) {
+  const all = useOperatorNotices();
+  const [severity, setSeverity] = useState<string>("all");
+
+  const rows = useMemo(
+    () => (severity === "all" ? all : all.filter((n) => n.severity === severity)),
+    [all, severity],
+  );
+
+  const counts = useMemo(() => {
+    let errors = 0;
+    let warnings = 0;
+    for (const n of all) {
+      if (n.severity === "error") errors += 1;
+      else warnings += 1;
+    }
+    return { errors, warnings };
+  }, [all]);
+
+  const filters: FilterGroup[] = [
+    {
+      id: "severity",
+      label: "Severity",
+      value: severity,
+      onChange: setSeverity,
+      options: [
+        { id: "all", label: "All severities", count: all.length },
+        { id: "error", label: "Errors", count: counts.errors },
+        { id: "warning", label: "Warnings", count: counts.warnings },
+      ],
+    },
+  ];
+
+  const columns: Column<OperatorNoticeRecord>[] = [
+    {
+      id: "severity",
+      header: "Severity",
+      sortable: true,
+      cell: (e) => <Badge tone={severityTone(e.severity)}>{e.severity}</Badge>,
+    },
     {
       id: "message",
-      header: "Error",
+      header: "Notice",
       cell: (e) => <div className="text-sm text-foreground">{e.message}</div>,
     },
     {
@@ -104,47 +155,57 @@ function OperatorErrorsPage({ mode, onMode }: { mode: AuditMode; onMode: (m: Aud
   return (
     <ResourceWorkspace
       title="Audit"
-      description="Errors the Operator surfaced during this console session."
+      description="Errors and warnings the Operator surfaced during this console session."
       breadcrumbs={[{ label: "Console", to: "/app" }, { label: "Audit" }]}
-      rows={errors}
+      rows={rows}
       loading={false}
       columns={columns}
       rowKey={(e) => e.id}
       pageSize={12}
+      filters={all.length > 0 ? filters : undefined}
+      initialSort={{ column: "occurred", direction: "desc" }}
+      sortValues={{
+        // Errors sort ahead of warnings when sorting by severity descending.
+        severity: (e) => (e.severity === "error" ? 1 : 0),
+        occurred: (e) => e.at,
+      }}
       toolbarExtra={
         <FeedToolbar
           leading={<ModeTabs mode={mode} onMode={onMode} />}
-          activeFilters={0}
-          loaded={errors.length}
-          noun="error"
+          activeFilters={severity === "all" ? 0 : 1}
+          loaded={rows.length}
+          noun="notice"
           hasMore={false}
           fetchingMore={false}
           onLoadMore={() => {}}
         >
           <Button
             variant="secondary"
-            onClick={() => clearOperatorErrors()}
-            disabled={errors.length === 0}
+            onClick={() => clearOperatorNotices()}
+            disabled={all.length === 0}
           >
             Clear
           </Button>
         </FeedToolbar>
       }
       search={{
-        placeholder: "Filter operator errors…",
-        match: (e, q) => e.message.toLowerCase().includes(q),
+        placeholder: "Filter operator notices…",
+        match: (e, q) => e.message.toLowerCase().includes(q) || e.severity.includes(q),
       }}
       empty={{
-        title: "No operator errors",
+        title: "No operator notices",
         description:
-          "Errors the Operator surfaces this session — such as sending with no AI provider connected — are recorded here.",
+          "Errors and warnings the Operator surfaces this session — such as sending with no AI provider connected — are recorded here.",
       }}
       detail={{
-        title: () => "Operator error",
+        title: (e) => `Operator ${e.severity}`,
         description: (e) => new Date(e.at).toLocaleString(),
         width: "max-w-lg",
         render: (e) => (
           <DetailGroup title="Details">
+            <DetailField label="Severity">
+              <Badge tone={severityTone(e.severity)}>{e.severity}</Badge>
+            </DetailField>
             <DetailField label="Message">{e.message}</DetailField>
             <DetailField label="Occurred">{new Date(e.at).toLocaleString()}</DetailField>
           </DetailGroup>
