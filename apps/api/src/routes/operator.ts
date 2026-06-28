@@ -3,7 +3,7 @@
 //
 // Operator Control API: the authoritative conversation ledger backing Caracal Operator.
 
-import type { FastifyPluginAsync } from 'fastify'
+import type { FastifyPluginAsync, FastifyReply } from 'fastify'
 import { z } from 'zod'
 import { v7 as uuidv7 } from 'uuid'
 import { withTransaction, TxAbort, type TxClient, type DB } from '../db.js'
@@ -36,6 +36,8 @@ import { type AgentContext, type OperatorMode, type SecurityAdvisory } from '../
 import { createOrchestrator } from '../operator-orchestrator.js'
 import { createStateResearcher } from '../operator-research.js'
 import { summarizeHistory, type ConversationFacts } from '../operator-memory.js'
+import { OperatorAiNotFoundError, OperatorAiUnavailableError, type OperatorAiManager } from '../operator-ai-manager.js'
+import { PROVIDER_SLUG_PATTERN } from '../operator-ai-store.js'
 
 const TITLE_MAX_LENGTH = 200
 const CONTENT_MAX_BYTES = 64_000
@@ -251,11 +253,7 @@ async function loadConversationState(db: ContextQueryable, conversationId: strin
     [conversationId, zoneId, messageWindow],
   )
 
-  const [planSlice, { rows: errorRows }, { rows: messageRows }] = await Promise.all([
-    planSlicePromise,
-    errorPromise,
-    messagePromise,
-  ])
+  const [planSlice, { rows: errorRows }, { rows: messageRows }] = await Promise.all([planSlicePromise, errorPromise, messagePromise])
 
   const merged = new Map<number, TurnRecord>()
   for (const turn of [...planSlice, ...errorRows, ...messageRows]) {
@@ -344,7 +342,13 @@ export interface OperatorRoutesOptions {
   enabled: boolean
   allowedCapabilities?: string[] | null
   systemZones?: string[] | null
-  aiProviders?: ProviderConfig[]
+  // Supplies the current AI provider list each time the gateway is built, so a provider added
+  // or edited at runtime applies to the next request without an env edit or restart. Defaults
+  // to an empty list, which reports the AI tier disabled.
+  loadAiProviders?: () => ProviderConfig[]
+  // The runtime manager for governed model providers, or null when self-governance cannot seal
+  // keys. When null the provider-management routes report the feature unavailable.
+  aiManager?: OperatorAiManager | null
   // Internal-only: resolves the Operator's reserved caracal.sys control identity at request
   // time. Returns null until the system zone is provisioned (or when self-governance is
   // disabled), which leaves governed execution unconfigured. A getter rather than a static
@@ -383,10 +387,12 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
   // what autopilot may do.
   const autopilotPolicy: AutopilotPolicy = opts.autopilotPolicy ?? buildAutopilotPolicy()
 
-  // The optional AI gateway. With no provider configured it reports disabled and
-  // performs no work, so the AI tier costs nothing until an operator brings a key. The Caracal
-  // governance limits, when supplied, install the output-token ceiling middleware on every call.
-  const gateway: Gateway = createGateway(opts.aiProviders ?? [], opts.fetchImpl, opts.aiGovernance)
+  // The optional AI gateway, rebuilt per use from the current provider list so a runtime
+  // provider change applies to the next request. With no provider configured it reports
+  // disabled and performs no work, so the AI tier costs nothing until an operator brings a key.
+  // The Caracal governance limits, when supplied, install the output-token ceiling middleware on
+  // every call.
+  const buildGateway = (): Gateway => createGateway(opts.loadAiProviders?.() ?? [], opts.fetchImpl, opts.aiGovernance)
 
   // The orchestrator triages each turn to its tier and runs the one skill that handles it,
   // returning a typed artifact the deterministic spine below validates, previews, and governs.
@@ -437,7 +443,7 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
   // Reports which AI providers are configured, in failover order, never exposing
   // keys. The console uses this to show whether the AI tier is available.
   fastify.get('/operator/ai/status', async () => {
-    return gateway.status()
+    return buildGateway().status()
   })
 
   // Verifies AI connectivity by sending a minimal completion through the failover
@@ -446,7 +452,7 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
   fastify.post('/operator/ai/check', async (_req, reply) => {
     const started = Date.now()
     try {
-      const result = await gateway.complete(
+      const result = await buildGateway().complete(
         [
           { role: 'system', content: 'You are a connectivity probe. Reply with the single word OK.' },
           { role: 'user', content: 'OK' },
@@ -472,6 +478,128 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
 
   fastify.get('/operator/capabilities', async () => {
     return { capabilities: listCapabilities() }
+  })
+
+  // Governed model-provider management. These routes seal an upstream key into the reserved
+  // caracal.sys system zone and reconcile the Operator's grants, so a provider added here is
+  // governed exactly as a customer's resource is. They require self-governance to be configured;
+  // without it there is no authority plane to seal a key into, so a write is refused rather than
+  // holding the key unprotected.
+  const ProviderSlug = z.string().regex(PROVIDER_SLUG_PATTERN)
+  const ProviderModels = z.array(z.string().trim().min(1).max(120)).min(1).max(20)
+  const ProviderBaseUrl = z.string().trim().url().max(400)
+  const CreateProviderBody = z
+    .object({
+      slug: ProviderSlug,
+      label: z.string().trim().min(1).max(80),
+      base_url: ProviderBaseUrl,
+      models: ProviderModels,
+      context_window: z.number().int().min(0).max(10_000_000).default(0),
+      api_key: z.string().min(1).max(8000),
+      enabled: z.boolean().default(true),
+    })
+    .strict()
+  const UpdateProviderBody = z
+    .object({
+      label: z.string().trim().min(1).max(80).optional(),
+      base_url: ProviderBaseUrl.optional(),
+      models: ProviderModels.optional(),
+      context_window: z.number().int().min(0).max(10_000_000).optional(),
+      enabled: z.boolean().optional(),
+    })
+    .strict()
+  const RotateKeyBody = z.object({ api_key: z.string().min(1).max(8000) }).strict()
+  const ProviderSlugParams = z.object({ slug: ProviderSlug })
+
+  // Maps a manager error to its HTTP shape: a missing governance prerequisite is a 409 the
+  // console explains, and an unknown provider is a 404. Any other error propagates to the
+  // shared handler.
+  function sendAiError(reply: FastifyReply, err: unknown): boolean {
+    if (err instanceof OperatorAiUnavailableError) {
+      reply.code(409).send({ error: 'governed_execution_unconfigured' })
+      return true
+    }
+    if (err instanceof OperatorAiNotFoundError) {
+      reply.code(404).send({ error: 'provider_not_found' })
+      return true
+    }
+    return false
+  }
+
+  fastify.get('/operator/ai/providers', async () => {
+    const providers = opts.aiManager ? await opts.aiManager.list() : []
+    return { providers, available: opts.aiManager?.available() ?? false }
+  })
+
+  fastify.post('/operator/ai/providers', async (req, reply) => {
+    if (!opts.aiManager) return reply.code(409).send({ error: 'governed_execution_unconfigured' })
+    const parsed = CreateProviderBody.safeParse(req.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'invalid_provider' })
+    try {
+      const provider = await opts.aiManager.create({
+        slug: parsed.data.slug,
+        label: parsed.data.label,
+        baseUrl: parsed.data.base_url,
+        models: parsed.data.models,
+        contextWindow: parsed.data.context_window,
+        apiKey: parsed.data.api_key,
+        enabled: parsed.data.enabled,
+      })
+      return reply.code(201).send(provider)
+    } catch (err) {
+      if (sendAiError(reply, err)) return
+      throw err
+    }
+  })
+
+  fastify.patch('/operator/ai/providers/:slug', async (req, reply) => {
+    if (!opts.aiManager) return reply.code(409).send({ error: 'governed_execution_unconfigured' })
+    const params = ProviderSlugParams.safeParse(req.params)
+    if (!params.success) return reply.code(400).send({ error: 'invalid_provider' })
+    const parsed = UpdateProviderBody.safeParse(req.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'invalid_provider' })
+    try {
+      const provider = await opts.aiManager.update(params.data.slug, {
+        label: parsed.data.label,
+        baseUrl: parsed.data.base_url,
+        models: parsed.data.models,
+        contextWindow: parsed.data.context_window,
+        enabled: parsed.data.enabled,
+      })
+      return provider
+    } catch (err) {
+      if (sendAiError(reply, err)) return
+      throw err
+    }
+  })
+
+  fastify.post('/operator/ai/providers/:slug/key', async (req, reply) => {
+    if (!opts.aiManager) return reply.code(409).send({ error: 'governed_execution_unconfigured' })
+    const params = ProviderSlugParams.safeParse(req.params)
+    if (!params.success) return reply.code(400).send({ error: 'invalid_provider' })
+    const parsed = RotateKeyBody.safeParse(req.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'invalid_provider' })
+    try {
+      await opts.aiManager.rotateKey(params.data.slug, parsed.data.api_key)
+      return { ok: true }
+    } catch (err) {
+      if (sendAiError(reply, err)) return
+      throw err
+    }
+  })
+
+  fastify.delete('/operator/ai/providers/:slug', async (req, reply) => {
+    if (!opts.aiManager) return reply.code(409).send({ error: 'governed_execution_unconfigured' })
+    const params = ProviderSlugParams.safeParse(req.params)
+    if (!params.success) return reply.code(400).send({ error: 'invalid_provider' })
+    try {
+      const removed = await opts.aiManager.remove(params.data.slug)
+      if (!removed) return reply.code(404).send({ error: 'provider_not_found' })
+      return reply.code(204).send()
+    } catch (err) {
+      if (sendAiError(reply, err)) return
+      throw err
+    }
   })
 
   fastify.post('/zones/:zoneId/operator-conversations', async (req, reply) => {
@@ -1050,6 +1178,7 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
     }
     const parsed = MessageBody.safeParse(req.body)
     if (!parsed.success) return reply.code(400).send({ error: 'invalid_message' })
+    const gateway = buildGateway()
     const status = gateway.status()
     if (!status.enabled) return reply.code(409).send({ error: 'ai_unavailable' })
 

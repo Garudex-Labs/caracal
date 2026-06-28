@@ -10,6 +10,7 @@ import type { RedisClient } from '../../../../../apps/api/src/redis.js'
 import '../../../../../apps/api/src/fastify-augmentation.js'
 import { operatorRoutes } from '../../../../../apps/api/src/routes/operator.js'
 import { buildAutopilotPolicy } from '../../../../../apps/api/src/operator-autopilot.js'
+import type { OperatorAiManager } from '../../../../../apps/api/src/operator-ai-manager.js'
 
 function buildApp(
   enabled = true,
@@ -17,6 +18,7 @@ function buildApp(
     allowedCapabilities?: string[]
     systemZones?: string[]
     aiProviders?: { id: string; baseUrl: string; model: string; apiKey?: string; timeoutMs: number; contextWindow: number }[]
+    aiManager?: OperatorAiManager | null
     controlIdentity?: { applicationId: string; clientSecret: string; zoneId: string }
     controlEndpoints?: { stsUrl: string; audience: string; controlUrl: string; controlEnabled: boolean }
     fetchImpl?: typeof fetch
@@ -53,7 +55,8 @@ function buildApp(
     enabled,
     allowedCapabilities: authorityOpts.allowedCapabilities ?? null,
     systemZones: authorityOpts.systemZones ?? null,
-    aiProviders: authorityOpts.aiProviders,
+    loadAiProviders: () => authorityOpts.aiProviders ?? [],
+    aiManager: authorityOpts.aiManager ?? null,
     resolveControlIdentity: () => authorityOpts.controlIdentity ?? null,
     controlEndpoints: authorityOpts.controlEndpoints ?? null,
     fetchImpl: authorityOpts.fetchImpl,

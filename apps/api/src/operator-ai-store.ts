@@ -96,9 +96,6 @@ export async function upsertAiProvider(db: Queryable, input: ProviderUpsert): Pr
 }
 
 export async function deleteAiProvider(db: Queryable, slug: string): Promise<boolean> {
-  const { rows } = await db.query<{ slug: string }>(
-    `DELETE FROM operator_ai_providers WHERE slug = $1 RETURNING slug`,
-    [slug],
-  )
+  const { rows } = await db.query<{ slug: string }>(`DELETE FROM operator_ai_providers WHERE slug = $1 RETURNING slug`, [slug])
   return rows.length > 0
 }
