@@ -631,13 +631,26 @@ function PreferencesSection() {
 
 /* ------------------------------ AI Operator ------------------------------ */
 
-// Common OpenAI-compatible endpoints offered as base-URL autofill. The model id is whatever the
-// endpoint serves, so it is typed in rather than chosen from a list; only the endpoint, which
-// genuinely varies by provider, is worth suggesting.
+// Common OpenAI-compatible base URLs across providers, offered as endpoint autofill. The model id
+// is whatever the endpoint serves, so it is typed in rather than chosen from a list; only the
+// endpoint, which genuinely varies by provider, is worth suggesting. Each is the provider's
+// OpenAI-compatible /chat/completions surface (Anthropic and Gemini expose one natively; others go
+// through a proxy), with placeholders the operator fills in for their own resource.
 const ENDPOINT_SUGGESTIONS = [
+  // OpenAI
   "https://api.openai.com/v1",
+  // Azure OpenAI
+  "https://YOUR-RESOURCE.openai.azure.com/openai/v1",
+  // Anthropic (OpenAI-compatible)
+  "https://api.anthropic.com/v1",
+  // Google Gemini (OpenAI-compatible)
+  "https://generativelanguage.googleapis.com/v1beta/openai",
+  // OpenRouter
   "https://openrouter.ai/api/v1",
+  // LiteLLM proxy (self-hosted)
   "http://localhost:4000/v1",
+  // Ollama (local)
+  "http://localhost:11434/v1",
 ];
 
 // The Operator addresses a provider by a slug used to build its configuration keys, so the slug
