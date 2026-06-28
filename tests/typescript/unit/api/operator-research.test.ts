@@ -91,4 +91,41 @@ describe('createStateResearcher', () => {
     expect(apps).toMatchObject({ ok: true, count: 1 })
     expect(policy).toMatchObject({ ok: false, error: 'missing scope control:policy:read' })
   })
+
+  it('degrades a non-array control result to a zero count without leaking', async () => {
+    // A malformed control response (not a list) must not crash the gather or surface anything; it
+    // degrades to an empty, name-free evidence entry.
+    const invoke = vi.fn(async () => ({ unexpected: 'object' }))
+    const { evidence } = await createStateResearcher({ invoke } as unknown as ControlClient).gather()
+    for (const item of evidence) {
+      expect(item).toMatchObject({ ok: true, count: 0 })
+      expect(item.names).toEqual([])
+    }
+  })
+
+  it('skips rows that are not objects without surfacing them', async () => {
+    // A list with non-object entries (null, a string, a number) must contribute to the count but
+    // never to the surfaced names, so a malformed row can never leak an arbitrary value.
+    const invoke = vi.fn(async (command: string) =>
+      command === 'app' ? [null, 'a-bare-string', 42, { id: 'a1', name: 'Billing' }] : [],
+    )
+    const { evidence } = await createStateResearcher({ invoke } as unknown as ControlClient).gather()
+    const apps = evidence.find((e) => e.domain === 'application')!
+    expect(apps.count).toBe(4)
+    expect(apps.names).toEqual(['Billing'])
+  })
+
+  it('catches a non-control throw with a safe generic reason', async () => {
+    // An unexpected throw that is not a ControlClientError must not surface its message (which
+    // could carry internal detail); it degrades to a fixed "read failed" reason.
+    const invoke = vi.fn(async () => {
+      throw new Error('postgres connection string postgres://user:secret@host failed')
+    })
+    const { evidence } = await createStateResearcher({ invoke } as unknown as ControlClient).gather()
+    for (const item of evidence) {
+      expect(item).toMatchObject({ ok: false, error: 'read failed' })
+    }
+    // The raw error text — which could carry a secret — never reaches the evidence.
+    expect(JSON.stringify(evidence)).not.toContain('secret')
+  })
 })

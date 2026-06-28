@@ -938,7 +938,15 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
         )
         const turns: Record<string, unknown>[] = []
         const outputs: Record<string, Record<string, unknown>> = {}
-        if (!conv[0] || conv[0].status !== 'active') return { turns, outputs }
+        // The mutations have already been applied to the control plane, so the ledger must record
+        // them — and the execution turn that records a step is also the dedup marker that blocks a
+        // re-run. Recording therefore proceeds even if the conversation was archived in the window
+        // between applying the plan and this transaction: the applied work is real and must be
+        // reflected truthfully, and the dedup turn must be written so a re-activated conversation
+        // cannot re-apply a non-idempotent step. Only a hard delete (the row is gone, so the
+        // cascade already removed the whole plan ledger and there is nothing left to re-run
+        // against) leaves nothing to record.
+        if (!conv[0]) return { turns, outputs }
         let seq = conv[0].next_seq
         for (const step of result.applied) {
           const turn = await writeTurnLocked(client, {

@@ -1066,6 +1066,86 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/plan/execute', () =>
     expect(redis.eval).toHaveBeenCalled()
   })
 
+  it('records the execution turn even if the conversation was archived after the plan applied', async () => {
+    // The mutation has already been applied to the control plane by the time the recording
+    // transaction runs. If the conversation was archived in that window, the ledger must still
+    // record the execution turn — both to reflect the real applied work and to write the dedup
+    // marker that blocks a re-run. The recording FOR UPDATE returns an archived (but existing)
+    // conversation; the execution turn is written all the same.
+    const fetchMock = controlFetch([{ id: 'grant-xyz' }])
+    const { app, clientQuery } = buildApp(true, { ...governedControl, fetchImpl: fetchMock as unknown as typeof fetch })
+    const executionTurn = {
+      id: 'turn-x',
+      conversation_id: 'conv-1',
+      seq: 5,
+      role: 'operator',
+      kind: 'execution',
+      content: { plan_seq: 2, step_id: 's1', status: 'succeeded' },
+      actor_id: 'actor-1',
+      created_at: '2026-01-01T00:00:05Z',
+    }
+    clientQuery
+      .mockResolvedValueOnce(undefined) // BEGIN
+      .mockResolvedValueOnce({ rows: [{ status: 'active' }] }) // conv status
+      .mockResolvedValueOnce({ rows: [{ content: grantPlan }] }) // plan content
+      .mockResolvedValueOnce({ rows: [{ kind: 'approval' }] }) // approved
+      .mockResolvedValueOnce({ rows: [] }) // not executed
+      .mockResolvedValueOnce({ rows: [{ one: 1 }] }) // preview: application lives
+      .mockResolvedValueOnce({ rows: [{ one: 1 }] }) // preview: resource lives
+      .mockResolvedValueOnce(undefined) // COMMIT
+      .mockResolvedValueOnce(undefined) // BEGIN (recording)
+      .mockResolvedValueOnce({ rows: [{ status: 'archived', next_seq: 5 }] }) // conv FOR UPDATE — archived
+      .mockResolvedValueOnce({ rowCount: 1 }) // UPDATE next_seq
+      .mockResolvedValueOnce({ rows: [executionTurn] }) // INSERT execution turn
+      .mockResolvedValueOnce(undefined) // COMMIT
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/operator-conversations/conv-1/plan/execute',
+      payload: { plan_seq: 2 },
+    })
+    expect(res.statusCode).toBe(201)
+    const body = JSON.parse(res.body)
+    // The applied work is recorded truthfully, not dropped as a misleading empty success.
+    expect(body.executed).toHaveLength(1)
+    expect(body.outputs.s1).toEqual({ grant_id: 'grant-xyz' })
+    // The dedup execution turn was written despite the archive, so the plan cannot be re-applied.
+    const insertExec = clientQuery.mock.calls.find(
+      (c) => String(c[0]).includes('INSERT INTO operator_turns') && String(c[1]?.[5]) === 'execution',
+    )
+    expect(insertExec).toBeDefined()
+  })
+
+  it('records nothing when the conversation was hard-deleted mid-execute, leaving no ledger to dedup', async () => {
+    // A hard delete cascades away the whole plan ledger, so there is nothing to record against and
+    // nothing left to re-run. The recording transaction finds no row and writes no turn.
+    const fetchMock = controlFetch([{ id: 'grant-xyz' }])
+    const { app, clientQuery } = buildApp(true, { ...governedControl, fetchImpl: fetchMock as unknown as typeof fetch })
+    clientQuery
+      .mockResolvedValueOnce(undefined) // BEGIN
+      .mockResolvedValueOnce({ rows: [{ status: 'active' }] }) // conv status
+      .mockResolvedValueOnce({ rows: [{ content: grantPlan }] }) // plan content
+      .mockResolvedValueOnce({ rows: [{ kind: 'approval' }] }) // approved
+      .mockResolvedValueOnce({ rows: [] }) // not executed
+      .mockResolvedValueOnce({ rows: [{ one: 1 }] }) // preview: application lives
+      .mockResolvedValueOnce({ rows: [{ one: 1 }] }) // preview: resource lives
+      .mockResolvedValueOnce(undefined) // COMMIT
+      .mockResolvedValueOnce(undefined) // BEGIN (recording)
+      .mockResolvedValueOnce({ rows: [] }) // conv FOR UPDATE — no row (deleted)
+      .mockResolvedValueOnce(undefined) // COMMIT
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/operator-conversations/conv-1/plan/execute',
+      payload: { plan_seq: 2 },
+    })
+    expect(res.statusCode).toBe(201)
+    const insertExec = clientQuery.mock.calls.find(
+      (c) => String(c[0]).includes('INSERT INTO operator_turns') && String(c[1]?.[5]) === 'execution',
+    )
+    expect(insertExec).toBeUndefined()
+  })
+
   it('refuses to execute a create plan whose target already exists, calling no control command', async () => {
     const fetchMock = controlFetch([])
     const { app, clientQuery } = buildApp(true, { ...governedControl, fetchImpl: fetchMock as unknown as typeof fetch })
