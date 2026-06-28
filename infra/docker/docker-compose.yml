@@ -408,6 +408,10 @@ services:
       API_OPERATOR_AUTOPILOT_MAX_STEPS: ${API_OPERATOR_AUTOPILOT_MAX_STEPS:-}
       API_OPERATOR_AUTOPILOT_WINDOW_SEC: ${API_OPERATOR_AUTOPILOT_WINDOW_SEC:-}
       API_OPERATOR_AUTOPILOT_WINDOW_MAX: ${API_OPERATOR_AUTOPILOT_WINDOW_MAX:-}
+      # Caracal-set governance over Operator model usage: a per-call output-token ceiling and a
+      # per-turn model-call budget. Both have safe defaults that bound runaways; empty uses them.
+      API_OPERATOR_AI_MAX_OUTPUT_TOKENS: ${API_OPERATOR_AI_MAX_OUTPUT_TOKENS:-}
+      API_OPERATOR_AI_MAX_CALLS_PER_TURN: ${API_OPERATOR_AI_MAX_CALLS_PER_TURN:-}
       PORT: 3000
       HOST: 0.0.0.0
     ports:
