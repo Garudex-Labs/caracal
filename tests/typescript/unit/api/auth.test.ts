@@ -35,10 +35,16 @@ function makeDb(
     zoneId?: string | null
     capability?: 'read' | 'write'
     createdBy?: string
+    zoneReserved?: boolean
   } = {},
 ) {
   const tokenDigest = opts.token ? digest(opts.token) : null
   const query = vi.fn().mockImplementation((sql: string, params?: unknown[]) => {
+    if (sql.includes('FROM zones') && sql.includes('name, slug')) {
+      return Promise.resolve({
+        rows: opts.zoneReserved ? [{ name: 'caracal.sys/system', slug: 'caracal-sys-internal' }] : [],
+      })
+    }
     if (sql.includes('FROM admin_tokens') && Array.isArray(params)) {
       const cand = params[0]
       if (Buffer.isBuffer(cand) && tokenDigest && cand.equals(tokenDigest)) {
@@ -218,6 +224,35 @@ describe('adminAuthPlugin', () => {
   it('lets a write-capability token mutate', async () => {
     const app = await buildPluginApp(makeDb({ token: 'secret', capability: 'write' }))
     const res = await app.inject({ method: 'POST', url: '/v1/zones', headers: { authorization: 'Bearer secret' } })
+    expect(res.statusCode).toBe(200)
+    await app.close()
+  })
+
+  it('denies a non-provisioner actor mutating the reserved system zone', async () => {
+    const app = await buildPluginApp(makeDb({ token: 's', createdBy: 'env-derived-write', zoneReserved: true }))
+    const res = await app.inject({ method: 'DELETE', url: '/v1/zones/z1', headers: { authorization: 'Bearer s' } })
+    expect(res.statusCode).toBe(403)
+    expect(res.json()).toEqual({ error: 'system_zone_read_only' })
+    await app.close()
+  })
+
+  it('lets the internal provisioner mutate the reserved system zone', async () => {
+    const app = await buildPluginApp(makeDb({ token: 's', createdBy: 'env-bootstrap', zoneReserved: true }))
+    const res = await app.inject({ method: 'DELETE', url: '/v1/zones/z1', headers: { authorization: 'Bearer s' } })
+    expect(res.statusCode).toBe(200)
+    await app.close()
+  })
+
+  it('lets a non-provisioner read the reserved system zone', async () => {
+    const app = await buildPluginApp(makeDb({ token: 's', createdBy: 'env-derived-write', zoneReserved: true }))
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/things', headers: { authorization: 'Bearer s' } })
+    expect(res.statusCode).toBe(200)
+    await app.close()
+  })
+
+  it('lets a non-provisioner mutate a tenant zone that is not reserved', async () => {
+    const app = await buildPluginApp(makeDb({ token: 's', createdBy: 'env-derived-write', zoneReserved: false }))
+    const res = await app.inject({ method: 'DELETE', url: '/v1/zones/z1', headers: { authorization: 'Bearer s' } })
     expect(res.statusCode).toBe(200)
     await app.close()
   })

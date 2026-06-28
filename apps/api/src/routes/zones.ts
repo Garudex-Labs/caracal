@@ -11,7 +11,7 @@ import { buildPatchUpdate, patchColumn } from './patch.js'
 import { withTransaction, TxAbort } from '../db.js'
 import { IdParams, parseParams } from './params.js'
 import { appendKeysetCondition, parseListPagination, setNextLink } from './list-pagination.js'
-import { assertReservedNamespace } from '../reserved-namespace.js'
+import { assertReservedNamespace, RESERVED_ZONE_SQL } from '../reserved-namespace.js'
 import { enqueueOutboxBatch, type EnqueueArgs } from '../outbox.js'
 import { STREAM_AGENTS_LIFECYCLE, STREAM_SESSIONS_REVOKE } from '../redis.js'
 import type { Actor } from '../auth.js'
@@ -302,7 +302,10 @@ export const zonesRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get('/zones', async (req, reply) => {
     const page = parseListPagination(req, reply)
     if (!page) return
-    const keyset = appendKeysetCondition({ conds: ['archived_at IS NULL'], values: [] }, page)
+    // The reserved system zone is Caracal's own internal infrastructure; it is never listed
+    // in the Console zones dashboard or any external zone enumeration. It remains reachable by
+    // id for the read-only transparency view, so only the list is filtered.
+    const keyset = appendKeysetCondition({ conds: ['archived_at IS NULL', `NOT ${RESERVED_ZONE_SQL}`], values: [] }, page)
     const { rows } = await fastify.db.query(
       `SELECT id, name, slug, dcr_enabled, created_at, updated_at
        FROM zones WHERE ${keyset.conds.join(' AND ')}

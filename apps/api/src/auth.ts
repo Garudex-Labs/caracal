@@ -13,6 +13,7 @@ import type { RedisClient } from './redis.js'
 import { redisMinuteBucket } from './redis.js'
 import { hashAdminToken, verifyAdminTokenHash } from './hash-secret.js'
 import { bindRequestZoneScope, GLOBAL_ZONE_SCOPE } from './zone-context.js'
+import { isInternalProvisioner, isReservedZone } from './reserved-namespace.js'
 
 type AdminScope = 'global' | 'zone'
 type AdminCapability = 'read' | 'write'
@@ -340,6 +341,25 @@ const adminAuthImpl: FastifyPluginAsync<AuthPluginOptions> = async (fastify, opt
     return lookup
   }
 
+  // Whether a zone id names the reserved system zone, cached briefly by id. The reserved
+  // status of a zone never changes, so a short TTL keeps the mutation gate off the hot path
+  // while still tolerating the zone being provisioned after the process starts. A miss caches
+  // false too; ids are uuids, so a later real zone never collides with a cached negative.
+  const reservedZoneTtlMs = 30_000
+  const reservedZoneCacheMax = 1024
+  const reservedZoneCache = new Map<string, { at: number; reserved: boolean }>()
+
+  async function isReservedZoneId(zoneId: string): Promise<boolean> {
+    const now = Date.now()
+    const cached = reservedZoneCache.get(zoneId)
+    if (cached && now - cached.at < reservedZoneTtlMs) return cached.reserved
+    const { rows } = await opts.db.query<{ name: string; slug: string }>(`SELECT name, slug FROM zones WHERE id = $1 LIMIT 1`, [zoneId])
+    const reserved = rows[0] ? isReservedZone(rows[0]) : false
+    if (reservedZoneCache.size >= reservedZoneCacheMax) reservedZoneCache.clear()
+    reservedZoneCache.set(zoneId, { at: now, reserved })
+    return reserved
+  }
+
   fastify.addHook('preHandler', async (req, reply) => {
     if (!req.url.startsWith(prefix)) return
     if (isPublicOAuthCallback(req.method, req.url)) return
@@ -376,6 +396,20 @@ const adminAuthImpl: FastifyPluginAsync<AuthPluginOptions> = async (fastify, opt
         if (reqZone === INVALID_ZONE_ID || reqZone !== actor.zoneId) {
           return reply.code(403).send({ error: 'admin_token_zone_mismatch' })
         }
+      }
+    }
+
+    // The reserved system zone is provisioned and owned by Caracal's own bootstrap identity.
+    // Every other actor may read it for transparency but may never mutate it, so the
+    // platform's internal control objects cannot be altered through the admin API or the
+    // Console — the security boundary that backs the Console's read-only system-zone view. The
+    // internal provisioner is exempt because it is the identity that seals the zone. Only a
+    // mutating request that targets a specific zone is checked; reads and non-zone paths skip
+    // the lookup entirely.
+    if (!isReadOnlyRequest(req.method, req.url) && !isInternalProvisioner(actor)) {
+      const reqZone = zoneFromUrl(req.url)
+      if (reqZone !== INVALID_ZONE_ID && (await isReservedZoneId(reqZone))) {
+        return reply.code(403).send({ error: 'system_zone_read_only' })
       }
     }
 

@@ -1,27 +1,70 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Reserved Caracal-internal namespace tests cover the per-object encodings and the global-only gate.
+// Reserved Caracal-internal namespace tests cover the per-object encodings and the provisioner-only gate.
 
 import { describe, expect, it } from 'vitest'
 import type { Actor } from '../../../../apps/api/src/auth.js'
-import { assertReservedNamespace } from '../../../../apps/api/src/reserved-namespace.js'
+import {
+  assertReservedNamespace,
+  isInternalProvisioner,
+  isReservedZone,
+  RESERVED_ZONE_SQL,
+} from '../../../../apps/api/src/reserved-namespace.js'
 
-const globalActor: Actor = { id: 'admin-1', name: 'Platform Admin', scope: 'global', zoneId: null }
-const zoneActor: Actor = { id: 'admin-2', name: 'Tenant Admin', scope: 'zone', zoneId: 'zone-1' }
+const provisioner: Actor = {
+  id: 'bootstrap',
+  name: 'bootstrap',
+  scope: 'global',
+  capability: 'write',
+  zoneId: null,
+  createdBy: 'env-bootstrap',
+}
+const consoleWrite: Actor = {
+  id: 'console-write',
+  name: 'console-write',
+  scope: 'global',
+  capability: 'write',
+  zoneId: null,
+  createdBy: 'env-derived-write',
+}
+const operatorMinted: Actor = {
+  id: 'admin-1',
+  name: 'Platform Admin',
+  scope: 'global',
+  capability: 'write',
+  zoneId: null,
+  createdBy: 'admin:some-operator',
+}
+const zoneActor: Actor = {
+  id: 'admin-2',
+  name: 'Tenant Admin',
+  scope: 'zone',
+  capability: 'write',
+  zoneId: 'zone-1',
+  createdBy: 'admin:some-operator',
+}
 
 describe('assertReservedNamespace', () => {
   it('allows an absent value', () => {
     expect(assertReservedNamespace('zoneSlug', undefined, zoneActor)).toBeNull()
   })
 
-  it('allows a global actor to use the reserved namespace in every encoding', () => {
-    expect(assertReservedNamespace('zoneSlug', 'caracal-sys-internal', globalActor)).toBeNull()
-    expect(assertReservedNamespace('zoneName', 'caracal.sys/internal', globalActor)).toBeNull()
-    expect(assertReservedNamespace('applicationName', 'caracal.sys/operator', globalActor)).toBeNull()
-    expect(assertReservedNamespace('resourceIdentifier', 'caracal-sys://operator-llm', globalActor)).toBeNull()
-    expect(assertReservedNamespace('providerIdentifier', 'provider://caracal-sys-llm', globalActor)).toBeNull()
-    expect(assertReservedNamespace('policyName', 'caracal.sys/lock', globalActor)).toBeNull()
+  it('allows the internal provisioner to use the reserved namespace in every encoding', () => {
+    expect(assertReservedNamespace('zoneSlug', 'caracal-sys-internal', provisioner)).toBeNull()
+    expect(assertReservedNamespace('zoneName', 'caracal.sys/internal', provisioner)).toBeNull()
+    expect(assertReservedNamespace('applicationName', 'caracal.sys/operator', provisioner)).toBeNull()
+    expect(assertReservedNamespace('resourceIdentifier', 'caracal-sys://operator-llm', provisioner)).toBeNull()
+    expect(assertReservedNamespace('providerIdentifier', 'provider://caracal-sys-llm', provisioner)).toBeNull()
+    expect(assertReservedNamespace('policyName', 'caracal.sys/lock', provisioner)).toBeNull()
+  })
+
+  it('refuses a non-provisioner global actor from using the reserved namespace', () => {
+    expect(assertReservedNamespace('zoneSlug', 'caracal-sys-internal', consoleWrite)).toMatchObject({ error: 'reserved_namespace' })
+    expect(assertReservedNamespace('zoneName', 'caracal.sys/internal', operatorMinted)).toMatchObject({ error: 'reserved_namespace' })
+    expect(assertReservedNamespace('applicationName', 'caracal.sys/operator', operatorMinted)).toMatchObject({
+      error: 'reserved_namespace',
+    })
   })
 
   it('refuses a zone-scoped tenant from using the reserved namespace in every encoding', () => {
@@ -54,5 +97,37 @@ describe('assertReservedNamespace', () => {
     expect(assertReservedNamespace('resourceIdentifier', 'resource://api/files', zoneActor)).toBeNull()
     expect(assertReservedNamespace('providerIdentifier', 'provider://stripe', zoneActor)).toBeNull()
     expect(assertReservedNamespace('applicationName', 'caracal-operator', zoneActor)).toBeNull()
+  })
+})
+
+describe('isInternalProvisioner', () => {
+  it('recognises only the bootstrap deployment identity', () => {
+    expect(isInternalProvisioner(provisioner)).toBe(true)
+    expect(isInternalProvisioner(consoleWrite)).toBe(false)
+    expect(isInternalProvisioner(operatorMinted)).toBe(false)
+    expect(isInternalProvisioner(zoneActor)).toBe(false)
+  })
+})
+
+describe('isReservedZone', () => {
+  it('matches the reserved system zone by slug or name in any case', () => {
+    expect(isReservedZone({ slug: 'caracal-sys-internal', name: 'caracal.sys/system' })).toBe(true)
+    expect(isReservedZone({ slug: 'CARACAL-SYS-INTERNAL' })).toBe(true)
+    expect(isReservedZone({ name: ' Caracal.Sys/System ' })).toBe(true)
+  })
+
+  it('does not match tenant zones or look-alikes', () => {
+    expect(isReservedZone({ slug: 'finance', name: 'Finance' })).toBe(false)
+    expect(isReservedZone({ slug: 'my-caracal-sys-zone' })).toBe(false)
+    expect(isReservedZone({ name: 'caracal-control' })).toBe(false)
+    expect(isReservedZone({})).toBe(false)
+  })
+})
+
+describe('RESERVED_ZONE_SQL', () => {
+  it('is a parameterless fragment built from the reserved prefixes', () => {
+    expect(RESERVED_ZONE_SQL).toContain("lower(name) LIKE 'caracal.sys/%'")
+    expect(RESERVED_ZONE_SQL).toContain("lower(slug) LIKE 'caracal-sys-%'")
+    expect(RESERVED_ZONE_SQL).not.toContain('$')
   })
 })

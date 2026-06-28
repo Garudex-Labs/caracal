@@ -10,7 +10,7 @@ import type { RedisClient } from '../../../../../apps/api/src/redis.js'
 import '../../../../../apps/api/src/fastify-augmentation.js'
 import { applicationsRoutes } from '../../../../../apps/api/src/routes/applications.js'
 
-function buildApp(scope: 'zone' | 'global' = 'zone') {
+function buildApp(scope: 'zone' | 'global' | 'provisioner' = 'zone') {
   const app = Fastify({ logger: false })
   const clientQuery = vi.fn()
   const db = {
@@ -29,9 +29,11 @@ function buildApp(scope: 'zone' | 'global' = 'zone') {
   app.decorate('redis', redis as unknown as RedisClient)
   app.addHook('preHandler', async (req) => {
     ;(req as unknown as { actor: unknown }).actor =
-      scope === 'global'
-        ? { id: 'actor-1', name: 'operator', scope: 'global' }
-        : { id: 'actor-1', name: 'operator', scope: 'zone', zoneId: 'z1' }
+      scope === 'zone'
+        ? { id: 'actor-1', name: 'operator', scope: 'zone', capability: 'write', zoneId: 'z1', createdBy: 'admin:op' }
+        : scope === 'provisioner'
+          ? { id: 'actor-1', name: 'bootstrap', scope: 'global', capability: 'write', zoneId: null, createdBy: 'env-bootstrap' }
+          : { id: 'actor-1', name: 'operator', scope: 'global', capability: 'write', zoneId: null, createdBy: 'env-derived-write' }
   })
   app.register(applicationsRoutes, { prefix: '/v1' })
   return { app, db, clientQuery, redis }
@@ -122,8 +124,25 @@ describe('POST /v1/zones/:zoneId/applications', () => {
     expect(db.query).toHaveBeenCalledTimes(1)
   })
 
-  it('allows a global platform actor to register a reserved caracal.sys application', async () => {
+  it('rejects a reserved caracal.sys application name from a non-provisioner global actor', async () => {
     const { app, db } = buildApp('global')
+    db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/applications',
+      payload: { name: 'caracal.sys/operator', registration_method: 'managed' },
+    })
+
+    expect(res.statusCode).toBe(409)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'reserved_namespace' })
+    // A global Console or external admin token is refused before any application row is written.
+    expect(db.query).toHaveBeenCalledTimes(1)
+  })
+
+  it('allows the internal provisioner to register a reserved caracal.sys application', async () => {
+    const { app, db } = buildApp('provisioner')
     db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
     db.query.mockResolvedValueOnce({
       rows: [{ id: 'app-sys', zone_id: 'z1', name: 'caracal.sys/operator', registration_method: 'managed' }],

@@ -75,6 +75,8 @@ export function apiAppDeps(opts: ApiDepsOptions = {}): ApiDeps {
     shutdownTimeoutMs: 1000,
     workerId: 'test:0',
     bodyLimitBytes: 1_048_576,
+    operatorEnabled: false,
+    operatorAiProviders: [],
     outbox: {
       pollIntervalMs: 1000,
       batchSize: 8,
