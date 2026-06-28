@@ -21,7 +21,6 @@ import (
 	"github.com/garudex-labs/caracal/packages/core/go/logging"
 	coremetrics "github.com/garudex-labs/caracal/packages/core/go/metrics"
 	"github.com/garudex-labs/caracal/packages/core/go/telemetry"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 	"golang.org/x/sync/errgroup"
@@ -78,7 +77,7 @@ func New(ctx context.Context) (*Server, error) {
 	}
 	log := logging.New("audit")
 
-	db, err := pgxpool.New(ctx, cfg.DatabaseURL)
+	db, err := newPool(ctx, cfg.DatabaseURL)
 	if err != nil {
 		return nil, err
 	}

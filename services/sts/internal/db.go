@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/garudex-labs/caracal/packages/core/go/config"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -19,7 +20,14 @@ import (
 
 type DB struct{ pool *pgxpool.Pool }
 
-const dbConnectTimeout = 10 * time.Second
+const (
+	dbDefaultMaxConns        = 20
+	dbDefaultMinConns        = 2
+	dbDefaultConnectTimeout  = 10 * time.Second
+	dbDefaultMaxConnLifetime = 30 * time.Minute
+	dbDefaultMaxConnIdle     = 5 * time.Minute
+	dbDefaultHealthCheck     = 30 * time.Second
+)
 
 // ErrConcurrentGrantUpdate signals an optimistic-lock conflict on delegated_grants.
 // Callers refresh.go retries on this; other errors are returned as-is.
@@ -30,7 +38,12 @@ func newDB(ctx context.Context, dsn string) (*DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse postgres config: %w", err)
 	}
-	cfg.ConnConfig.ConnectTimeout = dbConnectTimeout
+	cfg.MaxConns = config.Int32Env("DB_MAX_CONNS", dbDefaultMaxConns)
+	cfg.MinConns = config.Int32Env("DB_MIN_CONNS", dbDefaultMinConns)
+	cfg.MaxConnLifetime = config.DurationEnv("DB_MAX_CONN_LIFETIME", dbDefaultMaxConnLifetime)
+	cfg.MaxConnIdleTime = config.DurationEnv("DB_MAX_CONN_IDLE", dbDefaultMaxConnIdle)
+	cfg.HealthCheckPeriod = config.DurationEnv("DB_HEALTH_CHECK_PERIOD", dbDefaultHealthCheck)
+	cfg.ConnConfig.ConnectTimeout = config.DurationEnv("DB_CONNECT_TIMEOUT", dbDefaultConnectTimeout)
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("connect postgres: %w", err)

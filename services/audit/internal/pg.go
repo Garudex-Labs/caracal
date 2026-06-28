@@ -15,15 +15,45 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/garudex-labs/caracal/packages/core/go/config"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+const (
+	dbDefaultMaxConns        = 20
+	dbDefaultMinConns        = 2
+	dbDefaultConnectTimeout  = 10 * time.Second
+	dbDefaultMaxConnLifetime = 30 * time.Minute
+	dbDefaultMaxConnIdle     = 5 * time.Minute
+	dbDefaultHealthCheck     = 30 * time.Second
+)
+
 // ErrConflictMismatch indicates a duplicate (id, occurred_at) row whose stored
 // content hash differs from the incoming event. Caller routes to the DLQ.
 var ErrConflictMismatch = errors.New("audit: duplicate event with mismatched content hash")
+
+// newPool returns a pgxpool.Pool with bounded connection counts and timeouts so
+// the audit worker cannot exhaust the shared Postgres and recovers from blips.
+func newPool(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
+	cfg, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		return nil, fmt.Errorf("parse postgres config: %w", err)
+	}
+	cfg.MaxConns = config.Int32Env("DB_MAX_CONNS", dbDefaultMaxConns)
+	cfg.MinConns = config.Int32Env("DB_MIN_CONNS", dbDefaultMinConns)
+	cfg.MaxConnLifetime = config.DurationEnv("DB_MAX_CONN_LIFETIME", dbDefaultMaxConnLifetime)
+	cfg.MaxConnIdleTime = config.DurationEnv("DB_MAX_CONN_IDLE", dbDefaultMaxConnIdle)
+	cfg.HealthCheckPeriod = config.DurationEnv("DB_HEALTH_CHECK_PERIOD", dbDefaultHealthCheck)
+	cfg.ConnConfig.ConnectTimeout = config.DurationEnv("DB_CONNECT_TIMEOUT", dbDefaultConnectTimeout)
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("connect postgres: %w", err)
+	}
+	return pool, nil
+}
 
 type PGWriter struct {
 	db           *pgxpool.Pool
