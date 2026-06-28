@@ -72,7 +72,24 @@ if (cfg.autoProvisionDatabase) {
   await ensureAuthDatabase()
 }
 
-const pool = new pg.Pool({ connectionString: cfg.databaseUrl, ssl: sslOption(cfg.ssl) })
+// Bounded pool so the session store cannot exhaust shared Postgres, recycles idle connections,
+// and fails fast instead of hanging when the database is unreachable. Knobs mirror the API and
+// coordinator pools through the shared DB_* env family.
+const poolMax = Math.max(1, Number(process.env.DB_POOL_MAX ?? 20))
+const connectionTimeoutMs = Math.max(0, Number(process.env.DB_CONNECTION_TIMEOUT_MS ?? 5_000))
+const idleTimeoutMs = Math.max(0, Number(process.env.DB_IDLE_TIMEOUT_MS ?? 30_000))
+const statementTimeoutMs = Math.max(1, Number(process.env.DB_STATEMENT_TIMEOUT_MS ?? 15_000))
+const idleInTxTimeoutMs = Math.max(1, Number(process.env.DB_IDLE_IN_TX_TIMEOUT_MS ?? 30_000))
+
+const pool = new pg.Pool({
+  connectionString: cfg.databaseUrl,
+  ssl: sslOption(cfg.ssl),
+  max: poolMax,
+  connectionTimeoutMillis: connectionTimeoutMs,
+  idleTimeoutMillis: idleTimeoutMs,
+  application_name: 'caracal-auth',
+  options: `-c statement_timeout=${statementTimeoutMs} -c idle_in_transaction_session_timeout=${idleInTxTimeoutMs}`,
+})
 
 // Better Auth detects the Postgres dialect from the pg.Pool's structural shape.
 export const authDatabase = pool as unknown as BetterAuthOptions['database']
