@@ -185,9 +185,17 @@ describe('operator conversation lifecycle', () => {
   it('creates an ask-mode conversation when a mode is given', async () => {
     const fetchMock = vi.fn(async () => jsonResponse(201, { id: 'conv-1', title: 'Audit', mode: 'ask' }))
     globalThis.fetch = fetchMock as unknown as typeof fetch
-    await consoleApi.operator.conversations.create('z1', 'Audit', 'ask')
+    await consoleApi.operator.conversations.create('z1', 'Audit', { mode: 'ask' })
     const [, init] = fetchMock.mock.calls[0]! as [string, RequestInit]
     expect(JSON.parse(init.body as string)).toEqual({ title: 'Audit', mode: 'ask' })
+  })
+
+  it('creates a conversation with autopilot engaged when requested', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse(201, { id: 'conv-1', title: 'Automate', autopilot: true }))
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+    await consoleApi.operator.conversations.create('z1', 'Automate', { mode: 'agent', autopilot: true })
+    const [, init] = fetchMock.mock.calls[0]! as [string, RequestInit]
+    expect(JSON.parse(init.body as string)).toEqual({ title: 'Automate', mode: 'agent', autopilot: true })
   })
 
   it('sets the conversation operation mode through a patch', async () => {

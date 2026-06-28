@@ -180,7 +180,7 @@ describe('POST /v1/zones/:zoneId/operator-conversations', () => {
     expect(JSON.parse(res.body)).toMatchObject({ id: 'conv-1', status: 'active', created_by: 'actor-1' })
     const insert = db.query.mock.calls[1]
     expect(insert[0]).toContain('INSERT INTO operator_conversations')
-    expect(insert[1]).toEqual([expect.any(String), 'z1', 'Connect GitHub', 'agent', 'actor-1'])
+    expect(insert[1]).toEqual([expect.any(String), 'z1', 'Connect GitHub', 'agent', false, 'actor-1'])
   })
 
   it('creates a conversation in ask mode when requested', async () => {
@@ -196,7 +196,23 @@ describe('POST /v1/zones/:zoneId/operator-conversations', () => {
     expect(res.statusCode).toBe(201)
     expect(JSON.parse(res.body)).toMatchObject({ mode: 'ask' })
     const insert = db.query.mock.calls[1]
-    expect(insert[1]).toEqual([expect.any(String), 'z1', 'Audit access', 'ask', 'actor-1'])
+    expect(insert[1]).toEqual([expect.any(String), 'z1', 'Audit access', 'ask', false, 'actor-1'])
+  })
+
+  it('creates a conversation with autopilot engaged when requested', async () => {
+    const { app, db } = buildApp()
+    db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
+    db.query.mockResolvedValueOnce({ rows: [{ ...conversationRow, autopilot: true }] })
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/operator-conversations',
+      payload: { title: 'Automate', mode: 'agent', autopilot: true },
+    })
+    expect(res.statusCode).toBe(201)
+    expect(JSON.parse(res.body)).toMatchObject({ autopilot: true })
+    const insert = db.query.mock.calls[1]
+    expect(insert[1]).toEqual([expect.any(String), 'z1', 'Automate', 'agent', true, 'actor-1'])
   })
 
   it('rejects an unknown mode', async () => {

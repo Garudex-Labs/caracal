@@ -1020,99 +1020,242 @@ function SessionStrip({
 // Autopilot is shown in agent mode so the capability is discoverable: it is a working switch when
 // the deployment has an autopilot policy, and a clear "unavailable" hint when it does not. Engaging
 // autopilot only flips the conversation's engage flag — what may be auto-approved is set in Caracal.
-function SessionControls({
-  mode,
-  autopilot,
-  autopilotAvailable,
-  modePending,
-  autopilotPending,
-  onModeChange,
-  onAutopilotChange,
-}: {
+// The mode and approval-mode controls threaded into both the hero and the active composer,
+// so a conversation's mode and autopilot are always adjustable from the same place.
+interface ComposerControls {
   mode: OperatorConversationMode;
-  autopilot: boolean;
-  autopilotAvailable: boolean;
-  modePending: boolean;
-  autopilotPending: boolean;
   onModeChange: (mode: OperatorConversationMode) => void;
+  modePending: boolean;
+  autopilot: boolean;
   onAutopilotChange: (autopilot: boolean) => void;
-}) {
-  return (
-    <div className="flex flex-shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-border bg-surface px-4 py-2">
-      <div className="flex min-w-0 items-center gap-2">
-        <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-          Mode
-        </span>
-        <div
-          className="flex flex-shrink-0 items-center border border-border"
-          role="group"
-          aria-label="Operation mode"
-        >
-          {(["ask", "agent"] as const).map((option) => (
-            <button
-              key={option}
-              type="button"
-              aria-pressed={mode === option}
-              disabled={modePending || mode === option}
-              onClick={() => onModeChange(option)}
-              className={cx(
-                "px-2.5 py-1 text-xs capitalize transition-colors",
-                mode === option
-                  ? "bg-foreground text-background"
-                  : "text-muted-foreground hover:text-foreground disabled:opacity-100",
-              )}
-            >
-              {option}
-            </button>
-          ))}
-        </div>
-        <span className="hidden truncate text-xs text-muted-foreground md:inline">
-          {mode === "ask"
-            ? "Read-only — explains and investigates, makes no changes."
-            : "Plans changes; nothing applies until you approve."}
-        </span>
-      </div>
+  autopilotPending: boolean;
+  autopilotAvailable: boolean;
+}
 
-      {mode === "agent" ? (
-        <div className="flex flex-shrink-0 items-center gap-2">
-          <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-            Autopilot
-          </span>
-          {autopilotAvailable ? (
-            <>
+// The approval-mode dropdown placed flush below the chat box. It only appears in agent mode,
+// since ask mode is read-only and never proposes a change to approve.
+function AutopilotRow({ controls }: { controls: ComposerControls }) {
+  if (controls.mode !== "agent") return null;
+  return (
+    <div className="mt-1.5 flex items-center px-0.5">
+      <AutopilotMenu
+        autopilot={controls.autopilot}
+        available={controls.autopilotAvailable}
+        pending={controls.autopilotPending}
+        onChange={controls.onAutopilotChange}
+      />
+    </div>
+  );
+}
+
+// A compact icon-led dropdown used inside the composer for mode and autopilot. It opens
+// upward so it never collides with the page below the chat box, closes on outside click or
+// Escape, and renders each option with an icon, label, and one-line description. A disabled
+// option keeps its row visible with an explanatory hint rather than disappearing.
+interface ComposerMenuOption<T extends string> {
+  value: T;
+  label: string;
+  description: string;
+  icon: Glyph;
+  disabled?: boolean;
+  disabledHint?: string;
+}
+
+function ComposerMenu<T extends string>({
+  value,
+  options,
+  onChange,
+  ariaLabel,
+  align = "left",
+  pending,
+  tone = "outline",
+}: {
+  value: T;
+  options: ComposerMenuOption<T>[];
+  onChange: (value: T) => void;
+  ariaLabel: string;
+  align?: "left" | "right";
+  pending?: boolean;
+  tone?: "outline" | "ghost";
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const selected = options.find((option) => option.value === value) ?? options[0];
+
+  useEffect(() => {
+    if (!open) return;
+    function onPointer(event: PointerEvent) {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    }
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("pointerdown", onPointer, true);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointer, true);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const SelectedIcon = selected.icon;
+
+  return (
+    <div ref={rootRef} className="relative inline-flex">
+      <button
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={ariaLabel}
+        disabled={pending}
+        onClick={() => setOpen((v) => !v)}
+        className={cx(
+          "inline-flex h-8 items-center gap-1.5 rounded-full px-2.5 text-xs font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/40 disabled:opacity-60",
+          tone === "ghost" ? "border border-transparent" : "border border-border",
+          open
+            ? "border-foreground/20 bg-accent text-foreground"
+            : "text-muted-foreground hover:bg-surface hover:text-foreground",
+        )}
+      >
+        <SelectedIcon className="h-3.5 w-3.5" />
+        <span className="max-w-[9rem] truncate">{selected.label}</span>
+        <ChevronDownGlyph
+          className={cx("h-3 w-3 transition-transform", open && "rotate-180")}
+        />
+      </button>
+
+      {open ? (
+        <div
+          role="menu"
+          aria-label={ariaLabel}
+          className={cx(
+            "animate-pop-in absolute bottom-full z-50 mb-1.5 w-64 overflow-hidden rounded-lg border border-border bg-popover p-1 shadow-xl",
+            align === "right" ? "right-0" : "left-0",
+          )}
+        >
+          {options.map((option) => {
+            const Icon = option.icon;
+            const active = option.value === value;
+            return (
               <button
+                key={option.value}
                 type="button"
-                role="switch"
-                aria-checked={autopilot}
-                aria-label="Autopilot"
-                disabled={autopilotPending}
-                onClick={() => onAutopilotChange(!autopilot)}
+                role="menuitemradio"
+                aria-checked={active}
+                disabled={option.disabled}
+                onClick={() => {
+                  if (option.disabled) return;
+                  onChange(option.value);
+                  setOpen(false);
+                }}
                 className={cx(
-                  "flex items-center border px-2.5 py-1 text-xs transition-colors",
-                  autopilot
-                    ? "border-foreground bg-foreground text-background"
-                    : "border-border text-muted-foreground hover:text-foreground",
+                  "flex w-full items-start gap-2.5 rounded-md px-2 py-2 text-left outline-none transition-colors",
+                  option.disabled
+                    ? "cursor-not-allowed opacity-55"
+                    : active
+                      ? "bg-accent/60"
+                      : "hover:bg-accent/50",
                 )}
               >
-                {autopilot ? "On" : "Off"}
+                <Icon className="mt-0.5 h-4 w-4 flex-shrink-0 text-muted-foreground" />
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center gap-1.5 text-sm text-foreground">
+                    {option.label}
+                    {active ? (
+                      <CheckGlyph className="h-3.5 w-3.5 text-accent-purple" />
+                    ) : null}
+                  </span>
+                  <span className="mt-0.5 block text-[11px] leading-snug text-muted-foreground">
+                    {option.disabled && option.disabledHint
+                      ? option.disabledHint
+                      : option.description}
+                  </span>
+                </span>
               </button>
-              <span className="hidden truncate text-xs text-muted-foreground md:inline">
-                {autopilot
-                  ? "Auto-approves low-risk changes; major ones still need you."
-                  : "Off — every change waits for your approval."}
-              </span>
-            </>
-          ) : (
-            <span
-              className="cursor-help text-xs text-muted-foreground"
-              title="Autopilot is not enabled for this deployment. Configure an autopilot policy in Caracal to allow auto-approval of low-risk changes."
-            >
-              Unavailable
-            </span>
-          )}
+            );
+          })}
         </div>
       ) : null}
     </div>
+  );
+}
+
+const MODE_OPTIONS: ComposerMenuOption<OperatorConversationMode>[] = [
+  {
+    value: "agent",
+    label: "Agent",
+    description: "Plans and carries out changes — nothing applies until you approve.",
+    icon: BoltGlyph,
+  },
+  {
+    value: "ask",
+    label: "Ask",
+    description: "Read-only — explains and investigates, never changes anything.",
+    icon: EyeGlyph,
+  },
+];
+
+// The conversation mode picker, shown inside the composer next to the model selector.
+function ModeMenu({
+  mode,
+  pending,
+  onChange,
+}: {
+  mode: OperatorConversationMode;
+  pending: boolean;
+  onChange: (mode: OperatorConversationMode) => void;
+}) {
+  return (
+    <ComposerMenu
+      value={mode}
+      options={MODE_OPTIONS}
+      onChange={onChange}
+      ariaLabel="Operation mode"
+      pending={pending}
+      tone="ghost"
+    />
+  );
+}
+
+// The approval-mode picker, shown flush below the chat box in agent mode. The Autopilot
+// option is kept visible but disabled with a hint when the deployment has not enabled an
+// autopilot policy, so the boundary stays discoverable without being selectable.
+function AutopilotMenu({
+  autopilot,
+  available,
+  pending,
+  onChange,
+}: {
+  autopilot: boolean;
+  available: boolean;
+  pending: boolean;
+  onChange: (autopilot: boolean) => void;
+}) {
+  const options: ComposerMenuOption<"human" | "auto">[] = [
+    {
+      value: "human",
+      label: "Human approval",
+      description: "Every change waits for your explicit approval.",
+      icon: UserCheckGlyph,
+    },
+    {
+      value: "auto",
+      label: "Autopilot",
+      description: "Auto-approves low-risk changes; major ones still need you.",
+      icon: BoltGlyph,
+      disabled: !available,
+      disabledHint:
+        "Not enabled for this deployment. Configure an autopilot policy in Caracal to allow auto-approval of low-risk changes.",
+    },
+  ];
+  return (
+    <ComposerMenu
+      value={autopilot ? "auto" : "human"}
+      options={options}
+      onChange={(next) => onChange(next === "auto")}
+      ariaLabel="Approval mode"
+      pending={pending}
+    />
   );
 }
 
@@ -1420,6 +1563,7 @@ function OperatorInput({
   usage,
   model,
   onModelChange,
+  leftSlot,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -1431,6 +1575,7 @@ function OperatorInput({
   usage?: SessionUsage;
   model?: string | null;
   onModelChange?: (id: string | null) => void;
+  leftSlot?: ReactNode;
 }) {
   const { ref, adjust } = useAutoResizeTextarea({ minHeight, maxHeight: 220 });
   useEffect(() => {
@@ -1487,11 +1632,12 @@ function OperatorInput({
       <div className="flex flex-col gap-2 rounded-2xl border border-border bg-card p-3 shadow-xl shadow-black/10 transition-colors focus-within:border-accent-purple/40 focus-within:ring-2 focus-within:ring-accent-purple/20">
         <div className="px-1 pt-0.5">{textarea}</div>
         <div className="flex items-center justify-between gap-2">
-          {onModelChange ? (
-            <OperatorModelSelector value={model ?? null} onChange={onModelChange} />
-          ) : (
-            <span />
-          )}
+          <div className="flex min-w-0 items-center gap-1.5">
+            {onModelChange ? (
+              <OperatorModelSelector value={model ?? null} onChange={onModelChange} />
+            ) : null}
+            {leftSlot}
+          </div>
           <div className="flex items-center gap-1.5">
             {usage ? <UsageMeter usage={usage} /> : null}
             {sendButton}
@@ -1505,11 +1651,12 @@ function OperatorInput({
     <div className="flex flex-col gap-1.5 border border-input bg-card px-2 py-2 transition-colors focus-within:border-foreground/30 focus-within:ring-2 focus-within:ring-ring/30">
       <div className="min-w-0 px-1">{textarea}</div>
       <div className="flex items-center justify-between gap-2">
-        {onModelChange ? (
-          <OperatorModelSelector value={model ?? null} onChange={onModelChange} />
-        ) : (
-          <span />
-        )}
+        <div className="flex min-w-0 items-center gap-1.5">
+          {onModelChange ? (
+            <OperatorModelSelector value={model ?? null} onChange={onModelChange} />
+          ) : null}
+          {leftSlot}
+        </div>
         <div className="flex items-center gap-1.5">
           {usage ? <UsageMeter usage={usage} /> : null}
           {sendButton}
@@ -1637,6 +1784,7 @@ function Composer({
   usage,
   model,
   onModelChange,
+  controls,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -1645,6 +1793,7 @@ function Composer({
   usage?: SessionUsage;
   model: string | null;
   onModelChange: (id: string | null) => void;
+  controls: ComposerControls;
 }) {
   return (
     <div className="flex-shrink-0 border-t border-border bg-card px-3 py-3">
@@ -1657,7 +1806,15 @@ function Composer({
         usage={usage ?? ZERO_USAGE}
         model={model}
         onModelChange={onModelChange}
+        leftSlot={
+          <ModeMenu
+            mode={controls.mode}
+            pending={controls.modePending}
+            onChange={controls.onModeChange}
+          />
+        }
       />
+      <AutopilotRow controls={controls} />
       <p className="mt-1.5 px-0.5 text-[10px] text-muted-foreground">
         Enter to send · Shift+Enter for a new line — nothing changes until you approve the plan.
       </p>
@@ -1712,6 +1869,7 @@ function NewChatHero({
   pending,
   model,
   onModelChange,
+  controls,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -1720,6 +1878,7 @@ function NewChatHero({
   pending: boolean;
   model: string | null;
   onModelChange: (id: string | null) => void;
+  controls: ComposerControls;
 }) {
   const { greeting, message } = useMemo(() => greetingForNow(), []);
   const suggestionsRef = useRef<HTMLDivElement>(null);
@@ -1822,7 +1981,15 @@ function NewChatHero({
               usage={ZERO_USAGE}
               model={model}
               onModelChange={onModelChange}
+              leftSlot={
+                <ModeMenu
+                  mode={controls.mode}
+                  pending={controls.modePending}
+                  onChange={controls.onModeChange}
+                />
+              }
             />
+            <AutopilotRow controls={controls} />
           </div>
 
           <div
@@ -2707,6 +2874,94 @@ function TrashGlyph({ className }: { className?: string }) {
       <path d="M10 11v6M14 11v6" />
       <path d="M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13" />
       <path d="M9 7V4h6v3" />
+    </svg>
+  );
+}
+
+function ChevronDownGlyph({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="m6 9 6 6 6-6" />
+    </svg>
+  );
+}
+
+function CheckGlyph({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M5 13l4 4L19 7" />
+    </svg>
+  );
+}
+
+function EyeGlyph({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  );
+}
+
+function BoltGlyph({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M13 2 4 14h7l-1 8 9-12h-7z" />
+    </svg>
+  );
+}
+
+function UserCheckGlyph({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="m16 11 2 2 4-4" />
     </svg>
   );
 }
