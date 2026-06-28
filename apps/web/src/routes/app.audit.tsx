@@ -18,6 +18,11 @@ import { ZoneScopedPage } from "@/components/console/ZoneScope";
 import { Badge, Button, Field, Select, Skeleton, type Column } from "@/components/ui";
 import { ConsoleApiError } from "@/platform/api/client";
 import { useAdminAuditFeed, useAuditFeed, useDecisionTrace } from "@/platform/api/hooks";
+import {
+  clearOperatorErrors,
+  useOperatorErrors,
+  type OperatorErrorRecord,
+} from "@/platform/state/operatorErrors";
 import type {
   AdminAuditEvent,
   AdminAuditQuery,
@@ -34,7 +39,7 @@ export const Route = createFileRoute("/app/audit")({
   }),
 });
 
-type AuditMode = "decisions" | "admin";
+type AuditMode = "decisions" | "admin" | "operator";
 
 function AuditRoute() {
   const [mode, setMode] = useState<AuditMode>("decisions");
@@ -47,8 +52,10 @@ function AuditRoute() {
       {(zone) =>
         mode === "decisions" ? (
           <AuditPage zoneId={zone.id} mode={mode} onMode={setMode} />
-        ) : (
+        ) : mode === "admin" ? (
           <AdminAuditPage zoneId={zone.id} mode={mode} onMode={setMode} />
+        ) : (
+          <OperatorErrorsPage mode={mode} onMode={setMode} />
         )
       }
     </ZoneScopedPage>
@@ -65,7 +72,85 @@ function ModeTabs({ mode, onMode }: { mode: AuditMode; onMode: (m: AuditMode) =>
     >
       <option value="decisions">Authority decisions</option>
       <option value="admin">Admin changes</option>
+      <option value="operator">Operator errors</option>
     </select>
+  );
+}
+
+// The Operator errors feed: the session-scoped, client-side log of failures the Operator surfaced
+// (a send with no provider, a request that could not be processed). These are client-observed and
+// never sent to the server, so they are read from the shared in-memory store rather than a backend
+// feed, and they are not zone-scoped — they cover the whole console session.
+function OperatorErrorsPage({ mode, onMode }: { mode: AuditMode; onMode: (m: AuditMode) => void }) {
+  const errors = useOperatorErrors();
+
+  const columns: Column<OperatorErrorRecord>[] = [
+    {
+      id: "message",
+      header: "Error",
+      cell: (e) => <div className="text-sm text-foreground">{e.message}</div>,
+    },
+    {
+      id: "occurred",
+      header: "Occurred",
+      sortable: true,
+      align: "right",
+      cell: (e) => (
+        <span className="text-xs text-muted-foreground">{new Date(e.at).toLocaleString()}</span>
+      ),
+    },
+  ];
+
+  return (
+    <ResourceWorkspace
+      title="Audit"
+      description="Errors the Operator surfaced during this console session."
+      breadcrumbs={[{ label: "Console", to: "/app" }, { label: "Audit" }]}
+      rows={errors}
+      loading={false}
+      columns={columns}
+      rowKey={(e) => e.id}
+      pageSize={12}
+      toolbarExtra={
+        <FeedToolbar
+          leading={<ModeTabs mode={mode} onMode={onMode} />}
+          activeFilters={0}
+          loaded={errors.length}
+          noun="error"
+          hasMore={false}
+          fetchingMore={false}
+          onLoadMore={() => {}}
+        >
+          <Button
+            variant="secondary"
+            onClick={() => clearOperatorErrors()}
+            disabled={errors.length === 0}
+          >
+            Clear
+          </Button>
+        </FeedToolbar>
+      }
+      search={{
+        placeholder: "Filter operator errors…",
+        match: (e, q) => e.message.toLowerCase().includes(q),
+      }}
+      empty={{
+        title: "No operator errors",
+        description:
+          "Errors the Operator surfaces this session — such as sending with no AI provider connected — are recorded here.",
+      }}
+      detail={{
+        title: () => "Operator error",
+        description: (e) => new Date(e.at).toLocaleString(),
+        width: "max-w-lg",
+        render: (e) => (
+          <DetailGroup title="Details">
+            <DetailField label="Message">{e.message}</DetailField>
+            <DetailField label="Occurred">{new Date(e.at).toLocaleString()}</DetailField>
+          </DetailGroup>
+        ),
+      }}
+    />
   );
 }
 

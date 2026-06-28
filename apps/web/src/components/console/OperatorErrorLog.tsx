@@ -5,8 +5,14 @@ Caracal, a product of Garudex Labs
 This file renders the compact Operator error label and the session-scoped audit log it archives into.
 */
 import { useEffect, useRef, useState } from "react";
+import { Link } from "@tanstack/react-router";
 
 import { cx } from "@/lib/cx";
+import {
+  clearOperatorErrors,
+  recordOperatorError,
+  useOperatorErrors,
+} from "@/platform/state/operatorErrors";
 
 // How long an error label rests before it auto-archives, and how long the shrink-into-audit
 // animation runs. The animation duration is mirrored in the label's transition class.
@@ -17,10 +23,6 @@ const ARCHIVE_ANIM_MS = 450;
 // hiding again. So the box only appears around the archive moment rather than persisting.
 const PRE_REVEAL_MS = 2000;
 const ARCHIVE_LINGER_MS = 1500;
-// The audit log is a session-scoped, in-memory record of the operator errors seen this page load.
-// It is intentionally not sent to the server: these are client-observed transient failures, not
-// authority decisions, so logging them here avoids opening a client-to-server error ingest surface.
-const MAX_LOG = 50;
 
 // A discrete error to surface. The id identifies the occurrence, so the same message text raised
 // again (for example a second send while no provider is connected) is a new event and re-surfaces
@@ -28,12 +30,6 @@ const MAX_LOG = 50;
 export interface OperatorErrorEvent {
   id: string;
   message: string;
-}
-
-interface ErrorLogEntry {
-  id: string;
-  message: string;
-  at: number;
 }
 
 function ArchiveIcon({ className }: { className?: string }) {
@@ -104,7 +100,7 @@ function timeLabel(at: number): string {
 // archive holds every error this session and opens a filterable log, so a transient error is never
 // just lost — it is recorded and reviewable.
 export function OperatorErrorLog({ event }: { event: OperatorErrorEvent | null }) {
-  const [log, setLog] = useState<ErrorLogEntry[]>([]);
+  const log = useOperatorErrors();
   const [active, setActive] = useState<{ id: string; message: string } | null>(null);
   const [archiving, setArchiving] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
@@ -147,12 +143,13 @@ export function OperatorErrorLog({ event }: { event: OperatorErrorEvent | null }
     if (archiving) setRevealed(true);
   }, [archiving]);
 
-  // Once the animation has played, commit the label to the audit log and remove it.
+  // Once the animation has played, commit the label to the shared audit log and remove it. The log
+  // is the shared session store, so the same record appears on the Audit page.
   useEffect(() => {
     if (!archiving || !active) return;
-    const entry: ErrorLogEntry = { id: active.id, message: active.message, at: Date.now() };
+    const message = active.message;
     const timer = setTimeout(() => {
-      setLog((prev) => [entry, ...prev].slice(0, MAX_LOG));
+      recordOperatorError(message);
       setActive(null);
       setArchiving(false);
     }, ARCHIVE_ANIM_MS);
@@ -211,7 +208,7 @@ export function OperatorErrorLog({ event }: { event: OperatorErrorEvent | null }
                 <button
                   type="button"
                   onClick={() => {
-                    setLog([]);
+                    clearOperatorErrors();
                     setFilter("");
                     setPanelOpen(false);
                   }}
@@ -245,6 +242,13 @@ export function OperatorErrorLog({ event }: { event: OperatorErrorEvent | null }
                   </ul>
                 )}
               </div>
+              <Link
+                to="/app/audit"
+                onClick={() => setPanelOpen(false)}
+                className="mt-2 block rounded-md px-1 py-1 text-center text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+              >
+                Open in Audit →
+              </Link>
             </div>
           ) : null}
         </div>
