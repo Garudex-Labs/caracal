@@ -829,8 +829,21 @@ function SessionsRail({
                       >
                         {conversation.title}
                       </span>
-                      <span className="text-[10px] text-muted-foreground">
-                        {formatRelative(conversation.last_activity_at)}
+                      <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                        <span
+                          className={cx(
+                            "uppercase tracking-wide",
+                            conversation.mode === "ask"
+                              ? "text-muted-foreground"
+                              : "text-foreground/70",
+                          )}
+                        >
+                          {conversation.mode}
+                        </span>
+                        {conversation.mode === "agent" && conversation.autopilot ? (
+                          <span className="text-accent-purple">· autopilot</span>
+                        ) : null}
+                        <span>· {formatRelative(conversation.last_activity_at)}</span>
                       </span>
                     </button>
                     <div className="absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover/session:opacity-100">
@@ -1001,101 +1014,104 @@ function SessionStrip({
 
 /* --------------------------- activity stream --------------------------- */
 
-// The conversation's operation mode control. Ask mode is strictly read-only — the Operator
-// explains and investigates but cannot plan or apply changes; agent mode allows planning and,
-// after approval, applying. The mode is enforced by the API at both the skill layer and the write
-// routes, so this control only sets the Caracal-side setting; it never relaxes enforcement.
-function ModeToggle({
+// The conversation's session controls: a single compact bar carrying the operation mode and, in
+// agent mode, the autopilot engage switch. Mode is Caracal-enforced at both the skill layer and the
+// write routes, so this only sets the conversation's setting; it never relaxes enforcement.
+// Autopilot is shown in agent mode so the capability is discoverable: it is a working switch when
+// the deployment has an autopilot policy, and a clear "unavailable" hint when it does not. Engaging
+// autopilot only flips the conversation's engage flag — what may be auto-approved is set in Caracal.
+function SessionControls({
   mode,
-  pending,
-  onChange,
+  autopilot,
+  autopilotAvailable,
+  modePending,
+  autopilotPending,
+  onModeChange,
+  onAutopilotChange,
 }: {
   mode: OperatorConversationMode;
-  pending: boolean;
-  onChange: (mode: OperatorConversationMode) => void;
+  autopilot: boolean;
+  autopilotAvailable: boolean;
+  modePending: boolean;
+  autopilotPending: boolean;
+  onModeChange: (mode: OperatorConversationMode) => void;
+  onAutopilotChange: (autopilot: boolean) => void;
 }) {
   return (
-    <div className="flex items-center justify-between gap-3 border-b border-border bg-surface px-4 py-2">
-      <div className="flex items-center gap-2">
+    <div className="flex flex-shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-border bg-surface px-4 py-2">
+      <div className="flex min-w-0 items-center gap-2">
         <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
           Mode
         </span>
-        <span className="text-xs text-muted-foreground">
+        <div
+          className="flex flex-shrink-0 items-center border border-border"
+          role="group"
+          aria-label="Operation mode"
+        >
+          {(["ask", "agent"] as const).map((option) => (
+            <button
+              key={option}
+              type="button"
+              aria-pressed={mode === option}
+              disabled={modePending || mode === option}
+              onClick={() => onModeChange(option)}
+              className={cx(
+                "px-2.5 py-1 text-xs capitalize transition-colors",
+                mode === option
+                  ? "bg-foreground text-background"
+                  : "text-muted-foreground hover:text-foreground disabled:opacity-100",
+              )}
+            >
+              {option}
+            </button>
+          ))}
+        </div>
+        <span className="hidden truncate text-xs text-muted-foreground md:inline">
           {mode === "ask"
             ? "Read-only — explains and investigates, makes no changes."
-            : "Can plan changes; nothing applies until you approve."}
+            : "Plans changes; nothing applies until you approve."}
         </span>
       </div>
-      <div
-        className="flex flex-shrink-0 items-center border border-border"
-        role="group"
-        aria-label="Operation mode"
-      >
-        {(["ask", "agent"] as const).map((option) => (
-          <button
-            key={option}
-            type="button"
-            aria-pressed={mode === option}
-            disabled={pending || mode === option}
-            onClick={() => onChange(option)}
-            className={cx(
-              "px-2.5 py-1 text-xs capitalize transition-colors",
-              mode === option
-                ? "bg-foreground text-background"
-                : "text-muted-foreground hover:text-foreground disabled:opacity-100",
-            )}
-          >
-            {option}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
 
-// The per-conversation autopilot engage control, shown only in agent mode and only when the
-// deployment has an autopilot policy that could approve something. Engaging it lets Caracal
-// auto-satisfy the approval for low-risk changes it has pre-authorized; what may be auto-approved
-// is set in Caracal, never here, and major or non-allowlisted changes always still stop for a
-// human. The control only flips the conversation's engage flag — it never widens what autopilot
-// may do.
-function AutopilotToggle({
-  autopilot,
-  pending,
-  onChange,
-}: {
-  autopilot: boolean;
-  pending: boolean;
-  onChange: (autopilot: boolean) => void;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-3 border-b border-border bg-surface px-4 py-2">
-      <div className="flex items-center gap-2">
-        <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-          Autopilot
-        </span>
-        <span className="text-xs text-muted-foreground">
-          {autopilot
-            ? "Caracal auto-approves low-risk changes it has pre-authorized; major changes still need you."
-            : "Off — every change waits for your approval."}
-        </span>
-      </div>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={autopilot}
-        aria-label="Autopilot"
-        disabled={pending}
-        onClick={() => onChange(!autopilot)}
-        className={cx(
-          "flex flex-shrink-0 items-center border px-2.5 py-1 text-xs transition-colors",
-          autopilot
-            ? "border-foreground bg-foreground text-background"
-            : "border-border text-muted-foreground hover:text-foreground",
-        )}
-      >
-        {autopilot ? "On" : "Off"}
-      </button>
+      {mode === "agent" ? (
+        <div className="flex flex-shrink-0 items-center gap-2">
+          <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            Autopilot
+          </span>
+          {autopilotAvailable ? (
+            <>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={autopilot}
+                aria-label="Autopilot"
+                disabled={autopilotPending}
+                onClick={() => onAutopilotChange(!autopilot)}
+                className={cx(
+                  "flex items-center border px-2.5 py-1 text-xs transition-colors",
+                  autopilot
+                    ? "border-foreground bg-foreground text-background"
+                    : "border-border text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {autopilot ? "On" : "Off"}
+              </button>
+              <span className="hidden truncate text-xs text-muted-foreground md:inline">
+                {autopilot
+                  ? "Auto-approves low-risk changes; major ones still need you."
+                  : "Off — every change waits for your approval."}
+              </span>
+            </>
+          ) : (
+            <span
+              className="cursor-help text-xs text-muted-foreground"
+              title="Autopilot is not enabled for this deployment. Configure an autopilot policy in Caracal to allow auto-approval of low-risk changes."
+            >
+              Unavailable
+            </span>
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -1205,9 +1221,25 @@ function ActivityStream({
 
   const empty = !isLoading && items.length === 0 && !send.isPending && !initialMessage;
 
+  // The session controls render in every state — the empty hero and the active stream alike — so a
+  // conversation's mode and autopilot are always visible and adjustable, including before the first
+  // message is sent.
+  const sessionControls = (
+    <SessionControls
+      mode={mode}
+      autopilot={autopilot}
+      autopilotAvailable={autopilotAvailable ?? false}
+      modePending={setMode.isPending}
+      autopilotPending={setAutopilot.isPending}
+      onModeChange={(next) => setMode.mutate({ id: conversationId, mode: next })}
+      onAutopilotChange={(next) => setAutopilot.mutate({ id: conversationId, autopilot: next })}
+    />
+  );
+
   if (empty) {
     return (
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        {sessionControls}
         <MemoryStrip zoneId={zoneId} conversationId={conversationId} />
         <NewChatHero
           value={message}
@@ -1224,18 +1256,7 @@ function ActivityStream({
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <ModeToggle
-        mode={mode}
-        pending={setMode.isPending}
-        onChange={(next) => setMode.mutate({ id: conversationId, mode: next })}
-      />
-      {mode === "agent" && autopilotAvailable ? (
-        <AutopilotToggle
-          autopilot={autopilot}
-          pending={setAutopilot.isPending}
-          onChange={(next) => setAutopilot.mutate({ id: conversationId, autopilot: next })}
-        />
-      ) : null}
+      {sessionControls}
       <MemoryStrip zoneId={zoneId} conversationId={conversationId} />
 
       <div className="scrollbar-thin flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-4 py-4">
