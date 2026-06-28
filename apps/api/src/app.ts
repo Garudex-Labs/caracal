@@ -48,6 +48,7 @@ import { policyTemplatesRoutes } from './routes/policy-templates.js'
 import { zoneEventsRoutes } from './routes/zone-events.js'
 import { adminTokensRoutes } from './routes/admin-tokens.js'
 import { operatorRoutes } from './routes/operator.js'
+import { buildAutopilotPolicy } from './operator-autopilot.js'
 
 import './fastify-augmentation.js'
 
@@ -323,6 +324,13 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
     allowedCapabilities: cfg.operatorAllowedCapabilities,
     systemZones: cfg.operatorSystemZones,
     aiProviders,
+    autopilotPolicy: buildAutopilotPolicy({
+      enabled: cfg.operatorAutopilotEnabled,
+      capabilities: cfg.operatorAutopilotCapabilities,
+      maxStepsPerPlan: cfg.operatorAutopilotMaxSteps,
+      windowSec: cfg.operatorAutopilotWindowSec,
+      windowMaxApprovals: cfg.operatorAutopilotWindowMax,
+    }),
     resolveControlIdentity: () => operatorControlIdentity.current,
     controlEndpoints: cfg.control
       ? { stsUrl: cfg.stsUrl, audience: cfg.control.audience, controlUrl: cfg.control.apiUrl, controlEnabled: true }

@@ -92,6 +92,16 @@ export interface Config {
   operatorAllowedCapabilities: string[] | null
   operatorSystemZones: string[]
   operatorAiProviders: ProviderConfig[]
+  // Caracal-governed autopilot: the deployment-set boundary of what the Operator may auto-approve
+  // in agent mode. operatorAutopilotEnabled is the master kill switch (off by default), and
+  // operatorAutopilotCapabilities is the explicit, narrow allowlist of low-risk capabilities
+  // (empty by default). With both at their defaults autopilot can approve nothing; the policy is
+  // set here in Caracal and never by the model or a conversation.
+  operatorAutopilotEnabled: boolean
+  operatorAutopilotCapabilities: string[] | null
+  operatorAutopilotMaxSteps: number
+  operatorAutopilotWindowSec: number
+  operatorAutopilotWindowMax: number
   // Internal-only: when set, the Operator provisions and self-governs the reserved
   // caracal.sys system zone, executing through the governed control plane as a real
   // least-privilege control identity — exactly as a customer's control key does — rather
@@ -262,6 +272,11 @@ export function loadConfig(): Config {
     operatorAllowedCapabilities: csvEnv('API_OPERATOR_ALLOWED_CAPABILITIES'),
     operatorSystemZones: csvEnv('API_OPERATOR_SYSTEM_ZONES') ?? [],
     operatorAiProviders: loadOperatorAiProviders(),
+    operatorAutopilotEnabled: boolEnv('API_OPERATOR_AUTOPILOT_ENABLED', false),
+    operatorAutopilotCapabilities: csvEnv('API_OPERATOR_AUTOPILOT_CAPABILITIES'),
+    operatorAutopilotMaxSteps: intEnv('API_OPERATOR_AUTOPILOT_MAX_STEPS', 1, 1),
+    operatorAutopilotWindowSec: intEnv('API_OPERATOR_AUTOPILOT_WINDOW_SEC', 3600, 0),
+    operatorAutopilotWindowMax: intEnv('API_OPERATOR_AUTOPILOT_WINDOW_MAX', 10, 0),
     operatorSelfGovern: loadOperatorSelfGovern(),
     operatorControlSecret: process.env.API_OPERATOR_CONTROL_CLIENT_SECRET?.trim() || null,
     metricsBearer: process.env.METRICS_BEARER ?? null,
