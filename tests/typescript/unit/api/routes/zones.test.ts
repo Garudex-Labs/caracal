@@ -298,7 +298,8 @@ describe('PATCH /v1/zones/:id', () => {
     expect(client.query).toHaveBeenCalledWith(expect.stringContaining('UPDATE sessions'), ['z1', ['app-1']])
     expect(client.query).toHaveBeenCalledWith(expect.stringContaining('UPDATE agent_sessions'), ['z1', ['app-1']])
     const outboxCalls = client.query.mock.calls.filter((call) => String(call[0]).includes('INSERT INTO event_outbox'))
-    expect(outboxCalls).toHaveLength(4)
+    expect(outboxCalls).toHaveLength(1)
+    expect((outboxCalls[0][1] as unknown[][])[0]).toHaveLength(4)
   })
 
   it('revokes live DCR applications even when registration is already disabled', async () => {

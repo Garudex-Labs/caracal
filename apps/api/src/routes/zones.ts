@@ -12,7 +12,7 @@ import { withTransaction, TxAbort } from '../db.js'
 import { IdParams, parseParams } from './params.js'
 import { appendKeysetCondition, parseListPagination, setNextLink } from './list-pagination.js'
 import { assertReservedNamespace } from '../reserved-namespace.js'
-import { enqueueOutbox } from '../outbox.js'
+import { enqueueOutboxBatch, type EnqueueArgs } from '../outbox.js'
 import { STREAM_AGENTS_LIFECYCLE, STREAM_SESSIONS_REVOKE } from '../redis.js'
 import type { Actor } from '../auth.js'
 
@@ -213,15 +213,16 @@ async function revokeDcrIdentities(
         )
       : { rows: [] as RevokedDelegation[] }
 
+  const events: EnqueueArgs[] = []
   for (const row of sessions) {
-    await enqueueOutbox(client, {
+    events.push({
       streamName: STREAM_SESSIONS_REVOKE,
       payload: { zone_id: zoneId, session_id: row.id, reason: 'dcr_shutdown' },
       requestId,
     })
   }
   for (const row of agents) {
-    await enqueueOutbox(client, {
+    events.push({
       streamName: STREAM_AGENTS_LIFECYCLE,
       payload: {
         event: 'terminate',
@@ -232,19 +233,20 @@ async function revokeDcrIdentities(
       },
       requestId,
     })
-    await enqueueOutbox(client, {
+    events.push({
       streamName: STREAM_SESSIONS_REVOKE,
       payload: { zone_id: zoneId, session_id: row.subject_session_id, agent_session_id: row.id, reason: 'dcr_shutdown' },
       requestId,
     })
   }
   for (const row of delegations) {
-    await enqueueOutbox(client, {
+    events.push({
       streamName: STREAM_SESSIONS_REVOKE,
       payload: { zone_id: zoneId, delegation_edge_id: row.id, reason: 'dcr_shutdown' },
       requestId,
     })
   }
+  await enqueueOutboxBatch(client, events)
 
   return { applications: apps.length, sessions: sessions.length, agents: agents.length, delegations: delegations.length }
 }

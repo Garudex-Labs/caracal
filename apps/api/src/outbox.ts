@@ -45,6 +45,27 @@ export async function enqueueOutbox(client: ClientLike, args: EnqueueArgs): Prom
   return id
 }
 
+// Durably enqueues many events in a single round trip. Ids are uuidv7 so their
+// natural order matches insertion order, preserving the dispatcher's drain order.
+export async function enqueueOutboxBatch(client: ClientLike, entries: EnqueueArgs[]): Promise<string[]> {
+  if (entries.length === 0) return []
+  const ids = entries.map(() => uuidv7())
+  await client.query(
+    `INSERT INTO event_outbox (id, stream_name, payload_json, available_at, request_id)
+     SELECT id, stream_name, payload::jsonb, COALESCE(available_at, now()), request_id
+     FROM UNNEST($1::text[], $2::text[], $3::text[], $4::timestamptz[], $5::text[])
+       AS t(id, stream_name, payload, available_at, request_id)`,
+    [
+      ids,
+      entries.map((entry) => entry.streamName),
+      entries.map((entry) => JSON.stringify(entry.payload)),
+      entries.map((entry) => entry.availableAt ?? null),
+      entries.map((entry) => entry.requestId ?? null),
+    ],
+  )
+  return ids
+}
+
 function flattenForXAdd(payload: OutboxPayload): string[] {
   const fields: string[] = []
   for (const [key, value] of Object.entries(payload)) {
