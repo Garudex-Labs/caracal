@@ -30,6 +30,7 @@ export const SECRET_FILES: readonly SecretFile[] = [
   { envKey: 'AUDIT_HMAC_KEY', fileName: 'auditHmacKey', bytes: 32 },
   { envKey: 'STREAMS_HMAC_KEY', fileName: 'streamsHmacKey', bytes: 32 },
   { envKey: 'GATEWAY_STS_HMAC_KEY', fileName: 'gatewayStsHmacKey', bytes: 32 },
+  { envKey: 'LITELLM_MASTER_KEY', fileName: 'litellmMasterKey', bytes: 32 },
 ] as const
 
 // DerivedSecrets are composite secret files (e.g. fully formed URLs) materialised

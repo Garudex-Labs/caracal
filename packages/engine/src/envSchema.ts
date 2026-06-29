@@ -196,6 +196,24 @@ export const ENV_SCHEMA = {
     exposed: true,
   },
   LOG_LEVEL: { kind: 'enum', values: ['trace', 'debug', 'info', 'warn', 'error', 'fatal'], description: 'Log verbosity for all services.', default: 'info', exposed: true },
+  OPERATOR_AZURE_API_BASE: {
+    kind: 'string',
+    description: 'Azure OpenAI resource base URL for the LiteLLM model proxy. Blank disables it.',
+    default: '',
+    exposed: true,
+  },
+  OPERATOR_AZURE_API_KEY: {
+    kind: 'string',
+    description: 'Azure OpenAI key for the LiteLLM proxy. Set in local.env; blank disables it.',
+    default: '',
+    exposed: true,
+  },
+  OPERATOR_OPENAI_API_KEY: {
+    kind: 'string',
+    description: 'OpenAI key for the LiteLLM proxy. Set in local.env; blank disables it.',
+    default: '',
+    exposed: true,
+  },
 } as const satisfies Record<string, EnvSpec>
 
 export type EnvKey = keyof typeof ENV_SCHEMA

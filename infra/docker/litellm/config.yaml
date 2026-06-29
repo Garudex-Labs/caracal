@@ -1,0 +1,29 @@
+# Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+# Caracal, a product of Garudex Labs
+#
+# LiteLLM proxy config: normalizes every provider to the OpenAI wire format for the Operator, so model-specific parameter quirks never reach Caracal.
+
+litellm_settings:
+  # Silently drop parameters a target model rejects (e.g. temperature on GPT-5), and map
+  # max_tokens to max_completion_tokens where required, so one canonical request works across
+  # current and future models without Caracal changes.
+  drop_params: true
+
+# Configure provider models behind one OpenAI-compatible surface. Keys come from the
+# environment so none is committed. Add a block per model and reference it by model_name from
+# the Operator. Wildcards let any model id route to a provider without a config edit.
+model_list:
+  - model_name: gpt-5.4-mini
+    litellm_params:
+      model: azure/gpt-5.4-mini
+      api_base: os.environ/AZURE_API_BASE
+      api_key: os.environ/AZURE_API_KEY
+      api_version: "2024-10-21"
+
+  - model_name: "*"
+    litellm_params:
+      model: openai/*
+      api_key: os.environ/OPENAI_API_KEY
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
