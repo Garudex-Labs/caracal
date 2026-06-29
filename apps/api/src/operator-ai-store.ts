@@ -19,6 +19,33 @@ export interface OperatorAiProviderRecord {
   contextWindow: number
   enabled: boolean
   sortOrder: number
+  auth: AuthPlacement
+}
+
+// Where the gateway injects the sealed key for this upstream. Defaults to an Authorization
+// Bearer header, which covers OpenAI-compatible providers; an upstream that expects a different
+// header (e.g. api-key) or a query parameter sets it here, so no per-vendor handling is needed.
+export interface AuthPlacement {
+  location: 'header' | 'query'
+  headerName?: string
+  authScheme?: string
+  queryParamName?: string
+}
+
+export const DEFAULT_AUTH: AuthPlacement = { location: 'header', headerName: 'Authorization', authScheme: 'Bearer' }
+
+function toAuth(raw: unknown): AuthPlacement {
+  if (!raw || typeof raw !== 'object') return DEFAULT_AUTH
+  const value = raw as Record<string, unknown>
+  if (value.location !== 'header' && value.location !== 'query') return DEFAULT_AUTH
+  if (value.location === 'query') {
+    return { location: 'query', queryParamName: typeof value.queryParamName === 'string' ? value.queryParamName : 'api_key' }
+  }
+  return {
+    location: 'header',
+    headerName: typeof value.headerName === 'string' && value.headerName ? value.headerName : 'Authorization',
+    authScheme: typeof value.authScheme === 'string' ? value.authScheme : undefined,
+  }
 }
 
 interface ProviderRow {
@@ -29,6 +56,7 @@ interface ProviderRow {
   context_window: number
   enabled: boolean
   sort_order: number
+  auth_config: unknown
 }
 
 function toRecord(row: ProviderRow): OperatorAiProviderRecord {
@@ -41,6 +69,7 @@ function toRecord(row: ProviderRow): OperatorAiProviderRecord {
     contextWindow: row.context_window,
     enabled: row.enabled,
     sortOrder: row.sort_order,
+    auth: toAuth(row.auth_config),
   }
 }
 
@@ -51,13 +80,14 @@ export interface ProviderUpsert {
   models: string[]
   contextWindow: number
   enabled: boolean
+  auth: AuthPlacement
 }
 
 // Lists every configured provider in display order, newest fields included. Read on boot to
 // build the gateway and on each registry change to rebuild it.
 export async function listAiProviders(db: Queryable): Promise<OperatorAiProviderRecord[]> {
   const { rows } = await db.query<ProviderRow>(
-    `SELECT slug, label, base_url, models, context_window, enabled, sort_order
+    `SELECT slug, label, base_url, models, context_window, enabled, sort_order, auth_config
        FROM operator_ai_providers
       ORDER BY sort_order, slug`,
   )
@@ -66,7 +96,7 @@ export async function listAiProviders(db: Queryable): Promise<OperatorAiProvider
 
 export async function getAiProvider(db: Queryable, slug: string): Promise<OperatorAiProviderRecord | null> {
   const { rows } = await db.query<ProviderRow>(
-    `SELECT slug, label, base_url, models, context_window, enabled, sort_order
+    `SELECT slug, label, base_url, models, context_window, enabled, sort_order, auth_config
        FROM operator_ai_providers WHERE slug = $1`,
     [slug],
   )
@@ -78,8 +108,8 @@ export async function getAiProvider(db: Queryable, slug: string): Promise<Operat
 // stable across edits.
 export async function upsertAiProvider(db: Queryable, input: ProviderUpsert): Promise<OperatorAiProviderRecord> {
   const { rows } = await db.query<ProviderRow>(
-    `INSERT INTO operator_ai_providers (slug, label, base_url, models, context_window, enabled, sort_order)
-     VALUES ($1, $2, $3, $4::jsonb, $5, $6,
+    `INSERT INTO operator_ai_providers (slug, label, base_url, models, context_window, enabled, auth_config, sort_order)
+     VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7::jsonb,
              COALESCE((SELECT sort_order FROM operator_ai_providers WHERE slug = $1),
                       (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM operator_ai_providers)))
      ON CONFLICT (slug) DO UPDATE
@@ -88,9 +118,10 @@ export async function upsertAiProvider(db: Queryable, input: ProviderUpsert): Pr
            models = EXCLUDED.models,
            context_window = EXCLUDED.context_window,
            enabled = EXCLUDED.enabled,
+           auth_config = EXCLUDED.auth_config,
            updated_at = now()
-     RETURNING slug, label, base_url, models, context_window, enabled, sort_order`,
-    [input.slug, input.label, input.baseUrl, JSON.stringify(input.models), input.contextWindow, input.enabled],
+     RETURNING slug, label, base_url, models, context_window, enabled, sort_order, auth_config`,
+    [input.slug, input.label, input.baseUrl, JSON.stringify(input.models), input.contextWindow, input.enabled, JSON.stringify(input.auth)],
   )
   return toRecord(rows[0])
 }
