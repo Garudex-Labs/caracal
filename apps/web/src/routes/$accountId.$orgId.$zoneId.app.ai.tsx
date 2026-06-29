@@ -2151,7 +2151,7 @@ function StreamEntry({
   }
 
   return (
-    <div className="flex items-start gap-2">
+    <div className="group flex items-start gap-2">
       <span className="mt-0.5 grid h-6 w-6 flex-shrink-0 place-items-center border border-border bg-muted text-foreground">
         <OperatorGlyph className="h-3.5 w-3.5" />
       </span>
@@ -2163,8 +2163,37 @@ function StreamEntry({
           </Reasoning>
         ) : null}
         <Response>{item.text}</Response>
+        {item.text.trim() ? <CopyMessageButton text={item.text} /> : null}
       </div>
     </div>
+  );
+}
+
+// A subtle action under each Operator answer that copies the full response as markdown. It
+// stays out of the way until the message is hovered or the control is focused, then confirms
+// with a check for a moment so the user knows the copy landed.
+function CopyMessageButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      aria-label={copied ? "Copied" : "Copy response"}
+      title={copied ? "Copied" : "Copy response"}
+      onClick={() => {
+        void navigator.clipboard?.writeText(text);
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1200);
+      }}
+      className={cx(
+        "inline-flex w-fit items-center gap-1.5 rounded-md px-1.5 py-1 text-xs outline-none transition-all focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/40 group-hover:opacity-100",
+        copied
+          ? "text-emerald-600 opacity-100 dark:text-emerald-400"
+          : "text-muted-foreground opacity-0 hover:bg-accent hover:text-foreground",
+      )}
+    >
+      {copied ? <CheckGlyph className="h-3.5 w-3.5" /> : <CopyGlyph className="h-3.5 w-3.5" />}
+      <span>{copied ? "Copied" : "Copy"}</span>
+    </button>
   );
 }
 
@@ -2992,6 +3021,24 @@ function CheckGlyph({ className }: { className?: string }) {
       aria-hidden="true"
     >
       <path d="M5 13l4 4L19 7" />
+    </svg>
+  );
+}
+
+function CopyGlyph({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <rect x="9" y="9" width="11" height="11" rx="2" />
+      <path d="M5 15V5a2 2 0 0 1 2-2h10" />
     </svg>
   );
 }
