@@ -147,10 +147,11 @@ export const ASK_MODE_CHANGE_MESSAGE =
 // Gathers live state evidence and merges it into the context, without ever failing the turn. The
 // researcher already isolates a single read's failure into a typed evidence entry; this also
 // guards against an unexpected throw, degrading to the original context so the turn still
-// produces a result. Returns the context unchanged when no researcher is available or no
-// evidence could be gathered.
+// produces a result. When no researcher is available — no governed read mandate is active for the
+// conversation's zone — the context is marked so the read agents say so plainly rather than
+// inventing state. Returns the context unchanged when a researcher gathered no evidence at all.
 async function withEvidence(context: AgentContext, researcher: Researcher | null | undefined): Promise<AgentContext> {
-  if (!researcher) return context
+  if (!researcher) return { ...context, liveStateUnavailable: true }
   try {
     const blackboard = await researcher.gather()
     return blackboard.evidence.length > 0 ? { ...context, evidence: blackboard.evidence } : context

@@ -128,6 +128,10 @@ export interface AgentContext {
   facts: ConversationFacts | null
   state: ConversationState | null
   evidence?: Evidence[]
+  // True when this turn needed live state but no governed read mandate is active for the
+  // conversation's zone, so nothing could be read. The read agents must then say so plainly
+  // instead of inventing applications, providers, resources, policies, or counts.
+  liveStateUnavailable?: boolean
 }
 
 // Renders the live state evidence into a compact block: one line per governed read, with the
@@ -156,6 +160,12 @@ function describeContext(context: AgentContext): string {
 
   const evidence = describeEvidence(context.evidence)
   if (evidence) sections.push(evidence)
+  else if (context.liveStateUnavailable) {
+    sections.push(
+      'Live state: could not be read for this zone — no governed read mandate is active here, ' +
+        'so nothing about this zone was inspected this turn.',
+    )
+  }
 
   const recent: string[] = []
   if (context.state?.latest_plan) {
@@ -225,9 +235,12 @@ export function buildExplainerMessages(message: string, context: AgentContext): 
         'You are a read-only Caracal operator assistant. Explain clearly and concisely in plain ' +
         'language for an operator who should not need to know Caracal internals. When the context ' +
         'includes live state read just now, ground your answer in it and do not invent applications, ' +
-        'providers, resources, or policies it does not list. You never make changes and must not ' +
-        'claim to; if the operator wants to change something, tell them to ask for that change so it ' +
-        'can be planned and approved.',
+        'providers, resources, or policies it does not list. When the context says live state could ' +
+        'not be read for this zone, do not guess or assert counts, names, or that something does or ' +
+        'does not exist; say plainly that you could not read this zone’s live state and that it is ' +
+        'available in the system zone today, and ask the operator to retry once a read mandate is ' +
+        'active for this zone. You never make changes and must not claim to; if the operator wants to ' +
+        'change something, tell them to ask for that change so it can be planned and approved.',
     },
     { role: 'user', content: `Context:\n${describeContext(context)}\n\nQuestion: ${message}` },
   ]
@@ -261,8 +274,10 @@ export function buildTroubleshooterMessages(message: string, context: AgentConte
         'the latest plan and how it was decided, and what exists in the zone — and do not invent ' +
         'applications, providers, resources, or policies the context does not show. A denial is ' +
         'usually a missing grant, a missing scope, or a resource or application that does not exist ' +
-        'yet. You never make changes and must not claim to; when a fix needs a change, tell the ' +
-        'operator to ask for it so it can be planned and approved.',
+        'yet. When the context says live state could not be read for this zone, do not guess specific ' +
+        'state; say you could not read this zone’s live state and ask the operator to retry once a ' +
+        'read mandate is active for this zone. You never make changes and must not claim to; when a ' +
+        'fix needs a change, tell the operator to ask for it so it can be planned and approved.',
     },
     { role: 'user', content: `Context:\n${describeContext(context)}\n\nProblem: ${message}` },
   ]

@@ -229,6 +229,25 @@ describe('createOrchestrator', () => {
     expect(seen).toBeUndefined()
   })
 
+  it('marks live state unavailable for a read tier when no researcher is active for the zone', async () => {
+    let marked: unknown = 'unset'
+    const registry: SkillRegistry = {
+      select: () => ({
+        id: 'probe',
+        kind: 'answer',
+        run: async (_g, _m, context) => {
+          marked = context.liveStateUnavailable
+          return { ok: true, value: { text: 'no live state' } }
+        },
+      }),
+    }
+    // No researcher: the Operator holds no governed read mandate for this zone, so the read agent
+    // is told live state could not be read rather than left to invent it.
+    const result = await createOrchestrator(registry).handle(gatewayFor('read'), 'how many apps', emptyContext, { researcher: null })
+    expect(result.outcome.kind).toBe('answer')
+    expect(marked).toBe(true)
+  })
+
   it('composes a compound tier: gathers evidence, plans against it, and attaches an advisory', async () => {
     const plan = { summary: 'Grant Finance read-only Stripe', steps: [{ id: 's1', capability: 'grantAccess', args: {} }] }
     const advisory = { summary: 'Scoped to read; low blast-radius.', findings: [] }
