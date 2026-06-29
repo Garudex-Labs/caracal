@@ -10,7 +10,7 @@ vi.mock('../../../../apps/web/src/platform/state/localInstall', () => ({
   getActiveZoneId: () => 'zone-123',
 }))
 
-import { appLink, navTarget, systemZoneViewPath } from '../../../../apps/web/src/platform/nav/appLink'
+import { appLink, navTarget, systemZoneViewPath, resolveOrg } from '../../../../apps/web/src/platform/nav/appLink'
 
 const OSS_ORG = 'ORG-0000-0000-0000'
 
@@ -41,5 +41,14 @@ describe('navTarget', () => {
 describe('systemZoneViewPath', () => {
   it('opens the system zone under the Caracal org with the viewer flag', () => {
     expect(systemZoneViewPath('zone-sys')).toBe('/CRC-AAA-BBB-CCC/ORG-CRC0-SYS0-0001/zone-sys/app?systemZone=1')
+  })
+})
+
+describe('resolveOrg', () => {
+  it('keeps the OSS sentinel and Caracal org, collapses the rest', () => {
+    expect(resolveOrg('ORG-0000-0000-0000')).toBe('ORG-0000-0000-0000')
+    expect(resolveOrg('ORG-CRC0-SYS0-0001')).toBe('ORG-CRC0-SYS0-0001')
+    expect(resolveOrg('ORG-9999-9999-9999')).toBe('ORG-0000-0000-0000')
+    expect(resolveOrg(undefined)).toBe('ORG-0000-0000-0000')
   })
 })

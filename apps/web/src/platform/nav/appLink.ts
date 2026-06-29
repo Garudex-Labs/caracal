@@ -16,6 +16,13 @@ const OSS_ORG_ID = "ORG-0000-0000-0000";
 // system zone reads as belonging to Caracal rather than to the open-source sentinel org.
 const CARACAL_ORG_ID = "ORG-CRC0-SYS0-0001";
 
+// The two orgs valid in open source: the standalone sentinel and Caracal's system org. Any other
+// org id is invalid here and is collapsed to the sentinel, so a tampered org segment can never
+// address a non-existent org. Enterprise replaces this with its real org directory.
+export function resolveOrg(orgId: string | undefined): string {
+  return orgId === CARACAL_ORG_ID ? CARACAL_ORG_ID : OSS_ORG_ID;
+}
+
 // Builds an account/org/zone-scoped Console path. Identity comes from the current profile and
 // active zone, so every link carries it without each caller threading params. A sub-path like
 // "/audit" is appended; the bare app root is "". Defaults to the open-source sentinel org; the
