@@ -191,6 +191,42 @@ describe('buildExplainerMessages', () => {
   })
 })
 
+describe('shared prompt foundations', () => {
+  // The ground-up rewrite gives every reasoning agent the same identity, platform model, behavioral
+  // spine, and documentation discipline, so they reason from a correct model of Caracal rather than
+  // pattern-matching. These assertions lock that foundation into the substantive agents.
+  const ctx = { facts: null, state: null }
+  const reasoningAgents: [string, string][] = [
+    ['planner', buildPlannerMessages('connect github', ctx)[0].content],
+    ['explainer', buildExplainerMessages('what is a zone', ctx)[0].content],
+    ['troubleshooter', buildTroubleshooterMessages('why was my agent denied', ctx)[0].content],
+    ['translator', buildTranslatorMessages('connect github', ctx)[0].content],
+  ]
+
+  it('gives every reasoning agent the Operator persona and the Caracal platform model', () => {
+    for (const [, system] of reasoningAgents) {
+      expect(system).toContain('Caracal Operator')
+      // The authority model is the spine of the platform knowledge core.
+      expect(system).toContain('Granting authority and using authority are separate')
+      // The behavioral spine: reason about real intent, not the literal ask.
+      expect(system).toContain('Solve for the goal behind the words')
+    }
+  })
+
+  it('gives the text-answering agents the documentation discipline with a canonical page map', () => {
+    for (const system of [reasoningAgents[1][1], reasoningAgents[2][1], reasoningAgents[3][1]]) {
+      expect(system).toContain('USING DOCUMENTATION')
+      expect(system).toContain('single most relevant page')
+      expect(system).toContain('/concepts/authority-model')
+    }
+  })
+
+  it('keeps the planner and security analyst on a strict JSON-only output contract', () => {
+    expect(buildPlannerMessages('do it', ctx)[0].content).toContain('Reply with ONLY a JSON object')
+    expect(buildSecurityAnalystMessages({ summary: 's', steps: [] }, ctx)[0].content).toContain('Reply with ONLY a JSON object')
+  })
+})
+
 describe('tierReadsState', () => {
   it('reads state only for the read tier', () => {
     expect(tierReadsState('read')).toBe(true)
@@ -354,8 +390,11 @@ describe('buildTranslatorMessages', () => {
   it('grounds integration guidance in the capability catalog and never acts', () => {
     const messages = buildTranslatorMessages('how do I connect GitHub', { facts: null, state: null })
     const system = messages[0].content
-    expect(system).toContain('integration')
-    // The connection kinds come from the real catalog so the guidance names valid options.
+    // The new translator prompt maps a real-world integration onto Caracal's model: it names the
+    // provider auth modes and the stable resource identifier convention, drawing connection kinds
+    // from the real catalog, and it never acts.
+    expect(system).toContain('oauth2_client_credentials')
+    expect(system).toContain('resource://')
     expect(system).toContain('connectProvider')
     expect(system).toContain('never make changes')
   })
