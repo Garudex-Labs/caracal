@@ -896,10 +896,8 @@ function SessionsRail({
                   <div
                     key={conversation.id}
                     className={cx(
-                      "group/session relative flex items-center border-l-2 transition-colors",
-                      selected
-                        ? "border-foreground bg-accent"
-                        : "border-transparent hover:bg-accent/50",
+                      "group/session relative flex items-center transition-colors",
+                      selected ? "bg-accent" : "hover:bg-accent/50",
                     )}
                   >
                     <button
