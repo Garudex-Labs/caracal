@@ -47,7 +47,7 @@ import {
 } from "@/platform/api/hooks";
 import type { ControlKey, ControlKeyCreateResult, ControlTokenResult } from "@/platform/api/types";
 
-export const Route = createFileRoute("/app/control")({
+export const Route = createFileRoute("/$accountId/$orgId/$zoneId/app/control")({
   component: ControlRoute,
 });
 

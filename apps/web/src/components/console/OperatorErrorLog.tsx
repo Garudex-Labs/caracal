@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 This file renders the compact Operator error label and the session-scoped audit log it archives into.
 */
+import { appLink } from "@/platform/nav/appLink";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 
@@ -272,7 +273,7 @@ export function OperatorErrorLog({ event }: { event: OperatorNoticeEvent | null 
                 )}
               </div>
               <Link
-                to="/app/audit"
+                to={appLink("/audit")}
                 onClick={() => setPanelOpen(false)}
                 className="mt-2 block rounded-md px-1 py-1 text-center text-[11px] text-muted-foreground transition-colors hover:text-foreground"
               >

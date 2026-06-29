@@ -4,10 +4,11 @@ Caracal, a product of Garudex Labs
 
 This file redirects the legacy Policy Sets route into the unified Policies workspace.
 */
+import { appLink } from "@/platform/nav/appLink";
 import { createFileRoute, redirect } from "@tanstack/react-router";
 
-export const Route = createFileRoute("/app/policy-sets")({
+export const Route = createFileRoute("/$accountId/$orgId/$zoneId/app/policy-sets")({
   beforeLoad: () => {
-    throw redirect({ to: "/app/policies" });
+    throw redirect({ to: appLink("/policies") });
   },
 });

@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 This file resolves control-plane connection and active-zone context, rendering honest states before zone-scoped screens.
 */
+import { appLink } from "@/platform/nav/appLink";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 
@@ -82,7 +83,7 @@ export function ZoneScopedPage({
         title="No zones yet"
         description="Zones are Caracal's primary trust boundary. Create your first zone to manage applications, resources, and policies."
         action={
-          <Link to="/app/zones">
+          <Link to={appLink("/zones")}>
             <Button>Go to Zones</Button>
           </Link>
         }

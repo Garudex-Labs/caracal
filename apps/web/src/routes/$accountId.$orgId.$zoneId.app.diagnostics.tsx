@@ -24,7 +24,7 @@ import type {
   DiagnosticsReport,
 } from "@/platform/api/types";
 
-export const Route = createFileRoute("/app/diagnostics")({
+export const Route = createFileRoute("/$accountId/$orgId/$zoneId/app/diagnostics")({
   component: DiagnosticsPage,
 });
 

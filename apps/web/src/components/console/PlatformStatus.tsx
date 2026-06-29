@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 This file renders the always-visible navbar platform health indicator that links to Diagnostics.
 */
+import { appLink } from "@/platform/nav/appLink";
 import { useNavigate } from "@tanstack/react-router";
 
 import { cx } from "@/lib/cx";
@@ -51,7 +52,7 @@ export function PlatformStatus() {
 
   return (
     <button
-      onClick={() => navigate({ to: "/app/diagnostics" })}
+      onClick={() => navigate({ to: appLink("/diagnostics") })}
       aria-label={`Platform status: ${label}. Open Diagnostics.`}
       title={`${label}: open Diagnostics`}
       className={cx(

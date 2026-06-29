@@ -12,7 +12,7 @@ import { Button, LockBadge } from "@/components/ui";
 import { config } from "@/platform/config";
 import { LOCKED_FEATURES } from "@/platform/edition/lockedFeatures";
 
-export const Route = createFileRoute("/app/enterprise/$feature")({
+export const Route = createFileRoute("/$accountId/$orgId/$zoneId/app/enterprise/$feature")({
   component: LockedFeaturePage,
 });
 

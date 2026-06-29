@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 This file renders the right-edge utility rail: Contact us, Customize, and Sponsor us actions.
 */
+import { navTarget } from "@/platform/nav/appLink";
 import Cal, { getCalApi } from "@calcom/embed-react";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { useEffect, useRef, useState, type ReactNode } from "react";
@@ -87,8 +88,8 @@ export function UtilityRail({ className }: { className?: string }) {
         {isHideLockedPath("/app/ai", systemView) ? null : (
           <RailButton
             label="Caracal Operator"
-            to="/app/ai"
-            active={pathname.startsWith("/app/ai")}
+            to={navTarget("/app/ai")}
+            active={pathname.endsWith("/app/ai")}
             icon={
               <>
                 <path d="M12 3l1.6 4.4L18 9l-4.4 1.6L12 15l-1.6-4.4L6 9z" />

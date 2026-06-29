@@ -9,7 +9,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { ConsoleLayout } from "@/components/console/ConsoleLayout";
 import { requireOnboardedInstallation } from "@/platform/auth/guards";
 
-export const Route = createFileRoute("/app")({
+export const Route = createFileRoute("/$accountId/$orgId/$zoneId/app")({
   beforeLoad: requireOnboardedInstallation,
   component: ConsoleLayout,
 });

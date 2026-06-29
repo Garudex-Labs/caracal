@@ -41,7 +41,7 @@ import type {
   DeniedDecision,
 } from "@/platform/api/types";
 
-export const Route = createFileRoute("/app/audit")({
+export const Route = createFileRoute("/$accountId/$orgId/$zoneId/app/audit")({
   component: AuditRoute,
   validateSearch: (search: Record<string, unknown>): { focus?: string } => ({
     focus: typeof search.focus === "string" ? search.focus : undefined,

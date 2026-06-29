@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 This file defines the settings route.
 */
+import { appLink } from "@/platform/nav/appLink";
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
@@ -135,7 +136,7 @@ const ALL_SECTIONS = SETTINGS_GROUPS.flatMap((group) => group.items);
 
 type SectionId = string;
 
-export const Route = createFileRoute("/app/settings")({
+export const Route = createFileRoute("/$accountId/$orgId/$zoneId/app/settings")({
   component: SettingsPage,
 });
 
@@ -148,7 +149,7 @@ function SettingsPage() {
     <ModulePage
       title="Settings"
       description="Account and administration controls."
-      breadcrumbs={[{ label: "Console", to: "/app" }, { label: "Settings" }]}
+      breadcrumbs={[{ label: "Console", to: appLink() }, { label: "Settings" }]}
     >
       <div className="grid gap-8 xl:grid-cols-[280px_minmax(0,1fr)]">
         <aside className="xl:sticky xl:top-20 xl:self-start">
@@ -1361,7 +1362,7 @@ function LifecycleSection() {
           ) : null}
           <div className="mt-4 flex flex-wrap gap-2">
             <Link
-              to="/app/zones"
+              to={appLink("/zones")}
               className="inline-flex h-9 items-center rounded-md border border-border bg-background px-4 text-sm font-medium text-foreground transition-colors hover:bg-surface"
             >
               Manage zones

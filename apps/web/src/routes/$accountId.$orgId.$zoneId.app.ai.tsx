@@ -144,7 +144,7 @@ import type {
   OperatorUsageMeta,
 } from "@/platform/api/types";
 
-export const Route = createFileRoute("/app/ai")({
+export const Route = createFileRoute("/$accountId/$orgId/$zoneId/app/ai")({
   component: CaracalOperatorPage,
 });
 

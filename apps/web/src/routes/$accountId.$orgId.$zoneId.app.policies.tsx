@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 This file defines the unified Policies workspace covering policy sets and the policy library.
 */
+import { appLink } from "@/platform/nav/appLink";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
@@ -50,7 +51,7 @@ import type {
   SimulateResult,
 } from "@/platform/api/types";
 
-export const Route = createFileRoute("/app/policies")({
+export const Route = createFileRoute("/$accountId/$orgId/$zoneId/app/policies")({
   component: PolicyWorkspaceRoute,
   validateSearch: (search: Record<string, unknown>): { create?: string; focus?: string } => ({
     create: typeof search.create === "string" ? search.create : undefined,
@@ -65,7 +66,7 @@ function PolicyWorkspaceRoute() {
     <ZoneScopedPage
       title="Policies"
       description="Author authorization rules and the policy sets that enforce them."
-      breadcrumbs={[{ label: "Console", to: "/app" }, { label: "Policies" }]}
+      breadcrumbs={[{ label: "Console", to: appLink() }, { label: "Policies" }]}
     >
       {(zone) => <PolicyWorkspace zoneId={zone.id} />}
     </ZoneScopedPage>
@@ -116,7 +117,7 @@ function PolicyWorkspace({ zoneId }: { zoneId: string }) {
       setTab("policies");
       setAutoCreatePolicy(true);
     }
-    navigate({ to: "/app/policies", search: {}, replace: true });
+    navigate({ to: appLink("/policies"), search: {}, replace: true });
   }, [create, navigate]);
 
   const policies = usePolicies(zoneId);
@@ -280,7 +281,7 @@ function PolicySetsTab({
       <ResourceWorkspace
         title="Policies"
         description="Author authorization rules and the policy sets that enforce them."
-        breadcrumbs={[{ label: "Console", to: "/app" }, { label: "Policies" }]}
+        breadcrumbs={[{ label: "Console", to: appLink() }, { label: "Policies" }]}
         headerExtra={headerExtra}
         primaryAction={{
           label: "New policy set",
@@ -972,7 +973,7 @@ function PoliciesTab({
       <ResourceWorkspace
         title="Policies"
         description="Author authorization rules and the policy sets that enforce them."
-        breadcrumbs={[{ label: "Console", to: "/app" }, { label: "Policies" }]}
+        breadcrumbs={[{ label: "Console", to: appLink() }, { label: "Policies" }]}
         headerExtra={headerExtra}
         primaryAction={{ label: "New policy", onClick: () => setEditor({ mode: "create" }) }}
         rows={rows}

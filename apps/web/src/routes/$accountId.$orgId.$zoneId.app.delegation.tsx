@@ -22,7 +22,7 @@ import { ConsoleApiError } from "@/platform/api/client";
 import { useDelegationsFeed } from "@/platform/api/hooks";
 import type { DelegationEdge } from "@/platform/api/types";
 
-export const Route = createFileRoute("/app/delegation")({
+export const Route = createFileRoute("/$accountId/$orgId/$zoneId/app/delegation")({
   component: DelegationRoute,
   validateSearch: (search: Record<string, unknown>): { focus?: string } => ({
     focus: typeof search.focus === "string" ? search.focus : undefined,

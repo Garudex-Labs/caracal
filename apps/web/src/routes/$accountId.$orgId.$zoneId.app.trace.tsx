@@ -4,11 +4,12 @@ Caracal, a product of Garudex Labs
 
 This file defines the Request Trace route.
 */
+import { appLink } from "@/platform/nav/appLink";
 import { createFileRoute, Link } from "@tanstack/react-router";
 
 import { ModuleNotice } from "@/components/console/ModuleNotice";
 
-export const Route = createFileRoute("/app/trace")({
+export const Route = createFileRoute("/$accountId/$orgId/$zoneId/app/trace")({
   component: TracePage,
 });
 
@@ -17,12 +18,12 @@ function TracePage() {
     <ModuleNotice
       title="Request Trace"
       description="Follow a single request through every decision it triggered."
-      breadcrumbs={[{ label: "Console", to: "/app" }, { label: "Request Trace" }]}
+      breadcrumbs={[{ label: "Console", to: appLink() }, { label: "Request Trace" }]}
       noticeTitle="Tracing lives in Audit"
     >
       <p>
         Request tracing is now built into the audit experience. Open any event in{" "}
-        <Link to="/app/audit" className="font-medium text-foreground underline">
+        <Link to={appLink("/audit")} className="font-medium text-foreground underline">
           Audit
         </Link>{" "}
         to see its full decision trace: the final decision, every event in the request, and any

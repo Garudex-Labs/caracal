@@ -43,7 +43,7 @@ export function ConsoleLayout() {
   // The Operator is a full-height workspace, so its route fills the content region
   // exactly: the main area stops scrolling and the workspace flexes to fit between the
   // navbar above and the utility rail beside it, matching how the left sidebar bounds it.
-  const flush = pathname === "/app/ai";
+  const flush = pathname.endsWith("/app/ai");
 
   const [collapsed, setCollapsed] = useState(readCollapsed);
   const [mobileOpen, setMobileOpen] = useState(false);

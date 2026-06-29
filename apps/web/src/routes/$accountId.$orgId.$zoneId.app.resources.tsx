@@ -40,7 +40,7 @@ import {
 import { useCreateDeepLink } from "@/platform/nav/createDeepLink";
 import type { Application, Provider, Resource, ResourceInput } from "@/platform/api/types";
 
-export const Route = createFileRoute("/app/resources")({
+export const Route = createFileRoute("/$accountId/$orgId/$zoneId/app/resources")({
   component: ResourcesRoute,
   validateSearch: (search: Record<string, unknown>): { create?: string; focus?: string } => ({
     create: typeof search.create === "string" ? search.create : undefined,

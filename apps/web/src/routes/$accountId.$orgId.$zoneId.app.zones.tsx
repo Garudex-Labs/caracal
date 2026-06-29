@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 This file defines the zones management route.
 */
+import { appLink } from "@/platform/nav/appLink";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 
@@ -49,7 +50,7 @@ import type { Zone, ZonePatchInput } from "@/platform/api/types";
 
 const PAGE_SIZE = 8;
 
-export const Route = createFileRoute("/app/zones")({
+export const Route = createFileRoute("/$accountId/$orgId/$zoneId/app/zones")({
   component: ZonesPage,
 });
 
@@ -227,7 +228,7 @@ function ZonesPage() {
       <ModulePage
         title="Zones"
         description="Zones are Caracal's primary trust boundary."
-        breadcrumbs={[{ label: "Console", to: "/app" }, { label: "Zones" }]}
+        breadcrumbs={[{ label: "Console", to: appLink() }, { label: "Zones" }]}
       >
         <div className="mb-4 flex flex-wrap items-center gap-2">
           <SearchInput placeholder="Search zones…" disabled className="w-full sm:w-64" />
@@ -256,7 +257,7 @@ function ZonesPage() {
       <ModulePage
         title="Zones"
         description="Zones are Caracal's primary trust boundary."
-        breadcrumbs={[{ label: "Console", to: "/app" }, { label: "Zones" }]}
+        breadcrumbs={[{ label: "Console", to: appLink() }, { label: "Zones" }]}
       >
         <EmptyState
           title="Zones unavailable"
@@ -266,7 +267,7 @@ function ZonesPage() {
               <Button onClick={() => zonesQuery.refetch()} loading={zonesQuery.isFetching}>
                 Retry
               </Button>
-              <Link to="/app/diagnostics">
+              <Link to={appLink("/diagnostics")}>
                 <Button variant="secondary">Open Diagnostics</Button>
               </Link>
             </div>
@@ -280,7 +281,7 @@ function ZonesPage() {
     <ModulePage
       title="Zones"
       description="Zones are Caracal's primary trust boundary. Each zone is owned by your account and isolates its own applications, resources, policies, and audit."
-      breadcrumbs={[{ label: "Console", to: "/app" }, { label: "Zones" }]}
+      breadcrumbs={[{ label: "Console", to: appLink() }, { label: "Zones" }]}
     >
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <SearchInput
@@ -659,11 +660,11 @@ function ZoneDetailDrawer({
 
   const contents: { label: string; value: number; to: string }[] = deps
     ? [
-        { label: "Applications", value: deps.applications, to: "/app/applications" },
-        { label: "Resources", value: deps.resources, to: "/app/resources" },
-        { label: "Providers", value: deps.providers, to: "/app/providers" },
-        { label: "Policies", value: deps.policies, to: "/app/policies" },
-        { label: "Policy sets", value: deps.policySets, to: "/app/policy-sets" },
+        { label: "Applications", value: deps.applications, to: appLink("/applications") },
+        { label: "Resources", value: deps.resources, to: appLink("/resources") },
+        { label: "Providers", value: deps.providers, to: appLink("/providers") },
+        { label: "Policies", value: deps.policies, to: appLink("/policies") },
+        { label: "Policy sets", value: deps.policySets, to: appLink("/policy-sets") },
       ]
     : [];
 

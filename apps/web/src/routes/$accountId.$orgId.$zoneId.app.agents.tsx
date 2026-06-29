@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 This file defines the Agents runtime workspace for live agent sessions and their lifecycle.
 */
+import { appLink } from "@/platform/nav/appLink";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 
@@ -50,7 +51,7 @@ import type {
   InvocationStatus,
 } from "@/platform/api/types";
 
-export const Route = createFileRoute("/app/agents")({
+export const Route = createFileRoute("/$accountId/$orgId/$zoneId/app/agents")({
   component: AgentsRoute,
 });
 
@@ -59,7 +60,7 @@ function AgentsRoute() {
     <ZoneScopedPage
       title="Agents"
       description="Live agent sessions and their delegation lineage in this zone."
-      breadcrumbs={[{ label: "Console", to: "/app" }, { label: "Agents" }]}
+      breadcrumbs={[{ label: "Console", to: appLink() }, { label: "Agents" }]}
     >
       {(zone) => <AgentsGate zoneId={zone.id} />}
     </ZoneScopedPage>
@@ -259,7 +260,7 @@ function AgentsPage({ zoneId }: { zoneId: string }) {
       <ModulePage
         title="Agents"
         description="Live agent sessions and their delegation lineage in this zone."
-        breadcrumbs={[{ label: "Console", to: "/app" }, { label: "Agents" }]}
+        breadcrumbs={[{ label: "Console", to: appLink() }, { label: "Agents" }]}
       >
         <CoordinatorOffline code={coordError as string} onRetry={() => feed.refetch()} />
       </ModulePage>
@@ -344,7 +345,7 @@ function AgentsPage({ zoneId }: { zoneId: string }) {
       <ResourceWorkspace
         title="Agents"
         description="Live agent sessions, their authority, and delegation lineage in this zone."
-        breadcrumbs={[{ label: "Console", to: "/app" }, { label: "Agents" }]}
+        breadcrumbs={[{ label: "Console", to: appLink() }, { label: "Agents" }]}
         toolbarExtra={
           <AgentFilterBar
             status={status}
@@ -673,7 +674,7 @@ function AgentInspector({
         </DetailField>
         <DetailField label="Application">
           <Link
-            to="/app/applications"
+            to={appLink("/applications")}
             className="font-mono text-xs text-foreground hover:underline"
           >
             {agent.application_id}
@@ -687,7 +688,7 @@ function AgentInspector({
         {agent.subject_session_id ? (
           <DetailField label="Subject session">
             <Link
-              to="/app/sessions"
+              to={appLink("/sessions")}
               search={{ subject: agent.subject_session_id }}
               className="font-mono text-xs text-foreground hover:underline"
             >
@@ -949,7 +950,7 @@ function AgentDelegations({ zoneId, sessionId }: { zoneId: string; sessionId: st
       ) : edges.length === 0 ? (
         <p className="mt-2 text-sm text-muted-foreground">
           No {tab} delegation edges.{" "}
-          <Link to="/app/delegation" className="text-foreground hover:underline">
+          <Link to={appLink("/delegation")} className="text-foreground hover:underline">
             Open delegation workspace
           </Link>
         </p>

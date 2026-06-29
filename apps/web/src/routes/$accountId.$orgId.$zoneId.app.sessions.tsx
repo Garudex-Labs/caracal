@@ -21,7 +21,7 @@ import { ConsoleApiError } from "@/platform/api/client";
 import { useSessionsFeed } from "@/platform/api/hooks";
 import type { Session, SessionQuery } from "@/platform/api/types";
 
-export const Route = createFileRoute("/app/sessions")({
+export const Route = createFileRoute("/$accountId/$orgId/$zoneId/app/sessions")({
   component: SessionsRoute,
   validateSearch: (search: Record<string, unknown>): { subject?: string } => ({
     subject: typeof search.subject === "string" ? search.subject : undefined,
