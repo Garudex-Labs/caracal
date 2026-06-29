@@ -5,6 +5,27 @@
 
 import type { Actor } from './auth.js'
 
+// The reserved identifiers that anchor the Console URL hierarchy /:accountId/:orgId/:zoneId/app.
+// Open source has no orgs, so every account's standalone zones sit under one sentinel org; the
+// system zone sits under Caracal's own org, identical for every account and edition. These ids
+// are reserved: a tenant zone must never be minted with the system zone id, so the generator
+// regenerates on the astronomically unlikely collision rather than shadowing the reserved zone.
+export const OSS_ORG_ID = '00000000-0000-0000-0000-000000000000'
+export const CARACAL_ORG_ID = 'caracal'
+
+// The set of zone ids no tenant zone may take. The system zone is provisioned with a fixed,
+// reserved id so its URL is the same for everyone; everything else is generated. A generated id
+// landing on a reserved value is regenerated, so the reserved space is never silently occupied.
+export const RESERVED_ZONE_IDS = new Set<string>([OSS_ORG_ID])
+
+// Mints a zone id that is never one of the reserved sentinels. Tenant zones are generated, so on
+// the astronomically unlikely collision it regenerates rather than shadowing a reserved zone.
+export function mintZoneId(generate: () => string): string {
+  let id = generate()
+  while (RESERVED_ZONE_IDS.has(id)) id = generate()
+  return id
+}
+
 // The single brand token reserved for Caracal's own internal systems and all future
 // internal systems. It is encoded per object type to fit each field's character set,
 // but it always denotes the same reserved namespace.

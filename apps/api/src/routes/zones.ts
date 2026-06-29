@@ -11,7 +11,7 @@ import { buildPatchUpdate, patchColumn } from './patch.js'
 import { withTransaction, TxAbort } from '../db.js'
 import { IdParams, parseParams } from './params.js'
 import { appendKeysetCondition, parseListPagination, setNextLink } from './list-pagination.js'
-import { assertReservedNamespace, RESERVED_ZONE_SQL } from '../reserved-namespace.js'
+import { assertReservedNamespace, RESERVED_ZONE_SQL, mintZoneId } from '../reserved-namespace.js'
 import { enqueueOutboxBatch, type EnqueueArgs } from '../outbox.js'
 import { STREAM_AGENTS_LIFECYCLE, STREAM_SESSIONS_REVOKE } from '../redis.js'
 import type { Actor } from '../auth.js'
@@ -113,7 +113,13 @@ export async function createZoneRecord(
     `INSERT INTO zones (id, name, slug, dek_ciphertext, dcr_enabled, owner_account_id)
      VALUES ($1, $2, $3, gen_random_bytes(32), $4, $5)
      RETURNING id, name, slug, dcr_enabled, created_at, updated_at`,
-    [uuidv7(), input.name, input.slug ?? (await nextZoneSlug(db, input.name)), input.dcrEnabled ?? false, input.ownerAccountId ?? null],
+    [
+      mintZoneId(uuidv7),
+      input.name,
+      input.slug ?? (await nextZoneSlug(db, input.name)),
+      input.dcrEnabled ?? false,
+      input.ownerAccountId ?? null,
+    ],
   )
   return rows[0]
 }

@@ -9,6 +9,9 @@ import {
   assertReservedNamespace,
   isInternalProvisioner,
   isReservedZone,
+  mintZoneId,
+  OSS_ORG_ID,
+  RESERVED_ZONE_IDS,
   RESERVED_ZONE_SQL,
 } from '../../../../apps/api/src/reserved-namespace.js'
 
@@ -129,5 +132,20 @@ describe('RESERVED_ZONE_SQL', () => {
     expect(RESERVED_ZONE_SQL).toContain("lower(name) LIKE 'caracal.sys/%'")
     expect(RESERVED_ZONE_SQL).toContain("lower(slug) LIKE 'caracal-sys-%'")
     expect(RESERVED_ZONE_SQL).not.toContain('$')
+  })
+})
+
+describe('mintZoneId', () => {
+  it('returns a generated id when it is not reserved', () => {
+    expect(mintZoneId(() => 'zone-normal')).toBe('zone-normal')
+  })
+
+  it('regenerates when the first id is a reserved sentinel', () => {
+    const seq = [OSS_ORG_ID, 'zone-ok']
+    expect(mintZoneId(() => seq.shift()!)).toBe('zone-ok')
+  })
+
+  it('never returns a reserved id', () => {
+    expect(RESERVED_ZONE_IDS.has(mintZoneId(() => (OSS_ORG_ID === 'x' ? 'x' : 'zone-1')))).toBe(false)
   })
 })
