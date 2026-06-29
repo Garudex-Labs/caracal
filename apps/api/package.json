@@ -11,7 +11,7 @@
     "test": "vitest run --root ../.. tests/typescript/unit/api tests/typescript/security/api tests/typescript/property/api tests/typescript/contract/api tests/typescript/fuzz/api tests/typescript/integration/api"
   },
   "dependencies": {
-    "@ai-sdk/openai-compatible": "^3.0.0",
+    "@ai-sdk/openai-compatible": "^3.0.1",
     "@caracalai/admin": "workspace:*",
     "@caracalai/admin-audit": "workspace:*",
     "@caracalai/core": "workspace:*",
@@ -20,8 +20,8 @@
     "@fastify/swagger": "^9.4.0",
     "@fastify/swagger-ui": "^6.0.0",
     "@node-rs/argon2": "^2.0.2",
-    "ai": "^7.0.3",
-    "fastify": "^5.2.1",
+    "ai": "^7.0.4",
+    "fastify": "^5.9.0",
     "fastify-plugin": "^6.0.0",
     "ioredis": "^5.11.1",
     "jose": "^6.2.3",

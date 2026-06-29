@@ -19,7 +19,7 @@
   "dependencies": {
     "@caracalai/core": "workspace:*",
     "@caracalai/engine": "workspace:*",
-    "better-auth": "^1.3.4",
+    "better-auth": "^1.6.22",
     "pg": "^8.22.0"
   },
   "devDependencies": {

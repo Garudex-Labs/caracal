@@ -11,15 +11,15 @@
   "dependencies": {
     "@astrojs/react": "^6.0.0",
     "@astrojs/sitemap": "^3.7.3",
-    "@astrojs/starlight": "0.40.0",
+    "@astrojs/starlight": "0.41.1",
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.6.1",
-    "astro": "^7.0.0",
-    "mermaid": "^11.15.0",
+    "astro": "^7.0.3",
+    "mermaid": "^11.16.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "remark-gfm": "4.0.1",
-    "three": "^0.184.0"
+    "three": "^0.185.0"
   },
   "devDependencies": {
     "@types/react": "^19.2.17",

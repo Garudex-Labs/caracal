@@ -25,9 +25,9 @@
   "dependencies": {
     "@calcom/embed-react": "^1.5.3",
     "@paper-design/shaders-react": "^0.0.76",
-    "@tanstack/react-query": "^5.83.0",
+    "@tanstack/react-query": "^5.101.2",
     "@tanstack/react-router": "^1.168.25",
-    "better-auth": "^1.3.4",
+    "better-auth": "^1.6.22",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "streamdown": "2.5.0"

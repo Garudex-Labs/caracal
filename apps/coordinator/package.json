@@ -12,7 +12,7 @@
     "@caracalai/admin-audit": "workspace:*",
     "@caracalai/core": "workspace:*",
     "@caracalai/identity": "workspace:*",
-    "fastify": "^5.2.1",
+    "fastify": "^5.9.0",
     "ioredis": "^5.11.1",
     "jose": "^6.2.3",
     "pg": "^8.22.0",
