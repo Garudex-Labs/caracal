@@ -46,7 +46,11 @@ const DEFAULT_TURN_PAGE = 200
 const MAX_TURN_PAGE = 500
 
 const CONVERSATION_SELECT = 'id, zone_id, title, status, mode, autopilot, created_by, created_at, updated_at, last_activity_at, archived_at'
-const TURN_SELECT = 'id, conversation_id, seq, role, kind, content, actor_id, created_at'
+// seq is a bigint column, which the driver would otherwise hand back as a string. The turn
+// contract types seq as a number and callers send it straight back as plan_seq, so it is cast
+// to int here: a per-conversation gapless counter never approaches the int ceiling, and the
+// honest numeric type keeps the approval and execution bodies from rejecting a stringified seq.
+const TURN_SELECT = 'id, conversation_id, seq::int AS seq, role, kind, content, actor_id, created_at'
 
 const CreateConversationBody = z
   .object({
@@ -84,13 +88,13 @@ const AppendTurnBody = z
 
 const PlanDecisionBody = z
   .object({
-    plan_seq: z.number().int().min(1),
+    plan_seq: z.coerce.number().int().min(1),
     decision: z.enum(['approved', 'rejected']),
     reason: z.string().min(1).max(2000).optional(),
   })
   .strict()
 
-const ExecutePlanBody = z.object({ plan_seq: z.number().int().min(1) }).strict()
+const ExecutePlanBody = z.object({ plan_seq: z.coerce.number().int().min(1) }).strict()
 
 // One in-flight governed execution per plan. Each step is its own authenticated control
 // call rather than one database transaction, so the conversation row cannot serialize

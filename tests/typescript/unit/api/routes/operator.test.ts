@@ -780,6 +780,39 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/plan/decision', () =
     expect(JSON.parse(res.body)).toMatchObject({ kind: 'approval', content: { plan_seq: 2 } })
   })
 
+  it('accepts a stringified plan_seq so a JSON bigint seq never silently fails the decision', async () => {
+    // operator_turns.seq is a bigint the driver serializes as a string, so the console sends the
+    // plan's seq straight back as a string. The decision body coerces it; without that the
+    // approval and reject controls fail with a 400 the user never sees.
+    const { app, clientQuery } = buildApp()
+    const approvalRow = {
+      id: 'turn-3',
+      conversation_id: 'conv-1',
+      seq: 3,
+      role: 'user',
+      kind: 'approval',
+      content: { plan_seq: 2 },
+      actor_id: 'actor-1',
+      created_at: '2026-01-01T00:00:03Z',
+    }
+    clientQuery
+      .mockResolvedValueOnce(undefined) // BEGIN
+      .mockResolvedValueOnce({ rows: [{ status: 'active', next_seq: 3 }] }) // SELECT ... FOR UPDATE
+      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] }) // plan turn exists
+      .mockResolvedValueOnce({ rows: [] }) // not already decided
+      .mockResolvedValueOnce({ rowCount: 1 }) // UPDATE next_seq
+      .mockResolvedValueOnce({ rows: [approvalRow] }) // INSERT turn
+      .mockResolvedValueOnce(undefined) // COMMIT
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/operator-conversations/conv-1/plan/decision',
+      payload: { plan_seq: '2', decision: 'approved' },
+    })
+    expect(res.statusCode).toBe(201)
+    expect(JSON.parse(res.body)).toMatchObject({ kind: 'approval', content: { plan_seq: 2 } })
+  })
+
   it('rejects a decision for a plan_seq that is not a plan turn', async () => {
     const { app, clientQuery } = buildApp()
     clientQuery
@@ -885,6 +918,20 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/plan/execute', () =>
     expect(JSON.parse(res.body)).toMatchObject({ error: 'governed_execution_unconfigured' })
     // No identity means no governed authority, so the Operator touches no state at all.
     expect(db.connect).not.toHaveBeenCalled()
+  })
+
+  it('coerces a stringified plan_seq past body validation so apply never silently 400s', async () => {
+    // The console sends the plan's bigint seq back as a string. The execute body coerces it, so a
+    // string reaches the governed-execution check (409 here) rather than failing as an invalid body.
+    const { app } = buildApp(true)
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/operator-conversations/conv-1/plan/execute',
+      payload: { plan_seq: '2' },
+    })
+    expect(res.statusCode).toBe(409)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'governed_execution_unconfigured' })
   })
 
   it('refuses to execute in a zone its control identity is not bound to', async () => {

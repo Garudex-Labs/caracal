@@ -14,7 +14,7 @@ import { systemZoneViewPath } from "@/platform/nav/appLink";
 
 export { systemZoneViewPath };
 
-import { consoleApi } from "./client";
+import { ConsoleApiError, consoleApi } from "./client";
 import type {
   Application,
   ApplicationInput,
@@ -330,6 +330,32 @@ export function useSendOperatorMessage(zoneId: string | null, conversationId: st
   });
 }
 
+// A failed plan action whose error names a state the server already moved past — the plan was
+// decided or executed elsewhere, vanished, or the conversation was archived — means the local
+// timeline is stale. Re-reading it lets the card settle on the authoritative outcome instead of
+// stranding the operator on a control that can no longer apply, which also defuses a duplicate
+// submission racing a first one.
+const STALE_PLAN_CODES = new Set([
+  "plan_already_decided",
+  "plan_already_executed",
+  "plan_not_approved",
+  "plan_rejected",
+  "plan_not_found",
+  "conversation_archived",
+  "conversation_not_found",
+]);
+
+function resyncOnStalePlan(
+  qc: ReturnType<typeof useQueryClient>,
+  zoneId: string | null,
+  conversationId: string | null,
+  error: unknown,
+) {
+  if (error instanceof ConsoleApiError && STALE_PLAN_CODES.has(error.code)) {
+    invalidateConversation(qc, zoneId, conversationId);
+  }
+}
+
 export function useDecideOperatorPlan(zoneId: string | null, conversationId: string | null) {
   const qc = useQueryClient();
   return useMutation({
@@ -339,6 +365,7 @@ export function useDecideOperatorPlan(zoneId: string | null, conversationId: str
       reason?: string;
     }) => consoleApi.operator.decidePlan(zoneId as string, conversationId as string, decision),
     onSuccess: () => invalidateConversation(qc, zoneId, conversationId),
+    onError: (error) => resyncOnStalePlan(qc, zoneId, conversationId, error),
   });
 }
 
@@ -348,6 +375,7 @@ export function useExecuteOperatorPlan(zoneId: string | null, conversationId: st
     mutationFn: (planSeq: number) =>
       consoleApi.operator.executePlan(zoneId as string, conversationId as string, planSeq),
     onSuccess: () => invalidateConversation(qc, zoneId, conversationId),
+    onError: (error) => resyncOnStalePlan(qc, zoneId, conversationId, error),
   });
 }
 
