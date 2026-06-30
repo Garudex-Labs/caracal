@@ -232,13 +232,13 @@ describe('registerInvokeRoute', () => {
     expect(upstreamRes.json()).toEqual({ ok: false, error: { code: 'upstream', reason: 'upstream error' } })
   })
 
-  it('lets the reserved Operator reader read a tenant zone via the zone-scope header', async () => {
+  it('lets the reserved Operator govern a tenant zone via the zone-scope header', async () => {
     const app = Fastify()
     apps.push(app)
     const list = vi.fn(async () => [{ id: 'a1' }])
     const d = deps(vi.fn(async () => claims({ sub: 'operator-reader', zoneId: 'z-system', scope: 'control:app:read' })))
     d.replay.mark = vi.fn(async () => true)
-    d.resolvePlatformReaderSubject = () => 'operator-reader'
+    d.resolvePlatformOperatorSubject = () => 'operator-reader'
     d.ctx = { admin: { applications: { list } } } as unknown as DispatchContext
 
     registerInvokeRoute(app, d)
@@ -256,13 +256,37 @@ describe('registerInvokeRoute', () => {
     expect(d.sink.emit).toHaveBeenCalledWith(expect.objectContaining({ decision: 'allow', zoneId: 'z-tenant' }))
   })
 
-  it('ignores the zone-scope header for a subject that is not the reserved Operator reader', async () => {
+  it('lets the reserved Operator mutate a tenant zone via the zone-scope header', async () => {
+    const app = Fastify()
+    apps.push(app)
+    const create = vi.fn(async () => ({ id: 'app-new' }))
+    const d = deps(vi.fn(async () => claims({ sub: 'operator-reader', zoneId: 'z-system', scope: 'control:app:write' })))
+    d.replay.mark = vi.fn(async () => true)
+    d.resolvePlatformOperatorSubject = () => 'operator-reader'
+    d.ctx = { admin: { applications: { create } } } as unknown as DispatchContext
+
+    registerInvokeRoute(app, d)
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/control/invoke',
+      headers: { authorization: 'Bearer token', 'x-caracal-zone-scope': 'z-tenant' },
+      payload: { command: 'app', subcommand: 'create', flags: { name: 'Son of Anton' } },
+    })
+
+    expect(res.statusCode).toBe(200)
+    // The mutation is applied in the tenant zone and attributed to it.
+    expect(create).toHaveBeenCalledWith('z-tenant', expect.anything())
+    expect(d.sink.emit).toHaveBeenCalledWith(expect.objectContaining({ decision: 'allow', zoneId: 'z-tenant' }))
+  })
+
+  it('ignores the zone-scope header for a subject that is not the reserved Operator', async () => {
     const app = Fastify()
     apps.push(app)
     const list = vi.fn(async () => [{ id: 'a1' }])
     const d = deps(vi.fn(async () => claims({ sub: 'tenant-key', zoneId: 'z-own', scope: 'control:app:read' })))
     d.replay.mark = vi.fn(async () => true)
-    d.resolvePlatformReaderSubject = () => 'operator-reader'
+    d.resolvePlatformOperatorSubject = () => 'operator-reader'
     d.ctx = { admin: { applications: { list } } } as unknown as DispatchContext
 
     registerInvokeRoute(app, d)
@@ -275,7 +299,7 @@ describe('registerInvokeRoute', () => {
     })
 
     expect(res.statusCode).toBe(200)
-    // A tenant key can never use the header to read another zone: the read stays in its own zone.
+    // A tenant key can never use the header to reach another zone: the command stays in its own zone.
     expect(list).toHaveBeenCalledWith('z-own')
     expect(d.sink.emit).toHaveBeenCalledWith(expect.objectContaining({ decision: 'allow', zoneId: 'z-own' }))
   })

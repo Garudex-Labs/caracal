@@ -934,21 +934,53 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/plan/execute', () =>
     expect(JSON.parse(res.body)).toMatchObject({ error: 'governed_execution_unconfigured' })
   })
 
-  it('refuses to execute in a zone its control identity is not bound to', async () => {
-    // The control token is zone-bound, so the Operator can only govern its identity's zone.
-    const { app, db } = buildApp(true, {
-      controlIdentity: { applicationId: 'caracal-sys-operator', clientSecret: 'cs_sealed', zoneId: 'other-zone' },
+  it('governs a tenant zone its control identity is not bound to via the zone-scope header', async () => {
+    // The Operator governs every zone it operates in. Its control identity is provisioned in the
+    // reserved system zone, so a conversation in a tenant zone executes through a control client
+    // that stamps the zone-scope header naming that zone, and the control plane applies the
+    // mutation there.
+    const fetchMock = controlFetch([{ id: 'grant-xyz' }])
+    const { app, clientQuery } = buildApp(true, {
+      controlIdentity: { applicationId: 'caracal-sys-operator', clientSecret: 'cs_sealed', zoneId: 'zone-sys' },
       controlEndpoints: governedControl.controlEndpoints,
+      fetchImpl: fetchMock as unknown as typeof fetch,
     })
+    const executionTurn = {
+      id: 'turn-x',
+      conversation_id: 'conv-1',
+      seq: 5,
+      role: 'operator',
+      kind: 'execution',
+      content: { plan_seq: 2, step_id: 's1', status: 'succeeded' },
+      actor_id: 'actor-1',
+      created_at: '2026-01-01T00:00:05Z',
+    }
+    clientQuery
+      .mockResolvedValueOnce(undefined) // BEGIN
+      .mockResolvedValueOnce({ rows: [{ status: 'active' }] }) // conv status
+      .mockResolvedValueOnce({ rows: [{ content: grantPlan }] }) // plan content
+      .mockResolvedValueOnce({ rows: [{ kind: 'approval' }] }) // approved
+      .mockResolvedValueOnce({ rows: [] }) // not executed
+      .mockResolvedValueOnce({ rows: [{ one: 1 }] }) // preview: application lives
+      .mockResolvedValueOnce({ rows: [{ one: 1 }] }) // preview: resource lives
+      .mockResolvedValueOnce(undefined) // COMMIT
+      .mockResolvedValueOnce(undefined) // BEGIN
+      .mockResolvedValueOnce({ rows: [{ status: 'active', next_seq: 5 }] }) // conv FOR UPDATE
+      .mockResolvedValueOnce({ rowCount: 1 }) // UPDATE next_seq
+      .mockResolvedValueOnce({ rows: [executionTurn] }) // INSERT execution turn
+      .mockResolvedValueOnce(undefined) // COMMIT
     await app.ready()
     const res = await app.inject({
       method: 'POST',
       url: '/v1/zones/z1/operator-conversations/conv-1/plan/execute',
       payload: { plan_seq: 2 },
     })
-    expect(res.statusCode).toBe(409)
-    expect(JSON.parse(res.body)).toMatchObject({ error: 'governed_execution_unconfigured' })
-    expect(db.connect).not.toHaveBeenCalled()
+    expect(res.statusCode).toBe(201)
+    // The governed invoke stamps the conversation's zone so the control plane applies the
+    // mutation in z1 rather than the Operator's home system zone.
+    const invokeCall = fetchMock.mock.calls.find((c) => String(c[0]).endsWith('/v1/control/invoke'))
+    expect(invokeCall).toBeDefined()
+    expect((invokeCall![1] as RequestInit).headers).toMatchObject({ 'x-caracal-zone-scope': 'z1' })
   })
 
   it('refuses a concurrent execution of the same plan', async () => {

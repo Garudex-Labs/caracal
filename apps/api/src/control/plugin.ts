@@ -21,9 +21,9 @@ export interface ControlPluginOptions {
   redis: RedisClient
   auditHmacKey: Buffer | null
   controlLogLevel: string
-  // The reserved Operator reader's application id, used to authorize its read-only cross-zone
-  // state reads. Null until the system zone is provisioned, or when self-governance is disabled.
-  resolvePlatformReaderSubject?: () => string | null
+  // The reserved Operator's application id, used to authorize its cross-zone governance. Null
+  // until the system zone is provisioned, or when self-governance is disabled.
+  resolvePlatformOperatorSubject?: () => string | null
 }
 
 const controlPluginImpl: FastifyPluginAsync<ControlPluginOptions> = async (app, opts) => {
@@ -45,7 +45,7 @@ const controlPluginImpl: FastifyPluginAsync<ControlPluginOptions> = async (app, 
     gate,
     redis,
     ipRateLimitPerMin: cfg.ipRateLimitPerMin,
-    resolvePlatformReaderSubject: opts.resolvePlatformReaderSubject,
+    resolvePlatformOperatorSubject: opts.resolvePlatformOperatorSubject,
   })
 }
 
