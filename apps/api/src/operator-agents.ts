@@ -4,7 +4,7 @@
 // The Operator agent layer: purpose-built agents that turn intent into typed artifacts the deterministic engine governs.
 
 import { z } from 'zod'
-import { describeCapabilitiesForPrompt, ProposedPlan, type ProposedPlanInput } from './operator-capabilities.js'
+import { describeCapabilitiesForPrompt, ProposedPlan, type CapabilityDomain, type ProposedPlanInput } from './operator-capabilities.js'
 import type { ConversationState } from './operator-state.js'
 import { describeFacts, type ConversationFacts } from './operator-memory.js'
 import type { Evidence } from './operator-research.js'
@@ -15,10 +15,10 @@ import { GatewayBudgetError, type Gateway, type GatewayMessage } from './operato
 // a proposed plan, or an explanation — that the deterministic pipeline then
 // validates, previews, and governs. A model can propose; only Caracal decides.
 
-const TRIAGE_MAX_TOKENS = 32
+const TRIAGE_MAX_TOKENS = 80
 const PLANNER_MAX_TOKENS = 800
 const EXPLAINER_MAX_TOKENS = 600
-const SECURITY_ANALYST_MAX_TOKENS = 500
+const SECURITY_ANALYST_MAX_TOKENS = 700
 const TROUBLESHOOTER_MAX_TOKENS = 600
 const TRANSLATOR_MAX_TOKENS = 600
 
@@ -205,6 +205,10 @@ const TriageOutput = z
   .object({
     tier: z.enum(['conversational', 'read', 'change', 'compound']),
     topic: z.enum(['general', 'diagnostic', 'integration']).optional(),
+    domains: z
+      .array(z.enum(['zone', 'application', 'provider', 'resource', 'policy', 'grant', 'audit']))
+      .max(7)
+      .optional(),
   })
   .strict()
 
@@ -216,11 +220,14 @@ const TriageOutput = z
 // answer skill replies — it never widens authority and is ignored on the planning tiers.
 export type OperatorTopic = 'general' | 'diagnostic' | 'integration'
 
-// The triage classification: the handling tier plus, for an answer, its specialty. The orchestrator
-// selects a skill from this — Caracal decides which skill runs, the model only classifies.
+// The triage classification: the handling tier, for an answer its specialty, and the object domains
+// the request concerns. The orchestrator selects a skill from the tier and topic — Caracal decides
+// which skill runs, the model only classifies — and scopes the live-state reads to the named
+// domains so a turn reads only the parts of the deployment it actually needs.
 export interface OperatorTriage {
   tier: OperatorTier
   topic: OperatorTopic
+  domains?: CapabilityDomain[]
 }
 
 export function buildTriageMessages(message: string): GatewayMessage[] {
@@ -232,7 +239,8 @@ export function buildTriageMessages(message: string): GatewayMessage[] {
         'sufficient handling tier so a simple turn never pays for the planning pipeline. Judge the',
         "user's true intent, not their phrasing: a question worded politely can still be a request to",
         'change something, and a request that names several things or needs investigation first is',
-        'compound. Reply with ONLY a JSON object {"tier":"<tier>","topic":"<topic>"} and no prose.',
+        'compound. Reply with ONLY a JSON object {"tier":"<tier>","topic":"<topic>","domains":["<domain>",…]}',
+        'and no prose.',
         [
           'Tiers:',
           '- "conversational": greeting, small talk, acknowledgement, a question about what you can do,',
@@ -251,6 +259,14 @@ export function buildTriageMessages(message: string): GatewayMessage[] {
           '- "integration": how to connect a provider, model a resource, or which scopes are needed.',
           '- "general": anything else. Use "general" when unsure or when the tier is not read.',
         ].join('\n'),
+        [
+          'Domains name which parts of this deployment the request concerns, so only that live state is',
+          'read this turn. List every domain the request touches, from this fixed set: zone, application,',
+          'provider, resource, policy, grant, audit. Omit "domains" for a conversational request that',
+          'needs no state read. Examples: "connect GitHub" → ["provider"]; "why was my agent denied" →',
+          '["grant","policy","audit","application"]; "give finance read-only access to invoices" →',
+          '["grant","application","resource"]; "how many apps do I have" → ["application"].',
+        ].join('\n'),
         'When two tiers are plausible, pick the smaller one that still fully serves the intent.',
       ),
     },
@@ -258,18 +274,27 @@ export function buildTriageMessages(message: string): GatewayMessage[] {
   ]
 }
 
-// Classifies a request into the smallest sufficient tier and, for a read, its answer specialty.
-// The answer is generated as a schema-validated object, so an off-schema classification fails
-// closed as an error rather than a guessed tier; the orchestrator then defaults to a general read,
-// which never acts. topic defaults to general when the model omits it, so an older classification
-// shape stays valid and an absent specialty simply uses the explainer.
+// Classifies a request into the smallest sufficient tier and, for a read, its answer specialty, and
+// names the object domains the request concerns so the live-state reads can be scoped to them. The
+// answer is generated as a schema-validated object, so an off-schema classification fails closed as
+// an error rather than a guessed tier; the orchestrator then defaults to a general read, which never
+// acts. topic defaults to general when the model omits it, and domains is carried only when present,
+// so an absent or empty domain set simply reads broadly rather than narrowing wrongly.
 export async function runTriage(gateway: Gateway, message: string): Promise<AgentResult<OperatorTriage>> {
   try {
     const completion = await gateway.completeObject(buildTriageMessages(message), TriageOutput, {
       maxTokens: TRIAGE_MAX_TOKENS,
       temperature: 0,
     })
-    return { ok: true, value: { tier: completion.value.tier, topic: completion.value.topic ?? 'general' } }
+    const domains = completion.value.domains
+    return {
+      ok: true,
+      value: {
+        tier: completion.value.tier,
+        topic: completion.value.topic ?? 'general',
+        ...(domains && domains.length > 0 ? { domains } : {}),
+      },
+    }
   } catch {
     return { ok: false, error: 'triage returned an unrecognized tier' }
   }
@@ -353,7 +378,22 @@ function describeContext(context: AgentContext): string {
   return sections.length > 0 ? sections.join('\n\n') : 'No prior context.'
 }
 
-export function buildPlannerMessages(message: string, context: AgentContext): GatewayMessage[] {
+// Feedback handed back to the planner for a single repair pass when its first plan failed catalog
+// validation: the prior summary and the concrete reason each rejected step was rejected, so the
+// planner fixes the exact problems instead of guessing. Absent on the first proposal.
+export interface RepairFeedback {
+  priorSummary: string
+  diagnostics: string[]
+}
+
+export function buildPlannerMessages(message: string, context: AgentContext, feedback?: RepairFeedback): GatewayMessage[] {
+  const repair = feedback
+    ? `\n\nYour previous plan ("${feedback.priorSummary}") failed validation:\n${feedback.diagnostics
+        .map((d) => `- ${d}`)
+        .join(
+          '\n',
+        )}\nProduce a corrected plan that resolves every reason above, using only the listed capabilities and exact argument names.`
+    : ''
   return [
     {
       role: 'system',
@@ -384,7 +424,7 @@ export function buildPlannerMessages(message: string, context: AgentContext): Ga
         ].join('\n'),
       ),
     },
-    { role: 'user', content: `Context:\n${describeContext(context)}\n\nRequest: ${message}` },
+    { role: 'user', content: `Context:\n${describeContext(context)}\n\nRequest: ${message}${repair}` },
   ]
 }
 
@@ -404,9 +444,14 @@ const PlannerPlan = z
 // hallucinated plan never leaves this function as a success. An empty steps array is a
 // valid "nothing maps" result. A per-turn budget refusal is a governance stop, not a plan
 // failure, so it propagates to the route rather than being reported as an unmappable request.
-export async function runPlanner(gateway: Gateway, message: string, context: AgentContext): Promise<AgentResult<ProposedPlanInput>> {
+export async function runPlanner(
+  gateway: Gateway,
+  message: string,
+  context: AgentContext,
+  feedback?: RepairFeedback,
+): Promise<AgentResult<ProposedPlanInput>> {
   try {
-    const completion = await gateway.completeObject(buildPlannerMessages(message, context), PlannerPlan, {
+    const completion = await gateway.completeObject(buildPlannerMessages(message, context, feedback), PlannerPlan, {
       maxTokens: PLANNER_MAX_TOKENS,
       temperature: 0,
     })
@@ -566,24 +611,36 @@ export async function runTranslator(
 }
 export type AdvisorySeverity = 'info' | 'caution' | 'warning'
 
+// Whether the plan is the right way to achieve the goal in Caracal, independent of whether each
+// step is merely well-scoped. aligned: the plan follows Caracal's intended model. risky: it works
+// but carries avoidable blast radius or a sharper edge than the goal needs. misaligned: it reflects
+// a Caracal anti-pattern (for example exposing an internal resource publicly or granting standing
+// broad authority) and the guardian should teach the correct approach rather than wave it through.
+export type AdvisoryAlignment = 'aligned' | 'risky' | 'misaligned'
+
 export interface AdvisoryFinding {
   severity: AdvisorySeverity
   concern: string
 }
 
-// The security analyst's advisory review of a proposed plan: a short plain-language summary and
-// any findings about over-grant, least-privilege, or blast-radius. It carries no authority — a
-// plan is approved or denied by the deterministic spine and the human, never by this review — so
-// it can only inform, never block or widen what a plan may do.
+// The guardian's advisory review of a proposed plan: a short plain-language summary, an optional
+// intent-alignment verdict, any findings about over-grant, least-privilege, or blast-radius, and —
+// when the plan is risky or misaligned — a concrete recommendation of the Caracal-correct approach
+// to teach the human. It carries no authority: a plan is approved or denied by the deterministic
+// spine and the human, never by this review, so it can only inform, never block or widen a plan.
 export interface SecurityAdvisory {
   summary: string
+  alignment?: AdvisoryAlignment
   findings: AdvisoryFinding[]
+  recommendation?: string
 }
 
 const SecurityAdvisorySchema = z
   .object({
     summary: z.string().min(1).max(1000),
+    alignment: z.enum(['aligned', 'risky', 'misaligned']).optional(),
     findings: z.array(z.object({ severity: z.enum(['info', 'caution', 'warning']), concern: z.string().min(1).max(500) }).strict()).max(20),
+    recommendation: z.string().min(1).max(1000).optional(),
   })
   .strict()
 
@@ -602,22 +659,32 @@ export function buildSecurityAnalystMessages(plan: ProposedPlanInput, context: A
         OPERATOR_PERSONA,
         CARACAL_PLATFORM,
         [
-          'THIS TURN: ADVISORY SECURITY REVIEW. Review a proposed change plan the way a careful platform',
-          'engineer would before approving it, and judge it against least privilege and blast radius.',
-          'Look for over-grant and over-reach: a grant broader than the request implies, a write or',
-          'delete scope where a read would suffice, scopes or a resource the stated goal does not need, a',
-          'new credential or application that widens the attack surface, or a change that affects more',
-          'principals or resources than intended. Weigh whether the same outcome could be achieved with',
-          'narrower authority, a tighter resource boundary, or a shorter-lived path. When the context',
-          'includes live state read just now, judge the plan against what actually exists rather than in',
-          'the abstract.',
+          'THIS TURN: ADVISORY GUARDIAN REVIEW. You are the Operator guardian. Review a proposed change',
+          'plan the way a careful platform engineer and security reviewer would before approving it, on',
+          'two axes: whether it is least-privilege and small in blast radius, and whether it is the right',
+          'way to achieve the goal in Caracal at all.',
+          'Least privilege and blast radius — look for over-grant and over-reach: a grant broader than the',
+          'request implies, a write or delete scope where a read would suffice, scopes or a resource the',
+          'stated goal does not need, a new credential or application that widens the attack surface, or a',
+          'change that affects more principals or resources than intended. Weigh whether the same outcome',
+          'could be achieved with narrower authority, a tighter resource boundary, or a shorter-lived path.',
+          'Intent alignment — judge whether the plan reflects how Caracal is meant to be used. Flag Caracal',
+          'anti-patterns: exposing an internal or system resource publicly, granting standing broad',
+          'authority instead of a narrow scoped grant, bypassing delegation or policy, an unstable resource',
+          'identifier, or a provider auth mode that does not fit the upstream. When the context includes',
+          'live state read just now, judge the plan against what actually exists rather than in the abstract.',
+          'Set "alignment" to "aligned" when the plan follows Caracal\'s model, "risky" when it works but',
+          'carries avoidable blast radius, or "misaligned" when it reflects an anti-pattern. When it is risky',
+          'or misaligned, set "recommendation" to the concrete Caracal-correct approach the human should take',
+          'instead — teach the right path, do not merely object.',
           'Your review is advisory only: the deterministic pipeline and the human approver decide the',
-          "plan's fate — you never block, gate, or widen it, you inform the person who approves. Report",
-          'an empty findings array when the plan is genuinely least-privilege and well-scoped; do not',
-          'manufacture concerns.',
-          'Reply with ONLY a JSON object {"summary": string, "findings": [{"severity":',
-          '"info"|"caution"|"warning", "concern": string}]}. The summary is one plain sentence on the',
-          "plan's overall risk posture; each finding names a specific concern and its severity.",
+          "plan's fate — you never block, gate, or widen it, you inform the person who approves. Report an",
+          'empty findings array and alignment "aligned" when the plan is genuinely least-privilege and',
+          'well-scoped; do not manufacture concerns.',
+          'Reply with ONLY a JSON object {"summary": string, "alignment": "aligned"|"risky"|"misaligned",',
+          '"findings": [{"severity": "info"|"caution"|"warning", "concern": string}], "recommendation":',
+          'string}. Omit "recommendation" when alignment is "aligned". The summary is one plain sentence on',
+          "the plan's overall posture; each finding names a specific concern and its severity.",
         ].join('\n'),
       ),
     },

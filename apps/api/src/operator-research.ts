@@ -32,8 +32,10 @@ export interface Blackboard {
 
 // An ephemeral worker bound to the Operator's own scoped control identity. It reads only — it
 // can reach nothing but governed read capabilities — so it holds no authority to change state.
+// A gather may be scoped to the object domains a turn concerns, so a request about one domain
+// reads only that domain rather than fanning out across every governed read.
 export interface Researcher {
-  gather(): Promise<Blackboard>
+  gather(domains?: string[]): Promise<Blackboard>
 }
 
 // The governed read capabilities: the capabilities mapped to a control command that the
@@ -63,16 +65,28 @@ function summarizeRows(result: unknown): { count: number; names: string[] } {
   return { count: rows.length, names }
 }
 
+// Narrows the governed reads to the object domains a turn actually concerns, so a request about one
+// domain reads only that domain instead of fanning out across every read. An unspecified or empty
+// domain set reads everything, and a domain set that maps to no governed read also falls back to the
+// full set, so a turn can never end up with nothing to ground on because triage named a domain that
+// has no read behind it.
+function selectReads(domains: string[] | undefined): string[] {
+  const all = governedReadCapabilities()
+  if (!domains || domains.length === 0) return all
+  const scoped = all.filter((id) => domains.includes(CAPABILITIES[id].domain))
+  return scoped.length > 0 ? scoped : all
+}
+
 // Builds the state researcher over a control client. Each governed read mints a token narrowed
 // to exactly that read's scopes and invokes the list command; the control plane authorizes,
 // executes, and audits it — the same dogfooded path the Operator executes a change through. The
 // reads run concurrently and are isolated: one read's failure becomes a typed evidence entry,
-// never an exception that loses the others. The set is naturally bounded by the governed read
-// capabilities, so the fan-out is small and fixed.
+// never an exception that loses the others. A gather is scoped to the domains the turn names, so
+// the fan-out is the smallest set that grounds the request, bounded by the governed read set.
 export function createStateResearcher(client: ControlClient): Researcher {
   return {
-    async gather(): Promise<Blackboard> {
-      const reads = governedReadCapabilities()
+    async gather(domains?: string[]): Promise<Blackboard> {
+      const reads = selectReads(domains)
       const gen: ControlGen = { secret: '' }
       const evidence = await Promise.all(
         reads.map(async (id): Promise<Evidence> => {

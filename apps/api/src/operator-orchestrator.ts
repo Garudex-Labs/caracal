@@ -7,7 +7,6 @@ import {
   runTriage,
   tierPlans,
   tierReadsState,
-  tierComposes,
   runPlanner,
   runExplainer,
   runTroubleshooter,
@@ -18,9 +17,10 @@ import {
   type OperatorMode,
   type OperatorTier,
   type OperatorTriage,
+  type RepairFeedback,
   type SecurityAdvisory,
 } from './operator-agents.js'
-import type { ProposedPlanInput } from './operator-capabilities.js'
+import { validateProposedPlan, type ProposedPlanInput } from './operator-capabilities.js'
 import type { Researcher } from './operator-research.js'
 import type { DocSnippet } from './operator-docs.js'
 import type { Gateway } from './operator-gateway.js'
@@ -156,10 +156,10 @@ export const ASK_MODE_CHANGE_MESSAGE =
 // produces a result. When no researcher is available — no governed read mandate is active for the
 // conversation's zone — the context is marked so the read agents say so plainly rather than
 // inventing state. Returns the context unchanged when a researcher gathered no evidence at all.
-async function withEvidence(context: AgentContext, researcher: Researcher | null | undefined): Promise<AgentContext> {
+async function withEvidence(context: AgentContext, researcher: Researcher | null | undefined, domains?: string[]): Promise<AgentContext> {
   if (!researcher) return { ...context, liveStateUnavailable: true }
   try {
-    const blackboard = await researcher.gather()
+    const blackboard = await researcher.gather(domains)
     return blackboard.evidence.length > 0 ? { ...context, evidence: blackboard.evidence } : context
   } catch {
     return context
@@ -181,6 +181,34 @@ function withDocs(context: AgentContext, message: string, docs: HandleOptions['d
   }
 }
 
+// Proposes a plan and, only when the first proposal fails catalog validation, re-plans once with
+// the concrete rejection reasons as feedback. It returns the repaired plan when the repair
+// validates, otherwise the original proposal unchanged, so a plan that cannot be repaired still
+// reaches the route, which reports its diagnostics to the human. A valid first proposal, or one
+// with no steps, is returned without a second model call, so the common case stays single-pass.
+// This validation only decides whether a repair pass is worth running; it never approves or
+// applies — the route owns the authoritative validate, preview, and approval of every plan.
+async function deliberatePlan(
+  gateway: Gateway,
+  message: string,
+  context: AgentContext,
+  skill: PlanSkill,
+): Promise<AgentResult<ProposedPlanInput>> {
+  const proposal = await skill.run(gateway, message, context)
+  if (!proposal.ok || proposal.value.steps.length === 0) return proposal
+
+  const validation = validateProposedPlan(proposal.value)
+  if (validation.ok) return proposal
+
+  const feedback: RepairFeedback = {
+    priorSummary: proposal.value.summary,
+    diagnostics: validation.diagnostics.map((d) => `${d.step_id}: ${d.message}`),
+  }
+  const repaired = await runPlanner(gateway, message, context, feedback)
+  if (repaired.ok && validateProposedPlan(repaired.value).ok) return repaired
+  return proposal
+}
+
 // Builds the orchestrator over a skill registry. Per turn it triages the request to its tier and,
 // for a read, its topic, then runs the one skill the registry selects. A triage that fails the
 // schema defaults to a general read, which answers as text and never acts — the safe direction on
@@ -188,11 +216,12 @@ function withDocs(context: AgentContext, message: string, docs: HandleOptions['d
 // returns a deterministic switch-to-agent answer before any planning skill runs, so an ask
 // conversation is provably write-incapable at the skill layer (the route refuses writes
 // independently as defense in depth). A read tier grounds its answer in live state gathered
-// through governed reads. A compound tier composes specialists: it gathers live state, plans
-// against it, and runs an advisory security review over the proposed plan. Every plan — single or
-// composed — still flows through the deterministic spine the route owns; the orchestrator selects
-// and runs skills and gathers read-only evidence, and never validates, previews, persists, or
-// applies, and the advisory it attaches only informs the human and never gates the plan.
+// through governed reads. A plan request runs a deliberation loop: it gathers live state, proposes
+// against it, repairs the proposal once if it fails catalog validation, and runs an independent
+// advisory guardian review over the resulting plan. Every plan still flows through the
+// deterministic spine the route owns; the orchestrator selects and runs skills and gathers
+// read-only evidence, and never validates for approval, previews, persists, or applies, and the
+// advisory it attaches only informs the human and never gates the plan.
 export function createOrchestrator(registry: SkillRegistry = createSkillRegistry()): Orchestrator {
   return {
     async handle(gateway, message, context, options = {}): Promise<OrchestrationResult> {
@@ -211,13 +240,14 @@ export function createOrchestrator(registry: SkillRegistry = createSkillRegistry
       const skill = registry.select(classification)
 
       if (skill.kind === 'plan') {
-        // A compound request plans against freshly read live state; a single change does not, so
-        // the common single-domain case stays the cheap single-skill path.
-        const planContext = tierComposes(tier) ? await withEvidence(context, options.researcher) : context
-        const result = await skill.run(gateway, message, planContext)
-        // The advisory review runs only for a composed plan that actually proposes steps. It is
-        // informational and never gates: a failed or absent review simply attaches nothing.
-        if (tierComposes(tier) && result.ok && result.value.steps.length > 0) {
+        // Every plan is grounded in freshly read live state, so the planner proposes against reality
+        // and the guardian judges against it. The deliberation loop proposes, validates against the
+        // catalog, repairs once when the first proposal is invalid, then runs an independent guardian
+        // review over any plan that proposes steps. The route still owns validate, preview, approve,
+        // and apply; the guardian and the repair pass only improve and inform the proposal.
+        const planContext = await withEvidence(context, options.researcher, classification.domains)
+        const result = await deliberatePlan(gateway, message, planContext, skill)
+        if (result.ok && result.value.steps.length > 0) {
           const review = await runSecurityAnalyst(gateway, result.value, planContext)
           return { tier, outcome: { kind: 'plan', result, advisory: review.ok ? review.value : undefined } }
         }
@@ -227,7 +257,7 @@ export function createOrchestrator(registry: SkillRegistry = createSkillRegistry
       // A read tier inspects current state, so it answers grounded in freshly read evidence; a
       // conversational tier needs no state read and pays nothing. Both ground their answer in the
       // real documentation so exact names, endpoints, and fields come from the docs, not the model.
-      const stateContext = tierReadsState(tier) ? await withEvidence(context, options.researcher) : context
+      const stateContext = tierReadsState(tier) ? await withEvidence(context, options.researcher, classification.domains) : context
       const answerContext = withDocs(stateContext, message, options.docs)
       return { tier, outcome: { kind: 'answer', result: await skill.run(gateway, message, answerContext) } }
     },
