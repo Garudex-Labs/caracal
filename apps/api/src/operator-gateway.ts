@@ -94,10 +94,19 @@ export interface ActiveModel {
 }
 
 // Cumulative token usage tallied by a usage-tracking gateway wrapper over the calls made
-// during a single request, so it never mixes usage across conversations.
+// during a single request, so it never mixes usage across conversations. It also records which
+// provider actually served, so a caller can report the real model after a failover and tell when
+// Caracal fell back from its primary.
 export interface GatewayUsage {
   inputTokens: number
   outputTokens: number
+  // The provider and model that served the most recent successful completion, or null when no
+  // completion succeeded - a budget refusal before the first call leaves both null.
+  provider: string | null
+  model: string | null
+  // The distinct providers that served a completion this request, in first-served order. More than
+  // one entry, or a single entry that is not the failover order's primary, means Caracal fell back.
+  providers: string[]
 }
 
 // No provider is configured, so the AI tier is off. Distinct from a call failure so
@@ -386,10 +395,20 @@ export function withUsage(gateway: Gateway, options: { maxCalls?: number } = {})
   let inputTokens = 0
   let outputTokens = 0
   let calls = 0
+  let lastProvider: string | null = null
+  let lastModel: string | null = null
+  const servedProviders: string[] = []
   const maxCalls = options.maxCalls
   const guard = () => {
     if (maxCalls !== undefined && maxCalls > 0 && calls >= maxCalls) throw new GatewayBudgetError(maxCalls)
     calls += 1
+  }
+  const record = (provider: string, model: string, promptTokens?: number, completionTokens?: number) => {
+    inputTokens += promptTokens ?? 0
+    outputTokens += completionTokens ?? 0
+    lastProvider = provider
+    lastModel = model
+    if (!servedProviders.includes(provider)) servedProviders.push(provider)
   }
   const tracked: Gateway = {
     status: () => gateway.status(),
@@ -397,19 +416,20 @@ export function withUsage(gateway: Gateway, options: { maxCalls?: number } = {})
     async complete(messages, options) {
       guard()
       const result = await gateway.complete(messages, options)
-      inputTokens += result.promptTokens ?? 0
-      outputTokens += result.completionTokens ?? 0
+      record(result.provider, result.model, result.promptTokens, result.completionTokens)
       return result
     },
     async completeObject(messages, schema, options) {
       guard()
       const result = await gateway.completeObject(messages, schema, options)
-      inputTokens += result.promptTokens ?? 0
-      outputTokens += result.completionTokens ?? 0
+      record(result.provider, result.model, result.promptTokens, result.completionTokens)
       return result
     },
   }
-  return { gateway: tracked, usage: () => ({ inputTokens, outputTokens }) }
+  return {
+    gateway: tracked,
+    usage: () => ({ inputTokens, outputTokens, provider: lastProvider, model: lastModel, providers: [...servedProviders] }),
+  }
 }
 
 // Wraps a gateway so every completion prefers the given provider, without touching the

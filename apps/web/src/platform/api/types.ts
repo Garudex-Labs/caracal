@@ -865,6 +865,10 @@ export interface OperatorUsageMeta {
   model?: string | null;
   provider?: string | null;
   max_tokens?: number;
+  // Set when Caracal fell back from its primary AI provider to a secondary one while answering this
+  // message - the request still succeeded, but the primary was unavailable for at least one call.
+  // Absent on the common path where the primary served the whole turn.
+  failover?: boolean;
   // The handling tier the request was triaged into: conversational and read are answered as
   // text, change and compound produce a plan. Surfaced for observability; the web client keys
   // its rendering on intent, so this is additive.

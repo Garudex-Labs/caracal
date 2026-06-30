@@ -1392,15 +1392,25 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
     const effective = status.providers.find((p) => p.id === preference && p.available) ?? status.providers.find((p) => p.available) ?? null
     const meta = () => {
       const usage = tracked.usage()
+      // The model that actually served is reported over the one that was expected, so the console
+      // reflects reality after a failover. The served provider's own status carries its context
+      // window; when no completion succeeded - a budget refusal before any call - the expected
+      // provider stands in so the meta is never empty.
+      const served = usage.provider ? (status.providers.find((p) => p.id === usage.provider) ?? null) : null
+      const reporting = served ?? effective
+      // Caracal fell back when a provider served that is not the one the failover order would try
+      // first. A single configured provider, or a turn served entirely by the primary, never flags.
+      const failover = effective !== null && usage.providers.some((id) => id !== effective.id)
       return {
         usage: {
           input_tokens: usage.inputTokens,
           output_tokens: usage.outputTokens,
           total_tokens: usage.inputTokens + usage.outputTokens,
         },
-        model: effective?.model ?? null,
-        provider: effective?.id ?? null,
-        max_tokens: effective?.contextWindow ?? 0,
+        model: reporting?.model ?? null,
+        provider: reporting?.id ?? null,
+        max_tokens: reporting?.contextWindow ?? 0,
+        ...(failover ? { failover: true } : {}),
       }
     }
 
