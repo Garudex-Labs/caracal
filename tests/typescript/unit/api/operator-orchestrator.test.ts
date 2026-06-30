@@ -93,6 +93,26 @@ describe('createOrchestrator', () => {
     expect(result.outcome.kind).toBe('answer')
   })
 
+  it('streams answer tokens to onAnswerDelta while still returning the assembled answer', async () => {
+    const completeObject = vi.fn().mockResolvedValue({ value: { tier: 'read', topic: 'general' }, provider: 't', model: 'm' })
+    const stream = vi.fn(async (_messages: unknown, onDelta: (chunk: string) => void) => {
+      onDelta('the ')
+      onDelta('full ')
+      onDelta('answer')
+      return { text: 'the full answer', provider: 't', model: 'm' } satisfies CompletionResult
+    })
+    const gateway = { status: () => ({ enabled: true, providers: [] }), completeObject, stream } as unknown as Gateway
+    const deltas: string[] = []
+    const result = await createOrchestrator().handle(gateway, 'why denied', emptyContext, {
+      onAnswerDelta: (chunk) => deltas.push(chunk),
+    })
+    expect(result.outcome.kind).toBe('answer')
+    expect(deltas.join('')).toBe('the full answer')
+    if (result.outcome.kind === 'answer' && result.outcome.result.ok) {
+      expect(result.outcome.result.value.text).toContain('the full answer')
+    }
+  })
+
   it('plans a change tier with the plan skill', async () => {
     const plan = {
       summary: 'Connect GitHub',

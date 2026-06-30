@@ -1032,6 +1032,10 @@ function ActivityStream({
   // watches the Operator reason - triage, read state, plan, review - rather than a blank spinner.
   // Consecutive repeats of a stage are collapsed; the list resets at the start of each send.
   const [stages, setStages] = useState<OperatorProgressStage[]>([]);
+  // The answer text accumulated from token deltas while a read or conversational send is in flight,
+  // so the operator watches the answer typed out rather than waiting for it to appear all at once.
+  // It resets at the start of each send and clears when the authoritative turn arrives.
+  const [streamedAnswer, setStreamedAnswer] = useState("");
 
   const { items, latestPlan } = useMemo(() => buildTimeline(turns ?? []), [turns]);
 
@@ -1066,7 +1070,7 @@ function ActivityStream({
     if (!stickToBottom.current) return;
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [visibleItems, send.isPending, stages, inFlight]);
+  }, [visibleItems, send.isPending, stages, inFlight, streamedAnswer]);
 
   // Reveal an earlier page of turns, holding the operator's place: the distance from the bottom is
   // captured before the window widens and restored once the taller list has painted.
@@ -1092,6 +1096,7 @@ function ActivityStream({
     sending.current = true;
     setInFlight(text);
     setStages([]);
+    setStreamedAnswer("");
     const controller = new AbortController();
     sendAbort.current = controller;
     send.mutate(
@@ -1101,6 +1106,7 @@ function ActivityStream({
         signal: controller.signal,
         onStage: (stage) =>
           setStages((prev) => (prev[prev.length - 1] === stage ? prev : [...prev, stage])),
+        onToken: (chunk) => setStreamedAnswer((prev) => prev + chunk),
       },
       {
         onSuccess: (result) => onUsage?.(result),
@@ -1109,6 +1115,7 @@ function ActivityStream({
           sendAbort.current = null;
           setInFlight(null);
           setStages([]);
+          setStreamedAnswer("");
         },
       },
     );
@@ -1280,7 +1287,20 @@ function ActivityStream({
           </div>
         ) : null}
 
-        {send.isPending ? <DeliberationTrail stages={stages} seed={items.length} /> : null}
+        {send.isPending && streamedAnswer ? (
+          <div className="group flex items-start gap-2">
+            <img
+              src="/chatbot.png"
+              alt="Caracal Operator"
+              className="h-8 w-8 shrink-0 select-none object-contain"
+            />
+            <div className="mt-1.5 flex min-w-0 max-w-[82%] flex-col gap-1.5">
+              <Response>{streamedAnswer}</Response>
+            </div>
+          </div>
+        ) : send.isPending ? (
+          <DeliberationTrail stages={stages} seed={items.length} />
+        ) : null}
       </div>
 
       <OperatorQueue

@@ -8,6 +8,7 @@ import {
   createGateway,
   withUsage,
   preferProvider,
+  streamingAnswers,
   GatewayUnavailableError,
   GatewayError,
   GatewayBudgetError,
@@ -23,6 +24,20 @@ function chatResponse(content: string, usage?: { prompt_tokens: number; completi
   return new Response(JSON.stringify({ choices: [{ message: { content } }], usage }), {
     status: 200,
     headers: { 'content-type': 'application/json' },
+  })
+}
+
+// Builds an OpenAI-compatible streaming response: one chat.completion.chunk per content delta,
+// a terminal stop chunk carrying usage, then the [DONE] sentinel, so streamText parses the same
+// shape a real provider sends.
+function streamResponse(parts: string[], usage?: { prompt_tokens: number; completion_tokens: number }): Response {
+  const frames = parts.map(
+    (content) => `data: ${JSON.stringify({ choices: [{ index: 0, delta: { content }, finish_reason: null }] })}\n\n`,
+  )
+  const stop = `data: ${JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: 'stop' }], usage })}\n\n`
+  return new Response(frames.join('') + stop + 'data: [DONE]\n\n', {
+    status: 200,
+    headers: { 'content-type': 'text/event-stream' },
   })
 }
 
@@ -222,6 +237,59 @@ describe('gateway completeObject', () => {
     const result = await gateway.completeObject([{ role: 'user', content: 'go' }], ProposedPlan)
     expect(result.provider).toBe('second')
     expect(usage()).toMatchObject({ inputTokens: 10, outputTokens: 4 })
+  })
+})
+
+describe('gateway stream', () => {
+  it('streams token deltas to the callback and returns the assembled completion', async () => {
+    const fetchMock = vi.fn(async () => streamResponse(['Hel', 'lo'], { prompt_tokens: 3, completion_tokens: 2 }))
+    const gateway = createGateway([provider()], fetchMock as unknown as typeof fetch)
+    const deltas: string[] = []
+    const result = await gateway.stream([{ role: 'user', content: 'hi' }], (chunk) => deltas.push(chunk))
+    expect(deltas.join('')).toBe('Hello')
+    expect(result).toMatchObject({ text: 'Hello', provider: 'p1', model: 'gpt-x', promptTokens: 3, completionTokens: 2 })
+  })
+
+  it('fails over to the next provider when a stream yields no text', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(streamResponse([]))
+      .mockResolvedValueOnce(streamResponse(['done']))
+    const gateway = createGateway([provider({ id: 'primary' }), provider({ id: 'secondary' })], fetchMock as unknown as typeof fetch)
+    const deltas: string[] = []
+    const result = await gateway.stream([{ role: 'user', content: 'hi' }], (chunk) => deltas.push(chunk))
+    expect(result.provider).toBe('secondary')
+    expect(deltas.join('')).toBe('done')
+  })
+})
+
+describe('streamingAnswers', () => {
+  const validPlan = { summary: 'Connect GitHub', steps: [{ id: 's1', capability: 'connectProvider', args: { name: 'GitHub' } }] }
+
+  it('streams a free-text completion through the underlying stream', async () => {
+    const fetchMock = vi.fn(async () => streamResponse(['Hi', ' there']))
+    const gateway = createGateway([provider()], fetchMock as unknown as typeof fetch)
+    const deltas: string[] = []
+    const wrapped = streamingAnswers(gateway, (chunk) => deltas.push(chunk))
+    const result = await wrapped.complete([{ role: 'user', content: 'hi' }])
+    expect(deltas.join('')).toBe('Hi there')
+    expect(result.text).toBe('Hi there')
+  })
+
+  it('leaves completeObject untouched so structured calls never stream', async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(validPlan) } }] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+    )
+    const gateway = createGateway([provider()], fetchMock as unknown as typeof fetch)
+    const deltas: string[] = []
+    const wrapped = streamingAnswers(gateway, (chunk) => deltas.push(chunk))
+    const result = await wrapped.completeObject([{ role: 'user', content: 'connect github' }], ProposedPlan)
+    expect(result.value).toEqual(validPlan)
+    expect(deltas).toHaveLength(0)
   })
 })
 
