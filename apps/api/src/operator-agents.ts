@@ -24,6 +24,7 @@ const TROUBLESHOOTER_MAX_TOKENS = 600
 const TRANSLATOR_MAX_TOKENS = 600
 const VERIFIER_MAX_TOKENS = 700
 const CRITIC_MAX_TOKENS = 600
+const ANSWER_CHECK_MAX_TOKENS = 400
 
 // The handling tier a request is triaged into: the smallest sufficient path, so a simple turn
 // never pays the planning pipeline. conversational and read are answered directly as text;
@@ -326,8 +327,10 @@ export interface AgentContext {
 }
 
 // Renders the live state evidence into a compact block: one line per governed read, with the
-// live count and a bounded list of names, or the typed reason a read could not be gathered. Only
-// names reach the prompt, never whole rows, so a read never leaks an arbitrary field.
+// live count, a bounded list of names, and the decision-relevant attributes its domain exposes —
+// the provider auth modes and resource scopes the planner and guardian must reason against — or
+// the typed reason a read could not be gathered. Only names and allowlisted descriptor fields
+// reach the prompt, never whole rows, so a read never leaks an arbitrary field.
 function describeEvidence(evidence: Evidence[] | undefined): string | null {
   if (!evidence || evidence.length === 0) return null
   const lines = evidence.map((item) => {
@@ -336,7 +339,12 @@ function describeEvidence(evidence: Evidence[] | undefined): string | null {
     const names = item.names ?? []
     if (count === 0) return `- ${item.domain}: none`
     const listed = names.length > 0 ? `: ${names.join(', ')}${count > names.length ? ', …' : ''}` : ''
-    return `- ${item.domain} (${count})${listed}`
+    const attributes = item.attributes
+      ? Object.entries(item.attributes)
+          .map(([label, values]) => ` [${label}: ${values.join(', ')}]`)
+          .join('')
+      : ''
+    return `- ${item.domain} (${count})${listed}${attributes}`
   })
   return `Live state (read just now):\n${lines.join('\n')}`
 }
@@ -411,6 +419,7 @@ export function buildPlannerMessages(message: string, context: AgentContext, fee
         OPERATOR_PERSONA,
         CARACAL_PLATFORM,
         REASONING_PRINCIPLES,
+        DOCS_DISCIPLINE,
         [
           'YOUR JOB: PROPOSE A PLAN. You are the planning step. Turn the request into the smallest',
           "correct sequence of Caracal capabilities that achieves the user's real goal, using ONLY the",
@@ -924,5 +933,78 @@ export async function runCritic(
   } catch (err) {
     if (err instanceof GatewayBudgetError) throw err
     return { ok: false, error: 'plan critique did not produce a usable verdict' }
+  }
+}
+
+// The answer-grounding check's verdict on a read answer: whether every claim it makes about the
+// zone's state is supported by the live evidence read this turn, and — when it is not — the concrete
+// correction the answer got wrong. It judges a read answer the same way the guardian judges a plan:
+// against what actually exists, never in the abstract. It carries no authority and gates nothing —
+// the answer is a read-only note — so a flagged answer is corrected with a caveat, never suppressed.
+export interface AnswerGrounding {
+  grounded: boolean
+  correction?: string
+}
+
+const AnswerGroundingSchema = z
+  .object({
+    grounded: z.boolean(),
+    correction: z.string().min(1).max(600).optional(),
+  })
+  .strict()
+
+export function buildAnswerCheckMessages(message: string, answer: string, context: AgentContext): GatewayMessage[] {
+  return [
+    {
+      role: 'system',
+      content: systemPrompt(
+        OPERATOR_PERSONA,
+        CARACAL_PLATFORM,
+        [
+          'THIS TURN: ANSWER GROUNDING CHECK. Another Operator agent has drafted a read-only answer to the',
+          "user. Your one job is to confirm it is grounded in reality: every claim it makes about this zone's",
+          'state — which applications, providers, resources, or policies exist, their counts, their auth modes',
+          'or scopes — must be supported by the live state read just now in the context. You judge grounding',
+          'only; you do not rewrite the answer, change its advice, or second-guess a correct judgement call.',
+          'Set "grounded" to true when every factual claim about current state matches the evidence, or when',
+          'the answer makes no state claim at all (a general explanation, a how-to, a recommendation). Set it',
+          'to false only when the answer asserts a concrete state fact the evidence contradicts or does not',
+          'show — it names an application, provider, resource, or policy that is not present, misstates a count',
+          'or a scope, or claims something exists that the live reads do not show. When the live state could',
+          'not be read, do not treat an ungrounded claim as contradicted — there is nothing to contradict it —',
+          'so set "grounded" true and let the answer stand.',
+          'When "grounded" is false, set "correction" to one plain sentence stating what the evidence actually',
+          'shows, so the user is not misled. Do not manufacture a discrepancy: prefer "grounded" true whenever',
+          'the answer is consistent with — or simply unaddressed by — the evidence.',
+          'Reply with ONLY a JSON object {"grounded": boolean, "correction": string}. Omit "correction" when',
+          'grounded is true.',
+        ].join('\n'),
+      ),
+    },
+    { role: 'user', content: `Context:\n${describeContext(context)}\n\nUser request: ${message}\n\nDrafted answer:\n${answer}` },
+  ]
+}
+
+// Checks a read answer against the live evidence and returns a grounding verdict. The answer is a
+// schema-validated object, so a malformed or off-schema verdict fails closed as an error and the
+// orchestrator simply lets the original answer stand. A per-turn budget refusal is a governance
+// stop, so it propagates rather than being reported as a grounding failure. The check never gates
+// or suppresses an answer — a read answer holds no authority — it only lets Caracal append a
+// grounding caveat when the draft claimed something the evidence does not support.
+export async function runAnswerCheck(
+  gateway: Gateway,
+  message: string,
+  answer: string,
+  context: AgentContext,
+): Promise<AgentResult<AnswerGrounding>> {
+  try {
+    const completion = await gateway.completeObject(buildAnswerCheckMessages(message, answer, context), AnswerGroundingSchema, {
+      maxTokens: ANSWER_CHECK_MAX_TOKENS,
+      temperature: 0,
+    })
+    return { ok: true, value: completion.value }
+  } catch (err) {
+    if (err instanceof GatewayBudgetError) throw err
+    return { ok: false, error: 'answer grounding check did not produce a usable verdict' }
   }
 }

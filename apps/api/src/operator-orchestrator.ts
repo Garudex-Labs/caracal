@@ -13,6 +13,7 @@ import {
   runTranslator,
   runSecurityAnalyst,
   runCritic,
+  runAnswerCheck,
   type AgentContext,
   type AgentResult,
   type OperatorMode,
@@ -257,6 +258,30 @@ async function deliberatePlan(
   return candidate
 }
 
+// Grounds a read answer in the live evidence the same way the guardian grounds a plan: when the
+// turn gathered real state, it checks the drafted answer against that evidence and, if the answer
+// claimed a state fact the evidence does not support, appends a single Caracal correction so the
+// user is not misled. It only refines — it never suppresses or rewrites the answer, which holds no
+// authority as a read-only note — and it fails open: with no evidence to check against, an
+// unsuccessful draft, a failed check, or any error, the original answer stands unchanged.
+async function groundAnswer(
+  gateway: Gateway,
+  message: string,
+  answer: AgentResult<{ text: string; reasoning?: string }>,
+  context: AgentContext,
+): Promise<AgentResult<{ text: string; reasoning?: string }>> {
+  if (!answer.ok || !context.evidence || context.evidence.length === 0) return answer
+  try {
+    const check = await runAnswerCheck(gateway, message, answer.value.text, context)
+    if (check.ok && !check.value.grounded && check.value.correction) {
+      return { ok: true, value: { ...answer.value, text: `${answer.value.text}\n\nCorrection: ${check.value.correction}` } }
+    }
+    return answer
+  } catch {
+    return answer
+  }
+}
+
 // Builds the orchestrator over a skill registry. Per turn it triages the request to its tier and,
 // for a read, its topic, then runs the one skill the registry selects. A triage that fails the
 // schema defaults to a general read, which answers as text and never acts — the safe direction on
@@ -299,7 +324,7 @@ export function createOrchestrator(registry: SkillRegistry = createSkillRegistry
         // approve, and apply; the guardian, the critic, and the repair pass only improve and inform
         // the proposal.
         emit({ stage: 'gathering' })
-        const planContext = await withEvidence(context, options.researcher, classification.domains)
+        const planContext = withDocs(await withEvidence(context, options.researcher, classification.domains), message, options.docs)
         const result = await deliberatePlan(gateway, message, planContext, skill, emit)
         // When the planner could not plan responsibly it proposes no steps and asks one clarifying
         // question instead of guessing. Caracal relays that question to the operator as an answer
@@ -318,8 +343,7 @@ export function createOrchestrator(registry: SkillRegistry = createSkillRegistry
           // plan stays attached and approvable behind the human gate, so the human can still proceed
           // deliberately — but the turn teaches the right approach first and the route never
           // auto-approves a misaligned plan.
-          const guidance =
-            advisory && advisory.alignment === 'misaligned' ? (advisory.recommendation ?? advisory.summary) : undefined
+          const guidance = advisory && advisory.alignment === 'misaligned' ? (advisory.recommendation ?? advisory.summary) : undefined
           return { tier, outcome: { kind: 'plan', result, advisory, guidance } }
         }
         return { tier, outcome: { kind: 'plan', result } }
@@ -333,7 +357,8 @@ export function createOrchestrator(registry: SkillRegistry = createSkillRegistry
       const stateContext = reads ? await withEvidence(context, options.researcher, classification.domains) : context
       const answerContext = withDocs(stateContext, message, options.docs)
       emit({ stage: 'answering' })
-      return { tier, outcome: { kind: 'answer', result: await skill.run(gateway, message, answerContext) } }
+      const answer = await skill.run(gateway, message, answerContext)
+      return { tier, outcome: { kind: 'answer', result: await groundAnswer(gateway, message, answer, answerContext) } }
     },
   }
 }

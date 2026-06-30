@@ -12,15 +12,18 @@ import { ControlClientError, type ControlClient } from './control-client.js'
 const EVIDENCE_SAMPLE_LIMIT = 5
 
 // One piece of evidence a researcher gathered from a single governed read. A success carries
-// the live row count and a bounded list of names; a failure carries the typed reason so a
-// partial gather still answers — a single denied or unreachable read narrows the evidence, it
-// never fails the turn.
+// the live row count, a bounded list of names, and the decision-relevant attributes the planner
+// and guardian need to reason correctly — the distinct provider auth modes and the distinct
+// resource scopes present, extracted under a strict per-domain allowlist so a read still surfaces
+// no secret, token, or policy logic. A failure carries the typed reason so a partial gather still
+// answers — a single denied or unreachable read narrows the evidence, it never fails the turn.
 export interface Evidence {
   capability: string
   domain: string
   ok: boolean
   count?: number
   names?: string[]
+  attributes?: Record<string, string[]>
   error?: string
 }
 
@@ -49,20 +52,62 @@ export function governedReadCapabilities(): string[] {
   })
 }
 
-// Reduces a list result to a live count and a bounded list of safe names. Only a row's name
-// (or its id when unnamed) reaches the prompt, never the whole row, so a read can never leak an
-// arbitrary field — secrets, tokens, or policy logic — into the model context.
-function summarizeRows(result: unknown): { count: number; names: string[] } {
-  const rows = Array.isArray(result) ? result : []
-  const names: string[] = []
-  for (const row of rows.slice(0, EVIDENCE_SAMPLE_LIMIT)) {
-    if (row && typeof row === 'object') {
-      const record = row as Record<string, unknown>
-      const label = typeof record.name === 'string' ? record.name : typeof record.id === 'string' ? record.id : null
-      if (label) names.push(label)
-    }
+// The decision-relevant attributes each domain's rows expose, by the safe field they live in.
+// Only these explicitly named, non-secret descriptor fields are ever read off a row — a provider's
+// auth mode and a resource's scopes — so the planner can reason about what actually exists (which
+// auth mode a provider uses, which scopes a resource offers) without any row's secret, token, or
+// policy logic ever reaching the model. A domain absent here contributes no attributes.
+const DOMAIN_ATTRIBUTE_FIELDS: Record<string, { field: string; label: string }[]> = {
+  provider: [{ field: 'kind', label: 'auth' }],
+  resource: [{ field: 'scopes', label: 'scopes' }],
+}
+
+// The most distinct values a single attribute surfaces, so a large or varied zone never inflates
+// the prompt while the planner still sees the shape of what exists.
+const ATTRIBUTE_VALUE_LIMIT = 16
+
+// Collects a row's value for an allowlisted attribute field into the distinct set: a string is
+// taken as-is, a string array contributes each primitive entry, and anything else is ignored. Only
+// the named field is ever touched, so no other part of the row can leak.
+function collectAttribute(into: Set<string>, value: unknown): void {
+  if (typeof value === 'string') {
+    if (value.length > 0) into.add(value)
+    return
   }
-  return { count: rows.length, names }
+  if (Array.isArray(value)) {
+    for (const entry of value) if (typeof entry === 'string' && entry.length > 0) into.add(entry)
+  }
+}
+
+// Extracts the decision-relevant attributes for a domain from its rows under the strict allowlist:
+// the distinct values of each allowlisted field across all rows, bounded so the prompt stays small.
+// Returns undefined when the domain has no allowlisted fields or none of its rows carry a value, so
+// an evidence entry only carries attributes when there is real signal to ground on.
+function summarizeAttributes(rows: Record<string, unknown>[], domain: string): Record<string, string[]> | undefined {
+  const fields = DOMAIN_ATTRIBUTE_FIELDS[domain]
+  if (!fields) return undefined
+  const attributes: Record<string, string[]> = {}
+  for (const { field, label } of fields) {
+    const distinct = new Set<string>()
+    for (const row of rows) collectAttribute(distinct, row[field])
+    if (distinct.size > 0) attributes[label] = Array.from(distinct).slice(0, ATTRIBUTE_VALUE_LIMIT)
+  }
+  return Object.keys(attributes).length > 0 ? attributes : undefined
+}
+
+// Reduces a list result to a live count, a bounded list of safe names, and the decision-relevant
+// attributes its domain exposes. Only a row's name (or its id when unnamed) and the allowlisted
+// descriptor fields reach the prompt, never the whole row, so a read can never leak an arbitrary
+// field — secrets, tokens, or policy logic — into the model context.
+function summarizeRows(result: unknown, domain: string): { count: number; names: string[]; attributes?: Record<string, string[]> } {
+  const rows = Array.isArray(result) ? result : []
+  const objects = rows.filter((row): row is Record<string, unknown> => row !== null && typeof row === 'object')
+  const names: string[] = []
+  for (const row of objects.slice(0, EVIDENCE_SAMPLE_LIMIT)) {
+    const label = typeof row.name === 'string' ? row.name : typeof row.id === 'string' ? row.id : null
+    if (label) names.push(label)
+  }
+  return { count: rows.length, names, attributes: summarizeAttributes(objects, domain) }
 }
 
 // Narrows the governed reads to the object domains a turn actually concerns, so a request about one
@@ -95,8 +140,8 @@ export function createStateResearcher(client: ControlClient): Researcher {
           const invocation = capability.buildInvocation({}, gen)
           try {
             const result = await client.invoke(invocation.command, invocation.subcommand, invocation.flags, capability.scopes)
-            const { count, names } = summarizeRows(result)
-            return { capability: id, domain, ok: true, count, names }
+            const { count, names, attributes } = summarizeRows(result, domain)
+            return { capability: id, domain, ok: true, count, names, attributes }
           } catch (err) {
             const error = err instanceof ControlClientError ? err.reason : 'read failed'
             return { capability: id, domain, ok: false, error }
