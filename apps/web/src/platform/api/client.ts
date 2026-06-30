@@ -77,6 +77,7 @@ import type {
   OperatorAiAuth,
   OperatorExecutionResult,
   OperatorMessageResult,
+  OperatorProgressStage,
   OperatorNarrativeInput,
   OperatorPlanDecisionInput,
   OperatorPlanInput,
@@ -174,6 +175,120 @@ async function request<T>(path: string, init?: RequestInit & { signal?: AbortSig
   }
 
   return parsed as T;
+}
+
+// Sends an Operator message over Server-Sent Events, forwarding each deliberation stage to
+// onStage as it arrives and resolving with the same authoritative result body the JSON path
+// returns. Governance and validation errors raised before the stream opens come back as a normal
+// JSON error response; stops raised mid-deliberation arrive as a terminal error frame. Either way
+// they surface as a ConsoleApiError, so the caller handles one failure shape.
+async function streamOperatorMessage(
+  zoneId: string,
+  conversationId: string,
+  message: string,
+  provider: string | undefined,
+  onStage: (stage: OperatorProgressStage) => void,
+  signal?: AbortSignal,
+): Promise<OperatorMessageResult> {
+  const path = `/v1/zones/${encodeURIComponent(zoneId)}/operator-conversations/${encodeURIComponent(
+    conversationId,
+  )}/message`;
+  let res: Response;
+  try {
+    res = await fetch(`${config.consoleBaseUrl}${path}`, {
+      method: "POST",
+      credentials: "include",
+      signal,
+      headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
+      body: JSON.stringify(provider ? { message, provider } : { message }),
+    });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError")
+      throw new DOMException("aborted", "AbortError");
+    throw new ConsoleApiError(0, "network_error");
+  }
+
+  // A stop raised before the stream opened (auth, archived conversation, mode) returns a normal
+  // JSON error rather than an event stream. Surface it exactly as the request() path would.
+  if (!(res.headers.get("content-type") ?? "").includes("text/event-stream") || !res.body) {
+    const text = await res.text();
+    let parsed: unknown;
+    try {
+      parsed = text ? JSON.parse(text) : undefined;
+    } catch {
+      parsed = text;
+    }
+    if (!res.ok) {
+      const code =
+        parsed && typeof parsed === "object" && parsed !== null && "error" in parsed
+          ? String((parsed as { error: unknown }).error)
+          : res.statusText || "request_failed";
+      throw new ConsoleApiError(res.status, code, parsed);
+    }
+    return parsed as OperatorMessageResult;
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let result: OperatorMessageResult | null = null;
+  let failure: ConsoleApiError | null = null;
+
+  // Consumes whole SSE frames from the buffer. A frame is terminated by a blank line and names one
+  // of the route's three events: stage forwards live progress, result is the authoritative body,
+  // and error carries a governance or gateway stop with its status.
+  const drain = () => {
+    let boundary: number;
+    while ((boundary = buffer.indexOf("\n\n")) !== -1) {
+      const frame = buffer.slice(0, boundary);
+      buffer = buffer.slice(boundary + 2);
+      let event = "message";
+      let data = "";
+      for (const line of frame.split("\n")) {
+        if (line.startsWith("event:")) event = line.slice(6).trim();
+        else if (line.startsWith("data:")) data += line.slice(5).trim();
+      }
+      if (!data) continue;
+      let payload: unknown;
+      try {
+        payload = JSON.parse(data);
+      } catch {
+        continue;
+      }
+      if (event === "stage") {
+        const stage = (payload as { stage?: OperatorProgressStage }).stage;
+        if (stage) onStage(stage);
+      } else if (event === "result") {
+        result = payload as OperatorMessageResult;
+      } else if (event === "error") {
+        const body = payload as { error?: unknown; status?: number };
+        failure = new ConsoleApiError(
+          typeof body.status === "number" ? body.status : 500,
+          body.error ? String(body.error) : "request_failed",
+          body,
+        );
+      }
+    }
+  };
+
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      drain();
+    }
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") throw err;
+    throw new ConsoleApiError(0, "network_error");
+  }
+  // Flush a trailing frame the server closed without a final blank line.
+  buffer += "\n\n";
+  drain();
+
+  if (failure) throw failure;
+  if (result) return result;
+  throw new ConsoleApiError(0, "request_failed");
 }
 
 // Parses RFC 5988 Link headers to recover the keyset cursor for the next page.
@@ -745,13 +860,15 @@ export const consoleApi = {
         )}/plan/execute`,
         { method: "POST", body: JSON.stringify({ plan_seq: planSeq }) },
       ),
-    sendMessage: (zoneId: string, conversationId: string, message: string, provider?: string) =>
-      request<OperatorMessageResult>(
-        `/v1/zones/${encodeURIComponent(zoneId)}/operator-conversations/${encodeURIComponent(
-          conversationId,
-        )}/message`,
-        { method: "POST", body: JSON.stringify(provider ? { message, provider } : { message }) },
-      ),
+    sendMessage: (
+      zoneId: string,
+      conversationId: string,
+      message: string,
+      provider: string | undefined,
+      onStage: (stage: OperatorProgressStage) => void,
+      signal?: AbortSignal,
+    ): Promise<OperatorMessageResult> =>
+      streamOperatorMessage(zoneId, conversationId, message, provider, onStage, signal),
   },
 
   agents: {

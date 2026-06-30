@@ -30,6 +30,7 @@ import type {
   OperatorConversationMode,
   OperatorAiProviderInput,
   OperatorAiProviderPatch,
+  OperatorProgressStage,
   Policy,
   PolicyInput,
   PolicyManifestEntry,
@@ -319,12 +320,17 @@ function invalidateConversation(
 export function useSendOperatorMessage(zoneId: string | null, conversationId: string | null) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (input: { message: string; provider?: string }) =>
+    mutationFn: (input: {
+      message: string;
+      provider?: string;
+      onStage?: (stage: OperatorProgressStage) => void;
+    }) =>
       consoleApi.operator.sendMessage(
         zoneId as string,
         conversationId as string,
         input.message,
         input.provider,
+        input.onStage ?? (() => {}),
       ),
     onSuccess: () => invalidateConversation(qc, zoneId, conversationId),
   });

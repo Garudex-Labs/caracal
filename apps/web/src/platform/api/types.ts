@@ -895,6 +895,19 @@ export interface OperatorSecurityAdvisory {
   recommendation?: string;
 }
 
+// The deliberation stages a turn passes through, emitted purely as live progress while the Operator
+// works. A stage signal carries no authority and changes nothing about the decided outcome; the
+// same governed turn produces the same result whether or not anyone is listening.
+export type OperatorProgressStage =
+  | "triaging"
+  | "gathering"
+  | "planning"
+  | "repairing"
+  | "critiquing"
+  | "revising"
+  | "guarding"
+  | "answering";
+
 export type OperatorMessageResult = (
   | {
       intent: "plan";
