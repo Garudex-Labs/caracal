@@ -18,8 +18,12 @@ describe('buildOperatorAuthority', () => {
     expect(authority.principal).toBe(OPERATOR_PRINCIPAL)
     expect([...authority.allowedCapabilities].sort()).toEqual([
       'deleteApplication',
+      'deletePolicy',
+      'deleteProvider',
+      'deleteResource',
       'grantAccess',
       'registerApplication',
+      'revokeGrant',
       'rotateApplicationSecret',
     ])
     expect(authority.systemZones.size).toBe(0)

@@ -23,6 +23,11 @@ describe('capability catalog', () => {
     expect(CAPABILITIES.grantAccess.mutating).toBe(true)
     expect(CAPABILITIES.rotateApplicationSecret.mutating).toBe(true)
     expect(CAPABILITIES.deleteApplication.mutating).toBe(true)
+    expect(CAPABILITIES.deleteResource.mutating).toBe(true)
+    expect(CAPABILITIES.deleteProvider.mutating).toBe(true)
+    expect(CAPABILITIES.deletePolicy.mutating).toBe(true)
+    expect(CAPABILITIES.revokeGrant.mutating).toBe(true)
+    expect(CAPABILITIES.listGrants.mutating).toBe(false)
   })
 })
 

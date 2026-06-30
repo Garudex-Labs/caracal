@@ -229,9 +229,14 @@ describe('operatorControlScopes', () => {
       'control:app:delete',
       'control:app:read',
       'control:app:write',
+      'control:grant:delete',
+      'control:grant:read',
       'control:grant:write',
+      'control:identity-provider:delete',
       'control:identity-provider:read',
+      'control:policy:delete',
       'control:policy:read',
+      'control:resource:delete',
       'control:resource:read',
     ])
   })
