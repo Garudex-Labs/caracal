@@ -288,8 +288,7 @@ async function loadConversationFacts(db: ContextQueryable, conversationId: strin
 }
 
 type AppendOutcome =
-  | { ok: true; turn: Record<string, unknown>; mode: OperatorMode; autopilot: boolean }
-  | { ok: false; reason: 'not_found' | 'archived' }
+  { ok: true; turn: Record<string, unknown>; mode: OperatorMode; autopilot: boolean } | { ok: false; reason: 'not_found' | 'archived' }
 
 // Appends a single turn in its own transaction: locks the conversation, confirms it
 // is active, allocates the gapless seq, and writes. Used by the message orchestrator
@@ -410,10 +409,10 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
   // plane is disabled. Resolved per request because the identity is populated after the
   // system zone is provisioned at startup; constructing the client is cheap. A null result
   // means execution refuses rather than falling back to any other authority.
-  const resolveControlClient = (): { client: ControlClient; identity: OperatorControlIdentity } | null => {
+  const resolveControlClient = (authorizedBy?: string): { client: ControlClient; identity: OperatorControlIdentity } | null => {
     const identity = opts.resolveControlIdentity?.() ?? null
     if (!identity || !opts.controlEndpoints) return null
-    const client = buildOperatorControlClient(identity, opts.controlEndpoints, opts.fetchImpl)
+    const client = buildOperatorControlClient(identity, opts.controlEndpoints, opts.fetchImpl, undefined, authorizedBy)
     return client ? { client, identity } : null
   }
 
@@ -1026,7 +1025,9 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
     // zone — it can only govern the one zone the identity is bound to. A conversation in
     // any other zone has no governed identity, so execution refuses rather than applying
     // changes in the wrong zone or as any other authority. There is no admin-actor fallback.
-    const governed = resolveControlClient()
+    // The executing actor rides as the audit attribution so every governed mutation in the
+    // tamper-evident control audit names the human who applied the plan.
+    const governed = resolveControlClient(req.actor.id)
     if (!governed || governed.identity.zoneId !== params.zoneId) {
       return reply.code(409).send({ error: 'governed_execution_unconfigured' })
     }

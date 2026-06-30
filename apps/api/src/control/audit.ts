@@ -19,6 +19,10 @@ export interface AuditEvent {
   reason?: string
   requestId: string
   idempotencyKey?: string
+  // A subject-asserted attribution for the authority the caller acted on behalf of. Recorded
+  // verbatim as audit metadata so an approval-gated change is reconstructable from the
+  // tamper-evident chain; never an authorization input.
+  authorizedBy?: string
 }
 
 export interface EventSink {
@@ -60,6 +64,7 @@ export function buildAuditPayload(ev: AuditEvent, key: Buffer | undefined): Reco
     subcommand: ev.subcommand ?? '',
     reason: ev.reason ?? '',
     idempotency_key: ev.idempotencyKey ?? '',
+    authorized_by: ev.authorizedBy ?? '',
   })
   const occurredAt = (ev.at ?? new Date()).toISOString()
   const event = {
