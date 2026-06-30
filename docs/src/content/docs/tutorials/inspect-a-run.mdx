@@ -10,18 +10,13 @@ The flow assumes you already completed [Protect Your First Real API](../protect-
 
 ## 1. Find the Request
 
-Open the web console:
-
-```sh
-caracal web
-```
+Open the web console at [http://localhost:3001](http://localhost:3001).
 
 Use these web console sections:
 
 | Entry | Use it for |
 | --- | --- |
-| **Audit** | Find recent authorization and action-result events. |
-| **Request Traces** | Explain one request ID. |
+| **Audit** | Find recent events, then open the decision trace for one request ID. |
 | **agent session** | Find the tracked agent session for the selected zone. |
 | **authority session** | Inspect underlying authority sessions and parent relationships. |
 
@@ -42,7 +37,7 @@ If you see authorization events without matching action-result events, check whe
 
 ## 3. Trace the Decision
 
-Pick an audit event with a request ID. Press the trace action on the selected event in **Audit**, or open **Request Traces** and paste the request ID.
+Pick an audit event with a request ID. Press the trace action on the selected event in **Audit** to open its decision trace.
 
 The request trace should show:
 

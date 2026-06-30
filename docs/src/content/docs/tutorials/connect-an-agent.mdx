@@ -4,14 +4,14 @@ description: Wire app code through the SDK so protected calls carry Caracal auth
 pageType: workflow
 ---
 
-This tutorial connects application code to Caracal. The examples use a generated runtime profile, open one agent session, and call a Gateway-protected resource.
+This tutorial connects application code to Caracal. The examples use a runtime profile, open one agent session, and call a Gateway-protected resource.
 
 ## 1. Confirm the App and Profile
 
 In the Console, confirm that the selected zone has:
 
 - one confidential agent app;
-- a client secret stored in the secret file named by the generated runtime profile;
+- a client secret stored in the secret file named by your runtime profile;
 - one protected resource with an active policy;
 - a Gateway URL and resource binding when using Gateway-routed HTTP.
 
@@ -25,7 +25,7 @@ export CARACAL_RESOURCE_PATH=/charge
 
 ## 2. Connect with the SDK
 
-The client constructor is the standard entry point. It loads the generated profile when available, then falls back to environment configuration. See [Configuration Order](/reference/config-precedence/) for the exact resolution order.
+The client constructor is the standard entry point. It loads the runtime profile when available, then falls back to environment configuration. See [Configuration Order](/reference/config-precedence/) for the exact resolution order.
 
 ### TypeScript
 
