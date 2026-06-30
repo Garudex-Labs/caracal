@@ -118,8 +118,12 @@ describe('operator enablement gating', () => {
     // The least-privilege grant exposes only governed-executable mutating capabilities by default.
     expect(body.allowed_capabilities).toEqual([
       'deleteApplication',
+      'deletePolicy',
+      'deleteProvider',
+      'deleteResource',
       'grantAccess',
       'registerApplication',
+      'revokeGrant',
       'rotateApplicationSecret',
     ])
     const caps = await app.inject({ method: 'GET', url: '/v1/operator/capabilities' })
@@ -2635,7 +2639,7 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
     // The governed reads ran: one control invoke per governed read capability, each a list
     // subcommand, so a read answer is grounded in live state and never reaches a mutating command.
     const invokeCalls = fetchImpl.mock.calls.filter((c) => String(c[0]).endsWith('/v1/control/invoke'))
-    expect(invokeCalls).toHaveLength(4)
+    expect(invokeCalls).toHaveLength(5)
     for (const call of invokeCalls) {
       expect(JSON.parse(String((call[1] as RequestInit).body)).subcommand).toBe('list')
     }

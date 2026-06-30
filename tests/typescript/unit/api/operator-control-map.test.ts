@@ -45,6 +45,11 @@ describe('isControlExecutable', () => {
     expect(isControlExecutable('listPolicies')).toBe(true)
     expect(isControlExecutable('rotateApplicationSecret')).toBe(true)
     expect(isControlExecutable('deleteApplication')).toBe(true)
+    expect(isControlExecutable('deleteResource')).toBe(true)
+    expect(isControlExecutable('deleteProvider')).toBe(true)
+    expect(isControlExecutable('deletePolicy')).toBe(true)
+    expect(isControlExecutable('revokeGrant')).toBe(true)
+    expect(isControlExecutable('listGrants')).toBe(true)
     // Zone lifecycle is a platform operation, not governed-executable by the Operator.
     expect(isControlExecutable('createZone')).toBe(false)
     expect(isControlExecutable('listZones')).toBe(false)
@@ -80,6 +85,29 @@ describe('buildInvocation', () => {
     })
   })
 
+  it('builds in-zone removes from the object id', () => {
+    expect(CONTROL_CAPABILITIES.deleteResource.buildInvocation({ resource_id: 'res-1' }, gen)).toEqual({
+      command: 'resource',
+      subcommand: 'delete',
+      flags: { id: 'res-1' },
+    })
+    expect(CONTROL_CAPABILITIES.deleteProvider.buildInvocation({ provider_id: 'prov-1' }, gen)).toEqual({
+      command: 'identity-provider',
+      subcommand: 'delete',
+      flags: { id: 'prov-1' },
+    })
+    expect(CONTROL_CAPABILITIES.deletePolicy.buildInvocation({ policy_id: 'pol-1' }, gen)).toEqual({
+      command: 'policy',
+      subcommand: 'delete',
+      flags: { id: 'pol-1' },
+    })
+    expect(CONTROL_CAPABILITIES.revokeGrant.buildInvocation({ grant_id: 'grant-1' }, gen)).toEqual({
+      command: 'grant',
+      subcommand: 'revoke',
+      flags: { id: 'grant-1' },
+    })
+  })
+
   it('builds grantAccess with the hyphenated control flag names', () => {
     expect(
       CONTROL_CAPABILITIES.grantAccess.buildInvocation(
@@ -98,6 +126,7 @@ describe('buildInvocation', () => {
     expect(CONTROL_CAPABILITIES.listProviders.buildInvocation({}, gen).flags).toEqual({})
     expect(CONTROL_CAPABILITIES.listResources.buildInvocation({}, gen).flags).toEqual({})
     expect(CONTROL_CAPABILITIES.listPolicies.buildInvocation({}, gen).flags).toEqual({})
+    expect(CONTROL_CAPABILITIES.listGrants.buildInvocation({}, gen).flags).toEqual({})
   })
 })
 
@@ -138,6 +167,21 @@ describe('describeOutcome', () => {
     expect(outcome.output).toEqual({ application_id: 'app-1' })
   })
 
+  it('reports the removed object id under its argument key', () => {
+    expect(CONTROL_CAPABILITIES.deleteResource.describeOutcome(undefined, { resource_id: 'res-1' }, gen).output).toEqual({
+      resource_id: 'res-1',
+    })
+    expect(CONTROL_CAPABILITIES.deleteProvider.describeOutcome(undefined, { provider_id: 'prov-1' }, gen).output).toEqual({
+      provider_id: 'prov-1',
+    })
+    expect(CONTROL_CAPABILITIES.deletePolicy.describeOutcome(undefined, { policy_id: 'pol-1' }, gen).output).toEqual({
+      policy_id: 'pol-1',
+    })
+    const revoked = CONTROL_CAPABILITIES.revokeGrant.describeOutcome(undefined, { grant_id: 'grant-1' }, gen)
+    expect(revoked.detail).toContain('grant-1')
+    expect(revoked.output).toEqual({ grant_id: 'grant-1' })
+  })
+
   it('counts read results with correct pluralization', () => {
     expect(CONTROL_CAPABILITIES.listApplications.describeOutcome([{ id: 'a' }, { id: 'b' }], {}, gen).detail).toBe(
       'Found 2 applications in this zone.',
@@ -147,6 +191,7 @@ describe('describeOutcome', () => {
     expect(CONTROL_CAPABILITIES.listPolicies.describeOutcome([{ id: 'p' }, { id: 'q' }], {}, gen).detail).toBe(
       'Found 2 policies in this zone.',
     )
+    expect(CONTROL_CAPABILITIES.listGrants.describeOutcome([{ id: 'g' }], {}, gen).detail).toBe('Found 1 grant in this zone.')
   })
 
   it('surfaces read rows under their named output key', () => {

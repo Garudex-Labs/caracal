@@ -115,6 +115,39 @@ describe('previewPlan', () => {
     expect(missingResult.steps[0]).toMatchObject({ effect: 'blocked' })
   })
 
+  it('previews in-zone removes through the declared mutate-by-id spec', async () => {
+    const resource = await previewPlan(scriptedDb([{ rows: [{ one: 1 }] }]), 'z1', {
+      summary: 'Delete resource',
+      steps: [{ id: 's1', capability: 'deleteResource', args: { resource_id: 'res-1' } }],
+    })
+    expect(resource.steps[0]).toMatchObject({ effect: 'delete' })
+    expect(resource.steps[0].detail).toContain('res-1')
+
+    const grantLive = await previewPlan(scriptedDb([{ rows: [{ one: 1 }] }]), 'z1', {
+      summary: 'Revoke grant',
+      steps: [{ id: 's1', capability: 'revokeGrant', args: { grant_id: 'grant-1' } }],
+    })
+    expect(grantLive.steps[0]).toMatchObject({ effect: 'delete' })
+    expect(grantLive.steps[0].detail).toContain('grant-1')
+
+    const grantMissing = await previewPlan(scriptedDb([{ rows: [] }]), 'z1', {
+      summary: 'Revoke grant',
+      steps: [{ id: 's1', capability: 'revokeGrant', args: { grant_id: 'grant-x' } }],
+    })
+    expect(grantMissing.ok).toBe(false)
+    expect(grantMissing.steps[0]).toMatchObject({ effect: 'blocked' })
+  })
+
+  it('treats listGrants as read_only without querying state', async () => {
+    const db = scriptedDb([])
+    const result = await previewPlan(db, 'z1', {
+      summary: 'List grants',
+      steps: [{ id: 's1', capability: 'listGrants', args: {} }],
+    })
+    expect(result.steps[0]).toMatchObject({ effect: 'read_only' })
+    expect(db.query as ReturnType<typeof vi.fn>).not.toHaveBeenCalled()
+  })
+
   it('previews a multi-step plan against live state in order', async () => {
     const db = scriptedDb([
       { rows: [] }, // createZone name free
