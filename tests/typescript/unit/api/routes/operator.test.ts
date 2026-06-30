@@ -2114,6 +2114,7 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
       .mockResolvedValueOnce({ rows: [] }) // messages
       .mockResolvedValueOnce({ rows: [] }) // facts
       .mockResolvedValueOnce({ rows: [] }) // zone memory recall
+      .mockResolvedValueOnce({ rows: [{ name: 'Pied Piper Production', slug: 'z1' }] }) // operating zone
       .mockResolvedValueOnce({ rows: [] }) // previewPlan: application name free
       .mockResolvedValueOnce({ rows: [{ n: 0 }] }) // countRecentAutoApprovals
     // plan turn persist

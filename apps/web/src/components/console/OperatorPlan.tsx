@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Operator plan surfaces: the execution-plan artifact, its per-step badges, the security review, the collapsed history row, and the pinned decision dock.
+// Operator plan surfaces: the execution-plan artifact, its per-step badges, the security review, and the collapsed history row.
 
 import {
   Confirmation,

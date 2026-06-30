@@ -1376,12 +1376,23 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
         .send({ error: userTurn.reason === 'archived' ? 'conversation_archived' : 'conversation_not_found' })
     }
 
-    const [state, facts, zoneMemory] = await Promise.all([
+    const [state, facts, zoneMemory, zoneRow] = await Promise.all([
       loadConversationState(fastify.db, params.id, params.zoneId, MESSAGE_CONTEXT_WINDOW),
       loadConversationFacts(fastify.db, params.id, params.zoneId),
       recallZoneMemory(fastify.db, params.zoneId),
+      fastify.db.query<{ name: string | null; slug: string | null }>(
+        'SELECT name, slug FROM zones WHERE id = $1 LIMIT 1',
+        [params.zoneId],
+      ),
     ])
-    const context: AgentContext = { facts, state, zoneMemory }
+    // Ground the agents in their one operating zone. canApply mirrors the execute handler's gate:
+    // governed execution is bound to the single zone its control identity names, so a conversation
+    // in any other zone can plan and explain but never apply. Surfacing it here lets the Operator
+    // say so upfront instead of only failing at apply time.
+    const governedIdentity = opts.resolveControlIdentity?.() ?? null
+    const canApply = !!governedIdentity && !!opts.controlEndpoints && governedIdentity.zoneId === params.zoneId
+    const zoneName = zoneRow.rows[0]?.name ?? zoneRow.rows[0]?.slug ?? 'this zone'
+    const context: AgentContext = { facts, state, zoneMemory, zone: { name: zoneName, canApply } }
 
     // Track the real token usage of every completion made while answering this one
     // message, and report it alongside the model that answered and its context window so
