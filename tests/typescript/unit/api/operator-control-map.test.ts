@@ -44,6 +44,7 @@ describe('isControlExecutable', () => {
     expect(isControlExecutable('listResources')).toBe(true)
     expect(isControlExecutable('listPolicies')).toBe(true)
     expect(isControlExecutable('rotateApplicationSecret')).toBe(true)
+    expect(isControlExecutable('deleteApplication')).toBe(true)
     // Zone lifecycle is a platform operation, not governed-executable by the Operator.
     expect(isControlExecutable('createZone')).toBe(false)
     expect(isControlExecutable('listZones')).toBe(false)
@@ -68,6 +69,14 @@ describe('buildInvocation', () => {
       command: 'app',
       subcommand: 'patch',
       flags: { id: 'app-1', 'client-secret': 'cs_generated_secret' },
+    })
+  })
+
+  it('builds deleteApplication from the application id', () => {
+    expect(CONTROL_CAPABILITIES.deleteApplication.buildInvocation({ application_id: 'app-1' }, gen)).toEqual({
+      command: 'app',
+      subcommand: 'delete',
+      flags: { id: 'app-1' },
     })
   })
 
@@ -121,6 +130,12 @@ describe('describeOutcome', () => {
     )
     expect(outcome.detail).toContain('invoices:read')
     expect(outcome.output).toEqual({ grant_id: 'grant-1' })
+  })
+
+  it('reports the deleted application id', () => {
+    const outcome = CONTROL_CAPABILITIES.deleteApplication.describeOutcome(undefined, { application_id: 'app-1' }, gen)
+    expect(outcome.detail).toContain('app-1')
+    expect(outcome.output).toEqual({ application_id: 'app-1' })
   })
 
   it('counts read results with correct pluralization', () => {

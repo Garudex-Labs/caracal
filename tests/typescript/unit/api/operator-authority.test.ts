@@ -16,7 +16,12 @@ describe('buildOperatorAuthority', () => {
   it('defaults to the governed-executable mutating capabilities only', () => {
     const authority = buildOperatorAuthority()
     expect(authority.principal).toBe(OPERATOR_PRINCIPAL)
-    expect([...authority.allowedCapabilities].sort()).toEqual(['grantAccess', 'registerApplication', 'rotateApplicationSecret'])
+    expect([...authority.allowedCapabilities].sort()).toEqual([
+      'deleteApplication',
+      'grantAccess',
+      'registerApplication',
+      'rotateApplicationSecret',
+    ])
     expect(authority.systemZones.size).toBe(0)
   })
 
