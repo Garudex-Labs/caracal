@@ -41,7 +41,7 @@ Published modes require valid HMAC keys, deny unsafe Gateway fail-open settings,
 
 | Service | Variables |
 | --- | --- |
-| API | `CARACAL_ADMIN_TOKEN`, `ZONE_KEK`, `GATEWAY_STS_HMAC_KEY`, `STS_URL`, `API_BODY_LIMIT_BYTES`, `API_V1_RATE_LIMIT_PER_MIN`, `API_READY_OUTBOX_DEAD_MAX`, `TRUST_PROXY` |
+| API | `CARACAL_ADMIN_TOKEN`, `ZONE_KEK`, `GATEWAY_STS_HMAC_KEY`, `STS_URL`, `API_BODY_LIMIT_BYTES`, `API_V1_RATE_LIMIT_PER_MIN`, `API_READY_OUTBOX_DEAD_MAX`, `TRUST_PROXY`, `CARACAL_CONTROL_ENABLED`, `AUDIT_HMAC_KEY`, `API_OPERATOR_*` |
 | STS | `ISSUER_URL`, `ZONE_KEK`, `ZONE_KEK_PROVIDER`, `GATEWAY_STS_HMAC_KEY`, `STS_ADMIN_TOKEN`, `MAX_GRANT_TTL_SECONDS`, `OPA_POLL_SECONDS`, `AUDIT_REPLAY_DIR` |
 | Gateway | `STS_URL`, `GATEWAY_STS_HMAC_KEY`, `UPSTREAM_HOST_ALLOWLIST`, `TLS_CERT_FILE`, `TLS_KEY_FILE`, `MAX_REQUEST_BYTES`, `JTI_FAIL_OPEN`, `AUDIT_REPLAY_DIR` |
 | Audit | `AUDIT_ADMIN_TOKEN`, `AUDIT_RETENTION_DAYS`, `AUDIT_MAX_DELIVERIES`, `AUDIT_CLAIM_IDLE_SECS`, `AUDIT_TAMPER_ROLLING_HOURS`, `AUDIT_EXPORT_S3_*`, readiness thresholds |
@@ -70,6 +70,35 @@ The `caracal-web` image runs the session-guarded backend-for-frontend and serves
 | `PORT` | no | `3002` | BFF listen port. Prefer `PORT`; `CARACAL_AUTH_PORT` is a legacy fallback. |
 | `HOST` | no | `0.0.0.0` in production, `127.0.0.1` in development | BFF bind host. |
 | `LOG_LEVEL` | no | `info` | BFF log verbosity. |
+
+### API Operator and Control
+
+The API service runs the Control plane in-process and powers the Caracal Operator console capability. Control is off until enabled, and the Operator runs without natural-language assistance until at least one AI provider is configured. Provider keys are read from the API service environment and never returned to the browser.
+
+| Variable | Required | Default | Meaning |
+| --- | --- | --- | --- |
+| `CARACAL_CONTROL_ENABLED` | no | `false` | Enables the in-process Control plane the Operator executes through. |
+| `CONTROL_GATE_FILE` | no | unset | Path to a file that gates Control exposure. |
+| `AUDIT_HMAC_KEY` | rc/stable when Control is enabled | none | Hex-encoded key (≥32 bytes) for tamper-evident admin audit. Required when `CARACAL_CONTROL_ENABLED=true` in published modes. |
+| `API_OPERATOR_ENABLED` | no | `true` | Enables the Caracal Operator console capability. |
+| `API_OPERATOR_AI_PROVIDERS` | no | unset | Comma-separated provider ids in failover order. With none set, the Operator runs without natural-language assistance. |
+| `API_OPERATOR_AI_<ID>_BASE_URL` | per provider | none | OpenAI-compatible base URL for provider `<ID>`. |
+| `API_OPERATOR_AI_<ID>_MODEL` | per provider | none | Model name for provider `<ID>`. |
+| `API_OPERATOR_AI_<ID>_API_KEY` | hosted providers | none | API key for provider `<ID>`. |
+| `API_OPERATOR_AI_<ID>_TIMEOUT_MS` | no | `30000` | Per-request timeout for provider `<ID>`. |
+| `API_OPERATOR_AI_<ID>_CONTEXT_WINDOW` | no | `0` | Context-window hint for provider `<ID>`; `0` leaves it unset. |
+| `API_OPERATOR_AI_MAX_OUTPUT_TOKENS` | no | `4096` | Per-call ceiling on generated tokens. |
+| `API_OPERATOR_AI_MAX_CALLS_PER_TURN` | no | `12` | Per-turn budget on model calls. |
+| `API_OPERATOR_LLM_PROXY_URL` | no | `http://litellm:4000/v1` | Default OpenAI-compatible proxy endpoint. |
+| `API_OPERATOR_SELF_GOVERN` | no | `false` | Lets the Operator self-govern the `caracal.sys` system zone; requires the Control plane and the sealed control secret. |
+| `API_OPERATOR_CONTROL_CLIENT_SECRET` | no | none | Sealed control secret for the Operator's governed execution. |
+| `API_OPERATOR_ALLOWED_CAPABILITIES` | no | built-in set | Overrides the Operator's state-changing capability allowlist. |
+| `API_OPERATOR_SYSTEM_ZONES` | no | empty | Additional zones marked as system zones the Operator must not act in. |
+| `API_OPERATOR_AUTOPILOT_ENABLED` | no | `false` | Master switch for autopilot auto-approval. |
+| `API_OPERATOR_AUTOPILOT_CAPABILITIES` | no | empty | Allowlist of low-risk capabilities autopilot may auto-approve. |
+| `API_OPERATOR_AUTOPILOT_MAX_STEPS` | no | `1` | Per-plan step limit for autopilot. |
+| `API_OPERATOR_AUTOPILOT_WINDOW_SEC` | no | `3600` | Rolling auto-approval budget window in seconds. |
+| `API_OPERATOR_AUTOPILOT_WINDOW_MAX` | no | `10` | Maximum auto-approvals per window. |
 
 ## Runtime Workload Variables
 
