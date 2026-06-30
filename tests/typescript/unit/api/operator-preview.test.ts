@@ -96,6 +96,25 @@ describe('previewPlan', () => {
     expect(result.steps[0].detail).toContain('invoices:read')
   })
 
+  it('classifies a delete when the application is live, and blocks it when missing', async () => {
+    const live = scriptedDb([{ rows: [{ one: 1 }] }]) // application id lookup → live
+    const liveResult = await previewPlan(live, 'z1', {
+      summary: 'Delete app',
+      steps: [{ id: 's1', capability: 'deleteApplication', args: { application_id: 'app-1' } }],
+    })
+    expect(liveResult.ok).toBe(true)
+    expect(liveResult.steps[0]).toMatchObject({ effect: 'delete' })
+    expect(liveResult.steps[0].detail).toContain('app-1')
+
+    const missing = scriptedDb([{ rows: [] }]) // application id lookup → missing
+    const missingResult = await previewPlan(missing, 'z1', {
+      summary: 'Delete app',
+      steps: [{ id: 's1', capability: 'deleteApplication', args: { application_id: 'app-x' } }],
+    })
+    expect(missingResult.ok).toBe(false)
+    expect(missingResult.steps[0]).toMatchObject({ effect: 'blocked' })
+  })
+
   it('previews a multi-step plan against live state in order', async () => {
     const db = scriptedDb([
       { rows: [] }, // createZone name free

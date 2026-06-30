@@ -91,8 +91,8 @@ function StepRiskBadge({ risk }: { risk?: StepRisk }) {
 
 // A compact per-step effect signal: what this step was previewed to do against live state. The
 // unremarkable read-only case is left unmarked so the badge stays a consequence the eye can find;
-// only a create, an in-place change, a no-op on an already-satisfied step, or a blocked step
-// surface, with color reserved for the kind of state change at hand.
+// only a create, an in-place change, a delete, a no-op on an already-satisfied step, or a blocked
+// step surface, with color reserved for the kind of state change at hand.
 function StepEffectBadge({ effect }: { effect?: StepEffect }) {
   if (!effect || effect === "read_only") return null;
   const label =
@@ -100,17 +100,21 @@ function StepEffectBadge({ effect }: { effect?: StepEffect }) {
       ? "creates"
       : effect === "update"
         ? "updates"
-        : effect === "exists"
-          ? "no change"
-          : "blocked";
+        : effect === "delete"
+          ? "deletes"
+          : effect === "exists"
+            ? "no change"
+            : "blocked";
   const tone =
     effect === "create"
       ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
       : effect === "update"
         ? "border-sky-500/30 bg-sky-500/10 text-sky-600 dark:text-sky-400"
-        : effect === "blocked"
-          ? "border-destructive/30 bg-destructive/10 text-destructive"
-          : "border-border bg-muted text-muted-foreground";
+        : effect === "delete"
+          ? "border-rose-500/30 bg-rose-500/10 text-rose-600 dark:text-rose-400"
+          : effect === "blocked"
+            ? "border-destructive/30 bg-destructive/10 text-destructive"
+            : "border-border bg-muted text-muted-foreground";
   return (
     <span
       className={cx(

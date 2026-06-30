@@ -27,9 +27,9 @@ export interface MessageItem {
 export type StepRisk = "low" | "medium" | "high";
 
 // What applying a step would do against live state at the moment the plan was previewed: bring a
-// new thing into being, change an existing one, find it already in the desired state, or find it
-// blocked. Informational only - execution re-previews before applying.
-export type StepEffect = "create" | "update" | "exists" | "blocked" | "read_only";
+// new thing into being, change an existing one, remove one, find it already in the desired state,
+// or find it blocked. Informational only - execution re-previews before applying.
+export type StepEffect = "create" | "update" | "delete" | "exists" | "blocked" | "read_only";
 
 export interface PlanStepView {
   id: string;
@@ -126,6 +126,7 @@ function readStepRisk(value: unknown): StepRisk | undefined {
 function readStepEffect(value: unknown): StepEffect | undefined {
   return value === "create" ||
     value === "update" ||
+    value === "delete" ||
     value === "exists" ||
     value === "blocked" ||
     value === "read_only"
