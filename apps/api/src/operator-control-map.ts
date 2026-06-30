@@ -130,6 +130,18 @@ export const CONTROL_CAPABILITIES: Record<string, ControlCapability> = {
       output: { application_id: asString(args.application_id), client_secret: gen.secret },
     }),
   },
+  deleteApplication: {
+    scopes: ['control:app:delete'],
+    buildInvocation: (args) => ({
+      command: 'app',
+      subcommand: 'delete',
+      flags: { id: asString(args.application_id) },
+    }),
+    describeOutcome: (_result, args) => ({
+      detail: `Deleted application ${asString(args.application_id)} from this zone.`,
+      output: { application_id: asString(args.application_id) },
+    }),
+  },
   grantAccess: {
     scopes: ['control:grant:write'],
     buildInvocation: (args) => ({

@@ -13,7 +13,7 @@ export interface PreviewQueryable {
 
 // What applying a step would do against current state. Purely informational: the
 // preview performs no writes and resolves entirely from live reads.
-export type StepEffect = 'create' | 'update' | 'exists' | 'blocked' | 'read_only'
+export type StepEffect = 'create' | 'update' | 'delete' | 'exists' | 'blocked' | 'read_only'
 
 export interface StepPreview {
   id: string
@@ -107,6 +107,13 @@ async function previewStep(
       const appId = String(args.application_id)
       return (await idLive(db, 'applications', zoneId, appId))
         ? { effect: 'update', detail: `Would rotate the secret for application ${appId}.` }
+        : { effect: 'blocked', detail: `Application ${appId} was not found in this zone.` }
+    }
+
+    case 'deleteApplication': {
+      const appId = String(args.application_id)
+      return (await idLive(db, 'applications', zoneId, appId))
+        ? { effect: 'delete', detail: `Would delete application ${appId} from this zone.` }
         : { effect: 'blocked', detail: `Application ${appId} was not found in this zone.` }
     }
 

@@ -76,6 +76,15 @@ export const CAPABILITIES: Record<string, Capability> = {
     args: z.object({ application_id: IdRef }).strict(),
     argsHint: 'application_id (string)',
   },
+  deleteApplication: {
+    id: 'deleteApplication',
+    title: 'Delete an application',
+    summary: 'Permanently remove an application identity from the zone.',
+    domain: 'application',
+    mutating: true,
+    args: z.object({ application_id: IdRef }).strict(),
+    argsHint: 'application_id (string)',
+  },
   listProviders: {
     id: 'listProviders',
     title: 'List providers',
