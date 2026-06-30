@@ -15,7 +15,15 @@ import {
 } from "@/components/console/ResourceWorkspace";
 import { FeedToolbar } from "@/components/console/FeedToolbar";
 import { ZoneScopedPage } from "@/components/console/ZoneScope";
-import { Badge, Button, Field, Select, Tooltip, type Column } from "@/components/ui";
+import {
+  Badge,
+  Button,
+  Field,
+  Select,
+  Tooltip,
+  useCopyToClipboard,
+  type Column,
+} from "@/components/ui";
 import { cx } from "@/lib/cx";
 import { ConsoleApiError } from "@/platform/api/client";
 import { useSessionsFeed } from "@/platform/api/hooks";
@@ -275,16 +283,20 @@ function SessionFilterBar({
 // structured panel, preserving the full backend record (including zone_id) for debugging
 // and sharing.
 function CopyJsonButton({ session }: { session: Session }) {
+  const copy = useCopyToClipboard();
   const [copied, setCopied] = useState(false);
   return (
     <Button
       variant="secondary"
       size="sm"
-      onClick={() => {
-        void navigator.clipboard?.writeText(JSON.stringify(session, null, 2));
-        setCopied(true);
-        window.setTimeout(() => setCopied(false), 1200);
-      }}
+      onClick={() =>
+        void copy(JSON.stringify(session, null, 2), {
+          onSuccess: () => {
+            setCopied(true);
+            window.setTimeout(() => setCopied(false), 1200);
+          },
+        })
+      }
     >
       {copied ? "Copied" : "Copy JSON"}
     </Button>

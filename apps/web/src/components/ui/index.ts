@@ -10,6 +10,7 @@ export * from "./ConfirmDialog";
 export * from "./ViewOnly";
 export * from "./Toast";
 export * from "./toastContext";
+export * from "./clipboard";
 export * from "./Tooltip";
 export * from "./Tabs";
 export * from "./Breadcrumbs";

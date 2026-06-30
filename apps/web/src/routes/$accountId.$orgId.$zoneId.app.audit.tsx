@@ -21,6 +21,7 @@ import {
   Field,
   Select,
   Skeleton,
+  useCopyToClipboard,
   type Column,
   type FilterGroup,
 } from "@/components/ui";
@@ -569,16 +570,20 @@ function AuditFilterBar({
 // Copies the raw backend payload to the clipboard so operators can paste full audit
 // evidence into tickets.
 function CopyJsonButton({ value, label = "Copy JSON" }: { value: unknown; label?: string }) {
+  const copy = useCopyToClipboard();
   const [copied, setCopied] = useState(false);
   return (
     <Button
       variant="secondary"
       size="sm"
-      onClick={() => {
-        void navigator.clipboard?.writeText(JSON.stringify(value, null, 2));
-        setCopied(true);
-        window.setTimeout(() => setCopied(false), 1200);
-      }}
+      onClick={() =>
+        void copy(JSON.stringify(value, null, 2), {
+          onSuccess: () => {
+            setCopied(true);
+            window.setTimeout(() => setCopied(false), 1200);
+          },
+        })
+      }
     >
       {copied ? "Copied" : label}
     </Button>
