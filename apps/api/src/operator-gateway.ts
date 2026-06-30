@@ -3,7 +3,7 @@
 //
 // The Operator LLM gateway: a provider-agnostic completion client built on the Vercel AI SDK over any OpenAI-compatible endpoint with multi-provider failover.
 
-import { APICallError, extractReasoningMiddleware, generateObject, generateText, wrapLanguageModel, type LanguageModelMiddleware } from 'ai'
+import { APICallError, extractReasoningMiddleware, generateObject, generateText, streamText, wrapLanguageModel, type LanguageModelMiddleware } from 'ai'
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 import type { ZodType } from 'zod'
 import { buildGovernanceMiddleware, type GovernanceLimits } from './operator-ai-governance.js'
@@ -266,6 +266,53 @@ async function callProvider(
   }
 }
 
+// Performs one streaming free-text chat completion against a single provider. It emits each text
+// delta to onDelta as it arrives, then returns the same CompletionResult the non-streaming path
+// would, so a caller gets a live preview and the authoritative final text from one call. Per-call
+// retry is disabled so this gateway's own failover order owns retry semantics; a provider that
+// fails before the first delta fails over cleanly, and an empty completion throws like the
+// non-streaming path.
+async function callProviderStream(
+  fetchImpl: FetchImpl,
+  provider: ProviderConfig,
+  messages: GatewayMessage[],
+  options: CompletionOptions,
+  onDelta: (chunk: string) => void,
+  governance?: LanguageModelMiddleware,
+): Promise<CompletionResult> {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), provider.timeoutMs)
+  try {
+    const { system, conversation } = splitSystem(messages)
+    const result = streamText({
+      model: buildReasoningModel(fetchImpl, provider, governance),
+      system,
+      messages: conversation,
+      maxOutputTokens: options.maxTokens,
+      temperature: options.temperature,
+      abortSignal: controller.signal,
+      maxRetries: 0,
+    })
+    for await (const delta of result.textStream) {
+      if (delta.length > 0) onDelta(delta)
+    }
+    const text = (await result.text).trim()
+    if (text.length === 0) throw new Error('provider returned an empty completion')
+    const reasoning = (await result.reasoningText)?.trim()
+    const usage = await result.usage
+    return {
+      text,
+      reasoning: reasoning && reasoning.length > 0 ? reasoning : undefined,
+      provider: provider.id,
+      model: provider.model,
+      promptTokens: usage.inputTokens,
+      completionTokens: usage.outputTokens,
+    }
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
 // Performs one schema-validated structured completion against a single provider. The
 // model is asked for JSON and its answer is validated against the schema by the AI SDK,
 // so a malformed or off-schema response throws and the caller fails over rather than
@@ -310,6 +357,11 @@ export interface Gateway {
   active(): ActiveModel | null
   complete(messages: GatewayMessage[], options?: CompletionOptions): Promise<CompletionResult>
   completeObject<T>(messages: GatewayMessage[], schema: ZodType<T>, options?: CompletionOptions): Promise<CompletionObjectResult<T>>
+  // A free-text completion that emits each text delta to onDelta as it arrives and returns the
+  // same final CompletionResult as complete(). The deltas are a live preview; the returned result
+  // is authoritative. Used by the streaming answer path so the console renders an answer as it is
+  // produced rather than all at once.
+  stream(messages: GatewayMessage[], onDelta: (chunk: string) => void, options?: CompletionOptions): Promise<CompletionResult>
 }
 
 // Runs a per-provider call through the failover order and returns the first success.
@@ -380,6 +432,12 @@ export function createGateway(providers: ProviderConfig[], fetchImpl: FetchImpl 
         callProviderObject(fetchImpl, provider, messages, schema, options, governanceMiddleware),
       )
     },
+
+    stream(messages, onDelta, options = {}) {
+      return runWithFailover(available, options.preferredProvider, (provider) =>
+        callProviderStream(fetchImpl, provider, messages, options, onDelta, governanceMiddleware),
+      )
+    },
   }
 }
 
@@ -425,6 +483,12 @@ export function withUsage(gateway: Gateway, options: { maxCalls?: number } = {})
       record(result.provider, result.model, result.promptTokens, result.completionTokens)
       return result
     },
+    async stream(messages, onDelta, options) {
+      guard()
+      const result = await gateway.stream(messages, onDelta, options)
+      record(result.provider, result.model, result.promptTokens, result.completionTokens)
+      return result
+    },
   }
   return {
     gateway: tracked,
@@ -442,5 +506,21 @@ export function preferProvider(gateway: Gateway, providerId: string | null): Gat
     complete: (messages, options = {}) => gateway.complete(messages, { ...options, preferredProvider: providerId }),
     completeObject: (messages, schema, options = {}) =>
       gateway.completeObject(messages, schema, { ...options, preferredProvider: providerId }),
+    stream: (messages, onDelta, options = {}) => gateway.stream(messages, onDelta, { ...options, preferredProvider: providerId }),
+  }
+}
+
+// Wraps a gateway so a free-text completion streams its tokens to onDelta as they arrive while
+// still returning the same final CompletionResult. Only complete() streams; completeObject() and
+// the rest pass through unchanged, so a turn's structured calls (triage, critique, grounding) are
+// untouched. The deltas are a fire-and-forget live preview: the caller's authoritative result is
+// the same whether or not anyone listens, mirroring how deliberation stages stream.
+export function streamingAnswers(gateway: Gateway, onDelta: (chunk: string) => void): Gateway {
+  return {
+    status: () => gateway.status(),
+    active: () => gateway.active(),
+    complete: (messages, options = {}) => gateway.stream(messages, onDelta, options),
+    completeObject: (messages, schema, options = {}) => gateway.completeObject(messages, schema, options),
+    stream: (messages, delta, options = {}) => gateway.stream(messages, delta, options),
   }
 }

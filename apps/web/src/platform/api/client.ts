@@ -188,6 +188,7 @@ async function streamOperatorMessage(
   message: string,
   provider: string | undefined,
   onStage: (stage: OperatorProgressStage) => void,
+  onToken?: (text: string) => void,
   signal?: AbortSignal,
 ): Promise<OperatorMessageResult> {
   const path = `/v1/zones/${encodeURIComponent(zoneId)}/operator-conversations/${encodeURIComponent(
@@ -235,8 +236,9 @@ async function streamOperatorMessage(
   let failure: ConsoleApiError | null = null;
 
   // Consumes whole SSE frames from the buffer. A frame is terminated by a blank line and names one
-  // of the route's three events: stage forwards live progress, result is the authoritative body,
-  // and error carries a governance or gateway stop with its status.
+  // of the route's events: stage forwards live progress, token forwards a text delta of the answer
+  // as it is produced, result is the authoritative body, and error carries a governance or gateway
+  // stop with its status.
   const drain = () => {
     let boundary: number;
     while ((boundary = buffer.indexOf("\n\n")) !== -1) {
@@ -258,6 +260,9 @@ async function streamOperatorMessage(
       if (event === "stage") {
         const stage = (payload as { stage?: OperatorProgressStage }).stage;
         if (stage) onStage(stage);
+      } else if (event === "token") {
+        const text = (payload as { text?: unknown }).text;
+        if (typeof text === "string" && text.length > 0) onToken?.(text);
       } else if (event === "result") {
         result = payload as OperatorMessageResult;
       } else if (event === "error") {
@@ -866,9 +871,10 @@ export const consoleApi = {
       message: string,
       provider: string | undefined,
       onStage: (stage: OperatorProgressStage) => void,
+      onToken?: (text: string) => void,
       signal?: AbortSignal,
     ): Promise<OperatorMessageResult> =>
-      streamOperatorMessage(zoneId, conversationId, message, provider, onStage, signal),
+      streamOperatorMessage(zoneId, conversationId, message, provider, onStage, onToken, signal),
   },
 
   agents: {

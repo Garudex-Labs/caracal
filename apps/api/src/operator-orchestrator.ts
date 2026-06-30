@@ -27,7 +27,7 @@ import { validateProposedPlan, type ProposedPlanInput } from './operator-capabil
 import type { Researcher } from './operator-research.js'
 import type { Evidence } from './operator-research.js'
 import type { DocSnippet } from './operator-docs.js'
-import type { Gateway } from './operator-gateway.js'
+import { streamingAnswers, type Gateway } from './operator-gateway.js'
 
 // A skill is a capability the orchestrator can invoke, not a pipeline stage. answer skills
 // reply as text; plan skills produce a proposed plan the deterministic spine then governs. A
@@ -167,6 +167,12 @@ export interface HandleOptions {
   // never alters the outcome and is never awaited, so a turn produces the same governed result with
   // or without a listener. Omitted when the caller does not stream.
   onProgress?: OnProgress
+  // Receives each text delta of a read or conversational answer as the model produces it, so a
+  // streaming caller renders the answer token by token rather than all at once. Like onProgress it
+  // is a fire-and-forget live preview: the turn's authoritative result is unchanged whether or not
+  // anyone listens, and a plan turn never streams since it produces a structured plan, not prose.
+  // Omitted when the caller does not stream.
+  onAnswerDelta?: (chunk: string) => void
 }
 
 // The deterministic answer an ask-mode conversation returns for a request that would require a
@@ -389,7 +395,11 @@ export function createOrchestrator(registry: SkillRegistry = createSkillRegistry
       const stateContext = reads ? await withEvidence(context, options.researcher, classification.domains) : context
       const answerContext = withDocs(stateContext, message, options.docs)
       emit({ stage: 'answering' })
-      const answer = await skill.run(gateway, message, answerContext)
+      // Stream the answer's tokens to the caller when it is listening, so the console renders the
+      // answer as it is produced. Only the answer skill streams; grounding below still uses the
+      // unwrapped gateway, so its structured check is unaffected.
+      const answerGateway = options.onAnswerDelta ? streamingAnswers(gateway, options.onAnswerDelta) : gateway
+      const answer = await skill.run(answerGateway, message, answerContext)
       return { tier, outcome: { kind: 'answer', result: await groundAnswer(gateway, message, answer, answerContext) } }
     },
   }
