@@ -2744,6 +2744,53 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
     expect(body.usage).toEqual({ input_tokens: 520, output_tokens: 64, total_tokens: 584 })
   })
 
+  it('reports the served model and a failover flag when the primary provider is unavailable', async () => {
+    const first = { ...provider, id: 'first', model: 'model-a', apiKey: 'sk-first' }
+    const second = { ...provider, id: 'second', model: 'model-b', apiKey: 'sk-second', contextWindow: 64000 }
+    // The primary's key always fails, so every call fails over to the secondary. The mock keys off
+    // the bearer credential because both providers share a base URL.
+    const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => {
+      const auth = (init.headers as Record<string, string> | undefined)?.authorization
+      if (auth === 'Bearer sk-first') return new Response('boom', { status: 503 })
+      return new Response(JSON.stringify({ choices: [{ message: { content: '{"tier":"read"}' } }] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }) as unknown as typeof fetch
+    const { app, clientQuery, db } = buildApp(true, { aiProviders: [first, second], fetchImpl })
+    clientQuery
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ rows: [{ status: 'active', next_seq: 1 }] })
+      .mockResolvedValueOnce({ rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: 'turn-1', seq: 1 }] })
+      .mockResolvedValueOnce(undefined)
+    db.query
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+    clientQuery
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ rows: [{ status: 'active', next_seq: 2 }] })
+      .mockResolvedValueOnce({ rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: 'turn-2', seq: 2, kind: 'note' }] })
+      .mockResolvedValueOnce(undefined)
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/operator-conversations/conv-1/message',
+      payload: { message: 'why was my agent denied' },
+    })
+    expect(res.statusCode).toBe(201)
+    const body = JSON.parse(res.body)
+    // The console hears the model that actually answered, not the one that was expected, plus the
+    // signal that Caracal fell back.
+    expect(body.provider).toBe('second')
+    expect(body.model).toBe('model-b')
+    expect(body.max_tokens).toBe(64000)
+    expect(body.failover).toBe(true)
+  })
+
   it('rejects a message naming an unknown provider', async () => {
     const { app } = buildApp(true, { aiProviders: [provider] })
     await app.ready()

@@ -440,6 +440,7 @@ function OperatorWorkspace() {
           outputTokens: (prior?.outputTokens ?? 0) + usage.output_tokens,
           model: meta.model ?? prior?.model ?? null,
           maxTokens: meta.max_tokens ?? prior?.maxTokens ?? 0,
+          failover: meta.failover === true || (prior?.failover ?? false),
         },
       };
     });
@@ -658,6 +659,9 @@ export interface SessionUsage {
   outputTokens: number;
   model: string | null;
   maxTokens: number;
+  // Whether Caracal fell back from its primary AI provider to a secondary one for any reply this
+  // session. Sticky once seen, so a flaky primary stays visible rather than flickering away.
+  failover: boolean;
 }
 
 // A concise session title derived from the opening intent.
@@ -2017,6 +2021,14 @@ function UsageMeter({ usage }: { usage: SessionUsage }) {
               No tokens used yet this session. Usage appears as the Operator answers.
             </p>
           ) : null}
+          {usage.failover ? (
+            <p className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+              <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-amber-500" />
+              <span>
+                Primary model unavailable for a reply this session; Caracal used a fallback.
+              </span>
+            </p>
+          ) : null}
         </ContextContentBody>
         <ContextContentFooter />
       </ContextContent>
@@ -2029,6 +2041,7 @@ const ZERO_USAGE: SessionUsage = {
   outputTokens: 0,
   model: null,
   maxTokens: 0,
+  failover: false,
 };
 
 // The pinned composer used once a conversation has started.
