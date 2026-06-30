@@ -114,19 +114,19 @@ export const Route = createFileRoute("/$accountId/$orgId/$zoneId/app/ai")({
 const SUGGESTIONS: { id: SuggestionId; title: string; hint: string; icon: Glyph }[] = [
   {
     id: "createZone",
-    title: "Create a zone for Pied Piper Production",
+    title: "Create a new zone",
     hint: "Spin up a new zone",
     icon: PlugGlyph,
   },
   {
     id: "registerApp",
-    title: "Register an application called Son of Anton",
+    title: "Register an application",
     hint: "Register a managed application",
     icon: LinkGlyph,
   },
   {
     id: "grant",
-    title: "Give Fiona read-only access to PiperNet",
+    title: "Grant access to a resource",
     hint: "Grant scoped access",
     icon: KeyGlyph,
   },
@@ -139,7 +139,7 @@ const SUGGESTIONS: { id: SuggestionId; title: string; hint: string; icon: Glyph 
   { id: "listZones", title: "What zones do I have?", hint: "Read current state", icon: TrimGlyph },
   {
     id: "explainDeny",
-    title: "Why was that request denied?",
+    title: "Why was a request denied?",
     hint: "Explain a policy decision",
     icon: HelpGlyph,
   },
@@ -218,6 +218,20 @@ const RAIL_COLLAPSED_WIDTH = "2.75rem";
 // every earlier turn but render only this tail, so scrolling stays smooth; the "show earlier"
 // control widens the window one page at a time.
 const STREAM_WINDOW = 40;
+
+// Short, clean openers for the new-chat hero. One is picked fresh on every mount - each refresh and
+// each new session - so the empty state greets the operator differently each time instead of
+// repeating one fixed line.
+const HERO_GREETINGS = [
+  "What are we operating?",
+  "What's the move?",
+  "Where do we start?",
+  "What needs doing?",
+  "Ready when you are.",
+  "What's on deck?",
+  "Let's make a change.",
+  "What can I do?",
+] as const;
 
 // The mode and autopilot chosen for the last new conversation are remembered so a fresh chat
 // opens the way the operator last worked. Mode defaults to the safer read-only "ask".
@@ -1405,9 +1419,10 @@ function NewChatHero({
   onModelChange: (id: string | null) => void;
   controls: ComposerControls;
 }) {
-  const greeting = "What would you like to operate?";
-  const message =
-    "Describe the change in plain language. The Operator turns it into a reviewable plan, checks it against live state and policy, and applies it through the same guarded APIs you use by hand - nothing runs until you approve.";
+  const greeting = useMemo(
+    () => HERO_GREETINGS[Math.floor(Math.random() * HERO_GREETINGS.length)],
+    [],
+  );
   const suggestionsRef = useRef<HTMLDivElement>(null);
 
   // Lead the suggestion strip with the action that fits the current setup, leaving the rest in
@@ -1502,7 +1517,6 @@ function NewChatHero({
             <h2 className="text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
               {greeting}
             </h2>
-            <p className="max-w-md text-sm leading-relaxed text-muted-foreground">{message}</p>
           </div>
 
           <div className="w-full animate-fade-in">
