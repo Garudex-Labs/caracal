@@ -306,6 +306,11 @@ export default defineConfig({
               collapsed: true,
               items: [{ label: 'Audit and Request Traces', link: '/concepts/audit-ledger/' }],
             },
+            {
+              label: 'Operate the Control Plane',
+              collapsed: true,
+              items: [{ label: 'Caracal Operator', link: '/concepts/operator/' }],
+            },
           ],
         },
         {

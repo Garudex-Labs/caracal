@@ -126,4 +126,25 @@ describe('createStateResearcher', () => {
     // The raw error text — which could carry a secret — never reaches the evidence.
     expect(JSON.stringify(evidence)).not.toContain('secret')
   })
+
+  it('scopes the reads to the named domains and gathers nothing else', async () => {
+    const { client, invoke } = clientFor({ app: [{ id: 'a1', name: 'Billing' }], 'identity-provider': [{ id: 'p1', name: 'GitHub' }] })
+    const { evidence } = await createStateResearcher(client).gather(['provider'])
+    // Only the provider read runs; the application, resource, and policy reads are never invoked.
+    expect(evidence.map((e) => e.domain)).toEqual(['provider'])
+    expect(invoke).toHaveBeenCalledTimes(1)
+  })
+
+  it('reads everything when no domains are named', async () => {
+    const { client, invoke } = clientFor({ app: [], 'identity-provider': [], resource: [], policy: [] })
+    await createStateResearcher(client).gather([])
+    expect(invoke).toHaveBeenCalledTimes(governedReadCapabilities().length)
+  })
+
+  it('falls back to the full read set when the named domains map to no governed read', async () => {
+    const { client, invoke } = clientFor({ app: [], 'identity-provider': [], resource: [], policy: [] })
+    // 'audit' and 'grant' have no governed read behind them, so the gather must not end up empty.
+    await createStateResearcher(client).gather(['audit', 'grant'])
+    expect(invoke).toHaveBeenCalledTimes(governedReadCapabilities().length)
+  })
 })

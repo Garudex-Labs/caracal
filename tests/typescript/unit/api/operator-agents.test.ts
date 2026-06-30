@@ -75,6 +75,19 @@ describe('runTriage', () => {
     expect(await runTriage(gateway, 'what is in my zone')).toEqual({ ok: true, value: { tier: 'read', topic: 'general' } })
   })
 
+  it('carries the relevant domains when the model names them', async () => {
+    const { gateway } = gatewayProducing({ tier: 'read', topic: 'general', domains: ['provider', 'resource'] })
+    expect(await runTriage(gateway, 'what providers and resources do I have')).toEqual({
+      ok: true,
+      value: { tier: 'read', topic: 'general', domains: ['provider', 'resource'] },
+    })
+  })
+
+  it('omits domains entirely when the model returns an empty set', async () => {
+    const { gateway } = gatewayProducing({ tier: 'conversational', topic: 'general', domains: [] })
+    expect(await runTriage(gateway, 'hi')).toEqual({ ok: true, value: { tier: 'conversational', topic: 'general' } })
+  })
+
   it('fails closed when classification does not pass the schema', async () => {
     const { gateway } = gatewayProducing(new Error('schema validation failed'))
     const result = await runTriage(gateway, 'hmm')

@@ -155,6 +155,19 @@ describe('createOrchestrator', () => {
     expect(seen).toEqual(evidence)
   })
 
+  it('scopes evidence gathering to the domains triage names', async () => {
+    const completeObject = vi
+      .fn()
+      .mockResolvedValueOnce({ value: { tier: 'read', topic: 'general', domains: ['provider'] }, provider: 't', model: 'm' })
+    const complete = vi.fn().mockResolvedValue({ text: 'one provider', provider: 't', model: 'm' })
+    const gateway = { status: () => ({ enabled: true, providers: [] }), complete, completeObject } as unknown as Gateway
+    const researcher = { gather: vi.fn().mockResolvedValue({ evidence: [] }) }
+    await createOrchestrator().handle(gateway, 'what providers do i have', emptyContext, { researcher })
+    // The reads are scoped to exactly the domains triage named, so the turn reads only what the
+    // request concerns rather than fanning out across every governed read.
+    expect(researcher.gather).toHaveBeenCalledWith(['provider'])
+  })
+
   it('grounds an answer in retrieved documentation passed to the answer skill', async () => {
     const docs = [{ id: '/sdks/typescript', title: 'TypeScript SDK', url: 'https://docs/x', snippet: 'npm install @caracalai/sdk' }]
     const retriever = vi.fn().mockReturnValue(docs)
@@ -235,14 +248,16 @@ describe('createOrchestrator', () => {
     expect(researcher.gather).not.toHaveBeenCalled()
   })
 
-  it('does not gather evidence for a planning tier', async () => {
+  it('grounds a planning tier in evidence gathered through the researcher', async () => {
     const plan = {
       summary: 'Connect GitHub',
       steps: [{ id: 's1', capability: 'connectProvider', args: { name: 'GitHub', kind: 'api_key' } }],
     }
     const researcher = { gather: vi.fn().mockResolvedValue({ evidence: [] }) }
     await createOrchestrator().handle(planningGateway('change', plan), 'connect github', emptyContext, { researcher })
-    expect(researcher.gather).not.toHaveBeenCalled()
+    // Every plan is proposed against freshly read live state, so the planner and the guardian judge
+    // against what actually exists rather than in the abstract.
+    expect(researcher.gather).toHaveBeenCalledTimes(1)
   })
 
   it('answers without evidence when the researcher throws', async () => {
@@ -284,7 +299,16 @@ describe('createOrchestrator', () => {
   })
 
   it('composes a compound tier: gathers evidence, plans against it, and attaches an advisory', async () => {
-    const plan = { summary: 'Grant Finance read-only Stripe', steps: [{ id: 's1', capability: 'grantAccess', args: {} }] }
+    const plan = {
+      summary: 'Grant Finance read-only Stripe',
+      steps: [
+        {
+          id: 's1',
+          capability: 'grantAccess',
+          args: { application_id: 'app_finance', user_id: 'user_richard', resource_id: 'res_stripe', scopes: ['read'] },
+        },
+      ],
+    }
     const advisory = { summary: 'Scoped to read; low blast-radius.', findings: [] }
     const evidence = [{ capability: 'listResources', domain: 'resource', ok: true, count: 1, names: ['Stripe invoices'] }]
     const researcher = { gather: vi.fn().mockResolvedValue({ evidence }) }
@@ -305,6 +329,50 @@ describe('createOrchestrator', () => {
     }
   })
 
+  it('runs the guardian on a single change plan and attaches its advisory', async () => {
+    const plan = {
+      summary: 'Connect GitHub',
+      steps: [{ id: 's1', capability: 'connectProvider', args: { name: 'GitHub', kind: 'api_key' } }],
+    }
+    const advisory = { summary: 'Narrow connection; aligned.', alignment: 'aligned', findings: [] }
+    const completeObject = vi
+      .fn()
+      .mockResolvedValueOnce({ value: { tier: 'change' }, provider: 't', model: 'm' })
+      .mockResolvedValueOnce({ value: plan, provider: 't', model: 'm' })
+      .mockResolvedValueOnce({ value: advisory, provider: 't', model: 'm' })
+    const gateway = { status: () => ({ enabled: true, providers: [] }), completeObject } as unknown as Gateway
+    const result = await createOrchestrator().handle(gateway, 'connect github', emptyContext)
+    // The guardian reviews every mutating plan, not only composed ones, so a single risky change is
+    // never proposed for approval without an independent critique and alignment verdict alongside it.
+    expect(result.outcome.kind).toBe('plan')
+    if (result.outcome.kind === 'plan') expect(result.outcome.advisory).toEqual(advisory)
+  })
+
+  it('repairs a plan that fails validation and returns the corrected plan', async () => {
+    const broken = { summary: 'Connect GitHub', steps: [{ id: 's1', capability: 'connectNexus', args: {} }] }
+    const fixed = {
+      summary: 'Connect GitHub',
+      steps: [{ id: 's1', capability: 'connectProvider', args: { name: 'GitHub', kind: 'api_key' } }],
+    }
+    const advisory = { summary: 'Narrow connection; aligned.', findings: [] }
+    const completeObject = vi
+      .fn()
+      .mockResolvedValueOnce({ value: { tier: 'change' }, provider: 't', model: 'm' })
+      .mockResolvedValueOnce({ value: broken, provider: 't', model: 'm' })
+      .mockResolvedValueOnce({ value: fixed, provider: 't', model: 'm' })
+      .mockResolvedValueOnce({ value: advisory, provider: 't', model: 'm' })
+    const gateway = { status: () => ({ enabled: true, providers: [] }), completeObject } as unknown as Gateway
+    const result = await createOrchestrator().handle(gateway, 'connect github', emptyContext)
+    // A first proposal that fails catalog validation triggers exactly one repair pass; the corrected
+    // plan replaces it before the guardian and the route ever see it.
+    expect(result.outcome.kind).toBe('plan')
+    if (result.outcome.kind === 'plan' && result.outcome.result.ok) {
+      expect(result.outcome.result.value.steps[0].capability).toBe('connectProvider')
+    }
+    // triage + first plan + repair plan + guardian review.
+    expect(completeObject).toHaveBeenCalledTimes(4)
+  })
+
   it('attaches no advisory when a compound plan proposes no steps', async () => {
     const emptyPlan = { summary: 'Nothing maps', steps: [] }
     // Only triage + planner complete; the analyst is never called because there is nothing to review.
@@ -322,7 +390,16 @@ describe('createOrchestrator', () => {
   })
 
   it('still returns the compound plan when the advisory review fails', async () => {
-    const plan = { summary: 'Grant access', steps: [{ id: 's1', capability: 'grantAccess', args: {} }] }
+    const plan = {
+      summary: 'Grant access',
+      steps: [
+        {
+          id: 's1',
+          capability: 'grantAccess',
+          args: { application_id: 'app_finance', user_id: 'user_richard', resource_id: 'res_stripe', scopes: ['read'] },
+        },
+      ],
+    }
     const completeObject = vi
       .fn()
       .mockResolvedValueOnce({ value: { tier: 'compound' }, provider: 't', model: 'm' })
