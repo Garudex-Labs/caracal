@@ -6,6 +6,7 @@ Pure presenter helpers for the Operator console: badge tones, relative time, ses
 */
 import type { ConfirmationApproval } from "@/components/ai-elements/confirmation";
 import type { ToolState } from "@/components/ai-elements/tool";
+import { PLAN_STATUS } from "@/platform/operator/status";
 import type { PlanAdvisoryView, PlanItem, PlanStepView } from "@/platform/operator/timeline";
 import type { OperatorConversation } from "@/platform/api/types";
 
@@ -28,6 +29,15 @@ export function leadSuggestion(hasZones: boolean, hasApps: boolean): SuggestionI
 export function deriveTitle(text: string): string {
   const clean = text.replace(/\s+/g, " ").trim();
   return clean.length > 48 ? `${clean.slice(0, 47).trimEnd()}…` : clean;
+}
+
+// The tail of the transcript to actually mount. A long session keeps every earlier turn in memory
+// but renders only the most recent window so scrolling stays smooth; revealing earlier turns just
+// widens the window. The window is taken from the end, so the newest turns - including any
+// actionable plan - are always rendered.
+export function streamWindow<T>(items: T[], count: number): T[] {
+  if (count >= items.length) return items;
+  return items.slice(items.length - count);
 }
 
 export function formatRelative(value: string): string {
@@ -76,13 +86,13 @@ export function groupConversations(conversations: OperatorConversation[]): Sessi
 
 export function planDecision(plan: PlanItem): { tone: BadgeTone; label: string } {
   if (plan.decision === "approved") {
-    if (plan.executed) return { tone: "success", label: "Applied" };
+    if (plan.executed) return { tone: "success", label: PLAN_STATUS.applied };
     return plan.approvedByAutopilot
-      ? { tone: "success", label: "Approved by autopilot" }
-      : { tone: "success", label: "Approved" };
+      ? { tone: "success", label: PLAN_STATUS.approvedByAutopilot }
+      : { tone: "success", label: PLAN_STATUS.approved };
   }
-  if (plan.decision === "rejected") return { tone: "danger", label: "Rejected" };
-  return { tone: "warning", label: "Awaiting approval" };
+  if (plan.decision === "rejected") return { tone: "danger", label: PLAN_STATUS.rejected };
+  return { tone: "warning", label: PLAN_STATUS.awaitingApproval };
 }
 
 // Maps a step's ledger status to the tool lifecycle state: a rejected plan denies

@@ -17,6 +17,7 @@ import {
   planConfirmationState,
   planDecision,
   stepToolState,
+  streamWindow,
 } from '../../../../apps/web/src/platform/operator/view'
 import type { OperatorConversation } from '../../../../apps/web/src/platform/api/types'
 import type { PlanItem, PlanStepView } from '../../../../apps/web/src/platform/operator/timeline'
@@ -208,5 +209,23 @@ describe('decideErrorMessage', () => {
   it('falls back for unknown codes', () => {
     expect(decideErrorMessage({ code: 'mystery' })).toBe("Couldn't record the decision. Please try again.")
     expect(decideErrorMessage(undefined)).toBe("Couldn't record the decision. Please try again.")
+  })
+})
+
+describe('streamWindow', () => {
+  const items = [1, 2, 3, 4, 5]
+  it('returns every item when the window covers the whole transcript', () => {
+    expect(streamWindow(items, 5)).toEqual(items)
+    expect(streamWindow(items, 99)).toEqual(items)
+  })
+  it('returns the tail slice in order when the window is smaller', () => {
+    expect(streamWindow(items, 2)).toEqual([4, 5])
+    expect(streamWindow(items, 3)).toEqual([3, 4, 5])
+  })
+  it('always keeps the newest item in the window', () => {
+    expect(streamWindow(items, 1)).toEqual([5])
+  })
+  it('handles an empty transcript', () => {
+    expect(streamWindow([], 4)).toEqual([])
   })
 })
