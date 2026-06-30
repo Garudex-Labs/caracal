@@ -1011,7 +1011,7 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/plan/execute', () =>
       .mockResolvedValueOnce({ rows: [{ status: 'active' }] }) // conv status
       .mockResolvedValueOnce({ rows: [{ content: grantPlan }] }) // plan
       .mockResolvedValueOnce({ rows: [{ kind: 'approval' }] }) // approved
-      .mockResolvedValueOnce({ rows: [{ one: 1 }] }) // execution already exists
+      .mockResolvedValueOnce({ rows: [{ step_id: 's1', status: 'succeeded' }] }) // every step already applied
       .mockResolvedValueOnce(undefined) // COMMIT
     await app.ready()
     const res = await app.inject({
@@ -1021,6 +1021,95 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/plan/execute', () =>
     })
     expect(res.statusCode).toBe(409)
     expect(JSON.parse(res.body)).toMatchObject({ error: 'plan_already_executed' })
+  })
+
+  it('refuses to retry a plan that recorded a failed step', async () => {
+    // A failed execution turn means a non-idempotent mutation may have half-applied. The plan
+    // is never retriable even though an earlier step succeeded, so it is refused before any call.
+    const { app, clientQuery } = buildApp(true, governedControl)
+    clientQuery
+      .mockResolvedValueOnce(undefined) // BEGIN
+      .mockResolvedValueOnce({ rows: [{ status: 'active' }] }) // conv status
+      .mockResolvedValueOnce({ rows: [{ content: grantPlan }] }) // plan
+      .mockResolvedValueOnce({ rows: [{ kind: 'approval' }] }) // approved
+      .mockResolvedValueOnce({
+        rows: [
+          { step_id: 's1', status: 'succeeded' },
+          { step_id: 's2', status: 'failed' },
+        ],
+      }) // a prior step failed
+      .mockResolvedValueOnce(undefined) // COMMIT
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/operator-conversations/conv-1/plan/execute',
+      payload: { plan_seq: 2 },
+    })
+    expect(res.statusCode).toBe(409)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'plan_already_executed' })
+  })
+
+  it('resumes a partially-applied plan from its first unapplied step', async () => {
+    // A two-step plan whose first step already succeeded and which stopped on a definitive,
+    // nothing-applied failure is resumable: re-execute applies only the remaining grant step
+    // through the control plane and never re-applies the already-created application.
+    const resumePlan = {
+      summary: 'Set up billing',
+      steps: [
+        { id: 's1', capability: 'registerApplication', mutating: true, args: { name: 'Billing' } },
+        {
+          id: 's2',
+          capability: 'grantAccess',
+          mutating: true,
+          args: { application_id: 'app-1', user_id: 'user-1', resource_id: 'res-1', scopes: ['invoices.read'] },
+        },
+      ],
+    }
+    const fetchMock = controlFetch([{ id: 'grant-xyz' }])
+    const { app, clientQuery } = buildApp(true, { ...governedControl, fetchImpl: fetchMock as unknown as typeof fetch })
+    const executionTurn = {
+      id: 'turn-x',
+      conversation_id: 'conv-1',
+      seq: 7,
+      role: 'operator',
+      kind: 'execution',
+      content: { plan_seq: 2, step_id: 's2', status: 'succeeded' },
+      actor_id: 'actor-1',
+      created_at: '2026-01-01T00:00:07Z',
+    }
+    clientQuery
+      // pre-flight
+      .mockResolvedValueOnce(undefined) // BEGIN
+      .mockResolvedValueOnce({ rows: [{ status: 'active' }] }) // conv status
+      .mockResolvedValueOnce({ rows: [{ content: resumePlan }] }) // plan content
+      .mockResolvedValueOnce({ rows: [{ kind: 'approval' }] }) // approved
+      .mockResolvedValueOnce({ rows: [{ step_id: 's1', status: 'succeeded' }] }) // s1 already applied
+      .mockResolvedValueOnce({ rows: [{ one: 1 }] }) // preview: application lives (s2)
+      .mockResolvedValueOnce({ rows: [{ one: 1 }] }) // preview: resource lives (s2)
+      .mockResolvedValueOnce(undefined) // COMMIT
+      // recording
+      .mockResolvedValueOnce(undefined) // BEGIN
+      .mockResolvedValueOnce({ rows: [{ status: 'active', next_seq: 7 }] }) // conv FOR UPDATE
+      .mockResolvedValueOnce({ rowCount: 1 }) // UPDATE next_seq
+      .mockResolvedValueOnce({ rows: [executionTurn] }) // INSERT execution turn (s2)
+      .mockResolvedValueOnce(undefined) // INSERT operator_zone_memory
+      .mockResolvedValueOnce(undefined) // COMMIT
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/operator-conversations/conv-1/plan/execute',
+      payload: { plan_seq: 2 },
+    })
+    expect(res.statusCode).toBe(201)
+    const body = JSON.parse(res.body)
+    expect(body.executed).toHaveLength(1)
+    // Only the remaining grant step reached the control plane; the already-applied application
+    // create was never re-invoked.
+    const invokeCommands = fetchMock.mock.calls
+      .filter((c) => String(c[0]).endsWith('/v1/control/invoke'))
+      .map((c) => JSON.parse(String((c[1] as RequestInit).body)).command)
+    expect(invokeCommands).toContain('grant')
+    expect(invokeCommands).not.toContain('app')
   })
 
   it('refuses an approved plan the Operator is not authorized to execute', async () => {
@@ -1140,6 +1229,50 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/plan/execute', () =>
     // The in-flight lock is taken and released by its owner.
     expect(redis.set).toHaveBeenCalled()
     expect(redis.eval).toHaveBeenCalled()
+  })
+
+  it('records durable zone memory of a plan it actually applied', async () => {
+    const fetchMock = controlFetch([{ id: 'grant-xyz' }])
+    const { app, clientQuery } = buildApp(true, { ...governedControl, fetchImpl: fetchMock as unknown as typeof fetch })
+    const executionTurn = {
+      id: 'turn-x',
+      conversation_id: 'conv-1',
+      seq: 5,
+      role: 'operator',
+      kind: 'execution',
+      content: { plan_seq: 2, step_id: 's1', status: 'succeeded' },
+      actor_id: 'actor-1',
+      created_at: '2026-01-01T00:00:05Z',
+    }
+    clientQuery
+      .mockResolvedValueOnce(undefined) // BEGIN (pre-flight)
+      .mockResolvedValueOnce({ rows: [{ status: 'active' }] }) // conv status
+      .mockResolvedValueOnce({ rows: [{ content: grantPlan }] }) // plan content
+      .mockResolvedValueOnce({ rows: [{ kind: 'approval' }] }) // approved
+      .mockResolvedValueOnce({ rows: [] }) // not executed
+      .mockResolvedValueOnce({ rows: [{ one: 1 }] }) // preview: application lives
+      .mockResolvedValueOnce({ rows: [{ one: 1 }] }) // preview: resource lives
+      .mockResolvedValueOnce(undefined) // COMMIT
+      .mockResolvedValueOnce(undefined) // BEGIN (recording)
+      .mockResolvedValueOnce({ rows: [{ status: 'active', next_seq: 5 }] }) // conv FOR UPDATE
+      .mockResolvedValueOnce({ rowCount: 1 }) // UPDATE next_seq
+      .mockResolvedValueOnce({ rows: [executionTurn] }) // INSERT execution turn
+      .mockResolvedValueOnce(undefined) // INSERT operator_zone_memory
+      .mockResolvedValueOnce(undefined) // COMMIT
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/operator-conversations/conv-1/plan/execute',
+      payload: { plan_seq: 2 },
+    })
+    expect(res.statusCode).toBe(201)
+    // The applied plan is written to durable, zone-scoped memory inside the recording
+    // transaction: the memory carries the plan summary and the conversation that applied it.
+    const memoryInsert = clientQuery.mock.calls.find((c) => String(c[0]).includes('INSERT INTO operator_zone_memory'))
+    expect(memoryInsert).toBeDefined()
+    expect(memoryInsert![1][1]).toBe('z1')
+    expect(memoryInsert![1][2]).toBe('conv-1')
+    expect(memoryInsert![1][3]).toBe('Grant access')
   })
 
   it('records the execution turn even if the conversation was archived after the plan applied', async () => {
@@ -1350,6 +1483,108 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/plan/execute', () =>
     )
     expect(failedExec).toBeDefined()
     expect(String(failedExec![1][6])).toContain('failed')
+  })
+
+  it('verifies an applied plan against live state and records a verification note', async () => {
+    // After the apply, the route reads live state once more and runs the verifier, recording its
+    // verdict as a note. Verification is advisory: it never gates or reverses the already-durable
+    // apply, so the 201 stands whatever the verdict says. A combined fetch answers the control STS
+    // and invoke for both the apply and the post-apply read, and the AI completion for the verdict.
+    const aiProvider = {
+      id: 'primary',
+      baseUrl: 'https://api.example.com/v1',
+      model: 'gpt-x',
+      apiKey: 'sk',
+      timeoutMs: 1000,
+      contextWindow: 0,
+    }
+    const registerPlan = {
+      summary: 'Register the Billing application',
+      steps: [{ id: 's1', capability: 'registerApplication', mutating: true, args: { name: 'Billing' } }],
+    }
+    const verdict = { status: 'matched', summary: 'The Billing application is present in current state.', findings: [] }
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.endsWith('/oauth/2/token')) return jsonResponse({ access_token: 'control-token' })
+      if (url.endsWith('/v1/control/invoke')) {
+        const body = JSON.parse(String(init?.body))
+        if (body.subcommand === 'create') return jsonResponse({ result: { id: 'app-new' } })
+        return jsonResponse({ result: [{ name: 'Billing' }] }) // the post-apply application list
+      }
+      if (url.endsWith('/chat/completions')) {
+        return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(verdict) } }] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      }
+      throw new Error(`unexpected fetch ${url}`)
+    })
+    const executionTurn = {
+      id: 'turn-x',
+      conversation_id: 'conv-1',
+      seq: 5,
+      role: 'operator',
+      kind: 'execution',
+      content: { plan_seq: 2, step_id: 's1', status: 'succeeded' },
+      actor_id: 'actor-1',
+      created_at: '2026-01-01T00:00:05Z',
+    }
+    const noteTurn = {
+      id: 'turn-n',
+      conversation_id: 'conv-1',
+      seq: 6,
+      role: 'operator',
+      kind: 'note',
+      content: { text: 'Verification (matched): The Billing application is present in current state.' },
+      actor_id: 'actor-1',
+      created_at: '2026-01-01T00:00:06Z',
+    }
+    const { app, clientQuery } = buildApp(true, {
+      ...governedControl,
+      aiProviders: [aiProvider],
+      fetchImpl: fetchMock as unknown as typeof fetch,
+    })
+    clientQuery
+      // pre-flight
+      .mockResolvedValueOnce(undefined) // BEGIN
+      .mockResolvedValueOnce({ rows: [{ status: 'active' }] }) // conv status
+      .mockResolvedValueOnce({ rows: [{ content: registerPlan }] }) // plan
+      .mockResolvedValueOnce({ rows: [{ kind: 'approval' }] }) // approved
+      .mockResolvedValueOnce({ rows: [] }) // not executed
+      .mockResolvedValueOnce({ rows: [] }) // preview: name available -> create
+      .mockResolvedValueOnce(undefined) // COMMIT
+      // recording
+      .mockResolvedValueOnce(undefined) // BEGIN
+      .mockResolvedValueOnce({ rows: [{ status: 'active', next_seq: 5 }] }) // conv FOR UPDATE
+      .mockResolvedValueOnce({ rowCount: 1 }) // UPDATE next_seq
+      .mockResolvedValueOnce({ rows: [executionTurn] }) // INSERT execution turn
+      .mockResolvedValueOnce(undefined) // INSERT operator_zone_memory
+      .mockResolvedValueOnce(undefined) // COMMIT
+      // verification note (appendTurnTx)
+      .mockResolvedValueOnce(undefined) // BEGIN
+      .mockResolvedValueOnce({ rows: [{ status: 'active', mode: 'agent', autopilot: false, next_seq: 6 }] }) // conv FOR UPDATE
+      .mockResolvedValueOnce({ rowCount: 1 }) // UPDATE next_seq
+      .mockResolvedValueOnce({ rows: [noteTurn] }) // INSERT note turn
+      .mockResolvedValueOnce(undefined) // COMMIT
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/operator-conversations/conv-1/plan/execute',
+      payload: { plan_seq: 2 },
+    })
+    expect(res.statusCode).toBe(201)
+    // A verification note was written capturing the verdict the verifier produced over live state.
+    const insertNote = clientQuery.mock.calls.find(
+      (c) => String(c[0]).includes('INSERT INTO operator_turns') && String(c[1]?.[5]) === 'note',
+    )
+    expect(insertNote).toBeDefined()
+    expect(String(insertNote![1][6])).toContain('Verification (matched)')
+    // The verifier judged against live state read after the apply: the post-apply application list
+    // was read through the governed control plane, scoped to the application domain the plan touched.
+    const listInvoke = fetchMock.mock.calls.find(
+      (c) => String(c[0]).endsWith('/v1/control/invoke') && JSON.parse(String((c[1] as RequestInit).body)).subcommand === 'list',
+    )
+    expect(listInvoke).toBeDefined()
   })
 })
 
@@ -1747,6 +1982,7 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
       .mockResolvedValueOnce({ rows: [] }) // error rows
       .mockResolvedValueOnce({ rows: [] }) // messages
       .mockResolvedValueOnce({ rows: [] }) // facts
+      .mockResolvedValueOnce({ rows: [] }) // zone memory recall
       .mockResolvedValueOnce({ rows: [] }) // previewPlan: application name free
       .mockResolvedValueOnce({ rows: [{ n: 0 }] }) // countRecentAutoApprovals
     // plan turn persist

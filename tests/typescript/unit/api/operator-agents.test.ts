@@ -10,6 +10,7 @@ import {
   buildTroubleshooterMessages,
   buildTranslatorMessages,
   buildSecurityAnalystMessages,
+  buildVerifierMessages,
   buildTriageMessages,
   runTriage,
   tierPlans,
@@ -20,6 +21,7 @@ import {
   runTroubleshooter,
   runTranslator,
   runSecurityAnalyst,
+  runVerifier,
 } from '../../../../apps/api/src/operator-agents.js'
 import type { Gateway, CompletionResult, CompletionObjectResult } from '../../../../apps/api/src/operator-gateway.js'
 
@@ -159,6 +161,21 @@ describe('buildPlannerMessages', () => {
     expect(content).toContain('Previously rejected operations')
     expect(content).toContain('grantAccess')
     expect(content).toContain('3 change(s) already applied')
+  })
+
+  it('grounds the planner with durable zone memory carried across conversations', () => {
+    const messages = buildPlannerMessages('register the billing app', {
+      facts: null,
+      state: null,
+      zoneMemory: [
+        { text: 'Connect the Hooli OIDC provider', created_at: '2026-06-01T00:00:00Z' },
+        { text: 'Register the Son of Anton application', created_at: '2026-06-02T00:00:00Z' },
+      ],
+    })
+    const content = messages[1].content
+    expect(content).toContain('Durable zone memory')
+    expect(content).toContain('Connect the Hooli OIDC provider')
+    expect(content).toContain('Register the Son of Anton application')
   })
 })
 
@@ -313,6 +330,72 @@ describe('runSecurityAnalyst', () => {
   it('fails closed when the review is off-schema, so no advisory is attached', async () => {
     const { gateway } = gatewayProducing(new Error('schema validation failed'))
     const result = await runSecurityAnalyst(gateway, plan, { facts: null, state: null })
+    expect(result.ok).toBe(false)
+  })
+})
+
+describe('buildVerifierMessages', () => {
+  const plan = {
+    summary: 'Register the Billing application',
+    steps: [{ id: 's1', capability: 'registerApplication', args: { name: 'Billing' } }],
+  }
+
+  it('renders the applied plan and frames the turn as post-execution verification', () => {
+    const messages = buildVerifierMessages(plan, { facts: null, state: null })
+    expect(messages[0].content).toContain('POST-EXECUTION VERIFICATION')
+    expect(messages[1].content).toContain('Applied plan')
+    expect(messages[1].content).toContain('registerApplication')
+    expect(messages[1].content).toContain('Billing')
+  })
+
+  it('includes the live state read after the apply so the verdict judges against current state', () => {
+    const messages = buildVerifierMessages(plan, {
+      facts: null,
+      state: null,
+      evidence: [{ capability: 'listApplications', domain: 'application', ok: true, count: 1, names: ['Billing'] }],
+    })
+    expect(messages[1].content).toContain('Live state (read just now)')
+    expect(messages[1].content).toContain('Billing')
+  })
+})
+
+describe('runVerifier', () => {
+  const plan = {
+    summary: 'Register the Billing application',
+    steps: [{ id: 's1', capability: 'registerApplication', args: { name: 'Billing' } }],
+  }
+
+  it('returns a matched verdict when live state reflects the applied plan', async () => {
+    const { gateway } = gatewayProducing({
+      status: 'matched',
+      summary: 'The Billing application is present in current state.',
+      findings: [],
+    })
+    const result = await runVerifier(gateway, plan, { facts: null, state: null })
+    expect(result).toEqual({
+      ok: true,
+      value: { status: 'matched', summary: 'The Billing application is present in current state.', findings: [] },
+    })
+  })
+
+  it('returns a drifted verdict with a corrective follow-up when state diverges from intent', async () => {
+    const { gateway } = gatewayProducing({
+      status: 'drifted',
+      summary: 'The application the plan should have registered is not present.',
+      findings: [{ observation: 'No application named Billing appears in the live read.' }],
+      followUp: 'Re-run the registration for the Billing application.',
+    })
+    const result = await runVerifier(gateway, plan, { facts: null, state: null })
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.value.status).toBe('drifted')
+      expect(result.value.followUp).toBe('Re-run the registration for the Billing application.')
+    }
+  })
+
+  it('fails closed when the verdict is off-schema, so the turn is left unverified', async () => {
+    const { gateway } = gatewayProducing(new Error('schema validation failed'))
+    const result = await runVerifier(gateway, plan, { facts: null, state: null })
     expect(result.ok).toBe(false)
   })
 })
