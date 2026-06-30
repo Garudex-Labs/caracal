@@ -11,7 +11,7 @@ Caracal has three operator surfaces:
 | Surface | Use it for | Do not use it for |
 | --- | --- | --- |
 | `caracal` | Local stack lifecycle, readiness checks, local reset, token-injected process execution, and the local web development launcher. | Creating or changing zones, applications, providers, resources, policies, audit queries, agents, delegation, or Control setup. |
-| Web console | Human product management for zones, applications, providers, resources, policies, policy sets, authority sessions, Control, audit, request traces, agent sessions, delegation, and diagnostics. In Compose it is served by the packaged `web` service at `http://localhost:3001`; `caracal web` remains the development launcher. | Starting or stopping the stack, purging local runtime state, running workloads, or CI automation. |
+| Web console | Human product management for zones, applications, providers, resources, policies, policy sets, authority sessions, Control, audit, request tracing, agent sessions, delegation, and diagnostics. In Compose it is served by the packaged `web` service at `http://localhost:3001`; `caracal web` remains the development launcher. | Starting or stopping the stack, purging local runtime state, running workloads, or CI automation. |
 | Control API / Admin SDK | Scripted product management from trusted operator automation. | Local lifecycle, workload execution, or browser-based guided setup. |
 
 The runtime CLI stays small so lifecycle and workload execution do not depend on admin tokens, zone selection, or Control credentials. Human product management belongs to the web console; automation belongs to the Control API or Admin SDK.

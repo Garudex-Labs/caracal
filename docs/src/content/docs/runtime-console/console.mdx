@@ -59,7 +59,7 @@ Open the packaged or development URL in a browser, sign in to the session-guarde
 
 | Section | What it manages |
 | --- | --- |
-| **Guided setup** | First zone, agent app, provider, resource, access policy, and runtime profile. |
+| **Guided setup** | First zone, agent app, provider, resource, and access policy. |
 | **Caracal Operator** | Operate the control plane from natural-language intent: describe a change, review the resolved plan, and apply it within your operator scope. |
 | **Zones** | Zone records and active zone selection. |
 | **Applications** | Confidential agent applications and one-time client secrets. |
@@ -70,8 +70,7 @@ Open the packaged or development URL in a browser, sign in to the session-guarde
 | **Sessions** | Active authority-session records. |
 | **Agents** | Agent sessions, lifecycle, lease health, and session trees. |
 | **Delegation** | Authority edges between agent sessions. |
-| **Audit** | Recent decisions, filters, event details, and request trace entry points. |
-| **Request Traces** | Direct lookup for one known request ID. |
+| **Audit** | Recent decisions, filters, event details, and built-in request tracing. |
 | **Control** | Control API exposure and Control credentials. |
 | **Diagnostics** | Health, readiness, zone, and preflight checks. |
 
@@ -160,18 +159,18 @@ A session can run long, so the Operator does not re-read the whole transcript ea
 
 ## Guided Setup
 
-Guided setup creates or selects the first working objects:
+Guided setup is a coachmark walkthrough that orients you, then opens the real create form for each building block in order:
 
-1. Zone
+1. Orientation
 2. Agent app
 3. Provider
 4. Resource
 5. Access policy
-6. Review and create
+6. Verify
 
-Important guided fields include `upstream URL`, `first request path`, `runtime profile`, `write profile files`, `profile path`, `secret file`, `resource identifier`, and `resource scopes`.
+Each step opens the same Applications, Providers, Resources, and Policies forms you reach from the navigation and ticks off as live zone data satisfies it. Important guided fields include the `resource identifier`, `resource scopes`, `upstream URL`, and `Gateway application binding`. The application form shows the client secret once; copy it before leaving the step.
 
-Use file writing when you want the web console to create the runtime profile and secret file locally. Leave it disabled when a platform secret manager or CI system will provide those values.
+Guided setup creates product objects only. Configure `caracal run` and the SDKs afterward with environment variables or a `caracal.toml` profile, as described in [Configure Workloads](/runtime-console/config-file/).
 
 ## Troubleshooting
 
