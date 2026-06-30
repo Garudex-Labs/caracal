@@ -19,7 +19,7 @@ import {
   type CapabilityDomain,
   type PlanValidation,
 } from '../operator-capabilities.js'
-import { previewPlan } from '../operator-preview.js'
+import { previewPlan, type StepPreview } from '../operator-preview.js'
 import { buildOperatorAuthority, isZoneIsolated, authorizePlanSteps, type OperatorAuthority } from '../operator-authority.js'
 import { buildOperatorControlClient, type OperatorControlEndpoints } from '../operator-control-client.js'
 import { executeViaControlPlane, type GovernedPlanStep } from '../operator-governed-execute.js'
@@ -219,20 +219,29 @@ async function writeTurnLocked(
 // so a stored plan can never claim a capability or effect the catalog does not
 // grant. Shared by the plan endpoint and the message orchestrator so a plan from
 // natural language and a plan from a direct call are stored identically.
-function buildPlanContentJson(summary: string, validation: PlanValidation, advisory?: SecurityAdvisory, deliberation?: ProgressEvent['stage'][]): string {
+function buildPlanContentJson(summary: string, validation: PlanValidation, advisory?: SecurityAdvisory, deliberation?: ProgressEvent['stage'][], preview?: StepPreview[]): string {
+  // The preview resolves each step against live state into a concrete effect - create, update,
+  // no-op, or blocked. Persisting it per step lets the human review the consequence the plan was
+  // previewed to have, not only what it claims to do. Informational only - execution re-previews
+  // and re-derives the plan from summary and steps, never from this recorded effect.
+  const effects = new Map((preview ?? []).map((step) => [step.id, step.effect]))
   const content: Record<string, unknown> = {
     summary,
-    steps: validation.steps.map((step) => ({
-      id: step.id,
-      capability: step.capability,
-      summary: step.title,
-      mutating: step.mutating,
-      args: step.args,
-      // The plan's order and the planner's own consequence assessment are persisted so the human
-      // reviews exactly the dependency chain and per-step risk the guardian reasoned over.
-      ...(step.depends_on.length > 0 ? { depends_on: step.depends_on } : {}),
-      ...(step.risk ? { risk: step.risk } : {}),
-    })),
+    steps: validation.steps.map((step) => {
+      const effect = effects.get(step.id)
+      return {
+        id: step.id,
+        capability: step.capability,
+        summary: step.title,
+        mutating: step.mutating,
+        args: step.args,
+        // The plan's order and the planner's own consequence assessment are persisted so the human
+        // reviews exactly the dependency chain and per-step risk the guardian reasoned over.
+        ...(step.depends_on.length > 0 ? { depends_on: step.depends_on } : {}),
+        ...(step.risk ? { risk: step.risk } : {}),
+        ...(effect ? { effect } : {}),
+      }
+    }),
   }
   // A composed plan may carry an advisory security review. It is persisted with the plan so the
   // human sees it when deciding and it stays in the audit record; it is informational only and
@@ -1524,7 +1533,7 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
           params.zoneId,
           'operator',
           'plan',
-          buildPlanContentJson(planned.value.summary, validation, advisory, deliberation),
+          buildPlanContentJson(planned.value.summary, validation, advisory, deliberation, preview.steps),
           req.actor.id,
         )
         if (!turn.ok) {

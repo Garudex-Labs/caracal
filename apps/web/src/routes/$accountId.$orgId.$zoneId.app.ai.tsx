@@ -126,6 +126,7 @@ import {
   type PlanAdvisoryView,
   type PlanItem,
   type PlanStepView,
+  type StepEffect,
   type StepRisk,
   type TimelineItem,
 } from "@/platform/operator/timeline";
@@ -2464,6 +2465,40 @@ function StepRiskBadge({ risk }: { risk?: StepRisk }) {
   );
 }
 
+// A compact per-step effect signal: what this step was previewed to do against live state. The
+// unremarkable read-only case is left unmarked so the badge stays a consequence the eye can find;
+// only a create, an in-place change, a no-op on an already-satisfied step, or a blocked step
+// surface, with color reserved for the kind of state change at hand.
+function StepEffectBadge({ effect }: { effect?: StepEffect }) {
+  if (!effect || effect === "read_only") return null;
+  const label =
+    effect === "create"
+      ? "creates"
+      : effect === "update"
+        ? "updates"
+        : effect === "exists"
+          ? "no change"
+          : "blocked";
+  const tone =
+    effect === "create"
+      ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+      : effect === "update"
+        ? "border-sky-500/30 bg-sky-500/10 text-sky-600 dark:text-sky-400"
+        : effect === "blocked"
+          ? "border-destructive/30 bg-destructive/10 text-destructive"
+          : "border-border bg-muted text-muted-foreground";
+  return (
+    <span
+      className={cx(
+        "inline-flex shrink-0 items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide",
+        tone,
+      )}
+    >
+      {label}
+    </span>
+  );
+}
+
 // The advisory security review surfaced above the approval controls, so the reviewer weighs intent
 // alignment, over-grant, and blast-radius before approving. It never gates the decision - the
 // approve and reject controls are unchanged whether or not findings are present. When the guardian
@@ -2602,7 +2637,12 @@ function PlanArtifact({
                 type={`tool-${step.capability}`}
                 title={step.summary}
                 state={stepToolState(step, plan)}
-                accessory={<StepRiskBadge risk={step.risk} />}
+                accessory={
+                  <span className="flex shrink-0 items-center gap-1.5">
+                    <StepEffectBadge effect={step.effect} />
+                    <StepRiskBadge risk={step.risk} />
+                  </span>
+                }
               />
               <ToolContent>
                 {dependencyLabels.length > 0 ? (

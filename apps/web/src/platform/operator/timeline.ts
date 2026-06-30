@@ -26,6 +26,11 @@ export interface MessageItem {
 // advisory: the guardian and the human approver still decide.
 export type StepRisk = "low" | "medium" | "high";
 
+// What applying a step would do against live state at the moment the plan was previewed: bring a
+// new thing into being, change an existing one, find it already in the desired state, or find it
+// blocked. Informational only - execution re-previews before applying.
+export type StepEffect = "create" | "update" | "exists" | "blocked" | "read_only";
+
 export interface PlanStepView {
   id: string;
   capability: string;
@@ -38,6 +43,9 @@ export interface PlanStepView {
   dependsOn: string[];
   // The planner's declared risk for this step, present when it tagged one.
   risk?: StepRisk;
+  // The effect this step was previewed to have against live state, present when the plan carried a
+  // preview. Informational: it shows the consequence reviewed, not a guarantee at apply time.
+  effect?: StepEffect;
 }
 
 export type AdvisorySeverity = "info" | "caution" | "warning";
@@ -108,10 +116,21 @@ interface RawPlanStep {
   args: Record<string, unknown>;
   dependsOn: string[];
   risk?: StepRisk;
+  effect?: StepEffect;
 }
 
 function readStepRisk(value: unknown): StepRisk | undefined {
   return value === "low" || value === "medium" || value === "high" ? value : undefined;
+}
+
+function readStepEffect(value: unknown): StepEffect | undefined {
+  return value === "create" ||
+    value === "update" ||
+    value === "exists" ||
+    value === "blocked" ||
+    value === "read_only"
+    ? value
+    : undefined;
 }
 
 function readDependsOn(value: unknown): string[] {
@@ -144,6 +163,7 @@ function readPlanSteps(content: Record<string, unknown>): RawPlanStep[] {
   return steps.map((raw) => {
     const step = asRecord(raw);
     const risk = readStepRisk(step.risk);
+    const effect = readStepEffect(step.effect);
     return {
       id: asString(step.id),
       capability: asString(step.capability),
@@ -152,6 +172,7 @@ function readPlanSteps(content: Record<string, unknown>): RawPlanStep[] {
       args: asRecord(step.args),
       dependsOn: readDependsOn(step.depends_on),
       ...(risk ? { risk } : {}),
+      ...(effect ? { effect } : {}),
     };
   });
 }
@@ -293,6 +314,7 @@ function resolvePlan(
       status: exec?.status ?? "pending",
       dependsOn: step.dependsOn,
       ...(step.risk ? { risk: step.risk } : {}),
+      ...(step.effect ? { effect: step.effect } : {}),
       ...(exec?.detail ? { detail: exec.detail } : {}),
     };
   });
