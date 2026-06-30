@@ -239,6 +239,26 @@ func newRequestID() string {
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:])
 }
 
+// newTraceparent returns a standards-compliant W3C traceparent header value.
+// It is generated independently from X-Request-Id because request IDs are
+// allowed to be human-friendly opaque strings rather than lowercase hex.
+func newTraceparent() string {
+	var ids [24]byte
+	if _, err := rand.Read(ids[:]); err != nil {
+		// Fall back to hash-derived bytes so trace propagation stays valid even if
+		// randomness is temporarily unavailable.
+		sum := sha256.Sum256([]byte(newRequestID()))
+		copy(ids[:], sum[:24])
+	}
+	if zeroBytes(ids[:16]) {
+		ids[0] = 1
+	}
+	if zeroBytes(ids[16:24]) {
+		ids[16] = 1
+	}
+	return "00-" + hex.EncodeToString(ids[:16]) + "-" + hex.EncodeToString(ids[16:24]) + "-01"
+}
+
 // validRequestID accepts UUID-shaped or short opaque identifiers (≤128 chars, printable ASCII).
 func validRequestID(s string) bool {
 	if s == "" || len(s) > 128 {
@@ -246,6 +266,15 @@ func validRequestID(s string) bool {
 	}
 	for _, r := range s {
 		if r < 0x21 || r > 0x7e {
+			return false
+		}
+	}
+	return true
+}
+
+func zeroBytes(b []byte) bool {
+	for _, v := range b {
+		if v != 0 {
 			return false
 		}
 	}
