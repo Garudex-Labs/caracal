@@ -11,18 +11,28 @@ import { ControlClientError, type ControlClient } from './control-client.js'
 // but only a bounded list of names, so a large zone never inflates the prompt.
 const EVIDENCE_SAMPLE_LIMIT = 5
 
+// One identified object a read surfaced: its live id paired with its name when it has one. The id
+// is what a mutate-by-id capability binds to, so carrying it lets the planner target an existing
+// object by its real identifier instead of guessing one from the name.
+export interface EvidenceItem {
+  id: string
+  name?: string
+}
+
 // One piece of evidence a researcher gathered from a single governed read. A success carries
-// the live row count, a bounded list of names, and the decision-relevant attributes the planner
-// and guardian need to reason correctly — the distinct provider auth modes and the distinct
-// resource scopes present, extracted under a strict per-domain allowlist so a read still surfaces
-// no secret, token, or policy logic. A failure carries the typed reason so a partial gather still
-// answers — a single denied or unreachable read narrows the evidence, it never fails the turn.
+// the live row count, a bounded list of names, the identified objects (id with name) so a change
+// can target one by its real id, and the decision-relevant attributes the planner and guardian
+// need to reason correctly — the distinct provider auth modes and the distinct resource scopes
+// present, extracted under a strict per-domain allowlist so a read still surfaces no secret, token,
+// or policy logic. A failure carries the typed reason so a partial gather still answers — a single
+// denied or unreachable read narrows the evidence, it never fails the turn.
 export interface Evidence {
   capability: string
   domain: string
   ok: boolean
   count?: number
   names?: string[]
+  items?: EvidenceItem[]
   attributes?: Record<string, string[]>
   error?: string
 }
@@ -95,19 +105,27 @@ function summarizeAttributes(rows: Record<string, unknown>[], domain: string): R
   return Object.keys(attributes).length > 0 ? attributes : undefined
 }
 
-// Reduces a list result to a live count, a bounded list of safe names, and the decision-relevant
-// attributes its domain exposes. Only a row's name (or its id when unnamed) and the allowlisted
-// descriptor fields reach the prompt, never the whole row, so a read can never leak an arbitrary
-// field — secrets, tokens, or policy logic — into the model context.
-function summarizeRows(result: unknown, domain: string): { count: number; names: string[]; attributes?: Record<string, string[]> } {
+// Reduces a list result to a live count, a bounded list of safe names, the identified objects (id
+// with name) a change can target, and the decision-relevant attributes its domain exposes. Only a
+// row's name, its id, and the allowlisted descriptor fields reach the prompt, never the whole row,
+// so a read can never leak an arbitrary field — secrets, tokens, or policy logic — into the model
+// context.
+function summarizeRows(
+  result: unknown,
+  domain: string,
+): { count: number; names: string[]; items: EvidenceItem[]; attributes?: Record<string, string[]> } {
   const rows = Array.isArray(result) ? result : []
   const objects = rows.filter((row): row is Record<string, unknown> => row !== null && typeof row === 'object')
   const names: string[] = []
+  const items: EvidenceItem[] = []
   for (const row of objects.slice(0, EVIDENCE_SAMPLE_LIMIT)) {
-    const label = typeof row.name === 'string' ? row.name : typeof row.id === 'string' ? row.id : null
+    const name = typeof row.name === 'string' ? row.name : undefined
+    const id = typeof row.id === 'string' ? row.id : undefined
+    const label = name ?? id ?? null
     if (label) names.push(label)
+    if (id) items.push(name ? { id, name } : { id })
   }
-  return { count: rows.length, names, attributes: summarizeAttributes(objects, domain) }
+  return { count: rows.length, names, items, attributes: summarizeAttributes(objects, domain) }
 }
 
 // Narrows the governed reads to the object domains a turn actually concerns, so a request about one
@@ -140,8 +158,8 @@ export function createStateResearcher(client: ControlClient): Researcher {
           const invocation = capability.buildInvocation({}, gen)
           try {
             const result = await client.invoke(invocation.command, invocation.subcommand, invocation.flags, capability.scopes)
-            const { count, names, attributes } = summarizeRows(result, domain)
-            return { capability: id, domain, ok: true, count, names, attributes }
+            const { count, names, items, attributes } = summarizeRows(result, domain)
+            return { capability: id, domain, ok: true, count, names, items, attributes }
           } catch (err) {
             const error = err instanceof ControlClientError ? err.reason : 'read failed'
             return { capability: id, domain, ok: false, error }

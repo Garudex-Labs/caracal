@@ -26,7 +26,7 @@ function clientFor(
 describe('governedReadCapabilities', () => {
   it('derives exactly the non-mutating, control-mapped capabilities', () => {
     const reads = governedReadCapabilities()
-    expect(reads.sort()).toEqual(['listApplications', 'listPolicies', 'listProviders', 'listResources'])
+    expect(reads.sort()).toEqual(['listApplications', 'listGrants', 'listPolicies', 'listProviders', 'listResources'])
   })
 
   it('never includes a mutating capability', () => {
@@ -54,6 +54,12 @@ describe('createStateResearcher', () => {
     expect(byDomain.provider).toMatchObject({ ok: true, count: 1, names: ['GitHub'] })
     expect(byDomain.resource).toMatchObject({ ok: true, count: 0, names: [] })
     expect(byDomain.policy).toMatchObject({ ok: true, count: 1, names: ['default'] })
+    // The live id is carried alongside the name so a change can target an object by its real id.
+    expect(byDomain.application.items).toEqual([
+      { id: 'a1', name: 'Billing' },
+      { id: 'a2', name: 'Finance' },
+    ])
+    expect(byDomain.resource.items).toEqual([])
     // Every invoke is a list subcommand — a researcher can never reach a mutating command.
     for (const call of invoke.mock.calls) expect(call[1]).toBe('list')
   })
@@ -183,8 +189,8 @@ describe('createStateResearcher', () => {
 
   it('falls back to the full read set when the named domains map to no governed read', async () => {
     const { client, invoke } = clientFor({ app: [], 'identity-provider': [], resource: [], policy: [] })
-    // 'audit' and 'grant' have no governed read behind them, so the gather must not end up empty.
-    await createStateResearcher(client).gather(['audit', 'grant'])
+    // 'audit' and 'zone' have no governed read behind them, so the gather must not end up empty.
+    await createStateResearcher(client).gather(['audit', 'zone'])
     expect(invoke).toHaveBeenCalledTimes(governedReadCapabilities().length)
   })
 })

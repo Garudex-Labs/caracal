@@ -371,18 +371,27 @@ export interface AgentContext {
 }
 
 // Renders the live state evidence into a compact block: one line per governed read, with the
-// live count, a bounded list of names, and the decision-relevant attributes its domain exposes —
-// the provider auth modes and resource scopes the planner and guardian must reason against — or
-// the typed reason a read could not be gathered. Only names and allowlisted descriptor fields
-// reach the prompt, never whole rows, so a read never leaks an arbitrary field.
+// live count, a bounded list of objects each shown as its name and live id, and the
+// decision-relevant attributes its domain exposes — the provider auth modes and resource scopes
+// the planner and guardian must reason against — or the typed reason a read could not be gathered.
+// The id is surfaced so a change can target an existing object by its real identifier rather than
+// its name. Only names, ids, and allowlisted descriptor fields reach the prompt, never whole rows,
+// so a read never leaks an arbitrary field.
 function describeEvidence(evidence: Evidence[] | undefined): string | null {
   if (!evidence || evidence.length === 0) return null
   const lines = evidence.map((item) => {
     if (!item.ok) return `- ${item.domain}: could not read (${item.error ?? 'read failed'})`
     const count = item.count ?? 0
-    const names = item.names ?? []
     if (count === 0) return `- ${item.domain}: none`
-    const listed = names.length > 0 ? `: ${names.join(', ')}${count > names.length ? ', …' : ''}` : ''
+    const entries = item.items ?? []
+    const names = item.names ?? []
+    let listed = ''
+    if (entries.length > 0) {
+      const rendered = entries.map((e) => (e.name ? `${e.name} (id ${e.id})` : `id ${e.id}`)).join(', ')
+      listed = `: ${rendered}${count > entries.length ? ', …' : ''}`
+    } else if (names.length > 0) {
+      listed = `: ${names.join(', ')}${count > names.length ? ', …' : ''}`
+    }
     const attributes = item.attributes
       ? Object.entries(item.attributes)
           .map(([label, values]) => ` [${label}: ${values.join(', ')}]`)
@@ -518,6 +527,12 @@ export function buildPlannerMessages(message: string, context: AgentContext, fee
           'audit). Caracal will read exactly those domains and ask you to plan again with the new',
           'evidence in hand. Use "needs" only when reading more state would let you plan; use',
           '"clarification" when only the operator can supply the missing decision.',
+          'TARGET EXISTING OBJECTS BY THEIR LIVE ID. When a capability argument is an id —',
+          'application_id, resource_id, provider_id, policy_id, grant_id, user_id — its value MUST be',
+          'the exact id shown for that object in the live state above, copied verbatim. The live state',
+          'lists each object as "name (id …)"; use the id, never the name, for an id argument. If the',
+          'object the request names is not present in the live state, do NOT invent or guess its id:',
+          'return "needs" to read that domain, or "clarification" if it genuinely does not exist.',
           'Reply with ONLY a JSON object {"summary": string, "steps": [{"id": string, "capability":',
           'string, "args": object, "depends_on"?: string[], "risk"?: "low"|"medium"|"high"}],',
           '"clarification"?: string, "needs"?: {"domains": string[]}}. Use a short unique id per step',

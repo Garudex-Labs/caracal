@@ -230,6 +230,25 @@ describe('buildPlannerMessages', () => {
     expect(system).toContain('"depends_on"')
     expect(system).toContain('"risk"')
   })
+
+  it('surfaces each object live id and instructs the planner to target an existing object by that id', () => {
+    const messages = buildPlannerMessages('delete the Heiro application', {
+      facts: null,
+      state: null,
+      evidence: [
+        {
+          capability: 'listApplications',
+          domain: 'application',
+          ok: true,
+          count: 1,
+          names: ['Heiro'],
+          items: [{ id: '019f194f-34f8-72aa-9a70-afd41264bf3d', name: 'Heiro' }],
+        },
+      ],
+    })
+    expect(messages[1].content).toContain('application (1): Heiro (id 019f194f-34f8-72aa-9a70-afd41264bf3d)')
+    expect(messages[0].content).toContain('TARGET EXISTING OBJECTS BY THEIR LIVE ID')
+  })
 })
 
 describe('buildExplainerMessages', () => {
