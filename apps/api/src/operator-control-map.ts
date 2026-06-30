@@ -54,10 +54,42 @@ function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : []
 }
 
+function pluralize(singular: string): string {
+  return /[^aeiou]y$/.test(singular) ? `${singular.slice(0, -1)}ies` : `${singular}s`
+}
+
 function countLabel(rows: unknown[], singular: string): string {
   const n = rows.length
-  const plural = /[^aeiou]y$/.test(singular) ? `${singular.slice(0, -1)}ies` : `${singular}s`
-  return `Found ${n} ${n === 1 ? singular : plural}`
+  return `Found ${n} ${n === 1 ? singular : pluralize(singular)}`
+}
+
+// A governed read capability: lists the live rows of a noun and surfaces them under their
+// plural key with a counted, pluralized detail. command names the control command; noun is
+// the singular surfaced to the human, so identity-provider rows still read as “providers”.
+function readControl(command: string, noun: string): ControlCapability {
+  return {
+    scopes: [`control:${command}:read`],
+    buildInvocation: () => ({ command, subcommand: 'list', flags: {} }),
+    describeOutcome: (result) => {
+      const rows = asArray(result)
+      return { detail: `${countLabel(rows, noun)} in this zone.`, output: { [pluralize(noun)]: rows } }
+    },
+  }
+}
+
+// A governed remove capability: applies a delete or revoke that needs only the object id,
+// requests the least-privilege delete scope, and surfaces the id back as a one-time output.
+// subcommand is the control verb (delete or revoke); idArg names both the capability argument
+// and the output key.
+function removeControl(command: string, subcommand: string, idArg: string, describe: (id: string) => string): ControlCapability {
+  return {
+    scopes: [`control:${command}:delete`],
+    buildInvocation: (args) => ({ command, subcommand, flags: { id: asString(args[idArg]) } }),
+    describeOutcome: (_result, args) => {
+      const id = asString(args[idArg])
+      return { detail: describe(id), output: { [idArg]: id } }
+    },
+  }
 }
 
 // The governed control mapping for every Operator capability that executes through the
@@ -68,41 +100,14 @@ function countLabel(rows: unknown[], singular: string): string {
 // platform operation outside the Operator's governed authority. A capability absent here
 // is not governed-executable and stays plan-only.
 export const CONTROL_CAPABILITIES: Record<string, ControlCapability> = {
-  listApplications: {
-    scopes: ['control:app:read'],
-    buildInvocation: () => ({ command: 'app', subcommand: 'list', flags: {} }),
-    describeOutcome: (result) => {
-      const applications = asArray(result)
-      return { detail: `${countLabel(applications, 'application')} in this zone.`, output: { applications } }
-    },
-  },
-  listProviders: {
-    scopes: ['control:identity-provider:read'],
-    buildInvocation: () => ({ command: 'identity-provider', subcommand: 'list', flags: {} }),
-    describeOutcome: (result) => {
-      const providers = asArray(result)
-      return { detail: `${countLabel(providers, 'provider')} in this zone.`, output: { providers } }
-    },
-  },
-  listResources: {
-    scopes: ['control:resource:read'],
-    buildInvocation: () => ({ command: 'resource', subcommand: 'list', flags: {} }),
-    describeOutcome: (result) => {
-      const resources = asArray(result)
-      return { detail: `${countLabel(resources, 'resource')} in this zone.`, output: { resources } }
-    },
-  },
-  listPolicies: {
-    scopes: ['control:policy:read'],
-    // The control policy list returns metadata only — name, description, ownership — never
-    // the Rego source, which lives in policy versions behind a separate read. So a list is
-    // safe to surface in full without leaking policy logic.
-    buildInvocation: () => ({ command: 'policy', subcommand: 'list', flags: {} }),
-    describeOutcome: (result) => {
-      const policies = asArray(result)
-      return { detail: `${countLabel(policies, 'policy')} in this zone.`, output: { policies } }
-    },
-  },
+  listApplications: readControl('app', 'application'),
+  listProviders: readControl('identity-provider', 'provider'),
+  listResources: readControl('resource', 'resource'),
+  // The control policy list returns metadata only — name, description, ownership — never the
+  // Rego source, which lives in policy versions behind a separate read. So a list is safe to
+  // surface in full without leaking policy logic.
+  listPolicies: readControl('policy', 'policy'),
+  listGrants: readControl('grant', 'grant'),
 
   registerApplication: {
     scopes: ['control:app:write'],
@@ -130,18 +135,11 @@ export const CONTROL_CAPABILITIES: Record<string, ControlCapability> = {
       output: { application_id: asString(args.application_id), client_secret: gen.secret },
     }),
   },
-  deleteApplication: {
-    scopes: ['control:app:delete'],
-    buildInvocation: (args) => ({
-      command: 'app',
-      subcommand: 'delete',
-      flags: { id: asString(args.application_id) },
-    }),
-    describeOutcome: (_result, args) => ({
-      detail: `Deleted application ${asString(args.application_id)} from this zone.`,
-      output: { application_id: asString(args.application_id) },
-    }),
-  },
+  deleteApplication: removeControl('app', 'delete', 'application_id', (id) => `Deleted application ${id} from this zone.`),
+  deleteResource: removeControl('resource', 'delete', 'resource_id', (id) => `Deleted resource ${id} from this zone.`),
+  deleteProvider: removeControl('identity-provider', 'delete', 'provider_id', (id) => `Deleted provider ${id} from this zone.`),
+  deletePolicy: removeControl('policy', 'delete', 'policy_id', (id) => `Deleted policy ${id} from this zone.`),
+  revokeGrant: removeControl('grant', 'revoke', 'grant_id', (id) => `Revoked grant ${id} and the active sessions it authorized.`),
   grantAccess: {
     scopes: ['control:grant:write'],
     buildInvocation: (args) => ({

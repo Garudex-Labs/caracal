@@ -13,6 +13,32 @@ const Scope = z.string().min(1).max(128).regex(ScopePattern)
 // so the Operator reasons in user-visible terms rather than internal endpoints.
 export type CapabilityDomain = 'zone' | 'application' | 'provider' | 'resource' | 'policy' | 'grant' | 'audit'
 
+// A live-state target a preview resolves against. The catalog names the logical noun; the
+// preview interpreter owns the table and liveness predicate, so the catalog stays free of
+// any database detail.
+export type PreviewTarget = 'zones' | 'applications' | 'providers' | 'resources' | 'policies' | 'grants'
+
+// How a capability's effect is resolved against live state, declared on the capability so a
+// new capability needs no change to the preview interpreter: a read changes nothing; a
+// create-by-name is taken-or-new; a mutate-by-id is live-or-blocked; a create that depends on
+// existing objects is blocked until each is live. Detail builders are pure and database-free.
+export type CapabilityPreview =
+  | { kind: 'read' }
+  | { kind: 'createByName'; target: PreviewTarget; exists: (name: string) => string; create: (name: string) => string }
+  | {
+      kind: 'mutateById'
+      target: PreviewTarget
+      idArg: string
+      effect: 'update' | 'delete'
+      live: (id: string) => string
+      blocked: (id: string) => string
+    }
+  | {
+      kind: 'requireLiveThenCreate'
+      requires: { target: PreviewTarget; idArg: string; blocked: (id: string) => string }[]
+      create: (args: Record<string, unknown>) => string
+    }
+
 export interface Capability {
   id: string
   title: string
@@ -26,6 +52,9 @@ export interface Capability {
   // A concise, human-readable description of the arguments, used to ground the
   // planner agent. The authoritative shape is `args`; this only describes it.
   argsHint: string
+  // How the preview resolves this capability's effect against live state. Co-located here so
+  // the single declaration that adds a capability also describes how it previews.
+  preview: CapabilityPreview
 }
 
 const NoArgs = z.object({}).strict()
@@ -39,6 +68,7 @@ export const CAPABILITIES: Record<string, Capability> = {
     mutating: false,
     args: NoArgs,
     argsHint: 'no arguments',
+    preview: { kind: 'read' },
   },
   createZone: {
     id: 'createZone',
@@ -48,6 +78,12 @@ export const CAPABILITIES: Record<string, Capability> = {
     mutating: true,
     args: z.object({ name: z.string().min(1).max(200) }).strict(),
     argsHint: 'name (string)',
+    preview: {
+      kind: 'createByName',
+      target: 'zones',
+      exists: (name) => `A zone named “${name}” already exists.`,
+      create: (name) => `Would create zone “${name}”.`,
+    },
   },
   listApplications: {
     id: 'listApplications',
@@ -57,6 +93,7 @@ export const CAPABILITIES: Record<string, Capability> = {
     mutating: false,
     args: NoArgs,
     argsHint: 'no arguments',
+    preview: { kind: 'read' },
   },
   registerApplication: {
     id: 'registerApplication',
@@ -66,6 +103,12 @@ export const CAPABILITIES: Record<string, Capability> = {
     mutating: true,
     args: z.object({ name: z.string().min(1).max(200) }).strict(),
     argsHint: 'name (string)',
+    preview: {
+      kind: 'createByName',
+      target: 'applications',
+      exists: (name) => `An application named “${name}” already exists.`,
+      create: (name) => `Would register application “${name}”.`,
+    },
   },
   rotateApplicationSecret: {
     id: 'rotateApplicationSecret',
@@ -75,6 +118,14 @@ export const CAPABILITIES: Record<string, Capability> = {
     mutating: true,
     args: z.object({ application_id: IdRef }).strict(),
     argsHint: 'application_id (string)',
+    preview: {
+      kind: 'mutateById',
+      target: 'applications',
+      idArg: 'application_id',
+      effect: 'update',
+      live: (id) => `Would rotate the secret for application ${id}.`,
+      blocked: (id) => `Application ${id} was not found in this zone.`,
+    },
   },
   deleteApplication: {
     id: 'deleteApplication',
@@ -84,6 +135,14 @@ export const CAPABILITIES: Record<string, Capability> = {
     mutating: true,
     args: z.object({ application_id: IdRef }).strict(),
     argsHint: 'application_id (string)',
+    preview: {
+      kind: 'mutateById',
+      target: 'applications',
+      idArg: 'application_id',
+      effect: 'delete',
+      live: (id) => `Would delete application ${id} from this zone.`,
+      blocked: (id) => `Application ${id} was not found in this zone.`,
+    },
   },
   listProviders: {
     id: 'listProviders',
@@ -93,6 +152,7 @@ export const CAPABILITIES: Record<string, Capability> = {
     mutating: false,
     args: NoArgs,
     argsHint: 'no arguments',
+    preview: { kind: 'read' },
   },
   connectProvider: {
     id: 'connectProvider',
@@ -108,6 +168,29 @@ export const CAPABILITIES: Record<string, Capability> = {
       .strict(),
     argsHint:
       'name (string), kind (one of: none, caracal_mandate, oauth2_authorization_code, oauth2_client_credentials, api_key, bearer_token)',
+    preview: {
+      kind: 'createByName',
+      target: 'providers',
+      exists: (name) => `A provider named “${name}” already exists.`,
+      create: (name) => `Would connect provider “${name}”.`,
+    },
+  },
+  deleteProvider: {
+    id: 'deleteProvider',
+    title: 'Delete a provider',
+    summary: 'Permanently remove an upstream provider from the zone.',
+    domain: 'provider',
+    mutating: true,
+    args: z.object({ provider_id: IdRef }).strict(),
+    argsHint: 'provider_id (string)',
+    preview: {
+      kind: 'mutateById',
+      target: 'providers',
+      idArg: 'provider_id',
+      effect: 'delete',
+      live: (id) => `Would delete provider ${id} from this zone.`,
+      blocked: (id) => `Provider ${id} was not found in this zone.`,
+    },
   },
   defineResource: {
     id: 'defineResource',
@@ -117,6 +200,12 @@ export const CAPABILITIES: Record<string, Capability> = {
     mutating: true,
     args: z.object({ name: z.string().min(1).max(200), scopes: z.array(Scope).min(1).max(64) }).strict(),
     argsHint: 'name (string), scopes (array of scope strings)',
+    preview: {
+      kind: 'createByName',
+      target: 'resources',
+      exists: (name) => `A resource named “${name}” already exists.`,
+      create: (name) => `Would define resource “${name}”.`,
+    },
   },
   listResources: {
     id: 'listResources',
@@ -126,6 +215,34 @@ export const CAPABILITIES: Record<string, Capability> = {
     mutating: false,
     args: NoArgs,
     argsHint: 'no arguments',
+    preview: { kind: 'read' },
+  },
+  deleteResource: {
+    id: 'deleteResource',
+    title: 'Delete a resource',
+    summary: 'Permanently remove a protected resource from the zone.',
+    domain: 'resource',
+    mutating: true,
+    args: z.object({ resource_id: IdRef }).strict(),
+    argsHint: 'resource_id (string)',
+    preview: {
+      kind: 'mutateById',
+      target: 'resources',
+      idArg: 'resource_id',
+      effect: 'delete',
+      live: (id) => `Would delete resource ${id} from this zone.`,
+      blocked: (id) => `Resource ${id} was not found in this zone.`,
+    },
+  },
+  listGrants: {
+    id: 'listGrants',
+    title: 'List grants',
+    summary: 'Read the delegated grants binding applications and users to resource scopes in the zone.',
+    domain: 'grant',
+    mutating: false,
+    args: NoArgs,
+    argsHint: 'no arguments',
+    preview: { kind: 'read' },
   },
   grantAccess: {
     id: 'grantAccess',
@@ -142,6 +259,34 @@ export const CAPABILITIES: Record<string, Capability> = {
       })
       .strict(),
     argsHint: 'application_id (string), user_id (string), resource_id (string), scopes (array of scope strings)',
+    preview: {
+      kind: 'requireLiveThenCreate',
+      requires: [
+        { target: 'applications', idArg: 'application_id', blocked: (id) => `Application ${id} was not found in this zone.` },
+        { target: 'resources', idArg: 'resource_id', blocked: (id) => `Resource ${id} was not found in this zone.` },
+      ],
+      create: (args) =>
+        `Would grant ${(Array.isArray(args.scopes) ? (args.scopes as string[]) : []).join(', ')} to application ${String(
+          args.application_id,
+        )} on resource ${String(args.resource_id)}.`,
+    },
+  },
+  revokeGrant: {
+    id: 'revokeGrant',
+    title: 'Revoke a grant',
+    summary: 'Revoke a delegated grant and the active sessions it authorized.',
+    domain: 'grant',
+    mutating: true,
+    args: z.object({ grant_id: IdRef }).strict(),
+    argsHint: 'grant_id (string)',
+    preview: {
+      kind: 'mutateById',
+      target: 'grants',
+      idArg: 'grant_id',
+      effect: 'delete',
+      live: (id) => `Would revoke grant ${id} in this zone.`,
+      blocked: (id) => `Grant ${id} was not found in this zone.`,
+    },
   },
   explainAccess: {
     id: 'explainAccess',
@@ -151,6 +296,7 @@ export const CAPABILITIES: Record<string, Capability> = {
     mutating: false,
     args: z.object({ application_id: IdRef.optional(), resource_id: IdRef.optional() }).strict(),
     argsHint: 'application_id (string, optional), resource_id (string, optional)',
+    preview: { kind: 'read' },
   },
   listPolicies: {
     id: 'listPolicies',
@@ -160,6 +306,24 @@ export const CAPABILITIES: Record<string, Capability> = {
     mutating: false,
     args: NoArgs,
     argsHint: 'no arguments',
+    preview: { kind: 'read' },
+  },
+  deletePolicy: {
+    id: 'deletePolicy',
+    title: 'Delete a policy',
+    summary: 'Permanently remove a policy from the zone.',
+    domain: 'policy',
+    mutating: true,
+    args: z.object({ policy_id: IdRef }).strict(),
+    argsHint: 'policy_id (string)',
+    preview: {
+      kind: 'mutateById',
+      target: 'policies',
+      idArg: 'policy_id',
+      effect: 'delete',
+      live: (id) => `Would delete policy ${id} from this zone.`,
+      blocked: (id) => `Policy ${id} was not found in this zone.`,
+    },
   },
 }
 

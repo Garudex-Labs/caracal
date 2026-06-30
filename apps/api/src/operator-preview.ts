@@ -3,7 +3,7 @@
 //
 // Read-only execution preview that resolves each catalog-valid plan step against live control-plane state.
 
-import { validateProposedPlan, type PlanDiagnostic, type ProposedPlanInput } from './operator-capabilities.js'
+import { CAPABILITIES, validateProposedPlan, type PlanDiagnostic, type PreviewTarget, type ProposedPlanInput } from './operator-capabilities.js'
 
 // The minimal read surface the preview needs. The API DB satisfies this
 // structurally; the preview never writes, so only query is required.
@@ -31,110 +31,79 @@ export interface PlanPreview {
   diagnostics: PlanDiagnostic[]
 }
 
-async function nameTaken(
-  db: PreviewQueryable,
-  table: 'zones' | 'applications' | 'providers' | 'resources',
-  zoneId: string,
-  name: string,
-): Promise<boolean> {
-  // table is a fixed internal literal (never caller-supplied), so the interpolation
-  // carries no injection surface; name and zone are always bound parameters.
-  const scope = table === 'zones' ? 'id IS NOT NULL' : 'zone_id = $2'
-  const params = table === 'zones' ? [name] : [name, zoneId]
-  const { rows } = await db.query<{ one: number }>(
-    `SELECT 1 AS one FROM ${table}
-     WHERE name = $1 AND ${scope} AND archived_at IS NULL LIMIT 1`,
-    params,
-  )
+// The live-state table and predicate behind each preview target. The keys are a fixed
+// internal enum (never caller-supplied) so the table name and predicate carry no injection
+// surface; ids, names, and zones are always bound parameters. Owning the database detail
+// here keeps the capability catalog free of any schema knowledge.
+const PREVIEW_TARGETS: Record<PreviewTarget, { table: string; live: string }> = {
+  zones: { table: 'zones', live: 'archived_at IS NULL' },
+  applications: { table: 'applications', live: 'archived_at IS NULL' },
+  providers: { table: 'providers', live: 'archived_at IS NULL' },
+  resources: { table: 'resources', live: 'archived_at IS NULL' },
+  policies: { table: 'policies', live: 'archived_at IS NULL' },
+  grants: { table: 'delegated_grants', live: "status <> 'revoked'" },
+}
+
+// Whether a live object of the named target already carries the given name. Zones are not
+// zone-scoped; every other target is bounded to the current zone.
+async function nameTaken(db: PreviewQueryable, target: PreviewTarget, zoneId: string, name: string): Promise<boolean> {
+  const { table, live } = PREVIEW_TARGETS[target]
+  const zoneScoped = target !== 'zones'
+  const where = zoneScoped ? `name = $1 AND zone_id = $2 AND ${live}` : `name = $1 AND ${live}`
+  const params = zoneScoped ? [name, zoneId] : [name]
+  const { rows } = await db.query<{ one: number }>(`SELECT 1 AS one FROM ${table} WHERE ${where} LIMIT 1`, params)
   return rows.length > 0
 }
 
-async function idLive(db: PreviewQueryable, table: 'applications' | 'resources', zoneId: string, id: string): Promise<boolean> {
+// Whether a live object of the named target exists in the zone under the given id.
+async function idLive(db: PreviewQueryable, target: PreviewTarget, zoneId: string, id: string): Promise<boolean> {
+  const { table, live } = PREVIEW_TARGETS[target]
   const { rows } = await db.query<{ one: number }>(
-    `SELECT 1 AS one FROM ${table}
-     WHERE id = $1 AND zone_id = $2 AND archived_at IS NULL LIMIT 1`,
+    `SELECT 1 AS one FROM ${table} WHERE id = $1 AND zone_id = $2 AND ${live} LIMIT 1`,
     [id, zoneId],
   )
   return rows.length > 0
 }
 
-// Resolves a single validated step's effect against live state. Each branch is a
-// read-only lookup; the catalog has already guaranteed the capability and args.
+// Resolves a single validated step's effect against live state, driven entirely by the
+// capability's declared preview spec. Each branch is a read-only lookup; the catalog has
+// already guaranteed the capability and its arguments. A new capability previews correctly
+// the moment it declares a preview spec — this interpreter never changes.
 async function previewStep(
   db: PreviewQueryable,
   zoneId: string,
   capabilityId: string,
   args: Record<string, unknown>,
 ): Promise<{ effect: StepEffect; detail: string }> {
-  switch (capabilityId) {
-    case 'listZones':
-    case 'listApplications':
-    case 'listProviders':
-    case 'listResources':
-    case 'listPolicies':
-    case 'explainAccess':
+  const preview = CAPABILITIES[capabilityId]?.preview ?? { kind: 'read' }
+
+  switch (preview.kind) {
+    case 'read':
       return { effect: 'read_only', detail: 'Reads current state; changes nothing.' }
 
-    case 'createZone': {
+    case 'createByName': {
       const name = String(args.name)
-      return (await nameTaken(db, 'zones', zoneId, name))
-        ? { effect: 'exists', detail: `A zone named “${name}” already exists.` }
-        : { effect: 'create', detail: `Would create zone “${name}”.` }
+      return (await nameTaken(db, preview.target, zoneId, name))
+        ? { effect: 'exists', detail: preview.exists(name) }
+        : { effect: 'create', detail: preview.create(name) }
     }
 
-    case 'registerApplication': {
-      const name = String(args.name)
-      return (await nameTaken(db, 'applications', zoneId, name))
-        ? { effect: 'exists', detail: `An application named “${name}” already exists.` }
-        : { effect: 'create', detail: `Would register application “${name}”.` }
+    case 'mutateById': {
+      const id = String(args[preview.idArg])
+      return (await idLive(db, preview.target, zoneId, id))
+        ? { effect: preview.effect, detail: preview.live(id) }
+        : { effect: 'blocked', detail: preview.blocked(id) }
     }
 
-    case 'connectProvider': {
-      const name = String(args.name)
-      return (await nameTaken(db, 'providers', zoneId, name))
-        ? { effect: 'exists', detail: `A provider named “${name}” already exists.` }
-        : { effect: 'create', detail: `Would connect provider “${name}”.` }
-    }
-
-    case 'defineResource': {
-      const name = String(args.name)
-      return (await nameTaken(db, 'resources', zoneId, name))
-        ? { effect: 'exists', detail: `A resource named “${name}” already exists.` }
-        : { effect: 'create', detail: `Would define resource “${name}”.` }
-    }
-
-    case 'rotateApplicationSecret': {
-      const appId = String(args.application_id)
-      return (await idLive(db, 'applications', zoneId, appId))
-        ? { effect: 'update', detail: `Would rotate the secret for application ${appId}.` }
-        : { effect: 'blocked', detail: `Application ${appId} was not found in this zone.` }
-    }
-
-    case 'deleteApplication': {
-      const appId = String(args.application_id)
-      return (await idLive(db, 'applications', zoneId, appId))
-        ? { effect: 'delete', detail: `Would delete application ${appId} from this zone.` }
-        : { effect: 'blocked', detail: `Application ${appId} was not found in this zone.` }
-    }
-
-    case 'grantAccess': {
-      const appId = String(args.application_id)
-      const resourceId = String(args.resource_id)
-      if (!(await idLive(db, 'applications', zoneId, appId))) {
-        return { effect: 'blocked', detail: `Application ${appId} was not found in this zone.` }
+    case 'requireLiveThenCreate': {
+      for (const requirement of preview.requires) {
+        const id = String(args[requirement.idArg])
+        if (!(await idLive(db, requirement.target, zoneId, id))) {
+          return { effect: 'blocked', detail: requirement.blocked(id) }
+        }
       }
-      if (!(await idLive(db, 'resources', zoneId, resourceId))) {
-        return { effect: 'blocked', detail: `Resource ${resourceId} was not found in this zone.` }
-      }
-      const scopes = Array.isArray(args.scopes) ? (args.scopes as string[]) : []
-      return {
-        effect: 'create',
-        detail: `Would grant ${scopes.join(', ')} to application ${appId} on resource ${resourceId}.`,
-      }
+      return { effect: 'create', detail: preview.create(args) }
     }
-
-    default:
-      return { effect: 'read_only', detail: 'No preview available for this capability.' }
   }
 }
 

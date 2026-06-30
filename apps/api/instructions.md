@@ -15,12 +15,15 @@
 - Must redact secrets and never return plaintext key material.
 - Must keep admin audit persistence through `@caracalai/admin-audit`.
 - Must filter every per-zone query by an explicit `zone_id` value in route handlers. The `src/db.ts` pool sets `caracal.zone_id='*'` on every connection, which authorizes cross-zone access and bypasses RLS row filtering; zone scoping is enforced in application code, not by the database.
+- Must declare every Operator capability as one entry in `src/operator-capabilities.ts` carrying its args schema, mutating flag, and `preview` spec, and add one `src/operator-control-map.ts` entry only when it is governed-executable.
+- Must let Operator authority, role scopes, and the system-zone identity derive from those two registries; never hand-list a capability's scope anywhere else.
 
 ## Forbidden
 - Must not accept Cedar policies or add a second policy language.
 - Must not expose raw database URLs, Redis URLs, passwords, tokens, or decrypted secrets.
 - Must not bypass request auth, zone guards, or input schemas in route handlers.
 - Must not import from sibling apps or `caracalEnterprise/`.
+- Must not add a per-capability branch to the Operator preview interpreter; the capability's `preview` spec drives it.
 
 ## Validation
 - Validate with `pnpm --dir apps/api build` and `pnpm --dir apps/api test` when API code changes.
