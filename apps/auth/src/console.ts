@@ -410,6 +410,35 @@ async function forwardProxy(
       await upstream.body?.cancel().catch(() => {})
       upstream = await attempt(fallbackToken)
     }
+    const contentType = upstream.headers.get('content-type') ?? 'application/json'
+    // A server-sent event response streams incrementally; buffering it to completion would
+    // collapse every event into a single delivery and defeat token-by-token rendering. Pipe
+    // each chunk straight to the browser and reset the inactivity deadline on activity so a
+    // long but healthy stream is never cut, while a truly stalled upstream still aborts.
+    if (contentType.includes('text/event-stream') && upstream.body) {
+      clearTimeout(timer)
+      res.statusCode = upstream.status
+      res.setHeader('Content-Type', contentType)
+      res.setHeader('Cache-Control', 'no-store')
+      res.setHeader('Connection', 'keep-alive')
+      res.setHeader('X-Accel-Buffering', 'no')
+      res.flushHeaders()
+      const reader = upstream.body.getReader()
+      let idle = setTimeout(() => controller.abort(), PROXY_TIMEOUT_MS)
+      try {
+        for (;;) {
+          const { done, value } = await reader.read()
+          if (done) break
+          clearTimeout(idle)
+          idle = setTimeout(() => controller.abort(), PROXY_TIMEOUT_MS)
+          res.write(Buffer.from(value))
+        }
+      } finally {
+        clearTimeout(idle)
+      }
+      res.end()
+      return
+    }
     const payload = Buffer.from(await upstream.arrayBuffer())
     res.statusCode = upstream.status
     res.setHeader('Content-Type', upstream.headers.get('content-type') ?? 'application/json')
@@ -428,6 +457,11 @@ async function forwardProxy(
     res.end(payload)
   } catch (err) {
     if (res.writableEnded) return
+    // A streaming response already on the wire cannot switch to an error body; close it cleanly.
+    if (res.headersSent) {
+      res.end()
+      return
+    }
     // A client disconnect aborts the upstream fetch; that is expected teardown, not an error.
     if (controller.signal.aborted && !res.headersSent && req.destroyed) return
     logger.warn('proxy upstream failed', { id, path: targetPath(target), err })

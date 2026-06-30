@@ -139,11 +139,12 @@ const SSE_HEADERS = {
   'x-accel-buffering': 'no',
 } as const
 
-// Writes one Server-Sent Event frame to the hijacked response. The route owns the only three
-// event names: stage (a progress signal), result (the authoritative success body), and error (a
-// governance or gateway stop). The terminal frame carries the exact body the non-streaming path
-// would return, so streaming changes only delivery timing, never the decided outcome.
-function writeSseEvent(reply: FastifyReply, event: 'stage' | 'result' | 'error', data: unknown): void {
+// Writes one Server-Sent Event frame to the hijacked response. The route owns the event names:
+// stage (a progress signal), token (a text delta of the answer as it is produced), result (the
+// authoritative success body), and error (a governance or gateway stop). The terminal frame
+// carries the exact body the non-streaming path would return, so streaming changes only delivery
+// timing, never the decided outcome.
+function writeSseEvent(reply: FastifyReply, event: 'stage' | 'token' | 'result' | 'error', data: unknown): void {
   reply.raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
 }
 
@@ -736,9 +737,17 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
     // otherwise. Mode and the autopilot engage flag are Caracal-side settings on the conversation;
     // the model never selects or changes them. Engaging autopilot here only sets the engage flag —
     // what may be auto-approved is still bounded by the deployment's autopilot policy.
+    // The number is drawn from a durable per-zone counter that only ever advances, so a number is
+    // consumed once and never handed out again even after the conversation that held it is deleted.
     const { rows } = await fastify.db.query(
-      `INSERT INTO operator_conversations (id, zone_id, number, title, mode, autopilot, created_by)
-       VALUES ($1, $2, COALESCE((SELECT MAX(number) FROM operator_conversations WHERE zone_id = $2), 0) + 1, $3, $4, $5, $6)
+      `WITH allocated AS (
+         INSERT INTO operator_conversation_counters (zone_id, next_number)
+         VALUES ($2, 1)
+         ON CONFLICT (zone_id) DO UPDATE SET next_number = operator_conversation_counters.next_number + 1
+         RETURNING next_number
+       )
+       INSERT INTO operator_conversations (id, zone_id, number, title, mode, autopilot, created_by)
+       VALUES ($1, $2, (SELECT next_number FROM allocated), $3, $4, $5, $6)
        RETURNING ${CONVERSATION_SELECT}`,
       [id, params.zoneId, parsed.data.title, parsed.data.mode ?? 'agent', parsed.data.autopilot ?? false, req.actor.id],
     )
@@ -1488,6 +1497,10 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
         mode,
         docs: (query) => retrieveDocs(query),
         onProgress: emit,
+        // Forward each answer delta as a token frame so the console renders the answer as it is
+        // produced. Only present when the caller negotiated a stream; the terminal result frame
+        // remains the authoritative body.
+        onAnswerDelta: wantsStream ? (chunk: string) => writeSseEvent(reply, 'token', { text: chunk }) : undefined,
       })
 
       // Defense in depth: ask mode is read-only, so a plan must never be persisted on this path
