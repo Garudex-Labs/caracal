@@ -289,7 +289,7 @@ async function loadConversationFacts(db: ContextQueryable, conversationId: strin
   const { rows } = await db.query<TurnRecord>(
     `SELECT seq, role, kind, content FROM operator_turns
      WHERE conversation_id = $1 AND zone_id = $2
-       AND kind IN ('plan', 'approval', 'rejection', 'execution', 'error')
+       AND kind IN ('plan', 'approval', 'rejection', 'execution', 'error', 'note')
      ORDER BY seq DESC LIMIT $3`,
     [conversationId, zoneId, FACTS_TURN_LIMIT],
   )
@@ -1284,6 +1284,7 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
               JSON.stringify({
                 text: `Verification (${verdict.value.status}): ${verdict.value.summary}${followUp}`,
                 ...(findings ? { reasoning: findings } : {}),
+                verification: { status: verdict.value.status, summary: verdict.value.summary },
               }),
               req.actor.id,
             )

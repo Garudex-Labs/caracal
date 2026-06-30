@@ -25,6 +25,7 @@ describe('summarizeHistory', () => {
       decided_plans: [],
       rejected_capabilities: [],
       applied_change_count: 0,
+      last_drift: null,
       last_error: null,
     })
   })
@@ -66,6 +67,41 @@ describe('summarizeHistory', () => {
       turn({ seq: 2, kind: 'error', role: 'system', content: { message: 'second' } }),
     ])
     expect(facts.last_error).toEqual({ seq: 2, message: 'second' })
+  })
+
+  it('carries a verification verdict that reported drift so the planner can reconcile it', () => {
+    const facts = summarizeHistory([
+      plan(1, ['registerApplication']),
+      turn({ seq: 2, kind: 'approval', content: { plan_seq: 1 } }),
+      turn({ seq: 3, kind: 'execution', content: { plan_seq: 1, step_id: 's1', status: 'succeeded' } }),
+      turn({
+        seq: 4,
+        kind: 'note',
+        content: { text: 'Verification (drifted): the app is missing.', verification: { status: 'drifted', summary: 'The Billing application is not present.' } },
+      }),
+    ])
+    expect(facts.last_drift).toEqual({ seq: 4, summary: 'The Billing application is not present.' })
+  })
+
+  it('drops the drift signal once a later verification matches, so a reconciled drift is not carried', () => {
+    const facts = summarizeHistory([
+      turn({
+        seq: 1,
+        kind: 'note',
+        content: { verification: { status: 'drifted', summary: 'Resource missing.' } },
+      }),
+      turn({
+        seq: 2,
+        kind: 'note',
+        content: { verification: { status: 'matched', summary: 'Resource now present.' } },
+      }),
+    ])
+    expect(facts.last_drift).toBeNull()
+  })
+
+  it('ignores a plain note that carries no verification verdict', () => {
+    const facts = summarizeHistory([turn({ seq: 1, kind: 'note', content: { text: 'why was it denied' } })])
+    expect(facts.last_drift).toBeNull()
   })
 
   it('caps the decided plans to the most recent, bounding output for long sessions', () => {

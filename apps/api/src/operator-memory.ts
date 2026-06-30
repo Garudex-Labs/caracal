@@ -27,6 +27,11 @@ export interface ConversationFacts {
   rejected_capabilities: string[]
   // Total steps that have been successfully applied across the whole session.
   applied_change_count: number
+  // The most recent post-apply verification, but only when it reported drift: an
+  // applied change whose live state diverged from the plan's intent. Carried so the
+  // planner reconciles an outstanding drift instead of re-creating over it. A later
+  // verification that matched supersedes it, so a reconciled drift stops being carried.
+  last_drift: { seq: number; summary: string } | null
   last_error: { seq: number; message: string } | null
 }
 
@@ -62,6 +67,7 @@ export function summarizeHistory(
   const plans = new Map<number, PlanAccumulator>()
   let appliedChangeCount = 0
   let lastError: ConversationFacts['last_error'] = null
+  let lastVerification: { seq: number; status: string; summary: string } | null = null
 
   for (const turn of ordered) {
     const content = asRecord(turn.content)
@@ -91,6 +97,9 @@ export function summarizeHistory(
       }
     } else if (turn.kind === 'error') {
       lastError = { seq: turn.seq, message: asString(content.message) }
+    } else if (turn.kind === 'note') {
+      const status = asString(asRecord(content.verification).status)
+      if (status) lastVerification = { seq: turn.seq, status, summary: asString(asRecord(content.verification).summary) }
     }
   }
 
@@ -118,6 +127,7 @@ export function summarizeHistory(
     decided_plans: cappedPlans,
     rejected_capabilities: [...rejected].sort(),
     applied_change_count: appliedChangeCount,
+    last_drift: lastVerification && lastVerification.status === 'drifted' ? { seq: lastVerification.seq, summary: lastVerification.summary } : null,
     last_error: lastError,
   }
 }
@@ -137,6 +147,11 @@ export function describeFacts(facts: ConversationFacts | null): string {
   }
   if (facts.rejected_capabilities.length > 0) {
     lines.push(`Previously rejected operations (do not propose again unless asked): ${facts.rejected_capabilities.join(', ')}.`)
+  }
+  if (facts.last_drift) {
+    lines.push(
+      `Most recent post-apply verification reported drift (confirm against live state and reconcile if still unresolved): ${facts.last_drift.summary}`,
+    )
   }
   if (facts.last_error) {
     lines.push(`Most recent error: ${facts.last_error.message}`)
