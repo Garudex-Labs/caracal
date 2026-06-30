@@ -6,6 +6,7 @@
 import { useMemo } from "react";
 import { Task, TaskContent, TaskItem, TaskTrigger } from "@/components/ai-elements/task";
 import { cx } from "@/lib/cx";
+import { workingLine } from "@/platform/operator/status";
 import type { OperatorProgressStage } from "@/platform/api/types";
 
 // Human-readable labels for each deliberation stage the Operator streams while it works.
@@ -23,13 +24,20 @@ const STAGE_LABELS: Record<OperatorProgressStage, string> = {
 // A live, ordered account of the Operator's reasoning while a send is in flight. Each stage the
 // backend streams becomes a row: completed stages settle to muted text with a filled marker, the
 // current stage stays in the foreground with a pulsing marker. Before the first stage arrives a
-// neutral working line stands in so there is never dead air.
-export function DeliberationTrail({ stages }: { stages: OperatorProgressStage[] }) {
+// seeded working line stands in so there is never dead air; the seed holds one phrasing steady for
+// this send and rotates to a fresh equivalent on the next.
+export function DeliberationTrail({
+  stages,
+  seed = 0,
+}: {
+  stages: OperatorProgressStage[];
+  seed?: number;
+}) {
   if (stages.length === 0) {
     return (
       <div className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
         <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent-purple" />
-        The Operator is working…
+        {workingLine(seed)}
       </div>
     );
   }

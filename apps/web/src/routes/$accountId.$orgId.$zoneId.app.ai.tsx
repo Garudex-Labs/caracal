@@ -5,7 +5,15 @@ Caracal, a product of Garudex Labs
 This file defines the Caracal Operator route, the Community Edition workspace for operating the control plane in natural language.
 */
 import { createFileRoute } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import { createPortal } from "react-dom";
 
 import { ModulePage } from "@/components/console/ModulePage";
@@ -57,6 +65,7 @@ import {
   formatRelative,
   groupConversations,
   leadSuggestion,
+  streamWindow,
   type SuggestionId,
 } from "@/platform/operator/view";
 import {
@@ -204,6 +213,11 @@ const RAIL_DEFAULT_WIDTH = 240;
 // request fails to settle in the browser, guaranteeing the indicator can never linger.
 const SEND_SETTLE_GUARD_MS = 60_000;
 const RAIL_COLLAPSED_WIDTH = "2.75rem";
+
+// How many of the most recent transcript entries the stream mounts at once. Long sessions hold
+// every earlier turn but render only this tail, so scrolling stays smooth; the "show earlier"
+// control widens the window one page at a time.
+const STREAM_WINDOW = 40;
 
 // The mode and autopilot chosen for the last new conversation are remembered so a fresh chat
 // opens the way the operator last worked. Mode defaults to the safer read-only "ask".
@@ -1035,11 +1049,22 @@ function ActivityStream({
 
   const { items, latestPlan } = useMemo(() => buildTimeline(turns ?? []), [turns]);
 
+  // Render only the most recent window of the transcript; long sessions keep every earlier turn
+  // but mount this tail so scrolling stays smooth. The window always covers the newest turns -
+  // including any actionable plan - because it is taken from the end.
+  const [visibleCount, setVisibleCount] = useState(STREAM_WINDOW);
+  useEffect(() => setVisibleCount(STREAM_WINDOW), [conversationId]);
+  const visibleItems = useMemo(() => streamWindow(items, visibleCount), [items, visibleCount]);
+  const hiddenCount = items.length - visibleItems.length;
+
   // Keep the transcript pinned to the newest message only while the operator is already reading
   // the bottom. Once they scroll up to review earlier turns the stream stops yanking them back,
   // and the snap is instant so streaming updates land without flicker or mid-message jumps.
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
+  // Distance from the bottom captured just before earlier turns are revealed, so the viewport can
+  // be restored to the same place after the taller list paints instead of jumping.
+  const pendingReveal = useRef<number | null>(null);
   const onStreamScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
@@ -1049,7 +1074,22 @@ function ActivityStream({
     if (!stickToBottom.current) return;
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [items, send.isPending, stages, inFlight]);
+  }, [visibleItems, send.isPending, stages, inFlight]);
+
+  // Reveal an earlier page of turns, holding the operator's place: the distance from the bottom is
+  // captured before the window widens and restored once the taller list has painted.
+  const showEarlier = useCallback(() => {
+    const el = scrollRef.current;
+    pendingReveal.current = el ? el.scrollHeight - el.scrollTop : null;
+    stickToBottom.current = false;
+    setVisibleCount((count) => Math.min(items.length, count + STREAM_WINDOW));
+  }, [items.length]);
+  useLayoutEffect(() => {
+    if (pendingReveal.current === null) return;
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight - pendingReveal.current;
+    pendingReveal.current = null;
+  }, [visibleItems]);
 
   function dispatch(text: string) {
     setInFlight(text);
@@ -1196,15 +1236,26 @@ function ActivityStream({
         {isLoading ? (
           <StreamSkeleton />
         ) : (
-          items.map((item) => (
-            <StreamEntry
-              key={item.id}
-              item={item}
-              zoneId={zoneId}
-              conversationId={conversationId}
-              actionable={latestPlan?.id === item.id}
-            />
-          ))
+          <>
+            {hiddenCount > 0 ? (
+              <button
+                type="button"
+                onClick={showEarlier}
+                className="mx-auto rounded-full border border-border bg-muted px-3 py-1 text-[11px] text-muted-foreground transition hover:text-foreground"
+              >
+                Show earlier messages ({hiddenCount})
+              </button>
+            ) : null}
+            {visibleItems.map((item) => (
+              <StreamEntry
+                key={item.id}
+                item={item}
+                zoneId={zoneId}
+                conversationId={conversationId}
+                actionable={latestPlan?.id === item.id}
+              />
+            ))}
+          </>
         )}
 
         {send.isPending && inFlight ? (
@@ -1215,7 +1266,7 @@ function ActivityStream({
           </div>
         ) : null}
 
-        {send.isPending ? <DeliberationTrail stages={stages} /> : null}
+        {send.isPending ? <DeliberationTrail stages={stages} seed={items.length} /> : null}
       </div>
 
       <OperatorQueue

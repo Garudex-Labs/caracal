@@ -50,6 +50,7 @@ import {
   useOperatorCapabilities,
 } from "@/platform/api/hooks";
 import { planCitations } from "@/platform/operator/citations";
+import { applyingLine, PLAN_STATUS } from "@/platform/operator/status";
 import type {
   PlanAdvisoryView,
   PlanItem,
@@ -250,11 +251,21 @@ export function PlanArtifact({
             </ConfirmationRequest>
             <ConfirmationAccepted>
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-              <span>{plan.executed ? "Applied" : "Approved"}</span>
+              <span>
+                {plan.executed
+                  ? PLAN_STATUS.applied
+                  : plan.approvedByAutopilot
+                    ? PLAN_STATUS.approvedByAutopilot
+                    : PLAN_STATUS.approved}
+              </span>
             </ConfirmationAccepted>
             <ConfirmationRejected>
               <span className="h-1.5 w-1.5 rounded-full bg-destructive" />
-              <span>{plan.rejectionReason ? `Rejected: ${plan.rejectionReason}` : "Rejected"}</span>
+              <span>
+                {plan.rejectionReason
+                  ? `${PLAN_STATUS.rejected}: ${plan.rejectionReason}`
+                  : PLAN_STATUS.rejected}
+              </span>
             </ConfirmationRejected>
           </ConfirmationTitle>
           <ConfirmationActions>
@@ -290,7 +301,7 @@ export function PlanArtifact({
             {busy ? (
               <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
                 <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent-purple" />{" "}
-                Working…
+                {applyingLine(plan.seq)}
               </span>
             ) : null}
           </div>
@@ -403,9 +414,9 @@ export function PlanDecisionDock({
   const mutatingCount = plan.steps.filter((step) => step.mutating).length;
   const status = awaitingDecision
     ? mutatingCount > 0
-      ? `Awaiting approval · ${mutatingCount} change${mutatingCount === 1 ? "" : "s"}`
-      : "Awaiting approval · read-only"
-    : "Approved · ready to apply";
+      ? `${PLAN_STATUS.awaitingApproval} · ${mutatingCount} change${mutatingCount === 1 ? "" : "s"}`
+      : `${PLAN_STATUS.awaitingApproval} · read-only`
+    : `${PLAN_STATUS.approved} · ready to apply`;
 
   return (
     <div className="flex flex-shrink-0 flex-col gap-2 border-t border-border bg-card px-4 py-2.5">
