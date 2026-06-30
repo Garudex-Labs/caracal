@@ -638,13 +638,7 @@ export interface DiagnosticsOptions {
 }
 
 export type OperatorCapabilityDomain =
-  | "zone"
-  | "application"
-  | "provider"
-  | "resource"
-  | "policy"
-  | "grant"
-  | "audit";
+  "zone" | "application" | "provider" | "resource" | "policy" | "grant" | "audit";
 
 export interface OperatorCapability {
   id: string;
@@ -666,9 +660,7 @@ export interface OperatorPlanInput {
 }
 
 export type OperatorPlanDiagnosticCode =
-  | "unknown_capability"
-  | "invalid_args"
-  | "duplicate_step_id";
+  "unknown_capability" | "invalid_args" | "duplicate_step_id";
 
 export interface OperatorPlanDiagnostic {
   step_id: string;
@@ -716,13 +708,7 @@ export interface OperatorConversation {
 }
 
 export type OperatorTurnKind =
-  | "message"
-  | "plan"
-  | "approval"
-  | "rejection"
-  | "execution"
-  | "error"
-  | "note";
+  "message" | "plan" | "approval" | "rejection" | "execution" | "error" | "note";
 
 export type OperatorNarrativeKind = "message" | "note" | "error";
 

@@ -158,7 +158,7 @@ async function request<T>(path: string, init?: RequestInit & { signal?: AbortSig
   if (res.status === 204) return undefined as T;
 
   const text = await res.text();
-  let parsed: unknown = undefined;
+  let parsed: unknown;
   try {
     parsed = text ? JSON.parse(text) : undefined;
   } catch {
@@ -209,7 +209,7 @@ async function requestList<T>(
     throw new ConsoleApiError(0, "network_error");
   }
   const text = await res.text();
-  let parsed: unknown = undefined;
+  let parsed: unknown;
   try {
     parsed = text ? JSON.parse(text) : undefined;
   } catch {

@@ -399,7 +399,7 @@ function ZonesPage() {
           // without a shutdown choice and let the backend's authoritative 409 drive the
           // keep/revoke prompt, so live clients are never silently kept.
           if (editTarget.dcr_enabled && !values.dcrEnabled) {
-            let liveCount: number | null = null;
+            let liveCount: number | null;
             try {
               liveCount = (await consoleApi.zones.dcrStatus(editTarget.id)).live_dcr_applications;
             } catch {

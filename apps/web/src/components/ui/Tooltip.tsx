@@ -4,7 +4,14 @@ Caracal, a product of Garudex Labs
 
 This file provides an accessible hover and focus tooltip.
 */
-import { cloneElement, isValidElement, useId, useState, type ReactElement, type ReactNode } from "react";
+import {
+  cloneElement,
+  isValidElement,
+  useId,
+  useState,
+  type ReactElement,
+  type ReactNode,
+} from "react";
 
 import { cx } from "@/lib/cx";
 
