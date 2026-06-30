@@ -25,6 +25,7 @@ import {
   Field,
   IdentityAvatar,
   Modal,
+  useCopyToClipboard,
   useToast,
   type Column,
 } from "@/components/ui";
@@ -567,6 +568,8 @@ function SecretModal({
   onClose: () => void;
   onCopied: () => void;
 }) {
+  const copy = useCopyToClipboard();
+
   return (
     <Modal
       open={secret !== null}
@@ -585,10 +588,7 @@ function SecretModal({
             <Button
               variant="secondary"
               size="sm"
-              onClick={() => {
-                void navigator.clipboard?.writeText(secret.clientSecret);
-                onCopied();
-              }}
+              onClick={() => void copy(secret.clientSecret, { onSuccess: onCopied })}
             >
               Copy
             </Button>

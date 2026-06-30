@@ -24,6 +24,7 @@ import {
   InfoHint,
   Modal,
   Tabs,
+  useCopyToClipboard,
   useToast,
   type Column,
 } from "@/components/ui";
@@ -516,7 +517,7 @@ function ControlSecretModal({
   secret: { id: string; name: string; secret: string } | null;
   onClose: () => void;
 }) {
-  const toast = useToast();
+  const copy = useCopyToClipboard();
   return (
     <Modal
       open={secret !== null}
@@ -543,10 +544,7 @@ function ControlSecretModal({
               <Button
                 variant="secondary"
                 size="sm"
-                onClick={() => {
-                  void navigator.clipboard?.writeText(secret.secret);
-                  toast({ tone: "success", title: "Secret copied" });
-                }}
+                onClick={() => void copy(secret.secret, { successTitle: "Secret copied" })}
               >
                 Copy
               </Button>
@@ -809,7 +807,7 @@ function TokenResultModal({
   result: ControlTokenResult | null;
   onClose: () => void;
 }) {
-  const toast = useToast();
+  const copy = useCopyToClipboard();
   return (
     <Modal
       open={result !== null}
@@ -840,10 +838,7 @@ function TokenResultModal({
               <Button
                 variant="secondary"
                 size="sm"
-                onClick={() => {
-                  void navigator.clipboard?.writeText(result.accessToken);
-                  toast({ tone: "success", title: "Token copied" });
-                }}
+                onClick={() => void copy(result.accessToken, { successTitle: "Token copied" })}
               >
                 Copy
               </Button>
@@ -890,6 +885,7 @@ function SettingsTab() {
 
 function EndpointStatusBar() {
   const toast = useToast();
+  const copy = useCopyToClipboard();
   const statusQuery = useControlStatus();
   const enable = useEnableControl();
   const disable = useDisableControl();
@@ -963,10 +959,7 @@ function EndpointStatusBar() {
           </div>
           {url ? (
             <button
-              onClick={() => {
-                void navigator.clipboard?.writeText(url);
-                toast({ tone: "success", title: "Copied" });
-              }}
+              onClick={() => void copy(url)}
               className="shrink-0 rounded-md border border-border px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             >
               Copy
@@ -1311,17 +1304,14 @@ function Panel({ title, children }: { title: string; children: ReactNode }) {
 }
 
 function CodeBlock({ code, lang }: { code: string; lang: string }) {
-  const toast = useToast();
+  const copy = useCopyToClipboard();
   return (
     <div className="group relative">
       <pre className="scrollbar-thin overflow-x-auto bg-[#0d1117] p-3 font-mono text-xs leading-relaxed text-[#e6edf3]">
         {highlightCode(code, lang, TERMINAL_HIGHLIGHT)}
       </pre>
       <button
-        onClick={() => {
-          void navigator.clipboard?.writeText(code);
-          toast({ tone: "success", title: "Copied" });
-        }}
+        onClick={() => void copy(code)}
         className="absolute right-2 top-2 rounded border border-white/15 bg-white/5 px-2 py-1 text-[10px] font-medium text-white/70 opacity-0 transition-opacity hover:bg-white/10 hover:text-white group-hover:opacity-100"
       >
         Copy

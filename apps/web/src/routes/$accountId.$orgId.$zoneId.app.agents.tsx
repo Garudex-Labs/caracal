@@ -28,6 +28,7 @@ import {
   Select,
   Skeleton,
   Spinner,
+  useCopyToClipboard,
   useToast,
   type Column,
 } from "@/components/ui";
@@ -602,12 +603,7 @@ function AgentInspector({
   const terminal = agent.status === "terminated";
   const metadata = agent.metadata ?? {};
   const live = liveness(agent);
-  const toast = useToast();
-
-  function copy(value: string, label: string) {
-    void navigator.clipboard?.writeText(value);
-    toast({ tone: "success", title: `${label} copied` });
-  }
+  const copy = useCopyToClipboard();
 
   return (
     <div className="flex flex-col gap-6">
@@ -666,7 +662,7 @@ function AgentInspector({
       <DetailGroup title="Identity">
         <DetailField label="Agent session">
           <button
-            onClick={() => copy(agent.agent_session_id, "Session ID")}
+            onClick={() => void copy(agent.agent_session_id, { successTitle: "Session ID copied" })}
             className="text-left hover:underline"
           >
             <Mono>{agent.agent_session_id}</Mono>

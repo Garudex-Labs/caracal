@@ -27,6 +27,7 @@ import {
   Modal,
   Select,
   Spinner,
+  useCopyToClipboard,
   useToast,
   type Column,
   type FilterGroup,
@@ -363,7 +364,7 @@ function ProviderDetail({
   onDelete: () => void;
   zoneId: string;
 }) {
-  const toast = useToast();
+  const copy = useCopyToClipboard();
   const secretKeys = new Set(provider.secret_config_keys);
   const configEntries = Object.entries(provider.config_json ?? {}).filter(
     ([key]) => !secretKeys.has(key as never),
@@ -378,10 +379,11 @@ function ProviderDetail({
             <Button
               variant="secondary"
               size="sm"
-              onClick={() => {
-                void navigator.clipboard?.writeText(JSON.stringify(provider, null, 2));
-                toast({ tone: "success", title: "Provider JSON copied" });
-              }}
+              onClick={() =>
+                void copy(JSON.stringify(provider, null, 2), {
+                  successTitle: "Provider JSON copied",
+                })
+              }
             >
               Copy JSON
             </Button>
@@ -626,7 +628,7 @@ function ConnectProviderModal({
   onClose: () => void;
   onConnected: () => void;
 }) {
-  const toast = useToast();
+  const copy = useCopyToClipboard();
   const resourcesQuery = useResources(zoneId);
   const authorize = useAuthorizeProviderGrant(zoneId);
   const [userId, setUserId] = useState("");
@@ -719,10 +721,7 @@ function ConnectProviderModal({
             <Button
               variant="secondary"
               size="sm"
-              onClick={() => {
-                void navigator.clipboard?.writeText(result.url);
-                toast({ tone: "success", title: "Link copied" });
-              }}
+              onClick={() => void copy(result.url, { successTitle: "Link copied" })}
             >
               Copy
             </Button>
