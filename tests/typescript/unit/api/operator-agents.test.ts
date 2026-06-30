@@ -189,6 +189,14 @@ describe('buildPlannerMessages', () => {
     expect(system).toContain('"clarification"')
     expect(system).toContain('at most ONE')
   })
+
+  it('instructs the planner to request more state instead of inventing it, and to declare dependencies and risk', () => {
+    const system = buildPlannerMessages('grant access', { facts: null, state: null })[0].content
+    expect(system).toContain('GATHER MORE STATE BEFORE GUESSING')
+    expect(system).toContain('"needs"')
+    expect(system).toContain('"depends_on"')
+    expect(system).toContain('"risk"')
+  })
 })
 
 describe('buildExplainerMessages', () => {
@@ -339,6 +347,25 @@ describe('buildSecurityAnalystMessages', () => {
     })
     expect(messages[1].content).toContain('Live state (read just now)')
     expect(messages[1].content).toContain('Stripe invoices')
+  })
+
+  it('surfaces declared step dependencies and risk so the guardian sees the plan order and stakes', () => {
+    const sequenced = {
+      summary: 'Register an application and grant it invoices read',
+      steps: [
+        { id: 's1', capability: 'registerApplication', args: { name: 'Son of Anton' }, risk: 'low' as const },
+        {
+          id: 's2',
+          capability: 'grantAccess',
+          args: { application_id: 'app-1', resource_id: 'res-1', scopes: ['invoices:read'] },
+          depends_on: ['s1'],
+          risk: 'high' as const,
+        },
+      ],
+    }
+    const content = buildSecurityAnalystMessages(sequenced, { facts: null, state: null })[1].content
+    expect(content).toContain('(after s1)')
+    expect(content).toContain('[risk: high]')
   })
 })
 
@@ -580,6 +607,17 @@ describe('runPlanner', () => {
       summary: 'Need the target resource before granting access',
       steps: [],
       clarification: 'Which resource should the application be granted access to?',
+    }
+    const { gateway } = gatewayProducing(proposal)
+    const result = await runPlanner(gateway, 'grant access', { facts: null, state: null })
+    expect(result).toEqual({ ok: true, value: proposal })
+  })
+
+  it('passes through an evidence request when the planner needs to read more state first', async () => {
+    const proposal = {
+      summary: 'Read the resource and application objects before binding a grant',
+      steps: [],
+      needs: { domains: ['resource', 'application'] },
     }
     const { gateway } = gatewayProducing(proposal)
     const result = await runPlanner(gateway, 'grant access', { facts: null, state: null })

@@ -117,4 +117,60 @@ describe('validateProposedPlan', () => {
     expect(result.ok).toBe(false)
     expect(result.diagnostics[0]).toMatchObject({ code: 'invalid_args' })
   })
+
+  it('accepts a sequenced plan, carrying each step its declared dependencies and risk', () => {
+    const result = parse({
+      summary: 'Register an application and grant it invoices read',
+      steps: [
+        { id: 's1', capability: 'registerApplication', args: { name: 'Son of Anton' }, risk: 'low' },
+        {
+          id: 's2',
+          capability: 'grantAccess',
+          args: { application_id: 'app-1', user_id: 'user-1', resource_id: 'res-1', scopes: ['invoices:read'] },
+          depends_on: ['s1'],
+          risk: 'high',
+        },
+      ],
+    })
+    expect(result.ok).toBe(true)
+    expect(result.steps[0]).toMatchObject({ id: 's1', depends_on: [], risk: 'low' })
+    expect(result.steps[1]).toMatchObject({ id: 's2', depends_on: ['s1'], risk: 'high' })
+  })
+
+  it('flags a dependency on a step the plan never declares', () => {
+    const result = parse({
+      summary: 'Grant before its prerequisite exists',
+      steps: [
+        {
+          id: 's1',
+          capability: 'grantAccess',
+          args: { application_id: 'app-1', user_id: 'user-1', resource_id: 'res-1', scopes: ['invoices:read'] },
+          depends_on: ['s0'],
+        },
+      ],
+    })
+    expect(result.ok).toBe(false)
+    expect(result.diagnostics).toEqual([{ step_id: 's1', code: 'unknown_dependency', message: expect.stringContaining('s0') }])
+  })
+
+  it('flags a dependency cycle so a sequenced apply can never deadlock', () => {
+    const result = parse({
+      summary: 'Two zones that wait on each other',
+      steps: [
+        { id: 's1', capability: 'createZone', args: { name: 'Pied Piper Production' }, depends_on: ['s2'] },
+        { id: 's2', capability: 'createZone', args: { name: 'Hooli Staging' }, depends_on: ['s1'] },
+      ],
+    })
+    expect(result.ok).toBe(false)
+    expect(result.diagnostics.some((d) => d.code === 'dependency_cycle')).toBe(true)
+  })
+
+  it('flags a step that depends on itself as a cycle', () => {
+    const result = parse({
+      summary: 'A self-referential zone',
+      steps: [{ id: 's1', capability: 'createZone', args: { name: 'Raviga Capital Sandbox' }, depends_on: ['s1'] }],
+    })
+    expect(result.ok).toBe(false)
+    expect(result.diagnostics).toEqual([{ step_id: 's1', code: 'dependency_cycle', message: expect.stringContaining('s1') }])
+  })
 })

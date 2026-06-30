@@ -291,6 +291,64 @@ describe('createOrchestrator', () => {
     expect(gateway.completeObject as ReturnType<typeof vi.fn>).toHaveBeenCalledTimes(1)
   })
 
+  it('reads the domains the planner asks for and replans once on the gathered evidence', async () => {
+    // The planner first declines to plan and names the domains it must see; Caracal reads exactly
+    // those, merges the evidence, and runs the planner again, which now proposes a real plan.
+    const plan = {
+      summary: 'Register the application',
+      steps: [{ id: 's1', capability: 'registerApplication', args: { name: 'Son of Anton' } }],
+    }
+    const completeObject = vi
+      .fn()
+      .mockResolvedValueOnce({ value: { tier: 'change' }, provider: 't', model: 'm' })
+      .mockResolvedValueOnce({
+        value: { summary: 'Need the live objects first', steps: [], needs: { domains: ['resource', 'application'] } },
+        provider: 't',
+        model: 'm',
+      })
+      .mockResolvedValueOnce({ value: plan, provider: 't', model: 'm' })
+      .mockResolvedValueOnce({
+        value: { verdict: 'sound', summary: 'Plan achieves the goal.', deficiencies: [] },
+        provider: 't',
+        model: 'm',
+      })
+      .mockResolvedValueOnce({ value: { summary: 'No concerns.', findings: [] }, provider: 't', model: 'm' })
+    const gateway = { status: () => ({ enabled: true, providers: [] }), completeObject } as unknown as Gateway
+    const researcher = {
+      gather: vi
+        .fn()
+        .mockResolvedValueOnce({ evidence: [] })
+        .mockResolvedValueOnce({ evidence: [{ capability: 'listResources', domain: 'resource', ok: true, count: 1, names: ['Nucleus'] }] }),
+    }
+    const result = await createOrchestrator().handle(gateway, 'register the application', emptyContext, { researcher })
+    expect(researcher.gather).toHaveBeenCalledTimes(2)
+    expect(researcher.gather).toHaveBeenLastCalledWith(['resource', 'application'])
+    expect(result.outcome.kind).toBe('plan')
+    if (result.outcome.kind === 'plan' && result.outcome.result.ok) {
+      expect(result.outcome.result.value.steps).toHaveLength(1)
+    }
+  })
+
+  it('does not expand evidence when no researcher can read the requested domains', async () => {
+    // The planner asks to see more state, but the turn has no researcher, so Caracal cannot read and
+    // the empty plan stands — the planner is never called a second time.
+    const completeObject = vi
+      .fn()
+      .mockResolvedValueOnce({ value: { tier: 'change' }, provider: 't', model: 'm' })
+      .mockResolvedValueOnce({
+        value: { summary: 'Need the live objects first', steps: [], needs: { domains: ['resource'] } },
+        provider: 't',
+        model: 'm',
+      })
+    const gateway = { status: () => ({ enabled: true, providers: [] }), completeObject } as unknown as Gateway
+    const result = await createOrchestrator().handle(gateway, 'register the application', emptyContext)
+    expect(completeObject).toHaveBeenCalledTimes(2)
+    expect(result.outcome.kind).toBe('plan')
+    if (result.outcome.kind === 'plan' && result.outcome.result.ok) {
+      expect(result.outcome.result.value.steps).toHaveLength(0)
+    }
+  })
+
   it('routes a diagnostic read to the troubleshooter and an integration read to the translator', async () => {
     // The default registry is used, so the real specialists run; the topic in the scripted triage
     // decides which one. Both are read-only answer skills grounded in the gathered evidence.
