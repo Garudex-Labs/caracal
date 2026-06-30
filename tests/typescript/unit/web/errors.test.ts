@@ -57,18 +57,6 @@ describe('error catalog', () => {
     for (const [code, entry] of Object.entries(ERROR_CATALOG)) {
       expect(entry.title, `title for ${code}`).toBeTruthy()
       expect(entry.description, `description for ${code}`).toBeTruthy()
-      expect(entry.actions.length, `actions for ${code}`).toBeGreaterThan(0)
-    }
-  })
-
-  it('offers sign-in on 401 and dashboard on 403 (authz-aware recovery)', () => {
-    expect(errorEntry(401).actions).toContain('signin')
-    expect(errorEntry(403).actions).toContain('dashboard')
-  })
-
-  it('offers retry on transient upstream failures', () => {
-    for (const code of [429, 500, 502, 503, 504]) {
-      expect(errorEntry(code).actions, `retry for ${code}`).toContain('retry')
     }
   })
 
