@@ -23,6 +23,7 @@ const SECURITY_ANALYST_MAX_TOKENS = 700
 const TROUBLESHOOTER_MAX_TOKENS = 600
 const TRANSLATOR_MAX_TOKENS = 600
 const VERIFIER_MAX_TOKENS = 700
+const CRITIC_MAX_TOKENS = 600
 
 // The handling tier a request is triaged into: the smallest sufficient path, so a simple turn
 // never pays the planning pipeline. conversational and read are answered directly as text;
@@ -831,5 +832,97 @@ export async function runVerifier(
     return { ok: true, value: completion.value }
   } catch {
     return { ok: false, error: 'verification did not produce a usable verdict' }
+  }
+}
+
+// The critic's correctness verdict on a catalog-valid plan: 'sound' when the plan fully and
+// correctly achieves the request with least privilege and correct ordering, or 'revise' with the
+// concrete deficiencies that a single replanning pass should fix. It judges a plan the catalog has
+// already accepted, so it reasons about semantics — completeness, prerequisites, scope fit, target
+// correctness — not schema. Like every agent it only proposes a judgement; the orchestrator decides
+// whether to replan, and the route still owns validation, preview, and approval.
+export type CritiqueVerdict = 'sound' | 'revise'
+
+export interface CritiqueDeficiency {
+  issue: string
+}
+
+export interface PlanCritique {
+  verdict: CritiqueVerdict
+  summary: string
+  deficiencies: CritiqueDeficiency[]
+}
+
+const PlanCritiqueSchema = z
+  .object({
+    verdict: z.enum(['sound', 'revise']),
+    summary: z.string().min(1).max(600),
+    deficiencies: z.array(z.object({ issue: z.string().min(1).max(300) }).strict()).max(8),
+  })
+  .strict()
+
+export function buildCriticMessages(plan: ProposedPlanInput, message: string, context: AgentContext): GatewayMessage[] {
+  return [
+    {
+      role: 'system',
+      content: systemPrompt(
+        OPERATOR_PERSONA,
+        CARACAL_PLATFORM,
+        [
+          'THIS TURN: PLAN CORRECTNESS REVIEW. You review a proposed change plan that has already passed',
+          "capability-catalog validation, and judge one thing: would it actually achieve the user's stated",
+          'goal, correctly and completely, using only Caracal capabilities. You are the correctness critic,',
+          'distinct from the security guardian — you do not judge blast radius or policy posture, you judge',
+          'whether the plan is right.',
+          'Look for material defects a single replanning pass could fix: a missing prerequisite step (a',
+          'grant whose application or resource is never created first), a step targeting the wrong object',
+          'or a name the context does not show exists, an argument that does not match the goal, scopes',
+          'narrower or wider than the request actually needs, steps out of dependency order, or a goal the',
+          'plan only partially covers. Ground every judgement in the live state and recent activity in the',
+          'context; do not invent objects the context does not show.',
+          'Be decisive and economical. Set "verdict" to "revise" only when there is a concrete, fixable',
+          'defect that would make the plan fail or do the wrong thing, and list each defect as a specific',
+          '"issue" the planner can act on. Set "verdict" to "sound" — with an empty deficiencies array —',
+          'when the plan correctly and completely achieves the goal; do not nitpick a working plan into a',
+          'rewrite. You only advise a revision; you never edit the plan, approve it, or apply it.',
+          'Reply with ONLY a JSON object {"verdict": "sound"|"revise", "summary": string, "deficiencies":',
+          '[{"issue": string}]}. The summary is one plain sentence on whether the plan achieves the goal.',
+        ].join('\n'),
+      ),
+    },
+    {
+      role: 'user',
+      content: `Context:\n${describeContext(context)}\n\nRequest: ${message}\n\nProposed plan:\n${describePlanForReview(plan)}`,
+    },
+  ]
+}
+
+// Reviews a catalog-valid plan for correctness and completeness and returns a verdict. The answer
+// is a schema-validated object, so a malformed or off-schema critique fails closed as an error and
+// the orchestrator simply keeps the plan unchanged. A per-turn budget refusal is a governance stop,
+// not a critique failure, so it propagates rather than being reported as "sound". The critique never
+// gates a plan — it only decides whether one more replanning pass is worth running.
+export async function runCritic(
+  gateway: Gateway,
+  plan: ProposedPlanInput,
+  message: string,
+  context: AgentContext,
+): Promise<AgentResult<PlanCritique>> {
+  try {
+    const completion = await gateway.completeObject(buildCriticMessages(plan, message, context), PlanCritiqueSchema, {
+      maxTokens: CRITIC_MAX_TOKENS,
+      temperature: 0,
+    })
+    return {
+      ok: true,
+      value: {
+        verdict: completion.value.verdict,
+        summary: completion.value.summary,
+        deficiencies: completion.value.deficiencies ?? [],
+      },
+    }
+  } catch (err) {
+    if (err instanceof GatewayBudgetError) throw err
+    return { ok: false, error: 'plan critique did not produce a usable verdict' }
   }
 }

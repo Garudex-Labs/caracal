@@ -12,6 +12,7 @@ import {
   runTroubleshooter,
   runTranslator,
   runSecurityAnalyst,
+  runCritic,
   type AgentContext,
   type AgentResult,
   type OperatorMode,
@@ -182,13 +183,14 @@ function withDocs(context: AgentContext, message: string, docs: HandleOptions['d
   }
 }
 
-// Proposes a plan and, only when the first proposal fails catalog validation, re-plans once with
-// the concrete rejection reasons as feedback. It returns the repaired plan when the repair
-// validates, otherwise the original proposal unchanged, so a plan that cannot be repaired still
-// reaches the route, which reports its diagnostics to the human. A valid first proposal, or one
-// with no steps, is returned without a second model call, so the common case stays single-pass.
-// This validation only decides whether a repair pass is worth running; it never approves or
-// applies — the route owns the authoritative validate, preview, and approval of every plan.
+// Proposes a plan, repairs it once when it fails catalog validation, then critiques the catalog-
+// valid plan for correctness and completeness and revises it once when the critic finds a material
+// defect. It returns the strongest plan it reached: a critic-revised plan when the revision still
+// validates and proposes steps, otherwise the repaired-or-original plan. A plan with no steps, or
+// one that cannot be repaired, is returned as-is so the route still reports its diagnostics. Both
+// the repair and the critique only decide whether another planning pass is worth running; neither
+// approves or applies — the route owns the authoritative validate, preview, and approval of every
+// plan, and the critic edits nothing itself.
 async function deliberatePlan(
   gateway: Gateway,
   message: string,
@@ -198,16 +200,33 @@ async function deliberatePlan(
   const proposal = await skill.run(gateway, message, context)
   if (!proposal.ok || proposal.value.steps.length === 0) return proposal
 
-  const validation = validateProposedPlan(proposal.value)
-  if (validation.ok) return proposal
-
-  const feedback: RepairFeedback = {
-    priorSummary: proposal.value.summary,
-    diagnostics: validation.diagnostics.map((d) => `${d.step_id}: ${d.message}`),
+  let candidate = proposal
+  const validation = validateProposedPlan(candidate.value)
+  if (!validation.ok) {
+    const feedback: RepairFeedback = {
+      priorSummary: candidate.value.summary,
+      diagnostics: validation.diagnostics.map((d) => `${d.step_id}: ${d.message}`),
+    }
+    const repaired = await runPlanner(gateway, message, context, feedback)
+    if (repaired.ok && validateProposedPlan(repaired.value).ok) candidate = repaired
+    else return candidate
   }
-  const repaired = await runPlanner(gateway, message, context, feedback)
-  if (repaired.ok && validateProposedPlan(repaired.value).ok) return repaired
-  return proposal
+
+  // The catalog-valid plan is reviewed for correctness, not security: a 'revise' verdict with
+  // concrete deficiencies drives one replanning pass, and the revision is adopted only when it
+  // still proposes steps and still validates against the catalog. A 'sound' verdict, an empty
+  // deficiency list, or a failed critique leaves the plan unchanged, so the critic only ever
+  // sharpens a proposal and never blocks or empties one.
+  const critique = await runCritic(gateway, candidate.value, message, context)
+  if (critique.ok && critique.value.verdict === 'revise' && critique.value.deficiencies.length > 0) {
+    const feedback: RepairFeedback = {
+      priorSummary: candidate.value.summary,
+      diagnostics: critique.value.deficiencies.map((d) => d.issue),
+    }
+    const revised = await runPlanner(gateway, message, context, feedback)
+    if (revised.ok && revised.value.steps.length > 0 && validateProposedPlan(revised.value).ok) return revised
+  }
+  return candidate
 }
 
 // Builds the orchestrator over a skill registry. Per turn it triages the request to its tier and,
@@ -218,7 +237,8 @@ async function deliberatePlan(
 // conversation is provably write-incapable at the skill layer (the route refuses writes
 // independently as defense in depth). A read tier grounds its answer in live state gathered
 // through governed reads. A plan request runs a deliberation loop: it gathers live state, proposes
-// against it, repairs the proposal once if it fails catalog validation, and runs an independent
+// against it, repairs the proposal once if it fails catalog validation, critiques the valid plan
+// for correctness and revises it once when a material defect is found, and runs an independent
 // advisory guardian review over the resulting plan. Every plan still flows through the
 // deterministic spine the route owns; the orchestrator selects and runs skills and gathers
 // read-only evidence, and never validates for approval, previews, persists, or applies, and the
@@ -243,9 +263,11 @@ export function createOrchestrator(registry: SkillRegistry = createSkillRegistry
       if (skill.kind === 'plan') {
         // Every plan is grounded in freshly read live state, so the planner proposes against reality
         // and the guardian judges against it. The deliberation loop proposes, validates against the
-        // catalog, repairs once when the first proposal is invalid, then runs an independent guardian
-        // review over any plan that proposes steps. The route still owns validate, preview, approve,
-        // and apply; the guardian and the repair pass only improve and inform the proposal.
+        // catalog, repairs once when the first proposal is invalid, critiques the valid plan for
+        // correctness and revises it once when a material defect is found, then runs an independent
+        // guardian review over any plan that proposes steps. The route still owns validate, preview,
+        // approve, and apply; the guardian, the critic, and the repair pass only improve and inform
+        // the proposal.
         const planContext = await withEvidence(context, options.researcher, classification.domains)
         const result = await deliberatePlan(gateway, message, planContext, skill)
         // When the planner could not plan responsibly it proposes no steps and asks one clarifying
