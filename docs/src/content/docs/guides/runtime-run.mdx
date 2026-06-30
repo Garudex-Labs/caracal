@@ -1,6 +1,6 @@
 ---
 title: Run an Agent with caracal run
-description: Use a generated runtime profile to inject scoped Caracal access into a subprocess.
+description: Use a runtime profile to inject scoped Caracal access into a subprocess.
 ---
 
 `caracal run` starts a local subprocess with Caracal runtime environment variables and profile-backed credentials. Use it for development, demos, and controlled local runs.
@@ -8,13 +8,11 @@ description: Use a generated runtime profile to inject scoped Caracal access int
 ## Prepare a profile
 
 1. Run `caracal up`.
-2. Open `caracal web`.
-3. Select **Guided setup**.
-4. Fill in the upstream URL, resource identifier, runtime profile, profile path, secret file, and first request path.
-5. Enable **write profile files**.
-6. Save the generated profile and secret file.
+2. Sign in to the web console and use **Guided setup** to create the zone, application, resource, and policy.
+3. Copy the application's one-time client secret.
+4. Author a `caracal.toml` profile with the zone, application, secret file, and a `[[credentials]]` entry for each resource. See [Configure Workloads](/runtime-console/config-file/).
 
-The generated profile is the source for SDK client constructors and `caracal run`.
+The profile is the source for SDK client constructors and `caracal run`.
 
 ## Run a command
 
@@ -30,14 +28,14 @@ The child process receives the Caracal variables needed to locate the profile, e
 | --- | --- |
 | Runtime is ready | `caracal status --ready` |
 | Profile is readable | `caracal run -- env | grep CARACAL` |
-| First request succeeds | Use the guided setup first request path. |
-| Audit captured the request | web console **Audit** or **Request Traces**. |
+| First request succeeds | Send a request to a configured resource path. |
+| Audit captured the request | web console **Audit**. |
 
 ## Troubleshooting
 
 | Symptom | Fix |
 | --- | --- |
-| SDK cannot find config | Confirm `CARACAL_CONFIG` points to the generated profile. |
+| SDK cannot find config | Confirm `CARACAL_CONFIG` points to your profile. |
 | Secret file rejected | Restrict file permissions and avoid setting both inline and file secrets. |
 | Gateway routing misses the resource | Confirm resource bindings and upstream prefixes in the profile. |
 | Request denied | Check policy-set activation, scopes, and audit diagnostics. |
