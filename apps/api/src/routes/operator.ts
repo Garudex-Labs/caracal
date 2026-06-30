@@ -11,7 +11,14 @@ import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
 import { zoneExists } from '../zone-guard.js'
 import { appendKeysetCondition, parseListPagination, setNextLink } from './list-pagination.js'
 import { parseTurnContent, deriveConversationState, type TurnKind, type TurnRecord } from '../operator-state.js'
-import { ProposedPlan, listCapabilities, validateProposedPlan, type PlanValidation } from '../operator-capabilities.js'
+import {
+  CAPABILITIES,
+  ProposedPlan,
+  listCapabilities,
+  validateProposedPlan,
+  type CapabilityDomain,
+  type PlanValidation,
+} from '../operator-capabilities.js'
 import { previewPlan } from '../operator-preview.js'
 import { buildOperatorAuthority, isZoneIsolated, authorizePlanSteps, type OperatorAuthority } from '../operator-authority.js'
 import { buildOperatorControlClient, type OperatorControlEndpoints } from '../operator-control-client.js'
@@ -33,7 +40,8 @@ import {
   type ProviderConfig,
 } from '../operator-gateway.js'
 import { type GovernanceLimits } from '../operator-ai-governance.js'
-import { type AgentContext, type OperatorMode, type SecurityAdvisory } from '../operator-agents.js'
+import { runVerifier, type AgentContext, type OperatorMode, type SecurityAdvisory } from '../operator-agents.js'
+import { recallZoneMemory, rememberAppliedChange } from '../operator-zone-memory.js'
 import { createOrchestrator } from '../operator-orchestrator.js'
 import { createStateResearcher } from '../operator-research.js'
 import { retrieveDocs } from '../operator-docs.js'
@@ -107,7 +115,8 @@ const EXECUTE_LOCK_TTL_SEC = 120
 // The outcome of the read-only execute pre-flight: the validated steps to apply, or a
 // business response to return unchanged. Pre-flight writes nothing, so the governed
 // control calls run outside any transaction.
-type PreflightResult = { ok: true; steps: GovernedPlanStep[] } | { ok: false; status: number; body: Record<string, unknown> }
+type PreflightResult =
+  { ok: true; summary: string; steps: GovernedPlanStep[] } | { ok: false; status: number; body: Record<string, unknown> }
 
 const MESSAGE_MAX_LENGTH = 4000
 const MessageBody = z
@@ -1074,14 +1083,22 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
         if (!decision[0]) return { ok: false, status: 409, body: { error: 'plan_not_approved' } }
         if (decision[0].kind === 'rejection') return { ok: false, status: 409, body: { error: 'plan_rejected' } }
 
-        const { rows: executed } = await client.query(
-          `SELECT 1 FROM operator_turns
+        // Read every prior execution turn for this plan to decide retriability at the step
+        // level. A failed step means a non-idempotent mutation may have half-applied, so the
+        // whole plan is never retriable. Otherwise every recorded step succeeded, and a plan
+        // that stopped on a definitive, nothing-applied failure can be resumed from its first
+        // unapplied step rather than refused outright.
+        const { rows: priorSteps } = await client.query<{ step_id: string; status: string }>(
+          `SELECT content->>'step_id' AS step_id, content->>'status' AS status
+           FROM operator_turns
            WHERE conversation_id = $1 AND zone_id = $2 AND kind = 'execution'
-             AND (content->>'plan_seq')::bigint = $3
-           LIMIT 1`,
+             AND (content->>'plan_seq')::bigint = $3`,
           [params.id, params.zoneId, planSeq],
         )
-        if (executed[0]) return { ok: false, status: 409, body: { error: 'plan_already_executed' } }
+        if (priorSteps.some((row) => row.status === 'failed')) {
+          return { ok: false, status: 409, body: { error: 'plan_already_executed' } }
+        }
+        const appliedStepIds = new Set(priorSteps.filter((row) => row.status === 'succeeded').map((row) => row.step_id))
 
         const steps = planRows[0].content.steps.map((step) => ({
           id: step.id,
@@ -1089,20 +1106,25 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
           args: step.args ?? {},
         }))
 
-        // Re-validate against the live catalog before applying anything.
+        // Re-validate the whole persisted plan against the live catalog before applying anything.
         const revalidation = validateProposedPlan({ summary: planRows[0].content.summary, steps })
         if (!revalidation.ok) return { ok: false, status: 409, body: { error: 'plan_invalid', validation: revalidation } }
 
+        // Resume applies only the steps not already applied. A plan whose every step already
+        // succeeded is fully executed and is refused as such.
+        const remaining = steps.filter((step) => !appliedStepIds.has(step.id))
+        if (remaining.length === 0) return { ok: false, status: 409, body: { error: 'plan_already_executed' } }
+
         // Authority is the primary boundary: a mutating step outside the Operator's
         // least-privilege grant is forbidden before executability is even considered.
-        const denials = authorizePlanSteps(authority, steps)
+        const denials = authorizePlanSteps(authority, remaining)
         if (denials.length > 0) {
           return { ok: false, status: 403, body: { error: 'capability_forbidden', principal: authority.principal, steps: denials } }
         }
 
         // Every step must map to a governed control command; one that does not is refused
         // rather than applied by any other means.
-        const unsupported = steps.filter((step) => !isControlExecutable(step.capability))
+        const unsupported = remaining.filter((step) => !isControlExecutable(step.capability))
         if (unsupported.length > 0) {
           return {
             ok: false,
@@ -1112,7 +1134,7 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
         }
 
         // Re-preview against current state; a now-blocked step stops the plan before any call.
-        const preview = await previewPlan(client, params.zoneId, { summary: planRows[0].content.summary, steps })
+        const preview = await previewPlan(client, params.zoneId, { summary: planRows[0].content.summary, steps: remaining })
         if (!preview.ok) return { ok: false, status: 409, body: { error: 'plan_blocked', preview } }
 
         // A create step whose target now already exists would duplicate it, so the plan is
@@ -1129,11 +1151,10 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
           }
         }
 
-        return { ok: true, steps }
+        return { ok: true, summary: planRows[0].content.summary, steps: remaining }
       })
 
       if (!pre.ok) return reply.code(pre.status).send(pre.body)
-
       // Apply the plan through the control plane as the Operator's scoped identity, spawned under
       // the executor role: the control client is bounded to exactly the scopes the Operator's
       // authority grants, so a write scope it was never granted can never be minted even if a step
@@ -1220,12 +1241,59 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
             actorId: req.actor.id,
           })
         }
+        // A clean apply is durable, governed knowledge of the zone: record it as a persistent,
+        // zone-scoped memory so a later conversation recalls what was configured here. Memory is
+        // written only for a fully applied plan, inside this transaction, so it reflects an
+        // approved outcome Caracal actually applied — never a proposal or a partial failure.
+        if (!result.failure && result.applied.length > 0) {
+          await rememberAppliedChange(client, params.zoneId, params.id, pre.summary)
+        }
         return { turns, outputs }
       })
 
       if (result.failure) {
         return reply.code(422).send({ error: 'execution_failed', step_id: result.failure.stepId, applied: recorded.turns })
       }
+
+      // Post-execution verification (best-effort, advisory). The mutations are already durable, so
+      // this never gates or reverses the apply: it reads live state once more and judges whether the
+      // applied result matches the plan's intent, recording the verdict as a note the human sees. A
+      // drift verdict only informs and recommends a correction — that correction still flows through
+      // the governed propose-approve-apply path, so verification holds no authority. It runs only
+      // when the AI gateway is enabled and a governed reader is available for the zone, and any
+      // failure is swallowed so the apply's success is never affected by an unverifiable turn.
+      const verifyGateway = buildGateway()
+      const verifier = resolveZoneResearcher(params.zoneId)
+      if (verifyGateway.status().enabled && verifier) {
+        try {
+          const domains = [
+            ...new Set(pre.steps.map((step) => CAPABILITIES[step.capability]?.domain).filter((d): d is CapabilityDomain => !!d)),
+          ]
+          const blackboard = await verifier.gather(domains)
+          const verifyContext: AgentContext = { facts: null, state: null, evidence: blackboard.evidence }
+          const verdict = await runVerifier(verifyGateway, { summary: pre.summary, steps: pre.steps }, verifyContext)
+          if (verdict.ok) {
+            const findings = verdict.value.findings.map((f) => f.observation).join('; ')
+            const followUp = verdict.value.followUp ? `\n\nRecommended next step: ${verdict.value.followUp}` : ''
+            await appendTurnTx(
+              fastify.db,
+              params.id,
+              params.zoneId,
+              'operator',
+              'note',
+              JSON.stringify({
+                text: `Verification (${verdict.value.status}): ${verdict.value.summary}${followUp}`,
+                ...(findings ? { reasoning: findings } : {}),
+              }),
+              req.actor.id,
+            )
+          }
+        } catch {
+          // Verification is best-effort: the apply already succeeded and is recorded, so an
+          // unverifiable turn is left unverified rather than failing the governed execution.
+        }
+      }
+
       return reply
         .code(201)
         .send({ ok: true, plan_seq: planSeq, executed_by: authority.principal, executed: recorded.turns, outputs: recorded.outputs })
@@ -1274,11 +1342,12 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
         .send({ error: userTurn.reason === 'archived' ? 'conversation_archived' : 'conversation_not_found' })
     }
 
-    const [state, facts] = await Promise.all([
+    const [state, facts, zoneMemory] = await Promise.all([
       loadConversationState(fastify.db, params.id, params.zoneId, MESSAGE_CONTEXT_WINDOW),
       loadConversationFacts(fastify.db, params.id, params.zoneId),
+      recallZoneMemory(fastify.db, params.zoneId),
     ])
-    const context: AgentContext = { facts, state }
+    const context: AgentContext = { facts, state, zoneMemory }
 
     // Track the real token usage of every completion made while answering this one
     // message, and report it alongside the model that answered and its context window so

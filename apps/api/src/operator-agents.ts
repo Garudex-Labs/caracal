@@ -7,6 +7,7 @@ import { z } from 'zod'
 import { describeCapabilitiesForPrompt, ProposedPlan, type CapabilityDomain, type ProposedPlanInput } from './operator-capabilities.js'
 import type { ConversationState } from './operator-state.js'
 import { describeFacts, type ConversationFacts } from './operator-memory.js'
+import { describeZoneMemory, type ZoneMemoryEntry } from './operator-zone-memory.js'
 import type { Evidence } from './operator-research.js'
 import type { DocSnippet } from './operator-docs.js'
 import { GatewayBudgetError, type Gateway, type GatewayMessage } from './operator-gateway.js'
@@ -21,6 +22,7 @@ const EXPLAINER_MAX_TOKENS = 600
 const SECURITY_ANALYST_MAX_TOKENS = 700
 const TROUBLESHOOTER_MAX_TOKENS = 600
 const TRANSLATOR_MAX_TOKENS = 600
+const VERIFIER_MAX_TOKENS = 700
 
 // The handling tier a request is triaged into: the smallest sufficient path, so a simple turn
 // never pays the planning pipeline. conversational and read are answered directly as text;
@@ -307,6 +309,10 @@ export async function runTriage(gateway: Gateway, message: string): Promise<Agen
 export interface AgentContext {
   facts: ConversationFacts | null
   state: ConversationState | null
+  // Durable, zone-scoped knowledge of governed changes already applied in this zone, carried
+  // across conversations. Grounds an agent in the zone's established shape so it does not
+  // re-propose what already exists or ignore conventions set in earlier conversations.
+  zoneMemory?: ZoneMemoryEntry[]
   evidence?: Evidence[]
   // True when this turn needed live state but no governed read mandate is active for the
   // conversation's zone, so nothing could be read. The read agents must then say so plainly
@@ -349,6 +355,9 @@ function describeDocs(docs: DocSnippet[] | undefined): string | null {
 // rather than replayed, so the prompt stays small no matter how long the conversation is.
 function describeContext(context: AgentContext): string {
   const sections: string[] = []
+  const zoneMemory = describeZoneMemory(context.zoneMemory)
+  if (zoneMemory) sections.push(zoneMemory)
+
   const facts = describeFacts(context.facts)
   if (facts) sections.push(`Session facts:\n${facts}`)
 
@@ -709,5 +718,100 @@ export async function runSecurityAnalyst(
     return { ok: true, value: completion.value }
   } catch {
     return { ok: false, error: 'security review did not produce a usable advisory' }
+  }
+}
+
+// Whether the live state read after a plan was applied reflects what the plan set out to do.
+// matched: every intended change is observable in current state. drifted: the applied result
+// diverges from intent — an object the plan should have produced is missing, or state contradicts
+// the goal — and the human should correct it. inconclusive: the governed reads available cannot
+// observe what the plan changed (for example a grant, which no read surfaces), so neither match nor
+// drift can be asserted honestly.
+export type VerificationStatus = 'matched' | 'drifted' | 'inconclusive'
+
+export interface VerificationFinding {
+  observation: string
+}
+
+// The verifier's post-execution verdict on an applied plan: whether live state matches the plan's
+// intent, a plain-language summary, the specific observations behind a drift or an inconclusive
+// read, and — when state drifted — the concrete corrective action the human should take. It carries
+// no authority: the plan is already applied, and any correction it recommends still flows through
+// the governed plan path, so the verdict only informs and never acts.
+export interface VerificationVerdict {
+  status: VerificationStatus
+  summary: string
+  findings: VerificationFinding[]
+  followUp?: string
+}
+
+const VerificationVerdictSchema = z
+  .object({
+    status: z.enum(['matched', 'drifted', 'inconclusive']),
+    summary: z.string().min(1).max(1000),
+    findings: z.array(z.object({ observation: z.string().min(1).max(500) }).strict()).max(20),
+    followUp: z.string().min(1).max(1000).optional(),
+  })
+  .strict()
+
+// Renders an applied plan compactly for verification: its summary and one line per step naming the
+// capability and its arguments, so the verifier checks current state against exactly what was applied.
+function describeAppliedPlan(plan: ProposedPlanInput): string {
+  const steps = plan.steps.map((step) => `- ${step.id}: ${step.capability} ${JSON.stringify(step.args)}`).join('\n')
+  return `Summary: ${plan.summary}\nApplied steps:\n${steps}`
+}
+
+export function buildVerifierMessages(plan: ProposedPlanInput, context: AgentContext): GatewayMessage[] {
+  return [
+    {
+      role: 'system',
+      content: systemPrompt(
+        OPERATOR_PERSONA,
+        CARACAL_PLATFORM,
+        [
+          'THIS TURN: POST-EXECUTION VERIFICATION. A plan you proposed has already been applied through the',
+          'governed control plane. Your job now is to confirm reality: compare the live state read just now',
+          "against what the plan set out to do, and judge whether the applied result matches the user's intent.",
+          'Work from evidence, not assumption. The context carries the live state read moments after the apply.',
+          'For each applied step, check whether what it should have produced is observable: a registered',
+          'application, a connected provider, a created resource, an activated policy. Set "status" to "matched"',
+          'when every intended change is present in current state, "drifted" when state diverges from intent —',
+          'an object the plan should have produced is missing, duplicated, or contradicts the goal — and',
+          '"inconclusive" when the live reads available cannot observe what the plan changed (for example a',
+          'grant, which the governed reads do not surface). Never claim a match you cannot see: prefer',
+          '"inconclusive" over asserting success the evidence does not show.',
+          'When state drifted, set "followUp" to the concrete corrective action the user should take next — the',
+          'narrow, Caracal-correct step that would reconcile state with intent. The correction is a',
+          'recommendation only: it still flows through the normal propose-approve-apply path, and you never act',
+          'on it yourself. Report an empty findings array with status "matched" when the applied result',
+          'cleanly reflects the plan; do not manufacture drift.',
+          'Reply with ONLY a JSON object {"status": "matched"|"drifted"|"inconclusive", "summary": string,',
+          '"findings": [{"observation": string}], "followUp": string}. Omit "followUp" unless status is',
+          '"drifted". The summary is one plain sentence on whether the applied result matched intent.',
+        ].join('\n'),
+      ),
+    },
+    { role: 'user', content: `Context:\n${describeContext(context)}\n\nApplied plan:\n${describeAppliedPlan(plan)}` },
+  ]
+}
+
+// Verifies an applied plan against live state read just now and returns a verdict. The answer is a
+// schema-validated object, so a malformed or off-schema verdict fails closed as an error rather than
+// a guessed claim of success; the caller then records no verification note. The verdict never gates
+// or reverses the apply — the mutations are already durable — so a failed verification only means
+// the turn went unverified, never that anything is rolled back.
+export async function runVerifier(
+  gateway: Gateway,
+  plan: ProposedPlanInput,
+  context: AgentContext,
+): Promise<AgentResult<VerificationVerdict>> {
+  try {
+    const completion = await gateway.completeObject(buildVerifierMessages(plan, context), VerificationVerdictSchema, {
+      maxTokens: VERIFIER_MAX_TOKENS,
+      temperature: 0,
+    })
+    return { ok: true, value: completion.value }
+  } catch {
+    return { ok: false, error: 'verification did not produce a usable verdict' }
   }
 }
