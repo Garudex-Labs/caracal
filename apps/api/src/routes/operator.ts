@@ -1287,49 +1287,57 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
         return reply.code(422).send({ error: 'execution_failed', step_id: result.failure.stepId, applied: recorded.turns })
       }
 
-      // Post-execution verification (best-effort, advisory). The mutations are already durable, so
-      // this never gates or reverses the apply: it reads live state once more and judges whether the
-      // applied result matches the plan's intent, recording the verdict as a note the human sees. A
-      // drift verdict only informs and recommends a correction — that correction still flows through
-      // the governed propose-approve-apply path, so verification holds no authority. It runs only
-      // when the AI gateway is enabled and a governed reader is available for the zone, and any
-      // failure is swallowed so the apply's success is never affected by an unverifiable turn.
+      // Return the applied result immediately — including any one-time output such as an issued
+      // client secret — so the caller receives the secret the instant the apply is durable, never
+      // gated behind the advisory verification's model call.
+      reply
+        .code(201)
+        .send({ ok: true, plan_seq: planSeq, executed_by: authority.principal, executed: recorded.turns, outputs: recorded.outputs })
+
+      // Post-execution verification (best-effort, advisory) runs in the background after the response
+      // is sent. The mutations are already durable, so this never gates or reverses the apply: it
+      // reads live state once more and judges whether the applied result matches the plan's intent,
+      // recording the verdict as a note the human sees on the next refresh. A drift verdict only
+      // informs and recommends a correction — that correction still flows through the governed
+      // propose-approve-apply path, so verification holds no authority. It runs only when the AI
+      // gateway is enabled and a governed reader is available for the zone, and any failure is
+      // swallowed so the apply's success is never affected by an unverifiable turn.
       const verifyGateway = buildGateway()
       const verifier = resolveZoneResearcher(params.zoneId)
       if (verifyGateway.status().enabled && verifier) {
-        try {
-          const domains = [
-            ...new Set(pre.steps.map((step) => CAPABILITIES[step.capability]?.domain).filter((d): d is CapabilityDomain => !!d)),
-          ]
-          const blackboard = await verifier.gather(domains)
-          const verifyContext: AgentContext = { facts: null, state: null, evidence: blackboard.evidence }
-          const verdict = await runVerifier(verifyGateway, { summary: pre.summary, steps: pre.steps }, verifyContext)
-          if (verdict.ok) {
-            const findings = verdict.value.findings.map((f) => f.observation).join('; ')
-            const followUp = verdict.value.followUp ? `\n\nRecommended next step: ${verdict.value.followUp}` : ''
-            await appendTurnTx(
-              fastify.db,
-              params.id,
-              params.zoneId,
-              'operator',
-              'note',
-              JSON.stringify({
-                text: `Verification (${verdict.value.status}): ${verdict.value.summary}${followUp}`,
-                ...(findings ? { reasoning: findings } : {}),
-                verification: { status: verdict.value.status, summary: verdict.value.summary },
-              }),
-              req.actor.id,
-            )
+        void (async () => {
+          try {
+            const domains = [
+              ...new Set(pre.steps.map((step) => CAPABILITIES[step.capability]?.domain).filter((d): d is CapabilityDomain => !!d)),
+            ]
+            const blackboard = await verifier.gather(domains)
+            const verifyContext: AgentContext = { facts: null, state: null, evidence: blackboard.evidence }
+            const verdict = await runVerifier(verifyGateway, { summary: pre.summary, steps: pre.steps }, verifyContext)
+            if (verdict.ok) {
+              const findings = verdict.value.findings.map((f) => f.observation).join('; ')
+              const followUp = verdict.value.followUp ? `\n\nRecommended next step: ${verdict.value.followUp}` : ''
+              await appendTurnTx(
+                fastify.db,
+                params.id,
+                params.zoneId,
+                'operator',
+                'note',
+                JSON.stringify({
+                  text: `Verification (${verdict.value.status}): ${verdict.value.summary}${followUp}`,
+                  ...(findings ? { reasoning: findings } : {}),
+                  verification: { status: verdict.value.status, summary: verdict.value.summary },
+                }),
+                req.actor.id,
+              )
+            }
+          } catch {
+            // Verification is best-effort: the apply already succeeded and is recorded, so an
+            // unverifiable turn is left unverified rather than failing the governed execution.
           }
-        } catch {
-          // Verification is best-effort: the apply already succeeded and is recorded, so an
-          // unverifiable turn is left unverified rather than failing the governed execution.
-        }
+        })()
       }
 
       return reply
-        .code(201)
-        .send({ ok: true, plan_seq: planSeq, executed_by: authority.principal, executed: recorded.turns, outputs: recorded.outputs })
     } finally {
       // Release the lock only if this request still owns it: a compare-and-delete so an
       // expired-then-reacquired lock held by another request is never deleted here.

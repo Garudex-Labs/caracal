@@ -120,6 +120,26 @@ export const CONTROL_CAPABILITIES: Record<string, ControlCapability> = {
       }
     },
   },
+  // A resource is created from just its name and the scopes it exposes; the control plane derives
+  // the resource://<slug> identifier from the name. This is the thin, credential-free create the
+  // Operator can apply directly — a caracal_mandate target verifies Caracal's own mandate, so no
+  // provider or upstream credential is involved.
+  defineResource: {
+    scopes: ['control:resource:write'],
+    buildInvocation: (args) => ({
+      command: 'resource',
+      subcommand: 'create',
+      flags: { name: asString(args.name), scopes: asScopes(args.scopes) },
+    }),
+    describeOutcome: (result, args) => {
+      const resource = asRecord(result)
+      const scopes = asScopes(args.scopes)
+      return {
+        detail: `Defined resource “${asString(args.name)}” exposing ${scopes.join(', ')}.`,
+        output: { resource_id: resource.id },
+      }
+    },
+  },
   rotateApplicationSecret: {
     scopes: ['control:app:write'],
     // The control plane sets a caller-provided secret rather than minting one, so the
