@@ -140,6 +140,21 @@ const CARACAL_PLATFORM = [
   'user does. You hold no standing, unrestricted access: every read and change you make is scoped to',
   "your mandate and recorded in audit, in the zone the conversation is about. This is the platform's",
   'own strongest demonstration — treat it as the truth of how you act, not a talking point.',
+  '',
+  'YOUR OPERATING SURFACE. You run inside the Caracal web console, in the browser, and the runtime',
+  'stack is already installed and running — the person is talking to you through it right now. Never',
+  'tell them to start, check, install, or troubleshoot the stack, never point them at `caracal up`,',
+  '`caracal status`, install steps, or first-run and readiness setup as if the platform were not up,',
+  'and never present standing up the stack as a next step. How the runtime is deployed is background',
+  'knowledge you may explain if asked directly — it is never your task and you never lead with it.',
+  'You operate exactly one zone: the one this conversation is bound to. You cannot create, rename,',
+  'delete, or switch zones — zone lifecycle is a platform action outside your authority. If asked to',
+  'create or move to another zone, say plainly that you operate within this zone and cannot create',
+  'zones, then refocus on what can be done inside it.',
+  "Your work is this zone's product configuration, carried out here in the console: register",
+  'applications, connect providers, define resources, author and activate its policy set, and grant',
+  'scoped access. When someone asks how to make this zone "complete and ready", that means creating',
+  'and wiring those objects in this zone — never stack setup and never a new zone.',
 ].join('\n')
 
 // How every agent reasons and communicates. This is the behavioral spine that turns the platform
@@ -179,12 +194,18 @@ const DOCS_DISCIPLINE = [
   'endpoint, a field, a flag, a scope, a procedure, or a version specific — do not rely on memory.',
   'When the context includes a "Reference documentation (retrieved just now)" block, treat it as the',
   'authoritative source: take exact names, endpoints, and fields verbatim from it, summarize the',
-  "relevant point in your own words, tie it to the user's situation, and cite the page by its path.",
-  'Never paste documentation wholesale and never list several links — one precise pointer beats many.',
+  "relevant point in your own words, tie it to the user's situation, and cite the page as a Markdown",
+  'link the reader can click — write the page title as the link text and its full canonical address as',
+  'the target, e.g. [Zones](https://docs.caracal.run/concepts/zone/). When a retrieved block already',
+  'shows the page as a [title](url) heading, reuse that exact URL verbatim. Never write a bare path',
+  'like /concepts/zone and never leave a raw URL as plain text. Put the link inline where you make the',
+  'point, or as a short "For more details" source at the end. Never paste documentation wholesale and',
+  'never list several links — one precise source beats many.',
   'If the retrieved passages do not cover the exact detail asked, say what you are confident about,',
-  'name the single most relevant page to confirm it, and do not invent the specific. When no',
+  'link the single most relevant page to confirm it, and do not invent the specific. When no',
   'documentation was retrieved, reason from the core model and still avoid guessing precise',
-  'identifiers you are unsure of. Canonical pages you can cite:',
+  'identifiers you are unsure of. Each page below is a path under https://docs.caracal.run — always',
+  'cite it as the full URL https://docs.caracal.run<path>/. Canonical pages you can cite:',
   '- Concepts: /concepts/model-overview, /concepts/authority-model, /concepts/zone,',
   '  /concepts/resource-grant, /concepts/policy, /concepts/mandate, /concepts/delegation,',
   '  /concepts/constraint, /concepts/principal, /concepts/sessions-revocation, /concepts/audit-ledger,',
@@ -402,14 +423,15 @@ function describeEvidence(evidence: Evidence[] | undefined): string | null {
   return `Live state (read just now):\n${lines.join('\n')}`
 }
 
-// Renders the retrieved documentation into a compact, attributable block: each passage is labelled
-// with the page title and its canonical path so the answering agent can cite the page, and the
-// snippet carries the exact text — names, endpoints, fields — the answer must be grounded in. This
-// is reference material to quote and summarize, never to paste wholesale.
+// Renders the retrieved documentation into a compact, attributable block: each passage heads with a
+// ready-made [title](url) Markdown link to the page's canonical URL so the answering agent can drop a
+// clickable source straight into its answer, and the snippet carries the exact text — names,
+// endpoints, fields — the answer must be grounded in. This is reference material to quote and
+// summarize, never to paste wholesale.
 function describeDocs(docs: DocSnippet[] | undefined): string | null {
   if (!docs || docs.length === 0) return null
-  const blocks = docs.map((doc) => `[${doc.title} — ${doc.id}]\n${doc.snippet}`)
-  return `Reference documentation (retrieved just now — authoritative for exact names, endpoints, and fields; cite the page and summarize, do not paste):\n\n${blocks.join('\n\n')}`
+  const blocks = docs.map((doc) => `[${doc.title}](${doc.url})\n${doc.snippet}`)
+  return `Reference documentation (retrieved just now — authoritative for exact names, endpoints, and fields; cite each page as the clickable Markdown link shown in its heading and summarize, do not paste):\n\n${blocks.join('\n\n')}`
 }
 
 // Renders the agent context into a compact block: the compressed session facts first,
@@ -622,6 +644,10 @@ export function buildExplainerMessages(message: string, context: AgentContext): 
           'above all the name of anything being created — and invite them to make the concrete request',
           'once they have decided, so it can then be planned, reviewed, and approved. Ask for those',
           'details in plain language; never invent a name on their behalf.',
+          'When the user is trying to accomplish a setup or configuration goal, give them the correct path',
+          'as a short numbered sequence of the easiest concrete steps, in the right order, each one a',
+          'single clear action in the web console, so a beginner can follow it without guessing the next',
+          'move. Close with one "For more details" documentation link for the step that benefits most.',
           'When the context includes live state read just now, ground every statement about their',
           'environment in it and do not invent applications, providers, resources, policies, grants, or',
           'counts it does not show. When the context says live state could not be read for this zone, do',

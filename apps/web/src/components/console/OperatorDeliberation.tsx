@@ -3,11 +3,23 @@
 //
 // Operator deliberation views: the live reasoning trail and the collapsed replay of a completed turn.
 
-import { useMemo } from "react";
-import { Task, TaskContent, TaskItem, TaskTrigger } from "@/components/ai-elements/task";
+import { useMemo, useState } from "react";
 import { cx } from "@/lib/cx";
 import { workingLine } from "@/platform/operator/status";
 import type { OperatorProgressStage } from "@/platform/api/types";
+
+// Right-pointing chevron for the deliberation disclosure; rotates a quarter turn when expanded.
+const ChevronGlyph = ({ className }: { className?: string }) => (
+  <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
+    <path
+      d="m9 6 6 6-6 6"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
 
 // Human-readable labels for each deliberation stage the Operator streams while it works.
 const STAGE_LABELS: Record<OperatorProgressStage, string> = {
@@ -78,6 +90,7 @@ const SUBSTANTIVE_STAGES: ReadonlySet<OperatorProgressStage> = new Set([
 ]);
 
 export function DeliberationReplay({ stages }: { stages: OperatorProgressStage[] }) {
+  const [open, setOpen] = useState(false);
   const trail = useMemo(() => {
     const out: OperatorProgressStage[] = [];
     for (const stage of stages) {
@@ -87,21 +100,33 @@ export function DeliberationReplay({ stages }: { stages: OperatorProgressStage[]
   }, [stages]);
   if (!trail.some((stage) => SUBSTANTIVE_STAGES.has(stage))) return null;
   return (
-    <Task defaultOpen={false} className="border border-border bg-card/60">
-      <div className="flex items-center px-3 py-2">
-        <TaskTrigger
-          title={`Deliberation · ${trail.length} steps`}
-          className="min-w-0 flex-1 text-xs"
+    <div className="flex flex-col">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+        className="group flex w-fit cursor-pointer items-center gap-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none"
+      >
+        <ChevronGlyph
+          className={cx(
+            "h-3.5 w-3.5 shrink-0 text-muted-foreground/60 transition-transform duration-200 group-hover:text-foreground",
+            open && "rotate-90",
+          )}
         />
-      </div>
-      <TaskContent className="mt-0 px-3 pb-2.5">
-        {trail.map((stage, index) => (
-          <TaskItem key={`${stage}-${index}`} className="flex items-center gap-2">
-            <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/40" />
-            <span className="text-foreground">{STAGE_LABELS[stage]}</span>
-          </TaskItem>
-        ))}
-      </TaskContent>
-    </Task>
+        <span>Deliberation</span>
+        <span className="text-muted-foreground/40">·</span>
+        <span className="tabular-nums text-muted-foreground/70">{trail.length} steps</span>
+      </button>
+      {open ? (
+        <ol className="animate-fade-in mt-2 ml-[6px] flex flex-col gap-2 border-l border-border/70 pl-4">
+          {trail.map((stage, index) => (
+            <li key={`${stage}-${index}`} className="relative flex items-center text-xs">
+              <span className="absolute -left-[17px] h-1.5 w-1.5 rounded-full bg-muted-foreground/40 ring-2 ring-background" />
+              <span className="text-muted-foreground">{STAGE_LABELS[stage]}</span>
+            </li>
+          ))}
+        </ol>
+      ) : null}
+    </div>
   );
 }

@@ -3,7 +3,7 @@
 //
 // The Operator LLM gateway: a provider-agnostic completion client built on the Vercel AI SDK over any OpenAI-compatible endpoint with multi-provider failover.
 
-import { APICallError, extractReasoningMiddleware, generateObject, generateText, streamText, wrapLanguageModel, type LanguageModelMiddleware } from 'ai'
+import { APICallError, extractReasoningMiddleware, generateObject, generateText, smoothStream, streamText, wrapLanguageModel, type LanguageModelMiddleware } from 'ai'
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 import type { ZodType } from 'zod'
 import { buildGovernanceMiddleware, type GovernanceLimits } from './operator-ai-governance.js'
@@ -301,6 +301,10 @@ async function callProviderStream(
       temperature: options.temperature,
       abortSignal: controller.signal,
       maxRetries: 0,
+      // Azure delivers a completion in a few coarse chunks, so every token of a chunk lands in one
+      // burst and a short answer arrives all at once. Re-pace the text channel word by word so the
+      // answer types out smoothly for the reader while reasoning parts pass through untouched.
+      experimental_transform: smoothStream({ chunking: 'word' }),
     })
     // Read the full stream so both channels surface live: a text-delta is the answer typed out and
     // a reasoning-delta is the model's chain of thought as it works. Both the reasoning_content
