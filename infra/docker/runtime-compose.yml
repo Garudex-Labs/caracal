@@ -29,6 +29,17 @@ x-appService: &appService
   networks:
     - caracalData
 
+x-appResources: &appResources
+  deploy:
+    resources:
+      limits:
+        cpus: "${CARACAL_APP_CPU_LIMIT:-1.0}"
+        memory: "${CARACAL_APP_MEM_LIMIT:-1G}"
+        pids: 256
+      reservations:
+        cpus: "${CARACAL_APP_CPU_RESERVE:-0.1}"
+        memory: "${CARACAL_APP_MEM_RESERVE:-128M}"
+
 networks:
   caracalData:
     driver: bridge
@@ -192,7 +203,7 @@ services:
     entrypoint: ["/bin/sh", "/usr/local/bin/caracal-migrate"]
 
   sts:
-    <<: *appService
+    <<: [*appService, *appResources]
     image: ${CARACAL_REGISTRY:-ghcr.io/garudex-labs/}caracal-go:v${CARACAL_VERSION}
     command: ["/usr/local/bin/sts"]
     depends_on:
@@ -244,7 +255,7 @@ services:
       start_period: 15s
 
   api:
-    <<: *appService
+    <<: [*appService, *appResources]
     image: ${CARACAL_REGISTRY:-ghcr.io/garudex-labs/}caracal-node:v${CARACAL_VERSION}
     command: ["/app/api/dist/main.js"]
     depends_on:
@@ -302,9 +313,18 @@ services:
       start_period: 20s
 
   gateway:
-    <<: *appService
+    <<: [*appService, *appResources]
     image: ${CARACAL_REGISTRY:-ghcr.io/garudex-labs/}caracal-go:v${CARACAL_VERSION}
     command: ["/usr/local/bin/gateway"]
+    deploy:
+      resources:
+        limits:
+          cpus: "${CARACAL_GATEWAY_CPU_LIMIT:-2.0}"
+          memory: "${CARACAL_GATEWAY_MEM_LIMIT:-1G}"
+          pids: 256
+        reservations:
+          cpus: "${CARACAL_APP_CPU_RESERVE:-0.1}"
+          memory: "${CARACAL_APP_MEM_RESERVE:-128M}"
     depends_on:
       replayVolumeInit:
         condition: service_completed_successfully
@@ -353,7 +373,7 @@ services:
       start_period: 15s
 
   audit:
-    <<: *appService
+    <<: [*appService, *appResources]
     image: ${CARACAL_REGISTRY:-ghcr.io/garudex-labs/}caracal-go:v${CARACAL_VERSION}
     command: ["/usr/local/bin/audit"]
     depends_on:
@@ -393,7 +413,7 @@ services:
       start_period: 15s
 
   coordinator:
-    <<: *appService
+    <<: [*appService, *appResources]
     image: ${CARACAL_REGISTRY:-ghcr.io/garudex-labs/}caracal-node:v${CARACAL_VERSION}
     command: ["/app/coordinator/dist/main.js"]
     depends_on:
@@ -434,7 +454,7 @@ services:
       start_period: 20s
 
   web:
-    <<: *appService
+    <<: [*appService, *appResources]
     image: ${CARACAL_REGISTRY:-ghcr.io/garudex-labs/}caracal-web:v${CARACAL_VERSION}
     command: ["/app/auth/dist/server.js"]
     depends_on:
