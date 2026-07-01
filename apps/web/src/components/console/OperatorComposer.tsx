@@ -32,6 +32,7 @@ import {
   CheckGlyph,
   ChevronDownGlyph,
   EyeGlyph,
+  StarGlyph,
   UserCheckGlyph,
   type Glyph,
 } from "@/components/console/OperatorGlyphs";
@@ -186,7 +187,7 @@ function ComposerMenu<T extends string>({
 }
 
 const MODE_OPTIONS: ComposerMenuOption<OperatorConversationMode>[] = [
-  { value: "agent", label: "Agent", icon: BoltGlyph },
+  { value: "agent", label: "Agent", icon: StarGlyph },
   { value: "ask", label: "Ask", icon: EyeGlyph },
 ];
 

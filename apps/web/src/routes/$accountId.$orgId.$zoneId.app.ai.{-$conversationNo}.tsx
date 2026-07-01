@@ -613,12 +613,12 @@ function OperatorWorkspace() {
               <img
                 src="/caracal_light.png"
                 alt="Caracal"
-                className="h-auto w-40 select-none dark:hidden"
+                className="h-auto w-28 select-none dark:hidden"
               />
               <img
                 src="/caracal_dark.png"
                 alt="Caracal"
-                className="hidden h-auto w-40 select-none dark:block"
+                className="hidden h-auto w-28 select-none dark:block"
               />
             </div>
           ) : (
@@ -1354,7 +1354,7 @@ function ActivityStream({
 
   if (empty) {
     return (
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
         <MemoryStrip zoneId={zoneId} conversationId={conversationId} />
         <NewChatHero
           value={message}
@@ -1372,7 +1372,7 @@ function ActivityStream({
   }
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+    <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
       <MemoryStrip zoneId={zoneId} conversationId={conversationId} />
 
       <div
@@ -1721,8 +1721,9 @@ function NewChatHero({
   );
 }
 
-// Compact memory recap shown inside the stream so long-session continuity (applied
-// changes, rejected operations) stays visible without scrolling the timeline.
+// Compact recap of what this chat has changed. It floats as a small pill in the top-right of the
+// stream so long-session continuity stays reachable without a full-width bar eating vertical space,
+// and opens a popover listing each applied change plus any capabilities the Operator is avoiding.
 function MemoryStrip({
   zoneId,
   conversationId,
@@ -1731,25 +1732,95 @@ function MemoryStrip({
   conversationId: string;
 }) {
   const { data } = useOperatorContext(zoneId, conversationId);
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onPointer(event: PointerEvent) {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    }
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("pointerdown", onPointer, true);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointer, true);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
   const facts = data?.facts;
   if (!facts || (facts.applied_change_count === 0 && facts.rejected_capabilities.length === 0)) {
     return null;
   }
+
+  const appliedPlans = facts.decided_plans.filter((plan) => plan.executed);
+  const count = facts.applied_change_count;
+
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-border bg-muted/30 px-4 py-2 text-[11px] text-muted-foreground">
-      {facts.applied_change_count > 0 ? (
-        <span>
-          <span className="font-medium text-foreground">{facts.applied_change_count}</span> change
-          {facts.applied_change_count === 1 ? "" : "s"} applied
-        </span>
-      ) : null}
-      {facts.rejected_capabilities.length > 0 ? (
-        <span>
-          Avoiding{" "}
-          <span className="font-mono text-foreground">
-            {facts.rejected_capabilities.join(", ")}
+    <div ref={rootRef} className="absolute right-3 top-3 z-20">
+      <button
+        type="button"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-label="Changes made in this chat"
+        onClick={() => setOpen((v) => !v)}
+        className={cx(
+          "inline-flex h-7 items-center gap-1.5 rounded-full border border-border bg-card/90 px-2.5 text-[11px] font-medium text-muted-foreground shadow-sm backdrop-blur outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40",
+          open && "text-foreground",
+        )}
+      >
+        <CheckGlyph className="h-3.5 w-3.5 text-emerald-500" />
+        {count > 0 ? (
+          <span>
+            <span className="text-foreground">{count}</span> change{count === 1 ? "" : "s"}
           </span>
-        </span>
+        ) : (
+          <span>Recap</span>
+        )}
+      </button>
+
+      {open ? (
+        <div
+          role="dialog"
+          aria-label="Changes made in this chat"
+          className="animate-pop-in absolute right-0 top-full z-30 mt-1.5 w-72 overflow-hidden rounded-lg border border-border bg-popover shadow-xl"
+        >
+          <div className="border-b border-border px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Changes in this chat
+          </div>
+          <div className="scrollbar-thin max-h-72 overflow-y-auto py-1">
+            {appliedPlans.length > 0 ? (
+              appliedPlans.map((plan) => (
+                <div key={plan.seq} className="flex items-start gap-2 px-3 py-1.5">
+                  <CheckGlyph className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-500" />
+                  <div className="min-w-0">
+                    <p className="text-xs leading-snug text-foreground">{plan.summary}</p>
+                    {plan.steps_failed > 0 ? (
+                      <p className="text-[11px] text-amber-600">
+                        {plan.steps_succeeded} applied, {plan.steps_failed} failed
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+              ))
+            ) : (
+              <p className="px-3 py-2 text-xs text-muted-foreground">
+                {count} change{count === 1 ? "" : "s"} applied in this chat.
+              </p>
+            )}
+          </div>
+          {facts.rejected_capabilities.length > 0 ? (
+            <div className="border-t border-border px-3 py-2 text-[11px] text-muted-foreground">
+              Avoiding{" "}
+              <span className="font-mono text-foreground">
+                {facts.rejected_capabilities.join(", ")}
+              </span>
+            </div>
+          ) : null}
+        </div>
       ) : null}
     </div>
   );
