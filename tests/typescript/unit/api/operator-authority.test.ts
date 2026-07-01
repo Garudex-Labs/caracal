@@ -17,6 +17,7 @@ describe('buildOperatorAuthority', () => {
     const authority = buildOperatorAuthority()
     expect(authority.principal).toBe(OPERATOR_PRINCIPAL)
     expect([...authority.allowedCapabilities].sort()).toEqual([
+      'defineResource',
       'deleteApplication',
       'deletePolicy',
       'deleteProvider',
@@ -86,7 +87,7 @@ describe('authorizePlanSteps', () => {
     const denials = authorizePlanSteps(authority, [
       { id: 's1', capability: 'grantAccess' },
       { id: 's2', capability: 'connectProvider' },
-      { id: 's3', capability: 'defineResource' },
+      { id: 's3', capability: 'createZone' },
     ])
     expect(denials.map((d) => d.step_id)).toEqual(['s2', 's3'])
     expect(denials[0]).toMatchObject({ capability: 'connectProvider', code: 'capability_forbidden' })

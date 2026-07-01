@@ -238,6 +238,7 @@ describe('operatorControlScopes', () => {
       'control:policy:read',
       'control:resource:delete',
       'control:resource:read',
+      'control:resource:write',
     ])
   })
 })

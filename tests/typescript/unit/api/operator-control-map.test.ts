@@ -50,13 +50,14 @@ describe('isControlExecutable', () => {
     expect(isControlExecutable('deletePolicy')).toBe(true)
     expect(isControlExecutable('revokeGrant')).toBe(true)
     expect(isControlExecutable('listGrants')).toBe(true)
+    expect(isControlExecutable('defineResource')).toBe(true)
     // Zone lifecycle is a platform operation, not governed-executable by the Operator.
     expect(isControlExecutable('createZone')).toBe(false)
     expect(isControlExecutable('listZones')).toBe(false)
-    // Read-only explanation and configuration-heavy capabilities are not control commands.
+    // Read-only explanation and configuration-heavy capabilities are not control commands. A
+    // provider needs kind-specific config the thin arguments cannot supply, so it stays plan-only.
     expect(isControlExecutable('explainAccess')).toBe(false)
     expect(isControlExecutable('connectProvider')).toBe(false)
-    expect(isControlExecutable('defineResource')).toBe(false)
   })
 })
 
@@ -108,6 +109,16 @@ describe('buildInvocation', () => {
     })
   })
 
+  it('builds defineResource from the name and scopes', () => {
+    expect(
+      CONTROL_CAPABILITIES.defineResource.buildInvocation({ name: 'FinXpert', scopes: ['finxpert.read', 'finxpert.write'] }, gen),
+    ).toEqual({
+      command: 'resource',
+      subcommand: 'create',
+      flags: { name: 'FinXpert', scopes: ['finxpert.read', 'finxpert.write'] },
+    })
+  })
+
   it('builds grantAccess with the hyphenated control flag names', () => {
     expect(
       CONTROL_CAPABILITIES.grantAccess.buildInvocation(
@@ -149,6 +160,17 @@ describe('describeOutcome', () => {
     )
     expect(outcome.detail).not.toContain('cs_generated_secret')
     expect(outcome.output).toEqual({ application_id: 'app-1', client_secret: 'cs_generated_secret' })
+  })
+
+  it('surfaces the resource id and names its scopes', () => {
+    const outcome = CONTROL_CAPABILITIES.defineResource.describeOutcome(
+      { id: 'res-1', identifier: 'resource://finxpert' },
+      { name: 'FinXpert', scopes: ['finxpert.read', 'finxpert.write'] },
+      gen,
+    )
+    expect(outcome.detail).toContain('finxpert.read')
+    expect(outcome.detail).toContain('finxpert.write')
+    expect(outcome.output).toEqual({ resource_id: 'res-1' })
   })
 
   it('surfaces the grant id', () => {
