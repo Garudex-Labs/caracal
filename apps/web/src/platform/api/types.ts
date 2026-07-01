@@ -11,6 +11,7 @@ export interface Zone {
   name: string;
   slug: string;
   dcr_enabled: boolean;
+  operator_coauthor_badge: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -28,6 +29,7 @@ export interface ZonePatchInput {
   slug?: string;
   dcr_enabled?: boolean;
   dcr_shutdown?: DcrShutdownMode;
+  operator_coauthor_badge?: boolean;
 }
 
 export interface ZoneDcrStatus {
@@ -138,6 +140,7 @@ export interface Policy {
   description: string | null;
   owner_type: string;
   created_by: string;
+  co_authored_by_operator: boolean;
   created_at: string;
 }
 
@@ -197,6 +200,8 @@ export interface PolicySet {
   name: string;
   description: string | null;
   active_version_id: string | null;
+  created_by?: string;
+  co_authored_by_operator?: boolean;
   created_at: string;
 }
 
