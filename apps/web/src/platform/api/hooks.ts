@@ -949,6 +949,19 @@ export function useAgentActivity(zoneId: string | null, sessionId: string | null
   });
 }
 
+export function useSessionActivity(zoneId: string | null, sessionId: string | null) {
+  return useQuery({
+    queryKey: ["console", "session-activity", zoneId, sessionId],
+    queryFn: () =>
+      consoleApi.audit.list(zoneId as string, {
+        session_id: sessionId as string,
+        limit: 50,
+      }),
+    enabled: Boolean(zoneId && sessionId),
+    refetchInterval: LIVE_MS,
+  });
+}
+
 export function useAgentLifecycle(zoneId: string | null) {
   const qc = useQueryClient();
   return useMutation({

@@ -79,6 +79,7 @@ const AuditQuery = z.object({
   decision: z.enum(['allow', 'deny', 'partial']).optional(),
   event_type: z.string().min(1).optional(),
   agent_session_id: z.string().min(1).max(128).optional(),
+  session_id: z.string().min(1).max(128).optional(),
   label: z.string().min(1).max(64).optional(),
   cursor: z.string().min(1).max(512).optional(),
   limit: z.coerce.number().int().min(1).max(1000).default(100),
@@ -87,6 +88,7 @@ const AuditQuery = z.object({
 const SessionQuery = z.object({
   status: z.enum(['active', 'revoked', 'expired']).optional(),
   subject_id: z.string().min(1).optional(),
+  format: z.enum(['json', 'csv']).default('json'),
   cursor: z.string().min(1).max(512).optional(),
   limit: z.coerce.number().int().min(1).max(1000).default(100),
 })
@@ -132,6 +134,19 @@ function agentSessionsCsv(rows: Record<string, unknown>[]): string {
   return `${lines.join('\r\n')}\r\n`
 }
 
+const SESSION_CSV_COLUMNS = [
+  'id', 'session_type', 'subject_id', 'parent_id', 'status',
+  'authenticated_at', 'created_at', 'expires_at', 'revoked_at', 'revoked_reason',
+] as const
+
+function sessionsCsv(rows: Record<string, unknown>[]): string {
+  const lines = [SESSION_CSV_COLUMNS.join(',')]
+  for (const row of rows) {
+    lines.push(SESSION_CSV_COLUMNS.map((col) => toCsvCell(row[col])).join(','))
+  }
+  return `${lines.join('\r\n')}\r\n`
+}
+
 const ZoneRequestParams = ZoneParams.extend({ requestId: z.string().regex(/^[A-Za-z0-9_.\-:]{1,128}$/) })
 
 export const zoneEventsRoutes: FastifyPluginAsync = async (fastify) => {
@@ -152,6 +167,10 @@ export const zoneEventsRoutes: FastifyPluginAsync = async (fastify) => {
     if (q.agent_session_id) {
       values.push(q.agent_session_id)
       conds.push(`metadata_json->>'agent_session_id' = $${values.length}`)
+    }
+    if (q.session_id) {
+      values.push(q.session_id)
+      conds.push(`metadata_json->>'session_id' = $${values.length}`)
     }
     if (q.label) {
       values.push(JSON.stringify([q.label]))
@@ -300,13 +319,20 @@ export const zoneEventsRoutes: FastifyPluginAsync = async (fastify) => {
 
     const { rows } = await fastify.db.query(
       `SELECT id, zone_id, session_type, subject_id, parent_id, status, expires_at,
-              authenticated_at, created_at
+              authenticated_at, created_at, revoked_at, revoked_reason
        FROM sessions
        WHERE ${conds.join(' AND ')}
        ORDER BY created_at DESC, id DESC
        LIMIT $${values.length}`,
       values,
     )
+
+    if (q.format === 'csv') {
+      reply.header('content-type', 'text/csv; charset=utf-8')
+      reply.header('content-disposition', `attachment; filename="sessions-${params.zoneId}.csv"`)
+      return reply.send(sessionsCsv(rows))
+    }
+
     const last = rows[rows.length - 1]
     const next = rows.length === q.limit && last
       ? encodeCursor(new Date(last.created_at).toISOString(), last.id)
