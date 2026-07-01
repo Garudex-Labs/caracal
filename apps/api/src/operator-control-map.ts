@@ -120,6 +120,27 @@ export const CONTROL_CAPABILITIES: Record<string, ControlCapability> = {
       }
     },
   },
+  // A provider is created from just its name and kind. Only the credential-free kinds — caracal_mandate,
+  // which forwards Caracal’s own mandate, and none, which forwards nothing — are applied here: they seal
+  // no secret, so nothing sensitive ever enters the plan. The credential-bearing kinds (oauth2, api_key,
+  // bearer_token) require a sealed secret the thin plan arguments must never carry, so the control plane
+  // rejects a secretless create and those providers are created in the Console instead. The control plane
+  // derives the resource://-style identifier and the empty config from the name and kind.
+  connectProvider: {
+    scopes: ['control:identity-provider:write'],
+    buildInvocation: (args) => ({
+      command: 'identity-provider',
+      subcommand: 'create',
+      flags: { name: asString(args.name), kind: asString(args.kind) },
+    }),
+    describeOutcome: (result, args) => {
+      const provider = asRecord(result)
+      return {
+        detail: `Connected provider “${asString(args.name)}” (${asString(args.kind)}).`,
+        output: { provider_id: provider.id },
+      }
+    },
+  },
   // A resource is created from just its name and the scopes it exposes; the control plane derives
   // the resource://<slug> identifier from the name. This is the thin create the Operator applies
   // directly: it registers the protected target and its scopes. Wiring a Gateway-routed upstream —

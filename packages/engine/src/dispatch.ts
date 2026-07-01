@@ -127,12 +127,6 @@ function getJsonObject(flags: FlagMap | undefined, key: string): Record<string, 
   return parsed as Record<string, unknown>
 }
 
-function mustJsonObject(flags: FlagMap | undefined, key: string): Record<string, unknown> {
-  const value = getJsonObject(flags, key)
-  if (!value) invalid(`flag "${key}" is required`)
-  return value
-}
-
 function getNum(flags: FlagMap | undefined, key: string): number | undefined {
   const v = flags?.[key]
   if (typeof v === 'number') return v
@@ -286,9 +280,9 @@ const providerHandler = bySubcommand({
   create: ({ principal, flags, ctx }) =>
     ctx.admin.providers.create(requireZone(principal), {
       name: mustStr(flags, 'name'),
-      identifier: mustStr(flags, 'identifier'),
+      identifier: getStr(flags, 'identifier'),
       kind: mustStr(flags, 'kind') as never,
-      config_json: mustJsonObject(flags, 'config'),
+      config_json: getJsonObject(flags, 'config'),
     } as never),
   patch: ({ principal, flags, ctx }) =>
     ctx.admin.providers.patch(requireZone(principal), mustStr(flags, 'id'), {

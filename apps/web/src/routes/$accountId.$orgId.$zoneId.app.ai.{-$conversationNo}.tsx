@@ -58,7 +58,12 @@ import {
   useOperatorAutopilotAvailable,
   useSendOperatorMessage,
 } from "@/platform/api/hooks";
-import { buildTimeline, type PlanItem, type TimelineItem } from "@/platform/operator/timeline";
+import {
+  buildTimeline,
+  type PlanItem,
+  type PlanStepView,
+  type TimelineItem,
+} from "@/platform/operator/timeline";
 import {
   deriveTitle,
   formatRelative,
@@ -154,7 +159,7 @@ function CaracalOperatorPage() {
   return (
     <ModulePage
       title="Caracal Operator"
-      description="Operate your entire Caracal control plane in natural language. Describe what you want; the Operator resolves it into concrete changes, shows the plan, previews the effect against live state, and applies it through the same guarded APIs you use by hand - within your operator scope and recorded in the audit log."
+      description="Operate your entire Caracal control plane in natural language. The Operator plans, previews, and safely applies changes through audited, guarded APIs."
       breadcrumbs={[{ label: "Console", to: "/app" }, { label: "Caracal Operator" }]}
       titleAccessory={
         <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-accent-purple">
@@ -241,6 +246,12 @@ const HERO_GREETINGS = [
 const DRAFT_MODE_KEY = "caracal.operator.draftMode";
 const DRAFT_AUTOPILOT_KEY = "caracal.operator.draftAutopilot";
 
+// The last chat left open is remembered per zone so returning to the Operator - after a reload, a
+// visit to another module, or a sign back in - reopens that exact chat instead of the new-chat
+// hero. Starting a new chat clears it, so an explicit fresh start is honoured rather than bounced
+// back to the prior chat.
+const LAST_CONVERSATION_KEY = "caracal.operator.lastConversation";
+
 // Raised as a warning when a message is sent while no AI provider is connected. The Operator turns
 // natural language into governed plans through a model, so with no provider the send cannot be
 // acted on; rather than dispatch it into an upstream refusal, the send is held back and this is
@@ -267,6 +278,19 @@ function readDraftMode(): OperatorConversationMode {
 function readDraftAutopilot(): boolean {
   if (typeof localStorage === "undefined") return false;
   return localStorage.getItem(DRAFT_AUTOPILOT_KEY) === "1";
+}
+
+function readLastConversation(zoneId: string | null): number | null {
+  if (zoneId == null || typeof localStorage === "undefined") return null;
+  const stored = Number(localStorage.getItem(`${LAST_CONVERSATION_KEY}.${zoneId}`));
+  return Number.isInteger(stored) && stored > 0 ? stored : null;
+}
+
+function writeLastConversation(zoneId: string | null, number: number | null): void {
+  if (zoneId == null || typeof localStorage === "undefined") return;
+  const key = `${LAST_CONVERSATION_KEY}.${zoneId}`;
+  if (number == null) localStorage.removeItem(key);
+  else localStorage.setItem(key, String(number));
 }
 
 /* ------------------------------ workspace ------------------------------ */
@@ -300,6 +324,9 @@ function OperatorWorkspace() {
   const [operatorNotice, setOperatorNotice] = useState<OperatorNoticeEvent | null>(null);
   const [fullscreen, setFullscreen] = useState(false);
   const shellRef = useRef<HTMLDivElement>(null);
+  // Tracks the zone whose remembered chat has already been reopened, so the restore runs once per
+  // zone on arrival and never fights a selection the operator makes afterwards.
+  const restoredZoneRef = useRef<string | null>(null);
 
   const conversations = useOperatorConversations(zoneId, search, view);
   const create = useCreateOperatorConversation(zoneId);
@@ -312,7 +339,7 @@ function OperatorWorkspace() {
   // number is the new-chat hero at the bare route. The router is the single place the open chat is
   // recorded, so a reload reopens the same chat rather than starting over.
   const goToConversation = useCallback(
-    (number: number | null) => {
+    (number: number | null, replace = false) => {
       navigate({
         to: "/$accountId/$orgId/$zoneId/app/ai/{-$conversationNo}",
         params: {
@@ -321,6 +348,7 @@ function OperatorWorkspace() {
           zoneId: routeParams.zoneId,
           conversationNo: number == null ? undefined : String(number),
         },
+        replace,
       });
     },
     [navigate, routeParams.accountId, routeParams.orgId, routeParams.zoneId],
@@ -333,6 +361,9 @@ function OperatorWorkspace() {
     (id: string | null) => {
       if (id == null) {
         setSelectedId(null);
+        // An explicit new chat forgets the remembered one, so a later return lands on the hero
+        // rather than reopening the chat the operator just left behind.
+        writeLastConversation(zoneId, null);
         goToConversation(null);
         return;
       }
@@ -340,7 +371,7 @@ function OperatorWorkspace() {
       const conversation = (conversations.data ?? []).find((c) => c.id === id);
       goToConversation(conversation ? conversation.number : null);
     },
-    [conversations.data, goToConversation],
+    [conversations.data, goToConversation, zoneId],
   );
 
   // Restore the open chat from the URL: when the number resolves to a loaded conversation, open it.
@@ -351,6 +382,27 @@ function OperatorWorkspace() {
     const conversation = (conversations.data ?? []).find((c) => c.number === routeNumber);
     if (conversation && conversation.id !== selectedId) setSelectedId(conversation.id);
   }, [routeNumber, conversations.data, selectedId]);
+
+  // Remember whichever chat is currently open so a return to the Operator reopens it. Only a real
+  // chat is recorded; the hero leaves the memory untouched so navigating away mid-compose still
+  // restores the last actual chat.
+  useEffect(() => {
+    if (routeNumber != null) writeLastConversation(zoneId, routeNumber);
+  }, [zoneId, routeNumber]);
+
+  // On arriving at the bare route for a zone, reopen that zone's remembered chat once its list has
+  // loaded and the chat still exists. It runs a single time per zone and replaces the bare entry so
+  // the browser back button returns to where the operator came from rather than looping on restore.
+  useEffect(() => {
+    if (zoneId == null || conversations.data == null) return;
+    if (restoredZoneRef.current === zoneId) return;
+    restoredZoneRef.current = zoneId;
+    if (routeNumber != null) return;
+    const last = readLastConversation(zoneId);
+    if (last != null && conversations.data.some((c) => c.number === last)) {
+      goToConversation(last, true);
+    }
+  }, [zoneId, conversations.data, routeNumber, goToConversation]);
 
   const { data: autopilotAvailable } = useOperatorAutopilotAvailable();
 
@@ -1047,6 +1099,12 @@ function ActivityStream({
 
   const { items, latestPlan } = useMemo(() => buildTimeline(turns ?? []), [turns]);
 
+  // The tool calls each Operator answer is responsible for, so copying the answer can carry the
+  // actions it took. Walking the exchange - the steps of every plan since the last user turn - and
+  // pinning them to that turn's Operator replies keeps the copy self-contained without threading the
+  // plan through the render.
+  const toolCallsByMessage = useMemo(() => collectExchangeToolCalls(items), [items]);
+
   // This conversation's own prompts, oldest to newest, so the composer can recall them with the
   // up and down arrows without reaching into any other chat's history.
   const promptHistory = useMemo(
@@ -1294,13 +1352,17 @@ function ActivityStream({
                 Show earlier messages ({hiddenCount})
               </button>
             ) : null}
-            {visibleItems.map((item) => (
+            {visibleItems.map((item, index) => (
               <StreamEntry
                 key={item.id}
                 item={item}
                 zoneId={zoneId}
                 conversationId={conversationId}
                 actionable={latestPlan?.id === item.id}
+                toolCalls={toolCallsByMessage.get(item.id) ?? EMPTY_TOOL_CALLS}
+                showAvatar={
+                  !isUserItem(item) && (index === 0 || isUserItem(visibleItems[index - 1]))
+                }
               />
             ))}
           </>
@@ -1652,34 +1714,61 @@ function MemoryStrip({
   );
 }
 
+// A user turn is the only right-aligned entry; every other timeline item is an Operator-side
+// response. The Operator avatar marks where a response begins, so it shows on the first Operator
+// item after a user turn and the rest of that turn's items align beneath the same gutter.
+function isUserItem(item: TimelineItem): boolean {
+  return (item.kind === "message" || item.kind === "note") && item.role === "user";
+}
+
 function StreamEntry({
   item,
   zoneId,
   conversationId,
   actionable,
+  toolCalls,
+  showAvatar,
 }: {
   item: TimelineItem;
   zoneId: string | null;
   conversationId: string;
   actionable: boolean;
+  toolCalls: PlanStepView[];
+  showAvatar: boolean;
 }) {
+  const avatar = showAvatar ? (
+    <img
+      src="/chatbot.png"
+      alt="Caracal Operator"
+      className="h-8 w-8 shrink-0 select-none object-contain"
+    />
+  ) : (
+    <div className="h-8 w-8 shrink-0" aria-hidden />
+  );
+
   if (item.kind === "plan") {
     return (
-      <div className="flex flex-col gap-2">
-        {item.deliberation ? <DeliberationReplay stages={item.deliberation} /> : null}
-        {actionable ? (
-          <PlanArtifact plan={item} zoneId={zoneId} conversationId={conversationId} />
-        ) : (
-          <PlanHistoryRow plan={item} />
-        )}
+      <div className="flex items-start gap-2">
+        {avatar}
+        <div className="flex min-w-0 flex-1 flex-col gap-2">
+          {item.deliberation ? <DeliberationReplay stages={item.deliberation} /> : null}
+          {actionable ? (
+            <PlanArtifact plan={item} zoneId={zoneId} conversationId={conversationId} />
+          ) : (
+            <PlanHistoryRow plan={item} />
+          )}
+        </div>
       </div>
     );
   }
 
   if (item.kind === "error") {
     return (
-      <div className="border-l-2 border-destructive bg-destructive/5 px-3 py-2 text-sm text-destructive">
-        {item.message}
+      <div className="flex items-start gap-2">
+        {avatar}
+        <div className="min-w-0 flex-1 border-l-2 border-destructive bg-destructive/5 px-3 py-2 text-sm text-destructive">
+          {item.message}
+        </div>
       </div>
     );
   }
@@ -1696,11 +1785,7 @@ function StreamEntry({
 
   return (
     <div className="group flex items-start gap-2">
-      <img
-        src="/chatbot.png"
-        alt="Caracal Operator"
-        className="h-8 w-8 shrink-0 select-none object-contain"
-      />
+      {avatar}
       <div className="mt-1.5 flex min-w-0 max-w-[82%] flex-col gap-1.5">
         {item.deliberation ? <DeliberationReplay stages={item.deliberation} /> : null}
         {item.reasoning ? (
@@ -1710,24 +1795,87 @@ function StreamEntry({
           </Reasoning>
         ) : null}
         <Response>{item.text}</Response>
-        {item.text.trim() ? <CopyMessageButton text={item.text} /> : null}
+        {item.text.trim() || toolCalls.length > 0 ? (
+          <CopyMessageButton text={item.text} toolCalls={toolCalls} />
+        ) : null}
       </div>
     </div>
   );
 }
 
+// A stable empty list so answers with no tool calls never allocate a fresh array per render.
+const EMPTY_TOOL_CALLS: PlanStepView[] = [];
+
+// Associates each Operator answer with the tool calls of its exchange. Walking the timeline in
+// order, the steps of every plan since the last user turn accumulate and pin to each Operator reply
+// that follows, so copying that reply carries the actions taken in the same exchange.
+function collectExchangeToolCalls(items: TimelineItem[]): Map<string, PlanStepView[]> {
+  const byMessage = new Map<string, PlanStepView[]>();
+  let exchange: PlanStepView[] = [];
+  for (const item of items) {
+    if (isUserItem(item)) {
+      exchange = [];
+    } else if (item.kind === "plan") {
+      exchange = [...exchange, ...item.steps];
+    } else if ((item.kind === "message" || item.kind === "note") && exchange.length > 0) {
+      byMessage.set(item.id, exchange);
+    }
+  }
+  return byMessage;
+}
+
+// Renders a single argument value as a compact one-liner for the copied tool-call list.
+function formatArgValue(value: unknown): string {
+  if (value == null) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => (typeof entry === "object" ? JSON.stringify(entry) : String(entry)))
+      .join(", ");
+  }
+  return JSON.stringify(value);
+}
+
+// Formats the tool calls as a clean, numbered list - each with its capability, applied status, and
+// arguments - so a pasted response reads as an ordered account of what the Operator did.
+function formatToolCalls(steps: PlanStepView[]): string {
+  const lines = steps.map((step, index) => {
+    const status = step.status === "pending" ? "proposed" : step.status;
+    const head = `${index + 1}. ${step.summary} (${step.capability}) — ${status}`;
+    const args = Object.entries(step.args)
+      .map(([key, value]) => [key.replace(/_/g, " "), formatArgValue(value)] as const)
+      .filter(([, value]) => value.length > 0)
+      .map(([key, value]) => `   - ${key}: ${value}`);
+    return [head, ...args].join("\n");
+  });
+  return `Tool calls\n${lines.join("\n")}`;
+}
+
+// Joins the answer prose and its tool-call list into one copyable block, separated by a rule so the
+// actions read as a distinct section beneath the response.
+function buildCopyPayload(text: string, toolCalls: PlanStepView[]): string {
+  const sections: string[] = [];
+  if (text.trim()) sections.push(text);
+  if (toolCalls.length > 0) sections.push(formatToolCalls(toolCalls));
+  return sections.join("\n\n---\n\n");
+}
+
 // A subtle action under each Operator answer that copies the full response as markdown. It
 // stays out of the way until the message is hovered or the control is focused, then confirms
-// with a check for a moment so the user knows the copy landed.
-function CopyMessageButton({ text }: { text: string }) {
+// with a check for a moment so the user knows the copy landed. When the answer's turn made tool
+// calls, a clean list of them is appended so the copied text carries the actions, not only the
+// prose.
+function CopyMessageButton({ text, toolCalls }: { text: string; toolCalls: PlanStepView[] }) {
   const [copied, setCopied] = useState(false);
+  const payload = useMemo(() => buildCopyPayload(text, toolCalls), [text, toolCalls]);
   return (
     <button
       type="button"
       aria-label={copied ? "Copied" : "Copy response"}
       title={copied ? "Copied" : "Copy response"}
       onClick={() => {
-        void navigator.clipboard?.writeText(text);
+        void navigator.clipboard?.writeText(payload);
         setCopied(true);
         window.setTimeout(() => setCopied(false), 1200);
       }}
