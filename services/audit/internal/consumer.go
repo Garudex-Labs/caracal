@@ -262,40 +262,40 @@ func (c *Consumer) reapOnce(ctx context.Context) {
 // processOnce handles a single message with full classification of outcomes.
 //   - inserted          → XACK
 //   - benign duplicate  → XACK
-//   - tamper-on-replay  → DLQ + alert + XACK
-//   - parse / hmac fail → DLQ + XACK
-//   - permanent PG err  → DLQ if delivCount >= maxDeliv, else leave in PEL
+//   - tamper-on-replay  → DLQ + alert, XACK only if the DLQ write succeeds
+//   - parse / hmac fail → DLQ, XACK only if the DLQ write succeeds
+//   - permanent PG err  → DLQ if delivCount >= maxDeliv, XACK only on DLQ success
 //   - transient err     → leave in PEL for reaper
+//
+// A message is never acknowledged unless it was durably persisted or durably
+// dead-lettered, so a failed DLQ write leaves it in the PEL for retry rather
+// than dropping the audit event.
 func (c *Consumer) processOnce(ctx context.Context, msg redis.XMessage, delivCount int64) {
 	raw, ok := msg.Values["data"].(string)
 	if !ok {
 		c.parseErrors.Add(1)
-		c.toDLQ(ctx, msg, "missing_data_field")
-		c.ack(ctx, msg.ID)
+		c.dlqAndAck(ctx, msg, "missing_data_field")
 		return
 	}
 	sig, _ := msg.Values["sig"].(string)
 
 	if !c.verifyHMAC(raw, sig) {
 		c.hmacFailTotal.Add(1)
-		c.toDLQ(ctx, msg, "hmac_verify_failed")
-		c.ack(ctx, msg.ID)
+		c.dlqAndAck(ctx, msg, "hmac_verify_failed")
 		return
 	}
 
 	ev, err := unmarshalEvent(raw)
 	if err != nil {
 		c.parseErrors.Add(1)
-		c.toDLQ(ctx, msg, "json_parse_error:"+err.Error())
-		c.ack(ctx, msg.ID)
+		c.dlqAndAck(ctx, msg, "json_parse_error:"+err.Error())
 		return
 	}
 
 	_, err = c.db.Insert(ctx, ev, sig)
 	if errors.Is(err, ErrConflictMismatch) {
 		c.tamperReplay.Add(1)
-		c.toDLQ(ctx, msg, "tamper_on_replay")
-		c.ack(ctx, msg.ID)
+		c.dlqAndAck(ctx, msg, "tamper_on_replay")
 		return
 	}
 	if err == nil {
@@ -305,15 +305,13 @@ func (c *Consumer) processOnce(ctx context.Context, msg redis.XMessage, delivCou
 
 	if IsTransientPGError(err) {
 		if c.maxDeliv > 0 && delivCount >= c.maxDeliv {
-			c.toDLQ(ctx, msg, "transient_exceeded_max_deliveries:"+err.Error())
-			c.ack(ctx, msg.ID)
+			c.dlqAndAck(ctx, msg, "transient_exceeded_max_deliveries:"+err.Error())
 			return
 		}
 		c.log.Warn().Err(err).Str("id", msg.ID).Int64("deliv", delivCount).Msg("transient pg insert; will retry")
 		return
 	}
-	c.toDLQ(ctx, msg, "pg_permanent_error:"+err.Error())
-	c.ack(ctx, msg.ID)
+	c.dlqAndAck(ctx, msg, "pg_permanent_error:"+err.Error())
 }
 
 func (c *Consumer) ack(ctx context.Context, id string) {
@@ -322,8 +320,20 @@ func (c *Consumer) ack(ctx context.Context, id string) {
 	}
 }
 
-func (c *Consumer) toDLQ(ctx context.Context, msg redis.XMessage, reason string) {
-	c.dlqTotal.Add(1)
+// dlqAndAck routes a message to the DLQ and acknowledges it only when the DLQ
+// write succeeds. A failed DLQ write leaves the message in the PEL so the reaper
+// retries it later: acking a message that was never dead-lettered would drop the
+// audit event entirely, breaking the durability contract.
+func (c *Consumer) dlqAndAck(ctx context.Context, msg redis.XMessage, reason string) {
+	if c.toDLQ(ctx, msg, reason) {
+		c.ack(ctx, msg.ID)
+	}
+}
+
+// toDLQ publishes a message to the dead-letter stream. It reports whether the
+// publish succeeded so the caller can decide whether the source message may be
+// acknowledged. The dlq counter tracks events that actually reached the DLQ.
+func (c *Consumer) toDLQ(ctx context.Context, msg redis.XMessage, reason string) bool {
 	fields := map[string]any{
 		"reason":      reason,
 		"src_id":      msg.ID,
@@ -338,10 +348,12 @@ func (c *Consumer) toDLQ(ctx context.Context, msg redis.XMessage, reason string)
 		Stream: auditDLQStream,
 		Values: fields,
 	}).Err(); err != nil {
-		c.log.Error().Err(err).Str("id", msg.ID).Str("reason", reason).Msg("dlq publish failed")
-	} else {
-		c.log.Warn().Str("id", msg.ID).Str("reason", reason).Msg("event sent to DLQ")
+		c.log.Error().Err(err).Str("id", msg.ID).Str("reason", reason).Msg("dlq publish failed; leaving in PEL for retry")
+		return false
 	}
+	c.dlqTotal.Add(1)
+	c.log.Warn().Str("id", msg.ID).Str("reason", reason).Msg("event sent to DLQ")
+	return true
 }
 
 func (c *Consumer) verifyHMAC(raw, sig string) bool {
