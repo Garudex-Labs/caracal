@@ -933,6 +933,22 @@ export function useAgentServices(zoneId: string | null, application_id: string |
   });
 }
 
+// Per-agent activity timeline: the durable audit events (token exchanges, resource calls,
+// denials) recorded for this agent session, newest first. This is the authoritative record
+// of what the agent actually did, correlated by agent_session_id.
+export function useAgentActivity(zoneId: string | null, sessionId: string | null) {
+  return useQuery({
+    queryKey: ["console", "agent-activity", zoneId, sessionId],
+    queryFn: () =>
+      consoleApi.audit.list(zoneId as string, {
+        agent_session_id: sessionId as string,
+        limit: 50,
+      }),
+    enabled: Boolean(zoneId && sessionId),
+    refetchInterval: LIVE_MS,
+  });
+}
+
 export function useAgentLifecycle(zoneId: string | null) {
   const qc = useQueryClient();
   return useMutation({

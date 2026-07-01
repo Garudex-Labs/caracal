@@ -335,7 +335,7 @@ describe('GET /v1/zones/:zoneId/agent-sessions', () => {
         id: 'as-9', application_id: 'app-1', parent_id: null, status: 'suspended',
         lifecycle: 'service', labels: ['voice', 'worker'], depth: 1, child_count: 0,
         spawned_at: '2026-05-02T00:00:00.000Z', last_active_at: '2026-05-02T00:01:00.000Z',
-        terminated_at: null, ttl_seconds: null,
+        terminated_at: null, termination_reason: null, ttl_seconds: null,
       }],
     })
 
@@ -349,8 +349,8 @@ describe('GET /v1/zones/:zoneId/agent-sessions', () => {
     expect(res.headers['content-type']).toContain('text/csv')
     expect(res.headers['content-disposition']).toContain('attachment; filename="agent-sessions-z1.csv"')
     const lines = res.body.trim().split('\r\n')
-    expect(lines[0]).toBe('id,application_id,parent_id,status,lifecycle,labels,depth,child_count,spawned_at,last_active_at,terminated_at,ttl_seconds')
-    expect(lines[1]).toBe('as-9,app-1,,suspended,service,voice worker,1,0,2026-05-02T00:00:00.000Z,2026-05-02T00:01:00.000Z,,')
+    expect(lines[0]).toBe('id,application_id,parent_id,status,lifecycle,labels,depth,child_count,spawned_at,last_active_at,terminated_at,termination_reason,ttl_seconds')
+    expect(lines[1]).toBe('as-9,app-1,,suspended,service,voice worker,1,0,2026-05-02T00:00:00.000Z,2026-05-02T00:01:00.000Z,,,')
   })
 
   it('rejects an invalid status filter', async () => {

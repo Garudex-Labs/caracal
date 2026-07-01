@@ -35,6 +35,7 @@ import {
 import { cx } from "@/lib/cx";
 import { ConsoleApiError } from "@/platform/api/client";
 import {
+  useAgentActivity,
   useAgentChildren,
   useAgentEffectiveAuthority,
   useAgentInboundDelegations,
@@ -48,6 +49,7 @@ import type {
   Agent,
   AgentStatus,
   AgentQuery,
+  AuditEvent,
   DelegationEdge,
   InvocationStatus,
 } from "@/platform/api/types";
@@ -216,6 +218,74 @@ function relativeTime(iso: string, now = Date.now()): string {
   return `${Math.round(hrs / 24)}d ${suffix}`;
 }
 
+// The most human-meaningful name for an agent row. Operators tag agents by role via labels,
+// so the first label reads as the agent's name; the application is the fallback. The raw
+// session id stays available as a secondary, copyable identifier.
+function agentTitle(agent: Agent): string {
+  return agent.labels[0] ?? agent.application_id;
+}
+
+// How long the agent has run: spawn to termination for ended agents, spawn to now for live ones.
+function agentDuration(agent: Agent, now = Date.now()): string {
+  const start = Date.parse(agent.spawned_at);
+  const end = agent.terminated_at ? Date.parse(agent.terminated_at) : now;
+  const secs = Math.max(Math.round((end - start) / 1000), 0);
+  if (secs < 60) return `${secs}s`;
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return mins % 60 ? `${hrs}h ${mins % 60}m` : `${hrs}h`;
+  const days = Math.floor(hrs / 24);
+  return `${days}d ${hrs % 24}h`;
+}
+
+// Plain-language rendering of why an agent ended, drawn from the durable termination reason.
+const TERMINATION_REASON_LABELS: Record<string, string> = {
+  requested: "Requested",
+  ttl: "TTL expired",
+  parent_terminated: "Parent terminated",
+  service_heartbeat_lost: "Heartbeat lost",
+  zone_purged: "Zone purged",
+};
+
+function terminationReasonLabel(reason: string): string {
+  return TERMINATION_REASON_LABELS[reason] ?? reason.replace(/_/g, " ");
+}
+
+// Plain-language rendering of durable audit event types for the per-agent activity timeline.
+const AUDIT_EVENT_LABELS: Record<string, string> = {
+  token_exchange: "Token issued",
+  exchange_denied: "Token denied",
+  gateway_resource_request: "Resource call",
+  scope_mismatch: "Scope denied",
+  rate_limited: "Rate limited",
+  replay_detected: "Replay blocked",
+  resource_not_found: "Resource missing",
+  credential_refresh_failed: "Credential refresh failed",
+  policy_eval_failed: "Policy error",
+};
+
+function auditEventLabel(eventType: string): string {
+  return AUDIT_EVENT_LABELS[eventType] ?? eventType.replace(/_/g, " ");
+}
+
+function auditDecisionTone(decision: string | null): "success" | "danger" | "muted" {
+  if (decision === "allow") return "success";
+  if (decision === "deny") return "danger";
+  return "muted";
+}
+
+// Pulls the resource/method context out of an audit event's metadata for a one-line summary.
+function auditEventContext(event: AuditEvent): string {
+  const meta = event.metadata_json ?? {};
+  const parts: string[] = [];
+  const resource = meta.resource ?? meta.resource_id ?? meta.target;
+  const method = meta.method ?? meta.action;
+  if (typeof method === "string" && method) parts.push(method);
+  if (typeof resource === "string" && resource) parts.push(resource);
+  return parts.join(" · ");
+}
+
 function AgentsPage({ zoneId }: { zoneId: string }) {
   const toast = useToast();
   const lifecycle = useAgentLifecycle(zoneId);
@@ -271,22 +341,17 @@ function AgentsPage({ zoneId }: { zoneId: string }) {
   const columns: Column<Agent>[] = [
     {
       id: "agent",
-      header: "Agent session",
+      header: "Agent",
       cell: (a) => (
         <div className="min-w-0">
-          <div className="truncate font-mono text-xs text-foreground">{a.agent_session_id}</div>
-          <div className="mt-0.5 flex flex-wrap items-center gap-1">
-            <span className="font-mono text-[10px] text-muted-foreground">{a.application_id}</span>
-            {a.labels.slice(0, 2).map((l) => (
-              <span
-                key={l}
-                className="rounded border border-border bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground"
-              >
-                {l}
+          <div className="truncate text-sm font-medium text-foreground">{agentTitle(a)}</div>
+          <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
+            <span className="font-mono">{shortId(a.agent_session_id)}</span>
+            <span>· {a.application_id}</span>
+            {a.labels.length > 1 ? (
+              <span>
+                +{a.labels.length - 1} label{a.labels.length - 1 === 1 ? "" : "s"}
               </span>
-            ))}
-            {a.labels.length > 2 ? (
-              <span className="text-[10px] text-muted-foreground">+{a.labels.length - 2}</span>
             ) : null}
           </div>
         </div>
@@ -315,29 +380,43 @@ function AgentsPage({ zoneId }: { zoneId: string }) {
       },
     },
     {
-      id: "status",
-      header: "Status",
-      cell: (a) => <Badge tone={statusTone(a.status)}>{a.status}</Badge>,
-    },
-    {
-      id: "lifecycle",
-      header: "Lifecycle",
-      cell: (a) => <span className="text-xs text-muted-foreground">{a.lifecycle}</span>,
-    },
-    {
-      id: "depth",
-      header: "Depth",
+      id: "kind",
+      header: "Kind",
       cell: (a) => (
-        <span className="font-mono text-xs text-muted-foreground">
-          {a.depth === 0 ? "root" : `d${a.depth}`}
+        <span className="text-xs text-muted-foreground">
+          {a.lifecycle}
+          <span className="ml-1.5 font-mono text-[10px]">
+            {a.depth === 0 ? "root" : `d${a.depth}`}
+          </span>
         </span>
       ),
     },
     {
-      id: "expires",
-      header: "Expires",
+      id: "started",
+      header: "Started",
+      cell: (a) => (
+        <span className="text-xs text-muted-foreground">{relativeTime(a.spawned_at)}</span>
+      ),
+    },
+    {
+      id: "duration",
+      header: "Duration",
+      cell: (a) => (
+        <span className="font-mono text-xs text-muted-foreground">{agentDuration(a)}</span>
+      ),
+    },
+    {
+      id: "outcome",
+      header: "Outcome",
       align: "right",
-      cell: (a) => <span className="text-xs text-muted-foreground">{agentExpiry(a)}</span>,
+      cell: (a) =>
+        a.status === "terminated" ? (
+          <span className="text-xs text-muted-foreground">
+            {a.termination_reason ? terminationReasonLabel(a.termination_reason) : "Ended"}
+          </span>
+        ) : (
+          <span className="text-xs text-muted-foreground">{agentExpiry(a)}</span>
+        ),
     },
   ];
 
@@ -383,8 +462,8 @@ function AgentsPage({ zoneId }: { zoneId: string }) {
             : "Agent sessions appear here as the Coordinator spawns them in this zone.",
         }}
         detail={{
-          title: (a) => a.agent_session_id,
-          description: (a) => `${a.lifecycle} · ${a.status}`,
+          title: (a) => agentTitle(a),
+          description: (a) => `${a.lifecycle} · ${a.status} · ${shortId(a.agent_session_id)}`,
           width: "max-w-2xl",
           render: (a) => (
             <AgentInspector
@@ -719,7 +798,14 @@ function AgentInspector({
             {new Date(agent.terminated_at).toLocaleString()}
           </DetailField>
         ) : null}
+        {agent.status === "terminated" ? (
+          <DetailField label="Reason">
+            {agent.termination_reason ? terminationReasonLabel(agent.termination_reason) : "Ended"}
+          </DetailField>
+        ) : null}
       </DetailGroup>
+
+      <AgentActivity zoneId={zoneId} sessionId={agent.agent_session_id} />
 
       <AuthorityEnvelope authority={authority} />
 
@@ -1013,6 +1099,63 @@ function invocationTone(status: InvocationStatus): "success" | "warning" | "dang
   if (status === "running" || status === "pending") return "warning";
   if (status === "failed" || status === "timed_out" || status === "dead") return "danger";
   return "muted";
+}
+
+// Authoritative record of what the agent actually did: the durable audit events correlated
+// by agent_session_id (token issuance, resource calls, denials), newest first. This is the
+// core of the agent audit — it answers "what happened" beyond the current lifecycle state.
+function AgentActivity({ zoneId, sessionId }: { zoneId: string; sessionId: string }) {
+  const activity = useAgentActivity(zoneId, sessionId);
+  const events = activity.data?.rows ?? [];
+
+  return (
+    <section className="border-t border-border pt-4">
+      <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+        Activity
+      </h3>
+      {activity.isLoading ? (
+        <Skeleton className="mt-3 h-16 w-full" />
+      ) : events.length === 0 ? (
+        <p className="mt-3 text-xs text-muted-foreground">
+          No recorded activity yet. Token exchanges, resource calls, and authority decisions for
+          this agent appear here as it acts.
+        </p>
+      ) : (
+        <ul className="mt-3 space-y-2">
+          {events.map((event) => {
+            const context = auditEventContext(event);
+            const latency = event.metadata_json?.latency_ms;
+            return (
+              <li
+                key={event.id}
+                className="flex items-start justify-between gap-3 border border-border bg-muted/10 px-3 py-2"
+              >
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-medium text-foreground">
+                      {auditEventLabel(event.event_type)}
+                    </span>
+                    {event.decision ? (
+                      <Badge tone={auditDecisionTone(event.decision)}>{event.decision}</Badge>
+                    ) : null}
+                  </div>
+                  {context ? (
+                    <div className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">
+                      {context}
+                    </div>
+                  ) : null}
+                </div>
+                <div className="shrink-0 text-right text-[10px] text-muted-foreground">
+                  <div>{relativeTime(event.occurred_at)}</div>
+                  {typeof latency === "number" ? <div>{latency}ms</div> : null}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
+  );
 }
 
 // Read-only execution lens. Surfaces durable invocations involving this agent and, for
