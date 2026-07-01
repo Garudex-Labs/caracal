@@ -217,9 +217,10 @@ const RAIL_WIDTH_KEY = "caracal.operator.railWidth";
 const RAIL_MIN_WIDTH = 208;
 const RAIL_DEFAULT_WIDTH = 240;
 
-// Upper bound on how long a send may stay pending before the working state is forced back to
-// idle. A send is already bounded by the client request timeout, so this only ever fires if a
-// request fails to settle in the browser, guaranteeing the indicator can never linger.
+// How long a send may go idle - no stage, token, or reasoning delta arriving - before its stream
+// is aborted and the working state settles. Every delta resets it, so an actively streaming answer
+// is never cut; it only fires on a silently stalled stream, guaranteeing the working indicator can
+// never linger on a send that has quietly died.
 const SEND_SETTLE_GUARD_MS = 60_000;
 const RAIL_COLLAPSED_WIDTH = "2.75rem";
 
@@ -1176,6 +1177,10 @@ function ActivityStream({
   // The controller for the request currently in flight, so a stalled stream can be aborted at the
   // source rather than only clearing the indicator while the fetch leaks on in the background.
   const sendAbort = useRef<AbortController | null>(null);
+  // The idle guard for the send in flight: it aborts the stream when no stage, token, or reasoning
+  // delta has arrived within the guard window, so a silently stalled stream can never leave the
+  // working indicator spinning. Each delta rearms it, so an actively streaming answer is never cut.
+  const sendGuard = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Distance from the bottom captured just before earlier turns are revealed, so the viewport can
   // be restored to the same place after the taller list paints instead of jumping.
   const pendingReveal = useRef<number | null>(null);
@@ -1218,19 +1223,38 @@ function ActivityStream({
     setStreamedReasoning("");
     const controller = new AbortController();
     sendAbort.current = controller;
+    // Arm the idle guard and rearm it on every delta below: a stream that keeps producing is never
+    // cut, but one that goes silent past the window is aborted so the working indicator settles.
+    const armGuard = () => {
+      if (sendGuard.current) clearTimeout(sendGuard.current);
+      sendGuard.current = setTimeout(() => controller.abort(), SEND_SETTLE_GUARD_MS);
+    };
+    armGuard();
     send.mutate(
       {
         message: text,
         provider: model ?? undefined,
         signal: controller.signal,
-        onStage: (stage) =>
-          setStages((prev) => (prev[prev.length - 1] === stage ? prev : [...prev, stage])),
-        onToken: (chunk) => setStreamedAnswer((prev) => prev + chunk),
-        onReasoning: (chunk) => setStreamedReasoning((prev) => prev + chunk),
+        onStage: (stage) => {
+          armGuard();
+          setStages((prev) => (prev[prev.length - 1] === stage ? prev : [...prev, stage]));
+        },
+        onToken: (chunk) => {
+          armGuard();
+          setStreamedAnswer((prev) => prev + chunk);
+        },
+        onReasoning: (chunk) => {
+          armGuard();
+          setStreamedReasoning((prev) => prev + chunk);
+        },
       },
       {
         onSuccess: (result) => onUsage?.(result),
         onSettled: () => {
+          if (sendGuard.current) {
+            clearTimeout(sendGuard.current);
+            sendGuard.current = null;
+          }
           sending.current = false;
           sendAbort.current = null;
           setInFlight(null);
@@ -1318,22 +1342,14 @@ function ActivityStream({
     return () => onError?.(false);
   }, [send.isError, onError]);
 
-  // Guarantee the workspace returns to idle after a send: a stalled stream is aborted at the
-  // source, so the in-flight fetch is cancelled rather than left running while the indicator is
-  // hidden. The abort rejects the request, which settles the mutation through onSettled and clears
-  // the working state, and surfaces the failure in the error label instead of stranding the echo.
-  useEffect(() => {
-    if (!send.isPending) return;
-    const guard = window.setTimeout(() => {
-      sendAbort.current?.abort();
-    }, SEND_SETTLE_GUARD_MS);
-    return () => window.clearTimeout(guard);
-  }, [send.isPending]);
-
   // Abort any in-flight send when the stream unmounts - switching conversations or leaving the
-  // workspace - so a request never streams on against a pane that is gone.
+  // workspace - so a request never streams on against a pane that is gone. The idle guard armed in
+  // dispatch handles a stream that stalls while the pane is still open.
   useEffect(() => {
-    return () => sendAbort.current?.abort();
+    return () => {
+      sendAbort.current?.abort();
+      if (sendGuard.current) clearTimeout(sendGuard.current);
+    };
   }, []);
 
   const empty = !isLoading && items.length === 0 && !send.isPending && !initialMessage;
