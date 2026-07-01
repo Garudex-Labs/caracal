@@ -555,12 +555,14 @@ export function Composer({
               pending={controls.modePending}
               onChange={controls.onModeChange}
             />
-            <AutopilotMenu
-              autopilot={controls.autopilot}
-              available={controls.autopilotAvailable}
-              pending={controls.autopilotPending}
-              onChange={controls.onAutopilotChange}
-            />
+            {controls.mode === "agent" ? (
+              <AutopilotMenu
+                autopilot={controls.autopilot}
+                available={controls.autopilotAvailable}
+                pending={controls.autopilotPending}
+                onChange={controls.onAutopilotChange}
+              />
+            ) : null}
           </>
         }
       />
@@ -607,12 +609,14 @@ export function HeroComposer({
               pending={controls.modePending}
               onChange={controls.onModeChange}
             />
-            <AutopilotMenu
-              autopilot={controls.autopilot}
-              available={controls.autopilotAvailable}
-              pending={controls.autopilotPending}
-              onChange={controls.onAutopilotChange}
-            />
+            {controls.mode === "agent" ? (
+              <AutopilotMenu
+                autopilot={controls.autopilot}
+                available={controls.autopilotAvailable}
+                pending={controls.autopilotPending}
+                onChange={controls.onAutopilotChange}
+              />
+            ) : null}
           </>
         }
       />
