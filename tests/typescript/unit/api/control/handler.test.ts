@@ -161,7 +161,8 @@ describe('registerInvokeRoute', () => {
     apps.push(app)
     const d = deps(vi.fn(async () => claims()))
     d.replay.mark = vi.fn(async () => true)
-    d.ctx = { admin: { agents: { list: vi.fn(async () => [{ id: 'agent-1' }]) } } } as DispatchContext
+    const admin = { agents: { list: vi.fn(async () => [{ id: 'agent-1' }]) }, withDefaultHeaders: () => admin }
+    d.ctx = { admin } as unknown as DispatchContext
 
     registerInvokeRoute(app, d)
     await app.ready()
