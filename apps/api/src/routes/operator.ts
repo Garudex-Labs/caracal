@@ -54,7 +54,11 @@ const CONTENT_MAX_BYTES = 64_000
 const DEFAULT_TURN_PAGE = 200
 const MAX_TURN_PAGE = 500
 
-const CONVERSATION_SELECT = 'id, zone_id, number, title, status, mode, autopilot, created_by, created_at, updated_at, last_activity_at, archived_at'
+// number is a bigint column, which the driver would otherwise hand back as a string. The
+// console types it as a number and matches it with strict equality when restoring the open
+// conversation, so it is cast to int here: the per-zone counter never approaches the int
+// ceiling, and the honest numeric type keeps those comparisons from silently failing.
+const CONVERSATION_SELECT = 'id, zone_id, number::int AS number, title, status, mode, autopilot, created_by, created_at, updated_at, last_activity_at, archived_at'
 // seq is a bigint column, which the driver would otherwise hand back as a string. The turn
 // contract types seq as a number and callers send it straight back as plan_seq, so it is cast
 // to int here: a per-conversation gapless counter never approaches the int ceiling, and the

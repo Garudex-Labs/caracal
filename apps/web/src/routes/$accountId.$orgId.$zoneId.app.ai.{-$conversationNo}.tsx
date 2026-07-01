@@ -60,6 +60,8 @@ import {
 } from "@/platform/api/hooks";
 import {
   buildTimeline,
+  type ErrorItem,
+  type MessageItem,
   type PlanItem,
   type PlanStepView,
   type TimelineItem,
@@ -246,10 +248,10 @@ const HERO_GREETINGS = [
 const DRAFT_MODE_KEY = "caracal.operator.draftMode";
 const DRAFT_AUTOPILOT_KEY = "caracal.operator.draftAutopilot";
 
-// The last chat left open is remembered per zone so returning to the Operator - after a reload, a
-// visit to another module, or a sign back in - reopens that exact chat instead of the new-chat
-// hero. Starting a new chat clears it, so an explicit fresh start is honoured rather than bounced
-// back to the prior chat.
+// The last chat left open is remembered per zone in session storage so returning to the Operator -
+// after a reload or a visit to another module - reopens that exact chat instead of the new-chat
+// hero. Closing the browser clears it, so a fresh launch starts on the hero; starting a new chat
+// clears it too, so an explicit fresh start is honoured rather than bounced back to the prior chat.
 const LAST_CONVERSATION_KEY = "caracal.operator.lastConversation";
 
 // Raised as a warning when a message is sent while no AI provider is connected. The Operator turns
@@ -281,16 +283,16 @@ function readDraftAutopilot(): boolean {
 }
 
 function readLastConversation(zoneId: string | null): number | null {
-  if (zoneId == null || typeof localStorage === "undefined") return null;
-  const stored = Number(localStorage.getItem(`${LAST_CONVERSATION_KEY}.${zoneId}`));
+  if (zoneId == null || typeof sessionStorage === "undefined") return null;
+  const stored = Number(sessionStorage.getItem(`${LAST_CONVERSATION_KEY}.${zoneId}`));
   return Number.isInteger(stored) && stored > 0 ? stored : null;
 }
 
 function writeLastConversation(zoneId: string | null, number: number | null): void {
-  if (zoneId == null || typeof localStorage === "undefined") return;
+  if (zoneId == null || typeof sessionStorage === "undefined") return;
   const key = `${LAST_CONVERSATION_KEY}.${zoneId}`;
-  if (number == null) localStorage.removeItem(key);
-  else localStorage.setItem(key, String(number));
+  if (number == null) sessionStorage.removeItem(key);
+  else sessionStorage.setItem(key, String(number));
 }
 
 /* ------------------------------ workspace ------------------------------ */
@@ -324,9 +326,6 @@ function OperatorWorkspace() {
   const [operatorNotice, setOperatorNotice] = useState<OperatorNoticeEvent | null>(null);
   const [fullscreen, setFullscreen] = useState(false);
   const shellRef = useRef<HTMLDivElement>(null);
-  // Tracks the zone whose remembered chat has already been reopened, so the restore runs once per
-  // zone on arrival and never fights a selection the operator makes afterwards.
-  const restoredZoneRef = useRef<string | null>(null);
 
   const conversations = useOperatorConversations(zoneId, search, view);
   const create = useCreateOperatorConversation(zoneId);
@@ -390,14 +389,11 @@ function OperatorWorkspace() {
     if (routeNumber != null) writeLastConversation(zoneId, routeNumber);
   }, [zoneId, routeNumber]);
 
-  // On arriving at the bare route for a zone, reopen that zone's remembered chat once its list has
-  // loaded and the chat still exists. It runs a single time per zone and replaces the bare entry so
-  // the browser back button returns to where the operator came from rather than looping on restore.
+  // On the bare route, reopen the zone's remembered chat once its list has loaded and the chat still
+  // exists, replacing the bare entry so the browser back button returns to where the operator came
+  // from. An explicit new chat clears the memory, so this never fights a deliberate fresh start.
   useEffect(() => {
-    if (zoneId == null || conversations.data == null) return;
-    if (restoredZoneRef.current === zoneId) return;
-    restoredZoneRef.current = zoneId;
-    if (routeNumber != null) return;
+    if (zoneId == null || conversations.data == null || routeNumber != null) return;
     const last = readLastConversation(zoneId);
     if (last != null && conversations.data.some((c) => c.number === last)) {
       goToConversation(last, true);
@@ -625,7 +621,10 @@ function OperatorWorkspace() {
         {/* A thin header bar above the chat that holds the full-screen toggle, so the control sits
             outside the message viewport and never overlaps the first message. Large screens only,
             matching where the control is shown; the divider line bounds the messages below it. */}
-        <div className="hidden flex-shrink-0 items-center justify-end border-b border-border bg-background px-2 py-1.5 lg:flex">
+        <div className="hidden flex-shrink-0 items-center justify-end gap-2 border-b border-border bg-background px-2 py-1.5 lg:flex">
+          <div className="mr-auto min-w-0">
+            <OperatorErrorLog event={operatorNotice} />
+          </div>
           <button
             type="button"
             onClick={() => setFullscreen((value) => !value)}
@@ -637,7 +636,6 @@ function OperatorWorkspace() {
             {fullscreen ? <ShrinkGlyph className="h-4 w-4" /> : <ExpandGlyph className="h-4 w-4" />}
           </button>
         </div>
-        <OperatorErrorLog event={operatorNotice} />
         <SessionStrip
           conversations={conversations.data ?? []}
           selectedId={selectedId}
@@ -662,6 +660,7 @@ function OperatorWorkspace() {
             onModelChange={setSelectedModel}
             aiUnavailable={aiUnavailable}
             onBlockedSend={() => reportNotice("warning", AI_DISCONNECTED_WARNING)}
+            onNotice={reportNotice}
           />
         ) : (
           <NewChatHero
@@ -1058,6 +1057,7 @@ function ActivityStream({
   onModelChange,
   aiUnavailable,
   onBlockedSend,
+  onNotice,
 }: {
   zoneId: string | null;
   conversationId: string;
@@ -1072,6 +1072,7 @@ function ActivityStream({
   onModelChange: (id: string | null) => void;
   aiUnavailable: boolean;
   onBlockedSend?: () => void;
+  onNotice?: (severity: OperatorNoticeSeverity, message: string) => void;
 }) {
   const { data: turns, isLoading } = useOperatorTurns(zoneId, conversationId);
   const send = useSendOperatorMessage(zoneId, conversationId);
@@ -1121,8 +1122,38 @@ function ActivityStream({
   // including any actionable plan - because it is taken from the end.
   const [visibleCount, setVisibleCount] = useState(STREAM_WINDOW);
   useEffect(() => setVisibleCount(STREAM_WINDOW), [conversationId]);
-  const visibleItems = useMemo(() => streamWindow(items, visibleCount), [items, visibleCount]);
-  const hiddenCount = items.length - visibleItems.length;
+  // Errors are surfaced to the transient notice label and the audit log, never stacked in the
+  // transcript, so the stream renders only messages and plans.
+  const streamItems = useMemo(
+    () => items.filter((it): it is MessageItem | PlanItem => it.kind !== "error"),
+    [items],
+  );
+  const visibleItems = useMemo(
+    () => streamWindow(streamItems, visibleCount),
+    [streamItems, visibleCount],
+  );
+  const hiddenCount = streamItems.length - visibleItems.length;
+
+  // Execution and system failures are recorded as error turns in the ledger, but they belong with
+  // every other notice in the transient label and the audit log - not as a standing block in the
+  // transcript. New error turns surface as they arrive; those already present when the conversation
+  // loads are treated as history, so reopening a chat never re-flashes a past failure.
+  const surfacedErrors = useRef<Set<string>>(new Set());
+  const errorsSeeded = useRef(false);
+  useEffect(() => {
+    if (turns == null) return;
+    const errorItems = items.filter((it): it is ErrorItem => it.kind === "error");
+    if (!errorsSeeded.current) {
+      for (const err of errorItems) surfacedErrors.current.add(err.id);
+      errorsSeeded.current = true;
+      return;
+    }
+    for (const err of errorItems) {
+      if (surfacedErrors.current.has(err.id)) continue;
+      surfacedErrors.current.add(err.id);
+      onNotice?.("error", err.message);
+    }
+  }, [turns, items, onNotice]);
 
   // Keep the transcript pinned to the newest message only while the operator is already reading
   // the bottom. Once they scroll up to review earlier turns the stream stops yanking them back,
@@ -1729,7 +1760,7 @@ function StreamEntry({
   toolCalls,
   showAvatar,
 }: {
-  item: TimelineItem;
+  item: MessageItem | PlanItem;
   zoneId: string | null;
   conversationId: string;
   actionable: boolean;
@@ -1757,17 +1788,6 @@ function StreamEntry({
           ) : (
             <PlanHistoryRow plan={item} />
           )}
-        </div>
-      </div>
-    );
-  }
-
-  if (item.kind === "error") {
-    return (
-      <div className="flex items-start gap-2">
-        {avatar}
-        <div className="min-w-0 flex-1 border-l-2 border-destructive bg-destructive/5 px-3 py-2 text-sm text-destructive">
-          {item.message}
         </div>
       </div>
     );
