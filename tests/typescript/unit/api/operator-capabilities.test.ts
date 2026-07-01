@@ -28,6 +28,11 @@ describe('capability catalog', () => {
     expect(CAPABILITIES.deletePolicy.mutating).toBe(true)
     expect(CAPABILITIES.revokeGrant.mutating).toBe(true)
     expect(CAPABILITIES.listGrants.mutating).toBe(false)
+    expect(CAPABILITIES.createPolicy.mutating).toBe(true)
+    expect(CAPABILITIES.versionPolicy.mutating).toBe(true)
+    expect(CAPABILITIES.createPolicySet.mutating).toBe(true)
+    expect(CAPABILITIES.versionPolicySet.mutating).toBe(true)
+    expect(CAPABILITIES.activatePolicySet.mutating).toBe(true)
   })
 })
 
@@ -85,6 +90,48 @@ describe('validateProposedPlan', () => {
     })
     expect(result.ok).toBe(false)
     expect(result.diagnostics[0]).toMatchObject({ step_id: 's1', code: 'invalid_args' })
+  })
+
+  it('validates a policy authoring plan carrying an inline data document', () => {
+    const result = parse({
+      summary: 'Create PiperNet baseline',
+      steps: [
+        { id: 's1', capability: 'createPolicy', args: { name: 'PiperNet baseline', content: 'package caracal.authz\n\ndefault allow := false' } },
+      ],
+    })
+    expect(result.ok).toBe(true)
+    expect(result.mutating).toBe(true)
+    expect(result.steps[0]).toMatchObject({ id: 's1', capability: 'createPolicy', mutating: true })
+  })
+
+  it('rejects a policy create without a data document', () => {
+    const result = parse({
+      summary: 'Create empty policy',
+      steps: [{ id: 's1', capability: 'createPolicy', args: { name: 'PiperNet baseline' } }],
+    })
+    expect(result.ok).toBe(false)
+    expect(result.diagnostics[0]).toMatchObject({ step_id: 's1', code: 'invalid_args' })
+  })
+
+  it('validates the policy-set composition and activation arguments', () => {
+    const version = parse({
+      summary: 'Compose set',
+      steps: [{ id: 's1', capability: 'versionPolicySet', args: { policy_set_id: 'set-1', policy_version_ids: ['pv-1', 'pv-2'] } }],
+    })
+    expect(version.ok).toBe(true)
+
+    const activate = parse({
+      summary: 'Activate set',
+      steps: [{ id: 's1', capability: 'activatePolicySet', args: { policy_set_id: 'set-1', policy_set_version_id: 'sv-1' } }],
+    })
+    expect(activate.ok).toBe(true)
+
+    const empty = parse({
+      summary: 'Compose empty set',
+      steps: [{ id: 's1', capability: 'versionPolicySet', args: { policy_set_id: 'set-1', policy_version_ids: [] } }],
+    })
+    expect(empty.ok).toBe(false)
+    expect(empty.diagnostics[0]).toMatchObject({ step_id: 's1', code: 'invalid_args' })
   })
 
   it('flags duplicate step ids', () => {

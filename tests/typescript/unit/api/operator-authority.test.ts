@@ -17,7 +17,10 @@ describe('buildOperatorAuthority', () => {
     const authority = buildOperatorAuthority()
     expect(authority.principal).toBe(OPERATOR_PRINCIPAL)
     expect([...authority.allowedCapabilities].sort()).toEqual([
+      'activatePolicySet',
       'connectProvider',
+      'createPolicy',
+      'createPolicySet',
       'defineResource',
       'deleteApplication',
       'deletePolicy',
@@ -27,6 +30,8 @@ describe('buildOperatorAuthority', () => {
       'registerApplication',
       'revokeGrant',
       'rotateApplicationSecret',
+      'versionPolicy',
+      'versionPolicySet',
     ])
     expect(authority.systemZones.size).toBe(0)
   })

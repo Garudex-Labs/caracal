@@ -138,6 +138,63 @@ describe('previewPlan', () => {
     expect(grantMissing.steps[0]).toMatchObject({ effect: 'blocked' })
   })
 
+  it('classifies a policy create against the policies table when the name is free', async () => {
+    const db = scriptedDb([{ rows: [] }]) // policies name lookup → free
+    const result = await previewPlan(db, 'z1', {
+      summary: 'Author PiperNet baseline',
+      steps: [{ id: 's1', capability: 'createPolicy', args: { name: 'PiperNet baseline', content: 'package caracal.authz' } }],
+    })
+    expect(result.ok).toBe(true)
+    expect(result.mutating).toBe(true)
+    expect(result.steps[0]).toMatchObject({ effect: 'create' })
+    expect(result.steps[0].detail).toContain('PiperNet baseline')
+  })
+
+  it('previews a policy version against the live policy, blocking it when missing', async () => {
+    const live = await previewPlan(scriptedDb([{ rows: [{ one: 1 }] }]), 'z1', {
+      summary: 'Version policy',
+      steps: [{ id: 's1', capability: 'versionPolicy', args: { policy_id: 'pol-1', content: 'package caracal.authz' } }],
+    })
+    expect(live.steps[0]).toMatchObject({ effect: 'update' })
+    expect(live.steps[0].detail).toContain('pol-1')
+
+    const missing = await previewPlan(scriptedDb([{ rows: [] }]), 'z1', {
+      summary: 'Version policy',
+      steps: [{ id: 's1', capability: 'versionPolicy', args: { policy_id: 'pol-x', content: 'package caracal.authz' } }],
+    })
+    expect(missing.ok).toBe(false)
+    expect(missing.steps[0]).toMatchObject({ effect: 'blocked' })
+  })
+
+  it('previews the policy-set lifecycle against the policy_sets table', async () => {
+    const created = await previewPlan(scriptedDb([{ rows: [] }]), 'z1', {
+      summary: 'Create set',
+      steps: [{ id: 's1', capability: 'createPolicySet', args: { name: 'PiperNet baseline v3' } }],
+    })
+    expect(created.steps[0]).toMatchObject({ effect: 'create' })
+    expect(created.steps[0].detail).toContain('PiperNet baseline v3')
+
+    const versioned = await previewPlan(scriptedDb([{ rows: [{ one: 1 }] }]), 'z1', {
+      summary: 'Version set',
+      steps: [{ id: 's1', capability: 'versionPolicySet', args: { policy_set_id: 'set-1', policy_version_ids: ['pv-1'] } }],
+    })
+    expect(versioned.steps[0]).toMatchObject({ effect: 'update' })
+
+    const activated = await previewPlan(scriptedDb([{ rows: [{ one: 1 }] }]), 'z1', {
+      summary: 'Activate set',
+      steps: [{ id: 's1', capability: 'activatePolicySet', args: { policy_set_id: 'set-1', policy_set_version_id: 'sv-1' } }],
+    })
+    expect(activated.steps[0]).toMatchObject({ effect: 'update' })
+    expect(activated.steps[0].detail).toContain('set-1')
+
+    const missing = await previewPlan(scriptedDb([{ rows: [] }]), 'z1', {
+      summary: 'Activate set',
+      steps: [{ id: 's1', capability: 'activatePolicySet', args: { policy_set_id: 'set-x', policy_set_version_id: 'sv-1' } }],
+    })
+    expect(missing.ok).toBe(false)
+    expect(missing.steps[0]).toMatchObject({ effect: 'blocked' })
+  })
+
   it('treats listGrants as read_only without querying state', async () => {
     const db = scriptedDb([])
     const result = await previewPlan(db, 'z1', {
