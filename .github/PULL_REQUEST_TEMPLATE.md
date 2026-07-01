@@ -57,5 +57,5 @@ Notes:
 - [ ] Major new functionality includes automated tests (required)
 - [ ] Bug fixes include a regression test (required)
 
-<!-- Testing Policy: major new functionality MUST add tests and every bug fix MUST add a regression test, in the same change. See .github/CONTRIBUTING.md. -->
+<!-- Testing Policy: major new functionality MUST add tests and every bug fix MUST add a regression test, in the same change. See ./CONTRIBUTING.md. -->
 

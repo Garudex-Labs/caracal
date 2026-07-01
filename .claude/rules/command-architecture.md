@@ -1,6 +1,6 @@
 ---
 description: "Use when changing Caracal commands, package scripts, the web console, runtime CLI launchers, command catalogs, completions, or command documentation. Enforces the runtime-script versus product-management boundary."
-applyTo: "{package.json,apps/runtime/**,apps/web/**,packages/engine/src/commands.ts,packages/engine/src/dispatch.ts,docs/**,README.md,.github/CONTRIBUTING.md}"
+applyTo: "{package.json,apps/runtime/**,apps/web/**,packages/engine/src/commands.ts,packages/engine/src/dispatch.ts,docs/**,README.md,CONTRIBUTING.md}"
 ---
 
 # Command Architecture
