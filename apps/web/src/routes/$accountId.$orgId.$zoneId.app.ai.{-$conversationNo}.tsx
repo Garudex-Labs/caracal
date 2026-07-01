@@ -1036,6 +1036,10 @@ function ActivityStream({
   // so the operator watches the answer typed out rather than waiting for it to appear all at once.
   // It resets at the start of each send and clears when the authoritative turn arrives.
   const [streamedAnswer, setStreamedAnswer] = useState("");
+  // The model's chain of thought accumulated from reasoning deltas while a send is in flight, so a
+  // reasoning model's thinking is shown live rather than a blank wait before the answer begins. It
+  // resets at the start of each send and clears when the authoritative turn arrives.
+  const [streamedReasoning, setStreamedReasoning] = useState("");
 
   const { items, latestPlan } = useMemo(() => buildTimeline(turns ?? []), [turns]);
 
@@ -1070,7 +1074,7 @@ function ActivityStream({
     if (!stickToBottom.current) return;
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [visibleItems, send.isPending, stages, inFlight, streamedAnswer]);
+  }, [visibleItems, send.isPending, stages, inFlight, streamedAnswer, streamedReasoning]);
 
   // Reveal an earlier page of turns, holding the operator's place: the distance from the bottom is
   // captured before the window widens and restored once the taller list has painted.
@@ -1097,6 +1101,7 @@ function ActivityStream({
     setInFlight(text);
     setStages([]);
     setStreamedAnswer("");
+    setStreamedReasoning("");
     const controller = new AbortController();
     sendAbort.current = controller;
     send.mutate(
@@ -1107,6 +1112,7 @@ function ActivityStream({
         onStage: (stage) =>
           setStages((prev) => (prev[prev.length - 1] === stage ? prev : [...prev, stage])),
         onToken: (chunk) => setStreamedAnswer((prev) => prev + chunk),
+        onReasoning: (chunk) => setStreamedReasoning((prev) => prev + chunk),
       },
       {
         onSuccess: (result) => onUsage?.(result),
@@ -1116,6 +1122,7 @@ function ActivityStream({
           setInFlight(null);
           setStages([]);
           setStreamedAnswer("");
+          setStreamedReasoning("");
         },
       },
     );
@@ -1292,7 +1299,7 @@ function ActivityStream({
           </div>
         ) : null}
 
-        {send.isPending && streamedAnswer ? (
+        {send.isPending && (streamedReasoning || streamedAnswer) ? (
           <div className="group flex items-start gap-2">
             <img
               src="/chatbot.png"
@@ -1300,7 +1307,13 @@ function ActivityStream({
               className="h-8 w-8 shrink-0 select-none object-contain"
             />
             <div className="mt-1.5 flex min-w-0 max-w-[82%] flex-col gap-1.5">
-              <Response>{streamedAnswer}</Response>
+              {streamedReasoning ? (
+                <Reasoning isStreaming={!streamedAnswer}>
+                  <ReasoningTrigger />
+                  <ReasoningContent>{streamedReasoning}</ReasoningContent>
+                </Reasoning>
+              ) : null}
+              {streamedAnswer ? <Response>{streamedAnswer}</Response> : null}
             </div>
           </div>
         ) : send.isPending ? (

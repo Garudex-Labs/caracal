@@ -245,9 +245,23 @@ describe('gateway stream', () => {
     const fetchMock = vi.fn(async () => streamResponse(['Hel', 'lo'], { prompt_tokens: 3, completion_tokens: 2 }))
     const gateway = createGateway([provider()], fetchMock as unknown as typeof fetch)
     const deltas: string[] = []
-    const result = await gateway.stream([{ role: 'user', content: 'hi' }], (chunk) => deltas.push(chunk))
+    const result = await gateway.stream([{ role: 'user', content: 'hi' }], { onText: (chunk) => deltas.push(chunk) })
     expect(deltas.join('')).toBe('Hello')
     expect(result).toMatchObject({ text: 'Hello', provider: 'p1', model: 'gpt-x', promptTokens: 3, completionTokens: 2 })
+  })
+
+  it('streams reasoning deltas to onReasoning and keeps the answer clean', async () => {
+    const fetchMock = vi.fn(async () => streamResponse(['<think>', 'weighing ', 'options', '</think>', 'the answer']))
+    const gateway = createGateway([provider()], fetchMock as unknown as typeof fetch)
+    const text: string[] = []
+    const reasoning: string[] = []
+    const result = await gateway.stream([{ role: 'user', content: 'why' }], {
+      onText: (chunk) => text.push(chunk),
+      onReasoning: (chunk) => reasoning.push(chunk),
+    })
+    expect(reasoning.join('')).toBe('weighing options')
+    expect(text.join('')).toBe('the answer')
+    expect(result).toMatchObject({ text: 'the answer', reasoning: 'weighing options' })
   })
 
   it('fails over to the next provider when a stream yields no text', async () => {
@@ -257,7 +271,7 @@ describe('gateway stream', () => {
       .mockResolvedValueOnce(streamResponse(['done']))
     const gateway = createGateway([provider({ id: 'primary' }), provider({ id: 'secondary' })], fetchMock as unknown as typeof fetch)
     const deltas: string[] = []
-    const result = await gateway.stream([{ role: 'user', content: 'hi' }], (chunk) => deltas.push(chunk))
+    const result = await gateway.stream([{ role: 'user', content: 'hi' }], { onText: (chunk) => deltas.push(chunk) })
     expect(result.provider).toBe('secondary')
     expect(deltas.join('')).toBe('done')
   })

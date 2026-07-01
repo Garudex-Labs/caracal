@@ -95,10 +95,10 @@ describe('createOrchestrator', () => {
 
   it('streams answer tokens to onAnswerDelta while still returning the assembled answer', async () => {
     const completeObject = vi.fn().mockResolvedValue({ value: { tier: 'read', topic: 'general' }, provider: 't', model: 'm' })
-    const stream = vi.fn(async (_messages: unknown, onDelta: (chunk: string) => void) => {
-      onDelta('the ')
-      onDelta('full ')
-      onDelta('answer')
+    const stream = vi.fn(async (_messages: unknown, handlers: { onText: (chunk: string) => void }) => {
+      handlers.onText('the ')
+      handlers.onText('full ')
+      handlers.onText('answer')
       return { text: 'the full answer', provider: 't', model: 'm' } satisfies CompletionResult
     })
     const gateway = { status: () => ({ enabled: true, providers: [] }), completeObject, stream } as unknown as Gateway
@@ -111,6 +111,26 @@ describe('createOrchestrator', () => {
     if (result.outcome.kind === 'answer' && result.outcome.result.ok) {
       expect(result.outcome.result.value.text).toContain('the full answer')
     }
+  })
+
+  it('streams reasoning deltas to onReasoningDelta alongside the answer', async () => {
+    const completeObject = vi.fn().mockResolvedValue({ value: { tier: 'read', topic: 'general' }, provider: 't', model: 'm' })
+    const stream = vi.fn(
+      async (_messages: unknown, handlers: { onText: (chunk: string) => void; onReasoning?: (chunk: string) => void }) => {
+        handlers.onReasoning?.('weighing ')
+        handlers.onReasoning?.('options')
+        handlers.onText('the answer')
+        return { text: 'the answer', reasoning: 'weighing options', provider: 't', model: 'm' } satisfies CompletionResult
+      },
+    )
+    const gateway = { status: () => ({ enabled: true, providers: [] }), completeObject, stream } as unknown as Gateway
+    const thinking: string[] = []
+    const result = await createOrchestrator().handle(gateway, 'why denied', emptyContext, {
+      onAnswerDelta: () => {},
+      onReasoningDelta: (chunk) => thinking.push(chunk),
+    })
+    expect(result.outcome.kind).toBe('answer')
+    expect(thinking.join('')).toBe('weighing options')
   })
 
   it('plans a change tier with the plan skill', async () => {
