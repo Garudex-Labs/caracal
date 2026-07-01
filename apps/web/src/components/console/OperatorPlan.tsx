@@ -481,7 +481,16 @@ function PlanOutcome({
   const failedStep = plan.steps.find((step) => step.status === "failed");
 
   let content: ReactNode = null;
-  if (execError) {
+  if (plan.executed && failedStep) {
+    // A recorded step failure is the authoritative, audited outcome: name that specific failure -
+    // the same detail the audit and the error notice carry - rather than the generic apply error.
+    // The plan is spent, so it offers no retry.
+    content = (
+      <span className="text-[11px] text-destructive">
+        {failedStep.detail?.trim() ? failedStep.detail : `${failedStep.summary} failed.`}
+      </span>
+    );
+  } else if (execError) {
     content = (
       <>
         <span className="text-[11px] text-destructive">{execError}</span>
@@ -489,12 +498,6 @@ function PlanOutcome({
           Try again
         </Button>
       </>
-    );
-  } else if (plan.executed && failedStep) {
-    content = (
-      <span className="text-[11px] text-destructive">
-        {failedStep.detail?.trim() ? failedStep.detail : `${failedStep.summary} failed.`}
-      </span>
     );
   } else if (plan.decision === "rejected" && plan.rejectionReason?.trim()) {
     content = <span className="text-[11px] text-muted-foreground">{plan.rejectionReason}</span>;

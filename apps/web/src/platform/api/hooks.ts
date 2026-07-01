@@ -369,6 +369,10 @@ const STALE_PLAN_CODES = new Set([
   "plan_not_found",
   "conversation_archived",
   "conversation_not_found",
+  // A step failed mid-apply: the server has already recorded the failed execution turn and the
+  // ledger error turn, so re-reading the timeline settles the card on the real, audited failure
+  // detail and surfaces that error through the same notice channel as every other failure.
+  "execution_failed",
 ]);
 
 function resyncOnStalePlan(
