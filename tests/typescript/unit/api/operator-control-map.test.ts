@@ -54,10 +54,10 @@ describe('isControlExecutable', () => {
     // Zone lifecycle is a platform operation, not governed-executable by the Operator.
     expect(isControlExecutable('createZone')).toBe(false)
     expect(isControlExecutable('listZones')).toBe(false)
-    // Read-only explanation and configuration-heavy capabilities are not control commands. A
-    // provider needs kind-specific config the thin arguments cannot supply, so it stays plan-only.
+    // Read-only explanation is not a control command.
     expect(isControlExecutable('explainAccess')).toBe(false)
-    expect(isControlExecutable('connectProvider')).toBe(false)
+    // Connecting a credential-free provider is a thin create the Operator applies directly.
+    expect(isControlExecutable('connectProvider')).toBe(true)
   })
 })
 
@@ -119,6 +119,14 @@ describe('buildInvocation', () => {
     })
   })
 
+  it('builds connectProvider from the name and kind, letting the control plane derive the identifier', () => {
+    expect(CONTROL_CAPABILITIES.connectProvider.buildInvocation({ name: 'FinXpert Mandate', kind: 'caracal_mandate' }, gen)).toEqual({
+      command: 'identity-provider',
+      subcommand: 'create',
+      flags: { name: 'FinXpert Mandate', kind: 'caracal_mandate' },
+    })
+  })
+
   it('builds grantAccess with the hyphenated control flag names', () => {
     expect(
       CONTROL_CAPABILITIES.grantAccess.buildInvocation(
@@ -171,6 +179,16 @@ describe('describeOutcome', () => {
     expect(outcome.detail).toContain('finxpert.read')
     expect(outcome.detail).toContain('finxpert.write')
     expect(outcome.output).toEqual({ resource_id: 'res-1' })
+  })
+
+  it('surfaces the provider id and names its kind', () => {
+    const outcome = CONTROL_CAPABILITIES.connectProvider.describeOutcome(
+      { id: 'prov-1', identifier: 'provider://finxpert-mandate' },
+      { name: 'FinXpert Mandate', kind: 'caracal_mandate' },
+      gen,
+    )
+    expect(outcome.detail).toContain('caracal_mandate')
+    expect(outcome.output).toEqual({ provider_id: 'prov-1' })
   })
 
   it('surfaces the grant id', () => {

@@ -234,6 +234,7 @@ describe('operatorControlScopes', () => {
       'control:grant:write',
       'control:identity-provider:delete',
       'control:identity-provider:read',
+      'control:identity-provider:write',
       'control:policy:delete',
       'control:policy:read',
       'control:resource:delete',

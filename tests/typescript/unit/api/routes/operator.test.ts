@@ -117,6 +117,7 @@ describe('operator enablement gating', () => {
     expect(body).toMatchObject({ enabled: true, principal: 'system:caracal-operator' })
     // The least-privilege grant exposes only governed-executable mutating capabilities by default.
     expect(body.allowed_capabilities).toEqual([
+      'connectProvider',
       'defineResource',
       'deleteApplication',
       'deletePolicy',
@@ -1158,14 +1159,14 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/plan/execute', () =>
 
   it('refuses an approved plan the Operator is not authorized to execute', async () => {
     const { app, clientQuery } = buildApp(true, governedControl)
-    const connectPlan = {
-      summary: 'Connect',
-      steps: [{ id: 's1', capability: 'connectProvider', mutating: true, args: { name: 'GitHub', kind: 'oauth2_authorization_code' } }],
+    const forbiddenPlan = {
+      summary: 'Create a zone',
+      steps: [{ id: 's1', capability: 'createZone', mutating: true, args: { name: 'Hooli Staging' } }],
     }
     clientQuery
       .mockResolvedValueOnce(undefined) // BEGIN
       .mockResolvedValueOnce({ rows: [{ status: 'active' }] }) // conv status
-      .mockResolvedValueOnce({ rows: [{ content: connectPlan }] }) // plan
+      .mockResolvedValueOnce({ rows: [{ content: forbiddenPlan }] }) // plan
       .mockResolvedValueOnce({ rows: [{ kind: 'approval' }] }) // approved
       .mockResolvedValueOnce({ rows: [] }) // not executed
       .mockResolvedValueOnce(undefined) // COMMIT
@@ -1175,13 +1176,13 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/plan/execute', () =>
       url: '/v1/zones/z1/operator-conversations/conv-1/plan/execute',
       payload: { plan_seq: 2 },
     })
-    // Authority is the primary boundary: connectProvider is outside the least-privilege
-    // grant, so it is forbidden before executability is even considered.
+    // Authority is the primary boundary: createZone is a platform operation outside the
+    // least-privilege grant, so it is forbidden before executability is even considered.
     expect(res.statusCode).toBe(403)
     const body = JSON.parse(res.body)
     expect(body.error).toBe('capability_forbidden')
     expect(body.principal).toBe('system:caracal-operator')
-    expect(body.steps[0]).toMatchObject({ step_id: 's1', capability: 'connectProvider', code: 'capability_forbidden' })
+    expect(body.steps[0]).toMatchObject({ step_id: 's1', capability: 'createZone', code: 'capability_forbidden' })
   })
 
   it('refuses an authorized step that maps to no governed control command', async () => {
@@ -2084,13 +2085,7 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
       }
     })
     expect(planInsert).toBeDefined()
-    expect(JSON.parse(planInsert![1][6]).deliberation).toEqual([
-      'triaging',
-      'gathering',
-      'planning',
-      'critiquing',
-      'guarding',
-    ])
+    expect(JSON.parse(planInsert![1][6]).deliberation).toEqual(['triaging', 'gathering', 'planning', 'critiquing', 'guarding'])
     // The effect each step was previewed to have against live state is recorded per step, so the
     // console can show the consequence the human reviewed rather than only the step's claim.
     expect(JSON.parse(planInsert![1][6]).steps[0].effect).toBe('create')
