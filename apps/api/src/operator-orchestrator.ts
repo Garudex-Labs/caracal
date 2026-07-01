@@ -173,6 +173,12 @@ export interface HandleOptions {
   // anyone listens, and a plan turn never streams since it produces a structured plan, not prose.
   // Omitted when the caller does not stream.
   onAnswerDelta?: (chunk: string) => void
+  // Receives each reasoning delta of a read or conversational answer as a reasoning model exposes
+  // its chain of thought, so a streaming caller renders the thinking live rather than a blank wait
+  // before the answer begins. Like onAnswerDelta it is a fire-and-forget live preview: the turn's
+  // authoritative result is unchanged whether or not anyone listens, and it is absent for models
+  // that expose no reasoning. Omitted when the caller does not stream.
+  onReasoningDelta?: (chunk: string) => void
 }
 
 // The deterministic answer an ask-mode conversation returns for a request that would require a
@@ -395,10 +401,13 @@ export function createOrchestrator(registry: SkillRegistry = createSkillRegistry
       const stateContext = reads ? await withEvidence(context, options.researcher, classification.domains) : context
       const answerContext = withDocs(stateContext, message, options.docs)
       emit({ stage: 'answering' })
-      // Stream the answer's tokens to the caller when it is listening, so the console renders the
-      // answer as it is produced. Only the answer skill streams; grounding below still uses the
-      // unwrapped gateway, so its structured check is unaffected.
-      const answerGateway = options.onAnswerDelta ? streamingAnswers(gateway, options.onAnswerDelta) : gateway
+      // Stream the answer's tokens and the model's reasoning to the caller when it is listening, so
+      // the console renders the answer as it is produced and shows the thinking while it works.
+      // Only the answer skill streams; grounding below still uses the unwrapped gateway, so its
+      // structured check is unaffected.
+      const answerGateway = options.onAnswerDelta
+        ? streamingAnswers(gateway, options.onAnswerDelta, options.onReasoningDelta)
+        : gateway
       const answer = await skill.run(answerGateway, message, answerContext)
       return { tier, outcome: { kind: 'answer', result: await groundAnswer(gateway, message, answer, answerContext) } }
     },

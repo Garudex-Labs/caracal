@@ -140,11 +140,12 @@ const SSE_HEADERS = {
 } as const
 
 // Writes one Server-Sent Event frame to the hijacked response. The route owns the event names:
-// stage (a progress signal), token (a text delta of the answer as it is produced), result (the
-// authoritative success body), and error (a governance or gateway stop). The terminal frame
-// carries the exact body the non-streaming path would return, so streaming changes only delivery
-// timing, never the decided outcome.
-function writeSseEvent(reply: FastifyReply, event: 'stage' | 'token' | 'result' | 'error', data: unknown): void {
+// stage (a progress signal), reasoning (a delta of the model's chain of thought as it thinks),
+// token (a text delta of the answer as it is produced), result (the authoritative success body),
+// and error (a governance or gateway stop). The terminal frame carries the exact body the
+// non-streaming path would return, so streaming changes only delivery timing, never the decided
+// outcome.
+function writeSseEvent(reply: FastifyReply, event: 'stage' | 'reasoning' | 'token' | 'result' | 'error', data: unknown): void {
   reply.raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
 }
 
@@ -1482,6 +1483,9 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
         // produced. Only present when the caller negotiated a stream; the terminal result frame
         // remains the authoritative body.
         onAnswerDelta: wantsStream ? (chunk: string) => writeSseEvent(reply, 'token', { text: chunk }) : undefined,
+        // Forward each reasoning delta as a reasoning frame so the console shows the model's
+        // thinking live while it works, rather than a blank wait before the answer begins.
+        onReasoningDelta: wantsStream ? (chunk: string) => writeSseEvent(reply, 'reasoning', { text: chunk }) : undefined,
       })
 
       // Defense in depth: ask mode is read-only, so a plan must never be persisted on this path

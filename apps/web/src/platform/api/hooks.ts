@@ -326,6 +326,7 @@ export function useSendOperatorMessage(zoneId: string | null, conversationId: st
       signal?: AbortSignal;
       onStage?: (stage: OperatorProgressStage) => void;
       onToken?: (text: string) => void;
+      onReasoning?: (text: string) => void;
     }) =>
       consoleApi.operator.sendMessage(
         zoneId as string,
@@ -334,6 +335,7 @@ export function useSendOperatorMessage(zoneId: string | null, conversationId: st
         input.provider,
         input.onStage ?? (() => {}),
         input.onToken,
+        input.onReasoning,
         input.signal,
       ),
     onSuccess: () => invalidateConversation(qc, zoneId, conversationId),
