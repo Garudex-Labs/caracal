@@ -41,6 +41,7 @@ const PREVIEW_TARGETS: Record<PreviewTarget, { table: string; live: string }> = 
   providers: { table: 'providers', live: 'archived_at IS NULL' },
   resources: { table: 'resources', live: 'archived_at IS NULL' },
   policies: { table: 'policies', live: 'archived_at IS NULL' },
+  policySets: { table: 'policy_sets', live: 'archived_at IS NULL' },
   grants: { table: 'delegated_grants', live: "status <> 'revoked'" },
 }
 

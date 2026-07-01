@@ -8,6 +8,11 @@ import { z } from 'zod'
 const IdRef = z.string().min(1).max(128)
 const ScopePattern = /^[A-Za-z][A-Za-z0-9._:-]*$/
 const Scope = z.string().min(1).max(128).regex(ScopePattern)
+// A policy data document: the authored, validated Rego the create and version capabilities carry
+// inline to the control plane. Bounded in length so a plan step stays small; the control plane
+// re-validates the Rego on apply, so the catalog only guards shape.
+const PolicyContent = z.string().min(1).max(20000)
+const SchemaVersion = z.string().min(1).max(64)
 
 // The object domain a capability operates on, mirroring the Console's navigation
 // so the Operator reasons in user-visible terms rather than internal endpoints.
@@ -16,7 +21,7 @@ export type CapabilityDomain = 'zone' | 'application' | 'provider' | 'resource' 
 // A live-state target a preview resolves against. The catalog names the logical noun; the
 // preview interpreter owns the table and liveness predicate, so the catalog stays free of
 // any database detail.
-export type PreviewTarget = 'zones' | 'applications' | 'providers' | 'resources' | 'policies' | 'grants'
+export type PreviewTarget = 'zones' | 'applications' | 'providers' | 'resources' | 'policies' | 'policySets' | 'grants'
 
 // How a capability's effect is resolved against live state, declared on the capability so a
 // new capability needs no change to the preview interpreter: a read changes nothing; a
@@ -323,6 +328,87 @@ export const CAPABILITIES: Record<string, Capability> = {
       effect: 'delete',
       live: (id) => `Would delete policy ${id} from this zone.`,
       blocked: (id) => `Policy ${id} was not found in this zone.`,
+    },
+  },
+  createPolicy: {
+    id: 'createPolicy',
+    title: 'Create a policy',
+    summary: 'Create a policy from an authored data document, sealing its first immutable version.',
+    domain: 'policy',
+    mutating: true,
+    args: z.object({ name: z.string().min(1).max(200), description: z.string().max(500).optional(), content: PolicyContent, schema_version: SchemaVersion.optional() }).strict(),
+    argsHint: 'name (string), description (string, optional), content (Rego data document), schema_version (string, optional)',
+    preview: {
+      kind: 'createByName',
+      target: 'policies',
+      exists: (name) => `A policy named “${name}” already exists.`,
+      create: (name) => `Would create policy “${name}” and seal its first version.`,
+    },
+  },
+  versionPolicy: {
+    id: 'versionPolicy',
+    title: 'Version a policy',
+    summary: 'Seal a new immutable version of an existing policy from an authored data document.',
+    domain: 'policy',
+    mutating: true,
+    args: z.object({ policy_id: IdRef, content: PolicyContent, schema_version: SchemaVersion.optional() }).strict(),
+    argsHint: 'policy_id (string), content (Rego data document), schema_version (string, optional)',
+    preview: {
+      kind: 'mutateById',
+      target: 'policies',
+      idArg: 'policy_id',
+      effect: 'update',
+      live: (id) => `Would seal a new version of policy ${id}.`,
+      blocked: (id) => `Policy ${id} was not found in this zone.`,
+    },
+  },
+  createPolicySet: {
+    id: 'createPolicySet',
+    title: 'Create a policy set',
+    summary: 'Create a policy set that composes policy versions for activation in the zone.',
+    domain: 'policy',
+    mutating: true,
+    args: z.object({ name: z.string().min(1).max(200), description: z.string().max(500).optional() }).strict(),
+    argsHint: 'name (string), description (string, optional)',
+    preview: {
+      kind: 'createByName',
+      target: 'policySets',
+      exists: (name) => `A policy set named “${name}” already exists.`,
+      create: (name) => `Would create policy set “${name}”.`,
+    },
+  },
+  versionPolicySet: {
+    id: 'versionPolicySet',
+    title: 'Version a policy set',
+    summary: 'Seal a new immutable version of a policy set from the policy versions it composes.',
+    domain: 'policy',
+    mutating: true,
+    args: z.object({ policy_set_id: IdRef, policy_version_ids: z.array(IdRef).min(1).max(64) }).strict(),
+    argsHint: 'policy_set_id (string), policy_version_ids (array of policy version id strings)',
+    preview: {
+      kind: 'mutateById',
+      target: 'policySets',
+      idArg: 'policy_set_id',
+      effect: 'update',
+      live: (id) => `Would seal a new version of policy set ${id}.`,
+      blocked: (id) => `Policy set ${id} was not found in this zone.`,
+    },
+  },
+  activatePolicySet: {
+    id: 'activatePolicySet',
+    title: 'Activate a policy set',
+    summary: 'Activate a policy set version so the zone evaluates authorization against it.',
+    domain: 'policy',
+    mutating: true,
+    args: z.object({ policy_set_id: IdRef, policy_set_version_id: IdRef }).strict(),
+    argsHint: 'policy_set_id (string), policy_set_version_id (string)',
+    preview: {
+      kind: 'mutateById',
+      target: 'policySets',
+      idArg: 'policy_set_id',
+      effect: 'update',
+      live: (id) => `Would activate a version of policy set ${id} for the whole zone.`,
+      blocked: (id) => `Policy set ${id} was not found in this zone.`,
     },
   },
 }

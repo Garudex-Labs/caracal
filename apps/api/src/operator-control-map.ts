@@ -181,6 +181,100 @@ export const CONTROL_CAPABILITIES: Record<string, ControlCapability> = {
   deleteResource: removeControl('resource', 'delete', 'resource_id', (id) => `Deleted resource ${id} from this zone.`),
   deleteProvider: removeControl('identity-provider', 'delete', 'provider_id', (id) => `Deleted provider ${id} from this zone.`),
   deletePolicy: removeControl('policy', 'delete', 'policy_id', (id) => `Deleted policy ${id} from this zone.`),
+  // Creates a policy from an authored data document and seals its first immutable version. The
+  // Rego content rides inline — it is the policy logic, not a secret — and the control plane
+  // validates it on create, so an invalid document is rejected there rather than applied. The
+  // create returns the policy and its first version, both surfaced so a follow-on action can
+  // compose the version into a policy set.
+  createPolicy: {
+    scopes: ['control:policy:write'],
+    buildInvocation: (args) => ({
+      command: 'policy',
+      subcommand: 'create',
+      flags: {
+        name: asString(args.name),
+        ...(args.description === undefined ? {} : { description: asString(args.description) }),
+        content: asString(args.content),
+        ...(args.schema_version === undefined ? {} : { 'schema-version': asString(args.schema_version) }),
+      },
+    }),
+    describeOutcome: (result, args) => {
+      const policy = asRecord(result)
+      return {
+        detail: `Created policy “${asString(args.name)}” and sealed its first version.`,
+        output: { policy_id: policy.id, policy_version_id: policy.version_id },
+      }
+    },
+  },
+  // Seals a new immutable version of an existing policy from an authored data document. The
+  // policy id names the existing policy; the content is the new version's Rego, validated by the
+  // control plane on apply. The sealed version id is surfaced so it can compose into a policy set.
+  versionPolicy: {
+    scopes: ['control:policy:write'],
+    buildInvocation: (args) => ({
+      command: 'policy',
+      subcommand: 'version',
+      flags: {
+        id: asString(args.policy_id),
+        content: asString(args.content),
+        ...(args.schema_version === undefined ? {} : { 'schema-version': asString(args.schema_version) }),
+      },
+    }),
+    describeOutcome: (result, args) => {
+      const version = asRecord(result)
+      return {
+        detail: `Sealed a new version of policy ${asString(args.policy_id)}.`,
+        output: { policy_id: asString(args.policy_id), policy_version_id: version.version_id },
+      }
+    },
+  },
+  // Creates a policy set — the composable unit a zone activates. It holds no policy logic itself;
+  // versions composed from policy versions carry that. The set id is surfaced so a follow-on
+  // action can seal a version into it.
+  createPolicySet: {
+    scopes: ['control:policy-set:write'],
+    buildInvocation: (args) => ({
+      command: 'policy-set',
+      subcommand: 'create',
+      flags: { name: asString(args.name), ...(args.description === undefined ? {} : { description: asString(args.description) }) },
+    }),
+    describeOutcome: (result, args) => {
+      const set = asRecord(result)
+      return { detail: `Created policy set “${asString(args.name)}”.`, output: { policy_set_id: set.id } }
+    },
+  },
+  // Seals a new immutable version of a policy set from the policy versions it composes. The
+  // sealed version id is surfaced so it can be simulated and then activated.
+  versionPolicySet: {
+    scopes: ['control:policy-set:write'],
+    buildInvocation: (args) => ({
+      command: 'policy-set',
+      subcommand: 'version',
+      flags: { id: asString(args.policy_set_id), 'policy-versions': asScopes(args.policy_version_ids) },
+    }),
+    describeOutcome: (result, args) => {
+      const version = asRecord(result)
+      return {
+        detail: `Sealed a new version of policy set ${asString(args.policy_set_id)}.`,
+        output: { policy_set_id: asString(args.policy_set_id), policy_set_version_id: version.version_id },
+      }
+    },
+  },
+  // Activates a policy set version so the zone evaluates every authorization decision against it.
+  // This is the zone-wide switch: activation invalidates issued tokens and reshapes the STS
+  // decision, so it is the highest-impact governed policy action and rides the same approval gate.
+  activatePolicySet: {
+    scopes: ['control:policy-set:write'],
+    buildInvocation: (args) => ({
+      command: 'policy-set',
+      subcommand: 'activate',
+      flags: { id: asString(args.policy_set_id), version: asString(args.policy_set_version_id) },
+    }),
+    describeOutcome: (_result, args) => ({
+      detail: `Activated version ${asString(args.policy_set_version_id)} of policy set ${asString(args.policy_set_id)} for the zone.`,
+      output: { policy_set_id: asString(args.policy_set_id), policy_set_version_id: asString(args.policy_set_version_id) },
+    }),
+  },
   revokeGrant: removeControl('grant', 'revoke', 'grant_id', (id) => `Revoked grant ${id} and the active sessions it authorized.`),
   grantAccess: {
     scopes: ['control:grant:write'],
