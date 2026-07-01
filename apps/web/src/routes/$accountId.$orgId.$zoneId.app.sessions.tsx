@@ -20,14 +20,15 @@ import {
   Button,
   Field,
   Select,
+  Skeleton,
   Tooltip,
   useCopyToClipboard,
   type Column,
 } from "@/components/ui";
 import { cx } from "@/lib/cx";
 import { ConsoleApiError } from "@/platform/api/client";
-import { useSessionsFeed } from "@/platform/api/hooks";
-import type { Session, SessionQuery } from "@/platform/api/types";
+import { useSessionActivity, useSessionsFeed } from "@/platform/api/hooks";
+import type { AuditEvent, Session, SessionQuery } from "@/platform/api/types";
 
 export const Route = createFileRoute("/$accountId/$orgId/$zoneId/app/sessions")({
   component: SessionsRoute,
@@ -98,6 +99,88 @@ function relativeTime(iso: string, now = Date.now()): string {
   return `${days}d ${suffix}`;
 }
 
+// Human-readable span between two instants, used to show how long a session held
+// authority from authentication to its terminal moment (or to now while it is live).
+function formatDuration(ms: number): string {
+  const mins = Math.floor(Math.max(0, ms) / 60000);
+  if (mins < 1) return "<1m";
+  if (mins < 60) return `${mins}m`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ${mins % 60}m`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ${hours % 24}h`;
+}
+
+// The instant a session stopped carrying authority: its revocation time when revoked,
+// otherwise its expiry. Live sessions have no terminal instant.
+function sessionEnd(session: Session, effective: EffectiveStatus): number | null {
+  if (effective === "active") return null;
+  if (session.revoked_at) return Date.parse(session.revoked_at);
+  return Date.parse(session.expires_at);
+}
+
+function sessionDuration(session: Session, effective: EffectiveStatus, now: number): string {
+  const start = Date.parse(session.authenticated_at) || Date.parse(session.created_at);
+  const end = sessionEnd(session, effective) ?? now;
+  return formatDuration(end - start);
+}
+
+// Maps the reason recorded when a session is revoked to operator-facing wording. The
+// backend stamps these at the originating action (grant delete, application archive) or
+// falls back to a generic marker when a revocation arrives only through the stream.
+const REVOCATION_REASON_LABELS: Record<string, string> = {
+  grant_revoked: "Grant revoked",
+  dcr_shutdown: "Application archived",
+  application_archived: "Application archived",
+  session_revoked: "Revoked",
+};
+
+function revocationReasonLabel(reason: string | null): string {
+  if (!reason) return "Revoked";
+  return REVOCATION_REASON_LABELS[reason] ?? reason.replace(/_/g, " ");
+}
+
+// One-line outcome for a session: why it ended, or that it is still live. Revoked
+// sessions surface the recorded cause so operators see intent, not just a status.
+function sessionOutcome(session: Session, effective: EffectiveStatus): string {
+  if (effective === "active") return "Live";
+  if (effective === "revoked") return revocationReasonLabel(session.revoked_reason);
+  return "Expired";
+}
+
+const AUDIT_EVENT_LABELS: Record<string, string> = {
+  token_exchange: "Token issued",
+  exchange_denied: "Token denied",
+  gateway_resource_request: "Resource call",
+  scope_mismatch: "Scope denied",
+  rate_limited: "Rate limited",
+  replay_detected: "Replay blocked",
+  resource_not_found: "Resource missing",
+  credential_refresh_failed: "Credential refresh failed",
+  policy_eval_failed: "Policy error",
+};
+
+function auditEventLabel(eventType: string): string {
+  return AUDIT_EVENT_LABELS[eventType] ?? eventType.replace(/_/g, " ");
+}
+
+function auditDecisionTone(decision: string | null): "success" | "danger" | "muted" {
+  if (decision === "allow") return "success";
+  if (decision === "deny") return "danger";
+  return "muted";
+}
+
+// Pulls the resource/method context out of an audit event's metadata for a one-line summary.
+function auditEventContext(event: AuditEvent): string {
+  const meta = event.metadata_json ?? {};
+  const parts: string[] = [];
+  const resource = meta.resource ?? meta.resource_id ?? meta.target;
+  const method = meta.method ?? meta.action;
+  if (typeof method === "string" && method) parts.push(method);
+  if (typeof resource === "string" && resource) parts.push(resource);
+  return parts.join(" \u00b7 ");
+}
+
 function SessionsPage({ zoneId, initialSubject }: { zoneId: string; initialSubject?: string }) {
   const [status, setStatus] = useState<string>("all");
   const [subject, setSubject] = useState(initialSubject ?? "");
@@ -158,23 +241,47 @@ function SessionsPage({ zoneId, initialSubject }: { zoneId: string; initialSubje
       ),
     },
     {
-      id: "expires",
-      header: "Expires",
+      id: "duration",
+      header: "Duration",
+      sortable: true,
+      cell: (s) => {
+        const eff = effectiveStatus(s, now);
+        return (
+          <span className="text-xs text-muted-foreground" title="Time held from authentication">
+            {sessionDuration(s, eff, now)}
+            {eff === "active" ? <span className="ml-1 text-muted-foreground/70">so far</span> : null}
+          </span>
+        );
+      },
+    },
+    {
+      id: "outcome",
+      header: "Outcome",
       align: "right",
       sortable: true,
       cell: (s) => {
         const eff = effectiveStatus(s, now);
-        const lapsed = eff !== "active" && Date.parse(s.expires_at) <= now;
+        const ended = sessionEnd(s, eff);
         return (
-          <span
-            className={cx(
-              "text-xs",
-              lapsed ? "text-amber-600 dark:text-amber-500" : "text-muted-foreground",
-            )}
-            title={new Date(s.expires_at).toLocaleString()}
-          >
-            {relativeTime(s.expires_at, now)}
-          </span>
+          <div className="text-right">
+            <div
+              className={cx(
+                "text-xs",
+                eff === "revoked"
+                  ? "text-destructive"
+                  : eff === "expired"
+                    ? "text-amber-600 dark:text-amber-500"
+                    : "text-muted-foreground",
+              )}
+            >
+              {sessionOutcome(s, eff)}
+            </div>
+            {ended ? (
+              <div className="text-[10px] text-muted-foreground" title={new Date(ended).toLocaleString()}>
+                {relativeTime(new Date(ended).toISOString(), now)}
+              </div>
+            ) : null}
+          </div>
         );
       },
     },
@@ -210,7 +317,12 @@ function SessionsPage({ zoneId, initialSubject }: { zoneId: string; initialSubje
       sortValues={{
         subject: (s) => s.subject_id.toLowerCase(),
         authenticated: (s) => Date.parse(s.authenticated_at) || 0,
-        expires: (s) => Date.parse(s.expires_at) || 0,
+        duration: (s) => {
+          const eff = effectiveStatus(s, now);
+          const start = Date.parse(s.authenticated_at) || Date.parse(s.created_at);
+          return (sessionEnd(s, eff) ?? now) - start;
+        },
+        outcome: (s) => sessionOutcome(s, effectiveStatus(s, now)).toLowerCase(),
       }}
       empty={{
         title: feed.isError ? "Could not load sessions" : "No sessions",
@@ -221,7 +333,7 @@ function SessionsPage({ zoneId, initialSubject }: { zoneId: string; initialSubje
       detail={{
         title: (s) => s.subject_id,
         description: (s) => s.session_type,
-        render: (s) => <SessionDetail session={s} />,
+        render: (s) => <SessionDetail session={s} zoneId={zoneId} />,
       }}
     />
   );
@@ -303,7 +415,7 @@ function CopyJsonButton({ session }: { session: Session }) {
   );
 }
 
-function SessionDetail({ session }: { session: Session }) {
+function SessionDetail({ session, zoneId }: { session: Session; zoneId: string }) {
   const now = Date.now();
   const eff = effectiveStatus(session, now);
   const stale = isStaleActive(session, now);
@@ -346,13 +458,80 @@ function SessionDetail({ session }: { session: Session }) {
             ({relativeTime(session.expires_at, now)})
           </span>
         </DetailField>
+        {session.revoked_at ? (
+          <DetailField label="Revoked">
+            {new Date(session.revoked_at).toLocaleString()}
+            <span className="ml-2 text-xs text-muted-foreground">
+              ({revocationReasonLabel(session.revoked_reason)})
+            </span>
+          </DetailField>
+        ) : null}
       </DetailGroup>
+
+      <SessionActivity zoneId={zoneId} sessionId={session.id} />
 
       <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
         Sessions are read-only here. They end by expiry, grant revocation, or agent termination. To
         cut off authority now, revoke the delegation or terminate the holding agent.
       </p>
     </div>
+  );
+}
+
+// Read-only correlation lens. Surfaces the durable audit events keyed to this session -
+// token exchanges, resource calls, and authority decisions - so an operator can trace what
+// the subject actually did while the session held authority. Payloads are never exposed.
+function SessionActivity({ zoneId, sessionId }: { zoneId: string; sessionId: string }) {
+  const activity = useSessionActivity(zoneId, sessionId);
+  const events = activity.data?.rows ?? [];
+
+  return (
+    <section className="border-t border-border pt-4">
+      <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+        Activity
+      </h3>
+      {activity.isLoading ? (
+        <Skeleton className="mt-3 h-16 w-full" />
+      ) : events.length === 0 ? (
+        <p className="mt-3 text-xs text-muted-foreground">
+          No recorded activity yet. Token exchanges, resource calls, and authority decisions for
+          this session appear here as the subject acts.
+        </p>
+      ) : (
+        <ul className="mt-3 space-y-2">
+          {events.map((event) => {
+            const context = auditEventContext(event);
+            const latency = event.metadata_json?.latency_ms;
+            return (
+              <li
+                key={event.id}
+                className="flex items-start justify-between gap-3 border border-border bg-muted/10 px-3 py-2"
+              >
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-medium text-foreground">
+                      {auditEventLabel(event.event_type)}
+                    </span>
+                    {event.decision ? (
+                      <Badge tone={auditDecisionTone(event.decision)}>{event.decision}</Badge>
+                    ) : null}
+                  </div>
+                  {context ? (
+                    <div className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">
+                      {context}
+                    </div>
+                  ) : null}
+                </div>
+                <div className="shrink-0 text-right text-[10px] text-muted-foreground">
+                  <div>{relativeTime(event.occurred_at)}</div>
+                  {typeof latency === "number" ? <div>{latency}ms</div> : null}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
   );
 }
 
