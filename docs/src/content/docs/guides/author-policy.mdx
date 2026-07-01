@@ -63,7 +63,7 @@ const starter = await admin.policyTemplates.get("resource-grants");
 | `label-confinement` | Cap every session carrying a label prefix to a fixed scope set. |
 | `zone-restriction` | A deny overlay that freezes the zone while an entry is present. |
 
-For agent-assisted authoring, use the [policy authoring playbook](https://github.com/Garudex-Labs/caracal/tree/main/playbooks/policies). It guides a coding agent to model the use case as grant, binding, and confinement data inside the documented contract.
+For assisted authoring, describe the outcome to the [Caracal Operator](/concepts/operator/#authoring-policy). Its policy author models the use case as grant, binding, and confinement data, validates and previews each document against the platform contract, and proposes a governed create you review and approve — so the policy that lands is already contract-valid.
 
 ## How your data maps to the request
 
