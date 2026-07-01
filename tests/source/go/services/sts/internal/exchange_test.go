@@ -309,8 +309,8 @@ func (s *stubDB) GetDelegationPath(_ context.Context, _, _, _ string, _ int) ([]
 func (s *stubDB) GetDelegationGraphEpoch(_ context.Context, _ string) (int64, error) {
 	return s.graphEpoch, s.epochErr
 }
-func (s *stubDB) InsertSession(_ context.Context, _ *Session) error  { return s.sessErr }
-func (s *stubDB) RevokeSession(_ context.Context, _, _ string) error { return nil }
+func (s *stubDB) InsertSession(_ context.Context, _ *Session) error     { return s.sessErr }
+func (s *stubDB) RevokeSession(_ context.Context, _, _, _ string) error { return nil }
 func (s *stubDB) GetStepUpChallenge(_ context.Context, _ string) (*StepUpChallengePG, error) {
 	return nil, errors.New("stub")
 }

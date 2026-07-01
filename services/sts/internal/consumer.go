@@ -123,7 +123,8 @@ func (s *Server) handleRevocation(ctx context.Context, msg streamMessage) error 
 	if sid == "" {
 		return nil
 	}
-	return s.db.RevokeSession(ctx, zoneID, sid)
+	reason, _ := msg.Values["reason"].(string)
+	return s.db.RevokeSession(ctx, zoneID, sid, reason)
 }
 
 // handlePolicyInvalidation reloads the OPA bundle for the zone so an authoring
