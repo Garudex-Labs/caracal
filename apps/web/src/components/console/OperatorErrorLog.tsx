@@ -192,7 +192,7 @@ export function OperatorErrorLog({ event }: { event: OperatorNoticeEvent | null 
   );
 
   return (
-    <div className="pointer-events-none absolute left-3 top-3 z-30 flex items-start gap-2">
+    <div className="pointer-events-none relative z-30 flex items-start gap-2">
       {/* The audit archive: hidden while a label rests, it appears as the label's shrink target. */}
       {boxVisible ? (
         <div className="pointer-events-auto relative flex animate-fade-in flex-col items-center">

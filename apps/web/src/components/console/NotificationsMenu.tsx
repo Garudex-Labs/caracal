@@ -114,7 +114,7 @@ export function NotificationsMenu() {
       </button>
 
       {open ? (
-        <div className="absolute right-0 z-40 mt-2 flex max-h-[28rem] w-80 flex-col overflow-hidden rounded-xl border border-border bg-popover shadow-lg">
+        <div className="absolute right-0 z-40 mt-2 flex h-[28rem] w-80 flex-col overflow-hidden rounded-xl border border-border bg-popover shadow-lg">
           <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
             <span className="text-sm font-semibold text-foreground">Notifications</span>
             {notifications.length > 0 ? (
@@ -156,14 +156,14 @@ export function NotificationsMenu() {
           ) : null}
 
           {notifications.length === 0 ? (
-            <div className="px-3 py-10 text-center">
+            <div className="flex flex-1 flex-col items-center justify-center px-3 text-center">
               <p className="text-sm text-muted-foreground">You're all caught up</p>
               <p className="mt-1 text-xs text-muted-foreground/70">
                 Activity and alerts will appear here.
               </p>
             </div>
           ) : filtered.length === 0 ? (
-            <div className="px-3 py-10 text-center">
+            <div className="flex flex-1 flex-col items-center justify-center px-3 text-center">
               <p className="text-sm text-muted-foreground">No matches</p>
               <p className="mt-1 text-xs text-muted-foreground/70">
                 No notifications match &ldquo;{query}&rdquo;.

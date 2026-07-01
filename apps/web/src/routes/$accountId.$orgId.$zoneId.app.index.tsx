@@ -275,7 +275,7 @@ function ActivityFeed({
   const recent = events.slice(0, 9);
 
   return (
-    <section className="flex min-h-[420px] flex-col">
+    <section className="flex h-[420px] flex-col">
       <header className="flex items-center justify-between gap-3 border-b border-border px-5 py-3.5">
         <SectionLabel>Recent activity</SectionLabel>
         <Link
@@ -286,56 +286,58 @@ function ActivityFeed({
         </Link>
       </header>
 
-      {loading ? (
-        <div className="flex flex-col gap-2 p-5">
-          {Array.from({ length: 6 }).map((_, index) => (
-            <Skeleton key={index} className="h-12 w-full" />
-          ))}
-        </div>
-      ) : error ? (
-        <p className="p-5 text-sm text-muted-foreground">
-          Audit activity is unavailable right now.
-        </p>
-      ) : recent.length === 0 ? (
-        <div className="flex flex-1">
-          <EmptyState
-            bordered={false}
-            title="No activity yet"
-            description="Authority decisions and security events appear here as traffic flows through this zone."
-          />
-        </div>
-      ) : (
-        <ul className="divide-y divide-border">
-          {recent.map((event) => (
-            <li key={event.id}>
-              <Link
-                to={appLink("/audit")}
-                className="flex items-center gap-3 px-5 py-3 transition-colors hover:bg-surface"
-              >
-                <DecisionDot decision={event.decision} />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="truncate text-sm font-medium text-foreground">
-                      {event.event_type}
-                    </span>
-                    {event.decision ? (
-                      <Badge tone={decisionTone(event.decision)}>{event.decision}</Badge>
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+        {loading ? (
+          <div className="flex flex-col gap-2 p-5">
+            {Array.from({ length: 6 }).map((_, index) => (
+              <Skeleton key={index} className="h-12 w-full" />
+            ))}
+          </div>
+        ) : error ? (
+          <p className="p-5 text-sm text-muted-foreground">
+            Audit activity is unavailable right now.
+          </p>
+        ) : recent.length === 0 ? (
+          <div className="flex flex-1">
+            <EmptyState
+              bordered={false}
+              title="No activity yet"
+              description="Authority decisions and security events appear here as traffic flows through this zone."
+            />
+          </div>
+        ) : (
+          <ul className="divide-y divide-border">
+            {recent.map((event) => (
+              <li key={event.id}>
+                <Link
+                  to={appLink("/audit")}
+                  className="flex items-center gap-3 px-5 py-3 transition-colors hover:bg-surface"
+                >
+                  <DecisionDot decision={event.decision} />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="truncate text-sm font-medium text-foreground">
+                        {event.event_type}
+                      </span>
+                      {event.decision ? (
+                        <Badge tone={decisionTone(event.decision)}>{event.decision}</Badge>
+                      ) : null}
+                    </div>
+                    {event.request_id ? (
+                      <span className="mt-0.5 block truncate font-mono text-[11px] text-muted-foreground">
+                        {event.request_id}
+                      </span>
                     ) : null}
                   </div>
-                  {event.request_id ? (
-                    <span className="mt-0.5 block truncate font-mono text-[11px] text-muted-foreground">
-                      {event.request_id}
-                    </span>
-                  ) : null}
-                </div>
-                <span className="flex-shrink-0 whitespace-nowrap text-xs tabular-nums text-muted-foreground">
-                  {relativeTime(event.occurred_at)}
-                </span>
-              </Link>
-            </li>
-          ))}
-        </ul>
-      )}
+                  <span className="flex-shrink-0 whitespace-nowrap text-xs tabular-nums text-muted-foreground">
+                    {relativeTime(event.occurred_at)}
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
     </section>
   );
 }
