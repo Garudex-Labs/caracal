@@ -18,6 +18,18 @@ import (
 	"time"
 )
 
+// noRedirect is the CheckRedirect policy for every gateway HTTP client. The gateway is a
+// credential-injecting trust boundary: proxied requests carry provider secrets and the
+// Caracal identity, STS exchanges carry the inbound bearer and the gateway↔STS HMAC, and
+// JWKS fetches retrieve the keys that authorize tokens. A 3xx target is a host the SSRF
+// guard, egress allowlist, and credential-host checks never vetted — those run only against
+// the initial upstream — so redirects are never followed. The most recent response is
+// surfaced to the caller unfollowed, matching the STS provider-token client
+// (services/sts/internal/refresh.go).
+func noRedirect(*http.Request, []*http.Request) error {
+	return http.ErrUseLastResponse
+}
+
 // hopByHopHeaders are stripped from both inbound and outbound requests per RFC 7230 §6.1.
 var hopByHopHeaders = []string{
 	"Connection",

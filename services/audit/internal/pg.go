@@ -346,10 +346,33 @@ func (w *PGWriter) RecordIngestAlert(ctx context.Context, eventID, zoneID, kind,
 	return err
 }
 
-// AcquireAdvisoryLock holds a session-level advisory lock on a dedicated pool
-// connection. The caller must release the returned connection through
-// ReleaseAdvisoryLock.
-func (w *PGWriter) AcquireAdvisoryLock(ctx context.Context, key int64) (*pgxpool.Conn, bool, error) {
+// pgAdvisoryLease is a held session-level advisory lock pinned to a dedicated
+// pooled connection. The lock lives for the lifetime of that session, so the
+// lease owns both the liveness probe and the unlock-and-return-to-pool release.
+type pgAdvisoryLease struct {
+	conn *pgxpool.Conn
+	key  int64
+}
+
+// Ping reports whether the lease connection is still alive. Because the advisory
+// lock is bound to this session and is never unlocked out of band, a live
+// connection proves the lock is still held.
+func (l *pgAdvisoryLease) Ping(ctx context.Context) error {
+	return l.conn.Ping(ctx)
+}
+
+// Release unlocks the advisory lock and returns the connection to the pool.
+// Returning a still-locked connection to the pool would leak the lock onto a
+// reused session, so the unlock runs before the connection is handed back.
+func (l *pgAdvisoryLease) Release(ctx context.Context) error {
+	defer l.conn.Release()
+	_, err := l.conn.Exec(ctx, `SELECT pg_advisory_unlock($1)`, l.key)
+	return err
+}
+
+// AcquireAdvisoryLock attempts a session-level advisory lock on a dedicated pool
+// connection. On success it returns a lease the caller must Release.
+func (w *PGWriter) AcquireAdvisoryLock(ctx context.Context, key int64) (advisoryLease, bool, error) {
 	conn, err := w.db.Acquire(ctx)
 	if err != nil {
 		return nil, false, err
@@ -363,15 +386,7 @@ func (w *PGWriter) AcquireAdvisoryLock(ctx context.Context, key int64) (*pgxpool
 		conn.Release()
 		return nil, false, nil
 	}
-	return conn, true, nil
-}
-
-// ReleaseAdvisoryLock releases a session-level lock on the same connection that
-// acquired it, then returns that connection to the pool.
-func (w *PGWriter) ReleaseAdvisoryLock(ctx context.Context, conn *pgxpool.Conn, key int64) error {
-	defer conn.Release()
-	_, err := conn.Exec(ctx, `SELECT pg_advisory_unlock($1)`, key)
-	return err
+	return &pgAdvisoryLease{conn: conn, key: key}, true, nil
 }
 
 // EnsurePartition creates a monthly partition for the month containing t if absent.
