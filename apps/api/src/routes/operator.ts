@@ -143,6 +143,13 @@ const SSE_HEADERS = {
   'x-accel-buffering': 'no',
 } as const
 
+// How often a comment frame is written while a turn is deliberating. A model call runs without
+// emitting any frame, so on a cold or slow model the gap between two stages can outlast a proxy's
+// inactivity deadline and the stream is cut mid-turn. A periodic keepalive keeps bytes flowing so
+// a legitimately slow deliberation is never mistaken for a stalled connection; the interval sits
+// well under the console proxy's inactivity window so a healthy stream always stays open.
+const SSE_HEARTBEAT_MS = 15_000
+
 // Writes one Server-Sent Event frame to the hijacked response. The route owns the event names:
 // stage (a progress signal), reasoning (a delta of the model's chain of thought as it thinks),
 // token (a text delta of the answer as it is produced), result (the authoritative success body),
@@ -1475,6 +1482,15 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
     if (wantsStream) {
       reply.hijack()
       reply.raw.writeHead(200, SSE_HEADERS)
+      // Keep the stream's bytes flowing while a model call runs without emitting a frame, so no
+      // proxy or browser inactivity deadline mistakes a slow deliberation for a stalled connection.
+      // The comment frame names no event, so the console's stream reader ignores it. The socket
+      // closing clears the interval, covering every terminal frame and a client disconnect alike.
+      const heartbeat = setInterval(() => {
+        if (reply.raw.writableEnded) return
+        reply.raw.write(': keepalive\n\n')
+      }, SSE_HEARTBEAT_MS)
+      reply.raw.on('close', () => clearInterval(heartbeat))
     }
     // Capture the deliberation stages as they are emitted, regardless of transport, so the
     // completed turn records how the request was reasoned through and the console can replay the
