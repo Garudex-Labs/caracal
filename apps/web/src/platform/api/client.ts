@@ -879,7 +879,16 @@ export const consoleApi = {
       onReasoning?: (text: string) => void,
       signal?: AbortSignal,
     ): Promise<OperatorMessageResult> =>
-      streamOperatorMessage(zoneId, conversationId, message, provider, onStage, onToken, onReasoning, signal),
+      streamOperatorMessage(
+        zoneId,
+        conversationId,
+        message,
+        provider,
+        onStage,
+        onToken,
+        onReasoning,
+        signal,
+      ),
   },
 
   agents: {
