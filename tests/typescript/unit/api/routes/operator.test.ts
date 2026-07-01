@@ -117,6 +117,7 @@ describe('operator enablement gating', () => {
     expect(body).toMatchObject({ enabled: true, principal: 'system:caracal-operator' })
     // The least-privilege grant exposes only governed-executable mutating capabilities by default.
     expect(body.allowed_capabilities).toEqual([
+      'defineResource',
       'deleteApplication',
       'deletePolicy',
       'deleteProvider',
