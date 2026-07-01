@@ -1,6 +1,6 @@
 # Caracal Playbooks
 
-Caracal Playbooks are copy-paste guides for using Caracal with coding agents. They help your agent integrate SDKs and translate external provider dashboards into Caracal fields.
+Caracal Playbooks are copy-paste guides for using Caracal with coding agents. They help your agent integrate SDKs and review a Caracal codebase for compliance.
 
 Use them inside your own project. You do not need the Caracal repository in your app.
 
@@ -9,7 +9,6 @@ Use them inside your own project. You do not need the Caracal repository in your
 | Layer | Use it for |
 | --- | --- |
 | `sdks` | Integrating Caracal SDKs into your application. |
-| `mapping` | Translating provider and resource settings into Caracal fields. |
 | `compliance` | Running a compliance and operations review of a Caracal codebase. |
 
 ## Supported agents
@@ -27,4 +26,4 @@ Each layer includes guides for:
 3. Copy the guide into your agent instructions file or paste it into your agent chat.
 4. Ask the agent to help with your Caracal setup in your own codebase.
 
-Start with `mapping` if you are connecting an external provider or resource. Use `sdks` when adding Caracal to app code. To author access policies, use the [Caracal Operator](https://docs.caracal.run/concepts/operator/#authoring-policy) in the web console.
+Use `sdks` when adding Caracal to app code, and `compliance` to review a codebase. To connect a provider, model a resource, or author access policies, use the [Caracal Operator](https://docs.caracal.run/concepts/operator/) in the web console.

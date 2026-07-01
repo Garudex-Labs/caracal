@@ -129,6 +129,10 @@ export function GuidedSetup() {
     !policySets.isLoading;
 
   const [open, setOpen] = useState(false);
+  // True only while the panel is showing because of the genuine first-visit auto-launch. It
+  // gates the step-by-step coachmark: after the guide is skipped or dismissed, reopening the
+  // list from the launcher shows only the checklist, never the auto-spotlight popup again.
+  const [autoStart, setAutoStart] = useState(false);
   const [pref, setPref] = useState<GuidedSetupRecord | null>(null);
   const [ackOrientation, setAckOrientation] = useState(false);
   const [ackVerify, setAckVerify] = useState(false);
@@ -287,6 +291,7 @@ export function GuidedSetup() {
     // it on its own, even if the operator closed the popup without acting on it.
     if (!record.seen && !record.finished) {
       setOpen(true);
+      setAutoStart(true);
       updatePref({ seen: true, finished: record.finished });
       return;
     }
@@ -314,11 +319,15 @@ export function GuidedSetup() {
       <InteractiveOnboardingChecklist
         steps={steps}
         open={open}
+        autoSpotlight={autoStart}
         title="Guided setup"
         manualCompletion={false}
         onOpenChange={(next) => {
           setOpen(next);
-          if (!next) updatePref({ seen: true, finished: pref.finished });
+          if (!next) {
+            setAutoStart(false);
+            updatePref({ seen: true, finished: pref.finished });
+          }
         }}
         onActivateStep={(id) => {
           if (id === "orientation") {

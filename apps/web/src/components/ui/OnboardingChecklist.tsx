@@ -52,6 +52,12 @@ export interface InteractiveOnboardingChecklistProps {
   /** Dismiss the whole walkthrough from the intro step's Skip action. */
   onSkip?(): void;
   /**
+   * When true (default), opening the panel auto-spotlights the first remaining step as a
+   * coachmark. When false, the panel shows only the checklist and a coachmark appears solely
+   * when the operator clicks a step, so a reopened-after-skip guide never re-pops the tour.
+   */
+  autoSpotlight?: boolean;
+  /**
    * When true (default), the coachmark's primary action marks the step complete locally.
    * When false, completion is driven entirely by each step's `completed` flag so the
    * checklist mirrors real backend state instead of optimistic local clicks.
@@ -473,6 +479,7 @@ export function InteractiveOnboardingChecklist({
   onActivateStep,
   onFinish,
   onSkip,
+  autoSpotlight = true,
   manualCompletion = true,
 }: InteractiveOnboardingChecklistProps) {
   const portal = usePortalTarget();
@@ -526,6 +533,7 @@ export function InteractiveOnboardingChecklist({
       autoOpenedRef.current = false;
       return;
     }
+    if (!autoSpotlight) return;
     if (activeId || autoOpenedRef.current) return;
     const firstIncomplete = steps.find((s) => !completed.has(s.id));
     if (!firstIncomplete) return;
@@ -534,16 +542,22 @@ export function InteractiveOnboardingChecklist({
       setActiveId(firstIncomplete.id);
     }, 350);
     return () => clearTimeout(timer);
-  }, [open, activeId, steps, completed]);
+  }, [open, autoSpotlight, activeId, steps, completed]);
 
-  // When external (data-driven) completion marks the active step done, move on.
+  // When external (data-driven) completion marks the active step done, move on. During the
+  // auto-spotlight tour this advances to the next remaining step; in manual mode it simply
+  // closes the coachmark so a reopened-after-skip guide never jumps to the next uncreated step.
   useEffect(() => {
     if (!activeId) return;
     if (!completed.has(activeId)) return;
+    if (!autoSpotlight) {
+      setActiveId(null);
+      return;
+    }
     const idx = steps.findIndex((s) => s.id === activeId);
     const next = steps.slice(idx + 1).find((s) => !completed.has(s.id));
     setActiveId(next ? next.id : null);
-  }, [activeId, steps, completed]);
+  }, [activeId, steps, completed, autoSpotlight]);
 
   const activeStep = activeId ? (steps.find((s) => s.id === activeId) ?? null) : null;
   const activeIndex = activeStep ? steps.indexOf(activeStep) : -1;
