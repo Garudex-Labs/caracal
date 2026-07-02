@@ -998,6 +998,7 @@ export const consoleApi = {
           decision: query.decision,
           event_type: query.event_type,
           request_id: query.request_id,
+          application_id: query.application_id,
           agent_session_id: query.agent_session_id,
           session_id: query.session_id,
           label: query.label,
