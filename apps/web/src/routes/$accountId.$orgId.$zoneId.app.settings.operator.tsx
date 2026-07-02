@@ -121,89 +121,75 @@ function OperatorPage() {
     );
   }
 
+  function runCheck() {
+    check.mutate(undefined, {
+      onSuccess: (data) =>
+        toast({
+          tone: "success",
+          title: "Operator connected",
+          description: `${data.provider} · ${data.model} · ${data.latency_ms} ms`,
+        }),
+      onError: (err) =>
+        toast({
+          tone: "error",
+          title: "Connectivity check failed",
+          description: checkErrorMessage(err),
+        }),
+    });
+  }
+
   return (
     <div>
       <SettingsGroup
-        title="Status"
-        description="The models the Operator uses, in failover order, and a live connectivity check."
-      >
-        <div className="grid gap-4">
-          {status.isLoading ? (
-            <Skeleton className="h-10 w-full" />
-          ) : (
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge tone={connected ? "success" : "warning"}>
-                {connected ? "Connected" : "No model ready"}
-              </Badge>
-              <span className="text-xs text-muted-foreground">
-                {connected
-                  ? `${runtime.length} model${runtime.length === 1 ? "" : "s"} in failover order`
-                  : "Add a model below to bring the Operator online."}
-              </span>
-              {systemZone.data ? (
-                <a
-                  href={systemZoneViewPath(systemZone.data)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        title="Models"
+        description="Add a provider once; its key is sealed into Caracal and the Operator reaches every model through the governed gateway."
+        action={
+          <>
+            {systemZone.data ? (
+              <a
+                href={systemZoneViewPath(systemZone.data)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  className="h-3.5 w-3.5"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
                 >
-                  <svg
-                    viewBox="0 0 24 24"
-                    className="h-3.5 w-3.5"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden="true"
-                  >
-                    <rect x="3" y="11" width="18" height="11" rx="2" />
-                    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                  </svg>
-                  Open System Zone
-                </a>
-              ) : null}
-            </div>
-          )}
-
-          <div className="flex flex-wrap items-center gap-3">
+                  <rect x="3" y="11" width="18" height="11" rx="2" />
+                  <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                </svg>
+                Open System Zone
+              </a>
+            ) : null}
             <Button
               variant="secondary"
               size="sm"
               type="button"
               loading={check.isPending}
               disabled={!connected}
-              onClick={() => check.mutate()}
+              onClick={runCheck}
             >
               Test connectivity
             </Button>
-            {check.isSuccess ? (
-              <span className="text-xs text-emerald-600 dark:text-emerald-400">
-                {check.data.provider} · {check.data.model} · {check.data.latency_ms} ms
-              </span>
-            ) : null}
-            {check.isError ? (
-              <span className="text-xs text-destructive">{checkErrorMessage(check.error)}</span>
-            ) : null}
-          </div>
-        </div>
-      </SettingsGroup>
-
-      <SettingsGroup
-        title="Models"
-        description="Add a provider once; its key is sealed into Caracal and the Operator reaches every model through the governed gateway."
-        action={
-          <Button
-            size="sm"
-            mutating
-            disabled={!available}
-            onClick={() => {
-              setEditing(null);
-              setFormOpen(true);
-            }}
-          >
-            Add provider
-          </Button>
+            <Button
+              size="sm"
+              mutating
+              disabled={!available}
+              onClick={() => {
+                setEditing(null);
+                setFormOpen(true);
+              }}
+            >
+              Add provider
+            </Button>
+          </>
         }
       >
         <div className="grid gap-4">
@@ -357,15 +343,7 @@ function AttributionGroup() {
     <SettingsGroup
       title="Attribution"
       description="Show a co-author badge on items the Caracal Operator creates in this zone."
-    >
-      <div className="flex items-start justify-between gap-3">
-        <p className="max-w-prose text-xs text-muted-foreground">
-          When on, items created through the Operator in{" "}
-          <span className="font-medium text-foreground">{activeZone?.name ?? "this zone"}</span>{" "}
-          carry a small star next to the creator, marking them as co-authored by the Caracal
-          Operator. Turning this off stops new items from being marked; items already marked keep
-          their badge.
-        </p>
+      action={
         <button
           type="button"
           role="switch"
@@ -374,7 +352,7 @@ function AttributionGroup() {
           disabled={!activeZone || updateZone.isPending}
           onClick={() => toggleBadge(!badgeOn)}
           className={[
-            "relative mt-0.5 inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors",
+            "relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors",
             badgeOn ? "bg-foreground" : "bg-muted",
             !activeZone || updateZone.isPending ? "opacity-60" : "",
           ].join(" ")}
@@ -386,8 +364,8 @@ function AttributionGroup() {
             ].join(" ")}
           />
         </button>
-      </div>
-    </SettingsGroup>
+      }
+    />
   );
 }
 

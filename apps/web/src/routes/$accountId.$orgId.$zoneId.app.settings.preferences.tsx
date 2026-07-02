@@ -2,13 +2,14 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-This file defines the Settings preferences page for theme and guided-tour choices.
+This file defines the Settings preferences page for theme, guided-tour, and audit retention choices.
 */
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { ConfirmModal, SettingsGroup } from "@/components/console/SettingsPanels";
-import { Button, useToast } from "@/components/ui";
+import { Button, Field, Skeleton, useToast } from "@/components/ui";
+import { useAuditRetention, useUpdateAuditRetention } from "@/platform/api/hooks";
 import { updateUser } from "@/platform/auth";
 import { clearGuidesCache } from "@/platform/state/guides";
 import { setTheme, useTheme } from "@/platform/theme";
@@ -21,6 +22,38 @@ function PreferencesPage() {
   const theme = useTheme();
   const toast = useToast();
   const [resetOpen, setResetOpen] = useState(false);
+  const retention = useAuditRetention();
+  const update = useUpdateAuditRetention();
+  const [days, setDays] = useState("");
+
+  useEffect(() => {
+    if (retention.data) setDays(String(retention.data.retention_days));
+  }, [retention.data]);
+
+  const max = retention.data?.max_days ?? 0;
+  const parsed = Number(days);
+  const valid = Number.isInteger(parsed) && parsed >= 1 && parsed <= max;
+  const daysError =
+    days === "" || valid ? undefined : parsed > max ? `Maximum ${max} days.` : "Enter 1 or more.";
+
+  function saveRetention() {
+    update.mutate(parsed, {
+      onSuccess: (result) => {
+        toast({
+          tone: "success",
+          title: "Retention window saved",
+          description: `Audit events are kept for ${result.retention_days} days.`,
+        });
+      },
+      onError: (err) => {
+        toast({
+          tone: "error",
+          title: "Could not save retention window",
+          description: err instanceof Error ? err.message : "Unexpected error.",
+        });
+      },
+    });
+  }
 
   async function resetGuides() {
     try {
@@ -75,11 +108,33 @@ function PreferencesPage() {
             Restart tours
           </Button>
         }
+      />
+
+      <SettingsGroup
+        title="Audit retention"
+        description="Audit events older than this window are removed permanently, across all zones."
+        action={
+          <Button onClick={saveRetention} disabled={!valid} loading={update.isPending}>
+            Save
+          </Button>
+        }
       >
-        <p className="max-w-prose text-sm text-muted-foreground">
-          Restarting clears the completion record for every console walkthrough, such as the
-          first-zone setup guide. Each tour runs again the next time its page is opened.
-        </p>
+        <div className="min-h-[3.75rem] max-w-[11rem]">
+          {retention.isLoading ? (
+            <Skeleton className="h-[3.75rem] w-full" />
+          ) : (
+            <Field
+              label="Retention window (days)"
+              type="number"
+              min={1}
+              max={max}
+              value={days}
+              onChange={(e) => setDays(e.target.value)}
+              error={daysError}
+              hint={`Maximum ${max} days.`}
+            />
+          )}
+        </div>
       </SettingsGroup>
 
       <ConfirmModal
