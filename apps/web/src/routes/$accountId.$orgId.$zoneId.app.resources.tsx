@@ -4,7 +4,7 @@ Caracal, a product of Garudex Labs
 
 This file defines the Resources route.
 */
-import { createFileRoute } from "@tanstack/react-router";
+import { Link, createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 
 import { ResourceFormModal } from "@/components/console/ResourceForm";
@@ -37,6 +37,7 @@ import {
   useResources,
   useUpdateResource,
 } from "@/platform/api/hooks";
+import { appLink } from "@/platform/nav/appLink";
 import { useCreateDeepLink } from "@/platform/nav/createDeepLink";
 import type { Application, Provider, Resource, ResourceInput } from "@/platform/api/types";
 
@@ -405,13 +406,13 @@ function ResourceDetail({
             label="Gateway application"
             value={gatewayApp?.name}
             id={resource.gateway_application_id}
-            to="/app/applications"
+            to={appLink("/applications")}
           />
           <BindingCell
             label="Credential provider"
             value={provider?.name}
             id={resource.credential_provider_id}
-            to="/app/providers"
+            to={appLink("/providers")}
           />
         </div>
       </DetailSection>
@@ -491,9 +492,13 @@ function BindingCell({
         {label}
       </div>
       {id ? (
-        <a href={to} className="mt-1 block truncate text-sm text-foreground hover:underline">
+        <Link
+          to={to}
+          search={{ focus: id }}
+          className="mt-1 block truncate text-sm text-foreground hover:underline"
+        >
           {value ?? "Linked"}
-        </a>
+        </Link>
       ) : (
         <div className="mt-1 text-sm text-muted-foreground">Not bound</div>
       )}

@@ -59,7 +59,7 @@ export function Modal({
   useEscape(open, onClose);
   if (!open) return null;
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4 sm:items-center">
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4 sm:pt-[8vh]">
       <div
         className="animate-overlay-in fixed inset-0 bg-overlay/40 backdrop-blur-[1px]"
         onClick={onClose}
@@ -69,7 +69,7 @@ export function Modal({
         aria-modal="true"
         aria-label={title}
         data-modal-surface=""
-        className="animate-pop-in relative z-10 flex max-h-[calc(100dvh-2rem)] w-full max-w-lg flex-col overflow-hidden rounded-xl border border-border bg-card shadow-xl"
+        className="animate-pop-in relative z-10 flex max-h-[calc(100dvh-2rem)] w-full max-w-lg flex-col overflow-hidden rounded-xl border border-border bg-card shadow-xl sm:max-h-[84dvh]"
       >
         <div className="flex flex-shrink-0 items-start justify-between gap-4 border-b border-border px-5 py-4">
           <h2 className="min-w-0 break-words text-sm font-semibold tracking-tight text-foreground">

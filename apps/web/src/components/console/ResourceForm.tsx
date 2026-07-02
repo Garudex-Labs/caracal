@@ -2,7 +2,7 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-This file builds the create and edit form for Gateway-routed resources, including scope, binding, and operation editing.
+This file builds the create and edit dialog for Gateway-routed resources, covering routing, binding, scopes, and operation authority.
 */
 import { useMemo, useState } from "react";
 
@@ -13,7 +13,6 @@ import type {
   Provider,
   Resource,
   ResourceInput,
-  ResourceOperation,
   ResourceOperationEnforcement,
 } from "@/platform/api/types";
 
@@ -22,26 +21,39 @@ import type {
 // such as WebDAV or custom methods rather than restricting to this list.
 const METHOD_SUGGESTIONS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
 
+const opFieldClass =
+  "h-9 rounded-md border border-border bg-background px-2 font-mono text-xs text-foreground outline-none transition-colors focus:border-ring focus:ring-2 focus:ring-ring/25";
+
 interface OperationRow {
   method: string;
   path: string;
   scope: string;
 }
 
-function seedScopes(resource?: Resource): string {
-  return (resource?.scopes ?? []).join(", ");
+type FieldErrors = Partial<
+  Record<
+    | "name"
+    | "scopes"
+    | "upstreamUrl"
+    | "gatewayApp"
+    | "credentialProvider"
+    | "identifier"
+    | "operations",
+    string
+  >
+>;
+
+// Mirrors the control plane's identifier generation so the dialog can preview the exact
+// audience URI a name produces before the resource exists.
+function slugOf(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
-export function ResourceFormModal({
-  open,
-  mode,
-  resource,
-  applications,
-  providers,
-  busy,
-  onClose,
-  onSubmit,
-}: {
+interface ResourceFormProps {
   open: boolean;
   mode: "create" | "edit";
   resource?: Resource;
@@ -50,43 +62,50 @@ export function ResourceFormModal({
   busy: boolean;
   onClose: () => void;
   onSubmit: (input: ResourceInput) => void;
-}) {
+}
+
+// The form body only mounts while the dialog is open and remounts per target, so every
+// open starts from a clean seed without any cross-open state bookkeeping.
+export function ResourceFormModal(props: ResourceFormProps) {
+  if (!props.open) return null;
+  return <ResourceFormBody key={`${props.resource?.id ?? "new"}:${props.mode}`} {...props} />;
+}
+
+function ResourceFormBody({
+  mode,
+  resource,
+  applications,
+  providers,
+  busy,
+  onClose,
+  onSubmit,
+}: ResourceFormProps) {
   const isEdit = mode === "edit";
-
-  const [name, setName] = useState("");
-  const [identifier, setIdentifier] = useState("");
-  const [upstreamUrl, setUpstreamUrl] = useState("");
-  const [scopesText, setScopesText] = useState("");
-  const [gatewayApp, setGatewayApp] = useState("");
-  const [credentialProvider, setCredentialProvider] = useState("");
-  const [enforcement, setEnforcement] = useState<ResourceOperationEnforcement>("enforced");
-  const [operations, setOperations] = useState<OperationRow[]>([]);
-  const [touched, setTouched] = useState(false);
-
-  // Seed (or fully reset) the form each time the modal opens, and clear the seed ref on
-  // close so every reopen starts fresh. Without the close-reset, "create" keeps a constant
-  // seed key and would carry the previous entry into the next New.
-  const seedKey = `${resource?.id ?? "new"}:${mode}`;
-  const [seedRef, setSeedRef] = useState<string | null>(null);
-  if (open && seedKey !== seedRef) {
-    setSeedRef(seedKey);
-    setName(resource?.name ?? "");
-    setIdentifier(resource?.identifier ?? "");
-    setUpstreamUrl(resource?.upstream_url ?? "");
-    setScopesText(seedScopes(resource));
-    setGatewayApp(resource?.gateway_application_id ?? "");
-    setCredentialProvider(resource?.credential_provider_id ?? "");
-    setEnforcement(resource?.operation_enforcement ?? "enforced");
-    setOperations((resource?.operations ?? []).map((op) => ({ ...op })));
-    setTouched(false);
-  } else if (!open && seedRef !== null) {
-    setSeedRef(null);
-  }
 
   const managedApps = useMemo(
     () => applications.filter((app) => app.registration_method === "managed"),
     [applications],
   );
+
+  const [name, setName] = useState(resource?.name ?? "");
+  const [identifier, setIdentifier] = useState(resource?.identifier ?? "");
+  const [upstreamUrl, setUpstreamUrl] = useState(resource?.upstream_url ?? "");
+  const [scopesText, setScopesText] = useState((resource?.scopes ?? []).join(", "));
+  // When the zone has exactly one candidate the choice is unambiguous, so the dialog
+  // preselects it; anything less certain stays a deliberate operator decision.
+  const [gatewayApp, setGatewayApp] = useState(
+    resource?.gateway_application_id ?? (managedApps.length === 1 ? managedApps[0].id : ""),
+  );
+  const [credentialProvider, setCredentialProvider] = useState(
+    resource?.credential_provider_id ?? (providers.length === 1 ? providers[0].id : ""),
+  );
+  const [enforcement, setEnforcement] = useState<ResourceOperationEnforcement>(
+    resource?.operation_enforcement ?? "enforced",
+  );
+  const [operations, setOperations] = useState<OperationRow[]>(
+    (resource?.operations ?? []).map((op) => ({ ...op })),
+  );
+  const [touched, setTouched] = useState(false);
 
   const scopes = useMemo(
     () =>
@@ -97,74 +116,94 @@ export function ResourceFormModal({
     [scopesText],
   );
 
-  function validate(): string | null {
-    if (!isEdit && !name.trim()) return "Resource name is required.";
-    if (scopes.length === 0) return "At least one scope is required.";
+  const slug = slugOf(name);
+  const previewIdentifier = identifier.trim() || (slug ? `resource://${slug}` : "");
+
+  const errors = useMemo<FieldErrors>(() => {
+    const next: FieldErrors = {};
+    if (!name.trim()) next.name = "Name is required.";
+    if (scopes.length === 0) next.scopes = "Declare at least one scope.";
+    const upstream = upstreamUrl.trim();
     // The control plane requires the full Gateway binding for every resource.
-    if (!upstreamUrl.trim()) return "Upstream URL is required.";
-    try {
-      const protocol = new URL(upstreamUrl.trim()).protocol;
-      if (protocol !== "http:" && protocol !== "https:") {
-        return "Upstream URL must use http:// or https://.";
+    if (!upstream) {
+      next.upstreamUrl = "Upstream URL is required.";
+    } else {
+      try {
+        const protocol = new URL(upstream).protocol;
+        if (protocol !== "http:" && protocol !== "https:") {
+          next.upstreamUrl = "Use an http:// or https:// URL.";
+        }
+      } catch {
+        next.upstreamUrl = "Enter a valid http(s) URL.";
       }
-    } catch {
-      return "Upstream URL must be a valid http(s) URL.";
     }
-    if (!gatewayApp) return "Gateway application is required.";
-    if (!credentialProvider) return "Credential provider is required.";
+    if (!gatewayApp) next.gatewayApp = "Select the managed application that fronts this resource.";
+    if (!credentialProvider) {
+      next.credentialProvider = "Select the provider that supplies upstream credentials.";
+    }
     const identifierError = validateResourceIdentifier(identifier);
-    if (identifierError) return identifierError;
+    if (identifierError) next.identifier = identifierError;
     if (enforcement === "enforced") {
       const seen = new Set<string>();
       for (const op of operations) {
-        if (!op.path.trim()) continue;
-        if (!op.method.trim()) return `Operation "${op.path.trim()}" must declare a method.`;
-        if (!op.path.startsWith("/")) return `Operation path "${op.path}" must be absolute.`;
-        if (!scopes.includes(op.scope))
-          return `Operation scope "${op.scope}" must be a declared scope.`;
-        const key = `${op.method.trim().toUpperCase()} ${op.path.trim()}`;
-        if (seen.has(key)) return `Operation "${key}" is listed more than once.`;
+        const method = op.method.trim();
+        const path = op.path.trim();
+        if (!method || !path) {
+          next.operations = "Complete or remove unfinished operation rows.";
+          break;
+        }
+        if (!path.startsWith("/")) {
+          next.operations = `Path "${op.path}" must start with /.`;
+          break;
+        }
+        if (!scopes.includes(op.scope)) {
+          next.operations = `Scope "${op.scope}" is not a declared scope.`;
+          break;
+        }
+        const key = `${method.toUpperCase()} ${path}`;
+        if (seen.has(key)) {
+          next.operations = `"${key}" is listed more than once.`;
+          break;
+        }
         seen.add(key);
       }
     }
-    return null;
-  }
+    return next;
+  }, [
+    name,
+    scopes,
+    upstreamUrl,
+    gatewayApp,
+    credentialProvider,
+    identifier,
+    enforcement,
+    operations,
+  ]);
 
-  // Enforced operations with a blank path are dropped on submit; warn before that
-  // happens so an operator does not silently lose a half-filled row.
-  const droppedOps =
-    enforcement === "enforced" ? operations.filter((op) => !op.path.trim()).length : 0;
+  const show = (key: keyof FieldErrors) => (touched ? errors[key] : undefined);
 
   function submit() {
     setTouched(true);
-    if (validate()) return;
-    const cleanOps: ResourceOperation[] =
-      enforcement === "transport_uniform"
-        ? []
-        : operations
-            .filter((op) => op.path.trim())
-            .map((op) => ({
+    if (Object.keys(errors).length > 0) return;
+    const input: ResourceInput = {
+      name: name.trim(),
+      scopes,
+      operation_enforcement: enforcement,
+      operations:
+        enforcement === "enforced"
+          ? operations.map((op) => ({
               method: op.method.trim().toUpperCase(),
               path: op.path.trim(),
               scope: op.scope,
-            }));
-
-    const input: ResourceInput = {
-      scopes,
-      operation_enforcement: enforcement,
-      operations: cleanOps,
-      ...(name.trim() ? { name: name.trim() } : {}),
+            }))
+          : [],
+      upstream_url: upstreamUrl.trim(),
+      gateway_application_id: gatewayApp,
+      credential_provider_id: credentialProvider,
       ...(identifier.trim() ? { identifier: identifier.trim() } : {}),
-      ...(upstreamUrl.trim() ? { upstream_url: upstreamUrl.trim() } : { upstream_url: null }),
-      ...(gatewayApp ? { gateway_application_id: gatewayApp } : { gateway_application_id: null }),
-      ...(credentialProvider
-        ? { credential_provider_id: credentialProvider }
-        : { credential_provider_id: null }),
     };
     onSubmit(input);
   }
-
-  const error = touched ? validate() : null;
 
   function addOperation() {
     setOperations((prev) => [...prev, { method: "GET", path: "", scope: scopes[0] ?? "" }]);
@@ -178,15 +217,17 @@ export function ResourceFormModal({
     setOperations((prev) => prev.filter((_, i) => i !== index));
   }
 
+  const missingPrereqs = !isEdit && (managedApps.length === 0 || providers.length === 0);
+
   return (
     <Modal
-      open={open}
+      open
       onClose={onClose}
       title={isEdit ? "Edit resource" : "New resource"}
       description={
         isEdit
-          ? "Update the protected upstream, its Gateway binding, and authorized operations."
-          : "Register a protected upstream the Gateway authorizes in this zone."
+          ? "Update routing, binding, and operation authority for this upstream."
+          : "Register a protected upstream for the Gateway to authorize in this zone."
       }
       footer={
         <>
@@ -199,114 +240,137 @@ export function ResourceFormModal({
         </>
       }
     >
-      <div className="flex max-h-[62vh] flex-col gap-4 overflow-y-auto pr-1">
-        {!isEdit && (managedApps.length === 0 || providers.length === 0) ? (
-          <div className="border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
-            A resource needs a managed application and a credential provider to bind to.
-            {managedApps.length === 0 ? " Create a managed application first." : ""}
-            {providers.length === 0 ? " Create a provider first." : ""}
+      <div className="flex flex-col gap-5">
+        {missingPrereqs ? (
+          <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+            {managedApps.length === 0 && providers.length === 0
+              ? "This zone has no managed application or credential provider yet. Create both before binding a resource."
+              : managedApps.length === 0
+                ? "This zone has no managed application yet. Create one so the Gateway can front this resource."
+                : "This zone has no credential provider yet. Create one so the Gateway can call the upstream."}
           </div>
         ) : null}
-        <Field
-          label="Name"
-          info="Human-readable name for this protected upstream, shown across the console. Use a short operational name, not an internal ID."
-          placeholder="payments-api"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          autoFocus={!isEdit}
-        />
 
         <div>
           <Field
-            label="Scopes"
-            info="The grantable permissions this resource exposes. Policies grant these scopes to applications, and operations below map to them. At least one is required."
-            placeholder="invoices:read, invoices:write"
-            hint="Comma-separated authorization scopes. At least one is required."
-            value={scopesText}
-            onChange={(e) => setScopesText(e.target.value)}
+            label="Name"
+            info="Display name shown across the console."
+            placeholder="PiperNet"
+            value={name}
+            error={show("name")}
+            onChange={(e) => setName(e.target.value)}
+            autoFocus={!isEdit}
           />
-          {scopes.length > 0 ? (
-            <div className="mt-2 flex flex-wrap gap-1">
-              {scopes.map((scope) => (
-                <span
-                  key={scope}
-                  className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground"
-                >
-                  {scope}
-                </span>
-              ))}
-            </div>
+          {!isEdit && previewIdentifier && !show("name") ? (
+            <p className="mt-1.5 text-xs text-muted-foreground">
+              Identifier <span className="font-mono text-foreground/80">{previewIdentifier}</span>
+            </p>
           ) : null}
         </div>
 
-        <div className="border-t border-border pt-4">
+        <section className="border-t border-border pt-4">
           <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-            Gateway binding
+            Gateway routing
           </h3>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Every resource binds an upstream, a managed gateway application, and a credential
-            provider.
-          </p>
           <div className="mt-3 flex flex-col gap-4">
             <Field
               label="Upstream URL"
-              info="The base URL the Gateway proxies authorized requests to. Use the internal address of the protected service."
-              placeholder="https://api.internal.example.com"
+              info="Base URL the Gateway proxies authorized requests to."
+              placeholder="https://api.pipernet.example"
               value={upstreamUrl}
+              error={show("upstreamUrl")}
               onChange={(e) => setUpstreamUrl(e.target.value)}
             />
-            <Select
-              label="Gateway application"
-              info="The managed application that fronts this resource at the Gateway. Requests are authorized as this identity before reaching the upstream."
-              value={gatewayApp}
-              onChange={(e) => setGatewayApp(e.target.value)}
-            >
-              <option value="">Select a managed application…</option>
-              {managedApps.map((app) => (
-                <option key={app.id} value={app.id}>
-                  {app.name}
+            <div>
+              <Select
+                label="Gateway application"
+                info="Managed application identity the Gateway authorizes requests as before they reach the upstream."
+                value={gatewayApp}
+                onChange={(e) => setGatewayApp(e.target.value)}
+              >
+                <option value="">
+                  {managedApps.length === 0
+                    ? "No managed applications in this zone"
+                    : "Select a managed application…"}
                 </option>
-              ))}
-            </Select>
-            <Select
-              label="Credential provider"
-              info="The provider that supplies upstream credentials at runtime when the Gateway calls this resource."
-              value={credentialProvider}
-              onChange={(e) => setCredentialProvider(e.target.value)}
-            >
-              <option value="">Select a provider…</option>
-              {providers.map((provider) => (
-                <option key={provider.id} value={provider.id}>
-                  {provider.name}
+                {managedApps.map((app) => (
+                  <option key={app.id} value={app.id}>
+                    {app.name}
+                  </option>
+                ))}
+              </Select>
+              {show("gatewayApp") ? (
+                <p className="mt-1 text-xs text-destructive">{show("gatewayApp")}</p>
+              ) : null}
+            </div>
+            <div>
+              <Select
+                label="Credential provider"
+                info="Provider that supplies upstream credentials at runtime when the Gateway calls this resource."
+                value={credentialProvider}
+                onChange={(e) => setCredentialProvider(e.target.value)}
+              >
+                <option value="">
+                  {providers.length === 0 ? "No providers in this zone" : "Select a provider…"}
                 </option>
-              ))}
-            </Select>
+                {providers.map((provider) => (
+                  <option key={provider.id} value={provider.id}>
+                    {provider.name}
+                  </option>
+                ))}
+              </Select>
+              {show("credentialProvider") ? (
+                <p className="mt-1 text-xs text-destructive">{show("credentialProvider")}</p>
+              ) : null}
+            </div>
           </div>
-        </div>
+        </section>
 
-        <div className="border-t border-border pt-4">
+        <section className="border-t border-border pt-4">
           <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-            Operation authority
+            Authorization
           </h3>
-          <div className="mt-3 flex flex-col gap-3">
+          <div className="mt-3 flex flex-col gap-4">
+            <div>
+              <Field
+                label="Scopes"
+                info="Grantable permissions this resource exposes. Policies grant these to applications; operations below map to them."
+                placeholder={slug ? `${slug}:read, ${slug}:write` : "pipernet:read, pipernet:write"}
+                hint="Comma-separated. At least one is required."
+                value={scopesText}
+                error={show("scopes")}
+                onChange={(e) => setScopesText(e.target.value)}
+              />
+              {scopes.length > 0 ? (
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {scopes.map((scope) => (
+                    <span
+                      key={scope}
+                      className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground"
+                    >
+                      {scope}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+
             <Select
               label="Enforcement"
-              info="Enforced authorizes only the operations you list below. Transport uniform trusts the whole upstream surface as one unit (MCP-style), without per-operation rules."
+              info="Enforced authorizes only the listed operations. Transport uniform makes one decision for the whole upstream surface (MCP-style)."
               value={enforcement}
               onChange={(e) => setEnforcement(e.target.value as ResourceOperationEnforcement)}
             >
-              <option value="enforced">Enforced: only listed operations are authorized</option>
+              <option value="enforced">Enforced — only listed operations are allowed</option>
               <option value="transport_uniform">
-                Transport uniform: trust a single upstream surface (MCP-style)
+                Transport uniform — one decision covers the whole surface
               </option>
             </Select>
 
             {enforcement === "enforced" ? (
               <div className="flex flex-col gap-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs text-muted-foreground">
-                    Operations authorized by the Gateway
-                  </span>
+                  <span className="text-xs text-muted-foreground">Authorized operations</span>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -320,12 +384,21 @@ export function ResourceFormModal({
                   <p className="text-xs text-muted-foreground">Declare scopes first.</p>
                 ) : operations.length === 0 ? (
                   <p className="text-xs text-muted-foreground">
-                    No operations listed. Add operations to restrict the Gateway surface.
+                    The Gateway denies every request until an operation is listed.
                   </p>
                 ) : (
                   <div className="flex flex-col gap-2">
+                    <div className="grid grid-cols-[6rem_1fr_8rem_2.25rem] gap-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                      <span>Method</span>
+                      <span>Path</span>
+                      <span>Scope</span>
+                      <span />
+                    </div>
                     {operations.map((op, index) => (
-                      <div key={index} className="flex items-center gap-2">
+                      <div
+                        key={index}
+                        className="grid grid-cols-[6rem_1fr_8rem_2.25rem] items-center gap-2"
+                      >
                         <input
                           value={op.method}
                           onChange={(e) =>
@@ -334,18 +407,20 @@ export function ResourceFormModal({
                           list="resource-operation-methods"
                           placeholder="GET"
                           aria-label="Method"
-                          className="h-9 w-24 shrink-0 rounded-md border border-border bg-background px-2 font-mono text-xs uppercase text-foreground outline-none transition-colors focus:border-ring focus:ring-2 focus:ring-ring/25"
+                          className={`${opFieldClass} uppercase`}
                         />
                         <input
                           value={op.path}
                           onChange={(e) => updateOperation(index, { path: e.target.value })}
-                          placeholder="/v1/invoices"
-                          className="h-9 min-w-0 flex-1 rounded-md border border-border bg-background px-2 font-mono text-xs text-foreground outline-none transition-colors focus:border-ring focus:ring-2 focus:ring-ring/25"
+                          placeholder="/v1/nodes"
+                          aria-label="Path"
+                          className={`${opFieldClass} min-w-0`}
                         />
                         <select
                           value={op.scope}
                           onChange={(e) => updateOperation(index, { scope: e.target.value })}
-                          className="h-9 w-32 shrink-0 rounded-md border border-border bg-background px-2 font-mono text-xs text-foreground outline-none transition-colors focus:border-ring focus:ring-2 focus:ring-ring/25"
+                          aria-label="Scope"
+                          className={opFieldClass}
                         >
                           {scopes.map((scope) => (
                             <option key={scope} value={scope}>
@@ -357,7 +432,7 @@ export function ResourceFormModal({
                           type="button"
                           onClick={() => removeOperation(index)}
                           aria-label="Remove operation"
-                          className="grid h-9 w-9 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-destructive"
+                          className="grid h-9 w-9 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-destructive"
                         >
                           <svg
                             width="15"
@@ -379,33 +454,41 @@ export function ResourceFormModal({
                     </datalist>
                   </div>
                 )}
+                {show("operations") ? (
+                  <p className="text-xs text-destructive">{show("operations")}</p>
+                ) : null}
               </div>
             ) : (
               <p className="text-xs text-muted-foreground">
-                Authorization is uniform across the transport. Individual operations are not listed.
+                One authorization decision covers the transport. Individual operations are not
+                listed.
               </p>
             )}
           </div>
-        </div>
+        </section>
 
-        <Disclosure title="Advanced options" description="Override the auto-generated identifier.">
+        <Disclosure
+          title="Advanced"
+          description={
+            isEdit
+              ? "Identifier changes rewrite the Gateway binding."
+              : "Override the generated identifier."
+          }
+        >
           <Field
             label="Identifier"
-            info="The stable audience URI used in tokens and policy. Generated from the name when blank; must use the resource:// namespace or be an absolute URI."
-            placeholder="resource://payments-api"
-            hint="Optional. Generated from the name when blank. Must match resource:// or an absolute URI."
+            info="Stable audience URI used in tokens, grants, and policy references."
+            placeholder="resource://pipernet"
+            hint={
+              isEdit
+                ? "Grants and policies reference this URI; changing it breaks them until they are updated."
+                : "Blank uses the value generated from the name."
+            }
             value={identifier}
+            error={show("identifier")}
             onChange={(e) => setIdentifier(e.target.value)}
           />
         </Disclosure>
-
-        {error ? <p className="text-sm text-destructive">{error}</p> : null}
-        {!error && droppedOps > 0 ? (
-          <p className="text-xs text-amber-700 dark:text-amber-400">
-            {droppedOps} operation{droppedOps === 1 ? "" : "s"} with an empty path will be discarded
-            on save.
-          </p>
-        ) : null}
       </div>
     </Modal>
   );

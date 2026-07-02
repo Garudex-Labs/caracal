@@ -118,11 +118,14 @@ export function ResourceWorkspace<T>({
   }, [query, sortChoice, sort, pageSizeValue]);
 
   // When the selected row leaves the dataset (e.g. it was deleted), close the detail drawer
-  // so it never lingers on a stale item.
+  // so it never lingers on a stale item. When the row is refetched, swap in the fresh object
+  // so the drawer always reflects current server state.
   useEffect(() => {
     if (selected === null) return;
     const key = rowKey(selected);
-    if (!rows.some((row) => rowKey(row) === key)) setSelected(null);
+    const current = rows.find((row) => rowKey(row) === key);
+    if (!current) setSelected(null);
+    else if (current !== selected) setSelected(current);
   }, [rows, selected, rowKey]);
 
   const filtered = useMemo(() => {
