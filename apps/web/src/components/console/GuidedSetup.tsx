@@ -5,7 +5,7 @@ Caracal, a product of Garudex Labs
 This file wires the in-app guided setup: a short, element-anchored walkthrough that explains each building block and opens its real create form.
 */
 import { useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { InteractiveOnboardingChecklist, type Step, type StepMedia } from "@/components/ui";
 import {
@@ -14,12 +14,10 @@ import {
   usePolicySets,
   useProviders,
   useResources,
+  useSystemZoneView,
 } from "@/platform/api/hooks";
-import {
-  getGuidedSetup,
-  setGuidedSetup,
-  type GuidedSetupRecord,
-} from "@/platform/state/localInstall";
+import { useGuide } from "@/platform/state/guideAccount";
+import { CONSOLE_SETUP_GUIDE } from "@/platform/state/guides";
 
 interface SetupStep extends Step {
   to?: string;
@@ -111,9 +109,11 @@ function ChainMap() {
 // Drives the guided walkthrough from the active zone's real inventory. Each build step is a
 // one-line explanation plus the two fields the operator will fill, with a button that opens
 // the real form. Build steps tick off from live data; the orientation and verify bookends
-// complete when acknowledged.
+// complete when acknowledged. Whether the guide launches, resumes, or stays retired is read
+// from the account-held guide record, so the decision survives restarts and new browsers.
 export function GuidedSetup() {
   const navigate = useNavigate();
+  const systemView = useSystemZoneView();
   const { activeZone } = useActiveZone();
   const zoneId = activeZone?.id ?? null;
 
@@ -128,19 +128,15 @@ export function GuidedSetup() {
     !providers.isLoading &&
     !policySets.isLoading;
 
+  const guide = useGuide(CONSOLE_SETUP_GUIDE);
   const [open, setOpen] = useState(false);
   // True only while the panel is showing because of the genuine first-visit auto-launch. It
   // gates the step-by-step coachmark: after the guide is skipped or dismissed, reopening the
   // list from the launcher shows only the checklist, never the auto-spotlight popup again.
   const [autoStart, setAutoStart] = useState(false);
-  const [pref, setPref] = useState<GuidedSetupRecord | null>(null);
   const [ackOrientation, setAckOrientation] = useState(false);
   const [ackVerify, setAckVerify] = useState(false);
-
-  function updatePref(next: GuidedSetupRecord) {
-    setGuidedSetup(next);
-    setPref(next);
-  }
+  const launchDecided = useRef(false);
 
   const hasApps = (applications.data?.length ?? 0) > 0;
   const hasProviders = (providers.data?.length ?? 0) > 0;
@@ -184,7 +180,7 @@ export function GuidedSetup() {
         details: (
           <Fields
             items={[
-              { name: "Name", hint: "a label for the workload, e.g. Billing Worker." },
+              { name: "Name", hint: "a label for the workload, e.g. Son of Anton." },
               { name: "Traits", hint: "optional tags; leave empty to start." },
             ]}
           />
@@ -204,7 +200,7 @@ export function GuidedSetup() {
           <Fields
             items={[
               { name: "Kind", hint: "OAuth, API key, etc. Picks the rest of the form." },
-              { name: "Identifier", hint: "provider://slug, unique in the zone." },
+              { name: "Identifier", hint: "unique in the zone, e.g. provider://hooli-oidc." },
             ]}
           />
         ),
@@ -222,8 +218,8 @@ export function GuidedSetup() {
         details: (
           <Fields
             items={[
-              { name: "Identifier", hint: "resource://slug for the protected upstream." },
-              { name: "Scopes", hint: "grantable permissions, e.g. example:read." },
+              { name: "Identifier", hint: "the protected upstream, e.g. resource://pipernet." },
+              { name: "Scopes", hint: "grantable permissions, e.g. pipernet:read." },
             ]}
           />
         ),
@@ -241,7 +237,7 @@ export function GuidedSetup() {
         details: (
           <Fields
             items={[
-              { name: "Name", hint: "what it authorizes, e.g. billing-read." },
+              { name: "Name", hint: "what it authorizes, e.g. PiperNet read." },
               { name: "Rego", hint: "start from a template, then activate it." },
             ]}
           />
@@ -283,34 +279,36 @@ export function GuidedSetup() {
 
   const allComplete = settled && steps.every((s) => s.completed);
 
+  // The launch decision is made exactly once per mount, and only after both inputs are
+  // authoritative: the zone inventory has settled and the account's guide record has loaded.
+  // A guide that was ever seen never auto-opens again — reloads, navigation, restarts, and
+  // new sign-ins all land here with status "seen" or "done". An account whose zone is already
+  // fully built retires the guide silently instead of teaching what already exists.
   useEffect(() => {
-    if (pref) return;
-    const record = getGuidedSetup();
-    // Auto-launch only on the genuine first visit: a fresh operator who has neither seen the
-    // guide nor retired it. Marking it seen here means a reload or later visit never reopens
-    // it on its own, even if the operator closed the popup without acting on it.
-    if (!record.seen && !record.finished) {
-      setOpen(true);
-      setAutoStart(true);
-      updatePref({ seen: true, finished: record.finished });
+    if (launchDecided.current || systemView) return;
+    if (!zoneId || !settled || !guide.ready) return;
+    launchDecided.current = true;
+    if (guide.status !== "unseen") return;
+    if (buildComplete) {
+      guide.advance("done");
       return;
     }
-    setPref(record);
-  }, [pref]);
+    setOpen(true);
+    setAutoStart(true);
+    guide.advance("seen");
+  }, [systemView, zoneId, settled, guide, buildComplete]);
 
   // Permanently retire the guide once the operator is done with it: either they walked the
   // full tour (allComplete, incl. the verify bookend), or all four build tasks are finished
   // and the panel is closed (so completing the last task on its real form auto-hides the
-  // launcher instead of leaving a stale circle behind). Manual dismissal also sets finished.
+  // launcher instead of leaving a stale circle behind). Manual dismissal also retires it.
   useEffect(() => {
-    if (!pref || pref.finished) return;
-    if (allComplete || (buildComplete && !open)) {
-      updatePref({ seen: pref.seen, finished: true });
-    }
-  }, [pref, allComplete, buildComplete, open]);
+    if (guide.status !== "seen") return;
+    if (allComplete || (buildComplete && !open)) guide.advance("done");
+  }, [guide, allComplete, buildComplete, open]);
 
-  if (!zoneId || !pref) return null;
-  if (pref.finished) return null;
+  if (systemView || !zoneId || !guide.ready) return null;
+  if (guide.status === "done") return null;
 
   const buildDone = [hasApps, hasProviders, hasResources, hasActivePolicy].filter(Boolean).length;
 
@@ -324,10 +322,7 @@ export function GuidedSetup() {
         manualCompletion={false}
         onOpenChange={(next) => {
           setOpen(next);
-          if (!next) {
-            setAutoStart(false);
-            updatePref({ seen: true, finished: pref.finished });
-          }
+          if (!next) setAutoStart(false);
         }}
         onActivateStep={(id) => {
           if (id === "orientation") {
@@ -342,8 +337,8 @@ export function GuidedSetup() {
           const step = steps.find((s) => s.id === id);
           if (step?.to) navigate({ to: step.to, search: step.search ?? {} });
         }}
-        onFinish={() => updatePref({ seen: true, finished: true })}
-        onSkip={() => updatePref({ seen: true, finished: true })}
+        onFinish={() => guide.advance("done")}
+        onSkip={() => guide.advance("done")}
       />
 
       {!open && settled ? (
@@ -361,7 +356,7 @@ export function GuidedSetup() {
             </span>
           ) : null}
           <button
-            onClick={() => updatePref({ seen: true, finished: true })}
+            onClick={() => guide.advance("done")}
             aria-label="Hide setup guide"
             title="Hide setup guide"
             className="absolute -right-1 -top-1 grid h-5 w-5 place-items-center rounded-full border border-border bg-card text-muted-foreground opacity-0 shadow-sm outline-none transition-opacity hover:text-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/40 group-hover:opacity-100"

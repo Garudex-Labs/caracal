@@ -56,6 +56,10 @@ export interface DoctorOptions {
   // under the deployment admin token. Unset everywhere else, so the discovered admin token is
   // used as before.
   adminToken?: string
+  // Headers sent on every admin API request the zone checks make. The Console BFF carries the
+  // signed per-account assertion here so the zone inventory and per-zone checks are scoped to
+  // the requesting operator's own zones rather than the whole deployment.
+  headers?: Record<string, string>
 }
 
 interface MetricEvaluation {
@@ -441,9 +445,9 @@ function report(mode: DoctorMode, strict: boolean, context: DoctorContext, check
   }
 }
 
-function buildAdminContext(checks: DoctorCheck[], adminToken?: string): AdminContext | undefined {
+function buildAdminContext(checks: DoctorCheck[], adminToken?: string, headers?: Record<string, string>): AdminContext | undefined {
   try {
-    return buildAdminClientCore({ adminToken })
+    return buildAdminClientCore({ adminToken, headers })
   } catch (err) {
     addCheck(checks, {
       section: 'health',
@@ -623,7 +627,7 @@ export async function runDoctorDiagnostics(options: DoctorOptions = {}): Promise
   let zoneIds: string[] = preflightOnly ? [] : zoneId ? [zoneId] : []
 
   if (!preflightOnly) {
-    const ctx = buildAdminContext(checks, options.adminToken)
+    const ctx = buildAdminContext(checks, options.adminToken, options.headers)
     apiUrl = normalizeHttpUrl(ctx?.apiUrl ?? apiUrl, 'CARACAL_API_URL')
     zoneId = zoneId ?? ctx?.zoneId
     const zoneResult = await runHealthAndZoneChecks(checks, ctx, zoneId)
