@@ -270,16 +270,18 @@ function SessionsPage({ zoneId, initialSubject }: { zoneId: string; initialSubje
       loading={feed.isLoading}
       columns={columns}
       rowKey={(s) => s.id}
+      feed={{
+        hasMore: Boolean(feed.hasNextPage),
+        fetching: feed.isFetchingNextPage,
+        loadMore: () => feed.fetchNextPage(),
+      }}
       toolbarExtra={
         <SessionFilterBar
           status={status}
           subject={subject}
           loaded={rows.length}
-          hasMore={Boolean(feed.hasNextPage)}
-          fetchingMore={feed.isFetchingNextPage}
           onStatus={setStatus}
           onSubject={setSubject}
-          onLoadMore={() => feed.fetchNextPage()}
         />
       }
       search={{
@@ -319,20 +321,14 @@ function SessionFilterBar({
   status,
   subject,
   loaded,
-  hasMore,
-  fetchingMore,
   onStatus,
   onSubject,
-  onLoadMore,
 }: {
   status: string;
   subject: string;
   loaded: number;
-  hasMore: boolean;
-  fetchingMore: boolean;
   onStatus: (v: string) => void;
   onSubject: (v: string) => void;
-  onLoadMore: () => void;
 }) {
   const activeFilters = (status !== "all" ? 1 : 0) + (subject.trim() ? 1 : 0);
   return (
@@ -340,9 +336,6 @@ function SessionFilterBar({
       activeFilters={activeFilters}
       loaded={loaded}
       noun="session"
-      hasMore={hasMore}
-      fetchingMore={fetchingMore}
-      onLoadMore={onLoadMore}
     >
       <Select label="Status" value={status} onChange={(e) => onStatus(e.target.value)}>
         <option value="all">All statuses</option>

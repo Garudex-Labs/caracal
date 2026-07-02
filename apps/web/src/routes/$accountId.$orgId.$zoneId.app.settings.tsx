@@ -31,8 +31,8 @@ function SettingsLayout() {
           : [{ label: "Settings" }]),
       ]}
     >
-      <div className="grid gap-10 xl:grid-cols-[250px_minmax(0,1fr)]">
-        <aside className="xl:sticky xl:top-20 xl:self-start">
+      <div className="grid gap-10 xl:grid-cols-[250px_minmax(0,1fr)] xl:gap-0">
+        <aside className="xl:sticky xl:top-20 xl:self-start xl:pr-8">
           <div className="flex flex-col gap-7">
             {SETTINGS_GROUPS.map((group) => (
               <div key={group.id}>
@@ -64,9 +64,9 @@ function SettingsLayout() {
           </div>
         </aside>
 
-        <section className="min-w-0">
+        <section className="min-w-0 xl:border-l xl:border-border xl:pl-10">
           {current ? (
-            <header className="mb-6">
+            <header className="mb-8 border-b border-border pb-5">
               <div className="flex items-center gap-2.5">
                 <h2 className="text-xl font-semibold tracking-tight text-foreground">
                   {current.label}
