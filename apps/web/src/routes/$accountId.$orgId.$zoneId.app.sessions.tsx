@@ -332,11 +332,7 @@ function SessionFilterBar({
 }) {
   const activeFilters = (status !== "all" ? 1 : 0) + (subject.trim() ? 1 : 0);
   return (
-    <FeedToolbar
-      activeFilters={activeFilters}
-      loaded={loaded}
-      noun="session"
-    >
+    <FeedToolbar activeFilters={activeFilters} loaded={loaded} noun="session">
       <Select label="Status" value={status} onChange={(e) => onStatus(e.target.value)}>
         <option value="all">All statuses</option>
         <option value="active">Active</option>
