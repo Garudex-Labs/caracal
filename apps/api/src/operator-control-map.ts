@@ -166,23 +166,28 @@ export const CONTROL_CAPABILITIES: Record<string, ControlCapability> = {
       }
     },
   },
-  // A resource is created from just its name and the scopes it exposes; the control plane derives
-  // the resource://<slug> identifier from the name. This is the thin create the Operator applies
-  // directly: it registers the protected target and its scopes. Wiring a Gateway-routed upstream -
-  // upstream URL, Gateway application, and the bound provider (including a credential-free
-  // caracal_mandate provider) - is separate console setup and is not part of this step.
+  // A resource is created with its full Gateway binding in one step: the control plane requires
+  // every resource to name the upstream URL it fronts, the managed application the Gateway
+  // exchanges as, and the provider whose credential the Gateway attaches. The resource://<slug>
+  // identifier is derived from the name.
   defineResource: {
     scopes: ['control:resource:write'],
     buildInvocation: (args) => ({
       command: 'resource',
       subcommand: 'create',
-      flags: { name: asString(args.name), scopes: asScopes(args.scopes) },
+      flags: {
+        name: asString(args.name),
+        scopes: asScopes(args.scopes),
+        'upstream-url': asString(args.upstream_url),
+        'gateway-application-id': asString(args.gateway_application_id),
+        'credential-provider-id': asString(args.credential_provider_id),
+      },
     }),
     describeOutcome: (result, args) => {
       const resource = asRecord(result)
       const scopes = asScopes(args.scopes)
       return {
-        detail: `Defined resource “${asString(args.name)}” exposing ${scopes.join(', ')}.`,
+        detail: `Defined resource “${asString(args.name)}” exposing ${scopes.join(', ')}, routed to ${asString(args.upstream_url)}.`,
         output: { resource_id: resource.id },
       }
     },
