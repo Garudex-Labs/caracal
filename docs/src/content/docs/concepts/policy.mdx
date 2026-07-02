@@ -5,7 +5,7 @@ sidebar:
   order: 7
 ---
 
-The platform decision contract decides whether the STS may issue a mandate. The contract is a signed, versioned Rego module that Caracal owns and embeds in the STS; it is the only thing that emits an authorization decision. You author **policy data documents** — grants, bindings, confinement, and restrictions — that the contract reads. Policies are versioned immutably, bundled into policy sets, and activated per zone.
+The platform decision contract decides whether the STS may issue a mandate. The contract is a signed, versioned Rego module that Caracal owns and embeds in the STS; it is the only thing that emits an authorization decision. You author **policy data documents** - grants, bindings, confinement, and restrictions - that the contract reads. Policies are versioned immutably, bundled into policy sets, and activated per zone.
 
 ## Policy Objects
 
@@ -58,7 +58,7 @@ Example input values the contract evaluates:
 
 ## Policy Input Contract
 
-Every evaluation receives this exact input shape (`schema_version` `2026-05-20`). There is no `input.application` or `input.grant` object — the acting application is the principal, and grant bounds are enforced by the STS before the contract runs. The platform decision contract evaluates the fields below; your data documents map applications, roles, and scopes onto them.
+Every evaluation receives this exact input shape (`schema_version` `2026-05-20`). There is no `input.application` or `input.grant` object - the acting application is the principal, and grant bounds are enforced by the STS before the contract runs. The platform decision contract evaluates the fields below; your data documents map applications, roles, and scopes onto them.
 
 | Path | Type | Meaning |
 | --- | --- | --- |
@@ -86,7 +86,7 @@ Every evaluation receives this exact input shape (`schema_version` `2026-05-20`)
 
 When `input.delegation_edge` is present it carries: `id`, `source_session_id`, `target_session_id`, `issuer_application_id`, `receiver_application_id`, `resource_id`, `scopes` (the narrowed grant), `edge_version`, `path` (the full delegation chain), `graph_epoch`, and `constraints_json` (typed delegation constraints such as a cost budget). The contract enforces hop membership and the scope-subset narrowing against these fields.
 
-The contract reads your data documents through `data.caracal.authz.*` — `grants`, `app_ids`, `confinement`, and `restrict`. You supply that data; the platform contract reads it and decides.
+The contract reads your data documents through `data.caracal.authz.*` - `grants`, `app_ids`, `confinement`, and `restrict`. You supply that data; the platform contract reads it and decides.
 
 ## Policy Outcomes
 
@@ -101,7 +101,7 @@ Step-up is expressed as a diagnostic such as `{"step_up_required": "mfa"}`. The 
 ## Authoring Rules
 
 - Author data documents only; mark each with `# caracal:data-document`. The platform decision contract owns every `result`.
-- Validate through the web console or Admin API before activation — a data document must define data and must not define `result`.
+- Validate through the web console or Admin API before activation - a data document must define data and must not define `result`.
 - Activate through a policy set version, not by editing active content in place.
 - Keep `grants`, `app_ids`, `confinement`, and `restrict` in separate documents so ownership and review stay clear.
 - Tighten authority through `confinement` and `restrict`; neither can widen what the contract already allows.

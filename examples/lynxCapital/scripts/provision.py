@@ -112,7 +112,7 @@ def ensure_applications(
     """Create each managed application boundary and persist a working client secret for the
     local workload environment file. New applications capture their one-time secret; existing
     applications reuse a secret already captured here. An existing application whose secret is
-    not known locally is never rotated silently — rotation invalidates the credential every
+    not known locally is never rotated silently - rotation invalidates the credential every
     other running workload holds, so it must be opted into explicitly."""
     existing = client.invoke("app", "list")
     known_secrets = _existing_secrets()

@@ -35,7 +35,7 @@ def test_partner_catalog_auth_kinds():
 
 
 # --------------------------------------------------------------------------- #
-# api_key (header vs query) — distinct cases
+# api_key (header vs query) - distinct cases
 # --------------------------------------------------------------------------- #
 def test_api_key_header_charge_idempotent(providerlab):
     first = partners.call("meridian-pay", "create_charge",
@@ -70,7 +70,7 @@ def test_api_key_missing_credential_raises(providerlab):
 
 
 # --------------------------------------------------------------------------- #
-# bearer (standard vs custom header/scheme) — distinct cases
+# bearer (standard vs custom header/scheme) - distinct cases
 # --------------------------------------------------------------------------- #
 def test_bearer_standard_unbalanced_entry(providerlab):
     res = partners.call("slate-ledger", "post_entry", {"lines": [{"debit": 100}, {"credit": 90}]})
@@ -97,7 +97,7 @@ def test_bearer_custom_header_invalid_channel(providerlab):
 
 
 # --------------------------------------------------------------------------- #
-# oauth2 client credentials (basic vs post) — distinct cases
+# oauth2 client credentials (basic vs post) - distinct cases
 # --------------------------------------------------------------------------- #
 def test_oauth_cc_basic_convert(providerlab):
     res = partners.call("cordoba-fx", "create_conversion",
@@ -123,7 +123,7 @@ def test_oauth_cc_requisition_budget_flow(providerlab):
 
 
 # --------------------------------------------------------------------------- #
-# oauth2 authorization code (PKCE vs offline refresh) — distinct cases
+# oauth2 authorization code (PKCE vs offline refresh) - distinct cases
 # --------------------------------------------------------------------------- #
 def test_oauth_ac_pkce_list_accounts(providerlab):
     res = partners.call("halcyon-bank", "list_accounts", {})
@@ -163,7 +163,7 @@ def test_oauth_ac_offline_refresh_reuses_refresh_token(providerlab, monkeypatch)
 
 
 # --------------------------------------------------------------------------- #
-# none (internal) — distinct cases
+# none (internal) - distinct cases
 # --------------------------------------------------------------------------- #
 def test_internal_billing_create_and_404(providerlab):
     aging = partners.call("core-billing", "get_ar_aging", {})
@@ -190,7 +190,7 @@ def test_internal_identity_paging(providerlab):
 
 
 # --------------------------------------------------------------------------- #
-# mcp (bearer) — runs domain over JSON-RPC
+# mcp (bearer) - runs domain over JSON-RPC
 # --------------------------------------------------------------------------- #
 def test_mcp_bearer_search_vendors(providerlab):
     res = partners.call("atlas-vendor", "search_vendors", {"query": "a"})
@@ -213,7 +213,7 @@ def test_mcp_tool_error_surfaces(providerlab):
 
 
 # --------------------------------------------------------------------------- #
-# sdk (api key over REST) — distinct cases
+# sdk (api key over REST) - distinct cases
 # --------------------------------------------------------------------------- #
 def test_sdk_tax_determination(providerlab):
     juris = partners.call("sabre-tax", "resolve_jurisdiction",

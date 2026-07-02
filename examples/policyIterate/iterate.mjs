@@ -92,11 +92,11 @@ export async function awaitPropagation({ transport, policySetId, versionId, outb
 
 // iterate runs the full loop against an injected Admin API transport:
 //
-//   1. diagnose  — explain the denied request and reconstruct its policy_input
-//   2. simulate  — replay that input against the staged candidate version
-//   3. regress   — replay expected-decision cases against the same candidate
-//   4. decide    — gate activation on the simulation and regression evidence
-//   5. activate  — optionally activate and wait for runtime propagation
+//   1. diagnose  - explain the denied request and reconstruct its policy_input
+//   2. simulate  - replay that input against the staged candidate version
+//   3. regress   - replay expected-decision cases against the same candidate
+//   4. decide    - gate activation on the simulation and regression evidence
+//   5. activate  - optionally activate and wait for runtime propagation
 //
 // Activation only happens when activate=true AND the verdict has no blockers,
 // so the default run is always a safe dry run.
@@ -109,7 +109,7 @@ export async function iterate({ transport, requestId, policySetId, candidateVers
     log('diagnose', `request ${requestId} was not denied (final decision: ${summary.finalDecision}); nothing to iterate on`)
     return { reproduced: false, trace: summary, candidate: null, regressions: [], verdict: null, activation: null }
   }
-  log('diagnose', `denial reproduced — reasons: [${summary.reasons.join(', ')}], determining policies: [${summary.determiningPolicies.join(', ')}]`)
+  log('diagnose', `denial reproduced - reasons: [${summary.reasons.join(', ')}], determining policies: [${summary.determiningPolicies.join(', ')}]`)
 
   log('simulate', `replaying denied input against candidate version ${candidateVersionId}`)
   const candidate = assessSimulation(await transport.simulate(policySetId, candidateVersionId, input))
@@ -123,8 +123,8 @@ export async function iterate({ transport, requestId, policySetId, candidateVers
 
   const decision = verdict({ candidate, regressions })
   log('decide', decision.safeToActivate
-    ? 'all gates passed — candidate is safe to activate'
-    : `holding activation — blockers: [${decision.blockers.join(', ')}]`)
+    ? 'all gates passed - candidate is safe to activate'
+    : `holding activation - blockers: [${decision.blockers.join(', ')}]`)
 
   let activation = null
   if (decision.safeToActivate && activate) {
@@ -133,7 +133,7 @@ export async function iterate({ transport, requestId, policySetId, candidateVers
     activation = await awaitPropagation({ transport, policySetId, versionId: candidateVersionId, outboxId: accepted?.outbox_id, wait })
     log('activate', `propagation status: ${activation.propagationStatus}`)
   } else if (decision.safeToActivate) {
-    log('activate', 'dry run — re-run with ACTIVATE=true to roll out this version')
+    log('activate', 'dry run - re-run with ACTIVATE=true to roll out this version')
   }
 
   return { reproduced: true, trace: summary, policyInput: input, candidate, regressions, verdict: decision, activation }

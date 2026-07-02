@@ -299,7 +299,7 @@ async def spawn_service(
     issues a bounded delegation edge so the handle holds only a subset.
 
     Pass ``heartbeat_interval`` (seconds, well below the server lease) to renew
-    the lease automatically from a background task — the lease keeps advancing
+    the lease automatically from a background task - the lease keeps advancing
     even while the caller is blocked on a long provider/resource stream."""
     grant = grant or Grant.inherit()
     parent = parent_ctx if parent_ctx is not None else current()

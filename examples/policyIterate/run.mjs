@@ -62,7 +62,7 @@ async function loadRegressionCases(path) {
   if (!Array.isArray(cases)) throw new Error('regression file must be a JSON array of { name, expect, input } cases')
   for (const c of cases) {
     if (!c.name || !c.input || (c.expect !== 'allow' && c.expect !== 'deny')) {
-      throw new Error(`invalid regression case: ${JSON.stringify(c)} — each case needs name, input, and expect of "allow" or "deny"`)
+      throw new Error(`invalid regression case: ${JSON.stringify(c)} - each case needs name, input, and expect of "allow" or "deny"`)
     }
   }
   return cases

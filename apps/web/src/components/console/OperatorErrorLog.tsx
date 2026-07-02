@@ -114,7 +114,7 @@ function timeLabel(at: number): string {
 // The Operator notice surface: a compact label (not a full-width banner) that enters from the left,
 // then shrinks back into the audit archive on the left after a few seconds or when dismissed. The
 // archive holds every notice this session and opens a filterable log, so a transient warning or
-// error is never just lost — it is recorded and reviewable.
+// error is never just lost - it is recorded and reviewable.
 export function OperatorErrorLog({ event }: { event: OperatorNoticeEvent | null }) {
   const log = useOperatorNotices();
   const [active, setActive] = useState<{
@@ -129,8 +129,8 @@ export function OperatorErrorLog({ event }: { event: OperatorNoticeEvent | null 
   // the label archives so the label shrinks into it, lingers a moment after the label vanishes, then
   // hides again. The panel being open keeps it visible so an opened log is not yanked away.
   const [revealed, setRevealed] = useState(false);
-  // The occurrence last surfaced as a label, keyed by event id so a distinct occurrence — even with
-  // the same message text — reopens the label, while the same event never re-surfaces.
+  // The occurrence last surfaced as a label, keyed by event id so a distinct occurrence - even with
+  // the same message text - reopens the label, while the same event never re-surfaces.
   const handled = useRef<string | null>(null);
 
   useEffect(() => {
@@ -176,7 +176,7 @@ export function OperatorErrorLog({ event }: { event: OperatorNoticeEvent | null 
     return () => clearTimeout(timer);
   }, [archiving, active]);
 
-  // After the label has vanished, let the box linger briefly, then hide it again — unless the log
+  // After the label has vanished, let the box linger briefly, then hide it again - unless the log
   // panel is open, in which case it stays so the operator can keep reading.
   useEffect(() => {
     if (active || !revealed || panelOpen) return;

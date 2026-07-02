@@ -79,7 +79,7 @@ export function authMaintenanceUrl(): string | undefined {
 }
 
 // The session-signing secret for the auth service. Generated once and reused so dev sessions
-// survive restarts, and provisioned automatically — operators never set a secret by hand for
+// survive restarts, and provisioned automatically - operators never set a secret by hand for
 // local development.
 export function devAuthSecret(): string {
   const existing = readDevSecret('authSecret')

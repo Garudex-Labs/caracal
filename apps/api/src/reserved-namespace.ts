@@ -17,7 +17,7 @@ export const CARACAL_ORG_ID = 'ORG-CRC0-SYS0-0001'
 // so there is exactly one valid org: the sentinel. Caracal's own system org is accepted as-is so
 // the reserved system zone resolves; every other value is collapsed to the sentinel rather than
 // honoured, so a tampered org id in the URL or a request body can never address a non-existent org
-// — it simply lands back on the single open-source org. Org creation lives only in the enterprise
+// - it simply lands back on the single open-source org. Org creation lives only in the enterprise
 // build, so without it no other org can exist; this keeps the open-source build correct even if the
 // guard is bypassed. Enterprise overrides org resolution with its real, validated org directory.
 export function resolveOssOrg(orgId: string | undefined): string {
@@ -64,8 +64,8 @@ export interface ReservedNamespaceError {
 
 // The bootstrap deployment identity that provisions and seals the reserved system zone. It
 // is the only actor permitted to create, rename, or mutate anything in the reserved
-// namespace; every other credential — the derived Console tokens, operator-minted admin
-// tokens, and external tenants — is refused. Recognising the provisioner by its seed marker
+// namespace; every other credential - the derived Console tokens, operator-minted admin
+// tokens, and external tenants - is refused. Recognising the provisioner by its seed marker
 // keeps the gate from trusting scope alone, since the Console write token is also global.
 export function isInternalProvisioner(actor: Actor): boolean {
   return actor.createdBy === 'env-bootstrap'
@@ -88,8 +88,8 @@ export const RESERVED_ZONE_SQL = `(lower(name) LIKE '${RESERVED_PREFIX.zoneName}
 
 // Decides whether an actor may use a value in the reserved namespace. Only the internal
 // provisioner (the bootstrap deployment identity) may create or rename objects into the
-// reserved namespace; every other actor — including the global-scope Console and external
-// admin tokens — is refused, so a tenant or an operator-minted credential can never squat or
+// reserved namespace; every other actor - including the global-scope Console and external
+// admin tokens - is refused, so a tenant or an operator-minted credential can never squat or
 // impersonate a Caracal internal system. The comparison is case-insensitive so a display
 // name cannot evade by changing case. The detail names only that the namespace is reserved,
 // never which internal objects exist, so the refusal does not map internal structure.

@@ -138,7 +138,7 @@ Changes are proposed against `main`, and the review required to merge depends on
 
 - **Correctness:** the change does what it claims and handles edge cases and failure paths.
 - **Scope:** the change stays focused; unrelated edits are split out.
-- **Tests:** the Testing Policy is satisfied — major new functionality adds tests and bug fixes add a regression test — and CI passes.
+- **Tests:** the Testing Policy is satisfied - major new functionality adds tests and bug fixes add a regression test - and CI passes.
 - **Style:** the change passes the `pnpm run style` gate for its languages.
 - **Security and boundaries:** input is validated, secrets are not exposed, trust boundaries in `governance/THREAT_MODEL.md` are respected, and no open-source code depends on enterprise-only code.
 - **Docs:** behavior, API, command, config, and operations changes update the affected documentation.

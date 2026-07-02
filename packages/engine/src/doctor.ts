@@ -52,7 +52,7 @@ export interface DoctorOptions {
   strict?: boolean
   preflightOnly?: boolean
   // Overrides the admin token the health and zone checks authenticate with. The Console BFF
-  // passes its least-privilege read-only token so diagnostics — which only read — never run
+  // passes its least-privilege read-only token so diagnostics - which only read - never run
   // under the deployment admin token. Unset everywhere else, so the discovered admin token is
   // used as before.
   adminToken?: string
@@ -107,7 +107,7 @@ function delay(ms: number): Promise<void> {
 }
 
 // Performs the probe request, retrying only when fetch itself fails (an aborted timeout or
-// a network error). A resolved Response — success or error status — is returned to the
+// a network error). A resolved Response - success or error status - is returned to the
 // caller unchanged so HTTP-level outcomes are never masked by retries.
 async function probeFetch(url: string, headers?: ProbeHeaders): Promise<Response> {
   let lastError: unknown

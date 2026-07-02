@@ -142,7 +142,7 @@ const BANNER_COPY: Record<ComponentState, { headline: string; tone: string; dot:
     dot: "bg-emerald-500",
   },
   degraded: {
-    headline: "Degraded — attention recommended",
+    headline: "Degraded - attention recommended",
     tone: "text-amber-600 dark:text-amber-400",
     dot: "bg-amber-500",
   },
@@ -230,7 +230,7 @@ function IssuesPanel({ issues }: { issues: DiagnosticIssue[] }) {
             Needs attention
           </h2>
           <p className="text-xs text-muted-foreground">
-            What failed, why it matters, and how to recover — most severe first.
+            What failed, why it matters, and how to recover - most severe first.
           </p>
         </div>
         <span className="font-mono text-sm font-semibold tabular-nums text-foreground">

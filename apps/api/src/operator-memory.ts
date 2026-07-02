@@ -18,7 +18,7 @@ export interface DecidedPlanFact {
 
 // The compressed memory of everything before the recent window. Bounded in size
 // regardless of conversation length, so an agent's context cost does not grow with
-// the history — the architecture's compress-to-facts in place of an ever-growing
+// the history - the architecture's compress-to-facts in place of an ever-growing
 // transcript.
 export interface ConversationFacts {
   decided_plans: DecidedPlanFact[]

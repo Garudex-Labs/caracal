@@ -13,7 +13,7 @@
 - `src/mailer.ts` owns SMTP delivery for password reset and email verification messages; both flows are enabled only when `CARACAL_SMTP_URL` and `CARACAL_SMTP_FROM` are configured.
 
 ## Database
-- Runs on PostgreSQL in every environment — one uniform backend for development and production.
+- Runs on PostgreSQL in every environment - one uniform backend for development and production.
 - The connection string comes from `CARACAL_AUTH_DATABASE_URL` (falling back to `DATABASE_URL`), both `_FILE`-secret aware. `caracal web` points it at the dev stack's Postgres automatically.
 - The auth database is created on startup if absent (when the role may create databases); Better Auth then runs the schema migrations.
 - The signing secret comes from `CARACAL_AUTH_SECRET` (provisioned automatically by `caracal web`); the service fails closed without one.

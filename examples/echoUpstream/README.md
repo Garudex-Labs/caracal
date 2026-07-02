@@ -6,8 +6,8 @@ Gateway really reach an upstream service.
 It echoes every request back as JSON and answers one question: **did this call
 come through the Gateway?**
 
-- `"viaGateway": true` — the Gateway authorized and forwarded the call
-- `"viaGateway": false` — the call hit the service directly
+- `"viaGateway": true` - the Gateway authorized and forwarded the call
+- `"viaGateway": false` - the call hit the service directly
 
 ## Try it (30 seconds, no Caracal needed)
 
@@ -17,7 +17,7 @@ node server.mjs &
 curl http://127.0.0.1:8088/v1/hello
 ```
 
-You get `"viaGateway": false` — a direct, unprotected call. The rest of this
+You get `"viaGateway": false` - a direct, unprotected call. The rest of this
 guide flips it to `true`.
 
 ## Full demo with Caracal
@@ -57,9 +57,9 @@ curl http://localhost:8081/v1/hello \
 }
 ```
 
-- `viaGateway: true` — the request carried the Gateway's forwarding metadata
-- `credentialInjected: true` — the Gateway supplied the credential; your client never held it
-- `requestId` — paste it into Console **explain** to trace the policy decision
+- `viaGateway: true` - the request carried the Gateway's forwarding metadata
+- `credentialInjected: true` - the Gateway supplied the credential; your client never held it
+- `requestId` - paste it into Console **explain** to trace the policy decision
 
 Credentials are always shown as `[redacted]` in echoed headers, and the server
 logs each call as `[gateway]` or `[direct]` so you can watch traffic arrive.

@@ -1328,7 +1328,7 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/plan/execute', () =>
   it('records the execution turn even if the conversation was archived after the plan applied', async () => {
     // The mutation has already been applied to the control plane by the time the recording
     // transaction runs. If the conversation was archived in that window, the ledger must still
-    // record the execution turn — both to reflect the real applied work and to write the dedup
+    // record the execution turn - both to reflect the real applied work and to write the dedup
     // marker that blocks a re-run. The recording FOR UPDATE returns an archived (but existing)
     // conversation; the execution turn is written all the same.
     const fetchMock = controlFetch([{ id: 'grant-xyz' }])
@@ -1353,7 +1353,7 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/plan/execute', () =>
       .mockResolvedValueOnce({ rows: [{ one: 1 }] }) // preview: resource lives
       .mockResolvedValueOnce(undefined) // COMMIT
       .mockResolvedValueOnce(undefined) // BEGIN (recording)
-      .mockResolvedValueOnce({ rows: [{ status: 'archived', next_seq: 5 }] }) // conv FOR UPDATE — archived
+      .mockResolvedValueOnce({ rows: [{ status: 'archived', next_seq: 5 }] }) // conv FOR UPDATE - archived
       .mockResolvedValueOnce({ rowCount: 1 }) // UPDATE next_seq
       .mockResolvedValueOnce({ rows: [executionTurn] }) // INSERT execution turn
       .mockResolvedValueOnce(undefined) // COMMIT
@@ -1390,7 +1390,7 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/plan/execute', () =>
       .mockResolvedValueOnce({ rows: [{ one: 1 }] }) // preview: resource lives
       .mockResolvedValueOnce(undefined) // COMMIT
       .mockResolvedValueOnce(undefined) // BEGIN (recording)
-      .mockResolvedValueOnce({ rows: [] }) // conv FOR UPDATE — no row (deleted)
+      .mockResolvedValueOnce({ rows: [] }) // conv FOR UPDATE - no row (deleted)
       .mockResolvedValueOnce(undefined) // COMMIT
     await app.ready()
     const res = await app.inject({
@@ -2529,7 +2529,7 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
       findings: [{ severity: 'caution', concern: 'Confirm the OAuth app is restricted to the finance org.' }],
     }
     // No control identity, so the researcher is absent and the compound path degrades to no
-    // evidence — but it still plans and still runs the correctness critic and the advisory review.
+    // evidence - but it still plans and still runs the correctness critic and the advisory review.
     // Four model calls in order: triage (compound), planner, correctness critic, security analyst.
     const fetchImpl = fetchReturning(
       '{"tier":"compound"}',
@@ -2572,7 +2572,7 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
     expect(res.statusCode).toBe(201)
     const body = JSON.parse(res.body)
     expect(body).toMatchObject({ intent: 'plan', tier: 'compound', ok: true })
-    // The advisory is returned with the plan and never gates it — the plan is still validated,
+    // The advisory is returned with the plan and never gates it - the plan is still validated,
     // previewed, and awaiting approval.
     expect(body.advisory).toEqual(advisory)
     expect(body.validation.ok).toBe(true)
@@ -2722,7 +2722,7 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
 
   it('grounds a read answer in evidence gathered through governed reads', async () => {
     // A read tier inspects state, so the orchestrator gathers live evidence through the
-    // Operator's own scoped control identity before the explainer answers — the same dogfooded
+    // Operator's own scoped control identity before the explainer answers - the same dogfooded
     // path a change executes through. The combined fetch answers the AI chat completions, the STS
     // token mint, and each governed list invoke by URL.
     let aiCall = 0
@@ -2785,7 +2785,7 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
 
   it('answers a read tier without governed reads when no control identity is configured', async () => {
     // With no control identity the researcher is absent, so the read answer falls back to
-    // conversation context alone — exactly the behavior before evidence-gathering existed.
+    // conversation context alone - exactly the behavior before evidence-gathering existed.
     const fetchImpl = fetchReturning('{"tier":"read"}', 'I cannot read your live state right now.')
     const { app, clientQuery, db } = buildApp(true, { aiProviders: [provider], fetchImpl })
     clientQuery

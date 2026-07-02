@@ -126,7 +126,7 @@ function readChain(raw: unknown): ChainHop[] | undefined {
 
 // STS serves one signing keyset per zone, so the JWKS fetch needs a zone. The
 // configured zone wins; otherwise the unverified zone_id claim selects the
-// keyset, which is safe because it only routes the key lookup — the signature
+// keyset, which is safe because it only routes the key lookup - the signature
 // check against that zone's keys then proves the claim.
 function fetchZone(token: string, config: JwtConfig): string {
   if (config.zoneId) return config.zoneId

@@ -31,7 +31,7 @@ dependencies = [
     "protobuf>=6.33,<7",
     "python-dotenv>=1.2",
     "redis>=5.2",
-    # Caracal SDK — published release v2026.06.25-rc.1. Upstream gateway routing for
+    # Caracal SDK - published release v2026.06.25-rc.1. Upstream gateway routing for
     # external providers and the verifier boundary for internal providers.
     "caracalai-sdk==0.1.6rc2",
     "caracalai-core==0.1.6rc2",

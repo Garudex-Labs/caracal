@@ -220,7 +220,7 @@ describe('createOrchestrator', () => {
     const gateway = { status: () => ({ enabled: true, providers: [] }), complete, completeObject } as unknown as Gateway
     const result = await createOrchestrator().handle(gateway, 'ambiguous', emptyContext)
     // A failed triage never escalates to a planning tier, so an ambiguous request can never
-    // silently produce a plan — it is answered as text in the read tier.
+    // silently produce a plan - it is answered as text in the read tier.
     expect(result.tier).toBe('read')
     expect(result.outcome.kind).toBe('answer')
   })
@@ -237,7 +237,7 @@ describe('createOrchestrator', () => {
     }
     const registry: SkillRegistry = { select: () => probeSkill }
     const result = await createOrchestrator(registry).handle(gatewayFor('change'), 'anything', emptyContext)
-    // The orchestrator runs exactly the skill the registry returns, regardless of tier — the
+    // The orchestrator runs exactly the skill the registry returns, regardless of tier - the
     // seam later phases extend with specialist skills.
     expect(calls).toEqual(['probe'])
     expect(result.outcome.kind).toBe('answer')
@@ -372,7 +372,7 @@ describe('createOrchestrator', () => {
 
   it('does not run the grounding check when no evidence was gathered', async () => {
     // A conversational turn reads no state, so there is nothing to ground against and the check is
-    // skipped — only the single triage completeObject call is made, never a grounding call.
+    // skipped - only the single triage completeObject call is made, never a grounding call.
     const gateway = gatewayFor('conversational', 'Caracal issues short-lived scoped mandates.')
     const result = await createOrchestrator().handle(gateway, 'what is a mandate', emptyContext)
     if (result.outcome.kind === 'answer' && result.outcome.result.ok) {
@@ -421,7 +421,7 @@ describe('createOrchestrator', () => {
 
   it('does not expand evidence when no researcher can read the requested domains', async () => {
     // The planner asks to see more state, but the turn has no researcher, so Caracal cannot read and
-    // the empty plan stands — the planner is never called a second time.
+    // the empty plan stands - the planner is never called a second time.
     const completeObject = vi
       .fn()
       .mockResolvedValueOnce({ value: { tier: 'change' }, provider: 't', model: 'm' })
@@ -559,7 +559,7 @@ describe('createOrchestrator', () => {
     expect(researcher.gather).toHaveBeenCalledTimes(1)
     expect(result.outcome.kind).toBe('plan')
     if (result.outcome.kind === 'plan') {
-      // The plan is still produced and still requires approval — the advisory does not gate it.
+      // The plan is still produced and still requires approval - the advisory does not gate it.
       expect(result.outcome.result.ok).toBe(true)
       expect(result.outcome.advisory).toEqual(advisory)
     }
@@ -577,7 +577,7 @@ describe('createOrchestrator', () => {
       ],
     }
     const advisory = {
-      summary: 'Exposes an internal resource broadly — a Caracal anti-pattern.',
+      summary: 'Exposes an internal resource broadly - a Caracal anti-pattern.',
       alignment: 'misaligned',
       findings: [{ severity: 'warning', concern: 'public exposure of an internal resource' }],
       recommendation: 'Model a narrow scoped grant to the specific application instead of public write access.',
@@ -589,7 +589,7 @@ describe('createOrchestrator', () => {
     )
     expect(result.outcome.kind).toBe('plan')
     if (result.outcome.kind === 'plan') {
-      // The plan is still produced and still approvable behind the human gate — guidance leads, it
+      // The plan is still produced and still approvable behind the human gate - guidance leads, it
       // does not delete the plan.
       expect(result.outcome.result.ok).toBe(true)
       expect(result.outcome.advisory).toEqual(advisory)
@@ -706,7 +706,7 @@ describe('createOrchestrator', () => {
     if (result.outcome.kind === 'plan' && result.outcome.result.ok) {
       expect(result.outcome.result.value.summary).toBe('Connect GitHub')
     }
-    // triage + plan + sound critic + guardian — a sound verdict adds no revision planner pass.
+    // triage + plan + sound critic + guardian - a sound verdict adds no revision planner pass.
     expect(completeObject).toHaveBeenCalledTimes(4)
   })
 
@@ -852,7 +852,7 @@ describe('createOrchestrator', () => {
       researcher: { gather: vi.fn().mockResolvedValue({ evidence: [] }) },
       onProgress: (event) => stages.push(event.stage),
     })
-    // A read turn triages, gathers state, and answers — it never enters the planning stages.
+    // A read turn triages, gathers state, and answers - it never enters the planning stages.
     expect(stages).toEqual(['triaging', 'gathering', 'answering'])
   })
 

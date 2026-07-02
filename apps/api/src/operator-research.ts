@@ -22,9 +22,9 @@ export interface EvidenceItem {
 // One piece of evidence a researcher gathered from a single governed read. A success carries
 // the live row count, a bounded list of names, the identified objects (id with name) so a change
 // can target one by its real id, and the decision-relevant attributes the planner and guardian
-// need to reason correctly — the distinct provider auth modes and the distinct resource scopes
+// need to reason correctly - the distinct provider auth modes and the distinct resource scopes
 // present, extracted under a strict per-domain allowlist so a read still surfaces no secret, token,
-// or policy logic. A failure carries the typed reason so a partial gather still answers — a single
+// or policy logic. A failure carries the typed reason so a partial gather still answers - a single
 // denied or unreachable read narrows the evidence, it never fails the turn.
 export interface Evidence {
   capability: string
@@ -38,13 +38,13 @@ export interface Evidence {
 }
 
 // The per-turn blackboard: the typed evidence the turn's workers gathered. It is the turn's
-// shared reasoning record — what was inspected and what it found — and lives only for the turn.
+// shared reasoning record - what was inspected and what it found - and lives only for the turn.
 export interface Blackboard {
   evidence: Evidence[]
 }
 
-// An ephemeral worker bound to the Operator's own scoped control identity. It reads only — it
-// can reach nothing but governed read capabilities — so it holds no authority to change state.
+// An ephemeral worker bound to the Operator's own scoped control identity. It reads only - it
+// can reach nothing but governed read capabilities - so it holds no authority to change state.
 // A gather may be scoped to the object domains a turn concerns, so a request about one domain
 // reads only that domain rather than fanning out across every governed read.
 export interface Researcher {
@@ -53,7 +53,7 @@ export interface Researcher {
 
 // The governed read capabilities: the capabilities mapped to a control command that the
 // authoritative catalog marks non-mutating. Derived from the catalog and the control mapping,
-// never hand-listed, so the read set can never drift from the mutating flag or the mapping —
+// never hand-listed, so the read set can never drift from the mutating flag or the mapping -
 // a researcher can never reach a mutating command.
 export function governedReadCapabilities(): string[] {
   return Object.keys(CONTROL_CAPABILITIES).filter((id) => {
@@ -63,8 +63,8 @@ export function governedReadCapabilities(): string[] {
 }
 
 // The decision-relevant attributes each domain's rows expose, by the safe field they live in.
-// Only these explicitly named, non-secret descriptor fields are ever read off a row — a provider's
-// auth mode and a resource's scopes — so the planner can reason about what actually exists (which
+// Only these explicitly named, non-secret descriptor fields are ever read off a row - a provider's
+// auth mode and a resource's scopes - so the planner can reason about what actually exists (which
 // auth mode a provider uses, which scopes a resource offers) without any row's secret, token, or
 // policy logic ever reaching the model. A domain absent here contributes no attributes.
 const DOMAIN_ATTRIBUTE_FIELDS: Record<string, { field: string; label: string }[]> = {
@@ -108,7 +108,7 @@ function summarizeAttributes(rows: Record<string, unknown>[], domain: string): R
 // Reduces a list result to a live count, a bounded list of safe names, the identified objects (id
 // with name) a change can target, and the decision-relevant attributes its domain exposes. Only a
 // row's name, its id, and the allowlisted descriptor fields reach the prompt, never the whole row,
-// so a read can never leak an arbitrary field — secrets, tokens, or policy logic — into the model
+// so a read can never leak an arbitrary field - secrets, tokens, or policy logic - into the model
 // context.
 function summarizeRows(
   result: unknown,
@@ -142,7 +142,7 @@ function selectReads(domains: string[] | undefined): string[] {
 
 // Builds the state researcher over a control client. Each governed read mints a token narrowed
 // to exactly that read's scopes and invokes the list command; the control plane authorizes,
-// executes, and audits it — the same dogfooded path the Operator executes a change through. The
+// executes, and audits it - the same dogfooded path the Operator executes a change through. The
 // reads run concurrently and are isolated: one read's failure becomes a typed evidence entry,
 // never an exception that loses the others. A gather is scoped to the domains the turn names, so
 // the fan-out is the smallest set that grounds the request, bounded by the governed read set.

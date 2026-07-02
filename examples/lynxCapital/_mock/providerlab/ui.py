@@ -31,11 +31,11 @@ def _esc(value) -> str:
 
 def _ts(value) -> str:
     if not value:
-        return "—"
+        return "-"
     try:
         return time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(int(value)))
     except (ValueError, TypeError):
-        return "—"
+        return "-"
 
 
 def _secret(value) -> str:
@@ -43,7 +43,7 @@ def _secret(value) -> str:
     demos never expose live credential material at a glance."""
     raw = str(value)
     if not raw:
-        return '<code class="muted">—</code>'
+        return '<code class="muted">-</code>'
     mask = raw[:4] + "…" + "•" * 6 if len(raw) > 4 else "•" * 8
     return (
         '<span class="secret-wrap">'
@@ -91,7 +91,7 @@ def _config_rows(provider: catalog.Provider) -> list[tuple[str, str]]:
         rows.append(("Introspection endpoint", f"{base_url}/oauth/introspect"))
         rows.append(("Discovery", f"{base_url}/.well-known/oauth-authorization-server"))
         rows.append(("Client authentication", provider.client_auth_method))
-        rows.append(("Scopes", " ".join(provider.scopes) or "—"))
+        rows.append(("Scopes", " ".join(provider.scopes) or "-"))
     if c == "oauth2_authorization_code":
         rows.append(("Authorization endpoint", f"{base_url}/oauth/authorize"))
         rows.append(("PKCE", "required (S256)" if provider.use_pkce else "not required"))
@@ -100,7 +100,7 @@ def _config_rows(provider: catalog.Provider) -> list[tuple[str, str]]:
         rows.append(("Resource / audience", provider.audience))
     if c == "caracal_mandate" or (c == "mcp" and provider.mcp_auth == "mandate"):
         rows.append(("Mandate header", f"{provider.auth_header}: {provider.auth_scheme} <mandate>"))
-        rows.append(("Required scopes", " ".join(provider.scopes) or "—"))
+        rows.append(("Required scopes", " ".join(provider.scopes) or "-"))
         rows.append(("Delegation", "required" if provider.require_delegation else "optional"))
     if c == "mcp":
         rows.append(("MCP endpoint", f"{base_url}/mcp (JSON-RPC)"))
@@ -340,9 +340,9 @@ def _grpc_panel(provider: catalog.Provider) -> str:
     return ("".join(blocks) +
             '<p class="hint">Methods are discoverable through server reflection and '
             'authenticated with the <code>x-api-key</code> call metadata. Rejected calls '
-            'return a canonical gRPC status — <code>UNAUTHENTICATED</code>, '
+            'return a canonical gRPC status - <code>UNAUTHENTICATED</code>, '
             '<code>INVALID_ARGUMENT</code>, <code>NOT_FOUND</code>, or '
-            '<code>FAILED_PRECONDITION</code> — in the response trailers.</p>')
+            '<code>FAILED_PRECONDITION</code> - in the response trailers.</p>')
 
 
 def _mcp_panel(provider: catalog.Provider) -> str:
@@ -547,7 +547,7 @@ def _revoked_history(store) -> str:
     rows = [
         f"<tr><td>{_esc(h['kind'])}</td><td><code>{_esc(h['id'])}</code></td>"
         f"<td>{_esc(h['label'])}</td><td>{_ts(h['revokedAt'])}</td>"
-        f"<td>{('<code>' + _esc(h['rotatedTo']) + '</code>') if h.get('rotatedTo') else '—'}</td></tr>"
+        f"<td>{('<code>' + _esc(h['rotatedTo']) + '</code>') if h.get('rotatedTo') else '-'}</td></tr>"
         for h in history
     ]
     return _cred_panel("Revoked credential history",

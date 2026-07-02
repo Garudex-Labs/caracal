@@ -34,7 +34,7 @@ import { streamingAnswers, type Gateway } from './operator-gateway.js'
 
 // A skill is a capability the orchestrator can invoke, not a pipeline stage. answer skills
 // reply as text; plan skills produce a proposed plan the deterministic spine then governs. A
-// skill holds no authority — it returns a typed artifact the route validates, previews, and
+// skill holds no authority - it returns a typed artifact the route validates, previews, and
 // (for plans) gates behind human approval. Later phases register more skills (researcher,
 // validator, policy author, …) without changing the orchestrator.
 export type SkillKind = 'answer' | 'plan' | 'policy'
@@ -52,7 +52,7 @@ export interface PlanSkill {
 }
 
 // The policy-authoring skill: turns intent into a validated authorization-policy draft. Like every
-// skill it holds no authority — the draft's data documents were validated by Caracal's own contract
+// skill it holds no authority - the draft's data documents were validated by Caracal's own contract
 // before it returns, and creating, versioning, or activating any of them still flows through the
 // governed, human-approved path the route owns.
 export interface PolicySkill {
@@ -65,7 +65,7 @@ export type Skill = AnswerSkill | PlanSkill | PolicySkill
 
 // The registry the orchestrator selects from. It maps a triage classification to exactly one
 // handling skill, so the dispatch is deterministic: the LLM triages into a tier and topic, and
-// Caracal — not the model — decides which skill runs. A new specialist is added by registering it
+// Caracal - not the model - decides which skill runs. A new specialist is added by registering it
 // here against a tier and topic; the orchestrator's contract does not change.
 export interface SkillRegistry {
   select(triage: OperatorTriage): Skill
@@ -73,12 +73,12 @@ export interface SkillRegistry {
 
 // The typed artifact a turn produced, tagged so the route runs the matching deterministic path:
 // a plan is validated, previewed, and stored for approval; an answer is recorded as a note. A
-// plan from a composing tier may carry an advisory security review — informational only, never
-// gating — that the route surfaces to the human alongside the plan. When the guardian judges the
+// plan from a composing tier may carry an advisory security review - informational only, never
+// gating - that the route surfaces to the human alongside the plan. When the guardian judges the
 // plan misaligned with how Caracal is meant to be used, the outcome also carries guidance: the
 // Caracal-correct path the human should take instead, surfaced first so the turn teaches the right
 // approach rather than silently complying. The plan itself is still persisted and remains
-// approvable behind the unchanged human gate — guidance leads, the plan is the secondary option,
+// approvable behind the unchanged human gate - guidance leads, the plan is the secondary option,
 // and a misaligned plan is never auto-approved.
 export type OrchestrationOutcome =
   | { kind: 'plan'; result: AgentResult<ProposedPlanInput>; advisory?: SecurityAdvisory; guidance?: string }
@@ -92,7 +92,7 @@ export interface OrchestrationResult {
 
 // The deliberation stages a turn can pass through, emitted purely so a streaming caller can show
 // live progress. A stage signal carries no authority and changes nothing: it never gates, never
-// alters the outcome, and is fire-and-forget — the same turn produces the same governed result
+// alters the outcome, and is fire-and-forget - the same turn produces the same governed result
 // whether or not anyone is listening. Read stages gather state and answer; plan stages propose,
 // repair, critique, revise, and guard.
 export type ProgressStage = 'triaging' | 'gathering' | 'planning' | 'repairing' | 'critiquing' | 'revising' | 'guarding' | 'authoring' | 'answering'
@@ -147,8 +147,8 @@ const policyAuthorSkill: PolicySkill = {
 
 // Picks the read-only answer specialist for a read request's topic: diagnostic questions go to the
 // troubleshooter, integration questions to the provider-resource translator, and everything else
-// to the general explainer. A misclassified topic only changes which read-only answer replies — it
-// never widens authority — so it degrades safely to the explainer.
+// to the general explainer. A misclassified topic only changes which read-only answer replies - it
+// never widens authority - so it degrades safely to the explainer.
 function answerSkillForTopic(topic: OperatorTriage['topic']): AnswerSkill {
   if (topic === 'diagnostic') return troubleshooterSkill
   if (topic === 'integration') return translatorSkill
@@ -188,7 +188,7 @@ export interface HandleOptions {
   // grounding is not wired, in which case answers fall back to the model's own knowledge.
   docs?: (query: string) => DocSnippet[]
   // Receives a stage signal each time the turn advances to a new deliberation step. It is purely
-  // informational — a streaming caller renders live progress from it — and holds no authority: it
+  // informational - a streaming caller renders live progress from it - and holds no authority: it
   // never alters the outcome and is never awaited, so a turn produces the same governed result with
   // or without a listener. Omitted when the caller does not stream.
   onProgress?: OnProgress
@@ -211,14 +211,14 @@ export interface HandleOptions {
 // to agent mode to plan it. This is a fixed string, not a model call, so ask mode never invokes a
 // planning skill.
 export const ASK_MODE_CHANGE_MESSAGE =
-  'This conversation is in ask mode, which is read-only — I can explain and investigate but cannot make changes. ' +
+  'This conversation is in ask mode, which is read-only - I can explain and investigate but cannot make changes. ' +
   'Switch this conversation to agent mode to plan and apply this change.'
 
 // Gathers live state evidence and merges it into the context, without ever failing the turn. The
 // researcher already isolates a single read's failure into a typed evidence entry; this also
 // guards against an unexpected throw, degrading to the original context so the turn still
-// produces a result. When no researcher is available — no governed read mandate is active for the
-// conversation's zone — the context is marked so the read agents say so plainly rather than
+// produces a result. When no researcher is available - no governed read mandate is active for the
+// conversation's zone - the context is marked so the read agents say so plainly rather than
 // inventing state. Returns the context unchanged when a researcher gathered no evidence at all.
 async function withEvidence(context: AgentContext, researcher: Researcher | null | undefined, domains?: string[]): Promise<AgentContext> {
   if (!researcher) return { ...context, liveStateUnavailable: true }
@@ -233,7 +233,7 @@ async function withEvidence(context: AgentContext, researcher: Researcher | null
 // Grounds an answer in the real documentation: retrieves the passages most relevant to the request
 // and attaches them to the context so the answering agent quotes exact names, endpoints, and fields
 // rather than inventing them. Retrieval is pure in-memory work over the bundled corpus and never
-// fails the turn — a retriever error or no match simply leaves the context ungrounded. Returns the
+// fails the turn - a retriever error or no match simply leaves the context ungrounded. Returns the
 // context unchanged when no retriever is wired.
 function withDocs(context: AgentContext, message: string, docs: HandleOptions['docs']): AgentContext {
   if (!docs) return context
@@ -248,7 +248,7 @@ function withDocs(context: AgentContext, message: string, docs: HandleOptions['d
 // Honors the planner's request to see more state before it commits to a plan: it runs one more
 // targeted governed read over exactly the domains the planner named, merges the fresh evidence into
 // the context (a re-read of a domain replaces its stale entry), and returns the expanded context so
-// a single replan can ground on it. The planner only requests evidence — Caracal decides what is
+// a single replan can ground on it. The planner only requests evidence - Caracal decides what is
 // read and still owns validate, preview, and approval. Like the first gather it never fails the
 // turn: with no researcher, no named domains, an empty read, or any error, the context is returned
 // unchanged so the loop simply ends.
@@ -272,7 +272,7 @@ async function expandEvidence(context: AgentContext, researcher: Researcher | nu
 // validates and proposes steps, otherwise the repaired-or-original plan. A plan with no steps, or
 // one that cannot be repaired, is returned as-is so the route still reports its diagnostics. Both
 // the repair and the critique only decide whether another planning pass is worth running; neither
-// approves or applies — the route owns the authoritative validate, preview, and approval of every
+// approves or applies - the route owns the authoritative validate, preview, and approval of every
 // plan, and the critic edits nothing itself.
 async function deliberatePlan(
   gateway: Gateway,
@@ -320,8 +320,8 @@ async function deliberatePlan(
 // Grounds a read answer in the live evidence the same way the guardian grounds a plan: when the
 // turn gathered real state, it checks the drafted answer against that evidence and, if the answer
 // claimed a state fact the evidence does not support, appends a single Caracal correction so the
-// user is not misled. It only refines — it never suppresses or rewrites the answer, which holds no
-// authority as a read-only note — and it fails open: with no evidence to check against, an
+// user is not misled. It only refines - it never suppresses or rewrites the answer, which holds no
+// authority as a read-only note - and it fails open: with no evidence to check against, an
 // unsuccessful draft, a failed check, or any error, the original answer stands unchanged.
 async function groundAnswer(
   gateway: Gateway,
@@ -343,7 +343,7 @@ async function groundAnswer(
 
 // Builds the orchestrator over a skill registry. Per turn it triages the request to its tier and,
 // for a read, its topic, then runs the one skill the registry selects. A triage that fails the
-// schema defaults to a general read, which answers as text and never acts — the safe direction on
+// schema defaults to a general read, which answers as text and never acts - the safe direction on
 // ambiguity. In ask mode a request that would require a change is never planned: the orchestrator
 // returns a deterministic switch-to-agent answer before any planning skill runs, so an ask
 // conversation is provably write-incapable at the skill layer (the route refuses writes
@@ -403,7 +403,7 @@ export function createOrchestrator(registry: SkillRegistry = createSkillRegistry
         // The planner may decline to plan and instead name the object domains it must read before it
         // can propose responsibly. Caracal honors that exactly once: it reads those domains, merges
         // the fresh evidence into the context, and replans. The loop is bounded to a single expansion
-        // so a turn can never fan out unboundedly, and the planner only directs what to read — Caracal
+        // so a turn can never fan out unboundedly, and the planner only directs what to read - Caracal
         // decides and still owns validate, preview, and approval of whatever plan results.
         if (result.ok && result.value.steps.length === 0 && result.value.needs && options.researcher) {
           emit({ stage: 'gathering' })
@@ -412,7 +412,7 @@ export function createOrchestrator(registry: SkillRegistry = createSkillRegistry
         }
         // When the planner could not plan responsibly it proposes no steps and asks one clarifying
         // question instead of guessing. Caracal relays that question to the operator as an answer
-        // — it is recorded as a note, never as an actionable plan — so an underspecified request is
+        // - it is recorded as a note, never as an actionable plan - so an underspecified request is
         // answered with a precise question rather than a fabricated change.
         if (result.ok && result.value.steps.length === 0 && result.value.clarification) {
           return { tier, outcome: { kind: 'answer', result: { ok: true, value: { text: result.value.clarification } } } }
@@ -425,7 +425,7 @@ export function createOrchestrator(registry: SkillRegistry = createSkillRegistry
           // outcome leads with the Caracal-correct path instead of silently surfacing the plan: the
           // guidance is the guardian's concrete recommendation (its summary when it gave none). The
           // plan stays attached and approvable behind the human gate, so the human can still proceed
-          // deliberately — but the turn teaches the right approach first and the route never
+          // deliberately - but the turn teaches the right approach first and the route never
           // auto-approves a misaligned plan.
           const guidance = advisory && advisory.alignment === 'misaligned' ? (advisory.recommendation ?? advisory.summary) : undefined
           return { tier, outcome: { kind: 'plan', result, advisory, guidance } }

@@ -263,8 +263,8 @@ export type ToolInputProps = Omit<ComponentProps<"div">, "input"> & {
 // Turns a parameter value into a single readable line: strings and scalars as-is, arrays joined,
 // and any nested object as compact JSON so the definition list stays one row per parameter.
 function formatValue(value: unknown): string {
-  if (value == null) return "—";
-  if (typeof value === "string") return value.length > 0 ? value : "—";
+  if (value == null) return "-";
+  if (typeof value === "string") return value.length > 0 ? value : "-";
   if (typeof value === "number" || typeof value === "boolean") return String(value);
   if (Array.isArray(value)) {
     return value

@@ -32,8 +32,8 @@ With Helm NetworkPolicy enabled, add a `networkPolicy.extraIngress` rule for the
 
 Upstream hosts are operator-provisioned through the Control API, never client-supplied, so the
 Gateway routes to private and on-prem upstreams (internal tools, local MCPs) by default. Dangerous
-infrastructure ranges that are never a legitimate upstream — cloud metadata (`169.254.0.0/16`),
-loopback, carrier-grade NAT, and multicast — are always blocked, including under DNS rebinding.
+infrastructure ranges that are never a legitimate upstream - cloud metadata (`169.254.0.0/16`),
+loopback, carrier-grade NAT, and multicast - are always blocked, including under DNS rebinding.
 
 To pin egress to an explicit set of hosts as a hardening control, set:
 

@@ -695,7 +695,7 @@ function renderMessage(type, data = {}, parent = null) {
   return node
 }
 
-// AGENT BLOCKS & TASK CARDS — root orchestrators get one block per run;
+// AGENT BLOCKS & TASK CARDS - root orchestrators get one block per run;
 // delegated orchestrators render as nested task cards; workers route to their owner.
 function ensureBlock(agentId, ts) {
   const existing = AppState.blocks[agentId]
@@ -901,7 +901,7 @@ async function handleApprovalAction(requestId, approved, cardNode) {
     })
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
   } catch (error) {
-    actions.innerHTML = '<span class="msg-approval-failed">Submission failed — retry below</span>'
+    actions.innerHTML = '<span class="msg-approval-failed">Submission failed - retry below</span>'
     renderMessage('system', { kicker: 'APPROVAL', variant: 'error', text: `Decision not delivered: ${error.message}` })
   }
 }
@@ -1145,7 +1145,7 @@ function handleEvent(event) {
       const card = renderMessage('approval', {
         ts: event.ts,
         approvalId: payload.request_id,
-        context: `${payload.action} — ${summarizeArgs(payload.detail) || 'no detail provided'}`,
+        context: `${payload.action} - ${summarizeArgs(payload.detail) || 'no detail provided'}`,
       })
       approvalCards.set(payload.request_id, card)
       requestScroll({ force: true, smooth: true })

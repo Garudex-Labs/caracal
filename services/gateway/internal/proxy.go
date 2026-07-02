@@ -589,7 +589,7 @@ var upstreamIdentityHeaders = []string{
 // an absolute (or protocol-relative) Location/Content-Location is stripped: forwarding it
 // would disclose the upstream's internal topology (private/loopback upstreams are permitted)
 // and would steer an agent client off the audited, credential-injected path toward a host
-// the SSRF guard and egress allowlist never vetted — an open-redirect primitive. Relative
+// the SSRF guard and egress allowlist never vetted - an open-redirect primitive. Relative
 // references disclose no host and stay within gateway-mediated routing, so they are kept.
 // A value that fails to parse is dropped rather than trusted.
 func sanitizeRedirectHeaders(h http.Header) {

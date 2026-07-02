@@ -28,8 +28,8 @@ export interface Actor {
   // and bootstrap token, so the capability only ever narrows authority, never widens it.
   capability: AdminCapability
   zoneId: string | null
-  // The seed marker the token was provisioned under. It classifies the credential — bootstrap,
-  // a derived Console operational token, or an operator-minted token — so the admin-token
+  // The seed marker the token was provisioned under. It classifies the credential - bootstrap,
+  // a derived Console operational token, or an operator-minted token - so the admin-token
   // management surface can refuse the derived operational tokens without trusting URL heuristics.
   createdBy: string
 }
@@ -47,8 +47,8 @@ interface AdminTokenRow {
 }
 
 // The authenticated end-operator behind a Console request, as asserted by the BFF and verified
-// here. It is an attribution and ownership signal layered on top of the admin actor — the BFF
-// still proxies with the shared Console credential — so it is optional: absent on direct admin
+// here. It is an attribution and ownership signal layered on top of the admin actor - the BFF
+// still proxies with the shared Console credential - so it is optional: absent on direct admin
 // API calls and on deployments that have not provisioned the verifying admin token. Phase 1 only
 // records it (ownership stamping); it does not yet narrow authority.
 export interface Account {
@@ -227,8 +227,8 @@ export function isDerivedConsoleActor(actor: Actor): boolean {
 }
 
 // Provisions a Console BFF admin token derived deterministically from the deployment admin
-// token. The value is deterministic, so this is idempotent — the same admin token yields the
-// same row every run — and needs no secret file or minting round-trip, which keeps every BFF
+// token. The value is deterministic, so this is idempotent - the same admin token yields the
+// same row every run - and needs no secret file or minting round-trip, which keeps every BFF
 // replica in agreement. Rotating the admin token rotates the derived token and supersedes the
 // prior row, which is then revoked (scoped to this token's own creator) so a stale derived
 // credential never lingers and the two derived tokens never revoke each other.
@@ -313,7 +313,7 @@ export interface AuthPluginOptions {
   lastUsedDebounceSec?: number
   verifyCacheTtlMs?: number
   // The deployment admin token, used only as the shared key that verifies the BFF's per-account
-  // assertion. Absent disables account binding entirely, so the API behaves exactly as before —
+  // assertion. Absent disables account binding entirely, so the API behaves exactly as before -
   // a strict, backward-compatible default that never fails a request for want of this signal.
   accountAssertionKey?: string | null
 }
@@ -328,7 +328,7 @@ const adminAuthImpl: FastifyPluginAsync<AuthPluginOptions> = async (fastify, opt
   // Resolves the account behind a request from the BFF's signed assertion. Binding is opt-in: it
   // needs the verifying key, and a malformed, expired, or unsigned header binds no account rather
   // than failing the request, so a direct admin call or an unconfigured deployment is unaffected.
-  // A present-but-invalid assertion is logged and dropped — it is never trusted.
+  // A present-but-invalid assertion is logged and dropped - it is never trusted.
   function resolveAccount(req: FastifyRequest): Account | null {
     if (!accountKey) return null
     const raw = req.headers[ACCOUNT_ASSERTION_HEADER]
@@ -344,7 +344,7 @@ const adminAuthImpl: FastifyPluginAsync<AuthPluginOptions> = async (fastify, opt
 
   // Reads the operator's display name and email from the parallel signed assertion, keyed by the
   // same admin token as the account assertion. A malformed, expired, or unsigned header contributes
-  // no name — the caller then attributes to the admin credential's own name — so a direct admin call
+  // no name - the caller then attributes to the admin credential's own name - so a direct admin call
   // or an unconfigured deployment is unaffected.
   function resolveOperatorIdentity(req: FastifyRequest): { name?: string; email?: string } {
     if (!accountKey) return {}
@@ -456,7 +456,7 @@ const adminAuthImpl: FastifyPluginAsync<AuthPluginOptions> = async (fastify, opt
 
     // A read-capability token may never mutate state. The check sits at the single auth choke
     // point ahead of every admin route, so a read-only credential is denied any write even on
-    // a route that does not inspect the capability itself — defense in depth, not per-route
+    // a route that does not inspect the capability itself - defense in depth, not per-route
     // trust. The control invoke path returned earlier and carries its own scope enforcement,
     // so this gate governs only the admin route surface.
     if (actor.capability === 'read' && !isReadOnlyRequest(req.method, req.url)) {
@@ -475,7 +475,7 @@ const adminAuthImpl: FastifyPluginAsync<AuthPluginOptions> = async (fastify, opt
     // The reserved system zone is provisioned and owned by Caracal's own bootstrap identity.
     // Every other actor may read it for transparency but may never mutate it, so the
     // platform's internal control objects cannot be altered through the admin API or the
-    // Console — the security boundary that backs the Console's read-only system-zone view. The
+    // Console - the security boundary that backs the Console's read-only system-zone view. The
     // internal provisioner is exempt because it is the identity that seals the zone. Only a
     // mutating request that targets a specific zone is checked; reads and non-zone paths skip
     // the lookup entirely.
@@ -487,8 +487,8 @@ const adminAuthImpl: FastifyPluginAsync<AuthPluginOptions> = async (fastify, opt
     }
 
     // Per-account zone isolation: a Console login may reach only zones it owns. The guard
-    // activates when an account is bound — direct admin and the internal provisioner carry no
-    // account, so break-glass access and provisioning keep full reach — and is fail-closed: a zone
+    // activates when an account is bound - direct admin and the internal provisioner carry no
+    // account, so break-glass access and provisioning keep full reach - and is fail-closed: a zone
     // owned by another account or owned by no one is refused, so an orphaned or admin-created zone
     // is never silently shared. The reserved system zone is the one exception: it is read-only
     // infrastructure exposed to any account for transparency, so reads of it are allowed while

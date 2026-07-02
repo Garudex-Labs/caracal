@@ -52,9 +52,9 @@ Open the packaged web console at [http://localhost:3001](http://localhost:3001).
 
 The first launch asks you to **sign up** (or **sign in**), then runs a short onboarding flow:
 
-1. **Profile** — your operator name and avatar.
-2. **Zone** — create your first zone. A zone is Caracal's primary trust boundary; it isolates applications, resources, policies, and audit.
-3. **Review** — confirm and finish.
+1. **Profile** - your operator name and avatar.
+2. **Zone** - create your first zone. A zone is Caracal's primary trust boundary; it isolates applications, resources, policies, and audit.
+3. **Review** - confirm and finish.
 
 Onboarding lands you in the console for that zone. The browser address follows an `account → org → zone` hierarchy (`/<accountId>/<orgId>/<zoneId>/app/...`); use the zone selector to switch zones, and every zone-scoped page acts on the selected zone.
 
@@ -64,10 +64,10 @@ The console opens **Guided setup**, a short walkthrough that explains each build
 
 | Step | What you create |
 | --- | --- |
-| Application | A confidential agent app for the workload. The create form shows the client secret **once** — copy it now; it cannot be retrieved later, only rotated. |
+| Application | A confidential agent app for the workload. The create form shows the client secret **once** - copy it now; it cannot be retrieved later, only rotated. |
 | Provider | The upstream credential source. Skip this step for an internal HTTP API that needs no upstream credential. |
 | Resource | A stable resource identifier, its scopes, and the upstream URL you chose (for example `http://caracalDemoUpstream:80`), bound to a Gateway application. |
-| Policy | A starter policy. Activate it — the zone denies every request until a policy is active. |
+| Policy | A starter policy. Activate it - the zone denies every request until a policy is active. |
 
 Guided setup ticks each step off from live zone data and opens the same Applications, Providers, Resources, and Policies forms you reach from the console navigation.
 
@@ -75,7 +75,7 @@ Guided setup ticks each step off from live zone data and opens the same Applicat
 
 The console does not write configuration to your machine. After creating the objects above, configure `caracal run` and the SDKs with the zone, application, and client secret you just created. Use either environment variables or a `caracal.toml` runtime profile.
 
-**Environment variables** — the quickest path for a single workload:
+**Environment variables** - the quickest path for a single workload:
 
 ```sh
 export CARACAL_ZONE_ID=<zone ID>
@@ -83,7 +83,7 @@ export CARACAL_APPLICATION_ID=<application ID>
 export CARACAL_APP_CLIENT_SECRET=<client secret shown once>
 ```
 
-**Runtime profile** — a `caracal.toml` you author once and reuse. `caracal run` and the SDKs resolve it from `$CARACAL_CONFIG`, then `$XDG_CONFIG_HOME/caracal/caracal.toml`, then the OS Caracal config directory:
+**Runtime profile** - a `caracal.toml` you author once and reuse. `caracal run` and the SDKs resolve it from `$CARACAL_CONFIG`, then `$XDG_CONFIG_HOME/caracal/caracal.toml`, then the OS Caracal config directory:
 
 ```toml
 zone_url = "http://localhost:8080"

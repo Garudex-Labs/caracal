@@ -144,8 +144,8 @@ function occurrences(haystack: string, needle: string): number {
 
 // Extracts the most relevant window of a page body: the position where query terms cluster most
 // densely, expanded to a bounded length and trimmed to clean boundaries, so the snippet shows the
-// model the exact passage that answers the query — an endpoint table or a code block deep in a long
-// page — rather than just the page's opening lines.
+// model the exact passage that answers the query - an endpoint table or a code block deep in a long
+// page - rather than just the page's opening lines.
 function bestSnippet(body: string, terms: string[]): string {
   const lower = body.toLowerCase()
   // Collect every occurrence of every term, then find the window of SNIPPET_CHARS that covers the

@@ -886,7 +886,7 @@ def get_ar_aging(ctx: Ctx) -> dict:
 @base.op(ID, "get_ar_summary")
 def get_ar_summary(ctx: Ctx) -> dict:
     """Receivables management dashboard: total and overdue AR, DSO, write-offs,
-    disputes, credit holds, and open collection cases — the month-end figures
+    disputes, credit holds, and open collection cases - the month-end figures
     the AR controller reports."""
     invoices = list(ctx.state.table("invoices").values())
     for inv in invoices:

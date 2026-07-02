@@ -9,7 +9,7 @@ import { isControlExecutable } from './operator-control-map.js'
 // The reserved principal the Operator executes as. It is distinct from the human
 // operator who approves a plan: the human's authorization is recorded in the admin
 // audit log, while this principal records the attenuated authority that actually
-// applied the change — the Operator's own delegated identity, dogfooding Caracal's
+// applied the change - the Operator's own delegated identity, dogfooding Caracal's
 // delegation model against itself.
 export const OPERATOR_PRINCIPAL = 'system:caracal-operator'
 

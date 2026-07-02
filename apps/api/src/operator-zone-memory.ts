@@ -53,13 +53,13 @@ export async function recallZoneMemory(
 export function describeZoneMemory(entries: ZoneMemoryEntry[] | undefined): string {
   if (!entries || entries.length === 0) return ''
   const lines = entries.map((entry) => `- ${entry.text}`)
-  return `Durable zone memory (persists across conversations — governed changes already applied in this zone):\n${lines.join('\n')}`
+  return `Durable zone memory (persists across conversations - governed changes already applied in this zone):\n${lines.join('\n')}`
 }
 
 // Records a durable memory of a governed change that was actually applied. Called only from
 // inside the execution-recording transaction, so a memory exists exactly when an approved plan
 // reached the control plane: the model proposed, Caracal decided and applied, and this writes a
-// faithful record of the outcome — memory holds no authority of its own. The write is bounded in
+// faithful record of the outcome - memory holds no authority of its own. The write is bounded in
 // length and deduplicated on its text, so a zone's memory cannot grow without limit or accumulate
 // identical repeats from a re-applied plan.
 export async function rememberAppliedChange(

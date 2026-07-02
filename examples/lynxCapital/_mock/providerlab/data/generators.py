@@ -239,7 +239,7 @@ def vendors(seed: str, count: int) -> list[dict]:
 
 
 # --------------------------------------------------------------------------- #
-# Atlas Vendor Network — vendor master data, onboarding, and supplier records
+# Atlas Vendor Network - vendor master data, onboarding, and supplier records
 # --------------------------------------------------------------------------- #
 _ATLAS_CATEGORIES = (
     ("Software", "43230000"),
@@ -645,7 +645,7 @@ def bank_accounts(seed: str, count: int) -> list[dict]:
         account = {
             "accountId": f"ACC-{i:04d}",
             "nickname": f"{purpose} {currency}",
-            "description": f"{_ACCOUNT_PRODUCTS[subtype]} — {purpose}",
+            "description": f"{_ACCOUNT_PRODUCTS[subtype]} - {purpose}",
             "accountType": "Business",
             "accountSubType": subtype,
             "usageType": "ORGA",
@@ -1036,7 +1036,7 @@ def invoices(seed: str, vendor_ids: list[str], count: int) -> list[dict]:
 
 
 # --------------------------------------------------------------------------- #
-# Lumen Identity — LynxCapital internal enterprise directory
+# Lumen Identity - LynxCapital internal enterprise directory
 #
 # Lumen is an in-house directory and IAM platform, not an external provider.
 # It models the company org chart (departments -> teams -> employees), RBAC
@@ -2146,7 +2146,7 @@ def recipients(seed: str, count: int) -> list[dict]:
 
 _MERIDIAN_EPOCH = int(datetime(2026, 1, 1, tzinfo=timezone.utc).timestamp())
 
-# (brand, last4, funding, network) — shaped after the canonical test cards real
+# (brand, last4, funding, network) - shaped after the canonical test cards real
 # card platforms publish so the wire surface looks like a live acceptance gateway.
 _CARDS = (
     ("visa", "4242", "credit", "Visa"),
@@ -2552,7 +2552,7 @@ def meridian_dataset(seed: str) -> dict[str, dict]:
 
 
 # --------------------------------------------------------------------------- #
-# Ironbark ERP — NetSuite / SAP S/4HANA / Dynamics 365 Finance flavored records
+# Ironbark ERP - NetSuite / SAP S/4HANA / Dynamics 365 Finance flavored records
 # --------------------------------------------------------------------------- #
 _GL_CHART = (
     ("1000", "Operating Bank - USD", "Bank", "USD"),
@@ -2773,7 +2773,7 @@ def _po_lines(rng: random.Random) -> list[dict]:
             {
                 "lineId": n,
                 "item": item,
-                "description": f"{item} — PO commitment",
+                "description": f"{item} - PO commitment",
                 "account": account,
                 "quantity": quantity,
                 "quantityReceived": 0,
@@ -2979,7 +2979,7 @@ def ironbark_dataset(seed: str) -> dict[str, dict]:
     """Build a coherent ERP back office: a hierarchical chart of accounts, vendor
     master, purchase orders that flow into item receipts and vendor bills via
     three-way match, vendor payments that settle those bills, and posted journal
-    entries — with vendor balances, unbilled commitments, overdue exposure, and
+    entries - with vendor balances, unbilled commitments, overdue exposure, and
     the AP control account rolled up the way a real ledger keeps them."""
     accounts: dict[str, dict] = {}
     for number, name, acct_type, currency in _GL_CHART:
@@ -3133,7 +3133,7 @@ def ironbark_dataset(seed: str) -> dict[str, dict]:
 
 
 # --------------------------------------------------------------------------- #
-# Junction Procurement — procure-to-pay, modeled on Coupa, SAP Ariba, and Ivalua.
+# Junction Procurement - procure-to-pay, modeled on Coupa, SAP Ariba, and Ivalua.
 # Suppliers, UNSPSC commodities, cost-center budgets with commitment accounting,
 # requisitions with amount-tiered approval chains, and purchase orders that flow
 # into goods receipts. Wire fields are camelCase the way Coupa and Ariba expose.
@@ -3546,7 +3546,7 @@ def junction_dataset(seed: str) -> dict[str, dict]:
     """Build a coherent procure-to-pay back office: a supplier master, a commodity
     catalog, cost-center budgets, a requisition backlog whose approval chains and
     statuses are tier-consistent, and the purchase orders and goods receipts those
-    requisitions flow into — with budget commitment and spend rolled up the way a
+    requisitions flow into - with budget commitment and spend rolled up the way a
     procurement ledger keeps them."""
     suppliers = {
         s["supplierId"]: s for s in (_junction_supplier(seed, i) for i in range(1, 41))
@@ -3648,7 +3648,7 @@ def junction_dataset(seed: str) -> dict[str, dict]:
 
 
 # --------------------------------------------------------------------------- #
-# Cordoba FX — cross-border FX-as-a-service, modeled on Currencycloud and Wise.
+# Cordoba FX - cross-border FX-as-a-service, modeled on Currencycloud and Wise.
 # Mid-market reference, settlement, beneficiary, and payment shapes mirror the
 # real wire format: snake_case fields and decimal-string monetary amounts.
 # --------------------------------------------------------------------------- #
@@ -4084,7 +4084,7 @@ def _fx_short_ref(rng: random.Random, when: datetime) -> str:
 def cordoba_dataset(seed: str) -> dict[str, dict]:
     """Build a coherent FX book: per-currency balances, vendor beneficiaries, a
     history of conversions across the settlement lifecycle, and the cross-border
-    payments those conversions funded — the trail a live FX platform would hold."""
+    payments those conversions funded - the trail a live FX platform would hold."""
     balances: dict[str, dict] = {}
     for currency in ("USD", "EUR", "GBP", "SGD", "BRL", "JPY"):
         rng = _rng(seed, "balance", currency)
@@ -4234,7 +4234,7 @@ def cordoba_dataset(seed: str) -> dict[str, dict]:
 
 
 # --------------------------------------------------------------------------- #
-# Keystone Treasury — corporate treasury management system, flavored after
+# Keystone Treasury - corporate treasury management system, flavored after
 # Kyriba, GTreasury, ION Treasury, and FIS Quantum. A multi-entity group holds
 # bank-account cash positions in several currencies, hedges its FX exposure with
 # forwards and swaps, sweeps and lends cash intercompany, and runs short-term
@@ -4654,7 +4654,7 @@ def keystone_dataset(seed: str) -> dict[str, dict]:
     """Build a coherent treasury book: multi-entity bank-account positions, an FX
     hedge portfolio, intercompany and internal transfers, currency exposures
     derived from those positions and hedges, and a history of short-term treasury
-    operations — the live picture a corporate treasury platform would hold."""
+    operations - the live picture a corporate treasury platform would hold."""
     positions: dict[str, dict] = {}
     for entity in _KEYSTONE_ENTITIES:
         account_count = 3 if entity[3] in ("USD", "EUR") else 2
@@ -4692,7 +4692,7 @@ def keystone_dataset(seed: str) -> dict[str, dict]:
 
 
 # --------------------------------------------------------------------------- #
-# Slate Ledger — general-ledger and financial-close platform, flavored after
+# Slate Ledger - general-ledger and financial-close platform, flavored after
 # Sage Intacct, NetSuite, BlackLine, and FloQast. Accounts carry a normal
 # balance; journals are double-entry with an entry type and source; periods
 # follow a fiscal calendar with a soft/hard close; reconciliations match a
@@ -5098,7 +5098,7 @@ def slate_dataset(seed: str) -> dict[str, dict]:
 
 
 # --------------------------------------------------------------------------- #
-# Tallyhall Books — SMB accounting modeled on QuickBooks Online. Entities carry
+# Tallyhall Books - SMB accounting modeled on QuickBooks Online. Entities carry
 # QBO wire shapes: numeric string Id, SyncToken, MetaData, *Ref{value,name}
 # pointers, Line[] with DetailType, TotalAmt/Balance money, and a realmId company
 # file. Money is the home currency unless a transaction carries its own
@@ -5387,7 +5387,7 @@ def _qbo_bill(seed: str, idx: int, vendor: dict, acct_by_num: dict) -> dict:
         lines.append(
             {
                 "Id": str(ln),
-                "Description": f"{acct['Name']} — {vendor['DisplayName']}",
+                "Description": f"{acct['Name']} - {vendor['DisplayName']}",
                 "Amount": amount,
                 "DetailType": "AccountBasedExpenseLineDetail",
                 "AccountBasedExpenseLineDetail": {
@@ -5532,7 +5532,7 @@ def _qbo_expense(seed: str, idx: int, vendor: dict, acct_by_num: dict) -> dict:
             {
                 "Id": "1",
                 "Amount": amount,
-                "Description": f"{acct['Name']} — {vendor['DisplayName']}",
+                "Description": f"{acct['Name']} - {vendor['DisplayName']}",
                 "DetailType": "AccountBasedExpenseLineDetail",
                 "AccountBasedExpenseLineDetail": {
                     "AccountRef": {"value": acct["Id"], "name": acct["Name"]},
@@ -5633,7 +5633,7 @@ def quickbooks_company(seed: str) -> dict:
 def quickbooks_dataset(seed: str) -> dict[str, dict]:
     """Build a coherent QuickBooks Online company file: chart of accounts, vendor
     and customer lists, items, vendor bills and customer invoices (some open, some
-    paid), cash expenses, posted journal entries, and the payments that link them —
+    paid), cash expenses, posted journal entries, and the payments that link them -
     with the A/P, A/R, and bank control accounts rolled up the way QBO keeps them."""
     accounts = {}
     acct_by_num = {}
@@ -5845,7 +5845,7 @@ def _qbo_roll_balances(
 
 
 # --------------------------------------------------------------------------- #
-# Inkwell OCR — document AI / invoice capture
+# Inkwell OCR - document AI / invoice capture
 # --------------------------------------------------------------------------- #
 _INKWELL_ENGINE = "inkwell-vision-3"
 _INKWELL_API_VERSION = "2026-02-01"
@@ -5963,7 +5963,7 @@ _INKWELL_MODEL_VERSION = {m[0]: m[3] for m in _INKWELL_MODELS}
 _INKWELL_LINE_DESCS = (
     "Managed cloud hosting",
     "Professional services",
-    "Software license — annual",
+    "Software license - annual",
     "Freight and logistics",
     "Hardware components",
     "Consulting retainer",
@@ -6607,7 +6607,7 @@ def index_by(records: list[dict], key: str = "id") -> dict[str, dict]:
 
 
 # --------------------------------------------------------------------------- #
-# Aegis Screening — sanctions / AML / KYB reference data
+# Aegis Screening - sanctions / AML / KYB reference data
 # --------------------------------------------------------------------------- #
 _AEGIS_WATCHLISTS = (
     ("ofac-sdn", "OFAC SDN", "US Treasury OFAC", "sanctions", "US"),
@@ -6914,7 +6914,7 @@ def aegis_reference(seed: str) -> dict:
 
 
 # --------------------------------------------------------------------------- #
-# Verafin Monitor — transaction monitoring / BSA-AML regulatory reference data
+# Verafin Monitor - transaction monitoring / BSA-AML regulatory reference data
 # --------------------------------------------------------------------------- #
 # Monitoring typologies and the weight each contributes to the 0-100 alert score.
 _VERAFIN_TYPOLOGIES = (
@@ -7064,7 +7064,7 @@ def verafin_reference(seed: str) -> dict:
 
 
 # --------------------------------------------------------------------------- #
-# Beacon CRM — accounts, contacts, deal pipeline, activities, notes, relations
+# Beacon CRM - accounts, contacts, deal pipeline, activities, notes, relations
 # --------------------------------------------------------------------------- #
 # A HubSpot/Pipedrive-style customer and vendor relationship dataset: companies
 # (accounts) hold people (contacts), deals move through a single sales pipeline
@@ -7115,7 +7115,7 @@ _CRM_TAGS = (
 )
 _CRM_DEAL_THEMES = (
     "Annual Platform Renewal",
-    "Expansion — Additional Seats",
+    "Expansion - Additional Seats",
     "New Implementation",
     "Managed Services Agreement",
     "Pilot Program",
@@ -7362,7 +7362,7 @@ def _crm_deal(seed: str, idx: int, account: dict, contact: dict) -> dict:
     amount = round(rng.uniform(5_000, 400_000), 2)
     deal = {
         "id": f"DEAL-{idx:05d}",
-        "title": f"{account['name']} — {rng.choice(_CRM_DEAL_THEMES)}",
+        "title": f"{account['name']} - {rng.choice(_CRM_DEAL_THEMES)}",
         "accountId": account["id"],
         "contactId": contact["id"],
         "pipeline": CRM_PIPELINE,
@@ -7511,7 +7511,7 @@ def crm_dataset(seed: str) -> dict[str, dict]:
 
 
 # --------------------------------------------------------------------------- #
-# Sabre Tax — tax determination reference data
+# Sabre Tax - tax determination reference data
 # US sales/use tax rolls up state + county + city + special district components;
 # international transaction tax is a single VAT/GST/consumption rate. Withholding
 # follows the US FDAP model: a 30% statutory rate reduced by bilateral treaties,
@@ -8195,7 +8195,7 @@ def sabre_dataset(seed: str) -> dict[str, dict]:
 
 
 # --------------------------------------------------------------------------- #
-# Vela Notify — transactional email + SMS notification platform
+# Vela Notify - transactional email + SMS notification platform
 # --------------------------------------------------------------------------- #
 _VELA_EMAIL_DOMAIN = "notifications.lynxcapital.test"
 _VELA_SMS_SENDER = "LYNXCAP"
@@ -8244,7 +8244,7 @@ _VELA_TEMPLATE_DEFS: tuple[dict, ...] = (
     },
     {
         "alias": "dunning_reminder",
-        "name": "Dunning — Friendly Reminder",
+        "name": "Dunning - Friendly Reminder",
         "channels": ("email", "sms"),
         "stream": "outbound-transactional",
         "category": "dunning",
@@ -8269,7 +8269,7 @@ _VELA_TEMPLATE_DEFS: tuple[dict, ...] = (
     },
     {
         "alias": "dunning_second_notice",
-        "name": "Dunning — Second Notice",
+        "name": "Dunning - Second Notice",
         "channels": ("email", "sms"),
         "stream": "outbound-transactional",
         "category": "dunning",
@@ -8294,7 +8294,7 @@ _VELA_TEMPLATE_DEFS: tuple[dict, ...] = (
     },
     {
         "alias": "dunning_final_notice",
-        "name": "Dunning — Final Notice",
+        "name": "Dunning - Final Notice",
         "channels": ("email", "sms"),
         "stream": "outbound-transactional",
         "category": "dunning",
@@ -8768,7 +8768,7 @@ def vela_dataset(seed: str) -> dict[str, dict]:
 
 
 # --------------------------------------------------------------------------- #
-# Core Billing — LynxCapital's internal accounts-receivable and billing
+# Core Billing - LynxCapital's internal accounts-receivable and billing
 # platform. Not a third-party SaaS: it is the system the finance org runs to
 # invoice customers, apply cash, age receivables, drive dunning, and escalate
 # collections. Data is generated as a coherent sub-ledger where customer

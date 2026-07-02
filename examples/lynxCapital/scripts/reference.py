@@ -55,7 +55,7 @@ async def demonstrate_worker(runner, role: str, scope: str) -> None:
             views[0], sorted(authority.scopes)[:1], ctx=authority.ctx
         )
         print(f"  {role}: session={authority.agent_session_id}  mandate for {views[0]} ({len(token)} chars)")
-    except Exception as exc:  # noqa: BLE001 — surface the failure class, fail closed.
+    except Exception as exc:  # noqa: BLE001 - surface the failure class, fail closed.
         print(f"  {role}: mandate denied/failed ({type(exc).__name__}: {exc})")
     finally:
         handle.terminate()

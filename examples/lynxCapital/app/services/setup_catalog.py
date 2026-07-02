@@ -23,7 +23,7 @@ CREDENTIAL_REQUIREMENTS = {
     "api_key": "API key",
     "bearer_token": "Bearer token",
     "none": "No provider credential",
-    "caracal_mandate": "None — the Gateway forwards the agent's Caracal mandate",
+    "caracal_mandate": "None - the Gateway forwards the agent's Caracal mandate",
 }
 
 _ENV_REF = re.compile(r"\$\{([A-Z0-9_]+)(?::[^}]*)?\}")

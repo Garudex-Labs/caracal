@@ -94,8 +94,8 @@ agent's environment in sync with a declared plan through this flow.
 `resource create` and the other per-object verbs are imperative: the caller must
 know whether an object already exists and choose create or patch. For real
 automation, declare the desired state once and let the server converge to it. The
-reconciliation logic lives in the engine, so every adopter — any language, any
-device — gets identical behavior without reimplementing a client-side diff.
+reconciliation logic lives in the engine, so every adopter - any language, any
+device - gets identical behavior without reimplementing a client-side diff.
 
 Three operations cover the full lifecycle, all keyed on each object's stable
 identity (application `name`, provider and resource `identifier`, policy and
@@ -154,7 +154,7 @@ Key properties that make this safe to wire into a pipeline:
   on one is recorded in its outcome and does not abort the rest, so a re-run heals
   partial state. No partial-zone rollback is needed.
 - **Least-privilege.** `state` and `ensure` hold no scope of their own. They
-  authorize each object against the per-noun scope it touches — `apply` of a
+  authorize each object against the per-noun scope it touches - `apply` of a
   resource needs `control:resource:write`, `verify` needs only
   `control:resource:read`, and `--prune` needs `control:<noun>:delete`. A key
   scoped to read can run `plan`/`verify` but never write.
@@ -166,13 +166,13 @@ Key properties that make this safe to wire into a pipeline:
 
 The `idempotency-key` flag is recorded on the audit event so a retried deployment
 correlates to its original attempt. Because reconciliation is convergent, the key
-is for traceability — a retry never double-creates regardless of the key.
+is for traceability - a retry never double-creates regardless of the key.
 
 ## Run From Another Device
 
 The Control API is the machine surface; Console is the human surface. When Console
 and the API service run on a cloud host, an operator's laptop or a CI runner drives
-management remotely over the network — there is no requirement to run the script on
+management remotely over the network - there is no requirement to run the script on
 the same machine as the API.
 
 A remote caller needs only three things:
@@ -242,7 +242,7 @@ Prefer `state apply` or `ensure`. The imperative verbs require the caller to kno
 whether an object exists; the declarative operations converge from any starting
 state and are safe to repeat.
 
-**My second `apply` reports `unchanged` everywhere — is that a bug?**
+**My second `apply` reports `unchanged` everywhere - is that a bug?**
 No. That is the idempotent path. `apply` only writes when an object is missing or
 drifted. Check the `summary` and `drift` fields to confirm.
 
@@ -284,14 +284,14 @@ need them directly.
 
 Control keys are created and managed in Console from the **Control** menu. A key is
 a managed, zone-bound application whose only authority is the
-`control:<command>:<verb>` scopes you grant it — never the root admin token.
+`control:<command>:<verb>` scopes you grant it - never the root admin token.
 
 When you create a key, Console opens a grouped permission picker:
 
 - Each command is a group shown as `control:<command>:*` (for example
   `control:agent:*`). Toggling a group grants every action under that command.
-- Reveal a group to expand its branch and grant a single action — `read`,
-  `write`, or `delete` — instead of the whole command.
+- Reveal a group to expand its branch and grant a single action - `read`,
+  `write`, or `delete` - instead of the whole command.
 - Selections are checkboxes that persist while you move through the tree; the key
   is written with exactly the scopes you keep when you save.
 

@@ -49,7 +49,7 @@ export interface Capability {
   title: string
   summary: string
   domain: CapabilityDomain
-  // Authoritative effect classification. The catalog — never a caller or a model —
+  // Authoritative effect classification. The catalog - never a caller or a model -
   // decides whether a step changes state, so a plan cannot be approved under a
   // mislabeled read-only flag.
   mutating: boolean
@@ -418,7 +418,7 @@ export const CAPABILITIES: Record<string, Capability> = {
 export function describeCapabilitiesForPrompt(): string {
   return Object.values(CAPABILITIES)
     .sort((a, b) => a.id.localeCompare(b.id))
-    .map((c) => `- ${c.id} [${c.mutating ? 'changes state' : 'read-only'}] args: ${c.argsHint} — ${c.summary}`)
+    .map((c) => `- ${c.id} [${c.mutating ? 'changes state' : 'read-only'}] args: ${c.argsHint} - ${c.summary}`)
     .join('\n')
 }
 

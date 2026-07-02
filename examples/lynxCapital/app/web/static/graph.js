@@ -1157,7 +1157,7 @@ function drawFlows(layout) {
         group,
         [
           `${titleCase(agent?.role || 'agent')} → ${titleCase(flow.providerId)}`,
-          `Last action: ${flow.lastAction || '—'}`,
+          `Last action: ${flow.lastAction || '-'}`,
           `Status: ${statusLabel(fs)}`,
           `Calls: ${flow.calls} (${flow.ok} ok · ${flow.blocked} blocked · ${flow.failed} failed)`,
           flow.lastReason ? `Detail: ${flow.lastReason}` : '',

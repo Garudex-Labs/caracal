@@ -242,7 +242,7 @@ services:
     image: caracal-web
     port: 3002
     # The external HTTPS origin browsers load; also the only trusted same-origin for
-    # credentialed requests. Required — set this to your public hostname.
+    # credentialed requests. Required - set this to your public hostname.
     publicUrl: https://caracal.example.com
     databaseSsl: require
     # Better Auth schema provisioning. Keep "false" for multi-replica deployments: the

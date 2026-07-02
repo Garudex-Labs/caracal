@@ -1,8 +1,8 @@
 # Provider Preflight
 
 A pre-launch checklist for a provider-backed resource. One command checks that
-everything a Gateway request depends on — control plane, Gateway, application,
-provider, upstream, and policy — is actually ready, and prints a fix for
+everything a Gateway request depends on - control plane, Gateway, application,
+provider, upstream, and policy - is actually ready, and prints a fix for
 anything that is not.
 
 Without it, a broken link in that chain shows up as an opaque `401`/`502` on
@@ -14,7 +14,7 @@ and from CI before each deploy.
 ```bash
 cd examples/providerPreflight
 
-# Zero setup — offline tests show every check pass and fail:
+# Zero setup - offline tests show every check pass and fail:
 node --test
 
 # Against your deployment:
@@ -37,7 +37,7 @@ No zone yet? Bootstrap one with `examples/controlBootstrap` first.
 | dependencies | The resource is bound to a provider and application, and the application exists and is not expired. |
 | configuration | Provider config is complete for its kind, requested scopes are declared on the resource, runtime injection is allowed when required. |
 | connectivity | OAuth token endpoint, callback origin, and upstream are HTTPS/public/reachable. |
-| authorization | The active policy set returns `allow` for this application, resource, and scopes — simulated with the same input a real token exchange uses. |
+| authorization | The active policy set returns `allow` for this application, resource, and scopes - simulated with the same input a real token exchange uses. |
 
 ## Output
 
@@ -56,9 +56,9 @@ failed, `2` the preflight itself could not run.
 
 ## Options
 
-- `PREFLIGHT_GATEWAY_URL` — also probe the Gateway's `/ready` endpoint.
-- `PREFLIGHT_REQUIRE_RUNTIME_INJECTION=true` — require runtime-injection eligibility.
-- `PREFLIGHT_OUTPUT=json` — JSON report for CI.
+- `PREFLIGHT_GATEWAY_URL` - also probe the Gateway's `/ready` endpoint.
+- `PREFLIGHT_REQUIRE_RUNTIME_INJECTION=true` - require runtime-injection eligibility.
+- `PREFLIGHT_OUTPUT=json` - JSON report for CI.
 
 Note: reachability checks probe from the host running the script; run from a
 network position comparable to the Gateway for meaningful results.

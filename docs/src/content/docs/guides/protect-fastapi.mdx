@@ -39,7 +39,7 @@ async def create_payout(request: Request):
     return {"actor": principal.sub, "agent": principal.agent_session_id}
 ```
 
-With `CARACAL_STS_URL` and `CARACAL_ZONE_ID` set — the standard Caracal workload variables — the middleware resolves the issuer and zone itself; you state only your own audience and revocation store. Requests reach your handlers only after the mandate's signature, issuer, audience, zone, token use, scopes, and revocation anchors all verify.
+With `CARACAL_STS_URL` and `CARACAL_ZONE_ID` set - the standard Caracal workload variables - the middleware resolves the issuer and zone itself; you state only your own audience and revocation store. Requests reach your handlers only after the mandate's signature, issuer, audience, zone, token use, scopes, and revocation anchors all verify.
 
 ## Enforce the right boundary
 

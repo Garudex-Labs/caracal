@@ -24,7 +24,7 @@ const MAX_BODY_BYTES = 64 * 1024
 // The header the in-process Operator stamps to act in a tenant zone's live state. The token is
 // minted in the Operator's own (system) zone; this names the zone the command targets. It is
 // honored only for the reserved Operator subject, so it grants the platform identity governance of
-// the targeted zone and nothing else — a tenant's own control key can never use it to reach another
+// the targeted zone and nothing else - a tenant's own control key can never use it to reach another
 // zone. The Operator governs every zone it operates in, so the header carries both reads and the
 // approval-gated mutations the Operator applies on the user's behalf.
 const ZONE_SCOPE_HEADER = 'x-caracal-zone-scope'

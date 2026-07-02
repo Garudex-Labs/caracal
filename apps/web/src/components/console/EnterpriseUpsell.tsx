@@ -199,7 +199,7 @@ export function EnterpriseUpsell({ feature }: { feature: LockedFeature }) {
           </ul>
 
           <p className="mt-4 text-xs leading-relaxed text-white/40">
-            {feature.community} {feature.title} activates right here when you upgrade — no
+            {feature.community} {feature.title} activates right here when you upgrade - no
             migration.
           </p>
 

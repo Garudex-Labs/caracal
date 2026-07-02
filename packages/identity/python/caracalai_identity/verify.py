@@ -152,7 +152,7 @@ async def verify_token(
 
     # STS serves one signing keyset per zone, so the JWKS fetch needs a zone.
     # The configured zone wins; otherwise the unverified zone_id claim selects
-    # the keyset, which is safe because it only routes the key lookup — the
+    # the keyset, which is safe because it only routes the key lookup - the
     # signature check against that zone's keys then proves the claim.
     fetch_zone = expected_zone_id
     if not fetch_zone:

@@ -15,7 +15,7 @@ Caracal packages and services use a shared machine-readable error shape.
 }
 ```
 
-`details` appears only when a service or package provides structured context. The same code can be emitted by different surfaces — an `access_denied` from STS is a policy decision, while an `access_denied` surfaced by an in-process verifier is a missing scope on an otherwise valid mandate. Use the `requestId` with the web console **Audit** decision trace to confirm which surface produced the error before acting.
+`details` appears only when a service or package provides structured context. The same code can be emitted by different surfaces - an `access_denied` from STS is a policy decision, while an `access_denied` surfaced by an in-process verifier is a missing scope on an otherwise valid mandate. Use the `requestId` with the web console **Audit** decision trace to confirm which surface produced the error before acting.
 
 ## Well-Known Codes
 

@@ -119,11 +119,11 @@ Start every substantial update with the current phase, release context, and the 
 For release findings, report:
 
 - **Title**
-- **Severity** — Blocker / Warning / Info
-- **Phase** — intake / package review / readiness / dry run / publish / post-publish
-- **Evidence** — commands, logs, files, registry responses, or workflow jobs checked
-- **Impact** — what would break or remain unsafe
-- **Required action** — the exact fix, user decision, credential, or approval needed
+- **Severity** - Blocker / Warning / Info
+- **Phase** - intake / package review / readiness / dry run / publish / post-publish
+- **Evidence** - commands, logs, files, registry responses, or workflow jobs checked
+- **Impact** - what would break or remain unsafe
+- **Required action** - the exact fix, user decision, credential, or approval needed
 
 For final success, state only after all are true:
 

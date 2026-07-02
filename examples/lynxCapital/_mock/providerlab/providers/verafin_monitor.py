@@ -396,7 +396,7 @@ def _open_case(state: base.State, alert: dict, ctx: Ctx, reason: str) -> dict:
     case = {
         "caseId": base.new_id("case"),
         "caseNumber": _next_number(state, "caseSeq", "CASE"),
-        "title": f"{alert['typology']} investigation — {alert['transactionId']}",
+        "title": f"{alert['typology']} investigation - {alert['transactionId']}",
         "customerId": alert.get("customerId"),
         "subjectCustomerIds": [alert["customerId"]] if alert.get("customerId") else [],
         "status": "open",
@@ -811,7 +811,7 @@ def _next_number(state: base.State, kind: str, prefix: str) -> str:
 
 
 # --------------------------------------------------------------------------- #
-# operations — monitoring
+# operations - monitoring
 # --------------------------------------------------------------------------- #
 @base.op(ID, "monitor_transaction")
 def monitor_transaction(ctx: Ctx) -> dict:
@@ -961,7 +961,7 @@ def resolve_alert(ctx: Ctx) -> dict:
 
 
 # --------------------------------------------------------------------------- #
-# operations — investigation cases
+# operations - investigation cases
 # --------------------------------------------------------------------------- #
 @base.op(ID, "open_case")
 def open_case(ctx: Ctx) -> dict:
@@ -1067,7 +1067,7 @@ def resolve_case(ctx: Ctx) -> dict:
 
 
 # --------------------------------------------------------------------------- #
-# operations — regulatory filings
+# operations - regulatory filings
 # --------------------------------------------------------------------------- #
 @base.op(ID, "prepare_filing")
 def prepare_filing(ctx: Ctx) -> dict:
@@ -1181,7 +1181,7 @@ def amend_filing(ctx: Ctx) -> dict:
 
 
 # --------------------------------------------------------------------------- #
-# operations — controls + attestation
+# operations - controls + attestation
 # --------------------------------------------------------------------------- #
 @base.op(ID, "list_controls")
 def list_controls(ctx: Ctx) -> dict:
@@ -1238,7 +1238,7 @@ def list_attestations(ctx: Ctx) -> dict:
 
 
 # --------------------------------------------------------------------------- #
-# operations — audit + delegation traceability
+# operations - audit + delegation traceability
 # --------------------------------------------------------------------------- #
 @base.op(ID, "get_audit_trail")
 def get_audit_trail(ctx: Ctx) -> dict:
@@ -1268,7 +1268,7 @@ def get_audit_trail(ctx: Ctx) -> dict:
 
 
 # --------------------------------------------------------------------------- #
-# operations — program posture
+# operations - program posture
 # --------------------------------------------------------------------------- #
 def _tally(values, key) -> dict:
     counts: dict[str, int] = {}

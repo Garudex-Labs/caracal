@@ -78,7 +78,7 @@ function pageId(url) {
 }
 
 // Strip the body to retrieval-useful prose: drop fenced diagrams that carry no searchable terms,
-// collapse runs of blank lines, and cap the length. Code blocks are kept — they hold the exact
+// collapse runs of blank lines, and cap the length. Code blocks are kept - they hold the exact
 // package names, endpoints, and snippets the Operator must quote correctly.
 function cleanBody(lines) {
   const text = lines.join('\n')

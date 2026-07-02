@@ -369,8 +369,8 @@ export function useCreateOperatorPlan(zoneId: string | null, conversationId: str
   });
 }
 
-// A failed plan action whose error names a state the server already moved past — the plan was
-// decided or executed elsewhere, vanished, or the conversation was archived — means the local
+// A failed plan action whose error names a state the server already moved past - the plan was
+// decided or executed elsewhere, vanished, or the conversation was archived - means the local
 // timeline is stale. Re-reading it lets the card settle on the authoritative outcome instead of
 // stranding the operator on a control that can no longer apply, which also defuses a duplicate
 // submission racing a first one.

@@ -102,7 +102,7 @@ def _overview_pages() -> dict[str, dict]:
             "intro": (
                 "Your instruction starts as business intent, moves through Finance "
                 "Control and workflow agents, and reaches each provider through "
-                "Caracal — which brokers identity, policy, and access on every call."
+                "Caracal - which brokers identity, policy, and access on every call."
             ),
             "body": [
                 (
@@ -298,7 +298,7 @@ def _caracal_steps() -> list[dict[str, object]]:
         {
             "step": "06",
             "title": "Run agents as labeled Caracal sessions",
-            "path": "Application code — AgentRunner.spawn(role, ...) per agent",
+            "path": "Application code - AgentRunner.spawn(role, ...) per agent",
             "consoleFields": [
                 {"label": "Roles", "value": role_names},
                 {"label": "Identity", "value": "labels [role, lynx-swarm] + run/agent metadata"},

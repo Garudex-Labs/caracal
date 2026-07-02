@@ -62,7 +62,7 @@ describe('executorRoleScopes', () => {
 
   it('carries no write scope when the authority grants nothing mutating', () => {
     // An empty allowlist is impossible to express directly (build defaults to all), so assert the
-    // researcher role — which never includes a write scope — is a strict subset of the executor.
+    // researcher role - which never includes a write scope - is a strict subset of the executor.
     const exec = executorRoleScopes(buildOperatorAuthority())
     for (const scope of researcherRoleScopes()) expect(exec.has(scope)).toBe(true)
   })

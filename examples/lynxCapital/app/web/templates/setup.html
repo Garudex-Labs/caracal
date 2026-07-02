@@ -236,7 +236,7 @@ OPENAI_API_KEY={{ setup_env.openaiKey }}</pre>
             <div class="map-row"><dt>Scopes</dt><dd>{{ provider.scopes }}</dd></div>
             <div class="map-row"><dt>Credentials</dt><dd>{{ provider.credentials }}</dd></div>
             {% for view in provider.views %}
-            <div class="map-row"><dt>View ({{ view.application }})</dt><dd>{{ view.identifier }} — {{ view.scopes }}</dd></div>
+            <div class="map-row"><dt>View ({{ view.application }})</dt><dd>{{ view.identifier }} - {{ view.scopes }}</dd></div>
             {% endfor %}
             {% if provider.configEnv %}
             <div class="map-row"><dt>Env</dt><dd>{{ provider.configEnv|join(', ') }}</dd></div>
@@ -256,7 +256,7 @@ OPENAI_API_KEY={{ setup_env.openaiKey }}</pre>
   <section class="setup-panel" data-setup-panel="validation" aria-labelledby="validation-heading" hidden>
     <div class="section-head">
       <h2 id="validation-heading">Validation</h2>
-      <p>Checks your configuration only — not backend services. Runs when this tab opens.</p>
+      <p>Checks your configuration only - not backend services. Runs when this tab opens.</p>
     </div>
     <div class="validation-list" id="validation-results" aria-live="polite">
       <div class="validation-row" data-check="identity">

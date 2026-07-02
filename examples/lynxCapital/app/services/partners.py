@@ -569,7 +569,7 @@ def call(provider_id: str, operation: str, payload: dict, authority=None) -> dic
     """Run a single business operation against one partner.
 
     No provider is reachable without Caracal. When Caracal is configured, every call routes
-    through the Gateway under the calling agent's WorkerAuthority — its mandate, its
+    through the Gateway under the calling agent's WorkerAuthority - its mandate, its
     application's resource view, and the operation's scope. Otherwise the call fails closed,
     except in explicit LYNX_SIMULATION mode where the bundled simulated provider surface is
     served directly for the offline demo and tests."""

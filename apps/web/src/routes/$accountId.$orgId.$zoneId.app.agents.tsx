@@ -1234,7 +1234,7 @@ function invocationTone(status: InvocationStatus): "success" | "warning" | "dang
 
 // Authoritative record of what the agent actually did: the durable audit events correlated
 // by agent_session_id (token issuance, resource calls, denials), newest first. This is the
-// core of the agent audit — it answers "what happened" beyond the current lifecycle state.
+// core of the agent audit - it answers "what happened" beyond the current lifecycle state.
 function AgentActivity({ zoneId, sessionId }: { zoneId: string; sessionId: string }) {
   const activity = useAgentActivity(zoneId, sessionId);
   const events = activity.data?.rows ?? [];

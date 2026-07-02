@@ -8,8 +8,8 @@ This page turns the [Choose a Cloud Profile](/operations/cloud-native-profiles/)
 
 The reference artifacts live in `infra/helm/caracal/examples`:
 
-- `values.cloud-managed.yaml` — production overlay with externalized state, cert-manager TLS web ingress, ServiceMonitor, and tightened egress.
-- `external-secrets/` — External Secrets Operator stores for AWS, GCP, and Azure plus one cloud-agnostic `ExternalSecret`.
+- `values.cloud-managed.yaml` - production overlay with externalized state, cert-manager TLS web ingress, ServiceMonitor, and tightened egress.
+- `external-secrets/` - External Secrets Operator stores for AWS, GCP, and Azure plus one cloud-agnostic `ExternalSecret`.
 
 ## Prerequisites
 
@@ -78,7 +78,7 @@ Caracal database migrations are forward-only by design. Plan upgrades as roll-fo
 
 ## Why No Terraform Module
 
-Caracal ships standardized, portable interfaces — External Secrets Operator, cert-manager, and the Helm chart — rather than per-cloud infrastructure-as-code modules. This keeps the deployment surface agnostic and avoids coupling Caracal to a single provider's resource model. Use your own IaC to provision the managed Postgres, Redis, secret manager, and cluster, then apply these artifacts.
+Caracal ships standardized, portable interfaces - External Secrets Operator, cert-manager, and the Helm chart - rather than per-cloud infrastructure-as-code modules. This keeps the deployment surface agnostic and avoids coupling Caracal to a single provider's resource model. Use your own IaC to provision the managed Postgres, Redis, secret manager, and cluster, then apply these artifacts.
 
 ## Validation
 

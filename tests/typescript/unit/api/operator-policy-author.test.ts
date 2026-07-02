@@ -75,7 +75,7 @@ describe('runPolicyAuthor', () => {
     const doc = result.value.documents[0]
     expect(doc.content).toBe(VALID_DOC)
     // The preview is Caracal's own reading of the content, so it reports the data rules and the input
-    // and data paths the document references — never the model's claim.
+    // and data paths the document references - never the model's claim.
     expect(doc.preview?.package).toBe('caracal.authz')
     expect(doc.preview?.rules).toContain('grants')
     expect(result.value.schemaVersion).toBe(OPA_INPUT_SCHEMA_VERSION)

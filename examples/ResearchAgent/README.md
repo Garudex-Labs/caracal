@@ -2,7 +2,7 @@
 
 A terminal Q&A agent that answers questions from your Google Drive documents
 and Calendar events using OpenAI (**GPT-5.4 mini**). It is a plain Node.js
-program with **no Caracal dependency** — `caracal run` injects the three
+program with **no Caracal dependency** - `caracal run` injects the three
 provider credentials when it starts:
 
 | Injected env | Resource | Used for |
@@ -58,7 +58,7 @@ files. `caracal run` replaces that:
 
 The agent needs zero changes: it just reads provider-native env vars, like
 any existing tool. Started directly with `node agent.mjs`, it exits with
-code 2 before any network call — the credentials only exist when the
+code 2 before any network call - the credentials only exist when the
 launcher injects them.
 
 ## One-time setup
@@ -134,7 +134,7 @@ not secret; it only says which resource fills which env var.
 use `caracal_mandate` only for workloads that consume Caracal mandates.
 
 `env.example` carries the matching bootstrap variables (`CARACAL_ZONE_ID`,
-`CARACAL_APPLICATION_ID`, `CARACAL_RUN_TTL_SECONDS`) — never provider
+`CARACAL_APPLICATION_ID`, `CARACAL_RUN_TTL_SECONDS`) - never provider
 secrets. Alternatively, put everything in a TOML runtime profile and point
 `CARACAL_CONFIG` at it.
 
@@ -159,5 +159,5 @@ secrets. Alternatively, put everything in a TOML runtime profile and point
 
 Good to know: injected env vars are static for the process lifetime, so
 long-running agents must finish before the TTL or be relaunched. The same
-launch pattern works in CI jobs, container entrypoints, and schedulers —
+launch pattern works in CI jobs, container entrypoints, and schedulers -
 anywhere a process starts with `caracal run --`.

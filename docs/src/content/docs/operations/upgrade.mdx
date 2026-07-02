@@ -4,7 +4,7 @@ description: Upgrade Caracal safely across images, Helm chart values, migrations
 pageType: workflow
 ---
 
-Caracal upgrades are forward-only at the database layer. Every release ships **expand-only** schema changes: new migrations are backward compatible with the previous application version, so the database can be migrated while the old version is still serving. This removes the maintenance window — the schema moves first, then services roll onto it.
+Caracal upgrades are forward-only at the database layer. Every release ships **expand-only** schema changes: new migrations are backward compatible with the previous application version, so the database can be migrated while the old version is still serving. This removes the maintenance window - the schema moves first, then services roll onto it.
 
 Contract-phase changes (dropping, renaming, retyping, or tightening a column to `NOT NULL`) are split into a later release and must be tagged `-- caracal:phase contract`. CI (`validateMigrations.sh`) rejects untagged contract changes so the no-window guarantee cannot silently regress.
 

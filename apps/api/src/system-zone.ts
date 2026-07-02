@@ -10,7 +10,7 @@ import { CONTROL_CAPABILITIES } from './operator-control-map.js'
 
 // The reserved system zone, encoded per the caracal.sys namespace standard: a slug in the
 // caracal-sys- form and a name in the caracal.sys/ form. Both are reserved, so only a
-// global-scope platform actor may create them — exactly the bootstrap admin identity the
+// global-scope platform actor may create them - exactly the bootstrap admin identity the
 // provisioner runs as.
 export const SYSTEM_ZONE_SLUG = 'caracal-sys-internal'
 export const SYSTEM_ZONE_NAME = 'caracal.sys/system'
@@ -118,8 +118,8 @@ const LLM_RESOURCE_PREFIX = 'caracal-sys://operator-llm-'
 
 // Authors the system zone's data-document policy: the platform decision contract reads
 // app_ids and grants to decide a data-plane exchange, and this document supplies them for
-// the Operator. The content is deterministic — resource identifiers are sorted and the
-// objects are rendered as canonical JSON — so an unchanged grant set produces an identical
+// the Operator. The content is deterministic - resource identifiers are sorted and the
+// objects are rendered as canonical JSON - so an unchanged grant set produces an identical
 // document and the reconciler adds no new policy version.
 export function authorOperatorPolicy(operatorAppId: string, resourceIdentifiers: string[]): string {
   const grants: Record<string, unknown> = {}
@@ -145,7 +145,7 @@ function sameTraitSet(live: readonly string[] | undefined, desired: readonly str
 // deterministic lookup the provisioner depends on instead of scanning a page of the zone
 // list: the system zone is created at first boot (the oldest zone), so in a deployment with
 // more than one page of zones it would fall off the newest-first first page and a list scan
-// would miss it — then try to create it and conflict on the unique slug. Looking it up by
+// would miss it - then try to create it and conflict on the unique slug. Looking it up by
 // slug finds it regardless of zone count or archival, so provisioning stays convergent.
 export type FindZoneBySlug = (slug: string) => Promise<{ id: string } | null>
 
@@ -162,7 +162,7 @@ async function ensureOperatorIdentity(admin: AdminClient, zoneId: string, secret
   if (!existing) {
     const created = await admin.applications.create(zoneId, { name: OPERATOR_APP_NAME, registration_method: 'managed', traits })
     // Set the identity's secret to the sealed, configured value, so the running secret is
-    // the platform's source of truth — supporting rotation by config change plus restart —
+    // the platform's source of truth - supporting rotation by config change plus restart -
     // rather than the one-time secret minted at creation and never persisted.
     await admin.applications.patch(zoneId, created.id, { client_secret: secret })
     return created.id
@@ -288,7 +288,7 @@ async function ensureLlmResource(
 // content changed or no version is active, which self-heals a deactivated set without
 // churning a steady state. A zone has exactly one active policy-set, so this reuses the
 // reserved-named set rather than creating a new one each run. When there are no grants and no
-// system policy already exists, it creates nothing — a deployment that never governs an
+// system policy already exists, it creates nothing - a deployment that never governs an
 // upstream gets no empty artifacts.
 async function ensureOperatorPolicySet(
   admin: AdminClient,
@@ -339,7 +339,7 @@ async function ensureOperatorPolicySet(
 // clean. The grant is revoked separately by the policy-set reconcile, so the removed upstream
 // loses both its authorization and its key. The LLM resource is deliberately left in place: a
 // non-control resource must always carry a credential provider and gateway binding (it cannot
-// be neutralized in place), and once its grant and provider are gone it is inert — no grant
+// be neutralized in place), and once its grant and provider are gone it is inert - no grant
 // means no mandate and no gateway access. Leaving it also avoids the global-unique identifier
 // conflict that archiving then re-adding would cause, and a later re-add patches it straight
 // back to a fresh provider.

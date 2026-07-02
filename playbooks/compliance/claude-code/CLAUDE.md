@@ -31,18 +31,18 @@ Scope to review:
 
 Mark every requirement with exactly one label. Reproduce these definitions verbatim at the top of your report so a reader knows what each label means. You decide the label yourself from codebase evidence; never carry over a status from this prompt, a prior report, or the published docs.
 
-- **Covered** — Caracal implements the requirement in code, schema, CI, or the release pipeline, verifiable at a cited path.
-- **Partially covered** — Caracal implements part of the requirement or bounds the risk, but full coverage depends on operator configuration or application behavior.
-- **Not covered** — The requirement falls within a domain Caracal could address as a software control, but this codebase does not implement it; it is the adopter's or another system's responsibility.
-- **Not applicable** — The requirement does not map to Caracal's function — for example model behavior, model output, an organizational process, or data-subject content. If Caracal only supplies an input to such a requirement, note that in the row but keep the label Not applicable.
+- **Covered** - Caracal implements the requirement in code, schema, CI, or the release pipeline, verifiable at a cited path.
+- **Partially covered** - Caracal implements part of the requirement or bounds the risk, but full coverage depends on operator configuration or application behavior.
+- **Not covered** - The requirement falls within a domain Caracal could address as a software control, but this codebase does not implement it; it is the adopter's or another system's responsibility.
+- **Not applicable** - The requirement does not map to Caracal's function - for example model behavior, model output, an organizational process, or data-subject content. If Caracal only supplies an input to such a requirement, note that in the row but keep the label Not applicable.
 
 The boundary between Not covered and Not applicable is the **function test**: if the requirement is outside what Caracal does as a software control, it is Not applicable; if it is inside Caracal's domain but unimplemented here, it is Not covered. Apply this test explicitly for every borderline item.
 
 ## Method
 
 1. Inspect the repository, docs, tests, Helm/Compose, CI workflows, governance docs, playbooks, and operational scripts before writing anything.
-2. For each framework in scope, first lay out the standard's own requirements in the standard's own terms — every control ID, article, criterion, or item it actually defines (each OWASP ASI item and Agent Traceability, each NIST AI RMF function, each EU AI Act article relevant to a provider or deployer, each SOC 2 Trust Services Criterion, each AARM control R1–R9). Work from the real structure of the standard, not a summary. State each requirement before you judge it. If you are not certain of a requirement's exact identifier or text, say so rather than inventing it.
-3. Evaluate each requirement individually against this codebase and assign a status using the vocabulary above. Drive every decision from what the code, schema, migrations, CI, and docs actually show — not from intent, marketing, or a prior report. Apply the function test for every Not covered vs Not applicable call.
+2. For each framework in scope, first lay out the standard's own requirements in the standard's own terms - every control ID, article, criterion, or item it actually defines (each OWASP ASI item and Agent Traceability, each NIST AI RMF function, each EU AI Act article relevant to a provider or deployer, each SOC 2 Trust Services Criterion, each AARM control R1–R9). Work from the real structure of the standard, not a summary. State each requirement before you judge it. If you are not certain of a requirement's exact identifier or text, say so rather than inventing it.
+3. Evaluate each requirement individually against this codebase and assign a status using the vocabulary above. Drive every decision from what the code, schema, migrations, CI, and docs actually show - not from intent, marketing, or a prior report. Apply the function test for every Not covered vs Not applicable call.
 4. Ground each mapping in real control points. Expected high-signal locations:
    - STS issuance and Gateway enforcement: `services/sts/`, `services/gateway/internal/`
    - Identity verification and token exchange: `packages/identity/`, `packages/oauth/`

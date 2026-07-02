@@ -8,10 +8,10 @@ This page is the single source of truth for evaluating Caracal's security postur
 
 Each control carries a status:
 
-- **Implemented** — enforced in code, CI, or the release pipeline today.
-- **Documented** — a stated policy or expectation the project operates under.
-- **Planned** — intended, not yet in place.
-- **Not claimed** — deliberately not asserted, because it is not independently verified.
+- **Implemented** - enforced in code, CI, or the release pipeline today.
+- **Documented** - a stated policy or expectation the project operates under.
+- **Planned** - intended, not yet in place.
+- **Not claimed** - deliberately not asserted, because it is not independently verified.
 
 Nothing here asserts a compliance status that cannot be proven. Where a control depends on organization settings that are not visible in the repository, it is marked **Documented**, not **Implemented**.
 
@@ -117,18 +117,18 @@ Caracal aligns with the SLSA build-provenance model and OpenSSF best practices:
 This section states clearly what is and is not supported for regulated customers.
 
 - **Cryptography in use.** Caracal signs mandates and audit evidence and uses HMAC for stream and audit integrity. Cryptographic operations rely on the standard libraries of the Go, Node.js, and Python runtimes used to build and run the services.
-- **FIPS status — Not claimed.** The project does **not** claim FIPS 140-2/140-3 validation. The default release artifacts are not built against FIPS-validated cryptographic modules, and no FIPS self-test or certificate is asserted.
+- **FIPS status - Not claimed.** The project does **not** claim FIPS 140-2/140-3 validation. The default release artifacts are not built against FIPS-validated cryptographic modules, and no FIPS self-test or certificate is asserted.
 - **What regulated customers can do today.** Because services are distributed as container images, an operator who requires FIPS-mode cryptography can run them on a FIPS-validated host or base platform and supply a FIPS-validated runtime where their compliance program requires it. This is the operator's responsibility and is **not** verified by the project.
 - **Encryption boundaries.** Transport security (TLS) is terminated and configured by the operator; see [Harden Production](/operations/tls-hardening/). Key and secret isolation is described in [Rotate Keys and Secrets](/operations/key-management/) and the threat model.
 - **Planned.** A documented, tested FIPS-mode build path is a candidate for a future release and is currently marked **Planned**, not available.
 
 ## What an Enterprise Team Should Review
 
-1. [Review the Threat Model](/security/threat-model/) — assets, trust boundaries, encryption, and key and token isolation.
-2. [Report a Vulnerability](/security/disclosure/) — the vulnerability disclosure policy and response timeline.
+1. [Review the Threat Model](/security/threat-model/) - assets, trust boundaries, encryption, and key and token isolation.
+2. [Report a Vulnerability](/security/disclosure/) - the vulnerability disclosure policy and response timeline.
 3. The repository's **OpenSSF Scorecard** result and **code scanning** alerts for current, independent security signals.
-4. [Verify a Release](/security/verify-releases/) — confirm you can validate signatures, provenance, and SBOMs for the artifacts you intend to run.
-5. [Harden Security Posture](/security/hardening/) — the production hardening checklist, including container `securityContext`.
+4. [Verify a Release](/security/verify-releases/) - confirm you can validate signatures, provenance, and SBOMs for the artifacts you intend to run.
+5. [Harden Security Posture](/security/hardening/) - the production hardening checklist, including container `securityContext`.
 6. The [Regulated-Enterprise and FIPS Readiness](#regulated-enterprise-and-fips-readiness) section if you operate under FIPS or similar mandates.
 
 ## Related Pages

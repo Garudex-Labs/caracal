@@ -22,7 +22,7 @@ export function CreatedBy({
   coAuthored?: boolean;
   className?: string;
 }) {
-  const label = name && name.trim().length > 0 ? name : "—";
+  const label = name && name.trim().length > 0 ? name : "-";
   return (
     <span className={cx("inline-flex items-center gap-1.5", className)}>
       <span className="min-w-0 break-words">{label}</span>

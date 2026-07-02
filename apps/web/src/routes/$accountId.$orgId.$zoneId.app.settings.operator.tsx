@@ -443,7 +443,7 @@ function ProviderFormModal({
   const [error, setError] = useState<string | null>(null);
 
   // Seed the form whenever it opens: an edit loads the provider, a fresh add starts empty so the
-  // operator supplies only what matters — endpoint, key, and the model ids the endpoint serves.
+  // operator supplies only what matters - endpoint, key, and the model ids the endpoint serves.
   useEffect(() => {
     if (!open) return;
     setError(null);
@@ -667,7 +667,7 @@ function ProviderFormModal({
             <div className="mt-3 grid gap-4 rounded-lg border border-border bg-muted/30 p-3">
               <p className="text-[11px] leading-relaxed text-muted-foreground">
                 Where the sealed key is sent. Default is an Authorization Bearer header. Some
-                upstreams differ — Azure uses an <span className="font-mono">api-key</span> header,
+                upstreams differ - Azure uses an <span className="font-mono">api-key</span> header,
                 a LiteLLM/OpenRouter proxy expects <span className="font-mono">X-API-Key</span>, and
                 a few take it in the query string.
               </p>
@@ -718,7 +718,7 @@ function ProviderFormModal({
 
         <div className="rounded-lg border border-border bg-muted/40 px-3 py-2.5 text-[11px] leading-relaxed text-muted-foreground">
           The endpoint must speak the OpenAI <span className="font-mono">/chat/completions</span>{" "}
-          format — OpenAI and Azure work directly; for Claude, Gemini, or others, point this at an
+          format - OpenAI and Azure work directly; for Claude, Gemini, or others, point this at an
           OpenAI-compatible proxy such as LiteLLM or OpenRouter. Caracal seals the key into the
           caracal.sys system zone, sets the scopes and gateway binding, and routes the Operator only
           through the governed gateway.
@@ -757,7 +757,7 @@ function RotateKeyModal({
     <Modal
       open
       onClose={onClose}
-      title={`Rotate key — ${provider.label}`}
+      title={`Rotate key - ${provider.label}`}
       description="The new key is sealed into Caracal, replacing the old one. The model stays online."
       footer={
         <>

@@ -12,7 +12,7 @@ Copy this folder into the root of a project that contains a checked-out Caracal 
 
 ## Contents
 
-- `.codex/AGENTS.md`: the auditor operating guide — scope, hard rules, method, and required report sections.
+- `.codex/AGENTS.md`: the auditor operating guide - scope, hard rules, method, and required report sections.
 - `.codex/config.toml`: persona, workflow, output, and safety configuration.
 
 ## What it does

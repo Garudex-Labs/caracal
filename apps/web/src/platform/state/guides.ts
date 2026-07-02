@@ -7,8 +7,8 @@ This file holds per-account guide progress: forward-only statuses, deterministic
 
 // A guide's lifecycle only moves forward: "unseen" (never auto-launched), "seen" (launched
 // once; may still resume from the launcher), "done" (retired; never shown again). Because
-// statuses never regress, any two records — browser cache vs. account record, or two
-// concurrent writers — merge deterministically by keeping the furthest progress per guide,
+// statuses never regress, any two records - browser cache vs. account record, or two
+// concurrent writers - merge deterministically by keeping the furthest progress per guide,
 // so no ordering of writes can ever resurrect a retired guide.
 export type GuideStatus = "unseen" | "seen" | "done";
 

@@ -54,7 +54,7 @@ Each zone has its own signing-key and JWKS context. Resource servers verify mand
 
 ## Dynamic Client Registration
 
-A zone gates whether workloads may self-register short-lived [DCR applications](/concepts/principal/#managed-and-dcr-applications). DCR is **off by default**; an operator turns it on per zone (`dcr_enabled`). While enabled, a control-plane workload holding an admin token can mint auto-expiring application identities through the zone DCR endpoint — Console never creates them.
+A zone gates whether workloads may self-register short-lived [DCR applications](/concepts/principal/#managed-and-dcr-applications). DCR is **off by default**; an operator turns it on per zone (`dcr_enabled`). While enabled, a control-plane workload holding an admin token can mint auto-expiring application identities through the zone DCR endpoint - Console never creates them.
 
 Disabling DCR on a zone that still has live DCR applications requires an explicit decision, because turning the gate off does not by itself revoke identities already issued:
 

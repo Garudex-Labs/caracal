@@ -69,7 +69,7 @@ async function idLive(db: PreviewQueryable, target: PreviewTarget, zoneId: strin
 // Resolves a single validated step's effect against live state, driven entirely by the
 // capability's declared preview spec. Each branch is a read-only lookup; the catalog has
 // already guaranteed the capability and its arguments. A new capability previews correctly
-// the moment it declares a preview spec — this interpreter never changes.
+// the moment it declares a preview spec - this interpreter never changes.
 async function previewStep(
   db: PreviewQueryable,
   zoneId: string,

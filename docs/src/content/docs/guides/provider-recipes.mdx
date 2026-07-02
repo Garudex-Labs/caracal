@@ -9,7 +9,7 @@ Provider recipes live in the documentation, not the web console. The Console sta
 
 ## Choose the enforcement boundary first
 
-The most common mistake is treating these four boundaries as interchangeable. They are not — they differ in where enforcement happens, who writes the action-result audit, and who holds the upstream credential.
+The most common mistake is treating these four boundaries as interchangeable. They are not - they differ in where enforcement happens, who writes the action-result audit, and who holds the upstream credential.
 
 | Boundary | Enforcement point | Credential holder | Action-result audit | Use when |
 | --- | --- | --- | --- | --- |
@@ -109,7 +109,7 @@ When an existing CLI or client cannot route through the Gateway but still needs 
 
 ## Validate before the first call
 
-After you create the provider, bind it to the resource, and activate a policy, run [Check Provider Readiness](/examples/provider-preflight/) (`examples/providerPreflight`). It validates control-plane and Gateway readiness, the resource-to-provider binding, application validity, provider configuration completeness, scope coverage, token endpoint and upstream reachability, runtime-injection eligibility, and that the active policy set actually returns `allow` for your application, resource, and scopes — with a concrete remediation for every failure.
+After you create the provider, bind it to the resource, and activate a policy, run [Check Provider Readiness](/examples/provider-preflight/) (`examples/providerPreflight`). It validates control-plane and Gateway readiness, the resource-to-provider binding, application validity, provider configuration completeness, scope coverage, token endpoint and upstream reachability, runtime-injection eligibility, and that the active policy set actually returns `allow` for your application, resource, and scopes - with a concrete remediation for every failure.
 
 ## Related
 

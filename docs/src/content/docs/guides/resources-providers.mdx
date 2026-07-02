@@ -75,7 +75,7 @@ Because the floor is enforced in the platform rather than in adopter policy, a p
 | Resource identifier | Stable audience URI, such as `resource://pipernet`; do not use the `provider://` namespace. |
 | Caracal resource scope | `domain:action`, such as `pipernet:read`. |
 | Upstream URL | The network URL Gateway can reach; it may change without changing policy audiences. |
-| Gateway application | The managed Caracal application identity Gateway exchanges as to obtain this resource's upstream credential. It does not control which agents may call through the Gateway — callers are authorized by policy on their own mandate. DCR applications cannot be bound here — they are short-lived single-session credentials, not durable Gateway identities. |
+| Gateway application | The managed Caracal application identity Gateway exchanges as to obtain this resource's upstream credential. It does not control which agents may call through the Gateway - callers are authorized by policy on their own mandate. DCR applications cannot be bound here - they are short-lived single-session credentials, not durable Gateway identities. |
 | Upstream credential provider | The provider record Gateway uses to attach no credential, a Caracal mandate, OAuth tokens, API keys, or bearer tokens. |
 | Authorized operation | `{method, path, scope}`, such as `{ "method": "POST", "path": "/api/create_payout", "scope": "pipernet:payout" }`; the scope must be one of the resource's Caracal resource scopes. |
 | Operation enforcement | `enforced` for path-addressed REST upstreams; `transport_uniform` for single-surface transports such as MCP. |

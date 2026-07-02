@@ -23,13 +23,13 @@ Doctor does more than report liveness: it evaluates the operator metrics it coll
 | --- | --- | --- |
 | Clock skew vs the API exceeds 30s | `fail` | Token `iat`/`nbf`/`exp` validation and audit ordering break when hosts are not NTP-synced. |
 | STS OPA `compile_errors` > 0 | `fail` | A policy bundle will not compile, so token exchanges deny or run on a stale bundle. |
-| Audit `tamper_mismatch_total` or `chain_breaks` > 0 | `fail` | Audit chain integrity is broken — treat as a security incident. |
+| Audit `tamper_mismatch_total` or `chain_breaks` > 0 | `fail` | Audit chain integrity is broken - treat as a security incident. |
 | Audit `dlq_size` or `hmac_failures` > 0 | `warn` | Events are failing processing or HMAC verification before they age out. |
 | Coordinator outbox `dead` rows, or a large `pending` backlog | `warn` | Spawn and revocation events are not propagating downstream. |
 
 Useful Doctor controls include reload, all-zones or selected-zone checks, preflight-only checks, and strict readiness where warnings fail automation gates. The `Next actions` block collects the advice for every non-passing check.
 
-This view is deeper than `caracal status`: `status` answers "is the stack up", while Doctor inspects internal health — policy compilation, audit integrity, event propagation, clock alignment, and local key material — that keeps the platform working correctly over time.
+This view is deeper than `caracal status`: `status` answers "is the stack up", while Doctor inspects internal health - policy compilation, audit integrity, event propagation, clock alignment, and local key material - that keeps the platform working correctly over time.
 
 ## Audit
 
@@ -41,7 +41,7 @@ Audit is an event ledger: it records what authorization decided. It is distinct 
 
 ## Request Trace
 
-When you already have a request ID — from a log line, error response, or Gateway header — filter **Audit** by that request ID and open the decision trace from the row, without scanning the full list. Trace output connects the request, selected resource, subject, scopes, determining policies, diagnostics, and result.
+When you already have a request ID - from a log line, error response, or Gateway header - filter **Audit** by that request ID and open the decision trace from the row, without scanning the full list. Trace output connects the request, selected resource, subject, scopes, determining policies, diagnostics, and result.
 
 ## Troubleshooting
 

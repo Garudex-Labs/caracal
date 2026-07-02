@@ -10,16 +10,16 @@ Caracal services load configuration from environment variables and `*_FILE` secr
 
 `CARACAL_MODE` selects one of two security postures, not three:
 
-- **`dev`** — the only relaxed posture. Permits local conveniences (open metrics, `INSECURE_*` overrides, generated/relaxed settings) for development on a single host. Never use it for anything reachable by others.
-- **Published (`rc` and `stable`)** — the production posture. Both are **security-identical and fail-closed**: valid HMAC keys are required, Gateway fail-open settings are denied, and incomplete service configuration is rejected before readiness succeeds.
+- **`dev`** - the only relaxed posture. Permits local conveniences (open metrics, `INSECURE_*` overrides, generated/relaxed settings) for development on a single host. Never use it for anything reachable by others.
+- **Published (`rc` and `stable`)** - the production posture. Both are **security-identical and fail-closed**: valid HMAC keys are required, Gateway fail-open settings are denied, and incomplete service configuration is rejected before readiness succeeds.
 
 The difference between `rc` and `stable` is **maturity, not security**. `rc` is a release-candidate build that enforces the full production trust boundary but may be functionally unstable; run `stable` for production workloads and reserve `rc` for staging or pre-release validation.
 
 | Mode | Posture | Use for |
 | --- | --- | --- |
 | `dev` | Relaxed (single-host only) | Local development |
-| `rc` | Published — fail-closed, may be functionally unstable | Staging / pre-release validation |
-| `stable` | Published — fail-closed | Production |
+| `rc` | Published - fail-closed, may be functionally unstable | Staging / pre-release validation |
+| `stable` | Published - fail-closed | Production |
 
 Published modes require valid HMAC keys, deny unsafe Gateway fail-open settings, and reject incomplete service configuration before readiness succeeds.
 

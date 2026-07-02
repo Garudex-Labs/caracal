@@ -31,7 +31,7 @@ export function deriveConsoleReadToken(adminToken: string): string {
 // the deployment admin token is reserved as a break-glass fallback rather than the everyday
 // operational credential. It is independently revocable from the bootstrap admin token (rotating
 // the admin token rotates it), yet derivable only by a holder of the admin token, who already
-// has full authority — so its existence grants nothing new.
+// has full authority - so its existence grants nothing new.
 export function deriveConsoleWriteToken(adminToken: string): string {
   return deriveConsoleToken(adminToken, CONSOLE_WRITE_TOKEN_LABEL)
 }

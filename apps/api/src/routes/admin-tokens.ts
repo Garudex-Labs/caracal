@@ -35,7 +35,7 @@ function generateAdminToken(): string {
 
 // Admin token management mints and revokes credentials, so it is restricted to global actors and
 // denied to the derived Console operational tokens. A derived token allowed here could mint a
-// fresh, non-derived admin token — an escalation that would survive bootstrap-token rotation — or
+// fresh, non-derived admin token - an escalation that would survive bootstrap-token rotation - or
 // revoke the break-glass credential and lock everyone out. The Console never reaches this surface,
 // so denying the derived tokens costs nothing. The auth plugin already denies zone-scoped actors
 // at this path; this is the in-handler defense in depth that does not rely on URL heuristics.

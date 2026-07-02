@@ -4,7 +4,7 @@ description: Generate a reproducible evidence pack that demonstrates Caracal's s
 pageType: workflow
 ---
 
-A distributed topology is not the same as a large attack surface. During evaluation that distinction is easy to lose: reviewers see several services, Postgres, and Redis, and assume proportional risk. The evidence pack closes that gap by turning the architecture into demonstrated assurance — a single, reproducible bundle a security or compliance reviewer can run, read, and attach to an approval record.
+A distributed topology is not the same as a large attack surface. During evaluation that distinction is easy to lose: reviewers see several services, Postgres, and Redis, and assume proportional risk. The evidence pack closes that gap by turning the architecture into demonstrated assurance - a single, reproducible bundle a security or compliance reviewer can run, read, and attach to an approval record.
 
 The pack does not add new trust claims. It runs the verifiers Caracal already ships and captures their output in one place, mapped to the written assurance case in [`governance/THREAT_MODEL.md`](https://github.com/Garudex-Labs/caracal/blob/main/governance/THREAT_MODEL.md).
 
@@ -13,7 +13,7 @@ The pack does not add new trust claims. It runs the verifiers Caracal already sh
 | Pillar | Check | Demonstrates |
 | --- | --- | --- |
 | Supply chain | Release provenance | Every image you run was built by the `Garudex-Labs/caracal` release workflow and carries provenance and SBOM attestations. |
-| Enforcement (data) | Schema enforcement | Row-level security is fail-closed, audit is append-only, and policy versions are immutable — enforced by the database independent of application code. |
+| Enforcement (data) | Schema enforcement | Row-level security is fail-closed, audit is append-only, and policy versions are immutable - enforced by the database independent of application code. |
 | Enforcement (runtime) | Runtime readiness | Every mediation point (API, STS, Gateway, Audit, Coordinator) is live and answering readiness. |
 | Assurance case | Threat model | The written threat model the checks above exercise, captured with the pack. |
 
@@ -37,8 +37,8 @@ bash infra/scripts/evidencePack.sh
 
 The pack is written to `evidence/caracal-evidence-<UTC>/`:
 
-- `REPORT.md` — summary table and per-check narrative with status and links.
-- `raw/` — the unmodified output of each verifier, including a copy of the threat model.
+- `REPORT.md` - summary table and per-check narrative with status and links.
+- `raw/` - the unmodified output of each verifier, including a copy of the threat model.
 
 The generator exits non-zero if any executed check fails, so it can also gate CI or a release-readiness review. Skipped checks do not fail the run.
 

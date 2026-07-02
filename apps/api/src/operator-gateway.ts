@@ -81,7 +81,7 @@ export interface ProviderStatus {
   id: string
   model: string
   // Whether the provider is configured well enough to attempt a call. It does not
-  // assert reachability — that is what the connectivity check verifies — and never
+  // assert reachability - that is what the connectivity check verifies - and never
   // exposes whether a key is present beyond this boolean.
   available: boolean
   // The model's context window in tokens, or zero when the administrator has not

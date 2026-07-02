@@ -412,7 +412,7 @@ function OperatorWorkspace() {
 
   // Whether the Operator has a usable model. Only a loaded status that reports no provider counts;
   // while the status is still loading a send proceeds normally so a configured deployment never
-  // briefly refuses. The composer stays interactive either way — a send with no provider is held
+  // briefly refuses. The composer stays interactive either way - a send with no provider is held
   // back and reported in the error label rather than disabling the input.
   const aiStatus = useOperatorAiStatus(true);
   const aiUnavailable = aiStatus.data?.enabled === false;
@@ -523,7 +523,7 @@ function OperatorWorkspace() {
 
   // Starting from intent: derive a session title from the message, create the session, then hand
   // the message to the stream to send as the opening turn. With no AI provider the request could
-  // only be refused upstream, so the send is held back — no session is created — and the reason is
+  // only be refused upstream, so the send is held back - no session is created - and the reason is
   // surfaced as a warning instead.
   function startFromIntent(text: string) {
     const value = text.trim();
@@ -1313,8 +1313,8 @@ function ActivityStream({
 
   // Queue a message when the Operator is busy or earlier messages are still waiting, so a
   // sequence of instructions can be lined up and sent in order; otherwise send it now. With no AI
-  // provider the request could only be refused upstream, so the send is held back — not sent or
-  // queued — and reported in the error label so the operator sees why nothing happened.
+  // provider the request could only be refused upstream, so the send is held back - not sent or
+  // queued - and reported in the error label so the operator sees why nothing happened.
   function submit(text: string) {
     const value = text.trim();
     if (!value) return;
@@ -2045,7 +2045,7 @@ function formatArgValue(value: unknown): string {
 function formatToolCalls(steps: PlanStepView[]): string {
   const lines = steps.map((step, index) => {
     const status = step.status === "pending" ? "proposed" : step.status;
-    const head = `${index + 1}. ${step.summary} (${step.capability}) — ${status}`;
+    const head = `${index + 1}. ${step.summary} (${step.capability}) - ${status}`;
     const args = Object.entries(step.args)
       .map(([key, value]) => [key.replace(/_/g, " "), formatArgValue(value)] as const)
       .filter(([, value]) => value.length > 0)

@@ -304,7 +304,7 @@ describe('provisionSystemZone', () => {
     expect(seeded.state.apps).toHaveLength(1)
     expect(seeded.state.calls).not.toContain('zones.create')
     expect(seeded.state.calls).not.toContain('applications.create')
-    // The zone is found deterministically by slug, never by scanning the zone list — so a
+    // The zone is found deterministically by slug, never by scanning the zone list - so a
     // deployment whose system zone has fallen off the newest-first first page still resolves.
     expect(seeded.state.calls).not.toContain('zones.list')
     expect(seeded.state.calls).toContain('findZoneBySlug')

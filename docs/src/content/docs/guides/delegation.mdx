@@ -5,7 +5,7 @@ description: Spawn child agents, attach typed constraints, inspect graph impact,
 
 Use delegation when one agent needs to hand a narrower slice of authority to another agent. The SDK creates the edge and carries the context; the web console shows the graph and impact.
 
-`spawn()` always creates the child under the **same application** as the parent — `spawn()` never moves a child into a different application. Use a narrowing grant only when the child should hold *less* than the parent. To hand authority across applications, use `delegate()` against a peer session that already exists under that other application.
+`spawn()` always creates the child under the **same application** as the parent - `spawn()` never moves a child into a different application. Use a narrowing grant only when the child should hold *less* than the parent. To hand authority across applications, use `delegate()` against a peer session that already exists under that other application.
 
 ## Implementation flow
 

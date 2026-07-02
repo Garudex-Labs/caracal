@@ -1,8 +1,8 @@
 # Lynx Capital
 
 A production-grade reference for running an autonomous agent swarm on Caracal. Lynx Capital
-is a finance-operations platform whose LLM swarm — orchestrators, regional workflows, and
-thousands of ephemeral domain workers — executes payout cycles across twenty partner
+is a finance-operations platform whose LLM swarm - orchestrators, regional workflows, and
+thousands of ephemeral domain workers - executes payout cycles across twenty partner
 providers, with every agent and every provider call governed by Caracal.
 
 The model is one zone with **one managed application per permission boundary**
@@ -11,7 +11,7 @@ The model is one zone with **one managed application per permission boundary**
 session under its role's application, narrowed by a delegation edge to its role's scopes;
 every partner is a registered credential provider reached only through per-application
 resource views at the Gateway. Workers acting on one customer's records spawn with a
-`customer:<id>` label and a `customer_id` metadata key — the label is policy-enforced
+`customer:<id>` label and a `customer_id` metadata key - the label is policy-enforced
 (customer-labeled agents mint customer-record scopes only) and the metadata key makes
 per-customer audit a direct filter over the shared zone trail. The single source of truth
 is [`config/tenancy.yaml`](config/tenancy.yaml).
@@ -47,8 +47,8 @@ they join so mandate-aware providers can verify Caracal mandates against the zon
 The provider lab runs on this private Docker network; the Gateway reaches operator-provisioned
 private upstreams by default, so no SSRF allowlist step is required.
 
-`caracal up` also starts the **Caracal web console** — the operator UI for the control
-plane — at `http://localhost:3001`. Use it to create the zone and a scoped Control key
+`caracal up` also starts the **Caracal web console** - the operator UI for the control
+plane - at `http://localhost:3001`. Use it to create the zone and a scoped Control key
 (steps 3–4). The Lynx Capital app itself runs at `http://localhost:8000`.
 
 ## 3. Configure the workload
@@ -88,7 +88,7 @@ authority.
 
 It also prints the `LYNX_CARACAL_PARTNERSHIP` export: the partnership terms (accepted
 resource-view audiences and Caracal scope-to-operation grants) the mandate-verifying
-mock providers are configured with. Export it before starting the provider lab —
+mock providers are configured with. Export it before starting the provider lab -
 without it those providers fail closed on Caracal-issued mandates.
 
 ## 5. Run the SDK reference

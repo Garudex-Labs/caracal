@@ -29,7 +29,7 @@ async function currentUser(): Promise<SessionUser | null> {
     // A transport or server failure (auth service restarting, network down) says nothing
     // about the account, so it must not touch the browser-local identity: wiping it here
     // would reset onboarding state every time the stack restarts. Only a successful
-    // response is authoritative — including an authoritative "no session".
+    // response is authoritative - including an authoritative "no session".
     if (error) return null;
     const user = data?.user ?? null;
     const id = user?.id ?? null;

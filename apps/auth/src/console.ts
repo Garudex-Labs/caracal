@@ -511,7 +511,7 @@ async function handleProxy(
   }
   // Reads present the read-only token and writes present the write token; either falls back to
   // the deployment admin token only if its own token is unrecognized. This keeps the bootstrap
-  // admin token off the BFF's normal path entirely — reserved as a break-glass fallback — while
+  // admin token off the BFF's normal path entirely - reserved as a break-glass fallback - while
   // a request can never fail closed for want of a credential.
   const method = (req.method ?? 'GET').toUpperCase()
   const credential = selectProxyCredential(method, token, consoleReadToken(), consoleWriteToken())
@@ -608,7 +608,7 @@ async function handleControlToken(req: IncomingMessage, res: ServerResponse, id:
   let application: Parameters<typeof controlKeyRecord>[0]
   try {
     // Reading the control key's application record is a read, so it presents the read-only
-    // token and falls back to the admin token only if that token is unrecognized — the same
+    // token and falls back to the admin token only if that token is unrecognized - the same
     // credential policy the proxy uses, so this read never carries the god token on its normal
     // path.
     const url = `${apiUrl()}/v1/zones/${encodeURIComponent(zoneId)}/applications/${encodeURIComponent(keyId)}`

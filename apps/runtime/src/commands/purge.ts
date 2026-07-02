@@ -160,7 +160,7 @@ function purgeHelp(): never {
     '  secrets     Remove operator overrides and generated secret files',
     '  web         Drop the web console operator database (PostgreSQL caracal_auth)',
     '',
-    'Developer artifacts (dev) — dev only:',
+    'Developer artifacts (dev) - dev only:',
     '  cache       Remove build artifacts: apps/*/dist, coverage/, node_modules/.cache',
     '  examples    Remove example containers, volumes, networks, and example-built images',
     '',

@@ -85,8 +85,8 @@ const PatchConversationBody = z
   })
   .strict()
 
-// Free-form narrative kinds the caller may append directly. Governed kinds — plan,
-// approval, rejection, execution — are written only through the lifecycle endpoints
+// Free-form narrative kinds the caller may append directly. Governed kinds - plan,
+// approval, rejection, execution - are written only through the lifecycle endpoints
 // so they cannot enter the ledger without catalog and referential integrity checks.
 const NARRATIVE_TURN_KINDS = ['message', 'note', 'error'] as const
 
@@ -115,7 +115,7 @@ const ExecutePlanBody = z.object({ plan_seq: z.coerce.number().int().min(1) }).s
 // One in-flight governed execution per plan. Each step is its own authenticated control
 // call rather than one database transaction, so the conversation row cannot serialize
 // concurrent executes; a short-lived Redis lock does. The TTL only bounds a crashed
-// request — a handful of fast control calls complete well within it — while the permanent
+// request - a handful of fast control calls complete well within it - while the permanent
 // dedup (an execution turn already exists) prevents re-running a completed plan.
 const EXECUTE_LOCK_TTL_SEC = 120
 
@@ -490,10 +490,10 @@ function buildPlanContentJson(summary: string, validation: PlanValidation, advis
   }
   // A composed plan may carry an advisory security review. It is persisted with the plan so the
   // human sees it when deciding and it stays in the audit record; it is informational only and
-  // never read as authority — execution re-derives the plan from summary and steps alone.
+  // never read as authority - execution re-derives the plan from summary and steps alone.
   if (advisory) content.advisory = advisory
   // The deliberation stages the request passed through, recorded so the human can replay how the
-  // plan was reasoned. Informational only — execution re-derives the plan from summary and steps.
+  // plan was reasoned. Informational only - execution re-derives the plan from summary and steps.
   if (deliberation && deliberation.length > 0) content.deliberation = deliberation
   return JSON.stringify(content)
 }
@@ -676,7 +676,7 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
   const orchestrator = createOrchestrator()
 
   // Builds the Operator's governed control client for the currently resolved identity scoped to
-  // the zone the conversation acts in, or null when governed execution is not fully configured —
+  // the zone the conversation acts in, or null when governed execution is not fully configured -
   // no identity, or the control plane is disabled. The Operator governs every zone it operates in:
   // for its own (system) zone it acts directly; for any tenant zone the client carries a zone-scope
   // header the in-process control handler honors for the reserved Operator subject, so the
@@ -960,7 +960,7 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
     const id = uuidv7()
     // A conversation opens in agent mode with autopilot disengaged unless explicitly created
     // otherwise. Mode and the autopilot engage flag are Caracal-side settings on the conversation;
-    // the model never selects or changes them. Engaging autopilot here only sets the engage flag —
+    // the model never selects or changes them. Engaging autopilot here only sets the engage flag -
     // what may be auto-approved is still bounded by the deployment's autopilot policy.
     // The number is drawn from a durable per-zone counter that only ever advances, so a number is
     // consumed once and never handed out again even after the conversation that held it is deleted.
@@ -1413,7 +1413,7 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
         if (!preview.ok) return { ok: false, status: 409, body: { error: 'plan_blocked', preview } }
 
         // A create step whose target now already exists would duplicate it, so the plan is
-        // refused rather than applied — re-running must never silently create a second one.
+        // refused rather than applied - re-running must never silently create a second one.
         const existing = preview.steps.filter((step) => step.effect === 'exists')
         if (existing.length > 0) {
           return {
@@ -1441,7 +1441,7 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
 
       // Record the applied steps and any failure in the ledger. The control plane already
       // wrote the tamper-evident admin audit for each mutation, so no manual audit record
-      // is written here — the execution turn carries the Operator principal that applied it.
+      // is written here - the execution turn carries the Operator principal that applied it.
       const recorded = await withTransaction(fastify.db, async (client) => {
         const { rows: conv } = await client.query<{ status: string; next_seq: number }>(
           `SELECT status, next_seq FROM operator_conversations WHERE id = $1 AND zone_id = $2 FOR UPDATE`,
@@ -1450,7 +1450,7 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
         const turns: Record<string, unknown>[] = []
         const outputs: Record<string, Record<string, unknown>> = {}
         // The mutations have already been applied to the control plane, so the ledger must record
-        // them — and the execution turn that records a step is also the dedup marker that blocks a
+        // them - and the execution turn that records a step is also the dedup marker that blocks a
         // re-run. Recording therefore proceeds even if the conversation was archived in the window
         // between applying the plan and this transaction: the applied work is real and must be
         // reflected truthfully, and the dedup turn must be written so a re-activated conversation
@@ -1482,8 +1482,8 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
         if (result.failure) {
           // When a step partially applied a plan, or its failure is terminal (the mutation
           // may have been applied), record the failed step as an execution turn. That marks
-          // the step failed in plan state and — because any execution turn for this plan
-          // blocks a re-run — makes the plan non-retriable, so a possibly-applied mutation
+          // the step failed in plan state and - because any execution turn for this plan
+          // blocks a re-run - makes the plan non-retriable, so a possibly-applied mutation
           // is never applied twice. A definitive, nothing-applied failure writes no
           // execution turn, leaving the plan safe to retry.
           if (result.applied.length > 0 || result.failure.terminal) {
@@ -1519,7 +1519,7 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
         // A clean apply is durable, governed knowledge of the zone: record it as a persistent,
         // zone-scoped memory so a later conversation recalls what was configured here. Memory is
         // written only for a fully applied plan, inside this transaction, so it reflects an
-        // approved outcome Caracal actually applied — never a proposal or a partial failure.
+        // approved outcome Caracal actually applied - never a proposal or a partial failure.
         if (!result.failure && result.applied.length > 0) {
           await rememberAppliedChange(client, params.zoneId, params.id, pre.summary)
         }
@@ -1530,8 +1530,8 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
         return reply.code(422).send({ error: 'execution_failed', step_id: result.failure.stepId, applied: recorded.turns })
       }
 
-      // Return the applied result immediately — including any one-time output such as an issued
-      // client secret — so the caller receives the secret the instant the apply is durable, never
+      // Return the applied result immediately - including any one-time output such as an issued
+      // client secret - so the caller receives the secret the instant the apply is durable, never
       // gated behind the advisory verification's model call.
       reply
         .code(201)
@@ -1541,7 +1541,7 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
       // is sent. The mutations are already durable, so this never gates or reverses the apply: it
       // reads live state once more and judges whether the applied result matches the plan's intent,
       // recording the verdict as a note the human sees on the next refresh. A drift verdict only
-      // informs and recommends a correction — that correction still flows through the governed
+      // informs and recommends a correction - that correction still flows through the governed
       // propose-approve-apply path, so verification holds no authority. It runs only when the AI
       // gateway is enabled and a governed reader is available for the zone, and any failure is
       // swallowed so the apply's success is never affected by an unverifiable turn.
@@ -1752,7 +1752,7 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
       // answer is grounded in current state rather than the model's guess. The researcher is bound
       // to the conversation's zone: the Operator's system-zone identity is reused for caracal.sys,
       // and for any other zone a least-privilege, read-only reader identity is provisioned in that
-      // zone. The worker is further narrowed to the read role, so it can never mint a write token —
+      // zone. The worker is further narrowed to the read role, so it can never mint a write token -
       // every change still flows through the approval-gated execution path below. When
       // self-governance is not configured the researcher is null and the answer falls back to
       // conversation context, and the read agents say live state could not be read for this zone.
@@ -1764,7 +1764,7 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
 
       // The orchestrator triages the request to its tier and runs the one skill that handles
       // it. A plan outcome flows through validate → preview → store-for-approval; an answer
-      // outcome is recorded as a note. The model only proposes — every plan is governed below.
+      // outcome is recorded as a note. The model only proposes - every plan is governed below.
       // Answers are grounded in the bundled documentation corpus so exact names, endpoints, and
       // fields come from the docs rather than the model's recall.
       const { tier, outcome } = await orchestrator.handle(tracked.gateway, parsed.data.message, context, {
@@ -1840,7 +1840,7 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
 
         const preview = await previewPlan(fastify.db, params.zoneId, planned.value)
         // A composed plan carries an advisory security review; the route persists it with the
-        // plan and surfaces it to the human. It is informational only — the plan is still
+        // plan and surfaces it to the human. It is informational only - the plan is still
         // governed by validation, preview, and approval, never by this advisory. When the guardian
         // judged the plan misaligned with how Caracal is meant to be used, the orchestrator also
         // produced guidance: the Caracal-correct path the human should take instead. It is surfaced
@@ -1864,11 +1864,11 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
         }
 
         // Caracal-governed autopilot: in agent mode, when the deployment has enabled autopilot and
-        // the conversation has engaged it, Caracal — not the model — auto-satisfies this plan's
+        // the conversation has engaged it, Caracal - not the model - auto-satisfies this plan's
         // human approval. An engaged conversation has opted into acting without a human in the loop,
         // so every non-empty plan is approved. If it approves, an approval turn is recorded
         // attributed to autopilot and the operator who is acting; the plan is then ready to apply
-        // through the unchanged governed execute path. Autopilot never widens authority — it only
+        // through the unchanged governed execute path. Autopilot never widens authority - it only
         // fills the approval step, and the execute path still enforces the capability allowlist,
         // least-privilege token, and zone isolation on apply.
         let autoApproved = false

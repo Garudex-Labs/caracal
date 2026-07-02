@@ -169,8 +169,8 @@ export function loadConfig(): AuthConfig {
   // Email/password sign-up grants admin on a self-asserted email that no one has proven the
   // registrant owns. With a domain-suffix allowlist that is an open admin door, and even an
   // exact-email allowlist is beatable by registering the address before its owner does. So
-  // password sign-up is disabled in production by default — operators sign in through a
-  // provider-verified identity (Google/GitHub) on the allowlist — and stays on in development for
+  // password sign-up is disabled in production by default - operators sign in through a
+  // provider-verified identity (Google/GitHub) on the allowlist - and stays on in development for
   // usability. CARACAL_PASSWORD_SIGNUP forces it either way for self-hosts that wire email
   // verification. When it is on in production, email verification is required so an unverified
   // claim cannot mint a session.

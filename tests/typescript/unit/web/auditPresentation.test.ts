@@ -63,7 +63,7 @@ describe('auditSummary', () => {
         reason: 'no_provider_grant',
       }),
     )
-    expect(summary).toBe('Fiona was denied a credential for resource://not-hotdog — The user has not granted this provider')
+    expect(summary).toBe('Fiona was denied a credential for resource://not-hotdog - The user has not granted this provider')
   })
 
   it('narrates a gateway call with its upstream outcome', () => {
@@ -76,7 +76,7 @@ describe('auditSummary', () => {
       }),
       'PiperNet AI',
     )
-    expect(summary).toBe('PiperNet AI called resource://piperchat (GET) — upstream responded 200')
+    expect(summary).toBe('PiperNet AI called resource://piperchat (GET) - upstream responded 200')
   })
 
   it('narrates a gateway transport failure', () => {

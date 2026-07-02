@@ -30,7 +30,7 @@ export interface ControlOutcome {
 
 // A governed capability: the scopes its control command requires, the invocation built
 // from the capability arguments, and the outcome shaped from the control-invoke result. A
-// capability holds no authority — the control plane decides — so this only describes how
+// capability holds no authority - the control plane decides - so this only describes how
 // to express the capability as a governed control command.
 export interface ControlCapability {
   scopes: readonly string[]
@@ -103,7 +103,7 @@ export const CONTROL_CAPABILITIES: Record<string, ControlCapability> = {
   listApplications: readControl('app', 'application'),
   listProviders: readControl('identity-provider', 'provider'),
   listResources: readControl('resource', 'resource'),
-  // The control policy list returns metadata only — name, description, ownership — never the
+  // The control policy list returns metadata only - name, description, ownership - never the
   // Rego source, which lives in policy versions behind a separate read. So a list is safe to
   // surface in full without leaking policy logic.
   listPolicies: readControl('policy', 'policy'),
@@ -120,8 +120,8 @@ export const CONTROL_CAPABILITIES: Record<string, ControlCapability> = {
       }
     },
   },
-  // A provider is created from just its name and kind. Only the credential-free kinds — caracal_mandate,
-  // which forwards Caracal’s own mandate, and none, which forwards nothing — are applied here: they seal
+  // A provider is created from just its name and kind. Only the credential-free kinds - caracal_mandate,
+  // which forwards Caracal’s own mandate, and none, which forwards nothing - are applied here: they seal
   // no secret, so nothing sensitive ever enters the plan. The credential-bearing kinds (oauth2, api_key,
   // bearer_token) require a sealed secret the thin plan arguments must never carry, so the control plane
   // rejects a secretless create and those providers are created in the Console instead. The control plane
@@ -143,9 +143,9 @@ export const CONTROL_CAPABILITIES: Record<string, ControlCapability> = {
   },
   // A resource is created from just its name and the scopes it exposes; the control plane derives
   // the resource://<slug> identifier from the name. This is the thin create the Operator applies
-  // directly: it registers the protected target and its scopes. Wiring a Gateway-routed upstream —
+  // directly: it registers the protected target and its scopes. Wiring a Gateway-routed upstream -
   // upstream URL, Gateway application, and the bound provider (including a credential-free
-  // caracal_mandate provider) — is separate console setup and is not part of this step.
+  // caracal_mandate provider) - is separate console setup and is not part of this step.
   defineResource: {
     scopes: ['control:resource:write'],
     buildInvocation: (args) => ({
@@ -182,7 +182,7 @@ export const CONTROL_CAPABILITIES: Record<string, ControlCapability> = {
   deleteProvider: removeControl('identity-provider', 'delete', 'provider_id', (id) => `Deleted provider ${id} from this zone.`),
   deletePolicy: removeControl('policy', 'delete', 'policy_id', (id) => `Deleted policy ${id} from this zone.`),
   // Creates a policy from an authored data document and seals its first immutable version. The
-  // Rego content rides inline — it is the policy logic, not a secret — and the control plane
+  // Rego content rides inline - it is the policy logic, not a secret - and the control plane
   // validates it on create, so an invalid document is rejected there rather than applied. The
   // create returns the policy and its first version, both surfaced so a follow-on action can
   // compose the version into a policy set.
@@ -228,7 +228,7 @@ export const CONTROL_CAPABILITIES: Record<string, ControlCapability> = {
       }
     },
   },
-  // Creates a policy set — the composable unit a zone activates. It holds no policy logic itself;
+  // Creates a policy set - the composable unit a zone activates. It holds no policy logic itself;
   // versions composed from policy versions carry that. The set id is surfaced so a follow-on
   // action can seal a version into it.
   createPolicySet: {

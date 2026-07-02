@@ -281,7 +281,7 @@ export function GuidedSetup() {
 
   // The launch decision is made exactly once per mount, and only after both inputs are
   // authoritative: the zone inventory has settled and the account's guide record has loaded.
-  // A guide that was ever seen never auto-opens again — reloads, navigation, restarts, and
+  // A guide that was ever seen never auto-opens again - reloads, navigation, restarts, and
   // new sign-ins all land here with status "seen" or "done". An account whose zone is already
   // fully built retires the guide silently instead of teaching what already exists.
   useEffect(() => {

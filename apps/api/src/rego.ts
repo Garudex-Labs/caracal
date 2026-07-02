@@ -121,7 +121,7 @@ export function validatePolicySource(content: string): string | null {
 // (grants, application bindings, confinement, deny overlays) that the signed, versioned
 // platform decision contract reads. It is opted into with a top-of-file
 // `# caracal:data-document` directive and must never define `result`. The platform
-// contract owns every decision, so an adopter can never author — or mistype — the
+// contract owns every decision, so an adopter can never author - or mistype - the
 // authorization logic itself.
 const DATA_DOCUMENT_DIRECTIVE = /(?:^|\n)\s*#\s*caracal:data-document\b/
 

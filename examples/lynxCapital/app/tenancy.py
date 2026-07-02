@@ -169,7 +169,7 @@ def load_model(path: str | os.PathLike[str] | None = None) -> TenancyModel:
 def _validate_operation_governance(model: TenancyModel) -> None:
     """Fail closed when the partner operation surface and the governed scope vocabulary
     drift apart. Every operation a partner exposes must map to exactly one scope, and
-    every governed operation must exist on its partner — so no operation can ever reach
+    every governed operation must exist on its partner - so no operation can ever reach
     a provider ungoverned, and no scope can grant authority over a non-existent call.
     The check runs at config load, turning a latent runtime gap into a startup error."""
     from app.services import partners
@@ -257,8 +257,8 @@ def role_application(role: str, model: TenancyModel | None = None) -> str:
 
 
 def agent_labels(role: str, customer_id: str | None = None) -> list[str]:
-    """The agent-session labels policy keys on: the role name, the swarm marker, and —
-    when the work is for one customer — a customer label policy can enforce against."""
+    """The agent-session labels policy keys on: the role name, the swarm marker, and -
+    when the work is for one customer - a customer label policy can enforce against."""
     labels = [role, "lynx-swarm"]
     if customer_id:
         labels.append(f"customer:{customer_id}")
@@ -289,7 +289,7 @@ def operation_scope(provider_id: str, operation: str, model: TenancyModel | None
 
 def role_views(role: str, model: TenancyModel | None = None) -> list[str]:
     """The unique resource-view identifiers a role's scopes resolve to inside its
-    application — the delegation constraint set for spawned workers."""
+    application - the delegation constraint set for spawned workers."""
     model = model or load_model()
     spec = model.role(role)
     views = {

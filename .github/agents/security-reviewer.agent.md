@@ -52,14 +52,14 @@ Start with a one-paragraph assessment summary and an overall posture judgment.
 
 Then, for each finding:
 
-- **Title** — short description
-- **Severity** — Critical / High / Medium / Low / Info
-- **Category** — implementation / architectural / operational / design-level
-- **Impact** — what an attacker gains
-- **Exploitability** — preconditions and difficulty
-- **Affected components** — files, services, or boundaries
-- **Root cause** — the underlying reason, not just the symptom
-- **Recommended fix** — concrete remediation, noting where redesign is warranted over patching
+- **Title** - short description
+- **Severity** - Critical / High / Medium / Low / Info
+- **Category** - implementation / architectural / operational / design-level
+- **Impact** - what an attacker gains
+- **Exploitability** - preconditions and difficulty
+- **Affected components** - files, services, or boundaries
+- **Root cause** - the underlying reason, not just the symptom
+- **Recommended fix** - concrete remediation, noting where redesign is warranted over patching
 
 After the findings, include:
 

@@ -95,7 +95,7 @@ def test_api_key_query_accept_and_reject():
 
 
 # --------------------------------------------------------------------------- #
-# gRPC (Keystone Treasury) — metadata-token auth, service surface, treasury flows
+# gRPC (Keystone Treasury) - metadata-token auth, service surface, treasury flows
 # --------------------------------------------------------------------------- #
 def _keystone():
     c = client("keystone-treasury")
@@ -318,7 +318,7 @@ def test_grpc_operation_carries_money_market_detail():
 
 
 # --------------------------------------------------------------------------- #
-# SSE market data (Pulse Market Data) — quotes, bars, fixings, subscriptions, stream
+# SSE market data (Pulse Market Data) - quotes, bars, fixings, subscriptions, stream
 # --------------------------------------------------------------------------- #
 def _pulse():
     c = client("pulse-market")
@@ -980,7 +980,7 @@ def test_oauth_authorization_code_refresh():
 
 
 # --------------------------------------------------------------------------- #
-# Halcyon Bank — realistic open-banking authorization and domain scenarios
+# Halcyon Bank - realistic open-banking authorization and domain scenarios
 # --------------------------------------------------------------------------- #
 def _halcyon_token(c: TestClient, s: dict, scope: str) -> str:
     verifier = "verifier-abc123verifier-abc123verifier-xyz"
@@ -2428,7 +2428,7 @@ def test_api_key_pair_distinct_cases():
 
 
 # --------------------------------------------------------------------------- #
-# Meridian Pay — card acceptance schema realism, idempotency, capture lifecycle
+# Meridian Pay - card acceptance schema realism, idempotency, capture lifecycle
 # --------------------------------------------------------------------------- #
 def _meridian() -> tuple[TestClient, dict]:
     c = client("meridian-pay")
@@ -2744,7 +2744,7 @@ def test_bearer_pair_distinct_cases():
 
 
 def test_oauth_cc_pair_distinct_cases():
-    # Cordoba FX: scope step-up — fx.read token cannot convert.
+    # Cordoba FX: scope step-up - fx.read token cannot convert.
     c = client("cordoba-fx")
     s = seed("cordoba-fx")
     read = c.post(
@@ -3194,7 +3194,7 @@ def test_mandate_pair_distinct_cases():
         "/api/screen_party", json={"name": "Oblast Holdings"}, headers=h
     ).json()["data"]
     assert dec["decision"] in ("clear", "review", "block")
-    # Verafin Monitor: scope step-up — monitoring token cannot prepare a filing.
+    # Verafin Monitor: scope step-up - monitoring token cannot prepare a filing.
     v = client("verafin-monitor")
     mon_only = _mint("verafin-monitor", scopes=["monitoring.run"])
     denied = v.post(

@@ -390,7 +390,7 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
   })
 
   // When self-governance is enabled, provision the reserved caracal.sys system zone and the
-  // Operator's least-privilege control identity once the server is listening — the only
+  // Operator's least-privilege control identity once the server is listening - the only
   // point the in-process admin client can reach the control plane over loopback. The
   // Operator then governs that one zone. Provisioning failure leaves governed execution
   // unconfigured rather than crashing the API; a later restart retries.

@@ -570,7 +570,7 @@ function adminErrorDetail(err: AdminApiError): string | undefined {
 
 // Translates a control-plane rejection (an AdminApiError the AdminClient raised for a non-2xx
 // response) into a DispatchError whose code the control surface maps to the right HTTP status, so
-// a caller sees the real reason — an invalid document, a conflict, a missing target — instead of a
+// a caller sees the real reason - an invalid document, a conflict, a missing target - instead of a
 // generic upstream error. A 5xx or unknown status stays 'upstream' because the mutation may have
 // applied, so the plan must not be retried.
 function fromAdminError(err: AdminApiError): DispatchError {

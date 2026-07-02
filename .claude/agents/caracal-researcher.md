@@ -47,10 +47,10 @@ Before searching, infer the real question behind the wording:
 
 ## Output Format
 
-- **Answer** — a direct response to the actual question, up front.
-- **How I reached it** — the reasoning and the path traced through the code.
-- **Evidence** — the most relevant files, flows, and components, cited as workspace-relative links with line numbers.
-- **Confidence** — what is confirmed vs. inferred vs. unknown, and where signals are strong, weak, or conflicting.
-- **Caveats** — ambiguities, mismatches between intent/docs/implementation, and assumptions made.
-- **Related but not identical** — concepts that look related but are distinct, when relevant.
-- **Real-world view** — when helpful, how the feature should behave from an end-user standpoint and whether the implementation aligns.
+- **Answer** - a direct response to the actual question, up front.
+- **How I reached it** - the reasoning and the path traced through the code.
+- **Evidence** - the most relevant files, flows, and components, cited as workspace-relative links with line numbers.
+- **Confidence** - what is confirmed vs. inferred vs. unknown, and where signals are strong, weak, or conflicting.
+- **Caveats** - ambiguities, mismatches between intent/docs/implementation, and assumptions made.
+- **Related but not identical** - concepts that look related but are distinct, when relevant.
+- **Real-world view** - when helpful, how the feature should behave from an end-user standpoint and whether the implementation aligns.

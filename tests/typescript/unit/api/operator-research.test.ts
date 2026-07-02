@@ -60,7 +60,7 @@ describe('createStateResearcher', () => {
       { id: 'a2', name: 'Finance' },
     ])
     expect(byDomain.resource.items).toEqual([])
-    // Every invoke is a list subcommand — a researcher can never reach a mutating command.
+    // Every invoke is a list subcommand - a researcher can never reach a mutating command.
     for (const call of invoke.mock.calls) expect(call[1]).toBe('list')
   })
 
@@ -169,7 +169,7 @@ describe('createStateResearcher', () => {
     for (const item of evidence) {
       expect(item).toMatchObject({ ok: false, error: 'read failed' })
     }
-    // The raw error text — which could carry a secret — never reaches the evidence.
+    // The raw error text - which could carry a secret - never reaches the evidence.
     expect(JSON.stringify(evidence)).not.toContain('secret')
   })
 

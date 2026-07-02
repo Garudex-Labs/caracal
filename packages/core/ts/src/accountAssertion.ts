@@ -8,7 +8,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto'
 // The domain-separation label for the account assertion MAC, versioned so the derivation can be
 // rotated without ambiguity. The MAC is keyed by the deployment admin token, the secret both the
 // Console BFF and the API already hold, so the two agree on the assertion with no new shared key.
-// Forging an assertion requires that token, whose holder already has full deployment authority —
+// Forging an assertion requires that token, whose holder already has full deployment authority -
 // so the assertion grants nothing a god-token holder did not already have, exactly like the
 // derived Console read/write tokens.
 const ACCOUNT_ASSERTION_LABEL = 'caracal:account:v1'
@@ -37,7 +37,7 @@ function mac(adminToken: string, accountId: string, exp: number): string {
 // Signs an assertion binding an account id to an expiry. The result is a compact dotted token
 // `v1.<b64url(accountId)>.<exp>.<mac>` the BFF attaches to each proxied request; the API
 // recomputes the MAC with the same admin token to verify it. exp is an absolute Unix time in
-// seconds, kept short by the caller so a captured assertion is only briefly replayable — and a
+// seconds, kept short by the caller so a captured assertion is only briefly replayable - and a
 // replay on the internal BFF-to-API hop grants strictly less than the admin bearer already on
 // that same hop.
 export function signAccountAssertion(adminToken: string, accountId: string, exp: number): string {
@@ -45,7 +45,7 @@ export function signAccountAssertion(adminToken: string, accountId: string, exp:
 }
 
 // Verifies an assertion and returns the bound account id, or null if it is malformed, expired, or
-// its MAC does not match — so the caller binds an account only on a positively verified assertion
+// its MAC does not match - so the caller binds an account only on a positively verified assertion
 // and otherwise falls back to unbound (legacy) behaviour. The MAC comparison is constant-time so a
 // forged assertion cannot be tuned by timing. now is an injectable Unix time in seconds.
 export function verifyAccountAssertion(adminToken: string, assertion: string, now: number): { accountId: string } | null {

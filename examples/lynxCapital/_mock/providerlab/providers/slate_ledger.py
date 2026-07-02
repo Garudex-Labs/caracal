@@ -306,7 +306,7 @@ def reverse_entry(ctx: Ctx) -> dict:
 
 
 # --------------------------------------------------------------------------- #
-# Reconciliation — asynchronous statement match with maker-checker review
+# Reconciliation - asynchronous statement match with maker-checker review
 # --------------------------------------------------------------------------- #
 @base.op(ID, "reconcile_account", title="Open account reconciliation")
 def reconcile_account(ctx: Ctx) -> dict:

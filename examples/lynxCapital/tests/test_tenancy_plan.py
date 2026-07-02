@@ -48,7 +48,7 @@ def test_providers_cover_the_partner_catalog_with_supported_kinds():
 
 def test_provider_scope_vocabulary_stays_inside_the_partner_surface():
     """Every scoped operation is real, and operations left out of the vocabulary are
-    deliberately unreachable through the Gateway — least privilege by omission."""
+    deliberately unreachable through the Gateway - least privilege by omission."""
     model = tenancy.load_model()
     for spec in partners.catalog().values():
         provider = model.provider(spec.id)

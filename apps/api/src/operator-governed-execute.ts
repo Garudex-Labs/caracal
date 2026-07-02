@@ -21,7 +21,7 @@ export interface GovernedStepResult {
 // record a precise error turn without leaking secrets or internal error text. terminal is
 // true when the control command may already have been applied (an ambiguous server or
 // transport failure), so the plan must not be retried; it is false only when the failure
-// is definitive — the token was never minted, or the control plane rejected the command —
+// is definitive - the token was never minted, or the control plane rejected the command -
 // so nothing was applied and the plan is safe to retry.
 export interface GovernedStepFailure {
   stepId: string
@@ -32,8 +32,8 @@ export interface GovernedStepFailure {
 }
 
 // The outcome of applying a plan through the control plane. The governed path cannot wrap
-// multiple control commands in one transaction — each is its own authenticated HTTP call,
-// exactly as a customer operating the control plane experiences — so a plan applies step
+// multiple control commands in one transaction - each is its own authenticated HTTP call,
+// exactly as a customer operating the control plane experiences - so a plan applies step
 // by step and stops at the first failure. applied lists every step that succeeded before
 // the stop; failure is the step that stopped it, or null when the whole plan applied.
 export interface GovernedExecutionResult {
@@ -57,7 +57,7 @@ function generateClientSecret(): string {
 // Each step mints a token narrowed to exactly that capability's scopes and invokes the
 // governed control command; the control plane authorizes, executes, and audits it. The
 // model proposes and the deterministic pipeline has already validated and previewed the
-// plan — this only carries each approved step to the governed surface. A control denial or
+// plan - this only carries each approved step to the governed surface. A control denial or
 // failure stops the plan and is returned as the failure, so a plan never silently
 // half-applies. genSecret is injectable for deterministic tests.
 export async function executeViaControlPlane(
@@ -84,8 +84,8 @@ export async function executeViaControlPlane(
       if (err instanceof ControlClientError) {
         // A definitive failure applies nothing and is safe to retry: the token was never
         // minted (token stage), or the control plane rejected the command (a 4xx client
-        // error). An ambiguous failure — a server error or a lost response (5xx, or no
-        // status) at the invoke stage — may have applied the mutation, so it is terminal.
+        // error). An ambiguous failure - a server error or a lost response (5xx, or no
+        // status) at the invoke stage - may have applied the mutation, so it is terminal.
         const terminal = err.stage === 'invoke' && (err.status >= 500 || err.status === 0)
         return { applied, failure: { stepId: step.id, capability: step.capability, reason: err.reason, code: err.code, terminal } }
       }

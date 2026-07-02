@@ -104,7 +104,7 @@ describe('runTriage', () => {
     const { gateway, completeObject } = gatewayProducing({ tier: 'change', topic: 'general', domains: ['application'] })
     const recent = [
       { seq: 1, role: 'user' as const, text: 'can you help me create an application' },
-      { seq: 2, role: 'operator' as const, text: 'Sure — what name, and managed or DCR?' },
+      { seq: 2, role: 'operator' as const, text: 'Sure - what name, and managed or DCR?' },
       { seq: 3, role: 'user' as const, text: 'Create heiro as managed' },
     ]
     const result = await runTriage(gateway, 'Create heiro as managed', { state: { recent_messages: recent } } as never)

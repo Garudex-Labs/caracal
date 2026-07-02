@@ -70,11 +70,11 @@ The SDK exposes several call paths. They are not interchangeable: each does a di
 
 | Call path | Role | Verifies the mandate? | Use when |
 | --- | --- | --- | --- |
-| `caracal.fetch` / `gateway_request` through the Gateway | **Enforce** | Yes — the Gateway verifies claims and revocation before forwarding | Caracal fronts an HTTP upstream and mediates centrally |
-| Direct Gateway call (`curl` to the Gateway URL) | **Enforce** | Yes — same Gateway verification | Non-SDK clients or debugging the enforced path |
-| Connector verify (`context_middleware(verifier=…)`, Express, FastMCP, net/http, MCP transport) | **Enforce** | Yes — the connector verifies inside the resource server | The resource server should enforce in its own framework |
-| `caracal.transport` / `context_middleware()` (no verifier) | **Propagate** | No — carries and binds the envelope only | A Gateway or connector already enforced upstream and you only need context to flow |
-| App-managed provider call (your code calls the provider SDK directly) | **Attribute** | No — Caracal records who acted, but does not gate the call | You want audit attribution without routing through the Gateway |
+| `caracal.fetch` / `gateway_request` through the Gateway | **Enforce** | Yes - the Gateway verifies claims and revocation before forwarding | Caracal fronts an HTTP upstream and mediates centrally |
+| Direct Gateway call (`curl` to the Gateway URL) | **Enforce** | Yes - same Gateway verification | Non-SDK clients or debugging the enforced path |
+| Connector verify (`context_middleware(verifier=…)`, Express, FastMCP, net/http, MCP transport) | **Enforce** | Yes - the connector verifies inside the resource server | The resource server should enforce in its own framework |
+| `caracal.transport` / `context_middleware()` (no verifier) | **Propagate** | No - carries and binds the envelope only | A Gateway or connector already enforced upstream and you only need context to flow |
+| App-managed provider call (your code calls the provider SDK directly) | **Attribute** | No - Caracal records who acted, but does not gate the call | You want audit attribution without routing through the Gateway |
 
 Rule of thumb: **use the Gateway or a connector verifier to enforce; use transport/propagation to carry identity after enforcement; treat app-managed provider calls as attribution only.** If a path says "no" under *verifies the mandate*, something upstream must have already enforced it.
 

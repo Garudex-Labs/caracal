@@ -13,7 +13,7 @@ export interface ProxyCredential {
 // Decides the credential for one proxied console request. A read (GET or HEAD) presents the
 // read-only token; a write presents the write token. Either may fall back to the deployment
 // admin token if its own token is not recognized, so a not-yet-provisioned or rotated derived
-// token never makes a request fail closed — the admin token is the break-glass fallback rather
+// token never makes a request fail closed - the admin token is the break-glass fallback rather
 // than the everyday credential. When a derived token is absent or equal to the admin token there
 // is nothing weaker to prefer and no distinct fallback, so the admin token is presented directly.
 export function selectProxyCredential(
@@ -33,7 +33,7 @@ export function selectProxyCredential(
 
 // Decides whether a rejected proxied request should be retried once with the fallback
 // credential. A retry happens only on 401, which means the presented token was not recognized
-// — the case a not-yet-provisioned or rotated read token produces. A 403 is a genuine
+// - the case a not-yet-provisioned or rotated read token produces. A 403 is a genuine
 // authorization denial (the credential is valid but lacks the authority), so it is surfaced
 // unchanged rather than retried under broader authority, which would mask a real policy
 // outcome. With no distinct fallback there is nothing to retry with.

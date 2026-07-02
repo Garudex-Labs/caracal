@@ -3,7 +3,7 @@
 Set up a Caracal zone from a script instead of clicking through the web console.
 
 This pipeline uses the **Control API** to create and maintain everything one
-agent needs — its application, provider, resource, and policy — from a plan
+agent needs - its application, provider, resource, and policy - from a plan
 declared in code. Run it from CI, a provisioning script, or an onboarding tool.
 
 ## Try it
@@ -28,7 +28,7 @@ No stack handy? `npm test` runs the whole pipeline offline against a fake zone.
 ## How it works
 
 `plan.mjs` declares the desired state. `apply` compares it with the live zone
-and only changes what differs — it creates missing objects, patches drifted
+and only changes what differs - it creates missing objects, patches drifted
 ones, and publishes a new policy version when the policy content changed.
 Re-running it on an in-sync zone changes nothing:
 
@@ -49,7 +49,7 @@ The pipeline never uses the root admin token. It authenticates with a
 **control key** created in Console: zone-bound, limited to the
 `control:<command>:<verb>` scopes you grant, and exchanged for short-lived STS
 tokens that are replay-protected, rate-limited, and audited. Each stage
-requests only what it needs — `verify` runs with read-only scopes.
+requests only what it needs - `verify` runs with read-only scopes.
 
 ## Files
 

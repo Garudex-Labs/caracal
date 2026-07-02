@@ -9,7 +9,7 @@ Every recipe states the modeling decision, what maps to each noun, and the trade
 
 ## Choose the Zone Boundary
 
-The most common question is “what is a zone — an environment, a customer, a team, or a product area?” A zone is none of those by default. It is the isolation boundary that owns signing keys, policy sets, sessions, audit, and authority data. You decide what trust boundary it represents.
+The most common question is “what is a zone - an environment, a customer, a team, or a product area?” A zone is none of those by default. It is the isolation boundary that owns signing keys, policy sets, sessions, audit, and authority data. You decide what trust boundary it represents.
 
 Use a **separate zone** whenever two workloads must not share signing keys, policy activation, or audit trails. Use a **shared zone with separate resources** when workloads belong to the same trust boundary but target different upstreams.
 
@@ -67,7 +67,7 @@ Decide on the strongest isolation a customer actually requires, then pick the le
 
 ## High-Sensitivity Resources
 
-For resources whose compromise is unacceptable — payouts, key material, production data deletion.
+For resources whose compromise is unacceptable - payouts, key material, production data deletion.
 
 | Option | Mapping |
 | --- | --- |

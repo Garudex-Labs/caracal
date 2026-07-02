@@ -22,8 +22,8 @@ import (
 // credential-injecting trust boundary: proxied requests carry provider secrets and the
 // Caracal identity, STS exchanges carry the inbound bearer and the gateway↔STS HMAC, and
 // JWKS fetches retrieve the keys that authorize tokens. A 3xx target is a host the SSRF
-// guard, egress allowlist, and credential-host checks never vetted — those run only against
-// the initial upstream — so redirects are never followed. The most recent response is
+// guard, egress allowlist, and credential-host checks never vetted - those run only against
+// the initial upstream - so redirects are never followed. The most recent response is
 // surfaced to the caller unfollowed, matching the STS provider-token client
 // (services/sts/internal/refresh.go).
 func noRedirect(*http.Request, []*http.Request) error {

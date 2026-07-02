@@ -5,7 +5,7 @@ description: Run one Caracal deployment that serves many of your customers, with
 
 [Model Your Application in Caracal](/guides/modeling-recipes/) compares the isolation models at a high level. This page is the end-to-end pattern for the most common case: your application is a single product that serves many of *its own* customers, and you want clean per-customer authority without standing up infrastructure for each customer.
 
-The short answer: run **one zone for your deployment** and represent **each customer as a subject**. Customer separation lives below the zone — in subjects, sessions, agents, and delegation — which is exactly where Caracal models per-actor authority. You do not create a zone per customer.
+The short answer: run **one zone for your deployment** and represent **each customer as a subject**. Customer separation lives below the zone - in subjects, sessions, agents, and delegation - which is exactly where Caracal models per-actor authority. You do not create a zone per customer.
 
 :::note[FAQ]
 [What should a zone represent?](/reference/faq/#faq-003) and [does the open-source edition include managed multi-tenancy?](/reference/faq/#faq-004)
@@ -15,13 +15,13 @@ The short answer: run **one zone for your deployment** and represent **each cust
 
 | Layer | Owns | Per-customer? |
 | --- | --- | --- |
-| Zone | Signing keys, policy set, resources, providers, audit trail | No — one per deployment |
-| Application | Your product's service identity | No — shared by all customers |
-| Subject session | The authenticated customer the work is for (`sub`) | Yes — one per customer |
-| Agent session | One agent run, bound to a subject session, carrying a customer correlation key in metadata | Yes — one per customer task |
-| Delegation edge | The scoped authority that agent holds for one resource | Yes — least privilege per task |
+| Zone | Signing keys, policy set, resources, providers, audit trail | No - one per deployment |
+| Application | Your product's service identity | No - shared by all customers |
+| Subject session | The authenticated customer the work is for (`sub`) | Yes - one per customer |
+| Agent session | One agent run, bound to a subject session, carrying a customer correlation key in metadata | Yes - one per customer task |
+| Delegation edge | The scoped authority that agent holds for one resource | Yes - least privilege per task |
 
-A zone is the trust boundary that owns keys, policy, and audit. A customer is not a trust boundary of its own here; it is an *attribute* of the subject and the work, checked by policy and recorded in audit. Keep customer identity in the subject and metadata — never in [scope names](/concepts/resource-grant/).
+A zone is the trust boundary that owns keys, policy, and audit. A customer is not a trust boundary of its own here; it is an *attribute* of the subject and the work, checked by policy and recorded in audit. Keep customer identity in the subject and metadata - never in [scope names](/concepts/resource-grant/).
 
 ## Step 1: One Zone, One Application
 
@@ -39,7 +39,7 @@ The zone owns one policy set and one audit trail. Every customer's authority is 
 
 When a customer signs in, mint a subject session whose `sub` is your stable customer identifier. The subject is the customer's identity inside Caracal: STS records the session as a user session, and the `sub` flows into every downstream agent, delegation, and audit event.
 
-Use a customer id that never changes for the life of the account, so audit history stays attributable even after profile changes. Do not reuse one `sub` across two customers — separation is only as strong as your subject issuance.
+Use a customer id that never changes for the life of the account, so audit history stays attributable even after profile changes. Do not reuse one `sub` across two customers - separation is only as strong as your subject issuance.
 
 ## Step 3: Spawn a per-Customer Agent with a Correlation Key
 
@@ -54,17 +54,17 @@ async with caracal.spawn(
     await do_work(ctx)
 ```
 
-`subject_session_id` references the STS session, so it is the authority anchor; the customer id in `metadata` is the business correlation key. Use a single, consistent metadata key — `customer_id` is the recommended convention — so audit queries and dashboards can filter by customer without per-app special cases.
+`subject_session_id` references the STS session, so it is the authority anchor; the customer id in `metadata` is the business correlation key. Use a single, consistent metadata key - `customer_id` is the recommended convention - so audit queries and dashboards can filter by customer without per-app special cases.
 
 :::caution[Attribution is not enforcement]
-Agent metadata travels with the session and lands in audit, but it is **not** part of policy input. Policy sees the subject's claims (`input.context.subject_claims`), the agent's labels (`input.principal.labels`), and the delegation edge — never the metadata map. Use metadata to *find* a customer's activity; use subject claims or labels when policy must *restrict* it.
+Agent metadata travels with the session and lands in audit, but it is **not** part of policy input. Policy sees the subject's claims (`input.context.subject_claims`), the agent's labels (`input.principal.labels`), and the delegation edge - never the metadata map. Use metadata to *find* a customer's activity; use subject claims or labels when policy must *restrict* it.
 :::
 
 For fan-out work, give each child agent the least authority it needs with [delegation](/guides/delegation/), keeping one customer's blast radius contained even though all customers share the zone.
 
 ### Customer Labels for App-Only Workloads
 
-When the work is app-initiated — a billing sweep, a dunning cycle, a scheduled job acting on a customer's records without that customer signing in — there is no subject session to anchor the customer. Carry the customer on the agent session itself with a label:
+When the work is app-initiated - a billing sweep, a dunning cycle, a scheduled job acting on a customer's records without that customer signing in - there is no subject session to anchor the customer. Carry the customer on the agent session itself with a label:
 
 ```python
 async with caracal.spawn(
@@ -75,7 +75,7 @@ async with caracal.spawn(
     await collect_overdue(ctx)
 ```
 
-Labels drive the platform decision contract's confinement: a `confinement` data document caps every customer-labeled agent to the customer-record surface — whatever its role would otherwise allow:
+Labels drive the platform decision contract's confinement: a `confinement` data document caps every customer-labeled agent to the customer-record surface - whatever its role would otherwise allow:
 
 ```text
 # caracal:data-document
@@ -109,13 +109,13 @@ grants := {
 }
 ```
 
-A session spawned for a scale-plan customer carries the `scale-plan` label and mints `payouts:run`; a starter-plan session never holds that role, so the platform contract denies it. Express customer differences as roles in `grants` and prefixes in `confinement` — not as a separate policy set per customer. There is one active policy set per zone. See [Author Policy Data](/guides/author-policy/).
+A session spawned for a scale-plan customer carries the `scale-plan` label and mints `payouts:run`; a starter-plan session never holds that role, so the platform contract denies it. Express customer differences as roles in `grants` and prefixes in `confinement` - not as a separate policy set per customer. There is one active policy set per zone. See [Author Policy Data](/guides/author-policy/).
 
 ## Step 5: Attribute and Revoke per Customer
 
 Every decision is written to the zone audit ledger with the application, session, agent session, and delegation chain. The customer id rides in the agent metadata you set in Step 3, and the subject is reachable through the session, so you can answer "what did this customer do, with what authority" from the audit trail. See [Audit and Request Traces](/concepts/audit-ledger/).
 
-To build a per-customer read-only view — for an internal support console or a customer-facing activity page — query the shared trail by the convention you already established: filter agent sessions on the `customer_id` metadata key (or the `customer:` label), then collect each session's decisions, delegations, and Gateway events. Because every session carries the key from spawn, the view is a filter over one audit trail, not a separate per-customer store. The same filter scopes Console searches and SIEM exports.
+To build a per-customer read-only view - for an internal support console or a customer-facing activity page - query the shared trail by the convention you already established: filter agent sessions on the `customer_id` metadata key (or the `customer:` label), then collect each session's decisions, delegations, and Gateway events. Because every session carries the key from spawn, the view is a filter over one audit trail, not a separate per-customer store. The same filter scopes Console searches and SIEM exports.
 
 To cut a customer off, revoke that customer's subject session and its agents and delegation edges; cascade revocation tears down the chain beneath them. There is no single "purge everything for a customer" call, so iterate the customer's sessions and agents. See [Sessions and Revocation](/concepts/sessions-revocation/).
 
@@ -124,13 +124,13 @@ To cut a customer off, revoke that customer's subject session and its agents and
 One shared zone serves many customers well, with two ceilings to design around. The agent concurrency caps and the rate-limit scope are in [Defaults and Limits](/reference/defaults-and-limits/#agent-and-delegation-limits).
 
 - **Concurrent agents per zone** are capped, so a single zone bounds how many customer agents can run at once. If you need more simultaneous customer agents than one zone allows, add applications within the zone, or move the busiest customers to their own zone.
-- **STS rate limiting is per zone, resource, and acting application** — not per customer. Because customers share your application identity, one heavy customer draws on the shared budget. Keep this in mind for fairness, and isolate a customer into its own zone if it must have a guaranteed independent budget.
+- **STS rate limiting is per zone, resource, and acting application** - not per customer. Because customers share your application identity, one heavy customer draws on the shared budget. Keep this in mind for fairness, and isolate a customer into its own zone if it must have a guaranteed independent budget.
 
 ## When to Use a Zone per Customer Instead
 
 Stay with one shared zone unless a customer genuinely requires hard isolation: independent signing keys, an audit trail that can never mix with others, or a policy change that can never affect another customer. Those needs are the **zone per customer** model in [Model Your Application in Caracal](/guides/modeling-recipes/#multiple-customers-or-workspaces).
 
-In the open-source edition you provision and automate those zones yourself through the Admin API, and your one application authenticates separately into each. A scoped Control key cannot create zones — it is bound to the single zone it was issued in. Managed per-tenant lifecycle, where customer onboarding mints and operates a zone automatically, is an Enterprise Edition feature; see [Compare Editions](/enterprise/).
+In the open-source edition you provision and automate those zones yourself through the Admin API, and your one application authenticates separately into each. A scoped Control key cannot create zones - it is bound to the single zone it was issued in. Managed per-tenant lifecycle, where customer onboarding mints and operates a zone automatically, is an Enterprise Edition feature; see [Compare Editions](/enterprise/).
 
 ## Validate the Pattern
 

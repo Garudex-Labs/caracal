@@ -8,7 +8,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto'
 // The domain-separation label for the operator-identity MAC, versioned and distinct from the
 // account assertion so the two signals can never be confused for one another. It is keyed by the
 // deployment admin token both the BFF and API hold, so forging it needs a credential whose holder
-// already has full deployment authority — it grants nothing new, exactly like the account assertion.
+// already has full deployment authority - it grants nothing new, exactly like the account assertion.
 const OPERATOR_ASSERTION_LABEL = 'caracal:operator:v1'
 const OPERATOR_ASSERTION_PREFIX = 'v1'
 
@@ -48,7 +48,7 @@ export function signOperatorAssertion(adminToken: string, identity: OperatorIden
 }
 
 // Verifies an assertion and returns the bound identity, or null if it is malformed, expired, or its
-// MAC does not match — so the caller attributes to the operator only on a positively verified
+// MAC does not match - so the caller attributes to the operator only on a positively verified
 // assertion and otherwise falls back to the admin token's own name. The MAC comparison is
 // constant-time. now is an injectable Unix time in seconds.
 export function verifyOperatorAssertion(adminToken: string, assertion: string, now: number): OperatorIdentity | null {

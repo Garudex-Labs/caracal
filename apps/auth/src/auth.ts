@@ -105,13 +105,13 @@ export const auth = betterAuth({
       enabled: true,
       // Only provider-verified identities are trusted for automatic linking. Trusting
       // email-password here would let an unverified password registration auto-link to an
-      // existing Google/GitHub account that shares the address — an account-takeover path.
+      // existing Google/GitHub account that shares the address - an account-takeover path.
       trustedProviders: ['google', 'github'],
     },
   },
   // Registration is an authority boundary: a signed-in operator is proxied with the shared global
   // admin token, so only allowlisted identities may create an account. This runs before any user
-  // row is written and covers every path — email/password sign-up and social provider callbacks —
+  // row is written and covers every path - email/password sign-up and social provider callbacks -
   // so an unlisted identity can never bootstrap a session in production.
   databaseHooks: {
     user: {
@@ -142,7 +142,7 @@ export const auth = betterAuth({
   },
   // Redirect OAuth and verification errors to the web console's sign-in page rather than the BFF's
   // bare error page, which serves no UI (and is a different origin in a split deployment). A
-  // replayed or expired OAuth callback — for example a back-navigation to a consumed state — then
+  // replayed or expired OAuth callback - for example a back-navigation to a consumed state - then
   // lands on the real console: a still-valid session is forwarded straight to the app, and a
   // genuinely signed-out operator sees the sign-in screen instead of a dead error URL.
   onAPIError: {

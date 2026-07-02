@@ -105,7 +105,7 @@ export interface Config {
   operatorAiMaxCallsPerTurn: number
   // Internal-only: when set, the Operator provisions and self-governs the reserved
   // caracal.sys system zone, executing through the governed control plane as a real
-  // least-privilege control identity — exactly as a customer's control key does — rather
+  // least-privilege control identity - exactly as a customer's control key does - rather
   // than borrowing the admin token. The system zone and that identity are provisioned
   // autonomously at startup; the only knob is the sealed client secret below, so the user
   // surface is one secret rather than a hand-wired identity.

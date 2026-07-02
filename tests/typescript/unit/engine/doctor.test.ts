@@ -91,7 +91,7 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-describe('runDoctorDiagnostics — preflight only', () => {
+describe('runDoctorDiagnostics - preflight only', () => {
   it('reports only the preflight section', async () => {
     const report = await runDoctorDiagnostics({ preflightOnly: true })
     expect(report.mode).toBe('preflight')
@@ -103,7 +103,7 @@ describe('runDoctorDiagnostics — preflight only', () => {
   })
 })
 
-describe('runDoctorDiagnostics — full system run', () => {
+describe('runDoctorDiagnostics - full system run', () => {
   it('runs health, zone, readiness, and preflight checks for all zones', async () => {
     vi.mocked(buildAdminClient).mockReturnValue(fakeAdminContext() as never)
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {

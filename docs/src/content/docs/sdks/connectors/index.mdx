@@ -29,8 +29,8 @@ Framework connectors adapt the lower-level identity and MCP auth transport packa
 
 Every HTTP connector maps verification failures through one canonical status function in `@caracalai/transport-mcp` (`httpStatusForAuthError` in TypeScript, `transportmcp.HTTPStatus` in Go), so the boundary behaves identically across frameworks and languages:
 
-- **401** — the credential itself was not accepted: `missing_token`, `invalid_token`, `invalid_zone`, `session_revoked`, `delegation_stale`.
-- **403** — the mandate verified but its authority is insufficient for the route: `insufficient_scope`, `agent_required`, `delegation_required`, `chain_mismatch`, `hop_count_exceeded`.
+- **401** - the credential itself was not accepted: `missing_token`, `invalid_token`, `invalid_zone`, `session_revoked`, `delegation_stale`.
+- **403** - the mandate verified but its authority is insufficient for the route: `insufficient_scope`, `agent_required`, `delegation_required`, `chain_mismatch`, `hop_count_exceeded`.
 
 Connectors never re-derive these status codes; they consume the shared mapping.
 

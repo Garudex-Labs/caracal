@@ -3,7 +3,7 @@ title: Author Policy Data
 description: Author the grant, binding, and confinement data the platform decision contract reads, and validate it before activation.
 ---
 
-The platform decision contract owns every authorization decision inside the STS. You do not write `result` — you author **policy data documents** that tell the contract which application owns a resource, which roles hold which scopes, and how to confine or restrict authority. This guide writes those documents and validates them before activation.
+The platform decision contract owns every authorization decision inside the STS. You do not write `result` - you author **policy data documents** that tell the contract which application owns a resource, which roles hold which scopes, and how to confine or restrict authority. This guide writes those documents and validates them before activation.
 
 ## Prerequisites
 
@@ -63,18 +63,18 @@ const starter = await admin.policyTemplates.get("resource-grants");
 | `label-confinement` | Cap every session carrying a label prefix to a fixed scope set. |
 | `zone-restriction` | A deny overlay that freezes the zone while an entry is present. |
 
-For assisted authoring, describe the outcome to the [Caracal Operator](/concepts/operator/#authoring-policy). Its policy author models the use case as grant, binding, and confinement data, validates and previews each document against the platform contract, and proposes a governed create you review and approve — so the policy that lands is already contract-valid.
+For assisted authoring, describe the outcome to the [Caracal Operator](/concepts/operator/#authoring-policy). Its policy author models the use case as grant, binding, and confinement data, validates and previews each document against the platform contract, and proposes a governed create you review and approve - so the policy that lands is already contract-valid.
 
 ## How your data maps to the request
 
 The decision contract evaluates a fixed input contract and resolves it against your
-data. The acting application is the principal — there is no `input.application` or
+data. The acting application is the principal - there is no `input.application` or
 `input.grant` object. See the full [Policy Input Contract](/concepts/policy/#policy-input-contract)
 for every field.
 
 | Input the contract reads | Resolved against |
 | --- | --- |
-| `input.principal.id` | `app_ids` — to find the application key used in `grants`. |
+| `input.principal.id` | `app_ids` - to find the application key used in `grants`. |
 | `input.principal.labels` | `grants[...].roles` and `confinement` label prefixes. |
 | `input.resource.identifier` | the top-level key in `grants`. |
 | `input.context.requested_scopes` | the role's scope set and any matching `confinement` rule. |
@@ -106,8 +106,8 @@ platform contract owns the decision, a data document can never authorize on its 
 
 ## Why data, not decisions
 
-Authorization logic — delegation narrowing, role and grant checks, label
-confinement, bootstrap isolation — is identical for every adopter and is the part
+Authorization logic - delegation narrowing, role and grant checks, label
+confinement, bootstrap isolation - is identical for every adopter and is the part
 most dangerous to get wrong. A single typo in a hand-written rule (`if { false }` →
 `if { true }`) silently turns a deny into an allow-all. Caracal removes that footgun
 by owning the logic in a signed, versioned platform decision contract and letting

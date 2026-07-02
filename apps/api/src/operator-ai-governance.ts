@@ -7,7 +7,7 @@ import type { LanguageModelMiddleware } from 'ai'
 
 // The deployment-set limits Caracal enforces over the Operator's model usage, independent of which
 // agent makes a call. maxOutputTokens is a hard ceiling on a single completion's output, clamping
-// any larger request so no agent — present or future — can ask for an unbounded generation.
+// any larger request so no agent - present or future - can ask for an unbounded generation.
 // maxCallsPerTurn bounds how many model calls a single message turn may make, so the multi-agent
 // composition can never run an unbounded loop. Either limit at zero disables that bound.
 export interface GovernanceLimits {

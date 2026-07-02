@@ -10,13 +10,13 @@ import type { OperatorAuthority } from './operator-authority.js'
 
 // The bounded principals the orchestrator spawns. researcher reads live state to ground an answer;
 // executor applies an approved plan. Each is a distinct role with its own least-privilege scope
-// set, so a worker can only ever request the scopes its role needs — a read worker can never mint a
+// set, so a worker can only ever request the scopes its role needs - a read worker can never mint a
 // write token even though it shares the Operator's underlying control identity.
 export type AgentRole = 'researcher' | 'executor'
 
 // The scopes the researcher role may ever request: exactly the scopes of the governed read
 // capabilities. Derived from the catalog's mutating flag and the control mapping, never
-// hand-listed, so the read role can never drift to include a write scope — a capability whose
+// hand-listed, so the read role can never drift to include a write scope - a capability whose
 // mutating flag flips out of the read set drops its scope from the role automatically.
 export function researcherRoleScopes(): Set<string> {
   const scopes = new Set<string>()
@@ -56,7 +56,7 @@ export function roleScopes(role: AgentRole, authority: OperatorAuthority): Set<s
 // allowed set. Any out-of-role scope is refused before a token is minted, so an out-of-role request
 // never reaches the STS and no credential is ever issued for it. The refusal is a token-stage
 // ControlClientError, so the executor treats it as a definitive, nothing-applied failure and the
-// researcher folds it into a typed evidence entry — both existing call sites handle it unchanged.
+// researcher folds it into a typed evidence entry - both existing call sites handle it unchanged.
 export function createRoleScopedClient(inner: ControlClient, role: AgentRole, allowedScopes: ReadonlySet<string>): ControlClient {
   return {
     async invoke(command, subcommand, flags, scopes) {

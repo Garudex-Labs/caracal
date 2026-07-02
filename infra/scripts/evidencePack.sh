@@ -133,13 +133,13 @@ git_rev="$(git -C "${ROOT}" rev-parse --short HEAD 2>/dev/null || echo unknown)"
     for i in "${!NAMES[@]}"; do
         link="${LOGS[$i]}"
         [ -n "${link}" ] && link="[\`${link}\`](./${link})"
-        echo "| ${PILLARS[$i]} | ${NAMES[$i]} | ${STATUSES[$i]} | ${link:-—} |"
+        echo "| ${PILLARS[$i]} | ${NAMES[$i]} | ${STATUSES[$i]} | ${link:--} |"
     done
     echo ""
     echo "## Checks"
     echo ""
     for i in "${!NAMES[@]}"; do
-        echo "### ${NAMES[$i]} — ${STATUSES[$i]}"
+        echo "### ${NAMES[$i]} - ${STATUSES[$i]}"
         echo ""
         echo "${DETAILS[$i]}"
         echo ""

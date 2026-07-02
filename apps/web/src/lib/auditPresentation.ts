@@ -137,15 +137,15 @@ export function auditSummary(event: AuditEventLike, actorName?: string | null): 
       return `${actor} was issued a credential for ${target}${via}`;
     }
     case "exchange_denied":
-      return `${actor} was denied a credential for ${target}${reason ? ` — ${reason.label}` : ""}`;
+      return `${actor} was denied a credential for ${target}${reason ? ` - ${reason.label}` : ""}`;
     case "gateway_resource_request": {
       const method = metaStr(meta, "method");
       const call = `${actor} called ${target}${method ? ` (${method})` : ""}`;
       const errorKind = metaStr(meta, "error_kind");
       if (errorKind)
-        return `${call} — ${GATEWAY_ERROR_KINDS[errorKind] ?? errorKind.replace(/_/g, " ")}`;
+        return `${call} - ${GATEWAY_ERROR_KINDS[errorKind] ?? errorKind.replace(/_/g, " ")}`;
       const status = meta.upstream_status;
-      return typeof status === "number" ? `${call} — upstream responded ${status}` : call;
+      return typeof status === "number" ? `${call} - upstream responded ${status}` : call;
     }
     case "scope_mismatch":
       return `${actor} requested scopes outside its grant for ${target}`;
@@ -166,7 +166,7 @@ export function auditSummary(event: AuditEventLike, actorName?: string | null): 
         .filter(Boolean)
         .join(" ");
       const verdict = event.decision === "deny" ? "was refused" : "ran";
-      return `Control command ${command || "invocation"} ${verdict}${reason ? ` — ${reason.label}` : ""}`;
+      return `Control command ${command || "invocation"} ${verdict}${reason ? ` - ${reason.label}` : ""}`;
     }
     default: {
       const context = auditEventContext(event);

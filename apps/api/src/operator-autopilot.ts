@@ -4,7 +4,7 @@
 // The Caracal-governed autopilot evaluator: decides deterministically whether a plan's human approval step may be auto-satisfied, never by the model.
 
 // The Caracal-side autopilot policy: the deployment master switch for auto-approval. enabled is the
-// kill switch — false disables all auto-approval regardless of any conversation's engage flag, and
+// kill switch - false disables all auto-approval regardless of any conversation's engage flag, and
 // defaults off so a deployment opts in explicitly before autopilot can ever act.
 export interface AutopilotPolicy {
   enabled: boolean
@@ -42,9 +42,9 @@ export type AutopilotDecision = { autoApprove: true } | { autoApprove: false; re
 // Decides whether a plan's human approval may be auto-satisfied. With the master switch on and the
 // conversation engaged, a non-empty plan whose preview says it can apply is auto-approved: an
 // engaged conversation has opted into acting without a human in the loop. A plan the deterministic
-// preview already marks unapplicable — a blocked step whose target cannot exist when the plan runs —
+// preview already marks unapplicable - a blocked step whose target cannot exist when the plan runs -
 // is never auto-approved: it would only fail on apply, so it stops for a human who can see why.
-// Authority is never widened — the governed execute path still enforces the capability allowlist,
+// Authority is never widened - the governed execute path still enforces the capability allowlist,
 // least-privilege executor token, and zone isolation when the plan is applied, so autopilot removes
 // the approval step, never the deterministic controls.
 export function mayAutoApprove(evaluation: AutopilotEvaluation, policy: AutopilotPolicy): AutopilotDecision {
