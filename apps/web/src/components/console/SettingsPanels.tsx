@@ -6,7 +6,7 @@ This file provides the shared layout primitives the Settings pages compose their
 */
 import { useState, type ReactNode } from "react";
 
-import { Button, Modal, Tooltip } from "@/components/ui";
+import { Button, Modal } from "@/components/ui";
 
 export function SettingsGroup({
   title,
@@ -24,45 +24,44 @@ export function SettingsGroup({
   return (
     <section
       className={[
-        "grid gap-5 border-t py-8 first:border-t-0 first:pt-8 last:pb-8 2xl:grid-cols-[minmax(220px,300px)_minmax(0,1fr)]",
-        danger ? "border-destructive/30" : "border-border",
+        "mt-6 overflow-hidden rounded-xl border bg-card shadow-sm first:mt-0",
+        danger ? "border-destructive/40" : "border-border",
       ].join(" ")}
     >
-      <div>
-        <div className="flex items-center gap-2">
-          <h3
-            className={[
-              "text-sm font-semibold",
-              danger ? "text-destructive" : "text-foreground",
-            ].join(" ")}
-          >
-            {title}
-          </h3>
-          {description ? <HelpTip label={description} /> : null}
-        </div>
-        {action ? <div className="mt-4">{action}</div> : null}
+      <div className="px-5 pt-5 sm:px-6">
+        <h3
+          className={[
+            "text-sm font-semibold tracking-tight",
+            danger ? "text-destructive" : "text-foreground",
+          ].join(" ")}
+        >
+          {title}
+        </h3>
+        {description ? (
+          <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">{description}</p>
+        ) : null}
       </div>
-      <div className="min-w-0">{children}</div>
+      <div className="min-w-0 px-5 py-5 sm:px-6">{children}</div>
+      {action ? (
+        <div
+          className={[
+            "flex flex-wrap items-center justify-end gap-2 border-t px-5 py-3.5 sm:px-6",
+            danger ? "border-destructive/20 bg-destructive/5" : "border-border bg-muted/30",
+          ].join(" ")}
+        >
+          {action}
+        </div>
+      ) : null}
     </section>
   );
 }
 
-export function HelpTip({ label }: { label: string }) {
-  return (
-    <Tooltip label={label}>
-      <span
-        tabIndex={0}
-        aria-label="More information"
-        className="inline-grid h-5 w-5 place-items-center rounded-full border border-border text-[11px] font-semibold text-muted-foreground outline-none transition-colors hover:border-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40"
-      >
-        ?
-      </span>
-    </Tooltip>
-  );
-}
-
 export function InfoGrid({ children }: { children: ReactNode }) {
-  return <dl className="grid gap-3 border border-border bg-card p-4 md:grid-cols-3">{children}</dl>;
+  return (
+    <dl className="grid gap-4 rounded-lg border border-border bg-muted/30 p-4 md:grid-cols-3">
+      {children}
+    </dl>
+  );
 }
 
 export function InfoItem({

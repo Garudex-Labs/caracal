@@ -63,14 +63,6 @@ const PATHS: Record<string, ReactNode> = {
       <path d="M9 13h.01M15 13h.01" />
     </>
   ),
-  delegation: (
-    <>
-      <circle cx="6" cy="6" r="2.5" />
-      <circle cx="18" cy="6" r="2.5" />
-      <circle cx="12" cy="18" r="2.5" />
-      <path d="M6 8.5v2A2.5 2.5 0 0 0 8.5 13H12m6-4.5v2A2.5 2.5 0 0 1 15.5 13H12m0 0v2.5" />
-    </>
-  ),
   sessions: (
     <>
       <path d="M3 12h4l2 6 4-14 2 8h6" />

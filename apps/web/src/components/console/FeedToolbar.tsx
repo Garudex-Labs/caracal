@@ -9,6 +9,46 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui";
 import { cx } from "@/lib/cx";
 
+// A segmented tab control for switching between the views of a single workspace, designed
+// to sit inline on the feed toolbar row.
+export function FeedTabs<T extends string>({
+  tabs,
+  value,
+  onChange,
+  label,
+}: {
+  tabs: readonly { id: T; label: string }[];
+  value: T;
+  onChange: (id: T) => void;
+  label: string;
+}) {
+  return (
+    <div
+      role="tablist"
+      aria-label={label}
+      className="flex h-8 items-center gap-0.5 rounded-md border border-border bg-muted/50 p-0.5"
+    >
+      {tabs.map((tab) => (
+        <button
+          key={tab.id}
+          type="button"
+          role="tab"
+          aria-selected={value === tab.id}
+          onClick={() => onChange(tab.id)}
+          className={cx(
+            "h-7 rounded px-2.5 text-xs font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/40",
+            value === tab.id
+              ? "bg-background text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          {tab.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 // An inline toolbar designed to sit on the same row as the workspace search box. It keeps
 // everything on one line: an optional leading control, a Filters button whose labeled fields
 // drop into a floating panel, and the loaded count plus cursor control pushed to the right.
