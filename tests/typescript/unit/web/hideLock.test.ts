@@ -12,7 +12,6 @@ describe('isHideLockedPath', () => {
     expect(isHideLockedPath('/app/settings', true)).toBe(true)
     expect(isHideLockedPath('/app/enterprise/governance', true)).toBe(true)
     expect(isHideLockedPath('/app/enterprise/analytics', true)).toBe(true)
-    expect(isHideLockedPath('/app/enterprise/compliance', true)).toBe(true)
   })
 
   it('matches nested paths under a hide-locked prefix', () => {

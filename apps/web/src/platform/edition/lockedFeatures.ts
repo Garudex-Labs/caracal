@@ -114,25 +114,7 @@ export const LOCKED_FEATURES: Record<string, LockedFeature> = {
     ],
     community: "Community shows live per-zone activity in the dashboard and Audit.",
   },
-  compliance: {
-    slug: "compliance",
-    title: "Compliance Center",
-    home: "observability",
-    summary: "Map controls, collect evidence, and manage retention for audits.",
-    value: [
-      "Map Caracal audit to SOC 2, ISO 27001, and FedRAMP controls.",
-      "Automate evidence collection and retention.",
-      "Export immutable reports for auditors.",
-    ],
-    includes: [
-      "Prebuilt control mappings (SOC 2, ISO, FedRAMP)",
-      "Automated evidence collection",
-      "Configurable retention policies",
-      "Immutable, signed report export",
-      "Auditor-ready access packages",
-    ],
-    community: "Community records every authority decision in the per-zone Audit log.",
-  },
+  // Compliance is an enterprise capability; Community ships no compliance surface or upsell page.
   governance: {
     slug: "governance",
     title: "Governance",

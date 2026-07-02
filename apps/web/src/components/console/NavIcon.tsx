@@ -113,13 +113,6 @@ const PATHS: Record<string, ReactNode> = {
       <path d="m12 12 9 0M17 12v4M20 12v3" />
     </>
   ),
-  compliance: (
-    <>
-      <path d="M9 4h6a1 1 0 0 1 1 1v1h2a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h2V5a1 1 0 0 1 1-1Z" />
-      <path d="M9 5h6v2H9z" />
-      <path d="m9.5 14 2 2 3.5-4" />
-    </>
-  ),
   analytics: (
     <>
       <path d="M4 20V4" />
