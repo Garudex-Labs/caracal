@@ -46,7 +46,7 @@ pickItems() {
         local key='' rest=''
         if ! IFS= read -rsn1 key; then continue; fi
         if [[ $key == $'\x1b' ]]; then
-            IFS= read -rsn2 -t 0.5 rest || rest=''
+            IFS= read -rsn2 -t 1 rest || rest=''
             key="$key$rest"
         fi
         case "$key" in

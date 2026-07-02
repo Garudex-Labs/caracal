@@ -76,7 +76,7 @@ if (tsBuilds.some((path) => !existsSync(join(root, path))) || staleBuilds.some((
 }
 
 try {
-  const sha = execFileSync('node', [join(root, 'apps/runtime/scripts/stampDev.mjs')], {
+  const sha = execFileSync('node', [join(root, 'apps/runtime/scripts/stampVersion.mjs')], {
     stdio: ['ignore', 'pipe', 'inherit'],
   })
     .toString()

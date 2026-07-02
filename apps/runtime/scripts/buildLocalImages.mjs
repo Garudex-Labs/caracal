@@ -48,7 +48,13 @@ args.push('-f', composeFile, 'build', ...services)
 const res = spawnSync('docker', args, {
   stdio: 'inherit',
   cwd: repoRoot,
-  env: { ...process.env, CARACAL_DEV_SHA: sha, CARACAL_DEV_VERSION: devVersion, CARACAL_MODE: 'dev', CARACAL_SECRETS_DIR: secrets.secretsDir },
+  env: {
+    ...process.env,
+    CARACAL_DEV_SHA: sha,
+    CARACAL_DEV_VERSION: devVersion,
+    CARACAL_MODE: 'dev',
+    CARACAL_SECRETS_DIR: secrets.secretsDir,
+  },
 })
 if (res.status !== 0) {
   process.stderr.write(`buildLocalImages: docker compose build exited ${res.status}\n`)
@@ -57,7 +63,7 @@ if (res.status !== 0) {
 
 // Re-tag with the runtime compose's expected `:v<version>` pattern so the
 // release binary can resolve `localhost/caracal-<svc>:v${CARACAL_VERSION}`
-// where CARACAL_VERSION uses the developer version from stampRelease.
+// where CARACAL_VERSION uses the developer version from stampVersion.mjs.
 const runtimeTag = `v${devVersion}`
 for (const svc of services) {
   const src = `localhost/caracal-${svc}:${devVersion}`

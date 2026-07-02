@@ -142,10 +142,10 @@ fi
 if $run_go; then
   step "go: race"
   mkdir -p coverage/go
-  bash scripts/runGoSourceTests.sh "$go_cmd" test -race "${go_pkgs[@]}"
+  node scripts/runGoSourceTests.mjs "$go_cmd" test -race "${go_pkgs[@]}"
 
   step "go: coverage"
-  bash scripts/runGoSourceTests.sh "$go_cmd" test -covermode=atomic -coverprofile=coverage/go/coverage.out "${go_pkgs[@]}"
+  node scripts/runGoSourceTests.mjs "$go_cmd" test -covermode=atomic -coverprofile=coverage/go/coverage.out "${go_pkgs[@]}"
   "$go_cmd" test -race -covermode=atomic \
     -coverpkg=github.com/garudex-labs/caracal/packages/transport/mcp/go,github.com/garudex-labs/caracal/packages/revocation/go,github.com/garudex-labs/caracal/packages/identity/go \
     -coverprofile=coverage/go/tests.out \
@@ -158,6 +158,10 @@ if $run_go; then
 fi
 
 if $run_py; then
+  python_cmd="${PYTHON:-}"
+  if [[ -z "$python_cmd" ]]; then
+    if command -v python3 >/dev/null 2>&1; then python_cmd=python3; else python_cmd=python; fi
+  fi
   py_venv="$(mktemp -d)"
   cleanup_py() {
     rm -rf "$py_venv"
@@ -165,7 +169,7 @@ if $run_py; then
   trap cleanup_py EXIT
 
   step "py: create virtualenv"
-  python -m venv "$py_venv"
+  "$python_cmd" -m venv "$py_venv"
   py_python="$py_venv/bin/python"
   py_coverage="$py_venv/bin/coverage"
 
