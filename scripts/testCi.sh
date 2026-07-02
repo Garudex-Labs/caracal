@@ -7,28 +7,9 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-root="$(pwd)"
 
 # shellcheck source=lib/style.sh
 . "scripts/lib/style.sh"
-
-go_cmd="$(go env GOROOT)/bin/go"
-if [[ ! -x "$go_cmd" ]]; then
-  go_cmd=go
-fi
-go_pkgs=(
-  ./packages/core/go/...
-  ./services/sts/...
-  ./services/audit/...
-  ./services/gateway/...
-  ./packages/transport/mcp/go/...
-  ./packages/connectors/nethttp/go/...
-  ./packages/connectors/redis/go/...
-  ./packages/identity/go/...
-  ./packages/oauth/go/...
-  ./packages/revocation/go/...
-  ./packages/sdk/go/...
-)
 
 run_ts=false
 run_go=false
@@ -79,7 +60,7 @@ if $run_smoke; then
   step "smoke: pnpm -r build"
   pnpm -r build
   step "smoke: go vet"
-  "$go_cmd" vet "${go_pkgs[@]}"
+  node scripts/runGoTests.mjs --vet
 fi
 
 if $run_ts || $run_docs || $run_style; then
@@ -105,56 +86,12 @@ if $run_ts; then
   pnpm -r --if-present typecheck
 
   step "ts: vitest with coverage"
-  ts_run() {
-    local dir="$1" out="$2"; shift 2
-    pnpm --dir "$dir" exec vitest run --root "$root" \
-      --coverage.enabled true \
-      --coverage.provider=v8 \
-      --coverage.reporter=lcov \
-      --coverage.reportsDirectory="$root/coverage/typescript/$out" \
-      "$@"
-  }
-  ts_run apps/api api \
-    tests/typescript/unit/api \
-    tests/typescript/security/api \
-    tests/typescript/property/api \
-    tests/typescript/contract/api \
-    tests/typescript/fuzz/api \
-    tests/typescript/integration/api
-  ts_run apps/coordinator coordinator tests/typescript/unit/orchestration/coordinator
-  ts_run apps/runtime runtime tests/typescript/unit/runtime
-  ts_run apps/auth auth tests/typescript/unit/auth
-  ts_run apps/web web tests/typescript/unit/web
-  ts_run packages/core/ts core tests/typescript/unit/shared
-  ts_run packages/admin/ts admin tests/typescript/unit/admin
-  ts_run packages/sdk/ts sdk tests/typescript/unit/sdk/client.test.ts
-  ts_run packages/transport/a2a/ts transport-a2a tests/typescript/unit/transport-a2a
-  ts_run packages/oauth/ts oauth tests/typescript/unit/sdk/oauth
-  ts_run packages/revocation/ts revocation tests/typescript/unit/revocation
-  ts_run packages/transport/mcp/ts transport-mcp tests/typescript/unit/transport-mcp
-  ts_run packages/connectors/express/ts mcp-express tests/typescript/unit/sdk/mcp-express
-  ts_run packages/connectors/fastmcp/ts mcp-fastmcp tests/typescript/unit/sdk/mcp-fastmcp
-  ts_run packages/connectors/postgres/ts tokenstate-postgres tests/typescript/unit/connectors/postgres
-  ts_run packages/connectors/redis/ts tokenstate-redis tests/typescript/unit/connectors/redis
-  ts_run packages/identity/ts identity tests/typescript/unit/identity
+  node scripts/runTsTests.mjs --coverage
 fi
 
 if $run_go; then
-  step "go: race"
-  mkdir -p coverage/go
-  node scripts/runGoSourceTests.mjs "$go_cmd" test -race "${go_pkgs[@]}"
-
-  step "go: coverage"
-  node scripts/runGoSourceTests.mjs "$go_cmd" test -covermode=atomic -coverprofile=coverage/go/coverage.out "${go_pkgs[@]}"
-  "$go_cmd" test -race -covermode=atomic \
-    -coverpkg=github.com/garudex-labs/caracal/packages/transport/mcp/go,github.com/garudex-labs/caracal/packages/revocation/go,github.com/garudex-labs/caracal/packages/identity/go \
-    -coverprofile=coverage/go/tests.out \
-    ./tests/go/unit/revocation \
-    ./tests/go/unit/transport/mcp \
-    ./tests/go/unit/identity \
-    ./tests/go/contract/interoperability
-  tail -n +2 coverage/go/tests.out >> coverage/go/coverage.out
-  "$go_cmd" tool cover -func=coverage/go/coverage.out
+  step "go: race and coverage"
+  node scripts/runGoTests.mjs --coverage
 fi
 
 if $run_py; then
@@ -171,28 +108,12 @@ if $run_py; then
   step "py: create virtualenv"
   "$python_cmd" -m venv "$py_venv"
   py_python="$py_venv/bin/python"
-  py_coverage="$py_venv/bin/coverage"
 
-  step "py: install editable packages"
-  "$py_python" -m pip install \
-    -e packages/core/python \
-    -e packages/oauth/python \
-    -e packages/identity/python \
-    -e packages/revocation/python \
-    -e packages/sdk/python \
-    -e packages/transport/mcp/python \
-    -e packages/connectors/fastmcp/python \
-    -e packages/connectors/asgi/python \
-    -e packages/connectors/redis/python \
-    coverage==7.14.0 cryptography==48.0.0
+  step "py: install locked test dependencies"
+  "$py_python" -m pip install --require-hashes --requirement scripts/pythonTestRequirements.lock
 
   step "py: coverage run"
-  mkdir -p coverage/python
-  PYTHONPATH="$root/packages/core/python:$root/packages/oauth/python:$root/packages/identity/python:$root/packages/revocation/python:$root/packages/sdk/python:$root/packages/transport/mcp/python:$root/packages/connectors/fastmcp/python:$root/packages/connectors/asgi/python:$root/packages/connectors/redis/python:$root/tests/shared/test-utils/python" \
-    "$py_coverage" run --source=packages/core/python/caracalai_core,packages/oauth/python/caracalai_oauth,packages/identity/python/caracalai_identity,packages/revocation/python/caracalai_revocation,packages/sdk/python/caracalai,packages/transport/mcp/python/caracalai_transport_mcp,packages/connectors/fastmcp/python/caracalai_mcp_fastmcp,packages/connectors/asgi/python/caracalai_asgi,packages/connectors/redis/python/caracalai_revocation_redis \
-    -m unittest discover -s tests/python -p 'test_*.py' -v
-  "$py_coverage" xml -o coverage/python/coverage.xml
-  "$py_coverage" report --show-missing
+  PYTHON="$py_python" node scripts/runPythonTests.mjs --coverage -v
 fi
 
 if $run_docs; then

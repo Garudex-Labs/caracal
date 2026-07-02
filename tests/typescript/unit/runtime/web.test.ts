@@ -34,8 +34,10 @@ describe('webCommand stack preflight', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     // The launcher only runs inside the workspace; point CARACAL_REPO_ROOT at this
-    // repo so apps/web and apps/auth resolve.
-    process.env = { ...ORIG_ENV, CARACAL_REPO_ROOT: REPO_ROOT }
+    // repo so apps/web and apps/auth resolve. Pinning npm_execpath keeps pnpm
+    // resolution on the portable Node + pnpm CLI module branch, so the preflight
+    // never depends on the host PATH or platform shim layout.
+    process.env = { ...ORIG_ENV, CARACAL_REPO_ROOT: REPO_ROOT, npm_execpath: 'pnpm.cjs' }
     stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
     stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
     exit = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
@@ -84,10 +86,11 @@ describe('webCommand stack preflight', () => {
 
     expect(exit).not.toHaveBeenCalled()
     expect(spawnMock).toHaveBeenCalledTimes(2)
-    // Each service must be spawned detached so it leads its own process group and a
-    // single Ctrl+C can tear down the whole tree (pnpm + vite/tsx descendants).
+    // Each service must be spawned as a killable tree: detached into its own process
+    // group on POSIX so a single Ctrl+C reaches every descendant, attached on Windows
+    // where taskkill /T reaps the tree instead.
     for (const call of spawnMock.mock.calls) {
-      expect(call[2]).toMatchObject({ detached: true })
+      expect(call[2]).toMatchObject({ detached: process.platform !== 'win32' })
     }
     expect(output()).toContain('Caracal web console')
   })

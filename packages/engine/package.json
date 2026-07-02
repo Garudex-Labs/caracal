@@ -44,7 +44,9 @@
     "prebuild": "node scripts/build-embedded.mjs",
     "build": "tsc",
     "pretypecheck": "node scripts/build-embedded.mjs",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "pretest": "node scripts/build-embedded.mjs",
+    "test": "vitest run --root ../.. tests/typescript/unit/engine"
   },
   "dependencies": {
     "@caracalai/admin": "workspace:*",
@@ -54,6 +56,7 @@
   },
   "devDependencies": {
     "@types/node": "^26.0.1",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
   }
 }
