@@ -47,7 +47,7 @@ function PreferencesPage() {
         title="Appearance"
         description="Theme is stored per device and applies immediately across the web console."
       >
-        <div className="inline-flex border border-border bg-card p-1">
+        <div className="inline-flex rounded-lg border border-border bg-muted/40 p-1">
           {(["dark", "light"] as const).map((option) => (
             <button
               key={option}
@@ -55,10 +55,10 @@ function PreferencesPage() {
               aria-pressed={theme === option}
               onClick={() => setTheme(option)}
               className={[
-                "h-8 px-3 text-xs font-medium capitalize transition-colors",
+                "h-8 rounded-md px-3.5 text-xs font-medium capitalize transition-colors",
                 theme === option
-                  ? "bg-foreground text-background"
-                  : "text-muted-foreground hover:bg-surface hover:text-foreground",
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
               ].join(" ")}
             >
               {option}

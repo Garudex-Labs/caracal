@@ -7,7 +7,6 @@ This file defines the Settings layout route with grouped navigation over the /se
 import { Link, Outlet, createFileRoute, useLocation } from "@tanstack/react-router";
 
 import { ModulePage } from "@/components/console/ModulePage";
-import { HelpTip } from "@/components/console/SettingsPanels";
 import { LockBadge } from "@/components/ui";
 import { appLink } from "@/platform/nav/appLink";
 import { SETTINGS_GROUPS, settingsItem } from "@/platform/nav/settingsNav";
@@ -32,15 +31,15 @@ function SettingsLayout() {
           : [{ label: "Settings" }]),
       ]}
     >
-      <div className="grid gap-8 xl:grid-cols-[280px_minmax(0,1fr)]">
+      <div className="grid gap-10 xl:grid-cols-[250px_minmax(0,1fr)]">
         <aside className="xl:sticky xl:top-20 xl:self-start">
-          <div className="border border-border bg-card">
+          <div className="flex flex-col gap-7">
             {SETTINGS_GROUPS.map((group) => (
-              <div key={group.id} className="border-b border-border last:border-b-0">
-                <div className="px-4 pb-1.5 pt-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+              <div key={group.id}>
+                <div className="px-3 pb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/80">
                   {group.label}
                 </div>
-                <nav className="grid">
+                <nav className="grid gap-0.5">
                   {group.items.map((item) => {
                     const active = item.id === segment;
                     return (
@@ -48,18 +47,14 @@ function SettingsLayout() {
                         key={item.id}
                         to={appLink(`/settings/${item.id}`)}
                         className={[
-                          "flex items-center justify-between gap-2 px-4 py-2.5 text-left transition-colors",
+                          "flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors",
                           active
-                            ? "bg-foreground text-background"
-                            : "text-muted-foreground hover:bg-surface hover:text-foreground",
+                            ? "bg-accent font-semibold text-foreground"
+                            : "font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground",
                         ].join(" ")}
                       >
-                        <span className="text-sm font-semibold">{item.label}</span>
-                        {item.featureSlug ? (
-                          <span className={active ? "opacity-80" : ""}>
-                            <LockBadge />
-                          </span>
-                        ) : null}
+                        <span>{item.label}</span>
+                        {item.featureSlug ? <LockBadge /> : null}
                       </Link>
                     );
                   })}
@@ -69,19 +64,19 @@ function SettingsLayout() {
           </div>
         </aside>
 
-        <section className="min-w-0 border-y border-border">
+        <section className="min-w-0">
           {current ? (
-            <div className="border-b border-border py-6">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                {current.label}
-              </p>
-              <div className="mt-2 flex items-center gap-2">
-                <h2 className="text-2xl font-semibold tracking-tight text-foreground">
+            <header className="mb-6">
+              <div className="flex items-center gap-2.5">
+                <h2 className="text-xl font-semibold tracking-tight text-foreground">
                   {current.label}
                 </h2>
-                {current.featureSlug ? <LockBadge /> : <HelpTip label={current.description} />}
+                {current.featureSlug ? <LockBadge /> : null}
               </div>
-            </div>
+              <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
+                {current.description}
+              </p>
+            </header>
           ) : null}
           <Outlet />
         </section>

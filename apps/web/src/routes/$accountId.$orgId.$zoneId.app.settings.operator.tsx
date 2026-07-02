@@ -208,7 +208,7 @@ function OperatorPage() {
       >
         <div className="grid gap-4">
           {!available ? (
-            <div className="border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-xs text-amber-700 dark:text-amber-400">
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-xs text-amber-700 dark:text-amber-400">
               Self-governance is not configured for this deployment, so a key cannot be sealed.
               Enable the Operator control plane to manage models here.
             </div>
@@ -217,11 +217,11 @@ function OperatorPage() {
           {list.isLoading ? (
             <Skeleton className="h-24 w-full" />
           ) : providers.length === 0 ? (
-            <p className="border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
+            <p className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
               No models yet. Add a provider to bring the Operator online.
             </p>
           ) : (
-            <div className="divide-y divide-border border border-border bg-card">
+            <div className="divide-y divide-border overflow-hidden rounded-lg border border-border">
               {providers.map((provider) => (
                 <div
                   key={provider.slug}
@@ -712,7 +712,7 @@ function ProviderFormModal({
             {showPlacement ? "Hide" : "Advanced:"} key placement
           </button>
           {showPlacement ? (
-            <div className="mt-3 grid gap-4 border border-border bg-muted/30 p-3">
+            <div className="mt-3 grid gap-4 rounded-lg border border-border bg-muted/30 p-3">
               <p className="text-[11px] leading-relaxed text-muted-foreground">
                 Where the sealed key is sent. Default is an Authorization Bearer header. Some
                 upstreams differ — Azure uses an <span className="font-mono">api-key</span> header,
@@ -764,7 +764,7 @@ function ProviderFormModal({
           ) : null}
         </div>
 
-        <div className="border border-border bg-muted/40 px-3 py-2.5 text-[11px] leading-relaxed text-muted-foreground">
+        <div className="rounded-lg border border-border bg-muted/40 px-3 py-2.5 text-[11px] leading-relaxed text-muted-foreground">
           The endpoint must speak the OpenAI <span className="font-mono">/chat/completions</span>{" "}
           format — OpenAI and Azure work directly; for Claude, Gemini, or others, point this at an
           OpenAI-compatible proxy such as LiteLLM or OpenRouter. Caracal seals the key into the
