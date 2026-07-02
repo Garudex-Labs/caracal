@@ -26,9 +26,14 @@ import {
   type Column,
 } from "@/components/ui";
 import { cx } from "@/lib/cx";
+import {
+  auditDecisionTone,
+  auditEventContext,
+  auditEventLabel,
+} from "@/lib/auditPresentation";
 import { ConsoleApiError } from "@/platform/api/client";
 import { useSessionActivity, useSessionsFeed } from "@/platform/api/hooks";
-import type { AuditEvent, Session, SessionQuery } from "@/platform/api/types";
+import type { Session, SessionQuery } from "@/platform/api/types";
 
 export const Route = createFileRoute("/$accountId/$orgId/$zoneId/app/sessions")({
   component: SessionsRoute,
@@ -146,39 +151,6 @@ function sessionOutcome(session: Session, effective: EffectiveStatus): string {
   if (effective === "active") return "Live";
   if (effective === "revoked") return revocationReasonLabel(session.revoked_reason);
   return "Expired";
-}
-
-const AUDIT_EVENT_LABELS: Record<string, string> = {
-  token_exchange: "Token issued",
-  exchange_denied: "Token denied",
-  gateway_resource_request: "Resource call",
-  scope_mismatch: "Scope denied",
-  rate_limited: "Rate limited",
-  replay_detected: "Replay blocked",
-  resource_not_found: "Resource missing",
-  credential_refresh_failed: "Credential refresh failed",
-  policy_eval_failed: "Policy error",
-};
-
-function auditEventLabel(eventType: string): string {
-  return AUDIT_EVENT_LABELS[eventType] ?? eventType.replace(/_/g, " ");
-}
-
-function auditDecisionTone(decision: string | null): "success" | "danger" | "muted" {
-  if (decision === "allow") return "success";
-  if (decision === "deny") return "danger";
-  return "muted";
-}
-
-// Pulls the resource/method context out of an audit event's metadata for a one-line summary.
-function auditEventContext(event: AuditEvent): string {
-  const meta = event.metadata_json ?? {};
-  const parts: string[] = [];
-  const resource = meta.resource ?? meta.resource_id ?? meta.target;
-  const method = meta.method ?? meta.action;
-  if (typeof method === "string" && method) parts.push(method);
-  if (typeof resource === "string" && resource) parts.push(resource);
-  return parts.join(" \u00b7 ");
 }
 
 function SessionsPage({ zoneId, initialSubject }: { zoneId: string; initialSubject?: string }) {

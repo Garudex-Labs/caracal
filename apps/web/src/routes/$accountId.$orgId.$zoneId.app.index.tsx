@@ -11,18 +11,10 @@ import type { ReactNode } from "react";
 import { SectionLabel } from "@/components/SiteShell";
 import { ModulePage } from "@/components/console/ModulePage";
 import { Badge, Button, EmptyState, Skeleton } from "@/components/ui";
+import { auditDecisionTone, auditEventContext, auditEventLabel } from "@/lib/auditPresentation";
 import { cx } from "@/lib/cx";
-import {
-  useActiveZone,
-  useApplications,
-  useAudit,
-  usePolicySets,
-  useProviders,
-  useResources,
-  useSessions,
-  useZones,
-} from "@/platform/api/hooks";
-import type { Application, AuditEvent, Zone } from "@/platform/api/types";
+import { useActiveZone, useZoneOverview, useZones } from "@/platform/api/hooks";
+import type { OverviewEvent, Zone, ZoneOverview } from "@/platform/api/types";
 
 export const Route = createFileRoute("/$accountId/$orgId/$zoneId/app/")({
   component: DashboardPage,
@@ -67,112 +59,63 @@ function DashboardPage() {
 }
 
 function ConnectedDashboard({ zone }: { zone: Zone }) {
-  const zoneId = zone.id;
+  const overview = useZoneOverview(zone.id);
 
-  const apps = useApplications(zoneId);
-  const resources = useResources(zoneId);
-  const providers = useProviders(zoneId);
-  const policySets = usePolicySets(zoneId);
-  const sessions = useSessions(zoneId);
-  const audit = useAudit(zoneId);
-
-  const appRows = apps.data ?? [];
-  const resourceRows = resources.data ?? [];
-  const providerRows = providers.data ?? [];
-  const policySetRows = policySets.data ?? [];
-  const sessionRows = sessions.data ?? [];
-  const auditRows = [...(audit.data ?? [])].sort(
-    (a, b) => Date.parse(b.occurred_at) - Date.parse(a.occurred_at),
-  );
-
-  const enforcing = policySetRows.some((ps) => ps.active_version_id);
-  const activeSessions = sessionRows.filter((s) => s.status === "active").length;
-  const expired = appRows.filter(isExpired).length;
-  const expiring = appRows.filter(isExpiring).length;
-  const atRisk = expired + expiring;
-  const unenforcedResources = resourceRows.filter(
-    (r) => r.operation_enforcement !== "enforced",
-  ).length;
-
-  const decided = auditRows.filter((e) => e.decision);
-  const denied = decided.filter((e) => e.decision === "deny").length;
-  const allowed = decided.filter((e) => e.decision === "allow").length;
-
-  const attention = buildAttention({
-    enforcing,
-    policySetsLoading: policySets.isLoading,
-    hasProtectables: appRows.length > 0 || resourceRows.length > 0,
-    providerCount: providerRows.length,
-    providersLoading: providers.isLoading,
-    expired,
-    expiring,
-    unenforcedResources,
-    denied,
-  });
-
-  return (
+  const frame = (body: ReactNode) => (
     <ModulePage
       title="Dashboard"
       description="Your zone's authority posture, recent activity, and setup at a glance."
       breadcrumbs={[{ label: "Console", to: appLink() }, { label: "Dashboard" }]}
     >
-      <div className="space-y-6">
-        <PostureStrip
-          loading={policySets.isLoading || sessions.isLoading || apps.isLoading}
-          enforcing={enforcing}
-          hasProtectables={appRows.length > 0 || resourceRows.length > 0}
-          activePolicySet={activePolicySetName(policySetRows)}
-          allowed={allowed}
-          denied={denied}
-          activeSessions={activeSessions}
-          atRisk={atRisk}
-          expired={expired}
-        />
+      {body}
+    </ModulePage>
+  );
 
-        <div className="grid border border-border lg:grid-cols-[minmax(0,1fr)_360px]">
-          <ActivityFeed loading={audit.isLoading} error={audit.isError} events={auditRows} />
-          <div className="border-t border-border lg:border-l lg:border-t-0">
-            <AttentionPanel
-              loading={policySets.isLoading || providers.isLoading}
-              items={attention}
-            />
-            <InventoryPanel
-              loading={apps.isLoading || resources.isLoading}
-              applications={appRows.length}
-              resources={resourceRows.length}
-              providers={providerRows.length}
-              policySets={policySetRows.length}
-            />
-          </div>
+  if (overview.isLoading) {
+    return frame(<DashboardSkeleton />);
+  }
+
+  if (overview.isError || !overview.data) {
+    return frame(
+      <EmptyState
+        title="Could not load this zone's overview"
+        description="The Console could not reach the control plane. Check that the Caracal runtime is up, then try again."
+        action={
+          <Button variant="secondary" onClick={() => overview.refetch()}>
+            Retry
+          </Button>
+        }
+      />,
+    );
+  }
+
+  const data = overview.data;
+
+  return frame(
+    <div className="space-y-6">
+      <PostureStrip data={data} />
+
+      <div className="grid border border-border lg:grid-cols-[minmax(0,1fr)_360px]">
+        <ActivityFeed events={data.recent_events} />
+        <div className="border-t border-border lg:border-l lg:border-t-0">
+          <AttentionPanel items={buildAttention(data)} />
+          <InventoryPanel data={data} />
         </div>
       </div>
-    </ModulePage>
+    </div>,
   );
 }
 
 /* ----------------------------- posture strip ----------------------------- */
 
-function PostureStrip({
-  loading,
-  enforcing,
-  hasProtectables,
-  activePolicySet,
-  allowed,
-  denied,
-  activeSessions,
-  atRisk,
-  expired,
-}: {
-  loading: boolean;
-  enforcing: boolean;
-  hasProtectables: boolean;
-  activePolicySet: string | null;
-  allowed: number;
-  denied: number;
-  activeSessions: number;
-  atRisk: number;
-  expired: number;
-}) {
+function PostureStrip({ data }: { data: ZoneOverview }) {
+  const enforcing = data.policy_sets.enforcing > 0;
+  const hasProtectables = data.applications.total > 0 || data.resources.total > 0;
+  const { allowed, denied } = data.decisions_24h;
+  const activeSessions = data.sessions.active;
+  const { expired, expiring_soon: expiring } = data.applications;
+  const atRisk = expired + expiring;
+
   return (
     <section className="border border-border">
       <header className="border-b border-border px-5 py-3.5">
@@ -182,12 +125,11 @@ function PostureStrip({
         <PostureCell
           to={appLink("/policy-sets")}
           label="Enforcement"
-          loading={loading}
           value={enforcing ? "Enforcing" : "Default-deny"}
           tone={enforcing ? "ok" : hasProtectables ? "warn" : "muted"}
           sub={
             enforcing
-              ? (activePolicySet ?? "Active policy set")
+              ? (data.policy_sets.active_name ?? "Active policy set")
               : hasProtectables
                 ? "Secure default · activate a policy set to allow access"
                 : "Secure default · nothing to enforce yet"
@@ -195,31 +137,28 @@ function PostureStrip({
         />
         <PostureCell
           to={appLink("/audit")}
-          label="Denied (recent)"
-          loading={loading}
+          label="Denied (24h)"
           value={String(denied)}
-          tone={denied > 0 ? "danger" : "ok"}
-          sub={`${allowed} allowed`}
+          tone={denied > 0 ? "danger" : allowed > 0 ? "ok" : "muted"}
+          sub={
+            allowed + denied > 0
+              ? `${allowed} allowed in the last 24 hours`
+              : "No decisions in the last 24 hours"
+          }
         />
         <PostureCell
           to={appLink("/sessions")}
           label="Active sessions"
-          loading={loading}
           value={String(activeSessions)}
           tone={activeSessions > 0 ? "ok" : "muted"}
           sub={activeSessions > 0 ? "Currently authenticated" : "None authenticated"}
         />
         <PostureCell
           to={appLink("/applications")}
-          label="At-risk identities"
-          loading={loading}
+          label="Credential health"
           value={String(atRisk)}
-          tone={atRisk > 0 ? "warn" : "ok"}
-          sub={
-            atRisk === 0
-              ? "All credentials valid"
-              : `${expired} expired · ${atRisk - expired} expiring`
-          }
+          tone={expired > 0 ? "danger" : atRisk > 0 ? "warn" : "ok"}
+          sub={atRisk === 0 ? "All credentials valid" : `${expired} expired · ${expiring} expiring`}
         />
       </div>
     </section>
@@ -232,14 +171,12 @@ function PostureCell({
   value,
   sub,
   tone,
-  loading,
 }: {
   to: string;
   label: string;
   value: string;
   sub: string;
   tone: Tone;
-  loading: boolean;
 }) {
   return (
     <Link to={to} className="group block p-5 transition-colors hover:bg-surface">
@@ -249,13 +186,9 @@ function PostureCell({
         </span>
         <ToneDot tone={tone} />
       </div>
-      {loading ? (
-        <Skeleton className="mt-3 h-8 w-24" />
-      ) : (
-        <div className={cx("mt-3 text-2xl font-semibold tracking-tight", toneText(tone))}>
-          {value}
-        </div>
-      )}
+      <div className={cx("mt-3 text-2xl font-semibold tracking-tight", toneText(tone))}>
+        {value}
+      </div>
       <div className="mt-2 truncate text-xs text-muted-foreground">{sub}</div>
     </Link>
   );
@@ -263,17 +196,7 @@ function PostureCell({
 
 /* ----------------------------- activity feed ----------------------------- */
 
-function ActivityFeed({
-  loading,
-  error,
-  events,
-}: {
-  loading: boolean;
-  error: boolean;
-  events: AuditEvent[];
-}) {
-  const recent = events.slice(0, 9);
-
+function ActivityFeed({ events }: { events: OverviewEvent[] }) {
   return (
     <section className="flex h-[420px] flex-col">
       <header className="flex items-center justify-between gap-3 border-b border-border px-5 py-3.5">
@@ -287,17 +210,7 @@ function ActivityFeed({
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-        {loading ? (
-          <div className="flex flex-col gap-2 p-5">
-            {Array.from({ length: 6 }).map((_, index) => (
-              <Skeleton key={index} className="h-12 w-full" />
-            ))}
-          </div>
-        ) : error ? (
-          <p className="p-5 text-sm text-muted-foreground">
-            Audit activity is unavailable right now.
-          </p>
-        ) : recent.length === 0 ? (
+        {events.length === 0 ? (
           <div className="flex flex-1">
             <EmptyState
               bordered={false}
@@ -307,34 +220,41 @@ function ActivityFeed({
           </div>
         ) : (
           <ul className="divide-y divide-border">
-            {recent.map((event) => (
-              <li key={event.id}>
-                <Link
-                  to={appLink("/audit")}
-                  className="flex items-center gap-3 px-5 py-3 transition-colors hover:bg-surface"
-                >
-                  <DecisionDot decision={event.decision} />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="truncate text-sm font-medium text-foreground">
-                        {event.event_type}
-                      </span>
-                      {event.decision ? (
-                        <Badge tone={decisionTone(event.decision)}>{event.decision}</Badge>
+            {events.map((event) => {
+              const context = auditEventContext(event);
+              return (
+                <li key={event.id}>
+                  <Link
+                    to={appLink("/audit")}
+                    search={event.request_id ? { focus: event.request_id } : {}}
+                    className="flex items-center gap-3 px-5 py-3 transition-colors hover:bg-surface"
+                  >
+                    <DecisionDot decision={event.decision} />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="truncate text-sm font-medium text-foreground">
+                          {auditEventLabel(event.event_type)}
+                        </span>
+                        {event.decision ? (
+                          <Badge tone={auditDecisionTone(event.decision)}>{event.decision}</Badge>
+                        ) : null}
+                      </div>
+                      {context ? (
+                        <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                          {context}
+                        </span>
                       ) : null}
                     </div>
-                    {event.request_id ? (
-                      <span className="mt-0.5 block truncate font-mono text-[11px] text-muted-foreground">
-                        {event.request_id}
-                      </span>
-                    ) : null}
-                  </div>
-                  <span className="flex-shrink-0 whitespace-nowrap text-xs tabular-nums text-muted-foreground">
-                    {relativeTime(event.occurred_at)}
-                  </span>
-                </Link>
-              </li>
-            ))}
+                    <time
+                      dateTime={event.occurred_at}
+                      className="flex-shrink-0 whitespace-nowrap text-xs tabular-nums text-muted-foreground"
+                    >
+                      {relativeTime(event.occurred_at)}
+                    </time>
+                  </Link>
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>
@@ -352,33 +272,19 @@ interface AttentionItem {
   to: string;
 }
 
-function buildAttention({
-  enforcing,
-  policySetsLoading,
-  hasProtectables,
-  providerCount,
-  providersLoading,
-  expired,
-  expiring,
-  unenforcedResources,
-  denied,
-}: {
-  enforcing: boolean;
-  policySetsLoading: boolean;
-  hasProtectables: boolean;
-  providerCount: number;
-  providersLoading: boolean;
-  expired: number;
-  expiring: number;
-  unenforcedResources: number;
-  denied: number;
-}): AttentionItem[] {
+function buildAttention(data: ZoneOverview): AttentionItem[] {
   const items: AttentionItem[] = [];
+  const enforcing = data.policy_sets.enforcing > 0;
+  const hasProtectables = data.applications.total > 0 || data.resources.total > 0;
+  const { expired, expiring_soon: expiring } = data.applications;
+  const denied = data.decisions_24h.denied;
+  const unenforced = data.resources.unenforced;
+
   // Default-deny with no active policy set is the secure baseline, not a failure. Only flag it
   // once the zone actually has applications or resources that requests cannot reach yet, and
   // as attention (amber), never an alarming error. A brand-new empty zone is guided by the
   // setup checklist instead.
-  if (!enforcing && !policySetsLoading && hasProtectables) {
+  if (!enforcing && hasProtectables) {
     items.push({
       id: "deny-all",
       tone: "warn",
@@ -401,12 +307,12 @@ function buildAttention({
     items.push({
       id: "denied",
       tone: "warn",
-      title: `${denied} denied decision${denied === 1 ? "" : "s"} recently`,
+      title: `${denied} denied decision${denied === 1 ? "" : "s"} in the last 24 hours`,
       detail: "Review denials to confirm they are expected, not misconfiguration.",
       to: appLink("/audit"),
     });
   }
-  if (providerCount === 0 && !providersLoading) {
+  if (data.providers.total === 0) {
     items.push({
       id: "provider",
       tone: "info",
@@ -424,11 +330,11 @@ function buildAttention({
       to: appLink("/applications"),
     });
   }
-  if (unenforcedResources > 0) {
+  if (unenforced > 0) {
     items.push({
       id: "unenforced",
       tone: "info",
-      title: `${unenforcedResources} resource${unenforcedResources === 1 ? "" : "s"} without operation enforcement`,
+      title: `${unenforced} resource${unenforced === 1 ? "" : "s"} without operation enforcement`,
       detail:
         "Authorization is uniform across the transport. Declare operations for finer control.",
       to: appLink("/resources"),
@@ -437,21 +343,17 @@ function buildAttention({
   return items;
 }
 
-function AttentionPanel({ loading, items }: { loading: boolean; items: AttentionItem[] }) {
+function AttentionPanel({ items }: { items: AttentionItem[] }) {
   return (
     <section className="flex flex-col">
       <header className="flex items-center justify-between gap-3 border-b border-border px-5 py-3.5">
         <SectionLabel>Requires attention</SectionLabel>
-        {!loading && items.length > 0 ? (
+        {items.length > 0 ? (
           <span className="text-xs font-medium text-muted-foreground">{items.length}</span>
         ) : null}
       </header>
 
-      {loading ? (
-        <div className="p-5">
-          <Skeleton className="h-24 w-full" />
-        </div>
-      ) : items.length === 0 ? (
+      {items.length === 0 ? (
         <div className="flex items-center gap-2.5 px-5 py-4 text-sm text-muted-foreground">
           <span className="grid h-6 w-6 place-items-center rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
             <svg
@@ -461,6 +363,7 @@ function AttentionPanel({ loading, items }: { loading: boolean; items: Attention
               fill="none"
               stroke="currentColor"
               strokeWidth="3"
+              aria-hidden="true"
             >
               <path d="M20 6 9 17l-5-5" />
             </svg>
@@ -493,24 +396,12 @@ function AttentionPanel({ loading, items }: { loading: boolean; items: Attention
 
 /* ---------------------------- inventory panel ---------------------------- */
 
-function InventoryPanel({
-  loading,
-  applications,
-  resources,
-  providers,
-  policySets,
-}: {
-  loading: boolean;
-  applications: number;
-  resources: number;
-  providers: number;
-  policySets: number;
-}) {
+function InventoryPanel({ data }: { data: ZoneOverview }) {
   const rows = [
-    { label: "Applications", value: applications, to: appLink("/applications") },
-    { label: "Resources", value: resources, to: appLink("/resources") },
-    { label: "Providers", value: providers, to: appLink("/providers") },
-    { label: "Policy sets", value: policySets, to: appLink("/policy-sets") },
+    { label: "Applications", value: data.applications.total, to: appLink("/applications") },
+    { label: "Resources", value: data.resources.total, to: appLink("/resources") },
+    { label: "Providers", value: data.providers.total, to: appLink("/providers") },
+    { label: "Policy sets", value: data.policy_sets.total, to: appLink("/policy-sets") },
   ];
 
   return (
@@ -518,25 +409,19 @@ function InventoryPanel({
       <header className="border-b border-border px-5 py-3.5">
         <SectionLabel>Inventory</SectionLabel>
       </header>
-      {loading ? (
-        <div className="p-5">
-          <Skeleton className="h-32 w-full" />
-        </div>
-      ) : (
-        <ul className="divide-y divide-border">
-          {rows.map((row) => (
-            <li key={row.label}>
-              <Link
-                to={row.to}
-                className="flex items-center justify-between gap-3 px-5 py-2.5 transition-colors hover:bg-surface"
-              >
-                <span className="text-sm text-muted-foreground">{row.label}</span>
-                <span className="font-mono text-sm tabular-nums text-foreground">{row.value}</span>
-              </Link>
-            </li>
-          ))}
-        </ul>
-      )}
+      <ul className="divide-y divide-border">
+        {rows.map((row) => (
+          <li key={row.label}>
+            <Link
+              to={row.to}
+              className="flex items-center justify-between gap-3 px-5 py-2.5 transition-colors hover:bg-surface"
+            >
+              <span className="text-sm text-muted-foreground">{row.label}</span>
+              <span className="font-mono text-sm tabular-nums text-foreground">{row.value}</span>
+            </Link>
+          </li>
+        ))}
+      </ul>
     </section>
   );
 }
@@ -563,24 +448,16 @@ function ToneDot({ tone, className }: { tone: Tone; className?: string }) {
     muted: "bg-muted-foreground/40",
   }[tone];
   return (
-    <span className={cx("inline-block h-2 w-2 flex-shrink-0 rounded-full", color, className)} />
+    <span
+      aria-hidden="true"
+      className={cx("inline-block h-2 w-2 flex-shrink-0 rounded-full", color, className)}
+    />
   );
 }
 
 function DecisionDot({ decision }: { decision: string | null }) {
-  return (
-    <ToneDot
-      tone={
-        decisionTone(decision) === "success"
-          ? "ok"
-          : decisionTone(decision) === "danger"
-            ? "danger"
-            : decisionTone(decision) === "warning"
-              ? "warn"
-              : "muted"
-      }
-    />
-  );
+  const tone = auditDecisionTone(decision);
+  return <ToneDot tone={tone === "success" ? "ok" : tone === "danger" ? "danger" : "muted"} />;
 }
 
 function toneText(tone: Tone): string {
@@ -590,31 +467,6 @@ function toneText(tone: Tone): string {
     danger: "text-destructive",
     muted: "text-muted-foreground",
   }[tone];
-}
-
-function decisionTone(decision: string | null): "success" | "danger" | "warning" | "muted" {
-  if (decision === "allow") return "success";
-  if (decision === "deny") return "danger";
-  if (decision === "partial") return "warning";
-  return "muted";
-}
-
-function isExpired(app: Application): boolean {
-  return Boolean(app.expires_at && Date.parse(app.expires_at) < Date.now());
-}
-
-function isExpiring(app: Application): boolean {
-  if (!app.expires_at) return false;
-  const at = Date.parse(app.expires_at);
-  const now = Date.now();
-  return at >= now && at < now + 7 * 24 * 60 * 60 * 1000;
-}
-
-function activePolicySetName(
-  policySets: { name: string; active_version_id: string | null }[],
-): string | null {
-  const active = policySets.find((ps) => ps.active_version_id);
-  return active ? active.name : null;
 }
 
 function relativeTime(iso: string): string {

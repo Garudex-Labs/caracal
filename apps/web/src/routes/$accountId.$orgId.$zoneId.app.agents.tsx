@@ -33,6 +33,11 @@ import {
   type Column,
 } from "@/components/ui";
 import { cx } from "@/lib/cx";
+import {
+  auditDecisionTone,
+  auditEventContext,
+  auditEventLabel,
+} from "@/lib/auditPresentation";
 import { ConsoleApiError } from "@/platform/api/client";
 import {
   useAgentActivity,
@@ -49,7 +54,6 @@ import type {
   Agent,
   AgentStatus,
   AgentQuery,
-  AuditEvent,
   DelegationEdge,
   InvocationStatus,
 } from "@/platform/api/types";
@@ -250,40 +254,6 @@ const TERMINATION_REASON_LABELS: Record<string, string> = {
 
 function terminationReasonLabel(reason: string): string {
   return TERMINATION_REASON_LABELS[reason] ?? reason.replace(/_/g, " ");
-}
-
-// Plain-language rendering of durable audit event types for the per-agent activity timeline.
-const AUDIT_EVENT_LABELS: Record<string, string> = {
-  token_exchange: "Token issued",
-  exchange_denied: "Token denied",
-  gateway_resource_request: "Resource call",
-  scope_mismatch: "Scope denied",
-  rate_limited: "Rate limited",
-  replay_detected: "Replay blocked",
-  resource_not_found: "Resource missing",
-  credential_refresh_failed: "Credential refresh failed",
-  policy_eval_failed: "Policy error",
-};
-
-function auditEventLabel(eventType: string): string {
-  return AUDIT_EVENT_LABELS[eventType] ?? eventType.replace(/_/g, " ");
-}
-
-function auditDecisionTone(decision: string | null): "success" | "danger" | "muted" {
-  if (decision === "allow") return "success";
-  if (decision === "deny") return "danger";
-  return "muted";
-}
-
-// Pulls the resource/method context out of an audit event's metadata for a one-line summary.
-function auditEventContext(event: AuditEvent): string {
-  const meta = event.metadata_json ?? {};
-  const parts: string[] = [];
-  const resource = meta.resource ?? meta.resource_id ?? meta.target;
-  const method = meta.method ?? meta.action;
-  if (typeof method === "string" && method) parts.push(method);
-  if (typeof resource === "string" && resource) parts.push(resource);
-  return parts.join(" · ");
 }
 
 function AgentsPage({ zoneId }: { zoneId: string }) {
