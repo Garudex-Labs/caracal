@@ -50,7 +50,7 @@ func VerifierMiddleware(verifier *transportmcp.Verifier) func(http.Handler) http
 	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			claims, authErr := verifier.Authorization(r.Header.Get("Authorization"))
+			claims, authErr := verifier.AuthorizationContext(r.Context(), r.Header.Get("Authorization"))
 			if authErr != nil {
 				writeErr(w, transportmcp.HTTPStatus(authErr.Code), string(authErr.Code), authErr.Description, authErr.Hint)
 				return

@@ -6,6 +6,7 @@
 package transportmcp
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"time"
@@ -103,8 +104,19 @@ func Authenticate(token string, opts Options) (identity.Claims, *AuthError) {
 	return NewVerifier(opts).Authenticate(token)
 }
 
+// AuthenticateContext is Authenticate with caller-supplied cancellation.
+func AuthenticateContext(ctx context.Context, token string, opts Options) (identity.Claims, *AuthError) {
+	return NewVerifier(opts).AuthenticateContext(ctx, token)
+}
+
 // Authenticate verifies a token using reusable defaults and optional route requirements.
 func (v *Verifier) Authenticate(token string, overrides ...Options) (identity.Claims, *AuthError) {
+	return v.AuthenticateContext(context.Background(), token, overrides...)
+}
+
+// AuthenticateContext is Authenticate with caller-supplied cancellation, propagated
+// through identity verification so a slow JWKS fetch honors the caller's deadline.
+func (v *Verifier) AuthenticateContext(ctx context.Context, token string, overrides ...Options) (identity.Claims, *AuthError) {
 	opts := v.defaults
 	for _, override := range overrides {
 		opts = mergeOptions(opts, override)
@@ -128,7 +140,7 @@ func (v *Verifier) Authenticate(token string, overrides ...Options) (identity.Cl
 		RequireChainContains: opts.RequireChainContains,
 		MaxHopCount:          opts.MaxHopCount,
 	}
-	claims, err := identity.Verify(token, cfg)
+	claims, err := identity.VerifyContext(ctx, token, cfg)
 	if err != nil {
 		var scopeErr *identity.ScopeMissingError
 		var chainErr *identity.ChainMismatchError
@@ -163,8 +175,13 @@ func (v *Verifier) Authenticate(token string, overrides ...Options) (identity.Cl
 
 // Authorization extracts and verifies a bearer mandate from an Authorization header value.
 func (v *Verifier) Authorization(authHeader string, overrides ...Options) (identity.Claims, *AuthError) {
+	return v.AuthorizationContext(context.Background(), authHeader, overrides...)
+}
+
+// AuthorizationContext is Authorization with caller-supplied cancellation.
+func (v *Verifier) AuthorizationContext(ctx context.Context, authHeader string, overrides ...Options) (identity.Claims, *AuthError) {
 	token, _ := ExtractBearer(authHeader)
-	return v.Authenticate(token, overrides...)
+	return v.AuthenticateContext(ctx, token, overrides...)
 }
 
 // Require returns a verifier with extra route requirements layered onto the defaults.

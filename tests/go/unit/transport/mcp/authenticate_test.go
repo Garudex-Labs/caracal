@@ -6,6 +6,7 @@
 package transportmcp_test
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -177,6 +178,33 @@ func TestAuthenticateMapsInvalidToken(t *testing.T) {
 	_, authErr := transportmcp.Authenticate("not-a-jwt", transportmcp.Options{Issuer: "https://issuer.example.com", Audience: "resource://api"})
 	if authErr == nil || authErr.Code != transportmcp.ErrInvalidToken {
 		t.Fatalf("expected invalid_token, got %#v", authErr)
+	}
+}
+
+func TestAuthenticateContextHonorsCallerDeadline(t *testing.T) {
+	token, _, closeServer := mintToken(t, nil)
+	defer closeServer()
+	release := make(chan struct{})
+	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-release
+	}))
+	defer slow.Close()
+	defer close(release)
+	store := revocation.NewInMemoryStore(time.Hour)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	_, authErr := transportmcp.AuthenticateContext(ctx, token, transportmcp.Options{
+		Issuer:      slow.URL,
+		Audience:    "resource://api",
+		Revocations: store,
+	})
+	if authErr == nil || authErr.Code != transportmcp.ErrInvalidToken {
+		t.Fatalf("expected invalid_token, got %#v", authErr)
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Fatalf("authentication ignored the caller deadline, took %v", elapsed)
 	}
 }
 

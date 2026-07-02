@@ -6,6 +6,7 @@
 package identity_test
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -133,6 +134,28 @@ func TestVerifyRejectsInvalidToken(t *testing.T) {
 	_, err := identity.Verify("not.a.jwt", identity.Config{Issuer: "https://issuer.example.com", Audience: "resource://api"})
 	if err != identity.ErrTokenInvalid {
 		t.Fatalf("expected ErrTokenInvalid, got %v", err)
+	}
+}
+
+func TestVerifyContextHonorsCallerDeadline(t *testing.T) {
+	token, _, closeServer := mintToken(t, nil)
+	defer closeServer()
+	release := make(chan struct{})
+	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-release
+	}))
+	defer slow.Close()
+	defer close(release)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	_, err := identity.VerifyContext(ctx, token, identity.Config{Issuer: slow.URL, Audience: "resource://api"})
+	if err != identity.ErrTokenInvalid {
+		t.Fatalf("expected ErrTokenInvalid, got %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Fatalf("verification ignored the caller deadline, took %v", elapsed)
 	}
 }
 

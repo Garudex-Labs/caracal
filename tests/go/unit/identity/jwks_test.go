@@ -6,10 +6,13 @@
 package identity_test
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/garudex-labs/caracal/packages/identity/go"
 )
@@ -118,6 +121,27 @@ func TestResetJWKSCacheForcesRefetch(t *testing.T) {
 
 	if calls != 2 {
 		t.Fatalf("expected 2 fetches after reset, got %d", calls)
+	}
+}
+
+func TestGetJWKSContextHonorsDeadline(t *testing.T) {
+	identity.ResetJWKSCache()
+	release := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-release
+	}))
+	defer server.Close()
+	defer close(release)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	_, err := identity.GetJWKSContext(ctx, server.URL, "zone1")
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected deadline exceeded, got %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Fatalf("fetch ignored the context deadline, took %v", elapsed)
 	}
 }
 

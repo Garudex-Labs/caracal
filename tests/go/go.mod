@@ -8,6 +8,7 @@ module github.com/garudex-labs/caracal/tests
 go 1.26
 
 require (
+	github.com/garudex-labs/caracal/packages/connectors/nethttp/go v0.1.6-rc.2
 	github.com/garudex-labs/caracal/packages/core/go v0.1.6-rc.2
 	github.com/garudex-labs/caracal/packages/identity/go v0.1.6-rc.2
 	github.com/garudex-labs/caracal/packages/revocation/go v0.1.6-rc.2
@@ -21,6 +22,7 @@ require (
 )
 
 replace (
+	github.com/garudex-labs/caracal/packages/connectors/nethttp/go => ../../packages/connectors/nethttp/go
 	github.com/garudex-labs/caracal/packages/core/go => ../../packages/core/go
 	github.com/garudex-labs/caracal/packages/identity/go => ../../packages/identity/go
 	github.com/garudex-labs/caracal/packages/revocation/go => ../../packages/revocation/go

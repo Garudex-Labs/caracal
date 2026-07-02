@@ -6,6 +6,7 @@
 package identity
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -179,6 +180,12 @@ func fetchZone(tokenStr string, cfg Config) (string, error) {
 
 // Verify parses and validates a JWT, returning typed Claims on success.
 func Verify(tokenStr string, cfg Config) (Claims, error) {
+	return VerifyContext(context.Background(), tokenStr, cfg)
+}
+
+// VerifyContext is Verify with caller-supplied cancellation, propagated to the
+// JWKS fetch so verification honors the caller's deadline.
+func VerifyContext(ctx context.Context, tokenStr string, cfg Config) (Claims, error) {
 	zone, err := fetchZone(tokenStr, cfg)
 	if err != nil {
 		return Claims{}, err
@@ -186,7 +193,7 @@ func Verify(tokenStr string, cfg Config) (Claims, error) {
 	mapClaims := jwt.MapClaims{}
 	_, err = jwt.ParseWithClaims(tokenStr, mapClaims, func(t *jwt.Token) (any, error) {
 		kid, _ := t.Header["kid"].(string)
-		keys, err := GetJWKS(cfg.Issuer, zone)
+		keys, err := GetJWKSContext(ctx, cfg.Issuer, zone)
 		if err != nil {
 			return nil, err
 		}
