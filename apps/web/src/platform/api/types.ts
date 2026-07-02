@@ -567,6 +567,7 @@ export interface AuditQuery {
   decision?: string;
   event_type?: string;
   request_id?: string;
+  application_id?: string;
   agent_session_id?: string;
   session_id?: string;
   label?: string;

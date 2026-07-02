@@ -78,9 +78,12 @@ const AuditQuery = z.object({
   request_id: z.string().min(1).optional(),
   decision: z.enum(['allow', 'deny', 'partial']).optional(),
   event_type: z.string().min(1).optional(),
+  application_id: z.string().min(1).max(128).optional(),
   agent_session_id: z.string().min(1).max(128).optional(),
   session_id: z.string().min(1).max(128).optional(),
   label: z.string().min(1).max(64).optional(),
+  format: z.enum(['json', 'csv']).default('json'),
+  fields: z.string().min(1).max(1000).optional(),
   cursor: z.string().min(1).max(512).optional(),
   limit: z.coerce.number().int().min(1).max(1000).default(100),
 })
@@ -100,6 +103,8 @@ const AdminAuditQuery = z.object({
   entity_type: z.string().min(1).max(64).optional(),
   entity_id: z.string().min(1).max(128).optional(),
   method: z.enum(['POST', 'PUT', 'PATCH', 'DELETE']).optional(),
+  format: z.enum(['json', 'csv']).default('json'),
+  fields: z.string().min(1).max(1000).optional(),
   cursor: z.string().min(1).max(512).optional(),
   limit: z.coerce.number().int().min(1).max(1000).default(100),
 })
@@ -116,35 +121,113 @@ const AgentSessionQuery = z.object({
 })
 
 const AGENT_SESSION_CSV_COLUMNS = [
-  'id', 'application_id', 'parent_id', 'status', 'lifecycle', 'labels',
-  'depth', 'child_count', 'spawned_at', 'last_active_at', 'terminated_at', 'termination_reason', 'ttl_seconds',
+  'id',
+  'application_id',
+  'parent_id',
+  'status',
+  'lifecycle',
+  'labels',
+  'depth',
+  'child_count',
+  'spawned_at',
+  'last_active_at',
+  'terminated_at',
+  'termination_reason',
+  'ttl_seconds',
 ] as const
 
 function toCsvCell(value: unknown): string {
   if (value === null || value === undefined) return ''
-  const text = Array.isArray(value) ? value.join(' ') : String(value)
+  const text = value instanceof Date ? value.toISOString() : Array.isArray(value) ? value.join(' ') : String(value)
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
 }
 
-function agentSessionsCsv(rows: Record<string, unknown>[]): string {
-  const lines = [AGENT_SESSION_CSV_COLUMNS.join(',')]
+function csvDocument(columns: readonly string[], rows: Record<string, unknown>[]): string {
+  const lines = [columns.join(',')]
   for (const row of rows) {
-    lines.push(AGENT_SESSION_CSV_COLUMNS.map((col) => toCsvCell(row[col])).join(','))
+    lines.push(columns.map((col) => toCsvCell(row[col])).join(','))
   }
   return `${lines.join('\r\n')}\r\n`
 }
 
 const SESSION_CSV_COLUMNS = [
-  'id', 'session_type', 'subject_id', 'parent_id', 'status',
-  'authenticated_at', 'created_at', 'expires_at', 'revoked_at', 'revoked_reason',
+  'id',
+  'session_type',
+  'subject_id',
+  'parent_id',
+  'status',
+  'authenticated_at',
+  'created_at',
+  'expires_at',
+  'revoked_at',
+  'revoked_reason',
 ] as const
 
-function sessionsCsv(rows: Record<string, unknown>[]): string {
-  const lines = [SESSION_CSV_COLUMNS.join(',')]
-  for (const row of rows) {
-    lines.push(SESSION_CSV_COLUMNS.map((col) => toCsvCell(row[col])).join(','))
+const AUDIT_ROW_FIELDS = ['id', 'occurred_at', 'event_type', 'decision', 'evaluation_status', 'request_id', 'ingested_at'] as const
+
+const AUDIT_METADATA_FIELDS = [
+  'application_id',
+  'application_name',
+  'resource',
+  'requested_scopes',
+  'agent_session_id',
+  'agent_lifecycle',
+  'agent_labels',
+  'delegation_edge_id',
+  'delegation_hop_count',
+  'method',
+  'latency_ms',
+  'upstream_status',
+  'result_class',
+  'reason',
+] as const
+
+const AUDIT_EXPORT_FIELDS: readonly string[] = [...AUDIT_ROW_FIELDS, ...AUDIT_METADATA_FIELDS]
+
+const ADMIN_AUDIT_ROW_FIELDS = [
+  'id',
+  'occurred_at',
+  'action',
+  'method',
+  'path',
+  'entity_type',
+  'entity_id',
+  'status_code',
+  'actor_id',
+  'actor_name',
+  'actor_scope',
+  'request_id',
+  'chain_seq',
+  'signed',
+] as const
+
+const ADMIN_AUDIT_EXPORT_FIELDS: readonly string[] = [...ADMIN_AUDIT_ROW_FIELDS, 'changed_fields']
+
+// Projects an event row onto the caller-selected export fields, flattening the
+// redacted JSON payload so exports carry human-usable columns instead of blobs.
+function projectRow(
+  row: Record<string, unknown>,
+  fields: readonly string[],
+  ownFields: readonly string[],
+  payloadKey: string,
+): Record<string, unknown> {
+  const payload = row[payloadKey]
+  const meta = (payload && typeof payload === 'object' ? payload : {}) as Record<string, unknown>
+  const out: Record<string, unknown> = {}
+  for (const field of fields) {
+    out[field] = ownFields.includes(field) ? row[field] : meta[field]
   }
-  return `${lines.join('\r\n')}\r\n`
+  return out
+}
+
+function parseFields(raw: string | undefined, allowed: readonly string[]): readonly string[] | null {
+  if (!raw) return allowed
+  const fields = raw
+    .split(',')
+    .map((f) => f.trim())
+    .filter(Boolean)
+  if (fields.length === 0 || fields.some((f) => !allowed.includes(f))) return null
+  return fields
 }
 
 const ZoneRequestParams = ZoneParams.extend({ requestId: z.string().regex(/^[A-Za-z0-9_.\-:]{1,128}$/) })
@@ -156,14 +239,35 @@ export const zoneEventsRoutes: FastifyPluginAsync = async (fastify) => {
     const parsed = AuditQuery.safeParse(req.query ?? {})
     if (!parsed.success) return reply.code(400).send({ error: 'invalid_query' })
     const q = parsed.data
+    const fields = parseFields(q.fields, AUDIT_EXPORT_FIELDS)
+    if (!fields) return reply.code(400).send({ error: 'invalid_fields' })
 
     const conds = ['zone_id = $1']
     const values: (string | number)[] = [params.zoneId]
-    if (q.since) { values.push(q.since); conds.push(`occurred_at >= $${values.length}`) }
-    if (q.until) { values.push(q.until); conds.push(`occurred_at < $${values.length}`) }
-    if (q.request_id) { values.push(q.request_id); conds.push(`request_id = $${values.length}`) }
-    if (q.decision) { values.push(q.decision); conds.push(`decision = $${values.length}`) }
-    if (q.event_type) { values.push(q.event_type); conds.push(`event_type = $${values.length}`) }
+    if (q.since) {
+      values.push(q.since)
+      conds.push(`occurred_at >= $${values.length}`)
+    }
+    if (q.until) {
+      values.push(q.until)
+      conds.push(`occurred_at < $${values.length}`)
+    }
+    if (q.request_id) {
+      values.push(q.request_id)
+      conds.push(`request_id = $${values.length}`)
+    }
+    if (q.decision) {
+      values.push(q.decision)
+      conds.push(`decision = $${values.length}`)
+    }
+    if (q.event_type) {
+      values.push(q.event_type)
+      conds.push(`event_type = $${values.length}`)
+    }
+    if (q.application_id) {
+      values.push(q.application_id)
+      conds.push(`metadata_json->>'application_id' = $${values.length}`)
+    }
     if (q.agent_session_id) {
       values.push(q.agent_session_id)
       conds.push(`metadata_json->>'agent_session_id' = $${values.length}`)
@@ -197,10 +301,22 @@ export const zoneEventsRoutes: FastifyPluginAsync = async (fastify) => {
     )
 
     const redacted = rows.map((r) => ({ ...r, metadata_json: redactSensitive(r.metadata_json) }))
+
+    if (q.format === 'csv') {
+      reply.header('content-type', 'text/csv; charset=utf-8')
+      reply.header('content-disposition', `attachment; filename="audit-${params.zoneId}.csv"`)
+      const flat = redacted.map((r) => projectRow(r, fields, AUDIT_ROW_FIELDS, 'metadata_json'))
+      return reply.send(csvDocument(fields, flat))
+    }
+
     const last = redacted[redacted.length - 1]
-    const next = redacted.length === q.limit && last
-      ? encodeCursor(new Date(last.occurred_at).toISOString(), last.id)
-      : null
+    const next = redacted.length === q.limit && last ? encodeCursor(new Date(last.occurred_at).toISOString(), last.id) : null
+    if (q.fields) {
+      return {
+        rows: redacted.map((r) => projectRow(r, fields, AUDIT_ROW_FIELDS, 'metadata_json')),
+        next_cursor: next,
+      }
+    }
     return { rows: redacted, next_cursor: next }
   })
 
@@ -239,16 +355,18 @@ export const zoneEventsRoutes: FastifyPluginAsync = async (fastify) => {
     return {
       request_id: params.requestId,
       zone_id: params.zoneId,
-      final_decision: events.some((event) => event.decision === 'deny') ? 'deny' : events.at(-1)?.decision ?? 'unknown',
-      denied: rows.filter((event) => event.decision === 'deny').map((event) => ({
-        event_id: event.id,
-        event_type: event.event_type,
-        evaluation_status: event.evaluation_status,
-        determining_policies: event.determining_policies_json ?? [],
-        diagnostics: event.diagnostics_json ?? [],
-        metadata: redactSensitive(event.metadata_json) ?? {},
-        policy_input: reconstructPolicyInput(params.zoneId, event.metadata_json),
-      })),
+      final_decision: events.some((event) => event.decision === 'deny') ? 'deny' : (events.at(-1)?.decision ?? 'unknown'),
+      denied: rows
+        .filter((event) => event.decision === 'deny')
+        .map((event) => ({
+          event_id: event.id,
+          event_type: event.event_type,
+          evaluation_status: event.evaluation_status,
+          determining_policies: event.determining_policies_json ?? [],
+          diagnostics: event.diagnostics_json ?? [],
+          metadata: redactSensitive(event.metadata_json) ?? {},
+          policy_input: reconstructPolicyInput(params.zoneId, event.metadata_json),
+        })),
       events,
     }
   })
@@ -259,15 +377,35 @@ export const zoneEventsRoutes: FastifyPluginAsync = async (fastify) => {
     const parsed = AdminAuditQuery.safeParse(req.query ?? {})
     if (!parsed.success) return reply.code(400).send({ error: 'invalid_query' })
     const q = parsed.data
+    const fields = parseFields(q.fields, ADMIN_AUDIT_EXPORT_FIELDS)
+    if (!fields) return reply.code(400).send({ error: 'invalid_fields' })
 
     const conds = ['zone_id = $1']
     const values: (string | number)[] = [params.zoneId]
-    if (q.since) { values.push(q.since); conds.push(`occurred_at >= $${values.length}`) }
-    if (q.until) { values.push(q.until); conds.push(`occurred_at < $${values.length}`) }
-    if (q.actor_id) { values.push(q.actor_id); conds.push(`actor_id = $${values.length}`) }
-    if (q.entity_type) { values.push(q.entity_type); conds.push(`entity_type = $${values.length}`) }
-    if (q.entity_id) { values.push(q.entity_id); conds.push(`entity_id = $${values.length}`) }
-    if (q.method) { values.push(q.method); conds.push(`method = $${values.length}`) }
+    if (q.since) {
+      values.push(q.since)
+      conds.push(`occurred_at >= $${values.length}`)
+    }
+    if (q.until) {
+      values.push(q.until)
+      conds.push(`occurred_at < $${values.length}`)
+    }
+    if (q.actor_id) {
+      values.push(q.actor_id)
+      conds.push(`actor_id = $${values.length}`)
+    }
+    if (q.entity_type) {
+      values.push(q.entity_type)
+      conds.push(`entity_type = $${values.length}`)
+    }
+    if (q.entity_id) {
+      values.push(q.entity_id)
+      conds.push(`entity_id = $${values.length}`)
+    }
+    if (q.method) {
+      values.push(q.method)
+      conds.push(`method = $${values.length}`)
+    }
 
     const cursor = q.cursor ? decodeCursor(q.cursor) : null
     if (q.cursor && !cursor) return reply.code(400).send({ error: 'invalid_cursor' })
@@ -289,10 +427,22 @@ export const zoneEventsRoutes: FastifyPluginAsync = async (fastify) => {
       values,
     )
     const redacted = rows.map((r) => ({ ...r, payload_json: redactSensitive(r.payload_json) }))
+
+    if (q.format === 'csv') {
+      reply.header('content-type', 'text/csv; charset=utf-8')
+      reply.header('content-disposition', `attachment; filename="admin-audit-${params.zoneId}.csv"`)
+      const flat = redacted.map((r) => projectRow(r, fields, ADMIN_AUDIT_ROW_FIELDS, 'payload_json'))
+      return reply.send(csvDocument(fields, flat))
+    }
+
     const last = redacted[redacted.length - 1]
-    const next = redacted.length === q.limit && last
-      ? encodeCursor(new Date(last.occurred_at).toISOString(), last.id)
-      : null
+    const next = redacted.length === q.limit && last ? encodeCursor(new Date(last.occurred_at).toISOString(), last.id) : null
+    if (q.fields) {
+      return {
+        rows: redacted.map((r) => projectRow(r, fields, ADMIN_AUDIT_ROW_FIELDS, 'payload_json')),
+        next_cursor: next,
+      }
+    }
     return { rows: redacted, next_cursor: next }
   })
 
@@ -305,8 +455,14 @@ export const zoneEventsRoutes: FastifyPluginAsync = async (fastify) => {
 
     const conds = ['zone_id = $1']
     const values: (string | number)[] = [params.zoneId]
-    if (q.status) { values.push(q.status); conds.push(`status = $${values.length}`) }
-    if (q.subject_id) { values.push(q.subject_id); conds.push(`subject_id = $${values.length}`) }
+    if (q.status) {
+      values.push(q.status)
+      conds.push(`status = $${values.length}`)
+    }
+    if (q.subject_id) {
+      values.push(q.subject_id)
+      conds.push(`subject_id = $${values.length}`)
+    }
 
     const cursor = q.cursor ? decodeCursor(q.cursor) : null
     if (q.cursor && !cursor) return reply.code(400).send({ error: 'invalid_cursor' })
@@ -330,13 +486,11 @@ export const zoneEventsRoutes: FastifyPluginAsync = async (fastify) => {
     if (q.format === 'csv') {
       reply.header('content-type', 'text/csv; charset=utf-8')
       reply.header('content-disposition', `attachment; filename="sessions-${params.zoneId}.csv"`)
-      return reply.send(sessionsCsv(rows))
+      return reply.send(csvDocument(SESSION_CSV_COLUMNS, rows))
     }
 
     const last = rows[rows.length - 1]
-    const next = rows.length === q.limit && last
-      ? encodeCursor(new Date(last.created_at).toISOString(), last.id)
-      : null
+    const next = rows.length === q.limit && last ? encodeCursor(new Date(last.created_at).toISOString(), last.id) : null
     return { rows, next_cursor: next }
   })
 
@@ -349,11 +503,26 @@ export const zoneEventsRoutes: FastifyPluginAsync = async (fastify) => {
 
     const conds = ['zone_id = $1']
     const values: (string | number)[] = [params.zoneId]
-    if (q.status) { values.push(q.status); conds.push(`status = $${values.length}`) }
-    if (q.lifecycle) { values.push(q.lifecycle); conds.push(`lifecycle = $${values.length}`) }
-    if (q.application_id) { values.push(q.application_id); conds.push(`application_id = $${values.length}`) }
-    if (q.parent_id) { values.push(q.parent_id); conds.push(`parent_id = $${values.length}`) }
-    if (q.label) { values.push(`{${q.label}}`); conds.push(`labels @> $${values.length}`) }
+    if (q.status) {
+      values.push(q.status)
+      conds.push(`status = $${values.length}`)
+    }
+    if (q.lifecycle) {
+      values.push(q.lifecycle)
+      conds.push(`lifecycle = $${values.length}`)
+    }
+    if (q.application_id) {
+      values.push(q.application_id)
+      conds.push(`application_id = $${values.length}`)
+    }
+    if (q.parent_id) {
+      values.push(q.parent_id)
+      conds.push(`parent_id = $${values.length}`)
+    }
+    if (q.label) {
+      values.push(`{${q.label}}`)
+      conds.push(`labels @> $${values.length}`)
+    }
 
     const cursor = q.cursor ? decodeCursor(q.cursor) : null
     if (q.cursor && !cursor) return reply.code(400).send({ error: 'invalid_cursor' })
@@ -377,13 +546,11 @@ export const zoneEventsRoutes: FastifyPluginAsync = async (fastify) => {
     if (q.format === 'csv') {
       reply.header('content-type', 'text/csv; charset=utf-8')
       reply.header('content-disposition', `attachment; filename="agent-sessions-${params.zoneId}.csv"`)
-      return reply.send(agentSessionsCsv(rows))
+      return reply.send(csvDocument(AGENT_SESSION_CSV_COLUMNS, rows))
     }
 
     const last = rows[rows.length - 1]
-    const next = rows.length === q.limit && last
-      ? encodeCursor(new Date(last.spawned_at).toISOString(), last.id)
-      : null
+    const next = rows.length === q.limit && last ? encodeCursor(new Date(last.spawned_at).toISOString(), last.id) : null
     return { rows, next_cursor: next }
   })
 }
