@@ -4,6 +4,7 @@
 // The Operator capability catalog and the deterministic plan validator that grounds and safety-classifies every proposed action.
 
 import { z } from 'zod'
+import { planProviderConfigError } from './operator-plan-secrets.js'
 
 const IdRef = z.string().min(1).max(128)
 const ScopePattern = /^[A-Za-z][A-Za-z0-9._:-]*$/
@@ -163,22 +164,28 @@ export const CAPABILITIES: Record<string, Capability> = {
   connectProvider: {
     id: 'connectProvider',
     title: 'Connect a provider',
-    summary: 'Add an upstream provider the zone can exchange credentials with.',
+    summary:
+      'Add an upstream provider the zone can exchange credentials with. A credential-bearing kind collects its id, secret, key, or token through the console\u2019s secure prompt before approval - never through the chat.',
     domain: 'provider',
     mutating: true,
     args: z
       .object({
         name: z.string().min(1).max(200),
         kind: z.enum(['none', 'caracal_mandate', 'oauth2_authorization_code', 'oauth2_client_credentials', 'api_key', 'bearer_token']),
+        config: z.record(z.string().max(64), z.unknown()).optional(),
       })
-      .strict(),
+      .strict()
+      .superRefine((args, ctx) => {
+        const error = planProviderConfigError(args.kind, args.config)
+        if (error) ctx.addIssue({ code: 'custom', message: error, path: ['config'] })
+      }),
     argsHint:
-      'name (string), kind (one of: none, caracal_mandate, oauth2_authorization_code, oauth2_client_credentials, api_key, bearer_token)',
+      'name (string), kind (one of: none, caracal_mandate, oauth2_authorization_code, oauth2_client_credentials, api_key, bearer_token), config (object, optional: the kind\u2019s non-secret settings such as token_endpoint, authorization_endpoint, redirect_uri, scopes, header_name - never a client id, secret, key, or token)',
     preview: {
       kind: 'createByName',
       target: 'providers',
-      exists: (name) => `A provider named “${name}” already exists.`,
-      create: (name) => `Would connect provider “${name}”.`,
+      exists: (name) => `A provider named \u201c${name}\u201d already exists.`,
+      create: (name) => `Would connect provider \u201c${name}\u201d.`,
     },
   },
   deleteProvider: {

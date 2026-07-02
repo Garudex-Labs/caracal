@@ -27,11 +27,13 @@ export function autopilotAvailable(policy: AutopilotPolicy): boolean {
 }
 
 // The evidence the evaluator judges: the conversation's engage flag, whether the plan's own
-// deterministic preview says it can apply, and the plan's steps. The plan was proposed by the model
-// but the decision is Caracal's alone.
+// deterministic preview says it can apply, whether every step that collects credentials through
+// the console's secure prompt has them stored, and the plan's steps. The plan was proposed by the
+// model but the decision is Caracal's alone.
 export interface AutopilotEvaluation {
   engaged: boolean
   applicable: boolean
+  credentialsSatisfied: boolean
   steps: { id: string; capability: string }[]
 }
 
@@ -52,5 +54,9 @@ export function mayAutoApprove(evaluation: AutopilotEvaluation, policy: Autopilo
   if (!evaluation.engaged) return { autoApprove: false, reason: 'autopilot_not_engaged' }
   if (evaluation.steps.length === 0) return { autoApprove: false, reason: 'empty_plan' }
   if (!evaluation.applicable) return { autoApprove: false, reason: 'plan_not_applicable' }
+  // A step that collects credentials through the console's secure prompt cannot apply until the
+  // operator pastes them, so autopilot waits; once the vault holds them the paste flow re-evaluates
+  // and auto-approves without a human step.
+  if (!evaluation.credentialsSatisfied) return { autoApprove: false, reason: 'credentials_required' }
   return { autoApprove: true }
 }
