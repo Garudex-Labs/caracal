@@ -19,6 +19,12 @@ export interface EvidenceItem {
   name?: string
 }
 
+// One display-safe row a read surfaced for the console's structured views: only the allowlisted
+// descriptor fields of its domain, each flattened to a string or a string list. Rows never reach
+// the model prompt - they exist so the console renders live state as purpose-built components
+// rather than prose - and the allowlist keeps every secret, token, and policy body out of them.
+export type EvidenceRow = Record<string, string | string[]>
+
 // One piece of evidence a researcher gathered from a single governed read. A success carries
 // the live row count, a bounded list of names, the identified objects (id with name) so a change
 // can target one by its real id, and the decision-relevant attributes the planner and guardian
@@ -34,6 +40,7 @@ export interface Evidence {
   names?: string[]
   items?: EvidenceItem[]
   attributes?: Record<string, string[]>
+  rows?: EvidenceRow[]
   error?: string
 }
 
@@ -76,6 +83,78 @@ const DOMAIN_ATTRIBUTE_FIELDS: Record<string, { field: string; label: string }[]
 // the prompt while the planner still sees the shape of what exists.
 const ATTRIBUTE_VALUE_LIMIT = 16
 
+// The most rows a single read contributes to the console's structured views. Display rows are
+// persisted with the answer turn, so the bound keeps a turn's ledger record small even in a
+// large zone; the full live count still reports how much exists beyond the sample.
+const EVIDENCE_ROW_LIMIT = 20
+
+// The display-safe fields each domain's rows expose to the console, under a strict per-domain
+// allowlist. Only these explicitly named descriptor fields are ever copied off a row into a
+// display row - never a config document, credential, token, or policy body - so the structured
+// views can show real live state without a read ever widening what leaves the control plane.
+const DOMAIN_ROW_FIELDS: Record<string, { idField: string; fields: string[] }> = {
+  application: { idField: 'id', fields: ['name', 'registration_method', 'created_at'] },
+  provider: { idField: 'id', fields: ['name', 'identifier', 'kind', 'created_at'] },
+  resource: { idField: 'id', fields: ['name', 'identifier', 'upstream_url', 'scopes', 'created_at'] },
+  policy: { idField: 'id', fields: ['name', 'description', 'owner_type', 'created_at'] },
+  grant: {
+    idField: 'id',
+    fields: ['application_name', 'application_id', 'user_id', 'resource_name', 'resource_id', 'scopes', 'status', 'created_at'],
+  },
+  session: { idField: 'id', fields: ['session_type', 'subject_id', 'status', 'authenticated_at', 'expires_at'] },
+  agent: { idField: 'agent_session_id', fields: ['application_id', 'lifecycle', 'status', 'depth', 'labels', 'spawned_at'] },
+  delegation: {
+    idField: 'id',
+    fields: ['issuer_application_id', 'receiver_application_id', 'resource_id', 'scopes', 'status', 'expires_at', 'created_at'],
+  },
+  audit: { idField: 'id', fields: ['event_type', 'decision', 'evaluation_status', 'request_id', 'occurred_at'] },
+}
+
+// Flattens one allowlisted field value for a display row: strings pass through, string arrays keep
+// their string entries, numbers and booleans render as text, and anything else - an object, a
+// nested document - is dropped so no structured payload can ride out on a display row.
+function displayValue(value: unknown): string | string[] | undefined {
+  if (typeof value === 'string') return value.length > 0 ? value : undefined
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  if (Array.isArray(value)) {
+    const entries = value.filter((entry): entry is string => typeof entry === 'string' && entry.length > 0)
+    return entries.length > 0 ? entries : undefined
+  }
+  return undefined
+}
+
+// Builds the bounded display rows for a domain under its allowlist. A domain absent from the
+// allowlist contributes no rows, so an unrecognized read can never surface arbitrary fields.
+function summarizeDisplayRows(rows: Record<string, unknown>[], domain: string): EvidenceRow[] | undefined {
+  const config = DOMAIN_ROW_FIELDS[domain]
+  if (!config) return undefined
+  const display: EvidenceRow[] = []
+  for (const row of rows.slice(0, EVIDENCE_ROW_LIMIT)) {
+    const entry: EvidenceRow = {}
+    const id = displayValue(row[config.idField])
+    if (typeof id === 'string') entry.id = id
+    for (const field of config.fields) {
+      const value = displayValue(row[field])
+      if (value !== undefined) entry[field] = value
+    }
+    if (Object.keys(entry).length > 0) display.push(entry)
+  }
+  return display.length > 0 ? display : undefined
+}
+
+// Unwraps a read result to its rows: a bare array is taken as-is, and an envelope carrying its
+// rows under `rows` or `items` (the delegation read pages through `items`) is unwrapped. Anything
+// else contributes no rows, so a malformed result degrades to an empty read instead of a throw.
+function rowsOf(result: unknown): unknown[] {
+  if (Array.isArray(result)) return result
+  if (result && typeof result === 'object') {
+    const envelope = result as Record<string, unknown>
+    if (Array.isArray(envelope.rows)) return envelope.rows
+    if (Array.isArray(envelope.items)) return envelope.items
+  }
+  return []
+}
+
 // Collects a row's value for an allowlisted attribute field into the distinct set: a string is
 // taken as-is, a string array contributes each primitive entry, and anything else is ignored. Only
 // the named field is ever touched, so no other part of the row can leak.
@@ -113,8 +192,8 @@ function summarizeAttributes(rows: Record<string, unknown>[], domain: string): R
 function summarizeRows(
   result: unknown,
   domain: string,
-): { count: number; names: string[]; items: EvidenceItem[]; attributes?: Record<string, string[]> } {
-  const rows = Array.isArray(result) ? result : []
+): { count: number; names: string[]; items: EvidenceItem[]; attributes?: Record<string, string[]>; rows?: EvidenceRow[] } {
+  const rows = rowsOf(result)
   const objects = rows.filter((row): row is Record<string, unknown> => row !== null && typeof row === 'object')
   const names: string[] = []
   const items: EvidenceItem[] = []
@@ -125,7 +204,7 @@ function summarizeRows(
     if (label) names.push(label)
     if (id) items.push(name ? { id, name } : { id })
   }
-  return { count: rows.length, names, items, attributes: summarizeAttributes(objects, domain) }
+  return { count: rows.length, names, items, attributes: summarizeAttributes(objects, domain), rows: summarizeDisplayRows(objects, domain) }
 }
 
 // Narrows the governed reads to the object domains a turn actually concerns, so a request about one
@@ -158,8 +237,8 @@ export function createStateResearcher(client: ControlClient): Researcher {
           const invocation = capability.buildInvocation({}, gen)
           try {
             const result = await client.invoke(invocation.command, invocation.subcommand, invocation.flags, capability.scopes)
-            const { count, names, items, attributes } = summarizeRows(result, domain)
-            return { capability: id, domain, ok: true, count, names, items, attributes }
+            const { count, names, items, attributes, rows } = summarizeRows(result, domain)
+            return { capability: id, domain, ok: true, count, names, items, attributes, rows }
           } catch (err) {
             const error = err instanceof ControlClientError ? err.reason : 'read failed'
             return { capability: id, domain, ok: false, error }

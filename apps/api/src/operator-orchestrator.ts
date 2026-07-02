@@ -82,7 +82,7 @@ export interface SkillRegistry {
 // and a misaligned plan is never auto-approved.
 export type OrchestrationOutcome =
   | { kind: 'plan'; result: AgentResult<ProposedPlanInput>; advisory?: SecurityAdvisory; guidance?: string }
-  | { kind: 'answer'; result: AgentResult<{ text: string; reasoning?: string }> }
+  | { kind: 'answer'; result: AgentResult<{ text: string; reasoning?: string }>; evidence?: Evidence[] }
   | { kind: 'policy'; result: AgentResult<PolicyDraft> }
 
 export interface OrchestrationResult {
@@ -448,7 +448,10 @@ export function createOrchestrator(registry: SkillRegistry = createSkillRegistry
       // structured check is unaffected.
       const answerGateway = options.onAnswerDelta ? streamingAnswers(gateway, options.onAnswerDelta, options.onReasoningDelta) : gateway
       const answer = await skill.run(answerGateway, message, answerContext)
-      return { tier, outcome: { kind: 'answer', result: await groundAnswer(gateway, message, answer, answerContext) } }
+      const result = await groundAnswer(gateway, message, answer, answerContext)
+      // The gathered evidence rides along with the grounded answer so the route can persist the
+      // structured live-state views the answer was grounded in, not just its prose.
+      return { tier, outcome: { kind: 'answer', result, evidence: stateContext.evidence } }
     },
   }
 }

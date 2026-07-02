@@ -249,9 +249,15 @@ function describe(err: unknown): string {
 
 async function ipRateExceeded(redis: RedisClient, ip: string, limitPerMin: number): Promise<boolean> {
   if (limitPerMin <= 0) return false
-  const minute = await redisMinuteBucket(redis)
-  const key = `api:control_invoke_ip:${ip}:${minute}`
-  const count = await redis.incr(key)
-  if (count === 1) await redis.expire(key, 90)
-  return count > limitPerMin
+  // Fail closed: when the counter store is unreachable the request is throttled rather than
+  // admitted unmetered, matching the replay guard's posture on the same dependency.
+  try {
+    const minute = await redisMinuteBucket(redis)
+    const key = `api:control_invoke_ip:${ip}:${minute}`
+    const count = await redis.incr(key)
+    if (count === 1) await redis.expire(key, 90)
+    return count > limitPerMin
+  } catch {
+    return true
+  }
 }
