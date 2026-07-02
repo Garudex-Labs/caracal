@@ -21,6 +21,8 @@ export const {
   listSessions,
   revokeSession,
   revokeOtherSessions,
+  listAccounts,
+  linkSocial,
 } = authClient;
 
 export type Operator = {

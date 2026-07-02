@@ -44,12 +44,12 @@ export const SETTINGS_GROUPS: SettingsGroupModel[] = [
       {
         id: "security",
         label: "Security",
-        description: "Password rotation and authenticated devices with per-device revocation.",
+        description: "Sign-in methods, password rotation, and authenticated devices.",
       },
       {
         id: "preferences",
         label: "Preferences",
-        description: "Theme for this device and account-held guided tours.",
+        description: "Theme, guided tours, and the platform-wide audit retention window.",
       },
     ],
   },
@@ -61,11 +61,6 @@ export const SETTINGS_GROUPS: SettingsGroupModel[] = [
         id: "operator",
         label: "AI Operator",
         description: "Model providers and governed routing for the Caracal Operator.",
-      },
-      {
-        id: "retention",
-        label: "Audit retention",
-        description: "How long audit events are kept before automatic removal.",
       },
       ...featuresByHome("settings").map(lockedItem),
     ],

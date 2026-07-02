@@ -16,9 +16,9 @@ export function SettingsGroup({
   danger = false,
 }: {
   title: string;
-  description?: string;
+  description?: ReactNode;
   action?: ReactNode;
-  children: ReactNode;
+  children?: ReactNode;
   danger?: boolean;
 }) {
   return (
@@ -44,7 +44,7 @@ export function SettingsGroup({
         </div>
         {action ? <div className="flex flex-shrink-0 items-center gap-2">{action}</div> : null}
       </div>
-      <div className="mt-5 min-w-0">{children}</div>
+      {children ? <div className="mt-5 min-w-0">{children}</div> : null}
     </section>
   );
 }
