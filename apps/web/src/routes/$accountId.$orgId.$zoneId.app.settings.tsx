@@ -7,13 +7,30 @@ This file defines the Settings layout route with grouped navigation over the /se
 import { Link, Outlet, createFileRoute, useLocation } from "@tanstack/react-router";
 
 import { ModulePage } from "@/components/console/ModulePage";
-import { LockBadge } from "@/components/ui";
 import { appLink } from "@/platform/nav/appLink";
 import { SETTINGS_GROUPS, settingsItem } from "@/platform/nav/settingsNav";
 
 export const Route = createFileRoute("/$accountId/$orgId/$zoneId/app/settings")({
   component: SettingsLayout,
 });
+
+function LockGlyph({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <rect x="5" y="11" width="14" height="9" rx="2" />
+      <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+    </svg>
+  );
+}
 
 function SettingsLayout() {
   const pathname = useLocation({ select: (location) => location.pathname });
@@ -54,7 +71,9 @@ function SettingsLayout() {
                         ].join(" ")}
                       >
                         <span>{item.label}</span>
-                        {item.featureSlug ? <LockBadge /> : null}
+                        {item.featureSlug ? (
+                          <LockGlyph className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground/70" />
+                        ) : null}
                       </Link>
                     );
                   })}
@@ -71,7 +90,9 @@ function SettingsLayout() {
                 <h2 className="text-xl font-semibold tracking-tight text-foreground">
                   {current.label}
                 </h2>
-                {current.featureSlug ? <LockBadge /> : null}
+                {current.featureSlug ? (
+                  <LockGlyph className="h-4 w-4 text-muted-foreground/70" />
+                ) : null}
               </div>
               <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
                 {current.description}
