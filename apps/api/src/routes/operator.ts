@@ -27,6 +27,14 @@ import { createRoleScopedClient, roleScopes } from '../operator-agent-roles.js'
 import { isControlExecutable } from '../operator-control-map.js'
 import { SYSTEM_ZONE_SLUG } from '../system-zone.js'
 import { mayAutoApprove, autopilotAvailable, buildAutopilotPolicy, type AutopilotPolicy } from '../operator-autopilot.js'
+import {
+  CREDENTIAL_VALUE_MAX,
+  credentialFieldsFor,
+  deletePlanSecrets,
+  listSatisfiedPlanSteps,
+  openPlanStepSecrets,
+  storePlanStepSecrets,
+} from '../operator-plan-secrets.js'
 import type { ControlClient } from '../control-client.js'
 import type { OperatorControlIdentity } from '../config.js'
 import {
@@ -113,6 +121,17 @@ const PlanDecisionBody = z
   .strict()
 
 const ExecutePlanBody = z.object({ plan_seq: z.coerce.number().int().min(1) }).strict()
+
+const PlanSecretsParams = z.object({ zoneId: z.string().min(1), id: z.string().min(1), planSeq: z.coerce.number().int().min(1) })
+
+// One step's pasted credentials. Values are validated against exactly the fields the step's
+// capability and provider kind require, sealed at rest, and never echoed back by any endpoint.
+const PlanSecretsBody = z
+  .object({
+    step_id: z.string().regex(/^[A-Za-z0-9_.\-:]{1,128}$/),
+    values: z.record(z.string().min(1).max(64), z.string().min(1).max(CREDENTIAL_VALUE_MAX)),
+  })
+  .strict()
 
 // One in-flight governed execution per plan. Each step is its own authenticated control
 // call rather than one database transaction, so the conversation row cannot serialize
@@ -517,6 +536,7 @@ function buildPlanContentJson(
     summary,
     steps: validation.steps.map((step) => {
       const effect = effects.get(step.id)
+      const secretFields = credentialFieldsFor(step.capability, step.args)
       return {
         id: step.id,
         capability: step.capability,
@@ -528,6 +548,10 @@ function buildPlanContentJson(
         ...(step.depends_on.length > 0 ? { depends_on: step.depends_on } : {}),
         ...(step.risk ? { risk: step.risk } : {}),
         ...(effect ? { effect } : {}),
+        // The credential field names this step collects through the console's secure prompt before
+        // it can be approved. Metadata only - the values are pasted into the sealed vault and never
+        // enter this ledger.
+        ...(secretFields.length > 0 ? { secret_fields: secretFields } : {}),
       }
     }),
   }
@@ -1308,8 +1332,8 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
         throw new TxAbort(reply.code(403).send({ error: 'mode_forbidden' }))
       }
       // The decision must reference an actual plan turn in this conversation.
-      const { rows: planTurn } = await client.query(
-        `SELECT 1 FROM operator_turns
+      const { rows: planTurn } = await client.query<{ content: PlanTurnContent }>(
+        `SELECT content FROM operator_turns
          WHERE conversation_id = $1 AND zone_id = $2 AND seq = $3 AND kind = 'plan'`,
         [params.id, params.zoneId, body.plan_seq],
       )
@@ -1326,6 +1350,35 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
       )
       if (decided[0]) throw new TxAbort(reply.code(409).send({ error: 'plan_already_decided' }))
 
+      const secretRef = { conversationId: params.id, zoneId: params.zoneId, planSeq: body.plan_seq }
+      if (kind === 'approval') {
+        // Approval is the gate that lets a change apply, so a step that collects credentials
+        // through the console's secure prompt must have them in the vault before the plan can be
+        // approved - by a human here or by autopilot through the paste flow. Refusing here keeps
+        // the execute path from ever starting a plan it cannot finish.
+        const credentialSteps = planTurn[0].content.steps.filter(
+          (step) => credentialFieldsFor(step.capability, step.args ?? {}).length > 0,
+        )
+        if (credentialSteps.length > 0) {
+          const satisfied = await listSatisfiedPlanSteps(client, secretRef)
+          const missing = credentialSteps.filter((step) => !satisfied.has(step.id))
+          if (missing.length > 0) {
+            throw new TxAbort(
+              reply.code(409).send({
+                error: 'plan_credentials_required',
+                steps: missing.map((step) => ({
+                  step_id: step.id,
+                  fields: credentialFieldsFor(step.capability, step.args ?? {}),
+                })),
+              }),
+            )
+          }
+        }
+      } else {
+        // A rejected plan will never apply, so its pasted credentials are discarded immediately.
+        await deletePlanSecrets(client, secretRef)
+      }
+
       const turn = await writeTurnLocked(client, {
         conversationId: params.id,
         zoneId: params.zoneId,
@@ -1336,6 +1389,147 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
         actorId: req.actor.id,
       })
       return reply.code(201).send(turn)
+    })
+  })
+
+  // The credential status of a plan: which steps collect credentials through the console's
+  // secure prompt and whether the vault holds live values for each. Field names only - a
+  // pasted value is write-only and no read surface ever returns it.
+  fastify.get('/zones/:zoneId/operator-conversations/:id/plans/:planSeq/secrets', async (req, reply) => {
+    const params = parseParams(PlanSecretsParams, req, reply)
+    if (!params) return
+    const { rows: conv } = await fastify.db.query<{ status: string }>(
+      `SELECT status FROM operator_conversations WHERE id = $1 AND zone_id = $2`,
+      [params.id, params.zoneId],
+    )
+    if (!conv[0]) return reply.code(404).send({ error: 'conversation_not_found' })
+    const { rows: planRows } = await fastify.db.query<{ content: PlanTurnContent }>(
+      `SELECT content FROM operator_turns
+       WHERE conversation_id = $1 AND zone_id = $2 AND seq = $3 AND kind = 'plan'`,
+      [params.id, params.zoneId, params.planSeq],
+    )
+    if (!planRows[0]) return reply.code(404).send({ error: 'plan_not_found' })
+    const satisfied = await listSatisfiedPlanSteps(fastify.db, {
+      conversationId: params.id,
+      zoneId: params.zoneId,
+      planSeq: params.planSeq,
+    })
+    const steps = planRows[0].content.steps
+      .map((step) => ({ step_id: step.id, fields: credentialFieldsFor(step.capability, step.args ?? {}) }))
+      .filter((step) => step.fields.length > 0)
+      .map((step) => ({ ...step, provided: satisfied.has(step.step_id) }))
+    return reply.send({ plan_seq: params.planSeq, steps })
+  })
+
+  // Accepts one step's credentials pasted through the console's secure prompt. The values are
+  // validated against exactly the fields the step requires, sealed into the vault, and never
+  // echoed; a re-paste before the plan is decided replaces the earlier values. When the vault
+  // then satisfies the whole plan in an engaged autopilot conversation, Caracal completes the
+  // approval it deferred at plan time, so the paste is the only human step autopilot waits for.
+  fastify.put('/zones/:zoneId/operator-conversations/:id/plans/:planSeq/secrets', async (req, reply) => {
+    const params = parseParams(PlanSecretsParams, req, reply)
+    if (!params) return
+    const parsed = PlanSecretsBody.safeParse(req.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'invalid_credentials' })
+    const body = parsed.data
+    const secretRef = { conversationId: params.id, zoneId: params.zoneId, planSeq: params.planSeq }
+
+    const stored = await withTransaction(fastify.db, async (client) => {
+      const { rows: conv } = await client.query<{ status: string; mode: string; autopilot: boolean }>(
+        `SELECT status, mode, autopilot FROM operator_conversations
+         WHERE id = $1 AND zone_id = $2 FOR UPDATE`,
+        [params.id, params.zoneId],
+      )
+      if (!conv[0]) throw new TxAbort(reply.code(404).send({ error: 'conversation_not_found' }))
+      if (conv[0].status !== 'active') throw new TxAbort(reply.code(409).send({ error: 'conversation_archived' }))
+      // Ask mode has no plans, so it has no credentials to collect.
+      if (conv[0].mode === 'ask') throw new TxAbort(reply.code(403).send({ error: 'mode_forbidden' }))
+
+      const { rows: planRows } = await client.query<{ content: PlanTurnContent }>(
+        `SELECT content FROM operator_turns
+         WHERE conversation_id = $1 AND zone_id = $2 AND seq = $3 AND kind = 'plan'`,
+        [params.id, params.zoneId, params.planSeq],
+      )
+      if (!planRows[0]) throw new TxAbort(reply.code(404).send({ error: 'plan_not_found' }))
+      const content = planRows[0].content
+
+      const step = content.steps.find((candidate) => candidate.id === body.step_id)
+      if (!step) throw new TxAbort(reply.code(404).send({ error: 'step_not_found' }))
+      const required = credentialFieldsFor(step.capability, step.args ?? {})
+      if (required.length === 0) throw new TxAbort(reply.code(409).send({ error: 'step_needs_no_credentials' }))
+      const provided = Object.keys(body.values).sort()
+      if (provided.length !== required.length || [...required].sort().some((field, index) => field !== provided[index])) {
+        throw new TxAbort(reply.code(400).send({ error: 'invalid_credentials', required }))
+      }
+
+      // A decided plan is already approved or rejected; its credential window is closed.
+      const { rows: decided } = await client.query(
+        `SELECT 1 FROM operator_turns
+         WHERE conversation_id = $1 AND zone_id = $2
+           AND kind IN ('approval', 'rejection')
+           AND (content->>'plan_seq')::bigint = $3`,
+        [params.id, params.zoneId, params.planSeq],
+      )
+      if (decided[0]) throw new TxAbort(reply.code(409).send({ error: 'plan_already_decided' }))
+
+      await storePlanStepSecrets(client, secretRef, body.step_id, body.values)
+      const satisfied = await listSatisfiedPlanSteps(client, secretRef)
+      const allSatisfied = content.steps.every(
+        (candidate) => credentialFieldsFor(candidate.capability, candidate.args ?? {}).length === 0 || satisfied.has(candidate.id),
+      )
+      return { content, allSatisfied, mode: conv[0].mode, autopilot: conv[0].autopilot === true }
+    })
+
+    let autoApproved = false
+    let approvalTurn: Record<string, unknown> | null = null
+    if (stored.allSatisfied && stored.mode === 'agent' && stored.autopilot && autopilotAvailable(autopilotPolicy)) {
+      const steps = stored.content.steps.map((step) => ({ id: step.id, capability: step.capability, args: step.args ?? {} }))
+      const preview = await previewPlan(fastify.db, params.zoneId, { summary: stored.content.summary, steps })
+      const decision = mayAutoApprove(
+        { engaged: true, applicable: preview.ok, credentialsSatisfied: true, steps },
+        autopilotPolicy,
+      )
+      if (decision.autoApprove) {
+        // The completion re-checks the decided gate under the conversation lock so a racing
+        // human decision and this autopilot completion can never both enter the ledger.
+        const approval = await withTransaction(fastify.db, async (client) => {
+          const { rows: conv } = await client.query<{ status: string; next_seq: number }>(
+            `SELECT status, next_seq FROM operator_conversations WHERE id = $1 AND zone_id = $2 FOR UPDATE`,
+            [params.id, params.zoneId],
+          )
+          if (!conv[0] || conv[0].status !== 'active') return null
+          const { rows: decided } = await client.query(
+            `SELECT 1 FROM operator_turns
+             WHERE conversation_id = $1 AND zone_id = $2
+               AND kind IN ('approval', 'rejection')
+               AND (content->>'plan_seq')::bigint = $3`,
+            [params.id, params.zoneId, params.planSeq],
+          )
+          if (decided[0]) return null
+          return writeTurnLocked(client, {
+            conversationId: params.id,
+            zoneId: params.zoneId,
+            seq: conv[0].next_seq,
+            role: 'system',
+            kind: 'approval',
+            contentJson: JSON.stringify({ plan_seq: params.planSeq, autopilot: true }),
+            actorId: req.actor.id,
+          })
+        })
+        if (approval) {
+          autoApproved = true
+          approvalTurn = approval
+        }
+      }
+    }
+
+    return reply.code(200).send({
+      ok: true,
+      plan_seq: params.planSeq,
+      step_id: body.step_id,
+      all_satisfied: stored.allSatisfied,
+      auto_approved: autoApproved,
+      approval_turn: approvalTurn,
     })
   })
 
@@ -1422,7 +1616,7 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
         }
         const appliedStepIds = new Set(priorSteps.filter((row) => row.status === 'succeeded').map((row) => row.step_id))
 
-        const steps = planRows[0].content.steps.map((step) => ({
+        const steps: GovernedPlanStep[] = planRows[0].content.steps.map((step) => ({
           id: step.id,
           capability: step.capability,
           args: step.args ?? {},
@@ -1471,6 +1665,25 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
               steps: existing.map((step) => ({ step_id: step.id, capability: step.capability, detail: step.detail })),
             },
           }
+        }
+
+        // A step that collects credentials through the console's secure prompt applies them from
+        // the sealed vault: opened here, attached to the step in memory only, and refused when the
+        // vault holds nothing live - approval should have gated this, so a miss means the values
+        // expired and must be pasted again.
+        const missingCredentials: { step_id: string; fields: string[] }[] = []
+        for (const step of remaining) {
+          const fields = credentialFieldsFor(step.capability, step.args)
+          if (fields.length === 0) continue
+          const values = await openPlanStepSecrets(client, { conversationId: params.id, zoneId: params.zoneId, planSeq }, step.id)
+          if (!values || [...fields].sort().join(',') !== Object.keys(values).sort().join(',')) {
+            missingCredentials.push({ step_id: step.id, fields })
+            continue
+          }
+          step.secrets = values
+        }
+        if (missingCredentials.length > 0) {
+          return { ok: false, status: 409, body: { error: 'plan_credentials_required', steps: missingCredentials } }
         }
 
         return { ok: true, summary: planRows[0].content.summary, steps: remaining }
@@ -1569,6 +1782,13 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
         // approved outcome Caracal actually applied - never a proposal or a partial failure.
         if (!result.failure && result.applied.length > 0) {
           await rememberAppliedChange(client, params.zoneId, params.id, pre.summary)
+        }
+        // A settled plan no longer needs its vaulted credentials: a full apply sealed them at
+        // their final place through the provider create, and a spent plan (a recorded step
+        // failure) can never be retried. Only a definitive, nothing-applied failure keeps them,
+        // so the retry the ledger permits still has its values.
+        if (!result.failure || result.applied.length > 0 || result.failure.terminal) {
+          await deletePlanSecrets(client, { conversationId: params.id, zoneId: params.zoneId, planSeq })
         }
         return { turns, outputs }
       })
@@ -1949,7 +2169,16 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
         let approvalTurn: Record<string, unknown> | null = null
         if (turn.mode === 'agent' && turn.autopilot && autopilotAvailable(autopilotPolicy)) {
           const planSeq = Number(turn.turn.seq)
-          const decision = mayAutoApprove({ engaged: true, applicable: preview.ok, steps: planned.value.steps }, autopilotPolicy)
+          // A step that collects credentials through the console's secure prompt cannot apply until
+          // the operator pastes them, so autopilot defers; the paste flow completes the approval
+          // once the vault satisfies the plan.
+          const credentialsSatisfied = validation.steps.every(
+            (step) => credentialFieldsFor(step.capability, step.args).length === 0,
+          )
+          const decision = mayAutoApprove(
+            { engaged: true, applicable: preview.ok, credentialsSatisfied, steps: planned.value.steps },
+            autopilotPolicy,
+          )
           if (decision.autoApprove) {
             const approval = await appendTurnTx(
               fastify.db,

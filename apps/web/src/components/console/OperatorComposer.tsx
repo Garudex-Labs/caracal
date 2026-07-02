@@ -27,6 +27,7 @@ import {
   ModelSelectorTrigger,
 } from "@/components/ai-elements/model-selector";
 import {
+  AlertGlyph,
   ArrowUpGlyph,
   BoltGlyph,
   CheckGlyph,
@@ -39,6 +40,7 @@ import {
 } from "@/components/console/OperatorGlyphs";
 import { cx } from "@/lib/cx";
 import { useOperatorAiStatus } from "@/platform/api/hooks";
+import { scanForSecrets, type SecretFinding } from "@/platform/operator/secretScan";
 import type { OperatorConversationMode } from "@/platform/api/types";
 
 export interface SessionUsage {
@@ -370,6 +372,83 @@ function UsageMeter({ usage }: { usage: SessionUsage }) {
   );
 }
 
+// The review a guarded send opens: what credential-shaped values were detected, masked, with the
+// explicit choice to go back and edit the draft or send it anyway. Sending a raw secret into chat
+// is almost always a mistake - provider credentials belong in the secure prompt - but the operator
+// stays in charge: this warns, it never blocks.
+function SecretSendGuard({
+  findings,
+  onEdit,
+  onSend,
+}: {
+  findings: SecretFinding[];
+  onEdit: () => void;
+  onSend: () => void;
+}) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    function onPointer(event: PointerEvent) {
+      if (!rootRef.current?.contains(event.target as Node)) onEdit();
+    }
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") onEdit();
+    }
+    document.addEventListener("pointerdown", onPointer, true);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointer, true);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [onEdit]);
+
+  return (
+    <div
+      ref={rootRef}
+      role="dialog"
+      aria-label="Possible secret in this message"
+      className="absolute bottom-full right-0 z-30 mb-2 w-80 rounded-xl border border-border bg-card p-3 shadow-xl"
+    >
+      <div className="flex items-center gap-2">
+        <AlertGlyph className="h-4 w-4 flex-shrink-0 text-amber-600 dark:text-amber-400" />
+        <span className="text-xs font-semibold text-foreground">
+          Possible secret in this message
+        </span>
+      </div>
+      <ul className="mt-2 flex flex-col gap-1">
+        {findings.map((finding) => (
+          <li
+            key={`${finding.label}:${finding.masked}`}
+            className="flex items-baseline justify-between gap-2 rounded-md bg-muted/50 px-2 py-1"
+          >
+            <span className="text-[11px] text-muted-foreground">{finding.label}</span>
+            <span className="font-mono text-[11px] text-foreground">{finding.masked}</span>
+          </li>
+        ))}
+      </ul>
+      <p className="mt-2 text-[11px] leading-4 text-muted-foreground">
+        Chat messages are stored in the conversation. Provider credentials belong in the secure
+        prompt, which seals them and keeps them out of the chat entirely.
+      </p>
+      <div className="mt-2.5 flex items-center justify-end gap-2">
+        <button
+          type="button"
+          onClick={onEdit}
+          className="rounded-full border border-border px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+        >
+          Edit message
+        </button>
+        <button
+          type="button"
+          onClick={onSend}
+          className="rounded-full bg-amber-500/15 px-3 py-1.5 text-xs font-medium text-amber-700 ring-1 ring-amber-500/40 transition-colors hover:bg-amber-500/25 dark:text-amber-300"
+        >
+          Send anyway
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // The Operator's natural-language input: one glassy composer shared by the pinned
 // follow-up bar and the hero entry point. It auto-resizes, sends on Enter (Shift+Enter
 // for a newline), and carries a circular send control.
@@ -434,6 +513,24 @@ export function OperatorInput({
 
   const canSend = !pending && value.trim().length > 0;
 
+  // A draft that carries a credential-shaped value pauses before sending: the send control becomes
+  // a caution that opens a review of what was detected, and the operator explicitly chooses to edit
+  // the message or send it anyway. Detection is local to the browser - nothing is scanned remotely.
+  const findings = useMemo(() => scanForSecrets(value), [value]);
+  const guarded = findings.length > 0;
+  const [guardOpen, setGuardOpen] = useState(false);
+  useEffect(() => {
+    if (!guarded) setGuardOpen(false);
+  }, [guarded]);
+  const trySubmit = () => {
+    if (!canSend) return;
+    if (guarded) {
+      setGuardOpen(true);
+      return;
+    }
+    onSubmit();
+  };
+
   const textarea = (
     <textarea
       ref={ref}
@@ -446,7 +543,7 @@ export function OperatorInput({
       onKeyDown={(event) => {
         if (event.key === "Enter" && !event.shiftKey) {
           event.preventDefault();
-          onSubmit();
+          trySubmit();
           return;
         }
         if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
@@ -489,11 +586,27 @@ export function OperatorInput({
       >
         <StopGlyph className="h-4 w-4" />
       </button>
+    ) : guarded && !pending ? (
+      <button
+        type="button"
+        aria-label="Review possible secret before sending"
+        title="Possible secret detected - review before sending"
+        onClick={() => setGuardOpen((open) => !open)}
+        disabled={!canSend}
+        className={cx(
+          "grid h-9 w-9 flex-shrink-0 place-items-center rounded-full transition-all",
+          canSend
+            ? "bg-amber-500/15 text-amber-600 shadow-sm ring-1 ring-amber-500/40 hover:bg-amber-500/25 active:scale-95 dark:text-amber-400"
+            : "cursor-not-allowed bg-muted text-muted-foreground",
+        )}
+      >
+        <AlertGlyph className="h-4 w-4" />
+      </button>
     ) : (
       <button
         type="button"
         aria-label="Send"
-        onClick={onSubmit}
+        onClick={trySubmit}
         disabled={!canSend}
         aria-busy={pending || undefined}
         className={cx(
@@ -521,9 +634,19 @@ export function OperatorInput({
           ) : null}
           {leftSlot}
         </div>
-        <div className="flex items-center gap-1.5">
+        <div className="relative flex items-center gap-1.5">
           {usage ? <UsageMeter usage={usage} /> : null}
           {sendButton}
+          {guardOpen && guarded ? (
+            <SecretSendGuard
+              findings={findings}
+              onEdit={() => setGuardOpen(false)}
+              onSend={() => {
+                setGuardOpen(false);
+                onSubmit();
+              }}
+            />
+          ) : null}
         </div>
       </div>
     </div>
