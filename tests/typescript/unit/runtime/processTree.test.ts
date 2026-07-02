@@ -4,16 +4,25 @@
 // Unit tests for the cross-platform process-tree boundary (spawn, kill, pnpm resolution).
 
 import type { ChildProcess } from 'node:child_process'
+import { delimiter, join } from 'node:path'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const spawnMock = vi.hoisted(() => vi.fn())
 const spawnSyncMock = vi.hoisted(() => vi.fn())
+const existsSyncMock = vi.hoisted(() => vi.fn())
+const statSyncMock = vi.hoisted(() => vi.fn())
 
 vi.mock('node:child_process', async (importOriginal) => ({
   ...(await importOriginal<typeof import('node:child_process')>()),
   spawn: spawnMock,
   spawnSync: spawnSyncMock,
+}))
+
+vi.mock('node:fs', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('node:fs')>()),
+  existsSync: existsSyncMock,
+  statSync: statSyncMock,
 }))
 
 const ORIG_PLATFORM = process.platform
@@ -38,6 +47,8 @@ beforeEach(() => {
   vi.clearAllMocks()
   spawnMock.mockReturnValue({ on: vi.fn(), kill: vi.fn(), pid: 4321 })
   spawnSyncMock.mockReturnValue({ status: 0 })
+  existsSyncMock.mockReturnValue(false)
+  statSyncMock.mockReturnValue({ isFile: () => true })
   process.env = { ...ORIG_ENV }
 })
 
@@ -110,5 +121,21 @@ describe('resolvePnpm', () => {
     process.env.npm_execpath = '/usr/lib/pnpm/pnpm.cjs'
     const resolved = mod.resolvePnpm()
     expect(resolved).toEqual({ cmd: process.execPath, prefix: ['/usr/lib/pnpm/pnpm.cjs'] })
+  })
+
+  it('falls back to the pnpm shim on the Windows PATH', async () => {
+    const mod = await loadFor('win32')
+    delete process.env.npm_execpath
+    process.env.PATH = ['shims', 'other'].join(delimiter)
+    const shim = join('shims', 'pnpm.cmd')
+    existsSyncMock.mockImplementation((path: string) => path === shim)
+    expect(mod.resolvePnpm()).toEqual({ cmd: shim, prefix: [] })
+  })
+
+  it('resolves nothing when pnpm is absent from the PATH', async () => {
+    const mod = await loadFor('win32')
+    delete process.env.npm_execpath
+    process.env.PATH = 'shims'
+    expect(mod.resolvePnpm()).toBeUndefined()
   })
 })
