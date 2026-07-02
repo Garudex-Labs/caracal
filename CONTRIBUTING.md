@@ -71,6 +71,8 @@ $EDITOR .env
 pnpm caracal run -- node agent.mjs
 ```
 
+On Windows, source the `.env` file from Git Bash or WSL, or set the same variables in PowerShell with `$env:NAME = "value"` before `pnpm caracal run`.
+
 #### Control API (optional)
 
 The web console is the primary management interface for Caracal. The Control API is an optional OAuth-protected endpoint for approved external automation and can be managed from the **web console → Runtime → Control** item.

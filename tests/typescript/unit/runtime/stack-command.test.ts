@@ -101,7 +101,9 @@ describe('stack commands', () => {
 
     await expect(upCommand([])).rejects.toThrow('exit:1')
 
-    expect(stderr).toContain('docker daemon is not reachable; start Docker and ensure your user can access /var/run/docker.sock')
+    expect(stderr).toContain(
+      'docker daemon is not reachable; start Docker Desktop (macOS/Windows) or the docker service (Linux) and ensure your user can access the Docker socket',
+    )
     expect(engineMocks.stackUp).not.toHaveBeenCalled()
   })
 

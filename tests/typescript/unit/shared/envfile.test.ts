@@ -5,9 +5,17 @@
 
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { devSecretsHome, discoverAdminToken, discoverCoordinatorToken, discoverRepoRoot, installedHome, managedSecretDirs, readEnvFile } from '../../../../packages/core/ts/src/envfile.js'
+import {
+  devSecretsHome,
+  discoverAdminToken,
+  discoverCoordinatorToken,
+  discoverRepoRoot,
+  installedHome,
+  managedSecretDirs,
+  readEnvFile,
+} from '../../../../packages/core/ts/src/envfile.js'
 
 describe('installedHome', () => {
   const saved = { ...process.env }
@@ -22,15 +30,16 @@ describe('installedHome', () => {
 
   it('falls back to a platform default when CARACAL_HOME is unset', () => {
     delete process.env.CARACAL_HOME
+    delete process.env.XDG_DATA_HOME
     const path = installedHome()
-    expect(path.endsWith('/caracal')).toBe(true)
+    expect(path.endsWith(`${sep}caracal`)).toBe(true)
   })
 
   it('uses XDG_DATA_HOME before the platform data-home fallback', () => {
     delete process.env.CARACAL_HOME
     process.env.XDG_DATA_HOME = '/tmp/caracal-xdg-data'
 
-    expect(installedHome()).toBe('/tmp/caracal-xdg-data/caracal')
+    expect(installedHome()).toBe(join('/tmp/caracal-xdg-data', 'caracal'))
   })
 })
 

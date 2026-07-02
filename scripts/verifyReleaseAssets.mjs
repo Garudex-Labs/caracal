@@ -4,8 +4,8 @@
 //
 // Verifies release archive assets and checksums for a Caracal release tag.
 
-import { execFileSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { existsSync, readFileSync } from 'node:fs'
 import { basename, resolve } from 'node:path'
 
 const [releaseTag, dir = 'dist'] = process.argv.slice(2)
@@ -37,6 +37,21 @@ for (const asset of assets) {
   if (!existsSync(path)) fail(`missing release asset: ${path}`)
 }
 
-execFileSync('sha256sum', ['--check', 'SHA256SUMS'], { cwd: root, stdio: 'inherit' })
+// Checksums are verified in-process so the script runs identically on Linux,
+// macOS, and Windows without GNU coreutils or shasum on PATH.
+const sumLines = readFileSync(resolve(root, 'SHA256SUMS'), 'utf8')
+  .split(/\r?\n/)
+  .filter((line) => line.trim().length > 0)
+if (sumLines.length === 0) fail('SHA256SUMS is empty')
+for (const line of sumLines) {
+  const match = /^([0-9a-f]{64}) [ *](.+)$/.exec(line)
+  if (!match) fail(`malformed SHA256SUMS entry: ${line}`)
+  const [, expected, name] = match
+  const path = resolve(root, name)
+  if (!existsSync(path)) fail(`SHA256SUMS references missing file: ${name}`)
+  const actual = createHash('sha256').update(readFileSync(path)).digest('hex')
+  if (actual !== expected) fail(`checksum mismatch for ${name}: expected ${expected}, got ${actual}`)
+  process.stdout.write(`${name}: OK\n`)
+}
 
 process.stdout.write(`verified ${assets.length} release assets in ${basename(root)} for ${releaseTag}\n`)
