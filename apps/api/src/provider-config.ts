@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// The provider configuration contract: the provider kinds and the public/secret config key sets every provider surface shares.
+// The provider configuration contract: the provider kinds, the per-kind field table, and the public/secret config key sets every provider surface shares.
 
 export const PROVIDER_KINDS = [
   'none',
@@ -14,60 +14,93 @@ export const PROVIDER_KINDS = [
 
 export type ProviderKind = (typeof PROVIDER_KINDS)[number]
 
+export interface ProviderConfigField {
+  key: string
+  // Whether the console form and the control plane demand the field for this kind. A note
+  // qualifies conditional requirements (for example "when auth_location is header").
+  requirement: 'required' | 'optional'
+  // Secret fields are sealed at rest and must never appear in a conversation ledger, a plan
+  // argument, a model prompt, or a log; the console collects them through masked inputs and
+  // the Operator collects them through the secure credential prompt.
+  secret?: boolean
+  note?: string
+}
+
+// The single source of truth for what each provider kind accepts. The console form, the control
+// plane validation, and the Operator's field guidance all describe exactly this table, so a field
+// can never be presented differently across surfaces.
+export const PROVIDER_CONFIG_FIELDS: Record<ProviderKind, readonly ProviderConfigField[]> = {
+  none: [],
+  caracal_mandate: [],
+  oauth2_authorization_code: [
+    { key: 'authorization_endpoint', requirement: 'required', note: 'HTTPS endpoint where users approve delegated access' },
+    { key: 'token_endpoint', requirement: 'required', note: 'HTTPS endpoint where tokens are issued or refreshed' },
+    { key: 'redirect_uri', requirement: 'required', note: "Caracal's callback URL for the zone, registered with the provider" },
+    { key: 'client_id', requirement: 'required', note: 'the OAuth client id' },
+    { key: 'client_secret', requirement: 'required', secret: true, note: 'not used when client_auth_method is none' },
+    { key: 'scopes', requirement: 'optional', note: 'upstream OAuth scopes to request' },
+    { key: 'client_auth_method', requirement: 'optional', note: 'client_secret_basic default, client_secret_post, or none' },
+    { key: 'allowed_token_hosts', requirement: 'optional', note: 'defaults to the token endpoint host' },
+    { key: 'authorization_params', requirement: 'optional' },
+    { key: 'token_params', requirement: 'optional' },
+    { key: 'auth_header', requirement: 'optional' },
+    { key: 'auth_scheme', requirement: 'optional' },
+    { key: 'forward_caracal_identity', requirement: 'optional' },
+    { key: 'allow_runtime_injection', requirement: 'optional' },
+  ],
+  oauth2_client_credentials: [
+    { key: 'token_endpoint', requirement: 'required', note: 'HTTPS endpoint where tokens are issued' },
+    { key: 'client_id', requirement: 'required', note: 'the OAuth client id' },
+    { key: 'client_secret', requirement: 'required', secret: true, note: 'not used with private_key_jwt or none' },
+    { key: 'private_key', requirement: 'optional', secret: true, note: 'PEM key, required only with private_key_jwt' },
+    { key: 'scopes', requirement: 'optional', note: 'upstream OAuth scopes to request' },
+    {
+      key: 'client_auth_method',
+      requirement: 'optional',
+      note: 'client_secret_basic default, client_secret_post, private_key_jwt, or none',
+    },
+    { key: 'audience', requirement: 'optional' },
+    { key: 'resource', requirement: 'optional' },
+    { key: 'allowed_token_hosts', requirement: 'optional', note: 'defaults to the token endpoint host' },
+    { key: 'token_params', requirement: 'optional' },
+    { key: 'key_id', requirement: 'optional', note: 'private_key_jwt only' },
+    { key: 'auth_header', requirement: 'optional' },
+    { key: 'auth_scheme', requirement: 'optional' },
+    { key: 'forward_caracal_identity', requirement: 'optional' },
+    { key: 'allow_runtime_injection', requirement: 'optional' },
+  ],
+  api_key: [
+    { key: 'auth_location', requirement: 'optional', note: 'header default, or query' },
+    { key: 'header_name', requirement: 'required', note: 'when auth_location is header' },
+    { key: 'query_param_name', requirement: 'required', note: 'when auth_location is query' },
+    { key: 'api_key', requirement: 'required', secret: true },
+    { key: 'auth_scheme', requirement: 'optional', note: 'header auth only' },
+    { key: 'forward_caracal_identity', requirement: 'optional' },
+    { key: 'allow_runtime_injection', requirement: 'optional' },
+  ],
+  bearer_token: [
+    { key: 'bearer_token', requirement: 'required', secret: true },
+    { key: 'allowed_token_hosts', requirement: 'optional', note: 'host allow-list for forwarding' },
+    { key: 'auth_header', requirement: 'optional' },
+    { key: 'auth_scheme', requirement: 'optional' },
+    { key: 'forward_caracal_identity', requirement: 'optional' },
+    { key: 'allow_runtime_injection', requirement: 'optional' },
+  ],
+}
+
+function configKeys(secret: boolean): Record<ProviderKind, ReadonlySet<string>> {
+  const keys = {} as Record<ProviderKind, ReadonlySet<string>>
+  for (const kind of PROVIDER_KINDS) {
+    keys[kind] = new Set(PROVIDER_CONFIG_FIELDS[kind].filter((field) => Boolean(field.secret) === secret).map((field) => field.key))
+  }
+  return keys
+}
+
 // The non-secret config keys each provider kind accepts. These are safe to carry in a plan,
 // a request body, or a stored provider row; anything outside this set and the secret set is
 // rejected as unsupported.
-export const PUBLIC_PROVIDER_CONFIG_KEYS: Record<ProviderKind, ReadonlySet<string>> = {
-  none: new Set(),
-  caracal_mandate: new Set(),
-  oauth2_authorization_code: new Set([
-    'authorization_endpoint',
-    'token_endpoint',
-    'redirect_uri',
-    'client_id',
-    'client_auth_method',
-    'scopes',
-    'allowed_token_hosts',
-    'authorization_params',
-    'token_params',
-    'auth_header',
-    'auth_scheme',
-    'forward_caracal_identity',
-    'allow_runtime_injection',
-  ]),
-  oauth2_client_credentials: new Set([
-    'token_endpoint',
-    'client_id',
-    'client_auth_method',
-    'scopes',
-    'audience',
-    'resource',
-    'allowed_token_hosts',
-    'token_params',
-    'key_id',
-    'auth_header',
-    'auth_scheme',
-    'forward_caracal_identity',
-    'allow_runtime_injection',
-  ]),
-  api_key: new Set([
-    'auth_location',
-    'header_name',
-    'query_param_name',
-    'auth_scheme',
-    'forward_caracal_identity',
-    'allow_runtime_injection',
-  ]),
-  bearer_token: new Set(['allowed_token_hosts', 'auth_header', 'auth_scheme', 'forward_caracal_identity', 'allow_runtime_injection']),
-}
+export const PUBLIC_PROVIDER_CONFIG_KEYS = configKeys(false)
 
 // The secret config keys each provider kind seals at rest. A value under one of these keys
 // must never appear in a conversation ledger, a plan argument, a model prompt, or a log.
-export const SECRET_PROVIDER_CONFIG_KEYS: Record<ProviderKind, ReadonlySet<string>> = {
-  none: new Set(),
-  caracal_mandate: new Set(),
-  oauth2_authorization_code: new Set(['client_secret']),
-  oauth2_client_credentials: new Set(['client_secret', 'private_key']),
-  api_key: new Set(['api_key']),
-  bearer_token: new Set(['bearer_token']),
-}
+export const SECRET_PROVIDER_CONFIG_KEYS = configKeys(true)

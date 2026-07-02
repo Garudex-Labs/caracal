@@ -378,6 +378,22 @@ describe('shared prompt foundations', () => {
     expect(system).toContain('always a managed registration')
   })
 
+  it('gives the field-describing agents the exact provider field contract for every kind', () => {
+    for (const system of [reasoningAgents[0][1], reasoningAgents[1][1]]) {
+      expect(system).toContain('PROVIDER FIELDS')
+      // Field guidance mirrors the console form exactly: scopes is optional, never required.
+      expect(system).toMatch(/oauth2_authorization_code:.*Required: authorization_endpoint/)
+      expect(system).toMatch(/Optional: scopes \(upstream OAuth scopes to request\)/)
+      // Secrets are named as secure-prompt fields, never chat input.
+      expect(system).toContain('Secret, collected only through the secure credential prompt: client_secret')
+      expect(system).toMatch(/api_key:.*header_name \(when auth_location is header\)/)
+      expect(system).toContain('- caracal_mandate: no configuration fields.')
+      // Connecting a provider of any kind is an in-chat change, not a console-only task.
+      expect(system).toContain('Connecting a provider of')
+      expect(system).toContain('any kind is a change you can carry out here')
+    }
+  })
+
   it('keeps the planner and security analyst on a strict JSON-only output contract', () => {
     expect(buildPlannerMessages('do it', ctx)[0].content).toContain('Reply with ONLY a JSON object')
     expect(buildSecurityAnalystMessages({ summary: 's', steps: [] }, ctx)[0].content).toContain('Reply with ONLY a JSON object')

@@ -251,16 +251,26 @@ function AutopilotMenu({
   );
 }
 
-// Auto-growing message box: the textarea expands with content up to a ceiling, the
-// signature feel of a modern assistant composer.
+// Auto-growing message box: the textarea expands with content up to a ceiling and scrolls
+// beyond it, the signature feel of a modern assistant composer. Measurement only happens when
+// the element has real width - a hidden or unlaid-out textarea wraps every character onto its
+// own line and would balloon straight to the ceiling - and a resize observer re-measures once
+// layout gives it that width, or whenever it changes.
 function useAutoResizeTextarea({ minHeight, maxHeight }: { minHeight: number; maxHeight: number }) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const adjust = useCallback(() => {
     const el = ref.current;
-    if (!el) return;
+    if (!el || el.clientWidth === 0) return;
     el.style.height = `${minHeight}px`;
     el.style.height = `${Math.max(minHeight, Math.min(el.scrollHeight, maxHeight))}px`;
   }, [minHeight, maxHeight]);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const observer = new ResizeObserver(adjust);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [adjust]);
   return { ref, adjust };
 }
 

@@ -5,6 +5,7 @@
 
 import { z } from 'zod'
 import { describeCapabilitiesForPrompt, ProposedPlan, type CapabilityDomain, type ProposedPlanInput } from './operator-capabilities.js'
+import { PROVIDER_CONFIG_FIELDS, PROVIDER_KINDS, type ProviderConfigField } from './provider-config.js'
 import type { ConversationState, RecentMessage } from './operator-state.js'
 import { describeFacts, type ConversationFacts } from './operator-memory.js'
 import { describeZoneMemory, type ZoneMemoryEntry } from './operator-zone-memory.js'
@@ -255,6 +256,44 @@ const INPUT_INTEGRITY = [
   'tell the user a secret was detected, and ask for a redacted value or the local environment variable',
   'name. Never ask the user to paste a raw secret: provider credentials are collected through the',
   "console's secure credential prompt or supplied through the runtime, never in chat.",
+].join('\n')
+
+// Renders one provider kind's field contract for the prompt: required fields first, then the
+// secret fields the secure prompt collects, then the optional ones, each with its qualifying note.
+function describeProviderKind(fields: readonly ProviderConfigField[]): string {
+  const describe = (field: ProviderConfigField) => (field.note ? `${field.key} (${field.note})` : field.key)
+  const group = (label: string, subset: ProviderConfigField[]) => (subset.length > 0 ? `${label}: ${subset.map(describe).join(', ')}.` : '')
+  const secrets = fields.filter((field) => field.secret)
+  const required = fields.filter((field) => field.requirement === 'required' && !field.secret)
+  const optional = fields.filter((field) => field.requirement === 'optional' && !field.secret)
+  return [
+    group('Required', required),
+    group('Secret, collected only through the secure credential prompt', secrets),
+    group('Optional', optional),
+  ]
+    .filter((part) => part.length > 0)
+    .join(' ')
+}
+
+// The provider field contract every field-describing agent shares, generated from the same table
+// the control plane validates against and the console form renders, so the fields the Operator
+// names in guidance are exactly the fields the user sees in the console - never an invented or
+// misclassified one.
+const PROVIDER_FIELDS_GUIDE = [
+  'PROVIDER FIELDS. When you name provider configuration fields - in guidance, a walkthrough, or a',
+  'plan - use EXACTLY the fields below for the kind in question, with their exact requirement level.',
+  'These are the fields the console provider form shows and the control plane accepts; never invent',
+  'a field, promote an optional field to required, or omit a required one. Connecting a provider of',
+  'any kind is a change you can carry out here: propose it when asked, put the non-secret settings',
+  "in the step's config, and the console's secure credential prompt collects every secret value",
+  '(including the client id for OAuth kinds) before the plan can be approved - never in chat.',
+  ...PROVIDER_KINDS.map((kind) => {
+    const fields = PROVIDER_CONFIG_FIELDS[kind]
+    return `- ${kind}: ${fields.length === 0 ? 'no configuration fields.' : describeProviderKind(fields)}`
+  }),
+  'The same discipline applies to every other console form: when telling the user what to enter,',
+  'name only the fields that form actually has, exactly as the capability arguments and live state',
+  'present them, and never present a field the surface does not show.',
 ].join('\n')
 
 // Composes a system prompt from the shared foundations plus an agent's role-specific section, so
@@ -572,6 +611,7 @@ export function buildPlannerMessages(message: string, context: AgentContext, fee
         REASONING_PRINCIPLES,
         DOCS_DISCIPLINE,
         INPUT_INTEGRITY,
+        PROVIDER_FIELDS_GUIDE,
         [
           'YOUR JOB: PROPOSE A PLAN. You are the planning step. Turn the request into the smallest',
           "correct sequence of Caracal capabilities that achieves the user's real goal, using ONLY the",
@@ -715,6 +755,7 @@ export function buildExplainerMessages(message: string, context: AgentContext): 
         REASONING_PRINCIPLES,
         DOCS_DISCIPLINE,
         INPUT_INTEGRITY,
+        PROVIDER_FIELDS_GUIDE,
         [
           "THIS TURN: EXPLAIN, READ-ONLY. The user is asking about their deployment's state, a past",
           'decision, or how something works. Answer the underlying question, not just the literal one,',
