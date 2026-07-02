@@ -2,15 +2,20 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-This file defines the Agents runtime workspace for live agent sessions and their lifecycle.
+This file defines the Agents runtime workspace for live agent sessions and the delegated authority between them.
 */
 import { appLink } from "@/platform/nav/appLink";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 
 import { DelegationInspector } from "@/components/console/DelegationInspector";
-import { shortId } from "@/components/console/delegationFormat";
-import { FeedToolbar } from "@/components/console/FeedToolbar";
+import {
+  delegationErrorMessage,
+  edgeStatusLabel,
+  edgeStatusTone,
+  shortId,
+} from "@/components/console/delegationFormat";
+import { FeedTabs, FeedToolbar } from "@/components/console/FeedToolbar";
 import {
   DetailField,
   DetailGroup,
@@ -45,6 +50,7 @@ import {
   useAgentOutboundDelegations,
   useAgentServices,
   useAgentsFeed,
+  useDelegationsFeed,
 } from "@/platform/api/hooks";
 import type {
   Agent,
@@ -56,19 +62,51 @@ import type {
 
 export const Route = createFileRoute("/$accountId/$orgId/$zoneId/app/agents")({
   component: AgentsRoute,
-  validateSearch: (search: Record<string, unknown>): { focus?: string } => ({
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): { view?: "agents" | "delegation"; focus?: string } => ({
+    view: search.view === "delegation" ? "delegation" : undefined,
     focus: typeof search.focus === "string" ? search.focus : undefined,
   }),
 });
 
+type AgentsView = "agents" | "delegation";
+
+const VIEW_TABS: { id: AgentsView; label: string }[] = [
+  { id: "agents", label: "Agents" },
+  { id: "delegation", label: "Delegation" },
+];
+
 function AgentsRoute() {
+  const search = Route.useSearch();
+  const navigate = Route.useNavigate();
+  const view: AgentsView = search.view === "delegation" ? "delegation" : "agents";
+  const tabs = (
+    <FeedTabs
+      tabs={VIEW_TABS}
+      value={view}
+      onChange={(v) =>
+        navigate({
+          search: { view: v === "delegation" ? v : undefined, focus: undefined },
+          replace: true,
+        })
+      }
+      label="Runtime view"
+    />
+  );
   return (
     <ZoneScopedPage
       title="Agents"
-      description="Live agent sessions and their delegation lineage in this zone."
+      description="Live agent sessions and the delegated authority between them in this zone."
       breadcrumbs={[{ label: "Console", to: appLink() }, { label: "Agents" }]}
     >
-      {(zone) => <AgentsGate zoneId={zone.id} />}
+      {(zone) =>
+        view === "agents" ? (
+          <AgentsPage zoneId={zone.id} tabs={tabs} />
+        ) : (
+          <DelegationPage zoneId={zone.id} tabs={tabs} />
+        )
+      }
     </ZoneScopedPage>
   );
 }
@@ -80,10 +118,6 @@ function errorMessage(error: unknown): string {
     return error.code.replace(/_/g, " ");
   }
   return "Unexpected error.";
-}
-
-function AgentsGate({ zoneId }: { zoneId: string }) {
-  return <AgentsPage zoneId={zoneId} />;
 }
 
 function CoordinatorOffline({ code, onRetry }: { code: string; onRetry: () => void }) {
@@ -255,7 +289,7 @@ function terminationReasonLabel(reason: string): string {
   return TERMINATION_REASON_LABELS[reason] ?? reason.replace(/_/g, " ");
 }
 
-function AgentsPage({ zoneId }: { zoneId: string }) {
+function AgentsPage({ zoneId, tabs }: { zoneId: string; tabs: ReactNode }) {
   const toast = useToast();
   const lifecycle = useAgentLifecycle(zoneId);
 
@@ -299,7 +333,7 @@ function AgentsPage({ zoneId }: { zoneId: string }) {
     return (
       <ModulePage
         title="Agents"
-        description="Live agent sessions and their delegation lineage in this zone."
+        description="Live agent sessions and the delegated authority between them in this zone."
         breadcrumbs={[{ label: "Console", to: appLink() }, { label: "Agents" }]}
       >
         <CoordinatorOffline code={coordError as string} onRetry={() => feed.refetch()} />
@@ -397,6 +431,7 @@ function AgentsPage({ zoneId }: { zoneId: string }) {
         breadcrumbs={[{ label: "Console", to: appLink() }, { label: "Agents" }]}
         toolbarExtra={
           <AgentFilterBar
+            leading={tabs}
             status={status}
             lifecycle={lifecycleFilter}
             application={application}
@@ -462,6 +497,7 @@ function AgentsPage({ zoneId }: { zoneId: string }) {
 // Server-side agent filters + cursor pagination. Filters run against the Coordinator so
 // large zones stay searchable; "Load more" follows the keyset cursor.
 function AgentFilterBar({
+  leading,
   status,
   lifecycle,
   application,
@@ -475,6 +511,7 @@ function AgentFilterBar({
   onLabel,
   onLoadMore,
 }: {
+  leading: ReactNode;
   status: string;
   lifecycle: string;
   application: string;
@@ -494,6 +531,7 @@ function AgentFilterBar({
     [application, label].filter((v) => v.trim()).length;
   return (
     <FeedToolbar
+      leading={leading}
       activeFilters={activeFilters}
       loaded={loaded}
       noun="agent"
@@ -525,6 +563,142 @@ function AgentFilterBar({
         onChange={(e) => onLabel(e.target.value)}
       />
     </FeedToolbar>
+  );
+}
+
+// The delegation view of the runtime workspace: the graph of delegated authority between
+// agent sessions, with chain traversal and revocation impact in the edge inspector.
+function DelegationPage({ zoneId, tabs }: { zoneId: string; tabs: ReactNode }) {
+  const feed = useDelegationsFeed(zoneId);
+  const rows = useMemo(() => (feed.data?.pages ?? []).flatMap((p) => p.rows), [feed.data]);
+
+  const coordError = feed.isError && feed.error instanceof ConsoleApiError ? feed.error.code : null;
+  const coordinatorDown =
+    coordError === "coordinator_not_configured" || coordError === "upstream_unreachable";
+
+  if (coordinatorDown) {
+    return (
+      <ModulePage
+        title="Agents"
+        description="Live agent sessions and the delegated authority between them in this zone."
+        breadcrumbs={[{ label: "Console", to: appLink() }, { label: "Agents" }]}
+      >
+        <CoordinatorOffline code={coordError as string} onRetry={() => feed.refetch()} />
+      </ModulePage>
+    );
+  }
+
+  const columns: Column<DelegationEdge>[] = [
+    {
+      id: "edge",
+      header: "Delegation",
+      cell: (e) => (
+        <div className="flex items-center gap-2 font-mono text-xs">
+          <span className="text-foreground">{shortId(e.source_session_id)}</span>
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            className="shrink-0 text-muted-foreground"
+          >
+            <path d="M5 12h14M13 6l6 6-6 6" />
+          </svg>
+          <span className="text-foreground">{shortId(e.target_session_id)}</span>
+        </div>
+      ),
+    },
+    {
+      id: "scopes",
+      header: "Scopes",
+      cell: (e) => (
+        <div className="flex flex-wrap items-center gap-1">
+          {e.scopes.slice(0, 2).map((scope) => (
+            <span
+              key={scope}
+              className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground"
+            >
+              {scope}
+            </span>
+          ))}
+          {e.scopes.length > 2 ? (
+            <span className="text-[11px] text-muted-foreground">+{e.scopes.length - 2}</span>
+          ) : null}
+          {e.scopes.length === 0 ? <span className="text-xs text-muted-foreground">-</span> : null}
+        </div>
+      ),
+    },
+    {
+      id: "status",
+      header: "Status",
+      cell: (e) => <Badge tone={edgeStatusTone(e)}>{edgeStatusLabel(e)}</Badge>,
+    },
+    {
+      id: "expires",
+      header: "Expires",
+      align: "right",
+      cell: (e) => (
+        <span className="text-xs text-muted-foreground">
+          {e.expires_at ? new Date(e.expires_at).toLocaleString() : "-"}
+        </span>
+      ),
+    },
+  ];
+
+  return (
+    <ResourceWorkspace
+      title="Agents"
+      description="Active delegation edges. Each edge grants one agent session authority to act on another's behalf within scope."
+      breadcrumbs={[{ label: "Console", to: appLink() }, { label: "Agents" }]}
+      toolbarExtra={
+        <FeedToolbar
+          leading={tabs}
+          loaded={rows.length}
+          noun="edge"
+          hasMore={Boolean(feed.hasNextPage)}
+          fetchingMore={feed.isFetchingNextPage}
+          onLoadMore={() => feed.fetchNextPage()}
+        />
+      }
+      rows={rows}
+      loading={feed.isLoading}
+      columns={columns}
+      rowKey={(e) => e.id}
+      pageSize={12}
+      search={{
+        placeholder: "Search loaded edges by session or scope…",
+        match: (e, q) =>
+          e.source_session_id.toLowerCase().includes(q) ||
+          e.target_session_id.toLowerCase().includes(q) ||
+          e.scopes.some((s) => s.toLowerCase().includes(q)),
+      }}
+      sortOptions={[
+        { id: "recent", label: "Most recent" },
+        { id: "expiring", label: "Expiring soon" },
+        { id: "scopes", label: "Most scopes" },
+      ]}
+      sortComparators={{
+        recent: (a, b) => Date.parse(b.created_at) - Date.parse(a.created_at),
+        expiring: (a, b) =>
+          (a.expires_at ? Date.parse(a.expires_at) : Infinity) -
+          (b.expires_at ? Date.parse(b.expires_at) : Infinity),
+        scopes: (a, b) => b.scopes.length - a.scopes.length,
+      }}
+      empty={{
+        title: feed.isError ? "Could not load delegations" : "No active delegations",
+        description: feed.isError
+          ? delegationErrorMessage(feed.error)
+          : "When agent sessions delegate authority to one another, the active edges appear here with their chains and impact.",
+      }}
+      detail={{
+        title: (e) => `${shortId(e.source_session_id)} → ${shortId(e.target_session_id)}`,
+        description: (e) => e.id,
+        width: "max-w-2xl",
+        render: (e) => <DelegationInspector zoneId={zoneId} edge={e} />,
+      }}
+    />
   );
 }
 
@@ -1001,7 +1175,11 @@ function AgentDelegations({ zoneId, sessionId }: { zoneId: string; sessionId: st
       ) : edges.length === 0 ? (
         <p className="mt-2 text-sm text-muted-foreground">
           No {tab} delegation edges.{" "}
-          <Link to={appLink("/delegation")} className="text-foreground hover:underline">
+          <Link
+            to={appLink("/agents")}
+            search={{ view: "delegation" }}
+            className="text-foreground hover:underline"
+          >
             Open delegation workspace
           </Link>
         </p>
