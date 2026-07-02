@@ -57,6 +57,7 @@ import type {
   ProviderGrantRevokeInput,
   ProviderInput,
   ProviderPatchInput,
+  ProviderTestResult,
   Resource,
   ResourceInput,
   ResourcePatchInput,
@@ -544,6 +545,11 @@ export const consoleApi = {
       request<void>(`/v1/zones/${encodeURIComponent(zoneId)}/providers/${encodeURIComponent(id)}`, {
         method: "DELETE",
       }),
+    test: (zoneId: string, id: string) =>
+      request<ProviderTestResult>(
+        `/v1/zones/${encodeURIComponent(zoneId)}/providers/${encodeURIComponent(id)}/test`,
+        { method: "POST", body: JSON.stringify({}) },
+      ),
   },
 
   policies: {
@@ -1048,17 +1054,15 @@ export const consoleApi = {
   },
 
   providerGrants: {
-    list: async (zoneId: string, query: ProviderGrantListQuery = {}) => {
-      const res = await request<RowList<ProviderGrant>>(
+    list: (zoneId: string, query: ProviderGrantListQuery = {}) =>
+      request<ProviderGrant[]>(
         `/v1/zones/${encodeURIComponent(zoneId)}/grants${queryString({
           provider_id: query.provider_id,
           resource_id: query.resource_id,
           user_id: query.user_id,
           status: query.status,
         })}`,
-      );
-      return res.rows;
-    },
+      ),
     authorize: (zoneId: string, input: ProviderGrantAuthorizeInput) =>
       request<ProviderGrantAuthorizeResult>(
         `/v1/zones/${encodeURIComponent(zoneId)}/provider-grants/oauth/authorize`,

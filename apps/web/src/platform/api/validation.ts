@@ -15,7 +15,7 @@ export function validateResourceIdentifier(value: string): string | undefined {
   try {
     url = new URL(text);
   } catch {
-    return "Identifier must be an absolute URI (e.g. resource://payments-api).";
+    return "Identifier must be an absolute URI (e.g. resource://pipernet).";
   }
   if (url.protocol === "provider:") {
     return "Resource identifiers cannot use the provider:// namespace.";

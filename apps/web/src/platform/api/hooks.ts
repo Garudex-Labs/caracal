@@ -631,6 +631,12 @@ export function useUpdateProvider(zoneId: string | null) {
   });
 }
 
+export function useTestProvider(zoneId: string | null) {
+  return useMutation({
+    mutationFn: (id: string) => consoleApi.providers.test(zoneId as string, id),
+  });
+}
+
 export function useDeleteProvider(zoneId: string | null) {
   const qc = useQueryClient();
   return useMutation({
