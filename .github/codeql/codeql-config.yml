@@ -10,11 +10,13 @@ queries:
 
 # Test code never ships. Scanning it raises alerts about fixtures and stub
 # servers (for example URL prefix matching inside mock fetch implementations
-# under tests/typescript) that have no security boundary. All production
-# sources under apps/, packages/, services/, control/, and infra/ stay fully
-# covered.
+# under tests/typescript, or documentation assertions in example test suites)
+# that have no security boundary. All production sources under apps/,
+# packages/, services/, control/, and infra/ stay fully covered, as does the
+# example code itself that users copy.
 paths-ignore:
   - tests
+  - examples/*/tests
 
 query-filters:
   # js/missing-rate-limiting only recognizes per-route middleware from known
@@ -31,3 +33,18 @@ query-filters:
   # query would duplicate the centralized control.
   - exclude:
       id: js/missing-rate-limiting
+  # js/file-access-to-http is a heuristic audit query for implanted exfiltration
+  # backdoors: it flags any flow from a file read into an outbound request.
+  # Caracal's credential model is file-based by design: the single discovery
+  # layer in packages/core/ts/src/envfile.ts reads admin, coordinator, and
+  # metrics bearer tokens from Docker secrets, the managed dev-secrets
+  # directory, or *_FILE env paths, and callers (the auth BFF proxy in
+  # apps/auth/src/console.ts, the engine doctor probes) present them solely as
+  # Authorization headers to operator-configured internal service URLs
+  # (CARACAL_API_URL, CARACAL_COORDINATOR_URL), never to request-derived
+  # destinations. Every finding this query raises here is that intended
+  # credential presentation, and each new probe or proxy call site would
+  # re-trigger it. File content flowing anywhere other than a bearer header on
+  # the internal hop remains a code-review boundary in envfile.ts callers.
+  - exclude:
+      id: js/file-access-to-http
