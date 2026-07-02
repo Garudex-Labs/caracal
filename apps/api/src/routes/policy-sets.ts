@@ -154,6 +154,28 @@ export const policySetsRoutes: FastifyPluginAsync = async (fastify) => {
     })
   })
 
+  fastify.get('/zones/:zoneId/policy-sets/:id/versions', async (req, reply) => {
+    const params = parseParams(ZoneIdParams, req, reply)
+    if (!params) return
+    const page = parseListPagination(req, reply)
+    if (!page) return
+    const { rows: psRows } = await fastify.db.query(`SELECT id FROM policy_sets WHERE id = $1 AND zone_id = $2 AND archived_at IS NULL`, [
+      params.id,
+      params.zoneId,
+    ])
+    if (!psRows[0]) return reply.code(404).send({ error: 'policy_set_not_found' })
+    const keyset = appendKeysetCondition({ conds: ['psv.policy_set_id = $1'], values: [params.id] }, page, 'psv.created_at', 'psv.id')
+    const { rows } = await fastify.db.query(
+      `SELECT psv.id, psv.policy_set_id, psv.version, psv.manifest_sha256, psv.schema_version, psv.created_by, psv.created_at
+       FROM policy_set_versions psv
+       WHERE ${keyset.conds.join(' AND ')}
+       ORDER BY psv.created_at DESC, psv.id DESC LIMIT ${keyset.limitPlaceholder}`,
+      keyset.values,
+    )
+    setNextLink(req, reply, rows, page.limit)
+    return rows
+  })
+
   fastify.get('/zones/:zoneId/policy-sets/:id/versions/:versionId', async (req, reply) => {
     const params = parseParams(VersionParams, req, reply)
     if (!params) return

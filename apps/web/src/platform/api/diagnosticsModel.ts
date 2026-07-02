@@ -176,7 +176,7 @@ const ZONE_IMPACT = "Operations in this zone may be unavailable or unrecorded.";
 const ZONE_LINKS: Record<ZoneCheckKind, IssueLink> = {
   lookup: { label: "Open zones", sub: "/zones" },
   resources: { label: "Open resources", sub: "/resources" },
-  "policy sets": { label: "Open policy sets", sub: "/policy-sets" },
+  "policy sets": { label: "Open policy sets", sub: "/policies" },
   "audit query": { label: "Open audit", sub: "/audit" },
 };
 

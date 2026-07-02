@@ -21,9 +21,11 @@ const DCR_MAX_LIFETIME_SECONDS = 3600
 
 const NAME_MAX_LENGTH = 200
 
+const CLIENT_SECRET_MIN_LENGTH = 32
+
 const AppBody = z
   .object({
-    name: z.string().min(1).max(NAME_MAX_LENGTH),
+    name: z.string().trim().min(1).max(NAME_MAX_LENGTH),
     registration_method: z.literal('managed'),
     traits: z.array(z.string()).optional(),
   })
@@ -31,15 +33,15 @@ const AppBody = z
 
 const DCRBody = z
   .object({
-    name: z.string().min(1).max(NAME_MAX_LENGTH),
+    name: z.string().trim().min(1).max(NAME_MAX_LENGTH),
     expires_in: z.number().int().positive().max(DCR_MAX_LIFETIME_SECONDS).default(DCR_DEFAULT_LIFETIME_SECONDS),
   })
   .strict()
 
 const PatchBody = z
   .object({
-    name: z.string().min(1).max(NAME_MAX_LENGTH).optional(),
-    client_secret: z.string().min(1).optional(),
+    name: z.string().trim().min(1).max(NAME_MAX_LENGTH).optional(),
+    client_secret: z.string().min(CLIENT_SECRET_MIN_LENGTH).optional(),
     traits: z.array(z.string()).optional(),
   })
   .strict()
@@ -48,11 +50,28 @@ function generateClientSecret(): string {
   return `cs_${randomBytes(32).toString('base64url')}`
 }
 
-// Registers a managed application with a freshly generated one-time client secret.
-// Shared by the applications route and the Operator executor so both register
-// applications identically; the plaintext secret is returned to the caller and
-// never persisted beyond its hash.
-export async function createManagedApplication(
+// Reports whether another active application in the zone already uses the name,
+// case-insensitively, so managed identities stay unambiguous in every picker and
+// audit trail. excludeId lets a rename skip the application being renamed.
+async function activeNameTaken(
+  db: { query: <T = unknown>(text: string, params?: unknown[]) => Promise<{ rows: T[] }> },
+  zoneId: string,
+  name: string,
+  excludeId?: string,
+): Promise<boolean> {
+  const { rows } = await db.query(
+    `SELECT 1 FROM applications
+      WHERE zone_id = $1 AND lower(name) = lower($2) AND archived_at IS NULL
+        AND registration_method = 'managed' AND id IS DISTINCT FROM $3
+      LIMIT 1`,
+    [zoneId, name, excludeId ?? null],
+  )
+  return rows.length > 0
+}
+
+// Registers a managed application with a freshly generated one-time client secret;
+// the plaintext secret is returned to the caller and never persisted beyond its hash.
+async function createManagedApplication(
   db: { query: <T = unknown>(text: string, params?: unknown[]) => Promise<{ rows: T[] }> },
   zoneId: string,
   input: { name: string; traits?: string[] },
@@ -68,11 +87,10 @@ export async function createManagedApplication(
   return { row: rows[0], clientSecret }
 }
 
-// Issues a fresh client secret for an existing managed application and retires the old
-// one. Shared by the applications route and the Operator executor so a rotation behaves
-// identically however it is initiated; the new plaintext secret is returned to the caller
-// and never persisted beyond its hash. Returns null when the application does not exist.
-export async function rotateApplicationClientSecret(
+// Issues a fresh client secret for an existing application and retires the old one; the
+// new plaintext secret is returned to the caller and never persisted beyond its hash.
+// Returns null when the application does not exist.
+async function rotateApplicationClientSecret(
   db: { query: <T = unknown>(text: string, params?: unknown[]) => Promise<{ rows: T[] }> },
   zoneId: string,
   applicationId: string,
@@ -138,11 +156,22 @@ export const applicationsRoutes: FastifyPluginAsync = async (fastify) => {
     if (reservedErr) return reply.code(409).send(reservedErr)
     const traitErr = validateTraits(body.traits, req.actor)
     if (traitErr) return reply.code(403).send(traitErr)
+    if (await activeNameTaken(fastify.db, params.zoneId, body.name)) {
+      return reply.code(409).send({ error: 'application_name_taken' })
+    }
     const { row, clientSecret } = await createManagedApplication(fastify.db, params.zoneId, {
       name: body.name,
       traits: body.traits,
     })
     return reply.code(201).send({ ...row, client_secret: clientSecret })
+  })
+
+  fastify.post('/zones/:zoneId/applications/:id/rotate-secret', async (req, reply) => {
+    const params = parseParams(ZoneIdParams, req, reply)
+    if (!params) return
+    const rotated = await rotateApplicationClientSecret(fastify.db, params.zoneId, params.id)
+    if (!rotated) return reply.code(404).send({ error: 'application_not_found' })
+    return { ...rotated.row, client_secret: rotated.clientSecret }
   })
 
   fastify.patch('/zones/:zoneId/applications/:id', async (req, reply) => {
@@ -155,6 +184,9 @@ export const applicationsRoutes: FastifyPluginAsync = async (fastify) => {
     if (reservedErr) return reply.code(409).send(reservedErr)
     const traitErr = validateTraits(body.traits, req.actor)
     if (traitErr) return reply.code(403).send(traitErr)
+    if (body.name !== undefined && (await activeNameTaken(fastify.db, params.zoneId, body.name, params.id))) {
+      return reply.code(409).send({ error: 'application_name_taken' })
+    }
     if (body.client_secret !== undefined) {
       const { rows: existing } = await fastify.db.query(
         `SELECT client_secret_hash FROM applications WHERE id = $1 AND zone_id = $2 AND archived_at IS NULL`,
