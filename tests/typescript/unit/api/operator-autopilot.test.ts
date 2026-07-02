@@ -15,6 +15,7 @@ function evaluation(over: Partial<AutopilotEvaluation> = {}): AutopilotEvaluatio
   return {
     engaged: true,
     applicable: true,
+    credentialsSatisfied: true,
     steps: [{ id: 's1', capability: 'registerApplication' }],
     ...over,
   }
@@ -71,6 +72,15 @@ describe('mayAutoApprove', () => {
     expect(mayAutoApprove(evaluation({ engaged: false }), buildAutopilotPolicy({ enabled: true }))).toEqual({
       autoApprove: false,
       reason: 'autopilot_not_engaged',
+    })
+  })
+
+  it('defers while a step still needs credentials from the secure prompt', () => {
+    expect(
+      mayAutoApprove(evaluation({ credentialsSatisfied: false }), buildAutopilotPolicy({ enabled: true })),
+    ).toEqual({
+      autoApprove: false,
+      reason: 'credentials_required',
     })
   })
 
