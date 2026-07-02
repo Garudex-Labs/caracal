@@ -121,11 +121,8 @@ function AuditToolbar({
   activeFilters,
   loaded,
   noun,
-  hasMore,
-  fetchingMore,
   live,
   onToggleLive,
-  onLoadMore,
   children,
 }: {
   mode: AuditMode;
@@ -134,11 +131,8 @@ function AuditToolbar({
   activeFilters: number;
   loaded: number;
   noun: string;
-  hasMore: boolean;
-  fetchingMore: boolean;
   live: boolean;
   onToggleLive: () => void;
-  onLoadMore: () => void;
   children: ReactNode;
 }) {
   return (
@@ -152,11 +146,8 @@ function AuditToolbar({
       activeFilters={activeFilters}
       loaded={loaded}
       noun={noun}
-      hasMore={hasMore}
-      fetchingMore={fetchingMore}
       live={live}
       onToggleLive={onToggleLive}
-      onLoadMore={onLoadMore}
     >
       {children}
     </FeedToolbar>
@@ -530,6 +521,11 @@ function AuditPage({
       columns={columns}
       rowKey={(e) => e.id}
       pageSize={12}
+      feed={{
+        hasMore: Boolean(feed.hasNextPage),
+        fetching: feed.isFetchingNextPage,
+        loadMore: () => feed.fetchNextPage(),
+      }}
       toolbarExtra={
         <AuditFilterBar
           mode={mode}
@@ -555,8 +551,6 @@ function AuditPage({
           until={until}
           live={live}
           loaded={rows.length}
-          hasMore={Boolean(feed.hasNextPage)}
-          fetchingMore={feed.isFetchingNextPage}
           onDecision={setDecision}
           onEventType={setEventType}
           onRequestId={setRequestId}
@@ -567,7 +561,6 @@ function AuditPage({
           onSince={setSince}
           onUntil={setUntil}
           onToggleLive={() => setLive((v) => !v)}
-          onLoadMore={() => feed.fetchNextPage()}
         />
       }
       search={{
@@ -602,8 +595,8 @@ function AuditPage({
 }
 
 // Server-side audit filters keep large zones searchable: filters run against the control
-// plane and the cursor "Load more" pulls additional pages on demand, rather than scanning
-// only the latest page client-side.
+// plane and the table's Next control walks the server cursor for additional pages, rather
+// than scanning only the latest page client-side.
 function AuditFilterBar({
   mode,
   onMode,
@@ -619,8 +612,6 @@ function AuditFilterBar({
   until,
   live,
   loaded,
-  hasMore,
-  fetchingMore,
   onDecision,
   onEventType,
   onRequestId,
@@ -631,7 +622,6 @@ function AuditFilterBar({
   onSince,
   onUntil,
   onToggleLive,
-  onLoadMore,
 }: {
   mode: AuditMode;
   onMode: (m: AuditMode) => void;
@@ -647,8 +637,6 @@ function AuditFilterBar({
   until: string;
   live: boolean;
   loaded: number;
-  hasMore: boolean;
-  fetchingMore: boolean;
   onDecision: (v: string) => void;
   onEventType: (v: string) => void;
   onRequestId: (v: string) => void;
@@ -659,7 +647,6 @@ function AuditFilterBar({
   onSince: (v: string) => void;
   onUntil: (v: string) => void;
   onToggleLive: () => void;
-  onLoadMore: () => void;
 }) {
   const activeFilters =
     (decision !== "all" ? 1 : 0) +
@@ -674,11 +661,8 @@ function AuditFilterBar({
       activeFilters={activeFilters}
       loaded={loaded}
       noun="event"
-      hasMore={hasMore}
-      fetchingMore={fetchingMore}
       live={live}
       onToggleLive={onToggleLive}
-      onLoadMore={onLoadMore}
     >
       <Select label="Decision" value={decision} onChange={(e) => onDecision(e.target.value)}>
         <option value="all">All decisions</option>
@@ -1286,6 +1270,11 @@ function AdminAuditPage({
       columns={columns}
       rowKey={(e) => e.id}
       pageSize={12}
+      feed={{
+        hasMore: Boolean(feed.hasNextPage),
+        fetching: feed.isFetchingNextPage,
+        loadMore: () => feed.fetchNextPage(),
+      }}
       toolbarExtra={
         <AdminAuditFilterBar
           mode={mode}
@@ -1307,15 +1296,12 @@ function AdminAuditPage({
           until={until}
           live={live}
           loaded={rows.length}
-          hasMore={Boolean(feed.hasNextPage)}
-          fetchingMore={feed.isFetchingNextPage}
           onEntityType={setEntityType}
           onActorId={setActorId}
           onMethod={setMethod}
           onSince={setSince}
           onUntil={setUntil}
           onToggleLive={() => setLive((v) => !v)}
-          onLoadMore={() => feed.fetchNextPage()}
         />
       }
       search={{
@@ -1426,15 +1412,12 @@ function AdminAuditFilterBar({
   until,
   live,
   loaded,
-  hasMore,
-  fetchingMore,
   onEntityType,
   onActorId,
   onMethod,
   onSince,
   onUntil,
   onToggleLive,
-  onLoadMore,
 }: {
   mode: AuditMode;
   onMode: (m: AuditMode) => void;
@@ -1446,15 +1429,12 @@ function AdminAuditFilterBar({
   until: string;
   live: boolean;
   loaded: number;
-  hasMore: boolean;
-  fetchingMore: boolean;
   onEntityType: (v: string) => void;
   onActorId: (v: string) => void;
   onMethod: (v: string) => void;
   onSince: (v: string) => void;
   onUntil: (v: string) => void;
   onToggleLive: () => void;
-  onLoadMore: () => void;
 }) {
   const activeFilters =
     (method ? 1 : 0) + [entityType, actorId, since, until].filter((v) => v.trim()).length;
@@ -1466,11 +1446,8 @@ function AdminAuditFilterBar({
       activeFilters={activeFilters}
       loaded={loaded}
       noun="change"
-      hasMore={hasMore}
-      fetchingMore={fetchingMore}
       live={live}
       onToggleLive={onToggleLive}
-      onLoadMore={onLoadMore}
     >
       <Select label="Method" value={method} onChange={(e) => onMethod(e.target.value)}>
         {ADMIN_METHODS.map((m) => (
