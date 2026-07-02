@@ -31,7 +31,15 @@ jobs:
     timeout-minutes: 5
     outputs:
       tag: ${{ steps.tag.outputs.tag }}
+      images: ${{ steps.images.outputs.images }}
     steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - id: images
+        run: echo "images=$(jq -c '[.product.containers[].name]' release.config.json)" >> "$GITHUB_OUTPUT"
+
       - id: tag
         env:
           GH_TOKEN: ${{ github.token }}
@@ -63,13 +71,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        image:
-          - go
-          - node
-          - web
-          - postgres
-          - redis
-          - runtime
+        image: ${{ fromJSON(needs.resolveTag.outputs.images) }}
     steps:
       - name: Check out repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0

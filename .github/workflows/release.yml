@@ -61,8 +61,11 @@ jobs:
       dryRun: ${{ steps.resolve.outputs.dryRun }}
       promoteStable: ${{ steps.resolve.outputs.promoteStable }}
       sha: ${{ steps.resolve.outputs.sha }}
+      serviceContainers: ${{ steps.containers.outputs.service }}
+      containerNames: ${{ steps.containers.outputs.names }}
     permissions:
       contents: read
+      actions: read
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -92,6 +95,27 @@ jobs:
             echo "::error::$actor is not listed in .github/MAINTAINERS on ${{ github.event.repository.default_branch }} and cannot run releases."
             exit 1
           fi
+
+      - name: Require green tests
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          sha="$(git rev-parse HEAD)"
+          count="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/test.yml/runs?head_sha=${sha}&status=success&per_page=1" --jq '.total_count')"
+          if [ "$count" -eq 0 ]; then
+            echo "::error::Commit ${sha} has no successful test workflow run. Wait for CI to pass on this commit before releasing."
+            exit 1
+          fi
+
+      - name: Resolve container set
+        id: containers
+        run: |
+          set -euo pipefail
+          {
+            echo "service=$(jq -c '[.product.containers[] | select(.name != "runtime") | {name, context, dockerfile}]' release.config.json)"
+            echo "names=$(jq -c '[.product.containers[].name]' release.config.json)"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Resolve release context
         id: resolve
@@ -331,27 +355,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - name: go
-            context: .
-            dockerfile: infra/docker/Dockerfile.go-service
-            build_args: ""
-          - name: node
-            context: .
-            dockerfile: infra/docker/Dockerfile.node-service
-            build_args: ""
-          - name: web
-            context: .
-            dockerfile: infra/docker/Dockerfile.web
-            build_args: ""
-          - name: postgres
-            context: infra/postgres
-            dockerfile: infra/postgres/Dockerfile
-            build_args: ""
-          - name: redis
-            context: infra/redis
-            dockerfile: infra/redis/Dockerfile
-            build_args: ""
+        include: ${{ fromJSON(needs.context.outputs.serviceContainers) }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -379,7 +383,6 @@ jobs:
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
-          build-args: ${{ matrix.build_args }}
           platforms: linux/amd64,linux/arm64
           push: ${{ needs.context.outputs.publish == 'true' }}
           tags: ${{ steps.meta.outputs.tags }}
@@ -463,7 +466,7 @@ jobs:
 
   publishNpmPackages:
     name: Publish npm packages
-    needs: context
+    needs: [context, verifyAssets, serviceImages, runtimeImage]
     if: github.repository == 'Garudex-Labs/caracal'
     uses: ./.github/workflows/publishNpm.yml
     with:
@@ -478,7 +481,7 @@ jobs:
 
   publishPypiPackages:
     name: Publish PyPI packages
-    needs: context
+    needs: [context, verifyAssets, serviceImages, runtimeImage]
     if: github.repository == 'Garudex-Labs/caracal'
     uses: ./.github/workflows/publishPypi.yml
     with:
@@ -493,7 +496,7 @@ jobs:
 
   githubRelease:
     name: Publish GitHub Release
-    needs: [context, verifyAssets, serviceImages, runtimeImage, publishNpmPackages, publishPypiPackages]
+    needs: [context, publishNpmPackages, publishPypiPackages]
     if: github.repository == 'Garudex-Labs/caracal' && needs.context.outputs.publish == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -523,7 +526,7 @@ jobs:
 
   dryRunSummary:
     name: Dry-run summary
-    needs: [context, verifyAssets, serviceImages, runtimeImage, publishNpmPackages, publishPypiPackages]
+    needs: [context, publishNpmPackages, publishPypiPackages]
     if: github.repository == 'Garudex-Labs/caracal' && needs.context.outputs.dryRun == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -564,11 +567,11 @@ jobs:
       - name: Promote images
         env:
           RELEASE_TAG: ${{ needs.context.outputs.releaseTag }}
+          CONTAINER_NAMES: ${{ needs.context.outputs.containerNames }}
         run: |
           set -euo pipefail
           series="${RELEASE_TAG:0:8}"
-          images=(go node web postgres redis runtime)
-          for name in "${images[@]}"; do
+          for name in $(jq -r '.[]' <<< "$CONTAINER_NAMES"); do
             image="${REGISTRY}/${IMAGE_OWNER}/caracal-${name}"
             docker buildx imagetools create \
               -t "${image}:${series}" \
