@@ -2,56 +2,40 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-This file defines the Diagnostics operations console: the single source of truth for platform health.
+This file defines the Diagnostics route: the operational status page for the Caracal deployment.
 */
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 
 import { ModulePage } from "@/components/console/ModulePage";
-import { Badge, EmptyState, Skeleton } from "@/components/ui";
+import { Badge, Button, EmptyState, Skeleton } from "@/components/ui";
 import { cx } from "@/lib/cx";
 import {
-  diagnosticSeverityRank,
-  platformHealthOf,
-  useDiagnostics,
-  useZones,
-  type PlatformHealth,
-} from "@/platform/api/hooks";
-import type {
-  DiagnosticCheck,
-  DiagnosticSection,
-  DiagnosticStatus,
-  DiagnosticsReport,
-} from "@/platform/api/types";
+  COMPONENT_ORDER,
+  COMPONENTS,
+  STATE_LABELS,
+  checkTitle,
+  componentOf,
+  issuesOf,
+  stateOf,
+  zoneHealthOf,
+  type ComponentKey,
+  type ComponentState,
+  type DiagnosticIssue,
+  type ZoneHealth,
+} from "@/platform/api/diagnosticsModel";
+import { useDiagnostics, useZones } from "@/platform/api/hooks";
+import { appLink } from "@/platform/nav/appLink";
+import type { DiagnosticCheck, DiagnosticsReport } from "@/platform/api/types";
 
 export const Route = createFileRoute("/$accountId/$orgId/$zoneId/app/diagnostics")({
   component: DiagnosticsPage,
 });
 
-const SECTION_ORDER: DiagnosticSection[] = ["health", "readiness", "zones", "preflight"];
-const SECTION_LABELS: Record<DiagnosticSection, string> = {
-  health: "System health",
-  readiness: "Service readiness",
-  zones: "Zone diagnostics",
-  preflight: "Local preflight",
-};
-const SECTION_HINTS: Record<DiagnosticSection, string> = {
-  health: "Control-plane reachability, admin authority, and clock integrity.",
-  readiness: "Per-service readiness and metrics for the authority, audit, and coordinator planes.",
-  zones: "Per-zone lookup, resources, policy enforcement, and audit pipeline.",
-  preflight: "Local runtime configuration and environment checks.",
-};
-
 function DiagnosticsPage() {
-  const [mode, setMode] = useState<"system" | "preflight">("system");
-  const [strict, setStrict] = useState(false);
-  const [zoneScope, setZoneScope] = useState<string>("all");
+  const { zoneId: activeZoneId } = Route.useParams();
   const zones = useZones();
-  const diagnostics = useDiagnostics({
-    preflight: mode === "preflight",
-    strict,
-    zoneId: mode === "system" && zoneScope !== "all" ? zoneScope : undefined,
-  });
+  const diagnostics = useDiagnostics();
   const report = diagnostics.data;
 
   const zoneNames = useMemo(() => {
@@ -63,264 +47,273 @@ function DiagnosticsPage() {
   return (
     <ModulePage
       title="Diagnostics"
-      description="Live operational health of the Caracal control plane: services, authority, policy, zones, and runtime."
+      description="Operational status of your Caracal deployment: platform components, dependencies, and every zone you own."
       breadcrumbs={[{ label: "Console", to: "/app" }, { label: "Diagnostics" }]}
       actions={<SyncIndicator report={report} fetching={diagnostics.isFetching} />}
     >
-      <DiagnosticsControls
-        mode={mode}
-        strict={strict}
-        zoneScope={zoneScope}
-        zones={zones.data ?? []}
-        onMode={setMode}
-        onStrict={setStrict}
-        onZoneScope={setZoneScope}
-      />
       {diagnostics.isLoading ? (
         <LoadingState />
       ) : diagnostics.isError || !report ? (
-        <UnavailableState />
+        <UnavailableState
+          retrying={diagnostics.isFetching}
+          onRetry={() => void diagnostics.refetch()}
+        />
       ) : (
-        <DiagnosticsConsole report={report} zoneNames={zoneNames} />
+        <StatusConsole
+          report={report}
+          zoneNames={zoneNames}
+          activeZoneId={activeZoneId}
+          rechecking={diagnostics.isFetching}
+          onRecheck={() => void diagnostics.refetch()}
+        />
       )}
     </ModulePage>
   );
 }
 
-// Operator controls mirroring the Console doctor: switch between a full system check and
-// a local preflight, gate readiness on strict mode, and narrow zone diagnostics to one
-// zone for fast, targeted runs.
-function DiagnosticsControls({
-  mode,
-  strict,
-  zoneScope,
-  zones,
-  onMode,
-  onStrict,
-  onZoneScope,
-}: {
-  mode: "system" | "preflight";
-  strict: boolean;
-  zoneScope: string;
-  zones: { id: string; name: string }[];
-  onMode: (mode: "system" | "preflight") => void;
-  onStrict: (strict: boolean) => void;
-  onZoneScope: (zoneId: string) => void;
-}) {
-  return (
-    <div className="mb-5 flex flex-wrap items-center gap-2 border border-border bg-muted/20 px-3 py-2.5">
-      <div className="inline-flex overflow-hidden border border-border">
-        {(["system", "preflight"] as const).map((value) => (
-          <button
-            key={value}
-            onClick={() => onMode(value)}
-            className={cx(
-              "px-3 py-1.5 text-xs font-medium capitalize transition-colors",
-              mode === value
-                ? "bg-foreground text-background"
-                : "bg-background text-muted-foreground hover:text-foreground",
-            )}
-          >
-            {value === "system" ? "System check" : "Preflight"}
-          </button>
-        ))}
-      </div>
-
-      {mode === "system" ? (
-        <label className="inline-flex items-center gap-2 text-xs text-muted-foreground">
-          <span>Zone scope</span>
-          <select
-            value={zoneScope}
-            onChange={(e) => onZoneScope(e.target.value)}
-            className="h-8 border border-border bg-background px-2 text-xs text-foreground"
-          >
-            <option value="all">All zones</option>
-            {zones.map((zone) => (
-              <option key={zone.id} value={zone.id}>
-                {zone.name}
-              </option>
-            ))}
-          </select>
-        </label>
-      ) : (
-        <span className="text-xs text-muted-foreground">
-          Local runtime and environment checks only.
-        </span>
-      )}
-
-      <button
-        onClick={() => onStrict(!strict)}
-        className={cx(
-          "ml-auto inline-flex items-center gap-2 border px-3 py-1.5 text-xs font-medium transition-colors",
-          strict
-            ? "border-foreground bg-foreground text-background"
-            : "border-border text-muted-foreground hover:text-foreground",
-        )}
-        title="Strict mode treats warnings as not-ready, matching CI readiness gates."
-      >
-        <span
-          className={cx(
-            "inline-block h-2 w-2 rounded-full",
-            strict ? "bg-background" : "bg-muted-foreground",
-          )}
-        />
-        Strict readiness
-      </button>
-    </div>
-  );
-}
-
-function DiagnosticsConsole({
+function StatusConsole({
   report,
   zoneNames,
+  activeZoneId,
+  rechecking,
+  onRecheck,
 }: {
   report: DiagnosticsReport;
   zoneNames: Map<string, string>;
+  activeZoneId: string;
+  rechecking: boolean;
+  onRecheck: () => void;
 }) {
-  const health = platformHealthOf(report);
-  const attention = useMemo(
-    () =>
-      report.checks
-        .filter((check) => check.status !== "ok")
-        .sort((a, b) => diagnosticSeverityRank(a.status) - diagnosticSeverityRank(b.status)),
-    [report.checks],
-  );
-  const actions = useMemo(() => uniqueAdvice(attention), [attention]);
+  const issues = useMemo(() => issuesOf(report, zoneNames), [report, zoneNames]);
+  const componentChecks = useMemo(() => {
+    const map = new Map<ComponentKey, DiagnosticCheck[]>();
+    for (const key of COMPONENT_ORDER) map.set(key, []);
+    for (const check of report.checks) {
+      const key = componentOf(check);
+      if (key) map.get(key)?.push(check);
+    }
+    return map;
+  }, [report.checks]);
+  const zoneHealth = useMemo(() => zoneHealthOf(report), [report]);
 
   return (
     <div className="space-y-5">
-      <OverviewBar report={report} health={health} />
-
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <AttentionPanel checks={attention} zoneNames={zoneNames} health={health} />
-        <ActionsPanel actions={actions} health={health} />
-      </div>
-
-      <div className="space-y-5">
-        {SECTION_ORDER.map((section) => {
-          const checks = report.checks.filter((check) => check.section === section);
-          if (checks.length === 0) return null;
-          return (
-            <SectionTable key={section} section={section} checks={checks} zoneNames={zoneNames} />
-          );
-        })}
-      </div>
+      <StatusBanner report={report} rechecking={rechecking} onRecheck={onRecheck} />
+      {issues.length > 0 ? <IssuesPanel issues={issues} /> : null}
+      <section aria-labelledby="diag-components">
+        <SectionHeader
+          id="diag-components"
+          title="Platform components"
+          hint="Shared services every zone depends on."
+        />
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {COMPONENT_ORDER.map((key) => (
+            <ComponentCard key={key} component={key} checks={componentChecks.get(key) ?? []} />
+          ))}
+        </div>
+      </section>
+      <section aria-labelledby="diag-zones">
+        <SectionHeader
+          id="diag-zones"
+          title="Zone health"
+          hint="Lookup, resources, policy enforcement, and audit for each of your zones."
+        />
+        <ZoneHealthPanel
+          zones={zoneHealth.zones}
+          inventory={zoneHealth.inventory}
+          zoneNames={zoneNames}
+          activeZoneId={activeZoneId}
+        />
+      </section>
     </div>
   );
 }
 
-/* -------------------------------- overview -------------------------------- */
+/* --------------------------------- banner --------------------------------- */
 
-function OverviewBar({ report, health }: { report: DiagnosticsReport; health: PlatformHealth }) {
-  const { summary, context } = report;
+function overallState(report: DiagnosticsReport): ComponentState {
+  return stateOf(report.checks);
+}
+
+const BANNER_COPY: Record<ComponentState, { headline: string; tone: string; dot: string }> = {
+  operational: {
+    headline: "All systems operational",
+    tone: "text-emerald-600 dark:text-emerald-400",
+    dot: "bg-emerald-500",
+  },
+  degraded: {
+    headline: "Degraded — attention recommended",
+    tone: "text-amber-600 dark:text-amber-400",
+    dot: "bg-amber-500",
+  },
+  outage: {
+    headline: "Component outage detected",
+    tone: "text-destructive",
+    dot: "bg-destructive",
+  },
+  unknown: {
+    headline: "Checking platform…",
+    tone: "text-muted-foreground",
+    dot: "bg-muted-foreground",
+  },
+};
+
+function bannerSubline(report: DiagnosticsReport): string {
+  const { fail, warn, ok } = report.summary;
+  if (fail > 0) {
+    const degraded = warn > 0 ? `, ${warn} degraded` : "";
+    return `${fail} check${fail === 1 ? "" : "s"} failing${degraded}. Review the issues below.`;
+  }
+  if (warn > 0) {
+    return `${warn} check${warn === 1 ? "" : "s"} degraded. The platform is serving, but review the issues below.`;
+  }
+  return `All ${ok} checks passing across platform components and your zones.`;
+}
+
+function StatusBanner({
+  report,
+  rechecking,
+  onRecheck,
+}: {
+  report: DiagnosticsReport;
+  rechecking: boolean;
+  onRecheck: () => void;
+}) {
+  const state = overallState(report);
+  const copy = BANNER_COPY[state];
+  const { summary } = report;
   return (
-    <div className="border border-border">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-muted/40 px-4 py-3">
-        <div className="flex items-center gap-3">
-          <HealthDot health={health} large />
-          <div>
-            <div className="text-sm font-semibold text-foreground">{healthHeadline(health)}</div>
-            <div className="text-xs text-muted-foreground">{healthSubline(report)}</div>
-          </div>
+    <div className="flex flex-wrap items-center justify-between gap-4 border border-border bg-muted/30 px-5 py-4">
+      <div className="flex min-w-0 items-center gap-3.5">
+        <span className="relative flex h-3 w-3 shrink-0" aria-hidden="true">
+          {state !== "operational" && state !== "unknown" ? (
+            <span
+              className={cx(
+                "absolute inline-flex h-full w-full animate-ping rounded-full opacity-50",
+                copy.dot,
+              )}
+            />
+          ) : null}
+          <span className={cx("relative inline-flex h-3 w-3 rounded-full", copy.dot)} />
+        </span>
+        <div className="min-w-0">
+          <h2 className={cx("text-base font-semibold tracking-tight", copy.tone)}>
+            {copy.headline}
+          </h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">{bannerSubline(report)}</p>
         </div>
-        <div className="flex items-center gap-2">
-          <Badge tone={report.ready ? "success" : "danger"}>
-            {report.ready ? "Ready" : "Not ready"}
+      </div>
+      <div className="flex shrink-0 items-center gap-3">
+        <div className="flex items-center gap-1.5" aria-label="Check totals">
+          {summary.fail > 0 ? <Badge tone="danger">{summary.fail} failing</Badge> : null}
+          {summary.warn > 0 ? <Badge tone="warning">{summary.warn} degraded</Badge> : null}
+          <Badge tone={summary.fail === 0 && summary.warn === 0 ? "success" : "muted"}>
+            {summary.ok} / {summary.total} passing
           </Badge>
-          <Badge tone="muted">{report.mode === "system" ? "System check" : "Preflight"}</Badge>
         </div>
-      </div>
-      <div className="grid grid-cols-2 gap-px bg-border sm:grid-cols-3 lg:grid-cols-6 [&>*]:bg-background">
-        <Metric label="Failing" value={summary.fail} tone={summary.fail > 0 ? "fail" : undefined} />
-        <Metric
-          label="Warnings"
-          value={summary.warn}
-          tone={summary.warn > 0 ? "warn" : undefined}
-        />
-        <Metric label="Passing" value={summary.ok} />
-        <Metric label="Checks" value={summary.total} />
-        <Metric
-          label="Zone scope"
-          text={zoneScopeText(context.zoneScope, context.zoneIds.length)}
-        />
-        <Metric label="Admin API" text={context.apiUrl} mono />
+        <Button size="sm" variant="secondary" loading={rechecking} onClick={onRecheck}>
+          Run checks
+        </Button>
       </div>
     </div>
   );
 }
 
-function Metric({
-  label,
-  value,
-  text,
-  tone,
-  mono = false,
-}: {
-  label: string;
-  value?: number;
-  text?: string;
-  tone?: "fail" | "warn";
-  mono?: boolean;
-}) {
-  const color =
-    tone === "fail"
-      ? "text-destructive"
-      : tone === "warn"
-        ? "text-amber-600 dark:text-amber-400"
-        : "text-foreground";
-  return (
-    <div className="px-4 py-3">
-      <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
-        {label}
-      </div>
-      {value !== undefined ? (
-        <div className={cx("mt-1.5 text-2xl font-semibold tabular-nums tracking-tight", color)}>
-          {value}
-        </div>
-      ) : (
-        <div
-          className={cx("mt-1.5 truncate text-sm font-medium", color, mono && "font-mono text-xs")}
-        >
-          {text}
-        </div>
-      )}
-    </div>
-  );
-}
+/* --------------------------------- issues --------------------------------- */
 
-/* ------------------------------- attention -------------------------------- */
-
-function AttentionPanel({
-  checks,
-  zoneNames,
-  health,
-}: {
-  checks: DiagnosticCheck[];
-  zoneNames: Map<string, string>;
-  health: PlatformHealth;
-}) {
+function IssuesPanel({ issues }: { issues: DiagnosticIssue[] }) {
   return (
-    <div className="border border-border">
-      <PanelHeader
-        title="Needs attention"
-        hint="Failing and degraded checks, most severe first."
-        count={checks.length}
-      />
-      {checks.length === 0 ? (
-        <div className="flex items-center gap-3 px-4 py-6">
-          <HealthDot health={health} />
-          <p className="text-sm text-muted-foreground">
-            Every check is passing. No failing or degraded components.
+    <section aria-labelledby="diag-issues" className="border border-border">
+      <div className="flex items-center justify-between gap-2 border-b border-border bg-muted/40 px-4 py-2.5">
+        <div>
+          <h2 id="diag-issues" className="text-sm font-semibold text-foreground">
+            Needs attention
+          </h2>
+          <p className="text-xs text-muted-foreground">
+            What failed, why it matters, and how to recover — most severe first.
           </p>
         </div>
+        <span className="font-mono text-sm font-semibold tabular-nums text-foreground">
+          {issues.length}
+        </span>
+      </div>
+      <ul className="divide-y divide-border">
+        {issues.map((issue, index) => (
+          <IssueRow key={`${issue.title}:${index}`} issue={issue} />
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function IssueRow({ issue }: { issue: DiagnosticIssue }) {
+  return (
+    <li className="px-4 py-3.5">
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge tone={issue.severity === "critical" ? "danger" : "warning"}>
+          {issue.severity === "critical" ? "Critical" : "Warning"}
+        </Badge>
+        <span className="min-w-0 truncate text-sm font-medium text-foreground">{issue.title}</span>
+      </div>
+      <p className="mt-1.5 wrap-break-word font-mono text-xs text-muted-foreground">
+        {issue.explanation}
+      </p>
+      {issue.impact ? (
+        <p className="mt-1.5 text-xs text-foreground">
+          <span className="font-medium">Impact:</span> {issue.impact}
+        </p>
+      ) : null}
+      {issue.guidance ? (
+        <p className="mt-1.5 text-xs text-foreground">
+          <span className="font-medium">Recovery:</span> {issue.guidance}
+        </p>
+      ) : null}
+      {issue.link ? (
+        <Link
+          to={appLink(issue.link.sub, issue.link.zoneId)}
+          className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-primary outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring/40"
+        >
+          {issue.link.label}
+          <span aria-hidden="true">→</span>
+        </Link>
+      ) : null}
+    </li>
+  );
+}
+
+/* ------------------------------- components ------------------------------- */
+
+const STATE_BADGE_TONE: Record<ComponentState, "success" | "warning" | "danger" | "muted"> = {
+  operational: "success",
+  degraded: "warning",
+  outage: "danger",
+  unknown: "muted",
+};
+
+function ComponentCard({
+  component,
+  checks,
+}: {
+  component: ComponentKey;
+  checks: DiagnosticCheck[];
+}) {
+  const meta = COMPONENTS[component];
+  const state = stateOf(checks);
+  return (
+    <div className="flex flex-col border border-border">
+      <div className="flex items-start justify-between gap-2 border-b border-border bg-muted/30 px-4 py-3">
+        <div className="min-w-0">
+          <h3 className="text-sm font-semibold text-foreground">{meta.name}</h3>
+          <p className="mt-0.5 text-xs text-muted-foreground">{meta.purpose}</p>
+        </div>
+        <Badge tone={STATE_BADGE_TONE[state]}>{STATE_LABELS[state]}</Badge>
+      </div>
+      {checks.length === 0 ? (
+        <p className="px-4 py-3 text-xs text-muted-foreground">No checks reported.</p>
       ) : (
-        <ul className="divide-y divide-border">
+        <ul className="divide-y divide-border/60">
           {checks.map((check, index) => (
-            <AttentionRow
-              key={`${check.section}:${check.check}:${index}`}
-              check={check}
-              zoneNames={zoneNames}
-            />
+            <CheckRow key={`${check.check}:${index}`} check={check} />
           ))}
         </ul>
       )}
@@ -328,150 +321,117 @@ function AttentionPanel({
   );
 }
 
-function AttentionRow({
-  check,
-  zoneNames,
-}: {
-  check: DiagnosticCheck;
-  zoneNames: Map<string, string>;
-}) {
-  const [open, setOpen] = useState(false);
-  const hasAdvice = Boolean(check.advice);
-  return (
-    <li>
-      <button
-        onClick={() => hasAdvice && setOpen((v) => !v)}
-        className={cx(
-          "flex w-full items-start gap-3 px-4 py-3 text-left",
-          hasAdvice && "hover:bg-accent/50",
-        )}
-      >
-        <StatusDot status={check.status} className="mt-1" />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <span className="truncate text-sm font-medium text-foreground">
-              {humanizeCheck(check, zoneNames)}
-            </span>
-            <SectionTag section={check.section} />
-          </div>
-          <p className="mt-0.5 break-words text-xs text-muted-foreground">{check.detail}</p>
-          {open && check.advice ? (
-            <div className="mt-2 border-l-2 border-border pl-3">
-              <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-                Recovery
-              </div>
-              <p className="mt-1 break-words text-xs text-foreground">{check.advice}</p>
-            </div>
-          ) : null}
-        </div>
-        {hasAdvice ? <Chevron open={open} /> : null}
-      </button>
-    </li>
-  );
-}
+const CHECK_DOT: Record<DiagnosticCheck["status"], { cls: string; label: string }> = {
+  ok: { cls: "bg-emerald-500", label: "passing" },
+  warn: { cls: "bg-amber-500", label: "degraded" },
+  fail: { cls: "bg-destructive", label: "failing" },
+};
 
-function ActionsPanel({ actions, health }: { actions: string[]; health: PlatformHealth }) {
+function CheckRow({ check }: { check: DiagnosticCheck }) {
+  const dot = CHECK_DOT[check.status];
   return (
-    <div className="border border-border">
-      <PanelHeader title="Recommended actions" hint="Deduplicated recovery guidance." />
-      {actions.length === 0 ? (
-        <div className="px-4 py-6 text-sm text-muted-foreground">
-          {health === "healthy"
-            ? "Nothing to do. The control plane is operating normally."
-            : "No specific guidance available for the current findings."}
-        </div>
-      ) : (
-        <ol className="divide-y divide-border">
-          {actions.map((action, index) => (
-            <li key={index} className="flex gap-3 px-4 py-3">
-              <span className="mt-0.5 font-mono text-xs tabular-nums text-muted-foreground">
-                {String(index + 1).padStart(2, "0")}
-              </span>
-              <p className="break-words text-xs text-foreground">{action}</p>
-            </li>
-          ))}
-        </ol>
+    <li
+      className={cx(
+        "flex items-baseline gap-2.5 px-4 py-2",
+        check.status === "fail" && "bg-destructive/4",
       )}
-    </div>
-  );
-}
-
-/* -------------------------------- sections -------------------------------- */
-
-function SectionTable({
-  section,
-  checks,
-  zoneNames,
-}: {
-  section: DiagnosticSection;
-  checks: DiagnosticCheck[];
-  zoneNames: Map<string, string>;
-}) {
-  const fail = checks.filter((c) => c.status === "fail").length;
-  const warn = checks.filter((c) => c.status === "warn").length;
-  return (
-    <div className="border border-border">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-muted/40 px-4 py-2.5">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold text-foreground">{SECTION_LABELS[section]}</span>
-          <span className="hidden text-xs text-muted-foreground sm:inline">
-            {SECTION_HINTS[section]}
-          </span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          {fail > 0 ? <Badge tone="danger">{fail} fail</Badge> : null}
-          {warn > 0 ? <Badge tone="warning">{warn} warn</Badge> : null}
-          {fail === 0 && warn === 0 ? <Badge tone="success">All clear</Badge> : null}
-          <span className="ml-1 font-mono text-[11px] tabular-nums text-muted-foreground">
-            {checks.length}
-          </span>
-        </div>
-      </div>
-      <ul className="divide-y divide-border">
-        {checks.map((check, index) => (
-          <CheckRow key={`${check.check}:${index}`} check={check} zoneNames={zoneNames} />
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-function CheckRow({
-  check,
-  zoneNames,
-}: {
-  check: DiagnosticCheck;
-  zoneNames: Map<string, string>;
-}) {
-  const [open, setOpen] = useState(false);
-  const hasAdvice = Boolean(check.advice);
-  return (
-    <li>
-      <button
-        onClick={() => hasAdvice && setOpen((v) => !v)}
-        className={cx(
-          "flex w-full items-center gap-3 px-4 py-2.5 text-left",
-          hasAdvice && "hover:bg-accent/50",
-        )}
+    >
+      <span
+        role="img"
+        aria-label={dot.label}
+        className={cx("h-1.5 w-1.5 shrink-0 -translate-y-px rounded-full", dot.cls)}
+      />
+      <span className="shrink-0 text-xs font-medium text-foreground">{checkTitle(check)}</span>
+      <span
+        className="min-w-0 flex-1 truncate text-right text-xs text-muted-foreground"
+        title={check.detail}
       >
-        <StatusPill status={check.status} />
-        <span className="w-56 flex-shrink-0 truncate font-mono text-xs text-foreground">
-          {humanizeCheck(check, zoneNames)}
-        </span>
-        <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-          {check.detail}
-        </span>
-        {hasAdvice ? <Chevron open={open} /> : <span className="w-3.5 flex-shrink-0" />}
-      </button>
-      {open && check.advice ? (
-        <div className="border-t border-border bg-muted/30 px-4 py-2.5 pl-[4.25rem]">
-          <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-            Recovery
-          </span>
-          <p className="mt-1 break-words text-xs text-foreground">{check.advice}</p>
-        </div>
-      ) : null}
+        {check.detail}
+      </span>
     </li>
+  );
+}
+
+/* --------------------------------- zones ---------------------------------- */
+
+function ZoneHealthPanel({
+  zones,
+  inventory,
+  zoneNames,
+  activeZoneId,
+}: {
+  zones: ZoneHealth[];
+  inventory: DiagnosticCheck | undefined;
+  zoneNames: Map<string, string>;
+  activeZoneId: string;
+}) {
+  const ordered = useMemo(
+    () =>
+      [...zones].sort((a, b) => {
+        if (a.zoneId === activeZoneId) return -1;
+        if (b.zoneId === activeZoneId) return 1;
+        return (zoneNames.get(a.zoneId) ?? a.zoneId).localeCompare(
+          zoneNames.get(b.zoneId) ?? b.zoneId,
+        );
+      }),
+    [zones, activeZoneId, zoneNames],
+  );
+
+  if (ordered.length === 0) {
+    return (
+      <div className="flex flex-wrap items-center justify-between gap-3 border border-dashed border-border px-4 py-4">
+        <p className="text-sm text-muted-foreground">
+          {inventory?.detail ?? "No zone checks were reported."}
+        </p>
+        <Link
+          to={appLink("/zones")}
+          className="inline-flex items-center gap-1 text-xs font-medium text-primary outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring/40"
+        >
+          Create a zone
+          <span aria-hidden="true">→</span>
+        </Link>
+      </div>
+    );
+  }
+
+  return (
+    <div className="divide-y divide-border border border-border">
+      {ordered.map((zone) => (
+        <ZoneRow
+          key={zone.zoneId}
+          zone={zone}
+          name={zoneNames.get(zone.zoneId) ?? zone.zoneId}
+          current={zone.zoneId === activeZoneId}
+        />
+      ))}
+    </div>
+  );
+}
+
+function ZoneRow({ zone, name, current }: { zone: ZoneHealth; name: string; current: boolean }) {
+  const [open, setOpen] = useState(current || zone.state !== "operational");
+  return (
+    <div>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-3 px-4 py-3 text-left outline-none transition-colors hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40"
+      >
+        <span className="min-w-0 truncate text-sm font-medium text-foreground">{name}</span>
+        {current ? <Badge tone="neutral">Current zone</Badge> : null}
+        <span className="ml-auto flex shrink-0 items-center gap-2">
+          <Badge tone={STATE_BADGE_TONE[zone.state]}>{STATE_LABELS[zone.state]}</Badge>
+          <Chevron open={open} />
+        </span>
+      </button>
+      {open ? (
+        <ul className="divide-y divide-border/60 border-t border-border/60 bg-muted/20">
+          {zone.checks.map((check, index) => (
+            <CheckRow key={`${check.check}:${index}`} check={check} />
+          ))}
+        </ul>
+      ) : null}
+    </div>
   );
 }
 
@@ -479,40 +439,41 @@ function CheckRow({
 
 function LoadingState() {
   return (
-    <div className="space-y-5">
-      <Skeleton className="h-28 w-full" />
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <Skeleton className="h-48 w-full" />
-        <Skeleton className="h-48 w-full" />
+    <div className="space-y-5" aria-hidden="true">
+      <Skeleton className="h-20 w-full" />
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        {Array.from({ length: 6 }, (_, i) => (
+          <Skeleton key={i} className="h-40 w-full" />
+        ))}
       </div>
-      <Skeleton className="h-40 w-full" />
+      <Skeleton className="h-32 w-full" />
     </div>
   );
 }
 
-function UnavailableState() {
+function UnavailableState({ retrying, onRetry }: { retrying: boolean; onRetry: () => void }) {
   return (
     <EmptyState
       title="Diagnostics unavailable"
-      description="The control plane is not connected or did not respond. Start the local stack with `caracal up`, confirm admin credentials are provisioned, then this view recovers automatically."
+      description="The control plane is not connected or did not respond. Start the local stack with `caracal up` and confirm admin credentials are provisioned; this view recovers automatically."
+      action={
+        <Button size="sm" variant="secondary" loading={retrying} onClick={onRetry}>
+          Retry now
+        </Button>
+      }
     />
   );
 }
 
 /* -------------------------------- partials -------------------------------- */
 
-function PanelHeader({ title, hint, count }: { title: string; hint: string; count?: number }) {
+function SectionHeader({ id, title, hint }: { id: string; title: string; hint: string }) {
   return (
-    <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-2.5">
-      <div>
-        <h2 className="text-sm font-semibold text-foreground">{title}</h2>
-        <p className="text-xs text-muted-foreground">{hint}</p>
-      </div>
-      {count !== undefined && count > 0 ? (
-        <span className="font-mono text-sm font-semibold tabular-nums text-foreground">
-          {count}
-        </span>
-      ) : null}
+    <div className="mb-3">
+      <h2 id={id} className="text-sm font-semibold text-foreground">
+        {title}
+      </h2>
+      <p className="text-xs text-muted-foreground">{hint}</p>
     </div>
   );
 }
@@ -526,66 +487,14 @@ function SyncIndicator({
 }) {
   const relative = useRelativeTime(report?.generatedAt);
   return (
-    <span className="inline-flex items-center gap-2 text-xs text-muted-foreground">
-      <span className="relative flex h-2 w-2">
+    <span className="inline-flex items-center gap-2 text-xs text-muted-foreground" role="status">
+      <span className="relative flex h-2 w-2" aria-hidden="true">
         {fetching ? (
           <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500/60" />
         ) : null}
         <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
       </span>
       {fetching ? "Syncing…" : report ? `Updated ${relative}` : "Live"}
-    </span>
-  );
-}
-
-function StatusDot({ status, className }: { status: DiagnosticStatus; className?: string }) {
-  const tone =
-    status === "fail" ? "bg-destructive" : status === "warn" ? "bg-amber-500" : "bg-emerald-500";
-  return (
-    <span className={cx("inline-block h-2 w-2 flex-shrink-0 rounded-full", tone, className)} />
-  );
-}
-
-function StatusPill({ status }: { status: DiagnosticStatus }) {
-  const map: Record<DiagnosticStatus, { label: string; cls: string }> = {
-    ok: { label: "ok", cls: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" },
-    warn: { label: "warn", cls: "bg-amber-500/15 text-amber-600 dark:text-amber-400" },
-    fail: { label: "fail", cls: "bg-destructive/15 text-destructive" },
-  };
-  const entry = map[status];
-  return (
-    <span
-      className={cx(
-        "inline-flex w-12 flex-shrink-0 justify-center rounded px-1.5 py-0.5 font-mono text-[10px] font-medium uppercase tracking-wide",
-        entry.cls,
-      )}
-    >
-      {entry.label}
-    </span>
-  );
-}
-
-function HealthDot({ health, large = false }: { health: PlatformHealth; large?: boolean }) {
-  const tone =
-    health === "unhealthy"
-      ? "bg-destructive"
-      : health === "attention"
-        ? "bg-amber-500"
-        : health === "healthy"
-          ? "bg-emerald-500"
-          : "bg-muted-foreground";
-  const size = large ? "h-3 w-3" : "h-2.5 w-2.5";
-  return (
-    <span className="relative flex flex-shrink-0">
-      <span className={cx("inline-block rounded-full", size, tone)} />
-    </span>
-  );
-}
-
-function SectionTag({ section }: { section: DiagnosticSection }) {
-  return (
-    <span className="flex-shrink-0 rounded border border-border px-1.5 py-px font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
-      {section}
     </span>
   );
 }
@@ -601,64 +510,12 @@ function Chevron({ open }: { open: boolean }) {
       strokeWidth="2"
       strokeLinecap="round"
       strokeLinejoin="round"
-      className={cx(
-        "mt-0.5 flex-shrink-0 text-muted-foreground transition-transform",
-        open && "rotate-180",
-      )}
+      className={cx("shrink-0 text-muted-foreground transition-transform", open && "rotate-180")}
       aria-hidden="true"
     >
       <path d="m6 9 6 6 6-6" />
     </svg>
   );
-}
-
-/* --------------------------------- helpers -------------------------------- */
-
-function healthHeadline(health: PlatformHealth): string {
-  if (health === "unhealthy") return "Platform unhealthy";
-  if (health === "attention") return "Platform degraded";
-  if (health === "healthy") return "Platform healthy";
-  return "Checking platform…";
-}
-
-function healthSubline(report: DiagnosticsReport): string {
-  const { fail, warn } = report.summary;
-  if (fail > 0) {
-    return `${fail} component${fail === 1 ? "" : "s"} failing${warn > 0 ? `, ${warn} degraded` : ""}. Requires attention.`;
-  }
-  if (warn > 0) {
-    return `${warn} component${warn === 1 ? "" : "s"} degraded. Review recommended.`;
-  }
-  return "All control-plane components are operating normally.";
-}
-
-function zoneScopeText(scope: string, count: number): string {
-  if (scope === "none") return "No zones";
-  if (scope === "all") return `All zones (${count})`;
-  return `${count} selected`;
-}
-
-// Zone checks are keyed by raw zone id; swap a leading id for its human name so the
-// operator scans by zone, not UUID.
-const UUID_RE = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\s+(.*)$/i;
-
-function humanizeCheck(check: DiagnosticCheck, zoneNames: Map<string, string>): string {
-  const match = UUID_RE.exec(check.check);
-  if (!match) return check.check;
-  const name = zoneNames.get(match[1]);
-  return name ? `${name} · ${match[2]}` : check.check;
-}
-
-function uniqueAdvice(checks: DiagnosticCheck[]): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const check of checks) {
-    if (check.advice && !seen.has(check.advice)) {
-      seen.add(check.advice);
-      out.push(check.advice);
-    }
-  }
-  return out;
 }
 
 function useRelativeTime(iso: string | undefined): string {

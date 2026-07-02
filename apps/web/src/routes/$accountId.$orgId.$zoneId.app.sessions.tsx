@@ -26,11 +26,7 @@ import {
   type Column,
 } from "@/components/ui";
 import { cx } from "@/lib/cx";
-import {
-  auditDecisionTone,
-  auditEventContext,
-  auditEventLabel,
-} from "@/lib/auditPresentation";
+import { auditDecisionTone, auditEventContext, auditEventLabel } from "@/lib/auditPresentation";
 import { ConsoleApiError } from "@/platform/api/client";
 import { useSessionActivity, useSessionsFeed } from "@/platform/api/hooks";
 import type { Session, SessionQuery } from "@/platform/api/types";

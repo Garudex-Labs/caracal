@@ -33,11 +33,7 @@ import {
   type Column,
 } from "@/components/ui";
 import { cx } from "@/lib/cx";
-import {
-  auditDecisionTone,
-  auditEventContext,
-  auditEventLabel,
-} from "@/lib/auditPresentation";
+import { auditDecisionTone, auditEventContext, auditEventLabel } from "@/lib/auditPresentation";
 import { ConsoleApiError } from "@/platform/api/client";
 import {
   useAgentActivity,

@@ -7,12 +7,7 @@ Presentation model mapping raw doctor checks onto platform components, zone heal
 import type { DiagnosticCheck, DiagnosticsReport } from "./types";
 
 export type ComponentKey =
-  | "controlPlane"
-  | "authority"
-  | "gateway"
-  | "audit"
-  | "coordinator"
-  | "runtime";
+  "controlPlane" | "authority" | "gateway" | "audit" | "coordinator" | "runtime";
 
 export type ComponentState = "operational" | "degraded" | "outage" | "unknown";
 
@@ -227,5 +222,8 @@ export function issuesOf(
   const issues = report.checks
     .filter((check) => check.status !== "ok")
     .map((check) => issueOf(check, zoneNames));
-  return [...issues.filter((i) => i.severity === "critical"), ...issues.filter((i) => i.severity === "warning")];
+  return [
+    ...issues.filter((i) => i.severity === "critical"),
+    ...issues.filter((i) => i.severity === "warning"),
+  ];
 }
