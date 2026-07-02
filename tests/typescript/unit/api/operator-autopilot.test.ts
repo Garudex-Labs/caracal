@@ -76,9 +76,7 @@ describe('mayAutoApprove', () => {
   })
 
   it('defers while a step still needs credentials from the secure prompt', () => {
-    expect(
-      mayAutoApprove(evaluation({ credentialsSatisfied: false }), buildAutopilotPolicy({ enabled: true })),
-    ).toEqual({
+    expect(mayAutoApprove(evaluation({ credentialsSatisfied: false }), buildAutopilotPolicy({ enabled: true }))).toEqual({
       autoApprove: false,
       reason: 'credentials_required',
     })

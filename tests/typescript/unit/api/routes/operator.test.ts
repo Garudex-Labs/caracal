@@ -12,6 +12,9 @@ import { operatorRoutes } from '../../../../../apps/api/src/routes/operator.js'
 import { buildAutopilotPolicy } from '../../../../../apps/api/src/operator-autopilot.js'
 import type { OperatorAiManager } from '../../../../../apps/api/src/operator-ai-manager.js'
 
+// Test-only deterministic KEK fixture (32-byte hex) so the plan credential vault can seal. Never use in production.
+process.env.ZONE_KEK = '2222222222222222222222222222222222222222222222222222222222222222'
+
 function buildApp(
   enabled = true,
   authorityOpts: {
@@ -783,7 +786,9 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/plan/decision', () =
     clientQuery
       .mockResolvedValueOnce(undefined) // BEGIN
       .mockResolvedValueOnce({ rows: [{ status: 'active', next_seq: 3 }] }) // SELECT ... FOR UPDATE
-      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] }) // plan turn exists
+      .mockResolvedValueOnce({
+        rows: [{ content: { summary: 'Register app', steps: [{ id: 's1', capability: 'registerApplication', args: { name: 'Fiona' } }] } }],
+      }) // plan turn exists
       .mockResolvedValueOnce({ rows: [] }) // not already decided
       .mockResolvedValueOnce({ rowCount: 1 }) // UPDATE next_seq
       .mockResolvedValueOnce({ rows: [approvalRow] }) // INSERT turn
@@ -816,7 +821,9 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/plan/decision', () =
     clientQuery
       .mockResolvedValueOnce(undefined) // BEGIN
       .mockResolvedValueOnce({ rows: [{ status: 'active', next_seq: 3 }] }) // SELECT ... FOR UPDATE
-      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] }) // plan turn exists
+      .mockResolvedValueOnce({
+        rows: [{ content: { summary: 'Register app', steps: [{ id: 's1', capability: 'registerApplication', args: { name: 'Fiona' } }] } }],
+      }) // plan turn exists
       .mockResolvedValueOnce({ rows: [] }) // not already decided
       .mockResolvedValueOnce({ rowCount: 1 }) // UPDATE next_seq
       .mockResolvedValueOnce({ rows: [approvalRow] }) // INSERT turn
@@ -896,6 +903,235 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/plan/decision', () =
     expect(JSON.parse(res.body)).toMatchObject({ error: 'mode_forbidden' })
     // The plan lookup never runs: the refusal precedes any decision write.
     expect(clientQuery.mock.calls.some((c) => String(c[0]).includes('INSERT INTO operator_turns'))).toBe(false)
+  })
+
+  it('refuses to approve while a credential step is unsatisfied', async () => {
+    // A connectProvider step for a credential-bearing kind cannot be approved until the secure
+    // prompt has sealed its values into the vault; the refusal names exactly what is missing.
+    const { app, clientQuery } = buildApp()
+    clientQuery
+      .mockResolvedValueOnce(undefined) // BEGIN
+      .mockResolvedValueOnce({ rows: [{ status: 'active', next_seq: 3 }] }) // SELECT ... FOR UPDATE
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            content: {
+              summary: 'Connect Hooli OIDC',
+              steps: [{ id: 's1', capability: 'connectProvider', args: { name: 'Hooli OIDC', kind: 'oauth2_client_credentials' } }],
+            },
+          },
+        ],
+      }) // plan turn
+      .mockResolvedValueOnce({ rows: [] }) // not already decided
+      .mockResolvedValueOnce({ rows: [] }) // vault holds nothing for the plan
+      .mockResolvedValueOnce(undefined) // ROLLBACK
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/operator-conversations/conv-1/plan/decision',
+      payload: { plan_seq: 2, decision: 'approved' },
+    })
+    expect(res.statusCode).toBe(409)
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'plan_credentials_required',
+      steps: [{ step_id: 's1', fields: ['client_id', 'client_secret'] }],
+    })
+  })
+
+  it('discards vaulted credentials when the plan is rejected', async () => {
+    const { app, clientQuery } = buildApp()
+    const rejectionRow = {
+      id: 'turn-3',
+      conversation_id: 'conv-1',
+      seq: 3,
+      role: 'user',
+      kind: 'rejection',
+      content: { plan_seq: 2 },
+      actor_id: 'actor-1',
+      created_at: '2026-01-01T00:00:03Z',
+    }
+    clientQuery
+      .mockResolvedValueOnce(undefined) // BEGIN
+      .mockResolvedValueOnce({ rows: [{ status: 'active', next_seq: 3 }] }) // SELECT ... FOR UPDATE
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            content: {
+              summary: 'Connect Hooli OIDC',
+              steps: [{ id: 's1', capability: 'connectProvider', args: { name: 'Hooli OIDC', kind: 'oauth2_client_credentials' } }],
+            },
+          },
+        ],
+      }) // plan turn
+      .mockResolvedValueOnce({ rows: [] }) // not already decided
+      .mockResolvedValueOnce(undefined) // DELETE plan vault rows
+      .mockResolvedValueOnce({ rowCount: 1 }) // UPDATE next_seq
+      .mockResolvedValueOnce({ rows: [rejectionRow] }) // INSERT turn
+      .mockResolvedValueOnce(undefined) // COMMIT
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/operator-conversations/conv-1/plan/decision',
+      payload: { plan_seq: 2, decision: 'rejected' },
+    })
+    expect(res.statusCode).toBe(201)
+    const wipe = clientQuery.mock.calls.find((c) => String(c[0]).includes('DELETE FROM operator_plan_secrets'))
+    expect(wipe).toBeDefined()
+  })
+})
+
+describe('plan credential vault endpoints', () => {
+  const credentialPlanContent = {
+    summary: 'Connect Hooli OIDC',
+    steps: [
+      { id: 's1', capability: 'connectProvider', args: { name: 'Hooli OIDC', kind: 'oauth2_client_credentials' } },
+      { id: 's2', capability: 'defineResource', args: { name: 'PiperNet', scopes: ['mesh.read'] } },
+    ],
+  }
+
+  it('reports which steps need credentials and whether the vault holds them', async () => {
+    const { app, db } = buildApp()
+    db.query
+      .mockResolvedValueOnce({ rows: [{ status: 'active' }] }) // conversation
+      .mockResolvedValueOnce({ rows: [{ content: credentialPlanContent }] }) // plan turn
+      .mockResolvedValueOnce({ rows: [{ step_id: 's1' }] }) // vault satisfied steps
+    await app.ready()
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/zones/z1/operator-conversations/conv-1/plans/2/secrets',
+    })
+    expect(res.statusCode).toBe(200)
+    // Only the credential-bearing step appears, with field names and no values anywhere.
+    expect(JSON.parse(res.body)).toEqual({
+      plan_seq: 2,
+      steps: [{ step_id: 's1', fields: ['client_id', 'client_secret'], provided: true }],
+    })
+  })
+
+  it('seals pasted credentials without echoing them and reports satisfaction', async () => {
+    const { app, clientQuery } = buildApp()
+    clientQuery
+      .mockResolvedValueOnce(undefined) // BEGIN
+      .mockResolvedValueOnce({ rows: [{ status: 'active', mode: 'agent', autopilot: false }] }) // conv FOR UPDATE
+      .mockResolvedValueOnce({ rows: [{ content: credentialPlanContent }] }) // plan turn
+      .mockResolvedValueOnce({ rows: [] }) // not decided
+      .mockResolvedValueOnce(undefined) // sweep expired rows
+      .mockResolvedValueOnce(undefined) // INSERT sealed row
+      .mockResolvedValueOnce({ rows: [{ step_id: 's1' }] }) // satisfied steps
+      .mockResolvedValueOnce(undefined) // COMMIT
+    await app.ready()
+    const res = await app.inject({
+      method: 'PUT',
+      url: '/v1/zones/z1/operator-conversations/conv-1/plans/2/secrets',
+      payload: { step_id: 's1', values: { client_id: 'son-of-anton', client_secret: 'cs_live_value' } },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body)).toEqual({
+      ok: true,
+      plan_seq: 2,
+      step_id: 's1',
+      all_satisfied: true,
+      auto_approved: false,
+      approval_turn: null,
+    })
+    // The response and the stored row never carry the plaintext: the insert holds ciphertext.
+    expect(res.body).not.toContain('cs_live_value')
+    const insert = clientQuery.mock.calls.find((c) => String(c[0]).includes('INSERT INTO operator_plan_secrets'))
+    expect(insert).toBeDefined()
+    expect(JSON.stringify(insert![1])).not.toContain('cs_live_value')
+    expect(insert![1][6]).toEqual(['client_id', 'client_secret'])
+  })
+
+  it('completes the deferred autopilot approval once the vault satisfies the plan', async () => {
+    const { app, clientQuery } = buildApp(true, { autopilotPolicy: buildAutopilotPolicy({ enabled: true }) })
+    const approvalRow = {
+      id: 'turn-3',
+      conversation_id: 'conv-1',
+      seq: 3,
+      role: 'system',
+      kind: 'approval',
+      content: { plan_seq: 2, autopilot: true },
+      actor_id: 'actor-1',
+      created_at: '2026-01-01T00:00:03Z',
+    }
+    clientQuery
+      .mockResolvedValueOnce(undefined) // BEGIN
+      .mockResolvedValueOnce({ rows: [{ status: 'active', mode: 'agent', autopilot: true }] }) // conv FOR UPDATE
+      .mockResolvedValueOnce({ rows: [{ content: credentialPlanContent }] }) // plan turn
+      .mockResolvedValueOnce({ rows: [] }) // not decided
+      .mockResolvedValueOnce(undefined) // sweep expired rows
+      .mockResolvedValueOnce(undefined) // INSERT sealed row
+      .mockResolvedValueOnce({ rows: [{ step_id: 's1' }] }) // satisfied steps
+      .mockResolvedValueOnce(undefined) // COMMIT
+      // approval completion transaction
+      .mockResolvedValueOnce(undefined) // BEGIN
+      .mockResolvedValueOnce({ rows: [{ status: 'active', next_seq: 3 }] }) // conv FOR UPDATE
+      .mockResolvedValueOnce({ rows: [] }) // still undecided
+      .mockResolvedValueOnce({ rowCount: 1 }) // UPDATE next_seq
+      .mockResolvedValueOnce({ rows: [approvalRow] }) // INSERT approval turn
+      .mockResolvedValueOnce(undefined) // COMMIT
+    await app.ready()
+    const res = await app.inject({
+      method: 'PUT',
+      url: '/v1/zones/z1/operator-conversations/conv-1/plans/2/secrets',
+      payload: { step_id: 's1', values: { client_id: 'son-of-anton', client_secret: 'cs_live_value' } },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(body).toMatchObject({ ok: true, all_satisfied: true, auto_approved: true })
+    expect(body.approval_turn).toMatchObject({ kind: 'approval', content: { plan_seq: 2, autopilot: true } })
+  })
+
+  it('refuses values whose fields do not match the step requirement exactly', async () => {
+    const { app, clientQuery } = buildApp()
+    clientQuery
+      .mockResolvedValueOnce(undefined) // BEGIN
+      .mockResolvedValueOnce({ rows: [{ status: 'active', mode: 'agent', autopilot: false }] }) // conv FOR UPDATE
+      .mockResolvedValueOnce({ rows: [{ content: credentialPlanContent }] }) // plan turn
+      .mockResolvedValueOnce(undefined) // ROLLBACK
+    await app.ready()
+    const res = await app.inject({
+      method: 'PUT',
+      url: '/v1/zones/z1/operator-conversations/conv-1/plans/2/secrets',
+      payload: { step_id: 's1', values: { client_id: 'son-of-anton', api_key: 'wrong-field' } },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body)).toEqual({ error: 'invalid_credentials', required: ['client_id', 'client_secret'] })
+  })
+
+  it('refuses credentials for a step that needs none', async () => {
+    const { app, clientQuery } = buildApp()
+    clientQuery
+      .mockResolvedValueOnce(undefined) // BEGIN
+      .mockResolvedValueOnce({ rows: [{ status: 'active', mode: 'agent', autopilot: false }] }) // conv FOR UPDATE
+      .mockResolvedValueOnce({ rows: [{ content: credentialPlanContent }] }) // plan turn
+      .mockResolvedValueOnce(undefined) // ROLLBACK
+    await app.ready()
+    const res = await app.inject({
+      method: 'PUT',
+      url: '/v1/zones/z1/operator-conversations/conv-1/plans/2/secrets',
+      payload: { step_id: 's2', values: { api_key: 'anything' } },
+    })
+    expect(res.statusCode).toBe(409)
+    expect(JSON.parse(res.body)).toEqual({ error: 'step_needs_no_credentials' })
+  })
+
+  it('closes the credential window once the plan is decided', async () => {
+    const { app, clientQuery } = buildApp()
+    clientQuery
+      .mockResolvedValueOnce(undefined) // BEGIN
+      .mockResolvedValueOnce({ rows: [{ status: 'active', mode: 'agent', autopilot: false }] }) // conv FOR UPDATE
+      .mockResolvedValueOnce({ rows: [{ content: credentialPlanContent }] }) // plan turn
+      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] }) // already decided
+      .mockResolvedValueOnce(undefined) // ROLLBACK
+    await app.ready()
+    const res = await app.inject({
+      method: 'PUT',
+      url: '/v1/zones/z1/operator-conversations/conv-1/plans/2/secrets',
+      payload: { step_id: 's1', values: { client_id: 'son-of-anton', client_secret: 'cs_live_value' } },
+    })
+    expect(res.statusCode).toBe(409)
+    expect(JSON.parse(res.body)).toEqual({ error: 'plan_already_decided' })
   })
 })
 
@@ -1143,6 +1379,7 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/plan/execute', () =>
       .mockResolvedValueOnce({ rowCount: 1 }) // UPDATE next_seq
       .mockResolvedValueOnce({ rows: [executionTurn] }) // INSERT execution turn (s2)
       .mockResolvedValueOnce(undefined) // INSERT operator_zone_memory
+      .mockResolvedValueOnce(undefined) // DELETE settled plan vault rows
       .mockResolvedValueOnce(undefined) // COMMIT
     await app.ready()
     const res = await app.inject({
@@ -1308,6 +1545,7 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/plan/execute', () =>
       .mockResolvedValueOnce({ rowCount: 1 }) // UPDATE next_seq
       .mockResolvedValueOnce({ rows: [executionTurn] }) // INSERT execution turn
       .mockResolvedValueOnce(undefined) // INSERT operator_zone_memory
+      .mockResolvedValueOnce(undefined) // DELETE settled plan vault rows
       .mockResolvedValueOnce(undefined) // COMMIT
     await app.ready()
     const res = await app.inject({
@@ -1609,6 +1847,7 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/plan/execute', () =>
       .mockResolvedValueOnce({ rowCount: 1 }) // UPDATE next_seq
       .mockResolvedValueOnce({ rows: [executionTurn] }) // INSERT execution turn
       .mockResolvedValueOnce(undefined) // INSERT operator_zone_memory
+      .mockResolvedValueOnce(undefined) // DELETE settled plan vault rows
       .mockResolvedValueOnce(undefined) // COMMIT
       // verification note (appendTurnTx)
       .mockResolvedValueOnce(undefined) // BEGIN
@@ -2330,9 +2569,10 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
     expect(JSON.parse(String(planInsert![1][6])).deliberation).toContain('triaging')
   })
 
-  it('auto-approves a plan whose capability the old allowlist would have excluded', async () => {
-    // connectProvider was never on the legacy allowlist, but with pass-all an engaged conversation
-    // auto-approves it too: the plan is persisted and an approval turn is recorded.
+  it('defers autopilot for a credential-bearing provider plan until the secure prompt satisfies it', async () => {
+    // An api_key provider collects its key through the console's secure prompt, so even an engaged
+    // pass-all conversation cannot auto-approve at plan time: the plan persists undecided and the
+    // paste flow completes the approval later.
     const plan = {
       summary: 'Connect GitHub',
       steps: [{ id: 's1', capability: 'connectProvider', args: { name: 'GitHub', kind: 'api_key' } }],
@@ -2361,13 +2601,6 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
       .mockResolvedValueOnce({ rowCount: 1 })
       .mockResolvedValueOnce({ rows: [{ id: 'turn-2', seq: 2, kind: 'plan' }] })
       .mockResolvedValueOnce(undefined)
-    // autopilot approval turn persist
-    clientQuery
-      .mockResolvedValueOnce(undefined)
-      .mockResolvedValueOnce({ rows: [{ status: 'active', mode: 'agent', autopilot: true, next_seq: 3 }] })
-      .mockResolvedValueOnce({ rowCount: 1 })
-      .mockResolvedValueOnce({ rows: [{ id: 'turn-3', seq: 3, kind: 'approval' }] })
-      .mockResolvedValueOnce(undefined)
     await app.ready()
     const res = await app.inject({
       method: 'POST',
@@ -2376,12 +2609,17 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
     })
     expect(res.statusCode).toBe(201)
     const body = JSON.parse(res.body)
-    expect(body).toMatchObject({ intent: 'plan', ok: true, auto_approved: true })
-    expect(body.approval_turn).toMatchObject({ kind: 'approval' })
-    // An approval turn was written attributed to autopilot.
+    expect(body).toMatchObject({ intent: 'plan', ok: true, auto_approved: false })
+    // No approval turn was written: the plan waits for the secure prompt.
     expect(
       clientQuery.mock.calls.some((c) => String(c[0]).includes('INSERT INTO operator_turns') && String(c[1]?.[5]) === 'approval'),
-    ).toBe(true)
+    ).toBe(false)
+    // The persisted plan step names the fields the secure prompt must collect.
+    const planInsert = clientQuery.mock.calls.find(
+      (c) => String(c[0]).includes('INSERT INTO operator_turns') && String(c[1]?.[5]) === 'plan',
+    )
+    expect(planInsert).toBeDefined()
+    expect(JSON.parse(String(planInsert![1][6])).steps[0].secret_fields).toEqual(['api_key'])
   })
 
   it('does not auto-approve when autopilot is not engaged on the conversation', async () => {

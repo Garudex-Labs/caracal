@@ -30,10 +30,7 @@ describe('credentialFieldsFor', () => {
   })
 
   it('collects id and secret for an authorization-code client', () => {
-    expect(credentialFieldsFor('connectProvider', { kind: 'oauth2_authorization_code' })).toEqual([
-      'client_id',
-      'client_secret',
-    ])
+    expect(credentialFieldsFor('connectProvider', { kind: 'oauth2_authorization_code' })).toEqual(['client_id', 'client_secret'])
   })
 
   it('collects only the id for a public authorization-code client', () => {
@@ -55,10 +52,7 @@ describe('credentialFieldsFor', () => {
   })
 
   it('collects id and secret for default client credentials', () => {
-    expect(credentialFieldsFor('connectProvider', { kind: 'oauth2_client_credentials' })).toEqual([
-      'client_id',
-      'client_secret',
-    ])
+    expect(credentialFieldsFor('connectProvider', { kind: 'oauth2_client_credentials' })).toEqual(['client_id', 'client_secret'])
   })
 })
 
@@ -78,12 +72,8 @@ describe('planProviderConfigError', () => {
   })
 
   it('rejects a credential field in plan config', () => {
-    expect(
-      planProviderConfigError('oauth2_client_credentials', { client_secret: 'hunter2' }),
-    ).toMatch(/must not carry client_secret/)
-    expect(planProviderConfigError('oauth2_client_credentials', { client_id: 'son-of-anton' })).toMatch(
-      /must not carry client_id/,
-    )
+    expect(planProviderConfigError('oauth2_client_credentials', { client_secret: 'hunter2' })).toMatch(/must not carry client_secret/)
+    expect(planProviderConfigError('oauth2_client_credentials', { client_id: 'son-of-anton' })).toMatch(/must not carry client_id/)
     expect(planProviderConfigError('api_key', { api_key: 'abc' })).toMatch(/must not carry api_key/)
   })
 
@@ -94,8 +84,6 @@ describe('planProviderConfigError', () => {
   })
 
   it('rejects config on an invalid kind', () => {
-    expect(planProviderConfigError('saml', { token_endpoint: 'https://x.example' })).toMatch(
-      /valid provider kind/,
-    )
+    expect(planProviderConfigError('saml', { token_endpoint: 'https://x.example' })).toMatch(/valid provider kind/)
   })
 })
