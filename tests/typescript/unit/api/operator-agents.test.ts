@@ -359,6 +359,25 @@ describe('shared prompt foundations', () => {
     }
   })
 
+  it('bounds every reasoning agent to the console-executable surface so SDK-only flows are guidance, not options', () => {
+    for (const [, system] of reasoningAgents) {
+      expect(system).toContain('You can carry out only what this console can')
+      // DCR is the canonical SDK-only flow: registration here is always managed.
+      expect(system).toContain('registering')
+      expect(system).toContain('always creates a managed application')
+      expect(system).toContain('never from the console')
+      // A clarifying question must never span options outside the executable surface.
+      expect(system).toContain('Never block a request on a question whose options are not all within your surface')
+    }
+  })
+
+  it('constrains the explainer gathering exchange to details that decide between executable actions', () => {
+    const system = buildExplainerMessages('help me create an application', ctx)[0].content
+    expect(system).toContain('Ask only for details that')
+    expect(system).toContain('decide between actions you can actually carry out here')
+    expect(system).toContain('always a managed registration')
+  })
+
   it('keeps the planner and security analyst on a strict JSON-only output contract', () => {
     expect(buildPlannerMessages('do it', ctx)[0].content).toContain('Reply with ONLY a JSON object')
     expect(buildSecurityAnalystMessages({ summary: 's', steps: [] }, ctx)[0].content).toContain('Reply with ONLY a JSON object')
