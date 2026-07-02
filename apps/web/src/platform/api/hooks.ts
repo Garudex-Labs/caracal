@@ -101,8 +101,11 @@ const keys = {
     ["console", "operator-turns", zoneId, conversationId] as const,
   operatorContext: (zoneId: string | null, conversationId: string | null) =>
     ["console", "operator-context", zoneId, conversationId] as const,
-  operatorPlanSecrets: (zoneId: string | null, conversationId: string | null, planSeq: number | null) =>
-    ["console", "operator-plan-secrets", zoneId, conversationId, planSeq] as const,
+  operatorPlanSecrets: (
+    zoneId: string | null,
+    conversationId: string | null,
+    planSeq: number | null,
+  ) => ["console", "operator-plan-secrets", zoneId, conversationId, planSeq] as const,
 };
 
 export function useConsoleStatus() {

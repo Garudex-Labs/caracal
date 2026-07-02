@@ -27,9 +27,15 @@ interface SecretPattern {
 // pattern targets a credential shape, not a word: prose about "the API key" never matches, only a
 // value that looks like one.
 const PATTERNS: SecretPattern[] = [
-  { label: "Private key (PEM)", pattern: /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)/g },
+  {
+    label: "Private key (PEM)",
+    pattern: /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)/g,
+  },
   { label: "AWS access key ID", pattern: /\bAKIA[0-9A-Z]{16}\b/g },
-  { label: "GitHub token", pattern: /\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b/g },
+  {
+    label: "GitHub token",
+    pattern: /\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b/g,
+  },
   { label: "Google API key", pattern: /\bAIza[0-9A-Za-z_-]{30,}\b/g },
   { label: "Slack token", pattern: /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/g },
   { label: "JWT", pattern: /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]{4,}\b/g },
