@@ -50,6 +50,8 @@ docker compose -f infra/docker/runtime-compose.yml up -d
 bash infra/scripts/smokeTest.sh
 ```
 
+On Windows PowerShell, set the version with `$env:CARACAL_VERSION = "<new-version>"` before the `docker compose` commands, and run the smoke test from Git Bash or WSL.
+
 ## Post-Upgrade Validation
 
 | Check | Expected |

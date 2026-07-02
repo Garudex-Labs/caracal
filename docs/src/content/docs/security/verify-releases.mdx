@@ -30,11 +30,18 @@ Download the runtime archives, `manifest.json`, and `SHA256SUMS` from the releas
 
 ```sh
 # 1. Confirm archive integrity against the published checksums.
-sha256sum --check SHA256SUMS
+sha256sum --check SHA256SUMS   # macOS: shasum -a 256 --check SHA256SUMS
 
 # 2. Confirm each archive was built by the Caracal release workflow.
 gh attestation verify caracal-runtime-*.tar.gz --repo Garudex-Labs/caracal
 gh attestation verify caracal-runtime-*.zip --repo Garudex-Labs/caracal
+```
+
+On Windows PowerShell, compute the hash, compare it with the matching `SHA256SUMS` entry, then verify provenance:
+
+```powershell
+Get-FileHash .\caracal-runtime-windows-amd64-vYYYY.MM.DD.zip -Algorithm SHA256
+gh attestation verify .\caracal-runtime-windows-amd64-vYYYY.MM.DD.zip --repo Garudex-Labs/caracal
 ```
 
 `gh attestation verify` exits non-zero and prints the failing policy if the signature, identity, or transparency-log entry does not match.

@@ -25,7 +25,7 @@ gh release download vYYYY.MM.DD \
   --repo Garudex-Labs/caracal \
   --pattern 'caracal-runtime-linux-amd64-*.tar.gz' \
   --pattern SHA256SUMS
-sha256sum --check SHA256SUMS
+sha256sum --check SHA256SUMS   # macOS: shasum -a 256 --check SHA256SUMS
 tar -xzf caracal-runtime-linux-amd64-vYYYY.MM.DD.tar.gz
 install -m 0755 caracal ~/.local/bin/caracal
 ```

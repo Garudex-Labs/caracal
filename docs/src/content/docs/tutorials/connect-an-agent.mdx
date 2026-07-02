@@ -23,6 +23,14 @@ export CARACAL_RESOURCE_ID=resource://billing-api
 export CARACAL_RESOURCE_PATH=/charge
 ```
 
+On Windows PowerShell:
+
+```powershell
+$env:CARACAL_CONFIG = "C:\path\to\caracal.toml"
+$env:CARACAL_RESOURCE_ID = "resource://billing-api"
+$env:CARACAL_RESOURCE_PATH = "/charge"
+```
+
 ## 2. Connect with the SDK
 
 The client constructor is the standard entry point. It loads the runtime profile when available, then falls back to environment configuration. See [Configuration Order](/reference/config-precedence/) for the exact resolution order.
