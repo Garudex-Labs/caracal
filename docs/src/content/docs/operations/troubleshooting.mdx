@@ -23,7 +23,7 @@ flowchart TD
   Trace --> Symptom
 ```
 
-The web console **Request Traces** is the fastest disambiguator: it ties one request ID to the resource, subject, scopes, determining policies, diagnostics, and result, so you can see whether the denial came from STS policy or from a resource verifier.
+The web console **Audit** decision trace is the fastest disambiguator: filter by one request ID to tie it to the resource, subject, scopes, determining policies, diagnostics, and result, so you can see whether the denial came from STS policy or from a resource verifier.
 
 :::note[FAQ]
 [What is the difference between a 403 from STS and a 403 from Gateway?](/reference/faq/#faq-016)
@@ -47,7 +47,7 @@ When an SDK call returns access denied and you are not sure why, walk these in o
 
 1. **Confirm the runtime is healthy.** Run `caracal status --ready`. If a dependency is down, fix that first.
 2. **Confirm configuration.** Check the runtime profile, secret file, selected zone, and resource identifier the SDK is using. A wrong resource ID or zone produces denials that look like policy failures.
-3. **Trace the request.** Open web console **Request Traces** with the request ID. It shows the resource, subject, requested scopes, determining policies, and result.
+3. **Trace the request.** Open web console **Audit**, filter by the request ID, and open its decision trace. It shows the resource, subject, requested scopes, determining policies, and result.
 4. **Check the grant and policy.** Confirm a grant binds the application and subject to the resource scopes, and that the active policy set authorizes them. See [Debug Authorization Decisions](/guides/authorize-access/).
 5. **Check policy-set activation.** A policy that exists but is not the active set will not take effect. See [Activate a Policy Set](/guides/activate-policy-set/).
 6. **Check the requested scopes.** Confirm the SDK requests scopes the resource defines and the policy allows; a typo'd scope denies silently.

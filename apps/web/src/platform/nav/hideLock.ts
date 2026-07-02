@@ -15,9 +15,11 @@ const SYSTEM_VIEW_HIDE_LOCKED_PREFIXES = ["/app/ai", "/app/settings", "/app/ente
 
 // Whether a path is hide-locked in the current context. The only context today is the read-only
 // system-zone viewer; outside it nothing is hide-locked, so this is a no-op for the normal Console.
+// Paths may be flat nav targets (/app/ai) or full account/org/zone-scoped pathnames
+// (/acc/org/zone/app/ai), so the prefix is matched anywhere in the path.
 export function isHideLockedPath(pathname: string, systemView: boolean): boolean {
   if (!systemView) return false;
   return SYSTEM_VIEW_HIDE_LOCKED_PREFIXES.some(
-    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+    (prefix) => pathname.endsWith(prefix) || pathname.includes(`${prefix}/`),
   );
 }

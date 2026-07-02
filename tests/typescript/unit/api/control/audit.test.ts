@@ -5,12 +5,7 @@
 
 import { createHmac } from 'node:crypto'
 import { describe, it, expect, vi } from 'vitest'
-import {
-  buildAuditPayload,
-  newRequestId,
-  RedisSink,
-  type AuditEvent,
-} from '../../../../../apps/api/src/control/audit.js'
+import { buildAuditPayload, newRequestId, RedisSink, type AuditEvent } from '../../../../../apps/api/src/control/audit.js'
 
 function event(overrides: Partial<AuditEvent> = {}): AuditEvent {
   return {
@@ -56,6 +51,11 @@ describe('buildAuditPayload', () => {
     })
   })
 
+  it('records the authorizing actor as subject-asserted attribution', () => {
+    const values = buildAuditPayload(event({ authorizedBy: 'account-7' }), undefined)
+    expect(JSON.parse(values.data).metadata_json.authorized_by).toBe('account-7')
+  })
+
   it('signs the data with HMAC-SHA256 when a key is supplied', () => {
     const key = Buffer.from('secret-key')
     const values = buildAuditPayload(event(), key)
@@ -84,6 +84,7 @@ describe('buildAuditPayload', () => {
       command: '',
       subcommand: '',
       reason: '',
+      authorized_by: '',
     })
   })
 })

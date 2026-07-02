@@ -16,7 +16,7 @@ caracal web
 zone -> application -> provider -> resource -> policy -> policy set -> authority session/audit
 ```
 
-Web console **Guided setup** walks the first version of that flow and can write a runtime profile for `caracal run` and SDKs.
+Web console **Guided setup** walks the first version of that flow, opening the real create form at each step. Configure `caracal run` and the SDKs separately with environment variables or a `caracal.toml` profile.
 
 ## Web Console Workflows
 
@@ -33,7 +33,7 @@ Web console **Guided setup** walks the first version of that flow and can write 
 
 ## Secrets and Credentials
 
-Application client secrets are shown once when created. Provider secrets are accepted only in provider create or rotation-style edit flows and are stored sealed by the Control API. Store application secrets in a secret manager, mounted secret file, or web-console-generated local profile before leaving the result screen. The web console masks secret-shaped fields and error output.
+Application client secrets are shown once when created. Provider secrets are accepted only in provider create or rotation-style edit flows and are stored sealed by the Control API. Copy an application secret into a secret manager or mounted secret file before leaving the create screen. The web console masks secret-shaped fields and error output.
 
 ## Automation Handoff
 

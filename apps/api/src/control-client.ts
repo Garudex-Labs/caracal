@@ -21,6 +21,21 @@ export interface ControlClientConfig {
   // protected) so this only bounds the window between mint and invoke; a short value
   // keeps the blast radius of a leaked token minimal.
   ttlSeconds?: number
+  // The zone a read invoke targets when it is not the identity's own zone. The token is still
+  // minted in the identity's home zone; this rides as a header the in-process control handler
+  // honors only for the reserved Operator reader and only for non-mutating commands, so the
+  // Operator can read a tenant zone's live state without provisioning any identity in that zone.
+  // Absent for an identity acting in its own zone, which is the common path.
+  zoneScope?: string
+  // An optional attribution string the acting identity asserts for the human or upstream
+  // authority on whose behalf it invokes. It rides in the invoke body and is recorded verbatim
+  // in the control.invoke audit metadata as a subject-asserted annotation; it is never an
+  // authorization input, so the action stays bounded entirely by the token's own scopes and zone.
+  authorizedBy?: string
+  // Marks the invoke as originating from the Caracal Operator, so an object it creates is stamped
+  // with operator co-authorship. Set only by the Operator's own governed execution path, never by
+  // direct control-plane automation.
+  coAuthorOperator?: boolean
 }
 
 // A control invoke failed. stage distinguishes a token-exchange failure from a control
@@ -108,10 +123,15 @@ export function createControlClient(config: ControlClientConfig, fetchImpl: Fetc
   return {
     async invoke(command, subcommand, flags, scopes) {
       const token = await mintToken(scopes)
+      const headers: Record<string, string> = { 'content-type': 'application/json', authorization: `Bearer ${token}` }
+      if (config.zoneScope) headers['x-caracal-zone-scope'] = config.zoneScope
+      const invokeBody: Record<string, unknown> = { command, subcommand, flags }
+      if (config.authorizedBy) invokeBody.authorized_by = config.authorizedBy
+      if (config.coAuthorOperator) invokeBody.co_author_operator = true
       const res = await fetchImpl(`${controlUrl}${CONTROL_INVOKE_PATH}`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
-        body: JSON.stringify({ command, subcommand, flags }),
+        headers,
+        body: JSON.stringify(invokeBody),
       })
       const body = await readJson(res)
       if (!res.ok) {

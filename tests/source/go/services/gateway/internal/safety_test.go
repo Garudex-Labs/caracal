@@ -6,6 +6,7 @@
 package internal
 
 import (
+	"errors"
 	"net"
 	"net/http"
 	"strings"
@@ -175,6 +176,12 @@ func TestUpstreamGuardClearsFragment(t *testing.T) {
 	}
 	if u.Fragment != "" {
 		t.Error("fragment not cleared")
+	}
+}
+
+func TestNoRedirectPolicy(t *testing.T) {
+	if err := noRedirect(nil, nil); !errors.Is(err, http.ErrUseLastResponse) {
+		t.Fatalf("noRedirect must return http.ErrUseLastResponse, got %v", err)
 	}
 }
 

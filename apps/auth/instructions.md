@@ -10,6 +10,7 @@
 - `src/config.ts` owns runtime configuration and defaults, including database connection.
 - `src/database.ts` builds the PostgreSQL pool and ensures the auth database exists.
 - `src/migrate.ts` creates or updates the authentication schema.
+- `src/mailer.ts` owns SMTP delivery for password reset and email verification messages; both flows are enabled only when `CARACAL_SMTP_URL` and `CARACAL_SMTP_FROM` are configured.
 
 ## Database
 - Runs on PostgreSQL in every environment — one uniform backend for development and production.

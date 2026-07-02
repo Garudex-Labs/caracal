@@ -31,15 +31,22 @@ function SignUpPage() {
   const [typing, setTyping] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [verifySent, setVerifySent] = useState(false);
 
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault();
     setBusy(true);
     setError(null);
-    const { error: signUpError } = await signUp.email({ name, email, password });
+    const { data, error: signUpError } = await signUp.email({ name, email, password });
     setBusy(false);
     if (signUpError) {
       setError(signUpError.message ?? "Could not create account.");
+      return;
+    }
+    // When email verification is required, sign-up creates the account without a session; the
+    // operator continues from the emailed verification link instead of the onboarding redirect.
+    if (!data?.token) {
+      setVerifySent(true);
       return;
     }
     navigate({ to: "/onboarding" });
@@ -56,49 +63,58 @@ function SignUpPage() {
         </Link>
       }
     >
-      <div className="flex flex-col gap-5">
-        <SocialButtons callbackURL={`${window.location.origin}/app`} />
-        <form onSubmit={onSubmit} className="flex flex-col gap-4">
-          <Field
-            label={t.nameLabel}
-            autoComplete="name"
-            placeholder="Ada Lovelace"
-            required
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            onFocus={() => setTyping(true)}
-            onBlur={() => setTyping(false)}
-          />
-          <Field
-            label={t.emailLabel}
-            type="email"
-            autoComplete="email"
-            placeholder="you@company.com"
-            required
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            onFocus={() => setTyping(true)}
-            onBlur={() => setTyping(false)}
-          />
-          <PasswordField
-            label={t.passwordLabel}
-            autoComplete="new-password"
-            placeholder="••••••••"
-            required
-            minLength={8}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            onRevealChange={setRevealed}
-          />
-          <p className="text-xs text-muted-foreground">At least 8 characters.</p>
+      {verifySent ? (
+        <div className="flex flex-col gap-2">
+          <p className="text-sm font-medium text-foreground">{t.verifyEmailTitle}</p>
+          <p className="text-sm text-muted-foreground">
+            {t.verifyEmailNotice} {email}.
+          </p>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-5">
+          <SocialButtons callbackURL={`${window.location.origin}/app`} />
+          <form onSubmit={onSubmit} className="flex flex-col gap-4">
+            <Field
+              label={t.nameLabel}
+              autoComplete="name"
+              placeholder="Ada Lovelace"
+              required
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onFocus={() => setTyping(true)}
+              onBlur={() => setTyping(false)}
+            />
+            <Field
+              label={t.emailLabel}
+              type="email"
+              autoComplete="email"
+              placeholder="you@company.com"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              onFocus={() => setTyping(true)}
+              onBlur={() => setTyping(false)}
+            />
+            <PasswordField
+              label={t.passwordLabel}
+              autoComplete="new-password"
+              placeholder="••••••••"
+              required
+              minLength={8}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              onRevealChange={setRevealed}
+            />
+            <p className="text-xs text-muted-foreground">At least 8 characters.</p>
 
-          {error ? <p className="text-sm text-destructive">{error}</p> : null}
+            {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
-          <Button type="submit" loading={busy} className="w-full">
-            {busy ? "Creating account…" : t.signUpCta}
-          </Button>
-        </form>
-      </div>
+            <Button type="submit" loading={busy} className="w-full">
+              {busy ? "Creating account…" : t.signUpCta}
+            </Button>
+          </form>
+        </div>
+      )}
     </AuthSplitLayout>
   );
 }

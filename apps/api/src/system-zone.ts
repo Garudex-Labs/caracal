@@ -57,10 +57,23 @@ export interface SystemZoneIdentity {
 // provider id, its base URL, and the secret key Caracal seals and injects at the gateway. The
 // key is supplied only when it is being set or rotated; an upstream already sealed in a prior
 // run carries no key here, and its provider is reconciled by identifier without re-sealing.
+// A third-party upstream the Operator must reach without holding its key directly: the
+// provider id, its base URL, the secret key Caracal seals and injects at the gateway, and where
+// that key is injected. The key is supplied only when it is being set or rotated; an upstream
+// already sealed in a prior run carries no key here, and its provider is reconciled by
+// identifier without re-sealing. auth defaults to an Authorization Bearer header.
+export interface UpstreamAuth {
+  location: 'header' | 'query'
+  headerName?: string
+  authScheme?: string
+  queryParamName?: string
+}
+
 export interface GovernedUpstream {
   id: string
   baseUrl: string
   apiKey?: string
+  auth?: UpstreamAuth
 }
 
 // The reserved, single system-zone policy and policy-set that carry the Operator's
@@ -172,27 +185,37 @@ async function ensureOperatorIdentity(admin: AdminClient, zoneId: string, secret
 }
 
 // Seals an upstream's api key into a Caracal api_key provider the gateway injects at call
-// time, so the Operator never holds the key. When a key is supplied it is reconciled (the
-// sealed secret cannot be read back to compare), so setting or rotating a key and applying
-// updates the protected credential. When no key is supplied the upstream was sealed in a prior
-// run, so the existing provider is resolved by identifier and left untouched; a missing
-// provider returns null, marking the upstream unconfigured so no resource binds a dead
-// credential. allow_runtime_injection lets the gateway inject it for a runtime exchange, not
-// only a gateway-authenticated one.
+// time, so the Operator never holds the key. The key's placement (header name and scheme, or a
+// query parameter) is whatever the upstream expects, so any OpenAI-compatible provider works
+// without per-vendor handling. When a key is supplied it is reconciled with the placement (the
+// sealed secret cannot be read back, so setting or rotating re-seals). When no key is supplied
+// but the placement may have changed, the existing provider's public config is patched without
+// resupplying the key, so an edit applies and the sealed secret is preserved. A missing provider
+// with no key returns null, marking the upstream unconfigured so no resource binds a dead
+// credential. allow_runtime_injection lets the gateway inject it for a runtime exchange.
 async function ensureApiKeyProvider(admin: AdminClient, zoneId: string, upstream: GovernedUpstream): Promise<string | null> {
   const identifier = llmProviderIdentifier(upstream.id)
   const providers = await admin.providers.list(zoneId)
   const existing = providers.find((provider) => provider.identifier === identifier)
+  const auth = upstream.auth ?? { location: 'header', headerName: 'Authorization', authScheme: 'Bearer' }
+  const placement =
+    auth.location === 'query'
+      ? { auth_location: 'query' as const, query_param_name: auth.queryParamName || 'api_key' }
+      : {
+          auth_location: 'header' as const,
+          header_name: auth.headerName || 'Authorization',
+          ...(auth.authScheme ? { auth_scheme: auth.authScheme } : {}),
+        }
+  const publicConfig = { ...placement, allow_runtime_injection: true }
+
   if (upstream.apiKey === undefined) {
-    return existing?.id ?? null
+    // No key to (re)seal: keep the sealed secret and only reconcile placement on an existing
+    // provider; without one there is nothing to configure.
+    if (!existing) return null
+    await admin.providers.patch(zoneId, existing.id, { config_json: publicConfig })
+    return existing.id
   }
-  const config = {
-    auth_location: 'header' as const,
-    header_name: 'Authorization',
-    auth_scheme: 'Bearer',
-    api_key: upstream.apiKey,
-    allow_runtime_injection: true,
-  }
+  const config = { ...publicConfig, api_key: upstream.apiKey }
   if (!existing) {
     const created = await admin.providers.create(zoneId, {
       name: `Operator LLM ${upstream.id}`,

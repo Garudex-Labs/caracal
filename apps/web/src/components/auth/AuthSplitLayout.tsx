@@ -29,13 +29,7 @@ export function AuthSplitLayout({
         style={{ backgroundColor: "#121016" }}
       >
         <Link to="/" className="relative z-10 flex items-center">
-          <img
-            src="/caracal_dark.png"
-            alt="Caracal"
-            className="h-36 w-auto"
-            width={280}
-            height={64}
-          />
+          <img src="/caracal_dark.png" alt="Caracal" className="h-auto w-56 max-w-full" />
         </Link>
 
         <div className="relative z-10 flex items-end justify-center">

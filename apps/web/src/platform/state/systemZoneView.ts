@@ -12,11 +12,6 @@ This file holds the per-tab read-only system-zone viewer latch shared by the API
 const SYSTEM_ZONE_VIEW_PARAM = "systemZone";
 const SYSTEM_ZONE_VIEW_KEY = "caracal.systemZoneView";
 
-// The relative URL that opens the reserved system zone in a new, read-only viewer tab.
-export function systemZoneViewPath(): string {
-  return `/app?${SYSTEM_ZONE_VIEW_PARAM}=1`;
-}
-
 // Whether this browser tab is the read-only system-zone viewer. Reads the URL parameter first,
 // latching it so a later in-tab navigation that drops the query string still resolves to the
 // viewer, then falls back to the latch. Pure and synchronous so the API client can consult it on

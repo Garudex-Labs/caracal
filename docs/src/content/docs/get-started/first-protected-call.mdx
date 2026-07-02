@@ -4,7 +4,7 @@ description: Start Caracal, create one protected resource, call it through the G
 pageType: workflow
 ---
 
-This walkthrough creates the baseline every later tutorial assumes: a running local stack, one zone, one confidential agent app, one protected resource, one active policy, one runtime profile, and one audited Gateway call.
+This walkthrough creates the baseline every later tutorial assumes: a running local stack, one zone, one confidential agent app, one protected resource, one active policy, runtime configuration, and one audited Gateway call.
 
 Complete [Install Caracal](/get-started/install-caracal/) first.
 
@@ -46,41 +46,62 @@ docker run --rm -d --name caracalDemoUpstream --network caracalData nginx:stable
 
 Use `http://caracalDemoUpstream:80` as the resource upstream URL in guided setup. If you already have an HTTP service that the Gateway container can reach, you can use that URL instead.
 
-## Create a Protected Resource
+## Sign In and Create Your First Zone
 
 Open the packaged web console at [http://localhost:3001](http://localhost:3001). The Compose stack maps that localhost port to the web BFF container and serves the SPA same-origin with the console API.
 
-Choose **Guided setup** and use these first-run choices:
+The first launch asks you to **sign up** (or **sign in**), then runs a short onboarding flow:
 
-| Step | First-run choice |
+1. **Profile** — your operator name and avatar.
+2. **Zone** — create your first zone. A zone is Caracal's primary trust boundary; it isolates applications, resources, policies, and audit.
+3. **Review** — confirm and finish.
+
+Onboarding lands you in the console for that zone. The browser address follows an `account → org → zone` hierarchy (`/<accountId>/<orgId>/<zoneId>/app/...`); use the zone selector to switch zones, and every zone-scoped page acts on the selected zone.
+
+## Build the Access Chain with Guided Setup
+
+The console opens **Guided setup**, a short walkthrough that explains each building block and opens its real create form. Work through the steps in order:
+
+| Step | What you create |
 | --- | --- |
-| Scenario | **Internal HTTP API** |
-| Zone | Create a local evaluation zone. |
-| Agent app | Create a confidential app for the workload. |
-| Resource | Use a stable resource ID, required scopes, and the upstream URL you chose. |
-| Provider | Skipped for the internal HTTP API scenario. |
-| Access policy | Let the web console create and activate the starter policy. |
-| Review | Enable **write profile files** when this machine should receive the runtime profile and secret file. |
+| Application | A confidential agent app for the workload. The create form shows the client secret **once** — copy it now; it cannot be retrieved later, only rotated. |
+| Provider | The upstream credential source. Skip this step for an internal HTTP API that needs no upstream credential. |
+| Resource | A stable resource identifier, its scopes, and the upstream URL you chose (for example `http://caracalDemoUpstream:80`), bound to a Gateway application. |
+| Policy | A starter policy. Activate it — the zone denies every request until a policy is active. |
 
-The result view shows the zone ID, application ID, resource ID, app client secret, active policy set, profile path, secret-file path, generated profile, and first-success commands.
+Guided setup ticks each step off from live zone data and opens the same Applications, Providers, Resources, and Policies forms you reach from the console navigation.
 
-## Save the Runtime Profile
+## Configure Runtime Access
 
-Guided setup can write the runtime profile and secret file for you. Enable **write profile files** when you want the web console to create them on the current machine.
+The console does not write configuration to your machine. After creating the objects above, configure `caracal run` and the SDKs with the zone, application, and client secret you just created. Use either environment variables or a `caracal.toml` runtime profile.
 
-If file writing is disabled, copy the generated TOML profile and one-time app client secret from the result view into the paths the web console shows. Keep the secret file readable only by the owner.
+**Environment variables** — the quickest path for a single workload:
 
-The generated profile is the source of runtime configuration for:
+```sh
+export CARACAL_ZONE_ID=<zone ID>
+export CARACAL_APPLICATION_ID=<application ID>
+export CARACAL_APP_CLIENT_SECRET=<client secret shown once>
+```
 
-- `CARACAL_CONFIG=... caracal run -- <command>`
-- `new Caracal()` in TypeScript and `Caracal()` in Python
-- `caracal.New()` in Go
+**Runtime profile** — a `caracal.toml` you author once and reuse. `caracal run` and the SDKs resolve it from `$CARACAL_CONFIG`, then `$XDG_CONFIG_HOME/caracal/caracal.toml`, then the OS Caracal config directory:
 
-Always generate a profile from the objects you just created instead of hand-authoring runtime configuration.
+```toml
+zone_url = "http://localhost:8080"
+gateway_url = "http://localhost:8081"
+zone_id = "<zone ID>"
+application_id = "<application ID>"
+app_client_secret_file = "/path/to/secret"
+
+[[credentials]]
+env = "EXAMPLE_API_TOKEN"
+resource = "resource://example-api"
+```
+
+Each `[[credentials]]` entry names an environment variable and the resource whose scoped token `caracal run` injects into it. Store the client secret in an owner-only file (`app_client_secret_file`) or a secret manager rather than inline. Local dev and stable stacks can also auto-detect credential files under the OS Caracal config directory.
 
 ## Run Your Workload
 
-Use the generated profile path with the command that starts your workload:
+Run your workload through `caracal run`. With `CARACAL_CONFIG` set (or the environment variables above exported):
 
 ```sh
 CARACAL_CONFIG=/path/to/caracal.toml caracal run -- ./start-agent.sh
@@ -95,18 +116,18 @@ caracal run -- .\start-agent.ps1
 
 `caracal run` exchanges the configured application secret for resource-specific Caracal access tokens and injects them into the environment variables named in the profile. The workload reads those variables and presents the token to the Gateway or protected service.
 
-For SDK-based workloads, the same generated profile is read by the SDK constructors (`new Caracal()`, `Caracal()`, `caracal.New()`).
+For SDK-based workloads, the same runtime profile or environment variables are read by the SDK constructors (`new Caracal()`, `Caracal()`, `caracal.New()`).
 
 ## Call the Gateway
 
-For a Gateway-routed HTTP resource, send the request to the Gateway URL from the result view and include:
+For a Gateway-routed HTTP resource, send the request to the Gateway URL (`http://localhost:8081` on the local stack) and include:
 
 | Header | Value |
 | --- | --- |
 | `Authorization` | `Bearer <Caracal access token>` |
-| `X-Caracal-Resource` | The resource ID from guided setup. |
+| `X-Caracal-Resource` | The resource identifier you created in guided setup. |
 
-Run the exact `curl` or PowerShell command from the web console result view first. It uses the resource ID, protected path, and profile values you just created.
+`caracal run` injects the scoped token into the environment variable named by your `[[credentials]]` entry, so the workload reads that variable and presents the token. The SDK helpers `gatewayRequest()` / `GatewayRequest()` build this URL and header for you.
 
 ## Inspect Audit
 
@@ -114,7 +135,7 @@ Return to the web console:
 
 1. Open **Audit**.
 2. Find the request you just made.
-3. Open the event detail, or open **Request Traces** and paste its request ID.
+3. Open the event detail to follow its full decision trace, which is built into the audit view.
 
 The explanation should show the application, resource, requested scopes, policy version, policy set version, Gateway result, and final decision. If the request failed, the explanation identifies whether to fix runtime config, policy, resource routing, or the upstream service.
 

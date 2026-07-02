@@ -19,7 +19,7 @@ flowchart LR
 
 ## Start with the Request ID
 
-Find the request ID from the SDK error, STS response, Gateway response, web console audit event, or application log. Open web console **Request Traces** and paste it.
+Find the request ID from the SDK error, STS response, Gateway response, web console audit event, or application log. Open web console **Audit**, filter by the request ID, and open its decision trace.
 
 The trace should show:
 
@@ -31,7 +31,7 @@ The trace should show:
 - final decision;
 - Gateway result when the request reached Gateway.
 
-If you do not have a request ID, reproduce the request with the generated profile and capture the SDK, STS, or Gateway output.
+If you do not have a request ID, reproduce the request with your runtime configuration and capture the SDK, STS, or Gateway output.
 
 ## Common Authorization Failures
 

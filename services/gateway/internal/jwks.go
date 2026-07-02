@@ -56,7 +56,7 @@ type jwksCache struct {
 func newJWKSCache(stsURL string, timeout time.Duration, log zerolog.Logger) *jwksCache {
 	return &jwksCache{
 		stsURL:   strings.TrimRight(stsURL, "/"),
-		client:   &http.Client{Timeout: timeout},
+		client:   &http.Client{Timeout: timeout, CheckRedirect: noRedirect},
 		log:      log,
 		zones:    map[string]*zoneKeys{},
 		lastMiss: map[string]time.Time{},

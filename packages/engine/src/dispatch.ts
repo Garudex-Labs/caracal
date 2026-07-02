@@ -3,7 +3,7 @@
 //
 // Shared command dispatcher: validates management requests and forwards them to AdminClient for Control automation.
 
-import type { AdminClient } from '@caracalai/admin'
+import { AdminApiError, type AdminClient } from '@caracalai/admin'
 import { MANAGEMENT_COMMANDS, findCommand, scopeName, scopeFor, type CommandDescriptor, type ScopeVerb } from './commands.js'
 import { reconcile, ensure, parseDesiredState, OBJECT_KINDS, type ReconcileDeps, type ReconcileReport } from './reconcile.js'
 
@@ -127,12 +127,6 @@ function getJsonObject(flags: FlagMap | undefined, key: string): Record<string, 
   return parsed as Record<string, unknown>
 }
 
-function mustJsonObject(flags: FlagMap | undefined, key: string): Record<string, unknown> {
-  const value = getJsonObject(flags, key)
-  if (!value) invalid(`flag "${key}" is required`)
-  return value
-}
-
 function getNum(flags: FlagMap | undefined, key: string): number | undefined {
   const v = flags?.[key]
   if (typeof v === 'number') return v
@@ -197,12 +191,19 @@ function requireZone(principal: Principal): string {
 
 type Handler = (input: { sub: string; flags: FlagMap; principal: Principal; ctx: DispatchContext }) => Promise<unknown>
 
-function bySubcommand(handlers: Record<string, Handler>): Handler {
-  return async (input) => {
+/** A subcommand router that also reports which subcommands it implements, so handler coverage can
+ * be asserted against the catalog instead of only discovered when a dispatch fails. */
+interface SubcommandHandler extends Handler {
+  readonly handledSubcommands: readonly string[]
+}
+
+function bySubcommand(handlers: Record<string, Handler>): SubcommandHandler {
+  const route: Handler = async (input) => {
     const h = handlers[input.sub]
     if (!h) unsupported(`subcommand "${input.sub}" not implemented`)
     return h(input)
   }
+  return Object.assign(route, { handledSubcommands: Object.freeze(Object.keys(handlers)) })
 }
 
 const zoneHandler = bySubcommand({
@@ -279,9 +280,9 @@ const providerHandler = bySubcommand({
   create: ({ principal, flags, ctx }) =>
     ctx.admin.providers.create(requireZone(principal), {
       name: mustStr(flags, 'name'),
-      identifier: mustStr(flags, 'identifier'),
+      identifier: getStr(flags, 'identifier'),
       kind: mustStr(flags, 'kind') as never,
-      config_json: mustJsonObject(flags, 'config'),
+      config_json: getJsonObject(flags, 'config'),
     } as never),
   patch: ({ principal, flags, ctx }) =>
     ctx.admin.providers.patch(requireZone(principal), mustStr(flags, 'id'), {
@@ -493,6 +494,34 @@ function commandHandler(command: string): Handler | undefined {
 }
 
 /**
+ * Catalog commands the engine intentionally does not route to Control. They are served by the
+ * local runtime surface (operator diagnostics, the in-process control-plane lifecycle, manifest
+ * validation, shell completion) and carry no dispatcher arm by design.
+ */
+export const LOCAL_ONLY_COMMANDS: readonly string[] = Object.freeze(['doctor', 'manifest', 'control', 'completion'])
+
+/**
+ * Subcommands of engine-routed commands that run locally rather than through Control. `zone use`
+ * selects the active local zone for subsequent commands and never reaches the Control API.
+ */
+export const LOCAL_ONLY_SUBCOMMANDS: Readonly<Record<string, readonly string[]>> = Object.freeze({
+  zone: Object.freeze(['use']),
+})
+
+/**
+ * What the dispatcher implements for a catalog command, so handler coverage can be verified:
+ *  - `'local-only'` when no dispatcher arm exists (the command runs on the local runtime surface),
+ *  - `'all'` when a single handler accepts every declared subcommand,
+ *  - the explicit list of implemented subcommands for a subcommand router.
+ */
+export function engineHandlerCoverage(command: string): 'local-only' | 'all' | readonly string[] {
+  const handler = commandHandler(command)
+  if (!handler) return 'local-only'
+  const subs = (handler as Partial<SubcommandHandler>).handledSubcommands
+  return subs ?? 'all'
+}
+
+/**
  * Validate and execute a dispatch request against the canonical catalog. Throws DispatchError on rejection.
  * Local principals skip scope checks. Remote principals (Control) must carry the per-resource scope
  * derived from `scopeName(descriptor, subcommand)`.
@@ -514,12 +543,52 @@ export async function dispatch(req: DispatchRequest, principal: Principal, ctx: 
   assertScope(principal, desc, req.subcommand)
   const handler = commandHandler(desc.name)
   if (!handler) unsupported(`command "${req.command}" has no handler`)
-  return handler({
-    sub: req.subcommand,
-    flags: req.flags ?? {},
-    principal,
-    ctx,
-  })
+  try {
+    return await handler({
+      sub: req.subcommand,
+      flags: req.flags ?? {},
+      principal,
+      ctx,
+    })
+  } catch (err) {
+    if (err instanceof AdminApiError) throw fromAdminError(err)
+    throw err
+  }
+}
+
+// The control-plane detail carried on an AdminApiError body, such as the Rego compile error a
+// policy create is rejected with. It is a validation message, never a secret, so it is safe to
+// surface to the caller who authored the rejected input.
+function adminErrorDetail(err: AdminApiError): string | undefined {
+  const body = err.body
+  if (body && typeof body === 'object' && !Array.isArray(body)) {
+    const detail = (body as { detail?: unknown }).detail
+    if (typeof detail === 'string' && detail.length > 0) return detail
+  }
+  return undefined
+}
+
+// Translates a control-plane rejection (an AdminApiError the AdminClient raised for a non-2xx
+// response) into a DispatchError whose code the control surface maps to the right HTTP status, so
+// a caller sees the real reason — an invalid document, a conflict, a missing target — instead of a
+// generic upstream error. A 5xx or unknown status stays 'upstream' because the mutation may have
+// applied, so the plan must not be retried.
+function fromAdminError(err: AdminApiError): DispatchError {
+  const detail = adminErrorDetail(err)
+  const message = detail ? `${err.code}: ${detail}` : err.code
+  switch (err.status) {
+    case 400:
+    case 422:
+      return new DispatchError('invalid', message)
+    case 403:
+      return new DispatchError('denied', message)
+    case 404:
+      return new DispatchError('not_found', message)
+    case 409:
+      return new DispatchError('conflict', message)
+    default:
+      return new DispatchError('upstream', message)
+  }
 }
 
 /** Lists the (command, subcommand, scope) triples the Control API exposes: used by tests and documentation. */

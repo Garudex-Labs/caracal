@@ -59,7 +59,7 @@ Open the packaged or development URL in a browser, sign in to the session-guarde
 
 | Section | What it manages |
 | --- | --- |
-| **Guided setup** | First zone, agent app, provider, resource, access policy, and runtime profile. |
+| **Guided setup** | First zone, agent app, provider, resource, and access policy. |
 | **Caracal Operator** | Operate the control plane from natural-language intent: describe a change, review the resolved plan, and apply it within your operator scope. |
 | **Zones** | Zone records and active zone selection. |
 | **Applications** | Confidential agent applications and one-time client secrets. |
@@ -70,8 +70,7 @@ Open the packaged or development URL in a browser, sign in to the session-guarde
 | **Sessions** | Active authority-session records. |
 | **Agents** | Agent sessions, lifecycle, lease health, and session trees. |
 | **Delegation** | Authority edges between agent sessions. |
-| **Audit** | Recent decisions, filters, event details, and request trace entry points. |
-| **Request Traces** | Direct lookup for one known request ID. |
+| **Audit** | Recent decisions, filters, event details, and built-in request tracing. |
 | **Control** | Control API exposure and Control credentials. |
 | **Diagnostics** | Health, readiness, zone, and preflight checks. |
 
@@ -126,11 +125,11 @@ Ask mode is enforced in two independent places, so a read-only conversation is p
 
 ### Autopilot
 
-In agent mode you can engage autopilot, which lets Caracal auto-satisfy the approval step for changes it has pre-authorized as low-risk. Autopilot reduces the toil of approving routine changes while keeping the decision of what may be auto-approved entirely in Caracal — never with the model. It is off by default, and engaging it for a conversation can never widen what it may approve: that is fixed by a policy set in the platform configuration.
+In agent mode you can engage autopilot, which lets Caracal auto-satisfy the approval step for every plan in the conversation. Engaging autopilot is an explicit opt-in to acting without a human in the loop: once on, Caracal — never the model — auto-approves each plan so you no longer confirm changes one by one. It is off by default and is engaged per conversation; a platform-level master switch must also be on for autopilot to be available at all.
 
-The policy is deliberately narrow and safe by default. A deployment turns autopilot on with a master switch and gives it an explicit allowlist of low-risk capabilities; with the switch off or the allowlist empty — the defaults — autopilot approves nothing at all. Even within the allowlist, Caracal forces a change to a human whenever any of these hold: the capability is a major change like granting access or rotating a credential (these can never be auto-approved, even if allowlisted); the plan has more steps than the per-plan limit; the conversation has already used its rolling auto-approval budget; the preview is anything other than a clean create or update; or the advisory security review raised a warning. Any one trigger stops for a person, and all of them are evaluated by Caracal deterministically, not by the model.
+Auto-approval never widens authority. It only fills the human-approval step — the governed execute path still applies every change through the same controls as a human-approved one: the Operator's capability allowlist, its least-privilege executor token, and zone isolation all remain in force, so autopilot can only do what the Operator was already permitted to do.
 
-When autopilot approves a plan, the approval is recorded as a first-class turn attributed to autopilot and to you — the operator acting in the conversation — never to the model, so every auto-approved change stays attributable and reviewable on the timeline. The change still applies through the same governed path as any other, and the platform-level master switch is a single kill switch: turning it off stops all auto-approval on the next turn. Major, non-allowlisted, or anything-ambiguous always waits for a human.
+When autopilot approves a plan, the approval is recorded as a first-class turn attributed to autopilot and to you — the operator acting in the conversation — never to the model, so every auto-approved change stays attributable and reviewable on the timeline. The platform-level master switch is a single kill switch: turning it off stops all auto-approval on the next turn.
 
 ### Natural-language provider
 
@@ -160,18 +159,18 @@ A session can run long, so the Operator does not re-read the whole transcript ea
 
 ## Guided Setup
 
-Guided setup creates or selects the first working objects:
+Guided setup is a coachmark walkthrough that orients you, then opens the real create form for each building block in order:
 
-1. Zone
+1. Orientation
 2. Agent app
 3. Provider
 4. Resource
 5. Access policy
-6. Review and create
+6. Verify
 
-Important guided fields include `upstream URL`, `first request path`, `runtime profile`, `write profile files`, `profile path`, `secret file`, `resource identifier`, and `resource scopes`.
+Each step opens the same Applications, Providers, Resources, and Policies forms you reach from the navigation and ticks off as live zone data satisfies it. Important guided fields include the `resource identifier`, `resource scopes`, `upstream URL`, and `Gateway application binding`. The application form shows the client secret once; copy it before leaving the step.
 
-Use file writing when you want the web console to create the runtime profile and secret file locally. Leave it disabled when a platform secret manager or CI system will provide those values.
+Guided setup creates product objects only. Configure `caracal run` and the SDKs afterward with environment variables or a `caracal.toml` profile, as described in [Configure Workloads](/runtime-console/config-file/).
 
 ## Troubleshooting
 

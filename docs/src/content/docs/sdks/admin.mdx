@@ -30,7 +30,7 @@ const admin = new AdminClient({
 
 | Group | Methods |
 | --- | --- |
-| `zones` | `list`, `get`, `create`, `patch`, `delete` |
+| `zones` | `list`, `get`, `dcrStatus`, `create`, `patch`, `delete` |
 | `applications` | `list`, `get`, `create`, `patch`, `delete`, `dcr` |
 | `resources` | `list`, `get`, `create`, `patch`, `delete` |
 | `providers` | `list`, `get`, `create`, `patch`, `delete` |
@@ -38,9 +38,13 @@ const admin = new AdminClient({
 | `policyTemplates` | `list`, `get` |
 | `policySets` | `list`, `get`, `create`, `addVersion`, `simulate`, `activate`, `delete` |
 | `grants` | `list`, `get`, `create`, `revoke` |
+| `providerGrants` | `create`, `authorizeOAuth`, `revoke` |
 | `sessions` | `list` |
+| `agentSessions` | `list` |
 | `audit` | `list`, `byRequest`, `explain` |
-| `agents` | `list`, `get`, `children`, `suspend`, `resume`, `terminate` |
+| `adminAudit` | `list` |
+| `stepUpChallenges` | `list`, `get`, `satisfy` |
+| `agents` | `list`, `get`, `children`, `suspend`, `resume`, `terminate`, `effectiveAuthority` |
 | `delegations` | `active`, `inbound`, `outbound`, `traverse`, `impact`, `revoke` |
 
 ## Policy activation example

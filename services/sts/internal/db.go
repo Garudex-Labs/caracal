@@ -77,7 +77,7 @@ type DBQuerier interface {
 	GetDelegationPath(ctx context.Context, zoneID, sourceID, targetID string, maxHops int) ([]string, error)
 	GetDelegationGraphEpoch(ctx context.Context, zoneID string) (int64, error)
 	InsertSession(ctx context.Context, s *Session) error
-	RevokeSession(ctx context.Context, zoneID, sid string) error
+	RevokeSession(ctx context.Context, zoneID, sid, reason string) error
 	GetStepUpChallenge(ctx context.Context, id string) (*StepUpChallengePG, error)
 	InsertStepUpChallenge(ctx context.Context, c *StepUpChallengePG) error
 	SatisfyStepUpChallenge(ctx context.Context, id string) error
@@ -393,7 +393,10 @@ func (d *DB) InsertSession(ctx context.Context, s *Session) error {
 	return err
 }
 
-func (d *DB) RevokeSession(ctx context.Context, zoneID, sid string) error {
+func (d *DB) RevokeSession(ctx context.Context, zoneID, sid, reason string) error {
+	if reason == "" {
+		reason = "session_revoked"
+	}
 	_, err := d.pool.Exec(ctx,
 		`WITH RECURSIVE revoked_tree AS (
 		   SELECT id FROM sessions WHERE id = $1 AND zone_id = $2
@@ -402,9 +405,11 @@ func (d *DB) RevokeSession(ctx context.Context, zoneID, sid string) error {
 		   JOIN revoked_tree r ON s.parent_id = r.id
 		   WHERE s.zone_id = $2
 		 )
-		 UPDATE sessions SET status = 'revoked'
+		 UPDATE sessions SET status = 'revoked',
+		   revoked_at = COALESCE(revoked_at, now()),
+		   revoked_reason = COALESCE(revoked_reason, $3)
 		 WHERE zone_id = $2 AND id IN (SELECT id FROM revoked_tree)`,
-		sid, zoneID,
+		sid, zoneID, reason,
 	)
 	return err
 }

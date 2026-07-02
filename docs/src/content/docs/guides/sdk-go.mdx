@@ -1,6 +1,6 @@
 ---
 title: Integrate the Go SDK
-description: Install the Go SDK, load a generated profile, spawn agents with context.Context, delegate authority, and inject Caracal headers.
+description: Install the Go SDK, load a runtime profile, spawn agents with context.Context, delegate authority, and inject Caracal headers.
 ---
 
 Use the Go SDK in services and agents that need Caracal context propagation, agent sessions, delegation, and Gateway-aware HTTP clients.
@@ -42,7 +42,7 @@ func main() {
 }
 ```
 
-`New()` loads `CARACAL_CONFIG`, the default generated profile, or environment variables.
+`New()` loads `CARACAL_CONFIG`, a `caracal.toml` in the default config path, or environment variables.
 
 ## Use an HTTP client
 
@@ -107,9 +107,9 @@ A plain `client.Spawn` runs the child under the application's authority. Set `Sp
 
 | Symptom | Check |
 | --- | --- |
-| Missing config error | Confirm generated profile or required environment variables. |
+| Missing config error | Confirm the runtime profile or required environment variables. |
 | `Headers` without context fails | Call inside `Spawn`, `Delegate`, or pass `RootOptions{AllowRoot: true}` intentionally. |
 | Delegation fails | Ensure delegation runs from a context with an active agent session. |
-| Gateway URL error | Confirm the generated profile includes `gateway_url`. |
+| Gateway URL error | Confirm the runtime profile includes `gateway_url`. |
 
 Related pages: [Protect a Go net/http Service](/guides/protect-nethttp/) and [Agent Delegation](/concepts/delegation/).

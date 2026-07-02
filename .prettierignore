@@ -1,0 +1,2 @@
+# Generated documentation corpus the Operator retrieves over; regenerate with apps/api/scripts/build-docs-corpus.mjs
+apps/api/src/operator-docs-corpus.ts

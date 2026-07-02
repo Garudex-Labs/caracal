@@ -1,6 +1,6 @@
 - Scope: `playbooks/` contains end-user Caracal playbooks and contributor rules for maintaining them.
 - Must keep `README` user-facing and keep `instructions.md` contributor-facing.
-- Must keep the layer directories limited to `policies`, `sdks`, and `mapping`.
+- Must keep the layer directories limited to `sdks` and `compliance`.
 - Must keep supported agent directories limited to `claude-code`, `github-copilot`, and `openai-codex`.
 - Must write playbooks as copy-paste guidance for a user's own project, not for working inside the Caracal repository.
 - Must use concise Markdown with direct instructions and clear placeholders.

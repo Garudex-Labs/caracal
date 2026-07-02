@@ -23,6 +23,7 @@ Caracal gives agents short-lived, policy-approved authority instead of long-live
 | [Delegation Constraints](/concepts/constraint/) | The limits attached to delegated authority. |
 | [Sessions and Revocation](/concepts/sessions-revocation/) | How active authority is ended and propagated. |
 | [Audit and Request Traces](/concepts/audit-ledger/) | The event trail behind decisions and runs. |
+| [Caracal Operator](/concepts/operator/) | The governed natural-language assistant for control-plane changes. |
 
 ## Core Flow
 
@@ -40,7 +41,7 @@ flowchart LR
 
 The same model appears across the product:
 
-- Onboarding uses the web console guided setup to create the first zone, application, resource, policy, and runtime profile.
+- Onboarding uses the web console guided setup to create the first zone, application, resource, and policy, then you configure runtime access with environment variables or a `caracal.toml` profile.
 - Guides use the SDKs, Console, Admin API, and connectors to build repeatable integrations.
 - Operations pages use the same terms when explaining keys, revocation, audit, and runtime health.
 
@@ -58,6 +59,8 @@ The same model appears across the product:
 | Mandate | Short-lived JWT issued by the STS after policy approval. | [Mandates](/concepts/mandate/) |
 | Delegation edge | Bounded authority transfer between agent sessions. | [Agent Delegation](/concepts/delegation/) |
 | Revocation anchor | Session, root session, agent session, or delegation edge checked by resource servers. | [Sessions and Revocation](/concepts/sessions-revocation/) |
+| Caracal Operator | Governed natural-language assistant that turns intent into reviewed control-plane changes. | [Caracal Operator](/concepts/operator/) |
+| System zone | Reserved `caracal.sys/` zone for the infrastructure that runs Caracal. | [Zones](/concepts/zone/#system-zone) |
 
 ## What to Read Next
 

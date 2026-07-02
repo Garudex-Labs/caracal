@@ -63,7 +63,7 @@ const starter = await admin.policyTemplates.get("resource-grants");
 | `label-confinement` | Cap every session carrying a label prefix to a fixed scope set. |
 | `zone-restriction` | A deny overlay that freezes the zone while an entry is present. |
 
-For agent-assisted authoring, use the [policy authoring playbook](https://github.com/Garudex-Labs/caracal/tree/main/playbooks/policies). It guides a coding agent to model the use case as grant, binding, and confinement data inside the documented contract.
+For assisted authoring, describe the outcome to the [Caracal Operator](/concepts/operator/#authoring-policy). Its policy author models the use case as grant, binding, and confinement data, validates and previews each document against the platform contract, and proposes a governed create you review and approve — so the policy that lands is already contract-valid.
 
 ## How your data maps to the request
 
@@ -94,7 +94,7 @@ const admin = new AdminClient({
 
 const validation = await admin.policies.validate(policySource);
 if (!validation.valid) {
-  throw new Error(validation.detail);
+  throw new Error("policy failed validation");
 }
 ```
 
@@ -152,29 +152,6 @@ Use `rules` to confirm the document defines the data tables you intended. The
 preview is a static read of the source; for an end-to-end decision run a
 [simulation](/guides/activate-policy-set/) with representative input against the
 platform decision contract.
-
-### Preview how the policy behaves
-
-A successful validation returns a `preview` describing exactly what the engine
-parsed, so you can confirm the backend reads your policy the way you intend
-before activating it:
-
-```ts
-const { preview } = await admin.policies.validate(policySource);
-// preview = {
-//   package: "caracal.authz",
-//   rules: ["result"],
-//   default_result: true,            // a default deny fallback exists
-//   decisions: ["allow", "deny"],    // outcomes the policy can emit
-//   inputs_referenced: ["input.context.requested_scopes", "input.resource.identifier"],
-//   data_referenced: ["data.allowed_scopes"],
-// }
-```
-
-Use `inputs_referenced` to confirm you are gating on the right contract fields,
-and `data_referenced` to see which external `data` tables you must supply. The
-preview is a static read of the source; for an end-to-end decision run a
-[simulation](/guides/activate-policy-set/) with representative input.
 
 ## Iterate from a denied request
 

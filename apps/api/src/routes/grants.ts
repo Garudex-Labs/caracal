@@ -890,7 +890,8 @@ export const grantsRoutes: FastifyPluginAsync = async (fastify) => {
       // hold a long-running UPDATE lock or flood the outbox in a single batch.
       while (true) {
         const { rows: sessions } = await client.query<{ id: string }>(
-          `UPDATE sessions SET status = 'revoked'
+          `UPDATE sessions SET status = 'revoked',
+                  revoked_at = now(), revoked_reason = 'grant_revoked'
            WHERE id IN (
              SELECT id FROM sessions
              WHERE zone_id = $1 AND status = 'active' AND subject_id = $2

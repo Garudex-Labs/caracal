@@ -9,15 +9,12 @@ import { useSyncExternalStore, useState } from "react";
 
 import { getActiveZoneId, setActiveZoneId } from "@/platform/state/localInstall";
 import { isSystemZone } from "@/platform/state/zones";
-import {
-  clearSystemZoneViewLatch,
-  isSystemZoneViewTab,
-  systemZoneViewPath,
-} from "@/platform/state/systemZoneView";
+import { clearSystemZoneViewLatch, isSystemZoneViewTab } from "@/platform/state/systemZoneView";
+import { systemZoneViewPath } from "@/platform/nav/appLink";
 
 export { systemZoneViewPath };
 
-import { consoleApi } from "./client";
+import { ConsoleApiError, consoleApi } from "./client";
 import type {
   Application,
   ApplicationInput,
@@ -33,6 +30,8 @@ import type {
   OperatorConversationMode,
   OperatorAiProviderInput,
   OperatorAiProviderPatch,
+  OperatorPlanInput,
+  OperatorProgressStage,
   Policy,
   PolicyInput,
   PolicyManifestEntry,
@@ -291,6 +290,12 @@ export function useOperatorTurns(zoneId: string | null, conversationId: string |
     queryFn: ({ signal }) =>
       consoleApi.operator.listTurns(zoneId as string, conversationId as string, signal),
     enabled: !!zoneId && !!conversationId,
+    // The transcript is the durable ledger, and a message sent just before leaving the page is
+    // recorded server-side even though its send was aborted on unmount. Under the global 15s
+    // staleTime the cache would be served without that turn when the operator returns quickly,
+    // hiding their own message and any plan left awaiting approval. Reload on every mount so
+    // reopening a conversation always reflects the authoritative ledger.
+    refetchOnMount: "always",
   });
 }
 
@@ -322,15 +327,75 @@ function invalidateConversation(
 export function useSendOperatorMessage(zoneId: string | null, conversationId: string | null) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (input: { message: string; provider?: string }) =>
+    mutationFn: (input: {
+      message: string;
+      provider?: string;
+      clientMessageId?: string;
+      correlationId?: string;
+      signal?: AbortSignal;
+      onStage?: (stage: OperatorProgressStage) => void;
+      onToken?: (text: string) => void;
+      onReasoning?: (text: string) => void;
+    }) =>
       consoleApi.operator.sendMessage(
         zoneId as string,
         conversationId as string,
         input.message,
         input.provider,
+        input.onStage ?? (() => {}),
+        input.onToken,
+        input.onReasoning,
+        {
+          signal: input.signal,
+          clientMessageId: input.clientMessageId,
+          correlationId: input.correlationId,
+        },
       ),
     onSuccess: () => invalidateConversation(qc, zoneId, conversationId),
   });
+}
+
+// A governed action button on a policy draft proposes its change as a plan turn through the same
+// path a natural-language plan takes: the plan is validated and recorded, then decided and applied
+// under the existing approval gate. The button never applies anything directly, so the draft's
+// create, version, and activate actions stay auditable and gated.
+export function useCreateOperatorPlan(zoneId: string | null, conversationId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (plan: OperatorPlanInput) =>
+      consoleApi.operator.createPlan(zoneId as string, conversationId as string, plan),
+    onSuccess: () => invalidateConversation(qc, zoneId, conversationId),
+  });
+}
+
+// A failed plan action whose error names a state the server already moved past — the plan was
+// decided or executed elsewhere, vanished, or the conversation was archived — means the local
+// timeline is stale. Re-reading it lets the card settle on the authoritative outcome instead of
+// stranding the operator on a control that can no longer apply, which also defuses a duplicate
+// submission racing a first one.
+const STALE_PLAN_CODES = new Set([
+  "plan_already_decided",
+  "plan_already_executed",
+  "plan_not_approved",
+  "plan_rejected",
+  "plan_not_found",
+  "conversation_archived",
+  "conversation_not_found",
+  // A step failed mid-apply: the server has already recorded the failed execution turn and the
+  // ledger error turn, so re-reading the timeline settles the card on the real, audited failure
+  // detail and surfaces that error through the same notice channel as every other failure.
+  "execution_failed",
+]);
+
+function resyncOnStalePlan(
+  qc: ReturnType<typeof useQueryClient>,
+  zoneId: string | null,
+  conversationId: string | null,
+  error: unknown,
+) {
+  if (error instanceof ConsoleApiError && STALE_PLAN_CODES.has(error.code)) {
+    invalidateConversation(qc, zoneId, conversationId);
+  }
 }
 
 export function useDecideOperatorPlan(zoneId: string | null, conversationId: string | null) {
@@ -342,6 +407,7 @@ export function useDecideOperatorPlan(zoneId: string | null, conversationId: str
       reason?: string;
     }) => consoleApi.operator.decidePlan(zoneId as string, conversationId as string, decision),
     onSuccess: () => invalidateConversation(qc, zoneId, conversationId),
+    onError: (error) => resyncOnStalePlan(qc, zoneId, conversationId, error),
   });
 }
 
@@ -351,6 +417,7 @@ export function useExecuteOperatorPlan(zoneId: string | null, conversationId: st
     mutationFn: (planSeq: number) =>
       consoleApi.operator.executePlan(zoneId as string, conversationId as string, planSeq),
     onSuccess: () => invalidateConversation(qc, zoneId, conversationId),
+    onError: (error) => resyncOnStalePlan(qc, zoneId, conversationId, error),
   });
 }
 
@@ -863,6 +930,35 @@ export function useAgentServices(zoneId: string | null, application_id: string |
         : services;
     },
     enabled: Boolean(zoneId && application_id),
+  });
+}
+
+// Per-agent activity timeline: the durable audit events (token exchanges, resource calls,
+// denials) recorded for this agent session, newest first. This is the authoritative record
+// of what the agent actually did, correlated by agent_session_id.
+export function useAgentActivity(zoneId: string | null, sessionId: string | null) {
+  return useQuery({
+    queryKey: ["console", "agent-activity", zoneId, sessionId],
+    queryFn: () =>
+      consoleApi.audit.list(zoneId as string, {
+        agent_session_id: sessionId as string,
+        limit: 50,
+      }),
+    enabled: Boolean(zoneId && sessionId),
+    refetchInterval: LIVE_MS,
+  });
+}
+
+export function useSessionActivity(zoneId: string | null, sessionId: string | null) {
+  return useQuery({
+    queryKey: ["console", "session-activity", zoneId, sessionId],
+    queryFn: () =>
+      consoleApi.audit.list(zoneId as string, {
+        session_id: sessionId as string,
+        limit: 50,
+      }),
+    enabled: Boolean(zoneId && sessionId),
+    refetchInterval: LIVE_MS,
   });
 }
 

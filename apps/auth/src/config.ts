@@ -30,6 +30,8 @@ export interface AuthConfig {
   openRegistration: boolean
   passwordSignup: boolean
   requireEmailVerification: boolean
+  smtpUrl: string | null
+  smtpFrom: string | null
 }
 
 function resolveDatabaseUrl(): string {
@@ -120,6 +122,21 @@ function resolveOperatorAllowlist(): string[] {
   return [...entries]
 }
 
+// The SMTP relay that delivers password reset and email verification messages. The URL carries
+// host, port, and credentials (smtp:// or smtps://) and honours the `_FILE` secret convention;
+// the From address is required alongside it so mail is never sent with a relay-invented sender.
+function resolveSmtp(): { url: string | null; from: string | null } {
+  resolveFileSecrets(['CARACAL_SMTP_URL'])
+  const url = process.env.CARACAL_SMTP_URL?.trim() || null
+  const from = process.env.CARACAL_SMTP_FROM?.trim() || null
+  if (url && !from) {
+    throw new Error(
+      'CARACAL_SMTP_FROM is required when CARACAL_SMTP_URL is set. Set it to the sender address for password reset and verification emails, e.g. "Caracal <no-reply@example.com>".',
+    )
+  }
+  return { url, from }
+}
+
 export function loadConfig(): AuthConfig {
   const production = (process.env.NODE_ENV ?? '').toLowerCase() === 'production'
   const port = Number(process.env.PORT ?? process.env.CARACAL_AUTH_PORT ?? 3002)
@@ -160,6 +177,15 @@ export function loadConfig(): AuthConfig {
   const passwordSignup =
     process.env.CARACAL_PASSWORD_SIGNUP !== undefined ? /^(1|true|yes|on)$/i.test(process.env.CARACAL_PASSWORD_SIGNUP) : !production
   const requireEmailVerification = production
+  const smtp = resolveSmtp()
+  // Password sign-up in production hinges on email verification, and verification hinges on a
+  // mail transport. Without one every registration would stall unverified, so fail closed at
+  // startup instead of deploying a sign-up flow that can never complete.
+  if (production && passwordSignup && !smtp.url) {
+    throw new Error(
+      'CARACAL_PASSWORD_SIGNUP requires a mail transport in production: verification and reset emails cannot be delivered. Set CARACAL_SMTP_URL (or CARACAL_SMTP_URL_FILE) and CARACAL_SMTP_FROM, or disable password sign-up.',
+    )
+  }
   const webOrigins = resolveWebOrigins(baseURL, production)
   return {
     port,
@@ -177,6 +203,8 @@ export function loadConfig(): AuthConfig {
     openRegistration,
     passwordSignup,
     requireEmailVerification,
+    smtpUrl: smtp.url,
+    smtpFrom: smtp.from,
     secret: resolveSecret(),
   }
 }

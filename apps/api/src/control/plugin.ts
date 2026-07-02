@@ -21,6 +21,9 @@ export interface ControlPluginOptions {
   redis: RedisClient
   auditHmacKey: Buffer | null
   controlLogLevel: string
+  // The reserved Operator's application id, used to authorize its cross-zone governance. Null
+  // until the system zone is provisioned, or when self-governance is disabled.
+  resolvePlatformOperatorSubject?: () => string | null
 }
 
 const controlPluginImpl: FastifyPluginAsync<ControlPluginOptions> = async (app, opts) => {
@@ -33,7 +36,17 @@ const controlPluginImpl: FastifyPluginAsync<ControlPluginOptions> = async (app, 
   const sink = new RedisSink(redis, auditHmacKey ?? undefined, log)
   const gate = fileGate(cfg.gateFile)
 
-  registerInvokeRoute(app, { auth, replay, rate, sink, ctx: { admin }, gate, redis, ipRateLimitPerMin: cfg.ipRateLimitPerMin })
+  registerInvokeRoute(app, {
+    auth,
+    replay,
+    rate,
+    sink,
+    ctx: { admin },
+    gate,
+    redis,
+    ipRateLimitPerMin: cfg.ipRateLimitPerMin,
+    resolvePlatformOperatorSubject: opts.resolvePlatformOperatorSubject,
+  })
 }
 
 export const controlPlugin = fp(controlPluginImpl, { name: 'control' })

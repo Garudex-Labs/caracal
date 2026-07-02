@@ -11,9 +11,13 @@ export interface Zone {
   name: string;
   slug: string;
   dcr_enabled: boolean;
+  operator_coauthor_badge: boolean;
   created_at: string;
   updated_at: string;
 }
+
+// Longest zone name the control plane accepts; forms cap input at the same bound.
+export const ZONE_NAME_MAX = 120;
 
 export interface ZoneInput {
   name: string;
@@ -28,6 +32,7 @@ export interface ZonePatchInput {
   slug?: string;
   dcr_enabled?: boolean;
   dcr_shutdown?: DcrShutdownMode;
+  operator_coauthor_badge?: boolean;
 }
 
 export interface ZoneDcrStatus {
@@ -138,6 +143,7 @@ export interface Policy {
   description: string | null;
   owner_type: string;
   created_by: string;
+  co_authored_by_operator: boolean;
   created_at: string;
 }
 
@@ -197,6 +203,8 @@ export interface PolicySet {
   name: string;
   description: string | null;
   active_version_id: string | null;
+  created_by?: string;
+  co_authored_by_operator?: boolean;
   created_at: string;
 }
 
@@ -253,6 +261,8 @@ export interface Session {
   expires_at: string;
   authenticated_at: string;
   created_at: string;
+  revoked_at: string | null;
+  revoked_reason: string | null;
 }
 
 export interface AuditEvent {
@@ -359,6 +369,7 @@ export interface Agent {
   metadata: Record<string, unknown> | null;
   spawned_at: string;
   terminated_at: string | null;
+  termination_reason: string | null;
   last_heartbeat_at: string | null;
   heartbeat_deadline_at: string | null;
 }
@@ -533,6 +544,7 @@ export interface AuditQuery {
   event_type?: string;
   request_id?: string;
   agent_session_id?: string;
+  session_id?: string;
   label?: string;
   since?: string;
   until?: string;
@@ -572,6 +584,7 @@ export interface AdminAuditQuery {
 export interface SessionQuery {
   status?: string;
   subject_id?: string;
+  format?: string;
   limit?: number;
   cursor?: string;
 }
@@ -638,13 +651,7 @@ export interface DiagnosticsOptions {
 }
 
 export type OperatorCapabilityDomain =
-  | "zone"
-  | "application"
-  | "provider"
-  | "resource"
-  | "policy"
-  | "grant"
-  | "audit";
+  "zone" | "application" | "provider" | "resource" | "policy" | "grant" | "audit";
 
 export interface OperatorCapability {
   id: string;
@@ -666,9 +673,7 @@ export interface OperatorPlanInput {
 }
 
 export type OperatorPlanDiagnosticCode =
-  | "unknown_capability"
-  | "invalid_args"
-  | "duplicate_step_id";
+  "unknown_capability" | "invalid_args" | "duplicate_step_id";
 
 export interface OperatorPlanDiagnostic {
   step_id: string;
@@ -702,6 +707,9 @@ export type OperatorConversationMode = "ask" | "agent";
 export interface OperatorConversation {
   id: string;
   zone_id: string;
+  // A per-zone sequential number that addresses this conversation in the console URL, so a chat
+  // has a stable human-readable id and a reload restores it instead of opening a new chat.
+  number: number;
   title: string;
   status: OperatorConversationStatus;
   mode: OperatorConversationMode;
@@ -716,13 +724,7 @@ export interface OperatorConversation {
 }
 
 export type OperatorTurnKind =
-  | "message"
-  | "plan"
-  | "approval"
-  | "rejection"
-  | "execution"
-  | "error"
-  | "note";
+  "message" | "plan" | "approval" | "rejection" | "execution" | "error" | "note";
 
 export type OperatorNarrativeKind = "message" | "note" | "error";
 
@@ -822,6 +824,15 @@ export interface OperatorAiCheckResult {
   latency_ms: number;
 }
 
+// Where the gateway injects the sealed key for an upstream. Defaults to an Authorization Bearer
+// header; an upstream wanting a different header (e.g. api-key) or a query parameter sets it.
+export interface OperatorAiAuth {
+  location: "header" | "query";
+  headerName?: string;
+  authScheme?: string;
+  queryParamName?: string;
+}
+
 // A governed model provider as managed from the console. The key is never represented here: it
 // lives sealed in the Caracal provider, so a view carries only the metadata.
 export interface OperatorAiProvider {
@@ -831,6 +842,7 @@ export interface OperatorAiProvider {
   models: string[];
   contextWindow: number;
   enabled: boolean;
+  auth: OperatorAiAuth;
 }
 
 export interface OperatorAiProviderList {
@@ -846,6 +858,7 @@ export interface OperatorAiProviderInput {
   contextWindow: number;
   apiKey: string;
   enabled: boolean;
+  auth?: OperatorAiAuth;
 }
 
 export interface OperatorAiProviderPatch {
@@ -854,6 +867,7 @@ export interface OperatorAiProviderPatch {
   models?: string[];
   contextWindow?: number;
   enabled?: boolean;
+  auth?: OperatorAiAuth;
 }
 
 export interface OperatorUsage {
@@ -867,28 +881,79 @@ export interface OperatorUsageMeta {
   model?: string | null;
   provider?: string | null;
   max_tokens?: number;
+  // Set when Caracal fell back from its primary AI provider to a secondary one while answering this
+  // message - the request still succeeded, but the primary was unavailable for at least one call.
+  // Absent on the common path where the primary served the whole turn.
+  failover?: boolean;
   // The handling tier the request was triaged into: conversational and read are answered as
   // text, change and compound produce a plan. Surfaced for observability; the web client keys
   // its rendering on intent, so this is additive.
   tier?: "conversational" | "read" | "change" | "compound";
 }
 
+export type OperatorMessageRunState =
+  | "queued"
+  | "sending"
+  | "waiting_for_model"
+  | "reasoning"
+  | "waiting_for_tool"
+  | "waiting_for_user_approval"
+  | "executing"
+  | "streaming"
+  | "completed"
+  | "cancelled"
+  | "failed"
+  | "timeout";
+
+export interface OperatorMessageRun {
+  id: string;
+  client_message_id: string;
+  correlation_id: string;
+  state: OperatorMessageRunState;
+  reason: string | null;
+  error_code: string | null;
+  error_detail: string | null;
+  deadline_at: string | null;
+  completed_at: string | null;
+  last_event_seq: number;
+}
+
 // The advisory severity of a single security finding. Advisory only: it informs the human who
 // approves the plan and never gates it.
 export type OperatorAdvisorySeverity = "info" | "caution" | "warning";
+
+// The guardian's verdict on whether the plan matches how Caracal is meant to be used.
+export type OperatorAdvisoryAlignment = "aligned" | "risky" | "misaligned";
 
 export interface OperatorAdvisoryFinding {
   severity: OperatorAdvisorySeverity;
   concern: string;
 }
 
-// The advisory security review a composed plan may carry: a plain-language summary and any
-// findings about over-grant, least-privilege, or blast-radius. It is informational only - the
-// plan is governed by validation, preview, and approval, never by this review.
+// The advisory security review a composed plan may carry: a plain-language summary, an intent
+// alignment verdict, any findings about over-grant, least-privilege, or blast-radius, and - when
+// the plan is risky or misaligned - a concrete recommendation of the Caracal-correct approach. It
+// is informational only - the plan is governed by validation, preview, and approval, never by this
+// review.
 export interface OperatorSecurityAdvisory {
   summary: string;
+  alignment?: OperatorAdvisoryAlignment;
   findings: OperatorAdvisoryFinding[];
+  recommendation?: string;
 }
+
+// The deliberation stages a turn passes through, emitted purely as live progress while the Operator
+// works. A stage signal carries no authority and changes nothing about the decided outcome; the
+// same governed turn produces the same result whether or not anyone is listening.
+export type OperatorProgressStage =
+  | "triaging"
+  | "gathering"
+  | "planning"
+  | "repairing"
+  | "critiquing"
+  | "revising"
+  | "guarding"
+  | "answering";
 
 export type OperatorMessageResult = (
   | {
@@ -906,5 +971,6 @@ export type OperatorMessageResult = (
     }
   | { intent: "plan"; ok: false; error: string; turn: OperatorTurn | null }
   | { intent: "explain"; ok: boolean; text: string; reasoning?: string; turn: OperatorTurn | null }
+  | { intent: "message_run"; ok: true; duplicate: true; message_run: OperatorMessageRun }
 ) &
-  OperatorUsageMeta;
+  OperatorUsageMeta & { message_run?: OperatorMessageRun };

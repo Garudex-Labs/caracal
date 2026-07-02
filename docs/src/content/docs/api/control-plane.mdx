@@ -19,7 +19,7 @@ The Control-Plane REST API is served by the API service on port `3000`. Manageme
 
 | Resource | Collection | Item | Extra |
 | --- | --- | --- | --- |
-| Zones | `GET`, `POST /v1/zones` | `GET`, `PATCH`, `DELETE /v1/zones/:id` | — |
+| Zones | `GET`, `POST /v1/zones` | `GET`, `PATCH`, `DELETE /v1/zones/:id` | `GET /v1/zones/:id/dcr-status` |
 | Applications | `GET`, `POST /v1/zones/:zoneId/applications` | `GET`, `PATCH`, `DELETE /v1/zones/:zoneId/applications/:id` | `POST /v1/zones/:zoneId/applications/dcr` |
 | Providers | `GET`, `POST /v1/zones/:zoneId/providers` | `GET`, `PATCH`, `DELETE /v1/zones/:zoneId/providers/:id` | — |
 | Resources | `GET`, `POST /v1/zones/:zoneId/resources` | `GET`, `PATCH`, `DELETE /v1/zones/:zoneId/resources/:id` | — |
@@ -33,6 +33,7 @@ The Control-Plane REST API is served by the API service on port `3000`. Manageme
 | Policy sets | `GET /v1/zones/:zoneId/policy-sets`, `GET /v1/zones/:zoneId/policy-sets/:id`, `GET /v1/zones/:zoneId/policy-sets/:id/versions/:versionId`, `GET /v1/zones/:zoneId/policy-sets/:id/activation-status` | `POST /v1/zones/:zoneId/policy-sets`, `POST /v1/zones/:zoneId/policy-sets/:id/versions`, `POST /v1/zones/:zoneId/policy-sets/:id/activate`, `POST /v1/zones/:zoneId/policy-sets/:id/simulate`, `DELETE /v1/zones/:zoneId/policy-sets/:id` |
 | Policy templates | `GET /v1/policy-templates` | — |
 | Grants | `GET /v1/zones/:zoneId/grants`, `GET /v1/zones/:zoneId/grants/:id` | `POST /v1/zones/:zoneId/grants`, `DELETE /v1/zones/:zoneId/grants/:id` |
+| Provider grants | — | `POST /v1/zones/:zoneId/provider-grants`, `POST /v1/zones/:zoneId/provider-grants/oauth/authorize`, `POST /v1/zones/:zoneId/provider-grants/revoke` |
 
 Use Console when you are performing these operations interactively. Use the Admin SDK or Control API when automation needs the same management behavior.
 
@@ -41,6 +42,7 @@ Use Console when you are performing these operations interactively. Use the Admi
 | Resource | Methods and paths |
 | --- | --- |
 | Audit | `GET /v1/zones/:zoneId/audit`, `GET /v1/zones/:zoneId/audit/by-request/:requestId`, `GET /v1/zones/:zoneId/audit/by-request/:requestId/explain` |
+| Admin audit | `GET /v1/zones/:zoneId/admin-audit` |
 | Sessions | `GET /v1/zones/:zoneId/sessions` |
 | Agent sessions | `GET /v1/zones/:zoneId/agent-sessions` (filter by `status`, `lifecycle`, `label`, `parent_id`, `application_id`; `format=csv` to export) |
 | Step-up challenges | `GET /v1/zones/:zoneId/step-up-challenges`, `GET /v1/zones/:zoneId/step-up-challenges/:id`, `POST /v1/zones/:zoneId/step-up-challenges/:id/satisfy` |

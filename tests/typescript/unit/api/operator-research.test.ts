@@ -26,7 +26,7 @@ function clientFor(
 describe('governedReadCapabilities', () => {
   it('derives exactly the non-mutating, control-mapped capabilities', () => {
     const reads = governedReadCapabilities()
-    expect(reads.sort()).toEqual(['listApplications', 'listPolicies', 'listProviders', 'listResources'])
+    expect(reads.sort()).toEqual(['listApplications', 'listGrants', 'listPolicies', 'listProviders', 'listResources'])
   })
 
   it('never includes a mutating capability', () => {
@@ -54,6 +54,12 @@ describe('createStateResearcher', () => {
     expect(byDomain.provider).toMatchObject({ ok: true, count: 1, names: ['GitHub'] })
     expect(byDomain.resource).toMatchObject({ ok: true, count: 0, names: [] })
     expect(byDomain.policy).toMatchObject({ ok: true, count: 1, names: ['default'] })
+    // The live id is carried alongside the name so a change can target an object by its real id.
+    expect(byDomain.application.items).toEqual([
+      { id: 'a1', name: 'Billing' },
+      { id: 'a2', name: 'Finance' },
+    ])
+    expect(byDomain.resource.items).toEqual([])
     // Every invoke is a list subcommand — a researcher can never reach a mutating command.
     for (const call of invoke.mock.calls) expect(call[1]).toBe('list')
   })
@@ -78,6 +84,46 @@ describe('createStateResearcher', () => {
     const apps = evidence.find((e) => e.domain === 'application')!
     expect(apps.count).toBe(2)
     expect(apps.names).toEqual(['a1'])
+  })
+
+  it('surfaces the decision-relevant attributes a domain exposes: provider auth modes and resource scopes', async () => {
+    const { client } = clientFor({
+      app: [{ id: 'a1', name: 'Billing' }],
+      'identity-provider': [
+        { id: 'p1', name: 'GitHub', kind: 'api_key' },
+        { id: 'p2', name: 'Okta', kind: 'oauth2_authorization_code' },
+        { id: 'p3', name: 'Mirror', kind: 'api_key' },
+      ],
+      resource: [
+        { id: 'r1', name: 'Stripe', scopes: ['read', 'write'] },
+        { id: 'r2', name: 'Calendar', scopes: ['read'] },
+      ],
+      policy: [{ id: 'pol1', name: 'default' }],
+    })
+    const { evidence } = await createStateResearcher(client).gather()
+    const byDomain = Object.fromEntries(evidence.map((e) => [e.domain, e]))
+    // Provider auth modes are surfaced distinctly so the planner reasons against what exists.
+    expect(byDomain.provider.attributes).toEqual({ auth: ['api_key', 'oauth2_authorization_code'] })
+    // Resource scopes are surfaced distinctly so the guardian can judge least-privilege grants.
+    expect(byDomain.resource.attributes).toEqual({ scopes: ['read', 'write'] })
+    // A domain with no allowlisted descriptor field carries no attributes.
+    expect(byDomain.application.attributes).toBeUndefined()
+    expect(byDomain.policy.attributes).toBeUndefined()
+  })
+
+  it('reads only the allowlisted descriptor fields, never an arbitrary row field', async () => {
+    // A provider row carrying a secret must surface its auth mode but never the secret: only the
+    // allowlisted field is ever read off a row.
+    const { client } = clientFor({
+      app: [],
+      'identity-provider': [{ id: 'p1', name: 'GitHub', kind: 'api_key', client_secret: 'sk_live_should_never_leak' }],
+      resource: [],
+      policy: [],
+    })
+    const { evidence } = await createStateResearcher(client).gather()
+    const provider = evidence.find((e) => e.domain === 'provider')!
+    expect(provider.attributes).toEqual({ auth: ['api_key'] })
+    expect(JSON.stringify(provider)).not.toContain('sk_live_should_never_leak')
   })
 
   it('isolates a single failed read into a typed evidence entry without losing the others', async () => {
@@ -125,5 +171,26 @@ describe('createStateResearcher', () => {
     }
     // The raw error text — which could carry a secret — never reaches the evidence.
     expect(JSON.stringify(evidence)).not.toContain('secret')
+  })
+
+  it('scopes the reads to the named domains and gathers nothing else', async () => {
+    const { client, invoke } = clientFor({ app: [{ id: 'a1', name: 'Billing' }], 'identity-provider': [{ id: 'p1', name: 'GitHub' }] })
+    const { evidence } = await createStateResearcher(client).gather(['provider'])
+    // Only the provider read runs; the application, resource, and policy reads are never invoked.
+    expect(evidence.map((e) => e.domain)).toEqual(['provider'])
+    expect(invoke).toHaveBeenCalledTimes(1)
+  })
+
+  it('reads everything when no domains are named', async () => {
+    const { client, invoke } = clientFor({ app: [], 'identity-provider': [], resource: [], policy: [] })
+    await createStateResearcher(client).gather([])
+    expect(invoke).toHaveBeenCalledTimes(governedReadCapabilities().length)
+  })
+
+  it('falls back to the full read set when the named domains map to no governed read', async () => {
+    const { client, invoke } = clientFor({ app: [], 'identity-provider': [], resource: [], policy: [] })
+    // 'audit' and 'zone' have no governed read behind them, so the gather must not end up empty.
+    await createStateResearcher(client).gather(['audit', 'zone'])
+    expect(invoke).toHaveBeenCalledTimes(governedReadCapabilities().length)
   })
 })

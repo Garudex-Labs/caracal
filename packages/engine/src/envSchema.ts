@@ -196,6 +196,12 @@ export const ENV_SCHEMA = {
     exposed: true,
   },
   LOG_LEVEL: { kind: 'enum', values: ['trace', 'debug', 'info', 'warn', 'error', 'fatal'], description: 'Log verbosity for all services.', default: 'info', exposed: true },
+  OPERATOR_UPSTREAM_ALLOWLIST: {
+    kind: 'string',
+    description: 'Comma-separated host allowlist the Operator LLM normalizer may forward to. Blank allows any (dev).',
+    default: '',
+    exposed: true,
+  },
 } as const satisfies Record<string, EnvSpec>
 
 export type EnvKey = keyof typeof ENV_SCHEMA

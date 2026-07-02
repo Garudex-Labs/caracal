@@ -61,7 +61,7 @@ func newSTSClient(stsURL string, timeout time.Duration, exchangeHMACKey []byte) 
 	return &stsClient{
 		url:             strings.TrimRight(stsURL, "/"),
 		exchangeHMACKey: exchangeHMACKey,
-		client:          &http.Client{Timeout: timeout, Transport: transport},
+		client:          &http.Client{Timeout: timeout, Transport: transport, CheckRedirect: noRedirect},
 	}
 }
 

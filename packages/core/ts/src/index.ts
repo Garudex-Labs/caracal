@@ -5,6 +5,7 @@
 
 export * from './async.js'
 export * from './accountAssertion.js'
+export * from './operatorAssertion.js'
 export * from './config.js'
 export * from './consoleToken.js'
 export * from './crypto.js'

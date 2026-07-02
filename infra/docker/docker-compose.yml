@@ -79,6 +79,8 @@ secrets:
     file: ${CARACAL_SECRETS_DIR:-../secrets/files}/streamsHmacKey
   gatewayStsHmacKey:
     file: ${CARACAL_SECRETS_DIR:-../secrets/files}/gatewayStsHmacKey
+  operatorControlSecret:
+    file: ${CARACAL_SECRETS_DIR:-../secrets/files}/operatorControlSecret
   databaseUrl:
     file: ${CARACAL_SECRETS_DIR:-../secrets/files}/databaseUrl
   authDatabaseUrl:
@@ -357,6 +359,8 @@ services:
         target: metricsBearer
       - source: auditHmacKey
         target: auditHmacKey
+      - source: operatorControlSecret
+        target: operatorControlSecret
     environment:
       CARACAL_MODE: ${CARACAL_MODE:-dev}
       DATABASE_URL_FILE: /run/secrets/databaseUrl
@@ -398,16 +402,12 @@ services:
       # reserved caracal.sys system zone, executing through the governed control plane as a
       # least-privilege control identity. The only knob is the sealed client secret; the
       # system zone and identity are provisioned autonomously. Internal-only.
-      API_OPERATOR_SELF_GOVERN: ${API_OPERATOR_SELF_GOVERN:-}
-      API_OPERATOR_CONTROL_CLIENT_SECRET: ${API_OPERATOR_CONTROL_CLIENT_SECRET:-}
-      # Caracal-governed autopilot: the deployment-set boundary of what the Operator may
-      # auto-approve in agent mode. Disabled with an empty allowlist by default, so autopilot
-      # approves nothing until both the master switch and a narrow capability allowlist are set.
-      API_OPERATOR_AUTOPILOT_ENABLED: ${API_OPERATOR_AUTOPILOT_ENABLED:-}
-      API_OPERATOR_AUTOPILOT_CAPABILITIES: ${API_OPERATOR_AUTOPILOT_CAPABILITIES:-}
-      API_OPERATOR_AUTOPILOT_MAX_STEPS: ${API_OPERATOR_AUTOPILOT_MAX_STEPS:-}
-      API_OPERATOR_AUTOPILOT_WINDOW_SEC: ${API_OPERATOR_AUTOPILOT_WINDOW_SEC:-}
-      API_OPERATOR_AUTOPILOT_WINDOW_MAX: ${API_OPERATOR_AUTOPILOT_WINDOW_MAX:-}
+      API_OPERATOR_SELF_GOVERN: ${API_OPERATOR_SELF_GOVERN:-true}
+      API_OPERATOR_CONTROL_CLIENT_SECRET_FILE: /run/secrets/operatorControlSecret
+      # Caracal-governed autopilot master switch. On by default for local dev so an agent-mode
+      # conversation that engages autopilot has its plan approvals auto-satisfied; set to false to
+      # require human approval again.
+      API_OPERATOR_AUTOPILOT_ENABLED: ${API_OPERATOR_AUTOPILOT_ENABLED:-true}
       # Caracal-set governance over Operator model usage: a per-call output-token ceiling and a
       # per-turn model-call budget. Both have safe defaults that bound runaways; empty uses them.
       API_OPERATOR_AI_MAX_OUTPUT_TOKENS: ${API_OPERATOR_AI_MAX_OUTPUT_TOKENS:-}
@@ -482,6 +482,35 @@ services:
       timeout: 3s
       retries: 20
       start_period: 15s
+
+  # LiteLLM proxy: the single OpenAI-compatible normalization layer the Operator's governed
+  # gateway forwards to. It maps one canonical request onto each provider's dialect (dropping
+  # or renaming params like temperature/max_tokens for GPT-5), so Caracal stays one schema and
+  # never maintains per-provider quirks. The Operator still mints a Caracal mandate and routes
+  # through the gateway; LiteLLM is just the sealed upstream. Provider keys are passed as env
+  # and the master key from a secret file; no key is committed.
+  litellm:
+    <<: *defaultSecurity
+    image: ghcr.io/berriai/litellm:main-stable
+    restart: unless-stopped
+    init: true
+    logging: *defaultLogging
+    networks:
+      - caracalData
+    environment:
+      PYTHONPATH: /etc/litellm
+      CARACAL_UPSTREAM_ALLOWLIST: ${OPERATOR_UPSTREAM_ALLOWLIST:-}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - 'exec litellm --config /etc/litellm/config.yaml --port 4000'
+    volumes:
+      - ./litellm:/etc/litellm:ro
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://localhost:4000/health/liveliness')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
 
   audit:
     <<: [*appService, *appResources]

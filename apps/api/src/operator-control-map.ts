@@ -54,10 +54,42 @@ function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : []
 }
 
+function pluralize(singular: string): string {
+  return /[^aeiou]y$/.test(singular) ? `${singular.slice(0, -1)}ies` : `${singular}s`
+}
+
 function countLabel(rows: unknown[], singular: string): string {
   const n = rows.length
-  const plural = /[^aeiou]y$/.test(singular) ? `${singular.slice(0, -1)}ies` : `${singular}s`
-  return `Found ${n} ${n === 1 ? singular : plural}`
+  return `Found ${n} ${n === 1 ? singular : pluralize(singular)}`
+}
+
+// A governed read capability: lists the live rows of a noun and surfaces them under their
+// plural key with a counted, pluralized detail. command names the control command; noun is
+// the singular surfaced to the human, so identity-provider rows still read as “providers”.
+function readControl(command: string, noun: string): ControlCapability {
+  return {
+    scopes: [`control:${command}:read`],
+    buildInvocation: () => ({ command, subcommand: 'list', flags: {} }),
+    describeOutcome: (result) => {
+      const rows = asArray(result)
+      return { detail: `${countLabel(rows, noun)} in this zone.`, output: { [pluralize(noun)]: rows } }
+    },
+  }
+}
+
+// A governed remove capability: applies a delete or revoke that needs only the object id,
+// requests the least-privilege delete scope, and surfaces the id back as a one-time output.
+// subcommand is the control verb (delete or revoke); idArg names both the capability argument
+// and the output key.
+function removeControl(command: string, subcommand: string, idArg: string, describe: (id: string) => string): ControlCapability {
+  return {
+    scopes: [`control:${command}:delete`],
+    buildInvocation: (args) => ({ command, subcommand, flags: { id: asString(args[idArg]) } }),
+    describeOutcome: (_result, args) => {
+      const id = asString(args[idArg])
+      return { detail: describe(id), output: { [idArg]: id } }
+    },
+  }
 }
 
 // The governed control mapping for every Operator capability that executes through the
@@ -68,41 +100,14 @@ function countLabel(rows: unknown[], singular: string): string {
 // platform operation outside the Operator's governed authority. A capability absent here
 // is not governed-executable and stays plan-only.
 export const CONTROL_CAPABILITIES: Record<string, ControlCapability> = {
-  listApplications: {
-    scopes: ['control:app:read'],
-    buildInvocation: () => ({ command: 'app', subcommand: 'list', flags: {} }),
-    describeOutcome: (result) => {
-      const applications = asArray(result)
-      return { detail: `${countLabel(applications, 'application')} in this zone.`, output: { applications } }
-    },
-  },
-  listProviders: {
-    scopes: ['control:identity-provider:read'],
-    buildInvocation: () => ({ command: 'identity-provider', subcommand: 'list', flags: {} }),
-    describeOutcome: (result) => {
-      const providers = asArray(result)
-      return { detail: `${countLabel(providers, 'provider')} in this zone.`, output: { providers } }
-    },
-  },
-  listResources: {
-    scopes: ['control:resource:read'],
-    buildInvocation: () => ({ command: 'resource', subcommand: 'list', flags: {} }),
-    describeOutcome: (result) => {
-      const resources = asArray(result)
-      return { detail: `${countLabel(resources, 'resource')} in this zone.`, output: { resources } }
-    },
-  },
-  listPolicies: {
-    scopes: ['control:policy:read'],
-    // The control policy list returns metadata only — name, description, ownership — never
-    // the Rego source, which lives in policy versions behind a separate read. So a list is
-    // safe to surface in full without leaking policy logic.
-    buildInvocation: () => ({ command: 'policy', subcommand: 'list', flags: {} }),
-    describeOutcome: (result) => {
-      const policies = asArray(result)
-      return { detail: `${countLabel(policies, 'policy')} in this zone.`, output: { policies } }
-    },
-  },
+  listApplications: readControl('app', 'application'),
+  listProviders: readControl('identity-provider', 'provider'),
+  listResources: readControl('resource', 'resource'),
+  // The control policy list returns metadata only — name, description, ownership — never the
+  // Rego source, which lives in policy versions behind a separate read. So a list is safe to
+  // surface in full without leaking policy logic.
+  listPolicies: readControl('policy', 'policy'),
+  listGrants: readControl('grant', 'grant'),
 
   registerApplication: {
     scopes: ['control:app:write'],
@@ -112,6 +117,48 @@ export const CONTROL_CAPABILITIES: Record<string, ControlCapability> = {
       return {
         detail: `Registered application “${asString(args.name)}” and issued a client secret.`,
         output: { application_id: app.id, client_secret: app.client_secret },
+      }
+    },
+  },
+  // A provider is created from just its name and kind. Only the credential-free kinds — caracal_mandate,
+  // which forwards Caracal’s own mandate, and none, which forwards nothing — are applied here: they seal
+  // no secret, so nothing sensitive ever enters the plan. The credential-bearing kinds (oauth2, api_key,
+  // bearer_token) require a sealed secret the thin plan arguments must never carry, so the control plane
+  // rejects a secretless create and those providers are created in the Console instead. The control plane
+  // derives the resource://-style identifier and the empty config from the name and kind.
+  connectProvider: {
+    scopes: ['control:identity-provider:write'],
+    buildInvocation: (args) => ({
+      command: 'identity-provider',
+      subcommand: 'create',
+      flags: { name: asString(args.name), kind: asString(args.kind) },
+    }),
+    describeOutcome: (result, args) => {
+      const provider = asRecord(result)
+      return {
+        detail: `Connected provider “${asString(args.name)}” (${asString(args.kind)}).`,
+        output: { provider_id: provider.id },
+      }
+    },
+  },
+  // A resource is created from just its name and the scopes it exposes; the control plane derives
+  // the resource://<slug> identifier from the name. This is the thin create the Operator applies
+  // directly: it registers the protected target and its scopes. Wiring a Gateway-routed upstream —
+  // upstream URL, Gateway application, and the bound provider (including a credential-free
+  // caracal_mandate provider) — is separate console setup and is not part of this step.
+  defineResource: {
+    scopes: ['control:resource:write'],
+    buildInvocation: (args) => ({
+      command: 'resource',
+      subcommand: 'create',
+      flags: { name: asString(args.name), scopes: asScopes(args.scopes) },
+    }),
+    describeOutcome: (result, args) => {
+      const resource = asRecord(result)
+      const scopes = asScopes(args.scopes)
+      return {
+        detail: `Defined resource “${asString(args.name)}” exposing ${scopes.join(', ')}.`,
+        output: { resource_id: resource.id },
       }
     },
   },
@@ -130,6 +177,105 @@ export const CONTROL_CAPABILITIES: Record<string, ControlCapability> = {
       output: { application_id: asString(args.application_id), client_secret: gen.secret },
     }),
   },
+  deleteApplication: removeControl('app', 'delete', 'application_id', (id) => `Deleted application ${id} from this zone.`),
+  deleteResource: removeControl('resource', 'delete', 'resource_id', (id) => `Deleted resource ${id} from this zone.`),
+  deleteProvider: removeControl('identity-provider', 'delete', 'provider_id', (id) => `Deleted provider ${id} from this zone.`),
+  deletePolicy: removeControl('policy', 'delete', 'policy_id', (id) => `Deleted policy ${id} from this zone.`),
+  // Creates a policy from an authored data document and seals its first immutable version. The
+  // Rego content rides inline — it is the policy logic, not a secret — and the control plane
+  // validates it on create, so an invalid document is rejected there rather than applied. The
+  // create returns the policy and its first version, both surfaced so a follow-on action can
+  // compose the version into a policy set.
+  createPolicy: {
+    scopes: ['control:policy:write'],
+    buildInvocation: (args) => ({
+      command: 'policy',
+      subcommand: 'create',
+      flags: {
+        name: asString(args.name),
+        ...(args.description === undefined ? {} : { description: asString(args.description) }),
+        content: asString(args.content),
+        ...(args.schema_version === undefined ? {} : { 'schema-version': asString(args.schema_version) }),
+      },
+    }),
+    describeOutcome: (result, args) => {
+      const policy = asRecord(result)
+      return {
+        detail: `Created policy “${asString(args.name)}” and sealed its first version.`,
+        output: { policy_id: policy.id, policy_version_id: policy.version_id },
+      }
+    },
+  },
+  // Seals a new immutable version of an existing policy from an authored data document. The
+  // policy id names the existing policy; the content is the new version's Rego, validated by the
+  // control plane on apply. The sealed version id is surfaced so it can compose into a policy set.
+  versionPolicy: {
+    scopes: ['control:policy:write'],
+    buildInvocation: (args) => ({
+      command: 'policy',
+      subcommand: 'version',
+      flags: {
+        id: asString(args.policy_id),
+        content: asString(args.content),
+        ...(args.schema_version === undefined ? {} : { 'schema-version': asString(args.schema_version) }),
+      },
+    }),
+    describeOutcome: (result, args) => {
+      const version = asRecord(result)
+      return {
+        detail: `Sealed a new version of policy ${asString(args.policy_id)}.`,
+        output: { policy_id: asString(args.policy_id), policy_version_id: version.version_id },
+      }
+    },
+  },
+  // Creates a policy set — the composable unit a zone activates. It holds no policy logic itself;
+  // versions composed from policy versions carry that. The set id is surfaced so a follow-on
+  // action can seal a version into it.
+  createPolicySet: {
+    scopes: ['control:policy-set:write'],
+    buildInvocation: (args) => ({
+      command: 'policy-set',
+      subcommand: 'create',
+      flags: { name: asString(args.name), ...(args.description === undefined ? {} : { description: asString(args.description) }) },
+    }),
+    describeOutcome: (result, args) => {
+      const set = asRecord(result)
+      return { detail: `Created policy set “${asString(args.name)}”.`, output: { policy_set_id: set.id } }
+    },
+  },
+  // Seals a new immutable version of a policy set from the policy versions it composes. The
+  // sealed version id is surfaced so it can be simulated and then activated.
+  versionPolicySet: {
+    scopes: ['control:policy-set:write'],
+    buildInvocation: (args) => ({
+      command: 'policy-set',
+      subcommand: 'version',
+      flags: { id: asString(args.policy_set_id), 'policy-versions': asScopes(args.policy_version_ids) },
+    }),
+    describeOutcome: (result, args) => {
+      const version = asRecord(result)
+      return {
+        detail: `Sealed a new version of policy set ${asString(args.policy_set_id)}.`,
+        output: { policy_set_id: asString(args.policy_set_id), policy_set_version_id: version.version_id },
+      }
+    },
+  },
+  // Activates a policy set version so the zone evaluates every authorization decision against it.
+  // This is the zone-wide switch: activation invalidates issued tokens and reshapes the STS
+  // decision, so it is the highest-impact governed policy action and rides the same approval gate.
+  activatePolicySet: {
+    scopes: ['control:policy-set:write'],
+    buildInvocation: (args) => ({
+      command: 'policy-set',
+      subcommand: 'activate',
+      flags: { id: asString(args.policy_set_id), version: asString(args.policy_set_version_id) },
+    }),
+    describeOutcome: (_result, args) => ({
+      detail: `Activated version ${asString(args.policy_set_version_id)} of policy set ${asString(args.policy_set_id)} for the zone.`,
+      output: { policy_set_id: asString(args.policy_set_id), policy_set_version_id: asString(args.policy_set_version_id) },
+    }),
+  },
+  revokeGrant: removeControl('grant', 'revoke', 'grant_id', (id) => `Revoked grant ${id} and the active sessions it authorized.`),
   grantAccess: {
     scopes: ['control:grant:write'],
     buildInvocation: (args) => ({

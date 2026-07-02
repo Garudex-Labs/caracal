@@ -6,7 +6,7 @@
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify'
 import fp from 'fastify-plugin'
 import { timingSafeEqual } from 'node:crypto'
-import { sha256, deriveConsoleReadToken, deriveConsoleWriteToken, verifyAccountAssertion } from '@caracalai/core'
+import { sha256, deriveConsoleReadToken, deriveConsoleWriteToken, verifyAccountAssertion, verifyOperatorAssertion } from '@caracalai/core'
 import { v7 as uuidv7 } from 'uuid'
 import type { DB } from './db.js'
 import type { RedisClient } from './redis.js'
@@ -53,6 +53,11 @@ interface AdminTokenRow {
 // records it (ownership stamping); it does not yet narrow authority.
 export interface Account {
   id: string
+  // The operator's display name and email, carried by a parallel signed assertion so created
+  // objects can be attributed to the human behind the shared Console credential rather than to
+  // the credential's own name. Absent when the operator assertion is missing or invalid.
+  name?: string
+  email?: string
 }
 
 declare module 'fastify' {
@@ -64,6 +69,8 @@ declare module 'fastify' {
 
 // The header the Console BFF carries the signed per-account assertion in.
 const ACCOUNT_ASSERTION_HEADER = 'x-caracal-account'
+// The header the Console BFF carries the signed operator-identity assertion in.
+const OPERATOR_ASSERTION_HEADER = 'x-caracal-operator'
 
 const BEARER_PREFIX = 'Bearer '
 const MAX_ADMIN_BEARER_BYTES = 4096
@@ -332,7 +339,26 @@ const adminAuthImpl: FastifyPluginAsync<AuthPluginOptions> = async (fastify, opt
       req.log.warn('rejected an invalid account assertion')
       return null
     }
-    return { id: verified.accountId }
+    return { id: verified.accountId, ...resolveOperatorIdentity(req) }
+  }
+
+  // Reads the operator's display name and email from the parallel signed assertion, keyed by the
+  // same admin token as the account assertion. A malformed, expired, or unsigned header contributes
+  // no name — the caller then attributes to the admin credential's own name — so a direct admin call
+  // or an unconfigured deployment is unaffected.
+  function resolveOperatorIdentity(req: FastifyRequest): { name?: string; email?: string } {
+    if (!accountKey) return {}
+    const raw = req.headers[OPERATOR_ASSERTION_HEADER]
+    const assertion = Array.isArray(raw) ? raw[0] : raw
+    if (typeof assertion !== 'string' || assertion.length === 0) return {}
+    const identity = verifyOperatorAssertion(accountKey, assertion, Math.floor(Date.now() / 1000))
+    if (!identity) {
+      req.log.warn('rejected an invalid operator assertion')
+      return {}
+    }
+    const name = identity.name.length > 0 ? identity.name : undefined
+    const email = identity.email.length > 0 ? identity.email : undefined
+    return { name, email }
   }
 
   // Default the account to null so any route reading it is safe even on a path that skips the

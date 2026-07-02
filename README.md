@@ -45,8 +45,6 @@ Read the full documentation at [docs.caracal.run](https://docs.caracal.run).
 
 ### Install
 
-The installer provides the thin `caracal` runtime CLI. Manage Caracal from the browser with the web console (`caracal web`).
-
 > Check [GitHub Releases](https://github.com/Garudex-Labs/caracal/releases) for the latest available tag.
 
 > Pin a version: `--version vYYYY.MM.DD` on Unix or `-Version vYYYY.MM.DD` in PowerShell.  
@@ -101,7 +99,7 @@ caracal run -- node worker.js         # workload execution
 
 ## Contributing
 
-See [CONTRIBUTING.md](./.github/CONTRIBUTING.md) for setup, workflow, tests, and pull request standards.
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for setup, workflow, tests, and pull request standards.
 
 -----
 

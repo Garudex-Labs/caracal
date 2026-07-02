@@ -25,6 +25,7 @@ describe('summarizeHistory', () => {
       decided_plans: [],
       rejected_capabilities: [],
       applied_change_count: 0,
+      last_drift: null,
       last_error: null,
     })
   })
@@ -68,6 +69,44 @@ describe('summarizeHistory', () => {
     expect(facts.last_error).toEqual({ seq: 2, message: 'second' })
   })
 
+  it('carries a verification verdict that reported drift so the planner can reconcile it', () => {
+    const facts = summarizeHistory([
+      plan(1, ['registerApplication']),
+      turn({ seq: 2, kind: 'approval', content: { plan_seq: 1 } }),
+      turn({ seq: 3, kind: 'execution', content: { plan_seq: 1, step_id: 's1', status: 'succeeded' } }),
+      turn({
+        seq: 4,
+        kind: 'note',
+        content: {
+          text: 'Verification (drifted): the app is missing.',
+          verification: { status: 'drifted', summary: 'The Billing application is not present.' },
+        },
+      }),
+    ])
+    expect(facts.last_drift).toEqual({ seq: 4, summary: 'The Billing application is not present.' })
+  })
+
+  it('drops the drift signal once a later verification matches, so a reconciled drift is not carried', () => {
+    const facts = summarizeHistory([
+      turn({
+        seq: 1,
+        kind: 'note',
+        content: { verification: { status: 'drifted', summary: 'Resource missing.' } },
+      }),
+      turn({
+        seq: 2,
+        kind: 'note',
+        content: { verification: { status: 'matched', summary: 'Resource now present.' } },
+      }),
+    ])
+    expect(facts.last_drift).toBeNull()
+  })
+
+  it('ignores a plain note that carries no verification verdict', () => {
+    const facts = summarizeHistory([turn({ seq: 1, kind: 'note', content: { text: 'why was it denied' } })])
+    expect(facts.last_drift).toBeNull()
+  })
+
   it('caps the decided plans to the most recent, bounding output for long sessions', () => {
     const turns: TurnRecord[] = []
     let seq = 1
@@ -92,7 +131,9 @@ describe('summarizeHistory', () => {
 describe('describeFacts', () => {
   it('returns an empty string when there is nothing to carry', () => {
     expect(describeFacts(null)).toBe('')
-    expect(describeFacts({ decided_plans: [], rejected_capabilities: [], applied_change_count: 0, last_error: null })).toBe('')
+    expect(
+      describeFacts({ decided_plans: [], rejected_capabilities: [], applied_change_count: 0, last_drift: null, last_error: null }),
+    ).toBe('')
   })
 
   it('renders a compact block with applied changes and rejection memory', () => {
@@ -103,6 +144,7 @@ describe('describeFacts', () => {
       ],
       rejected_capabilities: ['grantAccess'],
       applied_change_count: 2,
+      last_drift: null,
       last_error: { seq: 9, message: 'boom' },
     })
     expect(text).toContain('2 earlier plan(s) decided (1 approved, 1 rejected)')
@@ -110,5 +152,17 @@ describe('describeFacts', () => {
     expect(text).toContain('Previously rejected operations')
     expect(text).toContain('grantAccess')
     expect(text).toContain('boom')
+  })
+
+  it('surfaces an outstanding verification drift so the planner is told to reconcile it', () => {
+    const text = describeFacts({
+      decided_plans: [],
+      rejected_capabilities: [],
+      applied_change_count: 1,
+      last_drift: { seq: 4, summary: 'The Billing application is not present.' },
+      last_error: null,
+    })
+    expect(text).toContain('Most recent post-apply verification reported drift')
+    expect(text).toContain('The Billing application is not present.')
   })
 })

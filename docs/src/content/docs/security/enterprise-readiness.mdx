@@ -76,7 +76,7 @@ For a source-level dependency inventory across all ecosystems, the weekly OSV-Sc
 
 - **Automated gate.** A scheduled dependency review runs every two days over the changes merged to `main` in that window and fails on newly introduced High-or-higher vulnerabilities and on a copyleft license deny-list. It is skipped automatically when no commits landed in the window.
 - **Updates.** Dependabot opens grouped weekly update pull requests for GitHub Actions, npm, Go modules, pip, and Docker base images. Updates pass the same CI, dependency review, and code review as any other change.
-- **Pinning.** GitHub Actions are pinned to commit SHAs, container base images are pinned to digests, and language dependencies are resolved from committed lockfiles (`pnpm-lock.yaml`, `go.sum`, Python `*.lock`). Reviewer guidance for dependency changes is in the repository [contributing guide](https://github.com/Garudex-Labs/caracal/blob/main/.github/CONTRIBUTING.md).
+- **Pinning.** GitHub Actions are pinned to commit SHAs, container base images are pinned to digests, and language dependencies are resolved from committed lockfiles (`pnpm-lock.yaml`, `go.sum`, Python `*.lock`). Reviewer guidance for dependency changes is in the repository [contributing guide](https://github.com/Garudex-Labs/caracal/blob/main/CONTRIBUTING.md).
 
 ## How Maintainers Enforce Controls
 

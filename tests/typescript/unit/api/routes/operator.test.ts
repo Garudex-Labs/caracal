@@ -30,7 +30,7 @@ function buildApp(
   const clientQuery = vi.fn()
   const release = vi.fn()
   const db = {
-    query: vi.fn(),
+    query: vi.fn().mockResolvedValue({ rows: [] }),
     connect: vi.fn().mockResolvedValue({ query: clientQuery, release }),
   }
   const redis = {
@@ -116,7 +116,23 @@ describe('operator enablement gating', () => {
     const body = JSON.parse(status.body)
     expect(body).toMatchObject({ enabled: true, principal: 'system:caracal-operator' })
     // The least-privilege grant exposes only governed-executable mutating capabilities by default.
-    expect(body.allowed_capabilities).toEqual(['grantAccess', 'registerApplication', 'rotateApplicationSecret'])
+    expect(body.allowed_capabilities).toEqual([
+      'activatePolicySet',
+      'connectProvider',
+      'createPolicy',
+      'createPolicySet',
+      'defineResource',
+      'deleteApplication',
+      'deletePolicy',
+      'deleteProvider',
+      'deleteResource',
+      'grantAccess',
+      'registerApplication',
+      'revokeGrant',
+      'rotateApplicationSecret',
+      'versionPolicy',
+      'versionPolicySet',
+    ])
     const caps = await app.inject({ method: 'GET', url: '/v1/operator/capabilities' })
     expect(caps.statusCode).toBe(200)
   })
@@ -126,6 +142,16 @@ describe('operator enablement gating', () => {
     await app.ready()
     const status = await app.inject({ method: 'GET', url: '/v1/operator/status' })
     expect(JSON.parse(status.body).governed_execution).toEqual({ configured: false })
+  })
+
+  it('surfaces the reserved system zone id by slug even when governed execution is unconfigured', async () => {
+    const { app, db } = buildApp(true)
+    db.query.mockResolvedValueOnce({ rows: [{ id: 'zone-sys-1' }] })
+    await app.ready()
+    const status = await app.inject({ method: 'GET', url: '/v1/operator/status' })
+    const body = JSON.parse(status.body)
+    expect(body.system_zone_id).toBe('zone-sys-1')
+    expect(body.governed_execution).toEqual({ configured: false })
   })
 
   it('reports governed execution configured with its zone, never the secret, when a control identity is supplied', async () => {
@@ -183,6 +209,8 @@ describe('POST /v1/zones/:zoneId/operator-conversations', () => {
     expect(JSON.parse(res.body)).toMatchObject({ id: 'conv-1', status: 'active', created_by: 'actor-1' })
     const insert = db.query.mock.calls[1]
     expect(insert[0]).toContain('INSERT INTO operator_conversations')
+    // The number is drawn from the durable per-zone counter so it is never reused after a delete.
+    expect(insert[0]).toContain('operator_conversation_counters')
     expect(insert[1]).toEqual([expect.any(String), 'z1', 'Connect GitHub', 'agent', false, 'actor-1'])
   })
 
@@ -770,6 +798,39 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/plan/decision', () =
     expect(JSON.parse(res.body)).toMatchObject({ kind: 'approval', content: { plan_seq: 2 } })
   })
 
+  it('accepts a stringified plan_seq so a JSON bigint seq never silently fails the decision', async () => {
+    // operator_turns.seq is a bigint the driver serializes as a string, so the console sends the
+    // plan's seq straight back as a string. The decision body coerces it; without that the
+    // approval and reject controls fail with a 400 the user never sees.
+    const { app, clientQuery } = buildApp()
+    const approvalRow = {
+      id: 'turn-3',
+      conversation_id: 'conv-1',
+      seq: 3,
+      role: 'user',
+      kind: 'approval',
+      content: { plan_seq: 2 },
+      actor_id: 'actor-1',
+      created_at: '2026-01-01T00:00:03Z',
+    }
+    clientQuery
+      .mockResolvedValueOnce(undefined) // BEGIN
+      .mockResolvedValueOnce({ rows: [{ status: 'active', next_seq: 3 }] }) // SELECT ... FOR UPDATE
+      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] }) // plan turn exists
+      .mockResolvedValueOnce({ rows: [] }) // not already decided
+      .mockResolvedValueOnce({ rowCount: 1 }) // UPDATE next_seq
+      .mockResolvedValueOnce({ rows: [approvalRow] }) // INSERT turn
+      .mockResolvedValueOnce(undefined) // COMMIT
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/operator-conversations/conv-1/plan/decision',
+      payload: { plan_seq: '2', decision: 'approved' },
+    })
+    expect(res.statusCode).toBe(201)
+    expect(JSON.parse(res.body)).toMatchObject({ kind: 'approval', content: { plan_seq: 2 } })
+  })
+
   it('rejects a decision for a plan_seq that is not a plan turn', async () => {
     const { app, clientQuery } = buildApp()
     clientQuery
@@ -877,21 +938,67 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/plan/execute', () =>
     expect(db.connect).not.toHaveBeenCalled()
   })
 
-  it('refuses to execute in a zone its control identity is not bound to', async () => {
-    // The control token is zone-bound, so the Operator can only govern its identity's zone.
-    const { app, db } = buildApp(true, {
-      controlIdentity: { applicationId: 'caracal-sys-operator', clientSecret: 'cs_sealed', zoneId: 'other-zone' },
-      controlEndpoints: governedControl.controlEndpoints,
+  it('coerces a stringified plan_seq past body validation so apply never silently 400s', async () => {
+    // The console sends the plan's bigint seq back as a string. The execute body coerces it, so a
+    // string reaches the governed-execution check (409 here) rather than failing as an invalid body.
+    const { app } = buildApp(true)
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/operator-conversations/conv-1/plan/execute',
+      payload: { plan_seq: '2' },
     })
+    expect(res.statusCode).toBe(409)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'governed_execution_unconfigured' })
+  })
+
+  it('governs a tenant zone its control identity is not bound to via the zone-scope header', async () => {
+    // The Operator governs every zone it operates in. Its control identity is provisioned in the
+    // reserved system zone, so a conversation in a tenant zone executes through a control client
+    // that stamps the zone-scope header naming that zone, and the control plane applies the
+    // mutation there.
+    const fetchMock = controlFetch([{ id: 'grant-xyz' }])
+    const { app, clientQuery } = buildApp(true, {
+      controlIdentity: { applicationId: 'caracal-sys-operator', clientSecret: 'cs_sealed', zoneId: 'zone-sys' },
+      controlEndpoints: governedControl.controlEndpoints,
+      fetchImpl: fetchMock as unknown as typeof fetch,
+    })
+    const executionTurn = {
+      id: 'turn-x',
+      conversation_id: 'conv-1',
+      seq: 5,
+      role: 'operator',
+      kind: 'execution',
+      content: { plan_seq: 2, step_id: 's1', status: 'succeeded' },
+      actor_id: 'actor-1',
+      created_at: '2026-01-01T00:00:05Z',
+    }
+    clientQuery
+      .mockResolvedValueOnce(undefined) // BEGIN
+      .mockResolvedValueOnce({ rows: [{ status: 'active' }] }) // conv status
+      .mockResolvedValueOnce({ rows: [{ content: grantPlan }] }) // plan content
+      .mockResolvedValueOnce({ rows: [{ kind: 'approval' }] }) // approved
+      .mockResolvedValueOnce({ rows: [] }) // not executed
+      .mockResolvedValueOnce({ rows: [{ one: 1 }] }) // preview: application lives
+      .mockResolvedValueOnce({ rows: [{ one: 1 }] }) // preview: resource lives
+      .mockResolvedValueOnce(undefined) // COMMIT
+      .mockResolvedValueOnce(undefined) // BEGIN
+      .mockResolvedValueOnce({ rows: [{ status: 'active', next_seq: 5 }] }) // conv FOR UPDATE
+      .mockResolvedValueOnce({ rowCount: 1 }) // UPDATE next_seq
+      .mockResolvedValueOnce({ rows: [executionTurn] }) // INSERT execution turn
+      .mockResolvedValueOnce(undefined) // COMMIT
     await app.ready()
     const res = await app.inject({
       method: 'POST',
       url: '/v1/zones/z1/operator-conversations/conv-1/plan/execute',
       payload: { plan_seq: 2 },
     })
-    expect(res.statusCode).toBe(409)
-    expect(JSON.parse(res.body)).toMatchObject({ error: 'governed_execution_unconfigured' })
-    expect(db.connect).not.toHaveBeenCalled()
+    expect(res.statusCode).toBe(201)
+    // The governed invoke stamps the conversation's zone so the control plane applies the
+    // mutation in z1 rather than the Operator's home system zone.
+    const invokeCall = fetchMock.mock.calls.find((c) => String(c[0]).endsWith('/v1/control/invoke'))
+    expect(invokeCall).toBeDefined()
+    expect((invokeCall![1] as RequestInit).headers).toMatchObject({ 'x-caracal-zone-scope': 'z1' })
   })
 
   it('refuses a concurrent execution of the same plan', async () => {
@@ -954,7 +1061,7 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/plan/execute', () =>
       .mockResolvedValueOnce({ rows: [{ status: 'active' }] }) // conv status
       .mockResolvedValueOnce({ rows: [{ content: grantPlan }] }) // plan
       .mockResolvedValueOnce({ rows: [{ kind: 'approval' }] }) // approved
-      .mockResolvedValueOnce({ rows: [{ one: 1 }] }) // execution already exists
+      .mockResolvedValueOnce({ rows: [{ step_id: 's1', status: 'succeeded' }] }) // every step already applied
       .mockResolvedValueOnce(undefined) // COMMIT
     await app.ready()
     const res = await app.inject({
@@ -966,16 +1073,105 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/plan/execute', () =>
     expect(JSON.parse(res.body)).toMatchObject({ error: 'plan_already_executed' })
   })
 
+  it('refuses to retry a plan that recorded a failed step', async () => {
+    // A failed execution turn means a non-idempotent mutation may have half-applied. The plan
+    // is never retriable even though an earlier step succeeded, so it is refused before any call.
+    const { app, clientQuery } = buildApp(true, governedControl)
+    clientQuery
+      .mockResolvedValueOnce(undefined) // BEGIN
+      .mockResolvedValueOnce({ rows: [{ status: 'active' }] }) // conv status
+      .mockResolvedValueOnce({ rows: [{ content: grantPlan }] }) // plan
+      .mockResolvedValueOnce({ rows: [{ kind: 'approval' }] }) // approved
+      .mockResolvedValueOnce({
+        rows: [
+          { step_id: 's1', status: 'succeeded' },
+          { step_id: 's2', status: 'failed' },
+        ],
+      }) // a prior step failed
+      .mockResolvedValueOnce(undefined) // COMMIT
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/operator-conversations/conv-1/plan/execute',
+      payload: { plan_seq: 2 },
+    })
+    expect(res.statusCode).toBe(409)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'plan_already_executed' })
+  })
+
+  it('resumes a partially-applied plan from its first unapplied step', async () => {
+    // A two-step plan whose first step already succeeded and which stopped on a definitive,
+    // nothing-applied failure is resumable: re-execute applies only the remaining grant step
+    // through the control plane and never re-applies the already-created application.
+    const resumePlan = {
+      summary: 'Set up billing',
+      steps: [
+        { id: 's1', capability: 'registerApplication', mutating: true, args: { name: 'Billing' } },
+        {
+          id: 's2',
+          capability: 'grantAccess',
+          mutating: true,
+          args: { application_id: 'app-1', user_id: 'user-1', resource_id: 'res-1', scopes: ['invoices.read'] },
+        },
+      ],
+    }
+    const fetchMock = controlFetch([{ id: 'grant-xyz' }])
+    const { app, clientQuery } = buildApp(true, { ...governedControl, fetchImpl: fetchMock as unknown as typeof fetch })
+    const executionTurn = {
+      id: 'turn-x',
+      conversation_id: 'conv-1',
+      seq: 7,
+      role: 'operator',
+      kind: 'execution',
+      content: { plan_seq: 2, step_id: 's2', status: 'succeeded' },
+      actor_id: 'actor-1',
+      created_at: '2026-01-01T00:00:07Z',
+    }
+    clientQuery
+      // pre-flight
+      .mockResolvedValueOnce(undefined) // BEGIN
+      .mockResolvedValueOnce({ rows: [{ status: 'active' }] }) // conv status
+      .mockResolvedValueOnce({ rows: [{ content: resumePlan }] }) // plan content
+      .mockResolvedValueOnce({ rows: [{ kind: 'approval' }] }) // approved
+      .mockResolvedValueOnce({ rows: [{ step_id: 's1', status: 'succeeded' }] }) // s1 already applied
+      .mockResolvedValueOnce({ rows: [{ one: 1 }] }) // preview: application lives (s2)
+      .mockResolvedValueOnce({ rows: [{ one: 1 }] }) // preview: resource lives (s2)
+      .mockResolvedValueOnce(undefined) // COMMIT
+      // recording
+      .mockResolvedValueOnce(undefined) // BEGIN
+      .mockResolvedValueOnce({ rows: [{ status: 'active', next_seq: 7 }] }) // conv FOR UPDATE
+      .mockResolvedValueOnce({ rowCount: 1 }) // UPDATE next_seq
+      .mockResolvedValueOnce({ rows: [executionTurn] }) // INSERT execution turn (s2)
+      .mockResolvedValueOnce(undefined) // INSERT operator_zone_memory
+      .mockResolvedValueOnce(undefined) // COMMIT
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/operator-conversations/conv-1/plan/execute',
+      payload: { plan_seq: 2 },
+    })
+    expect(res.statusCode).toBe(201)
+    const body = JSON.parse(res.body)
+    expect(body.executed).toHaveLength(1)
+    // Only the remaining grant step reached the control plane; the already-applied application
+    // create was never re-invoked.
+    const invokeCommands = fetchMock.mock.calls
+      .filter((c) => String(c[0]).endsWith('/v1/control/invoke'))
+      .map((c) => JSON.parse(String((c[1] as RequestInit).body)).command)
+    expect(invokeCommands).toContain('grant')
+    expect(invokeCommands).not.toContain('app')
+  })
+
   it('refuses an approved plan the Operator is not authorized to execute', async () => {
     const { app, clientQuery } = buildApp(true, governedControl)
-    const connectPlan = {
-      summary: 'Connect',
-      steps: [{ id: 's1', capability: 'connectProvider', mutating: true, args: { name: 'GitHub', kind: 'oauth2_authorization_code' } }],
+    const forbiddenPlan = {
+      summary: 'Create a zone',
+      steps: [{ id: 's1', capability: 'createZone', mutating: true, args: { name: 'Hooli Staging' } }],
     }
     clientQuery
       .mockResolvedValueOnce(undefined) // BEGIN
       .mockResolvedValueOnce({ rows: [{ status: 'active' }] }) // conv status
-      .mockResolvedValueOnce({ rows: [{ content: connectPlan }] }) // plan
+      .mockResolvedValueOnce({ rows: [{ content: forbiddenPlan }] }) // plan
       .mockResolvedValueOnce({ rows: [{ kind: 'approval' }] }) // approved
       .mockResolvedValueOnce({ rows: [] }) // not executed
       .mockResolvedValueOnce(undefined) // COMMIT
@@ -985,13 +1181,13 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/plan/execute', () =>
       url: '/v1/zones/z1/operator-conversations/conv-1/plan/execute',
       payload: { plan_seq: 2 },
     })
-    // Authority is the primary boundary: connectProvider is outside the least-privilege
-    // grant, so it is forbidden before executability is even considered.
+    // Authority is the primary boundary: createZone is a platform operation outside the
+    // least-privilege grant, so it is forbidden before executability is even considered.
     expect(res.statusCode).toBe(403)
     const body = JSON.parse(res.body)
     expect(body.error).toBe('capability_forbidden')
     expect(body.principal).toBe('system:caracal-operator')
-    expect(body.steps[0]).toMatchObject({ step_id: 's1', capability: 'connectProvider', code: 'capability_forbidden' })
+    expect(body.steps[0]).toMatchObject({ step_id: 's1', capability: 'createZone', code: 'capability_forbidden' })
   })
 
   it('refuses an authorized step that maps to no governed control command', async () => {
@@ -1083,6 +1279,50 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/plan/execute', () =>
     // The in-flight lock is taken and released by its owner.
     expect(redis.set).toHaveBeenCalled()
     expect(redis.eval).toHaveBeenCalled()
+  })
+
+  it('records durable zone memory of a plan it actually applied', async () => {
+    const fetchMock = controlFetch([{ id: 'grant-xyz' }])
+    const { app, clientQuery } = buildApp(true, { ...governedControl, fetchImpl: fetchMock as unknown as typeof fetch })
+    const executionTurn = {
+      id: 'turn-x',
+      conversation_id: 'conv-1',
+      seq: 5,
+      role: 'operator',
+      kind: 'execution',
+      content: { plan_seq: 2, step_id: 's1', status: 'succeeded' },
+      actor_id: 'actor-1',
+      created_at: '2026-01-01T00:00:05Z',
+    }
+    clientQuery
+      .mockResolvedValueOnce(undefined) // BEGIN (pre-flight)
+      .mockResolvedValueOnce({ rows: [{ status: 'active' }] }) // conv status
+      .mockResolvedValueOnce({ rows: [{ content: grantPlan }] }) // plan content
+      .mockResolvedValueOnce({ rows: [{ kind: 'approval' }] }) // approved
+      .mockResolvedValueOnce({ rows: [] }) // not executed
+      .mockResolvedValueOnce({ rows: [{ one: 1 }] }) // preview: application lives
+      .mockResolvedValueOnce({ rows: [{ one: 1 }] }) // preview: resource lives
+      .mockResolvedValueOnce(undefined) // COMMIT
+      .mockResolvedValueOnce(undefined) // BEGIN (recording)
+      .mockResolvedValueOnce({ rows: [{ status: 'active', next_seq: 5 }] }) // conv FOR UPDATE
+      .mockResolvedValueOnce({ rowCount: 1 }) // UPDATE next_seq
+      .mockResolvedValueOnce({ rows: [executionTurn] }) // INSERT execution turn
+      .mockResolvedValueOnce(undefined) // INSERT operator_zone_memory
+      .mockResolvedValueOnce(undefined) // COMMIT
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/operator-conversations/conv-1/plan/execute',
+      payload: { plan_seq: 2 },
+    })
+    expect(res.statusCode).toBe(201)
+    // The applied plan is written to durable, zone-scoped memory inside the recording
+    // transaction: the memory carries the plan summary and the conversation that applied it.
+    const memoryInsert = clientQuery.mock.calls.find((c) => String(c[0]).includes('INSERT INTO operator_zone_memory'))
+    expect(memoryInsert).toBeDefined()
+    expect(memoryInsert![1][1]).toBe('z1')
+    expect(memoryInsert![1][2]).toBe('conv-1')
+    expect(memoryInsert![1][3]).toBe('Grant access')
   })
 
   it('records the execution turn even if the conversation was archived after the plan applied', async () => {
@@ -1293,6 +1533,114 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/plan/execute', () =>
     )
     expect(failedExec).toBeDefined()
     expect(String(failedExec![1][6])).toContain('failed')
+  })
+
+  it('verifies an applied plan against live state and records a verification note', async () => {
+    // After the apply, the route reads live state once more and runs the verifier, recording its
+    // verdict as a note. Verification is advisory: it never gates or reverses the already-durable
+    // apply, so the 201 stands whatever the verdict says. A combined fetch answers the control STS
+    // and invoke for both the apply and the post-apply read, and the AI completion for the verdict.
+    const aiProvider = {
+      id: 'primary',
+      baseUrl: 'https://api.example.com/v1',
+      model: 'gpt-x',
+      apiKey: 'sk',
+      timeoutMs: 1000,
+      contextWindow: 0,
+    }
+    const registerPlan = {
+      summary: 'Register the Billing application',
+      steps: [{ id: 's1', capability: 'registerApplication', mutating: true, args: { name: 'Billing' } }],
+    }
+    const verdict = { status: 'matched', summary: 'The Billing application is present in current state.', findings: [] }
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.endsWith('/oauth/2/token')) return jsonResponse({ access_token: 'control-token' })
+      if (url.endsWith('/v1/control/invoke')) {
+        const body = JSON.parse(String(init?.body))
+        if (body.subcommand === 'create') return jsonResponse({ result: { id: 'app-new' } })
+        return jsonResponse({ result: [{ name: 'Billing' }] }) // the post-apply application list
+      }
+      if (url.endsWith('/chat/completions')) {
+        return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(verdict) } }] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      }
+      throw new Error(`unexpected fetch ${url}`)
+    })
+    const executionTurn = {
+      id: 'turn-x',
+      conversation_id: 'conv-1',
+      seq: 5,
+      role: 'operator',
+      kind: 'execution',
+      content: { plan_seq: 2, step_id: 's1', status: 'succeeded' },
+      actor_id: 'actor-1',
+      created_at: '2026-01-01T00:00:05Z',
+    }
+    const noteTurn = {
+      id: 'turn-n',
+      conversation_id: 'conv-1',
+      seq: 6,
+      role: 'operator',
+      kind: 'note',
+      content: { text: 'Verification (matched): The Billing application is present in current state.' },
+      actor_id: 'actor-1',
+      created_at: '2026-01-01T00:00:06Z',
+    }
+    const { app, clientQuery } = buildApp(true, {
+      ...governedControl,
+      aiProviders: [aiProvider],
+      fetchImpl: fetchMock as unknown as typeof fetch,
+    })
+    clientQuery
+      // pre-flight
+      .mockResolvedValueOnce(undefined) // BEGIN
+      .mockResolvedValueOnce({ rows: [{ status: 'active' }] }) // conv status
+      .mockResolvedValueOnce({ rows: [{ content: registerPlan }] }) // plan
+      .mockResolvedValueOnce({ rows: [{ kind: 'approval' }] }) // approved
+      .mockResolvedValueOnce({ rows: [] }) // not executed
+      .mockResolvedValueOnce({ rows: [] }) // preview: name available -> create
+      .mockResolvedValueOnce(undefined) // COMMIT
+      // recording
+      .mockResolvedValueOnce(undefined) // BEGIN
+      .mockResolvedValueOnce({ rows: [{ status: 'active', next_seq: 5 }] }) // conv FOR UPDATE
+      .mockResolvedValueOnce({ rowCount: 1 }) // UPDATE next_seq
+      .mockResolvedValueOnce({ rows: [executionTurn] }) // INSERT execution turn
+      .mockResolvedValueOnce(undefined) // INSERT operator_zone_memory
+      .mockResolvedValueOnce(undefined) // COMMIT
+      // verification note (appendTurnTx)
+      .mockResolvedValueOnce(undefined) // BEGIN
+      .mockResolvedValueOnce({ rows: [{ status: 'active', mode: 'agent', autopilot: false, next_seq: 6 }] }) // conv FOR UPDATE
+      .mockResolvedValueOnce({ rowCount: 1 }) // UPDATE next_seq
+      .mockResolvedValueOnce({ rows: [noteTurn] }) // INSERT note turn
+      .mockResolvedValueOnce(undefined) // COMMIT
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/operator-conversations/conv-1/plan/execute',
+      payload: { plan_seq: 2 },
+    })
+    expect(res.statusCode).toBe(201)
+    // A verification note was written capturing the verdict the verifier produced over live state.
+    const insertNote = clientQuery.mock.calls.find(
+      (c) => String(c[0]).includes('INSERT INTO operator_turns') && String(c[1]?.[5]) === 'note',
+    )
+    expect(insertNote).toBeDefined()
+    expect(String(insertNote![1][6])).toContain('Verification (matched)')
+    // The verdict is recorded structurally as well as in human text, so a later turn's facts can
+    // learn from it: a drift would re-enter the planner's grounding rather than dead-ending as prose.
+    expect(JSON.parse(String(insertNote![1][6])).verification).toEqual({
+      status: 'matched',
+      summary: 'The Billing application is present in current state.',
+    })
+    // The verifier judged against live state read after the apply: the post-apply application list
+    // was read through the governed control plane, scoped to the application domain the plan touched.
+    const listInvoke = fetchMock.mock.calls.find(
+      (c) => String(c[0]).endsWith('/v1/control/invoke') && JSON.parse(String((c[1] as RequestInit).body)).subcommand === 'list',
+    )
+    expect(listInvoke).toBeDefined()
   })
 })
 
@@ -1522,6 +1870,20 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
     return fn as unknown as typeof fetch
   }
 
+  // Parses a Server-Sent Events payload into its frames, so a streaming response can be asserted
+  // by event name and decoded data the same way a streaming client would read it.
+  function parseSse(payload: string): { event: string; data: unknown }[] {
+    return payload
+      .split('\n\n')
+      .filter((block) => block.trim().length > 0)
+      .map((block) => {
+        const lines = block.split('\n')
+        const event = lines.find((l) => l.startsWith('event: '))!.slice(7)
+        const data = lines.find((l) => l.startsWith('data: '))!.slice(6)
+        return { event, data: JSON.parse(data) }
+      })
+  }
+
   it('rejects an empty message', async () => {
     const { app } = buildApp(true, { aiProviders: [provider], fetchImpl: fetchReturning() })
     await app.ready()
@@ -1544,6 +1906,137 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
     })
     expect(res.statusCode).toBe(409)
     expect(JSON.parse(res.body)).toMatchObject({ error: 'ai_unavailable' })
+  })
+
+  it('resumes an existing durable message run without appending or calling the model again', async () => {
+    const fetchImpl = vi.fn() as unknown as typeof fetch
+    const { app, clientQuery } = buildApp(true, { aiProviders: [provider], fetchImpl })
+    clientQuery.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM operator_conversations')) {
+        return { rows: [{ status: 'active', mode: 'agent', autopilot: false, next_seq: 8 }] }
+      }
+      if (sql.includes('FROM operator_message_runs')) {
+        return {
+          rows: [
+            {
+              id: 'run-1',
+              zone_id: 'z1',
+              conversation_id: 'conv-1',
+              client_message_id: 'msg-1',
+              server_message_turn_id: 'turn-1',
+              correlation_id: 'corr-1',
+              state: 'waiting_for_model',
+              actor_id: 'actor-1',
+              provider_id: null,
+              reason: 'model_requested',
+              error_code: null,
+              error_detail: null,
+              deadline_at: null,
+              started_at: '2026-07-01T00:00:00Z',
+              updated_at: '2026-07-01T00:00:01Z',
+              completed_at: null,
+              last_event_seq: 3,
+            },
+          ],
+        }
+      }
+      return { rows: [], rowCount: 1 }
+    })
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/operator-conversations/conv-1/message',
+      payload: { message: 'connect github', client_message_id: 'msg-1', correlation_id: 'corr-1' },
+    })
+    expect(res.statusCode).toBe(202)
+    expect(JSON.parse(res.body)).toMatchObject({
+      intent: 'message_run',
+      ok: true,
+      duplicate: true,
+      message_run: { id: 'run-1', client_message_id: 'msg-1', correlation_id: 'corr-1', state: 'waiting_for_model' },
+    })
+    expect((fetchImpl as unknown as { mock: { calls: unknown[] } }).mock.calls).toHaveLength(0)
+    expect(clientQuery.mock.calls.some((call) => String(call[0]).includes('INSERT INTO operator_turns'))).toBe(false)
+  })
+
+  it('records a durable message run and marks it failed when the model budget stops the turn', async () => {
+    const fetchImpl = fetchReturning('{"tier":"read"}', 'answer never reached')
+    const { app, clientQuery, db } = buildApp(true, {
+      aiProviders: [provider],
+      fetchImpl,
+      aiGovernance: { maxOutputTokens: 0, maxCallsPerTurn: 1 },
+    })
+    let runState = 'queued'
+    let lastEventSeq = 0
+    const run = (overrides: Record<string, unknown> = {}) => ({
+      id: 'run-1',
+      zone_id: 'z1',
+      conversation_id: 'conv-1',
+      client_message_id: 'msg-2',
+      server_message_turn_id: null,
+      correlation_id: 'corr-2',
+      state: runState,
+      actor_id: 'actor-1',
+      provider_id: 'primary',
+      reason: null,
+      error_code: null,
+      error_detail: null,
+      deadline_at: '2026-07-01T00:02:00Z',
+      started_at: '2026-07-01T00:00:00Z',
+      updated_at: '2026-07-01T00:00:00Z',
+      completed_at: null,
+      last_event_seq: lastEventSeq,
+      ...overrides,
+    })
+    clientQuery.mockImplementation(async (sql: string, params?: unknown[]) => {
+      if (sql.includes('FROM operator_conversations')) {
+        return { rows: [{ status: 'active', mode: 'agent', autopilot: false, next_seq: 1 }] }
+      }
+      if (sql.includes('WHERE conversation_id = $1 AND client_message_id = $2')) return { rows: [] }
+      if (sql.startsWith('INSERT INTO operator_message_runs')) return { rows: [run()] }
+      if (sql.startsWith('INSERT INTO operator_message_run_events')) return { rows: [] }
+      if (sql.startsWith('UPDATE operator_message_runs')) {
+        if (params?.[1] === 'turn-1') return { rows: [run({ server_message_turn_id: 'turn-1' })] }
+        runState = String(params?.[1] ?? runState)
+        lastEventSeq = Number(params?.[6] ?? lastEventSeq)
+        return {
+          rows: [
+            run({
+              server_message_turn_id: 'turn-1',
+              reason: typeof params?.[2] === 'string' ? params[2] : null,
+              error_code: typeof params?.[3] === 'string' ? params[3] : null,
+              error_detail: typeof params?.[4] === 'string' ? params[4] : null,
+              completed_at: runState === 'failed' ? '2026-07-01T00:00:04Z' : null,
+            }),
+          ],
+        }
+      }
+      if (sql.includes('SELECT') && sql.includes('FROM operator_message_runs')) return { rows: [run({ server_message_turn_id: 'turn-1' })] }
+      if (sql.startsWith('INSERT INTO operator_turns')) return { rows: [{ id: 'turn-1', seq: 1, kind: 'message' }] }
+      return { rows: [], rowCount: 1 }
+    })
+    db.query
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ seq: 1, role: 'user', kind: 'message', content: { text: 'why denied' } }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ name: 'Pied Piper Production', slug: 'z1' }] })
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/operator-conversations/conv-1/message',
+      payload: { message: 'why denied', client_message_id: 'msg-2', correlation_id: 'corr-2', provider: 'primary' },
+    })
+    expect(res.statusCode).toBe(429)
+    const body = JSON.parse(res.body)
+    expect(body).toMatchObject({
+      error: 'ai_budget_exceeded',
+      message_run: { client_message_id: 'msg-2', correlation_id: 'corr-2', state: 'failed', error_code: 'ai_budget_exceeded' },
+    })
+    const messageInsert = clientQuery.mock.calls.find((call) => String(call[0]).includes('INSERT INTO operator_turns'))
+    expect(messageInsert).toBeDefined()
+    expect(messageInsert![1][8]).toBe('msg-2')
   })
 
   it('refuses a message in a system zone', async () => {
@@ -1664,10 +2157,114 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
     expect(body.preview.steps[0]).toMatchObject({ effect: 'create' })
   })
 
-  it('auto-approves a low-risk plan in agent mode when autopilot is engaged and the policy allows it', async () => {
-    // registerApplication is allowlisted, governed-executable, not on the denied floor, and
-    // previews as a clean create — so Caracal's evaluator auto-satisfies the approval. The
-    // conversation row reports agent mode with autopilot engaged.
+  it('streams a plan turn as Server-Sent Events with stage frames then a terminal result', async () => {
+    const plan = {
+      summary: 'Connect GitHub',
+      steps: [{ id: 's1', capability: 'connectProvider', args: { name: 'GitHub', kind: 'oauth2_authorization_code' } }],
+    }
+    const fetchImpl = fetchReturning('{"tier":"change"}', JSON.stringify(plan))
+    const { app, clientQuery, db } = buildApp(true, { aiProviders: [provider], fetchImpl })
+    // user message turn (BEGIN, FOR UPDATE, UPDATE seq, INSERT, COMMIT)
+    clientQuery
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ rows: [{ status: 'active', next_seq: 1 }] })
+      .mockResolvedValueOnce({ rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: 'turn-1', seq: 1, kind: 'message' }] })
+      .mockResolvedValueOnce(undefined)
+    db.query
+      .mockResolvedValueOnce({ rows: [] }) // latest plan seq
+      .mockResolvedValueOnce({ rows: [] }) // error rows
+      .mockResolvedValueOnce({ rows: [{ seq: 1, role: 'user', kind: 'message', content: { text: 'connect github' } }] }) // messages
+      .mockResolvedValueOnce({ rows: [] }) // facts: decision-turn history
+      .mockResolvedValueOnce({ rows: [] }) // previewPlan: provider name free
+    // plan turn persist (BEGIN, FOR UPDATE, UPDATE seq, INSERT, COMMIT)
+    clientQuery
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ rows: [{ status: 'active', next_seq: 2 }] })
+      .mockResolvedValueOnce({ rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: 'turn-2', seq: 2, kind: 'plan' }] })
+      .mockResolvedValueOnce(undefined)
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/operator-conversations/conv-1/message',
+      payload: { message: 'connect github' },
+      headers: { accept: 'text/event-stream' },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-type']).toContain('text/event-stream')
+    const frames = parseSse(res.body)
+    // The deliberation stages stream first, then exactly one terminal result frame.
+    expect(frames.filter((f) => f.event === 'stage').map((f) => (f.data as { stage: string }).stage)).toEqual([
+      'triaging',
+      'gathering',
+      'planning',
+      'critiquing',
+      'guarding',
+    ])
+    const terminal = frames.at(-1)!
+    expect(terminal.event).toBe('result')
+    // The terminal frame carries the exact authoritative body the JSON path returns: a validated,
+    // previewed, approval-gated plan. Streaming changed only delivery, never the governed outcome.
+    expect(terminal.data).toMatchObject({ intent: 'plan', tier: 'change', ok: true })
+    expect((terminal.data as { validation: { ok: boolean } }).validation.ok).toBe(true)
+    expect((terminal.data as { preview: { steps: { effect: string }[] } }).preview.steps[0].effect).toBe('create')
+    // The same trail that streamed live is recorded on the persisted plan turn so the console can
+    // replay it after the stream ends.
+    const planInsert = clientQuery.mock.calls.find((call) => {
+      const param = call[1]?.[6]
+      if (typeof param !== 'string') return false
+      try {
+        return Array.isArray(JSON.parse(param).steps)
+      } catch {
+        return false
+      }
+    })
+    expect(planInsert).toBeDefined()
+    expect(JSON.parse(planInsert![1][6]).deliberation).toEqual(['triaging', 'gathering', 'planning', 'critiquing', 'guarding'])
+    // The effect each step was previewed to have against live state is recorded per step, so the
+    // console can show the consequence the human reviewed rather than only the step's claim.
+    expect(JSON.parse(planInsert![1][6]).steps[0].effect).toBe('create')
+  })
+
+  it('streams a governance budget refusal as a terminal error frame', async () => {
+    // A one-call budget: triage consumes it and the planner call is refused, so the turn fails
+    // closed. On the stream the refusal is a terminal error frame, never silently swallowed.
+    const fetchImpl = fetchReturning('{"tier":"change"}', '{"summary":"x","steps":[]}')
+    const { app, clientQuery, db } = buildApp(true, {
+      aiProviders: [provider],
+      fetchImpl,
+      aiGovernance: { maxOutputTokens: 0, maxCallsPerTurn: 1 },
+    })
+    clientQuery
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ rows: [{ status: 'active', mode: 'agent', autopilot: false, next_seq: 1 }] })
+      .mockResolvedValueOnce({ rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: 'turn-1', seq: 1, kind: 'message' }] })
+      .mockResolvedValueOnce(undefined)
+    db.query
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/operator-conversations/conv-1/message',
+      payload: { message: 'connect github' },
+      headers: { accept: 'text/event-stream' },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-type']).toContain('text/event-stream')
+    const frames = parseSse(res.body)
+    const terminal = frames.at(-1)!
+    expect(terminal.event).toBe('error')
+    expect(terminal.data).toMatchObject({ error: 'ai_budget_exceeded', max_calls: 1, status: 429 })
+  })
+
+  it('auto-approves a low-risk plan in agent mode when autopilot is engaged and the master switch is on', async () => {
+    // With the master switch on and the conversation engaged, Caracal auto-satisfies the approval
+    // for any non-empty plan. The conversation row reports agent mode with autopilot engaged.
     const plan = {
       summary: 'Register the billing app',
       steps: [{ id: 's1', capability: 'registerApplication', args: { name: 'Billing' } }],
@@ -1676,7 +2273,7 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
     const { app, clientQuery, db } = buildApp(true, {
       aiProviders: [provider],
       fetchImpl,
-      autopilotPolicy: buildAutopilotPolicy({ enabled: true, capabilities: ['registerApplication'], maxStepsPerPlan: 5 }),
+      autopilotPolicy: buildAutopilotPolicy({ enabled: true }),
     })
     // user message turn
     clientQuery
@@ -1690,8 +2287,9 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
       .mockResolvedValueOnce({ rows: [] }) // error rows
       .mockResolvedValueOnce({ rows: [] }) // messages
       .mockResolvedValueOnce({ rows: [] }) // facts
+      .mockResolvedValueOnce({ rows: [] }) // zone memory recall
+      .mockResolvedValueOnce({ rows: [{ name: 'Pied Piper Production', slug: 'z1' }] }) // operating zone
       .mockResolvedValueOnce({ rows: [] }) // previewPlan: application name free
-      .mockResolvedValueOnce({ rows: [{ n: 0 }] }) // countRecentAutoApprovals
     // plan turn persist
     clientQuery
       .mockResolvedValueOnce(undefined)
@@ -1723,11 +2321,18 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
     expect(approvalInsert).toBeDefined()
     const content = JSON.parse(String(approvalInsert![1][6]))
     expect(content).toMatchObject({ plan_seq: 2, autopilot: true })
+    // The deliberation trail is recorded even on the non-streaming path, so the console can replay
+    // how the plan was reasoned regardless of how the result was delivered.
+    const planInsert = clientQuery.mock.calls.find(
+      (c) => String(c[0]).includes('INSERT INTO operator_turns') && String(c[1]?.[5]) === 'plan',
+    )
+    expect(planInsert).toBeDefined()
+    expect(JSON.parse(String(planInsert![1][6])).deliberation).toContain('triaging')
   })
 
-  it('does not auto-approve a plan whose capability is not on the autopilot allowlist', async () => {
-    // connectProvider is governed-executable but not allowlisted here, so the evaluator stops for
-    // a human: the plan is persisted but no approval turn is recorded.
+  it('auto-approves a plan whose capability the old allowlist would have excluded', async () => {
+    // connectProvider was never on the legacy allowlist, but with pass-all an engaged conversation
+    // auto-approves it too: the plan is persisted and an approval turn is recorded.
     const plan = {
       summary: 'Connect GitHub',
       steps: [{ id: 's1', capability: 'connectProvider', args: { name: 'GitHub', kind: 'api_key' } }],
@@ -1736,7 +2341,7 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
     const { app, clientQuery, db } = buildApp(true, {
       aiProviders: [provider],
       fetchImpl,
-      autopilotPolicy: buildAutopilotPolicy({ enabled: true, capabilities: ['registerApplication'], maxStepsPerPlan: 5 }),
+      autopilotPolicy: buildAutopilotPolicy({ enabled: true }),
     })
     clientQuery
       .mockResolvedValueOnce(undefined)
@@ -1750,12 +2355,18 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] }) // previewPlan: provider name free
-      .mockResolvedValueOnce({ rows: [{ n: 0 }] }) // countRecentAutoApprovals
     clientQuery
       .mockResolvedValueOnce(undefined)
       .mockResolvedValueOnce({ rows: [{ status: 'active', mode: 'agent', autopilot: true, next_seq: 2 }] })
       .mockResolvedValueOnce({ rowCount: 1 })
       .mockResolvedValueOnce({ rows: [{ id: 'turn-2', seq: 2, kind: 'plan' }] })
+      .mockResolvedValueOnce(undefined)
+    // autopilot approval turn persist
+    clientQuery
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ rows: [{ status: 'active', mode: 'agent', autopilot: true, next_seq: 3 }] })
+      .mockResolvedValueOnce({ rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: 'turn-3', seq: 3, kind: 'approval' }] })
       .mockResolvedValueOnce(undefined)
     await app.ready()
     const res = await app.inject({
@@ -1765,17 +2376,17 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
     })
     expect(res.statusCode).toBe(201)
     const body = JSON.parse(res.body)
-    expect(body).toMatchObject({ intent: 'plan', ok: true, auto_approved: false })
-    expect(body.approval_turn).toBeNull()
-    // No approval turn was written: the plan waits for a human.
+    expect(body).toMatchObject({ intent: 'plan', ok: true, auto_approved: true })
+    expect(body.approval_turn).toMatchObject({ kind: 'approval' })
+    // An approval turn was written attributed to autopilot.
     expect(
       clientQuery.mock.calls.some((c) => String(c[0]).includes('INSERT INTO operator_turns') && String(c[1]?.[5]) === 'approval'),
-    ).toBe(false)
+    ).toBe(true)
   })
 
   it('does not auto-approve when autopilot is not engaged on the conversation', async () => {
-    // The deployment policy allows the capability, but the conversation has not engaged autopilot,
-    // so no auto-approval happens and the policy is never even evaluated against the budget.
+    // The master switch is on, but the conversation has not engaged autopilot, so no auto-approval
+    // happens.
     const plan = {
       summary: 'Register the billing app',
       steps: [{ id: 's1', capability: 'registerApplication', args: { name: 'Billing' } }],
@@ -1784,7 +2395,7 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
     const { app, clientQuery, db } = buildApp(true, {
       aiProviders: [provider],
       fetchImpl,
-      autopilotPolicy: buildAutopilotPolicy({ enabled: true, capabilities: ['registerApplication'], maxStepsPerPlan: 5 }),
+      autopilotPolicy: buildAutopilotPolicy({ enabled: true }),
     })
     clientQuery
       .mockResolvedValueOnce(undefined)
@@ -1812,20 +2423,22 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
     })
     expect(res.statusCode).toBe(201)
     expect(JSON.parse(res.body)).toMatchObject({ auto_approved: false, approval_turn: null })
-    // The budget query is never run because autopilot is not engaged.
-    expect(db.query.mock.calls.some((c) => String(c[0]).includes("content->>'autopilot'"))).toBe(false)
+    // No approval turn was written: the plan waits for a human.
+    expect(
+      clientQuery.mock.calls.some((c) => String(c[0]).includes('INSERT INTO operator_turns') && String(c[1]?.[5]) === 'approval'),
+    ).toBe(false)
   })
 
-  it('surfaces autopilot availability and its allowlist on the status endpoint', async () => {
+  it('surfaces autopilot availability on the status endpoint', async () => {
     const { app } = buildApp(true, {
       aiProviders: [provider],
-      autopilotPolicy: buildAutopilotPolicy({ enabled: true, capabilities: ['registerApplication'], maxStepsPerPlan: 3 }),
+      autopilotPolicy: buildAutopilotPolicy({ enabled: true }),
     })
     await app.ready()
     const res = await app.inject({ method: 'GET', url: '/v1/operator/status' })
     expect(res.statusCode).toBe(200)
     const body = JSON.parse(res.body)
-    expect(body.autopilot).toEqual({ available: true, capabilities: ['registerApplication'], max_steps_per_plan: 3 })
+    expect(body.autopilot).toEqual({ available: true })
   })
 
   it('reports autopilot unavailable by default', async () => {
@@ -1916,9 +2529,14 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
       findings: [{ severity: 'caution', concern: 'Confirm the OAuth app is restricted to the finance org.' }],
     }
     // No control identity, so the researcher is absent and the compound path degrades to no
-    // evidence — but it still plans and still runs the advisory review. Three model calls in
-    // order: triage (compound), planner, security analyst.
-    const fetchImpl = fetchReturning('{"tier":"compound"}', JSON.stringify(plan), JSON.stringify(advisory))
+    // evidence — but it still plans and still runs the correctness critic and the advisory review.
+    // Four model calls in order: triage (compound), planner, correctness critic, security analyst.
+    const fetchImpl = fetchReturning(
+      '{"tier":"compound"}',
+      JSON.stringify(plan),
+      JSON.stringify({ verdict: 'sound', summary: 'Plan achieves the goal.', deficiencies: [] }),
+      JSON.stringify(advisory),
+    )
     const { app, clientQuery, db } = buildApp(true, { aiProviders: [provider], fetchImpl })
     clientQuery
       .mockResolvedValueOnce(undefined)
@@ -1961,8 +2579,8 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
     // The advisory is persisted in the plan turn content for durable, audited human review.
     expect(persistedContent).toBeDefined()
     expect(JSON.parse(persistedContent!).advisory).toEqual(advisory)
-    // Three model calls: triage + planner + security analyst.
-    expect((fetchImpl as unknown as { mock: { calls: unknown[] } }).mock.calls).toHaveLength(3)
+    // Four model calls: triage + planner + correctness critic + security analyst.
+    expect((fetchImpl as unknown as { mock: { calls: unknown[] } }).mock.calls).toHaveLength(4)
   })
 
   it('records an error turn when the model cannot produce a usable plan', async () => {
@@ -2159,7 +2777,7 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
     // The governed reads ran: one control invoke per governed read capability, each a list
     // subcommand, so a read answer is grounded in live state and never reaches a mutating command.
     const invokeCalls = fetchImpl.mock.calls.filter((c) => String(c[0]).endsWith('/v1/control/invoke'))
-    expect(invokeCalls).toHaveLength(4)
+    expect(invokeCalls).toHaveLength(5)
     for (const call of invokeCalls) {
       expect(JSON.parse(String((call[1] as RequestInit).body)).subcommand).toBe('list')
     }
@@ -2199,11 +2817,25 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
     expect((fetchImpl as unknown as { mock: { calls: unknown[] } }).mock.calls).toHaveLength(2)
   })
 
-  it('does not gather evidence when the control identity is bound to another zone', async () => {
-    // The Operator's control identity is zone-bound. A conversation in a zone the identity is
-    // not bound to has no in-zone read authority, so the researcher is not built and the answer
-    // never reads — it can never surface another zone's state.
-    const fetchImpl = fetchReturning('{"tier":"read"}', 'I cannot read this zone right now.')
+  it('reads a tenant zone through the zone-scope mandate when the identity is bound elsewhere', async () => {
+    // The Operator acts as its single reserved system-zone identity in every zone. A conversation
+    // in a zone the identity is not bound to is read through the governed control plane with a
+    // zone-scope header, so the answer is grounded in that zone's live state without provisioning
+    // any identity in it.
+    let m = 0
+    const modelContents = ['{"tier":"read"}', 'You have one provider connected.']
+    const calls: { url: string; zoneScope: unknown }[] = []
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      const headers = (init?.headers ?? {}) as Record<string, string>
+      calls.push({ url, zoneScope: headers['x-caracal-zone-scope'] })
+      if (url.endsWith('/oauth/2/token')) return jsonResponse({ access_token: 'control-token' })
+      if (url.endsWith('/v1/control/invoke')) return jsonResponse({ result: [] })
+      return new Response(JSON.stringify({ choices: [{ message: { content: modelContents[m++] } }] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }) as unknown as typeof fetch
     const { app, clientQuery, db } = buildApp(true, {
       aiProviders: [provider],
       fetchImpl,
@@ -2235,8 +2867,11 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
     })
     expect(res.statusCode).toBe(201)
     expect(JSON.parse(res.body)).toMatchObject({ intent: 'explain', tier: 'read', ok: true })
-    // No control traffic at all: only the two model calls (triage + answer) were made.
-    expect((fetchImpl as unknown as { mock: { calls: unknown[] } }).mock.calls).toHaveLength(2)
+    // The researcher read the conversation's zone, and every control invoke carried the
+    // conversation zone as its zone-scope, so the read targeted z1, not the identity's home zone.
+    const invokeCalls = calls.filter((c) => c.url.endsWith('/v1/control/invoke'))
+    expect(invokeCalls.length).toBeGreaterThan(0)
+    expect(invokeCalls.every((c) => c.zoneScope === 'z1')).toBe(true)
   })
 
   it('reports real token usage, model, and context window with the answer', async () => {
@@ -2289,6 +2924,53 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
     expect(body.model).toBe('gpt-x')
     expect(body.max_tokens).toBe(128000)
     expect(body.usage).toEqual({ input_tokens: 520, output_tokens: 64, total_tokens: 584 })
+  })
+
+  it('reports the served model and a failover flag when the primary provider is unavailable', async () => {
+    const first = { ...provider, id: 'first', model: 'model-a', apiKey: 'sk-first' }
+    const second = { ...provider, id: 'second', model: 'model-b', apiKey: 'sk-second', contextWindow: 64000 }
+    // The primary's key always fails, so every call fails over to the secondary. The mock keys off
+    // the bearer credential because both providers share a base URL.
+    const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => {
+      const auth = (init.headers as Record<string, string> | undefined)?.authorization
+      if (auth === 'Bearer sk-first') return new Response('boom', { status: 503 })
+      return new Response(JSON.stringify({ choices: [{ message: { content: '{"tier":"read"}' } }] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }) as unknown as typeof fetch
+    const { app, clientQuery, db } = buildApp(true, { aiProviders: [first, second], fetchImpl })
+    clientQuery
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ rows: [{ status: 'active', next_seq: 1 }] })
+      .mockResolvedValueOnce({ rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: 'turn-1', seq: 1 }] })
+      .mockResolvedValueOnce(undefined)
+    db.query
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+    clientQuery
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ rows: [{ status: 'active', next_seq: 2 }] })
+      .mockResolvedValueOnce({ rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: 'turn-2', seq: 2, kind: 'note' }] })
+      .mockResolvedValueOnce(undefined)
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/operator-conversations/conv-1/message',
+      payload: { message: 'why was my agent denied' },
+    })
+    expect(res.statusCode).toBe(201)
+    const body = JSON.parse(res.body)
+    // The console hears the model that actually answered, not the one that was expected, plus the
+    // signal that Caracal fell back.
+    expect(body.provider).toBe('second')
+    expect(body.model).toBe('model-b')
+    expect(body.max_tokens).toBe(64000)
+    expect(body.failover).toBe(true)
   })
 
   it('rejects a message naming an unknown provider', async () => {

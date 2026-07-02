@@ -204,9 +204,44 @@ describe('password sign-up gating', () => {
     expect(cfg.requireEmailVerification).toBe(true)
   })
 
-  it('honors an explicit opt-in even in production', () => {
-    reset({ NODE_ENV: 'production', CARACAL_PASSWORD_SIGNUP: 'true' })
+  it('honors an explicit opt-in even in production when mail delivery is configured', () => {
+    reset({
+      NODE_ENV: 'production',
+      CARACAL_PASSWORD_SIGNUP: 'true',
+      CARACAL_SMTP_URL: 'smtps://mailer:secret@smtp.example.com:465',
+      CARACAL_SMTP_FROM: 'Caracal <no-reply@example.com>',
+    })
     expect(loadConfig().passwordSignup).toBe(true)
+  })
+
+  it('fails closed when opted in for production without a mail transport', () => {
+    reset({ NODE_ENV: 'production', CARACAL_PASSWORD_SIGNUP: 'true' })
+    expect(() => loadConfig()).toThrow(/CARACAL_PASSWORD_SIGNUP requires a mail transport/)
+  })
+})
+
+describe('mail transport', () => {
+  it('is absent by default', () => {
+    const cfg = loadConfig()
+    expect(cfg.smtpUrl).toBeNull()
+    expect(cfg.smtpFrom).toBeNull()
+  })
+
+  it('resolves and trims the relay url and sender', () => {
+    reset({ CARACAL_SMTP_URL: ' smtps://mailer:secret@smtp.example.com:465 ', CARACAL_SMTP_FROM: ' Caracal <no-reply@example.com> ' })
+    const cfg = loadConfig()
+    expect(cfg.smtpUrl).toBe('smtps://mailer:secret@smtp.example.com:465')
+    expect(cfg.smtpFrom).toBe('Caracal <no-reply@example.com>')
+  })
+
+  it('treats an empty relay url as unset', () => {
+    reset({ CARACAL_SMTP_URL: '' })
+    expect(loadConfig().smtpUrl).toBeNull()
+  })
+
+  it('requires a sender address alongside the relay url', () => {
+    reset({ CARACAL_SMTP_URL: 'smtps://mailer:secret@smtp.example.com:465' })
+    expect(() => loadConfig()).toThrow(/CARACAL_SMTP_FROM is required/)
   })
 })
 

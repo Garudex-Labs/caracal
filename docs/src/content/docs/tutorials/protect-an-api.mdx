@@ -19,11 +19,7 @@ Start with Gateway-routed HTTP unless your service must enforce directly in proc
 
 ## 2. Create or Select the Real Resource
 
-Open the web console with:
-
-```sh
-caracal web
-```
+Open the web console at [http://localhost:3001](http://localhost:3001).
 
 Use **Guided setup** for a first resource or open **Resources** when you are adding one to an existing zone.
 
@@ -79,14 +75,14 @@ Connector verification is not enough by itself for a complete production boundar
 
 ## 5. Verify Allowed, Denied, and Audited Calls
 
-Call the resource from an app configured with the generated runtime profile.
+Call the resource from an app configured with your runtime profile or environment variables.
 
 | Outcome | What to expect |
 | --- | --- |
 | Allowed | The call reaches the upstream and audit shows authorization plus action-result evidence. |
-| Denied | STS returns a denial and request trace shows which policy or missing state caused it. |
+| Denied | STS returns a denial and the decision trace shows which policy or missing state caused it. |
 
-Open the web console **Audit** and **Request Traces** with the request ID. If an accepted Gateway-routed call has authorization audit but no action-result audit, check the Gateway route and resource header. If a connector-verified call lacks result audit, the service-side enforcement path is incomplete.
+Open the web console **Audit** and filter by the request ID. If an accepted Gateway-routed call has authorization audit but no action-result audit, check the Gateway route and resource header. If a connector-verified call lacks result audit, the service-side enforcement path is incomplete.
 
 ## Next Step
 

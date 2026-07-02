@@ -65,6 +65,55 @@ func TestCopyResponseStripsServerBanners(t *testing.T) {
 	}
 }
 
+func TestCopyResponseSanitizesRedirectLocation(t *testing.T) {
+	store := newRevocationStore(zerolog.Nop())
+	cases := []struct {
+		name     string
+		location string
+		wantKept bool
+	}{
+		{"absolute internal", "http://10.0.0.5/internal", false},
+		{"absolute loopback", "http://127.0.0.1:9000/x", false},
+		{"absolute public", "https://evil.example/steal", false},
+		{"protocol relative", "//attacker.example/x", false},
+		{"malformed", "http://[::1", false},
+		{"relative path", "/v2/resource", true},
+		{"relative query", "?page=2", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := &http.Response{
+				StatusCode: http.StatusFound,
+				Header:     http.Header{"Location": {tc.location}},
+				Body:       io.NopCloser(strings.NewReader("")),
+			}
+			rec := httptest.NewRecorder()
+			copyResponse(rec, resp, store, tokenRevocationIDs{SID: "sid-1"})
+			got := rec.Header().Get("Location")
+			if tc.wantKept && got != tc.location {
+				t.Fatalf("relative Location must be preserved, got %q", got)
+			}
+			if !tc.wantKept && got != "" {
+				t.Fatalf("absolute/malformed Location must be stripped, got %q", got)
+			}
+		})
+	}
+}
+
+func TestCopyResponseStripsRefreshHeader(t *testing.T) {
+	store := newRevocationStore(zerolog.Nop())
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Refresh": {"0; url=http://10.0.0.5/x"}},
+		Body:       io.NopCloser(strings.NewReader("")),
+	}
+	rec := httptest.NewRecorder()
+	copyResponse(rec, resp, store, tokenRevocationIDs{SID: "sid-1"})
+	if got := rec.Header().Get("Refresh"); got != "" {
+		t.Fatalf("Refresh directive must not surface to clients, got %q", got)
+	}
+}
+
 type slowReader struct {
 	closed atomic.Bool
 }

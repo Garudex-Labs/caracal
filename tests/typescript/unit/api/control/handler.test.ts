@@ -156,6 +156,26 @@ describe('registerInvokeRoute', () => {
     expect(d.sink.emit).toHaveBeenCalledWith(expect.objectContaining({ decision: 'allow', command: 'agent' }))
   })
 
+  it('records the body authorizing actor as audit attribution on the allow event', async () => {
+    const app = Fastify()
+    apps.push(app)
+    const d = deps(vi.fn(async () => claims()))
+    d.replay.mark = vi.fn(async () => true)
+    const admin = { agents: { list: vi.fn(async () => [{ id: 'agent-1' }]) }, withDefaultHeaders: () => admin }
+    d.ctx = { admin } as unknown as DispatchContext
+
+    registerInvokeRoute(app, d)
+    await app.ready()
+    await app.inject({
+      method: 'POST',
+      url: '/v1/control/invoke',
+      headers: { authorization: 'Bearer token' },
+      payload: { command: 'agent', subcommand: 'list', authorized_by: 'account-7' },
+    })
+
+    expect(d.sink.emit).toHaveBeenCalledWith(expect.objectContaining({ decision: 'allow', authorizedBy: 'account-7' }))
+  })
+
   it('maps dispatch denials, invalid requests, and upstream failures', async () => {
     const denied = Fastify()
     const invalid = Fastify()
@@ -211,5 +231,77 @@ describe('registerInvokeRoute', () => {
     })
     expect(upstreamRes.statusCode).toBe(502)
     expect(upstreamRes.json()).toEqual({ ok: false, error: { code: 'upstream', reason: 'upstream error' } })
+  })
+
+  it('lets the reserved Operator govern a tenant zone via the zone-scope header', async () => {
+    const app = Fastify()
+    apps.push(app)
+    const list = vi.fn(async () => [{ id: 'a1' }])
+    const d = deps(vi.fn(async () => claims({ sub: 'operator-reader', zoneId: 'z-system', scope: 'control:app:read' })))
+    d.replay.mark = vi.fn(async () => true)
+    d.resolvePlatformOperatorSubject = () => 'operator-reader'
+    d.ctx = { admin: { applications: { list } } } as unknown as DispatchContext
+
+    registerInvokeRoute(app, d)
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/control/invoke',
+      headers: { authorization: 'Bearer token', 'x-caracal-zone-scope': 'z-tenant' },
+      payload: { command: 'app', subcommand: 'list' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    // The read targets the tenant zone, and the audit is attributed to the zone actually read.
+    expect(list).toHaveBeenCalledWith('z-tenant')
+    expect(d.sink.emit).toHaveBeenCalledWith(expect.objectContaining({ decision: 'allow', zoneId: 'z-tenant' }))
+  })
+
+  it('lets the reserved Operator mutate a tenant zone via the zone-scope header', async () => {
+    const app = Fastify()
+    apps.push(app)
+    const create = vi.fn(async () => ({ id: 'app-new' }))
+    const d = deps(vi.fn(async () => claims({ sub: 'operator-reader', zoneId: 'z-system', scope: 'control:app:write' })))
+    d.replay.mark = vi.fn(async () => true)
+    d.resolvePlatformOperatorSubject = () => 'operator-reader'
+    d.ctx = { admin: { applications: { create } } } as unknown as DispatchContext
+
+    registerInvokeRoute(app, d)
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/control/invoke',
+      headers: { authorization: 'Bearer token', 'x-caracal-zone-scope': 'z-tenant' },
+      payload: { command: 'app', subcommand: 'create', flags: { name: 'Son of Anton' } },
+    })
+
+    expect(res.statusCode).toBe(200)
+    // The mutation is applied in the tenant zone and attributed to it.
+    expect(create).toHaveBeenCalledWith('z-tenant', expect.anything())
+    expect(d.sink.emit).toHaveBeenCalledWith(expect.objectContaining({ decision: 'allow', zoneId: 'z-tenant' }))
+  })
+
+  it('ignores the zone-scope header for a subject that is not the reserved Operator', async () => {
+    const app = Fastify()
+    apps.push(app)
+    const list = vi.fn(async () => [{ id: 'a1' }])
+    const d = deps(vi.fn(async () => claims({ sub: 'tenant-key', zoneId: 'z-own', scope: 'control:app:read' })))
+    d.replay.mark = vi.fn(async () => true)
+    d.resolvePlatformOperatorSubject = () => 'operator-reader'
+    d.ctx = { admin: { applications: { list } } } as unknown as DispatchContext
+
+    registerInvokeRoute(app, d)
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/control/invoke',
+      headers: { authorization: 'Bearer token', 'x-caracal-zone-scope': 'z-victim' },
+      payload: { command: 'app', subcommand: 'list' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    // A tenant key can never use the header to reach another zone: the command stays in its own zone.
+    expect(list).toHaveBeenCalledWith('z-own')
+    expect(d.sink.emit).toHaveBeenCalledWith(expect.objectContaining({ decision: 'allow', zoneId: 'z-own' }))
   })
 })

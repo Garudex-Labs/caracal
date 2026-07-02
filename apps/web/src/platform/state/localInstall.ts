@@ -6,6 +6,8 @@ This file holds browser-local Community Edition identity: the operator profile, 
 */
 import { useSyncExternalStore } from "react";
 
+import { refreshNotificationsForIdentity } from "@/platform/state/notifications";
+
 export interface InstallationRecord {
   name: string;
   onboarded: boolean;
@@ -110,19 +112,23 @@ export function setActiveZoneId(id: string): void {
   write(ACTIVE_ZONE_KEY, id);
 }
 
-// Tracks whether the operator has finished or dismissed the in-app guided setup, so the
-// coachmark checklist does not reappear on every visit once they have opted out or
-// completed it. Completion of individual steps is derived from live backend state, not
-// stored here.
+// Tracks the operator's relationship with the in-app guided setup. `seen` records that the
+// guide has auto-launched once, so it never opens by itself again after the first visit;
+// `finished` retires it entirely once the operator skips, completes, or dismisses the
+// launcher. Completion of individual steps is derived from live backend state, not stored here.
 interface GuidedSetupRecord {
-  dismissed: boolean;
+  seen: boolean;
   finished: boolean;
 }
 
 export type { GuidedSetupRecord };
 
 export function getGuidedSetup(): GuidedSetupRecord {
-  return read<GuidedSetupRecord>(GUIDED_SETUP_KEY, { dismissed: false, finished: false });
+  const stored = read<Partial<GuidedSetupRecord> | null>(GUIDED_SETUP_KEY, null);
+  if (!stored) return { seen: false, finished: false };
+  // Any persisted record means the guide has already launched for this operator, so only an
+  // explicit `seen: false` re-arms the auto-launch; a missing flag counts as seen.
+  return { seen: stored.seen !== false, finished: stored.finished === true };
 }
 
 export function setGuidedSetup(record: GuidedSetupRecord): void {
@@ -201,11 +207,13 @@ export function reconcileLocalIdentity(serverUserId: string | null): void {
   const boundId = read<string | null>(OWNER_KEY, null);
   if (serverUserId === null) {
     if (boundId !== null || hasStoredIdentity()) clearLocalIdentity();
+    refreshNotificationsForIdentity();
     return;
   }
   if (boundId !== serverUserId) {
     clearLocalIdentity();
     write(OWNER_KEY, serverUserId);
+    refreshNotificationsForIdentity();
   }
 }
 

@@ -3,7 +3,7 @@
 //
 // The Operator LLM gateway: a provider-agnostic completion client built on the Vercel AI SDK over any OpenAI-compatible endpoint with multi-provider failover.
 
-import { APICallError, extractReasoningMiddleware, generateObject, generateText, wrapLanguageModel, type LanguageModelMiddleware } from 'ai'
+import { APICallError, extractReasoningMiddleware, generateObject, generateText, smoothStream, streamText, wrapLanguageModel, type LanguageModelMiddleware } from 'ai'
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 import type { ZodType } from 'zod'
 import { buildGovernanceMiddleware, type GovernanceLimits } from './operator-ai-governance.js'
@@ -57,6 +57,15 @@ export interface CompletionResult {
   completionTokens?: number
 }
 
+// The live channels a streaming completion emits as it is produced. onText receives each answer
+// delta so the console types the answer out; onReasoning receives each reasoning delta so a
+// reasoning model's chain of thought is shown while it thinks rather than a blank wait before the
+// answer begins. onReasoning is optional because not every model exposes reasoning.
+export interface StreamHandlers {
+  onText: (chunk: string) => void
+  onReasoning?: (chunk: string) => void
+}
+
 // A schema-validated structured completion: the model's JSON answer parsed into the
 // caller's type, with the same provider attribution and token counts as a text
 // completion. Used by the agents that need a typed artifact rather than prose.
@@ -94,10 +103,19 @@ export interface ActiveModel {
 }
 
 // Cumulative token usage tallied by a usage-tracking gateway wrapper over the calls made
-// during a single request, so it never mixes usage across conversations.
+// during a single request, so it never mixes usage across conversations. It also records which
+// provider actually served, so a caller can report the real model after a failover and tell when
+// Caracal fell back from its primary.
 export interface GatewayUsage {
   inputTokens: number
   outputTokens: number
+  // The provider and model that served the most recent successful completion, or null when no
+  // completion succeeded - a budget refusal before the first call leaves both null.
+  provider: string | null
+  model: string | null
+  // The distinct providers that served a completion this request, in first-served order. More than
+  // one entry, or a single entry that is not the failover order's primary, means Caracal fell back.
+  providers: string[]
 }
 
 // No provider is configured, so the AI tier is off. Distinct from a call failure so
@@ -257,6 +275,62 @@ async function callProvider(
   }
 }
 
+// Performs one streaming free-text chat completion against a single provider. It emits each text
+// and reasoning delta to the handlers as it arrives, then returns the same CompletionResult the
+// non-streaming path would, so a caller gets a live preview and the authoritative final text from
+// one call. Per-call retry is disabled so this gateway's own failover order owns retry semantics; a
+// provider that fails before the first delta fails over cleanly, and an empty completion throws
+// like the non-streaming path.
+async function callProviderStream(
+  fetchImpl: FetchImpl,
+  provider: ProviderConfig,
+  messages: GatewayMessage[],
+  options: CompletionOptions,
+  handlers: StreamHandlers,
+  governance?: LanguageModelMiddleware,
+): Promise<CompletionResult> {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), provider.timeoutMs)
+  try {
+    const { system, conversation } = splitSystem(messages)
+    const result = streamText({
+      model: buildReasoningModel(fetchImpl, provider, governance),
+      system,
+      messages: conversation,
+      maxOutputTokens: options.maxTokens,
+      temperature: options.temperature,
+      abortSignal: controller.signal,
+      maxRetries: 0,
+      // Azure delivers a completion in a few coarse chunks, so every token of a chunk lands in one
+      // burst and a short answer arrives all at once. Re-pace the text channel word by word so the
+      // answer types out smoothly for the reader while reasoning parts pass through untouched.
+      experimental_transform: smoothStream({ chunking: 'word' }),
+    })
+    // Read the full stream so both channels surface live: a text-delta is the answer typed out and
+    // a reasoning-delta is the model's chain of thought as it works. Both the reasoning_content
+    // channel and inline <think> blocks arrive here as reasoning-delta parts, so the caller can
+    // show the thinking while the model reasons instead of waiting for the answer to begin.
+    for await (const part of result.fullStream) {
+      if (part.type === 'text-delta' && part.text.length > 0) handlers.onText(part.text)
+      else if (part.type === 'reasoning-delta' && part.text.length > 0) handlers.onReasoning?.(part.text)
+    }
+    const text = (await result.text).trim()
+    if (text.length === 0) throw new Error('provider returned an empty completion')
+    const reasoning = (await result.reasoningText)?.trim()
+    const usage = await result.usage
+    return {
+      text,
+      reasoning: reasoning && reasoning.length > 0 ? reasoning : undefined,
+      provider: provider.id,
+      model: provider.model,
+      promptTokens: usage.inputTokens,
+      completionTokens: usage.outputTokens,
+    }
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
 // Performs one schema-validated structured completion against a single provider. The
 // model is asked for JSON and its answer is validated against the schema by the AI SDK,
 // so a malformed or off-schema response throws and the caller fails over rather than
@@ -301,6 +375,11 @@ export interface Gateway {
   active(): ActiveModel | null
   complete(messages: GatewayMessage[], options?: CompletionOptions): Promise<CompletionResult>
   completeObject<T>(messages: GatewayMessage[], schema: ZodType<T>, options?: CompletionOptions): Promise<CompletionObjectResult<T>>
+  // A free-text completion that emits each text and reasoning delta to the handlers as it arrives
+  // and returns the same final CompletionResult as complete(). The deltas are a live preview; the
+  // returned result is authoritative. Used by the streaming answer path so the console renders an
+  // answer, and the model's thinking, as they are produced rather than all at once.
+  stream(messages: GatewayMessage[], handlers: StreamHandlers, options?: CompletionOptions): Promise<CompletionResult>
 }
 
 // Runs a per-provider call through the failover order and returns the first success.
@@ -371,6 +450,12 @@ export function createGateway(providers: ProviderConfig[], fetchImpl: FetchImpl 
         callProviderObject(fetchImpl, provider, messages, schema, options, governanceMiddleware),
       )
     },
+
+    stream(messages, handlers, options = {}) {
+      return runWithFailover(available, options.preferredProvider, (provider) =>
+        callProviderStream(fetchImpl, provider, messages, options, handlers, governanceMiddleware),
+      )
+    },
   }
 }
 
@@ -386,10 +471,20 @@ export function withUsage(gateway: Gateway, options: { maxCalls?: number } = {})
   let inputTokens = 0
   let outputTokens = 0
   let calls = 0
+  let lastProvider: string | null = null
+  let lastModel: string | null = null
+  const servedProviders: string[] = []
   const maxCalls = options.maxCalls
   const guard = () => {
     if (maxCalls !== undefined && maxCalls > 0 && calls >= maxCalls) throw new GatewayBudgetError(maxCalls)
     calls += 1
+  }
+  const record = (provider: string, model: string, promptTokens?: number, completionTokens?: number) => {
+    inputTokens += promptTokens ?? 0
+    outputTokens += completionTokens ?? 0
+    lastProvider = provider
+    lastModel = model
+    if (!servedProviders.includes(provider)) servedProviders.push(provider)
   }
   const tracked: Gateway = {
     status: () => gateway.status(),
@@ -397,19 +492,26 @@ export function withUsage(gateway: Gateway, options: { maxCalls?: number } = {})
     async complete(messages, options) {
       guard()
       const result = await gateway.complete(messages, options)
-      inputTokens += result.promptTokens ?? 0
-      outputTokens += result.completionTokens ?? 0
+      record(result.provider, result.model, result.promptTokens, result.completionTokens)
       return result
     },
     async completeObject(messages, schema, options) {
       guard()
       const result = await gateway.completeObject(messages, schema, options)
-      inputTokens += result.promptTokens ?? 0
-      outputTokens += result.completionTokens ?? 0
+      record(result.provider, result.model, result.promptTokens, result.completionTokens)
+      return result
+    },
+    async stream(messages, handlers, options) {
+      guard()
+      const result = await gateway.stream(messages, handlers, options)
+      record(result.provider, result.model, result.promptTokens, result.completionTokens)
       return result
     },
   }
-  return { gateway: tracked, usage: () => ({ inputTokens, outputTokens }) }
+  return {
+    gateway: tracked,
+    usage: () => ({ inputTokens, outputTokens, provider: lastProvider, model: lastModel, providers: [...servedProviders] }),
+  }
 }
 
 // Wraps a gateway so every completion prefers the given provider, without touching the
@@ -422,5 +524,27 @@ export function preferProvider(gateway: Gateway, providerId: string | null): Gat
     complete: (messages, options = {}) => gateway.complete(messages, { ...options, preferredProvider: providerId }),
     completeObject: (messages, schema, options = {}) =>
       gateway.completeObject(messages, schema, { ...options, preferredProvider: providerId }),
+    stream: (messages, handlers, options = {}) => gateway.stream(messages, handlers, { ...options, preferredProvider: providerId }),
+  }
+}
+
+// Wraps a gateway so a free-text completion streams its answer tokens to onText and its reasoning
+// tokens to onReasoning as they arrive while still returning the same final CompletionResult. Only
+// complete() streams; completeObject() and the rest pass through unchanged, so a turn's structured
+// calls (triage, critique, grounding) are untouched. The deltas are a fire-and-forget live
+// preview: the caller's authoritative result is the same whether or not anyone listens, mirroring
+// how deliberation stages stream.
+export function streamingAnswers(
+  gateway: Gateway,
+  onText: (chunk: string) => void,
+  onReasoning?: (chunk: string) => void,
+): Gateway {
+  const handlers: StreamHandlers = { onText, onReasoning }
+  return {
+    status: () => gateway.status(),
+    active: () => gateway.active(),
+    complete: (messages, options = {}) => gateway.stream(messages, handlers, options),
+    completeObject: (messages, schema, options = {}) => gateway.completeObject(messages, schema, options),
+    stream: (messages, streamHandlers, options = {}) => gateway.stream(messages, streamHandlers, options),
   }
 }

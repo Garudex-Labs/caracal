@@ -65,6 +65,12 @@ Disabling DCR on a zone that still has live DCR applications requires an explici
 
 The Console prompts for this choice when you disable DCR with live applications, and the Admin API takes the same decision through the `dcr_shutdown` field on a zone patch (`zones.patch(id, { dcr_enabled: false, dcr_shutdown: 'keep_live' | 'revoke_live' })`). Use `zones.dcrStatus(id)` to read the live DCR application count before deciding.
 
+## System Zone
+
+Caracal reserves one **system zone** for the infrastructure that runs the platform itself, distinct from the tenant zones you create. It carries the reserved `caracal.sys/` namespace and is provisioned by the bootstrap admin identity, so a tenant can never create, author, or impersonate the objects inside it.
+
+The [Caracal Operator](/concepts/operator/) self-governs through this zone: its reserved control identity, least-privilege control grants, and the providers and resources that route its model calls all live there. The Operator will not open a session in, or execute against, the system zone, so its delegated authority stays away from the infrastructure that runs Caracal. An administrator can also mark additional zones as system zones to place them out of the Operator's reach.
+
 ## Operational Guidance
 
 - Keep production and non-production authority in separate zones.

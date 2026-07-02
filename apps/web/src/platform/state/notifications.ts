@@ -17,18 +17,29 @@ export interface NotificationRecord {
   read: boolean;
 }
 
-const STORE_KEY = "caracal.notifications";
+const STORE_PREFIX = "caracal.notifications";
 const MAX_ENTRIES = 50;
 // Notifications are transient: anything older than this is pruned automatically so the
 // bell stays a recent, relevant feed instead of an ever-growing log.
 const TTL_MS = 24 * 60 * 60 * 1000;
 
+// Notifications are scoped to the bound account so a different login never sees another account's
+// feed and a backend purge (which drops the account binding) starts a clean bucket. The bound
+// account is read directly from localStorage to avoid a dependency cycle with the identity store;
+// when none is bound the feed falls back to a shared anonymous bucket.
+function storeKey(): string {
+  if (typeof localStorage === "undefined") return STORE_PREFIX;
+  const owner = localStorage.getItem("caracal.owner");
+  return owner ? `${STORE_PREFIX}.${owner.replace(/^"|"$/g, "")}` : STORE_PREFIX;
+}
+
 const listeners = new Set<() => void>();
 let snapshot: NotificationRecord[] | null = null;
+let snapshotKey: string | null = null;
 
 function load(): NotificationRecord[] {
   if (typeof localStorage === "undefined") return [];
-  const raw = localStorage.getItem(STORE_KEY);
+  const raw = localStorage.getItem(storeKey());
   if (!raw) return [];
   try {
     const parsed = JSON.parse(raw) as NotificationRecord[];
@@ -48,14 +59,21 @@ function prune(list: NotificationRecord[]): NotificationRecord[] {
 
 function persist(next: NotificationRecord[]): void {
   snapshot = next;
+  snapshotKey = storeKey();
   if (typeof localStorage !== "undefined") {
-    localStorage.setItem(STORE_KEY, JSON.stringify(next));
+    localStorage.setItem(storeKey(), JSON.stringify(next));
   }
   for (const listener of listeners) listener();
 }
 
 function current(): NotificationRecord[] {
-  if (snapshot === null) snapshot = load();
+  // Reload when the bound account changed, so the bell follows the active identity and never shows
+  // a previous login's feed without needing the store to import the identity module.
+  const key = storeKey();
+  if (snapshot === null || snapshotKey !== key) {
+    snapshot = load();
+    snapshotKey = key;
+  }
   return snapshot;
 }
 
@@ -99,6 +117,16 @@ export function removeNotification(id: string): void {
 export function clearNotifications(): void {
   if (current().length === 0) return;
   persist([]);
+}
+
+// Re-reads the feed for the now-bound account and notifies the bell, so switching account or a
+// purge immediately reflects the right bucket. Also drops the legacy unscoped key so a feed
+// written before scoping never resurfaces across identities.
+export function refreshNotificationsForIdentity(): void {
+  if (typeof localStorage !== "undefined") localStorage.removeItem(STORE_PREFIX);
+  snapshot = load();
+  snapshotKey = storeKey();
+  for (const listener of listeners) listener();
 }
 
 // Removes any entries past their TTL, persisting only when something actually expired.

@@ -9,10 +9,12 @@ import { APIError } from 'better-auth/api'
 
 import { authDatabase } from './database.ts'
 import { loadConfig, isOperatorAllowed } from './config.ts'
+import { createMailer } from './mailer.ts'
 import { githubCredentials, googleCredentials } from './providers.ts'
 import { logger } from './logger.ts'
 
 const cfg = loadConfig()
+const mailer = createMailer(cfg)
 
 function socialProviders(): NonNullable<BetterAuthOptions['socialProviders']> {
   const providers: NonNullable<BetterAuthOptions['socialProviders']> = {}
@@ -37,7 +39,32 @@ export const auth = betterAuth({
     // require a verified email before a session is issued where sign-up is permitted.
     disableSignUp: !cfg.passwordSignup,
     requireEmailVerification: cfg.requireEmailVerification,
+    // A password reset proves control of the mailbox, not possession of every signed-in device.
+    // Revoke all existing sessions on reset so a compromised credential cannot keep riding an
+    // already-established session after the owner rotates the password.
+    revokeSessionsOnPasswordReset: true,
+    // Reset delivery requires a mail transport; without one the endpoint stays registered but
+    // refuses to send, and the web console hides the reset entry point via /providers.
+    ...(mailer
+      ? {
+          sendResetPassword: async ({ user, url }: { user: { email: string }; url: string }) => {
+            await mailer.sendPasswordReset(user.email, url)
+          },
+        }
+      : {}),
   },
+  ...(mailer
+    ? {
+        emailVerification: {
+          sendVerificationEmail: async ({ user, url }: { user: { email: string }; url: string }) => {
+            await mailer.sendEmailVerification(user.email, url)
+          },
+          // The verification link itself proves mailbox control, so completing it signs the
+          // operator in directly instead of bouncing them back through the credential form.
+          autoSignInAfterVerification: true,
+        },
+      }
+    : {}),
   socialProviders: socialProviders(),
   account: {
     accountLinking: {
@@ -86,10 +113,13 @@ export const auth = betterAuth({
     enabled: true,
     window: 60,
     max: 120,
+    // In-memory counters fragment across replicas, letting an attacker multiply the budget by
+    // the instance count; persist counters in the database in production so limits hold fleet-wide.
+    storage: cfg.production ? 'database' : 'memory',
     customRules: {
       '/sign-in/email': { window: 60, max: 10 },
-      '/sign-up/email': { window: 60, max: 10 },
-      '/forget-password': { window: 60, max: 5 },
+      '/sign-up/email': { window: 60, max: 5 },
+      '/request-password-reset': { window: 60, max: 5 },
     },
   },
   advanced: {

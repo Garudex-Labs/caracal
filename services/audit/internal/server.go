@@ -259,6 +259,8 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 		{Name: "caracal_audit_retention_dropped_total", Help: "Audit retention partitions dropped", Type: coremetrics.Counter, Value: float64(snap.RetentionDroppedTotal)},
 		{Name: "caracal_audit_is_export_leader", Help: "Whether this Audit replica holds the export lease", Type: coremetrics.Gauge, Value: boolFloat(snap.IsExportLeader)},
 		{Name: "caracal_audit_is_retention_leader", Help: "Whether this Audit replica holds the retention lease", Type: coremetrics.Gauge, Value: boolFloat(snap.IsRetentionLeader)},
+		{Name: "caracal_audit_export_lease_transitions_total", Help: "Audit export leadership changes (acquisitions plus losses)", Type: coremetrics.Counter, Value: float64(snap.ExportLeaseChanges)},
+		{Name: "caracal_audit_retention_lease_transitions_total", Help: "Audit retention leadership changes (acquisitions plus losses)", Type: coremetrics.Counter, Value: float64(snap.RetentionLeaseChanges)},
 	})))
 }
 
@@ -589,6 +591,8 @@ type auditMetricsSnapshot struct {
 	RetentionDroppedTotal int64 `json:"retention_dropped_total"`
 	IsExportLeader        bool  `json:"is_export_leader"`
 	IsRetentionLeader     bool  `json:"is_retention_leader"`
+	ExportLeaseChanges    int64 `json:"export_lease_changes_total"`
+	RetentionLeaseChanges int64 `json:"retention_lease_changes_total"`
 }
 
 func (s *Server) metricsSnapshot() auditMetricsSnapshot {
@@ -617,6 +621,8 @@ func (s *Server) metricsSnapshot() auditMetricsSnapshot {
 		RetentionDroppedTotal: s.retention.droppedTotal.Load(),
 		IsExportLeader:        s.exporterLead.Held(),
 		IsRetentionLeader:     s.retentLead.Held(),
+		ExportLeaseChanges:    s.exporterLead.Transitions(),
+		RetentionLeaseChanges: s.retentLead.Transitions(),
 	}
 }
 

@@ -67,6 +67,23 @@ describe('createControlClient invoke', () => {
     expect(form.get('ttl_seconds')).toBe('60')
   })
 
+  it('rides the configured authorizing actor in the invoke body when set', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(tokenResponse())
+      .mockResolvedValueOnce(invokeResponse({ ok: true }))
+    const client = createControlClient(config({ authorizedBy: 'account-7' }), fetchMock as unknown as typeof fetch)
+
+    await client.invoke('grant', 'create', { 'application-id': 'a' }, ['control:grant:write'])
+
+    expect(JSON.parse((fetchMock.mock.calls[1]![1] as RequestInit).body as string)).toEqual({
+      command: 'grant',
+      subcommand: 'create',
+      flags: { 'application-id': 'a' },
+      authorized_by: 'account-7',
+    })
+  })
+
   it('trims trailing slashes from the configured base urls', async () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(tokenResponse()).mockResolvedValueOnce(invokeResponse(null))
     const client = createControlClient(

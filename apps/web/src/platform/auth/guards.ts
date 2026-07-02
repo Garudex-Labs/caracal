@@ -8,6 +8,7 @@ import { redirect } from "@tanstack/react-router";
 
 import { ConsoleApiError, consoleApi } from "@/platform/api/client";
 import { getSession } from "@/platform/auth";
+import { appLink, resolveOrg } from "@/platform/nav/appLink";
 import {
   completeOnboarding,
   getActiveZoneId,
@@ -76,6 +77,34 @@ export async function requireOnboardedInstallation(): Promise<void> {
   if (isOnboarded()) return;
   if (await hasProvisionedEnvironment(user)) return;
   throw redirect({ to: "/onboarding" });
+}
+
+// Canonicalizes the account/org/zone URL segments and redirects when any is wrong, so the address
+// bar can never sit on an invalid identity while the screen shows something else. The account must
+// be the signed-in operator's; the org collapses to a valid open-source org; the zone must be one
+// the operator can reach (else the active or first zone). A correct, authenticated link is left
+// untouched. Runs after onboarding so identity and zones are resolved. sub is the trailing app path
+// (e.g. "/settings"), preserved across the redirect.
+export async function canonicalizeConsoleParams(params: {
+  accountId: string;
+  orgId: string;
+  zoneId: string;
+  sub: string;
+}): Promise<void> {
+  await requireOperator();
+  const account = getProfile().accountId;
+  const org = resolveOrg(params.orgId);
+  let zone = params.zoneId;
+  try {
+    const zones = await consoleApi.zones.list();
+    const reachable = zones.some((z) => z.id === zone);
+    if (!reachable) zone = getActiveZoneId() ?? zones[0]?.id ?? zone;
+  } catch {
+    zone = getActiveZoneId() ?? zone;
+  }
+  if (params.accountId !== account || params.orgId !== org || params.zoneId !== zone) {
+    throw redirect({ to: appLink(params.sub, zone, org), replace: true });
+  }
 }
 
 export async function requirePendingOnboarding(): Promise<void> {

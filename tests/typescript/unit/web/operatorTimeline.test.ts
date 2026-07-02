@@ -180,4 +180,266 @@ describe('buildTimeline', () => {
     // An advisory with no summary is treated as absent.
     expect(planB && planB.kind === 'plan' ? planB.advisory : 'missing').toBeUndefined()
   })
+
+  it('surfaces the advisory alignment verdict and teaching recommendation', () => {
+    const { latestPlan } = buildTimeline([
+      turn({
+        seq: 1,
+        kind: 'plan',
+        role: 'operator',
+        content: {
+          summary: 'Grant broad admin',
+          steps: [{ id: 's1', capability: 'grantAccess', summary: 'Grant', mutating: true }],
+          advisory: {
+            summary: 'This grant is wider than the intent needs.',
+            alignment: 'misaligned',
+            findings: [],
+            recommendation: 'Scope the grant to the single resource instead of the whole zone.',
+          },
+        },
+      }),
+    ])
+    expect(latestPlan?.advisory?.alignment).toBe('misaligned')
+    expect(latestPlan?.advisory?.recommendation).toBe(
+      'Scope the grant to the single resource instead of the whole zone.',
+    )
+  })
+
+  it('omits an unknown alignment and an empty recommendation', () => {
+    const { latestPlan } = buildTimeline([
+      turn({
+        seq: 1,
+        kind: 'plan',
+        role: 'operator',
+        content: {
+          summary: 'Read state',
+          steps: [{ id: 's1', capability: 'listZones', summary: 'List', mutating: false }],
+          advisory: { summary: 'Read-only.', alignment: 'bogus', findings: [], recommendation: '' },
+        },
+      }),
+    ])
+    expect(latestPlan?.advisory?.alignment).toBeUndefined()
+    expect(latestPlan?.advisory?.recommendation).toBeUndefined()
+  })
+
+  it('carries per-step dependencies and a recognized risk, dropping an unknown risk', () => {
+    const { latestPlan } = buildTimeline([
+      turn({
+        seq: 1,
+        kind: 'plan',
+        role: 'operator',
+        content: {
+          summary: 'Connect then grant',
+          steps: [
+            { id: 's1', capability: 'connectProvider', summary: 'Connect', mutating: true, risk: 'high' },
+            {
+              id: 's2',
+              capability: 'grantAccess',
+              summary: 'Grant',
+              mutating: true,
+              depends_on: ['s1'],
+              risk: 'bogus',
+            },
+          ],
+        },
+      }),
+    ])
+    expect(latestPlan?.steps[0]?.risk).toBe('high')
+    expect(latestPlan?.steps[0]?.dependsOn).toEqual([])
+    expect(latestPlan?.steps[1]?.dependsOn).toEqual(['s1'])
+    expect(latestPlan?.steps[1]?.risk).toBeUndefined()
+  })
+
+  it('carries the previewed per-step effect, dropping an unknown effect', () => {
+    const { latestPlan } = buildTimeline([
+      turn({
+        seq: 1,
+        kind: 'plan',
+        role: 'operator',
+        content: {
+          summary: 'Connect then grant',
+          steps: [
+            { id: 's1', capability: 'connectProvider', summary: 'Connect', mutating: true, effect: 'create' },
+            { id: 's2', capability: 'grantAccess', summary: 'Grant', mutating: true, effect: 'exists' },
+            { id: 's3', capability: 'listZones', summary: 'List', mutating: false, effect: 'bogus' },
+          ],
+        },
+      }),
+    ])
+    expect(latestPlan?.steps[0]?.effect).toBe('create')
+    expect(latestPlan?.steps[1]?.effect).toBe('exists')
+    expect(latestPlan?.steps[2]?.effect).toBeUndefined()
+  })
+
+  it('records the deliberation trail on a plan and an answer, dropping unknown stages', () => {
+    const { items, latestPlan } = buildTimeline([
+      turn({
+        seq: 1,
+        kind: 'note',
+        role: 'operator',
+        content: { text: 'here is why', deliberation: ['triaging', 'gathering', 'answering'] },
+      }),
+      turn({
+        seq: 2,
+        kind: 'plan',
+        role: 'operator',
+        content: {
+          summary: 'Stand up',
+          steps: [{ id: 's1', capability: 'createZone', summary: 'Create a zone', mutating: true }],
+          deliberation: ['triaging', 'planning', 'bogus', 'guarding'],
+        },
+      }),
+    ])
+    expect(items[0]).toMatchObject({ kind: 'note', deliberation: ['triaging', 'gathering', 'answering'] })
+    expect(latestPlan?.deliberation).toEqual(['triaging', 'planning', 'guarding'])
+  })
+
+  it('omits an absent or non-array deliberation', () => {
+    const { items, latestPlan } = buildTimeline([
+      turn({ seq: 1, kind: 'note', role: 'operator', content: { text: 'no trail' } }),
+      turn({
+        seq: 2,
+        kind: 'plan',
+        role: 'operator',
+        content: {
+          summary: 'Stand up',
+          steps: [{ id: 's1', capability: 'createZone', summary: 'Create a zone', mutating: true }],
+          deliberation: 'not-an-array',
+        },
+      }),
+    ])
+    expect(items[0]).not.toHaveProperty('deliberation')
+    expect(latestPlan?.deliberation).toBeUndefined()
+  })
+
+  it('parses a full policy draft onto the operator note that carried it', () => {
+    const draft = {
+      summary: 'Grant PiperNet operators read access.',
+      intent: 'Least-privilege read for the operator role on PiperNet.',
+      documents: [
+        {
+          concern: 'PiperNet read grants',
+          filename: 'pipernet-read.rego',
+          content: '# caracal:data-document\npackage caracal.authz\n\ngrants := {}\n',
+          explanation: 'Supplies the grant data the platform contract reads.',
+          preview: {
+            package: 'caracal.authz',
+            rules: ['grants'],
+            default_result: true,
+            decisions: ['allow'],
+            inputs_referenced: ['input.subject'],
+            data_referenced: ['data.grants'],
+          },
+        },
+      ],
+      clarifications: [],
+      assumptions: ['The operator role already exists.'],
+      risks: [
+        { severity: 'caution', note: 'Confirm the resource selector is not wider than intended.' },
+        { severity: 'nonsense', note: 'Falls back to info severity.' },
+      ],
+      recommendations: ['Scope grants to the single resource.'],
+      simulations: [
+        {
+          name: 'operator reads',
+          description: 'An operator reads PiperNet.',
+          input: { subject: { role: 'operator' } },
+          expectedDecision: 'allow',
+        },
+      ],
+      activation: { ready: false, blockers: ['No policy set yet.'], guidance: 'Compose into a set first.' },
+      schemaVersion: '2026-01',
+      provenance: {
+        aiAssisted: true,
+        model: 'son-of-anton',
+        generatedAt: '2026-01-01T00:00:00Z',
+        sourceMessage: 'grant operators read on pipernet',
+      },
+    }
+    const { items } = buildTimeline([
+      turn({ seq: 1, kind: 'note', role: 'operator', content: { text: 'Here is a draft.', policy: draft } }),
+    ])
+    const note = items[0]
+    expect(note.kind).toBe('note')
+    if (note.kind !== 'note' || !note.policy) throw new Error('expected a policy on the note')
+    expect(note.policy.summary).toBe(draft.summary)
+    expect(note.policy.documents).toHaveLength(1)
+    expect(note.policy.documents[0]).toMatchObject({
+      concern: 'PiperNet read grants',
+      filename: 'pipernet-read.rego',
+    })
+    expect(note.policy.documents[0]?.preview).toMatchObject({
+      package: 'caracal.authz',
+      rules: ['grants'],
+      defaultResult: true,
+      decisions: ['allow'],
+      inputsReferenced: ['input.subject'],
+      dataReferenced: ['data.grants'],
+    })
+    // An unrecognized risk severity degrades to info rather than dropping the risk.
+    expect(note.policy.risks).toEqual([
+      { severity: 'caution', note: 'Confirm the resource selector is not wider than intended.' },
+      { severity: 'info', note: 'Falls back to info severity.' },
+    ])
+    expect(note.policy.simulations[0]).toMatchObject({ name: 'operator reads', expectedDecision: 'allow' })
+    expect(note.policy.activation).toMatchObject({ ready: false, blockers: ['No policy set yet.'] })
+    expect(note.policy.provenance).toMatchObject({ aiAssisted: true, model: 'son-of-anton' })
+  })
+
+  it('parses a clarification-only policy draft with no documents', () => {
+    const draft = {
+      summary: 'Need more detail before authoring.',
+      intent: '',
+      documents: [],
+      clarifications: ['Which resource should this cover?', 'Read only, or read and write?'],
+      assumptions: [],
+      risks: [],
+      recommendations: [],
+      simulations: [],
+      activation: null,
+      schemaVersion: '2026-01',
+      provenance: { aiAssisted: true, model: 'fiona', generatedAt: '2026-01-01T00:00:00Z', sourceMessage: 'grant access' },
+    }
+    const { items } = buildTimeline([
+      turn({ seq: 1, kind: 'note', role: 'operator', content: { text: 'I need a bit more.', policy: draft } }),
+    ])
+    const note = items[0]
+    if (note.kind !== 'note' || !note.policy) throw new Error('expected a policy on the note')
+    expect(note.policy.documents).toHaveLength(0)
+    expect(note.policy.clarifications).toEqual([
+      'Which resource should this cover?',
+      'Read only, or read and write?',
+    ])
+    expect(note.policy.activation).toBeNull()
+  })
+
+  it('omits a policy with no summary and a document with no content', () => {
+    const { items } = buildTimeline([
+      turn({ seq: 1, kind: 'note', role: 'operator', content: { text: 'plain note', policy: { summary: '' } } }),
+      turn({
+        seq: 2,
+        kind: 'note',
+        role: 'operator',
+        content: {
+          text: 'a draft',
+          policy: {
+            summary: 'Has one valid doc.',
+            documents: [
+              { concern: 'empty', filename: 'x.rego', content: '', explanation: 'dropped', preview: null },
+              { concern: 'kept', filename: 'y.rego', content: 'package caracal.authz\n', explanation: 'kept', preview: null },
+            ],
+          },
+        },
+      }),
+    ])
+    const plain = items[0]
+    const drafted = items[1]
+    if (plain.kind !== 'note' || drafted.kind !== 'note') throw new Error('expected note items')
+    // A draft with no summary is treated as absent, leaving the note as plain prose.
+    expect(plain).not.toHaveProperty('policy')
+    // A document with no content is dropped; only the one carrying Rego survives.
+    expect(drafted.policy?.documents).toHaveLength(1)
+    expect(drafted.policy?.documents[0]).toMatchObject({ concern: 'kept', filename: 'y.rego' })
+  })
 })
+

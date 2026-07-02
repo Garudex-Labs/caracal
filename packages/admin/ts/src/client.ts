@@ -64,6 +64,9 @@ export interface AdminClientOptions {
   timeoutMs?: number
   retries?: number
   signal?: AbortSignal
+  // Default headers sent on every request, merged under per-call headers. Used to carry request-
+  // scoped attribution (the human a call acts for) on the control plane's in-process admin hop.
+  headers?: Record<string, string>
 }
 
 interface RequestOptions {
@@ -132,6 +135,7 @@ export class AdminClient {
   private readonly timeoutMs: number
   private readonly retries: number
   private readonly callerSignal: AbortSignal | undefined
+  private readonly defaultHeaders: Record<string, string> | undefined
 
   constructor(opts: AdminClientOptions) {
     this.apiUrl = opts.apiUrl.replace(/\/$/, '')
@@ -142,6 +146,24 @@ export class AdminClient {
     this.timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS
     this.retries = opts.retries ?? DEFAULT_RETRIES
     this.callerSignal = opts.signal
+    this.defaultHeaders = opts.headers
+  }
+
+  // Derives a client that shares this one's configuration but sends the given headers on every
+  // request, merged under any existing default headers. Used to attach request-scoped attribution
+  // to the control plane's in-process admin hop without mutating the shared client.
+  withDefaultHeaders(headers: Record<string, string>): AdminClient {
+    return new AdminClient({
+      apiUrl: this.apiUrl,
+      coordinatorUrl: this.coordinatorUrl,
+      adminToken: this.adminToken,
+      coordinatorToken: this.coordinatorToken,
+      fetchImpl: this.doFetch,
+      timeoutMs: this.timeoutMs,
+      retries: this.retries,
+      signal: this.callerSignal,
+      headers: { ...this.defaultHeaders, ...headers },
+    })
   }
 
   private async request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
@@ -157,7 +179,7 @@ export class AdminClient {
       : []
     const qs = pairs.length ? '?' + pairs.join('&') : ''
     const url = `${base}${path}${qs}`
-    const headers: Record<string, string> = { Authorization: `Bearer ${token}`, ...opts.headers }
+    const headers: Record<string, string> = { Authorization: `Bearer ${token}`, ...this.defaultHeaders, ...opts.headers }
     let body: BodyInit | undefined
     if (opts.body !== undefined) {
       headers['Content-Type'] = 'application/json'

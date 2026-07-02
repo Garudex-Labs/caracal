@@ -25,6 +25,7 @@ interface StoreRow {
   context_window: number
   enabled: boolean
   sort_order: number
+  auth_config: unknown
 }
 
 // An in-memory Queryable matching the store's four statements by their stable SQL shape, so the
@@ -35,7 +36,15 @@ function fakeDb(): { db: Queryable; rows: Map<string, StoreRow> } {
   const db: Queryable = {
     query: async <T = unknown>(sql: string, params: unknown[] = []): Promise<{ rows: T[] }> => {
       if (sql.includes('INSERT INTO operator_ai_providers')) {
-        const [slug, label, baseUrl, modelsJson, ctx, enabled] = params as [string, string, string, string, number, boolean]
+        const [slug, label, baseUrl, modelsJson, ctx, enabled, authJson] = params as [
+          string,
+          string,
+          string,
+          string,
+          number,
+          boolean,
+          string,
+        ]
         const existing = rows.get(slug)
         const row: StoreRow = {
           slug,
@@ -45,6 +54,7 @@ function fakeDb(): { db: Queryable; rows: Map<string, StoreRow> } {
           context_window: ctx,
           enabled,
           sort_order: existing?.sort_order ?? ++order,
+          auth_config: JSON.parse(authJson),
         }
         rows.set(slug, row)
         return { rows: [row] as T[] }
@@ -97,7 +107,11 @@ function fakeAdmin(): { admin: AdminClient; state: AdminState } {
       patch: async (_z: string, pid: string, input: { config_json?: Record<string, unknown> }) => {
         state.calls.push(`provider.patch:${pid}`)
         const provider = state.providers.find((p) => p.id === pid)!
-        if (input.config_json) provider.config_json = input.config_json
+        // Mirror real PATCH: public config is replaced, the sealed key persists unless re-supplied.
+        if (input.config_json) {
+          const priorKey = provider.config_json.api_key
+          provider.config_json = { ...input.config_json, ...(input.config_json.api_key ? {} : priorKey ? { api_key: priorKey } : {}) }
+        }
         return provider
       },
       delete: async (_z: string, pid: string) => {
@@ -158,7 +172,7 @@ function fakeAdmin(): { admin: AdminClient; state: AdminState } {
 // confirm the gateway entries route through the right minted-mandate fetch.
 function fakeTransport(): OperatorLlmTransport {
   return {
-    governedFetch: (resourceIdentifier: string) => {
+    governedFetch: (resourceIdentifier: string, _upstream?: string) => {
       const fn = (async () => new Response('{}')) as unknown as typeof fetch
       ;(fn as unknown as { resourceIdentifier: string }).resourceIdentifier = resourceIdentifier
       return fn
@@ -166,6 +180,7 @@ function fakeTransport(): OperatorLlmTransport {
   }
 }
 
+const AUTH = { location: 'header' as const, headerName: 'Authorization', authScheme: 'Bearer' }
 const IDENTITY = { applicationId: 'op-app', clientSecret: 'secret', zoneId: 'sys-zone' }
 
 function buildManager(identity: typeof IDENTITY | null) {
@@ -178,6 +193,7 @@ function buildManager(identity: typeof IDENTITY | null) {
     resolveIdentity: () => identity,
     envUpstreams: [],
     gatewayUrl: 'http://gateway',
+    proxyUrl: 'http://litellm:4000/v1',
     transport: fakeTransport(),
     onRegistryChange: (configs) => {
       published = configs
@@ -194,7 +210,18 @@ describe('operator ai manager helpers', () => {
 
   it('builds one gateway entry per model, each routed through the provider resource', () => {
     const configs = buildStoreProviderConfigs(
-      [{ slug: 'openai', label: 'OpenAI', baseUrl: 'https://api', models: ['a', 'b'], contextWindow: 128000, enabled: true, sortOrder: 1 }],
+      [
+        {
+          slug: 'openai',
+          label: 'OpenAI',
+          baseUrl: 'https://api',
+          models: ['a', 'b'],
+          contextWindow: 128000,
+          enabled: true,
+          sortOrder: 1,
+          auth: AUTH,
+        },
+      ],
       new Map([['openai', 'caracal-sys://operator-llm-openai']]),
       'http://gateway',
       fakeTransport(),
@@ -206,14 +233,14 @@ describe('operator ai manager helpers', () => {
 
   it('skips a disabled provider and one whose resource did not resolve', () => {
     const disabled = buildStoreProviderConfigs(
-      [{ slug: 'x', label: 'X', baseUrl: 'u', models: ['m'], contextWindow: 0, enabled: false, sortOrder: 1 }],
+      [{ slug: 'x', label: 'X', baseUrl: 'u', models: ['m'], contextWindow: 0, enabled: false, sortOrder: 1, auth: AUTH }],
       new Map([['x', 'res']]),
       'http://gateway',
       fakeTransport(),
     )
     expect(disabled).toHaveLength(0)
     const unresolved = buildStoreProviderConfigs(
-      [{ slug: 'x', label: 'X', baseUrl: 'u', models: ['m'], contextWindow: 0, enabled: true, sortOrder: 1 }],
+      [{ slug: 'x', label: 'X', baseUrl: 'u', models: ['m'], contextWindow: 0, enabled: true, sortOrder: 1, auth: AUTH }],
       new Map(),
       'http://gateway',
       fakeTransport(),
@@ -224,17 +251,42 @@ describe('operator ai manager helpers', () => {
   it('lets a store upstream shadow an env upstream and only seals the override slug', () => {
     const merged = mergeDesiredUpstreams(
       [{ id: 'openai', baseUrl: 'https://env', apiKey: 'env-key' }],
-      [{ slug: 'openai', label: 'OpenAI', baseUrl: 'https://store', models: ['m'], contextWindow: 0, enabled: true, sortOrder: 1 }],
+      [
+        {
+          slug: 'openai',
+          label: 'OpenAI',
+          baseUrl: 'https://store',
+          models: ['m'],
+          contextWindow: 0,
+          enabled: true,
+          sortOrder: 1,
+          auth: AUTH,
+        },
+      ],
+      'http://litellm:4000/v1',
       { slug: 'openai', apiKey: 'new-key' },
     )
     expect(merged).toHaveLength(1)
-    expect(merged[0]).toEqual({ id: 'openai', baseUrl: 'https://store', apiKey: 'new-key' })
+    // The resource points at the proxy; the store endpoint travels separately as a per-call header.
+    expect(merged[0]).toEqual({ id: 'openai', baseUrl: 'http://litellm:4000/v1', apiKey: 'new-key', auth: AUTH })
   })
 
   it('reconciles a store upstream without a key when it is not the override', () => {
     const merged = mergeDesiredUpstreams(
       [],
-      [{ slug: 'claude', label: 'Claude', baseUrl: 'https://store', models: ['m'], contextWindow: 0, enabled: true, sortOrder: 1 }],
+      [
+        {
+          slug: 'claude',
+          label: 'Claude',
+          baseUrl: 'https://store',
+          models: ['m'],
+          contextWindow: 0,
+          enabled: true,
+          sortOrder: 1,
+          auth: AUTH,
+        },
+      ],
+      'http://litellm:4000/v1',
     )
     expect(merged[0].apiKey).toBeUndefined()
   })
@@ -253,6 +305,7 @@ describe('operator ai manager lifecycle', () => {
         contextWindow: 0,
         apiKey: 'k',
         enabled: true,
+        auth: AUTH,
       }),
     ).rejects.toBeInstanceOf(OperatorAiUnavailableError)
   })
@@ -267,6 +320,7 @@ describe('operator ai manager lifecycle', () => {
       contextWindow: 128000,
       apiKey: 'sk-live',
       enabled: true,
+      auth: AUTH,
     })
     expect(view.slug).toBe('openai')
     // The key is sealed into a provider whose config carries it, never returned in the view.
@@ -279,6 +333,61 @@ describe('operator ai manager lifecycle', () => {
     expect(getPublished().map((c) => c.id)).toEqual(['openai__gpt_5_5', 'openai__gpt_5_4'])
   })
 
+  it('places the sealed key in a custom header when the upstream wants one (Azure api-key)', async () => {
+    const { manager, state } = buildManager(IDENTITY)
+    await manager.create({
+      slug: 'azure',
+      label: 'Azure',
+      baseUrl: 'https://r.azure.com',
+      models: ['gpt-5.4-mini'],
+      contextWindow: 0,
+      apiKey: 'sk-azure',
+      enabled: true,
+      auth: { location: 'header', headerName: 'api-key' },
+    })
+    const cfg = state.providers[0].config_json
+    expect(cfg.auth_location).toBe('header')
+    expect(cfg.header_name).toBe('api-key')
+    expect(cfg.auth_scheme).toBeUndefined()
+    expect(cfg.api_key).toBe('sk-azure')
+  })
+
+  it('places the sealed key in a query parameter when configured', async () => {
+    const { manager, state } = buildManager(IDENTITY)
+    await manager.create({
+      slug: 'qp',
+      label: 'Query',
+      baseUrl: 'https://api/v1',
+      models: ['m'],
+      contextWindow: 0,
+      apiKey: 'sk-qp',
+      enabled: true,
+      auth: { location: 'query', queryParamName: 'key' },
+    })
+    const cfg = state.providers[0].config_json
+    expect(cfg.auth_location).toBe('query')
+    expect(cfg.query_param_name).toBe('key')
+    expect(cfg.header_name).toBeUndefined()
+  })
+
+  it('edits placement without re-sealing the key', async () => {
+    const { manager, state } = buildManager(IDENTITY)
+    await manager.create({
+      slug: 'p',
+      label: 'P',
+      baseUrl: 'https://api/v1',
+      models: ['m'],
+      contextWindow: 0,
+      apiKey: 'sk-1',
+      enabled: true,
+      auth: AUTH,
+    })
+    await manager.update('p', { auth: { location: 'header', headerName: 'X-API-Key' } })
+    const cfg = state.providers[0].config_json
+    expect(cfg.header_name).toBe('X-API-Key')
+    expect(cfg.api_key).toBe('sk-1')
+  })
+
   it('does not re-seal the key on a metadata update', async () => {
     const { manager, state } = buildManager(IDENTITY)
     await manager.create({
@@ -289,13 +398,13 @@ describe('operator ai manager lifecycle', () => {
       contextWindow: 0,
       apiKey: 'sk-1',
       enabled: true,
+      auth: AUTH,
     })
     const sealedKey = state.providers[0].config_json.api_key
-    state.calls.length = 0
     await manager.update('openai', { label: 'OpenAI Prod', models: ['gpt-5.5', 'gpt-5.4'] })
-    // No provider create/patch carrying a key: the metadata update never touches the sealed credential.
-    expect(state.calls.some((c) => c.startsWith('provider.create') || c.startsWith('provider.patch'))).toBe(false)
+    // A metadata update reconciles only public config; the sealed key is never re-supplied or lost.
     expect(state.providers[0].config_json.api_key).toBe(sealedKey)
+    expect(state.providers).toHaveLength(1)
   })
 
   it('re-seals the key on rotate', async () => {
@@ -308,6 +417,7 @@ describe('operator ai manager lifecycle', () => {
       contextWindow: 0,
       apiKey: 'sk-1',
       enabled: true,
+      auth: AUTH,
     })
     await manager.rotateKey('openai', 'sk-2')
     expect(state.providers[0].config_json.api_key).toBe('sk-2')
@@ -329,6 +439,7 @@ describe('operator ai manager lifecycle', () => {
       contextWindow: 0,
       apiKey: 'sk-1',
       enabled: true,
+      auth: AUTH,
     })
     const removed = await manager.remove('openai')
     expect(removed).toBe(true)
@@ -346,6 +457,7 @@ describe('operator ai manager lifecycle', () => {
       contextWindow: 0,
       apiKey: 'sk-1',
       enabled: true,
+      auth: AUTH,
     })
     const list = await manager.list()
     expect(list).toHaveLength(1)

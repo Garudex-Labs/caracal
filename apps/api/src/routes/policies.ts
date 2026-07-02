@@ -13,6 +13,7 @@ import { withTransaction, TxAbort } from '../db.js'
 import { OPA_INPUT_SCHEMA_VERSION, previewAuthzPolicy, validateAuthzPolicy, validatePolicySchemaVersion } from '../rego.js'
 import { appendKeysetCondition, parseListPagination, setNextLink } from './list-pagination.js'
 import { assertReservedNamespace } from '../reserved-namespace.js'
+import { resolveCreatedBy, isOperatorOrigin, zoneCoauthorEnabled } from '../attribution.js'
 
 const PolicyBody = z.object({
   name: z.string().min(1),
@@ -64,7 +65,7 @@ export const policiesRoutes: FastifyPluginAsync = async (fastify) => {
     if (!page) return
     const keyset = appendKeysetCondition({ conds: ['zone_id = $1', 'archived_at IS NULL'], values: [params.zoneId] }, page)
     const { rows } = await fastify.db.query(
-      `SELECT id, zone_id, name, description, owner_type, created_by, created_at
+      `SELECT id, zone_id, name, description, owner_type, created_by, co_authored_by_operator, created_at
        FROM policies WHERE ${keyset.conds.join(' AND ')}
        ORDER BY created_at DESC, id DESC LIMIT ${keyset.limitPlaceholder}`,
       keyset.values,
@@ -77,7 +78,7 @@ export const policiesRoutes: FastifyPluginAsync = async (fastify) => {
     const params = parseParams(ZoneIdParams, req, reply)
     if (!params) return
     const { rows } = await fastify.db.query(
-      `SELECT p.id, p.zone_id, p.name, p.description, p.owner_type, p.created_at,
+      `SELECT p.id, p.zone_id, p.name, p.description, p.owner_type, p.created_by, p.co_authored_by_operator, p.created_at,
               json_agg(pv ORDER BY pv.version DESC) AS versions
        FROM policies p
        LEFT JOIN policy_versions pv ON pv.policy_id = p.id
@@ -105,13 +106,14 @@ export const policiesRoutes: FastifyPluginAsync = async (fastify) => {
     const policyId = uuidv7()
     const versionId = uuidv7()
     const contentSHA = sha256Hex(body.content)
-    const createdBy = req.actor.name
+    const createdBy = resolveCreatedBy(req)
+    const coAuthored = isOperatorOrigin(req) && (await zoneCoauthorEnabled(fastify.db, params.zoneId))
 
     return withTransaction(fastify.db, async (client) => {
       await client.query(
-        `INSERT INTO policies (id, zone_id, name, description, owner_type, created_by)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [policyId, params.zoneId, body.name, body.description ?? null, body.owner_type ?? 'customer', createdBy],
+        `INSERT INTO policies (id, zone_id, name, description, owner_type, created_by, co_authored_by_operator)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [policyId, params.zoneId, body.name, body.description ?? null, body.owner_type ?? 'customer', createdBy, coAuthored],
       )
       const { rows } = await client.query(
         `INSERT INTO policy_versions (id, policy_id, version, content, content_sha256, schema_version, created_by)

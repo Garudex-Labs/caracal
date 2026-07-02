@@ -5,11 +5,11 @@ Caracal, a product of Garudex Labs
 This file defines the password reset request route.
 */
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { AuthLayout } from "@/components/auth/AuthLayout";
 import { Button, Field } from "@/components/ui";
-import { auth } from "@/platform/auth";
+import { fetchEnabledProviders, requestPasswordReset } from "@/platform/auth";
 import { content } from "@/platform/content/resolver";
 
 export const Route = createFileRoute("/reset")({
@@ -21,12 +21,32 @@ function ResetPage() {
   const [email, setEmail] = useState("");
   const [sent, setSent] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [available, setAvailable] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    fetchEnabledProviders().then((enabled) => {
+      if (active) setAvailable(enabled.passwordReset);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault();
     setBusy(true);
-    await auth.requestPasswordReset({ email, redirectTo: "/sign-in" }).catch(() => undefined);
+    setError(null);
+    const { error: resetError } = await requestPasswordReset({
+      email,
+      redirectTo: `${window.location.origin}/reset-password`,
+    });
     setBusy(false);
+    if (resetError) {
+      setError(resetError.message ?? "Could not send the reset email.");
+      return;
+    }
     setSent(true);
   }
 
@@ -40,7 +60,9 @@ function ResetPage() {
         </Link>
       }
     >
-      {sent ? (
+      {available === false ? (
+        <p className="text-sm text-muted-foreground">{t.resetUnavailable}</p>
+      ) : sent ? (
         <p className="text-sm text-muted-foreground">
           If an account exists for {email}, a reset link is on its way.
         </p>
@@ -54,7 +76,8 @@ function ResetPage() {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
           />
-          <Button type="submit" disabled={busy}>
+          {error ? <p className="text-sm text-destructive">{error}</p> : null}
+          <Button type="submit" disabled={busy || available === null}>
             {busy ? "Sending…" : t.resetCta}
           </Button>
         </form>

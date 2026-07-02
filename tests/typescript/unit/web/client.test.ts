@@ -16,6 +16,19 @@ function jsonResponse(status: number, body: unknown, headers: Record<string, str
   })
 }
 
+function eventStreamResponse(frames: string[]): Response {
+  const encoder = new TextEncoder()
+  return new Response(
+    new ReadableStream({
+      start(controller) {
+        for (const frame of frames) controller.enqueue(encoder.encode(frame))
+        controller.close()
+      },
+    }),
+    { status: 200, headers: { 'content-type': 'text/event-stream' } },
+  )
+}
+
 afterEach(() => {
   globalThis.fetch = realFetch
   vi.restoreAllMocks()
@@ -420,11 +433,91 @@ describe('operator conversation lifecycle', () => {
     expect(JSON.parse(init.body as string)).toEqual({ message: 'why denied', provider: 'anthropic' })
   })
 
+  it('includes durable client and correlation ids when supplied for a message', async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse(202, {
+        intent: 'message_run',
+        ok: true,
+        duplicate: true,
+        message_run: {
+          id: 'run-1',
+          client_message_id: 'msg-1',
+          correlation_id: 'corr-1',
+          state: 'waiting_for_model',
+          reason: null,
+          error_code: null,
+          error_detail: null,
+          deadline_at: null,
+          completed_at: null,
+          last_event_seq: 3,
+        },
+      }),
+    )
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+    const result = await consoleApi.operator.sendMessage('z1', 'conv-1', 'why denied', undefined, () => {}, undefined, undefined, {
+      clientMessageId: 'msg-1',
+      correlationId: 'corr-1',
+    })
+    const [, init] = fetchMock.mock.calls[0]! as [string, RequestInit]
+    expect(JSON.parse(init.body as string)).toEqual({ message: 'why denied', client_message_id: 'msg-1', correlation_id: 'corr-1' })
+    expect(result).toMatchObject({ intent: 'message_run', duplicate: true, message_run: { state: 'waiting_for_model' } })
+  })
+
   it('maps a disabled AI tier on message to a ConsoleApiError', async () => {
     globalThis.fetch = vi.fn(async () => jsonResponse(409, { error: 'ai_unavailable' })) as unknown as typeof fetch
     await expect(consoleApi.operator.sendMessage('z1', 'conv-1', 'hi')).rejects.toMatchObject({
       status: 409,
       code: 'ai_unavailable',
+    })
+  })
+
+  it('streams progress, reasoning, and answer tokens before the terminal result', async () => {
+    const result = { intent: 'explain', ok: true, text: 'Hello world', turn: null }
+    const fetchMock = vi.fn(async () =>
+      eventStreamResponse([
+        'event: stage\ndata: {"stage":"triaging"}\n\n',
+        'event: reasoning\ndata: {"text":"checking"}\n\n',
+        'event: token\ndata: {"text":"Hello"}\n\n',
+        'event: token\ndata: {"text":" world"}\n\n',
+        `event: result\ndata: ${JSON.stringify(result)}\n\n`,
+      ]),
+    )
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+    const stages: string[] = []
+    const tokens: string[] = []
+    const reasoning: string[] = []
+
+    const out = await consoleApi.operator.sendMessage(
+      'z1',
+      'conv-1',
+      'hi',
+      undefined,
+      (stage) => stages.push(stage),
+      (chunk) => tokens.push(chunk),
+      (chunk) => reasoning.push(chunk),
+    )
+
+    expect(out).toEqual(result)
+    expect(stages).toEqual(['triaging'])
+    expect(reasoning).toEqual(['checking'])
+    expect(tokens).toEqual(['Hello', ' world'])
+  })
+
+  it('maps a terminal SSE error frame to a ConsoleApiError', async () => {
+    globalThis.fetch = vi.fn(async () =>
+      eventStreamResponse(['event: error\ndata: {"error":"ai_unavailable","status":409}\n\n']),
+    ) as unknown as typeof fetch
+    await expect(consoleApi.operator.sendMessage('z1', 'conv-1', 'hi')).rejects.toMatchObject({
+      status: 409,
+      code: 'ai_unavailable',
+    })
+  })
+
+  it('fails explicitly when an SSE stream ends without a terminal result', async () => {
+    globalThis.fetch = vi.fn(async () => eventStreamResponse(['event: token\ndata: {"text":"partial"}\n\n'])) as unknown as typeof fetch
+    await expect(consoleApi.operator.sendMessage('z1', 'conv-1', 'hi')).rejects.toMatchObject({
+      status: 0,
+      code: 'request_failed',
     })
   })
 })

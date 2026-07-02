@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS mcp_token_state (
   scope TEXT NOT NULL,
   expires_at TIMESTAMPTZ NOT NULL,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  PRIMARY KEY (zone_id, sub, scope)
+  PRIMARY KEY (zone_id, sub)
 );
 ```
 

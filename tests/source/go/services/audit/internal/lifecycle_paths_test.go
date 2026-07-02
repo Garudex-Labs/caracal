@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/aws/smithy-go"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog"
 )
 
@@ -25,16 +24,12 @@ type fakeLifecycleStore struct {
 	dropped     []string
 	events      []EventRow
 	queryErr    error
-	acquireOK   bool
-	acquireErr  error
-	releaseErr  error
 	watermark   time.Time
 	watermarkEr error
 	saveErr     error
 
-	ensured  int
-	released int
-	saved    []time.Time
+	ensured int
+	saved   []time.Time
 }
 
 func (f *fakeLifecycleStore) EnsurePartition(context.Context, time.Time) error {
@@ -56,15 +51,6 @@ func (f *fakeLifecycleStore) QuerySinceFn(_ context.Context, _, _ time.Time, _ b
 		}
 	}
 	return nil
-}
-
-func (f *fakeLifecycleStore) AcquireAdvisoryLock(context.Context, int64) (*pgxpool.Conn, bool, error) {
-	return nil, f.acquireOK, f.acquireErr
-}
-
-func (f *fakeLifecycleStore) ReleaseAdvisoryLock(context.Context, *pgxpool.Conn, int64) error {
-	f.released++
-	return f.releaseErr
 }
 
 func (f *fakeLifecycleStore) LoadWatermark(context.Context, string) (time.Time, error) {
@@ -108,28 +94,6 @@ func TestRetentionTickStopsOnStoreErrorsAndRunHonorsCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	retention.Run(ctx)
-}
-
-func TestLeaderAcquireRunAndErrorPaths(t *testing.T) {
-	store := &fakeLifecycleStore{acquireOK: true}
-	leader := newLeader(store, 42, zerolog.Nop())
-	leader.tryAcquire(context.Background())
-	if !leader.Held() {
-		t.Fatal("expected leader to be held")
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	leader.Run(ctx)
-	if leader.Held() || !leader.stopped.Load() {
-		t.Fatalf("held=%v stopped=%v", leader.Held(), leader.stopped.Load())
-	}
-
-	leader = newLeader(&fakeLifecycleStore{acquireErr: errors.New("lock failed")}, 42, zerolog.Nop())
-	leader.tryAcquire(context.Background())
-	if leader.Held() {
-		t.Fatal("failed lock attempt must not hold leadership")
-	}
 }
 
 func chainHMAC(key []byte, contentSHA, prevSHA string) string {

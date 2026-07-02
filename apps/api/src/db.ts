@@ -57,6 +57,14 @@ export function newDB(options: DBOptions): pg.Pool {
       }
     })
   })
+  // An idle pooled connection can be dropped by Postgres or the network at any time; pg surfaces
+  // that as an 'error' event on the pool, which Node treats as fatal and crashes the process
+  // unless it is handled. The pool evicts the broken connection and opens a fresh one on the next
+  // query, so the error is logged and swallowed rather than taking the service down.
+  pool.on('error', (err: unknown) => {
+    const message = err instanceof Error ? err.message : String(err)
+    console.warn(`caracal-api: idle database connection error: ${message}`)
+  })
   return pool
 }
 

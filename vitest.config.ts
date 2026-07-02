@@ -44,6 +44,7 @@ export default defineConfig({
       { find: /^react\/jsx-runtime$/, replacement: src('./apps/web/node_modules/react/jsx-runtime.js') },
       { find: /^react-dom$/, replacement: src('./apps/web/node_modules/react-dom/index.js') },
       { find: /^react-dom\/server$/, replacement: src('./apps/web/node_modules/react-dom/server.node.js') },
+      { find: /^nodemailer$/, replacement: src('./apps/auth/node_modules/nodemailer/lib/nodemailer.js') },
       { find: /^@caracalai\/engine\/runtime-config$/, replacement: src('./packages/engine/src/runtimeConfig.ts') },
       { find: /^@caracalai\/engine\/commands$/, replacement: src('./packages/engine/src/commands.ts') },
       { find: /^@caracalai\/engine\/crash$/, replacement: src('./packages/engine/src/crash.ts') },

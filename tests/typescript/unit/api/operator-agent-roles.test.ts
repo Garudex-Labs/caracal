@@ -29,6 +29,7 @@ describe('researcherRoleScopes', () => {
     const scopes = researcherRoleScopes()
     expect([...scopes].sort()).toEqual([
       'control:app:read',
+      'control:grant:read',
       'control:identity-provider:read',
       'control:policy:read',
       'control:resource:read',
@@ -41,7 +42,12 @@ describe('executorRoleScopes', () => {
   it('adds the granted mutating scopes to the read scopes under the default authority', () => {
     const scopes = executorRoleScopes(buildOperatorAuthority())
     expect(scopes.has('control:app:write')).toBe(true)
+    expect(scopes.has('control:app:delete')).toBe(true)
     expect(scopes.has('control:grant:write')).toBe(true)
+    expect(scopes.has('control:grant:delete')).toBe(true)
+    expect(scopes.has('control:resource:delete')).toBe(true)
+    expect(scopes.has('control:identity-provider:delete')).toBe(true)
+    expect(scopes.has('control:policy:delete')).toBe(true)
     expect(scopes.has('control:app:read')).toBe(true)
   })
 
@@ -50,6 +56,7 @@ describe('executorRoleScopes', () => {
     const authority = buildOperatorAuthority({ allowedCapabilities: ['registerApplication'] })
     const scopes = executorRoleScopes(authority)
     expect(scopes.has('control:app:write')).toBe(true)
+    expect(scopes.has('control:app:delete')).toBe(false)
     expect(scopes.has('control:grant:write')).toBe(false)
   })
 

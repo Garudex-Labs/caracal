@@ -130,12 +130,12 @@ function LeftRail() {
         <img
           src="/caracal_light.png"
           alt="Caracal"
-          className="h-40 w-auto select-none dark:hidden"
+          className="h-auto w-52 max-w-full select-none dark:hidden"
         />
         <img
           src="/caracal_dark.png"
           alt="Caracal"
-          className="hidden h-40 w-auto select-none dark:block"
+          className="hidden h-auto w-52 max-w-full select-none dark:block"
         />
       </Link>
 

@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 This file provides the keyboard-driven command palette for fast Console navigation and actions.
 */
+import { navTarget } from "@/platform/nav/appLink";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
@@ -59,7 +60,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
   const commands = useMemo<Command[]>(() => {
     const go = (to: string) => () => {
       onClose();
-      navigate({ to });
+      navigate({ to: to === "/app" || to.startsWith("/app/") ? navTarget(to) : to });
     };
 
     const nav: Command[] = NAV_GROUPS.flatMap((group) =>

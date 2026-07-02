@@ -5,7 +5,7 @@ Caracal, a product of Garudex Labs
 This file frames the full-page guided onboarding flow.
 */
 import { Link } from "@tanstack/react-router";
-import type { ReactNode } from "react";
+import type { FormEvent, ReactNode } from "react";
 
 import { cx } from "@/lib/cx";
 
@@ -35,10 +35,14 @@ function StepRail({ steps, current }: { steps: OnboardingStep[]; current: number
       {steps.map((step, index) => {
         const state = index < current ? "done" : index === current ? "active" : "todo";
         return (
-          <li key={step.title} className="flex items-start gap-3 rounded-md px-3 py-2.5">
+          <li
+            key={step.title}
+            aria-current={state === "active" ? "step" : undefined}
+            className="flex items-start gap-3 rounded-md px-3 py-2.5"
+          >
             <span
               className={cx(
-                "mt-0.5 grid h-6 w-6 flex-shrink-0 place-items-center rounded-full border text-xs font-semibold transition-colors",
+                "mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full border text-xs font-semibold transition-colors",
                 state === "done" && "border-transparent bg-white text-[#121016]",
                 state === "active" && "border-white text-white",
                 state === "todo" && "border-white/25 text-white/40",
@@ -74,7 +78,7 @@ function StepRail({ steps, current }: { steps: OnboardingStep[]; current: number
 function MobileProgress({ steps, current }: { steps: OnboardingStep[]; current: number }) {
   return (
     <div className="flex items-center gap-3 border-b border-border px-4 py-3 sm:px-6 lg:hidden">
-      <div className="flex flex-1 items-center gap-1.5">
+      <div aria-hidden="true" className="flex flex-1 items-center gap-1.5">
         {steps.map((step, index) => (
           <span
             key={step.title}
@@ -97,6 +101,9 @@ export function OnboardingLayout({
   current,
   title,
   description,
+  signedInAs,
+  onSignOut,
+  onSubmit,
   children,
   footer,
 }: {
@@ -104,11 +111,14 @@ export function OnboardingLayout({
   current: number;
   title: string;
   description: string;
+  signedInAs: string;
+  onSignOut: () => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   children: ReactNode;
   footer: ReactNode;
 }) {
   return (
-    <div className="grid h-[100dvh] overflow-hidden lg:grid-cols-[340px_1fr] xl:grid-cols-[380px_1fr]">
+    <div className="grid h-dvh overflow-hidden lg:grid-cols-[340px_1fr] xl:grid-cols-[380px_1fr]">
       <aside
         className="relative hidden flex-col overflow-hidden p-8 text-white lg:flex xl:p-10"
         style={{ backgroundColor: "#121016" }}
@@ -117,9 +127,7 @@ export function OnboardingLayout({
           <img
             src="/caracal_dark.png"
             alt="Caracal"
-            className="h-24 w-auto max-w-full object-contain xl:h-28"
-            width={144}
-            height={144}
+            className="h-auto w-44 max-w-full object-contain xl:w-52"
           />
         </Link>
 
@@ -142,16 +150,30 @@ export function OnboardingLayout({
         <MobileProgress steps={steps} current={current} />
 
         <header className="relative shrink-0 border-b border-border px-6 pb-6 pt-6 sm:px-10 md:px-14 md:pb-7 md:pt-8">
-          <div className="w-full animate-fade-in">
-            <div className="flex items-center gap-2.5 text-xs font-semibold uppercase tracking-[0.2em]">
-              <span className="tabular-nums text-primary">
-                {String(current + 1).padStart(2, "0")}
-              </span>
-              <span className="tabular-nums text-muted-foreground/40">
-                / {String(steps.length).padStart(2, "0")}
-              </span>
-              <span aria-hidden="true" className="h-3 w-px bg-border" />
-              <span className="truncate text-muted-foreground">{steps[current]?.title}</span>
+          <div aria-live="polite" className="w-full animate-fade-in">
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex min-w-0 items-center gap-2.5 text-xs font-semibold uppercase tracking-[0.2em]">
+                <span className="tabular-nums text-primary">
+                  {String(current + 1).padStart(2, "0")}
+                </span>
+                <span className="tabular-nums text-muted-foreground/40">
+                  / {String(steps.length).padStart(2, "0")}
+                </span>
+                <span aria-hidden="true" className="h-3 w-px bg-border" />
+                <span className="truncate text-muted-foreground">{steps[current]?.title}</span>
+              </div>
+              <div className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
+                <span className="hidden max-w-55 truncate md:inline" title={signedInAs}>
+                  {signedInAs}
+                </span>
+                <button
+                  type="button"
+                  onClick={onSignOut}
+                  className="rounded font-medium underline-offset-4 outline-none transition-colors hover:text-foreground hover:underline focus-visible:ring-2 focus-visible:ring-ring/40"
+                >
+                  Sign out
+                </button>
+              </div>
             </div>
             <h1 className="mt-3 text-2xl font-semibold tracking-tight text-foreground md:text-3xl">
               {title}
@@ -169,15 +191,17 @@ export function OnboardingLayout({
           </div>
         </header>
 
-        <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto px-6 py-8 sm:px-10 md:px-14">
-          <div key={current} className="w-full animate-fade-in">
-            {children}
+        <form onSubmit={onSubmit} className="flex min-h-0 flex-1 flex-col">
+          <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto px-6 py-8 sm:px-10 md:px-14">
+            <div key={current} className="w-full animate-fade-in">
+              {children}
+            </div>
           </div>
-        </div>
 
-        <footer className="shrink-0 border-t border-border bg-background/95 px-6 py-4 backdrop-blur sm:px-10 md:px-14">
-          <div className="flex w-full items-center justify-between gap-3">{footer}</div>
-        </footer>
+          <footer className="shrink-0 border-t border-border bg-background/95 px-6 py-4 backdrop-blur sm:px-10 md:px-14">
+            <div className="flex w-full items-center justify-between gap-3">{footer}</div>
+          </footer>
+        </form>
       </main>
     </div>
   );

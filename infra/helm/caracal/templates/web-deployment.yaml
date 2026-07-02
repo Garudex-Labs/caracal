@@ -106,6 +106,9 @@ spec:
                 secretKeyRef:
                   name: {{ $secretName | quote }}
                   key: caracalCoordinatorToken
+            {{- with $service.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           startupProbe:
             httpGet:
               path: /health

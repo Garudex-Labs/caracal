@@ -74,8 +74,10 @@ import type {
   OperatorAiProviderList,
   OperatorAiProviderInput,
   OperatorAiProviderPatch,
+  OperatorAiAuth,
   OperatorExecutionResult,
   OperatorMessageResult,
+  OperatorProgressStage,
   OperatorNarrativeInput,
   OperatorPlanDecisionInput,
   OperatorPlanInput,
@@ -157,7 +159,7 @@ async function request<T>(path: string, init?: RequestInit & { signal?: AbortSig
   if (res.status === 204) return undefined as T;
 
   const text = await res.text();
-  let parsed: unknown = undefined;
+  let parsed: unknown;
   try {
     parsed = text ? JSON.parse(text) : undefined;
   } catch {
@@ -173,6 +175,134 @@ async function request<T>(path: string, init?: RequestInit & { signal?: AbortSig
   }
 
   return parsed as T;
+}
+
+// Sends an Operator message over Server-Sent Events, forwarding each deliberation stage to
+// onStage as it arrives and resolving with the same authoritative result body the JSON path
+// returns. Governance and validation errors raised before the stream opens come back as a normal
+// JSON error response; stops raised mid-deliberation arrive as a terminal error frame. Either way
+// they surface as a ConsoleApiError, so the caller handles one failure shape.
+async function streamOperatorMessage(
+  zoneId: string,
+  conversationId: string,
+  message: string,
+  provider: string | undefined,
+  onStage: (stage: OperatorProgressStage) => void,
+  onToken?: (text: string) => void,
+  onReasoning?: (text: string) => void,
+  options: { signal?: AbortSignal; clientMessageId?: string; correlationId?: string } = {},
+): Promise<OperatorMessageResult> {
+  const path = `/v1/zones/${encodeURIComponent(zoneId)}/operator-conversations/${encodeURIComponent(
+    conversationId,
+  )}/message`;
+  let res: Response;
+  try {
+    res = await fetch(`${config.consoleBaseUrl}${path}`, {
+      method: "POST",
+      credentials: "include",
+      signal: options.signal,
+      headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
+      body: JSON.stringify({
+        message,
+        ...(provider ? { provider } : {}),
+        ...(options.clientMessageId ? { client_message_id: options.clientMessageId } : {}),
+        ...(options.correlationId ? { correlation_id: options.correlationId } : {}),
+      }),
+    });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError")
+      throw new DOMException("aborted", "AbortError");
+    throw new ConsoleApiError(0, "network_error");
+  }
+
+  // A stop raised before the stream opened (auth, archived conversation, mode) returns a normal
+  // JSON error rather than an event stream. Surface it exactly as the request() path would.
+  if (!(res.headers.get("content-type") ?? "").includes("text/event-stream") || !res.body) {
+    const text = await res.text();
+    let parsed: unknown;
+    try {
+      parsed = text ? JSON.parse(text) : undefined;
+    } catch {
+      parsed = text;
+    }
+    if (!res.ok) {
+      const code =
+        parsed && typeof parsed === "object" && parsed !== null && "error" in parsed
+          ? String((parsed as { error: unknown }).error)
+          : res.statusText || "request_failed";
+      throw new ConsoleApiError(res.status, code, parsed);
+    }
+    return parsed as OperatorMessageResult;
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let result: OperatorMessageResult | null = null;
+  let failure: ConsoleApiError | null = null;
+
+  // Consumes whole SSE frames from the buffer. A frame is terminated by a blank line and names one
+  // of the route's events: stage forwards live progress, token forwards a text delta of the answer
+  // as it is produced, result is the authoritative body, and error carries a governance or gateway
+  // stop with its status.
+  const drain = () => {
+    let boundary: number;
+    while ((boundary = buffer.indexOf("\n\n")) !== -1) {
+      const frame = buffer.slice(0, boundary);
+      buffer = buffer.slice(boundary + 2);
+      let event = "message";
+      let data = "";
+      for (const line of frame.split("\n")) {
+        if (line.startsWith("event:")) event = line.slice(6).trim();
+        else if (line.startsWith("data:")) data += line.slice(5).trim();
+      }
+      if (!data) continue;
+      let payload: unknown;
+      try {
+        payload = JSON.parse(data);
+      } catch {
+        continue;
+      }
+      if (event === "stage") {
+        const stage = (payload as { stage?: OperatorProgressStage }).stage;
+        if (stage) onStage(stage);
+      } else if (event === "reasoning") {
+        const text = (payload as { text?: unknown }).text;
+        if (typeof text === "string" && text.length > 0) onReasoning?.(text);
+      } else if (event === "token") {
+        const text = (payload as { text?: unknown }).text;
+        if (typeof text === "string" && text.length > 0) onToken?.(text);
+      } else if (event === "result") {
+        result = payload as OperatorMessageResult;
+      } else if (event === "error") {
+        const body = payload as { error?: unknown; status?: number };
+        failure = new ConsoleApiError(
+          typeof body.status === "number" ? body.status : 500,
+          body.error ? String(body.error) : "request_failed",
+          body,
+        );
+      }
+    }
+  };
+
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      drain();
+    }
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") throw err;
+    throw new ConsoleApiError(0, "network_error");
+  }
+  // Flush a trailing frame the server closed without a final blank line.
+  buffer += "\n\n";
+  drain();
+
+  if (failure) throw failure;
+  if (result) return result;
+  throw new ConsoleApiError(0, "request_failed");
 }
 
 // Parses RFC 5988 Link headers to recover the keyset cursor for the next page.
@@ -208,7 +338,7 @@ async function requestList<T>(
     throw new ConsoleApiError(0, "network_error");
   }
   const text = await res.text();
-  let parsed: unknown = undefined;
+  let parsed: unknown;
   try {
     parsed = text ? JSON.parse(text) : undefined;
   } catch {
@@ -260,6 +390,20 @@ function queryString(params: Record<string, string | number | undefined>): strin
   }
   const qs = search.toString();
   return qs ? `?${qs}` : "";
+}
+
+// Maps the camelCase auth placement to the API's snake_case body. A header carries a name and an
+// optional scheme; a query carries a parameter name. The server defaults an omitted placement to
+// an Authorization Bearer header, so this only sends what the operator set.
+function serializeAuth(auth: OperatorAiAuth): Record<string, unknown> {
+  if (auth.location === "query") {
+    return { location: "query", query_param_name: auth.queryParamName ?? "api_key" };
+  }
+  return {
+    location: "header",
+    header_name: auth.headerName ?? "Authorization",
+    ...(auth.authScheme ? { auth_scheme: auth.authScheme } : {}),
+  };
 }
 
 export const CONTROL_INVOKE_TRAIT = "control:invoke";
@@ -518,13 +662,15 @@ export const consoleApi = {
       return res.enabled;
     },
     // The reserved system zone the Operator governs, exposed only as its id so the Console can
-    // open it in a read-only transparency view. Null when governed execution is not configured,
-    // in which case there is no system zone to open. The credential itself is never exposed.
+    // open it in a read-only transparency view. Resolved by slug when it exists, so the viewer is
+    // reachable even before governed execution is configured; falls back to the governed identity's
+    // zone for older deployments. Null when no system zone exists. The credential is never exposed.
     systemZoneId: async (signal?: AbortSignal) => {
       const res = await request<{
+        system_zone_id?: string | null;
         governed_execution?: { configured?: boolean; zone_id?: string };
       }>("/v1/operator/status", { signal });
-      return res.governed_execution?.zone_id ?? null;
+      return res.system_zone_id ?? res.governed_execution?.zone_id ?? null;
     },
     // Whether Caracal-governed autopilot is available in this deployment. Read from the same
     // status probe; the per-conversation engage toggle is only meaningful when this is true.
@@ -558,6 +704,7 @@ export const consoleApi = {
             context_window: input.contextWindow,
             api_key: input.apiKey,
             enabled: input.enabled,
+            ...(input.auth ? { auth: serializeAuth(input.auth) } : {}),
           }),
         }),
       update: (slug: string, patch: OperatorAiProviderPatch) =>
@@ -569,6 +716,7 @@ export const consoleApi = {
             ...(patch.models !== undefined ? { models: patch.models } : {}),
             ...(patch.contextWindow !== undefined ? { context_window: patch.contextWindow } : {}),
             ...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}),
+            ...(patch.auth ? { auth: serializeAuth(patch.auth) } : {}),
           }),
         }),
       rotateKey: (slug: string, apiKey: string) =>
@@ -726,12 +874,25 @@ export const consoleApi = {
         )}/plan/execute`,
         { method: "POST", body: JSON.stringify({ plan_seq: planSeq }) },
       ),
-    sendMessage: (zoneId: string, conversationId: string, message: string, provider?: string) =>
-      request<OperatorMessageResult>(
-        `/v1/zones/${encodeURIComponent(zoneId)}/operator-conversations/${encodeURIComponent(
-          conversationId,
-        )}/message`,
-        { method: "POST", body: JSON.stringify(provider ? { message, provider } : { message }) },
+    sendMessage: (
+      zoneId: string,
+      conversationId: string,
+      message: string,
+      provider: string | undefined,
+      onStage: (stage: OperatorProgressStage) => void,
+      onToken?: (text: string) => void,
+      onReasoning?: (text: string) => void,
+      options?: { signal?: AbortSignal; clientMessageId?: string; correlationId?: string },
+    ): Promise<OperatorMessageResult> =>
+      streamOperatorMessage(
+        zoneId,
+        conversationId,
+        message,
+        provider,
+        onStage,
+        onToken,
+        onReasoning,
+        options,
       ),
   },
 
@@ -843,6 +1004,7 @@ export const consoleApi = {
           event_type: query.event_type,
           request_id: query.request_id,
           agent_session_id: query.agent_session_id,
+          session_id: query.session_id,
           label: query.label,
           since: query.since,
           until: query.until,

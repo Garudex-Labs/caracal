@@ -65,12 +65,12 @@ export function ErrorState({ code }: { code: number }) {
         <img
           src="/caracal_light.png"
           alt="Caracal"
-          className="h-16 w-auto select-none object-contain dark:hidden sm:h-24 md:h-32"
+          className="h-auto w-40 select-none object-contain dark:hidden sm:w-56 md:w-72"
         />
         <img
           src="/caracal_dark.png"
           alt="Caracal"
-          className="hidden h-16 w-auto select-none object-contain dark:block sm:h-24 md:h-32"
+          className="hidden h-auto w-40 select-none object-contain dark:block sm:w-56 md:w-72"
         />
       </Link>
 

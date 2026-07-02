@@ -46,7 +46,7 @@ export interface OperatorLlmTransport {
   // resource header on every outbound request, routing it through the gateway which injects
   // the sealed upstream key. The AI SDK calls it with the gateway base URL, so the request is
   // already gateway-addressed and only needs authority attached.
-  governedFetch(resourceIdentifier: string): typeof fetch
+  governedFetch(resourceIdentifier: string, upstreamUrl?: string): typeof fetch
 }
 
 const DEFAULT_MANDATE_TTL_SECONDS = 900
@@ -232,12 +232,15 @@ export function createOperatorLlmTransport(config: OperatorLlmTransportConfig): 
   }
 
   return {
-    governedFetch(resourceIdentifier: string): typeof fetch {
+    governedFetch(resourceIdentifier: string, upstreamUrl?: string): typeof fetch {
       return (async (input: RequestInfo | URL, init?: RequestInit) => {
         const { mandate } = await ensureMandate(resourceIdentifier)
         const headers = new Headers(init?.headers ?? {})
         headers.set('Authorization', `Bearer ${mandate}`)
         headers.set('X-Caracal-Resource', resourceIdentifier)
+        // The real upstream rides as a header so the normalizer forwards there, keeping the
+        // resource pointed at the proxy while the endpoint stays the one the operator entered.
+        if (upstreamUrl) headers.set('X-Llm-Upstream', upstreamUrl)
         const url = typeof input === 'string' || input instanceof URL ? input : (input as Request).url
         return fetchImpl(url as URL, { ...init, headers })
       }) as typeof fetch

@@ -12,7 +12,7 @@
     "@caracalai/admin-audit": "workspace:*",
     "@caracalai/core": "workspace:*",
     "@caracalai/identity": "workspace:*",
-    "fastify": "^5.2.1",
+    "fastify": "^5.9.0",
     "ioredis": "^5.11.1",
     "jose": "^6.2.3",
     "pg": "^8.22.0",
@@ -21,7 +21,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@types/node": "^26.0.0",
+    "@types/node": "^26.0.1",
     "@types/pg": "^8.11.0",
     "typescript": "^6.0.3",
     "vitest": "^4.1.9"

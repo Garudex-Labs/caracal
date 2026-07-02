@@ -54,7 +54,7 @@ Gateway-routed requests include:
 
 | Request part | Value |
 | --- | --- |
-| URL | Gateway URL from the generated profile or web console result view. |
+| URL | Gateway URL from your runtime profile (`http://localhost:8081` on the local stack). |
 | `Authorization` | `Bearer <Caracal mandate>`. |
 | `X-Caracal-Resource` | Resource identifier. |
 | Path | The protected path you configured for the upstream. |
@@ -77,7 +77,7 @@ Run these checks before treating the route as ready:
 | Wrong resource header | Gateway rejects or routes to a different configured resource. |
 | Revoked session | Gateway rejects the old mandate. |
 
-Open the web console **Audit** and **Request Traces** with the request ID. A complete Gateway-routed call has both authorization evidence from STS and action-result evidence from Gateway.
+Open the web console **Audit** and filter by the request ID. A complete Gateway-routed call has both authorization evidence from STS and action-result evidence from Gateway.
 
 ## Troubleshooting
 

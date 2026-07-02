@@ -43,11 +43,12 @@ The onboarding path keeps runtime lifecycle in the `caracal` CLI and product man
 
 1. Install `caracal`.
 2. Start the local stack with `caracal up`.
-3. Open web console guided setup at [http://localhost:3001](http://localhost:3001).
-4. Create one zone, agent app, resource, policy, and runtime profile.
-5. Run a workload with `caracal run --` or an SDK.
-6. Call the protected resource through the Gateway.
-7. Inspect **Audit** and **Request Traces** in the web console.
+3. Sign in to the web console at [http://localhost:3001](http://localhost:3001) and complete onboarding to create your first zone.
+4. Use guided setup to create an agent app, resource, and active policy.
+5. Configure runtime access with environment variables or a `caracal.toml` profile.
+6. Run a workload with `caracal run --` or an SDK.
+7. Call the protected resource through the Gateway.
+8. Inspect **Audit** in the web console.
 
 ## Core Terms
 
@@ -68,7 +69,7 @@ You can finish Get Started with only these terms. Use [Concepts](/concepts/) whe
 | Goal | Start here | You will have |
 | --- | --- | --- |
 | Evaluate Caracal locally | [Install Caracal](./install-caracal/) | A verified runtime CLI, packaged local web console, and Docker prerequisite. |
-| Protect one resource end to end | [First Protected Call](./first-protected-call/) | A Gateway-routed resource, active policy, runtime profile, and audit explanation. |
+| Protect one resource end to end | [First Protected Call](./first-protected-call/) | A Gateway-routed resource, active policy, runtime configuration, and audit explanation. |
 | Add Caracal to app code | [Add SDK to Your App](./add-sdk-to-your-app/) | TypeScript, Python, or Go code that opens an agent session and calls the Gateway. |
 | Fix a blocked first run | [First-Run Troubleshooting](./first-run-troubleshooting/) | A focused checklist for readiness, profile, STS, Gateway, upstream, and audit issues. |
 | Learn the full model | [Caracal Mental Model](/concepts/model-overview/) | The canonical concept path after first success. |

@@ -13,6 +13,7 @@ if [ -n "${PGPASSWORD_FILE:-}" ] && [ -r "${PGPASSWORD_FILE}" ]; then
     : "${PGUSER:?PGUSER required when PGPASSWORD_FILE is set}"
     : "${PGDATABASE:?PGDATABASE required when PGPASSWORD_FILE is set}"
     pgpass="$(mktemp "${TMPDIR:-/tmp}/caracal.pgpass.XXXXXX")"
+    trap 'rm -f "${pgpass:-}"' EXIT
     chmod 0600 "${pgpass}"
     printf '%s:%s:%s:%s:%s\n' "${PGHOST}" "${PGPORT}" "${PGDATABASE}" "${PGUSER}" "$(cat "${PGPASSWORD_FILE}")" > "${pgpass}"
     export PGPASSFILE="${pgpass}"

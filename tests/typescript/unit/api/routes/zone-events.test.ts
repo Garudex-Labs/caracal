@@ -100,6 +100,22 @@ describe('GET /v1/zones/:zoneId/audit', () => {
     expect(db.query.mock.calls[0][1]).toEqual(['z1', 'agt-1', '["refund-agent"]', 100])
   })
 
+  it('filters audit by session_id', async () => {
+    const { app, db } = buildRouteApp(zoneEventsRoutes)
+    db.query.mockResolvedValueOnce({ rows: [] })
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/zones/z1/audit?session_id=sess-1',
+    })
+
+    expect(res.statusCode).toBe(200)
+    const sql = db.query.mock.calls[0][0] as string
+    expect(sql).toContain(`metadata_json->>'session_id' = $2`)
+    expect(db.query.mock.calls[0][1]).toEqual(['z1', 'sess-1', 100])
+  })
+
   it('rejects malformed cursor values', async () => {
     const { app, db } = buildRouteApp(zoneEventsRoutes)
 
@@ -296,6 +312,31 @@ describe('GET /v1/zones/:zoneId/sessions', () => {
     expect(JSON.parse(res.body)).toEqual({ error: 'invalid_cursor' })
     expect(db.query).not.toHaveBeenCalled()
   })
+
+  it('exports filtered sessions as CSV with a download header', async () => {
+    const { app, db } = buildRouteApp(zoneEventsRoutes)
+    db.query.mockResolvedValueOnce({
+      rows: [{
+        id: 'sess-9', session_type: 'user', subject_id: 'user-1', parent_id: null, status: 'revoked',
+        authenticated_at: '2026-05-02T00:00:00.000Z', created_at: '2026-05-02T00:00:00.000Z',
+        expires_at: '2026-05-02T01:00:00.000Z', revoked_at: '2026-05-02T00:30:00.000Z',
+        revoked_reason: 'grant_revoked',
+      }],
+    })
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/zones/z1/sessions?status=revoked&format=csv',
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-type']).toContain('text/csv')
+    expect(res.headers['content-disposition']).toContain('attachment; filename="sessions-z1.csv"')
+    const lines = res.body.trim().split('\r\n')
+    expect(lines[0]).toBe('id,session_type,subject_id,parent_id,status,authenticated_at,created_at,expires_at,revoked_at,revoked_reason')
+    expect(lines[1]).toBe('sess-9,user,user-1,,revoked,2026-05-02T00:00:00.000Z,2026-05-02T00:00:00.000Z,2026-05-02T01:00:00.000Z,2026-05-02T00:30:00.000Z,grant_revoked')
+  })
 })
 
 describe('GET /v1/zones/:zoneId/agent-sessions', () => {
@@ -335,7 +376,7 @@ describe('GET /v1/zones/:zoneId/agent-sessions', () => {
         id: 'as-9', application_id: 'app-1', parent_id: null, status: 'suspended',
         lifecycle: 'service', labels: ['voice', 'worker'], depth: 1, child_count: 0,
         spawned_at: '2026-05-02T00:00:00.000Z', last_active_at: '2026-05-02T00:01:00.000Z',
-        terminated_at: null, ttl_seconds: null,
+        terminated_at: null, termination_reason: null, ttl_seconds: null,
       }],
     })
 
@@ -349,8 +390,8 @@ describe('GET /v1/zones/:zoneId/agent-sessions', () => {
     expect(res.headers['content-type']).toContain('text/csv')
     expect(res.headers['content-disposition']).toContain('attachment; filename="agent-sessions-z1.csv"')
     const lines = res.body.trim().split('\r\n')
-    expect(lines[0]).toBe('id,application_id,parent_id,status,lifecycle,labels,depth,child_count,spawned_at,last_active_at,terminated_at,ttl_seconds')
-    expect(lines[1]).toBe('as-9,app-1,,suspended,service,voice worker,1,0,2026-05-02T00:00:00.000Z,2026-05-02T00:01:00.000Z,,')
+    expect(lines[0]).toBe('id,application_id,parent_id,status,lifecycle,labels,depth,child_count,spawned_at,last_active_at,terminated_at,termination_reason,ttl_seconds')
+    expect(lines[1]).toBe('as-9,app-1,,suspended,service,voice worker,1,0,2026-05-02T00:00:00.000Z,2026-05-02T00:01:00.000Z,,,')
   })
 
   it('rejects an invalid status filter', async () => {

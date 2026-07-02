@@ -9,7 +9,14 @@ import type { OperatorControlIdentity } from './config.js'
 import type { ProviderConfig } from './operator-gateway.js'
 import type { OperatorLlmTransport } from './operator-llm-transport.js'
 import { GovernedUpstream, provisionGovernedUpstreams } from './system-zone.js'
-import { deleteAiProvider, getAiProvider, listAiProviders, upsertAiProvider, type OperatorAiProviderRecord } from './operator-ai-store.js'
+import {
+  deleteAiProvider,
+  getAiProvider,
+  listAiProviders,
+  upsertAiProvider,
+  type AuthPlacement,
+  type OperatorAiProviderRecord,
+} from './operator-ai-store.js'
 
 const DEFAULT_TIMEOUT_MS = 30_000
 
@@ -22,6 +29,7 @@ export interface OperatorAiProviderView {
   models: string[]
   contextWindow: number
   enabled: boolean
+  auth: AuthPlacement
 }
 
 function toView(record: OperatorAiProviderRecord): OperatorAiProviderView {
@@ -32,6 +40,7 @@ function toView(record: OperatorAiProviderRecord): OperatorAiProviderView {
     models: record.models,
     contextWindow: record.contextWindow,
     enabled: record.enabled,
+    auth: record.auth,
   }
 }
 
@@ -43,6 +52,7 @@ export interface CreateProviderInput {
   contextWindow: number
   apiKey: string
   enabled: boolean
+  auth: AuthPlacement
 }
 
 export interface UpdateProviderInput {
@@ -51,6 +61,7 @@ export interface UpdateProviderInput {
   models?: string[]
   contextWindow?: number
   enabled?: boolean
+  auth?: AuthPlacement
 }
 
 // Raised when a write is attempted while governed execution is not configured. The routes map
@@ -106,7 +117,7 @@ export function buildStoreProviderConfigs(
         model,
         timeoutMs: DEFAULT_TIMEOUT_MS,
         contextWindow: record.contextWindow,
-        transport: transport.governedFetch(resourceIdentifier),
+        transport: transport.governedFetch(resourceIdentifier, record.baseUrl),
       })
     }
   }
@@ -121,13 +132,16 @@ export function buildStoreProviderConfigs(
 export function mergeDesiredUpstreams(
   envUpstreams: GovernedUpstream[],
   records: OperatorAiProviderRecord[],
+  proxyUrl: string,
   keyOverride?: { slug: string; apiKey: string },
 ): GovernedUpstream[] {
   const bySlug = new Map<string, GovernedUpstream>()
   for (const upstream of envUpstreams) bySlug.set(upstream.id, upstream)
   for (const record of records) {
     const apiKey = keyOverride && keyOverride.slug === record.slug ? keyOverride.apiKey : undefined
-    bySlug.set(record.slug, { id: record.slug, baseUrl: record.baseUrl, apiKey })
+    // The governed resource points at the normalizer; the operator's real endpoint travels as a
+    // header on each call, so any provider works with no per-model proxy config.
+    bySlug.set(record.slug, { id: record.slug, baseUrl: proxyUrl, apiKey, auth: record.auth })
   }
   return [...bySlug.values()]
 }
@@ -150,6 +164,10 @@ export interface OperatorAiManagerDeps {
   resolveIdentity: () => OperatorControlIdentity | null
   envUpstreams: GovernedUpstream[]
   gatewayUrl: string
+  // The OpenAI-compatible normalizer (LiteLLM) the governed LLM resource points at. The
+  // operator's real endpoint is forwarded to it per request, so models route there regardless
+  // of provider with no per-model config.
+  proxyUrl: string
   transport: OperatorLlmTransport
   // Publishes the rebuilt store-provider gateway entries so the next request's gateway includes
   // the change without an env edit or restart.
@@ -165,7 +183,7 @@ export function createOperatorAiManager(deps: OperatorAiManagerDeps): OperatorAi
     const identity = deps.resolveIdentity()
     if (!identity) throw new OperatorAiUnavailableError()
     const records = await listAiProviders(deps.db)
-    const upstreams = mergeDesiredUpstreams(deps.envUpstreams, records, keyOverride)
+    const upstreams = mergeDesiredUpstreams(deps.envUpstreams, records, deps.proxyUrl, keyOverride)
     const governed = await provisionGovernedUpstreams(deps.admin, identity.zoneId, identity.applicationId, upstreams)
     const resourceBySlug = new Map(governed.map((entry) => [entry.id, entry.resourceIdentifier]))
     deps.onRegistryChange(buildStoreProviderConfigs(records, resourceBySlug, deps.gatewayUrl, deps.transport))
@@ -190,6 +208,7 @@ export function createOperatorAiManager(deps: OperatorAiManagerDeps): OperatorAi
         models: input.models,
         contextWindow: input.contextWindow,
         enabled: input.enabled,
+        auth: input.auth,
       })
       await reconcile({ slug: input.slug, apiKey: input.apiKey })
       return toView(record)
@@ -206,6 +225,7 @@ export function createOperatorAiManager(deps: OperatorAiManagerDeps): OperatorAi
         models: patch.models ?? existing.models,
         contextWindow: patch.contextWindow ?? existing.contextWindow,
         enabled: patch.enabled ?? existing.enabled,
+        auth: patch.auth ?? existing.auth,
       })
       await reconcile()
       return toView(record)

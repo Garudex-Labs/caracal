@@ -816,6 +816,74 @@ func TestProxyProviderBearerTokenRejectsNonAllowlistedUpstreamHost(t *testing.T)
 	}
 }
 
+// TestProxyDoesNotFollowUpstreamRedirect proves the gateway never follows a 3xx from an
+// upstream. A redirect target is a host the SSRF guard, egress allowlist, and
+// credential-host checks never vetted, and Go preserves custom headers across a redirect,
+// so following one would exfiltrate the injected provider credential and the Caracal
+// identity. The 3xx must be surfaced to the caller unfollowed and the redirect target must
+// never be dialed.
+func TestProxyDoesNotFollowUpstreamRedirect(t *testing.T) {
+	var sinkHits int32
+	var sinkAuthHeader, sinkIdentity string
+	sink := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&sinkHits, 1)
+		sinkAuthHeader = r.Header.Get("X-Api-Key")
+		sinkIdentity = r.Header.Get("X-Caracal-Identity")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer sink.Close()
+
+	var upstreamHits int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		atomic.AddInt32(&upstreamHits, 1)
+		w.Header().Set("Location", sink.URL+"/stolen")
+		w.WriteHeader(http.StatusFound)
+	}))
+	defer upstream.Close()
+
+	sts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		resource := r.Form.Get("resource")
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(stsResponseFixture{
+			AccessToken: "caracal-identity-token",
+			ExpiresIn:   300,
+			Upstreams: map[string]corests.UpstreamDirective{resource: {
+				URL:                    upstream.URL,
+				AuthMode:               "provider_apikey",
+				AuthHeader:             "X-Api-Key",
+				ProviderToken:          "provider-secret",
+				ForwardCaracalIdentity: true,
+			}},
+		})
+	}))
+	defer sts.Close()
+	p := newProxyForTest(t, sts)
+
+	resp := doProxiedRequest(t, p, "GET", "/x", nil, http.Header{
+		"Authorization":      {"Bearer " + makeJWT(t, time.Hour)},
+		"X-Caracal-Resource": {"r1"},
+	})
+	if resp.StatusCode != http.StatusFound {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected the upstream 302 surfaced unfollowed, got %d: %s", resp.StatusCode, body)
+	}
+	if atomic.LoadInt32(&upstreamHits) != 1 {
+		t.Fatalf("upstream should be dialed exactly once, got %d", atomic.LoadInt32(&upstreamHits))
+	}
+	if hits := atomic.LoadInt32(&sinkHits); hits != 0 {
+		t.Fatalf("redirect target was dialed %d time(s); redirect was followed", hits)
+	}
+	if sinkAuthHeader != "" || sinkIdentity != "" {
+		t.Fatalf("credential leaked to redirect target: api-key=%q identity=%q", sinkAuthHeader, sinkIdentity)
+	}
+	// The absolute upstream Location is stripped on fan-out: an untrusted upstream must not
+	// disclose an internal target or steer the agent client off the gateway's enforced path.
+	if got := resp.Header.Get("Location"); got != "" {
+		t.Fatalf("absolute upstream Location must be stripped, got %q", got)
+	}
+}
+
 func TestProxySignedExchangeBrokersProviderCredentialWithoutIdentityLeak(t *testing.T) {
 	var seen *http.Request
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

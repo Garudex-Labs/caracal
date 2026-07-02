@@ -100,7 +100,7 @@ func newProxy(sts *stsClient, jwks tokenVerifier, guard *upstreamGuard, log zero
 		sts:         sts,
 		jwks:        jwks,
 		guard:       guard,
-		client:      &http.Client{Transport: transport},
+		client:      &http.Client{Transport: transport, CheckRedirect: noRedirect},
 		log:         log,
 		maxBytes:    maxBytes,
 		bindings:    bindings,
@@ -584,6 +584,30 @@ var upstreamIdentityHeaders = []string{
 	"X-AspNetMvc-Version",
 }
 
+// sanitizeRedirectHeaders neutralizes upstream-controlled redirect targets on response
+// fan-out. The gateway is the sole enforcement path and treats upstreams as untrusted, so
+// an absolute (or protocol-relative) Location/Content-Location is stripped: forwarding it
+// would disclose the upstream's internal topology (private/loopback upstreams are permitted)
+// and would steer an agent client off the audited, credential-injected path toward a host
+// the SSRF guard and egress allowlist never vetted — an open-redirect primitive. Relative
+// references disclose no host and stay within gateway-mediated routing, so they are kept.
+// A value that fails to parse is dropped rather than trusted.
+func sanitizeRedirectHeaders(h http.Header) {
+	for _, name := range []string{"Location", "Content-Location"} {
+		val := h.Get(name)
+		if val == "" {
+			continue
+		}
+		u, err := url.Parse(val)
+		if err != nil || u.Host != "" || u.Scheme != "" {
+			h.Del(name)
+		}
+	}
+	// Refresh is a non-standard upstream-controlled redirect directive (`Refresh: 5; url=…`)
+	// with no legitimate use on this API gateway; drop it so it cannot smuggle a target.
+	h.Del("Refresh")
+}
+
 // copyResponse streams the upstream response back to the client, flushing on every chunk
 // so SSE consumers see real-time data without server-side buffering. Between chunks it
 // consults revocations: if any authority anchor bound to the token is revoked
@@ -601,6 +625,7 @@ func copyResponse(w http.ResponseWriter, resp *http.Response, revocations revoca
 	for _, banner := range upstreamIdentityHeaders {
 		resp.Header.Del(banner)
 	}
+	sanitizeRedirectHeaders(resp.Header)
 	for key, vals := range resp.Header {
 		for _, val := range vals {
 			w.Header().Add(key, val)

@@ -57,6 +57,7 @@ export interface Config {
   // surface.
   gatewayUrl: string
   coordinatorUrl: string
+  operatorLlmProxyUrl: string
   gatewayStsHmacKey: Buffer | null
   auditHmacKey: Buffer | null
   logLevel: string
@@ -92,16 +93,10 @@ export interface Config {
   operatorAllowedCapabilities: string[] | null
   operatorSystemZones: string[]
   operatorAiProviders: ProviderConfig[]
-  // Caracal-governed autopilot: the deployment-set boundary of what the Operator may auto-approve
-  // in agent mode. operatorAutopilotEnabled is the master kill switch (off by default), and
-  // operatorAutopilotCapabilities is the explicit, narrow allowlist of low-risk capabilities
-  // (empty by default). With both at their defaults autopilot can approve nothing; the policy is
-  // set here in Caracal and never by the model or a conversation.
+  // Caracal-governed autopilot: operatorAutopilotEnabled is the deployment master switch (off by
+  // default). When on, an agent-mode conversation that engages autopilot has its plan approvals
+  // auto-satisfied; the switch is set here in Caracal and never by the model or a conversation.
   operatorAutopilotEnabled: boolean
-  operatorAutopilotCapabilities: string[] | null
-  operatorAutopilotMaxSteps: number
-  operatorAutopilotWindowSec: number
-  operatorAutopilotWindowMax: number
   // Caracal-set governance over the Operator's model usage, enforced above the spine: a hard
   // ceiling on a single completion's output tokens and a per-turn model-call budget. Both have
   // safe defaults that bound runaways without affecting normal operation; zero lifts a bound.
@@ -239,6 +234,7 @@ export function loadConfig(): Config {
     stsUrl: getenv('STS_URL', 'http://localhost:8080'),
     gatewayUrl: getenv('CARACAL_GATEWAY_URL', 'http://localhost:8081'),
     coordinatorUrl: getenv('CARACAL_COORDINATOR_URL', 'http://localhost:4000'),
+    operatorLlmProxyUrl: getenv('API_OPERATOR_LLM_PROXY_URL', 'http://litellm:4000/v1'),
     gatewayStsHmacKey,
     auditHmacKey,
     logLevel: getenv('LOG_LEVEL', 'info'),
@@ -278,10 +274,6 @@ export function loadConfig(): Config {
     operatorSystemZones: csvEnv('API_OPERATOR_SYSTEM_ZONES') ?? [],
     operatorAiProviders: loadOperatorAiProviders(),
     operatorAutopilotEnabled: boolEnv('API_OPERATOR_AUTOPILOT_ENABLED', false),
-    operatorAutopilotCapabilities: csvEnv('API_OPERATOR_AUTOPILOT_CAPABILITIES'),
-    operatorAutopilotMaxSteps: intEnv('API_OPERATOR_AUTOPILOT_MAX_STEPS', 1, 1),
-    operatorAutopilotWindowSec: intEnv('API_OPERATOR_AUTOPILOT_WINDOW_SEC', 3600, 0),
-    operatorAutopilotWindowMax: intEnv('API_OPERATOR_AUTOPILOT_WINDOW_MAX', 10, 0),
     operatorAiMaxOutputTokens: intEnv('API_OPERATOR_AI_MAX_OUTPUT_TOKENS', 4096, 0),
     operatorAiMaxCallsPerTurn: intEnv('API_OPERATOR_AI_MAX_CALLS_PER_TURN', 12, 0),
     operatorSelfGovern: loadOperatorSelfGovern(),

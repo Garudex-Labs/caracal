@@ -102,7 +102,7 @@ export const ModelSelectorTrigger = ({
       aria-expanded={open}
       onClick={() => setOpen(!open)}
       className={cx(
-        "inline-flex h-8 items-center gap-1.5 rounded-full border border-border bg-card px-2.5 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-50",
+        "inline-flex h-8 items-center gap-1.5 rounded-full px-2.5 text-xs text-muted-foreground transition-colors hover:bg-surface hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-50",
         className,
       )}
       {...props}
@@ -112,16 +112,6 @@ export const ModelSelectorTrigger = ({
     </button>
   );
 };
-
-// A monogram chip standing in for a provider logo, derived from the provider id.
-export const ModelSelectorLogo = ({ provider }: { provider: string }) => (
-  <span
-    aria-hidden="true"
-    className="grid h-4 w-4 flex-shrink-0 place-items-center rounded-sm bg-muted text-[9px] font-semibold uppercase text-foreground"
-  >
-    {provider.slice(0, 1)}
-  </span>
-);
 
 export const ModelSelectorName = ({ children, className }: ComponentProps<"span">) => (
   <span className={cx("truncate", className)}>{children}</span>

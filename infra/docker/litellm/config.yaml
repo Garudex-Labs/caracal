@@ -1,0 +1,13 @@
+# Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+# Caracal, a product of Garudex Labs
+#
+# Stateless LiteLLM normalizer: no providers, no keys, no endpoints. The Caracal hook supplies the sealed key and the operator's real endpoint per request; drop_params strips model-specific quirks. Any model id forwards to whatever endpoint Caracal sends, so adding a provider needs no config edit.
+
+litellm_settings:
+  drop_params: true
+  callbacks: ["caracal_key_hook.caracal_key_hook"]
+
+model_list:
+  - model_name: "*"
+    litellm_params:
+      model: openai/*

@@ -5,7 +5,7 @@ Caracal, a product of Garudex Labs
 This file defines the guided onboarding route.
 */
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 
 import { DcrField } from "@/components/console/DcrField";
 import { EnterpriseCallout } from "@/components/onboarding/EnterpriseCallout";
@@ -15,7 +15,8 @@ import { ZoneExplainer } from "@/components/onboarding/ZoneExplainer";
 import { AvatarPicker, Button, Card, Field, SectionTitle, useToast } from "@/components/ui";
 import { ConsoleApiError, consoleApi } from "@/platform/api/client";
 import { selectZone } from "@/platform/api/hooks";
-import { useSession } from "@/platform/auth";
+import { ZONE_NAME_MAX } from "@/platform/api/types";
+import { signOut, updateUser, useSession } from "@/platform/auth";
 import { requirePendingOnboarding } from "@/platform/auth/guards";
 import {
   completeOnboarding,
@@ -55,6 +56,14 @@ const STEP_HEAD = [
     description: "Check the details below. You own this environment as its single user.",
   },
 ];
+
+// Zone-name problems send the operator back to the zone step with a plain-language
+// explanation; raw control-plane codes never reach the toast.
+const ZONE_NAME_ERRORS: Record<string, string> = {
+  reserved_namespace: "That name is reserved for Caracal's own systems. Choose a different name.",
+  zone_slug_conflict: "A zone with a similar name already exists. Choose a different name.",
+  invalid_zone: "Enter a valid zone name.",
+};
 
 function OnboardingPage() {
   const navigate = useNavigate();
@@ -107,6 +116,17 @@ function OnboardingPage() {
     setStep((value) => Math.max(value - 1, 0));
   }
 
+  function onSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (step < STEPS.length - 1) goNext();
+    else void finish();
+  }
+
+  async function exitToSignIn() {
+    await signOut();
+    navigate({ to: "/sign-in" });
+  }
+
   async function finish() {
     if (!profileValid || !zoneValid) return;
     setSubmitting(true);
@@ -116,6 +136,12 @@ function OnboardingPage() {
       displayName: resolveDisplayName(fullName, displayName),
       avatar,
     };
+    // The authenticated user record carries the same name and avatar as the local
+    // profile so the console and auth server agree on the operator's identity; a
+    // failed sync never blocks onboarding since Settings can save the profile later.
+    await updateUser({ name: profile.fullName, image: profile.avatar || undefined }).catch(
+      () => undefined,
+    );
     try {
       const zone = await consoleApi.zones.create({
         name: zoneName.trim(),
@@ -123,6 +149,11 @@ function OnboardingPage() {
       });
       selectZone(zone.id);
       completeOnboarding(profile);
+      toast({
+        tone: "success",
+        title: "You're all set",
+        description: `${zone.name} is ready to use.`,
+      });
       navigate({ to: "/app" });
     } catch (err) {
       if (
@@ -139,10 +170,12 @@ function OnboardingPage() {
         return;
       }
       setSubmitting(false);
+      const nameError = err instanceof ConsoleApiError ? ZONE_NAME_ERRORS[err.code] : undefined;
+      if (nameError) setStep(1);
       toast({
         tone: "error",
         title: "Could not create zone",
-        description: err instanceof ConsoleApiError ? err.code : "Unexpected error.",
+        description: nameError ?? "Something went wrong on our side. Try again in a moment.",
       });
     }
   }
@@ -155,15 +188,10 @@ function OnboardingPage() {
       current={step}
       title={head.title}
       description={head.description}
-      footer={
-        <FooterNav
-          step={step}
-          submitting={submitting}
-          onBack={goBack}
-          onNext={goNext}
-          onFinish={finish}
-        />
-      }
+      signedInAs={ownerEmail}
+      onSignOut={() => void exitToSignIn()}
+      onSubmit={onSubmit}
+      footer={<FooterNav step={step} submitting={submitting} onBack={goBack} />}
     >
       {step === 0 ? (
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,400px)] lg:gap-12">
@@ -231,7 +259,8 @@ function OnboardingPage() {
               placeholder="e.g. Production"
               hint="A recognizable name for this environment, like Production, Staging, or Development."
               value={zoneName}
-              onChange={(e) => setZoneName(e.target.value)}
+              onChange={(e) => setZoneName(e.target.value.slice(0, ZONE_NAME_MAX))}
+              maxLength={ZONE_NAME_MAX}
               error={showErrors && !zoneValid ? "Zone name is required." : undefined}
               autoFocus
             />
@@ -248,6 +277,7 @@ function OnboardingPage() {
           <ReviewSection
             title="Profile"
             onEdit={() => setStep(0)}
+            editDisabled={submitting}
             rows={[
               ["Full name", fullName.trim()],
               ["Display name", resolveDisplayName(fullName, displayName) || "-"],
@@ -260,6 +290,7 @@ function OnboardingPage() {
           <ReviewSection
             title="First zone"
             onEdit={() => setStep(1)}
+            editDisabled={submitting}
             rows={[
               ["Name", zoneName.trim()],
               ["Dynamic Client Registration", zoneDcr ? "Enabled" : "Off"],
@@ -278,31 +309,27 @@ function FooterNav({
   step,
   submitting,
   onBack,
-  onNext,
-  onFinish,
 }: {
   step: number;
   submitting: boolean;
   onBack: () => void;
-  onNext: () => void;
-  onFinish: () => void;
 }) {
   const isLast = step === STEPS.length - 1;
   return (
     <>
       {step > 0 ? (
-        <Button variant="secondary" onClick={onBack} disabled={submitting}>
+        <Button type="button" variant="secondary" onClick={onBack} disabled={submitting}>
           Back
         </Button>
       ) : (
         <span />
       )}
       {isLast ? (
-        <Button onClick={onFinish} loading={submitting}>
+        <Button type="submit" loading={submitting}>
           {submitting ? "Finishing…" : "Finish setup"}
         </Button>
       ) : (
-        <Button onClick={onNext}>Continue</Button>
+        <Button type="submit">Continue</Button>
       )}
     </>
   );
@@ -312,12 +339,14 @@ function ReviewSection({
   title,
   rows,
   onEdit,
+  editDisabled,
   avatar,
   avatarName,
 }: {
   title: string;
   rows: [string, string][];
   onEdit: () => void;
+  editDisabled: boolean;
   avatar?: string;
   avatarName?: string;
 }) {
@@ -325,13 +354,13 @@ function ReviewSection({
     <Card>
       <div className="flex items-center justify-between">
         <SectionTitle>{title}</SectionTitle>
-        <Button variant="ghost" size="sm" onClick={onEdit}>
+        <Button type="button" variant="ghost" size="sm" onClick={onEdit} disabled={editDisabled}>
           Edit
         </Button>
       </div>
       <div className="mt-3 flex items-start gap-4">
         {avatar !== undefined ? (
-          <div className="grid h-12 w-12 flex-shrink-0 place-items-center overflow-hidden rounded-full border border-border bg-muted text-sm font-semibold text-muted-foreground">
+          <div className="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-full border border-border bg-muted text-sm font-semibold text-muted-foreground">
             {avatar ? (
               <img src={avatar} alt="" className="h-full w-full object-cover" />
             ) : (
@@ -344,7 +373,7 @@ function ReviewSection({
             <div key={label} className="flex justify-between gap-4 py-2 text-sm">
               <dt className="shrink-0 text-muted-foreground">{label}</dt>
               <dd
-                className="min-w-0 text-right font-medium text-foreground [overflow-wrap:anywhere]"
+                className="min-w-0 text-right font-medium wrap-anywhere text-foreground"
                 title={value}
               >
                 {value}

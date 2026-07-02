@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 This file renders the collapsible, left-attached Console navigation sidebar.
 */
+import { navTarget } from "@/platform/nav/appLink";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 
@@ -17,8 +18,11 @@ import { useHiddenNavItems } from "@/platform/state/sidebarPrefs";
 import { useTheme } from "@/platform/theme";
 
 function isActive(pathname: string, to: string): boolean {
-  if (to === "/app") return pathname === "/app";
-  return pathname === to || pathname.startsWith(`${to}/`);
+  // The pathname is /:accountId/:orgId/:zoneId/app/...; nav targets are flat (/app, /app/audit),
+  // so match on the /app suffix, which is stable across accounts and zones. The dashboard (/app)
+  // is active only on the exact app root, never on a deeper page.
+  if (to === "/app") return pathname.endsWith("/app");
+  return pathname.endsWith(to) || pathname.includes(`${to}/`);
 }
 
 function LockGlyph({ className }: { className?: string }) {
@@ -183,7 +187,7 @@ export function Sidebar({
                 {group.items.map((item) => (
                   <SidebarItem
                     key={item.id}
-                    to={item.to}
+                    to={navTarget(item.to)}
                     label={item.label}
                     iconName={item.id}
                     active={isActive(pathname, item.to)}

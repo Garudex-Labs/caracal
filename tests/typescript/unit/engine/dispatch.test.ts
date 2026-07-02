@@ -5,6 +5,7 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import type { AdminClient } from '../../../../packages/admin/ts/src/client.js'
+import { AdminApiError } from '../../../../packages/admin/ts/src/errors.js'
 import { dispatch, DispatchError, validateFlags, type Principal } from '../../../../packages/engine/src/dispatch.js'
 
 const local: Principal = {
@@ -125,5 +126,38 @@ describe('dispatch', () => {
       subcommand: '',
       flags: { 'request-id': 'req-1' },
     }, local, { admin: a })).resolves.toEqual({ ok: true })
+  })
+
+  it('translates a control-plane rejection into a structured DispatchError carrying the real reason', async () => {
+    const a = admin()
+    a.policies = {
+      create: vi.fn(async () => {
+        throw new AdminApiError(422, 'invalid_rego', { error: 'invalid_rego', detail: 'rego_parse_error: unexpected token' })
+      }),
+    } as unknown as AdminClient['policies']
+
+    await expect(dispatch({
+      command: 'policy',
+      subcommand: 'create',
+      flags: { name: 'PiperNet baseline', content: 'package caracal.authz' },
+    }, local, { admin: a })).rejects.toMatchObject({
+      code: 'invalid',
+      message: 'invalid_rego: rego_parse_error: unexpected token',
+    })
+  })
+
+  it('keeps an ambiguous upstream failure as an upstream DispatchError so the plan is not retried', async () => {
+    const a = admin()
+    a.policies = {
+      create: vi.fn(async () => {
+        throw new AdminApiError(503, 'service_unavailable', { error: 'service_unavailable' })
+      }),
+    } as unknown as AdminClient['policies']
+
+    await expect(dispatch({
+      command: 'policy',
+      subcommand: 'create',
+      flags: { name: 'PiperNet baseline', content: 'package caracal.authz' },
+    }, local, { admin: a })).rejects.toMatchObject({ code: 'upstream' })
   })
 })

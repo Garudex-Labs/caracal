@@ -9,7 +9,7 @@ ARG BUN_VERSION=1.3.14
 ARG BUN_LINUX_X64_INTEGRITY=sha512-7OVTAKvwfPmSbIV1HpdOoVVx5VRc427GuPPne93N6vk4eQBPId9nXmZDh9/zGaKPdbVjVtQSZafWQoUjx38Utw==
 ARG BUN_LINUX_AARCH64_INTEGRITY=sha512-X5SsPZHs+iYO8R/efIcRtc7gT2Q2DgPfliCxEkx4cXBumwkw0c/EsHMNwH3EgGpCDaZ7IYVPhpCG/xBOQHEwZw==
 
-FROM node:26-slim@sha256:191ef878ecb351d68b78219593de18bd8942afd59af59f29960dc4b24805a3f1 AS builder
+FROM node:26-slim@sha256:a1d9d671994fc2d26e297ac56b4b1522a8bc7fa71c43b14cd1b1fe6c5116f7dc AS builder
 ARG PNPM_VERSION
 ARG BUN_VERSION
 ARG BUN_LINUX_X64_INTEGRITY
@@ -90,7 +90,7 @@ RUN case "${TARGETARCH}" in \
     bun build --compile --target=${bunTarget} src/shell.ts --outfile dist/caracal && \
     chmod +x dist/caracal
 
-FROM debian:13-slim@sha256:4e401d95de7083948053197a9c3913343cd06b706bf15eb6a0c3ccd26f436a0e
+FROM debian:13-slim@sha256:28de0877c2189802884ccd20f15ee41c203573bd87bb6b883f5f46362d24c5c2
 RUN useradd --system --uid 65532 --user-group --create-home --home-dir /home/caracal caracal
 COPY --from=builder /workspace/apps/runtime/dist/caracal /usr/local/bin/caracal
 USER caracal

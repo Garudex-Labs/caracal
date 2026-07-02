@@ -226,12 +226,22 @@ function fakeAdmin(seed: Partial<FakeState> = {}): { admin: AdminClient; state: 
 describe('operatorControlScopes', () => {
   it('is exactly the union of the governed-executable capability scopes, least privilege', () => {
     expect(operatorControlScopes()).toEqual([
+      'control:app:delete',
       'control:app:read',
       'control:app:write',
+      'control:grant:delete',
+      'control:grant:read',
       'control:grant:write',
+      'control:identity-provider:delete',
       'control:identity-provider:read',
+      'control:identity-provider:write',
+      'control:policy-set:write',
+      'control:policy:delete',
       'control:policy:read',
+      'control:policy:write',
+      'control:resource:delete',
       'control:resource:read',
+      'control:resource:write',
     ])
   })
 })

@@ -80,6 +80,23 @@ const CODE_KEYWORDS: Record<string, Set<string>> = {
     "const",
     "for",
   ]),
+  Rego: new Set([
+    "package",
+    "import",
+    "default",
+    "if",
+    "else",
+    "not",
+    "some",
+    "every",
+    "in",
+    "with",
+    "as",
+    "contains",
+    "true",
+    "false",
+    "null",
+  ]),
   Shell: new Set([]),
 };
 

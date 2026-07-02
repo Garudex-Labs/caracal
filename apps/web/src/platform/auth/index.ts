@@ -16,6 +16,8 @@ export const {
   getSession,
   updateUser,
   changePassword,
+  requestPasswordReset,
+  resetPassword,
   listSessions,
   revokeSession,
   revokeOtherSessions,
@@ -33,6 +35,7 @@ export interface EnabledProviders {
   email: boolean;
   google: boolean;
   github: boolean;
+  passwordReset: boolean;
 }
 
 export class AuthApiError extends Error {
@@ -53,7 +56,7 @@ export async function fetchEnabledProviders(): Promise<EnabledProviders> {
     if (!response.ok) throw new Error("providers request failed");
     return (await response.json()) as EnabledProviders;
   } catch {
-    return { email: true, google: false, github: false };
+    return { email: true, google: false, github: false, passwordReset: false };
   }
 }
 

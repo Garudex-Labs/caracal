@@ -1,6 +1,6 @@
 ---
 title: Integrate the Python SDK
-description: Install caracalai-sdk, load a generated profile, spawn agents with async context managers, delegate authority, and use httpx transport injection.
+description: Install caracalai-sdk, load a runtime profile, spawn agents with async context managers, delegate authority, and use httpx transport injection.
 ---
 
 Use `caracalai-sdk` in Python services and agents that need async session lifecycle, delegation, Gateway routing, or ASGI context propagation.
@@ -19,7 +19,7 @@ from caracalai import Caracal
 caracal = Caracal()
 ```
 
-`Caracal()` loads `CARACAL_CONFIG`, the default generated profile, or environment variables. Generated profiles are created by web console guided setup.
+`Caracal()` loads `CARACAL_CONFIG`, a `caracal.toml` in the default config path, or environment variables.
 
 ## Spawn and call a resource
 

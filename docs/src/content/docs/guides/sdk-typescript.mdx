@@ -1,6 +1,6 @@
 ---
 title: Integrate the TypeScript SDK
-description: Install @caracalai/sdk, load a generated profile, spawn agents, delegate authority, and inject Caracal headers.
+description: Install @caracalai/sdk, load a runtime profile, spawn agents, delegate authority, and inject Caracal headers.
 ---
 
 Use `@caracalai/sdk` in Node applications that need agent sessions, delegation, Gateway routing, or Caracal context propagation.
@@ -17,10 +17,8 @@ The SDK resolves configuration in this order:
 
 1. `new Caracal({ clientSecret: ... })` explicit options.
 2. `new Caracal({ configPath })`.
-3. `CARACAL_CONFIG` or the default generated profile.
+3. `CARACAL_CONFIG` or a `caracal.toml` in the default config path.
 4. Environment variables.
-
-The web console guided setup can write the profile and secret file for you.
 
 ## Connect and spawn
 
@@ -123,7 +121,7 @@ For provider SDKs that accept a custom `fetch`, pass `caracal.transport()` so Ca
 
 | Symptom | Check |
 | --- | --- |
-| `Caracal.fromEnv: missing ...` | Confirm generated profile or required `CARACAL_*` variables are present. |
+| `Caracal.fromEnv: missing ...` | Confirm the runtime profile or required `CARACAL_*` variables are present. |
 | Root headers rejected | Call `headersAsync({ allowRoot: true })` only when service-root identity is intentional. |
 | Delegation fails | Ensure the call runs inside `spawn()` or another bound context. |
 | Gateway request misses resource | Confirm `gateway_url`, resource bindings, and `X-Caracal-Resource`. |

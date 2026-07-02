@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 This file renders the profile menu in the sidebar footer: identity, zone switching, and account actions.
 */
+import { appLink } from "@/platform/nav/appLink";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -176,7 +177,7 @@ export function ProfileMenu({ collapsed = false }: { collapsed?: boolean }) {
                     Active zone
                   </span>
                   <Link
-                    to="/app/zones"
+                    to={appLink("/zones")}
                     onClick={() => setOpen(false)}
                     className="text-[11px] font-medium text-muted-foreground hover:text-foreground"
                   >
@@ -185,7 +186,7 @@ export function ProfileMenu({ collapsed = false }: { collapsed?: boolean }) {
                 </div>
                 {zones.length === 0 ? (
                   <Link
-                    to="/app/zones"
+                    to={appLink("/zones")}
                     onClick={() => setOpen(false)}
                     className="block rounded-md px-1.5 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"
                   >
@@ -247,7 +248,7 @@ export function ProfileMenu({ collapsed = false }: { collapsed?: boolean }) {
           <div className="p-1.5">
             {isHideLockedPath("/app/settings", systemView) ? null : (
               <MenuLink
-                to="/app/settings"
+                to={appLink("/settings")}
                 onClick={() => setOpen(false)}
                 label="Profile & settings"
               >

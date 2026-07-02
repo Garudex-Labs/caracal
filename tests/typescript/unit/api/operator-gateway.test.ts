@@ -8,6 +8,7 @@ import {
   createGateway,
   withUsage,
   preferProvider,
+  streamingAnswers,
   GatewayUnavailableError,
   GatewayError,
   GatewayBudgetError,
@@ -23,6 +24,20 @@ function chatResponse(content: string, usage?: { prompt_tokens: number; completi
   return new Response(JSON.stringify({ choices: [{ message: { content } }], usage }), {
     status: 200,
     headers: { 'content-type': 'application/json' },
+  })
+}
+
+// Builds an OpenAI-compatible streaming response: one chat.completion.chunk per content delta,
+// a terminal stop chunk carrying usage, then the [DONE] sentinel, so streamText parses the same
+// shape a real provider sends.
+function streamResponse(parts: string[], usage?: { prompt_tokens: number; completion_tokens: number }): Response {
+  const frames = parts.map(
+    (content) => `data: ${JSON.stringify({ choices: [{ index: 0, delta: { content }, finish_reason: null }] })}\n\n`,
+  )
+  const stop = `data: ${JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: 'stop' }], usage })}\n\n`
+  return new Response(frames.join('') + stop + 'data: [DONE]\n\n', {
+    status: 200,
+    headers: { 'content-type': 'text/event-stream' },
   })
 }
 
@@ -221,7 +236,74 @@ describe('gateway completeObject', () => {
     const { gateway, usage } = withUsage(preferProvider(base, 'second'))
     const result = await gateway.completeObject([{ role: 'user', content: 'go' }], ProposedPlan)
     expect(result.provider).toBe('second')
-    expect(usage()).toEqual({ inputTokens: 10, outputTokens: 4 })
+    expect(usage()).toMatchObject({ inputTokens: 10, outputTokens: 4 })
+  })
+})
+
+describe('gateway stream', () => {
+  it('streams token deltas to the callback and returns the assembled completion', async () => {
+    const fetchMock = vi.fn(async () => streamResponse(['Hel', 'lo'], { prompt_tokens: 3, completion_tokens: 2 }))
+    const gateway = createGateway([provider()], fetchMock as unknown as typeof fetch)
+    const deltas: string[] = []
+    const result = await gateway.stream([{ role: 'user', content: 'hi' }], { onText: (chunk) => deltas.push(chunk) })
+    expect(deltas.join('')).toBe('Hello')
+    expect(result).toMatchObject({ text: 'Hello', provider: 'p1', model: 'gpt-x', promptTokens: 3, completionTokens: 2 })
+  })
+
+  it('streams reasoning deltas to onReasoning and keeps the answer clean', async () => {
+    const fetchMock = vi.fn(async () => streamResponse(['<think>', 'weighing ', 'options', '</think>', 'the answer']))
+    const gateway = createGateway([provider()], fetchMock as unknown as typeof fetch)
+    const text: string[] = []
+    const reasoning: string[] = []
+    const result = await gateway.stream([{ role: 'user', content: 'why' }], {
+      onText: (chunk) => text.push(chunk),
+      onReasoning: (chunk) => reasoning.push(chunk),
+    })
+    expect(reasoning.join('')).toBe('weighing options')
+    expect(text.join('')).toBe('the answer')
+    expect(result).toMatchObject({ text: 'the answer', reasoning: 'weighing options' })
+  })
+
+  it('fails over to the next provider when a stream yields no text', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(streamResponse([]))
+      .mockResolvedValueOnce(streamResponse(['done']))
+    const gateway = createGateway([provider({ id: 'primary' }), provider({ id: 'secondary' })], fetchMock as unknown as typeof fetch)
+    const deltas: string[] = []
+    const result = await gateway.stream([{ role: 'user', content: 'hi' }], { onText: (chunk) => deltas.push(chunk) })
+    expect(result.provider).toBe('secondary')
+    expect(deltas.join('')).toBe('done')
+  })
+})
+
+describe('streamingAnswers', () => {
+  const validPlan = { summary: 'Connect GitHub', steps: [{ id: 's1', capability: 'connectProvider', args: { name: 'GitHub' } }] }
+
+  it('streams a free-text completion through the underlying stream', async () => {
+    const fetchMock = vi.fn(async () => streamResponse(['Hi', ' there']))
+    const gateway = createGateway([provider()], fetchMock as unknown as typeof fetch)
+    const deltas: string[] = []
+    const wrapped = streamingAnswers(gateway, (chunk) => deltas.push(chunk))
+    const result = await wrapped.complete([{ role: 'user', content: 'hi' }])
+    expect(deltas.join('')).toBe('Hi there')
+    expect(result.text).toBe('Hi there')
+  })
+
+  it('leaves completeObject untouched so structured calls never stream', async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(validPlan) } }] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+    )
+    const gateway = createGateway([provider()], fetchMock as unknown as typeof fetch)
+    const deltas: string[] = []
+    const wrapped = streamingAnswers(gateway, (chunk) => deltas.push(chunk))
+    const result = await wrapped.completeObject([{ role: 'user', content: 'connect github' }], ProposedPlan)
+    expect(result.value).toEqual(validPlan)
+    expect(deltas).toHaveLength(0)
   })
 })
 
@@ -234,17 +316,42 @@ describe('withUsage', () => {
     const base = createGateway([provider()], fetchMock as unknown as typeof fetch)
     const { gateway, usage } = withUsage(base)
 
-    expect(usage()).toEqual({ inputTokens: 0, outputTokens: 0 })
+    expect(usage()).toMatchObject({ inputTokens: 0, outputTokens: 0 })
     await gateway.complete([{ role: 'user', content: 'a' }])
     await gateway.complete([{ role: 'user', content: 'b' }])
-    expect(usage()).toEqual({ inputTokens: 130, outputTokens: 25 })
+    expect(usage()).toMatchObject({ inputTokens: 130, outputTokens: 25 })
+  })
+
+  it('records the provider and model that served, tracking a failover across calls', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(chatResponse('one'))
+      .mockRejectedValueOnce(new TypeError('connection refused'))
+      .mockResolvedValueOnce(chatResponse('two'))
+    const base = createGateway(
+      [provider({ id: 'primary', model: 'gpt-a' }), provider({ id: 'secondary', model: 'gpt-b' })],
+      fetchMock as unknown as typeof fetch,
+    )
+    const { gateway, usage } = withUsage(base)
+    await gateway.complete([{ role: 'user', content: 'a' }])
+    await gateway.complete([{ role: 'user', content: 'b' }])
+    // The first call was served by the primary; the second failed over to the secondary, so both
+    // providers are recorded in served order and the last served provider is the secondary.
+    expect(usage()).toMatchObject({ provider: 'secondary', model: 'gpt-b', providers: ['primary', 'secondary'] })
+  })
+
+  it('reports a null served provider when no completion succeeded', async () => {
+    const fetchMock = vi.fn(async () => chatResponse('OK'))
+    const base = createGateway([provider()], fetchMock as unknown as typeof fetch)
+    const { usage } = withUsage(base, { maxCalls: 1 })
+    expect(usage()).toMatchObject({ provider: null, model: null, providers: [] })
   })
 
   it('treats missing usage as zero without throwing', async () => {
     const fetchMock = vi.fn().mockResolvedValue(chatResponse('no usage'))
     const { gateway, usage } = withUsage(createGateway([provider()], fetchMock as unknown as typeof fetch))
     await gateway.complete([{ role: 'user', content: 'a' }])
-    expect(usage()).toEqual({ inputTokens: 0, outputTokens: 0 })
+    expect(usage()).toMatchObject({ inputTokens: 0, outputTokens: 0 })
   })
 
   it('enforces the per-turn model-call budget, refusing a call beyond it', async () => {

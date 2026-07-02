@@ -343,7 +343,7 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
       `SELECT id AS agent_session_id, zone_id, application_id, parent_id,
                 subject_session_id, lifecycle,
                 labels, status, depth, ttl_seconds, metadata_json AS metadata,
-                spawned_at, terminated_at, last_heartbeat_at, heartbeat_deadline_at
+                spawned_at, terminated_at, termination_reason, last_heartbeat_at, heartbeat_deadline_at
          FROM agent_sessions WHERE ${conds.join(' AND ')}
        ORDER BY id DESC LIMIT ${limitPlaceholder}`,
       queryParams,
@@ -360,7 +360,7 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
       `SELECT id AS agent_session_id, zone_id, application_id, parent_id,
                 subject_session_id, lifecycle,
                 labels, status, depth, ttl_seconds, metadata_json AS metadata,
-                spawned_at, terminated_at, last_heartbeat_at, heartbeat_deadline_at
+                spawned_at, terminated_at, termination_reason, last_heartbeat_at, heartbeat_deadline_at
          FROM agent_sessions WHERE id = $1 AND zone_id = $2`,
       [id, zoneId],
     )
@@ -632,7 +632,8 @@ export async function terminateSubtree(client: PoolClient, zoneId: string, rootI
      ),
      terminated AS (
        UPDATE agent_sessions
-       SET status = 'terminated', terminated_at = now(), updated_at = now()
+       SET status = 'terminated', terminated_at = now(), updated_at = now(),
+           termination_reason = CASE WHEN id = ANY($1::text[]) THEN $3 ELSE 'parent_terminated' END
        WHERE id IN (SELECT id FROM tree) AND zone_id = $2
       RETURNING id, subject_session_id, parent_id
      ),
@@ -651,7 +652,7 @@ export async function terminateSubtree(client: PoolClient, zoneId: string, rootI
        RETURNING s.id
      )
     SELECT id, subject_session_id, parent_id FROM terminated`,
-    [rootIds, zoneId],
+    [rootIds, zoneId, reason],
   )
   if (rows.length === 0) return 0
   const exemptSessions = await revocationExemptSessions(client, zoneId, rows)

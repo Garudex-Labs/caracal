@@ -91,6 +91,15 @@ const pool = new pg.Pool({
   options: `-c statement_timeout=${statementTimeoutMs} -c idle_in_transaction_session_timeout=${idleInTxTimeoutMs}`,
 })
 
+// An idle pooled connection can be dropped by Postgres or the network at any time; pg surfaces
+// that as an 'error' event on the pool, which Node treats as fatal and crashes the process unless
+// it is handled. The pool evicts the broken connection and opens a fresh one on the next query, so
+// the error is logged and swallowed rather than taking the service down.
+pool.on('error', (err) => {
+  const message = err instanceof Error ? err.message : String(err)
+  console.warn(`caracal-auth: idle database connection error: ${message}`)
+})
+
 // Better Auth detects the Postgres dialect from the pg.Pool's structural shape.
 export const authDatabase = pool as unknown as BetterAuthOptions['database']
 export const closeAuthDatabase = (): Promise<void> => pool.end()

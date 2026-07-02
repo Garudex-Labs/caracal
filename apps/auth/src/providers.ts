@@ -16,6 +16,7 @@ export interface EnabledProviders {
   email: boolean;
   google: boolean;
   github: boolean;
+  passwordReset: boolean;
 }
 
 // Provider client secrets follow the `_FILE` secret convention like every other credential, so
@@ -41,10 +42,13 @@ export function githubCredentials(): SocialProviderCredentials | null {
   return { clientId, clientSecret };
 }
 
-export function enabledProviders(_cfg: AuthConfig): EnabledProviders {
+export function enabledProviders(cfg: AuthConfig): EnabledProviders {
   return {
     email: true,
     google: googleCredentials() !== null,
     github: githubCredentials() !== null,
+    // Reset links travel by email, so the capability only exists when a mail transport is
+    // configured; the web console hides its reset entry points when this is false.
+    passwordReset: cfg.smtpUrl !== null,
   };
 }

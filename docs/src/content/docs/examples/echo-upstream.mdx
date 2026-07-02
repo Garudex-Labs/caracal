@@ -45,7 +45,7 @@ In web console guided setup or through the Control API, create a resource with t
 http://echoUpstream:8088
 ```
 
-Then send a request to the Gateway with the Caracal access token and resource ID from guided setup. The web console result view prints the exact command for your setup; it has this shape:
+Then send a request to the Gateway with the Caracal access token and resource ID from guided setup. The command has this shape:
 
 ```bash
 curl http://localhost:8081/v1/hello \
@@ -60,7 +60,7 @@ A brokered call returns `"viaGateway": true` with a `gateway` section:
 | Field | What it proves |
 | --- | --- |
 | `viaGateway` | The request carried the Gateway's request ID and forwarding metadata. |
-| `gateway.requestId` | Audit handle — paste it into web console **Request Traces** to trace the policy decision. |
+| `gateway.requestId` | Audit handle — filter web console **Audit** by it to trace the policy decision. |
 | `gateway.credentialInjected` | The Gateway brokered a credential the client never held. |
 | `request.headers` | The headers the upstream actually received, with credentials redacted. |
 

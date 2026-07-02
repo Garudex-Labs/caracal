@@ -19,6 +19,7 @@ import {
   SearchInput,
   Select,
   Skeleton,
+  useCopyToClipboard,
   type Column,
   type Crumb,
   type FilterGroup,
@@ -408,6 +409,7 @@ export function Mono({ children }: { children: ReactNode }) {
 // operators routinely copy out of a detail panel. The value sits in a subtle field and the
 // copy button is a clearly bordered control that never overlaps the text.
 export function CopyValue({ value, mono = true }: { value: string; mono?: boolean }) {
+  const copy = useCopyToClipboard();
   const [copied, setCopied] = useState(false);
   return (
     <span className="flex min-w-0 max-w-full items-stretch gap-1.5">
@@ -423,11 +425,14 @@ export function CopyValue({ value, mono = true }: { value: string; mono?: boolea
         type="button"
         aria-label={copied ? "Copied" : "Copy"}
         title={copied ? "Copied" : "Copy"}
-        onClick={() => {
-          void navigator.clipboard?.writeText(value);
-          setCopied(true);
-          window.setTimeout(() => setCopied(false), 1200);
-        }}
+        onClick={() =>
+          void copy(value, {
+            onSuccess: () => {
+              setCopied(true);
+              window.setTimeout(() => setCopied(false), 1200);
+            },
+          })
+        }
         className={cx(
           "grid h-6 w-6 flex-shrink-0 place-items-center self-start rounded border outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/40",
           copied

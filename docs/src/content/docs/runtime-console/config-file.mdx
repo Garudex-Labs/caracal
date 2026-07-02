@@ -110,9 +110,9 @@ Cloud deployments and custom service locations can also set `CARACAL_STS_URL`,
 `CARACAL_GATEWAY_URL`, `CARACAL_COORDINATOR_URL`, `sts_url`, `gateway_url`, or
 `coordinator_url`. Do not set these for the default local stack.
 
-## Generated Profiles
+## Authoring a Profile
 
-Web console **Guided setup** can generate a complete profile and one-time secret file using real zone, application, provider, resource, policy, and credential values. Enable file writing when you want the Console to write the profile and secret file with owner-only permissions.
+Author the runtime profile from the values you created in the web console: the zone, application, and resource identifiers, the application's one-time client secret, and a credential mapping for each resource. Save it as `caracal.toml` at the resolved config path with owner-only permissions, or point `CARACAL_CONFIG` at it.
 
 ## Troubleshooting
 

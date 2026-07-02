@@ -6,6 +6,7 @@ This file defines the application theme and global styles.
 */
 @import "tailwindcss" source(none);
 @source "../";
+@source "../../node_modules/streamdown/dist";
 
 @custom-variant dark (&:is(.dark *));
 

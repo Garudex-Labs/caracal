@@ -22,7 +22,7 @@ if err != nil {
 }
 ```
 
-`New()` loads `CARACAL_CONFIG`, the default generated profile, or environment variables. `FromEnv()`, `FromConfig()`, and `FromClientSecret()` are available when you need explicit control.
+`New()` loads `CARACAL_CONFIG`, a `caracal.toml` in the default config path, or environment variables. `FromEnv()`, `FromConfig()`, and `FromClientSecret()` are available when you need explicit control.
 
 ## Core methods
 
@@ -30,7 +30,7 @@ if err != nil {
 | --- | --- |
 | `New()` | Auto-detect profile or environment configuration. |
 | `FromEnv()` | Load from environment variables. |
-| `FromConfig(path)` | Load a generated runtime profile. |
+| `FromConfig(path)` | Load a runtime profile. |
 | `FromClientSecret(options)` | Use STS client-secret exchange for root SDK operations. |
 | `client.Spawn(ctx, fn, opts...)` | Create an agent session and run `fn` with a bound `context.Context`; set `SpawnOptions.Grant` to bound the child's authority. |
 | `client.Delegate(ctx, opts, fn)` | Create a delegation edge from the current agent session. |

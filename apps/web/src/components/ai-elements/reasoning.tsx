@@ -17,6 +17,8 @@ import {
 
 import { cx } from "@/lib/cx";
 
+import { Response } from "./response";
+
 const MS_IN_S = 1000;
 const AUTO_CLOSE_DELAY = 1000;
 
@@ -176,19 +178,20 @@ export const ReasoningTrigger = ({ children, className, ...props }: ReasoningTri
 export type ReasoningContentProps = Omit<ComponentProps<"div">, "children"> & {
   children: ReactNode;
 };
-
 export const ReasoningContent = ({ children, className, ...props }: ReasoningContentProps) => {
   const { open } = useReasoning();
   if (!open) return null;
   return (
     <div
       className={cx(
-        "animate-fade-in whitespace-pre-wrap border-l-2 border-border pl-3 text-xs leading-relaxed text-muted-foreground",
+        "animate-fade-in border-l-2 border-border pl-3 text-xs leading-relaxed text-muted-foreground",
         className,
       )}
       {...props}
     >
-      {children}
+      <Response className="text-xs text-muted-foreground">
+        {typeof children === "string" ? children : ""}
+      </Response>
     </div>
   );
 };
