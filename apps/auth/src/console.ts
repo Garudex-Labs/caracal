@@ -302,36 +302,15 @@ function invalidateDiagnostics(): void {
   diagnosticsInFlight.clear()
 }
 
-interface DiagnosticsOptions {
-  zoneId?: string
-  strict: boolean
-  preflightOnly: boolean
-}
-
-function parseDiagnosticsOptions(path: string): DiagnosticsOptions {
-  const query = path.includes('?') ? new URLSearchParams(path.slice(path.indexOf('?') + 1)) : new URLSearchParams()
-  return {
-    zoneId: query.get('zone') ?? undefined,
-    strict: query.get('strict') === 'true',
-    preflightOnly: query.get('mode') === 'preflight',
-  }
-}
-
-// The cache is keyed by the requesting operator as well as the report shape: zone inventory and
-// per-zone checks are scoped to the operator's own zones, so one account's report must never be
-// served to another.
-function diagnosticsCacheKey(options: DiagnosticsOptions, accountId: string): string {
-  return `${accountId}:${options.preflightOnly ? 'preflight' : 'system'}:${options.strict ? 'strict' : 'lax'}:${options.zoneId ?? 'all'}`
-}
-
-async function computeDiagnostics(options: DiagnosticsOptions, account: string | undefined): Promise<DiagnosticsCacheEntry> {
+// The report always covers the full system for the requesting operator: platform services
+// plus every zone the operator owns. The cache is keyed by the requesting operator: zone
+// inventory and per-zone checks are scoped to the operator's own zones, so one account's
+// report must never be served to another.
+async function computeDiagnostics(account: string | undefined): Promise<DiagnosticsCacheEntry> {
   // Capture the generation at the start of the read; if a mutation bumps it before the
   // report finishes, the result is considered stale and is dropped by the caller.
   const generation = diagnosticsGeneration
   const report = await runDoctorDiagnostics({
-    zoneId: options.preflightOnly ? undefined : options.zoneId,
-    strict: options.strict,
-    preflightOnly: options.preflightOnly,
     // Diagnostics only read, so they run under the least-privilege read-only token rather than
     // the deployment admin token. The admin token is the fallback when no read token is
     // derivable, so diagnostics never fail closed for want of a credential.
@@ -344,13 +323,12 @@ async function computeDiagnostics(options: DiagnosticsOptions, account: string |
   return { at: Date.now(), generation, payload: { ...report, generatedAt } }
 }
 
-async function handleDiagnostics(res: ServerResponse, path: string, account: string | undefined, accountId: string): Promise<void> {
+async function handleDiagnostics(res: ServerResponse, account: string | undefined, accountId: string): Promise<void> {
   if (!adminToken()) {
     sendJson(res, 503, { error: 'control_plane_not_configured' })
     return
   }
-  const options = parseDiagnosticsOptions(path)
-  const key = diagnosticsCacheKey(options, accountId)
+  const key = accountId
   const cached = diagnosticsCache.get(key)
   const fresh = cached && cached.generation === diagnosticsGeneration && Date.now() - cached.at < DIAGNOSTICS_TTL_MS
   if (fresh) {
@@ -359,7 +337,7 @@ async function handleDiagnostics(res: ServerResponse, path: string, account: str
   }
   let inFlight = diagnosticsInFlight.get(key)
   if (!inFlight) {
-    inFlight = computeDiagnostics(options, account)
+    inFlight = computeDiagnostics(account)
     diagnosticsInFlight.set(key, inFlight)
     void inFlight.finally(() => {
       // Only clear our own slot; a mutation may have already replaced it.
@@ -849,8 +827,8 @@ export async function handleConsole(req: IncomingMessage, res: ServerResponse, c
     await handleStatus(res)
     return true
   }
-  if (path === '/diagnostics' || path.startsWith('/diagnostics?')) {
-    await handleDiagnostics(res, path, account, session.user.id)
+  if (path === '/diagnostics') {
+    await handleDiagnostics(res, account, session.user.id)
     return true
   }
   if (path.startsWith('/control/')) {

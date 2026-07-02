@@ -270,6 +270,10 @@ async function runCheck(
   }
 }
 
+function soloCheck(section: DoctorSection, check: string, fn: () => Promise<string>, advice?: string): Promise<DoctorCheck> {
+  return runCheck([], section, check, fn, advice)
+}
+
 async function fetchOk(url: string, headers?: ProbeHeaders): Promise<string> {
   const target = normalizeHttpUrl(url, 'doctor probe')
   const res = await probeFetch(target, headers)
@@ -383,19 +387,27 @@ async function runServiceChecks(checks: DoctorCheck[], apiUrl: string): Promise<
     serviceTarget(checks, 'audit', ['CARACAL_AUDIT_URL'], 'http://localhost:9090', '/metrics.json', evaluateAudit),
     serviceTarget(checks, 'coordinator', ['CARACAL_COORDINATOR_URL'], DEFAULT_COORDINATOR_URL, '/stats', evaluateCoordinator),
   ].filter((target): target is ServiceTarget => target !== undefined)
-  for (const target of targets) {
-    await runCheck(
-      checks,
-      'readiness',
-      `${target.name} readiness`,
-      async () => fetchOk(`${target.baseUrl}/ready`),
-      `Inspect ${target.name} logs and confirm the service is bound to ${target.baseUrl}.`,
-    )
-    if (target.metricsPath) {
-      const headers = target.name === 'coordinator' ? coordinatorTokenHeaders() : metricsBearerHeaders()
-      await runProtectedMetrics(checks, target, headers, `Confirm ${target.name} exposes operator metrics on ${target.metricsPath}.`)
-    }
-  }
+  // Services are independent; probe them concurrently so one slow or timing-out service
+  // never delays the rest of the report, then append results in target order so the
+  // report stays deterministic.
+  const probed = await Promise.all(
+    targets.map(async (target) => {
+      const local: DoctorCheck[] = []
+      await runCheck(
+        local,
+        'readiness',
+        `${target.name} readiness`,
+        async () => fetchOk(`${target.baseUrl}/ready`),
+        `Inspect ${target.name} logs and confirm the service is bound to ${target.baseUrl}.`,
+      )
+      if (target.metricsPath) {
+        const headers = target.name === 'coordinator' ? coordinatorTokenHeaders() : metricsBearerHeaders()
+        await runProtectedMetrics(local, target, headers, `Confirm ${target.name} exposes operator metrics on ${target.metricsPath}.`)
+      }
+      return local
+    }),
+  )
+  for (const local of probed) checks.push(...local)
 }
 
 function preflightAdvice(check: PreflightCheck): string | undefined {
@@ -464,7 +476,8 @@ function zoneLabel(zone: Zone): string {
   return `${zone.id} (${zone.name})`
 }
 
-async function runZoneChecks(checks: DoctorCheck[], ctx: AdminContext, zoneId: string): Promise<void> {
+async function runZoneChecks(ctx: AdminContext, zoneId: string): Promise<DoctorCheck[]> {
+  const checks: DoctorCheck[] = []
   const zoneCheck = await runCheck(
     checks,
     'zones',
@@ -472,39 +485,41 @@ async function runZoneChecks(checks: DoctorCheck[], ctx: AdminContext, zoneId: s
     async () => zoneLabel(await ctx.client.zones.get(zoneId)),
     'Open the web console with `caracal web`, select Zones, and retry with a visible zone id.',
   )
-  if (zoneCheck.status !== 'ok') return
+  if (zoneCheck.status !== 'ok') return checks
 
-  await runCheck(
-    checks,
-    'zones',
-    `${zoneId} resources`,
-    async () => {
-      const rows = await ctx.client.resources.list(zoneId)
-      return rows.length === 0 ? 'none registered' : `${rows.length} registered`
-    },
-    'Check the resource API and database state for the selected zone.',
-  )
-  await runCheck(
-    checks,
-    'zones',
-    `${zoneId} policy sets`,
-    async () => {
-      const rows = await ctx.client.policySets.list(zoneId)
-      const active = rows.filter((row) => row.active_version_id).length
-      return active === 0 ? `${rows.length} registered; none active` : `${active} active`
-    },
-    'Inspect policy-set activation state for the selected zone.',
-  )
-  await runCheck(
-    checks,
-    'zones',
-    `${zoneId} audit query`,
-    async () => {
-      await ctx.client.audit.list(zoneId, { limit: 1 })
-      return 'queryable'
-    },
-    'Inspect audit service and storage connectivity for the selected zone.',
-  )
+  // The per-zone reads are independent admin queries; run them concurrently.
+  const subChecks = await Promise.all([
+    soloCheck(
+      'zones',
+      `${zoneId} resources`,
+      async () => {
+        const rows = await ctx.client.resources.list(zoneId)
+        return rows.length === 0 ? 'none registered' : `${rows.length} registered`
+      },
+      'Check the resource API and database state for the selected zone.',
+    ),
+    soloCheck(
+      'zones',
+      `${zoneId} policy sets`,
+      async () => {
+        const rows = await ctx.client.policySets.list(zoneId)
+        const active = rows.filter((row) => row.active_version_id).length
+        return active === 0 ? `${rows.length} registered; none active` : `${active} active`
+      },
+      'Inspect policy-set activation state for the selected zone.',
+    ),
+    soloCheck(
+      'zones',
+      `${zoneId} audit query`,
+      async () => {
+        await ctx.client.audit.list(zoneId, { limit: 1 })
+        return 'queryable'
+      },
+      'Inspect audit service and storage connectivity for the selected zone.',
+    ),
+  ])
+  checks.push(...subChecks)
+  return checks
 }
 
 async function runClockSkewCheck(checks: DoctorCheck[], apiUrl: string): Promise<void> {
@@ -597,7 +612,7 @@ async function runHealthAndZoneChecks(
   if (adminCheck.status !== 'ok') return { zoneScope: 'none', zoneIds: [] }
 
   if (zoneId) {
-    await runZoneChecks(checks, ctx, zoneId)
+    checks.push(...(await runZoneChecks(ctx, zoneId)))
     return { zoneScope: 'selected', zoneIds: [zoneId] }
   }
 
@@ -612,7 +627,10 @@ async function runHealthAndZoneChecks(
     return { zoneScope: 'none', zoneIds: [] }
   }
 
-  for (const zone of zones) await runZoneChecks(checks, ctx, zone.id)
+  // Zones are independent; walk them concurrently and append per-zone results in
+  // inventory order so the report scales with the slowest zone, not the sum of all.
+  const zoneChecks = await Promise.all(zones.map((zone) => runZoneChecks(ctx, zone.id)))
+  for (const group of zoneChecks) checks.push(...group)
   return { zoneScope: 'all', zoneIds: zones.map((zone) => zone.id) }
 }
 
@@ -626,16 +644,27 @@ export async function runDoctorDiagnostics(options: DoctorOptions = {}): Promise
   let zoneScope: ZoneScope = preflightOnly ? 'none' : zoneId ? 'selected' : 'all'
   let zoneIds: string[] = preflightOnly ? [] : zoneId ? [zoneId] : []
 
+  const preflightChecks: DoctorCheck[] = []
   if (!preflightOnly) {
     const ctx = buildAdminContext(checks, options.adminToken, options.headers)
     apiUrl = normalizeHttpUrl(ctx?.apiUrl ?? apiUrl, 'CARACAL_API_URL')
     zoneId = zoneId ?? ctx?.zoneId
-    const zoneResult = await runHealthAndZoneChecks(checks, ctx, zoneId)
+    // The health/zone walk, the service probes, and the local preflight touch disjoint
+    // targets; run them concurrently into separate buffers and merge in section order so
+    // the report stays deterministic while total latency tracks the slowest branch.
+    const serviceChecks: DoctorCheck[] = []
+    const [zoneResult] = await Promise.all([
+      runHealthAndZoneChecks(checks, ctx, zoneId),
+      runServiceChecks(serviceChecks, apiUrl),
+      runPreflightSection(preflightChecks),
+    ])
     zoneScope = zoneResult.zoneScope
     zoneIds = zoneResult.zoneIds
-    await runServiceChecks(checks, apiUrl)
+    checks.push(...serviceChecks)
+  } else {
+    await runPreflightSection(preflightChecks)
   }
-  await runPreflightSection(checks)
+  checks.push(...preflightChecks)
 
   return report(mode, strict, { apiUrl, zoneScope, zoneIds }, checks)
 }

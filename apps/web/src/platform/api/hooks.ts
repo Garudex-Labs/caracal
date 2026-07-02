@@ -24,7 +24,6 @@ import type {
   AuditQuery,
   ControlKeyCreateInput,
   ControlTokenInput,
-  DiagnosticsOptions,
   DiagnosticsReport,
   DiagnosticStatus,
   OperatorConversationMode,
@@ -76,6 +75,7 @@ const keys = {
   status: ["console", "status"] as const,
   diagnostics: ["console", "diagnostics"] as const,
   zones: ["console", "zones"] as const,
+  overview: (zoneId: string | null) => ["console", "overview", zoneId] as const,
   applications: (zoneId: string | null) => ["console", "applications", zoneId] as const,
   resources: (zoneId: string | null) => ["console", "resources", zoneId] as const,
   providers: (zoneId: string | null) => ["console", "providers", zoneId] as const,
@@ -421,15 +421,10 @@ export function useExecuteOperatorPlan(zoneId: string | null, conversationId: st
   });
 }
 
-export function useDiagnostics(options: DiagnosticsOptions = {}) {
+export function useDiagnostics() {
   return useQuery<DiagnosticsReport>({
-    queryKey: [
-      ...keys.diagnostics,
-      options.zoneId ?? "all",
-      options.strict ?? false,
-      options.preflight ?? false,
-    ],
-    queryFn: () => consoleApi.diagnostics(options),
+    queryKey: keys.diagnostics,
+    queryFn: () => consoleApi.diagnostics(),
     refetchInterval: DIAGNOSTICS_POLL_MS,
     staleTime: DIAGNOSTICS_POLL_MS / 2,
     refetchOnWindowFocus: true,
@@ -781,10 +776,12 @@ export function useDeletePolicySet(zoneId: string | null) {
   });
 }
 
-export function useSessions(zoneId: string | null) {
+// Aggregated dashboard read model: one request carries every count and the recent
+// activity page, so the dashboard never fans out into per-entity list queries.
+export function useZoneOverview(zoneId: string | null) {
   return useQuery({
-    queryKey: keys.sessions(zoneId),
-    queryFn: async () => (await consoleApi.sessions.list(zoneId as string)).rows,
+    queryKey: keys.overview(zoneId),
+    queryFn: ({ signal }) => consoleApi.zones.overview(zoneId as string, signal),
     enabled: Boolean(zoneId),
     refetchInterval: LIVE_MS,
   });
@@ -799,15 +796,6 @@ export function useSessionsFeed(zoneId: string | null, query: SessionQuery) {
       consoleApi.sessions.list(zoneId as string, { ...query, cursor: pageParam ?? undefined }),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.nextCursor ?? undefined,
-    enabled: Boolean(zoneId),
-    refetchInterval: LIVE_MS,
-  });
-}
-
-export function useAudit(zoneId: string | null) {
-  return useQuery({
-    queryKey: keys.audit(zoneId),
-    queryFn: async () => (await consoleApi.audit.list(zoneId as string)).rows,
     enabled: Boolean(zoneId),
     refetchInterval: LIVE_MS,
   });
