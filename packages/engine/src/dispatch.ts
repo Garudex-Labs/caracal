@@ -122,7 +122,12 @@ function mustStr(flags: FlagMap | undefined, key: string): string {
 function getJsonObject(flags: FlagMap | undefined, key: string): Record<string, unknown> | undefined {
   const raw = getStr(flags, key)
   if (!raw) return undefined
-  const parsed = JSON.parse(raw) as unknown
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    invalid(`flag "${key}" must be valid JSON`)
+  }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) invalid(`flag "${key}" must be a JSON object`)
   return parsed as Record<string, unknown>
 }
@@ -157,7 +162,11 @@ function getOperations(flags: FlagMap | undefined, key: string): { method: strin
   let parsed: unknown = v
   if (typeof v === 'string') {
     if (v.length === 0) return undefined
-    parsed = JSON.parse(v) as unknown
+    try {
+      parsed = JSON.parse(v)
+    } catch {
+      invalid(`flag "${key}" must be valid JSON`)
+    }
   }
   if (parsed === undefined) return undefined
   if (!Array.isArray(parsed)) invalid(`flag "${key}" must be a JSON array`)
@@ -328,16 +337,8 @@ const policySetHandler = bySubcommand({
   },
   activate: ({ principal, flags, ctx }) =>
     ctx.admin.policySets.activate(requireZone(principal), mustStr(flags, 'id'), mustStr(flags, 'version'), getStr(flags, 'shadow')),
-  simulate: ({ principal, flags, ctx }) => {
-    const rawInput = getStr(flags, 'input')
-    let input: Record<string, unknown> | undefined
-    if (rawInput) {
-      const parsed = JSON.parse(rawInput) as unknown
-      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) invalid('flag "input" must be a JSON object')
-      input = parsed as Record<string, unknown>
-    }
-    return ctx.admin.policySets.simulate(requireZone(principal), mustStr(flags, 'id'), mustStr(flags, 'version'), input)
-  },
+  simulate: ({ principal, flags, ctx }) =>
+    ctx.admin.policySets.simulate(requireZone(principal), mustStr(flags, 'id'), mustStr(flags, 'version'), getJsonObject(flags, 'input')),
   delete: ({ principal, flags, ctx }) => ctx.admin.policySets.delete(requireZone(principal), mustStr(flags, 'id')),
 })
 

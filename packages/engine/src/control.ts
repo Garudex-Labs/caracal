@@ -4,7 +4,6 @@
 // Control API credential lifecycle helpers for least-privilege Control API keys.
 
 import type { AdminClient, Application, Resource } from '@caracalai/admin'
-import { generateClientSecret } from './clientSecret.js'
 import { describeRemoteSurface } from './dispatch.js'
 
 export const CONTROL_INVOKE_TRAIT = 'control:invoke'
@@ -128,11 +127,7 @@ export async function controlKeyGet(client: AdminClient, zoneId: string, id: str
   return controlKeyRecord(await requireControlApplication(client, zoneId, id))
 }
 
-export async function controlKeyCreate(
-  client: AdminClient,
-  zoneId: string,
-  input: ControlKeyCreateInput,
-): Promise<ControlKeyCreateResult> {
+export async function controlKeyCreate(client: AdminClient, zoneId: string, input: ControlKeyCreateInput): Promise<ControlKeyCreateResult> {
   const allowedScopes = resolveAllowedScopes(input)
   const maxTtlSeconds = validateMaxTtl(input.maxTtlSeconds)
   const expiresAt = validateExpiresAt(input.expiresAt)
@@ -152,15 +147,11 @@ export async function controlKeyCreate(
   return { name: application.name, clientId: application.id, clientSecret, resource, allowedScopes, maxTtlSeconds, expiresAt }
 }
 
-export async function controlKeyRotate(
-  client: AdminClient,
-  zoneId: string,
-  id: string,
-): Promise<ControlKeyRotateResult> {
+export async function controlKeyRotate(client: AdminClient, zoneId: string, id: string): Promise<ControlKeyRotateResult> {
   await requireControlApplication(client, zoneId, id)
-  await ensureControlResource(client, zoneId)
-  const clientSecret = generateClientSecret()
-  const application = await client.applications.patch(zoneId, id, { client_secret: clientSecret })
+  const application = await client.applications.rotateSecret(zoneId, id)
+  const clientSecret = application.client_secret
+  if (!clientSecret) throw new Error('rotation response did not include the one-time client secret')
   return { clientId: application.id, clientSecret }
 }
 
@@ -177,11 +168,14 @@ function scopeAction(scope: string): ControlAction {
 
 function controlScopeTraits(traits: readonly string[]): string[] {
   const valid = new Set(controlScopes())
-  return [...new Set(traits
-    .filter((trait) => trait.startsWith(CONTROL_SCOPE_TRAIT_PREFIX))
-    .map((trait) => trait.slice(CONTROL_SCOPE_TRAIT_PREFIX.length))
-    .filter((scope) => valid.has(scope)))]
-    .sort()
+  return [
+    ...new Set(
+      traits
+        .filter((trait) => trait.startsWith(CONTROL_SCOPE_TRAIT_PREFIX))
+        .map((trait) => trait.slice(CONTROL_SCOPE_TRAIT_PREFIX.length))
+        .filter((scope) => valid.has(scope)),
+    ),
+  ].sort()
 }
 
 function controlMaxTtlTrait(traits: readonly string[]): number | undefined {
