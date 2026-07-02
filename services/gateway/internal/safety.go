@@ -281,6 +281,59 @@ func zeroBytes(b []byte) bool {
 	return true
 }
 
+// validTraceparent reports whether s is a parseable W3C traceparent. A version-00
+// value must carry exactly the four canonical fields; higher versions may append
+// fields, so their leading fields are parsed and the rest preserved rather than
+// discarded. trace-id and parent-id must be non-zero lowercase hex of fixed width.
+func validTraceparent(s string) bool {
+	parts := strings.Split(s, "-")
+	if len(parts) < 4 {
+		return false
+	}
+	version, traceID, parentID, flags := parts[0], parts[1], parts[2], parts[3]
+	if len(version) != 2 || !isHex(version) || version == "ff" {
+		return false
+	}
+	if version == "00" && len(parts) != 4 {
+		return false
+	}
+	if len(traceID) != 32 || !isHex(traceID) || allZeroHex(traceID) {
+		return false
+	}
+	if len(parentID) != 16 || !isHex(parentID) || allZeroHex(parentID) {
+		return false
+	}
+	return len(flags) == 2 && isHex(flags)
+}
+
+// traceIDFromTraceparent returns the trace-id field that correlates every hop of a
+// request, used to tie gateway access logs and audit events to the distributed trace.
+func traceIDFromTraceparent(s string) string {
+	parts := strings.Split(s, "-")
+	if len(parts) < 2 {
+		return ""
+	}
+	return parts[1]
+}
+
+func isHex(s string) bool {
+	for _, c := range s {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return s != ""
+}
+
+func allZeroHex(s string) bool {
+	for _, c := range s {
+		if c != '0' {
+			return false
+		}
+	}
+	return true
+}
+
 // tokenFingerprint returns a short SHA-256 hex prefix for a bearer token.
 // The full token is never logged or returned anywhere.
 func tokenFingerprint(token string) string {

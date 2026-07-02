@@ -21,6 +21,7 @@ type auditEmitter interface {
 
 type gatewayAuditInput struct {
 	RequestID          string
+	TraceID            string
 	ZoneID             string
 	ApplicationID      string
 	Resource           string
@@ -51,6 +52,9 @@ func gatewayActionEvent(input gatewayAuditInput) (audit.Event, error) {
 		"method":              input.Method,
 		"gateway_status":      input.GatewayStatus,
 		"latency_ms":          input.Latency.Milliseconds(),
+	}
+	if input.TraceID != "" {
+		meta["trace_id"] = input.TraceID
 	}
 	if input.UpstreamHost != "" {
 		meta["upstream_host"] = input.UpstreamHost
