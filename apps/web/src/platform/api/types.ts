@@ -800,8 +800,8 @@ export interface OperatorDecidedPlanFact {
   summary: string;
   decision: "approved" | "rejected";
   executed: boolean;
-  steps_succeeded: number;
-  steps_failed: number;
+  changes_applied: number;
+  changes_failed: number;
 }
 
 export interface OperatorConversationFacts {

@@ -6,14 +6,16 @@
 import type { TurnRecord } from './operator-state.js'
 
 // A decided plan, reduced to its outcome. The detail an agent needs to maintain
-// continuity without replaying the plan's full step list.
+// continuity without replaying the plan's full step list. Executed means at least
+// one change step has run; a plan whose executed steps were all governed reads
+// inspected state without applying anything.
 export interface DecidedPlanFact {
   seq: number
   summary: string
   decision: 'approved' | 'rejected'
   executed: boolean
-  steps_succeeded: number
-  steps_failed: number
+  changes_applied: number
+  changes_failed: number
 }
 
 // The compressed memory of everything before the recent window. Bounded in size
@@ -25,7 +27,9 @@ export interface ConversationFacts {
   // Capabilities that appeared in plans the operator rejected. Carried so the
   // planner does not re-propose an operation the operator has already turned down.
   rejected_capabilities: string[]
-  // Total steps that have been successfully applied across the whole session.
+  // Change steps successfully applied across the whole session. Plans execute
+  // governed reads alongside writes, and a read that succeeded is not a change,
+  // so only steps the plan recorded as mutating count.
   applied_change_count: number
   // The most recent post-apply verification, but only when it reported drift: an
   // applied change whose live state diverged from the plan's intent. Carried so the
@@ -41,6 +45,7 @@ interface PlanAccumulator {
   seq: number
   summary: string
   capabilities: string[]
+  mutatingSteps: Set<string>
   decision: 'pending' | 'approved' | 'rejected'
   succeeded: number
   failed: number
@@ -74,6 +79,7 @@ export function summarizeHistory(turns: TurnRecord[], options: { planCap?: numbe
         seq: turn.seq,
         summary: asString(content.summary),
         capabilities: steps.map((raw) => asString(asRecord(raw).capability)).filter((c) => c.length > 0),
+        mutatingSteps: new Set(steps.filter((raw) => asRecord(raw).mutating === true).map((raw) => asString(asRecord(raw).id))),
         decision: 'pending',
         succeeded: 0,
         failed: 0,
@@ -85,12 +91,16 @@ export function summarizeHistory(turns: TurnRecord[], options: { planCap?: numbe
       const plan = plans.get(Number(content.plan_seq))
       if (plan) plan.decision = 'rejected'
     } else if (turn.kind === 'execution') {
+      // Only a step the plan recorded as mutating counts toward the change memory:
+      // executed reads report what exists, they change nothing.
       const plan = plans.get(Number(content.plan_seq))
-      if (content.status === 'failed') {
-        if (plan) plan.failed += 1
-      } else {
-        appliedChangeCount += 1
-        if (plan) plan.succeeded += 1
+      if (plan?.mutatingSteps.has(asString(content.step_id))) {
+        if (content.status === 'failed') {
+          plan.failed += 1
+        } else {
+          appliedChangeCount += 1
+          plan.succeeded += 1
+        }
       }
     } else if (turn.kind === 'error') {
       lastError = { seq: turn.seq, message: asString(content.message) }
@@ -109,8 +119,8 @@ export function summarizeHistory(turns: TurnRecord[], options: { planCap?: numbe
       summary: plan.summary,
       decision: plan.decision,
       executed: plan.succeeded + plan.failed > 0,
-      steps_succeeded: plan.succeeded,
-      steps_failed: plan.failed,
+      changes_applied: plan.succeeded,
+      changes_failed: plan.failed,
     })
     if (plan.decision === 'rejected') {
       for (const capability of plan.capabilities) rejected.add(capability)

@@ -1898,9 +1898,9 @@ function MemoryStrip({
                   <CheckGlyph className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-500" />
                   <div className="min-w-0">
                     <p className="text-xs leading-snug text-foreground">{plan.summary}</p>
-                    {plan.steps_failed > 0 ? (
+                    {plan.changes_failed > 0 ? (
                       <p className="text-[11px] text-amber-600">
-                        {plan.steps_succeeded} applied, {plan.steps_failed} failed
+                        {plan.changes_applied} applied, {plan.changes_failed} failed
                       </p>
                     ) : null}
                   </div>
