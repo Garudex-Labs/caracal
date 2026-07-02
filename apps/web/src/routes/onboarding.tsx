@@ -15,7 +15,8 @@ import { ZoneExplainer } from "@/components/onboarding/ZoneExplainer";
 import { AvatarPicker, Button, Card, Field, SectionTitle, useToast } from "@/components/ui";
 import { ConsoleApiError, consoleApi } from "@/platform/api/client";
 import { selectZone } from "@/platform/api/hooks";
-import { signOut, useSession } from "@/platform/auth";
+import { ZONE_NAME_MAX } from "@/platform/api/types";
+import { signOut, updateUser, useSession } from "@/platform/auth";
 import { requirePendingOnboarding } from "@/platform/auth/guards";
 import {
   completeOnboarding,
@@ -135,6 +136,12 @@ function OnboardingPage() {
       displayName: resolveDisplayName(fullName, displayName),
       avatar,
     };
+    // The authenticated user record carries the same name and avatar as the local
+    // profile so the console and auth server agree on the operator's identity; a
+    // failed sync never blocks onboarding since Settings can save the profile later.
+    await updateUser({ name: profile.fullName, image: profile.avatar || undefined }).catch(
+      () => undefined,
+    );
     try {
       const zone = await consoleApi.zones.create({
         name: zoneName.trim(),
@@ -252,7 +259,8 @@ function OnboardingPage() {
               placeholder="e.g. Production"
               hint="A recognizable name for this environment, like Production, Staging, or Development."
               value={zoneName}
-              onChange={(e) => setZoneName(e.target.value)}
+              onChange={(e) => setZoneName(e.target.value.slice(0, ZONE_NAME_MAX))}
+              maxLength={ZONE_NAME_MAX}
               error={showErrors && !zoneValid ? "Zone name is required." : undefined}
               autoFocus
             />

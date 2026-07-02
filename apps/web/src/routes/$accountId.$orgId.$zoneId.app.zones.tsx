@@ -46,7 +46,7 @@ import {
 } from "@/platform/api/hooks";
 import { useSession } from "@/platform/auth";
 import { getActiveZoneId } from "@/platform/state/localInstall";
-import type { Zone, ZonePatchInput } from "@/platform/api/types";
+import { ZONE_NAME_MAX, type Zone, type ZonePatchInput } from "@/platform/api/types";
 
 const PAGE_SIZE = 8;
 
@@ -559,7 +559,8 @@ function ZoneFormModal({
           info="Human-readable name for this zone, shown across the console. A zone is your primary trust boundary, isolating its own applications, resources, policies, and audit."
           placeholder="Production"
           value={name}
-          onChange={(e) => setName(e.target.value)}
+          onChange={(e) => setName(e.target.value.slice(0, ZONE_NAME_MAX))}
+          maxLength={ZONE_NAME_MAX}
           autoFocus
         />
         <Field

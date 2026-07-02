@@ -16,6 +16,9 @@ export interface Zone {
   updated_at: string;
 }
 
+// Longest zone name the control plane accepts; forms cap input at the same bound.
+export const ZONE_NAME_MAX = 120;
+
 export interface ZoneInput {
   name: string;
   slug?: string;

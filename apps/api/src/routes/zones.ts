@@ -16,9 +16,11 @@ import { enqueueOutboxBatch, type EnqueueArgs } from '../outbox.js'
 import { STREAM_AGENTS_LIFECYCLE, STREAM_SESSIONS_REVOKE } from '../redis.js'
 import type { Actor } from '../auth.js'
 
+const ZONE_NAME_MAX = 120
+
 const ZoneCreateBody = z
   .object({
-    name: z.string().min(1),
+    name: z.string().trim().min(1).max(ZONE_NAME_MAX),
     slug: z
       .string()
       .regex(/^[a-z0-9-]+$/)
@@ -29,7 +31,7 @@ const ZoneCreateBody = z
 
 const ZoneUpdateBody = z
   .object({
-    name: z.string().min(1).optional(),
+    name: z.string().trim().min(1).max(ZONE_NAME_MAX).optional(),
     slug: z
       .string()
       .regex(/^[a-z0-9-]+$/)
@@ -111,19 +113,29 @@ export async function createZoneRecord(
   db: Queryable,
   input: { name: string; slug?: string; dcrEnabled?: boolean; ownerAccountId?: string | null },
 ): Promise<ZoneRow> {
-  const { rows } = await db.query<ZoneRow>(
-    `INSERT INTO zones (id, name, slug, dek_ciphertext, dcr_enabled, owner_account_id)
-     VALUES ($1, $2, $3, gen_random_bytes(32), $4, $5)
-     RETURNING id, name, slug, dcr_enabled, operator_coauthor_badge, created_at, updated_at`,
-    [
-      mintZoneId(uuidv7),
-      input.name,
-      input.slug ?? (await nextZoneSlug(db, input.name)),
-      input.dcrEnabled ?? false,
-      input.ownerAccountId ?? null,
-    ],
-  )
-  return rows[0]
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const { rows } = await db.query<ZoneRow>(
+        `INSERT INTO zones (id, name, slug, dek_ciphertext, dcr_enabled, owner_account_id)
+         VALUES ($1, $2, $3, gen_random_bytes(32), $4, $5)
+         RETURNING id, name, slug, dcr_enabled, operator_coauthor_badge, created_at, updated_at`,
+        [
+          mintZoneId(uuidv7),
+          input.name,
+          input.slug ?? (await nextZoneSlug(db, input.name)),
+          input.dcrEnabled ?? false,
+          input.ownerAccountId ?? null,
+        ],
+      )
+      return rows[0]
+    } catch (err) {
+      // A generated slug can lose the race between its uniqueness probe and the insert;
+      // one more allocation sees the winning row and picks the next free suffix. A
+      // caller-supplied slug conflict stays a conflict for the caller to resolve.
+      if (input.slug === undefined && attempt === 0 && isZoneSlugConflict(err)) continue
+      throw err
+    }
+  }
 }
 
 function isZoneSlugConflict(err: unknown): boolean {

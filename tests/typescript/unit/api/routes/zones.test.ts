@@ -175,6 +175,58 @@ describe('POST /v1/zones', () => {
     expect(insertValues[2]).toBe('my-zone-2')
   })
 
+  it('reallocates the slug when a generated slug loses an insert race', async () => {
+    const { app, db } = buildRouteApp(zonesRoutes)
+    const created = { id: 'z2', name: 'My Zone', slug: 'my-zone-2', dcr_enabled: false }
+    db.query
+      .mockResolvedValueOnce({ rows: [] })
+      .mockRejectedValueOnce(
+        Object.assign(new Error('duplicate zone slug'), { code: '23505', constraint: 'zones_slug_key' }),
+      )
+      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [created] })
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones',
+      payload: { name: 'My Zone' },
+    })
+    expect(res.statusCode).toBe(201)
+    expect(JSON.parse(res.body)).toMatchObject({ id: 'z2', slug: 'my-zone-2' })
+    const insertValues = db.query.mock.calls[4]![1] as unknown[]
+    expect(insertValues[2]).toBe('my-zone-2')
+  })
+
+  it('trims surrounding whitespace from the zone name', async () => {
+    const { app, db } = buildRouteApp(zonesRoutes)
+    const created = { id: 'z2', name: 'My Zone', slug: 'my-zone', dcr_enabled: false }
+    db.query.mockResolvedValue({ rows: [created] })
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones',
+      payload: { name: '  My Zone  ', slug: 'my-zone' },
+    })
+    expect(res.statusCode).toBe(201)
+    const insertCall = db.query.mock.calls.find((c) => String(c[0]).includes('INSERT INTO zones'))!
+    const insertValues = insertCall[1] as unknown[]
+    expect(insertValues[1]).toBe('My Zone')
+  })
+
+  it('rejects a zone name past the length limit', async () => {
+    const { app, db } = buildRouteApp(zonesRoutes)
+    db.query.mockResolvedValue({ rows: [] })
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones',
+      payload: { name: 'z'.repeat(121) },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'invalid_zone' })
+  })
+
   it('stamps the creating account as the zone owner', async () => {
     const created = { id: 'z2', name: 'My Zone', slug: 'my-zone', dcr_enabled: false }
     const { app, db } = buildRouteApp(zonesRoutes, { prefix: '/v1' }, { account: { id: 'acct-9' } })
