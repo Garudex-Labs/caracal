@@ -14,22 +14,22 @@ describe('validateResourceIdentifier', () => {
   })
 
   it('accepts an absolute audience URI', () => {
-    expect(validateResourceIdentifier('resource://payments-api')).toBeUndefined()
-    expect(validateResourceIdentifier('https://api.example.com/v1')).toBeUndefined()
+    expect(validateResourceIdentifier('resource://pipernet')).toBeUndefined()
+    expect(validateResourceIdentifier('https://api.pipernet.example/v1')).toBeUndefined()
   })
 
   it('rejects a non-absolute identifier', () => {
-    expect(validateResourceIdentifier('payments-api')).toMatch(/absolute URI/)
+    expect(validateResourceIdentifier('pipernet')).toMatch(/absolute URI/)
     expect(validateResourceIdentifier('/relative/path')).toMatch(/absolute URI/)
   })
 
   it('rejects the provider:// reserved namespace', () => {
-    expect(validateResourceIdentifier('provider://stripe')).toMatch(/provider:\/\/ namespace/)
+    expect(validateResourceIdentifier('provider://hooli-oidc')).toMatch(/provider:\/\/ namespace/)
   })
 
   it('rejects embedded credentials', () => {
-    expect(validateResourceIdentifier('https://user:pass@api.example.com')).toMatch(/embed credentials/)
-    expect(validateResourceIdentifier('https://user@api.example.com')).toMatch(/embed credentials/)
+    expect(validateResourceIdentifier('https://user:pass@api.pipernet.example')).toMatch(/embed credentials/)
+    expect(validateResourceIdentifier('https://user@api.pipernet.example')).toMatch(/embed credentials/)
   })
 
   it('trims surrounding whitespace before validating', () => {

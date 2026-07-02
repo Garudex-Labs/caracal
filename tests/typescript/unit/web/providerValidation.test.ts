@@ -17,22 +17,22 @@ import {
 describe('validateIdentifier', () => {
   it('accepts an empty identifier (auto-generated) and a valid slug', () => {
     expect(validateIdentifier('')).toBeUndefined()
-    expect(validateIdentifier('provider://stripe-prod')).toBeUndefined()
+    expect(validateIdentifier('provider://hooli-oidc')).toBeUndefined()
   })
   it('rejects a malformed identifier', () => {
-    expect(validateIdentifier('stripe')).toBeDefined()
-    expect(validateIdentifier('provider://Stripe_Prod')).toBeDefined()
+    expect(validateIdentifier('hooli')).toBeDefined()
+    expect(validateIdentifier('provider://Hooli_OIDC')).toBeDefined()
   })
 })
 
 describe('validateFieldFormat', () => {
   it('requires HTTPS for OAuth endpoints', () => {
-    expect(validateFieldFormat('token_endpoint', 'https://idp.example.com/token')).toBeUndefined()
-    expect(validateFieldFormat('token_endpoint', 'http://idp.example.com/token')).toBeDefined()
+    expect(validateFieldFormat('token_endpoint', 'https://login.hooli.example/oauth/token')).toBeUndefined()
+    expect(validateFieldFormat('token_endpoint', 'http://login.hooli.example/oauth/token')).toBeDefined()
     expect(validateFieldFormat('authorization_endpoint', 'not-a-url')).toBeDefined()
   })
   it('accepts an absolute redirect URI', () => {
-    expect(validateFieldFormat('redirect_uri', 'https://app.example.com/cb')).toBeUndefined()
+    expect(validateFieldFormat('redirect_uri', 'https://caracal.piedpiper.example/cb')).toBeUndefined()
     expect(validateFieldFormat('redirect_uri', '/relative/cb')).toBeDefined()
   })
   it('validates header and scheme tokens', () => {

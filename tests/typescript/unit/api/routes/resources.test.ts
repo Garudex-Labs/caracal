@@ -87,6 +87,43 @@ describe('POST /v1/zones/:zoneId/resources', () => {
     expect(JSON.parse(res.body)).toMatchObject({ error: 'invalid_resource' })
   })
 
+  it('rejects scope and operation lists beyond the payload caps', async () => {
+    const { app, db } = buildRouteApp(resourcesRoutes)
+    db.query.mockResolvedValue({ rows: [{ '?column?': 1 }] })
+
+    await app.ready()
+    const base = {
+      name: 'PiperNet',
+      upstream_url: 'https://api.pipernet.example',
+      gateway_application_id: 'app-1',
+      credential_provider_id: 'provider-1',
+    }
+    const tooManyScopes = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/resources',
+      payload: { ...base, scopes: Array.from({ length: 65 }, (_, i) => `scope-${i}`) },
+    })
+    const tooManyOperations = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/resources',
+      payload: {
+        ...base,
+        scopes: ['read'],
+        operations: Array.from({ length: 257 }, (_, i) => ({ method: 'GET', path: `/v1/${i}`, scope: 'read' })),
+      },
+    })
+    const emptyScope = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/resources',
+      payload: { ...base, scopes: [''] },
+    })
+
+    for (const res of [tooManyScopes, tooManyOperations, emptyScope]) {
+      expect(res.statusCode).toBe(400)
+      expect(JSON.parse(res.body)).toMatchObject({ error: 'invalid_resource' })
+    }
+  })
+
   it('rejects provider references outside the zone', async () => {
     const { app, db } = buildRouteApp(resourcesRoutes)
     db.query
