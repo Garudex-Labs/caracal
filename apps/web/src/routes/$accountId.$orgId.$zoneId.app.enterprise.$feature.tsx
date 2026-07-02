@@ -55,7 +55,7 @@ function LockedFeaturePage() {
       ]}
       actions={<LockBadge />}
     >
-      <EnterpriseUpsell feature={data} heading={false} />
+      <EnterpriseUpsell feature={data} />
     </ModulePage>
   );
 }
