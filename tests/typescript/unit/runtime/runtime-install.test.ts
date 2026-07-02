@@ -49,8 +49,9 @@ describe('runtime installer', () => {
       throw new Error(`uncommented entry in operator template: ${line}`)
     }
 
-    const envMode = statSync(paths.overrideEnvFile).mode & 0o777
-    expect(envMode).toBe(0o600)
+    if (process.platform !== 'win32') {
+      expect(statSync(paths.overrideEnvFile).mode & 0o777).toBe(0o600)
+    }
   })
 
   it('is idempotent: existing files are preserved', () => {
@@ -81,6 +82,7 @@ describe('runtime installer', () => {
   })
 
   it('tightens permissions on a pre-existing world-readable env file', () => {
+    if (process.platform === 'win32') return
     const home = mkdtempSync(join(tmpdir(), 'caracal-runtime-'))
     const paths = runtimePaths(home)
     mkdirSync(paths.home, { recursive: true })
@@ -107,10 +109,14 @@ describe('runtime installer', () => {
     const home = mkdtempSync(join(tmpdir(), 'caracal-runtime-'))
     const result = installRuntimeAssets(runtimePaths(home))
     expect(result.filesCreated.length).toBeGreaterThan(0)
-    expect(statSync(join(home, 'secrets')).mode & 0o777).toBe(0o700)
+    if (process.platform !== 'win32') {
+      expect(statSync(join(home, 'secrets')).mode & 0o777).toBe(0o700)
+    }
     for (const name of ['postgresPassword', 'redisPassword', 'caracalAdminToken', 'zoneKek']) {
       const secretPath = join(home, 'secrets', name)
-      expect(statSync(secretPath).mode & 0o777).toBe(0o444)
+      if (process.platform !== 'win32') {
+        expect(statSync(secretPath).mode & 0o777).toBe(0o444)
+      }
       const value = readFileSync(secretPath, 'utf8').trim()
       expect(value.length).toBeGreaterThan(0)
     }

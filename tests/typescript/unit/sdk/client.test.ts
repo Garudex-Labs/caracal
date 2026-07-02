@@ -285,7 +285,7 @@ coordinator_url = "http://coord"
 gateway_url = "https://gateway.example.com/proxy"
 zone_id = "z"
 application_id = "app"
-app_client_secret_file = "${secretPath}"
+app_client_secret_file = ${JSON.stringify(secretPath)}
 
 [[credentials]]
 env = "CALENDAR_TOKEN"
@@ -334,7 +334,7 @@ zone_url = "http://sts"
 coordinator_url = "http://coord"
 zone_id = "z"
 application_id = "app"
-app_client_secret_file = "${secretPath}"
+app_client_secret_file = ${JSON.stringify(secretPath)}
 `,
       { mode: 0o600 },
     )
@@ -370,7 +370,7 @@ app_client_secret_file = "${secretPath}"
       `
 zone_id = "z"
 application_id = "app"
-app_client_secret_file = "${secretPath}"
+app_client_secret_file = ${JSON.stringify(secretPath)}
 
 [[credentials]]
 resource = "calendar"
