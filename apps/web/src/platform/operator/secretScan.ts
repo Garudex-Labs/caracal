@@ -21,6 +21,8 @@ interface SecretPattern {
   pattern: RegExp;
   // Which capture group holds the secret value; the whole match when absent.
   group?: number;
+  // Extra shape check a lexical class cannot express, such as requiring mixed letters and digits.
+  validate?: (value: string) => boolean;
 }
 
 // Ordered from most to least specific so a value is reported under its most precise label. Every
@@ -37,6 +39,18 @@ const PATTERNS: SecretPattern[] = [
     pattern: /\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b/g,
   },
   { label: "Google API key", pattern: /\bAIza[0-9A-Za-z_-]{30,}\b/g },
+  { label: "Google OAuth client secret", pattern: /\bGOCSPX-[A-Za-z0-9_-]{16,}\b/g },
+  {
+    label: "Google OAuth client ID",
+    pattern: /\b\d{6,}-[a-z0-9]{8,}\.apps\.googleusercontent\.com\b/g,
+  },
+  {
+    label: "Stripe key",
+    pattern: /\b(?:sk_(?:live|test)|rk_(?:live|test)|whsec)_[A-Za-z0-9]{16,}\b/g,
+  },
+  { label: "GitLab token", pattern: /\bglpat-[A-Za-z0-9_-]{20,}\b/g },
+  { label: "npm token", pattern: /\bnpm_[A-Za-z0-9]{30,}\b/g },
+  { label: "SendGrid key", pattern: /\bSG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}\b/g },
   { label: "Slack token", pattern: /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/g },
   { label: "JWT", pattern: /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]{4,}\b/g },
   { label: "Secret key", pattern: /\bsk-[A-Za-z0-9_-]{16,}\b/g },
@@ -47,6 +61,15 @@ const PATTERNS: SecretPattern[] = [
       /\b(?:api[_-]?key|client[_-]?secret|access[_-]?token|refresh[_-]?token|secret|token|password|passwd|pwd)\b["']?\s*[:=]\s*["']?([^\s"',;]{8,})/gi,
     group: 1,
   },
+  {
+    // A credential label followed by a bare value with no separator, as in "secret GOCSPX-...".
+    // The value must mix letters and digits so ordinary prose after the label never matches.
+    label: "Labeled credential",
+    pattern:
+      /\b(?:api[_ -]?key|client[_ -]?secret|client[_ -]?id|access[_ -]?token|refresh[_ -]?token|private[_ -]?key|secret|password|passwd|pwd)\s+["']?([A-Za-z0-9_+/.=-]{12,})/gi,
+    group: 1,
+    validate: (value) => /\d/.test(value) && /[A-Za-z]/.test(value),
+  },
   { label: "Hex secret", pattern: /\b[0-9a-fA-F]{32,}\b/g },
   { label: "Encoded secret", pattern: /\b[A-Za-z0-9+/]{40,}={0,2}\b/g },
 ];
@@ -56,11 +79,12 @@ const PATTERNS: SecretPattern[] = [
 export function scanForSecrets(text: string): SecretFinding[] {
   const findings: SecretFinding[] = [];
   const seen = new Set<string>();
-  for (const { label, pattern, group } of PATTERNS) {
+  for (const { label, pattern, group, validate } of PATTERNS) {
     pattern.lastIndex = 0;
     for (const match of text.matchAll(pattern)) {
       const value = group !== undefined ? match[group] : match[0];
       if (!value || seen.has(value)) continue;
+      if (validate && !validate(value)) continue;
       // A fragment of an already-reported value (a JWT segment, the tail of an assignment) is the
       // same secret, not a second one.
       if ([...seen].some((prior) => prior.includes(value))) continue;

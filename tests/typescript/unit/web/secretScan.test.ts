@@ -10,6 +10,7 @@ describe('scanForSecrets', () => {
   it('finds nothing in ordinary operational prose', () => {
     expect(scanForSecrets('Connect a Hooli OIDC provider and define the PiperNet resource.')).toEqual([])
     expect(scanForSecrets('The API key is stored in the console, not here.')).toEqual([])
+    expect(scanForSecrets('token endpoint https://oauth2.googleapis.com/token and the client secret is stored securely')).toEqual([])
     expect(scanForSecrets('')).toEqual([])
   })
 
@@ -36,6 +37,28 @@ describe('scanForSecrets', () => {
   it('flags a key=value credential assignment', () => {
     const findings = scanForSecrets('client_secret=sup3rs3cretvalue')
     expect(findings.map((f) => f.label)).toContain('Assigned credential')
+  })
+
+  it('flags a Google OAuth client id and secret pasted as labeled lines', () => {
+    // Assembled at runtime so no credential-shaped literal sits in the source for scanners to flag.
+    const clientId = ['123456789012', '-', 'abcdefghijklmnopqrstuvwxyz123456', '.apps.googleusercontent.com'].join('')
+    const clientSecret = ['GOCSPX', '-', 'a1B2c3D4e5F6g7H8i9J0k1L2m3N4'].join('')
+    const findings = scanForSecrets(`id ${clientId}\nsecret ${clientSecret}`)
+    expect(findings.map((f) => f.label)).toContain('Google OAuth client ID')
+    expect(findings.map((f) => f.label)).toContain('Google OAuth client secret')
+    expect(findings).toHaveLength(2)
+  })
+
+  it('flags a credential value after a bare label with no separator', () => {
+    const findings = scanForSecrets('password Tr0ub4dor.and.3lephants')
+    expect(findings.map((f) => f.label)).toContain('Labeled credential')
+    expect(scanForSecrets('password everywhere in the audit trail')).toEqual([])
+  })
+
+  it('flags vendor-prefixed keys', () => {
+    expect(scanForSecrets('sk_live_abcdefghijklmnop0123').map((f) => f.label)).toContain('Stripe key')
+    expect(scanForSecrets('glpat-abcdefghij0123456789').map((f) => f.label)).toContain('GitLab token')
+    expect(scanForSecrets('npm_abcdefghijklmnopqrstuvwxyz0123456789').map((f) => f.label)).toContain('npm token')
   })
 
   it('flags a PEM private key block', () => {
