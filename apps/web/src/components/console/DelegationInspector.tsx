@@ -15,7 +15,7 @@ import {
 import { DetailField, DetailGroup, Mono } from "@/components/console/ResourceWorkspace";
 import { Badge, Button, ConfirmDialog, Skeleton, useToast } from "@/components/ui";
 import { consoleApi } from "@/platform/api/client";
-import { useResources, useRevokeDelegation } from "@/platform/api/hooks";
+import { useApplications, useResources, useRevokeDelegation } from "@/platform/api/hooks";
 import type { DelegationEdge, DelegationHop, DelegationImpactRow } from "@/platform/api/types";
 
 interface DecodedConstraint {
@@ -64,6 +64,7 @@ export function DelegationInspector({
   const toast = useToast();
   const revoke = useRevokeDelegation(zoneId);
   const resources = useResources(zoneId);
+  const apps = useApplications(zoneId);
   const [confirmRevoke, setConfirmRevoke] = useState(false);
   const [tab, setTab] = useState<"chain" | "impact">("chain");
   const [chain, setChain] = useState<DelegationHop[] | null>(null);
@@ -100,6 +101,25 @@ export function DelegationInspector({
     const match = (resources.data ?? []).find((r) => r.id === edge.resource_id);
     return match?.name ?? null;
   }, [edge.resource_id, resources.data]);
+
+  const appName = (id: string): string | null =>
+    (apps.data ?? []).find((app) => app.id === id)?.name ?? null;
+
+  const applicationField = (label: string, id: string) => {
+    const name = appName(id);
+    return (
+      <DetailField label={label}>
+        {name ? (
+          <span className="flex flex-col gap-0.5">
+            <span className="text-foreground">{name}</span>
+            <Mono>{id}</Mono>
+          </span>
+        ) : (
+          <Mono>{id}</Mono>
+        )}
+      </DetailField>
+    );
+  };
 
   return (
     <div className="flex flex-col gap-6">
@@ -141,16 +161,12 @@ export function DelegationInspector({
             )}
           </DetailField>
         ) : null}
-        {edge.issuer_application_id ? (
-          <DetailField label="Issuer application">
-            <Mono>{edge.issuer_application_id}</Mono>
-          </DetailField>
-        ) : null}
-        {edge.receiver_application_id ? (
-          <DetailField label="Receiver application">
-            <Mono>{edge.receiver_application_id}</Mono>
-          </DetailField>
-        ) : null}
+        {edge.issuer_application_id
+          ? applicationField("Issuer application", edge.issuer_application_id)
+          : null}
+        {edge.receiver_application_id
+          ? applicationField("Receiver application", edge.receiver_application_id)
+          : null}
         {edge.parent_edge_id ? (
           <DetailField label="Parent edge">
             <Mono>{edge.parent_edge_id}</Mono>

@@ -24,14 +24,14 @@ import rego.v1
 
 # Map the application keys used in grants to control-plane application ids.
 app_ids := {
-\t"payments": "app-payments",
+\t"son-of-anton": "app-son-of-anton",
 }
 
 # Grant a scope set to each role on a resource view.
 grants := {
-\t"resource://example": {
-\t\t"application": "payments",
-\t\t"roles": {"payment-execution": ["example:read"]},
+\t"resource://pipernet": {
+\t\t"application": "son-of-anton",
+\t\t"roles": {"pipernet-operator": ["pipernet:read"]},
 \t},
 }
 `;
@@ -177,7 +177,7 @@ export function PolicyEditorModal({
           <>
             <Field
               label="Name"
-              placeholder="billing-read-access"
+              placeholder="pipernet-baseline"
               value={name}
               onChange={(e) => setName(e.target.value)}
               autoFocus
@@ -274,6 +274,8 @@ function humanizeRegoError(code: string | undefined): string {
       return "A string literal is not closed.";
     case "empty_policy":
       return "Policy content is required.";
+    case "content_too_large":
+      return "Policy exceeds the 256 KiB size limit. Split it into smaller data documents.";
     default:
       if (code?.startsWith("forbidden_builtin:")) {
         return `Built-in ${code.slice("forbidden_builtin:".length)} is not allowed in tenant policies.`;

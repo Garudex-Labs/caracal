@@ -49,13 +49,6 @@ const PATHS: Record<string, ReactNode> = {
       <path d="m9 12 2 2 4-4" />
     </>
   ),
-  "policy-sets": (
-    <>
-      <path d="m12 3 9 4.5-9 4.5-9-4.5L12 3Z" />
-      <path d="m3 12 9 4.5L21 12" />
-      <path d="m3 16.5 9 4.5 9-4.5" />
-    </>
-  ),
   agents: (
     <>
       <rect x="4" y="8" width="16" height="11" rx="2.5" />
