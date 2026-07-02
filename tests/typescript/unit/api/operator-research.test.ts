@@ -26,7 +26,17 @@ function clientFor(
 describe('governedReadCapabilities', () => {
   it('derives exactly the non-mutating, control-mapped capabilities', () => {
     const reads = governedReadCapabilities()
-    expect(reads.sort()).toEqual(['listApplications', 'listGrants', 'listPolicies', 'listProviders', 'listResources'])
+    expect(reads.sort()).toEqual([
+      'listAgents',
+      'listApplications',
+      'listAuditEvents',
+      'listDelegations',
+      'listGrants',
+      'listPolicies',
+      'listProviders',
+      'listResources',
+      'listSessions',
+    ])
   })
 
   it('never includes a mutating capability', () => {
@@ -60,8 +70,8 @@ describe('createStateResearcher', () => {
       { id: 'a2', name: 'Finance' },
     ])
     expect(byDomain.resource.items).toEqual([])
-    // Every invoke is a list subcommand - a researcher can never reach a mutating command.
-    for (const call of invoke.mock.calls) expect(call[1]).toBe('list')
+    // Every invoke is a read verb - a researcher can never reach a mutating command.
+    for (const call of invoke.mock.calls) expect(['list', 'active', 'tail']).toContain(call[1])
   })
 
   it('caps the names it surfaces while keeping the full live count', async () => {
@@ -189,8 +199,65 @@ describe('createStateResearcher', () => {
 
   it('falls back to the full read set when the named domains map to no governed read', async () => {
     const { client, invoke } = clientFor({ app: [], 'identity-provider': [], resource: [], policy: [] })
-    // 'audit' and 'zone' have no governed read behind them, so the gather must not end up empty.
-    await createStateResearcher(client).gather(['audit', 'zone'])
+    // 'zone' has no governed read behind it, so the gather must not end up empty.
+    await createStateResearcher(client).gather(['zone'])
     expect(invoke).toHaveBeenCalledTimes(governedReadCapabilities().length)
+  })
+
+  it('builds display rows from the allowlisted descriptor fields only', async () => {
+    const { client } = clientFor({
+      app: [{ id: 'a1', name: 'Billing', registration_method: 'managed', created_at: '2026-01-01T00:00:00Z', client_secret: 'sk_leak' }],
+    })
+    const { evidence } = await createStateResearcher(client).gather(['application'])
+    const apps = evidence.find((e) => e.domain === 'application')!
+    expect(apps.rows).toEqual([{ id: 'a1', name: 'Billing', registration_method: 'managed', created_at: '2026-01-01T00:00:00Z' }])
+    expect(JSON.stringify(apps)).not.toContain('sk_leak')
+  })
+
+  it('unwraps an items envelope and keys agent rows by their session id', async () => {
+    const { client } = clientFor({
+      delegation: {
+        items: [{ id: 'd1', issuer_application_id: 'a1', receiver_application_id: 'a2', scopes: ['read'], status: 'active' }],
+        next_cursor: null,
+      },
+      agent: [{ agent_session_id: 'ag1', application_id: 'a1', lifecycle: 'ephemeral', status: 'active', depth: 1 }],
+    })
+    const { evidence } = await createStateResearcher(client).gather(['delegation', 'agent'])
+    const byDomain = Object.fromEntries(evidence.map((e) => [e.domain, e]))
+    expect(byDomain.delegation).toMatchObject({ ok: true, count: 1 })
+    expect(byDomain.delegation.rows).toEqual([
+      { id: 'd1', issuer_application_id: 'a1', receiver_application_id: 'a2', scopes: ['read'], status: 'active' },
+    ])
+    expect(byDomain.agent.rows).toEqual([{ id: 'ag1', application_id: 'a1', lifecycle: 'ephemeral', status: 'active', depth: '1' }])
+  })
+
+  it('excludes structured payload fields from audit display rows', async () => {
+    const { client } = clientFor({
+      audit: [
+        {
+          id: 'e1',
+          event_type: 'authorization_decision',
+          decision: 'deny',
+          request_id: 'req1',
+          occurred_at: '2026-01-01T00:00:00Z',
+          metadata_json: { internal: 'never_shown' },
+        },
+      ],
+    })
+    const { evidence } = await createStateResearcher(client).gather(['audit'])
+    const audit = evidence.find((e) => e.domain === 'audit')!
+    expect(audit.rows).toEqual([
+      { id: 'e1', event_type: 'authorization_decision', decision: 'deny', request_id: 'req1', occurred_at: '2026-01-01T00:00:00Z' },
+    ])
+    expect(JSON.stringify(audit)).not.toContain('never_shown')
+  })
+
+  it('bounds display rows while keeping the full live count', async () => {
+    const rows = Array.from({ length: 25 }, (_, i) => ({ id: `a${i}`, name: `app-${i}` }))
+    const { client } = clientFor({ app: rows })
+    const { evidence } = await createStateResearcher(client).gather(['application'])
+    const apps = evidence.find((e) => e.domain === 'application')!
+    expect(apps.count).toBe(25)
+    expect(apps.rows).toHaveLength(20)
   })
 })

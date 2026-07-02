@@ -200,9 +200,7 @@ describe('buildTimeline', () => {
       }),
     ])
     expect(latestPlan?.advisory?.alignment).toBe('misaligned')
-    expect(latestPlan?.advisory?.recommendation).toBe(
-      'Scope the grant to the single resource instead of the whole zone.',
-    )
+    expect(latestPlan?.advisory?.recommendation).toBe('Scope the grant to the single resource instead of the whole zone.')
   })
 
   it('omits an unknown alignment and an empty recommendation', () => {
@@ -406,10 +404,7 @@ describe('buildTimeline', () => {
     const note = items[0]
     if (note.kind !== 'note' || !note.policy) throw new Error('expected a policy on the note')
     expect(note.policy.documents).toHaveLength(0)
-    expect(note.policy.clarifications).toEqual([
-      'Which resource should this cover?',
-      'Read only, or read and write?',
-    ])
+    expect(note.policy.clarifications).toEqual(['Which resource should this cover?', 'Read only, or read and write?'])
     expect(note.policy.activation).toBeNull()
   })
 
@@ -441,5 +436,53 @@ describe('buildTimeline', () => {
     expect(drafted.policy?.documents).toHaveLength(1)
     expect(drafted.policy?.documents[0]).toMatchObject({ concern: 'kept', filename: 'y.rego' })
   })
-})
 
+  it('surfaces structured evidence on a note, keeping only sound entries and cells', () => {
+    const { items } = buildTimeline([
+      turn({
+        seq: 1,
+        kind: 'note',
+        role: 'operator',
+        content: {
+          text: 'you have one application',
+          evidence: [
+            {
+              capability: 'listApplications',
+              domain: 'application',
+              count: 1,
+              rows: [{ id: 'app-1', name: 'Son of Anton', scopes: ['read', 7, 'write'], config: { nested: true } }],
+            },
+            { capability: 'listResources', domain: 'resource', rows: [{ id: 'res-1', name: 'PiperNet' }] },
+            { domain: 'provider', count: 3 },
+            'not an entry',
+          ],
+        },
+      }),
+    ])
+    const note = items[0]
+    if (note.kind !== 'note') throw new Error('expected a note item')
+    // The entry without a capability and the non-object entry are dropped; the rest survive.
+    expect(note.evidence).toHaveLength(2)
+    // Row cells keep strings and string lists; the number inside the list and the object are dropped.
+    expect(note.evidence?.[0]).toMatchObject({
+      capability: 'listApplications',
+      domain: 'application',
+      count: 1,
+      rows: [{ id: 'app-1', name: 'Son of Anton', scopes: ['read', 'write'] }],
+    })
+    expect(note.evidence?.[0]?.rows[0]).not.toHaveProperty('config')
+    // A missing count falls back to the number of rows that survived.
+    expect(note.evidence?.[1]).toMatchObject({ capability: 'listResources', domain: 'resource', count: 1 })
+  })
+
+  it('omits evidence when it is absent, not a list, or entirely malformed', () => {
+    const { items } = buildTimeline([
+      turn({ seq: 1, kind: 'note', role: 'operator', content: { text: 'plain prose' } }),
+      turn({ seq: 2, kind: 'note', role: 'operator', content: { text: 'bad shape', evidence: { capability: 'listApplications' } } }),
+      turn({ seq: 3, kind: 'note', role: 'operator', content: { text: 'empty entries', evidence: [{ rows: [] }, 42] } }),
+    ])
+    for (const item of items) {
+      expect(item).not.toHaveProperty('evidence')
+    }
+  })
+})

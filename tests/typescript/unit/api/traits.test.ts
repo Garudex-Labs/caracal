@@ -17,12 +17,7 @@ describe('validateTraits', () => {
     expect(validateTraits(['control:invoke'], globalActor)).toBeNull()
     expect(
       validateTraits(
-        [
-          'control:invoke',
-          'control:scope:control:app:read',
-          'control:max-ttl:300',
-          'control:expires:2036-01-01T00:00:00.000Z',
-        ],
+        ['control:invoke', 'control:scope:control:app:read', 'control:max-ttl:300', 'control:expires:2036-01-01T00:00:00.000Z'],
         globalActor,
       ),
     ).toBeNull()
