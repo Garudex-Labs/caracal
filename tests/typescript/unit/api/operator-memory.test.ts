@@ -11,11 +11,14 @@ function turn(partial: Partial<TurnRecord> & Pick<TurnRecord, 'seq' | 'kind'>): 
   return { role: 'operator', content: {}, ...partial } as TurnRecord
 }
 
-function plan(seq: number, capabilities: string[], summary = `plan ${seq}`): TurnRecord {
+function plan(seq: number, capabilities: string[], summary = `plan ${seq}`, mutatingFlags: boolean[] = []): TurnRecord {
   return turn({
     seq,
     kind: 'plan',
-    content: { summary, steps: capabilities.map((capability, i) => ({ id: `s${i + 1}`, capability })) },
+    content: {
+      summary,
+      steps: capabilities.map((capability, i) => ({ id: `s${i + 1}`, capability, mutating: mutatingFlags[i] ?? true })),
+    },
   })
 }
 
@@ -46,10 +49,32 @@ describe('summarizeHistory', () => {
       seq: 1,
       decision: 'approved',
       executed: true,
-      steps_succeeded: 1,
-      steps_failed: 1,
+      changes_applied: 1,
+      changes_failed: 1,
     })
     expect(facts.applied_change_count).toBe(1)
+  })
+
+  it('counts only mutating steps as applied changes in a mixed plan', () => {
+    const facts = summarizeHistory([
+      plan(1, ['listResources', 'registerApplication'], 'inspect then register', [false, true]),
+      turn({ seq: 2, kind: 'approval', content: { plan_seq: 1 } }),
+      turn({ seq: 3, kind: 'execution', content: { plan_seq: 1, step_id: 's1', status: 'succeeded' } }),
+      turn({ seq: 4, kind: 'execution', content: { plan_seq: 1, step_id: 's2', status: 'succeeded' } }),
+    ])
+    expect(facts.applied_change_count).toBe(1)
+    expect(facts.decided_plans[0]).toMatchObject({ executed: true, changes_applied: 1, changes_failed: 0 })
+  })
+
+  it('reports an executed all-read plan as having applied no changes', () => {
+    const facts = summarizeHistory([
+      plan(1, ['listResources', 'listProviders'], 'inspect the zone', [false, false]),
+      turn({ seq: 2, kind: 'approval', content: { plan_seq: 1 } }),
+      turn({ seq: 3, kind: 'execution', content: { plan_seq: 1, step_id: 's1', status: 'succeeded' } }),
+      turn({ seq: 4, kind: 'execution', content: { plan_seq: 1, step_id: 's2', status: 'succeeded' } }),
+    ])
+    expect(facts.applied_change_count).toBe(0)
+    expect(facts.decided_plans[0]).toMatchObject({ decision: 'approved', executed: false, changes_applied: 0, changes_failed: 0 })
   })
 
   it('records rejected capabilities as rejection memory', () => {
@@ -139,8 +164,8 @@ describe('describeFacts', () => {
   it('renders a compact block with applied changes and rejection memory', () => {
     const text = describeFacts({
       decided_plans: [
-        { seq: 1, summary: 'a', decision: 'approved', executed: true, steps_succeeded: 2, steps_failed: 0 },
-        { seq: 3, summary: 'b', decision: 'rejected', executed: false, steps_succeeded: 0, steps_failed: 0 },
+        { seq: 1, summary: 'a', decision: 'approved', executed: true, changes_applied: 2, changes_failed: 0 },
+        { seq: 3, summary: 'b', decision: 'rejected', executed: false, changes_applied: 0, changes_failed: 0 },
       ],
       rejected_capabilities: ['grantAccess'],
       applied_change_count: 2,

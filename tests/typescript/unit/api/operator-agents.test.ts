@@ -186,7 +186,7 @@ describe('buildPlannerMessages', () => {
   it('renders compressed session facts including rejection memory', () => {
     const messages = buildPlannerMessages('do it', {
       facts: {
-        decided_plans: [{ seq: 2, summary: 'old plan', decision: 'rejected', executed: false, steps_succeeded: 0, steps_failed: 0 }],
+        decided_plans: [{ seq: 2, summary: 'old plan', decision: 'rejected', executed: false, changes_applied: 0, changes_failed: 0 }],
         rejected_capabilities: ['grantAccess'],
         applied_change_count: 3,
         last_drift: null,

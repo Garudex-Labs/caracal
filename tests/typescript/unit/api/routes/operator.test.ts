@@ -1738,7 +1738,7 @@ describe('GET /v1/zones/:zoneId/operator-conversations/:id/context', () => {
     expect(body.latest_plan.progress).toMatchObject({ total: 1, succeeded: 1, pending: 0 })
     expect(body.latest_plan.steps[0]).toMatchObject({ id: 's1', status: 'succeeded' })
     // The decided, executed plan is compressed into the session facts.
-    expect(body.facts.decided_plans[0]).toMatchObject({ seq: 2, decision: 'approved', executed: true, steps_succeeded: 1 })
+    expect(body.facts.decided_plans[0]).toMatchObject({ seq: 2, decision: 'approved', executed: true, changes_applied: 1 })
     expect(body.facts.applied_change_count).toBe(1)
   })
 })
