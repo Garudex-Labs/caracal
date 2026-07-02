@@ -39,17 +39,12 @@ export const SETTINGS_GROUPS: SettingsGroupModel[] = [
       {
         id: "profile",
         label: "Profile",
-        description: "Operator identity, avatar, and account identifiers.",
+        description: "Operator identity, account identifiers, and sign-out for this browser.",
       },
       {
         id: "security",
         label: "Security",
-        description: "Password rotation and sign-out for this browser.",
-      },
-      {
-        id: "sessions",
-        label: "Sessions",
-        description: "Authenticated devices, with per-device revocation.",
+        description: "Password rotation and authenticated devices with per-device revocation.",
       },
       {
         id: "preferences",

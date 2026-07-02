@@ -17,63 +17,30 @@ export interface LockedFeature {
 }
 
 export const LOCKED_FEATURES: Record<string, LockedFeature> = {
-  sso: {
-    slug: "sso",
-    title: "SSO & Directory Sync",
-    home: "settings",
-    summary: "Federate operator identity with SAML, OIDC, and SCIM directory provisioning.",
-    value: [
-      "Sign in every operator through your existing identity provider.",
-      "Provision and deprovision access automatically as your directory changes.",
-      "Enforce MFA and session policy centrally without local accounts.",
-    ],
-    includes: [
-      "SAML 2.0 and OIDC single sign-on",
-      "SCIM 2.0 user and group provisioning",
-      "Just-in-time account creation",
-      "Directory-driven deprovisioning",
-      "Enforced IdP session and MFA policy",
-    ],
-    community: "Community uses local email-and-password accounts with per-device sessions.",
-  },
-  "teams-roles": {
-    slug: "teams-roles",
-    title: "Members & Roles",
-    home: "settings",
-    summary: "Invite operators and grant scoped roles instead of one shared installation admin.",
-    value: [
-      "Give each operator the least privilege they need.",
-      "Map roles onto Caracal authority without custom policy plumbing.",
-      "Review who can do what from one place.",
-    ],
-    includes: [
-      "Member invitations and lifecycle",
-      "Predefined and custom roles",
-      "Per-zone and per-organization scoping",
-      "Role-to-authority mapping",
-      "Membership and access review",
-    ],
-    community: "Community runs as a single installation-scoped administrator.",
-  },
-  organizations: {
-    slug: "organizations",
+  // Organization structure, membership, and federated sign-on form one administration
+  // surface in Enterprise, so they upsell as a single page rather than separate entries.
+  organization: {
+    slug: "organization",
     title: "Organization",
     home: "settings",
     summary:
-      "Group zones under organizations and projects for clean multi-team isolation at scale.",
+      "Organizations above zones, scoped member roles, and federated sign-on with directory provisioning.",
     value: [
       "Model business units as organizations above the same zone primitive.",
-      "Delegate administration without sharing one installation.",
-      "Keep the Community zone model unchanged underneath.",
+      "Give each operator the least privilege they need with scoped roles.",
+      "Sign in every operator through your existing identity provider.",
+      "Provision and deprovision access automatically as your directory changes.",
     ],
     includes: [
-      "Organizations and projects above zones",
-      "Strict cross-organization isolation",
-      "Delegated organization administration",
-      "Per-organization quotas and settings",
-      "Organization-level audit scoping",
+      "Organizations and projects above zones with strict isolation",
+      "Delegated organization administration, quotas, and audit scoping",
+      "Member invitations with predefined and custom roles",
+      "Per-zone and per-organization role scoping",
+      "SAML 2.0 and OIDC single sign-on",
+      "SCIM 2.0 provisioning and directory-driven deprovisioning",
     ],
-    community: "Community manages zones directly within a single workspace.",
+    community:
+      "Community runs as a single installation-scoped administrator with local email-and-password accounts.",
   },
   connectors: {
     slug: "connectors",
