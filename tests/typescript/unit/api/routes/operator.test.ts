@@ -2774,12 +2774,16 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
     expect(res.statusCode).toBe(201)
     const body = JSON.parse(res.body)
     expect(body).toMatchObject({ intent: 'explain', tier: 'read', ok: true })
-    // The governed reads ran: one control invoke per governed read capability, each a list
-    // subcommand, so a read answer is grounded in live state and never reaches a mutating command.
+    // The live state the answer was grounded in rides on the response as structured evidence, so
+    // the console renders the real objects the reads surfaced rather than only the prose.
+    const providerEvidence = (body.evidence as Record<string, unknown>[]).find((e) => e.domain === 'provider')
+    expect(providerEvidence).toMatchObject({ capability: 'listProviders', count: 1, rows: [{ id: 'p1', name: 'GitHub' }] })
+    // The governed reads ran: one control invoke per governed read capability, each a read
+    // verb, so a read answer is grounded in live state and never reaches a mutating command.
     const invokeCalls = fetchImpl.mock.calls.filter((c) => String(c[0]).endsWith('/v1/control/invoke'))
-    expect(invokeCalls).toHaveLength(5)
+    expect(invokeCalls).toHaveLength(9)
     for (const call of invokeCalls) {
-      expect(JSON.parse(String((call[1] as RequestInit).body)).subcommand).toBe('list')
+      expect(['list', 'active', 'tail']).toContain(JSON.parse(String((call[1] as RequestInit).body)).subcommand)
     }
   })
 
@@ -3046,5 +3050,111 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
     })
     expect(res.statusCode).toBe(502)
     expect(JSON.parse(res.body)).toMatchObject({ error: 'ai_unreachable' })
+  })
+})
+
+describe('POST /v1/zones/:zoneId/operator-conversations/:id/message-runs/cancel', () => {
+  const runRow = (overrides: Record<string, unknown> = {}) => ({
+    id: 'run-1',
+    zone_id: 'z1',
+    conversation_id: 'conv-1',
+    client_message_id: 'msg-1',
+    server_message_turn_id: 'turn-1',
+    correlation_id: 'corr-1',
+    state: 'waiting_for_model',
+    actor_id: 'actor-1',
+    provider_id: null,
+    reason: 'model_requested',
+    error_code: null,
+    error_detail: null,
+    deadline_at: null,
+    started_at: '2026-07-01T00:00:00Z',
+    updated_at: '2026-07-01T00:00:01Z',
+    completed_at: null,
+    last_event_seq: 3,
+    ...overrides,
+  })
+
+  it('settles an active run as cancelled under the run lock', async () => {
+    const { app, clientQuery } = buildApp(true)
+    clientQuery.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM operator_message_runs') && sql.includes('FOR UPDATE')) return { rows: [runRow()] }
+      if (sql.startsWith('INSERT INTO operator_message_run_events')) return { rows: [] }
+      if (sql.startsWith('UPDATE operator_message_runs')) {
+        return {
+          rows: [runRow({ state: 'cancelled', reason: 'operator_cancelled', completed_at: '2026-07-01T00:00:02Z', last_event_seq: 4 })],
+        }
+      }
+      return { rows: [], rowCount: 1 }
+    })
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/operator-conversations/conv-1/message-runs/cancel',
+      payload: { client_message_id: 'msg-1' },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body)).toMatchObject({
+      ok: true,
+      message_run: { id: 'run-1', client_message_id: 'msg-1', state: 'cancelled', reason: 'operator_cancelled' },
+    })
+    // The cancellation is a recorded event in the run's history, never a silent state flip.
+    expect(clientQuery.mock.calls.some((call) => String(call[0]).startsWith('INSERT INTO operator_message_run_events'))).toBe(true)
+  })
+
+  it('reports a run that already settled instead of re-settling it', async () => {
+    const { app, clientQuery } = buildApp(true)
+    clientQuery.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM operator_message_runs') && sql.includes('FOR UPDATE')) {
+        return { rows: [runRow({ state: 'completed', completed_at: '2026-07-01T00:00:02Z' })] }
+      }
+      return { rows: [], rowCount: 1 }
+    })
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/operator-conversations/conv-1/message-runs/cancel',
+      payload: { client_message_id: 'msg-1' },
+    })
+    expect(res.statusCode).toBe(409)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'run_settled', message_run: { state: 'completed' } })
+    expect(clientQuery.mock.calls.some((call) => String(call[0]).startsWith('INSERT INTO operator_message_run_events'))).toBe(false)
+  })
+
+  it('returns 404 for an unknown run', async () => {
+    const { app, clientQuery } = buildApp(true)
+    clientQuery.mockImplementation(async () => ({ rows: [], rowCount: 0 }))
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/operator-conversations/conv-1/message-runs/cancel',
+      payload: { client_message_id: 'msg-x' },
+    })
+    expect(res.statusCode).toBe(404)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'run_not_found' })
+  })
+
+  it('rejects a cancel without a client message id', async () => {
+    const { app } = buildApp(true)
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/operator-conversations/conv-1/message-runs/cancel',
+      payload: {},
+    })
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'invalid_cancel' })
+  })
+
+  it('refuses a cancel in a system zone', async () => {
+    const { app } = buildApp(true, { systemZones: ['z1'] })
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/operator-conversations/conv-1/message-runs/cancel',
+      payload: { client_message_id: 'msg-1' },
+    })
+    expect(res.statusCode).toBe(403)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'zone_forbidden' })
   })
 })

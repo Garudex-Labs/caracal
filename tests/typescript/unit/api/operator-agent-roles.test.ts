@@ -28,11 +28,15 @@ describe('researcherRoleScopes', () => {
   it('is exactly the governed read scopes and no write scope', () => {
     const scopes = researcherRoleScopes()
     expect([...scopes].sort()).toEqual([
+      'control:agent:read',
       'control:app:read',
+      'control:audit:read',
+      'control:delegation:read',
       'control:grant:read',
       'control:identity-provider:read',
       'control:policy:read',
       'control:resource:read',
+      'control:session:read',
     ])
     expect([...scopes].some((scope) => scope.endsWith(':write'))).toBe(false)
   })
