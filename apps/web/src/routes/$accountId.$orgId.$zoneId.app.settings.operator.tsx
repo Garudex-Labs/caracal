@@ -20,7 +20,6 @@ import {
 } from "@/components/ui";
 import { ConsoleApiError } from "@/platform/api/client";
 import {
-  systemZoneViewPath,
   useActiveZone,
   useCreateOperatorAiProvider,
   useDeleteOperatorAiProvider,
@@ -28,7 +27,6 @@ import {
   useOperatorAiProviders,
   useOperatorAiStatus,
   useRotateOperatorAiProviderKey,
-  useSystemZoneId,
   useUpdateOperatorAiProvider,
   useUpdateZone,
 } from "@/platform/api/hooks";
@@ -100,7 +98,6 @@ function OperatorPage() {
   const list = useOperatorAiProviders();
   const check = useOperatorAiCheck();
   const remove = useDeleteOperatorAiProvider();
-  const systemZone = useSystemZoneId();
   const toast = useToast();
 
   const [formOpen, setFormOpen] = useState(false);
@@ -142,32 +139,9 @@ function OperatorPage() {
     <div>
       <SettingsGroup
         title="Models"
-        description="Add a provider once; its key is sealed into Caracal and the Operator reaches every model through the governed gateway."
+        description="Add a provider, and Caracal securely routes the Operator to model through the governed gateway."
         action={
           <>
-            {systemZone.data ? (
-              <a
-                href={systemZoneViewPath(systemZone.data)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-              >
-                <svg
-                  viewBox="0 0 24 24"
-                  className="h-3.5 w-3.5"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <rect x="3" y="11" width="18" height="11" rx="2" />
-                  <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                </svg>
-                Open System Zone
-              </a>
-            ) : null}
             <Button
               variant="secondary"
               size="sm"

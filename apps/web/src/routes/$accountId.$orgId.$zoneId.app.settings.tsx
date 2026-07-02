@@ -7,6 +7,7 @@ This file defines the Settings layout route with grouped navigation over the /se
 import { Link, Outlet, createFileRoute, useLocation } from "@tanstack/react-router";
 
 import { ModulePage } from "@/components/console/ModulePage";
+import { systemZoneViewPath, useSystemZoneId } from "@/platform/api/hooks";
 import { appLink } from "@/platform/nav/appLink";
 import { SETTINGS_GROUPS, settingsItem } from "@/platform/nav/settingsNav";
 
@@ -36,6 +37,7 @@ function SettingsLayout() {
   const pathname = useLocation({ select: (location) => location.pathname });
   const segment = pathname.split("/settings/")[1]?.split("/")[0] ?? "";
   const current = settingsItem(segment);
+  const systemZone = useSystemZoneId();
 
   return (
     <ModulePage
@@ -85,18 +87,43 @@ function SettingsLayout() {
 
         <section className="min-w-0 xl:flex xl:h-[calc(100vh-9.75rem)] xl:flex-col xl:border-l xl:border-border xl:pl-10">
           {current ? (
-            <header className="mb-8 flex-shrink-0 border-b border-border pb-5">
-              <div className="flex items-center gap-2.5">
-                <h2 className="text-xl font-semibold tracking-tight text-foreground">
-                  {current.label}
-                </h2>
-                {current.featureSlug ? (
-                  <LockGlyph className="h-4 w-4 text-muted-foreground/70" />
-                ) : null}
+            <header className="mb-8 flex flex-shrink-0 flex-wrap items-center justify-between gap-3 border-b border-border pb-5">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2.5">
+                  <h2 className="text-xl font-semibold tracking-tight text-foreground">
+                    {current.label}
+                  </h2>
+                  {current.featureSlug ? (
+                    <LockGlyph className="h-4 w-4 text-muted-foreground/70" />
+                  ) : null}
+                </div>
+                <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
+                  {current.description}
+                </p>
               </div>
-              <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
-                {current.description}
-              </p>
+              {current.id === "operator" && systemZone.data ? (
+                <a
+                  href={systemZoneViewPath(systemZone.data)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-md border border-pink-500/50 px-2.5 py-1.5 text-xs font-medium text-pink-600 transition-colors hover:bg-pink-500/10 dark:text-pink-400"
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    className="h-3.5 w-3.5"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
+                    <circle cx="12" cy="12" r="3" />
+                  </svg>
+                  Open System Zone
+                </a>
+              ) : null}
             </header>
           ) : null}
           <div className="scrollbar-thin min-w-0 xl:flex-1 xl:overflow-y-auto xl:pb-4 xl:pr-3">

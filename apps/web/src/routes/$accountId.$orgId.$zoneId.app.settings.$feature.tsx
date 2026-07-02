@@ -26,5 +26,5 @@ export const Route = createFileRoute("/$accountId/$orgId/$zoneId/app/settings/$f
 function LockedSettingsPage() {
   const { feature } = Route.useParams();
 
-  return <EnterpriseUpsell feature={LOCKED_FEATURES[feature]} heading={false} />;
+  return <EnterpriseUpsell feature={LOCKED_FEATURES[feature]} />;
 }
