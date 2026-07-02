@@ -5,6 +5,7 @@ Caracal, a product of Garudex Labs
 This file renders the profile menu in the sidebar footer: identity, zone switching, and account actions.
 */
 import { appLink } from "@/platform/nav/appLink";
+import { useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -43,6 +44,7 @@ function Avatar({ avatar, name, size }: { avatar: string; name: string; size: nu
 
 export function ProfileMenu({ collapsed = false }: { collapsed?: boolean }) {
   const navigate = useNavigate();
+  const qc = useQueryClient();
   const session = useSession();
   const { zones, activeZone, selectZone } = useActiveZone();
   const theme = useTheme();
@@ -87,6 +89,9 @@ export function ProfileMenu({ collapsed = false }: { collapsed?: boolean }) {
   async function confirmSignOut() {
     setOpen(false);
     await signOut();
+    // Cached console data belongs to the account that just signed out; a later login on this
+    // browser must start from an empty cache rather than another account's zones.
+    qc.clear();
     navigate({ to: "/sign-in" });
   }
 

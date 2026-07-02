@@ -5,6 +5,7 @@ Caracal, a product of Garudex Labs
 This file defines the settings route.
 */
 import { appLink } from "@/platform/nav/appLink";
+import { useQueryClient } from "@tanstack/react-query";
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
@@ -360,6 +361,7 @@ function ProfileSection() {
 function AccessSection() {
   const toast = useToast();
   const navigate = useNavigate();
+  const qc = useQueryClient();
   const session = useSession();
 
   const [current, setCurrent] = useState("");
@@ -405,6 +407,9 @@ function AccessSection() {
 
   async function confirmSignOut() {
     await signOut();
+    // Cached console data belongs to the account that just signed out; a later login on this
+    // browser must start from an empty cache rather than another account's zones.
+    qc.clear();
     navigate({ to: "/sign-in" });
   }
 
@@ -1422,6 +1427,7 @@ function RotateKeyModal({
 function LifecycleSection() {
   const toast = useToast();
   const navigate = useNavigate();
+  const qc = useQueryClient();
   const session = useSession();
   const zones = useZones();
   const email = session.data?.user?.email ?? "";
@@ -1456,6 +1462,7 @@ function LifecycleSection() {
 
       await deleteAccount(confirm);
       clearLocalIdentity();
+      qc.clear();
       if (zoneFailures > 0) {
         toast({
           tone: "info",

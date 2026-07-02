@@ -26,6 +26,7 @@ import {
 import { resolveStsUrl } from '@caracalai/engine/runtime-config'
 import { downstreamHeaders, safeTarget } from './security.ts'
 import { selectProxyCredential, shouldRetryWithFallback } from './proxyCredential.ts'
+import { coordZoneId, resolveZoneAccess, type ZoneProbeResult } from './zoneAccess.ts'
 import { logger } from './logger.ts'
 
 export interface ConsoleContext {
@@ -316,11 +317,14 @@ function parseDiagnosticsOptions(path: string): DiagnosticsOptions {
   }
 }
 
-function diagnosticsCacheKey(options: DiagnosticsOptions): string {
-  return `${options.preflightOnly ? 'preflight' : 'system'}:${options.strict ? 'strict' : 'lax'}:${options.zoneId ?? 'all'}`
+// The cache is keyed by the requesting operator as well as the report shape: zone inventory and
+// per-zone checks are scoped to the operator's own zones, so one account's report must never be
+// served to another.
+function diagnosticsCacheKey(options: DiagnosticsOptions, accountId: string): string {
+  return `${accountId}:${options.preflightOnly ? 'preflight' : 'system'}:${options.strict ? 'strict' : 'lax'}:${options.zoneId ?? 'all'}`
 }
 
-async function computeDiagnostics(options: DiagnosticsOptions): Promise<DiagnosticsCacheEntry> {
+async function computeDiagnostics(options: DiagnosticsOptions, account: string | undefined): Promise<DiagnosticsCacheEntry> {
   // Capture the generation at the start of the read; if a mutation bumps it before the
   // report finishes, the result is considered stale and is dropped by the caller.
   const generation = diagnosticsGeneration
@@ -332,18 +336,21 @@ async function computeDiagnostics(options: DiagnosticsOptions): Promise<Diagnost
     // the deployment admin token. The admin token is the fallback when no read token is
     // derivable, so diagnostics never fail closed for want of a credential.
     adminToken: consoleReadToken() ?? adminToken(),
+    // The signed account assertion scopes the zone inventory and per-zone checks to the
+    // operator's own zones, so the report never enumerates another account's zones.
+    headers: account ? { [ACCOUNT_ASSERTION_HEADER]: account } : undefined,
   })
   const generatedAt = new Date().toISOString()
   return { at: Date.now(), generation, payload: { ...report, generatedAt } }
 }
 
-async function handleDiagnostics(res: ServerResponse, path: string): Promise<void> {
+async function handleDiagnostics(res: ServerResponse, path: string, account: string | undefined, accountId: string): Promise<void> {
   if (!adminToken()) {
     sendJson(res, 503, { error: 'control_plane_not_configured' })
     return
   }
   const options = parseDiagnosticsOptions(path)
-  const key = diagnosticsCacheKey(options)
+  const key = diagnosticsCacheKey(options, accountId)
   const cached = diagnosticsCache.get(key)
   const fresh = cached && cached.generation === diagnosticsGeneration && Date.now() - cached.at < DIAGNOSTICS_TTL_MS
   if (fresh) {
@@ -352,7 +359,7 @@ async function handleDiagnostics(res: ServerResponse, path: string): Promise<voi
   }
   let inFlight = diagnosticsInFlight.get(key)
   if (!inFlight) {
-    inFlight = computeDiagnostics(options)
+    inFlight = computeDiagnostics(options, account)
     diagnosticsInFlight.set(key, inFlight)
     void inFlight.finally(() => {
       // Only clear our own slot; a mutation may have already replaced it.
@@ -506,7 +513,14 @@ function targetPath(target: string): string {
 // Validates that a proxied path stays within an allowed prefix after URL normalization, closing
 // a prefix-check bypass (e.g. `/v1/../metrics`). Defined in security.ts as a path-confinement
 // primitive and reused here for both the API and coordinator proxy surfaces.
-async function handleProxy(req: IncomingMessage, res: ServerResponse, rest: string, id: string, account?: string, operator?: string): Promise<void> {
+async function handleProxy(
+  req: IncomingMessage,
+  res: ServerResponse,
+  rest: string,
+  id: string,
+  account?: string,
+  operator?: string,
+): Promise<void> {
   const token = adminToken()
   if (!token) {
     sendJson(res, 503, { error: 'control_plane_not_configured' })
@@ -574,8 +588,10 @@ interface ControlTokenRequest {
 
 // Exchanges a control key for a short-lived STS invocation token. Mirrors the Console token
 // flow exactly: the requested scopes must be a subset of the key's grant and the TTL must not
-// exceed the key maximum, both checked before the secret is exchanged at STS.
-async function handleControlToken(req: IncomingMessage, res: ServerResponse, id: string): Promise<void> {
+// exceed the key maximum, both checked before the secret is exchanged at STS. The application
+// read carries the operator's account assertion, so a control key in another account's zone is
+// refused by the API's ownership guard before any exchange is attempted.
+async function handleControlToken(req: IncomingMessage, res: ServerResponse, id: string, account: string | undefined): Promise<void> {
   const token = adminToken()
   if (!token) {
     sendJson(res, 503, { error: 'control_plane_not_configured' })
@@ -619,8 +635,9 @@ async function handleControlToken(req: IncomingMessage, res: ServerResponse, id:
     // path.
     const url = `${apiUrl()}/v1/zones/${encodeURIComponent(zoneId)}/applications/${encodeURIComponent(keyId)}`
     const credential = selectProxyCredential('GET', token, consoleReadToken(), consoleWriteToken())
-    const readWith = (bearer: string): Promise<Response> =>
-      fetch(url, { headers: { Authorization: `Bearer ${bearer}`, ...downstreamHeaders(id) } })
+    const readHeaders: Record<string, string> = downstreamHeaders(id)
+    if (account) readHeaders[ACCOUNT_ASSERTION_HEADER] = account
+    const readWith = (bearer: string): Promise<Response> => fetch(url, { headers: { Authorization: `Bearer ${bearer}`, ...readHeaders } })
     let upstream = await readWith(credential.token)
     if (shouldRetryWithFallback(upstream.status, credential.token, credential.fallbackToken) && credential.fallbackToken) {
       await upstream.body?.cancel().catch(() => {})
@@ -628,6 +645,10 @@ async function handleControlToken(req: IncomingMessage, res: ServerResponse, id:
     }
     if (upstream.status === 404) {
       sendJson(res, 404, { error: 'control_key_not_found' })
+      return
+    }
+    if (upstream.status === 403) {
+      sendJson(res, 403, { error: 'zone_forbidden' })
       return
     }
     if (!upstream.ok) {
@@ -689,7 +710,13 @@ async function handleControlToken(req: IncomingMessage, res: ServerResponse, id:
 
 // Routes the local-only Control management surface (endpoint gate + token exchange) that the
 // Console exposes, so the web client reaches functional parity without a TTY.
-async function handleControl(req: IncomingMessage, res: ServerResponse, path: string, id: string): Promise<boolean> {
+async function handleControl(
+  req: IncomingMessage,
+  res: ServerResponse,
+  path: string,
+  id: string,
+  account: string | undefined,
+): Promise<boolean> {
   const method = (req.method ?? 'GET').toUpperCase()
   if (path === '/control/status' && method === 'GET') {
     await handleControlStatus(res)
@@ -704,14 +731,55 @@ async function handleControl(req: IncomingMessage, res: ServerResponse, path: st
     return true
   }
   if (path === '/control/token' && method === 'POST') {
-    await handleControlToken(req, res, id)
+    await handleControlToken(req, res, id, account)
     return true
   }
   return false
 }
 
-// Proxies the agent and delegation runtime surfaces served by the Coordinator.
-async function handleCoordProxy(req: IncomingMessage, res: ServerResponse, rest: string, id: string): Promise<void> {
+// Probes the admin API's zone read under the operator's account assertion, so the API's
+// per-account ownership guard decides whether the operator may act on the zone at all. The read
+// presents the least-privilege read token with the admin token as break-glass fallback, exactly
+// like every other proxied read.
+async function probeZone(zoneId: string, account: string | undefined, id: string): Promise<ZoneProbeResult> {
+  const admin = adminToken()
+  if (!admin) return { status: 503 }
+  const url = `${apiUrl()}/v1/zones/${encodeURIComponent(zoneId)}`
+  const headers: Record<string, string> = downstreamHeaders(id)
+  if (account) headers[ACCOUNT_ASSERTION_HEADER] = account
+  const credential = selectProxyCredential('GET', admin, consoleReadToken(), consoleWriteToken())
+  try {
+    const readWith = (bearer: string): Promise<Response> =>
+      fetch(url, { headers: { ...headers, Authorization: `Bearer ${bearer}` }, signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) })
+    let upstream = await readWith(credential.token)
+    if (shouldRetryWithFallback(upstream.status, credential.token, credential.fallbackToken) && credential.fallbackToken) {
+      await upstream.body?.cancel().catch(() => {})
+      upstream = await readWith(credential.fallbackToken)
+    }
+    if (!upstream.ok) {
+      await upstream.body?.cancel().catch(() => {})
+      return { status: upstream.status }
+    }
+    const zone = (await upstream.json()) as { name?: string; slug?: string }
+    return { status: 200, name: zone.name, slug: zone.slug }
+  } catch {
+    return { status: 502 }
+  }
+}
+
+// Proxies the agent and delegation runtime surfaces served by the Coordinator. The coordinator
+// credential is deployment-wide, so zone reach is enforced here: every coordinator path is
+// zone-scoped, and the request only proxies once the admin API confirms the signed-in operator
+// owns the zone (or is reading the shared system zone). This keeps zone isolation intact across
+// the coordinator surface even though the coordinator itself has no account concept.
+async function handleCoordProxy(
+  req: IncomingMessage,
+  res: ServerResponse,
+  rest: string,
+  id: string,
+  account: string | undefined,
+  accountId: string,
+): Promise<void> {
   const token = coordinatorToken()
   if (!token) {
     sendJson(res, 503, { error: 'coordinator_not_configured' })
@@ -720,6 +788,17 @@ async function handleCoordProxy(req: IncomingMessage, res: ServerResponse, rest:
   const target = safeTarget(coordinatorUrl(), rest, '/zones/')
   if (!target) {
     sendJson(res, 404, { error: 'not_found' })
+    return
+  }
+  const zoneId = coordZoneId(rest)
+  if (!zoneId) {
+    sendJson(res, 404, { error: 'not_found' })
+    return
+  }
+  const method = (req.method ?? 'GET').toUpperCase()
+  const access = await resolveZoneAccess(accountId, zoneId, method, () => probeZone(zoneId, account, id))
+  if (!access.allowed) {
+    sendJson(res, access.status, { error: access.error })
     return
   }
   await forwardProxy(req, res, target, token, id)
@@ -761,7 +840,7 @@ export async function handleConsole(req: IncomingMessage, res: ServerResponse, c
   const operator = operatorAssertion(session.user)
 
   if (url.startsWith(`${COORD_PREFIX}/`)) {
-    await handleCoordProxy(req, res, url.slice(COORD_PREFIX.length), ctx.id)
+    await handleCoordProxy(req, res, url.slice(COORD_PREFIX.length), ctx.id, account, session.user.id)
     return true
   }
 
@@ -771,11 +850,11 @@ export async function handleConsole(req: IncomingMessage, res: ServerResponse, c
     return true
   }
   if (path === '/diagnostics' || path.startsWith('/diagnostics?')) {
-    await handleDiagnostics(res, path)
+    await handleDiagnostics(res, path, account, session.user.id)
     return true
   }
   if (path.startsWith('/control/')) {
-    if (await handleControl(req, res, path, ctx.id)) return true
+    if (await handleControl(req, res, path, ctx.id, account)) return true
     sendJson(res, 404, { error: 'not_found' })
     return true
   }
