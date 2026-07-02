@@ -15,13 +15,15 @@ describe('GET /v1/zones/:zoneId/audit', () => {
   it('returns zone-scoped audit events with redaction and cursor', async () => {
     const { app, db } = buildRouteApp(zoneEventsRoutes)
     db.query.mockResolvedValueOnce({
-      rows: [{
-        id: 'audit-1',
-        zone_id: 'z1',
-        decision: 'deny',
-        occurred_at: '2026-05-01T00:00:00.000Z',
-        metadata_json: { user: 'a', token: 'leak-me' },
-      }],
+      rows: [
+        {
+          id: 'audit-1',
+          zone_id: 'z1',
+          decision: 'deny',
+          occurred_at: '2026-05-01T00:00:00.000Z',
+          metadata_json: { user: 'a', token: 'leak-me' },
+        },
+      ],
     })
 
     await app.ready()
@@ -46,10 +48,96 @@ describe('GET /v1/zones/:zoneId/audit', () => {
     })
 
     expect(res.statusCode).toBe(200)
-    expect(db.query).toHaveBeenCalledWith(
-      expect.stringContaining('decision = $'),
-      ['z1', 'req-9', 'deny', 50],
-    )
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining('decision = $'), ['z1', 'req-9', 'deny', 50])
+  })
+
+  it('filters by application id from event metadata', async () => {
+    const { app, db } = buildRouteApp(zoneEventsRoutes)
+    db.query.mockResolvedValueOnce({ rows: [] })
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/zones/z1/audit?application_id=app-7',
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("metadata_json->>'application_id' = $"), ['z1', 'app-7', 100])
+  })
+
+  it('projects rows onto the selected fields, flattening metadata columns', async () => {
+    const { app, db } = buildRouteApp(zoneEventsRoutes)
+    db.query.mockResolvedValueOnce({
+      rows: [
+        {
+          id: 'audit-1',
+          zone_id: 'z1',
+          event_type: 'token_exchange',
+          decision: 'allow',
+          occurred_at: '2026-05-01T00:00:00.000Z',
+          metadata_json: { application_name: 'Son of Anton', resource: 'resource://pipernet', token: 'leak-me' },
+        },
+      ],
+    })
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/zones/z1/audit?fields=occurred_at,event_type,application_name,resource',
+    })
+
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(body.rows[0]).toEqual({
+      occurred_at: '2026-05-01T00:00:00.000Z',
+      event_type: 'token_exchange',
+      application_name: 'Son of Anton',
+      resource: 'resource://pipernet',
+    })
+  })
+
+  it('rejects unknown export fields', async () => {
+    const { app, db } = buildRouteApp(zoneEventsRoutes)
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/zones/z1/audit?fields=occurred_at,metadata_json',
+    })
+
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body)).toEqual({ error: 'invalid_fields' })
+    expect(db.query).not.toHaveBeenCalled()
+  })
+
+  it('exports selected fields as CSV with redaction and a download header', async () => {
+    const { app, db } = buildRouteApp(zoneEventsRoutes)
+    db.query.mockResolvedValueOnce({
+      rows: [
+        {
+          id: 'audit-1',
+          zone_id: 'z1',
+          event_type: 'exchange_denied',
+          decision: 'deny',
+          occurred_at: '2026-05-01T00:00:00.000Z',
+          metadata_json: { application_name: 'Son, of Anton', reason: 'no_provider_grant', token: 'leak-me' },
+        },
+      ],
+    })
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/zones/z1/audit?format=csv&fields=occurred_at,event_type,decision,application_name,reason',
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-type']).toContain('text/csv')
+    expect(res.headers['content-disposition']).toContain('attachment; filename="audit-z1.csv"')
+    const lines = res.body.trim().split('\r\n')
+    expect(lines[0]).toBe('occurred_at,event_type,decision,application_name,reason')
+    expect(lines[1]).toBe('2026-05-01T00:00:00.000Z,exchange_denied,deny,"Son, of Anton",no_provider_grant')
+    expect(res.body).not.toContain('leak-me')
   })
 
   it('applies all audit filters and emits a next cursor when the page is full', async () => {
@@ -132,7 +220,16 @@ describe('GET /v1/zones/:zoneId/audit/by-request/:requestId', () => {
   it('returns full audit detail with diagnostics', async () => {
     const { app, db } = buildRouteApp(zoneEventsRoutes)
     db.query.mockResolvedValueOnce({
-      rows: [{ id: 'a1', request_id: 'r1', decision: 'deny', determining_policies_json: [], diagnostics_json: [{ reason: 'no_active_policy_set' }], metadata_json: {} }],
+      rows: [
+        {
+          id: 'a1',
+          request_id: 'r1',
+          decision: 'deny',
+          determining_policies_json: [],
+          diagnostics_json: [{ reason: 'no_active_policy_set' }],
+          metadata_json: {},
+        },
+      ],
     })
 
     await app.ready()
@@ -155,16 +252,18 @@ describe('GET /v1/zones/:zoneId/audit/by-request/:requestId/explain', () => {
   it('returns a why-denied summary with redacted metadata', async () => {
     const { app, db } = buildRouteApp(zoneEventsRoutes)
     db.query.mockResolvedValueOnce({
-      rows: [{
-        id: 'a1',
-        event_type: 'token_exchange',
-        request_id: 'r1',
-        decision: 'deny',
-        evaluation_status: 'complete',
-        determining_policies_json: [{ policy: 'baseline-scopes' }],
-        diagnostics_json: [{ reason: 'missing_scope' }],
-        metadata_json: { token: 'secret', requested_scopes: ['write'] },
-      }],
+      rows: [
+        {
+          id: 'a1',
+          event_type: 'token_exchange',
+          request_id: 'r1',
+          decision: 'deny',
+          evaluation_status: 'complete',
+          determining_policies_json: [{ policy: 'baseline-scopes' }],
+          diagnostics_json: [{ reason: 'missing_scope' }],
+          metadata_json: { token: 'secret', requested_scopes: ['write'] },
+        },
+      ],
     })
 
     await app.ready()
@@ -180,21 +279,23 @@ describe('GET /v1/zones/:zoneId/audit/by-request/:requestId/explain', () => {
   it('reconstructs a redaction-safe policy_input for denied requests', async () => {
     const { app, db } = buildRouteApp(zoneEventsRoutes)
     db.query.mockResolvedValueOnce({
-      rows: [{
-        id: 'a1',
-        event_type: 'token_exchange',
-        request_id: 'r1',
-        decision: 'deny',
-        evaluation_status: 'complete',
-        determining_policies_json: [{ policy: 'baseline-scope-allowlist' }],
-        diagnostics_json: [{ reason: 'no_matching_policy' }],
-        metadata_json: {
-          application_id: 'app-1',
-          resource: 'resource://pipernet',
-          requested_scopes: ['pipernet:read', 'pipernet:write'],
-          delegation_edge_id: 'edge-9',
+      rows: [
+        {
+          id: 'a1',
+          event_type: 'token_exchange',
+          request_id: 'r1',
+          decision: 'deny',
+          evaluation_status: 'complete',
+          determining_policies_json: [{ policy: 'baseline-scope-allowlist' }],
+          diagnostics_json: [{ reason: 'no_matching_policy' }],
+          metadata_json: {
+            application_id: 'app-1',
+            resource: 'resource://pipernet',
+            requested_scopes: ['pipernet:read', 'pipernet:write'],
+            delegation_edge_id: 'edge-9',
+          },
         },
-      }],
+      ],
     })
 
     await app.ready()
@@ -213,19 +314,21 @@ describe('GET /v1/zones/:zoneId/audit/by-request/:requestId/explain', () => {
   it('reconstructs policy_input from raw metadata while keeping the displayed metadata redacted', async () => {
     const { app, db } = buildRouteApp(zoneEventsRoutes)
     db.query.mockResolvedValueOnce({
-      rows: [{
-        id: 'a1',
-        event_type: 'token_exchange',
-        request_id: 'r1',
-        decision: 'deny',
-        evaluation_status: 'complete',
-        metadata_json: {
-          application_id: 'app-1',
-          resource: 'resource://pipernet',
-          requested_scopes: ['pipernet:read'],
-          session_id: 'sess-secret-123',
+      rows: [
+        {
+          id: 'a1',
+          event_type: 'token_exchange',
+          request_id: 'r1',
+          decision: 'deny',
+          evaluation_status: 'complete',
+          metadata_json: {
+            application_id: 'app-1',
+            resource: 'resource://pipernet',
+            requested_scopes: ['pipernet:read'],
+            session_id: 'sess-secret-123',
+          },
         },
-      }],
+      ],
     })
 
     await app.ready()
@@ -292,14 +395,7 @@ describe('GET /v1/zones/:zoneId/sessions', () => {
 
     expect(res.statusCode).toBe(200)
     expect(JSON.parse(res.body).next_cursor).toEqual(expect.any(String))
-    expect(db.query.mock.calls[0][1]).toEqual([
-      'z1',
-      'active',
-      'user-1',
-      '2026-05-03T00:00:00.000Z',
-      'session-3',
-      2,
-    ])
+    expect(db.query.mock.calls[0][1]).toEqual(['z1', 'active', 'user-1', '2026-05-03T00:00:00.000Z', 'session-3', 2])
   })
 
   it('rejects malformed cursor values', async () => {
@@ -316,12 +412,20 @@ describe('GET /v1/zones/:zoneId/sessions', () => {
   it('exports filtered sessions as CSV with a download header', async () => {
     const { app, db } = buildRouteApp(zoneEventsRoutes)
     db.query.mockResolvedValueOnce({
-      rows: [{
-        id: 'sess-9', session_type: 'user', subject_id: 'user-1', parent_id: null, status: 'revoked',
-        authenticated_at: '2026-05-02T00:00:00.000Z', created_at: '2026-05-02T00:00:00.000Z',
-        expires_at: '2026-05-02T01:00:00.000Z', revoked_at: '2026-05-02T00:30:00.000Z',
-        revoked_reason: 'grant_revoked',
-      }],
+      rows: [
+        {
+          id: 'sess-9',
+          session_type: 'user',
+          subject_id: 'user-1',
+          parent_id: null,
+          status: 'revoked',
+          authenticated_at: '2026-05-02T00:00:00.000Z',
+          created_at: '2026-05-02T00:00:00.000Z',
+          expires_at: '2026-05-02T01:00:00.000Z',
+          revoked_at: '2026-05-02T00:30:00.000Z',
+          revoked_reason: 'grant_revoked',
+        },
+      ],
     })
 
     await app.ready()
@@ -335,7 +439,9 @@ describe('GET /v1/zones/:zoneId/sessions', () => {
     expect(res.headers['content-disposition']).toContain('attachment; filename="sessions-z1.csv"')
     const lines = res.body.trim().split('\r\n')
     expect(lines[0]).toBe('id,session_type,subject_id,parent_id,status,authenticated_at,created_at,expires_at,revoked_at,revoked_reason')
-    expect(lines[1]).toBe('sess-9,user,user-1,,revoked,2026-05-02T00:00:00.000Z,2026-05-02T00:00:00.000Z,2026-05-02T01:00:00.000Z,2026-05-02T00:30:00.000Z,grant_revoked')
+    expect(lines[1]).toBe(
+      'sess-9,user,user-1,,revoked,2026-05-02T00:00:00.000Z,2026-05-02T00:00:00.000Z,2026-05-02T01:00:00.000Z,2026-05-02T00:30:00.000Z,grant_revoked',
+    )
   })
 })
 
@@ -359,25 +465,36 @@ describe('GET /v1/zones/:zoneId/agent-sessions', () => {
     const body = JSON.parse(res.body)
     expect(body.rows).toHaveLength(2)
     expect(body.next_cursor).toBe(cursor('2026-05-01T00:00:00.000Z', 'as-1'))
-    expect(db.query).toHaveBeenCalledWith(
-      expect.stringContaining('FROM agent_sessions'),
-      ['z1', 'terminated', 'service', '{refund-worker}', 2],
-    )
-    expect(db.query).toHaveBeenCalledWith(
-      expect.stringContaining('labels @> $'),
-      expect.any(Array),
-    )
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining('FROM agent_sessions'), [
+      'z1',
+      'terminated',
+      'service',
+      '{refund-worker}',
+      2,
+    ])
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining('labels @> $'), expect.any(Array))
   })
 
   it('exports filtered rows as CSV with a download header', async () => {
     const { app, db } = buildRouteApp(zoneEventsRoutes)
     db.query.mockResolvedValueOnce({
-      rows: [{
-        id: 'as-9', application_id: 'app-1', parent_id: null, status: 'suspended',
-        lifecycle: 'service', labels: ['voice', 'worker'], depth: 1, child_count: 0,
-        spawned_at: '2026-05-02T00:00:00.000Z', last_active_at: '2026-05-02T00:01:00.000Z',
-        terminated_at: null, termination_reason: null, ttl_seconds: null,
-      }],
+      rows: [
+        {
+          id: 'as-9',
+          application_id: 'app-1',
+          parent_id: null,
+          status: 'suspended',
+          lifecycle: 'service',
+          labels: ['voice', 'worker'],
+          depth: 1,
+          child_count: 0,
+          spawned_at: '2026-05-02T00:00:00.000Z',
+          last_active_at: '2026-05-02T00:01:00.000Z',
+          terminated_at: null,
+          termination_reason: null,
+          ttl_seconds: null,
+        },
+      ],
     })
 
     await app.ready()
@@ -390,7 +507,9 @@ describe('GET /v1/zones/:zoneId/agent-sessions', () => {
     expect(res.headers['content-type']).toContain('text/csv')
     expect(res.headers['content-disposition']).toContain('attachment; filename="agent-sessions-z1.csv"')
     const lines = res.body.trim().split('\r\n')
-    expect(lines[0]).toBe('id,application_id,parent_id,status,lifecycle,labels,depth,child_count,spawned_at,last_active_at,terminated_at,termination_reason,ttl_seconds')
+    expect(lines[0]).toBe(
+      'id,application_id,parent_id,status,lifecycle,labels,depth,child_count,spawned_at,last_active_at,terminated_at,termination_reason,ttl_seconds',
+    )
     expect(lines[1]).toBe('as-9,app-1,,suspended,service,voice worker,1,0,2026-05-02T00:00:00.000Z,2026-05-02T00:01:00.000Z,,,')
   })
 
@@ -410,23 +529,25 @@ describe('GET /v1/zones/:zoneId/admin-audit', () => {
   it('returns admin mutation records with a signed flag and redacted payloads', async () => {
     const { app, db } = buildRouteApp(zoneEventsRoutes)
     db.query.mockResolvedValueOnce({
-      rows: [{
-        id: 'aa-1',
-        request_id: 'req-1',
-        actor_id: 'tok-1',
-        actor_name: 'operator',
-        actor_scope: 'zone',
-        action: 'PATCH /v1/zones/z1/applications/app-1',
-        method: 'PATCH',
-        path: '/v1/zones/z1/applications/app-1',
-        entity_type: 'applications',
-        entity_id: 'app-1',
-        status_code: 200,
-        payload_json: { changed_fields: ['name'], secret: 'leak-me' },
-        occurred_at: '2026-05-02T00:00:00.000Z',
-        chain_seq: 7,
-        signed: true,
-      }],
+      rows: [
+        {
+          id: 'aa-1',
+          request_id: 'req-1',
+          actor_id: 'tok-1',
+          actor_name: 'operator',
+          actor_scope: 'zone',
+          action: 'PATCH /v1/zones/z1/applications/app-1',
+          method: 'PATCH',
+          path: '/v1/zones/z1/applications/app-1',
+          entity_type: 'applications',
+          entity_id: 'app-1',
+          status_code: 200,
+          payload_json: { changed_fields: ['name'], secret: 'leak-me' },
+          occurred_at: '2026-05-02T00:00:00.000Z',
+          chain_seq: 7,
+          signed: true,
+        },
+      ],
     })
 
     await app.ready()
@@ -441,10 +562,7 @@ describe('GET /v1/zones/:zoneId/admin-audit', () => {
     expect(body.rows[0].payload_json.changed_fields).toEqual(['name'])
     expect(body.rows[0].payload_json.secret).toBe('[redacted]')
     expect(body.next_cursor).toBeNull()
-    expect(db.query).toHaveBeenCalledWith(
-      expect.stringContaining('FROM admin_audit_events'),
-      ['z1', 'applications', 'PATCH', 50],
-    )
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining('FROM admin_audit_events'), ['z1', 'applications', 'PATCH', 50])
   })
 
   it('rejects an invalid method filter', async () => {
@@ -455,6 +573,59 @@ describe('GET /v1/zones/:zoneId/admin-audit', () => {
 
     expect(res.statusCode).toBe(400)
     expect(JSON.parse(res.body)).toEqual({ error: 'invalid_query' })
+    expect(db.query).not.toHaveBeenCalled()
+  })
+
+  it('exports selected fields as CSV, flattening changed fields from the payload', async () => {
+    const { app, db } = buildRouteApp(zoneEventsRoutes)
+    db.query.mockResolvedValueOnce({
+      rows: [
+        {
+          id: 'aa-1',
+          request_id: 'req-1',
+          actor_id: 'tok-1',
+          actor_name: 'operator',
+          actor_scope: 'zone',
+          action: 'PATCH /v1/zones/z1/applications/app-1',
+          method: 'PATCH',
+          path: '/v1/zones/z1/applications/app-1',
+          entity_type: 'applications',
+          entity_id: 'app-1',
+          status_code: 200,
+          payload_json: { changed_fields: ['name', 'labels'], secret: 'leak-me' },
+          occurred_at: '2026-05-02T00:00:00.000Z',
+          chain_seq: 7,
+          signed: true,
+        },
+      ],
+    })
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/zones/z1/admin-audit?format=csv&fields=occurred_at,method,entity_type,actor_name,changed_fields',
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-type']).toContain('text/csv')
+    expect(res.headers['content-disposition']).toContain('attachment; filename="admin-audit-z1.csv"')
+    const lines = res.body.trim().split('\r\n')
+    expect(lines[0]).toBe('occurred_at,method,entity_type,actor_name,changed_fields')
+    expect(lines[1]).toBe('2026-05-02T00:00:00.000Z,PATCH,applications,operator,name labels')
+    expect(res.body).not.toContain('leak-me')
+  })
+
+  it('rejects unknown admin export fields', async () => {
+    const { app, db } = buildRouteApp(zoneEventsRoutes)
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/zones/z1/admin-audit?fields=payload_json',
+    })
+
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body)).toEqual({ error: 'invalid_fields' })
     expect(db.query).not.toHaveBeenCalled()
   })
 })
