@@ -1067,7 +1067,7 @@ class FromConfigBindingsTests(unittest.TestCase):
         cfg_path = self._write_toml(
             'zone_id = "z"\n'
             'application_id = "a"\n'
-            f'app_client_secret_file = "{secret_file.name}"\n'
+            f"app_client_secret_file = {json.dumps(secret_file.name)}\n"
             'sts_url = "https://sts.example.com"\n'
             'coordinator_url = "https://coord.example.com"\n'
             "[[credentials]]\n"

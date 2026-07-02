@@ -9,7 +9,12 @@ import time
 import unittest
 from pathlib import Path
 
-from caracalai_core.audit import AuditClient, AuditEvent, create_event_id, default_replay_dir
+from caracalai_core.audit import (
+    AuditClient,
+    AuditEvent,
+    create_event_id,
+    default_replay_dir,
+)
 from caracalai_core.logging import create_logger
 
 
@@ -52,7 +57,12 @@ class AuditClientTests(unittest.TestCase):
 
     def test_requires_hmac_in_production(self):
         with self.assertRaisesRegex(ValueError, "audit_hmac_key is required"):
-            AuditClient(streamer=FakeStreamer(), replay_dir=self.replay_dir, logger=self.logger, production=True)
+            AuditClient(
+                streamer=FakeStreamer(),
+                replay_dir=self.replay_dir,
+                logger=self.logger,
+                production=True,
+            )
 
     def test_requires_streamer(self):
         with self.assertRaisesRegex(ValueError, "streamer is required"):
@@ -60,11 +70,22 @@ class AuditClientTests(unittest.TestCase):
 
     def test_rejects_short_audit_hmac_key(self):
         with self.assertRaisesRegex(ValueError, "at least 32 bytes"):
-            AuditClient(streamer=FakeStreamer(), replay_dir=self.replay_dir, logger=self.logger, audit_hmac_key=b"short")
+            AuditClient(
+                streamer=FakeStreamer(),
+                replay_dir=self.replay_dir,
+                logger=self.logger,
+                audit_hmac_key=b"short",
+            )
 
     def test_signs_events_when_key_present(self):
         s = FakeStreamer()
-        c = AuditClient(streamer=s, replay_dir=self.replay_dir, logger=self.logger, audit_hmac_key=b"k" * 32, flush_ttl_ms=10)
+        c = AuditClient(
+            streamer=s,
+            replay_dir=self.replay_dir,
+            logger=self.logger,
+            audit_hmac_key=b"k" * 32,
+            flush_ttl_ms=10,
+        )
         c.start()
         c.emit(_event())
         time.sleep(0.05)
@@ -77,7 +98,9 @@ class AuditClientTests(unittest.TestCase):
     def test_persists_on_sink_failure(self):
         s = FakeStreamer()
         s.fail_next = 100
-        c = AuditClient(streamer=s, replay_dir=self.replay_dir, logger=self.logger, flush_ttl_ms=10)
+        c = AuditClient(
+            streamer=s, replay_dir=self.replay_dir, logger=self.logger, flush_ttl_ms=10
+        )
         c.start()
         c.emit(_event())
         time.sleep(0.05)
@@ -88,8 +111,12 @@ class AuditClientTests(unittest.TestCase):
         s = FakeStreamer()
         s.fail_next = 1_000_000
         c = AuditClient(
-            streamer=s, replay_dir=self.replay_dir, logger=self.logger,
-            buffer_cap=2, flush_batch=1_000_000, flush_ttl_ms=1_000_000,
+            streamer=s,
+            replay_dir=self.replay_dir,
+            logger=self.logger,
+            buffer_cap=2,
+            flush_batch=1_000_000,
+            flush_ttl_ms=1_000_000,
         )
         c.start()
         for _ in range(10):
@@ -100,8 +127,13 @@ class AuditClientTests(unittest.TestCase):
     def test_drop_callback_and_closed_emit_are_deterministic(self):
         drops: list[int] = []
         c = AuditClient(
-            streamer=FakeStreamer(), replay_dir=self.replay_dir, logger=self.logger,
-            buffer_cap=1, flush_batch=100, flush_ttl_ms=1_000_000, on_dropped=drops.append,
+            streamer=FakeStreamer(),
+            replay_dir=self.replay_dir,
+            logger=self.logger,
+            buffer_cap=1,
+            flush_batch=100,
+            flush_ttl_ms=1_000_000,
+            on_dropped=drops.append,
         )
         c.emit(_event("ev-1"))
         c.emit(_event("ev-2"))
@@ -137,7 +169,11 @@ class AuditClientTests(unittest.TestCase):
         self.assertEqual(c.snapshot()["drained"], 1)
 
     def test_empty_persist_and_missing_replay_dir_are_noops(self):
-        c = AuditClient(streamer=FakeStreamer(), replay_dir=self.replay_dir / "missing", logger=self.logger)
+        c = AuditClient(
+            streamer=FakeStreamer(),
+            replay_dir=self.replay_dir / "missing",
+            logger=self.logger,
+        )
         c._persist_batch([])
         c.replay_pending()
         self.assertEqual(c.snapshot()["persisted"], 0)
@@ -145,14 +181,18 @@ class AuditClientTests(unittest.TestCase):
     def test_bad_replay_file_is_retained_for_retry(self):
         path = self.replay_dir / "pending-bad.ndjson"
         path.write_text("{not-json}\n", encoding="utf-8")
-        c = AuditClient(streamer=FakeStreamer(), replay_dir=self.replay_dir, logger=self.logger)
+        c = AuditClient(
+            streamer=FakeStreamer(), replay_dir=self.replay_dir, logger=self.logger
+        )
         c.replay_pending()
         self.assertTrue(path.exists())
 
     def test_replays_persisted_on_start(self):
         s1 = FakeStreamer()
         s1.fail_next = 100
-        c1 = AuditClient(streamer=s1, replay_dir=self.replay_dir, logger=self.logger, flush_ttl_ms=10)
+        c1 = AuditClient(
+            streamer=s1, replay_dir=self.replay_dir, logger=self.logger, flush_ttl_ms=10
+        )
         c1.start()
         c1.emit(_event())
         time.sleep(0.05)
@@ -160,7 +200,9 @@ class AuditClientTests(unittest.TestCase):
         self.assertEqual(len(list(self.replay_dir.glob("*.ndjson"))), 1)
 
         s2 = FakeStreamer()
-        c2 = AuditClient(streamer=s2, replay_dir=self.replay_dir, logger=self.logger, flush_ttl_ms=10)
+        c2 = AuditClient(
+            streamer=s2, replay_dir=self.replay_dir, logger=self.logger, flush_ttl_ms=10
+        )
         c2.start()
         c2.close()
         self.assertEqual(len(s2.calls), 1)
@@ -169,7 +211,7 @@ class AuditClientTests(unittest.TestCase):
     def test_default_replay_dir_and_event_ids_are_stable_shapes(self):
         path = default_replay_dir("audit")
         self.assertIn("caracal-audit-replay", path)
-        self.assertTrue(path.endswith("/audit"))
+        self.assertEqual(Path(path).name, "audit")
         self.assertRegex(create_event_id(), r"^[0-9a-f-]{36}$")
 
 
