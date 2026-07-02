@@ -257,9 +257,28 @@ function ExportDialog({
   const noun = feed === "audit" ? "events" : "changes";
   return (
     <>
-      <Button variant="secondary" onClick={() => setOpen(true)}>
-        Export
-      </Button>
+      <button
+        onClick={() => setOpen(true)}
+        aria-label={`Export ${noun}`}
+        title={`Export ${noun}`}
+        className="grid h-9 w-9 place-items-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-surface hover:text-foreground"
+      >
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M12 3v12" />
+          <path d="m7 10 5 5 5-5" />
+          <path d="M5 21h14" />
+        </svg>
+      </button>
       <Modal
         open={open}
         onClose={() => setOpen(false)}

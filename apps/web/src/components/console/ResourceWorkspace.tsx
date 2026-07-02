@@ -212,7 +212,6 @@ export function ResourceWorkspace<T>({
           className="w-full sm:w-72"
         />
         {filters && filters.length > 0 && !controlsLocked ? <FilterMenu groups={filters} /> : null}
-        {toolbarExtra ?? null}
         {sortOptions && sortOptions.length > 0 ? (
           <div className="w-44">
             <Select
@@ -229,6 +228,7 @@ export function ResourceWorkspace<T>({
             </Select>
           </div>
         ) : null}
+        {toolbarExtra ?? null}
         {primaryAction ? (
           <div className="ml-auto">
             <Button onClick={primaryAction.onClick} mutating>
