@@ -4,7 +4,7 @@ Caracal, a product of Garudex Labs
 
 This file defines the Audit route.
 */
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useState, type ReactNode } from "react";
 
 import { FeedToolbar } from "@/components/console/FeedToolbar";
@@ -19,20 +19,30 @@ import {
   Badge,
   Button,
   Field,
+  Modal,
   Select,
   Skeleton,
   useCopyToClipboard,
   type Column,
-  type FilterGroup,
 } from "@/components/ui";
-import { ConsoleApiError } from "@/platform/api/client";
-import { useAdminAuditFeed, useAuditFeed, useDecisionTrace } from "@/platform/api/hooks";
 import {
-  clearOperatorNotices,
-  useOperatorNotices,
-  type OperatorNoticeRecord,
-  type OperatorNoticeSeverity,
-} from "@/platform/state/operatorNotices";
+  auditDelegationChain,
+  auditEntities,
+  auditEventLabel,
+  auditReason,
+  auditSummary,
+  type AuditEntity,
+} from "@/lib/auditPresentation";
+import { cx } from "@/lib/cx";
+import { ConsoleApiError } from "@/platform/api/client";
+import {
+  useAdminAuditFeed,
+  useApplications,
+  useAuditFeed,
+  useDecisionTrace,
+} from "@/platform/api/hooks";
+import { config } from "@/platform/config";
+import { appLink } from "@/platform/nav/appLink";
 import type {
   AdminAuditEvent,
   AdminAuditQuery,
@@ -44,15 +54,30 @@ import type {
 
 export const Route = createFileRoute("/$accountId/$orgId/$zoneId/app/audit")({
   component: AuditRoute,
-  validateSearch: (search: Record<string, unknown>): { focus?: string } => ({
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): {
+    view?: "activity" | "admin";
+    focus?: string;
+    request?: string;
+    agent?: string;
+    application?: string;
+    session?: string;
+  } => ({
+    view: search.view === "admin" ? "admin" : search.view === "activity" ? "activity" : undefined,
     focus: typeof search.focus === "string" ? search.focus : undefined,
+    request: typeof search.request === "string" ? search.request : undefined,
+    agent: typeof search.agent === "string" ? search.agent : undefined,
+    application: typeof search.application === "string" ? search.application : undefined,
+    session: typeof search.session === "string" ? search.session : undefined,
   }),
 });
 
-type AuditMode = "decisions" | "admin" | "operator";
+type AuditMode = "activity" | "admin";
 
 function AuditRoute() {
-  const [mode, setMode] = useState<AuditMode>("decisions");
+  const search = Route.useSearch();
+  const [mode, setMode] = useState<AuditMode>(search.view === "admin" ? "admin" : "activity");
   return (
     <ZoneScopedPage
       title="Audit"
@@ -60,168 +85,67 @@ function AuditRoute() {
       breadcrumbs={[{ label: "Console", to: "/app" }, { label: "Audit" }]}
     >
       {(zone) =>
-        mode === "decisions" ? (
-          <AuditPage zoneId={zone.id} mode={mode} onMode={setMode} />
-        ) : mode === "admin" ? (
-          <AdminAuditPage zoneId={zone.id} mode={mode} onMode={setMode} />
+        mode === "activity" ? (
+          <AuditPage
+            zoneId={zone.id}
+            mode={mode}
+            onMode={setMode}
+            initial={{
+              request: search.request,
+              agent: search.agent,
+              application: search.application,
+              session: search.session,
+            }}
+          />
         ) : (
-          <OperatorErrorsPage mode={mode} onMode={setMode} />
+          <AdminAuditPage zoneId={zone.id} mode={mode} onMode={setMode} />
         )
       }
     </ZoneScopedPage>
   );
 }
 
+const MODE_TABS: { id: AuditMode; label: string }[] = [
+  { id: "activity", label: "Activity" },
+  { id: "admin", label: "Admin changes" },
+];
+
 function ModeTabs({ mode, onMode }: { mode: AuditMode; onMode: (m: AuditMode) => void }) {
   return (
-    <select
-      value={mode}
-      onChange={(e) => onMode(e.target.value as AuditMode)}
+    <div
+      role="tablist"
       aria-label="Audit feed"
-      className="h-8 cursor-pointer rounded-md border border-border bg-background px-2.5 pr-7 text-xs font-medium text-foreground outline-none transition-colors hover:bg-surface focus:border-ring focus:ring-2 focus:ring-ring/25"
+      className="flex h-8 items-center gap-0.5 rounded-md border border-border bg-muted/50 p-0.5"
     >
-      <option value="decisions">Authority decisions</option>
-      <option value="admin">Admin changes</option>
-      <option value="operator">Operator errors</option>
-    </select>
-  );
-}
-
-// The Operator notices feed: the session-scoped, client-side log of conditions the Operator
-// surfaced (a send with no provider warning, a request that could not be processed error). These
-// are client-observed and never sent to the server, so they are read from the shared in-memory
-// store rather than a backend feed, and they are not zone-scoped — they cover the whole console
-// session. Notices are labelled and coloured by severity, filterable by severity and text, and
-// sortable by severity or time.
-function severityTone(severity: OperatorNoticeSeverity): "danger" | "warning" {
-  return severity === "error" ? "danger" : "warning";
-}
-
-function OperatorErrorsPage({ mode, onMode }: { mode: AuditMode; onMode: (m: AuditMode) => void }) {
-  const all = useOperatorNotices();
-  const [severity, setSeverity] = useState<string>("all");
-
-  const rows = useMemo(
-    () => (severity === "all" ? all : all.filter((n) => n.severity === severity)),
-    [all, severity],
-  );
-
-  const counts = useMemo(() => {
-    let errors = 0;
-    let warnings = 0;
-    for (const n of all) {
-      if (n.severity === "error") errors += 1;
-      else warnings += 1;
-    }
-    return { errors, warnings };
-  }, [all]);
-
-  const filters: FilterGroup[] = [
-    {
-      id: "severity",
-      label: "Severity",
-      value: severity,
-      onChange: setSeverity,
-      options: [
-        { id: "all", label: "All severities", count: all.length },
-        { id: "error", label: "Errors", count: counts.errors },
-        { id: "warning", label: "Warnings", count: counts.warnings },
-      ],
-    },
-  ];
-
-  const columns: Column<OperatorNoticeRecord>[] = [
-    {
-      id: "severity",
-      header: "Severity",
-      sortable: true,
-      cell: (e) => <Badge tone={severityTone(e.severity)}>{e.severity}</Badge>,
-    },
-    {
-      id: "message",
-      header: "Notice",
-      cell: (e) => <div className="text-sm text-foreground">{e.message}</div>,
-    },
-    {
-      id: "occurred",
-      header: "Occurred",
-      sortable: true,
-      align: "right",
-      cell: (e) => (
-        <span className="text-xs text-muted-foreground">{new Date(e.at).toLocaleString()}</span>
-      ),
-    },
-  ];
-
-  return (
-    <ResourceWorkspace
-      title="Audit"
-      description="Errors and warnings the Operator surfaced during this console session."
-      breadcrumbs={[{ label: "Console", to: "/app" }, { label: "Audit" }]}
-      rows={rows}
-      loading={false}
-      columns={columns}
-      rowKey={(e) => e.id}
-      pageSize={12}
-      filters={all.length > 0 ? filters : undefined}
-      initialSort={{ column: "occurred", direction: "desc" }}
-      sortValues={{
-        // Errors sort ahead of warnings when sorting by severity descending.
-        severity: (e) => (e.severity === "error" ? 1 : 0),
-        occurred: (e) => e.at,
-      }}
-      toolbarExtra={
-        <FeedToolbar
-          leading={<ModeTabs mode={mode} onMode={onMode} />}
-          activeFilters={severity === "all" ? 0 : 1}
-          loaded={rows.length}
-          noun="notice"
-          hasMore={false}
-          fetchingMore={false}
-          onLoadMore={() => {}}
+      {MODE_TABS.map((tab) => (
+        <button
+          key={tab.id}
+          type="button"
+          role="tab"
+          aria-selected={mode === tab.id}
+          onClick={() => onMode(tab.id)}
+          className={cx(
+            "h-7 rounded px-2.5 text-xs font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/40",
+            mode === tab.id
+              ? "bg-background text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground",
+          )}
         >
-          <Button
-            variant="secondary"
-            onClick={() => clearOperatorNotices()}
-            disabled={all.length === 0}
-          >
-            Clear
-          </Button>
-        </FeedToolbar>
-      }
-      search={{
-        placeholder: "Filter operator notices…",
-        match: (e, q) => e.message.toLowerCase().includes(q) || e.severity.includes(q),
-      }}
-      empty={{
-        title: "No operator notices",
-        description:
-          "Errors and warnings the Operator surfaces this session — such as sending with no AI provider connected — are recorded here.",
-      }}
-      detail={{
-        title: (e) => `Operator ${e.severity}`,
-        description: (e) => new Date(e.at).toLocaleString(),
-        width: "max-w-lg",
-        render: (e) => (
-          <DetailGroup title="Details">
-            <DetailField label="Severity">
-              <Badge tone={severityTone(e.severity)}>{e.severity}</Badge>
-            </DetailField>
-            <DetailField label="Message">{e.message}</DetailField>
-            <DetailField label="Occurred">{new Date(e.at).toLocaleString()}</DetailField>
-          </DetailGroup>
-        ),
-      }}
-    />
+          {tab.label}
+        </button>
+      ))}
+    </div>
   );
 }
 
 // An inline audit toolbar designed to sit on the same row as the workspace search box. It
-// keeps everything on one line: the feed selector, a Filters button whose labeled fields
-// drop into a floating panel, and the live indicator plus cursor control pushed to the right.
+// keeps everything on one line: the feed tabs, an export control, a Filters button whose
+// labeled fields drop into a floating panel, and the live indicator plus cursor control
+// pushed to the right.
 function AuditToolbar({
   mode,
   onMode,
+  exportControl,
   activeFilters,
   loaded,
   noun,
@@ -234,6 +158,7 @@ function AuditToolbar({
 }: {
   mode: AuditMode;
   onMode: (m: AuditMode) => void;
+  exportControl?: ReactNode;
   activeFilters: number;
   loaded: number;
   noun: string;
@@ -246,7 +171,12 @@ function AuditToolbar({
 }) {
   return (
     <FeedToolbar
-      leading={<ModeTabs mode={mode} onMode={onMode} />}
+      leading={
+        <div className="flex items-center gap-2">
+          <ModeTabs mode={mode} onMode={onMode} />
+          {exportControl}
+        </div>
+      }
       activeFilters={activeFilters}
       loaded={loaded}
       noun={noun}
@@ -258,6 +188,200 @@ function AuditToolbar({
     >
       {children}
     </FeedToolbar>
+  );
+}
+
+// Exportable fields mirror the control plane's export whitelist for each feed, so the
+// column picker and the server projection can never drift apart silently.
+const ACTIVITY_EXPORT_FIELDS: { id: string; label: string; core?: boolean }[] = [
+  { id: "occurred_at", label: "Occurred at", core: true },
+  { id: "event_type", label: "Event type", core: true },
+  { id: "decision", label: "Decision", core: true },
+  { id: "evaluation_status", label: "Evaluation status" },
+  { id: "request_id", label: "Request ID", core: true },
+  { id: "id", label: "Event ID" },
+  { id: "application_id", label: "Application ID", core: true },
+  { id: "application_name", label: "Application name", core: true },
+  { id: "resource", label: "Resource", core: true },
+  { id: "requested_scopes", label: "Requested scopes" },
+  { id: "reason", label: "Denial reason", core: true },
+  { id: "agent_session_id", label: "Agent session" },
+  { id: "agent_lifecycle", label: "Agent lifecycle" },
+  { id: "agent_labels", label: "Agent labels" },
+  { id: "delegation_edge_id", label: "Delegation edge" },
+  { id: "delegation_hop_count", label: "Delegation hops" },
+  { id: "method", label: "HTTP method" },
+  { id: "latency_ms", label: "Latency (ms)" },
+  { id: "upstream_status", label: "Upstream status" },
+  { id: "result_class", label: "Result class" },
+  { id: "ingested_at", label: "Ingested at" },
+];
+
+const ADMIN_EXPORT_FIELDS: { id: string; label: string; core?: boolean }[] = [
+  { id: "occurred_at", label: "Occurred at", core: true },
+  { id: "action", label: "Action", core: true },
+  { id: "method", label: "Method", core: true },
+  { id: "path", label: "Path", core: true },
+  { id: "entity_type", label: "Entity type", core: true },
+  { id: "entity_id", label: "Entity ID", core: true },
+  { id: "status_code", label: "Status code", core: true },
+  { id: "actor_id", label: "Actor ID" },
+  { id: "actor_name", label: "Actor name", core: true },
+  { id: "actor_scope", label: "Actor scope" },
+  { id: "changed_fields", label: "Changed fields" },
+  { id: "request_id", label: "Request ID" },
+  { id: "chain_seq", label: "Chain sequence" },
+  { id: "signed", label: "Chain signed" },
+  { id: "id", label: "Event ID" },
+];
+
+// Downloads a filtered slice of the feed straight from the control plane, letting the
+// operator pick exactly which columns, how many rows, and which format leave the zone.
+function ExportDialog({
+  zoneId,
+  feed,
+  fields,
+  query,
+}: {
+  zoneId: string;
+  feed: "audit" | "admin-audit";
+  fields: { id: string; label: string; core?: boolean }[];
+  query: Record<string, string>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [format, setFormat] = useState<"csv" | "json">("csv");
+  const [limit, setLimit] = useState("500");
+  const [selected, setSelected] = useState<Set<string>>(
+    () => new Set(fields.filter((f) => f.core).map((f) => f.id)),
+  );
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function toggle(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function download() {
+    setPending(true);
+    setError(null);
+    try {
+      const ordered = fields.filter((f) => selected.has(f.id)).map((f) => f.id);
+      const params = new URLSearchParams(query);
+      params.set("fields", ordered.join(","));
+      params.set("limit", String(Math.min(Math.max(Number(limit) || 500, 1), 1000)));
+      if (format === "csv") params.set("format", "csv");
+      const res = await fetch(
+        `${config.consoleBaseUrl}/v1/zones/${zoneId}/${feed}?${params.toString()}`,
+        { credentials: "include" },
+      );
+      if (!res.ok) throw new Error(`export_failed_${res.status}`);
+      const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+      let blob: Blob;
+      if (format === "csv") {
+        blob = await res.blob();
+      } else {
+        const body = (await res.json()) as { rows: unknown[] };
+        blob = new Blob([JSON.stringify(body.rows, null, 2)], { type: "application/json" });
+      }
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `${feed}-${stamp}.${format}`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      setOpen(false);
+    } catch {
+      setError("Export failed. Check the control plane connection and try again.");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  const noun = feed === "audit" ? "events" : "changes";
+  return (
+    <>
+      <Button variant="secondary" size="sm" onClick={() => setOpen(true)}>
+        Export
+      </Button>
+      <Modal
+        open={open}
+        onClose={() => setOpen(false)}
+        title={`Export ${noun}`}
+        description="Exports honor the active filters and time range. Pick the columns and format for your SIEM or evidence bundle; secrets are always redacted before leaving the zone."
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={() => void download()} disabled={pending || selected.size === 0}>
+              {pending ? "Exporting…" : "Download"}
+            </Button>
+          </>
+        }
+      >
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Select
+            label="Format"
+            value={format}
+            onChange={(e) => setFormat(e.target.value as "csv" | "json")}
+          >
+            <option value="csv">CSV</option>
+            <option value="json">JSON</option>
+          </Select>
+          <Field
+            label="Max rows"
+            value={limit}
+            onChange={(e) => setLimit(e.target.value)}
+            placeholder="500"
+          />
+        </div>
+        <div>
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+              Columns
+            </span>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                className="text-xs text-muted-foreground hover:text-foreground"
+                onClick={() => setSelected(new Set(fields.map((f) => f.id)))}
+              >
+                All
+              </button>
+              <button
+                type="button"
+                className="text-xs text-muted-foreground hover:text-foreground"
+                onClick={() => setSelected(new Set(fields.filter((f) => f.core).map((f) => f.id)))}
+              >
+                Core
+              </button>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-1.5">
+            {fields.map((f) => (
+              <label
+                key={f.id}
+                className="flex cursor-pointer items-center gap-2 text-xs text-foreground"
+              >
+                <input
+                  type="checkbox"
+                  checked={selected.has(f.id)}
+                  onChange={() => toggle(f.id)}
+                  className="h-3.5 w-3.5 accent-foreground"
+                />
+                {f.label}
+              </label>
+            ))}
+          </div>
+        </div>
+        {error ? <p className="text-xs text-destructive">{error}</p> : null}
+      </Modal>
+    </>
   );
 }
 
@@ -318,15 +442,19 @@ function AuditPage({
   zoneId,
   mode,
   onMode,
+  initial,
 }: {
   zoneId: string;
   mode: AuditMode;
   onMode: (m: AuditMode) => void;
+  initial: { request?: string; agent?: string; application?: string; session?: string };
 }) {
   const [decision, setDecision] = useState<string>("all");
   const [eventType, setEventType] = useState("");
-  const [requestId, setRequestId] = useState("");
-  const [agentSession, setAgentSession] = useState("");
+  const [requestId, setRequestId] = useState(initial.request ?? "");
+  const [applicationId, setApplicationId] = useState(initial.application ?? "");
+  const [agentSession, setAgentSession] = useState(initial.agent ?? "");
+  const [sessionId, setSessionId] = useState(initial.session ?? "");
   const [label, setLabel] = useState("");
   const [since, setSince] = useState("");
   const [until, setUntil] = useState("");
@@ -337,32 +465,65 @@ function AuditPage({
     if (decision !== "all") q.decision = decision;
     if (eventType.trim()) q.event_type = eventType.trim();
     if (requestId.trim()) q.request_id = requestId.trim();
+    if (applicationId.trim()) q.application_id = applicationId.trim();
     if (agentSession.trim()) q.agent_session_id = agentSession.trim();
+    if (sessionId.trim()) q.session_id = sessionId.trim();
     if (label.trim()) q.label = label.trim();
     const sinceTs = parseTimeInput(since);
     if (sinceTs) q.since = sinceTs;
     const untilTs = parseTimeInput(until);
     if (untilTs) q.until = untilTs;
     return q;
-  }, [decision, eventType, requestId, agentSession, label, since, until]);
+  }, [decision, eventType, requestId, applicationId, agentSession, sessionId, label, since, until]);
 
   const feed = useAuditFeed(zoneId, serverQuery, live);
   const rows = useMemo(() => (feed.data?.pages ?? []).flatMap((page) => page.rows), [feed.data]);
+
+  // Application names resolve actor ids into readable identities; token events carry the
+  // name in metadata, gateway and control events only the id.
+  const apps = useApplications(zoneId);
+  const appNames = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const app of apps.data ?? []) map.set(app.id, app.name);
+    return map;
+  }, [apps.data]);
+
+  const actorName = (e: AuditEvent): string | null => {
+    const meta = e.metadata_json ?? {};
+    const name = typeof meta.application_name === "string" ? meta.application_name : null;
+    const id =
+      typeof meta.application_id === "string"
+        ? meta.application_id
+        : typeof meta.client_id === "string"
+          ? meta.client_id
+          : null;
+    return name ?? (id ? (appNames.get(id) ?? id) : null);
+  };
 
   const columns: Column<AuditEvent>[] = [
     {
       id: "event",
       header: "Event",
       cell: (e) => (
-        <div>
-          <div className="font-medium text-foreground">{e.event_type}</div>
-          {e.request_id ? (
-            <div className="font-mono text-xs text-muted-foreground">
-              {e.request_id.slice(0, 18)}…
-            </div>
-          ) : null}
+        <div className="min-w-0">
+          <div className="font-medium text-foreground">{auditEventLabel(e.event_type)}</div>
+          <div className="truncate text-xs text-muted-foreground">
+            {auditSummary(e, actorName(e))}
+          </div>
         </div>
       ),
+    },
+    {
+      id: "actor",
+      header: "Actor",
+      cell: (e) => {
+        const name = actorName(e);
+        return name ? (
+          <span className="truncate text-sm text-foreground">{name}</span>
+        ) : (
+          <span className="text-sm text-muted-foreground">-</span>
+        );
+      },
     },
     {
       id: "decision",
@@ -373,13 +534,6 @@ function AuditPage({
         ) : (
           <span className="text-sm text-muted-foreground">-</span>
         ),
-    },
-    {
-      id: "status",
-      header: "Status",
-      cell: (e) => (
-        <span className="text-xs text-muted-foreground">{e.evaluation_status ?? "-"}</span>
-      ),
     },
     {
       id: "occurred",
@@ -408,10 +562,22 @@ function AuditPage({
         <AuditFilterBar
           mode={mode}
           onMode={onMode}
+          exportControl={
+            <ExportDialog
+              zoneId={zoneId}
+              feed="audit"
+              fields={ACTIVITY_EXPORT_FIELDS}
+              query={Object.fromEntries(
+                Object.entries(serverQuery).map(([k, v]) => [k, String(v)]),
+              )}
+            />
+          }
           decision={decision}
           eventType={eventType}
           requestId={requestId}
+          applicationId={applicationId}
           agentSession={agentSession}
+          sessionId={sessionId}
           label={label}
           since={since}
           until={until}
@@ -422,7 +588,9 @@ function AuditPage({
           onDecision={setDecision}
           onEventType={setEventType}
           onRequestId={setRequestId}
+          onApplicationId={setApplicationId}
           onAgentSession={setAgentSession}
+          onSessionId={setSessionId}
           onLabel={setLabel}
           onSince={setSince}
           onUntil={setUntil}
@@ -431,11 +599,17 @@ function AuditPage({
         />
       }
       search={{
-        placeholder: "Filter loaded events by type or request ID…",
-        match: (e, q) =>
-          e.event_type.toLowerCase().includes(q) ||
-          (e.request_id ?? "").toLowerCase().includes(q) ||
-          (e.evaluation_status ?? "").toLowerCase().includes(q),
+        placeholder: "Filter loaded events by actor, resource, or request…",
+        match: (e, q) => {
+          const meta = e.metadata_json ?? {};
+          return (
+            e.event_type.toLowerCase().includes(q) ||
+            auditEventLabel(e.event_type).toLowerCase().includes(q) ||
+            (e.request_id ?? "").toLowerCase().includes(q) ||
+            (actorName(e) ?? "").toLowerCase().includes(q) ||
+            (typeof meta.resource === "string" ? meta.resource : "").toLowerCase().includes(q)
+          );
+        },
       }}
       empty={{
         title: feed.isError ? "Could not load audit" : "No audit events",
@@ -444,10 +618,12 @@ function AuditPage({
           : "Authority decisions and security events will appear here as traffic flows through this zone.",
       }}
       detail={{
-        title: (e) => e.event_type,
-        description: (e) => e.request_id ?? e.id,
+        title: (e) => auditEventLabel(e.event_type),
+        description: (e) => auditSummary(e, actorName(e)),
         width: "max-w-xl",
-        render: (e) => <AuditDetailView zoneId={zoneId} event={e} />,
+        render: (e) => (
+          <AuditDetailView zoneId={zoneId} event={e} actorName={actorName(e)} appNames={appNames} />
+        ),
       }}
     />
   );
@@ -459,10 +635,13 @@ function AuditPage({
 function AuditFilterBar({
   mode,
   onMode,
+  exportControl,
   decision,
   eventType,
   requestId,
+  applicationId,
   agentSession,
+  sessionId,
   label,
   since,
   until,
@@ -473,7 +652,9 @@ function AuditFilterBar({
   onDecision,
   onEventType,
   onRequestId,
+  onApplicationId,
   onAgentSession,
+  onSessionId,
   onLabel,
   onSince,
   onUntil,
@@ -482,10 +663,13 @@ function AuditFilterBar({
 }: {
   mode: AuditMode;
   onMode: (m: AuditMode) => void;
+  exportControl: ReactNode;
   decision: string;
   eventType: string;
   requestId: string;
+  applicationId: string;
   agentSession: string;
+  sessionId: string;
   label: string;
   since: string;
   until: string;
@@ -496,7 +680,9 @@ function AuditFilterBar({
   onDecision: (v: string) => void;
   onEventType: (v: string) => void;
   onRequestId: (v: string) => void;
+  onApplicationId: (v: string) => void;
   onAgentSession: (v: string) => void;
+  onSessionId: (v: string) => void;
   onLabel: (v: string) => void;
   onSince: (v: string) => void;
   onUntil: (v: string) => void;
@@ -505,11 +691,14 @@ function AuditFilterBar({
 }) {
   const activeFilters =
     (decision !== "all" ? 1 : 0) +
-    [eventType, requestId, agentSession, label, since, until].filter((v) => v.trim()).length;
+    [eventType, requestId, applicationId, agentSession, sessionId, label, since, until].filter(
+      (v) => v.trim(),
+    ).length;
   return (
     <AuditToolbar
       mode={mode}
       onMode={onMode}
+      exportControl={exportControl}
       activeFilters={activeFilters}
       loaded={loaded}
       noun="event"
@@ -527,7 +716,7 @@ function AuditFilterBar({
       </Select>
       <Field
         label="Event type"
-        placeholder="TokenExchange"
+        placeholder="token_exchange"
         value={eventType}
         onChange={(e) => onEventType(e.target.value)}
       />
@@ -538,10 +727,22 @@ function AuditFilterBar({
         onChange={(e) => onRequestId(e.target.value)}
       />
       <Field
+        label="Application"
+        placeholder="Application ID"
+        value={applicationId}
+        onChange={(e) => onApplicationId(e.target.value)}
+      />
+      <Field
         label="Agent session"
         placeholder="Follow one agent session"
         value={agentSession}
         onChange={(e) => onAgentSession(e.target.value)}
+      />
+      <Field
+        label="Session"
+        placeholder="Backing session ID"
+        value={sessionId}
+        onChange={(e) => onSessionId(e.target.value)}
       />
       <Field
         label="Agent label"
@@ -606,7 +807,73 @@ function SubHeading({ children }: { children: ReactNode }) {
   );
 }
 
-function AuditDetailView({ zoneId, event }: { zoneId: string; event: AuditEvent }) {
+// Maps a linked entity to the console page that owns it, so an audit event drills
+// straight into the application, resource, agent, or delegation edge it references.
+function entityLink(entity: AuditEntity): { to: string; search?: Record<string, string> } {
+  switch (entity.kind) {
+    case "application":
+      return { to: appLink("/applications"), search: { focus: entity.id } };
+    case "resource":
+      return { to: appLink("/resources"), search: { focus: entity.id } };
+    case "agent":
+      return { to: appLink("/agents"), search: { focus: entity.id } };
+    case "delegation":
+      return { to: appLink("/delegation"), search: { focus: entity.id } };
+  }
+}
+
+const ENTITY_KIND_LABELS: Record<AuditEntity["kind"], string> = {
+  application: "Application",
+  resource: "Resource",
+  agent: "Agent session",
+  delegation: "Delegation edge",
+};
+
+function metaString(meta: Record<string, unknown>, key: string): string | null {
+  const value = meta[key];
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function AuditDetailView({
+  zoneId,
+  event,
+  actorName,
+  appNames,
+}: {
+  zoneId: string;
+  event: AuditEvent;
+  actorName: string | null;
+  appNames: Map<string, string>;
+}) {
+  const meta = event.metadata_json ?? {};
+  const entities = auditEntities(event);
+  const reason = auditReason(event);
+  const chain = auditDelegationChain(event);
+  const scopes = Array.isArray(meta.requested_scopes)
+    ? meta.requested_scopes.filter((s): s is string => typeof s === "string")
+    : [];
+  const facts: { label: string; value: ReactNode }[] = [];
+  const method = metaString(meta, "method");
+  if (method) facts.push({ label: "Method", value: method });
+  if (typeof meta.latency_ms === "number") {
+    facts.push({ label: "Latency", value: `${meta.latency_ms} ms` });
+  }
+  if (typeof meta.upstream_status === "number") {
+    facts.push({ label: "Upstream status", value: String(meta.upstream_status) });
+  }
+  const resultClass = metaString(meta, "result_class");
+  if (resultClass) facts.push({ label: "Result", value: resultClass });
+  const authMode = metaString(meta, "auth_mode");
+  if (authMode) facts.push({ label: "Auth mode", value: authMode });
+  const upstreamHost = metaString(meta, "upstream_host");
+  if (upstreamHost) facts.push({ label: "Upstream host", value: <Mono>{upstreamHost}</Mono> });
+  const command = [metaString(meta, "command"), metaString(meta, "subcommand")]
+    .filter(Boolean)
+    .join(" ");
+  if (command) facts.push({ label: "Command", value: <Mono>{command}</Mono> });
+  const lifecycle = metaString(meta, "agent_lifecycle");
+  if (lifecycle) facts.push({ label: "Agent lifecycle", value: lifecycle });
+
   return (
     <div className="flex flex-col gap-5">
       <div className="flex items-center justify-between gap-2">
@@ -614,29 +881,125 @@ function AuditDetailView({ zoneId, event }: { zoneId: string; event: AuditEvent 
           {event.decision ? (
             <Badge tone={decisionTone(event.decision)}>{event.decision}</Badge>
           ) : null}
-          <Badge tone="neutral">{event.event_type}</Badge>
+          <Badge tone="neutral">{auditEventLabel(event.event_type)}</Badge>
         </div>
         <CopyJsonButton value={event} label="Copy event JSON" />
       </div>
 
-      <DetailGroup title="Event">
-        <DetailField label="Event ID">
-          <Mono>{event.id}</Mono>
-        </DetailField>
+      <p className="text-sm leading-6 text-foreground">{auditSummary(event, actorName)}</p>
+
+      {reason && event.decision === "deny" ? (
+        <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2.5">
+          <p className="text-sm font-medium text-foreground">{reason.label}</p>
+          {reason.hint ? (
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">{reason.hint}</p>
+          ) : null}
+        </div>
+      ) : null}
+
+      <DetailGroup title="What happened">
+        <DetailField label="Event">{auditEventLabel(event.event_type)}</DetailField>
+        <DetailField label="Decision">{event.decision ?? "-"}</DetailField>
+        <DetailField label="Evaluation">{event.evaluation_status ?? "-"}</DetailField>
+        <DetailField label="Occurred">{new Date(event.occurred_at).toLocaleString()}</DetailField>
         {event.request_id ? (
           <DetailField label="Request ID">
             <Mono>{event.request_id}</Mono>
           </DetailField>
         ) : null}
-        <DetailField label="Evaluation">{event.evaluation_status ?? "-"}</DetailField>
-        <DetailField label="Occurred">{new Date(event.occurred_at).toLocaleString()}</DetailField>
       </DetailGroup>
 
-      {event.metadata_json && Object.keys(event.metadata_json).length > 0 ? (
-        <DetailGroup title="Metadata">
-          <JsonBlock value={event.metadata_json} />
+      {entities.length > 0 ? (
+        <DetailGroup title="Involved">
+          {entities.map((entity) => {
+            const link = entityLink(entity);
+            const label =
+              entity.kind === "application"
+                ? (appNames.get(entity.id) ?? entity.label)
+                : entity.label;
+            return (
+              <DetailField
+                key={`${entity.kind}:${entity.id}`}
+                label={ENTITY_KIND_LABELS[entity.kind]}
+              >
+                <Link
+                  to={link.to}
+                  search={link.search}
+                  className="break-all font-mono text-xs text-foreground hover:underline"
+                >
+                  {label}
+                </Link>
+              </DetailField>
+            );
+          })}
         </DetailGroup>
       ) : null}
+
+      {scopes.length > 0 || facts.length > 0 ? (
+        <DetailGroup title="Request">
+          {scopes.length > 0 ? (
+            <DetailField label="Scopes">
+              <span className="flex flex-wrap gap-1">
+                {scopes.map((s) => (
+                  <span
+                    key={s}
+                    className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground"
+                  >
+                    {s}
+                  </span>
+                ))}
+              </span>
+            </DetailField>
+          ) : null}
+          {facts.map((fact) => (
+            <DetailField key={fact.label} label={fact.label}>
+              {fact.value}
+            </DetailField>
+          ))}
+        </DetailGroup>
+      ) : null}
+
+      {chain.length > 0 ? (
+        <section>
+          <SubHeading>Delegation chain</SubHeading>
+          <ol className="mt-2 flex flex-col gap-1">
+            {chain.map((hop, i) => (
+              <li
+                key={`${hop.delegationEdgeId ?? i}`}
+                className="flex items-center gap-2 text-xs text-foreground"
+              >
+                <span className="text-muted-foreground">{i + 1}.</span>
+                <span className="truncate">
+                  {hop.applicationId
+                    ? (appNames.get(hop.applicationId) ?? hop.applicationId)
+                    : "unknown application"}
+                </span>
+                {hop.agentSessionId ? (
+                  <Link
+                    to={appLink("/agents")}
+                    search={{ focus: hop.agentSessionId }}
+                    className="truncate font-mono text-[11px] text-muted-foreground hover:text-foreground hover:underline"
+                  >
+                    {hop.agentSessionId}
+                  </Link>
+                ) : null}
+              </li>
+            ))}
+          </ol>
+        </section>
+      ) : null}
+
+      <details className="rounded-md border border-border">
+        <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-muted-foreground">
+          Technical details
+        </summary>
+        <div className="flex flex-col gap-3 border-t border-border px-3 py-3">
+          <DetailField label="Event ID">
+            <Mono>{event.id}</Mono>
+          </DetailField>
+          {Object.keys(meta).length > 0 ? <JsonBlock value={meta} /> : null}
+        </div>
+      </details>
 
       {event.request_id ? <DecisionTraceView zoneId={zoneId} requestId={event.request_id} /> : null}
     </div>
@@ -654,7 +1017,7 @@ function TraceEventDetail({ event, index }: { event: AuditDetail; index: number 
       <summary className="flex cursor-pointer items-center justify-between gap-2 px-3 py-2 text-xs">
         <span className="flex items-center gap-2">
           <span className="text-muted-foreground">#{index + 1}</span>
-          <span className="font-mono text-foreground">{event.event_type}</span>
+          <span className="font-medium text-foreground">{auditEventLabel(event.event_type)}</span>
         </span>
         {event.decision ? (
           <Badge tone={decisionTone(event.decision)}>{event.decision}</Badge>
@@ -716,7 +1079,7 @@ function DeniedDecisionDetail({ denied, index }: { denied: DeniedDecision; index
       <summary className="flex cursor-pointer items-center justify-between gap-2 px-3 py-2 text-xs">
         <span className="flex items-center gap-2">
           <span className="text-muted-foreground">#{index + 1}</span>
-          <span className="font-mono text-foreground">{denied.event_type}</span>
+          <span className="font-medium text-foreground">{auditEventLabel(denied.event_type)}</span>
         </span>
         <Badge tone="danger">deny</Badge>
       </summary>
@@ -955,6 +1318,16 @@ function AdminAuditPage({
         <AdminAuditFilterBar
           mode={mode}
           onMode={onMode}
+          exportControl={
+            <ExportDialog
+              zoneId={zoneId}
+              feed="admin-audit"
+              fields={ADMIN_EXPORT_FIELDS}
+              query={Object.fromEntries(
+                Object.entries(serverQuery).map(([k, v]) => [k, String(v)]),
+              )}
+            />
+          }
           entityType={entityType}
           actorId={actorId}
           method={method}
@@ -1073,6 +1446,7 @@ function AdminAuditDetailView({ event }: { event: AdminAuditEvent }) {
 function AdminAuditFilterBar({
   mode,
   onMode,
+  exportControl,
   entityType,
   actorId,
   method,
@@ -1092,6 +1466,7 @@ function AdminAuditFilterBar({
 }: {
   mode: AuditMode;
   onMode: (m: AuditMode) => void;
+  exportControl: ReactNode;
   entityType: string;
   actorId: string;
   method: string;
@@ -1115,6 +1490,7 @@ function AdminAuditFilterBar({
     <AuditToolbar
       mode={mode}
       onMode={onMode}
+      exportControl={exportControl}
       activeFilters={activeFilters}
       loaded={loaded}
       noun="change"

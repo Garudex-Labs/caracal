@@ -56,6 +56,9 @@ import type {
 
 export const Route = createFileRoute("/$accountId/$orgId/$zoneId/app/agents")({
   component: AgentsRoute,
+  validateSearch: (search: Record<string, unknown>): { focus?: string } => ({
+    focus: typeof search.focus === "string" ? search.focus : undefined,
+  }),
 });
 
 function AgentsRoute() {
@@ -1076,9 +1079,18 @@ function AgentActivity({ zoneId, sessionId }: { zoneId: string; sessionId: strin
 
   return (
     <section className="border-t border-border pt-4">
-      <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-        Activity
-      </h3>
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+          Activity
+        </h3>
+        <Link
+          to={appLink("/audit")}
+          search={{ agent: sessionId }}
+          className="text-xs text-muted-foreground hover:text-foreground hover:underline"
+        >
+          Open in Audit
+        </Link>
+      </div>
       {activity.isLoading ? (
         <Skeleton className="mt-3 h-16 w-full" />
       ) : events.length === 0 ? (
