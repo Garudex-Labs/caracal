@@ -4,7 +4,7 @@ Caracal, a product of Garudex Labs
 
 This file defines the Sessions route.
 */
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 
 import {
@@ -27,6 +27,7 @@ import {
 } from "@/components/ui";
 import { cx } from "@/lib/cx";
 import { auditDecisionTone, auditEventContext, auditEventLabel } from "@/lib/auditPresentation";
+import { appLink } from "@/platform/nav/appLink";
 import { ConsoleApiError } from "@/platform/api/client";
 import { useSessionActivity, useSessionsFeed } from "@/platform/api/hooks";
 import type { Session, SessionQuery } from "@/platform/api/types";
@@ -460,9 +461,18 @@ function SessionActivity({ zoneId, sessionId }: { zoneId: string; sessionId: str
 
   return (
     <section className="border-t border-border pt-4">
-      <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-        Activity
-      </h3>
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+          Activity
+        </h3>
+        <Link
+          to={appLink("/audit")}
+          search={{ session: sessionId }}
+          className="text-xs text-muted-foreground hover:text-foreground hover:underline"
+        >
+          Open in Audit
+        </Link>
+      </div>
       {activity.isLoading ? (
         <Skeleton className="mt-3 h-16 w-full" />
       ) : events.length === 0 ? (
