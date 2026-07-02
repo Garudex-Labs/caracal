@@ -1,0 +1,109 @@
+#!/usr/bin/env node
+// Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+// Caracal, a product of Garudex Labs
+//
+// Runs the Go test suite with race detection, staged source-package tests, and optional merged coverage output.
+
+import { spawnSync } from 'node:child_process'
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs'
+import { dirname, join, relative, resolve, sep } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const sourceDir = join(root, 'tests', 'source', 'go')
+
+const GO_PKGS = [
+  './packages/core/go/...',
+  './services/sts/...',
+  './services/audit/...',
+  './services/gateway/...',
+  './packages/transport/mcp/go/...',
+  './packages/connectors/nethttp/go/...',
+  './packages/connectors/redis/go/...',
+  './packages/identity/go/...',
+  './packages/oauth/go/...',
+  './packages/revocation/go/...',
+  './packages/sdk/go/...',
+]
+
+const TEST_DIRS = [
+  './tests/go/unit/revocation',
+  './tests/go/unit/transport/mcp',
+  './tests/go/unit/identity',
+  './tests/go/unit/connectors/nethttp',
+  './tests/go/contract/interoperability',
+  './tests/go/property',
+]
+
+const COVERPKG = [
+  'github.com/garudex-labs/caracal/packages/transport/mcp/go',
+  'github.com/garudex-labs/caracal/packages/revocation/go',
+  'github.com/garudex-labs/caracal/packages/identity/go',
+  'github.com/garudex-labs/caracal/packages/connectors/nethttp/go',
+].join(',')
+
+function run(command, args) {
+  const result = spawnSync(command, args, { cwd: root, stdio: 'inherit' })
+  if (result.error) {
+    process.stderr.write(`failed to run ${command}: ${result.error.message}\n`)
+    process.exit(1)
+  }
+  if (result.status !== 0) process.exit(result.status ?? 1)
+}
+
+function collectTestFiles(dir) {
+  const files = []
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name)
+    if (entry.isDirectory()) files.push(...collectTestFiles(path))
+    else if (entry.isFile() && entry.name.endsWith('_test.go')) files.push(path)
+  }
+  return files
+}
+
+function runWithStagedSourceTests(args) {
+  if (!existsSync(sourceDir)) {
+    process.stderr.write(`missing Go source test directory: ${sourceDir}\n`)
+    process.exit(1)
+  }
+  const staged = []
+  try {
+    for (const source of collectTestFiles(sourceDir).sort()) {
+      const target = join(root, relative(sourceDir, source))
+      if (existsSync(target)) {
+        throw new Error(`refusing to overwrite existing test file: ${relative(root, target).split(sep).join('/')}`)
+      }
+      mkdirSync(dirname(target), { recursive: true })
+      copyFileSync(source, target)
+      staged.push(target)
+    }
+    run('go', args)
+  } catch (err) {
+    process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`)
+    process.exit(1)
+  } finally {
+    for (const target of staged) rmSync(target, { force: true })
+  }
+}
+
+const mode = process.argv[2] ?? ''
+
+if (mode === '--vet') {
+  run('go', ['vet', ...GO_PKGS])
+} else if (mode === '--coverage') {
+  mkdirSync(join(root, 'coverage', 'go'), { recursive: true })
+  runWithStagedSourceTests(['test', '-race', '-covermode=atomic', '-coverprofile=coverage/go/coverage.out', ...GO_PKGS])
+  run('go', ['test', '-race', '-covermode=atomic', `-coverpkg=${COVERPKG}`, '-coverprofile=coverage/go/tests.out', ...TEST_DIRS])
+  const merged = readFileSync(join(root, 'coverage', 'go', 'tests.out'), 'utf8')
+    .split('\n')
+    .slice(1)
+    .join('\n')
+  appendFileSync(join(root, 'coverage', 'go', 'coverage.out'), merged)
+  run('go', ['tool', 'cover', '-func=coverage/go/coverage.out'])
+} else if (mode === '') {
+  runWithStagedSourceTests(['test', '-race', ...GO_PKGS])
+  run('go', ['test', '-race', ...TEST_DIRS])
+} else {
+  process.stderr.write('usage: node scripts/runGoTests.mjs [--coverage|--vet]\n')
+  process.exit(2)
+}
