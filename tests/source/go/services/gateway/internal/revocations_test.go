@@ -372,3 +372,50 @@ func TestRevocationBackgroundHelpersStopOnCanceledContext(t *testing.T) {
 		t.Fatal("hostname helper should never return empty")
 	}
 }
+
+func TestStartRevocationConsumerLaunchesBackgroundLoops(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := startRevocationConsumer(ctx, &fakeRevocationRedis{}, newRevocationStore(zerolog.Nop()), nil, zerolog.Nop()); err != nil {
+		t.Fatalf("healthy redis must start the consumer, got %v", err)
+	}
+}
+
+func TestReloadRevocationSnapshotRequiresPostgres(t *testing.T) {
+	if err := reloadRevocationSnapshot(context.Background(), nil, newRevocationStore(zerolog.Nop())); err == nil {
+		t.Fatal("nil pool must fail the snapshot reload")
+	}
+}
+
+type revocationBatchRedis struct {
+	fakeRevocationRedis
+	cancel context.CancelFunc
+	msgs   []redis.XMessage
+	calls  int
+}
+
+func (r *revocationBatchRedis) XReadGroup(_ context.Context, _, _, _ string, _ int64) ([]redis.XMessage, error) {
+	r.calls++
+	if r.calls == 1 {
+		return r.msgs, nil
+	}
+	r.cancel()
+	return nil, context.Canceled
+}
+
+func TestRunRevocationLoopAppliesStreamMessages(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	store := newRevocationStore(zerolog.Nop())
+	redis := &revocationBatchRedis{cancel: cancel, msgs: []redis.XMessage{redisMessage("1-0", map[string]any{"session_id": "sid-live"})}}
+	redis.verify = true
+
+	runRevocationLoop(ctx, redis, store, "consumer-1", nil, zerolog.Nop())
+
+	if !store.IsRevoked("sid-live") {
+		t.Fatal("stream message must revoke the session")
+	}
+	if len(redis.acked) != 1 {
+		t.Fatalf("processed message must be acked, got %v", redis.acked)
+	}
+}
