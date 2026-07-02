@@ -334,18 +334,18 @@ export function ResourceFormModal({
                           list="resource-operation-methods"
                           placeholder="GET"
                           aria-label="Method"
-                          className="h-9 w-24 shrink-0 rounded-md border border-border bg-background px-2 font-mono text-xs uppercase text-foreground outline-none focus:border-ring"
+                          className="h-9 w-24 shrink-0 rounded-md border border-border bg-background px-2 font-mono text-xs uppercase text-foreground outline-none transition-colors focus:border-ring focus:ring-2 focus:ring-ring/25"
                         />
                         <input
                           value={op.path}
                           onChange={(e) => updateOperation(index, { path: e.target.value })}
                           placeholder="/v1/invoices"
-                          className="h-9 min-w-0 flex-1 rounded-md border border-border bg-background px-2 font-mono text-xs text-foreground outline-none focus:border-ring"
+                          className="h-9 min-w-0 flex-1 rounded-md border border-border bg-background px-2 font-mono text-xs text-foreground outline-none transition-colors focus:border-ring focus:ring-2 focus:ring-ring/25"
                         />
                         <select
                           value={op.scope}
                           onChange={(e) => updateOperation(index, { scope: e.target.value })}
-                          className="h-9 w-32 shrink-0 rounded-md border border-border bg-background px-2 font-mono text-xs text-foreground outline-none focus:border-ring"
+                          className="h-9 w-32 shrink-0 rounded-md border border-border bg-background px-2 font-mono text-xs text-foreground outline-none transition-colors focus:border-ring focus:ring-2 focus:ring-ring/25"
                         >
                           {scopes.map((scope) => (
                             <option key={scope} value={scope}>
