@@ -101,6 +101,8 @@ const keys = {
     ["console", "operator-turns", zoneId, conversationId] as const,
   operatorContext: (zoneId: string | null, conversationId: string | null) =>
     ["console", "operator-context", zoneId, conversationId] as const,
+  operatorPlanSecrets: (zoneId: string | null, conversationId: string | null, planSeq: number | null) =>
+    ["console", "operator-plan-secrets", zoneId, conversationId, planSeq] as const,
 };
 
 export function useConsoleStatus() {
@@ -429,6 +431,50 @@ export function useExecuteOperatorPlan(zoneId: string | null, conversationId: st
     mutationFn: (planSeq: number) =>
       consoleApi.operator.executePlan(zoneId as string, conversationId as string, planSeq),
     onSuccess: () => invalidateConversation(qc, zoneId, conversationId),
+    onError: (error) => resyncOnStalePlan(qc, zoneId, conversationId, error),
+  });
+}
+
+// Which steps of a pending plan collect credentials through the secure prompt and whether the
+// sealed vault holds them. Enabled only while a plan actually needs credentials, so ordinary
+// plans add no traffic.
+export function useOperatorPlanSecrets(
+  zoneId: string | null,
+  conversationId: string | null,
+  planSeq: number | null,
+) {
+  return useQuery({
+    queryKey: keys.operatorPlanSecrets(zoneId, conversationId, planSeq),
+    queryFn: ({ signal }) =>
+      consoleApi.operator.planSecrets(
+        zoneId as string,
+        conversationId as string,
+        planSeq as number,
+        signal,
+      ),
+    enabled: Boolean(zoneId && conversationId && planSeq),
+  });
+}
+
+// Submits one step's pasted credentials to the sealed vault. Success re-reads the secrets status
+// and, because the server may complete a deferred autopilot approval, the conversation itself.
+export function useProvidePlanSecrets(zoneId: string | null, conversationId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { planSeq: number; stepId: string; values: Record<string, string> }) =>
+      consoleApi.operator.providePlanSecrets(
+        zoneId as string,
+        conversationId as string,
+        input.planSeq,
+        input.stepId,
+        input.values,
+      ),
+    onSuccess: (_result, input) => {
+      qc.invalidateQueries({
+        queryKey: keys.operatorPlanSecrets(zoneId, conversationId, input.planSeq),
+      });
+      invalidateConversation(qc, zoneId, conversationId);
+    },
     onError: (error) => resyncOnStalePlan(qc, zoneId, conversationId, error),
   });
 }

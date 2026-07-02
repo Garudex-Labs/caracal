@@ -83,6 +83,8 @@ import type {
   OperatorNarrativeInput,
   OperatorPlanDecisionInput,
   OperatorPlanInput,
+  OperatorPlanSecretsResult,
+  OperatorPlanSecretsStatus,
   OperatorPlanValidation,
   OperatorTurn,
   Zone,
@@ -877,6 +879,26 @@ export const consoleApi = {
           conversationId,
         )}/plan/execute`,
         { method: "POST", body: JSON.stringify({ plan_seq: planSeq }) },
+      ),
+    planSecrets: (zoneId: string, conversationId: string, planSeq: number, signal?: AbortSignal) =>
+      request<OperatorPlanSecretsStatus>(
+        `/v1/zones/${encodeURIComponent(zoneId)}/operator-conversations/${encodeURIComponent(
+          conversationId,
+        )}/plans/${planSeq}/secrets`,
+        { signal },
+      ),
+    providePlanSecrets: (
+      zoneId: string,
+      conversationId: string,
+      planSeq: number,
+      stepId: string,
+      values: Record<string, string>,
+    ) =>
+      request<OperatorPlanSecretsResult>(
+        `/v1/zones/${encodeURIComponent(zoneId)}/operator-conversations/${encodeURIComponent(
+          conversationId,
+        )}/plans/${planSeq}/secrets`,
+        { method: "PUT", body: JSON.stringify({ step_id: stepId, values }) },
       ),
     sendMessage: (
       zoneId: string,
