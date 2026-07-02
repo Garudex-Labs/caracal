@@ -802,9 +802,9 @@ export function useSessionsFeed(zoneId: string | null, query: SessionQuery) {
   });
 }
 
-// Filtered, cursor-paginated audit feed for the Audit workspace. `live` toggles
-// background polling so an investigator can pause the stream while reading.
-export function useAuditFeed(zoneId: string | null, query: AuditQuery, live = true) {
+// Filtered, cursor-paginated audit feed for the Audit workspace. Polling always stays
+// on so the tamper-evident stream can never be silently frozen in the console.
+export function useAuditFeed(zoneId: string | null, query: AuditQuery) {
   return useInfiniteQuery({
     queryKey: [...keys.audit(zoneId), "feed", query],
     queryFn: ({ pageParam }) =>
@@ -812,13 +812,13 @@ export function useAuditFeed(zoneId: string | null, query: AuditQuery, live = tr
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.nextCursor ?? undefined,
     enabled: Boolean(zoneId),
-    refetchInterval: live ? LIVE_MS : false,
+    refetchInterval: LIVE_MS,
   });
 }
 
 // Cursor-paginated admin audit feed: the tamper-evident record of every admin
 // mutation (who changed what), with server-side filters for actor/entity/method.
-export function useAdminAuditFeed(zoneId: string | null, query: AdminAuditQuery, live = true) {
+export function useAdminAuditFeed(zoneId: string | null, query: AdminAuditQuery) {
   return useInfiniteQuery({
     queryKey: [...keys.adminAudit(zoneId), "feed", query],
     queryFn: ({ pageParam }) =>
@@ -826,7 +826,7 @@ export function useAdminAuditFeed(zoneId: string | null, query: AdminAuditQuery,
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.nextCursor ?? undefined,
     enabled: Boolean(zoneId),
-    refetchInterval: live ? LIVE_MS : false,
+    refetchInterval: LIVE_MS,
   });
 }
 

@@ -51,15 +51,12 @@ export function FeedTabs<T extends string>({
 // An inline toolbar designed to sit on the same row as the workspace search box. It keeps
 // everything on one line: a Filters button whose labeled fields drop into a floating panel,
 // an optional control beside it, and the loaded count pushed to the right.
-// When `live`/`onToggleLive` are supplied it also renders the live indicator and pause toggle.
 export function FeedToolbar({
   extra,
   trailing,
   activeFilters = 0,
   loaded,
   noun,
-  live,
-  onToggleLive,
   children,
 }: {
   extra?: ReactNode;
@@ -67,8 +64,6 @@ export function FeedToolbar({
   activeFilters?: number;
   loaded: number;
   noun: string;
-  live?: boolean;
-  onToggleLive?: () => void;
   children?: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -135,27 +130,11 @@ export function FeedToolbar({
 
       {extra}
 
-      <div className="ml-auto flex items-center gap-2">
+      <div className="ml-auto flex items-center gap-4">
         <span className="hidden items-center gap-1.5 text-xs text-muted-foreground sm:inline-flex">
-          {live !== undefined ? (
-            <span
-              className={cx(
-                "h-1.5 w-1.5 rounded-full",
-                live ? "bg-emerald-500" : "bg-muted-foreground/40",
-              )}
-            />
-          ) : null}
           {loaded} {noun}
           {loaded === 1 ? "" : "s"}
         </span>
-        {onToggleLive ? (
-          <button
-            onClick={onToggleLive}
-            className="rounded-md px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-          >
-            {live ? "Pause" : "Resume"}
-          </button>
-        ) : null}
         {trailing}
       </div>
     </>

@@ -111,9 +111,8 @@ const MODE_TABS: { id: AuditMode; label: string }[] = [
 ];
 
 // An inline audit toolbar designed to sit on the same row as the workspace search box. It
-// keeps everything on one line: the feed tabs, an export control, a Filters button whose
-// labeled fields drop into a floating panel, and the live indicator plus cursor control
-// pushed to the right.
+// keeps everything on one line: a Filters button whose labeled fields drop into a floating
+// panel, an export control, and the loaded count plus feed tabs pushed to the right.
 function AuditToolbar({
   mode,
   onMode,
@@ -121,8 +120,6 @@ function AuditToolbar({
   activeFilters,
   loaded,
   noun,
-  live,
-  onToggleLive,
   children,
 }: {
   mode: AuditMode;
@@ -131,8 +128,6 @@ function AuditToolbar({
   activeFilters: number;
   loaded: number;
   noun: string;
-  live: boolean;
-  onToggleLive: () => void;
   children: ReactNode;
 }) {
   return (
@@ -142,8 +137,6 @@ function AuditToolbar({
       activeFilters={activeFilters}
       loaded={loaded}
       noun={noun}
-      live={live}
-      onToggleLive={onToggleLive}
     >
       {children}
     </FeedToolbar>
@@ -417,7 +410,6 @@ function AuditPage({
   const [label, setLabel] = useState("");
   const [since, setSince] = useState("");
   const [until, setUntil] = useState("");
-  const [live, setLive] = useState(true);
 
   const serverQuery = useMemo<AuditQuery>(() => {
     const q: AuditQuery = {};
@@ -435,7 +427,7 @@ function AuditPage({
     return q;
   }, [decision, eventType, requestId, applicationId, agentSession, sessionId, label, since, until]);
 
-  const feed = useAuditFeed(zoneId, serverQuery, live);
+  const feed = useAuditFeed(zoneId, serverQuery);
   const rows = useMemo(() => (feed.data?.pages ?? []).flatMap((page) => page.rows), [feed.data]);
 
   // Application names resolve actor ids into readable identities; token events carry the
@@ -545,7 +537,6 @@ function AuditPage({
           label={label}
           since={since}
           until={until}
-          live={live}
           loaded={rows.length}
           onDecision={setDecision}
           onEventType={setEventType}
@@ -556,7 +547,6 @@ function AuditPage({
           onLabel={setLabel}
           onSince={setSince}
           onUntil={setUntil}
-          onToggleLive={() => setLive((v) => !v)}
         />
       }
       search={{
@@ -606,7 +596,6 @@ function AuditFilterBar({
   label,
   since,
   until,
-  live,
   loaded,
   onDecision,
   onEventType,
@@ -617,7 +606,6 @@ function AuditFilterBar({
   onLabel,
   onSince,
   onUntil,
-  onToggleLive,
 }: {
   mode: AuditMode;
   onMode: (m: AuditMode) => void;
@@ -631,7 +619,6 @@ function AuditFilterBar({
   label: string;
   since: string;
   until: string;
-  live: boolean;
   loaded: number;
   onDecision: (v: string) => void;
   onEventType: (v: string) => void;
@@ -642,7 +629,6 @@ function AuditFilterBar({
   onLabel: (v: string) => void;
   onSince: (v: string) => void;
   onUntil: (v: string) => void;
-  onToggleLive: () => void;
 }) {
   const activeFilters =
     (decision !== "all" ? 1 : 0) +
@@ -657,8 +643,6 @@ function AuditFilterBar({
       activeFilters={activeFilters}
       loaded={loaded}
       noun="event"
-      live={live}
-      onToggleLive={onToggleLive}
     >
       <Select label="Decision" value={decision} onChange={(e) => onDecision(e.target.value)}>
         <option value="all">All decisions</option>
@@ -1162,7 +1146,6 @@ function AdminAuditPage({
   const [method, setMethod] = useState("");
   const [since, setSince] = useState("");
   const [until, setUntil] = useState("");
-  const [live, setLive] = useState(true);
 
   const serverQuery = useMemo<AdminAuditQuery>(() => {
     const q: AdminAuditQuery = {};
@@ -1176,7 +1159,7 @@ function AdminAuditPage({
     return q;
   }, [entityType, actorId, method, since, until]);
 
-  const feed = useAdminAuditFeed(zoneId, serverQuery, live);
+  const feed = useAdminAuditFeed(zoneId, serverQuery);
   const rows = useMemo(() => (feed.data?.pages ?? []).flatMap((page) => page.rows), [feed.data]);
 
   const columns: Column<AdminAuditEvent>[] = [
@@ -1290,14 +1273,12 @@ function AdminAuditPage({
           method={method}
           since={since}
           until={until}
-          live={live}
           loaded={rows.length}
           onEntityType={setEntityType}
           onActorId={setActorId}
           onMethod={setMethod}
           onSince={setSince}
           onUntil={setUntil}
-          onToggleLive={() => setLive((v) => !v)}
         />
       }
       search={{
@@ -1406,14 +1387,12 @@ function AdminAuditFilterBar({
   method,
   since,
   until,
-  live,
   loaded,
   onEntityType,
   onActorId,
   onMethod,
   onSince,
   onUntil,
-  onToggleLive,
 }: {
   mode: AuditMode;
   onMode: (m: AuditMode) => void;
@@ -1423,14 +1402,12 @@ function AdminAuditFilterBar({
   method: string;
   since: string;
   until: string;
-  live: boolean;
   loaded: number;
   onEntityType: (v: string) => void;
   onActorId: (v: string) => void;
   onMethod: (v: string) => void;
   onSince: (v: string) => void;
   onUntil: (v: string) => void;
-  onToggleLive: () => void;
 }) {
   const activeFilters =
     (method ? 1 : 0) + [entityType, actorId, since, until].filter((v) => v.trim()).length;
@@ -1442,8 +1419,6 @@ function AdminAuditFilterBar({
       activeFilters={activeFilters}
       loaded={loaded}
       noun="change"
-      live={live}
-      onToggleLive={onToggleLive}
     >
       <Select label="Method" value={method} onChange={(e) => onMethod(e.target.value)}>
         {ADMIN_METHODS.map((m) => (
