@@ -92,6 +92,12 @@ describe('hasSession and identity reconciliation', () => {
     expect(state.reconcileLocalIdentity).toHaveBeenCalledWith(null)
   })
 
+  it('leaves local identity untouched when the session lookup fails in transit', async () => {
+    state.getSession.mockResolvedValue({ data: null, error: { status: 0, statusText: 'fetch failed' } })
+    expect(await guards.hasSession()).toBe(false)
+    expect(state.reconcileLocalIdentity).not.toHaveBeenCalled()
+  })
+
   it('treats a thrown session lookup (control plane down) as no session', async () => {
     state.getSession.mockRejectedValue(new Error('network'))
     expect(await guards.hasSession()).toBe(false)
