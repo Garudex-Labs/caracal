@@ -20,17 +20,19 @@
     "@caracalai/core": "workspace:*",
     "@caracalai/engine": "workspace:*",
     "better-auth": "^1.6.22",
+    "nodemailer": "^9.0.3",
     "pg": "^8.22.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/node": "^26.0.1",
+    "@types/nodemailer": "^8.0.1",
     "@types/pg": "^8.11.10",
     "eslint": "^10.6.0",
+    "globals": "^17.7.0",
     "tsx": "^4.22.4",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.62.0",
-    "globals": "^17.7.0",
     "vitest": "^4.1.9"
   }
 }
