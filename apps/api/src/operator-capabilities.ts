@@ -16,7 +16,8 @@ const SchemaVersion = z.string().min(1).max(64)
 
 // The object domain a capability operates on, mirroring the Console's navigation
 // so the Operator reasons in user-visible terms rather than internal endpoints.
-export type CapabilityDomain = 'zone' | 'application' | 'provider' | 'resource' | 'policy' | 'grant' | 'audit'
+export type CapabilityDomain =
+  'zone' | 'application' | 'provider' | 'resource' | 'policy' | 'grant' | 'session' | 'agent' | 'delegation' | 'audit'
 
 // A live-state target a preview resolves against. The catalog names the logical noun; the
 // preview interpreter owns the table and liveness predicate, so the catalog stays free of
@@ -417,6 +418,46 @@ export const CAPABILITIES: Record<string, Capability> = {
       live: (id) => `Would activate a version of policy set ${id} for the whole zone.`,
       blocked: (id) => `Policy set ${id} was not found in this zone.`,
     },
+  },
+  listSessions: {
+    id: 'listSessions',
+    title: 'List sessions',
+    summary: 'Read the authenticated sessions active in the zone with their subjects and expiry.',
+    domain: 'session',
+    mutating: false,
+    args: NoArgs,
+    argsHint: 'no arguments',
+    preview: { kind: 'read' },
+  },
+  listAgents: {
+    id: 'listAgents',
+    title: 'List agent sessions',
+    summary: 'Read the agent sessions running in the zone with their lifecycle and status.',
+    domain: 'agent',
+    mutating: false,
+    args: NoArgs,
+    argsHint: 'no arguments',
+    preview: { kind: 'read' },
+  },
+  listDelegations: {
+    id: 'listDelegations',
+    title: 'List delegations',
+    summary: 'Read the active delegation edges in the zone: who delegated which scopes to whom.',
+    domain: 'delegation',
+    mutating: false,
+    args: NoArgs,
+    argsHint: 'no arguments',
+    preview: { kind: 'read' },
+  },
+  listAuditEvents: {
+    id: 'listAuditEvents',
+    title: 'List audit events',
+    summary: 'Read the most recent authorization decisions and control events recorded in the zone.',
+    domain: 'audit',
+    mutating: false,
+    args: NoArgs,
+    argsHint: 'no arguments',
+    preview: { kind: 'read' },
   },
 }
 

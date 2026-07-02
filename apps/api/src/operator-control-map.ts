@@ -50,8 +50,14 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {}
 }
 
-function asArray(value: unknown): unknown[] {
-  return Array.isArray(value) ? value : []
+// Unwraps a list result to its rows: a bare array is taken as-is, and an envelope carrying
+// rows under `rows` or `items` (the delegation read pages through `items`) is unwrapped.
+function asRows(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value
+  const envelope = asRecord(value)
+  if (Array.isArray(envelope.rows)) return envelope.rows
+  if (Array.isArray(envelope.items)) return envelope.items
+  return []
 }
 
 function pluralize(singular: string): string {
@@ -66,12 +72,14 @@ function countLabel(rows: unknown[], singular: string): string {
 // A governed read capability: lists the live rows of a noun and surfaces them under their
 // plural key with a counted, pluralized detail. command names the control command; noun is
 // the singular surfaced to the human, so identity-provider rows still read as “providers”.
-function readControl(command: string, noun: string): ControlCapability {
+// The read verb and its fixed flags default to a plain list but a read whose control
+// command pages differently (delegation active, audit tail) names its own verb and bounds.
+function readControl(command: string, noun: string, subcommand: string = 'list', flags: Record<string, unknown> = {}): ControlCapability {
   return {
     scopes: [`control:${command}:read`],
-    buildInvocation: () => ({ command, subcommand: 'list', flags: {} }),
+    buildInvocation: () => ({ command, subcommand, flags }),
     describeOutcome: (result) => {
-      const rows = asArray(result)
+      const rows = asRows(result)
       return { detail: `${countLabel(rows, noun)} in this zone.`, output: { [pluralize(noun)]: rows } }
     },
   }
@@ -108,6 +116,12 @@ export const CONTROL_CAPABILITIES: Record<string, ControlCapability> = {
   // surface in full without leaking policy logic.
   listPolicies: readControl('policy', 'policy'),
   listGrants: readControl('grant', 'grant'),
+  listSessions: readControl('session', 'session'),
+  listAgents: readControl('agent', 'agent session'),
+  listDelegations: readControl('delegation', 'delegation', 'active'),
+  // The audit read tails the most recent decisions; the bound keeps a read small while still
+  // showing what the zone decided last.
+  listAuditEvents: readControl('audit', 'audit event', 'tail', { limit: 50 }),
 
   registerApplication: {
     scopes: ['control:app:write'],

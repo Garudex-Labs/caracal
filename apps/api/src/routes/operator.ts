@@ -44,11 +44,12 @@ import { runVerifier, type AgentContext, type OperatorMode, type SecurityAdvisor
 import { recallZoneMemory, rememberAppliedChange } from '../operator-zone-memory.js'
 import { createOrchestrator, type OnProgress, type ProgressEvent } from '../operator-orchestrator.js'
 import { createStateResearcher } from '../operator-research.js'
+import type { Evidence } from '../operator-research.js'
 import { retrieveDocs } from '../operator-docs.js'
 import { summarizeHistory, type ConversationFacts } from '../operator-memory.js'
 import { OperatorAiNotFoundError, OperatorAiUnavailableError, type OperatorAiManager } from '../operator-ai-manager.js'
 import { PROVIDER_SLUG_PATTERN } from '../operator-ai-store.js'
-import { assertMessageRunTransition, type MessageRunState } from '../operator-message-state.js'
+import { assertMessageRunTransition, isTerminalMessageRunState, type MessageRunState } from '../operator-message-state.js'
 
 const TITLE_MAX_LENGTH = 200
 const CONTENT_MAX_BYTES = 64_000
@@ -140,6 +141,9 @@ const MessageBody = z
     correlation_id: MessageRunId.optional(),
   })
   .strict()
+// A cancel names the run by the same client message id that started it, so the console can stop
+// the send it is watching without ever knowing the server-side run id.
+const CancelRunBody = z.object({ client_message_id: MessageRunId }).strict()
 const MESSAGE_CONTEXT_WINDOW = 10
 
 // The response headers that open a Server-Sent Events stream for a message turn. no-transform
@@ -432,6 +436,10 @@ async function transitionMessageRun(
       run.id,
     ])
     if (!rows[0]) return null
+    // A run that already settled - a concurrent cancel, the deadline reaper - stays as it settled;
+    // the losing transition observes the terminal row instead of throwing, so a raced completion
+    // never turns a deliberate cancellation into a 500.
+    if (isTerminalMessageRunState(rows[0].state)) return rows[0]
     return writeMessageRunEventLocked(client, {
       run: rows[0],
       state,
@@ -441,6 +449,23 @@ async function transitionMessageRun(
       payload: options.payload,
     })
   })
+}
+
+// Shapes the gathered evidence for the conversation ledger: only the successful reads, each
+// reduced to its capability, domain, live count, and the display-safe rows the research layer
+// built under its per-domain allowlist. The prompt-facing fields (names, items, attributes) are
+// not persisted - the ledger carries what the console renders, nothing more.
+function ledgerEvidence(evidence: Evidence[] | undefined): Record<string, unknown>[] | undefined {
+  if (!evidence) return undefined
+  const entries = evidence
+    .filter((entry) => entry.ok)
+    .map((entry) => ({
+      capability: entry.capability,
+      domain: entry.domain,
+      count: entry.count ?? 0,
+      ...(entry.rows && entry.rows.length > 0 ? { rows: entry.rows } : {}),
+    }))
+  return entries.length > 0 ? entries : undefined
 }
 
 // Renders an authored policy draft as readable Markdown for the conversation ledger, so a console
@@ -1800,6 +1825,20 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
         onReasoningDelta: wantsStream ? (chunk: string) => writeSseEvent(reply, 'reasoning', { text: chunk }) : undefined,
       })
 
+      // A cancel that landed while the turn deliberated wins: the run already settled as cancelled,
+      // so nothing the turn produced is persisted and the caller sees the run as it settled. The
+      // user turn stays in the ledger - it was recorded before the work began and really happened.
+      if (messageRun) {
+        const { rows: current } = await fastify.db.query<MessageRunRow>(
+          `SELECT ${MESSAGE_RUN_SELECT} FROM operator_message_runs WHERE id = $1`,
+          [messageRun.id],
+        )
+        if (current[0] && current[0].state === 'cancelled') {
+          messageRun = current[0]
+          return finish(200, { intent: 'cancelled', tier, ok: false, error: 'run_cancelled', ...meta() })
+        }
+      }
+
       // Defense in depth: ask mode is read-only, so a plan must never be persisted on this path
       // regardless of what the orchestrator returned. The orchestrator already refuses to plan in
       // ask mode; this guarantees it at the route even if that ever regressed.
@@ -2008,6 +2047,11 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
       const noteContent: Record<string, unknown> = { text: answer.text }
       if (answer.reasoning) noteContent.reasoning = answer.reasoning
       if (deliberation.length > 0) noteContent.deliberation = deliberation
+      // The live state the answer was grounded in is persisted with it, so the console renders the
+      // real objects the reads surfaced - structured, not re-narrated - and the record of what the
+      // Operator saw survives with the turn.
+      const evidence = ledgerEvidence(outcome.evidence)
+      if (evidence) noteContent.evidence = evidence
       const turn = await appendTurnTx(fastify.db, params.id, params.zoneId, 'operator', 'note', JSON.stringify(noteContent), req.actor.id)
       return finish(
         201,
@@ -2017,6 +2061,7 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
           ok: explained.ok,
           text: answer.text,
           reasoning: answer.reasoning,
+          evidence,
           turn: turn.ok ? turn.turn : null,
           ...meta(),
         },
@@ -2053,5 +2098,34 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
       if (messageRun) return finish(500, { error: 'ai_failed' }, { state: 'failed', reason: 'ai_failed', errorCode: 'ai_failed' })
       throw err
     }
+  })
+
+  // Cancels an in-flight message run. The run is settled as cancelled under the same lock every
+  // other transition takes, so exactly one terminal state wins: a run that already settled is
+  // reported as it stands rather than re-settled, and the message path observes the cancellation
+  // and discards its outputs instead of persisting a reply nobody is waiting for.
+  fastify.post('/zones/:zoneId/operator-conversations/:id/message-runs/cancel', async (req, reply) => {
+    const params = parseParams(ZoneIdParams, req, reply)
+    if (!params) return
+    if (isZoneIsolated(authority, params.zoneId)) {
+      return reply.code(403).send({ error: 'zone_forbidden' })
+    }
+    const parsed = CancelRunBody.safeParse(req.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'invalid_cancel' })
+    const outcome = await withTransaction(fastify.db, async (client) => {
+      const { rows } = await client.query<MessageRunRow>(
+        `SELECT ${MESSAGE_RUN_SELECT} FROM operator_message_runs
+         WHERE zone_id = $1 AND conversation_id = $2 AND client_message_id = $3
+         FOR UPDATE`,
+        [params.zoneId, params.id, parsed.data.client_message_id],
+      )
+      if (!rows[0]) return { status: 404, body: { error: 'run_not_found' } }
+      if (isTerminalMessageRunState(rows[0].state)) {
+        return { status: 409, body: { error: 'run_settled', message_run: publicMessageRun(rows[0]) } }
+      }
+      const run = await writeMessageRunEventLocked(client, { run: rows[0], state: 'cancelled', reason: 'operator_cancelled' })
+      return { status: 200, body: { ok: true, message_run: publicMessageRun(run) } }
+    })
+    return reply.code(outcome.status).send(outcome.body)
   })
 }
