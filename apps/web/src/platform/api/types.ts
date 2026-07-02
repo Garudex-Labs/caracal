@@ -303,6 +303,30 @@ export interface DecisionTrace {
   events: AuditDetail[];
 }
 
+// One recent audit event carried inside the overview payload; a trimmed AuditEvent.
+export interface OverviewEvent {
+  id: string;
+  event_type: string;
+  request_id: string | null;
+  decision: string | null;
+  metadata_json: Record<string, unknown> | null;
+  occurred_at: string;
+}
+
+// Aggregated dashboard read model: every count is zone-scoped and computed
+// server-side, so the dashboard renders from one request.
+export interface ZoneOverview {
+  zone_id: string;
+  generated_at: string;
+  applications: { total: number; expired: number; expiring_soon: number };
+  resources: { total: number; unenforced: number };
+  providers: { total: number };
+  policy_sets: { total: number; enforcing: number; active_name: string | null };
+  sessions: { active: number };
+  decisions_24h: { allowed: number; denied: number };
+  recent_events: OverviewEvent[];
+}
+
 export interface RowList<T> {
   rows: T[];
   next_cursor: string | null;
@@ -642,12 +666,6 @@ export interface AgentService {
   capabilities: unknown;
   health: string | null;
   last_heartbeat_at: string | null;
-}
-
-export interface DiagnosticsOptions {
-  zoneId?: string;
-  strict?: boolean;
-  preflight?: boolean;
 }
 
 export type OperatorCapabilityDomain =

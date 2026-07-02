@@ -34,7 +34,6 @@ import type {
   DelegationHop,
   DelegationImpactRow,
   DelegationQuery,
-  DiagnosticsOptions,
   DiagnosticsReport,
   EffectiveAuthority,
   ActivationStatus,
@@ -85,6 +84,7 @@ import type {
   OperatorTurn,
   Zone,
   ZoneInput,
+  ZoneOverview,
   ZonePatchInput,
   ZoneDcrStatus,
 } from "./types";
@@ -457,19 +457,14 @@ export function generateClientSecret(): string {
 
 export const consoleApi = {
   status: () => request<ConsoleStatus>("/status"),
-  diagnostics: (options: DiagnosticsOptions = {}) =>
-    request<DiagnosticsReport>(
-      `/diagnostics${queryString({
-        zone: options.zoneId,
-        strict: options.strict ? "true" : undefined,
-        mode: options.preflight ? "preflight" : undefined,
-      })}`,
-    ),
+  diagnostics: () => request<DiagnosticsReport>("/diagnostics"),
 
   zones: {
     list: async (signal?: AbortSignal) => (await fetchAllPages<Zone>("/v1/zones", signal)).rows,
     get: (id: string, signal?: AbortSignal) =>
       request<Zone>(`/v1/zones/${encodeURIComponent(id)}`, { signal }),
+    overview: (id: string, signal?: AbortSignal) =>
+      request<ZoneOverview>(`/v1/zones/${encodeURIComponent(id)}/overview`, { signal }),
     dcrStatus: (id: string) =>
       request<ZoneDcrStatus>(`/v1/zones/${encodeURIComponent(id)}/dcr-status`),
     create: (input: ZoneInput) =>
