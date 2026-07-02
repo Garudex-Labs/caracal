@@ -2,11 +2,10 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-This file provides the inline feed toolbar that aligns a Filters popover and cursor controls on the workspace search row.
+This file provides the inline feed toolbar that aligns a Filters popover and the loaded count on the workspace search row.
 */
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
-import { Button } from "@/components/ui";
 import { cx } from "@/lib/cx";
 
 // A segmented tab control for switching between the views of a single workspace, designed
@@ -51,16 +50,13 @@ export function FeedTabs<T extends string>({
 
 // An inline toolbar designed to sit on the same row as the workspace search box. It keeps
 // everything on one line: an optional leading control, a Filters button whose labeled fields
-// drop into a floating panel, and the loaded count plus cursor control pushed to the right.
+// drop into a floating panel, and the loaded count pushed to the right.
 // When `live`/`onToggleLive` are supplied it also renders the live indicator and pause toggle.
 export function FeedToolbar({
   leading,
   activeFilters = 0,
   loaded,
   noun,
-  hasMore,
-  fetchingMore,
-  onLoadMore,
   live,
   onToggleLive,
   children,
@@ -69,9 +65,6 @@ export function FeedToolbar({
   activeFilters?: number;
   loaded: number;
   noun: string;
-  hasMore: boolean;
-  fetchingMore: boolean;
-  onLoadMore: () => void;
   live?: boolean;
   onToggleLive?: () => void;
   children?: ReactNode;
@@ -161,15 +154,6 @@ export function FeedToolbar({
             {live ? "Pause" : "Resume"}
           </button>
         ) : null}
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={onLoadMore}
-          disabled={!hasMore}
-          loading={fetchingMore}
-        >
-          {hasMore ? "Load more" : "All loaded"}
-        </Button>
       </div>
     </>
   );

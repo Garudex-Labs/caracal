@@ -53,6 +53,7 @@ export function ResourceWorkspace<T>({
   sortValues,
   initialSort,
   pageSize = 8,
+  feed,
   empty,
   detail,
   headerExtra,
@@ -82,6 +83,10 @@ export function ResourceWorkspace<T>({
   sortValues?: Partial<Record<string, (row: T) => string | number>>;
   initialSort?: SortState;
   pageSize?: number;
+  // A cursor feed behind the rows. The table's own Previous/Next controls drive the server
+  // cursor: reaching the last loaded page prefetches the next batch, extending the pager
+  // until the feed is exhausted, so no separate load-more control is needed.
+  feed?: { hasMore: boolean; fetching: boolean; loadMore: () => void };
   empty: WorkspaceEmpty;
   detail?: {
     title: (row: T) => string;
@@ -156,6 +161,18 @@ export function ResourceWorkspace<T>({
     () => sorted.slice((page - 1) * pageSizeValue, page * pageSizeValue),
     [sorted, page, pageSizeValue],
   );
+
+  // Prefetch the next server batch as soon as the operator reaches the final loaded page, so
+  // Next re-enables with fresh rows instead of dead-ending while the feed still has more. An
+  // empty filtered view never triggers fetching, so a non-matching search cannot drain the feed.
+  const pageCount = Math.max(1, Math.ceil(sorted.length / pageSizeValue));
+  const feedHasMore = feed?.hasMore ?? false;
+  const feedFetching = feed?.fetching ?? false;
+  useEffect(() => {
+    if (!feed || !feedHasMore || feedFetching) return;
+    if (sorted.length === 0 || page < pageCount) return;
+    feed.loadMore();
+  }, [feed, feedHasMore, feedFetching, page, pageCount, sorted.length]);
 
   function toggleSort(column: string) {
     setSort((prev) =>
@@ -269,6 +286,7 @@ export function ResourceWorkspace<T>({
             page={page}
             pageSize={pageSizeValue}
             total={filtered.length}
+            hasMore={feedHasMore}
             onPageChange={setPage}
             onPageSizeChange={setPageSizeValue}
           />

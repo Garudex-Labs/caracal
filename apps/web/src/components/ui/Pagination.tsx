@@ -10,6 +10,7 @@ export function Pagination({
   page,
   pageSize,
   total,
+  hasMore = false,
   onPageChange,
   onPageSizeChange,
   pageSizeOptions = [8, 12, 20, 50],
@@ -17,6 +18,9 @@ export function Pagination({
   page: number;
   pageSize: number;
   total: number;
+  // A cursor feed behind the table still holds more rows on the server; the total is shown
+  // as open-ended so operators know Next keeps walking the feed.
+  hasMore?: boolean;
   onPageChange: (page: number) => void;
   onPageSizeChange: (pageSize: number) => void;
   pageSizeOptions?: number[];
@@ -33,6 +37,7 @@ export function Pagination({
       <div className="flex flex-wrap items-center gap-3">
         <p className="text-xs text-muted-foreground">
           {from}–{to} of {total}
+          {hasMore ? "+" : ""}
         </p>
         <label className="flex items-center gap-2 text-xs text-muted-foreground">
           Show
