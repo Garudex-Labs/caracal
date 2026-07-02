@@ -356,6 +356,17 @@ export function useSendOperatorMessage(zoneId: string | null, conversationId: st
   });
 }
 
+// Cancelling settles the in-flight run server-side so the deliberating turn discards its outputs;
+// the timeline is refreshed so the stream lands on the ledger as the cancellation left it.
+export function useCancelOperatorRun(zoneId: string | null, conversationId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (clientMessageId: string) =>
+      consoleApi.operator.cancelRun(zoneId as string, conversationId as string, clientMessageId),
+    onSettled: () => invalidateConversation(qc, zoneId, conversationId),
+  });
+}
+
 // A governed action button on a policy draft proposes its change as a plan turn through the same
 // path a natural-language plan takes: the plan is validated and recorded, then decided and applied
 // under the existing approval gate. The button never applies anything directly, so the draft's

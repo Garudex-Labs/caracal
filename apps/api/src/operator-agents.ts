@@ -256,13 +256,24 @@ function systemPrompt(...parts: string[]): string {
 
 // The object domains a turn can concern, shared by triage classification and the planner's evidence
 // request so both name the same governed read surface.
-const OBJECT_DOMAINS = ['zone', 'application', 'provider', 'resource', 'policy', 'grant', 'audit'] as const
+const OBJECT_DOMAINS = [
+  'zone',
+  'application',
+  'provider',
+  'resource',
+  'policy',
+  'grant',
+  'session',
+  'agent',
+  'delegation',
+  'audit',
+] as const
 
 const TriageOutput = z
   .object({
     tier: z.enum(['conversational', 'read', 'change', 'compound', 'policy']),
     topic: z.enum(['general', 'diagnostic', 'integration']).optional(),
-    domains: z.array(z.enum(OBJECT_DOMAINS)).max(7).optional(),
+    domains: z.array(z.enum(OBJECT_DOMAINS)).max(OBJECT_DOMAINS.length).optional(),
   })
   .strict()
 
@@ -332,10 +343,12 @@ export function buildTriageMessages(message: string, recent?: RecentMessage[]): 
         [
           'Domains name which parts of this deployment the request concerns, so only that live state is',
           'read this turn. List every domain the request touches, from this fixed set: zone, application,',
-          'provider, resource, policy, grant, audit. Omit "domains" for a conversational request that',
-          'needs no state read. Examples: "connect GitHub" → ["provider"]; "why was my agent denied" →',
-          '["grant","policy","audit","application"]; "give finance read-only access to invoices" →',
-          '["grant","application","resource"]; "how many apps do I have" → ["application"].',
+          'provider, resource, policy, grant, session, agent, delegation, audit. Omit "domains" for a',
+          'conversational request that needs no state read. Examples: "connect GitHub" → ["provider"];',
+          '"why was my agent denied" → ["grant","policy","audit","application"]; "give finance read-only',
+          'access to invoices" → ["grant","application","resource"]; "how many apps do I have" →',
+          '["application"]; "what agents are running" → ["agent","session"]; "who delegated access to',
+          'what" → ["delegation","application","resource"]; "what was denied recently" → ["audit"].',
         ].join('\n'),
         'When two tiers are plausible, pick the smaller one that still fully serves the intent - except',
         'a settled change the operator has instructed you to carry out, which is a change even after a',

@@ -254,6 +254,9 @@ export class AdminClient {
       this.request<Application>(`/v1/zones/${zoneId}/applications`, { method: 'POST', body: input }),
     patch: (zoneId: string, id: string, input: ApplicationPatchInput) =>
       this.request<Application>(`/v1/zones/${zoneId}/applications/${id}`, { method: 'PATCH', body: input }),
+    // Rotates the credential server-side; the response carries the one-time plaintext secret.
+    rotateSecret: (zoneId: string, id: string) =>
+      this.request<Application>(`/v1/zones/${zoneId}/applications/${id}/rotate-secret`, { method: 'POST' }),
     delete: (zoneId: string, id: string) =>
       this.request<void>(`/v1/zones/${zoneId}/applications/${id}`, { method: 'DELETE', expectEmpty: true }),
     // DCR (Dynamic Client Registration) is the sole programmatic path for minting
