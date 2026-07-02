@@ -58,6 +58,7 @@ function client(): AdminClient {
       get: vi.fn(async () => app()),
       create: vi.fn(async (_zone: string, body: Partial<Application>) => app({ ...body, id: 'app-created', client_secret: 'secret-once' })),
       patch: vi.fn(async (_zone: string, id: string, body: Partial<Application>) => app({ id, ...body })),
+      rotateSecret: vi.fn(async (_zone: string, id: string) => app({ id, client_secret: 'secret-rotated' })),
       delete: vi.fn(async () => undefined),
     },
   } as unknown as AdminClient
@@ -145,11 +146,8 @@ describe('control key lifecycle', () => {
     })
 
     const rotated = await controlKeyRotate(admin, 'z1', 'control-app')
-    expect(rotated.clientId).toBe('control-app')
-    expect(rotated.clientSecret).toMatch(/^cs_/)
-    expect(admin.applications.patch).toHaveBeenCalledWith('z1', 'control-app', {
-      client_secret: rotated.clientSecret,
-    })
+    expect(rotated).toMatchObject({ clientId: 'control-app', clientSecret: 'secret-rotated' })
+    expect(admin.applications.rotateSecret).toHaveBeenCalledWith('z1', 'control-app')
 
     await controlKeyRevoke(admin, 'z1', 'control-app')
     expect(admin.applications.delete).toHaveBeenCalledWith('z1', 'control-app')

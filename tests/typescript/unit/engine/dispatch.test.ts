@@ -113,6 +113,22 @@ describe('dispatch', () => {
     }, local, { admin: a })).resolves.toEqual({ principal: {} })
   })
 
+  it('rejects malformed JSON flag values as invalid instead of upstream errors', async () => {
+    const a = admin()
+
+    await expect(dispatch({
+      command: 'policy-set',
+      subcommand: 'simulate',
+      flags: { id: 'ps-1', version: 'v1', input: '{not json' },
+    }, local, { admin: a })).rejects.toMatchObject({ code: 'invalid', message: 'flag "input" must be valid JSON' })
+
+    await expect(dispatch({
+      command: 'resource',
+      subcommand: 'create',
+      flags: { name: 'Calendar', identifier: 'resource://calendar', scopes: ['read'], operations: '[not json' },
+    }, local, { admin: a })).rejects.toMatchObject({ code: 'invalid', message: 'flag "operations" must be valid JSON' })
+  })
+
   it('dispatches explain aliases through audit explain handlers', async () => {
     const a = admin()
 
