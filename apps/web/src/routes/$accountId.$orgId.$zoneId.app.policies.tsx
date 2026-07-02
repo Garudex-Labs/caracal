@@ -43,6 +43,7 @@ import {
   usePolicies,
   usePolicy,
   usePolicySets,
+  usePolicySetVersions,
 } from "@/platform/api/hooks";
 import type {
   ActivationStatus,
@@ -55,13 +56,22 @@ import type {
 
 export const Route = createFileRoute("/$accountId/$orgId/$zoneId/app/policies")({
   component: PolicyWorkspaceRoute,
-  validateSearch: (search: Record<string, unknown>): { create?: string; focus?: string } => ({
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): { create?: string; focus?: string; tab?: string } => ({
     create: typeof search.create === "string" ? search.create : undefined,
     focus: typeof search.focus === "string" ? search.focus : undefined,
+    tab: search.tab === "policies" || search.tab === "sets" ? search.tab : undefined,
   }),
 });
 
 type TabId = "sets" | "policies";
+
+interface SimulateTarget {
+  set: PolicySet;
+  versionId: string | null;
+  version?: number;
+}
 
 function PolicyWorkspaceRoute() {
   return (
@@ -93,9 +103,9 @@ function exampleSimulationInput(zoneId: string): string {
   return JSON.stringify(
     {
       schema_version: INPUT_SCHEMA_VERSION,
-      principal: { zone_id: zoneId, id: "app-payments", traits: ["payment-execution"] },
-      resource: { identifier: "resource://example" },
-      action: { scopes: ["example:read"] },
+      principal: { zone_id: zoneId, id: "app-son-of-anton", traits: ["pipernet-operator"] },
+      resource: { identifier: "resource://pipernet" },
+      action: { scopes: ["pipernet:read"] },
       context: {},
     },
     null,
@@ -104,9 +114,9 @@ function exampleSimulationInput(zoneId: string): string {
 }
 
 function PolicyWorkspace({ zoneId }: { zoneId: string }) {
-  const { create } = Route.useSearch();
+  const { create, tab: tabParam } = Route.useSearch();
   const navigate = useNavigate();
-  const [tab, setTab] = useState<TabId>("sets");
+  const [tab, setTab] = useState<TabId>(tabParam === "policies" ? "policies" : "sets");
   // Guided setup deep links here with ?create=policy to teach policy authoring first.
   // Switch to the Policies tab and hand the tab a one-shot signal to open the editor, then
   // strip the param so the form does not reopen on refresh.
@@ -169,8 +179,12 @@ function PolicySetsTab({
   const [composer, setComposer] = useState<{ mode: "create" | "version"; set?: PolicySet } | null>(
     null,
   );
-  const [simulateTarget, setSimulateTarget] = useState<PolicySet | null>(null);
+  const [simulateTarget, setSimulateTarget] = useState<SimulateTarget | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<PolicySet | null>(null);
+  const [rollbackTarget, setRollbackTarget] = useState<{
+    set: PolicySet;
+    version: PolicySetVersion;
+  } | null>(null);
   const [confirmActivation, setConfirmActivation] = useState<{
     set: PolicySet;
     result: ComposerResult;
@@ -260,7 +274,7 @@ function PolicySetsTab({
       header: "Enforcement",
       cell: (ps) =>
         ps.active_version_id ? (
-          <Badge tone="success">Active</Badge>
+          <Badge tone="success">Enforcing</Badge>
         ) : (
           <Badge tone="warning">Not enforcing</Badge>
         ),
@@ -318,7 +332,14 @@ function PolicySetsTab({
               policySet={ps}
               policies={policies}
               onNewVersion={() => setComposer({ mode: "version", set: ps })}
-              onSimulate={() => setSimulateTarget(ps)}
+              onSimulate={(version) =>
+                setSimulateTarget({
+                  set: ps,
+                  versionId: version?.id ?? ps.active_version_id,
+                  version: version?.version,
+                })
+              }
+              onActivateVersion={(version) => setRollbackTarget({ set: ps, version })}
               onDelete={() => setDeleteTarget(ps)}
             />
           ),
@@ -339,8 +360,36 @@ function PolicySetsTab({
 
       <SimulateModal
         zoneId={zoneId}
-        policySet={simulateTarget}
+        target={simulateTarget}
         onClose={() => setSimulateTarget(null)}
+      />
+
+      <ConfirmDialog
+        open={rollbackTarget !== null}
+        onClose={() => setRollbackTarget(null)}
+        title="Activate this version"
+        description={
+          rollbackTarget?.set.active_version_id
+            ? `Version ${rollbackTarget.version.version} of "${rollbackTarget.set.name}" replaces the currently enforcing version for every request in this zone. Simulate it first if you are unsure.`
+            : `Version ${rollbackTarget?.version.version ?? ""} of "${rollbackTarget?.set.name ?? ""}" starts enforcing immediately, switching the zone from deny-all to the rules it pins.`
+        }
+        confirmLabel="Activate version"
+        tone="danger"
+        onConfirm={async () => {
+          const pending = rollbackTarget;
+          if (!pending) return;
+          setRollbackTarget(null);
+          try {
+            await activate.mutateAsync({ id: pending.set.id, versionId: pending.version.id });
+            toast({
+              tone: "success",
+              title: `Version ${pending.version.version} activated`,
+              description: pending.set.name,
+            });
+          } catch (err) {
+            toast({ tone: "error", title: "Activation failed", description: errorMessage(err) });
+          }
+        }}
       />
 
       <ConfirmDialog
@@ -401,25 +450,27 @@ function PolicySetInspector({
   policies,
   onNewVersion,
   onSimulate,
+  onActivateVersion,
   onDelete,
 }: {
   zoneId: string;
   policySet: PolicySet;
   policies: Policy[];
   onNewVersion: () => void;
-  onSimulate: () => void;
+  onSimulate: (version?: PolicySetVersion) => void;
+  onActivateVersion: (version: PolicySetVersion) => void;
   onDelete: () => void;
 }) {
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center gap-2">
         {policySet.active_version_id ? (
-          <Badge tone="success">Active: governs this zone</Badge>
+          <Badge tone="success">Enforcing: governs this zone</Badge>
         ) : (
           <Badge tone="warning">Not enforcing: requests deny</Badge>
         )}
         <div className="ml-auto flex items-center gap-2">
-          <Button variant="secondary" size="sm" onClick={onSimulate}>
+          <Button variant="secondary" size="sm" onClick={() => onSimulate()}>
             Simulate
           </Button>
           <Button size="sm" mutating onClick={onNewVersion}>
@@ -438,6 +489,13 @@ function PolicySetInspector({
       </DetailGroup>
 
       <ActiveManifest zoneId={zoneId} policySet={policySet} policies={policies} />
+
+      <SetVersionHistory
+        zoneId={zoneId}
+        policySet={policySet}
+        onActivateVersion={onActivateVersion}
+        onSimulateVersion={(version) => onSimulate(version)}
+      />
 
       {policySet.active_version_id ? (
         <EnforcementStatus
@@ -504,7 +562,7 @@ function ActiveManifest({
             <table className="w-full text-sm">
               <tbody className="divide-y divide-border">
                 {(version.data.policies ?? []).map((policyVersionId) => {
-                  const resolved = names.get(policyVersionId);
+                  const resolved = names.map.get(policyVersionId);
                   return (
                     <tr key={policyVersionId}>
                       <td className="px-3 py-2">
@@ -513,9 +571,16 @@ function ActiveManifest({
                             <span className="text-sm text-foreground">{resolved.name}</span>
                             <Badge tone="neutral">v{resolved.version}</Badge>
                           </span>
+                        ) : names.ready ? (
+                          <span className="flex items-center gap-2" title={policyVersionId}>
+                            <Badge tone="warning">Removed policy</Badge>
+                            <span className="font-mono text-[11px] text-muted-foreground">
+                              {policyVersionId.slice(0, 8)}…
+                            </span>
+                          </span>
                         ) : (
-                          <span className="font-mono text-xs text-muted-foreground">
-                            {policyVersionId}
+                          <span className="font-mono text-[11px] text-muted-foreground">
+                            {policyVersionId.slice(0, 8)}…
                           </span>
                         )}
                       </td>
@@ -531,6 +596,86 @@ function ActiveManifest({
             </table>
           </div>
         </div>
+      ) : null}
+    </section>
+  );
+}
+
+// Full version history for a policy set. Every version is immutable and stays
+// activatable, so re-activating an earlier one is the rollback path: one click,
+// confirmed, using the same activation flow as a fresh deploy.
+function SetVersionHistory({
+  zoneId,
+  policySet,
+  onActivateVersion,
+  onSimulateVersion,
+}: {
+  zoneId: string;
+  policySet: PolicySet;
+  onActivateVersion: (version: PolicySetVersion) => void;
+  onSimulateVersion: (version: PolicySetVersion) => void;
+}) {
+  const versions = usePolicySetVersions(zoneId, policySet.id);
+  const rows = versions.data ?? [];
+
+  return (
+    <section className="border-t border-border pt-4">
+      <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+        Version history
+      </h3>
+      {versions.isLoading ? (
+        <Skeleton className="mt-3 h-16 w-full" />
+      ) : versions.isError ? (
+        <p className="mt-2 text-sm text-muted-foreground">Could not load versions.</p>
+      ) : rows.length === 0 ? (
+        <p className="mt-2 text-sm text-muted-foreground">
+          No versions yet. Compose one to define what this set enforces.
+        </p>
+      ) : (
+        <div className="mt-3 flex flex-col gap-2">
+          {rows.map((version) => {
+            const isActive = version.id === policySet.active_version_id;
+            return (
+              <div
+                key={version.id}
+                className="flex flex-wrap items-center gap-3 border border-border px-3 py-2"
+              >
+                <Badge tone="neutral">v{version.version}</Badge>
+                <span
+                  className="flex-1 truncate font-mono text-xs text-muted-foreground"
+                  title={version.manifest_sha256}
+                >
+                  {version.manifest_sha256.slice(0, 12)}…
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  {new Date(version.created_at).toLocaleDateString()}
+                </span>
+                {isActive ? (
+                  <Badge tone="success">Enforcing</Badge>
+                ) : (
+                  <span className="flex items-center gap-1.5">
+                    <Button variant="ghost" size="sm" onClick={() => onSimulateVersion(version)}>
+                      Simulate
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      mutating
+                      onClick={() => onActivateVersion(version)}
+                    >
+                      Activate
+                    </Button>
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {rows.length > 1 ? (
+        <p className="mt-3 text-xs text-muted-foreground">
+          Activating an earlier version rolls the zone back to exactly the policy versions it pins.
+        </p>
       ) : null}
     </section>
   );
@@ -690,8 +835,13 @@ function describeSts(state: string): string {
 
 // Resolves policy_version_id -> { policy name, version number } by loading each
 // policy's versions, so the manifest reads as policies rather than opaque UUIDs.
+// Reports readiness so unresolved entries only surface as removed once the library
+// has actually been checked.
 function usePolicyVersionNames(zoneId: string, policies: Policy[], enabled: boolean) {
-  const [map, setMap] = useState<Map<string, { name: string; version: number }>>(new Map());
+  const [state, setState] = useState<{
+    map: Map<string, { name: string; version: number }>;
+    ready: boolean;
+  }>({ map: new Map(), ready: false });
   const key = enabled ? policies.map((p) => p.id).join(",") : "";
   const [seed, setSeed] = useState("");
 
@@ -705,12 +855,12 @@ function usePolicyVersionNames(zoneId: string, policies: Policy[], enabled: bool
             next.set(version.id, { name: detail.name, version: version.version });
           }
         }
-        setMap(next);
+        setState({ map: next, ready: true });
       })
       .catch(() => undefined);
   }
 
-  return map;
+  return state;
 }
 
 function usePolicySetVersion(zoneId: string, policySetId: string, versionId: string | null) {
@@ -735,11 +885,11 @@ function usePolicySetVersion(zoneId: string, policySetId: string, versionId: str
 
 function SimulateModal({
   zoneId,
-  policySet,
+  target,
   onClose,
 }: {
   zoneId: string;
-  policySet: PolicySet | null;
+  target: SimulateTarget | null;
   onClose: () => void;
 }) {
   const [input, setInput] = useState("");
@@ -748,18 +898,20 @@ function SimulateModal({
   const [error, setError] = useState<string | null>(null);
   const [seedKey, setSeedKey] = useState("");
 
-  const open = policySet !== null && Boolean(policySet.active_version_id);
-  const noActive = policySet !== null && !policySet.active_version_id;
+  const versionId = target?.versionId ?? null;
+  const open = target !== null && versionId !== null;
+  const noVersion = target !== null && versionId === null;
 
-  if (policySet && seedKey !== policySet.id) {
-    setSeedKey(policySet.id);
+  const key = target ? `${target.set.id}:${versionId ?? ""}` : "";
+  if (target && seedKey !== key) {
+    setSeedKey(key);
     setInput("");
     setResult(null);
     setError(null);
   }
 
   async function run() {
-    if (!policySet?.active_version_id) return;
+    if (!target || !versionId) return;
     setError(null);
     let parsed: Record<string, unknown> | undefined;
     if (input.trim()) {
@@ -772,12 +924,7 @@ function SimulateModal({
     }
     setRunning(true);
     try {
-      const res = await consoleApi.policySets.simulate(
-        zoneId,
-        policySet.id,
-        policySet.active_version_id,
-        parsed,
-      );
+      const res = await consoleApi.policySets.simulate(zoneId, target.set.id, versionId, parsed);
       setResult(res);
     } catch (err) {
       setError(errorMessage(err));
@@ -788,22 +935,30 @@ function SimulateModal({
 
   return (
     <Modal
-      open={open || noActive}
+      open={open || noVersion}
       onClose={onClose}
-      title={`Simulate · ${policySet?.name ?? ""}`}
-      description="Dry-run the active version against an input. Nothing is mutated."
+      title={
+        target?.version
+          ? `Simulate v${target.version} · ${target.set.name}`
+          : `Simulate · ${target?.set.name ?? ""}`
+      }
+      description={
+        target?.version
+          ? "Dry-run this version against an input before activating it. Nothing is mutated."
+          : "Dry-run the enforcing version against an input. Nothing is mutated."
+      }
       footer={
         <>
           <Button variant="secondary" onClick={onClose}>
             Close
           </Button>
-          <Button onClick={() => void run()} loading={running} disabled={noActive}>
+          <Button onClick={() => void run()} loading={running} disabled={noVersion}>
             Run simulation
           </Button>
         </>
       }
     >
-      {noActive ? (
+      {noVersion ? (
         <p className="text-sm text-muted-foreground">
           This policy set has no active version to simulate. Activate a version first.
         </p>

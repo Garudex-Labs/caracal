@@ -659,15 +659,21 @@ function ZoneDetailDrawer({
 }) {
   const { deps, loading, error } = useZoneDependencies(zone);
 
-  const contents: { label: string; value: number; to: string }[] = deps
-    ? [
-        { label: "Applications", value: deps.applications, to: appLink("/applications") },
-        { label: "Resources", value: deps.resources, to: appLink("/resources") },
-        { label: "Providers", value: deps.providers, to: appLink("/providers") },
-        { label: "Policies", value: deps.policies, to: appLink("/policies") },
-        { label: "Policy sets", value: deps.policySets, to: appLink("/policy-sets") },
-      ]
-    : [];
+  const contents: { label: string; value: number; to: string; search?: Record<string, string> }[] =
+    deps
+      ? [
+          { label: "Applications", value: deps.applications, to: appLink("/applications") },
+          { label: "Resources", value: deps.resources, to: appLink("/resources") },
+          { label: "Providers", value: deps.providers, to: appLink("/providers") },
+          {
+            label: "Policies",
+            value: deps.policies,
+            to: appLink("/policies"),
+            search: { tab: "policies" },
+          },
+          { label: "Policy sets", value: deps.policySets, to: appLink("/policies") },
+        ]
+      : [];
 
   return (
     <Drawer
@@ -734,6 +740,7 @@ function ZoneDetailDrawer({
                   <Link
                     key={item.label}
                     to={item.to}
+                    search={item.search ?? {}}
                     onClick={onClose}
                     className="flex flex-col gap-1 px-3 py-2.5 transition-colors hover:bg-accent/50"
                   >

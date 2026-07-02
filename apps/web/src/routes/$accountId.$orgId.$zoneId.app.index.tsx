@@ -123,7 +123,7 @@ function PostureStrip({ data }: { data: ZoneOverview }) {
       </header>
       <div className="grid gap-px bg-border sm:grid-cols-2 xl:grid-cols-4 [&>*]:bg-background">
         <PostureCell
-          to={appLink("/policy-sets")}
+          to={appLink("/policies")}
           label="Enforcement"
           value={enforcing ? "Enforcing" : "Default-deny"}
           tone={enforcing ? "ok" : hasProtectables ? "warn" : "muted"}
@@ -291,7 +291,7 @@ function buildAttention(data: ZoneOverview): AttentionItem[] {
       title: "No policy set active",
       detail:
         "Requests deny by default until a policy set is activated. Activate one to allow access.",
-      to: appLink("/policy-sets"),
+      to: appLink("/policies"),
     });
   }
   if (expired > 0) {
@@ -401,7 +401,7 @@ function InventoryPanel({ data }: { data: ZoneOverview }) {
     { label: "Applications", value: data.applications.total, to: appLink("/applications") },
     { label: "Resources", value: data.resources.total, to: appLink("/resources") },
     { label: "Providers", value: data.providers.total, to: appLink("/providers") },
-    { label: "Policy sets", value: data.policy_sets.total, to: appLink("/policy-sets") },
+    { label: "Policy sets", value: data.policy_sets.total, to: appLink("/policies") },
   ];
 
   return (
