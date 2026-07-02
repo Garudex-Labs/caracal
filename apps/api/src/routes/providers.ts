@@ -12,6 +12,7 @@ import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
 import { zoneExists } from '../zone-guard.js'
 import { appendKeysetCondition, parseListPagination, setNextLink } from './list-pagination.js'
 import { assertReservedNamespace } from '../reserved-namespace.js'
+import { PROVIDER_KINDS, PUBLIC_PROVIDER_CONFIG_KEYS, SECRET_PROVIDER_CONFIG_KEYS } from '../provider-config.js'
 import {
   buildTokenRequest,
   ensureAllowedTokenEndpoint,
@@ -22,14 +23,7 @@ import {
   stringListConfig,
 } from '../provider-token.js'
 
-const ProviderKind = z.enum([
-  'none',
-  'caracal_mandate',
-  'oauth2_authorization_code',
-  'oauth2_client_credentials',
-  'api_key',
-  'bearer_token',
-])
+const ProviderKind = z.enum(PROVIDER_KINDS)
 type ProviderKind = z.infer<typeof ProviderKind>
 const APIKeyAuthLocation = z.enum(['header', 'query'])
 type APIKeyAuthLocation = z.infer<typeof APIKeyAuthLocation>
@@ -135,59 +129,6 @@ function isProviderIdentifierConflict(err: unknown): boolean {
 function providerIdentifierError(identifier: string | undefined): string | undefined {
   if (identifier === undefined || PROVIDER_IDENTIFIER_PATTERN.test(identifier)) return undefined
   return 'provider identifier must start with provider:// and use lowercase letters, numbers, or hyphens'
-}
-
-const PUBLIC_PROVIDER_CONFIG_KEYS: Record<ProviderKind, ReadonlySet<string>> = {
-  none: new Set(),
-  caracal_mandate: new Set(),
-  oauth2_authorization_code: new Set([
-    'authorization_endpoint',
-    'token_endpoint',
-    'redirect_uri',
-    'client_id',
-    'client_auth_method',
-    'scopes',
-    'allowed_token_hosts',
-    'authorization_params',
-    'token_params',
-    'auth_header',
-    'auth_scheme',
-    'forward_caracal_identity',
-    'allow_runtime_injection',
-  ]),
-  oauth2_client_credentials: new Set([
-    'token_endpoint',
-    'client_id',
-    'client_auth_method',
-    'scopes',
-    'audience',
-    'resource',
-    'allowed_token_hosts',
-    'token_params',
-    'key_id',
-    'auth_header',
-    'auth_scheme',
-    'forward_caracal_identity',
-    'allow_runtime_injection',
-  ]),
-  api_key: new Set([
-    'auth_location',
-    'header_name',
-    'query_param_name',
-    'auth_scheme',
-    'forward_caracal_identity',
-    'allow_runtime_injection',
-  ]),
-  bearer_token: new Set(['allowed_token_hosts', 'auth_header', 'auth_scheme', 'forward_caracal_identity', 'allow_runtime_injection']),
-}
-
-const SECRET_PROVIDER_CONFIG_KEYS: Record<ProviderKind, ReadonlySet<string>> = {
-  none: new Set(),
-  caracal_mandate: new Set(),
-  oauth2_authorization_code: new Set(['client_secret']),
-  oauth2_client_credentials: new Set(['client_secret', 'private_key']),
-  api_key: new Set(['api_key']),
-  bearer_token: new Set(['bearer_token']),
 }
 
 function requireString(config: Record<string, unknown>, key: string, message: string): void {
