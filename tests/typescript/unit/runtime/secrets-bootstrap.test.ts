@@ -5,7 +5,7 @@
 
 import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   bootstrapSecrets,
@@ -89,8 +89,8 @@ describe('bootstrapSecrets', () => {
     const current = process.env.CARACAL_HOME
     try {
       process.env.CARACAL_HOME = home
-      expect(devBootstrapPaths(repo).secretsDir).toBe('/tmp/home/dev-secrets')
-      expect(runtimeBootstrapPaths(home).secretsDir).toBe('/tmp/home/secrets')
+      expect(devBootstrapPaths(repo).secretsDir).toBe(resolve(join(home, 'dev-secrets')))
+      expect(runtimeBootstrapPaths(home).secretsDir).toBe(resolve(home, 'secrets'))
     } finally {
       if (current === undefined) delete process.env.CARACAL_HOME
       else process.env.CARACAL_HOME = current

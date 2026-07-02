@@ -36,11 +36,23 @@ describe('resolveCreatedBy', () => {
     expect(resolveCreatedBy(req)).toBe('Richard Hendricks')
   })
 
+  it('accepts email-shaped and accented attribution labels', () => {
+    expect(resolveCreatedBy(makeReq({ headers: { [AUTHORIZED_BY_HEADER]: 'richard.hendricks+ops@piedpiper.example' } }))).toBe(
+      'richard.hendricks+ops@piedpiper.example',
+    )
+    expect(resolveCreatedBy(makeReq({ headers: { [AUTHORIZED_BY_HEADER]: "Núria O'Brien" } }))).toBe("Núria O'Brien")
+  })
+
+  it('falls back to the verified identity when the header is not a name or email', () => {
+    const account = { id: 'op-1', name: 'Monica Hall' }
+    expect(resolveCreatedBy(makeReq({ headers: { [AUTHORIZED_BY_HEADER]: '<script>alert(1)</script>' }, account }))).toBe('Monica Hall')
+    expect(resolveCreatedBy(makeReq({ headers: { [AUTHORIZED_BY_HEADER]: 'line\nbreak' }, account }))).toBe('Monica Hall')
+    expect(resolveCreatedBy(makeReq({ headers: { [AUTHORIZED_BY_HEADER]: 'x'.repeat(257) }, account }))).toBe('Monica Hall')
+  })
+
   it('falls back to the verified account name, then email', () => {
     expect(resolveCreatedBy(makeReq({ account: { id: 'op-1', name: 'Monica Hall' } }))).toBe('Monica Hall')
-    expect(
-      resolveCreatedBy(makeReq({ account: { id: 'op-1', email: 'monica.hall@raviga.example' } })),
-    ).toBe('monica.hall@raviga.example')
+    expect(resolveCreatedBy(makeReq({ account: { id: 'op-1', email: 'monica.hall@raviga.example' } }))).toBe('monica.hall@raviga.example')
   })
 
   it('falls back to the admin actor name for a direct admin call', () => {
