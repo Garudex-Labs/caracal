@@ -72,8 +72,9 @@ export interface BootstrapReport {
   filesCreated: string[]
 }
 
+// On Windows, chmod maps the owner write bit to the read-only attribute, so
+// read-only secret files can still be rewritten after a 0o600 reset.
 function chmodSafe(path: string, mode: number): void {
-  if (!isPosix) return
   try {
     chmodSync(path, mode)
   } catch {

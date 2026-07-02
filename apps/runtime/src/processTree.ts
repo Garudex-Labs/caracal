@@ -8,8 +8,9 @@ import { existsSync, statSync } from 'node:fs'
 import { delimiter, join } from 'node:path'
 
 const isWindows = process.platform === 'win32'
-const EXE_EXT = isWindows ? '.exe' : ''
-const PNPM_BIN = isWindows ? 'pnpm.cmd' : 'pnpm'
+// pnpm ships as a bare binary on POSIX; on Windows it is pnpm.exe (standalone install)
+// or a pnpm.cmd shim (npm/corepack), probed in PATHEXT order.
+const PNPM_BINS = isWindows ? ['pnpm.exe', 'pnpm.cmd'] : ['pnpm']
 
 // Windows refuses to spawn .cmd/.bat shims without a shell (Node's CVE-2024-27980 fix),
 // so those launches must opt into the platform shell. Every other executable runs
@@ -18,15 +19,17 @@ function shellFor(command: string): boolean {
   return isWindows && /\.(cmd|bat)$/i.test(command)
 }
 
-function locate(binName: string): string | undefined {
+function locate(binNames: string[]): string | undefined {
   const path = process.env.PATH ?? ''
   for (const dir of path.split(delimiter)) {
     if (!dir) continue
-    const candidate = join(dir, `${binName}${EXE_EXT}`)
-    try {
-      if (existsSync(candidate) && statSync(candidate).isFile()) return candidate
-    } catch {
-      /* ignore */
+    for (const name of binNames) {
+      const candidate = join(dir, name)
+      try {
+        if (existsSync(candidate) && statSync(candidate).isFile()) return candidate
+      } catch {
+        /* ignore */
+      }
     }
   }
   return undefined
@@ -44,7 +47,7 @@ export interface PnpmInvocation {
 export function resolvePnpm(): PnpmInvocation | undefined {
   const execpath = process.env.npm_execpath
   if (execpath && /pnpm/i.test(execpath)) return { cmd: process.execPath, prefix: [execpath] }
-  const onPath = locate(PNPM_BIN)
+  const onPath = locate(PNPM_BINS)
   if (onPath) return { cmd: onPath, prefix: [] }
   return undefined
 }
