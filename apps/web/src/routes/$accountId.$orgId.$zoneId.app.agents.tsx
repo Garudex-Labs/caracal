@@ -437,13 +437,10 @@ function AgentsPage({ zoneId, tabs }: { zoneId: string; tabs: ReactNode }) {
             application={application}
             label={label}
             loaded={rows.length}
-            hasMore={Boolean(feed.hasNextPage)}
-            fetchingMore={feed.isFetchingNextPage}
             onStatus={setStatus}
             onLifecycle={setLifecycleFilter}
             onApplication={setApplication}
             onLabel={setLabel}
-            onLoadMore={() => feed.fetchNextPage()}
           />
         }
         rows={rows}
@@ -451,6 +448,11 @@ function AgentsPage({ zoneId, tabs }: { zoneId: string; tabs: ReactNode }) {
         columns={columns}
         rowKey={(a) => a.agent_session_id}
         pageSize={12}
+        feed={{
+          hasMore: Boolean(feed.hasNextPage),
+          fetching: feed.isFetchingNextPage,
+          loadMore: () => feed.fetchNextPage(),
+        }}
         search={{
           placeholder: "Filter loaded agents by session, app, or label…",
           match: (a, q) =>
@@ -503,13 +505,10 @@ function AgentFilterBar({
   application,
   label,
   loaded,
-  hasMore,
-  fetchingMore,
   onStatus,
   onLifecycle,
   onApplication,
   onLabel,
-  onLoadMore,
 }: {
   leading: ReactNode;
   status: string;
@@ -517,13 +516,10 @@ function AgentFilterBar({
   application: string;
   label: string;
   loaded: number;
-  hasMore: boolean;
-  fetchingMore: boolean;
   onStatus: (v: string) => void;
   onLifecycle: (v: string) => void;
   onApplication: (v: string) => void;
   onLabel: (v: string) => void;
-  onLoadMore: () => void;
 }) {
   const activeFilters =
     (status !== "all" ? 1 : 0) +
@@ -535,9 +531,6 @@ function AgentFilterBar({
       activeFilters={activeFilters}
       loaded={loaded}
       noun="agent"
-      hasMore={hasMore}
-      fetchingMore={fetchingMore}
-      onLoadMore={onLoadMore}
     >
       <Select label="Status" value={status} onChange={(e) => onStatus(e.target.value)}>
         <option value="all">All statuses</option>
@@ -653,20 +646,18 @@ function DelegationPage({ zoneId, tabs }: { zoneId: string; tabs: ReactNode }) {
       description="Active delegation edges. Each edge grants one agent session authority to act on another's behalf within scope."
       breadcrumbs={[{ label: "Console", to: appLink() }, { label: "Agents" }]}
       toolbarExtra={
-        <FeedToolbar
-          leading={tabs}
-          loaded={rows.length}
-          noun="edge"
-          hasMore={Boolean(feed.hasNextPage)}
-          fetchingMore={feed.isFetchingNextPage}
-          onLoadMore={() => feed.fetchNextPage()}
-        />
+        <FeedToolbar leading={tabs} loaded={rows.length} noun="edge" />
       }
       rows={rows}
       loading={feed.isLoading}
       columns={columns}
       rowKey={(e) => e.id}
       pageSize={12}
+      feed={{
+        hasMore: Boolean(feed.hasNextPage),
+        fetching: feed.isFetchingNextPage,
+        loadMore: () => feed.fetchNextPage(),
+      }}
       search={{
         placeholder: "Search loaded edges by session or scope…",
         match: (e, q) =>

@@ -24,34 +24,27 @@ export function SettingsGroup({
   return (
     <section
       className={[
-        "mt-6 overflow-hidden rounded-xl border bg-card shadow-sm first:mt-0",
-        danger ? "border-destructive/40" : "border-border",
+        "mt-8 border-t pt-8 first:mt-0 first:border-t-0 first:pt-0",
+        danger ? "border-destructive/30" : "border-border",
       ].join(" ")}
     >
-      <div className="px-5 pt-5 sm:px-6">
-        <h3
-          className={[
-            "text-sm font-semibold tracking-tight",
-            danger ? "text-destructive" : "text-foreground",
-          ].join(" ")}
-        >
-          {title}
-        </h3>
-        {description ? (
-          <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">{description}</p>
-        ) : null}
-      </div>
-      <div className="min-w-0 px-5 py-5 sm:px-6">{children}</div>
-      {action ? (
-        <div
-          className={[
-            "flex flex-wrap items-center justify-end gap-2 border-t px-5 py-3.5 sm:px-6",
-            danger ? "border-destructive/20 bg-destructive/5" : "border-border bg-muted/30",
-          ].join(" ")}
-        >
-          {action}
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h3
+            className={[
+              "text-sm font-semibold tracking-tight",
+              danger ? "text-destructive" : "text-foreground",
+            ].join(" ")}
+          >
+            {title}
+          </h3>
+          {description ? (
+            <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">{description}</p>
+          ) : null}
         </div>
-      ) : null}
+        {action ? <div className="flex flex-shrink-0 items-center gap-2">{action}</div> : null}
+      </div>
+      <div className="mt-5 min-w-0">{children}</div>
     </section>
   );
 }
