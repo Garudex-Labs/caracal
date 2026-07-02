@@ -583,12 +583,18 @@ func existingLocalFile(path string) string {
 	return ""
 }
 
+// POSIX write bits are meaningless on Windows, where NTFS ACLs govern access
+// and writable files always report 0666, so the bit check applies elsewhere only.
+func permTooBroad(info os.FileInfo) bool {
+	return runtime.GOOS != "windows" && info.Mode().Perm()&0o022 != 0
+}
+
 func readSecretFile(path string) (string, error) {
 	info, err := os.Stat(path)
 	if err != nil {
 		return "", fmt.Errorf("caracal: secret file is not readable: %w", err)
 	}
-	if info.Mode().Perm()&0o022 != 0 {
+	if permTooBroad(info) {
 		return "", fmt.Errorf("caracal: secret file permissions are too broad: %s", path)
 	}
 	data, err := os.ReadFile(path)
@@ -640,7 +646,7 @@ func parseProfile(path string) (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	if info, err := os.Stat(path); err == nil && info.Mode().Perm()&0o022 != 0 {
+	if info, err := os.Stat(path); err == nil && permTooBroad(info) {
 		return nil, fmt.Errorf("caracal: profile permissions are too broad: %s", path)
 	}
 	out := map[string]string{}

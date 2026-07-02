@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync/atomic"
 	"time"
 
@@ -438,7 +439,13 @@ func (c *Client) run(ctx context.Context) {
 	}
 }
 
+// Directory fsync is a POSIX durability idiom for persisting the new dirent;
+// FlushFileBuffers rejects NTFS directory handles and Windows journals
+// directory metadata without it, so the sync applies elsewhere only.
 func syncReplayDir(dir string) error {
+	if runtime.GOOS == "windows" {
+		return nil
+	}
 	f, err := os.Open(dir)
 	if err != nil {
 		return err

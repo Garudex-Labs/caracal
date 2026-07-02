@@ -187,12 +187,12 @@ func TestFromConfigGeneratedProfile(t *testing.T) {
 		t.Fatal(err)
 	}
 	profilePath := filepath.Join(dir, "caracal.toml")
-	profile := `coordinator_url = "http://coord"
-sts_url = "` + sts.URL + `"
+	profile := fmt.Sprintf(`coordinator_url = "http://coord"
+sts_url = %q
 gateway_url = "https://gateway.example.com/proxy"
 zone_id = "z"
 application_id = "app"
-app_client_secret_file = "` + secretPath + `"
+app_client_secret_file = %q
 
 [[credentials]]
 resource = "calendar"
@@ -200,7 +200,7 @@ resource = "calendar"
 [[credentials]]
 resource = "billing"
 upstream_prefix = "https://billing.example.com"
-`
+`, sts.URL, secretPath)
 	if err := os.WriteFile(profilePath, []byte(profile), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -850,12 +850,12 @@ func TestFromConfigHonorsResourceBindingsFileAndEnv(t *testing.T) {
 		t.Fatal(err)
 	}
 	profilePath := filepath.Join(dir, "caracal.toml")
-	profile := `coordinator_url = "http://coord"
-sts_url = "` + sts.URL + `"
+	profile := fmt.Sprintf(`coordinator_url = "http://coord"
+sts_url = %q
 zone_id = "z"
 application_id = "app"
-app_client_secret_file = "` + secretPath + `"
-`
+app_client_secret_file = %q
+`, sts.URL, secretPath)
 	if err := os.WriteFile(profilePath, []byte(profile), 0o600); err != nil {
 		t.Fatal(err)
 	}
