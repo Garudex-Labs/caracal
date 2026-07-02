@@ -33,6 +33,7 @@ import {
   ChevronDownGlyph,
   EyeGlyph,
   StarGlyph,
+  StopGlyph,
   UserCheckGlyph,
   type Glyph,
 } from "@/components/console/OperatorGlyphs";
@@ -376,6 +377,7 @@ export function OperatorInput({
   value,
   onChange,
   onSubmit,
+  onStop,
   pending,
   minHeight,
   autoFocus,
@@ -388,6 +390,9 @@ export function OperatorInput({
   value: string;
   onChange: (value: string) => void;
   onSubmit: () => void;
+  // Stops the send in flight. When provided, the send control becomes a stop control while a
+  // message is pending, so the operator can settle a long or runaway turn instead of waiting it out.
+  onStop?: () => void;
   pending: boolean;
   minHeight: number;
   autoFocus?: boolean;
@@ -473,27 +478,38 @@ export function OperatorInput({
     />
   );
 
-  const sendButton = (
-    <button
-      type="button"
-      aria-label="Send"
-      onClick={onSubmit}
-      disabled={!canSend}
-      aria-busy={pending || undefined}
-      className={cx(
-        "grid h-9 w-9 flex-shrink-0 place-items-center rounded-full transition-all",
-        canSend
-          ? "bg-primary text-primary-foreground shadow-sm hover:bg-primary/90 active:scale-95"
-          : "cursor-not-allowed bg-muted text-muted-foreground",
-      )}
-    >
-      {pending ? (
-        <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
-      ) : (
-        <ArrowUpGlyph className="h-4 w-4" />
-      )}
-    </button>
-  );
+  const sendButton =
+    pending && onStop ? (
+      <button
+        type="button"
+        aria-label="Stop"
+        title="Stop"
+        onClick={onStop}
+        className="grid h-9 w-9 flex-shrink-0 place-items-center rounded-full bg-foreground text-background shadow-sm transition-all hover:bg-foreground/85 active:scale-95"
+      >
+        <StopGlyph className="h-4 w-4" />
+      </button>
+    ) : (
+      <button
+        type="button"
+        aria-label="Send"
+        onClick={onSubmit}
+        disabled={!canSend}
+        aria-busy={pending || undefined}
+        className={cx(
+          "grid h-9 w-9 flex-shrink-0 place-items-center rounded-full transition-all",
+          canSend
+            ? "bg-primary text-primary-foreground shadow-sm hover:bg-primary/90 active:scale-95"
+            : "cursor-not-allowed bg-muted text-muted-foreground",
+        )}
+      >
+        {pending ? (
+          <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
+        ) : (
+          <ArrowUpGlyph className="h-4 w-4" />
+        )}
+      </button>
+    );
 
   return (
     <div className="flex flex-col gap-2 rounded-2xl border border-border bg-card p-3 shadow-xl shadow-black/10 transition-colors focus-within:border-accent-purple/40 focus-within:ring-2 focus-within:ring-accent-purple/20">
@@ -519,6 +535,7 @@ export function Composer({
   value,
   onChange,
   onSubmit,
+  onStop,
   pending,
   usage,
   model,
@@ -529,6 +546,7 @@ export function Composer({
   value: string;
   onChange: (value: string) => void;
   onSubmit: () => void;
+  onStop?: () => void;
   pending: boolean;
   usage?: SessionUsage;
   model: string | null;
@@ -542,6 +560,7 @@ export function Composer({
         value={value}
         onChange={onChange}
         onSubmit={onSubmit}
+        onStop={onStop}
         pending={pending}
         minHeight={40}
         usage={usage ?? ZERO_USAGE}

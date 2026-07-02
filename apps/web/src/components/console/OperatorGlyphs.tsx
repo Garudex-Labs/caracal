@@ -360,6 +360,14 @@ export function ArrowUpGlyph({ className }: { className?: string }) {
   );
 }
 
+export function StopGlyph({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true">
+      <rect x="7" y="7" width="10" height="10" rx="1.5" />
+    </svg>
+  );
+}
+
 export function TrashGlyph({ className }: { className?: string }) {
   return (
     <svg
