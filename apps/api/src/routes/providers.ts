@@ -12,6 +12,15 @@ import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
 import { zoneExists } from '../zone-guard.js'
 import { appendKeysetCondition, parseListPagination, setNextLink } from './list-pagination.js'
 import { assertReservedNamespace } from '../reserved-namespace.js'
+import {
+  buildTokenRequest,
+  ensureAllowedTokenEndpoint,
+  exchangeProviderToken,
+  openSecretConfig,
+  recordConfig,
+  stringConfig,
+  stringListConfig,
+} from '../provider-token.js'
 
 const ProviderKind = z.enum([
   'none',
@@ -341,6 +350,9 @@ function splitProviderConfig(
   } else {
     requireHttpsUrl(publicConfig, 'token_endpoint', `${kind} provider config token_endpoint must be an HTTPS URL`)
     requireString(publicConfig, 'client_id', `${kind} provider config requires client_id`)
+    if (publicConfig.allowed_token_hosts === undefined) {
+      publicConfig.allowed_token_hosts = [new URL(publicConfig.token_endpoint as string).hostname.toLowerCase()]
+    }
     requireStringList(publicConfig, 'allowed_token_hosts', `${kind} provider config requires allowed_token_hosts`)
     requireOptionalStringList(publicConfig, 'scopes', `${kind} provider config scopes must be a list of strings`)
     requireOptionalStringRecord(
@@ -438,6 +450,34 @@ function requireExistingOAuthSecret(
 
 const RETURNING = `id, zone_id, name, identifier, provider_kind AS kind,
                   config_json, secret_config_keys, created_at, updated_at`
+
+// Connection tests reach outside the platform, so they are capped per zone per minute
+// to keep the control plane from being used as a request amplifier.
+const PROVIDER_TEST_RATE_LIMIT = 10
+
+interface ProviderTestRow {
+  kind: ProviderKind
+  config_json: Record<string, unknown>
+  secret_config_ct: Buffer | null
+  secret_config_nonce: Buffer | null
+}
+
+interface ProviderTestResult {
+  status: 'ok' | 'auth_failed' | 'unreachable' | 'endpoint_error' | 'config_error' | 'untestable'
+  detail: string
+  checked_at: string
+}
+
+// Only the standard OAuth error code is taken from the upstream response, so nothing
+// the provider returns can flow back to the caller beyond a fixed-vocabulary token.
+function oauthErrorCode(body: string): string {
+  try {
+    const parsed = JSON.parse(body) as Record<string, unknown>
+    return typeof parsed.error === 'string' && /^[a-z_]{1,64}$/.test(parsed.error) ? parsed.error : ''
+  } catch {
+    return ''
+  }
+}
 
 export const providersRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get('/zones/:zoneId/providers', async (req, reply) => {
@@ -605,5 +645,118 @@ export const providersRoutes: FastifyPluginAsync = async (fastify) => {
     )
     if (!rowCount) return reply.code(404).send({ error: 'provider_not_found' })
     return reply.code(204).send()
+  })
+
+  // Verifies reachability and client authentication against the provider's own
+  // allowlisted HTTPS token endpoint. No caller-supplied URL or payload is ever used,
+  // DNS resolution is pinned away from private address space, and the response is
+  // reduced to a fixed classification so no upstream data or secret can leak back.
+  fastify.post('/zones/:zoneId/providers/:id/test', async (req, reply) => {
+    const params = parseParams(ZoneIdParams, req, reply)
+    if (!params) return
+    const rlKey = `rl:providertest:${params.zoneId}`
+    await fastify.redis.set(rlKey, 0, 'EX', 60, 'NX')
+    const rlCount = await fastify.redis.incr(rlKey)
+    if (rlCount > PROVIDER_TEST_RATE_LIMIT) {
+      return reply.code(429).send({ error: 'provider_test_rate_limited' })
+    }
+    const { rows } = await fastify.db.query<ProviderTestRow>(
+      `SELECT provider_kind AS kind, config_json, secret_config_ct, secret_config_nonce
+       FROM providers WHERE id = $1 AND zone_id = $2 AND archived_at IS NULL`,
+      [params.id, params.zoneId],
+    )
+    if (!rows[0]) return reply.code(404).send({ error: 'provider_not_found' })
+    const row = rows[0]
+    const result = (status: ProviderTestResult['status'], detail: string): ProviderTestResult => ({
+      status,
+      detail,
+      checked_at: new Date().toISOString(),
+    })
+
+    if (row.kind === 'none' || row.kind === 'caracal_mandate') {
+      return result('untestable', 'This provider makes no upstream credential request, so there is nothing to test.')
+    }
+    if (row.kind === 'api_key' || row.kind === 'bearer_token') {
+      return result(
+        'untestable',
+        'Static credentials are attached to upstream requests as-is; the provider has no endpoint of its own to test.',
+      )
+    }
+
+    const config = row.config_json
+    const method = stringConfig(config, 'client_auth_method') || 'client_secret_basic'
+    if (method === 'private_key_jwt') {
+      return result('untestable', 'private_key_jwt assertions are signed per token request and cannot be verified without one.')
+    }
+    const secrets = openSecretConfig(row.secret_config_ct, row.secret_config_nonce)
+    const clientId = stringConfig(config, 'client_id')
+    const clientSecret = secrets.client_secret ?? ''
+    if (!clientId || (method !== 'none' && !clientSecret)) {
+      return result('config_error', 'The provider client configuration is incomplete.')
+    }
+    let endpoint: URL
+    try {
+      endpoint = ensureAllowedTokenEndpoint(stringConfig(config, 'token_endpoint'), stringListConfig(config, 'allowed_token_hosts'))
+    } catch (err) {
+      return result('config_error', err instanceof Error ? err.message : String(err))
+    }
+
+    // client_credentials providers perform a real token request; authorization_code
+    // providers submit a placeholder code, which a healthy endpoint rejects with
+    // invalid_grant after accepting the client credentials.
+    const form =
+      row.kind === 'oauth2_client_credentials'
+        ? new URLSearchParams({ grant_type: 'client_credentials' })
+        : new URLSearchParams({
+            grant_type: 'authorization_code',
+            code: 'caracal-connection-test',
+            redirect_uri: stringConfig(config, 'redirect_uri'),
+          })
+    const scopes = stringListConfig(config, 'scopes')
+    if (row.kind === 'oauth2_client_credentials') {
+      if (scopes.length > 0) form.set('scope', scopes.join(' '))
+      const audience = stringConfig(config, 'audience')
+      if (audience) form.set('audience', audience)
+      const resource = stringConfig(config, 'resource')
+      if (resource) form.set('resource', resource)
+    }
+    for (const [key, value] of Object.entries(recordConfig(config, 'token_params'))) {
+      form.set(key, value)
+    }
+
+    let response: { statusCode: number; body: string }
+    try {
+      response = await exchangeProviderToken(endpoint, buildTokenRequest(form, clientId, clientSecret, method))
+    } catch (err) {
+      req.log.warn({ err, providerId: params.id }, 'provider connection test failed to reach the token endpoint')
+      return result('unreachable', err instanceof Error ? err.message : 'The token endpoint could not be reached.')
+    }
+
+    const errCode = oauthErrorCode(response.body)
+    if (row.kind === 'oauth2_client_credentials') {
+      if (response.statusCode === 200) {
+        // The issued token is parsed for presence only and discarded, never stored or returned.
+        let issued = false
+        try {
+          issued = typeof (JSON.parse(response.body) as Record<string, unknown>).access_token === 'string'
+        } catch {
+          issued = false
+        }
+        return issued
+          ? result('ok', 'The provider authenticated the client and issued a token.')
+          : result('endpoint_error', 'The token endpoint returned HTTP 200 without an access token.')
+      }
+      if (errCode === 'invalid_client' || errCode === 'unauthorized_client' || response.statusCode === 401) {
+        return result('auth_failed', 'The provider rejected the client credentials.')
+      }
+      return result('endpoint_error', `The token endpoint responded with HTTP ${response.statusCode}${errCode ? ` (${errCode})` : ''}.`)
+    }
+    if (errCode === 'invalid_grant') {
+      return result('ok', 'The provider authenticated the client and rejected the placeholder code, as expected.')
+    }
+    if (errCode === 'invalid_client' || response.statusCode === 401) {
+      return result('auth_failed', 'The provider rejected the client credentials.')
+    }
+    return result('endpoint_error', `The token endpoint responded with HTTP ${response.statusCode}${errCode ? ` (${errCode})` : ''}.`)
   })
 }

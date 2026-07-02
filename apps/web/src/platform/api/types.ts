@@ -135,6 +135,12 @@ export interface ProviderPatchInput {
   config_json?: Record<string, unknown>;
 }
 
+export interface ProviderTestResult {
+  status: "ok" | "auth_failed" | "unreachable" | "endpoint_error" | "config_error" | "untestable";
+  detail: string;
+  checked_at: string;
+}
+
 export interface Policy {
   id: string;
   zone_id: string;

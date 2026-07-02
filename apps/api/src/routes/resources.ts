@@ -23,19 +23,19 @@ const HttpURL = z
   }, 'upstream_url must use http or https')
 
 const ResourceOperation = z.object({
-  method: z.string().min(1),
-  path: z.string().min(1),
-  scope: z.string().min(1),
+  method: z.string().min(1).max(16),
+  path: z.string().min(1).max(512),
+  scope: z.string().min(1).max(200),
 })
 
 const ResourceBodyBase = z.object({
   name: z.string().min(1).max(200).optional(),
-  identifier: z.string().min(1).optional(),
+  identifier: z.string().min(1).max(512).optional(),
   upstream_url: HttpURL.nullable().optional(),
-  scopes: z.array(z.string()).min(1),
+  scopes: z.array(z.string().min(1).max(200)).min(1).max(64),
   credential_provider_id: z.string().nullable().optional(),
   gateway_application_id: z.string().min(1).nullable().optional(),
-  operations: z.array(ResourceOperation).optional(),
+  operations: z.array(ResourceOperation).max(256).optional(),
   operation_enforcement: z.enum(['enforced', 'transport_uniform']).optional(),
 })
 const ResourceBody = ResourceBodyBase.refine((body) => body.name !== undefined || body.identifier !== undefined, {
