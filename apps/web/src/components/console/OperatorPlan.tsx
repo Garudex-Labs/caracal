@@ -42,11 +42,14 @@ import {
 } from "@/components/ai-elements/tool";
 import { Badge, Button, useCopyToClipboard, useToast } from "@/components/ui";
 import { AlertGlyph, KeyGlyph, PlanGlyph } from "@/components/console/OperatorGlyphs";
+import { SecretCredentialDialog } from "@/components/console/SecretCredentialDialog";
 import { cx } from "@/lib/cx";
 import {
   useDecideOperatorPlan,
   useExecuteOperatorPlan,
   useOperatorCapabilities,
+  useOperatorPlanSecrets,
+  useProvidePlanSecrets,
 } from "@/platform/api/hooks";
 import { planCitations } from "@/platform/operator/citations";
 import { applyingLine } from "@/platform/operator/status";
@@ -325,6 +328,54 @@ export function PlanArtifact({
     }
   }, [plan.canExecute, plan.seq, execute.mutate]);
 
+  // A step that connects a credential-bearing provider collects its values through the secure
+  // prompt into the sealed vault. The plan cannot be approved - by the operator or by autopilot -
+  // until every such step is satisfied, so the prompt opens itself once when the plan arrives and
+  // stays reachable through the buttons below if it is dismissed or the values need changing.
+  const credentialSteps = plan.steps.filter((step) => step.secretFields.length > 0);
+  const needsCredentials = credentialSteps.length > 0 && plan.canDecide;
+  const secretsStatus = useOperatorPlanSecrets(
+    zoneId,
+    conversationId,
+    needsCredentials ? plan.seq : null,
+  );
+  const provide = useProvidePlanSecrets(zoneId, conversationId);
+  const providedSteps = new Set(
+    (secretsStatus.data?.steps ?? [])
+      .filter((step) => step.provided)
+      .map((step) => step.step_id),
+  );
+  const unsatisfied = credentialSteps.filter((step) => !providedSteps.has(step.id));
+  const credentialsReady = needsCredentials && secretsStatus.data != null && unsatisfied.length === 0;
+  const [promptStepId, setPromptStepId] = useState<string | null>(null);
+  const promptedSeq = useRef<number | null>(null);
+  useEffect(() => {
+    if (!needsCredentials || !secretsStatus.data) return;
+    if (promptedSeq.current === plan.seq) return;
+    promptedSeq.current = plan.seq;
+    const first = credentialSteps.find((step) => !providedSteps.has(step.id));
+    if (first) setPromptStepId(first.id);
+  });
+  const promptStep = credentialSteps.find((step) => step.id === promptStepId) ?? null;
+  const submitCredentials = (values: Record<string, string>) => {
+    if (!promptStep) return;
+    provide.mutate(
+      { planSeq: plan.seq, stepId: promptStep.id, values },
+      {
+        onSuccess: (result) => {
+          if (result.all_satisfied) {
+            setPromptStepId(null);
+            return;
+          }
+          const next = credentialSteps.find(
+            (step) => step.id !== promptStep.id && !providedSteps.has(step.id),
+          );
+          setPromptStepId(next ? next.id : null);
+        },
+      },
+    );
+  };
+
   const secrets = issuedSecrets(execute.data?.outputs);
 
   return (
@@ -393,6 +444,24 @@ export function PlanArtifact({
                 : "Approve to run these read-only steps in this zone."}
             </ConfirmationRequest>
           </ConfirmationTitle>
+          {needsCredentials ? (
+            <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2">
+              <KeyGlyph className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+              <span className="min-w-0 flex-1 text-[11px] text-muted-foreground">
+                {credentialsReady
+                  ? "Provider credentials are sealed in the vault and will apply when this plan runs."
+                  : "This plan connects a provider that needs credentials. They are collected in a secure prompt, never in the chat."}
+              </span>
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={busy || provide.isPending}
+                onClick={() => setPromptStepId((unsatisfied[0] ?? credentialSteps[0]).id)}
+              >
+                {credentialsReady ? "Change credentials" : "Provide credentials"}
+              </Button>
+            </div>
+          ) : null}
           <ConfirmationActions>
             <ConfirmationAction
               variant="outline"
@@ -403,7 +472,7 @@ export function PlanArtifact({
             </ConfirmationAction>
             <ConfirmationAction
               variant="default"
-              disabled={busy}
+              disabled={busy || (needsCredentials && !credentialsReady)}
               onClick={() => decide.mutate({ plan_seq: plan.seq, decision: "approved" })}
             >
               Approve
@@ -415,6 +484,19 @@ export function PlanArtifact({
             </p>
           ) : null}
         </Confirmation>
+      ) : null}
+
+      {promptStep ? (
+        <SecretCredentialDialog
+          open
+          providerName={primaryArg(promptStep.args) ?? promptStep.summary}
+          kind={typeof promptStep.args.kind === "string" ? promptStep.args.kind : ""}
+          fields={promptStep.secretFields}
+          pending={provide.isPending}
+          error={provide.isError ? "The credentials could not be saved. Check the values and try again." : null}
+          onSubmit={submitCredentials}
+          onClose={() => setPromptStepId(null)}
+        />
       ) : null}
 
       <PlanOutcome

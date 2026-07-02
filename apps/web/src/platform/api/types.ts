@@ -835,6 +835,22 @@ export interface OperatorExecutionResult {
   outputs: Record<string, Record<string, unknown>>;
 }
 
+// The credential posture of a plan: which steps collect values through the secure prompt and
+// whether the sealed vault currently holds them. Field names only - values are write-only.
+export interface OperatorPlanSecretsStatus {
+  plan_seq: number;
+  steps: { step_id: string; fields: string[]; provided: boolean }[];
+}
+
+export interface OperatorPlanSecretsResult {
+  ok: boolean;
+  plan_seq: number;
+  step_id: string;
+  all_satisfied: boolean;
+  auto_approved: boolean;
+  approval_turn: OperatorTurn | null;
+}
+
 export interface OperatorAiProviderStatus {
   id: string;
   model: string;
