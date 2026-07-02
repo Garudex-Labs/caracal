@@ -42,13 +42,18 @@ const COVERPKG = [
   'github.com/garudex-labs/caracal/packages/connectors/nethttp/go',
 ].join(',')
 
-function run(command, args) {
+function runStatus(command, args) {
   const result = spawnSync(command, args, { cwd: root, stdio: 'inherit' })
   if (result.error) {
     process.stderr.write(`failed to run ${command}: ${result.error.message}\n`)
-    process.exit(1)
+    return 1
   }
-  if (result.status !== 0) process.exit(result.status ?? 1)
+  return result.status ?? 1
+}
+
+function run(command, args) {
+  const status = runStatus(command, args)
+  if (status !== 0) process.exit(status)
 }
 
 function collectTestFiles(dir) {
@@ -67,6 +72,7 @@ function runWithStagedSourceTests(args) {
     process.exit(1)
   }
   const staged = []
+  let status = 1
   try {
     for (const source of collectTestFiles(sourceDir).sort()) {
       const target = join(root, relative(sourceDir, source))
@@ -77,13 +83,14 @@ function runWithStagedSourceTests(args) {
       copyFileSync(source, target)
       staged.push(target)
     }
-    run('go', args)
+    status = runStatus('go', args)
   } catch (err) {
     process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`)
-    process.exit(1)
+    status = 1
   } finally {
     for (const target of staged) rmSync(target, { force: true })
   }
+  if (status !== 0) process.exit(status)
 }
 
 const mode = process.argv[2] ?? ''

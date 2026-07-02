@@ -27,3 +27,11 @@ vulnerabilities:
   - id: CVE-2026-45447
     statement: "libssl3 fix pending upstream distroless/nodejs24 rebuild; no newer base digest available."
     expired_at: 2026-07-21
+
+# The postgres:18-alpine base image ships gosu built against golang.org/x/sys
+# v0.1.0. CVE-2026-39824 is in the x/sys windows package (NewNTUnicodeString),
+# which is not compiled into the linux/amd64 gosu binary, so the finding is not
+# reachable on this platform. Remediation requires an upstream gosu rebuild.
+  - id: CVE-2026-39824
+    statement: "Windows-only x/sys code path in upstream gosu inside postgres:18-alpine; unreachable in linux/amd64 builds."
+    expired_at: 2026-07-30

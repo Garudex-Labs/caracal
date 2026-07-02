@@ -26,16 +26,23 @@ const (
 	auditStream   = "caracal.audit.events"
 )
 
+// jtiRedis is the narrow Redis surface the tracker needs: a SETNX-style first-use
+// marker and the audit stream append.
+type jtiRedis interface {
+	SetNXTTL(ctx context.Context, key, value string, ttl time.Duration) (bool, error)
+	XAdd(ctx context.Context, stream string, values map[string]any) error
+}
+
 // jtiTracker records the first use of every token's JTI and rejects subsequent
 // presentations of the same JTI within the token's TTL.
 type jtiTracker struct {
-	redis    *RedisClient
+	redis    jtiRedis
 	log      zerolog.Logger
 	failOpen bool
 	auditKey []byte
 }
 
-func newJTITracker(redis *RedisClient, log zerolog.Logger, failOpen bool, auditKey []byte) (*jtiTracker, error) {
+func newJTITracker(redis jtiRedis, log zerolog.Logger, failOpen bool, auditKey []byte) (*jtiTracker, error) {
 	if redis == nil {
 		return nil, errors.New("jti tracker requires redis")
 	}

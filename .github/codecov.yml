@@ -4,12 +4,23 @@
 # Codecov configuration: paths excluded from coverage reporting.
 
 ignore:
+  # Sample code shipped for adopters; never executed by the product.
   - "examples/**"
+  # Documentation site content and configuration.
   - "docs/**"
+  # Generated TypeScript artifacts.
   - "**/*.gen.ts"
+  # Process entrypoints: env wiring and signal plumbing only, exercised by smoke tests.
   - "apps/*/src/main.ts"
+  # Thin pgx adapters: SQL passthrough reachable only against live Postgres,
+  # exercised by the integration and e2e suites that require infrastructure.
   - "services/*/internal/db.go"
+  # Thin go-redis adapters: command passthrough reachable only against live Redis,
+  # exercised by the integration and e2e suites that require infrastructure.
   - "services/*/internal/redis.go"
+  # One-time chain-rewrite migration; every statement is pgx-pool-bound and it
+  # only runs when an operator invokes the rehash maintenance path.
+  - "services/audit/internal/rehash.go"
 
 coverage:
   status:
