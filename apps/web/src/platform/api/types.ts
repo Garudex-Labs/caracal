@@ -60,7 +60,6 @@ export interface ApplicationInput {
 
 export interface ApplicationPatchInput {
   name?: string;
-  client_secret?: string;
   traits?: string[];
 }
 

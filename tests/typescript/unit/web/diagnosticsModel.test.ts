@@ -144,7 +144,7 @@ describe('issuesOf', () => {
       title: 'Pied Piper Production · Policy enforcement',
       explanation: 'HTTP 500',
       guidance: 'Inspect activation state.',
-      link: { label: 'Open policy sets', sub: '/policy-sets', zoneId: PIED_PIPER },
+      link: { label: 'Open policy sets', sub: '/policies', zoneId: PIED_PIPER },
     })
     expect(issues[0].impact).toBeTruthy()
     expect(issues[1]).toMatchObject({

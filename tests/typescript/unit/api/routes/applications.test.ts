@@ -58,6 +58,7 @@ describe('POST /v1/zones/:zoneId/applications', () => {
   it('creates managed applications with a generated one-time client secret', async () => {
     const { app, db } = buildApp()
     db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
+    db.query.mockResolvedValueOnce({ rows: [] })
     db.query.mockResolvedValueOnce({ rows: [{ id: 'app-1', zone_id: 'z1', name: 'Runner', registration_method: 'managed' }] })
 
     await app.ready()
@@ -69,7 +70,39 @@ describe('POST /v1/zones/:zoneId/applications', () => {
 
     expect(res.statusCode).toBe(201)
     expect(JSON.parse(res.body)).toMatchObject({ id: 'app-1', client_secret: expect.stringMatching(/^cs_[A-Za-z0-9_-]+$/) })
+    expect(db.query).toHaveBeenCalledTimes(3)
+  })
+
+  it('rejects a duplicate active managed application name', async () => {
+    const { app, db } = buildApp()
+    db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
+    db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/applications',
+      payload: { name: 'Runner', registration_method: 'managed' },
+    })
+
+    expect(res.statusCode).toBe(409)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'application_name_taken' })
     expect(db.query).toHaveBeenCalledTimes(2)
+  })
+
+  it('rejects a whitespace-only application name', async () => {
+    const { app, db } = buildApp()
+    db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/applications',
+      payload: { name: '   ', registration_method: 'managed' },
+    })
+
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'invalid_application' })
   })
 
   it('rejects an application name longer than the maximum length', async () => {
@@ -144,6 +177,7 @@ describe('POST /v1/zones/:zoneId/applications', () => {
   it('allows the internal provisioner to register a reserved caracal.sys application', async () => {
     const { app, db } = buildApp('provisioner')
     db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
+    db.query.mockResolvedValueOnce({ rows: [] })
     db.query.mockResolvedValueOnce({
       rows: [{ id: 'app-sys', zone_id: 'z1', name: 'caracal.sys/operator', registration_method: 'managed' }],
     })
@@ -429,6 +463,7 @@ describe('GET /v1/zones/:zoneId/applications/:id', () => {
 describe('PATCH /v1/zones/:zoneId/applications/:id', () => {
   it('updates the application name', async () => {
     const { app, db } = buildApp()
+    db.query.mockResolvedValueOnce({ rows: [] })
     db.query.mockResolvedValueOnce({ rows: [{ id: 'app-1', name: 'Renamed' }] })
 
     await app.ready()
@@ -436,6 +471,17 @@ describe('PATCH /v1/zones/:zoneId/applications/:id', () => {
 
     expect(res.statusCode).toBe(200)
     expect(JSON.parse(res.body)).toMatchObject({ name: 'Renamed' })
+  })
+
+  it('rejects renaming to a name held by another active managed application', async () => {
+    const { app, db } = buildApp()
+    db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
+
+    await app.ready()
+    const res = await app.inject({ method: 'PATCH', url: '/v1/zones/z1/applications/app-1', payload: { name: 'Taken' } })
+
+    expect(res.statusCode).toBe(409)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'application_name_taken' })
   })
 
   it('rejects an empty patch with no_fields', async () => {
@@ -451,12 +497,28 @@ describe('PATCH /v1/zones/:zoneId/applications/:id', () => {
   it('returns 404 when patching a missing application', async () => {
     const { app, db } = buildApp()
     db.query.mockResolvedValueOnce({ rows: [] })
+    db.query.mockResolvedValueOnce({ rows: [] })
 
     await app.ready()
     const res = await app.inject({ method: 'PATCH', url: '/v1/zones/z1/applications/missing', payload: { name: 'X' } })
 
     expect(res.statusCode).toBe(404)
     expect(JSON.parse(res.body)).toMatchObject({ error: 'application_not_found' })
+  })
+
+  it('rejects a client secret shorter than the minimum length', async () => {
+    const { app, db } = buildApp()
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/v1/zones/z1/applications/app-1',
+      payload: { client_secret: 'cs_short' },
+    })
+
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'invalid_application' })
+    expect(db.query).not.toHaveBeenCalled()
   })
 
   it('rejects client secret rotation when none is configured', async () => {
@@ -467,7 +529,7 @@ describe('PATCH /v1/zones/:zoneId/applications/:id', () => {
     const res = await app.inject({
       method: 'PATCH',
       url: '/v1/zones/z1/applications/app-1',
-      payload: { client_secret: 'cs_newsecretvalue' },
+      payload: { client_secret: `cs_${'a'.repeat(43)}` },
     })
 
     expect(res.statusCode).toBe(400)
@@ -482,8 +544,35 @@ describe('PATCH /v1/zones/:zoneId/applications/:id', () => {
     const res = await app.inject({
       method: 'PATCH',
       url: '/v1/zones/z1/applications/missing',
-      payload: { client_secret: 'cs_newsecretvalue' },
+      payload: { client_secret: `cs_${'a'.repeat(43)}` },
     })
+
+    expect(res.statusCode).toBe(404)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'application_not_found' })
+  })
+})
+
+describe('POST /v1/zones/:zoneId/applications/:id/rotate-secret', () => {
+  it('issues a fresh server-generated client secret', async () => {
+    const { app, db } = buildApp()
+    db.query.mockResolvedValueOnce({ rows: [{ id: 'app-1', zone_id: 'z1', name: 'Runner', registration_method: 'managed' }] })
+
+    await app.ready()
+    const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/applications/app-1/rotate-secret', payload: {} })
+
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body)).toMatchObject({ id: 'app-1', client_secret: expect.stringMatching(/^cs_[A-Za-z0-9_-]+$/) })
+    const updateCall = db.query.mock.calls[0]
+    expect(String(updateCall[0])).toContain('SET client_secret_hash')
+    expect(updateCall[1]).toEqual(['app-1', 'z1', expect.any(String)])
+  })
+
+  it('returns 404 when rotating a missing application', async () => {
+    const { app, db } = buildApp()
+    db.query.mockResolvedValueOnce({ rows: [] })
+
+    await app.ready()
+    const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/applications/missing/rotate-secret', payload: {} })
 
     expect(res.statusCode).toBe(404)
     expect(JSON.parse(res.body)).toMatchObject({ error: 'application_not_found' })
