@@ -16,21 +16,22 @@ import (
 const retentionInterval = 6 * time.Hour
 
 type Retention struct {
-	db            retentionStore
-	leader        *Leader
-	log           zerolog.Logger
-	retentionDays int
-	createdTotal  atomic.Int64
-	droppedTotal  atomic.Int64
+	db           retentionStore
+	leader       *Leader
+	log          zerolog.Logger
+	maxDays      int
+	createdTotal atomic.Int64
+	droppedTotal atomic.Int64
 }
 
 type retentionStore interface {
 	EnsurePartition(context.Context, time.Time) error
 	DropPartitionsBefore(context.Context, time.Time) ([]string, error)
+	ConfiguredRetentionDays(context.Context) (int, bool, error)
 }
 
 func newRetention(db retentionStore, leader *Leader, days int, log zerolog.Logger) *Retention {
-	return &Retention{db: db, leader: leader, log: log, retentionDays: days}
+	return &Retention{db: db, leader: leader, log: log, maxDays: days}
 }
 
 func (r *Retention) Run(ctx context.Context) {
@@ -60,7 +61,15 @@ func (r *Retention) tick(ctx context.Context) {
 		}
 		r.createdTotal.Add(1)
 	}
-	cutoff := now.AddDate(0, 0, -r.retentionDays)
+	// AUDIT_RETENTION_DAYS is the deployment ceiling; the console-managed override is read
+	// each tick so a shorter window applies without a restart and can never exceed the cap.
+	days := r.maxDays
+	if configured, ok, err := r.db.ConfiguredRetentionDays(ctx); err != nil {
+		r.log.Error().Err(err).Msg("retention: read configured window")
+	} else if ok && configured < days {
+		days = configured
+	}
+	cutoff := now.AddDate(0, 0, -days)
 	dropped, err := r.db.DropPartitionsBefore(ctx, cutoff)
 	if err != nil {
 		r.log.Error().Err(err).Msg("retention: drop partitions")

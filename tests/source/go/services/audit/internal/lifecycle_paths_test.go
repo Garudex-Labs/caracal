@@ -28,8 +28,13 @@ type fakeLifecycleStore struct {
 	watermarkEr error
 	saveErr     error
 
-	ensured int
-	saved   []time.Time
+	configuredDays int
+	configuredOk   bool
+	configuredErr  error
+
+	ensured    int
+	saved      []time.Time
+	dropCutoff time.Time
 }
 
 func (f *fakeLifecycleStore) EnsurePartition(context.Context, time.Time) error {
@@ -37,8 +42,13 @@ func (f *fakeLifecycleStore) EnsurePartition(context.Context, time.Time) error {
 	return f.ensureErr
 }
 
-func (f *fakeLifecycleStore) DropPartitionsBefore(context.Context, time.Time) ([]string, error) {
+func (f *fakeLifecycleStore) DropPartitionsBefore(_ context.Context, cutoff time.Time) ([]string, error) {
+	f.dropCutoff = cutoff
 	return f.dropped, f.dropErr
+}
+
+func (f *fakeLifecycleStore) ConfiguredRetentionDays(context.Context) (int, bool, error) {
+	return f.configuredDays, f.configuredOk, f.configuredErr
 }
 
 func (f *fakeLifecycleStore) QuerySinceFn(_ context.Context, _, _ time.Time, _ bool, fn func(EventRow) error) error {
@@ -73,6 +83,30 @@ func TestRetentionTickCreatesAndDropsPartitions(t *testing.T) {
 	}
 	if retention.createdTotal.Load() != 4 || retention.droppedTotal.Load() != 2 {
 		t.Fatalf("created=%d dropped=%d", retention.createdTotal.Load(), retention.droppedTotal.Load())
+	}
+}
+
+func TestRetentionTickClampsToConfiguredWindow(t *testing.T) {
+	store := &fakeLifecycleStore{configuredDays: 10, configuredOk: true}
+	retention := newRetention(store, nil, 30, zerolog.Nop())
+	retention.tick(context.Background())
+	tightCutoff := store.dropCutoff
+	if d := time.Since(tightCutoff); d < 9*24*time.Hour || d > 11*24*time.Hour {
+		t.Fatalf("cutoff %v not clamped to configured 10 days", tightCutoff)
+	}
+
+	store = &fakeLifecycleStore{configuredDays: 90, configuredOk: true}
+	retention = newRetention(store, nil, 30, zerolog.Nop())
+	retention.tick(context.Background())
+	if d := time.Since(store.dropCutoff); d < 29*24*time.Hour || d > 31*24*time.Hour {
+		t.Fatalf("cutoff %v exceeded the 30-day ceiling", store.dropCutoff)
+	}
+
+	store = &fakeLifecycleStore{configuredErr: errors.New("read failed")}
+	retention = newRetention(store, nil, 30, zerolog.Nop())
+	retention.tick(context.Background())
+	if d := time.Since(store.dropCutoff); d < 29*24*time.Hour || d > 31*24*time.Hour {
+		t.Fatalf("cutoff %v did not fall back to the ceiling on read error", store.dropCutoff)
 	}
 }
 

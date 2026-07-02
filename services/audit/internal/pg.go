@@ -389,6 +389,20 @@ func (w *PGWriter) AcquireAdvisoryLock(ctx context.Context, key int64) (advisory
 	return &pgAdvisoryLease{conn: conn, key: key}, true, nil
 }
 
+// ConfiguredRetentionDays returns the console-managed retention window, or ok=false
+// when no override row exists.
+func (w *PGWriter) ConfiguredRetentionDays(ctx context.Context) (int, bool, error) {
+	var days int
+	err := w.db.QueryRow(ctx, `SELECT retention_days FROM audit_retention WHERE singleton`).Scan(&days)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, err
+	}
+	return days, true, nil
+}
+
 // EnsurePartition creates a monthly partition for the month containing t if absent.
 func (w *PGWriter) EnsurePartition(ctx context.Context, t time.Time) error {
 	t = t.UTC()
