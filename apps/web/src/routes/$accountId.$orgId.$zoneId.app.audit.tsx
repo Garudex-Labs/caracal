@@ -7,7 +7,7 @@ This file defines the Audit route.
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useState, type ReactNode } from "react";
 
-import { FeedToolbar } from "@/components/console/FeedToolbar";
+import { FeedTabs, FeedToolbar } from "@/components/console/FeedToolbar";
 import {
   DetailField,
   DetailGroup,
@@ -110,34 +110,6 @@ const MODE_TABS: { id: AuditMode; label: string }[] = [
   { id: "admin", label: "Admin changes" },
 ];
 
-function ModeTabs({ mode, onMode }: { mode: AuditMode; onMode: (m: AuditMode) => void }) {
-  return (
-    <div
-      role="tablist"
-      aria-label="Audit feed"
-      className="flex h-8 items-center gap-0.5 rounded-md border border-border bg-muted/50 p-0.5"
-    >
-      {MODE_TABS.map((tab) => (
-        <button
-          key={tab.id}
-          type="button"
-          role="tab"
-          aria-selected={mode === tab.id}
-          onClick={() => onMode(tab.id)}
-          className={cx(
-            "h-7 rounded px-2.5 text-xs font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/40",
-            mode === tab.id
-              ? "bg-background text-foreground shadow-sm"
-              : "text-muted-foreground hover:text-foreground",
-          )}
-        >
-          {tab.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
 // An inline audit toolbar designed to sit on the same row as the workspace search box. It
 // keeps everything on one line: the feed tabs, an export control, a Filters button whose
 // labeled fields drop into a floating panel, and the live indicator plus cursor control
@@ -173,7 +145,7 @@ function AuditToolbar({
     <FeedToolbar
       leading={
         <div className="flex items-center gap-2">
-          <ModeTabs mode={mode} onMode={onMode} />
+          <FeedTabs tabs={MODE_TABS} value={mode} onChange={onMode} label="Audit feed" />
           {exportControl}
         </div>
       }
@@ -818,7 +790,7 @@ function entityLink(entity: AuditEntity): { to: string; search?: Record<string, 
     case "agent":
       return { to: appLink("/agents"), search: { focus: entity.id } };
     case "delegation":
-      return { to: appLink("/delegation"), search: { focus: entity.id } };
+      return { to: appLink("/agents"), search: { view: "delegation", focus: entity.id } };
   }
 }
 
