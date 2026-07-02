@@ -16,6 +16,29 @@ import { logger } from './logger.ts'
 const cfg = loadConfig()
 const mailer = createMailer(cfg)
 
+// The operator's guide progress, stored on the user record as a JSON map of guide id to
+// "seen" or "done". The field is operator-writable (it only shapes their own console
+// walkthroughs), so it is validated strictly: small, flat, and enum-valued.
+const GUIDES_MAX_CHARS = 512
+const GUIDES_MAX_ENTRIES = 32
+const GUIDE_ID_PATTERN = /^[a-zA-Z][a-zA-Z0-9]{0,63}$/
+
+function isValidGuides(value: unknown): boolean {
+  if (typeof value !== 'string') return false
+  if (value === '') return true
+  if (value.length > GUIDES_MAX_CHARS) return false
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(value)
+  } catch {
+    return false
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return false
+  const entries = Object.entries(parsed)
+  if (entries.length > GUIDES_MAX_ENTRIES) return false
+  return entries.every(([key, status]) => GUIDE_ID_PATTERN.test(key) && (status === 'seen' || status === 'done'))
+}
+
 function socialProviders(): NonNullable<BetterAuthOptions['socialProviders']> {
   const providers: NonNullable<BetterAuthOptions['socialProviders']> = {}
   const google = googleCredentials()
@@ -66,6 +89,17 @@ export const auth = betterAuth({
       }
     : {}),
   socialProviders: socialProviders(),
+  // Guide progress lives on the account rather than in the browser, so a walkthrough the
+  // operator retired never reappears after a new browser, sign-out, or stack restart.
+  user: {
+    additionalFields: {
+      guides: {
+        type: 'string',
+        required: false,
+        input: true,
+      },
+    },
+  },
   account: {
     accountLinking: {
       enabled: true,
@@ -86,6 +120,14 @@ export const auth = betterAuth({
           if (isOperatorAllowed(user.email, cfg)) return
           logger.warn('registration denied for unlisted operator', { email: user.email })
           throw new APIError('FORBIDDEN', { message: 'registration_not_permitted' })
+        },
+      },
+      update: {
+        before: async (user) => {
+          const guides = (user as Record<string, unknown>).guides
+          if (guides !== undefined && !isValidGuides(guides)) {
+            throw new APIError('BAD_REQUEST', { message: 'invalid_guides' })
+          }
         },
       },
     },

@@ -31,8 +31,9 @@ export function adminTokenProvisionCommand(env: NodeJS.ProcessEnv = process.env)
 // discovered token, which the Console BFF uses to drive read-only diagnostics under its
 // least-privilege read token instead of the deployment admin token; with no override the
 // deployment admin token is discovered as before, so the CLI and every other caller are
-// unchanged.
-export function buildAdminClient(opts: { adminToken?: string } = {}): AdminContext {
+// unchanged. headers ride on every request the client makes, which the BFF uses to carry the
+// signed per-account assertion so the API scopes reads to the operator's own zones.
+export function buildAdminClient(opts: { adminToken?: string; headers?: Record<string, string> } = {}): AdminContext {
   const apiUrl = resolveServiceUrl('CARACAL_API_URL', DEFAULT_API_URL)
   const coordinatorUrl = resolveServiceUrl('CARACAL_COORDINATOR_URL', DEFAULT_COORDINATOR_URL)
   const adminToken = opts.adminToken ?? discoverAdminToken(undefined, { preferGenerated: isLocalUrl(apiUrl) })
@@ -42,7 +43,7 @@ export function buildAdminClient(opts: { adminToken?: string } = {}): AdminConte
   const coordinatorToken = discoverCoordinatorToken(undefined, { preferGenerated: isLocalUrl(coordinatorUrl) })
   const zoneId = process.env.CARACAL_ZONE_ID
   return {
-    client: new AdminClient({ apiUrl, coordinatorUrl, adminToken, coordinatorToken }),
+    client: new AdminClient({ apiUrl, coordinatorUrl, adminToken, coordinatorToken, headers: opts.headers }),
     zoneId,
     apiUrl,
   }
