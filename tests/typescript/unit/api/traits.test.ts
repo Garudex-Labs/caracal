@@ -14,8 +14,36 @@ describe('validateTraits', () => {
   it('accepts absent traits, valid scoped names, and privileged traits for global actors', () => {
     expect(validateTraits(undefined, zoneActor)).toBeNull()
     expect(validateTraits(['team:engineering', 'piper.net', 'A-1'], zoneActor)).toBeNull()
-    expect(validateTraits(['control:operator'], globalActor)).toBeNull()
+    expect(validateTraits(['control:invoke'], globalActor)).toBeNull()
+    expect(
+      validateTraits(
+        [
+          'control:invoke',
+          'control:scope:control:app:read',
+          'control:max-ttl:300',
+          'control:expires:2036-01-01T00:00:00.000Z',
+        ],
+        globalActor,
+      ),
+    ).toBeNull()
     expect(validateTraits(['caracal.sys:operator'], globalActor)).toBeNull()
+  })
+
+  it('rejects control traits whose semantics STS and dispatch would not enforce', () => {
+    expect(validateTraits(['control:operator'], globalActor)).toMatchObject({ error: 'trait_invalid' })
+    expect(validateTraits(['control:scope:control:nucleus:launch'], globalActor)).toMatchObject({ error: 'trait_invalid' })
+    expect(validateTraits(['control:max-ttl:30'], globalActor)).toMatchObject({ error: 'trait_invalid' })
+    expect(validateTraits(['control:max-ttl:99999'], globalActor)).toMatchObject({ error: 'trait_invalid' })
+    expect(validateTraits(['control:expires:whenever'], globalActor)).toMatchObject({ error: 'trait_invalid' })
+    expect(validateTraits(['control:invoke', 'control:max-ttl:300', 'control:max-ttl:600'], globalActor)).toMatchObject({
+      error: 'trait_invalid',
+    })
+    expect(
+      validateTraits(
+        ['control:invoke', 'control:expires:2036-01-01T00:00:00.000Z', 'control:expires:2037-01-01T00:00:00.000Z'],
+        globalActor,
+      ),
+    ).toMatchObject({ error: 'trait_invalid' })
   })
 
   it('rejects too many, empty, oversized, malformed, duplicate, and privileged zone traits', () => {
@@ -31,7 +59,7 @@ describe('validateTraits', () => {
     expect(validateTraits(['a'.repeat(129)], globalActor)).toMatchObject({ error: 'trait_invalid' })
     expect(validateTraits(['1bad'], globalActor)).toMatchObject({ error: 'trait_invalid' })
     expect(validateTraits(['team:eng', 'team:eng'], globalActor)).toMatchObject({ error: 'trait_duplicate' })
-    expect(validateTraits(['control:operator'], zoneActor)).toMatchObject({ error: 'trait_forbidden' })
+    expect(validateTraits(['control:invoke'], zoneActor)).toMatchObject({ error: 'trait_forbidden' })
     // The reserved internal namespace is privileged exactly like control:, so a tenant cannot claim it.
     expect(validateTraits(['caracal.sys:operator'], zoneActor)).toMatchObject({ error: 'trait_forbidden' })
   })

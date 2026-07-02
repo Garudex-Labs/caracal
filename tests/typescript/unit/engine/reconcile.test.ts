@@ -179,13 +179,24 @@ describe('reconcile', () => {
     const report = await reconcile(
       ZONE,
       parseDesiredState({
-        objects: [{ kind: 'application', spec: { name: 'Fiona', traits: ['agent', 'control:invoke'] } }],
+        objects: [{ kind: 'application', spec: { name: 'Fiona', traits: ['agent', 'reviewer'] } }],
       }),
       deps,
     )
     expect(report.summary.updated).toBe(1)
     expect(report.outcomes[0].drift).toEqual(['traits'])
-    expect(store.apps[0].traits).toEqual(['agent', 'control:invoke'])
+    expect(store.apps[0].traits).toEqual(['agent', 'reviewer'])
+  })
+
+  it('refuses privileged trait namespaces without platform trait authority', async () => {
+    const deps: ReconcileDeps = { admin: fakeAdmin(newStore()), authorize: allowAll() }
+    const doc = parseDesiredState({
+      objects: [{ kind: 'application', spec: { name: 'Fiona', traits: ['agent', 'control:invoke'] } }],
+    })
+    await expect(reconcile(ZONE, doc, deps)).rejects.toThrow(DispatchError)
+    await expect(reconcile(ZONE, doc, { ...deps, allowPrivilegedTraits: true })).resolves.toMatchObject({
+      summary: { created: 1 },
+    })
   })
 
   it('dry-run computes a plan without writing', async () => {
