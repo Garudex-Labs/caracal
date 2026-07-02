@@ -221,7 +221,7 @@ function OperatorPage() {
               No models yet. Add a provider to bring the Operator online.
             </p>
           ) : (
-            <div className="divide-y divide-border overflow-hidden rounded-lg border border-border">
+            <div className="scrollbar-thin max-h-[420px] divide-y divide-border overflow-y-auto rounded-lg border border-border">
               {providers.map((provider) => (
                 <div
                   key={provider.slug}

@@ -64,9 +64,9 @@ function SettingsLayout() {
           </div>
         </aside>
 
-        <section className="min-w-0 xl:border-l xl:border-border xl:pl-10">
+        <section className="min-w-0 xl:flex xl:h-[calc(100vh-9.75rem)] xl:flex-col xl:border-l xl:border-border xl:pl-10">
           {current ? (
-            <header className="mb-8 border-b border-border pb-5">
+            <header className="mb-8 flex-shrink-0 border-b border-border pb-5">
               <div className="flex items-center gap-2.5">
                 <h2 className="text-xl font-semibold tracking-tight text-foreground">
                   {current.label}
@@ -78,7 +78,9 @@ function SettingsLayout() {
               </p>
             </header>
           ) : null}
-          <Outlet />
+          <div className="scrollbar-thin min-w-0 xl:flex-1 xl:overflow-y-auto xl:pb-4 xl:pr-3">
+            <Outlet />
+          </div>
         </section>
       </div>
     </ModulePage>
