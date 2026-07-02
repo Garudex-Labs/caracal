@@ -75,16 +75,22 @@ elif [[ -n "$base_ref" ]]; then
 fi
 
 plan="$(node scripts/releasePlan.mjs "${plan_args[@]}")"
-mapfile -t npm_packages < <(node -e "const p=JSON.parse(process.argv[1]); for (const pkg of p.matrix.include.filter((pkg) => pkg.ecosystem === 'npm')) console.log(pkg.dir)" "$plan")
-mapfile -t pypi_packages < <(node -e "const p=JSON.parse(process.argv[1]); for (const pkg of p.matrix.include.filter((pkg) => pkg.ecosystem === 'pypi')) console.log(pkg.dir)" "$plan")
+npm_packages=()
+while IFS= read -r dir; do
+    [[ -n "$dir" ]] && npm_packages+=("$dir")
+done < <(node -e "const p=JSON.parse(process.argv[1]); for (const pkg of p.matrix.include.filter((pkg) => pkg.ecosystem === 'npm')) console.log(pkg.dir)" "$plan")
+pypi_packages=()
+while IFS= read -r dir; do
+    [[ -n "$dir" ]] && pypi_packages+=("$dir")
+done < <(node -e "const p=JSON.parse(process.argv[1]); for (const pkg of p.matrix.include.filter((pkg) => pkg.ecosystem === 'pypi')) console.log(pkg.dir)" "$plan")
 
 if [[ "$select" == "1" && ${#npm_packages[@]} -gt 0 ]]; then
     pickItems "${npm_packages[@]}"
-    npm_packages=("${PICKED[@]}")
+    npm_packages=(${PICKED[@]+"${PICKED[@]}"})
 fi
 if [[ "$select" == "1" && ${#pypi_packages[@]} -gt 0 ]]; then
     pickItems "${pypi_packages[@]}"
-    pypi_packages=("${PICKED[@]}")
+    pypi_packages=(${PICKED[@]+"${PICKED[@]}"})
 fi
 
 if [[ ${#npm_packages[@]} -eq 0 && ${#pypi_packages[@]} -eq 0 ]]; then
@@ -172,7 +178,7 @@ publishNpm() {
         while true; do
             otp_args=()
             [[ -n "${NPM_OTP:-}" ]] && otp_args=(--otp "$NPM_OTP")
-            if ( cd "$d" && npm publish --access public --tag "$dist_tag" "${otp_args[@]}" ); then
+            if ( cd "$d" && npm publish --access public --tag "$dist_tag" ${otp_args[@]+"${otp_args[@]}"} ); then
                 say_success "${name}@${ver}"
                 break
             fi
