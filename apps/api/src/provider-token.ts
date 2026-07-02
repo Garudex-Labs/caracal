@@ -1,0 +1,185 @@
+// Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+// Caracal, a product of Garudex Labs
+//
+// Hardened outbound OAuth token-endpoint client shared by provider grant exchange and provider connection tests.
+
+import { lookup } from 'node:dns/promises'
+import { request as httpsRequest } from 'node:https'
+import { isIP } from 'node:net'
+import { loadZoneKek, open } from '@caracalai/core'
+
+const PROVIDER_TOKEN_EXCHANGE_TIMEOUT_MS = 15_000
+const PROVIDER_TOKEN_EXCHANGE_MAX_BODY_BYTES = 64 * 1024
+
+export function openSecretConfig(ciphertext: Buffer | null, nonce: Buffer | null): Record<string, string> {
+  if (!ciphertext || !nonce) return {}
+  const plaintext = open(loadZoneKek(), { nonce, ciphertext })
+  try {
+    return JSON.parse(plaintext.toString('utf8')) as Record<string, string>
+  } finally {
+    plaintext.fill(0)
+  }
+}
+
+export function stringConfig(config: Record<string, unknown>, key: string): string {
+  const value = config[key]
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+export function stringListConfig(config: Record<string, unknown>, key: string): string[] {
+  const value = config[key]
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0).map((item) => item.trim())
+    : []
+}
+
+export function recordConfig(config: Record<string, unknown>, key: string): Record<string, string> {
+  const value = config[key]
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  const params: Record<string, string> = {}
+  for (const [name, item] of Object.entries(value)) {
+    if (typeof item === 'string' && item.trim().length > 0) params[name] = item.trim()
+  }
+  return params
+}
+
+export function ensureHttpsEndpoint(raw: string, label: string): URL {
+  const url = new URL(raw)
+  if (url.protocol !== 'https:' || !url.hostname || url.username || url.password) {
+    throw new Error(`${label} must be https`)
+  }
+  return url
+}
+
+export function ensureAllowedTokenEndpoint(raw: string, hosts: string[]): URL {
+  const url = ensureHttpsEndpoint(raw, 'provider token endpoint')
+  if (hosts.length === 0) {
+    throw new Error('provider has no allowed_token_hosts configured')
+  }
+  if (!hosts.some((host) => host.trim().toLowerCase() === url.hostname.toLowerCase())) {
+    throw new Error('provider token endpoint host is not allowlisted')
+  }
+  return url
+}
+
+// Extract the IPv4 address embedded in a NAT64 well-known-prefix address
+// (64:ff9b::/96, RFC 6052), or null when value is not such an address.
+function nat64EmbeddedIpv4(value: string): string | null {
+  const lower = value.toLowerCase()
+  if (!lower.startsWith('64:ff9b::')) return null
+  const tail = lower.slice('64:ff9b::'.length)
+  if (tail === '') return null
+  if (tail.includes('.')) {
+    return isIP(tail) === 4 ? tail : null
+  }
+  const groups = tail.split(':')
+  if (groups.length < 2) return null
+  const hi = Number.parseInt(groups[groups.length - 2]!, 16)
+  const lo = Number.parseInt(groups[groups.length - 1]!, 16)
+  if (!Number.isInteger(hi) || !Number.isInteger(lo) || hi > 0xffff || lo > 0xffff) return null
+  return `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`
+}
+
+function isUnsafeIpAddress(value: string): boolean {
+  const nat64 = nat64EmbeddedIpv4(value)
+  if (nat64) return isUnsafeIpAddress(nat64)
+  const ip = value.startsWith('::ffff:') ? value.slice(7) : value
+  const family = isIP(ip)
+  if (family === 4) {
+    const parts = ip.split('.').map(Number)
+    return (
+      parts[0] === 0 ||
+      parts[0] === 10 ||
+      parts[0] === 127 ||
+      (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) ||
+      (parts[0] === 169 && parts[1] === 254) ||
+      (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) ||
+      (parts[0] === 192 && parts[1] === 168) ||
+      parts[0] >= 224
+    )
+  }
+  const lower = ip.toLowerCase()
+  return (
+    family === 6 &&
+    (lower === '::' ||
+      lower === '::1' ||
+      lower.startsWith('fc') ||
+      lower.startsWith('fd') ||
+      lower.startsWith('fe80:') ||
+      lower.startsWith('ff'))
+  )
+}
+
+async function resolveSafeHost(host: string): Promise<{ address: string; family: 4 | 6 }[]> {
+  const addresses = await lookup(host, { all: true, verbatim: false })
+  if (addresses.length === 0) throw new Error('provider token endpoint resolves to no addresses')
+  for (const address of addresses) {
+    if (isUnsafeIpAddress(address.address)) throw new Error('provider token endpoint resolves to a non-routable address')
+  }
+  return addresses.filter((address): address is { address: string; family: 4 | 6 } => address.family === 4 || address.family === 6)
+}
+
+export interface TokenRequestParts {
+  headers: Record<string, string>
+  body: URLSearchParams
+}
+
+export function buildTokenRequest(form: URLSearchParams, clientId: string, clientSecret: string, method: string): TokenRequestParts {
+  const body = new URLSearchParams(form)
+  const headers: Record<string, string> = { 'Content-Type': 'application/x-www-form-urlencoded' }
+  if (method === 'client_secret_post') {
+    body.set('client_id', clientId)
+    body.set('client_secret', clientSecret)
+  } else if (method === 'none') {
+    body.set('client_id', clientId)
+  } else {
+    headers.Authorization = `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString('base64')}`
+  }
+  return { headers, body }
+}
+
+export async function exchangeProviderToken(endpoint: URL, parts: TokenRequestParts): Promise<{ statusCode: number; body: string }> {
+  await resolveSafeHost(endpoint.hostname)
+  return new Promise((resolve, reject) => {
+    let settled = false
+    const finish = (err: Error | undefined, value?: { statusCode: number; body: string }) => {
+      if (settled) return
+      settled = true
+      if (err) reject(err)
+      else resolve(value ?? { statusCode: 0, body: '' })
+    }
+    const body = parts.body.toString()
+    const req = httpsRequest(
+      endpoint,
+      {
+        method: 'POST',
+        headers: { ...parts.headers, 'Content-Length': Buffer.byteLength(body).toString() },
+        timeout: PROVIDER_TOKEN_EXCHANGE_TIMEOUT_MS,
+        lookup: async (host, _options, callback) => {
+          try {
+            const addresses = await resolveSafeHost(host)
+            callback(null, addresses[0].address, addresses[0].family)
+          } catch (err) {
+            callback(err instanceof Error ? err : new Error(String(err)), '', 4)
+          }
+        },
+      },
+      (res) => {
+        let text = ''
+        res.setEncoding('utf8')
+        res.on('data', (chunk: string) => {
+          text += chunk
+          if (Buffer.byteLength(text) > PROVIDER_TOKEN_EXCHANGE_MAX_BODY_BYTES) {
+            res.destroy(new Error('provider token response too large'))
+          }
+        })
+        res.on('end', () => finish(undefined, { statusCode: res.statusCode ?? 0, body: text }))
+        res.on('error', finish)
+      },
+    )
+    req.on('timeout', () => req.destroy(new Error('provider token exchange timed out')))
+    req.on('error', finish)
+    req.write(body)
+    req.end()
+  })
+}

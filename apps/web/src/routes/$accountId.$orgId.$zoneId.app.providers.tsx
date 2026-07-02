@@ -41,6 +41,7 @@ import {
   useProviders,
   useResources,
   useRevokeProviderGrant,
+  useTestProvider,
   useUpdateProvider,
 } from "@/platform/api/hooks";
 import { useCreateDeepLink } from "@/platform/nav/createDeepLink";
@@ -49,6 +50,7 @@ import type {
   ProviderGrant,
   ProviderInput,
   ProviderKind,
+  ProviderTestResult,
   Resource,
 } from "@/platform/api/types";
 
@@ -478,6 +480,8 @@ function ProviderDetail({
         )}
       </DetailSection>
 
+      <ProviderConnectivity provider={provider} zoneId={zoneId} />
+
       <ProviderConnections provider={provider} zoneId={zoneId} />
 
       <DangerZone
@@ -497,6 +501,84 @@ function formatValue(value: unknown): string {
   return String(value);
 }
 
+/* ------------------------------- Connectivity ------------------------------- */
+
+const TEST_STATUS: Record<
+  ProviderTestResult["status"],
+  { label: string; tone: "success" | "danger" | "warning" | "muted" }
+> = {
+  ok: { label: "Connection verified", tone: "success" },
+  auth_failed: { label: "Authentication failed", tone: "danger" },
+  unreachable: { label: "Endpoint unreachable", tone: "danger" },
+  endpoint_error: { label: "Unexpected endpoint response", tone: "warning" },
+  config_error: { label: "Configuration incomplete", tone: "warning" },
+  untestable: { label: "Not testable", tone: "muted" },
+};
+
+// Runs the control-plane connection test: a real client-credentials request or a
+// placeholder-code probe against the provider's allowlisted token endpoint. Only OAuth
+// providers have an endpoint of their own to verify.
+function ProviderConnectivity({ provider, zoneId }: { provider: Provider; zoneId: string }) {
+  const test = useTestProvider(zoneId);
+  const [result, setResult] = useState<ProviderTestResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [testedId, setTestedId] = useState(provider.id);
+
+  if (testedId !== provider.id) {
+    setTestedId(provider.id);
+    setResult(null);
+    setError(null);
+  }
+
+  const isOAuth =
+    provider.kind === "oauth2_authorization_code" || provider.kind === "oauth2_client_credentials";
+  if (!isOAuth) return null;
+
+  async function run() {
+    setError(null);
+    try {
+      setResult(await test.mutateAsync(provider.id));
+    } catch (err) {
+      setResult(null);
+      setError(
+        err instanceof ConsoleApiError && err.code === "provider_test_rate_limited"
+          ? "Too many tests. Wait a minute and try again."
+          : errorMessage(err),
+      );
+    }
+  }
+
+  return (
+    <DetailSection
+      title="Connectivity"
+      action={
+        <Button variant="secondary" size="sm" loading={test.isPending} onClick={() => void run()}>
+          Test connection
+        </Button>
+      }
+    >
+      {result ? (
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-center gap-2">
+            <Badge tone={TEST_STATUS[result.status].tone}>{TEST_STATUS[result.status].label}</Badge>
+            <span className="text-xs text-muted-foreground">
+              {new Date(result.checked_at).toLocaleTimeString()}
+            </span>
+          </div>
+          <p className="text-xs text-muted-foreground">{result.detail}</p>
+        </div>
+      ) : error ? (
+        <p className="text-xs text-destructive">{error}</p>
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          Verifies that the token endpoint is reachable and accepts this provider's client
+          credentials. Runs from the control plane; no tokens are stored.
+        </p>
+      )}
+    </DetailSection>
+  );
+}
+
 /* ------------------------------ Provider grants ----------------------------- */
 
 // Provider grants only apply to delegated OAuth (authorization_code). For every other
@@ -506,9 +588,12 @@ function ProviderConnections({ provider, zoneId }: { provider: Provider; zoneId:
   const isDelegatedOAuth = provider.kind === "oauth2_authorization_code";
   const toast = useToast();
   const grants = useProviderGrants(zoneId, isDelegatedOAuth ? provider.id : null);
+  const resourcesQuery = useResources(zoneId);
   const revoke = useRevokeProviderGrant(zoneId);
   const [connectOpen, setConnectOpen] = useState(false);
   const [revokeTarget, setRevokeTarget] = useState<ProviderGrant | null>(null);
+
+  const resourceName = (id: string) => resourcesQuery.data?.find((r) => r.id === id)?.name ?? id;
 
   if (!isDelegatedOAuth) {
     return (
@@ -552,8 +637,12 @@ function ProviderConnections({ provider, zoneId }: { provider: Provider; zoneId:
                     <div className="break-all font-mono text-xs text-foreground">
                       {grant.user_id}
                     </div>
-                    <div className="mt-0.5 break-words font-mono text-[11px] text-muted-foreground">
-                      {grant.scopes.join(" · ") || "no scopes"}
+                    <div className="mt-0.5 break-words text-[11px] text-muted-foreground">
+                      {resourceName(grant.resource_id)}
+                      <span className="font-mono">
+                        {" · "}
+                        {grant.scopes.join(" · ") || "no scopes"}
+                      </span>
                     </div>
                   </td>
                   <td className="px-3 py-2 align-top text-right">
@@ -741,7 +830,7 @@ function ConnectProviderModal({
           <Field
             label="Subject (user ID)"
             info="The end user this connection authorizes. Their approval binds upstream tokens to this subject for the selected resource."
-            placeholder="user@example.com"
+            placeholder="user:richard.hendricks@piedpiper.example"
             value={userId}
             onChange={(e) => setUserId(e.target.value)}
             autoFocus

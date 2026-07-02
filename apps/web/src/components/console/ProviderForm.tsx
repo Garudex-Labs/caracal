@@ -6,16 +6,7 @@ This file builds the kind-aware create and edit form for upstream credential pro
 */
 import { useState } from "react";
 
-import {
-  Button,
-  Disclosure,
-  Field,
-  InfoHint,
-  Modal,
-  PasswordField,
-  Select,
-  Textarea,
-} from "@/components/ui";
+import { Button, Disclosure, Field, Modal, PasswordField, Select, Textarea } from "@/components/ui";
 import {
   crossFieldIssues,
   parseParams,
@@ -75,7 +66,7 @@ const FIELDS: Record<ProviderKind, ProviderField[]> = {
       label: "Authorization endpoint",
       kind: "text",
       required: true,
-      placeholder: "https://idp.example.com/authorize",
+      placeholder: "https://login.hooli.example/oauth/authorize",
       hint: "HTTPS endpoint where users approve delegated access.",
     },
     {
@@ -83,7 +74,7 @@ const FIELDS: Record<ProviderKind, ProviderField[]> = {
       label: "Token endpoint",
       kind: "text",
       required: true,
-      placeholder: "https://idp.example.com/token",
+      placeholder: "https://login.hooli.example/oauth/token",
       hint: "HTTPS endpoint where provider tokens are issued or refreshed.",
     },
     {
@@ -91,8 +82,9 @@ const FIELDS: Record<ProviderKind, ProviderField[]> = {
       label: "Redirect URI",
       kind: "text",
       required: true,
-      placeholder: "https://app.example.com/callback",
-      hint: "Callback URI registered with the provider.",
+      placeholder:
+        "https://caracal.piedpiper.example/v1/zones/<zone-id>/provider-grants/oauth/callback",
+      hint: "Caracal's callback: <control-plane URL>/v1/zones/<zone-id>/provider-grants/oauth/callback. Register this exact URL with the provider.",
     },
     { key: "client_id", label: "Client ID", kind: "text", required: true },
     {
@@ -133,7 +125,7 @@ const FIELDS: Record<ProviderKind, ProviderField[]> = {
       label: "Token endpoint hosts",
       kind: "list",
       advanced: true,
-      hint: "Optional. Inferred from the token endpoint when blank.",
+      hint: "Optional. Uses the token endpoint host when blank.",
     },
     {
       key: "auth_header",
@@ -170,7 +162,7 @@ const FIELDS: Record<ProviderKind, ProviderField[]> = {
       label: "Token endpoint",
       kind: "text",
       required: true,
-      placeholder: "https://idp.example.com/token",
+      placeholder: "https://login.hooli.example/oauth/token",
       hint: "HTTPS endpoint where provider tokens are issued or refreshed.",
     },
     { key: "client_id", label: "Client ID", kind: "text", required: true },
@@ -235,7 +227,7 @@ const FIELDS: Record<ProviderKind, ProviderField[]> = {
       label: "Token endpoint hosts",
       kind: "list",
       advanced: true,
-      hint: "Optional. Inferred from the token endpoint when blank.",
+      hint: "Optional. Uses the token endpoint host when blank.",
     },
     {
       key: "auth_header",
@@ -546,12 +538,12 @@ export function ProviderFormModal({
         </>
       }
     >
-      <div className="flex max-h-[60vh] flex-col gap-4 overflow-y-auto pr-1">
+      <div className="flex flex-col gap-4">
         <div className="grid gap-4 sm:grid-cols-2">
           <Field
             label="Name"
             info="Human-readable name for this credential source, shown across the console. Use a short operational name."
-            placeholder="stripe-prod"
+            placeholder="Hooli OIDC"
             value={name}
             onChange={(e) => setName(e.target.value)}
             autoFocus={!isEdit}
@@ -606,7 +598,7 @@ export function ProviderFormModal({
           <Field
             label="Identifier"
             info="The stable identifier used to reference this provider in resources and tokens. Generated from the name when blank; must use the provider:// namespace."
-            placeholder="provider://stripe-prod"
+            placeholder="provider://hooli-oidc"
             hint="Optional. Generated from the name when blank. Must match provider://lowercase-slug."
             value={identifier}
             error={errors.identifier}
@@ -652,10 +644,7 @@ function ProviderFieldInput({
     return (
       <label className="flex items-center justify-between gap-3">
         <span className="min-w-0">
-          <span className="flex items-center gap-1.5">
-            <span className="text-sm font-medium text-foreground">{field.label}</span>
-            {field.hint ? <InfoHint label={field.hint} /> : null}
-          </span>
+          <span className="text-sm font-medium text-foreground">{field.label}</span>
           {field.hint ? (
             <span className="mt-0.5 block text-xs text-muted-foreground">{field.hint}</span>
           ) : null}
@@ -692,7 +681,6 @@ function ProviderFieldInput({
       <div>
         <Textarea
           label={field.label}
-          info={field.hint}
           value={value}
           placeholder={field.placeholder}
           onChange={(e) => onChange(e.target.value)}
@@ -707,7 +695,6 @@ function ProviderFieldInput({
       <div>
         <PasswordField
           label={field.label}
-          info={field.hint}
           value={value}
           placeholder={field.placeholder}
           onChange={(e) => onChange(e.target.value)}
@@ -720,7 +707,6 @@ function ProviderFieldInput({
   return (
     <Field
       label={field.label}
-      info={field.hint}
       hint={hint}
       error={error}
       placeholder={field.placeholder}
