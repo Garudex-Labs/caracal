@@ -48,6 +48,7 @@ import { grantsRoutes } from './routes/grants.js'
 import { stepUpChallengesRoutes } from './routes/step-up-challenges.js'
 import { policyTemplatesRoutes } from './routes/policy-templates.js'
 import { zoneEventsRoutes } from './routes/zone-events.js'
+import { zoneOverviewRoutes } from './routes/zone-overview.js'
 import { adminTokensRoutes } from './routes/admin-tokens.js'
 import { operatorRoutes } from './routes/operator.js'
 import { buildAutopilotPolicy } from './operator-autopilot.js'
@@ -286,6 +287,7 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
   await app.register(stepUpChallengesRoutes, { prefix: '/v1' })
   await app.register(policyTemplatesRoutes, { prefix: '/v1' })
   await app.register(zoneEventsRoutes, { prefix: '/v1' })
+  await app.register(zoneOverviewRoutes, { prefix: '/v1' })
   await app.register(adminTokensRoutes, { prefix: '/v1' })
   // Mutable holder for the Operator's resolved control identity. Populated by the system
   // zone provisioner after the server is listening, when the control plane is reachable over
