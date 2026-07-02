@@ -191,6 +191,19 @@ function ControlKeysTab({
       ),
     },
     {
+      id: "expires",
+      header: "Expires",
+      cell: (k) => {
+        if (!k.expiresAt) return <span className="text-xs text-muted-foreground">never</span>;
+        if (Date.parse(k.expiresAt) <= Date.now()) return <Badge tone="danger">Expired</Badge>;
+        return (
+          <span className="text-xs text-muted-foreground">
+            {new Date(k.expiresAt).toLocaleDateString()}
+          </span>
+        );
+      },
+    },
+    {
       id: "created",
       header: "Created",
       sortable: true,
@@ -422,7 +435,7 @@ function CreateControlKeyModal({
       <div className="flex flex-col gap-4">
         <Field
           label="Name"
-          placeholder="ci-deploy-bot"
+          placeholder="Son of Anton CI"
           value={name}
           onChange={(e) => setName(e.target.value)}
           autoFocus
@@ -571,6 +584,7 @@ function ControlKeyInspector({
   onRevoke: () => void;
   onIssueToken: () => void;
 }) {
+  const expired = keyRecord.expiresAt ? Date.parse(keyRecord.expiresAt) <= Date.now() : false;
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-end gap-2">
@@ -591,7 +605,11 @@ function ControlKeyInspector({
         </DetailField>
         {keyRecord.expiresAt ? (
           <DetailField label="Expires">
-            {new Date(keyRecord.expiresAt).toLocaleString()}
+            {Date.parse(keyRecord.expiresAt) <= Date.now() ? (
+              <Badge tone="danger">Expired {new Date(keyRecord.expiresAt).toLocaleString()}</Badge>
+            ) : (
+              new Date(keyRecord.expiresAt).toLocaleString()
+            )}
           </DetailField>
         ) : null}
         <DetailField label="Created">{new Date(keyRecord.createdAt).toLocaleString()}</DetailField>
@@ -646,11 +664,16 @@ function ControlKeyInspector({
             variant="secondary"
             size="sm"
             onClick={onIssueToken}
-            disabled={keyRecord.scopes.length === 0}
+            disabled={keyRecord.scopes.length === 0 || expired}
           >
             Issue token
           </Button>
-          {keyRecord.scopes.length === 0 ? (
+          {expired ? (
+            <p className="mt-2 text-xs text-muted-foreground">
+              This key has expired and can no longer mint tokens. Create a replacement key; rotating
+              the secret does not extend expiry.
+            </p>
+          ) : keyRecord.scopes.length === 0 ? (
             <p className="mt-2 text-xs text-muted-foreground">
               This key grants no scopes, so it can authenticate but invoke nothing.
             </p>

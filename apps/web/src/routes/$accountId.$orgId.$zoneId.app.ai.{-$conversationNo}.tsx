@@ -18,6 +18,7 @@ import { createPortal } from "react-dom";
 
 import { ModulePage } from "@/components/console/ModulePage";
 import { OperatorErrorLog, type OperatorNoticeEvent } from "@/components/console/OperatorErrorLog";
+import { OperatorEvidence } from "@/components/console/OperatorEvidence";
 import { OperatorPolicyDraft } from "@/components/console/OperatorPolicyDraft";
 import type { OperatorNoticeSeverity } from "@/platform/state/operatorNotices";
 import { Reasoning, ReasoningContent, ReasoningTrigger } from "@/components/ai-elements/reasoning";
@@ -42,6 +43,7 @@ import {
   useActiveZone,
   useApplications,
   useArchiveOperatorConversation,
+  useCancelOperatorRun,
   useCreateOperatorConversation,
   useDecideOperatorPlan,
   useDeleteOperatorConversation,
@@ -1095,6 +1097,7 @@ function ActivityStream({
 }) {
   const { data: turns, isLoading } = useOperatorTurns(zoneId, conversationId);
   const send = useSendOperatorMessage(zoneId, conversationId);
+  const cancelRun = useCancelOperatorRun(zoneId, conversationId);
   const setMode = useSetOperatorConversationMode(zoneId);
   const setAutopilot = useSetOperatorConversationAutopilot(zoneId);
   const { data: autopilotAvailable } = useOperatorAutopilotAvailable();
@@ -1189,6 +1192,9 @@ function ActivityStream({
   // delta has arrived within the guard window, so a silently stalled stream can never leave the
   // working indicator spinning. Each delta rearms it, so an actively streaming answer is never cut.
   const sendGuard = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // True while the failure of the send in flight was asked for by the operator pressing Stop, so
+  // the deliberate abort never surfaces as an error banner while a stalled-stream abort still does.
+  const stopRequested = useRef(false);
   // Distance from the bottom captured just before earlier turns are revealed, so the viewport can
   // be restored to the same place after the taller list paints instead of jumping.
   const pendingReveal = useRef<number | null>(null);
@@ -1226,6 +1232,7 @@ function ActivityStream({
     if (sending.current || !zoneId) return;
     const pending = existing ?? makePendingOperatorMessage(zoneId, conversationId, text);
     sending.current = true;
+    stopRequested.current = false;
     savePendingOperatorMessage(pending);
     setInFlight(pending);
     setStages([]);
@@ -1279,7 +1286,8 @@ function ActivityStream({
             // a terminal failure needs to be surfaced, since that outcome is not visible in the plan.
             if (
               !messageRunIsActive(result.message_run.state) &&
-              result.message_run.state !== "completed"
+              result.message_run.state !== "completed" &&
+              result.message_run.state !== "cancelled"
             ) {
               onNotice?.(
                 "error",
@@ -1310,6 +1318,19 @@ function ActivityStream({
       },
     );
   }
+
+  // Stops the send in flight: the run is settled as cancelled server-side so the deliberating turn
+  // discards its outputs, the pending marker is cleared so recovery never replays a deliberately
+  // stopped message, and the stream is released. The order matters only for the marker - the cancel
+  // itself is safe against every race because the run settles under the same lock as completion.
+  const stopSend = useCallback(() => {
+    const pending = inFlight;
+    if (!pending) return;
+    stopRequested.current = true;
+    cancelRun.mutate(pending.clientMessageId);
+    clearPendingOperatorMessage(pending.zoneId, pending.conversationId);
+    sendAbort.current?.abort();
+  }, [inFlight, cancelRun]);
 
   // Queue a message when the Operator is busy or earlier messages are still waiting, so a
   // sequence of instructions can be lined up and sent in order; otherwise send it now. With no AI
@@ -1397,9 +1418,10 @@ function ActivityStream({
   }, [zoneId, conversationId, initialMessage, send.isPending]);
 
   // Surface a failed send through the workspace error banner and clear it when the
-  // stream unmounts so a stale failure never lingers on another session.
+  // stream unmounts so a stale failure never lingers on another session. A send the
+  // operator stopped deliberately is a settled outcome, not a failure to report.
   useEffect(() => {
-    onError?.(send.isError);
+    onError?.(send.isError && !stopRequested.current);
     return () => onError?.(false);
   }, [send.isError, onError]);
 
@@ -1527,6 +1549,7 @@ function ActivityStream({
         value={message}
         onChange={setMessage}
         onSubmit={() => submit(message)}
+        onStop={inFlight ? stopSend : undefined}
         pending={send.isPending}
         usage={usage}
         model={model}
@@ -1998,6 +2021,7 @@ function StreamEntry({
           </Reasoning>
         ) : null}
         <Response>{item.text}</Response>
+        {item.evidence ? <OperatorEvidence entries={item.evidence} /> : null}
         {item.text.trim() || toolCalls.length > 0 ? (
           <CopyMessageButton text={item.text} toolCalls={toolCalls} />
         ) : null}
