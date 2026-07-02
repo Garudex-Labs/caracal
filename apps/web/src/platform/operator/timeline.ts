@@ -143,6 +143,9 @@ export interface PlanStepView {
   // The effect this step was previewed to have against live state, present when the plan carried a
   // preview. Informational: it shows the consequence reviewed, not a guarantee at apply time.
   effect?: StepEffect;
+  // The credential fields this step collects through the console's secure prompt before the plan
+  // can be approved. Field names only - the values live in the sealed vault, never here.
+  secretFields: string[];
 }
 
 export type AdvisorySeverity = "info" | "caution" | "warning";
@@ -212,6 +215,7 @@ interface RawPlanStep {
   mutating: boolean;
   args: Record<string, unknown>;
   dependsOn: string[];
+  secretFields: string[];
   risk?: StepRisk;
   effect?: StepEffect;
 }
@@ -269,6 +273,7 @@ function readPlanSteps(content: Record<string, unknown>): RawPlanStep[] {
       mutating: step.mutating === true,
       args: asRecord(step.args),
       dependsOn: readDependsOn(step.depends_on),
+      secretFields: asStringList(step.secret_fields),
       ...(risk ? { risk } : {}),
       ...(effect ? { effect } : {}),
     };
@@ -563,6 +568,7 @@ function resolvePlan(
       args: step.args,
       status: exec?.status ?? "pending",
       dependsOn: step.dependsOn,
+      secretFields: step.secretFields,
       ...(step.risk ? { risk: step.risk } : {}),
       ...(step.effect ? { effect: step.effect } : {}),
       ...(exec?.detail ? { detail: exec.detail } : {}),

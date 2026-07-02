@@ -31,10 +31,13 @@ export interface ControlOutcome {
 // A governed capability: the scopes its control command requires, the invocation built
 // from the capability arguments, and the outcome shaped from the control-invoke result. A
 // capability holds no authority - the control plane decides - so this only describes how
-// to express the capability as a governed control command.
+// to express the capability as a governed control command. secrets carries the pasted
+// credential values a step collected through the console's secure prompt, opened from the
+// vault at apply time only; they are merged into the invocation in memory and never touch
+// the plan, the ledger, or any log.
 export interface ControlCapability {
   scopes: readonly string[]
-  buildInvocation(args: Record<string, unknown>, gen: ControlGen): ControlInvocation
+  buildInvocation(args: Record<string, unknown>, gen: ControlGen, secrets?: Record<string, string>): ControlInvocation
   describeOutcome(result: unknown, args: Record<string, unknown>, gen: ControlGen): ControlOutcome
 }
 
@@ -134,19 +137,27 @@ export const CONTROL_CAPABILITIES: Record<string, ControlCapability> = {
       }
     },
   },
-  // A provider is created from just its name and kind. Only the credential-free kinds - caracal_mandate,
-  // which forwards Caracal’s own mandate, and none, which forwards nothing - are applied here: they seal
-  // no secret, so nothing sensitive ever enters the plan. The credential-bearing kinds (oauth2, api_key,
-  // bearer_token) require a sealed secret the thin plan arguments must never carry, so the control plane
-  // rejects a secretless create and those providers are created in the Console instead. The control plane
-  // derives the resource://-style identifier and the empty config from the name and kind.
+  // A provider is created from its name, kind, and non-secret config. The credential-free kinds -
+  // caracal_mandate, which forwards Caracal’s own mandate, and none, which forwards nothing - apply
+  // from name and kind alone. A credential-bearing kind (oauth2, api_key, bearer_token) merges the
+  // credentials the operator pasted through the console's secure prompt - opened from the sealed
+  // vault at apply time - into the create config here, in memory only; the provider create seals
+  // them at their final place and this invocation is never persisted. The control plane derives the
+  // provider:// identifier from the name.
   connectProvider: {
     scopes: ['control:identity-provider:write'],
-    buildInvocation: (args) => ({
-      command: 'identity-provider',
-      subcommand: 'create',
-      flags: { name: asString(args.name), kind: asString(args.kind) },
-    }),
+    buildInvocation: (args, _gen, secrets) => {
+      const config = { ...asRecord(args.config), ...(secrets ?? {}) }
+      return {
+        command: 'identity-provider',
+        subcommand: 'create',
+        flags: {
+          name: asString(args.name),
+          kind: asString(args.kind),
+          ...(Object.keys(config).length > 0 ? { config: JSON.stringify(config) } : {}),
+        },
+      }
+    },
     describeOutcome: (result, args) => {
       const provider = asRecord(result)
       return {

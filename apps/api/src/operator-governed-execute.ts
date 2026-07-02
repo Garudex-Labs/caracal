@@ -45,6 +45,10 @@ export interface GovernedPlanStep {
   id: string
   capability: string
   args: Record<string, unknown>
+  // Credentials the operator pasted through the console's secure prompt, opened from the
+  // sealed vault by the execute pre-flight for exactly this step. Held in memory only and
+  // merged into the control invocation; never recorded, logged, or echoed.
+  secrets?: Record<string, string>
 }
 
 // Generates a fresh high-entropy client secret, matching the format the applications
@@ -75,7 +79,7 @@ export async function executeViaControlPlane(
       }
     }
     const gen: ControlGen = { secret: genSecret() }
-    const invocation = capability.buildInvocation(step.args, gen)
+    const invocation = capability.buildInvocation(step.args, gen, step.secrets)
     try {
       const result = await client.invoke(invocation.command, invocation.subcommand, invocation.flags, capability.scopes)
       const outcome = capability.describeOutcome(result, step.args, gen)
