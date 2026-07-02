@@ -7,9 +7,13 @@ name: Greetings
 
 on: [pull_request_target, issues]
 
+permissions:
+  contents: read
+
 jobs:
   greeting:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     if: ${{ github.repository == 'Garudex-Labs/caracal' && github.event.action == 'opened' && !endsWith(github.actor, '[bot]') && github.actor != 'dependabot' }}
     permissions:
       issues: write

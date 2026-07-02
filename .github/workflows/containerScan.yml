@@ -64,12 +64,9 @@ jobs:
       fail-fast: false
       matrix:
         image:
-          - api
-          - sts
-          - gateway
-          - audit
-          - coordinator
-          - control
+          - go
+          - node
+          - web
           - postgres
           - redis
           - runtime

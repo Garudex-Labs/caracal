@@ -25,6 +25,9 @@ on:
 permissions:
   contents: read
 
+env:
+  GO_VERSION: '1.26'
+
 jobs:
   setLanguages:
     name: Select languages
@@ -84,13 +87,13 @@ jobs:
     needs: setLanguages
     if: github.repository == 'Garudex-Labs/caracal'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       actions: read
       contents: read
       security-events: write
     strategy:
       fail-fast: false
-      max-parallel: 1
       matrix:
         language: ${{ fromJSON(needs.setLanguages.outputs.languages) }}
     steps:
@@ -101,12 +104,12 @@ jobs:
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         if: matrix.language == 'go'
         with:
-          go-version: '1.26'
+          go-version: ${{ env.GO_VERSION }}
 
       - uses: github/codeql-action/init@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
         with:
           languages: ${{ matrix.language }}
-          queries: security-extended
+          config-file: ./.github/codeql/codeql-config.yml
 
       - uses: github/codeql-action/autobuild@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
 

@@ -1,0 +1,33 @@
+# Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+# Caracal, a product of Garudex Labs
+#
+# CodeQL analysis configuration shared by all languages in the CodeQL workflow.
+
+name: "Caracal CodeQL configuration"
+
+queries:
+  - uses: security-extended
+
+# Test code never ships. Scanning it raises alerts about fixtures and stub
+# servers (for example URL prefix matching inside mock fetch implementations
+# under tests/typescript) that have no security boundary. All production
+# sources under apps/, packages/, services/, control/, and infra/ stay fully
+# covered.
+paths-ignore:
+  - tests
+
+query-filters:
+  # js/missing-rate-limiting only recognizes per-route middleware from known
+  # packages such as express-rate-limit and @fastify/rate-limit. Caracal
+  # enforces rate limits centrally instead: apps/api applies Redis-backed
+  # per-IP and per-actor buckets to every /v1 route through global
+  # onRequest/preHandler hooks (apps/api/src/app.ts), /v1/control/invoke and
+  # /ready carry dedicated limiters, apps/coordinator guards its v1 and
+  # invocation routes with equivalent hooks, and apps/auth uses better-auth's
+  # built-in rateLimit. The query cannot model hook-based limiters, so every
+  # finding it raises here is a false positive against an already rate-limited
+  # handler; the behavior is asserted by the rate-limit suites under
+  # tests/typescript/unit. Adding per-route middleware solely to satisfy the
+  # query would duplicate the centralized control.
+  - exclude:
+      id: js/missing-rate-limiting
