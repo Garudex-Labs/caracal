@@ -103,7 +103,7 @@ function DangerPage() {
         description="Permanently removes your profile, sessions, sign-in accounts, and zones."
         danger
       >
-        <div className="border border-destructive/30 bg-destructive/5 p-4">
+        <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
           {zones.isError ? (
             <p className="text-sm text-destructive">Zone state unavailable.</p>
           ) : zoneCount > 0 ? (

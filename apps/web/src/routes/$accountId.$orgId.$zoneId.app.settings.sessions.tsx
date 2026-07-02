@@ -105,7 +105,7 @@ function SessionsPage() {
           </Button>
         }
       >
-        <div className="min-h-[320px] border border-border bg-card">
+        <div className="min-h-[320px] overflow-hidden rounded-lg border border-border">
           {rows === null ? (
             <div className="flex flex-col gap-2 p-4">
               <Skeleton className="h-14 w-full" />
