@@ -26,7 +26,7 @@ import {
   type RepairFeedback,
   type SecurityAdvisory,
 } from './operator-agents.js'
-import { validateProposedPlan, type ProposedPlanInput } from './operator-capabilities.js'
+import { CAPABILITIES, validateProposedPlan, type ProposedPlanInput } from './operator-capabilities.js'
 import type { Researcher } from './operator-research.js'
 import type { Evidence } from './operator-research.js'
 import type { DocSnippet } from './operator-docs.js'
@@ -417,6 +417,21 @@ export function createOrchestrator(registry: SkillRegistry = createSkillRegistry
         // answered with a precise question rather than a fabricated change.
         if (result.ok && result.value.steps.length === 0 && result.value.clarification) {
           return { tier, outcome: { kind: 'answer', result: { ok: true, value: { text: result.value.clarification } } } }
+        }
+        // A proposal whose every step is a read is an inspection, not a change: governed reads
+        // carry no risk, need no approval gate, and their raw listings answer no question on their
+        // own. Whatever tier triage picked, the turn is redirected to the answer path - the domains
+        // those read steps name are gathered as evidence and the topic's answer specialist
+        // synthesizes the guidance the question actually asked for - so a read-only plan never
+        // surfaces as an approvable artifact.
+        if (result.ok && result.value.steps.length > 0 && result.value.steps.every((s) => CAPABILITIES[s.capability]?.mutating === false)) {
+          const readDomains = [...new Set(result.value.steps.map((s) => CAPABILITIES[s.capability].domain))]
+          const readContext = await expandEvidence(planContext, options.researcher, readDomains)
+          emit({ stage: 'answering' })
+          const readGateway = options.onAnswerDelta ? streamingAnswers(gateway, options.onAnswerDelta, options.onReasoningDelta) : gateway
+          const drafted = await answerSkillForTopic(classification.topic).run(readGateway, message, readContext)
+          const grounded = await groundAnswer(gateway, message, drafted, readContext)
+          return { tier, outcome: { kind: 'answer', result: grounded, evidence: readContext.evidence } }
         }
         if (result.ok && result.value.steps.length > 0) {
           emit({ stage: 'guarding' })

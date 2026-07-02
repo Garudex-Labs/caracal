@@ -221,6 +221,54 @@ describe('createOrchestrator', () => {
     }
   })
 
+  it('redirects a plan whose steps are all reads to the answer path instead of surfacing it', async () => {
+    const plan = {
+      summary: 'Inspect the zone to determine next steps',
+      steps: [
+        { id: 's1', capability: 'listResources', args: {} },
+        { id: 's2', capability: 'listProviders', args: {} },
+      ],
+    }
+    const completeObject = vi
+      .fn()
+      .mockResolvedValueOnce({ value: { tier: 'compound' }, provider: 't', model: 'm' })
+      .mockResolvedValueOnce({ value: plan, provider: 't', model: 'm' })
+    const complete = vi
+      .fn()
+      .mockResolvedValue({ text: 'Next, define your resources and providers, then author the policy set.', provider: 't', model: 'm' })
+    const gateway = { status: () => ({ enabled: true, providers: [] }), complete, completeObject } as unknown as Gateway
+    const stages: string[] = []
+    const result = await createOrchestrator().handle(gateway, "what's next", emptyContext, {
+      onProgress: (event) => stages.push(event.stage),
+    })
+    // Governed reads carry no risk and need no approval gate: the question is answered as
+    // synthesized text, never presented as an approvable plan of raw listings.
+    expect(result.tier).toBe('compound')
+    expect(result.outcome.kind).toBe('answer')
+    if (result.outcome.kind === 'answer') {
+      expect(result.outcome.result.ok).toBe(true)
+      if (result.outcome.result.ok) {
+        expect(result.outcome.result.value.text).toContain('define your resources')
+      }
+    }
+    expect(stages).toContain('answering')
+  })
+
+  it('keeps a plan actionable when any step mutates alongside reads', async () => {
+    const plan = {
+      summary: 'Inspect then register',
+      steps: [
+        { id: 's1', capability: 'listApplications', args: {} },
+        { id: 's2', capability: 'registerApplication', args: { name: 'Fiona' } },
+      ],
+    }
+    const result = await createOrchestrator().handle(planningGateway('change', plan), 'register fiona', emptyContext)
+    expect(result.outcome.kind).toBe('plan')
+    if (result.outcome.kind === 'plan' && result.outcome.result.ok) {
+      expect(result.outcome.result.value.steps).toHaveLength(2)
+    }
+  })
+
   it('defaults to the read tier and answers when triage fails the schema', async () => {
     const completeObject = vi.fn().mockRejectedValue(new Error('schema validation failed'))
     const complete = vi.fn().mockResolvedValue({ text: 'fallback answer', provider: 't', model: 'm' })
