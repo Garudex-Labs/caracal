@@ -23,6 +23,11 @@ const MAX_BODY_BYTES = 64 * 1024
 // approval-gated mutations the Operator applies on the user's behalf.
 const ZONE_SCOPE_HEADER = 'x-caracal-zone-scope'
 
+// The shape a zone-scope header value must have before it is honored. Zone ids are opaque
+// url-safe identifiers; anything else (path separators, encodings, control characters) is
+// refused so the value can never alter the internal admin request paths it is spliced into.
+const ZONE_SCOPE_PATTERN = /^[A-Za-z0-9-]{1,64}$/
+
 interface InvokeBody {
   command?: unknown
   subcommand?: unknown
@@ -57,6 +62,7 @@ function resolveEffectiveZone(req: FastifyRequest, deps: InvokeDeps, claims: { s
   const requested = req.headers[ZONE_SCOPE_HEADER]
   const target = typeof requested === 'string' ? requested.trim() : ''
   if (!target || target === claims.zoneId) return claims.zoneId
+  if (!ZONE_SCOPE_PATTERN.test(target)) return claims.zoneId
   const operatorSubject = deps.resolvePlatformOperatorSubject?.() ?? null
   if (operatorSubject && claims.sub === operatorSubject) return target
   return claims.zoneId

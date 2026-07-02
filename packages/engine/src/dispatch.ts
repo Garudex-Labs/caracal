@@ -424,7 +424,7 @@ function parseJsonObjectFlag(flags: FlagMap, key: string): Record<string, unknow
 }
 
 function reconcileDeps(ctx: DispatchContext, principal: Principal): ReconcileDeps {
-  return { admin: ctx.admin, authorize: authorizeFor(principal) }
+  return { admin: ctx.admin, authorize: authorizeFor(principal), allowPrivilegedTraits: principal.kind === 'local' }
 }
 
 const stateHandler = bySubcommand({

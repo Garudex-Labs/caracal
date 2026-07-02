@@ -60,10 +60,20 @@ export type Authorize = (command: string, verb: ScopeVerb) => void
 export interface ReconcileDeps {
   readonly admin: AdminClient
   readonly authorize: Authorize
+  // Whether the caller may declare traits in the privileged platform namespaces. Only a local
+  // (in-process) principal holds this authority; a remote control key must never mint or widen
+  // control-plane traits through the declarative surface, so absence means denied.
+  readonly allowPrivilegedTraits?: boolean
 }
 
 const SECRET_CONFIG_KEYS = new Set(['client_secret', 'private_key', 'api_key', 'bearer_token'])
 const CONTROL_INVOKE_TRAIT = 'control:invoke'
+
+// The trait namespaces reserved for the platform's own control identities. A remote control key
+// that can write applications could otherwise declare `control:invoke` plus arbitrary
+// `control:scope:*` traits and mint itself a wider control key - privilege escalation through
+// the declarative surface. Mirrors the admin API's privileged-namespace gate.
+const PRIVILEGED_TRAIT_NAMESPACES = new Set(['control', 'caracal.sys'])
 
 interface LiveObject {
   id: string
@@ -370,6 +380,24 @@ function assertZoneAlignment(doc: DesiredState, zoneId: string): void {
   }
 }
 
+/** Refuse privileged trait namespaces unless the caller holds platform trait authority. */
+function assertTraitAuthority(doc: DesiredState, deps: ReconcileDeps): void {
+  if (deps.allowPrivilegedTraits === true) return
+  for (const object of doc.objects) {
+    if (object.kind !== 'application' || !Array.isArray(object.spec.traits)) continue
+    for (const trait of object.spec.traits) {
+      const namespace = String(trait).split(':', 1)[0]!
+      if (PRIVILEGED_TRAIT_NAMESPACES.has(namespace)) {
+        throw new DispatchError(
+          'denied',
+          `trait namespace "${namespace}" is reserved for the platform`,
+          'Manage control keys through the Console; remove the reserved trait from the spec.',
+        )
+      }
+    }
+  }
+}
+
 /** Pre-authorize every catalog noun the request will touch so a missing scope fails before any write. */
 function authorizeAll(doc: DesiredState, deps: ReconcileDeps, opts: ReconcileOptions): void {
   const kinds = new Set(doc.objects.map((object) => object.kind))
@@ -398,6 +426,7 @@ export async function reconcile(
   const dryRun = opts.dryRun === true
   const prune = opts.prune === true
   assertZoneAlignment(doc, zoneId)
+  assertTraitAuthority(doc, deps)
   authorizeAll(doc, deps, opts)
 
   // List each declared kind once and index it by identity. Listings are independent reads, so
