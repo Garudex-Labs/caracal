@@ -27,7 +27,8 @@ function isProviderKind(value: unknown): value is ProviderKind {
 // argument can never carry pasted credential material.
 export function credentialFieldsFor(capability: string, args: Record<string, unknown>): string[] {
   if (capability !== 'connectProvider' || !isProviderKind(args.kind)) return []
-  const config = args.config && typeof args.config === 'object' && !Array.isArray(args.config) ? (args.config as Record<string, unknown>) : {}
+  const config =
+    args.config && typeof args.config === 'object' && !Array.isArray(args.config) ? (args.config as Record<string, unknown>) : {}
   switch (args.kind) {
     case 'api_key':
       return ['api_key']

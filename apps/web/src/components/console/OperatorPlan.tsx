@@ -341,21 +341,21 @@ export function PlanArtifact({
   );
   const provide = useProvidePlanSecrets(zoneId, conversationId);
   const providedSteps = new Set(
-    (secretsStatus.data?.steps ?? [])
-      .filter((step) => step.provided)
-      .map((step) => step.step_id),
+    (secretsStatus.data?.steps ?? []).filter((step) => step.provided).map((step) => step.step_id),
   );
   const unsatisfied = credentialSteps.filter((step) => !providedSteps.has(step.id));
-  const credentialsReady = needsCredentials && secretsStatus.data != null && unsatisfied.length === 0;
+  const credentialsReady =
+    needsCredentials && secretsStatus.data != null && unsatisfied.length === 0;
   const [promptStepId, setPromptStepId] = useState<string | null>(null);
   const promptedSeq = useRef<number | null>(null);
+  const statusLoaded = secretsStatus.data != null;
+  const firstUnsatisfiedId = unsatisfied[0]?.id ?? null;
   useEffect(() => {
-    if (!needsCredentials || !secretsStatus.data) return;
+    if (!needsCredentials || !statusLoaded) return;
     if (promptedSeq.current === plan.seq) return;
     promptedSeq.current = plan.seq;
-    const first = credentialSteps.find((step) => !providedSteps.has(step.id));
-    if (first) setPromptStepId(first.id);
-  });
+    if (firstUnsatisfiedId) setPromptStepId(firstUnsatisfiedId);
+  }, [needsCredentials, statusLoaded, plan.seq, firstUnsatisfiedId]);
   const promptStep = credentialSteps.find((step) => step.id === promptStepId) ?? null;
   const submitCredentials = (values: Record<string, string>) => {
     if (!promptStep) return;
@@ -493,7 +493,11 @@ export function PlanArtifact({
           kind={typeof promptStep.args.kind === "string" ? promptStep.args.kind : ""}
           fields={promptStep.secretFields}
           pending={provide.isPending}
-          error={provide.isError ? "The credentials could not be saved. Check the values and try again." : null}
+          error={
+            provide.isError
+              ? "The credentials could not be saved. Check the values and try again."
+              : null
+          }
           onSubmit={submitCredentials}
           onClose={() => setPromptStepId(null)}
         />

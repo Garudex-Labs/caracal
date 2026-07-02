@@ -1356,9 +1356,7 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
         // through the console's secure prompt must have them in the vault before the plan can be
         // approved - by a human here or by autopilot through the paste flow. Refusing here keeps
         // the execute path from ever starting a plan it cannot finish.
-        const credentialSteps = planTurn[0].content.steps.filter(
-          (step) => credentialFieldsFor(step.capability, step.args ?? {}).length > 0,
-        )
+        const credentialSteps = planTurn[0].content.steps.filter((step) => credentialFieldsFor(step.capability, step.args ?? {}).length > 0)
         if (credentialSteps.length > 0) {
           const satisfied = await listSatisfiedPlanSteps(client, secretRef)
           const missing = credentialSteps.filter((step) => !satisfied.has(step.id))
@@ -1485,10 +1483,7 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
     if (stored.allSatisfied && stored.mode === 'agent' && stored.autopilot && autopilotAvailable(autopilotPolicy)) {
       const steps = stored.content.steps.map((step) => ({ id: step.id, capability: step.capability, args: step.args ?? {} }))
       const preview = await previewPlan(fastify.db, params.zoneId, { summary: stored.content.summary, steps })
-      const decision = mayAutoApprove(
-        { engaged: true, applicable: preview.ok, credentialsSatisfied: true, steps },
-        autopilotPolicy,
-      )
+      const decision = mayAutoApprove({ engaged: true, applicable: preview.ok, credentialsSatisfied: true, steps }, autopilotPolicy)
       if (decision.autoApprove) {
         // The completion re-checks the decided gate under the conversation lock so a racing
         // human decision and this autopilot completion can never both enter the ledger.
@@ -2172,9 +2167,7 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
           // A step that collects credentials through the console's secure prompt cannot apply until
           // the operator pastes them, so autopilot defers; the paste flow completes the approval
           // once the vault satisfies the plan.
-          const credentialsSatisfied = validation.steps.every(
-            (step) => credentialFieldsFor(step.capability, step.args).length === 0,
-          )
+          const credentialsSatisfied = validation.steps.every((step) => credentialFieldsFor(step.capability, step.args).length === 0)
           const decision = mayAutoApprove(
             { engaged: true, applicable: preview.ok, credentialsSatisfied, steps: planned.value.steps },
             autopilotPolicy,
