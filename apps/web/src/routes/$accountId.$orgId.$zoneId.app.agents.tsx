@@ -50,12 +50,14 @@ import {
   useAgentOutboundDelegations,
   useAgentServices,
   useAgentsFeed,
+  useApplications,
   useDelegationsFeed,
 } from "@/platform/api/hooks";
 import type {
   Agent,
   AgentStatus,
   AgentQuery,
+  Application,
   DelegationEdge,
   InvocationStatus,
 } from "@/platform/api/types";
@@ -256,10 +258,10 @@ function relativeTime(iso: string, now = Date.now()): string {
 }
 
 // The most human-meaningful name for an agent row. Operators tag agents by role via labels,
-// so the first label reads as the agent's name; the application is the fallback. The raw
-// session id stays available as a secondary, copyable identifier.
-function agentTitle(agent: Agent): string {
-  return agent.labels[0] ?? agent.application_id;
+// so the first label reads as the agent's name; the application's name is the fallback. The
+// raw session id stays available as a secondary, copyable identifier.
+function agentTitle(agent: Agent, appNames: Map<string, string>): string {
+  return agent.labels[0] ?? appNames.get(agent.application_id) ?? agent.application_id;
 }
 
 // How long the agent has run: spawn to termination for ended agents, spawn to now for live ones.
@@ -292,6 +294,13 @@ function terminationReasonLabel(reason: string): string {
 function AgentsPage({ zoneId, tabs }: { zoneId: string; tabs: ReactNode }) {
   const toast = useToast();
   const lifecycle = useAgentLifecycle(zoneId);
+
+  const apps = useApplications(zoneId);
+  const appNames = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const app of apps.data ?? []) map.set(app.id, app.name);
+    return map;
+  }, [apps.data]);
 
   const [status, setStatus] = useState<string>("all");
   const [lifecycleFilter, setLifecycleFilter] = useState<string>("all");
@@ -347,10 +356,12 @@ function AgentsPage({ zoneId, tabs }: { zoneId: string; tabs: ReactNode }) {
       header: "Agent",
       cell: (a) => (
         <div className="min-w-0">
-          <div className="truncate text-sm font-medium text-foreground">{agentTitle(a)}</div>
+          <div className="truncate text-sm font-medium text-foreground">
+            {agentTitle(a, appNames)}
+          </div>
           <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
             <span className="font-mono">{shortId(a.agent_session_id)}</span>
-            <span>· {a.application_id}</span>
+            <span>· {appNames.get(a.application_id) ?? shortId(a.application_id)}</span>
             {a.labels.length > 1 ? (
               <span>
                 +{a.labels.length - 1} label{a.labels.length - 1 === 1 ? "" : "s"}
@@ -435,6 +446,7 @@ function AgentsPage({ zoneId, tabs }: { zoneId: string; tabs: ReactNode }) {
             status={status}
             lifecycle={lifecycleFilter}
             application={application}
+            applications={apps.data ?? []}
             label={label}
             loaded={rows.length}
             onStatus={setStatus}
@@ -458,6 +470,7 @@ function AgentsPage({ zoneId, tabs }: { zoneId: string; tabs: ReactNode }) {
           match: (a, q) =>
             a.agent_session_id.toLowerCase().includes(q) ||
             a.application_id.toLowerCase().includes(q) ||
+            (appNames.get(a.application_id) ?? "").toLowerCase().includes(q) ||
             a.lifecycle.toLowerCase().includes(q) ||
             a.labels.some((l) => l.toLowerCase().includes(q)),
         }}
@@ -468,13 +481,14 @@ function AgentsPage({ zoneId, tabs }: { zoneId: string; tabs: ReactNode }) {
             : "Agent sessions appear here as the Coordinator spawns them in this zone.",
         }}
         detail={{
-          title: (a) => agentTitle(a),
+          title: (a) => agentTitle(a, appNames),
           description: (a) => `${a.lifecycle} · ${a.status} · ${shortId(a.agent_session_id)}`,
           width: "max-w-2xl",
           render: (a) => (
             <AgentInspector
               zoneId={zoneId}
               agent={a}
+              appName={appNames.get(a.application_id) ?? null}
               busy={lifecycle.isPending}
               onSuspend={() => setConfirm({ agent: a, action: "suspend" })}
               onResume={() => setConfirm({ agent: a, action: "resume" })}
@@ -503,6 +517,7 @@ function AgentFilterBar({
   status,
   lifecycle,
   application,
+  applications,
   label,
   loaded,
   onStatus,
@@ -514,6 +529,7 @@ function AgentFilterBar({
   status: string;
   lifecycle: string;
   application: string;
+  applications: Application[];
   label: string;
   loaded: number;
   onStatus: (v: string) => void;
@@ -538,12 +554,18 @@ function AgentFilterBar({
         <option value="task">Task</option>
         <option value="service">Service</option>
       </Select>
-      <Field
+      <Select
         label="Application"
-        placeholder="application id"
         value={application}
         onChange={(e) => onApplication(e.target.value)}
-      />
+      >
+        <option value="">All applications</option>
+        {applications.map((app) => (
+          <option key={app.id} value={app.id}>
+            {app.name}
+          </option>
+        ))}
+      </Select>
       <Field
         label="Label"
         placeholder="exact label"
@@ -792,6 +814,7 @@ function AgentLifecycleConfirm({
 function AgentInspector({
   zoneId,
   agent,
+  appName,
   busy,
   onSuspend,
   onResume,
@@ -799,6 +822,7 @@ function AgentInspector({
 }: {
   zoneId: string;
   agent: Agent;
+  appName: string | null;
   busy: boolean;
   onSuspend: () => void;
   onResume: () => void;
@@ -875,12 +899,24 @@ function AgentInspector({
           </button>
         </DetailField>
         <DetailField label="Application">
-          <Link
-            to={appLink("/applications")}
-            className="font-mono text-xs text-foreground hover:underline"
-          >
-            {agent.application_id}
-          </Link>
+          {appName ? (
+            <span className="flex flex-col gap-0.5">
+              <Link
+                to={appLink("/applications")}
+                className="text-sm text-foreground hover:underline"
+              >
+                {appName}
+              </Link>
+              <Mono>{agent.application_id}</Mono>
+            </span>
+          ) : (
+            <Link
+              to={appLink("/applications")}
+              className="font-mono text-xs text-foreground hover:underline"
+            >
+              {agent.application_id}
+            </Link>
+          )}
         </DetailField>
         {agent.parent_id ? (
           <DetailField label="Parent session">

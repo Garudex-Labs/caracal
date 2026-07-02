@@ -40,12 +40,15 @@ import {
   useApplications,
   useAuditFeed,
   useDecisionTrace,
+  usePolicySets,
+  usePolicySetVersions,
 } from "@/platform/api/hooks";
 import { config } from "@/platform/config";
 import { appLink } from "@/platform/nav/appLink";
 import type {
   AdminAuditEvent,
   AdminAuditQuery,
+  Application,
   AuditDetail,
   AuditEvent,
   AuditQuery,
@@ -551,6 +554,7 @@ function AuditPage({
           eventType={eventType}
           requestId={requestId}
           applicationId={applicationId}
+          applications={apps.data ?? []}
           agentSession={agentSession}
           sessionId={sessionId}
           label={label}
@@ -610,6 +614,7 @@ function AuditFilterBar({
   eventType,
   requestId,
   applicationId,
+  applications,
   agentSession,
   sessionId,
   label,
@@ -633,6 +638,7 @@ function AuditFilterBar({
   eventType: string;
   requestId: string;
   applicationId: string;
+  applications: Application[];
   agentSession: string;
   sessionId: string;
   label: string;
@@ -681,12 +687,18 @@ function AuditFilterBar({
         value={requestId}
         onChange={(e) => onRequestId(e.target.value)}
       />
-      <Field
+      <Select
         label="Application"
-        placeholder="Application ID"
         value={applicationId}
         onChange={(e) => onApplicationId(e.target.value)}
-      />
+      >
+        <option value="">All applications</option>
+        {applications.map((app) => (
+          <option key={app.id} value={app.id}>
+            {app.name}
+          </option>
+        ))}
+      </Select>
       <Field
         label="Agent session"
         placeholder="Follow one agent session"
@@ -963,10 +975,27 @@ function AuditDetailView({
 
 // Full per-event forensic detail: the determining policies, diagnostics, policy-set
 // binding, manifest hash, and metadata recorded for one event in the request group.
-function TraceEventDetail({ event, index }: { event: AuditDetail; index: number }) {
+// The policy-set binding resolves to its human name and version number so the trace
+// reads as enforcement history rather than opaque identifiers.
+function TraceEventDetail({
+  zoneId,
+  event,
+  index,
+}: {
+  zoneId: string;
+  event: AuditDetail;
+  index: number;
+}) {
   const determining = event.determining_policies_json ?? [];
   const diagnostics = event.diagnostics_json ?? [];
   const metadata = event.metadata_json ?? {};
+  const sets = usePolicySets(event.policy_set_id ? zoneId : null);
+  const versions = usePolicySetVersions(
+    event.policy_set_version_id ? zoneId : null,
+    event.policy_set_id,
+  );
+  const setName = sets.data?.find((s) => s.id === event.policy_set_id)?.name;
+  const versionNumber = versions.data?.find((v) => v.id === event.policy_set_version_id)?.version;
   return (
     <details className="rounded-md border border-border">
       <summary className="flex cursor-pointer items-center justify-between gap-2 px-3 py-2 text-xs">
@@ -989,12 +1018,20 @@ function TraceEventDetail({ event, index }: { event: AuditDetail; index: number 
           <DetailField label="Evaluation">{event.evaluation_status ?? "-"}</DetailField>
           {event.policy_set_id ? (
             <DetailField label="Policy set">
-              <Mono>{event.policy_set_id}</Mono>
+              {setName ? (
+                <span title={event.policy_set_id}>{setName}</span>
+              ) : (
+                <Mono>{event.policy_set_id}</Mono>
+              )}
             </DetailField>
           ) : null}
           {event.policy_set_version_id ? (
             <DetailField label="Policy set version">
-              <Mono>{event.policy_set_version_id}</Mono>
+              {versionNumber ? (
+                <span title={event.policy_set_version_id}>v{versionNumber}</span>
+              ) : (
+                <Mono>{event.policy_set_version_id}</Mono>
+              )}
             </DetailField>
           ) : null}
           {event.manifest_sha ? (
@@ -1006,7 +1043,7 @@ function TraceEventDetail({ event, index }: { event: AuditDetail; index: number 
         {determining.length > 0 ? (
           <div>
             <SubHeading>Determining policies</SubHeading>
-            <JsonBlock value={determining} />
+            <DeterminingPolicies entries={determining} />
           </div>
         ) : null}
         {diagnostics.length > 0 ? (
@@ -1023,6 +1060,36 @@ function TraceEventDetail({ event, index }: { event: AuditDetail; index: number 
         ) : null}
       </div>
     </details>
+  );
+}
+
+// The decision contract names the boundary that produced each decision (for example
+// "delegation-load" or "mint"). Render those names directly; anything with an
+// unexpected shape falls back to raw JSON so forensics never lose data.
+function DeterminingPolicies({ entries }: { entries: unknown[] }) {
+  const named: string[] = [];
+  const unnamed: unknown[] = [];
+  for (const entry of entries) {
+    const policy =
+      entry && typeof entry === "object" && "policy" in entry
+        ? (entry as { policy: unknown }).policy
+        : null;
+    if (typeof policy === "string" && policy) named.push(policy);
+    else unnamed.push(entry);
+  }
+  return (
+    <div className="flex flex-col gap-2">
+      {named.length > 0 ? (
+        <div className="flex flex-wrap gap-1.5">
+          {named.map((policy, index) => (
+            <Badge key={`${policy}-${index}`} tone="neutral">
+              {policy}
+            </Badge>
+          ))}
+        </div>
+      ) : null}
+      {unnamed.length > 0 ? <JsonBlock value={unnamed} /> : null}
+    </div>
   );
 }
 
@@ -1052,7 +1119,7 @@ function DeniedDecisionDetail({ denied, index }: { denied: DeniedDecision; index
         {denied.determining_policies.length > 0 ? (
           <div>
             <SubHeading>Determining policies</SubHeading>
-            <JsonBlock value={denied.determining_policies} />
+            <DeterminingPolicies entries={denied.determining_policies} />
           </div>
         ) : null}
         {denied.diagnostics.length > 0 ? (
@@ -1111,7 +1178,7 @@ function DecisionTraceView({ zoneId, requestId }: { zoneId: string; requestId: s
           <div className="mt-1 flex flex-col gap-1.5">
             <SubHeading>Events</SubHeading>
             {trace.data.events.map((ev, i) => (
-              <TraceEventDetail key={ev.id} event={ev} index={i} />
+              <TraceEventDetail key={ev.id} zoneId={zoneId} event={ev} index={i} />
             ))}
           </div>
 

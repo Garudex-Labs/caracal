@@ -34,6 +34,7 @@ import {
   useApplications,
   useCreateApplication,
   useDeleteApplication,
+  useRotateApplicationSecret,
   useUpdateApplication,
 } from "@/platform/api/hooks";
 import { useCreateDeepLink } from "@/platform/nav/createDeepLink";
@@ -88,6 +89,8 @@ function errorMessage(error: unknown): string {
   if (error instanceof ConsoleApiError) {
     if (error.notConfigured) return "Control plane not connected.";
     if (error.unreachable) return "Control plane unreachable.";
+    if (error.code === "application_name_taken")
+      return "An application with this name already exists in this zone.";
     return error.code;
   }
   return "Unexpected error.";
@@ -98,6 +101,7 @@ function ApplicationsPage({ zoneId, zoneName }: { zoneId: string; zoneName: stri
   const query = useApplications(zoneId);
   const createApp = useCreateApplication(zoneId);
   const updateApp = useUpdateApplication(zoneId);
+  const rotateSecret = useRotateApplicationSecret(zoneId);
   const deleteApp = useDeleteApplication(zoneId);
 
   const [createOpen, setCreateOpen] = useState(false);
@@ -305,13 +309,15 @@ function ApplicationsPage({ zoneId, zoneName }: { zoneId: string; zoneName: stri
         tone="danger"
         onConfirm={async () => {
           if (!rotateTarget) return;
-          const newSecret = generateClientSecret();
           try {
-            await updateApp.mutateAsync({
-              id: rotateTarget.id,
-              input: { client_secret: newSecret },
-            });
-            setSecret({ name: rotateTarget.name, clientSecret: newSecret, rotated: true });
+            const rotated = await rotateSecret.mutateAsync(rotateTarget.id);
+            if (rotated.client_secret) {
+              setSecret({
+                name: rotateTarget.name,
+                clientSecret: rotated.client_secret,
+                rotated: true,
+              });
+            }
           } catch (err) {
             toast({ tone: "error", title: "Rotation failed", description: errorMessage(err) });
           }
@@ -475,6 +481,20 @@ function IdentitySection({
         <CopyValue value={app.id} />
       </DetailField>
       <DetailField label="Created">{new Date(app.created_at).toLocaleString()}</DetailField>
+      {(app.traits ?? []).length > 0 ? (
+        <DetailField label="Traits">
+          <span className="flex flex-wrap gap-1.5">
+            {(app.traits ?? []).map((trait) => (
+              <span
+                key={trait}
+                className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground"
+              >
+                {trait}
+              </span>
+            ))}
+          </span>
+        </DetailField>
+      ) : null}
     </DetailGroup>
   );
 }
@@ -542,7 +562,7 @@ function CreateApplicationModal({
         <Field
           label="Name"
           info="Human-readable name for this managed application identity, shown across the console. Use a short operational name, not an internal ID."
-          placeholder="billing-worker"
+          placeholder="Son of Anton"
           value={name}
           onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => {
@@ -597,13 +617,4 @@ function SecretModal({
       ) : null}
     </Modal>
   );
-}
-
-function generateClientSecret(): string {
-  const bytes = new Uint8Array(32);
-  crypto.getRandomValues(bytes);
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  const base64url = btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-  return `cs_${base64url}`;
 }
