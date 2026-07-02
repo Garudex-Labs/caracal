@@ -525,6 +525,14 @@ export function useUpdateApplication(zoneId: string | null) {
   });
 }
 
+export function useRotateApplicationSecret(zoneId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => consoleApi.applications.rotateSecret(zoneId as string, id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.applications(zoneId) }),
+  });
+}
+
 export function useDeleteApplication(zoneId: string | null) {
   const qc = useQueryClient();
   return useMutation({
@@ -676,6 +684,15 @@ export function usePolicySet(zoneId: string | null, id: string | null) {
   });
 }
 
+export function usePolicySetVersions(zoneId: string | null, id: string | null) {
+  return useQuery({
+    queryKey: ["console", "policy-set-versions", zoneId, id],
+    queryFn: ({ signal }) =>
+      consoleApi.policySets.listVersions(zoneId as string, id as string, signal),
+    enabled: Boolean(zoneId && id),
+  });
+}
+
 function invalidatePolicies(qc: ReturnType<typeof useQueryClient>, zoneId: string | null) {
   qc.invalidateQueries({ queryKey: keys.policies(zoneId) });
 }
@@ -683,6 +700,7 @@ function invalidatePolicies(qc: ReturnType<typeof useQueryClient>, zoneId: strin
 function invalidatePolicySets(qc: ReturnType<typeof useQueryClient>, zoneId: string | null) {
   qc.invalidateQueries({ queryKey: keys.policySets(zoneId) });
   qc.invalidateQueries({ queryKey: ["console", "policy-set", zoneId] });
+  qc.invalidateQueries({ queryKey: ["console", "policy-set-versions", zoneId] });
 }
 
 export function useCreatePolicy(zoneId: string | null) {

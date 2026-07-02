@@ -445,17 +445,6 @@ export function isControlKeyApplication(app: Application): boolean {
   return (app.traits ?? []).includes(CONTROL_INVOKE_TRAIT);
 }
 
-// Generates a one-time client secret in the browser, matching the application secret
-// format so control keys never round-trip a secret through a server session.
-export function generateClientSecret(): string {
-  const bytes = new Uint8Array(32);
-  crypto.getRandomValues(bytes);
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  const base64url = btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-  return `cs_${base64url}`;
-}
-
 export const consoleApi = {
   status: () => request<ConsoleStatus>("/status"),
   diagnostics: () => request<DiagnosticsReport>("/diagnostics"),
@@ -496,6 +485,11 @@ export const consoleApi = {
       request<{ id: string; name: string }>(
         `/v1/zones/${encodeURIComponent(zoneId)}/applications/${encodeURIComponent(id)}`,
         { method: "PATCH", body: JSON.stringify(input) },
+      ),
+    rotateSecret: (zoneId: string, id: string) =>
+      request<Application>(
+        `/v1/zones/${encodeURIComponent(zoneId)}/applications/${encodeURIComponent(id)}/rotate-secret`,
+        { method: "POST", body: "{}" },
       ),
     delete: (zoneId: string, id: string) =>
       request<void>(
@@ -604,6 +598,13 @@ export const consoleApi = {
         `/v1/zones/${encodeURIComponent(zoneId)}/policy-sets/${encodeURIComponent(id)}/versions`,
         { method: "POST", body: JSON.stringify({ manifest }) },
       ),
+    listVersions: async (zoneId: string, id: string, signal?: AbortSignal) =>
+      (
+        await fetchAllPages<PolicySetVersion>(
+          `/v1/zones/${encodeURIComponent(zoneId)}/policy-sets/${encodeURIComponent(id)}/versions`,
+          signal,
+        )
+      ).rows,
     getVersion: (zoneId: string, id: string, versionId: string) =>
       request<PolicySetVersion>(
         `/v1/zones/${encodeURIComponent(zoneId)}/policy-sets/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionId)}`,
@@ -1106,12 +1107,12 @@ export const consoleApi = {
       };
     },
     rotate: async (zoneId: string, id: string): Promise<{ id: string; clientSecret: string }> => {
-      const clientSecret = generateClientSecret();
-      await request<{ id: string; name: string }>(
-        `/v1/zones/${encodeURIComponent(zoneId)}/applications/${encodeURIComponent(id)}`,
-        { method: "PATCH", body: JSON.stringify({ client_secret: clientSecret }) },
+      const app = await request<Application>(
+        `/v1/zones/${encodeURIComponent(zoneId)}/applications/${encodeURIComponent(id)}/rotate-secret`,
+        { method: "POST", body: "{}" },
       );
-      return { id, clientSecret };
+      if (!app.client_secret) throw new ConsoleApiError(500, "missing_client_secret");
+      return { id, clientSecret: app.client_secret };
     },
     revoke: (zoneId: string, id: string) =>
       request<void>(

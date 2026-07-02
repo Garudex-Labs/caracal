@@ -22,6 +22,10 @@ const REGEX_META = /[\\^$.*+?()[\]{}|]/g
 export const OPA_INPUT_SCHEMA_VERSION = '2026-05-20'
 export const POLICY_SCHEMA_VERSIONS = new Set(['2026-03-16', OPA_INPUT_SCHEMA_VERSION])
 
+// Caps adopter policy source so oversized documents are rejected upfront instead of
+// straining storage and OPA bundle compilation inside STS.
+export const POLICY_CONTENT_MAX_CHARS = 262144
+
 interface Stripped {
   source: string
   unterminatedString: boolean
@@ -91,6 +95,9 @@ interface RegoCheck {
 export function parseRego(content: string): RegoCheck {
   if (typeof content !== 'string' || content.length === 0) {
     return { packageName: null, rules: new Set(), error: 'empty_policy' }
+  }
+  if (content.length > POLICY_CONTENT_MAX_CHARS) {
+    return { packageName: null, rules: new Set(), error: 'content_too_large' }
   }
   const { source, unterminatedString } = stripCommentsAndStrings(content)
   if (unterminatedString) return { packageName: null, rules: new Set(), error: 'unterminated_string' }
