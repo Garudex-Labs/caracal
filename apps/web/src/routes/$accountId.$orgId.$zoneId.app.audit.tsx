@@ -137,12 +137,8 @@ function AuditToolbar({
 }) {
   return (
     <FeedToolbar
-      leading={
-        <div className="flex items-center gap-2">
-          <FeedTabs tabs={MODE_TABS} value={mode} onChange={onMode} label="Audit feed" />
-          {exportControl}
-        </div>
-      }
+      extra={exportControl}
+      trailing={<FeedTabs tabs={MODE_TABS} value={mode} onChange={onMode} label="Audit feed" />}
       activeFilters={activeFilters}
       loaded={loaded}
       noun={noun}
@@ -268,7 +264,7 @@ function ExportDialog({
   const noun = feed === "audit" ? "events" : "changes";
   return (
     <>
-      <Button variant="secondary" size="sm" onClick={() => setOpen(true)}>
+      <Button variant="secondary" onClick={() => setOpen(true)}>
         Export
       </Button>
       <Modal

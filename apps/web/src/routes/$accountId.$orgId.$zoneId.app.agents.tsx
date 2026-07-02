@@ -431,7 +431,7 @@ function AgentsPage({ zoneId, tabs }: { zoneId: string; tabs: ReactNode }) {
         breadcrumbs={[{ label: "Console", to: appLink() }, { label: "Agents" }]}
         toolbarExtra={
           <AgentFilterBar
-            leading={tabs}
+            tabs={tabs}
             status={status}
             lifecycle={lifecycleFilter}
             application={application}
@@ -499,7 +499,7 @@ function AgentsPage({ zoneId, tabs }: { zoneId: string; tabs: ReactNode }) {
 // Server-side agent filters + cursor pagination. Filters run against the Coordinator so
 // large zones stay searchable; "Load more" follows the keyset cursor.
 function AgentFilterBar({
-  leading,
+  tabs,
   status,
   lifecycle,
   application,
@@ -510,7 +510,7 @@ function AgentFilterBar({
   onApplication,
   onLabel,
 }: {
-  leading: ReactNode;
+  tabs: ReactNode;
   status: string;
   lifecycle: string;
   application: string;
@@ -526,7 +526,7 @@ function AgentFilterBar({
     (lifecycle !== "all" ? 1 : 0) +
     [application, label].filter((v) => v.trim()).length;
   return (
-    <FeedToolbar leading={leading} activeFilters={activeFilters} loaded={loaded} noun="agent">
+    <FeedToolbar trailing={tabs} activeFilters={activeFilters} loaded={loaded} noun="agent">
       <Select label="Status" value={status} onChange={(e) => onStatus(e.target.value)}>
         <option value="all">All statuses</option>
         <option value="active">Active</option>
@@ -640,7 +640,7 @@ function DelegationPage({ zoneId, tabs }: { zoneId: string; tabs: ReactNode }) {
       title="Agents"
       description="Active delegation edges. Each edge grants one agent session authority to act on another's behalf within scope."
       breadcrumbs={[{ label: "Console", to: appLink() }, { label: "Agents" }]}
-      toolbarExtra={<FeedToolbar leading={tabs} loaded={rows.length} noun="edge" />}
+      toolbarExtra={<FeedToolbar trailing={tabs} loaded={rows.length} noun="edge" />}
       rows={rows}
       loading={feed.isLoading}
       columns={columns}

@@ -25,7 +25,7 @@ export function FeedTabs<T extends string>({
     <div
       role="tablist"
       aria-label={label}
-      className="flex h-8 items-center gap-0.5 rounded-md border border-border bg-muted/50 p-0.5"
+      className="flex h-9 items-center gap-0.5 rounded-md border border-border bg-muted/50 p-0.5"
     >
       {tabs.map((tab) => (
         <button
@@ -35,7 +35,7 @@ export function FeedTabs<T extends string>({
           aria-selected={value === tab.id}
           onClick={() => onChange(tab.id)}
           className={cx(
-            "h-7 rounded px-2.5 text-xs font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/40",
+            "h-8 rounded px-2.5 text-xs font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/40",
             value === tab.id
               ? "bg-background text-foreground shadow-sm"
               : "text-muted-foreground hover:text-foreground",
@@ -49,11 +49,12 @@ export function FeedTabs<T extends string>({
 }
 
 // An inline toolbar designed to sit on the same row as the workspace search box. It keeps
-// everything on one line: an optional leading control, a Filters button whose labeled fields
-// drop into a floating panel, and the loaded count pushed to the right.
+// everything on one line: a Filters button whose labeled fields drop into a floating panel,
+// an optional control beside it, and the loaded count pushed to the right.
 // When `live`/`onToggleLive` are supplied it also renders the live indicator and pause toggle.
 export function FeedToolbar({
-  leading,
+  extra,
+  trailing,
   activeFilters = 0,
   loaded,
   noun,
@@ -61,7 +62,8 @@ export function FeedToolbar({
   onToggleLive,
   children,
 }: {
-  leading?: ReactNode;
+  extra?: ReactNode;
+  trailing?: ReactNode;
   activeFilters?: number;
   loaded: number;
   noun: string;
@@ -90,8 +92,6 @@ export function FeedToolbar({
 
   return (
     <>
-      {leading}
-
       {children ? (
         <div ref={ref} className="relative">
           <button
@@ -133,6 +133,8 @@ export function FeedToolbar({
         </div>
       ) : null}
 
+      {extra}
+
       <div className="ml-auto flex items-center gap-2">
         <span className="hidden items-center gap-1.5 text-xs text-muted-foreground sm:inline-flex">
           {live !== undefined ? (
@@ -154,6 +156,7 @@ export function FeedToolbar({
             {live ? "Pause" : "Resume"}
           </button>
         ) : null}
+        {trailing}
       </div>
     </>
   );
