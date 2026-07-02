@@ -285,6 +285,12 @@ export interface AuditDetail extends AuditEvent {
   diagnostics_json: unknown[] | null;
 }
 
+export interface AuditRetention {
+  retention_days: number;
+  max_days: number;
+  updated_at: string | null;
+}
+
 export interface DeniedDecision {
   event_id: string;
   event_type: string;
