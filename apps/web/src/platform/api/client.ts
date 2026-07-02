@@ -78,6 +78,7 @@ import type {
   OperatorAiAuth,
   OperatorExecutionResult,
   OperatorMessageResult,
+  OperatorMessageRun,
   OperatorProgressStage,
   OperatorNarrativeInput,
   OperatorPlanDecisionInput,
@@ -896,6 +897,13 @@ export const consoleApi = {
         onToken,
         onReasoning,
         options,
+      ),
+    cancelRun: (zoneId: string, conversationId: string, clientMessageId: string) =>
+      request<{ ok: true; message_run: OperatorMessageRun }>(
+        `/v1/zones/${encodeURIComponent(zoneId)}/operator-conversations/${encodeURIComponent(
+          conversationId,
+        )}/message-runs/cancel`,
+        { method: "POST", body: JSON.stringify({ client_message_id: clientMessageId }) },
       ),
   },
 

@@ -23,6 +23,24 @@ export interface MessageItem {
   // The structured policy draft the authoring specialist produced, present only on the operator
   // note that carried one. It renders as the dedicated policy artifact rather than plain prose.
   policy?: PolicyDraftView;
+  // The live state the answer was grounded in: one entry per governed read the turn ran, each
+  // carrying its domain, live count, and display-safe rows. Present only on operator notes whose
+  // turn read state, so the console renders the real objects rather than re-narrated prose.
+  evidence?: EvidenceView[];
+}
+
+// One display-safe object a governed read surfaced, already reduced server-side to the
+// allowlisted descriptor fields of its domain.
+export type EvidenceRowView = Record<string, string | string[]>;
+
+// One governed read's contribution to an answer: the capability that ran, the domain it read, how
+// many objects exist live, and the bounded display rows. count can exceed rows.length when the
+// zone holds more than the display bound.
+export interface EvidenceView {
+  capability: string;
+  domain: string;
+  count: number;
+  rows: EvidenceRowView[];
 }
 
 // The advisory severity the authoring specialist assigns each risk it found in a draft, ordered by
@@ -408,6 +426,38 @@ function readPolicyDraft(value: unknown): PolicyDraftView | undefined {
   };
 }
 
+// Reads the structured evidence from an operator note's content, when present. Every field is read
+// defensively: an entry without a capability and domain is dropped, a row keeps only its string and
+// string-list values, and a malformed list degrades to no evidence rather than failing the timeline.
+function readEvidence(value: unknown): EvidenceView[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const entries: EvidenceView[] = [];
+  for (const raw of value) {
+    const entry = asRecord(raw);
+    const capability = asString(entry.capability);
+    const domain = asString(entry.domain);
+    if (capability.length === 0 || domain.length === 0) continue;
+    const rows: EvidenceRowView[] = [];
+    if (Array.isArray(entry.rows)) {
+      for (const rawRow of entry.rows) {
+        const row: EvidenceRowView = {};
+        for (const [key, cell] of Object.entries(asRecord(rawRow))) {
+          if (typeof cell === "string") row[key] = cell;
+          else if (Array.isArray(cell)) {
+            const list = cell.filter((item): item is string => typeof item === "string");
+            if (list.length > 0) row[key] = list;
+          }
+        }
+        if (Object.keys(row).length > 0) rows.push(row);
+      }
+    }
+    const count =
+      typeof entry.count === "number" && Number.isFinite(entry.count) ? entry.count : rows.length;
+    entries.push({ capability, domain, count, rows });
+  }
+  return entries.length > 0 ? entries : undefined;
+}
+
 // plan's reviewable state by folding the approval, rejection, and execution turns
 // that reference it. The presenter is the single place the UI learns whether a plan
 // can be approved or applied, so those controls cannot drift from the ledger.
@@ -431,6 +481,7 @@ export function buildTimeline(turns: OperatorTurn[]): {
       const reasoning = asString(content.reasoning);
       const deliberation = readDeliberation(content.deliberation);
       const policy = readPolicyDraft(content.policy);
+      const evidence = readEvidence(content.evidence);
       items.push({
         kind: turn.kind,
         id: turn.id,
@@ -440,6 +491,7 @@ export function buildTimeline(turns: OperatorTurn[]): {
         reasoning: reasoning.length > 0 ? reasoning : undefined,
         ...(deliberation.length > 0 ? { deliberation } : {}),
         ...(policy ? { policy } : {}),
+        ...(evidence ? { evidence } : {}),
       });
     } else if (turn.kind === "error") {
       items.push({
