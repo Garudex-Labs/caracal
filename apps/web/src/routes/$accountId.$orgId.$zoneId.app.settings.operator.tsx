@@ -43,15 +43,9 @@ export const Route = createFileRoute("/$accountId/$orgId/$zoneId/app/settings/op
 // through a proxy), with placeholders the operator fills in for their own resource.
 const ENDPOINT_SUGGESTIONS: { name: string; url: string }[] = [
   { name: "OpenAI", url: "https://api.openai.com/v1" },
-  {
-    name: "Azure Foundry",
-    url: "https://YOUR-RESOURCE.services.ai.azure.com/PROVIDER-NAME/v1",
-  },
   { name: "Anthropic", url: "https://api.anthropic.com/v1" },
-  { name: "Google Gemini", url: "https://generativelanguage.googleapis.com/v1beta/openai" },
+  { name: "Gemini", url: "https://generativelanguage.googleapis.com/v1beta/openai" },
   { name: "OpenRouter", url: "https://openrouter.ai/api/v1" },
-  { name: "LiteLLM proxy", url: "http://localhost:4000/v1" },
-  { name: "Ollama (local)", url: "http://localhost:11434/v1" },
 ];
 
 // The Operator addresses a provider by a slug used to build its configuration keys, so the slug
@@ -104,6 +98,7 @@ function OperatorPage() {
   const [editing, setEditing] = useState<OperatorAiProvider | null>(null);
   const [rotating, setRotating] = useState<OperatorAiProvider | null>(null);
   const [deleting, setDeleting] = useState<OperatorAiProvider | null>(null);
+  const [checkResult, setCheckResult] = useState<{ ok: boolean; message: string } | null>(null);
 
   const available = list.data?.available ?? false;
   const providers = list.data?.providers ?? [];
@@ -119,19 +114,14 @@ function OperatorPage() {
   }
 
   function runCheck() {
+    setCheckResult(null);
     check.mutate(undefined, {
       onSuccess: (data) =>
-        toast({
-          tone: "success",
-          title: "Operator connected",
-          description: `${data.provider} · ${data.model} · ${data.latency_ms} ms`,
+        setCheckResult({
+          ok: true,
+          message: `Operator connected: ${data.provider} · ${data.model} · ${data.latency_ms} ms`,
         }),
-      onError: (err) =>
-        toast({
-          tone: "error",
-          title: "Connectivity check failed",
-          description: checkErrorMessage(err),
-        }),
+      onError: (err) => setCheckResult({ ok: false, message: checkErrorMessage(err) }),
     });
   }
 
@@ -171,6 +161,19 @@ function OperatorPage() {
             <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-xs text-amber-700 dark:text-amber-400">
               Self-governance is not configured for this deployment, so a key cannot be sealed.
               Enable the Operator control plane to manage models here.
+            </div>
+          ) : null}
+
+          {checkResult ? (
+            <div
+              role="status"
+              className={
+                checkResult.ok
+                  ? "rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2.5 text-xs text-emerald-700 dark:text-emerald-400"
+                  : "rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2.5 text-xs text-destructive"
+              }
+            >
+              {checkResult.message}
             </div>
           ) : null}
 

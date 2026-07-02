@@ -234,7 +234,7 @@ npm:    @caracalai/{core,oauth,admin,identity,revocation,sdk,
                     transport-mcp,transport-a2a,
                     mcp-express,mcp-fastmcp,tokenstate-postgres,revocation-redis}
 pypi:   caracalai-{core,oauth,identity,revocation,sdk,transport-mcp,mcp-fastmcp,revocation-redis}
-ghcr:   ghcr.io/garudex-labs/caracal-{api,sts,gateway,audit,coordinator,redis}
+ghcr:   ghcr.io/garudex-labs/caracal-{go,node,web,postgres,redis,runtime}
 ```
 
 Browse: [npm](https://www.npmjs.com/~caracal-run) · [PyPI](https://pypi.org/user/CaracalAI).

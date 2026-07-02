@@ -89,9 +89,11 @@ caracal status [--ready]              # probe all services
 caracal down                          # stop; add -v to remove volumes
 caracal purge                         # interactive cleanup (containers, volumes, config, runtime, examples, caches)
 
-caracal web                           # launch the web console (requires a running stack; --allow-offline for UI only)
+caracal web                           # Console Interface
 caracal run -- node worker.js         # workload execution
 ```
+
+Open the web console at [http://localhost:3001](http://localhost:3001). Before the first sign-in, configure a sign-in method (Google/GitHub OAuth or email/password with SMTP) in `$CARACAL_HOME/caracal.env` - see [First Protected Call](https://docs.caracal.run/get-started/first-protected-call/#sign-in-and-create-your-first-zone).
 
 </details>
 

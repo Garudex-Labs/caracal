@@ -19,7 +19,7 @@ import { buildGovernanceMiddleware, type GovernanceLimits } from './operator-ai-
 
 // A single configured backend. The OpenAI-compatible chat surface is the common
 // denominator across hosted providers (OpenAI, Together, Groq), local servers
-// (Ollama, vLLM), and gateways (LiteLLM), so one client reaches all of them. In
+// Gateways (LiteLLM), so one client reaches all of them. In
 // production the recommended backend is a LiteLLM proxy, which owns per-provider
 // integration, BYOK, and key budgets so Caracal never maintains provider SDKs. A
 // missing apiKey is valid for local backends that need no credential.
