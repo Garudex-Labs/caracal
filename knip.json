@@ -10,9 +10,7 @@
   },
   "ignoreFiles": [
     "examples/**",
-    "packages/engine/scripts/render-dev-env.mjs",
-    "scripts/benchEnterprise.mjs",
-    "scripts/validateFirstSuccess.mjs"
+    "packages/engine/scripts/render-dev-env.mjs"
   ],
   "ignoreBinaries": ["build", "sync-embedded", "go", "python", "scripts/release.sh"],
   "ignoreDependencies": [

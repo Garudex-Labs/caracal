@@ -86,7 +86,7 @@ RUN case "${TARGETARCH}" in \
       *) echo "unsupported arch ${TARGETARCH}"; exit 1 ;; \
     esac && \
     cd apps/runtime && \
-    CARACAL_RELEASE_VERSION="${CARACAL_RELEASE_VERSION}" CARACAL_DEV_SHA="${CARACAL_DEV_SHA}" node scripts/stampRelease.mjs && \
+    CARACAL_RELEASE_VERSION="${CARACAL_RELEASE_VERSION}" CARACAL_DEV_SHA="${CARACAL_DEV_SHA}" node scripts/stampVersion.mjs && \
     bun build --compile --target=${bunTarget} src/shell.ts --outfile dist/caracal && \
     chmod +x dist/caracal
 
