@@ -84,6 +84,7 @@ const keys = {
   policySets: (zoneId: string | null) => ["console", "policy-sets", zoneId] as const,
   sessions: (zoneId: string | null) => ["console", "sessions", zoneId] as const,
   audit: (zoneId: string | null) => ["console", "audit", zoneId] as const,
+  auditRetention: ["console", "audit-retention"] as const,
   auditExplain: (zoneId: string | null, requestId: string | null) =>
     ["console", "audit-explain", zoneId, requestId] as const,
   adminAudit: (zoneId: string | null) => ["console", "admin-audit", zoneId] as const,
@@ -826,6 +827,25 @@ export function useAdminAuditFeed(zoneId: string | null, query: AdminAuditQuery,
     getNextPageParam: (last) => last.nextCursor ?? undefined,
     enabled: Boolean(zoneId),
     refetchInterval: live ? LIVE_MS : false,
+  });
+}
+
+// Platform-wide audit retention window: how many days of audit events are kept
+// before the audit service drops the partitions holding them.
+export function useAuditRetention() {
+  return useQuery({
+    queryKey: keys.auditRetention,
+    queryFn: ({ signal }) => consoleApi.auditRetention.get(signal),
+  });
+}
+
+export function useUpdateAuditRetention() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (days: number) => consoleApi.auditRetention.update(days),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: keys.auditRetention });
+    },
   });
 }
 

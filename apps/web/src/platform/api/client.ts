@@ -18,6 +18,7 @@ import type {
   ApplicationInput,
   ApplicationPatchInput,
   AuditDetail,
+  AuditRetention,
   AuditEvent,
   AuditQuery,
   AgentQuery,
@@ -1016,6 +1017,15 @@ export const consoleApi = {
       request<DecisionTrace>(
         `/v1/zones/${encodeURIComponent(zoneId)}/audit/by-request/${encodeURIComponent(requestId)}/explain`,
       ),
+  },
+
+  auditRetention: {
+    get: (signal?: AbortSignal) => request<AuditRetention>("/v1/audit-retention", { signal }),
+    update: (days: number) =>
+      request<AuditRetention>("/v1/audit-retention", {
+        method: "PUT",
+        body: JSON.stringify({ retention_days: days }),
+      }),
   },
 
   adminAudit: {

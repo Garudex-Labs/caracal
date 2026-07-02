@@ -67,6 +67,11 @@ export const SETTINGS_GROUPS: SettingsGroupModel[] = [
         label: "AI Operator",
         description: "Model providers and governed routing for the Caracal Operator.",
       },
+      {
+        id: "retention",
+        label: "Audit retention",
+        description: "How long audit events are kept before automatic removal.",
+      },
       ...featuresByHome("settings").map(lockedItem),
     ],
   },
