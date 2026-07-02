@@ -33,6 +33,7 @@ export function Tabs({
             onClick={() => onChange(tab.id)}
             className={cx(
               "relative -mb-px flex items-center gap-1.5 pb-3 text-xs font-medium tracking-wide outline-none transition-colors",
+              "focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-1 focus-visible:ring-offset-background",
               selected ? "text-foreground" : "text-muted-foreground hover:text-foreground",
             )}
           >
