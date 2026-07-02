@@ -114,13 +114,28 @@ describe('buildInvocation', () => {
     })
   })
 
-  it('builds defineResource from the name and scopes', () => {
+  it('builds defineResource with the full Gateway binding flags', () => {
     expect(
-      CONTROL_CAPABILITIES.defineResource.buildInvocation({ name: 'FinXpert', scopes: ['finxpert.read', 'finxpert.write'] }, gen),
+      CONTROL_CAPABILITIES.defineResource.buildInvocation(
+        {
+          name: 'FinXpert',
+          scopes: ['finxpert.read', 'finxpert.write'],
+          upstream_url: 'https://api.finxpert.example',
+          gateway_application_id: 'app-1',
+          credential_provider_id: 'provider-1',
+        },
+        gen,
+      ),
     ).toEqual({
       command: 'resource',
       subcommand: 'create',
-      flags: { name: 'FinXpert', scopes: ['finxpert.read', 'finxpert.write'] },
+      flags: {
+        name: 'FinXpert',
+        scopes: ['finxpert.read', 'finxpert.write'],
+        'upstream-url': 'https://api.finxpert.example',
+        'gateway-application-id': 'app-1',
+        'credential-provider-id': 'provider-1',
+      },
     })
   })
 
@@ -154,21 +169,31 @@ describe('buildInvocation', () => {
     ).toEqual({
       command: 'policy',
       subcommand: 'create',
-      flags: { name: 'PiperNet baseline', description: 'read for operators', content: 'package caracal.authz', 'schema-version': '2026-05-01' },
+      flags: {
+        name: 'PiperNet baseline',
+        description: 'read for operators',
+        content: 'package caracal.authz',
+        'schema-version': '2026-05-01',
+      },
     })
   })
 
   it('omits optional createPolicy flags when absent', () => {
-    expect(CONTROL_CAPABILITIES.createPolicy.buildInvocation({ name: 'PiperNet baseline', content: 'package caracal.authz' }, gen)).toEqual({
-      command: 'policy',
-      subcommand: 'create',
-      flags: { name: 'PiperNet baseline', content: 'package caracal.authz' },
-    })
+    expect(CONTROL_CAPABILITIES.createPolicy.buildInvocation({ name: 'PiperNet baseline', content: 'package caracal.authz' }, gen)).toEqual(
+      {
+        command: 'policy',
+        subcommand: 'create',
+        flags: { name: 'PiperNet baseline', content: 'package caracal.authz' },
+      },
+    )
   })
 
   it('builds versionPolicy against the existing policy id', () => {
     expect(
-      CONTROL_CAPABILITIES.versionPolicy.buildInvocation({ policy_id: 'pol-1', content: 'package caracal.authz', schema_version: '2026-05-01' }, gen),
+      CONTROL_CAPABILITIES.versionPolicy.buildInvocation(
+        { policy_id: 'pol-1', content: 'package caracal.authz', schema_version: '2026-05-01' },
+        gen,
+      ),
     ).toEqual({
       command: 'policy',
       subcommand: 'version',
@@ -195,9 +220,7 @@ describe('buildInvocation', () => {
   })
 
   it('builds activatePolicySet from the set and version ids', () => {
-    expect(
-      CONTROL_CAPABILITIES.activatePolicySet.buildInvocation({ policy_set_id: 'set-1', policy_set_version_id: 'sv-1' }, gen),
-    ).toEqual({
+    expect(CONTROL_CAPABILITIES.activatePolicySet.buildInvocation({ policy_set_id: 'set-1', policy_set_version_id: 'sv-1' }, gen)).toEqual({
       command: 'policy-set',
       subcommand: 'activate',
       flags: { id: 'set-1', version: 'sv-1' },
@@ -234,14 +257,15 @@ describe('describeOutcome', () => {
     expect(outcome.output).toEqual({ application_id: 'app-1', client_secret: 'cs_generated_secret' })
   })
 
-  it('surfaces the resource id and names its scopes', () => {
+  it('surfaces the resource id and names its scopes and upstream', () => {
     const outcome = CONTROL_CAPABILITIES.defineResource.describeOutcome(
       { id: 'res-1', identifier: 'resource://finxpert' },
-      { name: 'FinXpert', scopes: ['finxpert.read', 'finxpert.write'] },
+      { name: 'FinXpert', scopes: ['finxpert.read', 'finxpert.write'], upstream_url: 'https://api.finxpert.example' },
       gen,
     )
     expect(outcome.detail).toContain('finxpert.read')
     expect(outcome.detail).toContain('finxpert.write')
+    expect(outcome.detail).toContain('https://api.finxpert.example')
     expect(outcome.output).toEqual({ resource_id: 'res-1' })
   })
 

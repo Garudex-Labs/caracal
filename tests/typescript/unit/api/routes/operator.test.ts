@@ -985,7 +985,17 @@ describe('plan credential vault endpoints', () => {
     summary: 'Connect Hooli OIDC',
     steps: [
       { id: 's1', capability: 'connectProvider', args: { name: 'Hooli OIDC', kind: 'oauth2_client_credentials' } },
-      { id: 's2', capability: 'defineResource', args: { name: 'PiperNet', scopes: ['mesh.read'] } },
+      {
+        id: 's2',
+        capability: 'defineResource',
+        args: {
+          name: 'PiperNet',
+          scopes: ['mesh.read'],
+          upstream_url: 'https://api.pipernet.example',
+          gateway_application_id: 'app-1',
+          credential_provider_id: 'provider-1',
+        },
+      },
     ],
   }
 
@@ -1043,7 +1053,8 @@ describe('plan credential vault endpoints', () => {
   })
 
   it('completes the deferred autopilot approval once the vault satisfies the plan', async () => {
-    const { app, clientQuery } = buildApp(true, { autopilotPolicy: buildAutopilotPolicy({ enabled: true }) })
+    const { app, db, clientQuery } = buildApp(true, { autopilotPolicy: buildAutopilotPolicy({ enabled: true }) })
+    db.query.mockImplementation(async (sql: string) => (String(sql).includes('WHERE id = $1') ? { rows: [{ one: 1 }] } : { rows: [] }))
     const approvalRow = {
       id: 'turn-3',
       conversation_id: 'conv-1',
