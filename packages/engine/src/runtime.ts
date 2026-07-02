@@ -22,10 +22,11 @@ export interface RuntimePaths {
 
 function defaultRuntimeHome(): string {
   if (process.env.CARACAL_HOME) return process.env.CARACAL_HOME
-  if (platform() === 'darwin') return join(homedir(), 'Library', 'Application Support', 'caracal')
   const xdg = process.env.XDG_DATA_HOME
-  const base = xdg && xdg.length > 0 ? xdg : join(homedir(), '.local', 'share')
-  return join(base, 'caracal')
+  if (xdg && xdg.length > 0) return join(xdg, 'caracal')
+  if (platform() === 'darwin') return join(homedir(), 'Library', 'Application Support', 'caracal')
+  if (platform() === 'win32') return join(process.env.LOCALAPPDATA || join(homedir(), 'AppData', 'Local'), 'caracal')
+  return join(homedir(), '.local', 'share', 'caracal')
 }
 
 export function runtimePaths(home: string = defaultRuntimeHome()): RuntimePaths {
@@ -42,10 +43,7 @@ export interface InstallReport {
   filesCreated: string[]
 }
 
-export function installRuntimeAssets(
-  paths: RuntimePaths = runtimePaths(),
-  mode: StackMode = 'stable',
-): InstallReport {
+export function installRuntimeAssets(paths: RuntimePaths = runtimePaths(), mode: StackMode = 'stable'): InstallReport {
   mkdirSync(paths.home, { recursive: true })
   let created = false
 
@@ -66,7 +64,11 @@ export function installRuntimeAssets(
     created = true
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err
-    try { chmodSync(paths.overrideEnvFile, 0o600) } catch { /* perms may be unsupported */ }
+    try {
+      chmodSync(paths.overrideEnvFile, 0o600)
+    } catch {
+      /* perms may be unsupported */
+    }
   }
 
   const report = bootstrapSecrets({ ...runtimeBootstrapPaths(paths.home), secretsDir: paths.secretsDir })

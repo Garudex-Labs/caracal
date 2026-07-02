@@ -11,7 +11,8 @@ import { fileURLToPath } from 'node:url'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const isWindows = process.platform === 'win32'
-const python = process.env.PYTHON || 'python'
+const python =
+  process.env.PYTHON || (spawnSync('python3', ['--version'], { stdio: 'ignore', shell: isWindows }).status === 0 ? 'python3' : 'python')
 const venvDir = process.env.CARACAL_DEV_VENV || '.venv'
 const venvPython = join(root, venvDir, isWindows ? 'Scripts/python.exe' : 'bin/python')
 const editablePackages = [
