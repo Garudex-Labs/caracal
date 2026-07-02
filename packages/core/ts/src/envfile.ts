@@ -3,23 +3,23 @@
 //
 // Helpers for reading dotenv files and discovering Caracal managed secrets.
 
-import { existsSync, readFileSync } from 'node:fs';
-import { homedir, platform } from 'node:os';
-import { dirname, join } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs'
+import { homedir, platform } from 'node:os'
+import { dirname, join } from 'node:path'
 
 export function readEnvFile(path: string): Record<string, string> {
-  if (!existsSync(path)) return {};
-  const out: Record<string, string> = {};
+  if (!existsSync(path)) return {}
+  const out: Record<string, string> = {}
   for (const line of readFileSync(path, 'utf8').split(/\r?\n/)) {
-    const m = line.match(/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*)\s*$/);
-    if (!m) continue;
-    let value = m[2]!;
+    const m = line.match(/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*)\s*$/)
+    if (!m) continue
+    let value = m[2]!
     if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-      value = value.slice(1, -1);
+      value = value.slice(1, -1)
     }
-    out[m[1]!] = value;
+    out[m[1]!] = value
   }
-  return out;
+  return out
 }
 
 /**
@@ -27,131 +27,132 @@ export function readEnvFile(path: string): Record<string, string> {
  * Mirrors the layout in packages/engine/src/runtime.ts.
  */
 export function installedHome(): string {
-  if (process.env.CARACAL_HOME) return process.env.CARACAL_HOME;
+  if (process.env.CARACAL_HOME) return process.env.CARACAL_HOME
+  const xdg = process.env.XDG_DATA_HOME
+  if (xdg && xdg.length > 0) return join(xdg, 'caracal')
   if (platform() === 'darwin') {
-    return join(homedir(), 'Library', 'Application Support', 'caracal');
+    return join(homedir(), 'Library', 'Application Support', 'caracal')
   }
-  const xdg = process.env.XDG_DATA_HOME;
-  const base = xdg && xdg.length > 0 ? xdg : join(homedir(), '.local', 'share');
-  return join(base, 'caracal');
+  if (platform() === 'win32') {
+    return join(process.env.LOCALAPPDATA || join(homedir(), 'AppData', 'Local'), 'caracal')
+  }
+  return join(homedir(), '.local', 'share', 'caracal')
 }
 
 export function devSecretsHome(): string {
-  if (process.env.CARACAL_DEV_SECRETS_DIR) return process.env.CARACAL_DEV_SECRETS_DIR;
-  return join(installedHome(), 'dev-secrets');
+  if (process.env.CARACAL_DEV_SECRETS_DIR) return process.env.CARACAL_DEV_SECRETS_DIR
+  return join(installedHome(), 'dev-secrets')
 }
 
 function readSecretFile(path: string): string | undefined {
-  if (!existsSync(path)) return undefined;
-  const value = readFileSync(path, 'utf8').trim();
-  return value.length > 0 ? value : undefined;
+  if (!existsSync(path)) return undefined
+  const value = readFileSync(path, 'utf8').trim()
+  return value.length > 0 ? value : undefined
 }
 
 export interface DiscoverTokenOptions {
-  preferGenerated?: boolean;
+  preferGenerated?: boolean
 }
 
 export function discoverRepoRoot(): string | undefined {
-  if (process.env.CARACAL_REPO_ROOT) return process.env.CARACAL_REPO_ROOT;
-  let dir = process.cwd();
+  if (process.env.CARACAL_REPO_ROOT) return process.env.CARACAL_REPO_ROOT
+  let dir = process.cwd()
   while (true) {
     if (existsSync(join(dir, 'pnpm-workspace.yaml')) && existsSync(join(dir, 'package.json'))) {
-      return dir;
+      return dir
     }
-    const parent = dirname(dir);
-    if (parent === dir) return undefined;
-    dir = parent;
+    const parent = dirname(dir)
+    if (parent === dir) return undefined
+    dir = parent
   }
 }
 
 export interface ManagedSecretDirOptions {
-  preferDev?: boolean;
+  preferDev?: boolean
 }
 
 export function managedSecretDirs(opts: ManagedSecretDirOptions = {}): string[] {
-  const root = discoverRepoRoot();
-  const explicit = process.env.CARACAL_SECRETS_DIR;
-  const installedPath = join(installedHome(), 'secrets');
-  const devPath = devSecretsHome();
-  const workspacePath = process.env.CARACAL_ALLOW_WORKSPACE_SECRETS === 'true' && root
-    ? join(root, 'infra', 'secrets', 'files')
-    : undefined;
-  const generated = opts.preferDev ? [devPath, installedPath] : [installedPath, devPath];
-  return [...new Set([explicit, ...generated, workspacePath].filter((path): path is string => Boolean(path)))];
+  const root = discoverRepoRoot()
+  const explicit = process.env.CARACAL_SECRETS_DIR
+  const installedPath = join(installedHome(), 'secrets')
+  const devPath = devSecretsHome()
+  const workspacePath = process.env.CARACAL_ALLOW_WORKSPACE_SECRETS === 'true' && root ? join(root, 'infra', 'secrets', 'files') : undefined
+  const generated = opts.preferDev ? [devPath, installedPath] : [installedPath, devPath]
+  return [...new Set([explicit, ...generated, workspacePath].filter((path): path is string => Boolean(path)))]
 }
 
 function readGeneratedSecret(fileName: string): string | undefined {
-  const root = discoverRepoRoot();
-  const preferDev = process.env.CARACAL_MODE === 'dev' || (!process.env.CARACAL_HOME && root !== undefined);
+  const root = discoverRepoRoot()
+  const preferDev = process.env.CARACAL_MODE === 'dev' || (!process.env.CARACAL_HOME && root !== undefined)
   for (const dir of managedSecretDirs({ preferDev })) {
-    const value = readSecretFile(join(dir, fileName));
-    if (value) return value;
+    const value = readSecretFile(join(dir, fileName))
+    if (value) return value
   }
-  return undefined;
+  return undefined
 }
 
 export function discoverAdminToken(explicit?: string, opts: DiscoverTokenOptions = {}): string | undefined {
-  if (explicit) return explicit;
+  if (explicit) return explicit
   if (opts.preferGenerated) {
-    const generated = readGeneratedSecret('caracalAdminToken');
-    if (generated) return generated;
+    const generated = readGeneratedSecret('caracalAdminToken')
+    if (generated) return generated
   }
-  if (process.env.CARACAL_ADMIN_TOKEN) return process.env.CARACAL_ADMIN_TOKEN;
+  if (process.env.CARACAL_ADMIN_TOKEN) return process.env.CARACAL_ADMIN_TOKEN
   if (process.env.CARACAL_ADMIN_TOKEN_FILE) {
-    const value = readSecretFile(process.env.CARACAL_ADMIN_TOKEN_FILE);
-    if (value) return value;
+    const value = readSecretFile(process.env.CARACAL_ADMIN_TOKEN_FILE)
+    if (value) return value
   }
   if (!opts.preferGenerated) {
-    const generated = readGeneratedSecret('caracalAdminToken');
-    if (generated) return generated;
+    const generated = readGeneratedSecret('caracalAdminToken')
+    if (generated) return generated
   }
   if (process.env.CARACAL_ENV_FILE) {
-    const env = readEnvFile(process.env.CARACAL_ENV_FILE);
-    if (env.CARACAL_ADMIN_TOKEN) return env.CARACAL_ADMIN_TOKEN;
+    const env = readEnvFile(process.env.CARACAL_ENV_FILE)
+    if (env.CARACAL_ADMIN_TOKEN) return env.CARACAL_ADMIN_TOKEN
   }
-  return undefined;
+  return undefined
 }
 
 export function discoverCoordinatorToken(explicit?: string, opts: DiscoverTokenOptions = {}): string | undefined {
-  if (explicit) return explicit;
+  if (explicit) return explicit
   if (opts.preferGenerated) {
-    const generated = readGeneratedSecret('caracalCoordinatorToken');
-    if (generated) return generated;
+    const generated = readGeneratedSecret('caracalCoordinatorToken')
+    if (generated) return generated
   }
-  if (process.env.CARACAL_COORDINATOR_TOKEN) return process.env.CARACAL_COORDINATOR_TOKEN;
+  if (process.env.CARACAL_COORDINATOR_TOKEN) return process.env.CARACAL_COORDINATOR_TOKEN
   if (process.env.CARACAL_COORDINATOR_TOKEN_FILE) {
-    const value = readSecretFile(process.env.CARACAL_COORDINATOR_TOKEN_FILE);
-    if (value) return value;
+    const value = readSecretFile(process.env.CARACAL_COORDINATOR_TOKEN_FILE)
+    if (value) return value
   }
   if (!opts.preferGenerated) {
-    const generated = readGeneratedSecret('caracalCoordinatorToken');
-    if (generated) return generated;
+    const generated = readGeneratedSecret('caracalCoordinatorToken')
+    if (generated) return generated
   }
   if (process.env.CARACAL_ENV_FILE) {
-    const env = readEnvFile(process.env.CARACAL_ENV_FILE);
-    if (env.CARACAL_COORDINATOR_TOKEN) return env.CARACAL_COORDINATOR_TOKEN;
+    const env = readEnvFile(process.env.CARACAL_ENV_FILE)
+    if (env.CARACAL_COORDINATOR_TOKEN) return env.CARACAL_COORDINATOR_TOKEN
   }
-  return undefined;
+  return undefined
 }
 
 export function discoverMetricsBearer(explicit?: string, opts: DiscoverTokenOptions = {}): string | undefined {
-  if (explicit) return explicit;
+  if (explicit) return explicit
   if (opts.preferGenerated) {
-    const generated = readGeneratedSecret('metricsBearer');
-    if (generated) return generated;
+    const generated = readGeneratedSecret('metricsBearer')
+    if (generated) return generated
   }
-  if (process.env.METRICS_BEARER) return process.env.METRICS_BEARER;
+  if (process.env.METRICS_BEARER) return process.env.METRICS_BEARER
   if (process.env.METRICS_BEARER_FILE) {
-    const value = readSecretFile(process.env.METRICS_BEARER_FILE);
-    if (value) return value;
+    const value = readSecretFile(process.env.METRICS_BEARER_FILE)
+    if (value) return value
   }
   if (!opts.preferGenerated) {
-    const generated = readGeneratedSecret('metricsBearer');
-    if (generated) return generated;
+    const generated = readGeneratedSecret('metricsBearer')
+    if (generated) return generated
   }
   if (process.env.CARACAL_ENV_FILE) {
-    const env = readEnvFile(process.env.CARACAL_ENV_FILE);
-    if (env.METRICS_BEARER) return env.METRICS_BEARER;
+    const env = readEnvFile(process.env.CARACAL_ENV_FILE)
+    if (env.METRICS_BEARER) return env.METRICS_BEARER
   }
-  return undefined;
+  return undefined
 }

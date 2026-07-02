@@ -41,8 +41,10 @@ export function resolvePaths(quiet = false): StackPaths {
 }
 
 export function dockerComposeAvailable(): boolean {
-  return spawnSync('docker', ['compose', 'version'], { stdio: 'ignore' }).status === 0
-    && spawnSync('docker', ['info'], { stdio: 'ignore' }).status === 0
+  return (
+    spawnSync('docker', ['compose', 'version'], { stdio: 'ignore' }).status === 0 &&
+    spawnSync('docker', ['info'], { stdio: 'ignore' }).status === 0
+  )
 }
 
 export function composeUnavailableReason(): string {
@@ -50,7 +52,7 @@ export function composeUnavailableReason(): string {
     return 'docker compose is not available; install Docker with the Compose plugin or add docker to PATH'
   }
   if (spawnSync('docker', ['info'], { stdio: 'ignore' }).status !== 0) {
-    return 'docker daemon is not reachable; start Docker and ensure your user can access /var/run/docker.sock'
+    return 'docker daemon is not reachable; start Docker Desktop (macOS/Windows) or the docker service (Linux) and ensure your user can access the Docker socket'
   }
   return 'docker compose is not available; install Docker with the Compose plugin or add docker to PATH'
 }
@@ -71,10 +73,7 @@ function requireBuildKit(): void {
 }
 
 function printBanner(paths: StackPaths): void {
-  const tag =
-    paths.mode === 'dev'
-      ? `dev (sha ${CARACAL_SHA})`
-      : `${paths.mode} (${CARACAL_VERSION})`
+  const tag = paths.mode === 'dev' ? `dev (sha ${CARACAL_SHA})` : `${paths.mode} (${CARACAL_VERSION})`
   process.stdout.write(`${style.label('caracal mode:')} ${style.header(tag)}\n`)
 }
 
@@ -174,20 +173,18 @@ export async function upgradeCommand(argv: string[]): Promise<void> {
 }
 
 function upgradeHelp(): never {
-  return showHelp(
-    [
-      'Usage: caracal upgrade [--no-pull]',
-      '',
-      'Upgrades the local stack to the version pinned in this binary with no',
-      'maintenance window: stage images, apply expand-phase migrations while the',
-      'current version keeps serving, roll services, then gate on readiness.',
-      '',
-      'Flags:',
-      '  --no-pull               Reuse local images instead of pulling the release',
-      '  --help, -h              Show this help',
-      '',
-    ],
-  )
+  return showHelp([
+    'Usage: caracal upgrade [--no-pull]',
+    '',
+    'Upgrades the local stack to the version pinned in this binary with no',
+    'maintenance window: stage images, apply expand-phase migrations while the',
+    'current version keeps serving, roll services, then gate on readiness.',
+    '',
+    'Flags:',
+    '  --no-pull               Reuse local images instead of pulling the release',
+    '  --help, -h              Show this help',
+    '',
+  ])
 }
 
 export async function statusCommand(argv: string[] = []): Promise<void> {
@@ -221,17 +218,15 @@ export async function statusCommand(argv: string[] = []): Promise<void> {
 }
 
 function statusHelp(): never {
-  return showHelp(
-    [
-      'Usage: caracal status [--ready] [--json]',
-      '',
-      'Checks local stack service health. Use --ready for dependency-aware readiness probes.',
-      '',
-      'Flags:',
-      '  --ready                 Probe /ready instead of /health',
-      '  --json                  Emit machine-readable output',
-      '  --help, -h              Show this help',
-      '',
-    ],
-  )
+  return showHelp([
+    'Usage: caracal status [--ready] [--json]',
+    '',
+    'Checks local stack service health. Use --ready for dependency-aware readiness probes.',
+    '',
+    'Flags:',
+    '  --ready                 Probe /ready instead of /health',
+    '  --json                  Emit machine-readable output',
+    '  --help, -h              Show this help',
+    '',
+  ])
 }
