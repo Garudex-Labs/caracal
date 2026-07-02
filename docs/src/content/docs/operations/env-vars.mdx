@@ -6,6 +6,8 @@ pageType: reference
 
 Caracal services load configuration from environment variables and `*_FILE` secret variants. Use file-backed secrets in `rc` and `stable` modes.
 
+For the installed runtime, set overrides in `$CARACAL_HOME/caracal.env` (Linux default `~/.local/share/caracal/caracal.env`); `caracal up` passes that file to Compose. In the development repository, overrides live in `infra/docker/local.env`.
+
 ## Mode Requirements
 
 `CARACAL_MODE` selects one of two security postures, not three:

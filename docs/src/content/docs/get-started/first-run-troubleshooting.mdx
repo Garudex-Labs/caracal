@@ -27,6 +27,14 @@ caracal status --ready --json
 | Ports are already in use | Stop the conflicting local process or change the runtime port configuration before starting Caracal. |
 | Stack state looks stale | Run `caracal down`, then `caracal up`. Use `caracal purge` only when you intentionally want to remove local state. |
 
+## Console Sign-In
+
+| Symptom | Check |
+| --- | --- |
+| Sign-up is rejected with `registration_not_permitted` | The packaged console closes registration by default. Configure a sign-in method in `$CARACAL_HOME/caracal.env` - see [Sign In and Create Your First Zone](/get-started/first-protected-call/#sign-in-and-create-your-first-zone). |
+| Google or GitHub buttons are missing | Set both the client ID and client secret for the provider, then rerun `caracal up`. |
+| Password sign-in is blocked pending verification | The packaged console requires a verified email. Confirm `CARACAL_SMTP_URL` and `CARACAL_SMTP_FROM` are set and the verification message was delivered. |
+
 ## Profile Issues
 
 | Symptom | Check |

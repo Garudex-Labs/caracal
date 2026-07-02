@@ -50,7 +50,14 @@ Use `http://caracalDemoUpstream:80` as the resource upstream URL in guided setup
 
 Open the packaged web console at [http://localhost:3001](http://localhost:3001). The Compose stack maps that localhost port to the web BFF container and serves the SPA same-origin with the console API.
 
-The first launch asks you to **sign up** (or **sign in**), then runs a short onboarding flow:
+The packaged console runs the fail-closed production posture: operator registration is closed until you configure a sign-in method. Add one of the following to `$CARACAL_HOME/caracal.env` (Linux default `~/.local/share/caracal/caracal.env`, macOS `~/Library/Application Support/caracal/caracal.env`, Windows `%LOCALAPPDATA%\caracal\caracal.env`), then rerun `caracal up`:
+
+| Sign-in method | Required variables |
+| --- | --- |
+| Google or GitHub | `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` or `GITHUB_CLIENT_ID` + `GITHUB_CLIENT_SECRET`, plus `CARACAL_OPERATOR_EMAILS=<your email>`. OAuth callback URL: `http://localhost:3001/api/auth/callback/google` or `.../github`. |
+| Email and password | `CARACAL_OPEN_REGISTRATION=true` and `CARACAL_PASSWORD_SIGNUP=true`, plus `CARACAL_SMTP_URL` and `CARACAL_SMTP_FROM` so the required verification email can be delivered; the console fails closed without a mail transport. |
+
+See [Environment Variables](/operations/env-vars/#web-console-bff) for the full sign-in reference. Sign up (or sign in), then complete the short onboarding flow:
 
 1. **Profile** - your operator name and avatar.
 2. **Zone** - create your first zone. A zone is Caracal's primary trust boundary; it isolates applications, resources, policies, and audit.
