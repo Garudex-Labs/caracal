@@ -219,7 +219,7 @@ jobs:
           CARACAL_DEV_SHA: ${{ needs.context.outputs.sha }}
         run: |
           set -euo pipefail
-          node apps/runtime/scripts/stampRelease.mjs
+          node apps/runtime/scripts/stampVersion.mjs
           jq --arg v "$CARACAL_RELEASE_VERSION" '.version = $v' apps/runtime/package.json > apps/runtime/package.json.tmp
           mv apps/runtime/package.json.tmp apps/runtime/package.json
 
@@ -567,7 +567,7 @@ jobs:
         run: |
           set -euo pipefail
           series="${RELEASE_TAG:0:8}"
-          images=(go node postgres redis runtime)
+          images=(go node web postgres redis runtime)
           for name in "${images[@]}"; do
             image="${REGISTRY}/${IMAGE_OWNER}/caracal-${name}"
             docker buildx imagetools create \

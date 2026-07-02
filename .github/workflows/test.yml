@@ -12,7 +12,7 @@ on:
     paths:
       - '.github/workflows/test.yml'
       - '.prettierrc.json'
-      - 'scripts/checkStyle.sh'
+      - 'scripts/checkStyle.mjs'
       - 'scripts/pythonStyleRequirements.in'
       - 'scripts/pythonStyleRequirements.lock'
       - 'scripts/pythonTestRequirements.in'
@@ -33,7 +33,7 @@ on:
     paths:
       - '.github/workflows/test.yml'
       - '.prettierrc.json'
-      - 'scripts/checkStyle.sh'
+      - 'scripts/checkStyle.mjs'
       - 'scripts/pythonStyleRequirements.in'
       - 'scripts/pythonStyleRequirements.lock'
       - 'scripts/pythonTestRequirements.in'
@@ -181,7 +181,7 @@ jobs:
             # under-triggers; precision is traded for safety.
             while IFS= read -r path; do
               case "$path" in
-                .github/workflows/test.yml|.prettierrc.json|scripts/checkStyle.sh|package.json|pnpm-lock.yaml|pnpm-workspace.yaml|apps/**|packages/engine/**|packages/*/ts/**|packages/connectors/*/ts/**|packages/transport/*/ts/**|tests/typescript/**)
+                .github/workflows/test.yml|.prettierrc.json|scripts/checkStyle.mjs|package.json|pnpm-lock.yaml|pnpm-workspace.yaml|apps/**|packages/engine/**|packages/*/ts/**|packages/connectors/*/ts/**|packages/transport/*/ts/**|tests/typescript/**)
                   typescript=true
                   style=true
                   ;;
@@ -407,7 +407,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p coverage/go
-          bash scripts/runGoSourceTests.sh go test -race -covermode=atomic -coverprofile=coverage/go/coverage.out \
+          node scripts/runGoSourceTests.mjs go test -race -covermode=atomic -coverprofile=coverage/go/coverage.out \
             ./packages/core/go/... \
             ./services/sts/... \
             ./services/audit/... \
