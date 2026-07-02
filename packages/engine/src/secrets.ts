@@ -4,7 +4,9 @@
 // Single-source-of-truth credential bootstrap for dev and runtime stacks.
 
 import { randomBytes } from 'node:crypto'
+import { spawnSync } from 'node:child_process'
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { userInfo } from 'node:os'
 import { resolve } from 'node:path'
 import { devSecretsHome } from '@caracalai/core'
 
@@ -79,6 +81,22 @@ function chmodSafe(path: string, mode: number): void {
   }
 }
 
+// NTFS ignores POSIX mode bits, so the directory boundary is enforced with an
+// owner-only DACL instead: inheritance is reset and only the invoking user is
+// granted access, giving secret files inside the chmod-0700 equivalent.
+function secureDir(path: string): void {
+  if (isPosix) {
+    chmodSafe(path, 0o700)
+    return
+  }
+  const user = userInfo().username
+  const principal = process.env.USERDOMAIN ? `${process.env.USERDOMAIN}\\${user}` : user
+  spawnSync('icacls', [path, '/inheritance:r', '/grant:r', `${principal}:(OI)(CI)F`], {
+    stdio: 'ignore',
+    windowsHide: true,
+  })
+}
+
 function readOrCreateSecretFile(path: string, bytes: number): { value: string; created: boolean } {
   const value = randomBytes(bytes).toString('hex')
   try {
@@ -101,7 +119,7 @@ function readOrCreateSecretFile(path: string, bytes: number): { value: string; c
 
 export function bootstrapSecrets(paths: BootstrapPaths): BootstrapReport {
   mkdirSync(paths.secretsDir, { recursive: true })
-  chmodSafe(paths.secretsDir, 0o700)
+  secureDir(paths.secretsDir)
 
   const filesCreated: string[] = []
   const values: Record<string, string> = {
@@ -147,7 +165,7 @@ export function prepareDevSecrets(repoRoot: string): BootstrapPaths {
   const legacyDir = resolve(repoRoot, 'infra', 'secrets', 'files')
   if (legacyDir === paths.secretsDir || !existsSync(legacyDir)) return paths
   mkdirSync(paths.secretsDir, { recursive: true })
-  chmodSafe(paths.secretsDir, 0o700)
+  secureDir(paths.secretsDir)
   const explicitSecretsDir = process.env.CARACAL_SECRETS_DIR !== undefined
   for (const spec of SECRET_FILES) {
     if (ROTATED_DEV_SECRET_FILES.has(spec.fileName)) continue

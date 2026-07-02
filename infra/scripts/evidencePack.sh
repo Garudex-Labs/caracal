@@ -14,7 +14,7 @@ RAW_DIR="${OUT_DIR}/raw"
 REPORT="${OUT_DIR}/REPORT.md"
 REGISTRY="${CARACAL_REGISTRY:-ghcr.io/garudex-labs}"
 HOST="${CARACAL_SMOKE_HOST:-127.0.0.1}"
-IMAGES=(caracal-go caracal-node caracal-postgres caracal-redis caracal-runtime)
+IMAGES=(caracal-go caracal-node caracal-web caracal-postgres caracal-redis caracal-runtime)
 
 mkdir -p "${RAW_DIR}"
 
