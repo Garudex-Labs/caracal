@@ -25,11 +25,14 @@ interface SessionUser {
 
 async function currentUser(): Promise<SessionUser | null> {
   try {
-    const { data } = await getSession();
+    const { data, error } = await getSession();
+    // A transport or server failure (auth service restarting, network down) says nothing
+    // about the account, so it must not touch the browser-local identity: wiping it here
+    // would reset onboarding state every time the stack restarts. Only a successful
+    // response is authoritative — including an authoritative "no session".
+    if (error) return null;
     const user = data?.user ?? null;
     const id = user?.id ?? null;
-    // The backend account is authoritative: align the browser-local identity with it
-    // (clearing it when the account is gone) before gating the route.
     reconcileLocalIdentity(id);
     return id ? { id, name: user?.name ?? null } : null;
   } catch {
