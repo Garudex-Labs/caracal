@@ -315,7 +315,11 @@ def _aggregate_cash(state: base.State, txn: dict) -> dict | None:
     reportable = bucket["cashTotal"] >= ctr
     basis = None
     if reportable:
-        basis = "single" if txn["amount"] >= ctr and bucket["transactionCount"] == 1 else "aggregate"
+        basis = (
+            "single"
+            if txn["amount"] >= ctr and bucket["transactionCount"] == 1
+            else "aggregate"
+        )
     return {
         "businessDay": day,
         "cashTotal": bucket["cashTotal"],
@@ -846,7 +850,11 @@ def monitor_transaction(ctx: Ctx) -> dict:
     score, signals = _score_transaction(ctx.state, txn)
     aggregate = _aggregate_cash(ctx.state, txn)
     ctr_reportable = bool(aggregate and aggregate["ctrReportable"])
-    if aggregate and aggregate["ctrBasis"] == "aggregate" and aggregate["transactionCount"] >= 2:
+    if (
+        aggregate
+        and aggregate["ctrBasis"] == "aggregate"
+        and aggregate["transactionCount"] >= 2
+    ):
         signals.append(
             {
                 "typology": "structuring",
@@ -1337,8 +1345,12 @@ def get_monitoring_summary(ctx: Ctx) -> dict:
         "controls": {
             "total": len(controls),
             "byEffectiveness": _tally(controls, "effectiveness"),
-            "deficient": sum(1 for c in controls if c.get("effectiveness") == "deficient"),
-            "notYetAttested": sum(1 for c in controls if c.get("lastAttestedAt") is None),
+            "deficient": sum(
+                1 for c in controls if c.get("effectiveness") == "deficient"
+            ),
+            "notYetAttested": sum(
+                1 for c in controls if c.get("lastAttestedAt") is None
+            ),
         },
         "audit": {
             "subjects": len(audit_subjects),

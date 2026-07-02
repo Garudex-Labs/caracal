@@ -186,7 +186,19 @@ async def verify_token(
                 audience=audience,
                 issuer=issuer,
                 leeway=60,
-                options={"require": ["exp", "iat", "jti", "sub", "sid", "root_sid", "client_id", "use", "sub_type"]},
+                options={
+                    "require": [
+                        "exp",
+                        "iat",
+                        "jti",
+                        "sub",
+                        "sid",
+                        "root_sid",
+                        "client_id",
+                        "use",
+                        "sub_type",
+                    ]
+                },
             )
             break
         except Exception as e:

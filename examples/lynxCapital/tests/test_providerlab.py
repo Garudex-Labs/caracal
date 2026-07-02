@@ -114,9 +114,13 @@ def test_grpc_metadata_token_accept_and_reject():
     )
     assert bad.status_code == 401
     # A gRPC service rejects the metadata token at the protocol level with UNAUTHENTICATED.
-    assert bad.json()["grpcStatus"] == "UNAUTHENTICATED" and bad.json()["grpcCode"] == 16
+    assert (
+        bad.json()["grpcStatus"] == "UNAUTHENTICATED" and bad.json()["grpcCode"] == 16
+    )
     missing = c.post("/api/get_position", json={"currency": "USD"})
-    assert missing.status_code == 401 and missing.json()["grpcStatus"] == "UNAUTHENTICATED"
+    assert (
+        missing.status_code == 401 and missing.json()["grpcStatus"] == "UNAUTHENTICATED"
+    )
 
 
 def test_grpc_service_descriptor_registered():
@@ -182,7 +186,10 @@ def test_grpc_forecast_scenarios_and_validation():
         json={"currency": "USD", "horizonDays": 0},
         headers=md,
     )
-    assert bad_horizon.status_code == 400 and bad_horizon.json()["grpcStatus"] == "INVALID_ARGUMENT"
+    assert (
+        bad_horizon.status_code == 400
+        and bad_horizon.json()["grpcStatus"] == "INVALID_ARGUMENT"
+    )
     assert (
         c.post(
             "/api/forecast_liquidity",
@@ -212,7 +219,9 @@ def test_grpc_hedge_lifecycle():
     assert hedge["status"] == "booked" and hedge["notionalCurrency"] == "EUR"
     # Hedge-accounting and counterparty detail a real FX desk records.
     assert hedge["accountingDesignation"] == "net_investment_hedge"
-    assert {"counterpartyRating", "isdaMasterAgreementRef", "settlementType"} <= set(hedge)
+    assert {"counterpartyRating", "isdaMasterAgreementRef", "settlementType"} <= set(
+        hedge
+    )
     hid = hedge["hedgeId"]
     # Settle a second hedge through its full lifecycle.
     other = c.post(
@@ -220,7 +229,9 @@ def test_grpc_hedge_lifecycle():
         json={"pair": "GBP/USD", "notional": 500_000, "side": "buy"},
         headers=md,
     ).json()["data"]
-    settled = c.post("/api/settle_hedge", json={"hedgeId": other["hedgeId"]}, headers=md)
+    settled = c.post(
+        "/api/settle_hedge", json={"hedgeId": other["hedgeId"]}, headers=md
+    )
     assert settled.status_code == 200 and settled.json()["data"]["status"] == "settled"
     cancelled = c.post("/api/cancel_hedge", json={"hedgeId": hid}, headers=md).json()[
         "data"
@@ -228,7 +239,10 @@ def test_grpc_hedge_lifecycle():
     assert cancelled["status"] == "cancelled"
     # A cancelled hedge can no longer be settled.
     no_settle = c.post("/api/settle_hedge", json={"hedgeId": hid}, headers=md)
-    assert no_settle.status_code == 400 and no_settle.json()["grpcStatus"] == "FAILED_PRECONDITION"
+    assert (
+        no_settle.status_code == 400
+        and no_settle.json()["grpcStatus"] == "FAILED_PRECONDITION"
+    )
     assert (
         c.post(
             "/api/place_hedge",
@@ -272,7 +286,9 @@ def test_grpc_transfer_and_insufficient_liquidity():
         json={"currency": "USD", "amount": 9_999_999_999, "destination": "DE"},
         headers=md,
     )
-    assert broke.status_code == 400 and broke.json()["grpcStatus"] == "FAILED_PRECONDITION"
+    assert (
+        broke.status_code == 400 and broke.json()["grpcStatus"] == "FAILED_PRECONDITION"
+    )
 
 
 def test_grpc_transfer_maker_checker_approval():
@@ -286,10 +302,14 @@ def test_grpc_transfer_maker_checker_approval():
     assert large["status"] == "pending_approval" and large["approvalState"] == "pending"
     tid = large["transferId"]
     released = c.post("/api/approve_transfer", json={"transferId": tid}, headers=md)
-    assert released.status_code == 200 and released.json()["data"]["status"] == "executed"
+    assert (
+        released.status_code == 200 and released.json()["data"]["status"] == "executed"
+    )
     # A transfer can only be approved once.
     again = c.post("/api/approve_transfer", json={"transferId": tid}, headers=md)
-    assert again.status_code == 400 and again.json()["grpcStatus"] == "FAILED_PRECONDITION"
+    assert (
+        again.status_code == 400 and again.json()["grpcStatus"] == "FAILED_PRECONDITION"
+    )
 
 
 def test_grpc_exposure_and_streaming():
@@ -313,8 +333,15 @@ def test_grpc_operation_carries_money_market_detail():
     c, md = _keystone()
     listing = c.post("/api/list_operations", json={}, headers=md).json()["data"]
     op_id = listing["items"][0]["operationId"]
-    op = c.post("/api/get_operation", json={"operationId": op_id}, headers=md).json()["data"]
-    assert {"dayCountConvention", "interestAmount", "accruedInterest", "maturityValue"} <= set(op)
+    op = c.post("/api/get_operation", json={"operationId": op_id}, headers=md).json()[
+        "data"
+    ]
+    assert {
+        "dayCountConvention",
+        "interestAmount",
+        "accruedInterest",
+        "maturityValue",
+    } <= set(op)
 
 
 # --------------------------------------------------------------------------- #
@@ -532,17 +559,29 @@ def test_pulse_instrument_reference_depth():
         assert field in inst, field
     # USD/CAD settles T+1; the rest of the book settles T+2.
     assert inst["settlementDays"] == 1
-    assert _pulse_data(c, h, "get_instrument", {"symbol": "EUR/JPY"})["settlementDays"] == 2
+    assert (
+        _pulse_data(c, h, "get_instrument", {"symbol": "EUR/JPY"})["settlementDays"]
+        == 2
+    )
     # pipLocation is the power-of-ten position of one pip.
-    assert _pulse_data(c, h, "get_instrument", {"symbol": "USD/JPY"})["pipLocation"] == -2
+    assert (
+        _pulse_data(c, h, "get_instrument", {"symbol": "USD/JPY"})["pipLocation"] == -2
+    )
     assert inst["pipLocation"] == -4
 
 
 def test_pulse_snapshot_market_microstructure():
     c, h = _pulse()
     snap = _pulse_data(c, h, "get_snapshot", {"symbol": "USD/EUR"})
-    for field in ("last", "lastSize", "vwap", "closeoutBid", "closeoutAsk",
-                  "tickDirection", "tradeable"):
+    for field in (
+        "last",
+        "lastSize",
+        "vwap",
+        "closeoutBid",
+        "closeoutAsk",
+        "tickDirection",
+        "tradeable",
+    ):
         assert field in snap, field
     # Closeout prices sit beyond the inside market a position trades out against.
     assert snap["closeoutBid"] <= snap["bid"] and snap["closeoutAsk"] >= snap["ask"]
@@ -552,7 +591,9 @@ def test_pulse_snapshot_market_microstructure():
 
 def test_pulse_bars_carry_vwap_and_trade_count():
     c, h = _pulse()
-    bars = _pulse_data(c, h, "get_bars", {"symbol": "USD/EUR", "resolution": "1h", "count": 3})
+    bars = _pulse_data(
+        c, h, "get_bars", {"symbol": "USD/EUR", "resolution": "1h", "count": 3}
+    )
     first = bars["bars"][0]
     assert {"vwap", "tradeCount", "complete"} <= set(first)
     assert first["low"] <= first["vwap"] <= first["high"]
@@ -566,9 +607,15 @@ def test_pulse_convert_rates_and_validation():
     assert conv["bid"] < conv["rate"] < conv["ask"]
     assert conv["toAmount"] == round(1000 * conv["rate"], 2)
     assert round(conv["rate"] * conv["inverseRate"], 4) == 1.0
-    bad_ccy = c.post("/api/convert", json={"from": "USD", "to": "ZZZ", "amount": 10}, headers=h)
-    assert bad_ccy.status_code == 422 and bad_ccy.json()["error"] == "unsupported_currency"
-    bad_amt = c.post("/api/convert", json={"from": "USD", "to": "EUR", "amount": -5}, headers=h)
+    bad_ccy = c.post(
+        "/api/convert", json={"from": "USD", "to": "ZZZ", "amount": 10}, headers=h
+    )
+    assert (
+        bad_ccy.status_code == 422 and bad_ccy.json()["error"] == "unsupported_currency"
+    )
+    bad_amt = c.post(
+        "/api/convert", json={"from": "USD", "to": "EUR", "amount": -5}, headers=h
+    )
     assert bad_amt.status_code == 422 and bad_amt.json()["error"] == "invalid_amount"
 
 
@@ -588,7 +635,10 @@ def test_pulse_usage_reports_plan_and_quota():
     usage = _pulse_data(c, h, "get_usage")
     assert usage["plan"] == "business"
     assert "streaming" in usage["entitlements"]
-    assert usage["dailyQuota"]["remaining"] == usage["dailyQuota"]["limit"] - usage["dailyQuota"]["used"]
+    assert (
+        usage["dailyQuota"]["remaining"]
+        == usage["dailyQuota"]["limit"] - usage["dailyQuota"]["used"]
+    )
     assert usage["rateLimit"]["limit"] > 0
     assert usage["subscriptions"]["limit"] == 50
 
@@ -610,20 +660,24 @@ def test_pulse_subscription_modify_and_limit():
     assert sub["snapshotOnSubscribe"] is True and sub["channel"] == "trades"
     sub_id = sub["subscriptionId"]
     updated = _pulse_data(
-        c, h, "update_subscription",
+        c,
+        h,
+        "update_subscription",
         {"subscriptionId": sub_id, "add": ["USD/JPY"], "remove": ["USD/EUR"]},
     )
     assert updated["symbols"] == ["USD/JPY"]
     # An unknown instrument on update is rejected like create.
     bad = c.post(
         "/api/update_subscription",
-        json={"subscriptionId": sub_id, "add": ["ZZZ/YYY"]}, headers=h,
+        json={"subscriptionId": sub_id, "add": ["ZZZ/YYY"]},
+        headers=h,
     )
     assert bad.status_code == 404
     _pulse_data(c, h, "cancel_subscription", {"subscriptionId": sub_id})
     closed = c.post(
         "/api/update_subscription",
-        json={"subscriptionId": sub_id, "add": ["USD/EUR"]}, headers=h,
+        json={"subscriptionId": sub_id, "add": ["USD/EUR"]},
+        headers=h,
     )
     assert closed.status_code == 409 and closed.json()["error"] == "subscription_closed"
 
@@ -647,7 +701,12 @@ def test_pulse_market_status_sessions_and_schedule():
     c, h = _pulse()
     status = _pulse_data(c, h, "get_market_status")
     assert status["market"] == "fx" and status["status"] == "open"
-    assert {s["name"] for s in status["sessions"]} == {"sydney", "tokyo", "london", "newyork"}
+    assert {s["name"] for s in status["sessions"]} == {
+        "sydney",
+        "tokyo",
+        "london",
+        "newyork",
+    }
     assert status["nextOpen"] and status["nextClose"]
     assert "USD" in status["currencies"] and "EUR" in status["currencies"]
 
@@ -674,9 +733,7 @@ def test_bearer_custom_header_scheme():
     c = client("vela-notify")
     token = seed("vela-notify")["bearerToken"]
     body = {"channel": "email", "to": "ops@lynx.example", "template": "remittance"}
-    accepted = c.post(
-        "/api/send_message", json=body, headers={"X-Vela-Token": token}
-    )
+    accepted = c.post("/api/send_message", json=body, headers={"X-Vela-Token": token})
     assert accepted.status_code in (200, 404)  # auth passes; template may be unseeded
     assert (
         c.post(
@@ -1096,9 +1153,7 @@ def test_halcyon_account_and_transaction_schema():
 
 def test_halcyon_payment_lifecycle_and_idempotency():
     c, s = client("halcyon-bank"), seed("halcyon-bank")
-    h = {
-        "Authorization": f"Bearer {_halcyon_token(c, s, 'accounts payments')}"
-    }
+    h = {"Authorization": f"Bearer {_halcyon_token(c, s, 'accounts payments')}"}
     account = c.post(
         "/api/list_accounts", json={"status": "Enabled"}, headers=h
     ).json()["data"]["items"][0]
@@ -1126,9 +1181,7 @@ def test_halcyon_payment_lifecycle_and_idempotency():
 
 def test_halcyon_payment_edge_cases():
     c, s = client("halcyon-bank"), seed("halcyon-bank")
-    h = {
-        "Authorization": f"Bearer {_halcyon_token(c, s, 'accounts payments')}"
-    }
+    h = {"Authorization": f"Bearer {_halcyon_token(c, s, 'accounts payments')}"}
     account = c.post(
         "/api/list_accounts", json={"status": "Enabled"}, headers=h
     ).json()["data"]["items"][0]
@@ -1202,7 +1255,9 @@ def test_halcyon_balances_resource():
     aid = c.post("/api/list_accounts", json={}, headers=h).json()["data"]["items"][0][
         "accountId"
     ]
-    data = c.post("/api/get_balances", json={"accountId": aid}, headers=h).json()["data"]
+    data = c.post("/api/get_balances", json={"accountId": aid}, headers=h).json()[
+        "data"
+    ]
     assert data["accountId"] == aid
     types = {b["type"] for b in data["balances"]}
     assert {"InterimAvailable", "InterimBooked", "ClosingBooked"} <= types
@@ -1216,9 +1271,7 @@ def test_halcyon_balances_resource():
 
 def test_halcyon_account_information_resources():
     c, s = client("halcyon-bank"), seed("halcyon-bank")
-    token = _halcyon_token(
-        c, s, "accounts beneficiaries standing_orders direct_debits"
-    )
+    token = _halcyon_token(c, s, "accounts beneficiaries standing_orders direct_debits")
     h = {"Authorization": f"Bearer {token}"}
     beneficiaries = c.post("/api/list_beneficiaries", json={}, headers=h).json()["data"]
     assert beneficiaries["total"] >= 1
@@ -1236,7 +1289,9 @@ def test_halcyon_account_information_resources():
 
 def test_halcyon_confirmation_of_funds():
     c, s = client("halcyon-bank"), seed("halcyon-bank")
-    h = {"Authorization": f"Bearer {_halcyon_token(c, s, 'accounts fundsconfirmations')}"}
+    h = {
+        "Authorization": f"Bearer {_halcyon_token(c, s, 'accounts fundsconfirmations')}"
+    }
     acct = c.post("/api/list_accounts", json={"status": "Enabled"}, headers=h).json()[
         "data"
     ]["items"][0]
@@ -1265,8 +1320,13 @@ def test_halcyon_payment_risk_and_dual_authorisation():
     # A payment above the dual-authorisation threshold awaits a second approval.
     large = c.post(
         "/api/initiate_payment",
-        json={"fromAccount": aid, "amount": 260000, "creditor": "Northwind",
-              "rail": "ACH", "paymentContextCode": "TransferToThirdParty"},
+        json={
+            "fromAccount": aid,
+            "amount": 260000,
+            "creditor": "Northwind",
+            "rail": "ACH",
+            "paymentContextCode": "TransferToThirdParty",
+        },
         headers=h,
     ).json()["data"]
     assert large["status"] == "Pending"
@@ -1279,8 +1339,12 @@ def test_halcyon_payment_risk_and_dual_authorisation():
     # An unsupported PaymentContextCode is rejected before debiting.
     bad = c.post(
         "/api/initiate_payment",
-        json={"fromAccount": aid, "amount": 10, "creditor": "x",
-              "paymentContextCode": "NotARealContext"},
+        json={
+            "fromAccount": aid,
+            "amount": 10,
+            "creditor": "x",
+            "paymentContextCode": "NotARealContext",
+        },
         headers=h,
     )
     assert bad.status_code == 422 and bad.json()["error"] == "invalid_payment_context"
@@ -1412,8 +1476,14 @@ def test_verafin_ctr_aggregation_flags_structured_cash():
     for i in range(3):
         last = c.post(
             "/api/monitor_transaction",
-            json={"transactionId": f"agg-{i}", "amount": 4000, "currency": "USD",
-                  "customerId": "cust_0000", "accountId": "acct_0000_0", "channel": "cash"},
+            json={
+                "transactionId": f"agg-{i}",
+                "amount": 4000,
+                "currency": "USD",
+                "customerId": "cust_0000",
+                "accountId": "acct_0000_0",
+                "channel": "cash",
+            },
             headers=h,
         ).json()["data"]
     agg = last["ctrAggregate"]
@@ -1427,12 +1497,20 @@ def test_verafin_alert_and_case_enrichment():
     h = {"Authorization": f"Bearer {_mint('verafin-monitor')}"}
     res = c.post(
         "/api/monitor_transaction",
-        json={"transactionId": "v1", "amount": 9500, "currency": "USD",
-              "customerId": "cust_0001", "accountId": "acct_0001_0",
-              "channel": "cash", "country": "IR"},
+        json={
+            "transactionId": "v1",
+            "amount": 9500,
+            "currency": "USD",
+            "customerId": "cust_0001",
+            "accountId": "acct_0001_0",
+            "channel": "cash",
+            "country": "IR",
+        },
         headers=h,
     ).json()["data"]
-    alert = c.post("/api/get_alert", json={"alertId": res["alertId"]}, headers=h).json()["data"]
+    alert = c.post(
+        "/api/get_alert", json={"alertId": res["alertId"]}, headers=h
+    ).json()["data"]
     assert {"ageHours", "slaBreached", "tags"} <= set(alert)
     esc = c.post(
         "/api/resolve_alert",
@@ -1443,8 +1521,14 @@ def test_verafin_alert_and_case_enrichment():
     case = c.post("/api/get_case", json={"caseId": case_id}, headers=h).json()["data"]
     assert case["caseNumber"].startswith("CASE-")
     assert case["subjectCustomerIds"] == ["cust_0001"]
-    c.post("/api/add_case_note", json={"caseId": case_id, "note": "Reviewed records."}, headers=h)
-    refreshed = c.post("/api/get_case", json={"caseId": case_id}, headers=h).json()["data"]
+    c.post(
+        "/api/add_case_note",
+        json={"caseId": case_id, "note": "Reviewed records."},
+        headers=h,
+    )
+    refreshed = c.post("/api/get_case", json={"caseId": case_id}, headers=h).json()[
+        "data"
+    ]
     assert refreshed["noteCount"] == 1
 
 
@@ -1453,12 +1537,22 @@ def test_verafin_filing_amendment_flow():
     h = {"Authorization": f"Bearer {_mint('verafin-monitor')}"}
     res = c.post(
         "/api/monitor_transaction",
-        json={"transactionId": "f1", "amount": 9500, "currency": "USD",
-              "customerId": "cust_0002", "accountId": "acct_0002_0",
-              "channel": "cash", "country": "IR"},
+        json={
+            "transactionId": "f1",
+            "amount": 9500,
+            "currency": "USD",
+            "customerId": "cust_0002",
+            "accountId": "acct_0002_0",
+            "channel": "cash",
+            "country": "IR",
+        },
         headers=h,
     ).json()["data"]
-    c.post("/api/resolve_alert", json={"alertId": res["alertId"], "disposition": "file_sar"}, headers=h)
+    c.post(
+        "/api/resolve_alert",
+        json={"alertId": res["alertId"], "disposition": "file_sar"},
+        headers=h,
+    )
     filing = c.post(
         "/api/prepare_filing",
         json={"alertId": res["alertId"], "filingType": "SAR"},
@@ -1466,7 +1560,9 @@ def test_verafin_filing_amendment_flow():
     ).json()["data"]
     assert filing["filingInstitution"]["legalName"].startswith("LynxCapital")
     assert filing["filingNumber"].startswith("SAR-")
-    submitted = c.post("/api/submit_filing", json={"filingId": filing["filingId"]}, headers=h).json()["data"]
+    submitted = c.post(
+        "/api/submit_filing", json={"filingId": filing["filingId"]}, headers=h
+    ).json()["data"]
     assert submitted["status"] == "acknowledged" and submitted["confirmationNumber"]
     amended = c.post(
         "/api/amend_filing",
@@ -1584,23 +1680,32 @@ def caracal_zone(monkeypatch):
         }
         claims.update(overrides)
         claims = {k: v for k, v in claims.items() if v is not None}
-        return pyjwt.encode(claims, private_key, algorithm="ES256", headers={"kid": "sts-key-1"})
+        return pyjwt.encode(
+            claims, private_key, algorithm="ES256", headers={"kid": "sts-key-1"}
+        )
 
     return mint
 
 
-def _caracal_call(provider_id: str, operation: str, token: str, body: dict | None = None):
+def _caracal_call(
+    provider_id: str, operation: str, token: str, body: dict | None = None
+):
     return client(provider_id).post(
-        f"/api/{operation}", json=body or {}, headers={"Authorization": f"Bearer {token}"}
+        f"/api/{operation}",
+        json=body or {},
+        headers={"Authorization": f"Bearer {token}"},
     )
 
 
 def test_caracal_mandate_grants_only_partnered_operations(caracal_zone):
     token = caracal_zone("resource://compliance-aegis", "aegis:screen")
-    ok = _caracal_call("aegis-screening", "screen_party", token, {"name": "Acme Trading"})
+    ok = _caracal_call(
+        "aegis-screening", "screen_party", token, {"name": "Acme Trading"}
+    )
     assert ok.status_code == 200
-    blocked = _caracal_call("aegis-screening", "assign_case", token,
-                            {"caseId": "c1", "assignee": "x"})
+    blocked = _caracal_call(
+        "aegis-screening", "assign_case", token, {"caseId": "c1", "assignee": "x"}
+    )
     assert blocked.status_code == 403
     assert blocked.json()["error"] == "insufficient_scope"
 
@@ -1621,16 +1726,18 @@ def test_caracal_mandate_audience_pinned_to_partnered_views(caracal_zone):
 
 
 def test_caracal_mandate_issuer_pinned(caracal_zone):
-    token = caracal_zone("resource://compliance-aegis", "aegis:screen",
-                         iss="https://rogue-sts.test")
+    token = caracal_zone(
+        "resource://compliance-aegis", "aegis:screen", iss="https://rogue-sts.test"
+    )
     r = _caracal_call("aegis-screening", "screen_party", token, {"name": "x"})
     assert r.status_code == 401
     assert r.json()["error"] == "invalid_token"
 
 
 def test_caracal_mandate_zone_pinned(caracal_zone):
-    token = caracal_zone("resource://compliance-aegis", "aegis:screen",
-                         zone_id="other-zone")
+    token = caracal_zone(
+        "resource://compliance-aegis", "aegis:screen", zone_id="other-zone"
+    )
     r = _caracal_call("aegis-screening", "screen_party", token, {"name": "x"})
     assert r.status_code == 403
     assert r.json()["error"] == "invalid_zone"
@@ -1639,8 +1746,12 @@ def test_caracal_mandate_zone_pinned(caracal_zone):
 def test_caracal_mandate_revocation_enforced(caracal_zone):
     anchor = f"sid_{uuid.uuid4().hex[:12]}"
     token = caracal_zone("resource://compliance-aegis", "aegis:screen", sid=anchor)
-    assert _caracal_call("aegis-screening", "screen_party", token,
-                         {"name": "y"}).status_code == 200
+    assert (
+        _caracal_call(
+            "aegis-screening", "screen_party", token, {"name": "y"}
+        ).status_code
+        == 200
+    )
     credentials.load("aegis-screening").revoke_mandate_anchor(anchor)
     r = _caracal_call("aegis-screening", "screen_party", token, {"name": "y"})
     assert r.status_code == 403
@@ -1648,30 +1759,48 @@ def test_caracal_mandate_revocation_enforced(caracal_zone):
 
 
 def test_caracal_mandate_delegation_requires_edge(caracal_zone):
-    undelegated = caracal_zone("resource://compliance-verafin", "verafin:monitor",
-                               agent_session_id=f"agent_{uuid.uuid4().hex[:12]}")
-    r = _caracal_call("verafin-monitor", "monitor_transaction", undelegated,
-                      {"transactionId": "t1", "amount": 10})
+    undelegated = caracal_zone(
+        "resource://compliance-verafin",
+        "verafin:monitor",
+        agent_session_id=f"agent_{uuid.uuid4().hex[:12]}",
+    )
+    r = _caracal_call(
+        "verafin-monitor",
+        "monitor_transaction",
+        undelegated,
+        {"transactionId": "t1", "amount": 10},
+    )
     assert r.status_code == 403
     assert r.json()["error"] == "delegation_required"
 
-    delegated = caracal_zone("resource://compliance-verafin", "verafin:monitor",
-                             agent_session_id=f"agent_{uuid.uuid4().hex[:12]}",
-                             delegation_edge_id=f"edge_{uuid.uuid4().hex[:12]}")
-    ok = _caracal_call("verafin-monitor", "monitor_transaction", delegated,
-                       {"transactionId": "t1", "amount": 10})
+    delegated = caracal_zone(
+        "resource://compliance-verafin",
+        "verafin:monitor",
+        agent_session_id=f"agent_{uuid.uuid4().hex[:12]}",
+        delegation_edge_id=f"edge_{uuid.uuid4().hex[:12]}",
+    )
+    ok = _caracal_call(
+        "verafin-monitor",
+        "monitor_transaction",
+        delegated,
+        {"transactionId": "t1", "amount": 10},
+    )
     assert ok.status_code == 200
 
 
 def test_caracal_mandate_scopes_gate_mcp_provider_operations(caracal_zone):
     reader = caracal_zone(
-        "resource://ops-relay", "relay:read",
+        "resource://ops-relay",
+        "relay:read",
         agent_session_id=f"agent_{uuid.uuid4().hex[:12]}",
         delegation_edge_id=f"edge_{uuid.uuid4().hex[:12]}",
     )
-    assert _caracal_call("relay-automation", "list_workflows", reader).status_code == 200
-    blocked = _caracal_call("relay-automation", "start_execution", reader,
-                            {"workflowId": "wf1"})
+    assert (
+        _caracal_call("relay-automation", "list_workflows", reader).status_code == 200
+    )
+    blocked = _caracal_call(
+        "relay-automation", "start_execution", reader, {"workflowId": "wf1"}
+    )
     assert blocked.status_code == 403
     assert blocked.json()["error"] == "insufficient_scope"
 
@@ -2091,6 +2220,7 @@ def _atlas_call(c, headers):
         if result.get("isError"):
             return {"_error": result["content"][0]["text"]}
         return result["structuredContent"]
+
     return call
 
 
@@ -2126,12 +2256,18 @@ def test_mcp_profile_update_and_contact():
     c = client("atlas-vendor")
     token = seed("atlas-vendor")["bearerToken"]
     call = _atlas_call(c, {"Authorization": f"Bearer {token}"})
-    updated = call("update_vendor_profile", {"vendorId": "VEND-00002", "paymentTerms": "NET60"})
+    updated = call(
+        "update_vendor_profile", {"vendorId": "VEND-00002", "paymentTerms": "NET60"}
+    )
     assert updated["paymentTerms"] == "NET60"
     contact = call(
         "add_vendor_contact",
-        {"vendorId": "VEND-00002", "name": "Ada Vendor", "email": "ada@vendor.example",
-         "primary": True},
+        {
+            "vendorId": "VEND-00002",
+            "name": "Ada Vendor",
+            "email": "ada@vendor.example",
+            "primary": True,
+        },
     )
     assert contact["primary"] is True
     assert call("update_vendor_profile", {"vendorId": "VEND-00002"})["_error"]
@@ -2150,7 +2286,11 @@ def test_mcp_compliance_screening_and_document_review():
     assert doc["status"] == "pending_review"
     reviewed = call(
         "review_vendor_document",
-        {"vendorId": "VEND-00003", "documentId": doc["documentId"], "decision": "approve"},
+        {
+            "vendorId": "VEND-00003",
+            "documentId": doc["documentId"],
+            "decision": "approve",
+        },
     )
     assert reviewed["status"] == "verified"
 
@@ -2315,8 +2455,10 @@ def test_relay_queue_concurrency_reported():
 
 def test_relay_pause_resume_round_trips():
     _, _, call = _relay()
-    ex = call("start_execution",
-              {"workflowId": "statement_reconciliation", "input": {"day": "2026-06-01"}})
+    ex = call(
+        "start_execution",
+        {"workflowId": "statement_reconciliation", "input": {"day": "2026-06-01"}},
+    )
     eid = ex["executionId"]
     call("get_execution", {"executionId": eid})
     paused = call("pause_execution", {"executionId": eid, "reason": "hold for review"})
@@ -2347,7 +2489,9 @@ def test_relay_workflow_exposes_next_run_and_stats():
     assert scheduled["schedule"] and scheduled["nextRunAt"]
     assert scheduled["nextRunAt"].endswith("Z")
     stats = scheduled["stats"]
-    assert {"successRate", "failureRate", "avgDurationMs", "lastFailureAt"} <= set(stats)
+    assert {"successRate", "failureRate", "avgDurationMs", "lastFailureAt"} <= set(
+        stats
+    )
 
 
 def test_relay_result_tracks_attempt_history():
@@ -2437,11 +2581,17 @@ def _meridian() -> tuple[TestClient, dict]:
 
 def test_meridian_charge_schema_enrichment():
     c, h = _meridian()
-    charge = c.post("/api/create_charge",
-                    json={"amount": 250.00, "currency": "USD", "source": "tok_visa",
-                          "statementDescriptorSuffix": "ORDER42",
-                          "receiptEmail": "buyer@payer.example"},
-                    headers=h).json()["data"]
+    charge = c.post(
+        "/api/create_charge",
+        json={
+            "amount": 250.00,
+            "currency": "USD",
+            "source": "tok_visa",
+            "statementDescriptorSuffix": "ORDER42",
+            "receiptEmail": "buyer@payer.example",
+        },
+        headers=h,
+    ).json()["data"]
     assert charge["status"] == "succeeded" and charge["paid"] is True
     assert charge["paymentIntent"].startswith("pi_")
     assert len(charge["authorizationCode"]) == 6
@@ -2453,25 +2603,35 @@ def test_meridian_charge_schema_enrichment():
 
 def test_meridian_idempotency_key_conflict():
     c, h = _meridian()
-    body = {"amount": 100, "currency": "USD", "source": "tok_visa", "idempotencyKey": "rk-1"}
+    body = {
+        "amount": 100,
+        "currency": "USD",
+        "source": "tok_visa",
+        "idempotencyKey": "rk-1",
+    }
     first = c.post("/api/create_charge", json=body, headers=h).json()["data"]
     same = c.post("/api/create_charge", json=body, headers=h).json()["data"]
     assert first["chargeId"] == same["chargeId"]
-    conflict = c.post("/api/create_charge",
-                      json={**body, "amount": 999}, headers=h)
+    conflict = c.post("/api/create_charge", json={**body, "amount": 999}, headers=h)
     assert conflict.status_code == 400
     assert conflict.json()["error"] == "idempotency_error"
 
 
 def test_meridian_partial_capture_releases_remainder():
     c, h = _meridian()
-    auth = c.post("/api/create_charge",
-                  json={"amount": 500, "currency": "USD", "source": "tok_visa",
-                        "capture": False}, headers=h).json()["data"]
-    assert auth["status"] == "requires_capture" and auth["captureBefore"] > auth["created"]
-    captured = c.post("/api/capture_charge",
-                      json={"chargeId": auth["chargeId"], "amountToCapture": 300},
-                      headers=h).json()["data"]
+    auth = c.post(
+        "/api/create_charge",
+        json={"amount": 500, "currency": "USD", "source": "tok_visa", "capture": False},
+        headers=h,
+    ).json()["data"]
+    assert (
+        auth["status"] == "requires_capture" and auth["captureBefore"] > auth["created"]
+    )
+    captured = c.post(
+        "/api/capture_charge",
+        json={"chargeId": auth["chargeId"], "amountToCapture": 300},
+        headers=h,
+    ).json()["data"]
     assert captured["status"] == "succeeded"
     assert captured["amountCaptured"] == 300.0
     assert captured["amountRefunded"] == 200.0
@@ -2480,9 +2640,11 @@ def test_meridian_partial_capture_releases_remainder():
 
 def test_meridian_3ds_requires_action_uses_neutral_redirect():
     c, h = _meridian()
-    charge = c.post("/api/create_charge",
-                    json={"amount": 100, "currency": "USD",
-                          "source": "tok_threeDSecureRequired"}, headers=h).json()["data"]
+    charge = c.post(
+        "/api/create_charge",
+        json={"amount": 100, "currency": "USD", "source": "tok_threeDSecureRequired"},
+        headers=h,
+    ).json()["data"]
     assert charge["status"] == "requires_action"
     assert charge["nextAction"]["type"] == "redirect_to_url"
     assert charge["authorizationCode"] is None
@@ -2490,23 +2652,39 @@ def test_meridian_3ds_requires_action_uses_neutral_redirect():
 
 def test_meridian_decline_carries_failure_code():
     c, h = _meridian()
-    declined = c.post("/api/create_charge",
-                      json={"amount": 100, "currency": "USD",
-                            "source": "tok_chargeDeclinedInsufficientFunds"}, headers=h)
+    declined = c.post(
+        "/api/create_charge",
+        json={
+            "amount": 100,
+            "currency": "USD",
+            "source": "tok_chargeDeclinedInsufficientFunds",
+        },
+        headers=h,
+    )
     assert declined.status_code == 402
     assert declined.json()["error"] == "insufficient_funds"
+
+
 def _inkwell_query() -> tuple[TestClient, str]:
     return client("inkwell-ocr"), seed("inkwell-ocr")["apiKey"]
 
 
 def test_inkwell_extraction_schema_enrichment():
     c, key = _inkwell_query()
-    started = c.post(f"/api/submit_document?api_key={key}",
-                     json={"fileName": "invoice-2026.pdf"}).json()["data"]
-    for envelope_field in ("selfUrl", "apiVersion", "queuedAt", "tags", "idempotencyKey"):
+    started = c.post(
+        f"/api/submit_document?api_key={key}", json={"fileName": "invoice-2026.pdf"}
+    ).json()["data"]
+    for envelope_field in (
+        "selfUrl",
+        "apiVersion",
+        "queuedAt",
+        "tags",
+        "idempotencyKey",
+    ):
         assert envelope_field in started
-    done = c.post(f"/api/get_extraction?api_key={key}",
-                  json={"documentId": started["documentId"]}).json()["data"]
+    done = c.post(
+        f"/api/get_extraction?api_key={key}", json={"documentId": started["documentId"]}
+    ).json()["data"]
     assert done["status"] in ("extracted", "needs_review")
     assert done["extractionId"].startswith("ext_")
     assert done["corrections"] == []
@@ -2514,7 +2692,16 @@ def test_inkwell_extraction_schema_enrichment():
     assert done["fullText"].count("\n") > 5
     assert isinstance(done["pages"], list) and len(done["pages"]) >= 1
     page = done["pages"][0]
-    for k in ("pageNumber", "width", "height", "unit", "angle", "dpi", "detectedLanguages", "text"):
+    for k in (
+        "pageNumber",
+        "width",
+        "height",
+        "unit",
+        "angle",
+        "dpi",
+        "detectedLanguages",
+        "text",
+    ):
         assert k in page
     assert page["detectedLanguages"] and "language" in page["detectedLanguages"][0]
     for name, field in done["fields"].items():
@@ -2523,67 +2710,98 @@ def test_inkwell_extraction_schema_enrichment():
     line_items = done["lineItems"]
     if line_items:
         assert "valueConfidences" in line_items[0]
-        assert set(line_items[0]["valueConfidences"]) == {"description", "quantity", "unitPrice", "amount"}
+        assert set(line_items[0]["valueConfidences"]) == {
+            "description",
+            "quantity",
+            "unitPrice",
+            "amount",
+        }
     # Document is rolled forward with the extraction timestamps.
-    fresh = c.post(f"/api/get_document?api_key={key}",
-                   json={"documentId": started["documentId"]}).json()["data"]
-    assert fresh["completedAt"] is not None and fresh["processingDurationMs"] is not None
+    fresh = c.post(
+        f"/api/get_document?api_key={key}", json={"documentId": started["documentId"]}
+    ).json()["data"]
+    assert (
+        fresh["completedAt"] is not None and fresh["processingDurationMs"] is not None
+    )
     assert fresh["startedAt"] is not None
 
 
 def test_inkwell_correction_append_only():
     c, key = _inkwell_query()
-    started = c.post(f"/api/submit_document?api_key={key}",
-                     json={"fileName": "invoice-correct.pdf"}).json()["data"]
+    started = c.post(
+        f"/api/submit_document?api_key={key}", json={"fileName": "invoice-correct.pdf"}
+    ).json()["data"]
     document_id = started["documentId"]
-    done = c.post(f"/api/get_extraction?api_key={key}",
-                  json={"documentId": document_id}).json()["data"]
+    done = c.post(
+        f"/api/get_extraction?api_key={key}", json={"documentId": document_id}
+    ).json()["data"]
     original = done["fields"]["totalAmount"]
     correction = c.post(
         f"/api/submit_correction?api_key={key}",
-        json={"documentId": document_id, "fieldPath": "totalAmount",
-              "value": 9999.99, "correctedBy": "reviewer@piedpiper.example"},
+        json={
+            "documentId": document_id,
+            "fieldPath": "totalAmount",
+            "value": 9999.99,
+            "correctedBy": "reviewer@piedpiper.example",
+        },
     ).json()["data"]
     assert correction["correctionId"].startswith("corr_")
     assert correction["previousValue"] == original["value"]
     assert correction["value"] == 9999.99
     # Append-only: extraction's field is unchanged.
-    again = c.post(f"/api/get_extraction?api_key={key}",
-                   json={"documentId": document_id}).json()["data"]
+    again = c.post(
+        f"/api/get_extraction?api_key={key}", json={"documentId": document_id}
+    ).json()["data"]
     assert again["fields"]["totalAmount"]["value"] == original["value"]
     assert correction["correctionId"] in again["corrections"]
     # list_corrections surfaces it.
-    listing = c.post(f"/api/list_corrections?api_key={key}",
-                     json={"documentId": document_id}).json()["data"]
-    assert any(item["correctionId"] == correction["correctionId"] for item in listing["items"])
+    listing = c.post(
+        f"/api/list_corrections?api_key={key}", json={"documentId": document_id}
+    ).json()["data"]
+    assert any(
+        item["correctionId"] == correction["correctionId"] for item in listing["items"]
+    )
     # Unknown field paths reject.
-    bad = c.post(f"/api/submit_correction?api_key={key}",
-                 json={"documentId": document_id, "fieldPath": "nonsense", "value": 1})
+    bad = c.post(
+        f"/api/submit_correction?api_key={key}",
+        json={"documentId": document_id, "fieldPath": "nonsense", "value": 1},
+    )
     assert bad.status_code == 422 and bad.json()["error"] == "unknown_field"
 
 
 def test_inkwell_cancel_blocks_extraction():
     c, key = _inkwell_query()
-    started = c.post(f"/api/submit_document?api_key={key}",
-                     json={"fileName": "invoice-cancel.pdf"}).json()["data"]
+    started = c.post(
+        f"/api/submit_document?api_key={key}", json={"fileName": "invoice-cancel.pdf"}
+    ).json()["data"]
     document_id = started["documentId"]
-    cancelled = c.post(f"/api/cancel_document?api_key={key}",
-                       json={"documentId": document_id}).json()["data"]
+    cancelled = c.post(
+        f"/api/cancel_document?api_key={key}", json={"documentId": document_id}
+    ).json()["data"]
     assert cancelled["status"] == "cancelled" and cancelled["cancelledAt"]
-    missing = c.post(f"/api/get_extraction?api_key={key}",
-                     json={"documentId": document_id})
-    assert missing.status_code == 404 and missing.json()["error"] == "extraction_not_found"
-    again = c.post(f"/api/cancel_document?api_key={key}",
-                   json={"documentId": document_id})
+    missing = c.post(
+        f"/api/get_extraction?api_key={key}", json={"documentId": document_id}
+    )
+    assert (
+        missing.status_code == 404 and missing.json()["error"] == "extraction_not_found"
+    )
+    again = c.post(
+        f"/api/cancel_document?api_key={key}", json={"documentId": document_id}
+    )
     assert again.status_code == 409 and again.json()["error"] == "cancel_not_allowed"
     # A completed extraction cannot be retroactively cancelled.
-    other = c.post(f"/api/submit_document?api_key={key}",
-                   json={"fileName": "invoice-complete.pdf"}).json()["data"]
-    c.post(f"/api/get_extraction?api_key={key}",
-           json={"documentId": other["documentId"]})
-    blocked = c.post(f"/api/cancel_document?api_key={key}",
-                     json={"documentId": other["documentId"]})
-    assert blocked.status_code == 409 and blocked.json()["error"] == "cancel_not_allowed"
+    other = c.post(
+        f"/api/submit_document?api_key={key}", json={"fileName": "invoice-complete.pdf"}
+    ).json()["data"]
+    c.post(
+        f"/api/get_extraction?api_key={key}", json={"documentId": other["documentId"]}
+    )
+    blocked = c.post(
+        f"/api/cancel_document?api_key={key}", json={"documentId": other["documentId"]}
+    )
+    assert (
+        blocked.status_code == 409 and blocked.json()["error"] == "cancel_not_allowed"
+    )
 
 
 def test_inkwell_submit_documents_batch():
@@ -2597,22 +2815,24 @@ def test_inkwell_submit_documents_batch():
         ],
         "idempotencyKey": "batch-1",
     }
-    batch = c.post(f"/api/submit_documents_batch?api_key={key}",
-                   json=payload).json()["data"]
+    batch = c.post(f"/api/submit_documents_batch?api_key={key}", json=payload).json()[
+        "data"
+    ]
     assert batch["submitted"] == 4
     assert batch["accepted"] == 2 and batch["rejected"] == 2
-    rejected_codes = {r["error"]["code"] for r in batch["results"]
-                      if r["status"] == "rejected"}
+    rejected_codes = {
+        r["error"]["code"] for r in batch["results"] if r["status"] == "rejected"
+    }
     assert rejected_codes == {"media_too_large", "invalid_request"}
     for row in batch["results"]:
         if row["status"] == "accepted":
             assert row["documentId"].startswith("doc_")
     # Idempotent replay returns the same batch (no double-submit).
-    replay = c.post(f"/api/submit_documents_batch?api_key={key}",
-                    json=payload).json()["data"]
+    replay = c.post(f"/api/submit_documents_batch?api_key={key}", json=payload).json()[
+        "data"
+    ]
     assert replay["batchId"] == batch["batchId"]
-    empty = c.post(f"/api/submit_documents_batch?api_key={key}",
-                   json={"documents": []})
+    empty = c.post(f"/api/submit_documents_batch?api_key={key}", json={"documents": []})
     assert empty.status_code == 422 and empty.json()["error"] == "empty_batch"
 
 
@@ -2622,27 +2842,31 @@ def test_inkwell_idempotent_submit_and_get_model():
     first = c.post(f"/api/submit_document?api_key={key}", json=body).json()["data"]
     second = c.post(f"/api/submit_document?api_key={key}", json=body).json()["data"]
     assert first["documentId"] == second["documentId"]
-    listing = c.post(f"/api/list_documents?api_key={key}",
-                     json={"pageSize": 100}).json()["data"]
-    assert sum(1 for d in listing["items"]
-               if d["documentId"] == first["documentId"]) == 1
+    listing = c.post(
+        f"/api/list_documents?api_key={key}", json={"pageSize": 100}
+    ).json()["data"]
+    assert (
+        sum(1 for d in listing["items"] if d["documentId"] == first["documentId"]) == 1
+    )
     # get_model returns one model and 404s on unknown ids; matches list_models.
-    one = c.post(f"/api/get_model?api_key={key}",
-                 json={"modelId": "invoice"}).json()["data"]
+    one = c.post(f"/api/get_model?api_key={key}", json={"modelId": "invoice"}).json()[
+        "data"
+    ]
     assert one["modelId"] == "invoice" and one["pricing"]["perPage"] > 0
     assert "regions" in one and "us-east" in one["regions"]
-    missing = c.post(f"/api/get_model?api_key={key}",
-                     json={"modelId": "nonexistent"})
+    missing = c.post(f"/api/get_model?api_key={key}", json={"modelId": "nonexistent"})
     assert missing.status_code == 404 and missing.json()["error"] == "model_not_found"
 
 
 def test_inkwell_submit_oversized_rejected():
     c, key = _inkwell_query()
-    bad = c.post(f"/api/submit_document?api_key={key}",
-                 json={"fileName": "huge-scan.pdf"})
+    bad = c.post(
+        f"/api/submit_document?api_key={key}", json={"fileName": "huge-scan.pdf"}
+    )
     assert bad.status_code == 413 and bad.json()["error"] == "media_too_large"
-    too_many = c.post(f"/api/submit_document?api_key={key}",
-                      json={"fileName": "manypages-report.pdf"})
+    too_many = c.post(
+        f"/api/submit_document?api_key={key}", json={"fileName": "manypages-report.pdf"}
+    )
     assert too_many.status_code == 422 and too_many.json()["error"] == "too_many_pages"
 
 
@@ -2919,8 +3143,14 @@ def test_lumen_identity_directory_model():
     assert (
         "payments:approve" in role["permissions"] and role["category"] == "privileged"
     )
-    for field in ("ownerTeamId", "riskLevel", "requiresApproval", "requiresMfa",
-                  "sodConflictRoleIds", "assignedCount"):
+    for field in (
+        "ownerTeamId",
+        "riskLevel",
+        "requiresApproval",
+        "requiresMfa",
+        "sodConflictRoleIds",
+        "assignedCount",
+    ):
         assert field in role, f"missing role field {field}"
     assert role["requiresMfa"] is True and role["riskLevel"] == "critical"
     assert idn.post("/api/get_role", json={"roleId": "ROLE-nope"}).status_code == 404
@@ -2971,24 +3201,27 @@ def test_lumen_identity_access_governance():
     idn = client("lumen-identity")
 
     # Effective access surfaces account state, MFA methods, and SoD evaluation.
-    access = idn.post("/api/get_user_access", json={"userId": "EMP-1001"}).json()["data"]
+    access = idn.post("/api/get_user_access", json={"userId": "EMP-1001"}).json()[
+        "data"
+    ]
     assert access["accountEnabled"] is True
     assert "sodConflicts" in access and "hasSodConflict" in access
 
     # Entitlements break each permission down to the granting role and path.
-    ent = idn.post(
-        "/api/get_user_entitlements", json={"userId": "EMP-1001"}
-    ).json()["data"]
+    ent = idn.post("/api/get_user_entitlements", json={"userId": "EMP-1001"}).json()[
+        "data"
+    ]
     assert ent["entitlementCount"] >= 1
     sample = ent["entitlements"][0]
-    assert "permission" in sample and sample["grantedBy"][0]["via"] in ("direct", "group")
+    assert "permission" in sample and sample["grantedBy"][0]["via"] in (
+        "direct",
+        "group",
+    )
 
     # Segregation-of-duties is policy-driven: at least one seeded toxic combination exists.
     found_violation = False
     for n in range(1002, 1120):
-        sod = idn.post(
-            "/api/check_segregation_of_duties", json={"userId": f"EMP-{n}"}
-        )
+        sod = idn.post("/api/check_segregation_of_duties", json={"userId": f"EMP-{n}"})
         if sod.status_code != 200:
             continue
         body = sod.json()["data"]
@@ -2998,7 +3231,9 @@ def test_lumen_identity_access_governance():
             conflict = body["conflicts"][0]
             assert len(conflict["roleIds"]) == 2 and conflict["rationale"]
             break
-    assert found_violation, "expected at least one seeded SoD violation in the directory"
+    assert found_violation, (
+        "expected at least one seeded SoD violation in the directory"
+    )
 
     # Role membership resolves direct and group-inherited holders for access reviews.
     members = idn.post(
@@ -3006,9 +3241,10 @@ def test_lumen_identity_access_governance():
     ).json()["data"]
     assert members["total"] >= 1
     assert all("assignment" in m for m in members["items"])
-    assert idn.post(
-        "/api/list_role_members", json={"roleId": "ROLE-nope"}
-    ).status_code == 404
+    assert (
+        idn.post("/api/list_role_members", json={"roleId": "ROLE-nope"}).status_code
+        == 404
+    )
 
     # Privileged-access review population is non-empty and privilege-scoped.
     priv = idn.post("/api/list_privileged_users", json={"pageSize": 100}).json()["data"]
@@ -3076,7 +3312,9 @@ def test_sdk_pair_distinct_cases():
     )
     # AvaTax-shaped transaction: numeric id, resolved addresses, and per-jurisdiction
     # detail carrying its sourcing and tax-authority classification.
-    assert isinstance(calc["id"], int) and calc["totalTaxCalculated"] == calc["totalTax"]
+    assert (
+        isinstance(calc["id"], int) and calc["totalTaxCalculated"] == calc["totalTax"]
+    )
     assert {a["addressTypeId"] for a in calc["addresses"]} == {"ShipFrom", "ShipTo"}
     taxable_line = next(line for line in calc["lines"] if line["isItemTaxable"])
     assert taxable_line["sourcing"] == "Destination"
@@ -3281,11 +3519,17 @@ def test_usage_telemetry_recorded_on_call():
 
 def test_oauth_client_usage_telemetry_recorded_on_call():
     c = client("cordoba-fx")
-    c.post("/api/get_quote",
-           json={"buy_currency": "EUR", "sell_currency": "USD", "amount": 100},
-           headers=_cordoba_token(c))
+    c.post(
+        "/api/get_quote",
+        json={"buy_currency": "EUR", "sell_currency": "USD", "amount": 100},
+        headers=_cordoba_token(c),
+    )
     store = credentials.load("cordoba-fx")
-    used = [r for r in store.data["clients"] if r["clientId"] == seed("cordoba-fx")["clientId"]]
+    used = [
+        r
+        for r in store.data["clients"]
+        if r["clientId"] == seed("cordoba-fx")["clientId"]
+    ]
     assert used and used[0].get("useCount", 0) >= 1
     assert used[0].get("lastUsedAt")
 

@@ -6,6 +6,7 @@ Runnable reference of the Lynx Capital Caracal flows: per-boundary application c
 labeled agent sessions spawned under narrowed delegation edges, resource-mandate minting,
 and gateway-mediated partner calls.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -33,10 +34,14 @@ def describe_plan() -> None:
         print(f"  {app.applicationName}  views={len(views)}")
         for role in (r for r in model.roles if r.application == app.id):
             marker = " (dynamic)" if role.dynamic else ""
-            print(f"    agent {role.name}{marker}  labels={tenancy.agent_labels(role.name)}  scopes={role.scopes}")
+            print(
+                f"    agent {role.name}{marker}  labels={tenancy.agent_labels(role.name)}  scopes={role.scopes}"
+            )
     print("resource views:")
     for view in model.resources:
-        print(f"  {view.identifier}  app={view.application}  provider={view.provider}  scopes={view.scopes}")
+        print(
+            f"  {view.identifier}  app={view.application}  provider={view.provider}  scopes={view.scopes}"
+        )
 
 
 async def demonstrate_worker(runner, role: str, scope: str) -> None:
@@ -54,7 +59,9 @@ async def demonstrate_worker(runner, role: str, scope: str) -> None:
         token = authority.runtime.client.mint_mandate(
             views[0], sorted(authority.scopes)[:1], ctx=authority.ctx
         )
-        print(f"  {role}: session={authority.agent_session_id}  mandate for {views[0]} ({len(token)} chars)")
+        print(
+            f"  {role}: session={authority.agent_session_id}  mandate for {views[0]} ({len(token)} chars)"
+        )
     except Exception as exc:  # noqa: BLE001 - surface the failure class, fail closed.
         print(f"  {role}: mandate denied/failed ({type(exc).__name__}: {exc})")
     finally:
@@ -86,8 +93,12 @@ async def run_flows() -> None:
 async def main() -> None:
     describe_plan()
     if not caracal.enabled():
-        print("\nCaracal is not configured (set CARACAL_ZONE_ID and the LYNX_CARACAL_<APP>_* credentials).")
-        print("The plan above is valid offline; provision the zone to exercise the live flows.")
+        print(
+            "\nCaracal is not configured (set CARACAL_ZONE_ID and the LYNX_CARACAL_<APP>_* credentials)."
+        )
+        print(
+            "The plan above is valid offline; provision the zone to exercise the live flows."
+        )
         return
     await run_flows()
 

@@ -49,7 +49,9 @@ function adminTransport(apiUrl, adminToken, zoneId) {
     async activationStatus(policySetId, versionId, outboxId) {
       const query = new URLSearchParams({ version_id: versionId })
       if (outboxId) query.set('outbox_id', outboxId)
-      const res = await fetch(`${base}/v1/zones/${zone}/policy-sets/${encodeURIComponent(policySetId)}/activation-status?${query}`, { headers })
+      const res = await fetch(`${base}/v1/zones/${zone}/policy-sets/${encodeURIComponent(policySetId)}/activation-status?${query}`, {
+        headers,
+      })
       if (!res.ok) throw new Error(`activation status failed: ${res.status}`)
       return res.json()
     },

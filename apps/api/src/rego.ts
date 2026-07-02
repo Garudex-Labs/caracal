@@ -44,12 +44,22 @@ function stripCommentsAndStrings(src: string): Stripped {
       let closed = false
       while (i < src.length) {
         const c = src[i]
-        if (quote === '"' && c === '\\' && i + 1 < src.length) { i += 2; continue }
-        if (c === quote) { closed = true; i++; break }
+        if (quote === '"' && c === '\\' && i + 1 < src.length) {
+          i += 2
+          continue
+        }
+        if (c === quote) {
+          closed = true
+          i++
+          break
+        }
         if (quote === '"' && c === '\n') break
         i++
       }
-      if (!closed) { unterminatedString = true; break }
+      if (!closed) {
+        unterminatedString = true
+        break
+      }
       continue
     }
     out += ch

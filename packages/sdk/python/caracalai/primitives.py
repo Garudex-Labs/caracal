@@ -381,7 +381,9 @@ async def spawn_service(
         try:
             await on_agent_start(ctx)
         except (asyncio.CancelledError, Exception):
-            await terminate_agent(coordinator, subject_token, zone_id, res.agent_session_id)
+            await terminate_agent(
+                coordinator, subject_token, zone_id, res.agent_session_id
+            )
             raise
     agent = ServiceAgent(
         coordinator=coordinator,

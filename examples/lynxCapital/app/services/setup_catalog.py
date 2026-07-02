@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 Setup catalog helpers that join the partner catalog with the tenancy identity model and the provisioned control-plane state.
 """
+
 from __future__ import annotations
 
 import re
@@ -69,30 +70,41 @@ def provider_entries(config_providers: list[Any]) -> list[dict[str, object]]:
         else:
             status = "Unprovisioned"
         credential_url = f"{url}/__lab/credentials"
-        entries.append({
-            "id": spec.id,
-            "name": meta.name if meta else provider.name,
-            "category": (meta.category if meta else "provider").replace("_", " ").title(),
-            "auth": KIND_LABELS.get(provider.kind, provider.kind),
-            "authType": meta.authType if meta else provider.kind,
-            "protocol": (meta.protocol if meta else provider.protocol).upper(),
-            "purpose": ", ".join(operation.replace("_", " ") for operation in spec.operations[:3]),
-            "credentials": CREDENTIAL_REQUIREMENTS.get(provider.kind, provider.kind),
-            "kind": provider.kind,
-            "providerIdentifier": provider.identifier,
-            "scopes": " ".join(sorted(provider.scopes)),
-            "views": [
-                {"identifier": v.identifier, "application": v.application,
-                 "scopes": " ".join(v.scopes),
-                 "ready": v.identifier in provisioned_resources}
-                for v in views
-            ],
-            "configEnv": config_env_refs(provider),
-            "external": provider.kind != "none",
-            "upstreamUrl": url,
-            "dashboardUrl": url,
-            "credentialUrl": credential_url,
-            "documentationUrl": f"{url}/__lab/resources",
-            "status": status,
-        })
+        entries.append(
+            {
+                "id": spec.id,
+                "name": meta.name if meta else provider.name,
+                "category": (meta.category if meta else "provider")
+                .replace("_", " ")
+                .title(),
+                "auth": KIND_LABELS.get(provider.kind, provider.kind),
+                "authType": meta.authType if meta else provider.kind,
+                "protocol": (meta.protocol if meta else provider.protocol).upper(),
+                "purpose": ", ".join(
+                    operation.replace("_", " ") for operation in spec.operations[:3]
+                ),
+                "credentials": CREDENTIAL_REQUIREMENTS.get(
+                    provider.kind, provider.kind
+                ),
+                "kind": provider.kind,
+                "providerIdentifier": provider.identifier,
+                "scopes": " ".join(sorted(provider.scopes)),
+                "views": [
+                    {
+                        "identifier": v.identifier,
+                        "application": v.application,
+                        "scopes": " ".join(v.scopes),
+                        "ready": v.identifier in provisioned_resources,
+                    }
+                    for v in views
+                ],
+                "configEnv": config_env_refs(provider),
+                "external": provider.kind != "none",
+                "upstreamUrl": url,
+                "dashboardUrl": url,
+                "credentialUrl": credential_url,
+                "documentationUrl": f"{url}/__lab/resources",
+                "status": status,
+            }
+        )
     return entries

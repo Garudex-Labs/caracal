@@ -59,7 +59,8 @@ const MAX_TURN_PAGE = 500
 // console types it as a number and matches it with strict equality when restoring the open
 // conversation, so it is cast to int here: the per-zone counter never approaches the int
 // ceiling, and the honest numeric type keeps those comparisons from silently failing.
-const CONVERSATION_SELECT = 'id, zone_id, number::int AS number, title, status, mode, autopilot, created_by, created_at, updated_at, last_activity_at, archived_at'
+const CONVERSATION_SELECT =
+  'id, zone_id, number::int AS number, title, status, mode, autopilot, created_by, created_at, updated_at, last_activity_at, archived_at'
 // seq is a bigint column, which the driver would otherwise hand back as a string. The turn
 // contract types seq as a number and callers send it straight back as plan_seq, so it is cast
 // to int here: a per-conversation gapless counter never approaches the int ceiling, and the
@@ -378,7 +379,16 @@ async function startMessageRunTx(
          (id, zone_id, conversation_id, client_message_id, correlation_id, state, actor_id, provider_id, deadline_at, last_event_seq)
        VALUES ($1, $2, $3, $4, $5, 'queued', $6, $7, $8, 0)
        RETURNING ${MESSAGE_RUN_SELECT}`,
-      [runId, input.zoneId, input.conversationId, input.clientMessageId, input.correlationId, input.actorId, input.providerId ?? null, deadlineAt],
+      [
+        runId,
+        input.zoneId,
+        input.conversationId,
+        input.clientMessageId,
+        input.correlationId,
+        input.actorId,
+        input.providerId ?? null,
+        deadlineAt,
+      ],
     )
     let run = await writeMessageRunEventLocked(client, { run: runs[0], state: 'queued', reason: 'accepted' })
     const turn = await writeTurnLocked(client, {
@@ -418,7 +428,9 @@ async function transitionMessageRun(
 ): Promise<MessageRunRow | null> {
   if (!run) return null
   return withTransaction(db, async (client) => {
-    const { rows } = await client.query<MessageRunRow>(`SELECT ${MESSAGE_RUN_SELECT} FROM operator_message_runs WHERE id = $1 FOR UPDATE`, [run.id])
+    const { rows } = await client.query<MessageRunRow>(`SELECT ${MESSAGE_RUN_SELECT} FROM operator_message_runs WHERE id = $1 FOR UPDATE`, [
+      run.id,
+    ])
     if (!rows[0]) return null
     return writeMessageRunEventLocked(client, {
       run: rows[0],
@@ -464,7 +476,13 @@ function renderPolicyDraftText(draft: PolicyDraft): string {
 // so a stored plan can never claim a capability or effect the catalog does not
 // grant. Shared by the plan endpoint and the message orchestrator so a plan from
 // natural language and a plan from a direct call are stored identically.
-function buildPlanContentJson(summary: string, validation: PlanValidation, advisory?: SecurityAdvisory, deliberation?: ProgressEvent['stage'][], preview?: StepPreview[]): string {
+function buildPlanContentJson(
+  summary: string,
+  validation: PlanValidation,
+  advisory?: SecurityAdvisory,
+  deliberation?: ProgressEvent['stage'][],
+  preview?: StepPreview[],
+): string {
   // The preview resolves each step against live state into a concrete effect - create, update,
   // no-op, or blocked. Persisting it per step lets the human review the consequence the plan was
   // previewed to have, not only what it claims to do. Informational only - execution re-previews
@@ -684,7 +702,11 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
   // there. Resolved per request because the identity is populated after the system zone is
   // provisioned at startup; constructing the client is cheap. A null result means execution refuses
   // rather than falling back to any other authority.
-  const resolveControlClient = (zoneId: string, authorizedBy?: string, coAuthorOperator?: boolean): { client: ControlClient; identity: OperatorControlIdentity } | null => {
+  const resolveControlClient = (
+    zoneId: string,
+    authorizedBy?: string,
+    coAuthorOperator?: boolean,
+  ): { client: ControlClient; identity: OperatorControlIdentity } | null => {
     const identity = opts.resolveControlIdentity?.() ?? null
     if (!identity || !opts.controlEndpoints) return null
     const zoneScope = identity.zoneId === zoneId ? undefined : zoneId
@@ -1651,10 +1673,7 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
       loadConversationState(fastify.db, params.id, params.zoneId, MESSAGE_CONTEXT_WINDOW),
       loadConversationFacts(fastify.db, params.id, params.zoneId),
       recallZoneMemory(fastify.db, params.zoneId),
-      fastify.db.query<{ name: string | null; slug: string | null }>(
-        'SELECT name, slug FROM zones WHERE id = $1 LIMIT 1',
-        [params.zoneId],
-      ),
+      fastify.db.query<{ name: string | null; slug: string | null }>('SELECT name, slug FROM zones WHERE id = $1 LIMIT 1', [params.zoneId]),
     ])
     // Ground the agents in their one operating zone. canApply mirrors the execute handler's gate:
     // the Operator governs every zone it operates in, so a conversation can apply changes whenever
@@ -1801,15 +1820,19 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
             JSON.stringify({ message }),
             req.actor.id,
           )
-          return finish(200, {
-            intent: 'plan',
-            tier,
-            ok: false,
-            error: 'no_plan',
-            message,
-            turn: turn.ok ? turn.turn : null,
-            ...meta(),
-          }, { state: 'failed', reason: 'no_plan', errorCode: 'no_plan', errorDetail: message })
+          return finish(
+            200,
+            {
+              intent: 'plan',
+              tier,
+              ok: false,
+              error: 'no_plan',
+              message,
+              turn: turn.ok ? turn.turn : null,
+              ...meta(),
+            },
+            { state: 'failed', reason: 'no_plan', errorCode: 'no_plan', errorDetail: message },
+          )
         }
 
         // The model only proposes; the deterministic pipeline validates it against
@@ -1827,15 +1850,19 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
             JSON.stringify({ message: 'The proposed plan did not pass validation.' }),
             req.actor.id,
           )
-          return finish(200, {
-            intent: 'plan',
-            tier,
-            ok: false,
-            error: 'plan_invalid',
-            validation,
-            turn: turn.ok ? turn.turn : null,
-            ...meta(),
-          }, { state: 'failed', reason: 'plan_invalid', errorCode: 'plan_invalid' })
+          return finish(
+            200,
+            {
+              intent: 'plan',
+              tier,
+              ok: false,
+              error: 'plan_invalid',
+              validation,
+              turn: turn.ok ? turn.turn : null,
+              ...meta(),
+            },
+            { state: 'failed', reason: 'plan_invalid', errorCode: 'plan_invalid' },
+          )
         }
 
         const preview = await previewPlan(fastify.db, params.zoneId, planned.value)
@@ -1858,9 +1885,17 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
           req.actor.id,
         )
         if (!turn.ok) {
-          return finish(turn.reason === 'archived' ? 409 : 404, {
-            error: turn.reason === 'archived' ? 'conversation_archived' : 'conversation_not_found',
-          }, { state: 'failed', reason: turn.reason, errorCode: turn.reason === 'archived' ? 'conversation_archived' : 'conversation_not_found' })
+          return finish(
+            turn.reason === 'archived' ? 409 : 404,
+            {
+              error: turn.reason === 'archived' ? 'conversation_archived' : 'conversation_not_found',
+            },
+            {
+              state: 'failed',
+              reason: turn.reason,
+              errorCode: turn.reason === 'archived' ? 'conversation_archived' : 'conversation_not_found',
+            },
+          )
         }
 
         // Caracal-governed autopilot: in agent mode, when the deployment has enabled autopilot and
@@ -1893,19 +1928,23 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
           }
         }
 
-        return finish(201, {
-          intent: 'plan',
-          tier,
-          ok: true,
-          turn: turn.turn,
-          validation,
-          preview,
-          advisory,
-          guidance,
-          auto_approved: autoApproved,
-          approval_turn: approvalTurn,
-          ...meta(),
-        }, { state: autoApproved ? 'completed' : 'waiting_for_user_approval', reason: autoApproved ? 'auto_approved' : 'approval_required' })
+        return finish(
+          201,
+          {
+            intent: 'plan',
+            tier,
+            ok: true,
+            turn: turn.turn,
+            validation,
+            preview,
+            advisory,
+            guidance,
+            auto_approved: autoApproved,
+            approval_turn: approvalTurn,
+            ...meta(),
+          },
+          { state: autoApproved ? 'completed' : 'waiting_for_user_approval', reason: autoApproved ? 'auto_approved' : 'approval_required' },
+        )
       }
 
       if (outcome.kind === 'policy') {
@@ -1920,15 +1959,19 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
             JSON.stringify({ message: authored.error }),
             req.actor.id,
           )
-          return finish(200, {
-            intent: 'policy',
-            tier,
-            ok: false,
-            error: 'no_policy',
-            message: authored.error,
-            turn: turn.ok ? turn.turn : null,
-            ...meta(),
-          }, { state: 'failed', reason: 'no_policy', errorCode: 'no_policy', errorDetail: authored.error })
+          return finish(
+            200,
+            {
+              intent: 'policy',
+              tier,
+              ok: false,
+              error: 'no_policy',
+              message: authored.error,
+              turn: turn.ok ? turn.turn : null,
+              ...meta(),
+            },
+            { state: 'failed', reason: 'no_policy', errorCode: 'no_policy', errorDetail: authored.error },
+          )
         }
         // The authored draft is recorded in the conversation ledger as a note carrying both a
         // human-readable rendering and the structured, validated draft, so the console renders the
@@ -1941,11 +1984,23 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
         if (deliberation.length > 0) policyNote.deliberation = deliberation
         const turn = await appendTurnTx(fastify.db, params.id, params.zoneId, 'operator', 'note', JSON.stringify(policyNote), req.actor.id)
         if (!turn.ok) {
-          return finish(turn.reason === 'archived' ? 409 : 404, {
-            error: turn.reason === 'archived' ? 'conversation_archived' : 'conversation_not_found',
-          }, { state: 'failed', reason: turn.reason, errorCode: turn.reason === 'archived' ? 'conversation_archived' : 'conversation_not_found' })
+          return finish(
+            turn.reason === 'archived' ? 409 : 404,
+            {
+              error: turn.reason === 'archived' ? 'conversation_archived' : 'conversation_not_found',
+            },
+            {
+              state: 'failed',
+              reason: turn.reason,
+              errorCode: turn.reason === 'archived' ? 'conversation_archived' : 'conversation_not_found',
+            },
+          )
         }
-        return finish(201, { intent: 'policy', tier, ok: true, policy: draft, turn: turn.turn, ...meta() }, { state: 'completed', reason: 'policy_authored' })
+        return finish(
+          201,
+          { intent: 'policy', tier, ok: true, policy: draft, turn: turn.turn, ...meta() },
+          { state: 'completed', reason: 'policy_authored' },
+        )
       }
 
       const explained = outcome.result
@@ -1954,25 +2009,44 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
       if (answer.reasoning) noteContent.reasoning = answer.reasoning
       if (deliberation.length > 0) noteContent.deliberation = deliberation
       const turn = await appendTurnTx(fastify.db, params.id, params.zoneId, 'operator', 'note', JSON.stringify(noteContent), req.actor.id)
-      return finish(201, {
-        intent: 'explain',
-        tier,
-        ok: explained.ok,
-        text: answer.text,
-        reasoning: answer.reasoning,
-        turn: turn.ok ? turn.turn : null,
-        ...meta(),
-      }, { state: 'completed', reason: 'answer_recorded' })
+      return finish(
+        201,
+        {
+          intent: 'explain',
+          tier,
+          ok: explained.ok,
+          text: answer.text,
+          reasoning: answer.reasoning,
+          turn: turn.ok ? turn.turn : null,
+          ...meta(),
+        },
+        { state: 'completed', reason: 'answer_recorded' },
+      )
     } catch (err) {
-      if (err instanceof GatewayUnavailableError) return finish(409, { error: 'ai_unavailable' }, { state: 'failed', reason: 'ai_unavailable', errorCode: 'ai_unavailable' })
-      if (err instanceof GatewayBudgetError) return finish(429, { error: 'ai_budget_exceeded', max_calls: err.maxCalls }, { state: 'failed', reason: 'ai_budget_exceeded', errorCode: 'ai_budget_exceeded' })
-      if (err instanceof GatewayError) return finish(502, { error: 'ai_unreachable', attempts: err.attempts }, { state: 'failed', reason: 'ai_unreachable', errorCode: 'ai_unreachable' })
+      if (err instanceof GatewayUnavailableError)
+        return finish(409, { error: 'ai_unavailable' }, { state: 'failed', reason: 'ai_unavailable', errorCode: 'ai_unavailable' })
+      if (err instanceof GatewayBudgetError)
+        return finish(
+          429,
+          { error: 'ai_budget_exceeded', max_calls: err.maxCalls },
+          { state: 'failed', reason: 'ai_budget_exceeded', errorCode: 'ai_budget_exceeded' },
+        )
+      if (err instanceof GatewayError)
+        return finish(
+          502,
+          { error: 'ai_unreachable', attempts: err.attempts },
+          { state: 'failed', reason: 'ai_unreachable', errorCode: 'ai_unreachable' },
+        )
       // An unexpected failure on the stream has already taken over the response, so it cannot fall
       // through to the framework's error handler; it is closed as a terminal error frame. Durable
       // JSON requests also settle the run before returning the same terminal failure shape.
       if (wantsStream) {
         messageRun = await transitionMessageRun(fastify.db, messageRun, 'failed', { reason: 'ai_failed', errorCode: 'ai_failed' })
-        writeSseEvent(reply, 'error', { error: 'ai_failed', status: 500, ...(messageRun ? { message_run: publicMessageRun(messageRun) } : {}) })
+        writeSseEvent(reply, 'error', {
+          error: 'ai_failed',
+          status: 500,
+          ...(messageRun ? { message_run: publicMessageRun(messageRun) } : {}),
+        })
         reply.raw.end()
         return
       }

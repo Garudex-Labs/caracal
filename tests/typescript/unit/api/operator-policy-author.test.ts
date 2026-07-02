@@ -115,7 +115,11 @@ describe('runPolicyAuthor', () => {
       { name: 'reader allowed', description: 'reporting reads nucleus', input: { action: 'read' }, expectedDecision: 'allow' },
       { name: 'writer denied', description: 'reporting writes nucleus', input: { action: 'write' }, expectedDecision: 'deny' },
     ])
-    expect(result.value.activation).toEqual({ ready: false, blockers: ['activate the policy set'], guidance: 'Create a version, then activate it.' })
+    expect(result.value.activation).toEqual({
+      ready: false,
+      blockers: ['activate the policy set'],
+      guidance: 'Create a version, then activate it.',
+    })
   })
 
   it('relays clarifying questions as a valid outcome when no document is authored', async () => {

@@ -95,7 +95,8 @@ export interface OrchestrationResult {
 // alters the outcome, and is fire-and-forget - the same turn produces the same governed result
 // whether or not anyone is listening. Read stages gather state and answer; plan stages propose,
 // repair, critique, revise, and guard.
-export type ProgressStage = 'triaging' | 'gathering' | 'planning' | 'repairing' | 'critiquing' | 'revising' | 'guarding' | 'authoring' | 'answering'
+export type ProgressStage =
+  'triaging' | 'gathering' | 'planning' | 'repairing' | 'critiquing' | 'revising' | 'guarding' | 'authoring' | 'answering'
 
 export interface ProgressEvent {
   stage: ProgressStage
@@ -445,9 +446,7 @@ export function createOrchestrator(registry: SkillRegistry = createSkillRegistry
       // the console renders the answer as it is produced and shows the thinking while it works.
       // Only the answer skill streams; grounding below still uses the unwrapped gateway, so its
       // structured check is unaffected.
-      const answerGateway = options.onAnswerDelta
-        ? streamingAnswers(gateway, options.onAnswerDelta, options.onReasoningDelta)
-        : gateway
+      const answerGateway = options.onAnswerDelta ? streamingAnswers(gateway, options.onAnswerDelta, options.onReasoningDelta) : gateway
       const answer = await skill.run(answerGateway, message, answerContext)
       return { tier, outcome: { kind: 'answer', result: await groundAnswer(gateway, message, answer, answerContext) } }
     },

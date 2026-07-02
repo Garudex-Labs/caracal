@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 Slate Ledger domain: double-entry journal posting with maker-checker approval, chart of accounts, bank and sub-ledger reconciliation, recurring accruals, trial balance, and soft/hard fiscal-period close.
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -27,7 +28,9 @@ def seed(state: base.State) -> None:
 # helpers
 # --------------------------------------------------------------------------- #
 def _iso(ts: int | None = None) -> str:
-    moment = datetime.fromtimestamp(ts if ts is not None else base.now(), tz=timezone.utc)
+    moment = datetime.fromtimestamp(
+        ts if ts is not None else base.now(), tz=timezone.utc
+    )
     return moment.replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
@@ -38,19 +41,25 @@ def _actor(ctx: Ctx, field: str = "postedBy") -> str:
     if override:
         return str(override)
     principal = ctx.principal.get("principal")
-    return f"{principal}@slate-ledger.test" if principal else "api-token@slate-ledger.test"
+    return (
+        f"{principal}@slate-ledger.test" if principal else "api-token@slate-ledger.test"
+    )
 
 
 def _account(ctx: Ctx, account_no: str) -> dict:
     accounts = ctx.state.table("accounts")
-    acct = accounts.get(str(account_no)) or accounts.get(str(account_no).removeprefix("ACCT-"))
+    acct = accounts.get(str(account_no)) or accounts.get(
+        str(account_no).removeprefix("ACCT-")
+    )
     if acct is None:
         raise DomainError(404, "account_not_found", str(account_no))
     return acct
 
 
 def _open_periods(ctx: Ctx) -> list[str]:
-    return sorted(p for p, row in ctx.state.table("periods").items() if row["status"] == "open")
+    return sorted(
+        p for p, row in ctx.state.table("periods").items() if row["status"] == "open"
+    )
 
 
 def _require_open_period(ctx: Ctx, period: str | None) -> tuple[str, dict]:
@@ -77,7 +86,9 @@ def _apply_entry(ctx: Ctx, lines: list[dict]) -> None:
             acct["updatedAt"] = _iso()
 
 
-def _normalize_lines(ctx: Ctx, lines: list[dict], entry_no: str) -> tuple[list[dict], float, float]:
+def _normalize_lines(
+    ctx: Ctx, lines: list[dict], entry_no: str
+) -> tuple[list[dict], float, float]:
     accounts = ctx.state.table("accounts")
     normalized: list[dict] = []
     debit = credit = 0.0
@@ -85,27 +96,42 @@ def _normalize_lines(ctx: Ctx, lines: list[dict], entry_no: str) -> tuple[list[d
         account_no = str(line.get("accountNo") or line.get("account") or "")
         acct = None
         if account_no:
-            acct = accounts.get(account_no) or accounts.get(account_no.removeprefix("ACCT-"))
+            acct = accounts.get(account_no) or accounts.get(
+                account_no.removeprefix("ACCT-")
+            )
             if acct is None:
-                raise DomainError(422, "invalid_account", f"account {account_no} is not in the chart")
+                raise DomainError(
+                    422, "invalid_account", f"account {account_no} is not in the chart"
+                )
             if acct["status"] != "active":
-                raise DomainError(422, "inactive_account", f"account {account_no} is not active")
+                raise DomainError(
+                    422, "inactive_account", f"account {account_no} is not active"
+                )
         d = round(float(line.get("debit", 0) or 0), 2)
         c = round(float(line.get("credit", 0) or 0), 2)
         if d < 0 or c < 0:
-            raise DomainError(422, "invalid_amount", "debit and credit must be non-negative")
+            raise DomainError(
+                422, "invalid_amount", "debit and credit must be non-negative"
+            )
         if d and c:
-            raise DomainError(422, "invalid_line", f"line {n} cannot have both a debit and a credit")
+            raise DomainError(
+                422, "invalid_line", f"line {n} cannot have both a debit and a credit"
+            )
         debit += d
         credit += c
-        normalized.append({
-            "lineId": f"{entry_no}-{n}", "lineNo": n,
-            "accountNo": acct["accountNo"] if acct else account_no,
-            "accountName": acct["name"] if acct else None,
-            "accountType": acct["type"] if acct else None,
-            "debit": d, "credit": c,
-            "department": line.get("department"), "memo": line.get("memo", ""),
-        })
+        normalized.append(
+            {
+                "lineId": f"{entry_no}-{n}",
+                "lineNo": n,
+                "accountNo": acct["accountNo"] if acct else account_no,
+                "accountName": acct["name"] if acct else None,
+                "accountType": acct["type"] if acct else None,
+                "debit": d,
+                "credit": c,
+                "department": line.get("department"),
+                "memo": line.get("memo", ""),
+            }
+        )
     return normalized, round(debit, 2), round(credit, 2)
 
 
@@ -160,7 +186,9 @@ def post_entry(ctx: Ctx) -> dict:
 
     period, _pr = _require_open_period(ctx, ctx.get("period"))
 
-    draft = str(ctx.get("status", "")).lower() == "draft" or bool(ctx.get("requireApproval"))
+    draft = str(ctx.get("status", "")).lower() == "draft" or bool(
+        ctx.get("requireApproval")
+    )
     now = _iso()
     entries = ctx.state.table("entries")
     seq = len([e for e in entries if e.startswith(f"JE-{period.replace('-', '')}")]) + 1
@@ -210,17 +238,27 @@ def approve_entry(ctx: Ctx) -> dict:
     if entry is None:
         raise DomainError(404, "entry_not_found", ctx.payload["entryId"])
     if entry["status"] != "pending_approval":
-        raise DomainError(409, "not_pending", f"entry {entry['journalId']} is {entry['status']}")
+        raise DomainError(
+            409, "not_pending", f"entry {entry['journalId']} is {entry['status']}"
+        )
     _require_open_period(ctx, entry["period"])
     approver = _actor(ctx, "approvedBy")
     if approver == entry.get("createdBy"):
-        raise DomainError(409, "self_approval", "an entry cannot be approved by its preparer")
+        raise DomainError(
+            409, "self_approval", "an entry cannot be approved by its preparer"
+        )
     _apply_entry(ctx, entry["lines"])
     now = _iso()
-    entry.update({
-        "status": "posted", "approvalStatus": "approved", "approvedBy": approver,
-        "postedBy": approver, "postedAt": now, "updatedAt": now,
-    })
+    entry.update(
+        {
+            "status": "posted",
+            "approvalStatus": "approved",
+            "approvedBy": approver,
+            "postedBy": approver,
+            "postedAt": now,
+            "updatedAt": now,
+        }
+    )
     return entry
 
 
@@ -258,15 +296,24 @@ def reverse_entry(ctx: Ctx) -> dict:
     if original["status"] != "posted":
         raise DomainError(409, "not_posted", "only posted entries can be reversed")
     if original["reversedBy"]:
-        raise DomainError(409, "already_reversed",
-                          f"entry {original['journalId']} was reversed by {original['reversedBy']}")
+        raise DomainError(
+            409,
+            "already_reversed",
+            f"entry {original['journalId']} was reversed by {original['reversedBy']}",
+        )
     period, _pr = _require_open_period(ctx, ctx.get("period") or original["period"])
 
     entry_no = base.new_id("gl")
     swapped = []
     for n, line in enumerate(original["lines"], start=1):
-        swapped.append({**line, "lineId": f"{entry_no}-{n}",
-                        "debit": line["credit"], "credit": line["debit"]})
+        swapped.append(
+            {
+                **line,
+                "lineId": f"{entry_no}-{n}",
+                "debit": line["credit"],
+                "credit": line["debit"],
+            }
+        )
     _apply_entry(ctx, swapped)
     seq = len(entries) + 1
     journal_id = f"JE-{period.replace('-', '')}-R{seq:04d}"
@@ -317,13 +364,17 @@ def reconcile_account(ctx: Ctx) -> dict:
     acct = _account(ctx, ctx.payload["accountId"])
     gl_balance = acct["balance"]
     statement_balance = round(float(ctx.get("statementBalance", gl_balance)), 2)
-    period = ctx.get("period") or (_open_periods(ctx)[0] if _open_periods(ctx) else None)
+    period = ctx.get("period") or (
+        _open_periods(ctx)[0] if _open_periods(ctx) else None
+    )
     rid = base.new_id("rec")
     rec = {
         "reconciliationId": rid,
         "accountNo": acct["accountNo"],
         "accountName": acct["name"],
-        "reconciliationType": gen._SLATE_RECON_TYPE.get(acct["subtype"], "balance_sheet"),
+        "reconciliationType": gen._SLATE_RECON_TYPE.get(
+            acct["subtype"], "balance_sheet"
+        ),
         "frequency": ctx.get("frequency", "monthly"),
         "period": period,
         "glBalance": gl_balance,
@@ -349,17 +400,25 @@ def get_reconciliation(ctx: Ctx) -> dict:
     ctx.require("reconciliationId")
     rec = ctx.state.table("reconciliations").get(ctx.payload["reconciliationId"])
     if rec is None:
-        raise DomainError(404, "reconciliation_not_found", ctx.payload["reconciliationId"])
+        raise DomainError(
+            404, "reconciliation_not_found", ctx.payload["reconciliationId"]
+        )
     if rec["status"] == "in_progress":
-        outstanding_total = round(sum(float(i.get("amount", 0)) for i in rec["outstandingItems"]), 2)
+        outstanding_total = round(
+            sum(float(i.get("amount", 0)) for i in rec["outstandingItems"]), 2
+        )
         rec["outstandingTotal"] = outstanding_total
-        rec["matchedTotal"] = round(sum(float(i.get("amount", 0)) for i in rec["matchedItems"]), 2)
+        rec["matchedTotal"] = round(
+            sum(float(i.get("amount", 0)) for i in rec["matchedItems"]), 2
+        )
         rec["adjustedBalance"] = round(rec["statementBalance"] - outstanding_total, 2)
         rec["difference"] = round(rec["adjustedBalance"] - rec["glBalance"], 2)
         rec["withinTolerance"] = abs(rec["difference"]) <= rec["tolerance"]
         rec["status"] = "balanced" if rec["withinTolerance"] else "exception"
         rec["reviewStatus"] = "reviewed" if rec["withinTolerance"] else "pending_review"
-        rec["reviewedBy"] = "controller@slate-ledger.test" if rec["withinTolerance"] else None
+        rec["reviewedBy"] = (
+            "controller@slate-ledger.test" if rec["withinTolerance"] else None
+        )
         rec["reconciledAt"] = _iso()
         acct = ctx.state.table("accounts").get(rec["accountNo"])
         if acct is not None:
@@ -371,7 +430,11 @@ def get_reconciliation(ctx: Ctx) -> dict:
 def list_reconciliations(ctx: Ctx) -> dict:
     """List reconciliations, filterable by period, status, or account."""
     items = list(ctx.state.table("reconciliations").values())
-    for field, key in (("period", "period"), ("status", "status"), ("accountId", "accountNo")):
+    for field, key in (
+        ("period", "period"),
+        ("status", "status"),
+        ("accountId", "accountNo"),
+    ):
         value = ctx.get(field)
         if value:
             items = [r for r in items if r.get(key) == value]
@@ -396,7 +459,9 @@ def create_accrual(ctx: Ctx) -> dict:
     accounts = ctx.state.table("accounts")
     expense_acct = ctx.get("expenseAccount", "6300")
     liability_acct = ctx.get("liabilityAccount", "2100")
-    start_period = ctx.get("period") or (_open_periods(ctx)[0] if _open_periods(ctx) else None)
+    start_period = ctx.get("period") or (
+        _open_periods(ctx)[0] if _open_periods(ctx) else None
+    )
     per_period = round(amount / periods, 2)
     now = _iso()
     accrual = {
@@ -455,21 +520,41 @@ def post_accrual(ctx: Ctx) -> dict:
         raise DomainError(404, "accrual_not_found", ctx.payload["accrualId"])
     if accrual["status"] != "active" or accrual["remainingPeriods"] <= 0:
         raise DomainError(409, "accrual_complete", "accrual schedule is fully posted")
-    period, _pr = _require_open_period(ctx, ctx.get("period") or accrual["nextPostPeriod"])
+    period, _pr = _require_open_period(
+        ctx, ctx.get("period") or accrual["nextPostPeriod"]
+    )
     amount = accrual["perPeriod"]
-    sub = Ctx(ctx.provider, ctx.state, ctx.op, {
-        "period": period, "type": "accrual", "source": "recurring",
-        "description": f"Accrual: {accrual['description']}",
-        "reference": accrual["accrualId"],
-        "lines": [
-            {"accountNo": accrual["expenseAccount"], "debit": amount, "memo": accrual["description"]},
-            {"accountNo": accrual["liabilityAccount"], "credit": amount, "memo": accrual["description"]},
-        ],
-    }, ctx.principal)
+    sub = Ctx(
+        ctx.provider,
+        ctx.state,
+        ctx.op,
+        {
+            "period": period,
+            "type": "accrual",
+            "source": "recurring",
+            "description": f"Accrual: {accrual['description']}",
+            "reference": accrual["accrualId"],
+            "lines": [
+                {
+                    "accountNo": accrual["expenseAccount"],
+                    "debit": amount,
+                    "memo": accrual["description"],
+                },
+                {
+                    "accountNo": accrual["liabilityAccount"],
+                    "credit": amount,
+                    "memo": accrual["description"],
+                },
+            ],
+        },
+        ctx.principal,
+    )
     entry = post_entry(sub)
     accrual["postedPeriods"] += 1
     accrual["remainingPeriods"] = accrual["periods"] - accrual["postedPeriods"]
-    accrual["remainingAmount"] = round(accrual["totalAmount"] - amount * accrual["postedPeriods"], 2)
+    accrual["remainingAmount"] = round(
+        accrual["totalAmount"] - amount * accrual["postedPeriods"], 2
+    )
     accrual["status"] = "completed" if accrual["remainingPeriods"] <= 0 else "active"
     accrual["updatedAt"] = _iso()
     return {"accrual": accrual, "entry": entry}
@@ -488,10 +573,15 @@ def _trial_balance(ctx: Ctx, period: str | None) -> dict:
         for line in entry["lines"]:
             if line["accountName"] is None:
                 continue
-            row = totals.setdefault(line["accountNo"], {
-                "accountNo": line["accountNo"], "accountName": line["accountName"],
-                "debit": 0.0, "credit": 0.0,
-            })
+            row = totals.setdefault(
+                line["accountNo"],
+                {
+                    "accountNo": line["accountNo"],
+                    "accountName": line["accountName"],
+                    "debit": 0.0,
+                    "credit": 0.0,
+                },
+            )
             row["debit"] = round(row["debit"] + line["debit"], 2)
             row["credit"] = round(row["credit"] + line["credit"], 2)
     rows = sorted(totals.values(), key=lambda r: r["accountNo"])
@@ -544,28 +634,52 @@ def close_period(ctx: Ctx) -> dict:
     if pr is None:
         raise DomainError(404, "period_not_found", period)
     if pr["status"] == "locked":
-        raise DomainError(409, "period_locked", "period is locked and cannot be re-closed")
+        raise DomainError(
+            409, "period_locked", "period is locked and cannot be re-closed"
+        )
     if pr["status"] == "closed":
         raise DomainError(409, "already_closed", "period already closed")
 
     tb = _trial_balance(ctx, period)
     if not tb["balanced"]:
-        raise DomainError(422, "trial_balance_unbalanced",
-                          f"trial balance is out by {round(tb['totalDebit'] - tb['totalCredit'], 2)}")
+        raise DomainError(
+            422,
+            "trial_balance_unbalanced",
+            f"trial balance is out by {round(tb['totalDebit'] - tb['totalCredit'], 2)}",
+        )
 
-    recs = [r for r in ctx.state.table("reconciliations").values() if r.get("period") == period]
+    recs = [
+        r
+        for r in ctx.state.table("reconciliations").values()
+        if r.get("period") == period
+    ]
     pending = [r["reconciliationId"] for r in recs if r["status"] == "in_progress"]
     if pending:
-        raise DomainError(409, "reconciliations_incomplete",
-                          f"{len(pending)} reconciliation(s) still in progress")
-    drafts = [e["journalId"] for e in ctx.state.table("entries").values()
-              if e["period"] == period and e["status"] == "pending_approval"]
+        raise DomainError(
+            409,
+            "reconciliations_incomplete",
+            f"{len(pending)} reconciliation(s) still in progress",
+        )
+    drafts = [
+        e["journalId"]
+        for e in ctx.state.table("entries").values()
+        if e["period"] == period and e["status"] == "pending_approval"
+    ]
     if drafts:
-        raise DomainError(409, "entries_unapproved",
-                          f"{len(drafts)} journal entry(ies) await approval")
-    warnings = [{"reconciliationId": r["reconciliationId"], "accountNo": r["accountNo"],
-                 "difference": r.get("difference")}
-                for r in recs if r["status"] == "exception"]
+        raise DomainError(
+            409,
+            "entries_unapproved",
+            f"{len(drafts)} journal entry(ies) await approval",
+        )
+    warnings = [
+        {
+            "reconciliationId": r["reconciliationId"],
+            "accountNo": r["accountNo"],
+            "difference": r.get("difference"),
+        }
+        for r in recs
+        if r["status"] == "exception"
+    ]
 
     soft = bool(ctx.get("softClose"))
     closer = _actor(ctx, "closedBy")
@@ -578,7 +692,10 @@ def close_period(ctx: Ctx) -> dict:
     pr["closeType"] = "soft" if soft else "hard"
     pr["closedAt"] = now
     pr["closedBy"] = closer
-    pr["trialBalance"] = {"totalDebit": tb["totalDebit"], "totalCredit": tb["totalCredit"]}
+    pr["trialBalance"] = {
+        "totalDebit": tb["totalDebit"],
+        "totalCredit": tb["totalCredit"],
+    }
     pr["openExceptions"] = warnings
     return pr
 
@@ -597,8 +714,11 @@ def reopen_period(ctx: Ctx) -> dict:
     if pr["status"] == "locked":
         raise DomainError(409, "period_locked", "locked periods cannot be reopened")
     if pr["status"] == "closed" and not ctx.get("force"):
-        raise DomainError(409, "hard_close_locked",
-                          "period is hard-closed; reopen requires force=true")
+        raise DomainError(
+            409,
+            "hard_close_locked",
+            "period is hard-closed; reopen requires force=true",
+        )
     now = _iso()
     for task in pr["checklist"]:
         task["status"] = "pending"

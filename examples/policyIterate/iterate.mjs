@@ -76,7 +76,14 @@ export function verdict({ candidate, regressions }) {
 
 // awaitPropagation polls activation status until the new version is loaded by
 // the STS runtime, the rollout fails, or attempts run out.
-export async function awaitPropagation({ transport, policySetId, versionId, outboxId, attempts = 10, wait = () => new Promise((r) => setTimeout(r, 1000)) }) {
+export async function awaitPropagation({
+  transport,
+  policySetId,
+  versionId,
+  outboxId,
+  attempts = 10,
+  wait = () => new Promise((r) => setTimeout(r, 1000)),
+}) {
   let status = null
   for (let i = 0; i < attempts; i += 1) {
     status = await transport.activationStatus(policySetId, versionId, outboxId)
@@ -100,7 +107,16 @@ export async function awaitPropagation({ transport, policySetId, versionId, outb
 //
 // Activation only happens when activate=true AND the verdict has no blockers,
 // so the default run is always a safe dry run.
-export async function iterate({ transport, requestId, policySetId, candidateVersionId, regressionCases = [], activate = false, log = () => {}, wait }) {
+export async function iterate({
+  transport,
+  requestId,
+  policySetId,
+  candidateVersionId,
+  regressionCases = [],
+  activate = false,
+  log = () => {},
+  wait,
+}) {
   log('diagnose', `explaining request ${requestId} from audit`)
   const trace = await transport.explain(requestId)
   const summary = summarizeTrace(trace)
@@ -109,11 +125,17 @@ export async function iterate({ transport, requestId, policySetId, candidateVers
     log('diagnose', `request ${requestId} was not denied (final decision: ${summary.finalDecision}); nothing to iterate on`)
     return { reproduced: false, trace: summary, candidate: null, regressions: [], verdict: null, activation: null }
   }
-  log('diagnose', `denial reproduced - reasons: [${summary.reasons.join(', ')}], determining policies: [${summary.determiningPolicies.join(', ')}]`)
+  log(
+    'diagnose',
+    `denial reproduced - reasons: [${summary.reasons.join(', ')}], determining policies: [${summary.determiningPolicies.join(', ')}]`,
+  )
 
   log('simulate', `replaying denied input against candidate version ${candidateVersionId}`)
   const candidate = assessSimulation(await transport.simulate(policySetId, candidateVersionId, input))
-  log('simulate', `candidate decision: ${candidate.decision}, contract ok: ${candidate.wouldActivate}, warnings: ${candidate.warnings.length}`)
+  log(
+    'simulate',
+    `candidate decision: ${candidate.decision}, contract ok: ${candidate.wouldActivate}, warnings: ${candidate.warnings.length}`,
+  )
 
   log('regress', `replaying ${regressionCases.length} regression case(s) against the candidate`)
   const regressions = await runRegressions({ transport, policySetId, candidateVersionId, cases: regressionCases })
@@ -122,9 +144,12 @@ export async function iterate({ transport, requestId, policySetId, candidateVers
   }
 
   const decision = verdict({ candidate, regressions })
-  log('decide', decision.safeToActivate
-    ? 'all gates passed - candidate is safe to activate'
-    : `holding activation - blockers: [${decision.blockers.join(', ')}]`)
+  log(
+    'decide',
+    decision.safeToActivate
+      ? 'all gates passed - candidate is safe to activate'
+      : `holding activation - blockers: [${decision.blockers.join(', ')}]`,
+  )
 
   let activation = null
   if (decision.safeToActivate && activate) {

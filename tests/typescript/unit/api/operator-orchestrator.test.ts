@@ -125,12 +125,19 @@ describe('createOrchestrator', () => {
     const draft = {
       summary: 'Grant reporting read on Nucleus.',
       intent: 'Give reporting read-only access to Nucleus.',
-      documents: [{ concern: 'reporting read grant', filename: 'grants.rego', content: POLICY_DOC, explanation: 'Binds reporting to a reader role.' }],
+      documents: [
+        { concern: 'reporting read grant', filename: 'grants.rego', content: POLICY_DOC, explanation: 'Binds reporting to a reader role.' },
+      ],
     }
     const stages: string[] = []
-    const result = await createOrchestrator().handle(policyGateway(draft), 'write a policy giving reporting read on nucleus', emptyContext, {
-      onProgress: (event) => stages.push(event.stage),
-    })
+    const result = await createOrchestrator().handle(
+      policyGateway(draft),
+      'write a policy giving reporting read on nucleus',
+      emptyContext,
+      {
+        onProgress: (event) => stages.push(event.stage),
+      },
+    )
     expect(result.tier).toBe('policy')
     expect(result.outcome.kind).toBe('policy')
     if (result.outcome.kind === 'policy') {
@@ -796,10 +803,14 @@ describe('createOrchestrator', () => {
     // surfaced. Only triage runs and the deterministic switch-to-agent answer is returned.
     const draft = {
       summary: 'Reporting read on nucleus',
-      documents: [{ concern: 'reporting read grant', filename: 'grants.rego', content: POLICY_DOC, explanation: 'Binds reporting to a reader role.' }],
+      documents: [
+        { concern: 'reporting read grant', filename: 'grants.rego', content: POLICY_DOC, explanation: 'Binds reporting to a reader role.' },
+      ],
     }
     const gateway = policyGateway(draft)
-    const result = await createOrchestrator().handle(gateway, 'write a policy giving reporting read on nucleus', emptyContext, { mode: 'ask' })
+    const result = await createOrchestrator().handle(gateway, 'write a policy giving reporting read on nucleus', emptyContext, {
+      mode: 'ask',
+    })
     expect(result.tier).toBe('policy')
     expect(result.outcome.kind).toBe('answer')
     if (result.outcome.kind === 'answer') {

@@ -75,7 +75,11 @@ const STATUS_COLOR = {
 const ORCH_LAYERS = new Set(['finance-control', 'regional-orchestrator', 'workflow-orchestrator'])
 
 const PROVIDER_CATEGORIES = [
-  { id: 'payments', label: 'Payments & Banking', members: ['halcyon-bank', 'meridian-pay', 'quetzal-payouts', 'cordoba-fx', 'keystone-treasury'] },
+  {
+    id: 'payments',
+    label: 'Payments & Banking',
+    members: ['halcyon-bank', 'meridian-pay', 'quetzal-payouts', 'cordoba-fx', 'keystone-treasury'],
+  },
   { id: 'ledger', label: 'Ledger & ERP', members: ['ironbark-erp', 'tallyhall-books', 'slate-ledger', 'core-billing'] },
   { id: 'compliance', label: 'Compliance & Tax', members: ['aegis-screening', 'verafin-monitor', 'sabre-tax', 'lumen-identity'] },
   { id: 'data', label: 'Data & Documents', members: ['pulse-market', 'inkwell-ocr', 'atlas-vendor'] },
@@ -506,9 +510,7 @@ function handleEvent(event) {
 
 function computeLayout() {
   const agents = Object.values(state.agents)
-  const orchestrators = agents
-    .filter((agent) => ORCH_LAYERS.has(agent.layer))
-    .sort((a, b) => a.order - b.order)
+  const orchestrators = agents.filter((agent) => ORCH_LAYERS.has(agent.layer)).sort((a, b) => a.order - b.order)
   const groups = Object.values(state.groups).sort((a, b) => a.order - b.order)
 
   const layout = {
@@ -696,10 +698,7 @@ function resetSvg() {
     marker('arrow-delegate', 'rgba(30, 91, 216, 0.45)'),
   )
   const cardFill = svgEl('linearGradient', { id: 'card-fill', x1: '0', y1: '0', x2: '0', y2: '1' })
-  cardFill.append(
-    svgEl('stop', { offset: '0%', 'stop-color': '#FFFFFF' }),
-    svgEl('stop', { offset: '100%', 'stop-color': '#F5F8FE' }),
-  )
+  cardFill.append(svgEl('stop', { offset: '0%', 'stop-color': '#FFFFFF' }), svgEl('stop', { offset: '100%', 'stop-color': '#F5F8FE' }))
   const bandFill = svgEl('linearGradient', { id: 'band-fill', x1: '0', y1: '0', x2: '0', y2: '1' })
   bandFill.append(
     svgEl('stop', { offset: '0%', 'stop-color': 'rgba(11, 61, 145, 0.085)' }),
@@ -860,9 +859,7 @@ function drawBandContent(layout) {
     {
       label: 'Approvals',
       copy: 'human-in-the-loop',
-      value: d.approvalsPending
-        ? `${d.approvalsPending} pending`
-        : `${d.approvalsApproved} approved · ${d.approvalsDenied} denied`,
+      value: d.approvalsPending ? `${d.approvalsPending} pending` : `${d.approvalsApproved} approved · ${d.approvalsDenied} denied`,
       live: d.approvalsPending > 0,
     },
     { label: 'Audit', copy: 'evidence trail', value: `${d.audits} records` },
@@ -922,7 +919,9 @@ function drawUser(layout) {
       'vector-effect': 'non-scaling-stroke',
     }),
   )
-  group.appendChild(svgEl('circle', { cx: u.x + 20, cy: u.y + 22, r: 6, fill: statusColor(state.phase === 'running' ? 'running' : state.phase) }))
+  group.appendChild(
+    svgEl('circle', { cx: u.x + 20, cy: u.y + 22, r: 6, fill: statusColor(state.phase === 'running' ? 'running' : state.phase) }),
+  )
   appendText(group, u.x + 34, u.y + 26, 'User request', {
     fill: C.ink,
     'font-size': 12,
@@ -945,7 +944,9 @@ function drawUser(layout) {
 }
 
 function wrapText(value, limit, maxLines) {
-  const words = String(value || '').split(/\s+/).filter(Boolean)
+  const words = String(value || '')
+    .split(/\s+/)
+    .filter(Boolean)
   const lines = []
   let current = ''
   for (const word of words) {
@@ -1006,7 +1007,10 @@ function drawDelegationEdges(layout) {
       opacity,
       'vector-effect': 'non-scaling-stroke',
     })
-    addTitle(path, `${titleCase(state.agents[agent.parent]?.role)} delegates to ${titleCase(agent.role)}${agent.scope ? `\nScope: ${agent.scope}` : ''}`)
+    addTitle(
+      path,
+      `${titleCase(state.agents[agent.parent]?.role)} delegates to ${titleCase(agent.role)}${agent.scope ? `\nScope: ${agent.scope}` : ''}`,
+    )
     scene.appendChild(path)
   }
 
@@ -1106,7 +1110,8 @@ function drawFlows(layout) {
         }),
       )
 
-      const gateColor = fs === 'blocked' ? C.red : fs === 'failed' ? C.amber : fs === 'running' ? C.blue : fs === 'completed' ? C.green : C.grey
+      const gateColor =
+        fs === 'blocked' ? C.red : fs === 'failed' ? C.amber : fs === 'running' ? C.blue : fs === 'completed' ? C.green : C.grey
       const gate = svgEl('g')
       gate.appendChild(
         svgEl('circle', {
@@ -1195,7 +1200,15 @@ function drawOrchestrators(layout) {
     )
     group.appendChild(svgEl('circle', { cx: rect.x + 15, cy: rect.y + 18, r: 4.5, fill: color }))
     if (agent.status === 'running') {
-      const pulse = svgEl('circle', { cx: rect.x + 15, cy: rect.y + 18, r: 4.5, fill: 'none', stroke: color, 'stroke-width': 1.6, opacity: 0.7 })
+      const pulse = svgEl('circle', {
+        cx: rect.x + 15,
+        cy: rect.y + 18,
+        r: 4.5,
+        fill: 'none',
+        stroke: color,
+        'stroke-width': 1.6,
+        opacity: 0.7,
+      })
       pulse.appendChild(svgEl('animate', { attributeName: 'r', values: '4.5;11', dur: '1.2s', repeatCount: 'indefinite' }))
       pulse.appendChild(svgEl('animate', { attributeName: 'opacity', values: '0.7;0', dur: '1.2s', repeatCount: 'indefinite' }))
       group.appendChild(pulse)
@@ -1237,7 +1250,13 @@ function drawOrchestrators(layout) {
 
 function lifecycleLabel(agent) {
   const steps = ['Spawned']
-  if (agent.status === 'running' || agent.endTs || agent.status === 'completed' || agent.status === 'failed' || agent.status === 'cancelled') {
+  if (
+    agent.status === 'running' ||
+    agent.endTs ||
+    agent.status === 'completed' ||
+    agent.status === 'failed' ||
+    agent.status === 'cancelled'
+  ) {
     steps.push('Active')
   }
   if (agent.status === 'completed') steps.push('Completed')
@@ -1333,7 +1352,15 @@ function drawGroups(layout) {
       }
       rowNode.appendChild(svgEl('circle', { cx: row.x + 19, cy: row.y + row.h / 2, r: 3.6, fill: color }))
       if (agent.status === 'running') {
-        const pulse = svgEl('circle', { cx: row.x + 19, cy: row.y + row.h / 2, r: 3.6, fill: 'none', stroke: color, 'stroke-width': 1.4, opacity: 0.7 })
+        const pulse = svgEl('circle', {
+          cx: row.x + 19,
+          cy: row.y + row.h / 2,
+          r: 3.6,
+          fill: 'none',
+          stroke: color,
+          'stroke-width': 1.4,
+          opacity: 0.7,
+        })
         pulse.appendChild(svgEl('animate', { attributeName: 'r', values: '3.6;9', dur: '1.2s', repeatCount: 'indefinite' }))
         pulse.appendChild(svgEl('animate', { attributeName: 'opacity', values: '0.7;0', dur: '1.2s', repeatCount: 'indefinite' }))
         rowNode.appendChild(pulse)
@@ -1343,13 +1370,28 @@ function drawGroups(layout) {
         'font-size': 9.4,
         'font-family': 'ui-monospace, SFMono-Regular, Menlo, monospace',
       })
-      appendText(rowNode, row.x + row.w - 14, row.y + row.h / 2 + 3.4, agent.removed ? `${statusLabel(agent.status)} · removed` : statusLabel(agent.status), {
-        fill: color,
-        'font-size': 8.4,
-        'font-weight': 800,
-        'text-anchor': 'end',
-      })
-      addTitle(rowNode, [`${titleCase(agent.role)} (${shortId(agentId)})`, agent.scope ? `Scope: ${agent.scope}` : '', `Lifecycle: ${lifecycleLabel(agent)}`].filter(Boolean).join('\n'))
+      appendText(
+        rowNode,
+        row.x + row.w - 14,
+        row.y + row.h / 2 + 3.4,
+        agent.removed ? `${statusLabel(agent.status)} · removed` : statusLabel(agent.status),
+        {
+          fill: color,
+          'font-size': 8.4,
+          'font-weight': 800,
+          'text-anchor': 'end',
+        },
+      )
+      addTitle(
+        rowNode,
+        [
+          `${titleCase(agent.role)} (${shortId(agentId)})`,
+          agent.scope ? `Scope: ${agent.scope}` : '',
+          `Lifecycle: ${lifecycleLabel(agent)}`,
+        ]
+          .filter(Boolean)
+          .join('\n'),
+      )
       scene.appendChild(rowNode)
     }
   }
@@ -1368,7 +1410,16 @@ function drawProviders(layout) {
   for (const [providerId, rect] of Object.entries(layout.providerRects)) {
     const provider = state.providers[providerId]
     if (!provider) continue
-    const pState = provider.active > 0 ? 'running' : provider.blocked > 0 ? 'blocked' : provider.failed > 0 ? 'failed' : provider.ok > 0 ? 'completed' : 'pending'
+    const pState =
+      provider.active > 0
+        ? 'running'
+        : provider.blocked > 0
+          ? 'blocked'
+          : provider.failed > 0
+            ? 'failed'
+            : provider.ok > 0
+              ? 'completed'
+              : 'pending'
     const color = pState === 'failed' ? C.amber : statusColor(pState)
     const isSelected = selected === `provider:${providerId}`
     const group = svgEl('g', { 'data-select': `provider:${providerId}`, tabindex: '0', opacity: opacityFor(`provider:${providerId}`) })
@@ -1381,7 +1432,13 @@ function drawProviders(layout) {
         height: rect.h,
         rx: 12,
         fill: 'url(#card-fill)',
-        stroke: isSelected ? C.blue : pState === 'running' ? 'rgba(30, 91, 216, 0.4)' : provider.blocked ? 'rgba(192, 57, 43, 0.4)' : 'rgba(11, 61, 145, 0.13)',
+        stroke: isSelected
+          ? C.blue
+          : pState === 'running'
+            ? 'rgba(30, 91, 216, 0.4)'
+            : provider.blocked
+              ? 'rgba(192, 57, 43, 0.4)'
+              : 'rgba(11, 61, 145, 0.13)',
         'stroke-width': isSelected ? 2 : 1,
         filter: 'drop-shadow(0 6px 14px rgba(11, 61, 145, 0.05))',
         'vector-effect': 'non-scaling-stroke',
@@ -1571,7 +1628,8 @@ function renderInspector() {
     const provider = state.providers[rawId]
     inspectorType.textContent = 'External provider'
     inspectorTitle.textContent = titleCase(rawId)
-    inspectorCopy.textContent = 'Outside the trust boundary. Every call is authorized, policy-checked, and audited by Caracal before it reaches this system.'
+    inspectorCopy.textContent =
+      'Outside the trust boundary. Every call is authorized, policy-checked, and audited by Caracal before it reaches this system.'
     addMetric('Category', PROVIDER_CATEGORIES.find((cat) => cat.id === provider.category)?.label || 'Provider')
     addMetric('Calls', String(provider.calls))
     addMetric('Allowed', String(provider.ok))
@@ -1587,7 +1645,8 @@ function renderInspector() {
     const agent = state.agents[flow.agentId]
     inspectorType.textContent = 'Provider access'
     inspectorTitle.textContent = `${titleCase(agent?.role || 'Agent')} → ${titleCase(flow.providerId)}`
-    inspectorCopy.textContent = 'A governed call path. Caracal mints a scoped mandate, evaluates policy, and records the decision before the provider is reached.'
+    inspectorCopy.textContent =
+      'A governed call path. Caracal mints a scoped mandate, evaluates policy, and records the decision before the provider is reached.'
     addMetric('Status', statusLabel(flowState(flow)))
     addMetric('Calls', String(flow.calls))
     addMetric('Allowed', String(flow.ok))
@@ -1602,7 +1661,8 @@ function renderInspector() {
     const d = state.decisions
     inspectorType.textContent = 'Control plane'
     inspectorTitle.textContent = 'Caracal'
-    inspectorCopy.textContent = 'The orchestration boundary. Policy evaluation, authorization, delegation, approvals, and audit for every runtime action.'
+    inspectorCopy.textContent =
+      'The orchestration boundary. Policy evaluation, authorization, delegation, approvals, and audit for every runtime action.'
     addMetric('Policy checks', String(d.checks))
     addMetric('Allowed', String(d.allowed))
     addMetric('Blocked', String(d.blocked))
@@ -1758,8 +1818,10 @@ for (const btn of filterBtns) {
   })
 }
 
-if (zoomOutBtn) zoomOutBtn.addEventListener('click', () => zoomAt(transform.scale * 0.88, window.innerWidth / 2, window.innerHeight / 2, true))
-if (zoomInBtn) zoomInBtn.addEventListener('click', () => zoomAt(transform.scale * 1.12, window.innerWidth / 2, window.innerHeight / 2, true))
+if (zoomOutBtn)
+  zoomOutBtn.addEventListener('click', () => zoomAt(transform.scale * 0.88, window.innerWidth / 2, window.innerHeight / 2, true))
+if (zoomInBtn)
+  zoomInBtn.addEventListener('click', () => zoomAt(transform.scale * 1.12, window.innerWidth / 2, window.innerHeight / 2, true))
 if (zoomResetBtn) zoomResetBtn.addEventListener('click', resetZoom)
 if (fitBtn) fitBtn.addEventListener('click', resetZoom)
 

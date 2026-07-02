@@ -144,9 +144,7 @@ export async function verify(token: string, config: JwtConfig & { jwksCache?: Jw
   const zone = fetchZone(token, config)
   let payload
   try {
-    const keySet = config.jwksCache
-      ? await config.jwksCache.getKeySet(config.issuer, zone)
-      : await getKeySet(config.issuer, zone)
+    const keySet = config.jwksCache ? await config.jwksCache.getKeySet(config.issuer, zone) : await getKeySet(config.issuer, zone)
     ;({ payload } = await jwtVerify(token, keySet, {
       issuer: config.issuer,
       audience: config.audience,
@@ -204,9 +202,7 @@ export async function verify(token: string, config: JwtConfig & { jwksCache?: Jw
   if (config.requireDelegation && !delegationEdgeId) {
     throw new DelegationRequiredError()
   }
-  const maxHops = config.maxHopCount !== undefined && config.maxHopCount > 0
-    ? config.maxHopCount
-    : DEFAULT_MAX_HOP_COUNT
+  const maxHops = config.maxHopCount !== undefined && config.maxHopCount > 0 ? config.maxHopCount : DEFAULT_MAX_HOP_COUNT
   if ((hopCount ?? 0) > maxHops) {
     throw new HopCountExceededError()
   }

@@ -336,7 +336,14 @@ export const CAPABILITIES: Record<string, Capability> = {
     summary: 'Create a policy from an authored data document, sealing its first immutable version.',
     domain: 'policy',
     mutating: true,
-    args: z.object({ name: z.string().min(1).max(200), description: z.string().max(500).optional(), content: PolicyContent, schema_version: SchemaVersion.optional() }).strict(),
+    args: z
+      .object({
+        name: z.string().min(1).max(200),
+        description: z.string().max(500).optional(),
+        content: PolicyContent,
+        schema_version: SchemaVersion.optional(),
+      })
+      .strict(),
     argsHint: 'name (string), description (string, optional), content (Rego data document), schema_version (string, optional)',
     preview: {
       kind: 'createByName',

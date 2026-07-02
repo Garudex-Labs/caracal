@@ -231,7 +231,9 @@ function taskTitle(agent) {
 }
 
 function prettyTool(name) {
-  const words = String(name || '').split(/[\s_-]+/).filter(Boolean)
+  const words = String(name || '')
+    .split(/[\s_-]+/)
+    .filter(Boolean)
   if (!words.length) return 'Tool call'
   const text = words.join(' ')
   return text.charAt(0).toUpperCase() + text.slice(1)
@@ -248,11 +250,7 @@ function agentInitials(agent) {
 
 // MARKDOWN
 function escapeHtml(text) {
-  return String(text)
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
+  return String(text).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;')
 }
 
 function inlineMarkdown(text) {
@@ -302,7 +300,10 @@ function renderMarkdown(raw) {
     }
     if (/^\|.*\|$/.test(trimmed)) {
       closeList()
-      const cells = trimmed.slice(1, -1).split('|').map((cell) => inlineMarkdown(cell.trim()))
+      const cells = trimmed
+        .slice(1, -1)
+        .split('|')
+        .map((cell) => inlineMarkdown(cell.trim()))
       if (cells.every((cell) => /^:?-{3,}:?$/.test(cell))) continue
       if (!table) {
         table = true
@@ -552,8 +553,8 @@ const FEED_META = {
   service_call: (p) => ({ kind: 'tool', kicker: 'service', title: `${p.service_id} · ${p.action}` }),
   service_result: (p) => ({ kind: 'result', kicker: 'service done', title: `${p.service_id} · ${p.action}` }),
   caracal_decision: (p) => ({
-    kind: p.decision === 'deny' ? 'error' : (p.decision === 'allow' ? 'audit' : 'system'),
-    kicker: p.decision === 'deny' ? 'caracal deny' : (p.decision === 'allow' ? 'caracal allow' : 'caracal'),
+    kind: p.decision === 'deny' ? 'error' : p.decision === 'allow' ? 'audit' : 'system',
+    kicker: p.decision === 'deny' ? 'caracal deny' : p.decision === 'allow' ? 'caracal allow' : 'caracal',
     title: `${p.application} · ${p.role} → ${p.operation}`,
   }),
   audit_record: (p) => ({
@@ -566,7 +567,11 @@ const FEED_META = {
   stage_start: (p) => ({ kind: 'system', kicker: 'stage', title: truncate(p.stage, 90) }),
   stage_end: (p) => ({ kind: 'result', kicker: 'stage done', title: truncate(p.stage, 90) }),
   replan: (p) => ({ kind: 'system', kicker: 'replan', title: truncate(p.reason, 90) }),
-  memory_compaction: (p) => ({ kind: 'system', kicker: 'memory', title: `Compacted ${fmtTok(p.tokens_before)} → ${fmtTok(p.tokens_after)}` }),
+  memory_compaction: (p) => ({
+    kind: 'system',
+    kicker: 'memory',
+    title: `Compacted ${fmtTok(p.tokens_before)} → ${fmtTok(p.tokens_after)}`,
+  }),
   model_change: (p) => ({ kind: 'system', kicker: 'model', title: `${p.prior} → ${p.model}` }),
   file_write: (p) => ({ kind: 'tool', kicker: 'file', title: `write ${p.path}` }),
   file_read: (p) => ({ kind: 'tool', kicker: 'file', title: `read ${p.path}` }),
@@ -935,7 +940,9 @@ function renderGovernanceSummary(ts) {
     `${m.services} provider call${m.services === 1 ? '' : 's'}`,
     m.decisions
       ? `${m.decisions} authority decision${m.decisions === 1 ? '' : 's'} (${m.decisionsDenied} denied)`
-      : (m.denied ? `${m.denied} blocked by Caracal` : 'all allowed'),
+      : m.denied
+        ? `${m.denied} blocked by Caracal`
+        : 'all allowed',
     `${m.audits} policy check${m.audits === 1 ? '' : 's'}`,
     m.approvals ? `${m.approvals} approval${m.approvals === 1 ? '' : 's'} requested` : 'no approvals required',
   ]
@@ -1034,14 +1041,18 @@ function handleEvent(event) {
       const ctr = containerFor(payload.agent_id, event.ts)
       const steps = ensureSteps(ctr)
       const executor = AppState.agents[payload.agent_id]
-      const node = renderMessage('tool', {
-        ts: event.ts,
-        name: prettyTool(payload.tool_name),
-        agentTag: !isOrchestrator(executor) && executor ? layerLabel(executor) : '',
-        summary: summarizeArgs(payload.args),
-        args: payload.args,
-        status: 'executing',
-      }, steps.bodyEl)
+      const node = renderMessage(
+        'tool',
+        {
+          ts: event.ts,
+          name: prettyTool(payload.tool_name),
+          agentTag: !isOrchestrator(executor) && executor ? layerLabel(executor) : '',
+          summary: summarizeArgs(payload.args),
+          args: payload.args,
+          status: 'executing',
+        },
+        steps.bodyEl,
+      )
       stepStarted(ctr, steps, prettyTool(payload.tool_name))
       trackToolCall(payload, node, { block: ctr, steps })
       break
@@ -1063,15 +1074,19 @@ function handleEvent(event) {
       const ctr = containerFor(payload.agent_id, event.ts)
       const steps = ensureSteps(ctr)
       const executor = AppState.agents[payload.agent_id]
-      const node = renderMessage('tool', {
-        ts: event.ts,
-        name: `${payload.service_id} · ${prettyTool(payload.action)}`,
-        agentTag: !isOrchestrator(executor) && executor ? layerLabel(executor) : '',
-        summary: summarizeArgs(payload.payload),
-        args: payload.payload,
-        status: 'executing',
-        serviceCall: true,
-      }, steps.bodyEl)
+      const node = renderMessage(
+        'tool',
+        {
+          ts: event.ts,
+          name: `${payload.service_id} · ${prettyTool(payload.action)}`,
+          agentTag: !isOrchestrator(executor) && executor ? layerLabel(executor) : '',
+          summary: summarizeArgs(payload.payload),
+          args: payload.payload,
+          status: 'executing',
+          serviceCall: true,
+        },
+        steps.bodyEl,
+      )
       stepStarted(ctr, steps, payload.service_id)
       trackToolCall(payload, node, { serviceCall: true, block: ctr, steps })
       break
@@ -1090,33 +1105,35 @@ function handleEvent(event) {
       AppState.metrics.decisions += 1
       if (deny) AppState.metrics.decisionsDenied += 1
       const sessionTag = payload.session_id ? shortId(payload.session_id) : 'no session'
-      const reason = `${payload.application} acting as ${payload.role} (session ${sessionTag})`
-        + ` → ${payload.provider_id}.${payload.operation}`
-        + (payload.status != null ? ` [${payload.status}]` : '')
-      const action = deny ? 'denied' : (allow ? 'allowed' : 'checked')
-      const rule = deny ? 'Caracal denied authority'
-        : (allow ? 'Caracal authorized' : 'Caracal mediated (upstream error)')
-      const sink = !deny && payload.agent_id
-        ? ensureSteps(containerFor(payload.agent_id, event.ts)).bodyEl
-        : null
-      renderMessage('security', {
-        ts: event.ts,
-        rule,
-        action,
-        policy: payload.scope || '',
-        reason,
-        details: {
-          decision: payload.decision,
-          application: payload.application,
-          role: payload.role,
-          session_id: payload.session_id,
-          scope: payload.scope,
-          view: payload.view,
-          provider: payload.provider_id,
-          operation: payload.operation,
-          status: payload.status,
+      const reason =
+        `${payload.application} acting as ${payload.role} (session ${sessionTag})` +
+        ` → ${payload.provider_id}.${payload.operation}` +
+        (payload.status != null ? ` [${payload.status}]` : '')
+      const action = deny ? 'denied' : allow ? 'allowed' : 'checked'
+      const rule = deny ? 'Caracal denied authority' : allow ? 'Caracal authorized' : 'Caracal mediated (upstream error)'
+      const sink = !deny && payload.agent_id ? ensureSteps(containerFor(payload.agent_id, event.ts)).bodyEl : null
+      renderMessage(
+        'security',
+        {
+          ts: event.ts,
+          rule,
+          action,
+          policy: payload.scope || '',
+          reason,
+          details: {
+            decision: payload.decision,
+            application: payload.application,
+            role: payload.role,
+            session_id: payload.session_id,
+            scope: payload.scope,
+            view: payload.view,
+            provider: payload.provider_id,
+            operation: payload.operation,
+            status: payload.status,
+          },
         },
-      }, sink)
+        sink,
+      )
       if (deny) requestScroll({ force: true })
       refreshMetrics()
       break
@@ -1126,17 +1143,19 @@ function handleEvent(event) {
       const record = payload.record || {}
       const decision = String(record.decision || '').toLowerCase()
       const denied = /denied|blocked|reject/.test(decision)
-      const sink = !denied && payload.agent_id
-        ? ensureSteps(containerFor(payload.agent_id, event.ts)).bodyEl
-        : null
-      renderMessage('security', {
-        ts: event.ts,
-        rule: record.rule_id || 'Policy check',
-        action: record.decision || 'checked',
-        policy: record.policy_id || '',
-        reason: record.reason || '',
-        details: record,
-      }, sink)
+      const sink = !denied && payload.agent_id ? ensureSteps(containerFor(payload.agent_id, event.ts)).bodyEl : null
+      renderMessage(
+        'security',
+        {
+          ts: event.ts,
+          rule: record.rule_id || 'Policy check',
+          action: record.decision || 'checked',
+          policy: record.policy_id || '',
+          reason: record.reason || '',
+          details: record,
+        },
+        sink,
+      )
       break
     }
 
@@ -1303,7 +1322,8 @@ function resetState() {
   planStatus.className = 'plan-status status-pending'
   planStatus.textContent = 'Pending'
 
-  runtimeFeed.innerHTML = '<div class="runtime-feed-empty">Service calls, file activity, and approval decisions appear here as they happen.</div>'
+  runtimeFeed.innerHTML =
+    '<div class="runtime-feed-empty">Service calls, file activity, and approval decisions appear here as they happen.</div>'
   feedCount.textContent = '0'
 
   pauseBtn.hidden = true
@@ -1496,9 +1516,7 @@ approvalToggle.addEventListener('change', async () => {
     if (!AppState.active) {
       renderMessage('system', {
         kicker: 'APPROVALS',
-        text: data.required
-          ? 'Sensitive operations now pause for your approval.'
-          : 'Sensitive operations proceed without approval.',
+        text: data.required ? 'Sensitive operations now pause for your approval.' : 'Sensitive operations proceed without approval.',
       })
     }
   } catch (error) {

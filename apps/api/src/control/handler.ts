@@ -4,13 +4,7 @@
 // /v1/control/invoke handler: rate-limits, authenticates, blocks JTI replay, and dispatches through the shared engine.
 
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
-import {
-  dispatch,
-  DispatchError,
-  type DispatchContext,
-  type FlagMap,
-  type Principal,
-} from '@caracalai/engine'
+import { dispatch, DispatchError, type DispatchContext, type FlagMap, type Principal } from '@caracalai/engine'
 import { Authenticator, AuthError } from './auth.js'
 import { newRequestId, type EventSink } from './audit.js'
 import type { Replay } from './replay.js'
@@ -59,11 +53,7 @@ export interface InvokeDeps {
 // reserved Operator may target another zone by stamping the zone-scope header, because it governs
 // every zone it operates in; any other use of the header is ignored and the token's own zone
 // applies, so the header can never widen authority for a tenant key.
-function resolveEffectiveZone(
-  req: FastifyRequest,
-  deps: InvokeDeps,
-  claims: { sub: string; zoneId?: string },
-): string | undefined {
+function resolveEffectiveZone(req: FastifyRequest, deps: InvokeDeps, claims: { sub: string; zoneId?: string }): string | undefined {
   const requested = req.headers[ZONE_SCOPE_HEADER]
   const target = typeof requested === 'string' ? requested.trim() : ''
   if (!target || target === claims.zoneId) return claims.zoneId
@@ -219,7 +209,8 @@ async function handle(req: FastifyRequest, reply: FastifyReply, deps: InvokeDeps
   }
 }
 
-const STATUS_FOR_CODE: Record<string, number> = {  denied: 403,
+const STATUS_FOR_CODE: Record<string, number> = {
+  denied: 403,
   invalid: 400,
   unsupported: 501,
   zone_mismatch: 409,

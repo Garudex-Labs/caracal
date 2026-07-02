@@ -3,7 +3,13 @@
 //
 // Read-only execution preview that resolves each catalog-valid plan step against live control-plane state.
 
-import { CAPABILITIES, validateProposedPlan, type PlanDiagnostic, type PreviewTarget, type ProposedPlanInput } from './operator-capabilities.js'
+import {
+  CAPABILITIES,
+  validateProposedPlan,
+  type PlanDiagnostic,
+  type PreviewTarget,
+  type ProposedPlanInput,
+} from './operator-capabilities.js'
 
 // The minimal read surface the preview needs. The API DB satisfies this
 // structurally; the preview never writes, so only query is required.
@@ -59,10 +65,10 @@ async function nameTaken(db: PreviewQueryable, target: PreviewTarget, zoneId: st
 // Whether a live object of the named target exists in the zone under the given id.
 async function idLive(db: PreviewQueryable, target: PreviewTarget, zoneId: string, id: string): Promise<boolean> {
   const { table, live } = PREVIEW_TARGETS[target]
-  const { rows } = await db.query<{ one: number }>(
-    `SELECT 1 AS one FROM ${table} WHERE id = $1 AND zone_id = $2 AND ${live} LIMIT 1`,
-    [id, zoneId],
-  )
+  const { rows } = await db.query<{ one: number }>(`SELECT 1 AS one FROM ${table} WHERE id = $1 AND zone_id = $2 AND ${live} LIMIT 1`, [
+    id,
+    zoneId,
+  ])
   return rows.length > 0
 }
 

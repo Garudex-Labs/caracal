@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 Unit tests for the Lynx Capital identity model and Control provisioning-plan builders.
 """
+
 from __future__ import annotations
 
 import json
@@ -28,8 +29,13 @@ def _stub_env(model: tenancy.TenancyModel) -> dict[str, str]:
 def test_model_loads_the_full_boundary_plan():
     model = tenancy.load_model()
     assert {a.applicationName for a in model.applications} == {
-        "lynx-operations", "lynx-intake", "lynx-ledger", "lynx-compliance",
-        "lynx-treasury", "lynx-payments", "lynx-audit",
+        "lynx-operations",
+        "lynx-intake",
+        "lynx-ledger",
+        "lynx-compliance",
+        "lynx-treasury",
+        "lynx-payments",
+        "lynx-audit",
     }
     assert len(model.providers) == 20
     assert len(model.resources) == 32
@@ -101,7 +107,9 @@ def test_partnership_manifest_covers_every_mandate_provider():
     for provider_id, terms in manifest.items():
         provider = model.provider(provider_id)
         assert terms["scopes"] == provider.scopes
-        expected_views = {r.identifier for r in model.resources if r.provider == provider_id}
+        expected_views = {
+            r.identifier for r in model.resources if r.provider == provider_id
+        }
         assert set(terms["audiences"]) == expected_views
         assert expected_views
     json.dumps(manifest)
@@ -110,14 +118,18 @@ def test_partnership_manifest_covers_every_mandate_provider():
 def test_application_commands_create_every_boundary():
     model = tenancy.load_model()
     apps = tenancy.application_commands(model)
-    assert {c["flags"]["name"] for c in apps} == {a.applicationName for a in model.applications}
+    assert {c["flags"]["name"] for c in apps} == {
+        a.applicationName for a in model.applications
+    }
     assert all(c["command"] == "app" and c["subcommand"] == "create" for c in apps)
 
 
 def test_provider_commands_register_exact_kind_configs():
     model = tenancy.load_model()
     commands = tenancy.provider_commands(model, env=_stub_env(model))
-    assert {c["flags"]["identifier"] for c in commands} == {p.identifier for p in model.providers}
+    assert {c["flags"]["identifier"] for c in commands} == {
+        p.identifier for p in model.providers
+    }
     for command in commands:
         provider = model.provider(command["flags"]["identifier"])
         config = json.loads(command["flags"]["config"])
@@ -136,7 +148,12 @@ def test_provider_commands_register_exact_kind_configs():
             assert {"client_id", "client_secret", "token_endpoint"} <= set(config)
             assert config["token_endpoint"].startswith("https://")
         elif provider.kind == "oauth2_authorization_code":
-            assert {"client_id", "client_secret", "authorization_endpoint", "token_endpoint"} <= set(config)
+            assert {
+                "client_id",
+                "client_secret",
+                "authorization_endpoint",
+                "token_endpoint",
+            } <= set(config)
             assert config["token_endpoint"].startswith("https://")
         else:
             assert config == {}
@@ -153,7 +170,9 @@ def test_resource_commands_bind_provider_and_gateway_application():
     provider_ids = {p.identifier: f"cp_{p.id}" for p in model.providers}
     application_ids = {a.id: f"app_{a.id}" for a in model.applications}
     commands = tenancy.resource_commands(model, provider_ids, application_ids)
-    assert {c["flags"]["identifier"] for c in commands} == {r.identifier for r in model.resources}
+    assert {c["flags"]["identifier"] for c in commands} == {
+        r.identifier for r in model.resources
+    }
     for command in commands:
         view = model.resource(command["flags"]["identifier"])
         assert command["flags"]["credential-provider-id"] == f"cp_{view.provider}"
@@ -170,7 +189,9 @@ def test_policy_commands_cover_the_library():
     assert names == manifest["policies"]
     assert names[0] == "01-bindings"
     assert all("package caracal.authz" in c["flags"]["content"] for c in commands)
-    assert all(c["flags"]["schema-version"] == model.policySet.schemaVersion for c in commands)
+    assert all(
+        c["flags"]["schema-version"] == model.policySet.schemaVersion for c in commands
+    )
 
 
 def test_generated_grants_document_is_fresh():
@@ -191,8 +212,15 @@ def test_resource_commands_carry_native_operation_authority():
     }
     rest = commands["resource://payments-meridian"]
     assert rest["operation-enforcement"] == "enforced"
-    assert {"method": "POST", "path": "/api/create_payout", "scope": "meridian:payout"} in rest["operations"]
-    assert all(op["method"] == "POST" and op["path"].startswith("/api/") for op in rest["operations"])
+    assert {
+        "method": "POST",
+        "path": "/api/create_payout",
+        "scope": "meridian:payout",
+    } in rest["operations"]
+    assert all(
+        op["method"] == "POST" and op["path"].startswith("/api/")
+        for op in rest["operations"]
+    )
     for resource in model.resources:
         flags = commands[resource.identifier]
         if model.provider(resource.provider).protocol == "mcp":
@@ -214,16 +242,26 @@ def test_protocol_drift_fails_config_load():
 
 
 def test_bindings_render_carries_application_ids():
-    rendered = tenancy.render_bindings_rego({"operations": "0193a000-aaaa-7000-8000-000000000001"})
+    rendered = tenancy.render_bindings_rego(
+        {"operations": "0193a000-aaaa-7000-8000-000000000001"}
+    )
     assert "app_ids :=" in rendered
     assert "0193a000-aaaa-7000-8000-000000000001" in rendered
     assert "package caracal.authz" in rendered
 
 
 def test_agent_labels_and_metadata_identify_the_agent():
-    assert tenancy.agent_labels("payment-execution") == ["payment-execution", "lynx-swarm"]
+    assert tenancy.agent_labels("payment-execution") == [
+        "payment-execution",
+        "lynx-swarm",
+    ]
     metadata = tenancy.agent_metadata("run-1", "agent-9", "payments.us", "US")
-    assert metadata == {"run_id": "run-1", "agent_id": "agent-9", "scope": "payments.us", "region": "US"}
+    assert metadata == {
+        "run_id": "run-1",
+        "agent_id": "agent-9",
+        "scope": "payments.us",
+        "region": "US",
+    }
     assert "region" not in tenancy.agent_metadata("run-1", "agent-9", "payments.us")
 
 

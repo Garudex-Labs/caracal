@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 Server-rendered control panel for each lab provider with credentials, clients, and API client pages.
 """
+
 from __future__ import annotations
 
 import html
@@ -54,8 +55,15 @@ def _secret(value) -> str:
     )
 
 
-_SECRET_FIELDS = {"apiKey", "bearerToken", "clientSecret", "accessToken", "mandate",
-                  "signing_key", "refreshToken"}
+_SECRET_FIELDS = {
+    "apiKey",
+    "bearerToken",
+    "clientSecret",
+    "accessToken",
+    "mandate",
+    "signing_key",
+    "refreshToken",
+}
 
 
 def _config_rows(provider: catalog.Provider) -> list[tuple[str, str]]:
@@ -78,11 +86,20 @@ def _config_rows(provider: catalog.Provider) -> list[tuple[str, str]]:
         if provider.protocol == "grpc":
             where = "call metadata"
         else:
-            where = "query parameter" if provider.apikey_location == "query" else "request header"
+            where = (
+                "query parameter"
+                if provider.apikey_location == "query"
+                else "request header"
+            )
         rows.append(("API key parameter", f"{provider.apikey_field} ({where})"))
     if catalog.bearer_auth(provider) or (c == "mcp" and provider.mcp_auth == "bearer"):
         if provider.auth_scheme:
-            rows.append(("Token header", f"{provider.auth_header}: {provider.auth_scheme} <token>"))
+            rows.append(
+                (
+                    "Token header",
+                    f"{provider.auth_header}: {provider.auth_scheme} <token>",
+                )
+            )
         else:
             rows.append(("Token header", f"{provider.auth_header}: <token>"))
     if c in ("oauth2_client_credentials", "oauth2_authorization_code"):
@@ -94,14 +111,28 @@ def _config_rows(provider: catalog.Provider) -> list[tuple[str, str]]:
         rows.append(("Scopes", " ".join(provider.scopes) or "-"))
     if c == "oauth2_authorization_code":
         rows.append(("Authorization endpoint", f"{base_url}/oauth/authorize"))
-        rows.append(("PKCE", "required (S256)" if provider.use_pkce else "not required"))
-        rows.append(("Refresh tokens", "issued (offline access)" if provider.offline_access else "not issued"))
+        rows.append(
+            ("PKCE", "required (S256)" if provider.use_pkce else "not required")
+        )
+        rows.append(
+            (
+                "Refresh tokens",
+                "issued (offline access)" if provider.offline_access else "not issued",
+            )
+        )
     if c == "oauth2_client_credentials" and provider.audience:
         rows.append(("Resource / audience", provider.audience))
     if c == "caracal_mandate" or (c == "mcp" and provider.mcp_auth == "mandate"):
-        rows.append(("Mandate header", f"{provider.auth_header}: {provider.auth_scheme} <mandate>"))
+        rows.append(
+            (
+                "Mandate header",
+                f"{provider.auth_header}: {provider.auth_scheme} <mandate>",
+            )
+        )
         rows.append(("Required scopes", " ".join(provider.scopes) or "-"))
-        rows.append(("Delegation", "required" if provider.require_delegation else "optional"))
+        rows.append(
+            ("Delegation", "required" if provider.require_delegation else "optional")
+        )
     if c == "mcp":
         rows.append(("MCP endpoint", f"{base_url}/mcp (JSON-RPC)"))
     if provider.protocol == "sse":
@@ -246,9 +277,13 @@ function validateCred(form) {
 
 def layout(provider: catalog.Provider, active: str, body: str) -> str:
     nav = []
-    for key, label in (("home", "Dashboard"), ("resources", "Resources"),
-                       ("credentials", "Credentials"), ("clients", "Clients"),
-                       ("api-clients", "API clients")):
+    for key, label in (
+        ("home", "Dashboard"),
+        ("resources", "Resources"),
+        ("credentials", "Credentials"),
+        ("clients", "Clients"),
+        ("api-clients", "API clients"),
+    ):
         href = "/" if key == "home" else f"/__lab/{key}"
         cls = "active" if active == key else ""
         nav.append(f'<a class="{cls}" href="{href}">{label}</a>')
@@ -264,7 +299,7 @@ def layout(provider: catalog.Provider, active: str, body: str) -> str:
   <span class="tag">{_esc(provider.tagline)}</span>
   <span class="host">localhost:{provider.port}</span>
 </header>
-<nav>{''.join(nav)}</nav>
+<nav>{"".join(nav)}</nav>
 <main>{body}</main>
 </body></html>"""
 
@@ -273,20 +308,23 @@ def overview(provider: catalog.Provider) -> str:
     store = credentials.load(provider.id)
     seed = store.data["seed"]
     seed_rows = "".join(
-        f"<tr><td class=\"muted\">{_esc(k)}</td>"
+        f'<tr><td class="muted">{_esc(k)}</td>'
         f"<td>{_secret(v) if k in _SECRET_FIELDS else '<code>' + _esc(v) + '</code>'}</td></tr>"
-        for k, v in seed.items() if not isinstance(v, (list, dict))
+        for k, v in seed.items()
+        if not isinstance(v, (list, dict))
     )
     ops = "".join(f"<code>{_esc(o)}</code>" for o in provider.operations)
     if provider.category == "mcp":
         ops_hint = "Tools are invoked over JSON-RPC at <code>POST /mcp</code>."
     elif provider.protocol == "grpc":
-        ops_hint = ("Each operation maps to a unary or server-streaming gRPC method; "
-                    "the lab serves them over the shared HTTP transport.")
+        ops_hint = (
+            "Each operation maps to a unary or server-streaming gRPC method; "
+            "the lab serves them over the shared HTTP transport."
+        )
     else:
         ops_hint = "Domain calls are served under <code>/api/&lt;operation&gt;</code>."
     config = "".join(
-        f"<tr><td class=\"muted\">{_esc(label)}</td><td><code>{_esc(value)}</code></td></tr>"
+        f'<tr><td class="muted">{_esc(label)}</td><td><code>{_esc(value)}</code></td></tr>'
         for label, value in _config_rows(provider)
     )
     active, revoked = _credential_counts(store)
@@ -330,19 +368,27 @@ def _grpc_panel(provider: catalog.Provider) -> str:
             response = rpc["response"]
             if rpc.get("server_streaming"):
                 response = f"stream {response}"
-            badge = ' <span class="badge">server streaming</span>' if rpc.get("server_streaming") else ""
+            badge = (
+                ' <span class="badge">server streaming</span>'
+                if rpc.get("server_streaming")
+                else ""
+            )
             rpc_rows.append(
                 f"<tr><td><code>{_esc(rpc['name'])}</code>{badge}</td>"
-                f"<td><code>({_esc(rpc['request'])}) returns ({_esc(response)})</code></td></tr>")
+                f"<td><code>({_esc(rpc['request'])}) returns ({_esc(response)})</code></td></tr>"
+            )
         blocks.append(
-            f'<section><h2>{_esc(descriptor["package"])}.{_esc(service["name"])}</h2>'
-            f'<div class="panel"><table><tr><th>rpc</th><th>signature</th></tr>{"".join(rpc_rows)}</table></div></section>')
-    return ("".join(blocks) +
-            '<p class="hint">Methods are discoverable through server reflection and '
-            'authenticated with the <code>x-api-key</code> call metadata. Rejected calls '
-            'return a canonical gRPC status - <code>UNAUTHENTICATED</code>, '
-            '<code>INVALID_ARGUMENT</code>, <code>NOT_FOUND</code>, or '
-            '<code>FAILED_PRECONDITION</code> - in the response trailers.</p>')
+            f"<section><h2>{_esc(descriptor['package'])}.{_esc(service['name'])}</h2>"
+            f'<div class="panel"><table><tr><th>rpc</th><th>signature</th></tr>{"".join(rpc_rows)}</table></div></section>'
+        )
+    return (
+        "".join(blocks)
+        + '<p class="hint">Methods are discoverable through server reflection and '
+        "authenticated with the <code>x-api-key</code> call metadata. Rejected calls "
+        "return a canonical gRPC status - <code>UNAUTHENTICATED</code>, "
+        "<code>INVALID_ARGUMENT</code>, <code>NOT_FOUND</code>, or "
+        "<code>FAILED_PRECONDITION</code> - in the response trailers.</p>"
+    )
 
 
 def _mcp_panel(provider: catalog.Provider) -> str:
@@ -364,33 +410,43 @@ def _mcp_panel(provider: catalog.Provider) -> str:
         if ann.get("idempotentHint"):
             flags.append("idempotent")
         badge = f' <span class="badge">{" · ".join(flags)}</span>' if flags else ""
-        rows.append(f"<tr><td><code>{_esc(op)}</code></td><td>{_esc(title)}{badge}<br>"
-                    f'<span class="muted">{_esc(desc)}</span></td></tr>')
-    tools = (f'<section><h2>MCP tools <span class="count">{len(rows)}</span></h2>'
-             f'<div class="panel"><table><tr><th>tool</th><th>description</th></tr>{"".join(rows)}</table></div>'
-             '<p class="hint">Discoverable via JSON-RPC <code>tools/list</code>; '
-             'invoked with <code>tools/call</code>.</p></section>')
+        rows.append(
+            f"<tr><td><code>{_esc(op)}</code></td><td>{_esc(title)}{badge}<br>"
+            f'<span class="muted">{_esc(desc)}</span></td></tr>'
+        )
+    tools = (
+        f'<section><h2>MCP tools <span class="count">{len(rows)}</span></h2>'
+        f'<div class="panel"><table><tr><th>tool</th><th>description</th></tr>{"".join(rows)}</table></div>'
+        '<p class="hint">Discoverable via JSON-RPC <code>tools/list</code>; '
+        "invoked with <code>tools/call</code>.</p></section>"
+    )
     resources = base.RESOURCES.get(provider.id, [])
     if not resources:
         return tools
     res_rows = "".join(
         f"<tr><td><code>{_esc(r['uri'])}</code></td><td>{_esc(r['name'])}<br>"
         f'<span class="muted">{_esc(r["description"])}</span></td></tr>'
-        for r in resources)
-    res = (f'<section><h2>MCP resources <span class="count">{len(resources)}</span></h2>'
-           f'<div class="panel"><table><tr><th>uri</th><th>resource</th></tr>{res_rows}</table></div>'
-           '<p class="hint">Discoverable via <code>resources/list</code>; '
-           'fetched with <code>resources/read</code>.</p></section>')
+        for r in resources
+    )
+    res = (
+        f'<section><h2>MCP resources <span class="count">{len(resources)}</span></h2>'
+        f'<div class="panel"><table><tr><th>uri</th><th>resource</th></tr>{res_rows}</table></div>'
+        '<p class="hint">Discoverable via <code>resources/list</code>; '
+        "fetched with <code>resources/read</code>.</p></section>"
+    )
     templates = base.RESOURCE_TEMPLATES.get(provider.id, [])
     if templates:
         tmpl_rows = "".join(
             f"<tr><td><code>{_esc(t['uriTemplate'])}</code></td><td>{_esc(t['name'])}<br>"
             f'<span class="muted">{_esc(t["description"])}</span></td></tr>'
-            for t in templates)
-        res += (f'<section><h2>MCP resource templates <span class="count">{len(templates)}</span></h2>'
-                f'<div class="panel"><table><tr><th>uriTemplate</th><th>resource</th></tr>{tmpl_rows}</table></div>'
-                '<p class="hint">Discoverable via <code>resources/templates/list</code>; '
-                'fetched with <code>resources/read</code> using a concrete uri.</p></section>')
+            for t in templates
+        )
+        res += (
+            f'<section><h2>MCP resource templates <span class="count">{len(templates)}</span></h2>'
+            f'<div class="panel"><table><tr><th>uriTemplate</th><th>resource</th></tr>{tmpl_rows}</table></div>'
+            '<p class="hint">Discoverable via <code>resources/templates/list</code>; '
+            "fetched with <code>resources/read</code> using a concrete uri.</p></section>"
+        )
     return tools + res
 
 
@@ -408,34 +464,52 @@ def _credential_counts(store) -> tuple[int, int]:
 def _auth_summary(provider: catalog.Provider) -> str:
     c = provider.category
     if c == "sdk" and catalog.bearer_auth(provider):
-        return (f"Initialize the {_esc(provider.sdk_package)} SDK with your secret key; "
-                f"the SDK sends it as <code>{_esc(provider.auth_header)}: {_esc(provider.auth_scheme)} &lt;secret&gt;</code>.")
+        return (
+            f"Initialize the {_esc(provider.sdk_package)} SDK with your secret key; "
+            f"the SDK sends it as <code>{_esc(provider.auth_header)}: {_esc(provider.auth_scheme)} &lt;secret&gt;</code>."
+        )
     if c == "sdk" and catalog.apikey_auth(provider):
-        return (f"Initialize the {_esc(provider.sdk_package)} SDK with your API key and "
-                f"environment; the SDK attaches it as <code>{_esc(provider.apikey_field)}: &lt;key&gt;</code> "
-                "on every call.")
+        return (
+            f"Initialize the {_esc(provider.sdk_package)} SDK with your API key and "
+            f"environment; the SDK attaches it as <code>{_esc(provider.apikey_field)}: &lt;key&gt;</code> "
+            "on every call."
+        )
     if catalog.apikey_auth(provider):
         if provider.protocol == "grpc":
-            return (f"Attach the API key as the <code>{_esc(provider.apikey_field)}</code> "
-                    "gRPC call metadata on every RPC.")
+            return (
+                f"Attach the API key as the <code>{_esc(provider.apikey_field)}</code> "
+                "gRPC call metadata on every RPC."
+            )
         loc = "query parameter" if provider.apikey_location == "query" else "header"
-        return f"Send the API key in the <code>{_esc(provider.apikey_field)}</code> {loc}."
+        return (
+            f"Send the API key in the <code>{_esc(provider.apikey_field)}</code> {loc}."
+        )
     if catalog.bearer_auth(provider):
         if provider.auth_scheme:
             return f"Send the static token as <code>{_esc(provider.auth_header)}: {_esc(provider.auth_scheme)} &lt;token&gt;</code>."
         return f"Send the static token in the <code>{_esc(provider.auth_header)}</code> header."
     if c == "oauth2_client_credentials":
-        return (f"Exchange client credentials at <code>POST /oauth/token</code> "
-                f"(grant_type=client_credentials, {_esc(provider.client_auth_method)}), then call with the access token.")
+        return (
+            f"Exchange client credentials at <code>POST /oauth/token</code> "
+            f"(grant_type=client_credentials, {_esc(provider.client_auth_method)}), then call with the access token."
+        )
     if c == "oauth2_authorization_code":
         extra = "PKCE required. " if provider.use_pkce else ""
-        extra += "Issues refresh tokens (offline access). " if provider.offline_access else ""
-        return (f"{extra}Authorize at <code>GET /oauth/authorize</code>, exchange the code at "
-                f"<code>POST /oauth/token</code>, then call with the access token.")
+        extra += (
+            "Issues refresh tokens (offline access). "
+            if provider.offline_access
+            else ""
+        )
+        return (
+            f"{extra}Authorize at <code>GET /oauth/authorize</code>, exchange the code at "
+            f"<code>POST /oauth/token</code>, then call with the access token."
+        )
     if c == "caracal_mandate":
         d = " A delegated mandate is required." if provider.require_delegation else ""
-        return (f"Present a Caracal mandate as <code>Authorization: Bearer &lt;mandate&gt;</code>. "
-                f"The provider verifies it like a Caracal verifier SDK at its boundary.{d}")
+        return (
+            f"Present a Caracal mandate as <code>Authorization: Bearer &lt;mandate&gt;</code>. "
+            f"The provider verifies it like a Caracal verifier SDK at its boundary.{d}"
+        )
     if c == "none":
         return "Internal provider. No upstream credential; access is trusted at the network boundary."
     if c == "mcp" and provider.mcp_auth == "mandate":
@@ -445,17 +519,31 @@ def _auth_summary(provider: catalog.Provider) -> str:
     return ""
 
 
-def _cred_panel(title: str, headers: list[str], rows: list[str],
-                forms: str = "", empty: str = "none issued yet") -> str:
+def _cred_panel(
+    title: str,
+    headers: list[str],
+    rows: list[str],
+    forms: str = "",
+    empty: str = "none issued yet",
+) -> str:
     head = "".join(f"<th>{_esc(h)}</th>" for h in headers)
-    body = "".join(rows) or f'<tr><td colspan="{len(headers)}" class="empty">{_esc(empty)}</td></tr>'
+    body = (
+        "".join(rows)
+        or f'<tr><td colspan="{len(headers)}" class="empty">{_esc(empty)}</td></tr>'
+    )
     count = f' <span class="count">{len(rows)}</span>' if rows else ""
-    return (f"<section><h2>{_esc(title)}{count}</h2>"
-            f'<div class="panel"><table><tr>{head}</tr>{body}</table>{forms}</div></section>')
+    return (
+        f"<section><h2>{_esc(title)}{count}</h2>"
+        f'<div class="panel"><table><tr>{head}</tr>{body}</table>{forms}</div></section>'
+    )
 
 
 def _status_pill(revoked: bool) -> str:
-    return '<span class="pill gone">revoked</span>' if revoked else '<span class="pill ok">active</span>'
+    return (
+        '<span class="pill gone">revoked</span>'
+        if revoked
+        else '<span class="pill ok">active</span>'
+    )
 
 
 def credentials_page(provider: catalog.Provider) -> str:
@@ -471,11 +559,21 @@ def credentials_page(provider: catalog.Provider) -> str:
             f"<td>{_action_btns('apiKey', r['keyId'], r['revoked'])}</td></tr>"
             for r in store.data["apiKeys"]
         ]
-        forms = _create_form("apiKey", "Create API key") + _validate_widget("apiKey", "Test an API key")
-        sections.append(_cred_panel(
-            "API keys", ["keyId", "apiKey", "label", "created", "usage", "status", ""], rows, forms))
+        forms = _create_form("apiKey", "Create API key") + _validate_widget(
+            "apiKey", "Test an API key"
+        )
+        sections.append(
+            _cred_panel(
+                "API keys",
+                ["keyId", "apiKey", "label", "created", "usage", "status", ""],
+                rows,
+                forms,
+            )
+        )
 
-    if catalog.bearer_auth(provider) or (cat == "mcp" and provider.mcp_auth == "bearer"):
+    if catalog.bearer_auth(provider) or (
+        cat == "mcp" and provider.mcp_auth == "bearer"
+    ):
         label_noun = "Secret keys" if cat == "sdk" else "Bearer tokens"
         rows = [
             f"<tr><td><code>{_esc(r['tokenId'])}</code></td><td>{_secret(r['accessToken'])}</td>"
@@ -484,10 +582,19 @@ def credentials_page(provider: catalog.Provider) -> str:
             f"<td>{_action_btns('bearer', r['tokenId'], r['revoked'])}</td></tr>"
             for r in store.data["bearerTokens"]
         ]
-        forms = (_create_form("bearer", "Issue secret key" if cat == "sdk" else "Issue bearer token")
-                 + _validate_widget("bearer", "Test a secret key" if cat == "sdk" else "Test a bearer token"))
-        sections.append(_cred_panel(
-            label_noun, ["tokenId", "accessToken", "label", "created", "usage", "status", ""], rows, forms))
+        forms = _create_form(
+            "bearer", "Issue secret key" if cat == "sdk" else "Issue bearer token"
+        ) + _validate_widget(
+            "bearer", "Test a secret key" if cat == "sdk" else "Test a bearer token"
+        )
+        sections.append(
+            _cred_panel(
+                label_noun,
+                ["tokenId", "accessToken", "label", "created", "usage", "status", ""],
+                rows,
+                forms,
+            )
+        )
 
     if cat in ("oauth2_client_credentials", "oauth2_authorization_code"):
         rows = [
@@ -496,17 +603,30 @@ def credentials_page(provider: catalog.Provider) -> str:
             f"<td>{_usage(r)}</td><td>{_status_pill(r['revoked'])}</td></tr>"
             for r in store.data["clients"]
         ]
-        forms = _validate_widget("access_token", "Test an access token",
-                                 placeholder="paste access token from /oauth/token")
-        sections.append(_cred_panel(
-            "OAuth client secrets",
-            ["clientId", "clientSecret", "scopes", "created", "usage", "status"], rows, forms))
-        sections.append('<p class="hint">Register, rotate, and revoke clients on the '
-                        '<a href="/__lab/clients">Clients</a> page.</p>')
+        forms = _validate_widget(
+            "access_token",
+            "Test an access token",
+            placeholder="paste access token from /oauth/token",
+        )
+        sections.append(
+            _cred_panel(
+                "OAuth client secrets",
+                ["clientId", "clientSecret", "scopes", "created", "usage", "status"],
+                rows,
+                forms,
+            )
+        )
+        sections.append(
+            '<p class="hint">Register, rotate, and revoke clients on the '
+            '<a href="/__lab/clients">Clients</a> page.</p>'
+        )
 
     if cat == "caracal_mandate" or (cat == "mcp" and provider.mcp_auth == "mandate"):
         seed = store.data["seed"].get("mandate", "")
-        revoked_rows = ["<tr><td><code>" + _esc(a) + "</code></td></tr>" for a in store.data["revoked"]]
+        revoked_rows = [
+            "<tr><td><code>" + _esc(a) + "</code></td></tr>"
+            for a in store.data["revoked"]
+        ]
         revoke_form = """
 <form class="inline" method="post" action="/__lab/api/revoke-anchor">
   <input name="anchor" placeholder="sid_/agent_/edge_ anchor to revoke" size="32" required>
@@ -516,18 +636,27 @@ def credentials_page(provider: catalog.Provider) -> str:
 <section>
   <h2>Zone signing key</h2>
   <div class="panel"><table><tr><th>zone</th><th>signing key (HS256)</th></tr>
-  <tr><td><code>{_esc(store.data['zone'])}</code></td><td>{_secret(store.data['signing_key'])}</td></tr></table></div>
+  <tr><td><code>{_esc(store.data["zone"])}</code></td><td>{_secret(store.data["signing_key"])}</td></tr></table></div>
 </section>
 <section>
   <h2>Seed mandate</h2>
   <div class="panel"><div class="panel-body">{_secret(seed)}</div></div>
 </section>""")
-        sections.append(_cred_panel("Revoked anchors", ["anchor"], revoked_rows,
-                                    revoke_form, empty="no anchors revoked"))
+        sections.append(
+            _cred_panel(
+                "Revoked anchors",
+                ["anchor"],
+                revoked_rows,
+                revoke_form,
+                empty="no anchors revoked",
+            )
+        )
 
     if cat == "none":
-        sections.append('<div class="panel"><div class="empty">This internal provider holds no '
-                        'credentials. Access is enforced at the network boundary only.</div></div>')
+        sections.append(
+            '<div class="panel"><div class="empty">This internal provider holds no '
+            "credentials. Access is enforced at the network boundary only.</div></div>"
+        )
 
     sections.append(_revoked_history(store))
     return layout(provider, "credentials", "".join(sections))
@@ -537,7 +666,7 @@ def _usage(rec: dict) -> str:
     count = rec.get("useCount", 0)
     if not count:
         return '<span class="muted">unused</span>'
-    return f"{count} calls<br><span class=\"muted\">{_ts(rec.get('lastUsedAt'))}</span>"
+    return f'{count} calls<br><span class="muted">{_ts(rec.get("lastUsedAt"))}</span>'
 
 
 def _revoked_history(store) -> str:
@@ -550,11 +679,16 @@ def _revoked_history(store) -> str:
         f"<td>{('<code>' + _esc(h['rotatedTo']) + '</code>') if h.get('rotatedTo') else '-'}</td></tr>"
         for h in history
     ]
-    return _cred_panel("Revoked credential history",
-                       ["kind", "id", "label", "revoked", "rotated to"], rows)
+    return _cred_panel(
+        "Revoked credential history",
+        ["kind", "id", "label", "revoked", "rotated to"],
+        rows,
+    )
 
 
-def _validate_widget(kind: str, label: str, placeholder: str = "paste credential to validate") -> str:
+def _validate_widget(
+    kind: str, label: str, placeholder: str = "paste credential to validate"
+) -> str:
     return f"""
 <form class="inline" method="post" action="/__lab/api/validate" onsubmit="return validateCred(this)">
   <input type="hidden" name="kind" value="{_esc(kind)}">
@@ -580,14 +714,20 @@ def resource_explorer_page(provider: catalog.Provider, state) -> str:
     for resource in provider.resources:
         rows = tables.get(resource, {})
         sample = next(iter(rows.values()), None)
-        fields = "".join(f"<code>{_esc(k)}</code>" for k in sample.keys()) if isinstance(sample, dict) else ""
+        fields = (
+            "".join(f"<code>{_esc(k)}</code>" for k in sample.keys())
+            if isinstance(sample, dict)
+            else ""
+        )
         if sample is not None:
             try:
                 pretty = json.dumps(sample, indent=2, default=str)
             except (TypeError, ValueError):
                 pretty = str(sample)
-            sample_block = (f'<details class="sample"><summary>Sample record</summary>'
-                            f'<pre class="sample">{_esc(pretty)}</pre></details>')
+            sample_block = (
+                f'<details class="sample"><summary>Sample record</summary>'
+                f'<pre class="sample">{_esc(pretty)}</pre></details>'
+            )
         else:
             sample_block = '<div class="empty">no rows yet</div>'
         field_row = f'<div class="panel-body chips">{fields}</div>' if fields else ""
@@ -597,9 +737,13 @@ def resource_explorer_page(provider: catalog.Provider, state) -> str:
   <div class="panel">{field_row}{sample_block}</div>
 </section>""")
     if not panels:
-        panels.append('<div class="panel"><div class="empty">This provider exposes no stored resources.</div></div>')
-    intro = (f'<p class="hint" style="margin:0 0 20px">Live data served by {_esc(provider.brand)} on this port. '
-             f'Records evolve as operations run against <code>/api/&lt;operation&gt;</code>.</p>')
+        panels.append(
+            '<div class="panel"><div class="empty">This provider exposes no stored resources.</div></div>'
+        )
+    intro = (
+        f'<p class="hint" style="margin:0 0 20px">Live data served by {_esc(provider.brand)} on this port. '
+        f"Records evolve as operations run against <code>/api/&lt;operation&gt;</code>.</p>"
+    )
     return layout(provider, "resources", intro + "".join(panels))
 
 
@@ -619,17 +763,35 @@ def clients_page(provider: catalog.Provider) -> str:
 <form class="inline" method="post" action="/__lab/api/register-client">
   <input name="name" placeholder="application name" required>
   <input name="redirect_uris" placeholder="redirect URI" size="34" value="http://127.0.0.1:8000/callback">
-  <input name="scopes" placeholder="scopes" value="{_esc(' '.join(provider.scopes))}" size="22">
+  <input name="scopes" placeholder="scopes" value="{_esc(" ".join(provider.scopes))}" size="22">
   <button class="primary" type="submit">Register client</button>
 </form>"""
-        return layout(provider, "clients", _cred_panel(
-            "Registered OAuth clients",
-            ["clientId", "name", "clientSecret", "redirectUris", "scopes", "usage", "status", ""],
-            rows, form, empty="no clients registered"))
+        return layout(
+            provider,
+            "clients",
+            _cred_panel(
+                "Registered OAuth clients",
+                [
+                    "clientId",
+                    "name",
+                    "clientSecret",
+                    "redirectUris",
+                    "scopes",
+                    "usage",
+                    "status",
+                    "",
+                ],
+                rows,
+                form,
+                empty="no clients registered",
+            ),
+        )
 
-    body = ('<div class="panel"><div class="empty">This provider does not use OAuth application clients. '
-            'Machine consumers are managed as credentials and shown on the '
-            '<a href="/__lab/api-clients">API clients</a> page.</div></div>')
+    body = (
+        '<div class="panel"><div class="empty">This provider does not use OAuth application clients. '
+        "Machine consumers are managed as credentials and shown on the "
+        '<a href="/__lab/api-clients">API clients</a> page.</div></div>'
+    )
     return layout(provider, "clients", body)
 
 
@@ -641,11 +803,16 @@ def api_clients_page(provider: catalog.Provider, activity: list[dict]) -> str:
         for a in activity
     ]
     panel = _cred_panel(
-        "Live API clients", ["principal", "auth", "calls", "last operation", "last status"],
-        rows, empty="no authenticated calls observed yet")
-    note = ('<p class="hint">API clients are derived from authenticated calls observed on this provider port. '
-            'Issue credentials on the <a href="/__lab/credentials">Credentials</a> page, then call '
-            '<code>/api/&lt;operation&gt;</code>.</p>')
+        "Live API clients",
+        ["principal", "auth", "calls", "last operation", "last status"],
+        rows,
+        empty="no authenticated calls observed yet",
+    )
+    note = (
+        '<p class="hint">API clients are derived from authenticated calls observed on this provider port. '
+        'Issue credentials on the <a href="/__lab/credentials">Credentials</a> page, then call '
+        "<code>/api/&lt;operation&gt;</code>.</p>"
+    )
     return layout(provider, "api-clients", panel + note)
 
 
@@ -680,30 +847,41 @@ def _action_btns(kind: str, identifier: str, revoked: bool) -> str:
 
 def consent_page(provider: catalog.Provider, params: dict) -> str:
     """OAuth authorization consent prompt shown to the resource owner."""
-    scopes = "".join(f"<code>{_esc(s)}</code>" for s in params.get("scope", "").split() if s) or \
-        '<span class="muted">no scopes requested</span>'
+    scopes = (
+        "".join(f"<code>{_esc(s)}</code>" for s in params.get("scope", "").split() if s)
+        or '<span class="muted">no scopes requested</span>'
+    )
     hidden = "".join(
         f'<input type="hidden" name="{_esc(k)}" value="{_esc(params.get(k, ""))}">'
-        for k in ("client_id", "redirect_uri", "scope", "state", "code_challenge", "code_challenge_method")
+        for k in (
+            "client_id",
+            "redirect_uri",
+            "scope",
+            "state",
+            "code_challenge",
+            "code_challenge_method",
+        )
     )
     company_row = (
         f'<span class="k">Company</span><span><code>{_esc(provider.realm_id)}</code></span>'
-        if provider.realm_id else ""
+        if provider.realm_id
+        else ""
     )
     offline_note = (
         '<p class="muted" style="margin-top:8px">Approving keeps this app connected; '
-        'it can refresh access without prompting you again until the connection is revoked.</p>'
-        if provider.offline_access else ""
+        "it can refresh access without prompting you again until the connection is revoked.</p>"
+        if provider.offline_access
+        else ""
     )
     body = f"""
 <section style="max-width:440px;margin:48px auto 0">
   <h2>Authorize application</h2>
   <div class="panel">
     <div class="kv-grid">
-      <span class="k">Application</span><span><code>{_esc(params.get('client_id', ''))}</code></span>
+      <span class="k">Application</span><span><code>{_esc(params.get("client_id", ""))}</code></span>
       {company_row}
       <span class="k">Scopes</span><span class="chips">{scopes}</span>
-      <span class="k">Redirects to</span><span><code>{_esc(params.get('redirect_uri', ''))}</code></span>
+      <span class="k">Redirects to</span><span><code>{_esc(params.get("redirect_uri", ""))}</code></span>
     </div>
     {offline_note}
     <form class="inline" method="post" action="/oauth/authorize">

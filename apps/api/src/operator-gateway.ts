@@ -3,7 +3,16 @@
 //
 // The Operator LLM gateway: a provider-agnostic completion client built on the Vercel AI SDK over any OpenAI-compatible endpoint with multi-provider failover.
 
-import { APICallError, extractReasoningMiddleware, generateObject, generateText, smoothStream, streamText, wrapLanguageModel, type LanguageModelMiddleware } from 'ai'
+import {
+  APICallError,
+  extractReasoningMiddleware,
+  generateObject,
+  generateText,
+  smoothStream,
+  streamText,
+  wrapLanguageModel,
+  type LanguageModelMiddleware,
+} from 'ai'
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 import type { ZodType } from 'zod'
 import { buildGovernanceMiddleware, type GovernanceLimits } from './operator-ai-governance.js'
@@ -534,11 +543,7 @@ export function preferProvider(gateway: Gateway, providerId: string | null): Gat
 // calls (triage, critique, grounding) are untouched. The deltas are a fire-and-forget live
 // preview: the caller's authoritative result is the same whether or not anyone listens, mirroring
 // how deliberation stages stream.
-export function streamingAnswers(
-  gateway: Gateway,
-  onText: (chunk: string) => void,
-  onReasoning?: (chunk: string) => void,
-): Gateway {
+export function streamingAnswers(gateway: Gateway, onText: (chunk: string) => void, onReasoning?: (chunk: string) => void): Gateway {
   const handlers: StreamHandlers = { onText, onReasoning }
   return {
     status: () => gateway.status(),

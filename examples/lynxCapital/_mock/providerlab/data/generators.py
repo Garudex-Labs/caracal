@@ -302,8 +302,12 @@ _ATLAS_DIVERSITY = (
     "small_business",
     "lgbtq_owned",
 )
-_ATLAS_SCREENING_PROVIDERS = ("Dow Jones Risk & Compliance", "Refinitiv World-Check",
-                              "LexisNexis Bridger", "ComplyAdvantage")
+_ATLAS_SCREENING_PROVIDERS = (
+    "Dow Jones Risk & Compliance",
+    "Refinitiv World-Check",
+    "LexisNexis Bridger",
+    "ComplyAdvantage",
+)
 _ATLAS_SANCTIONS_LISTS = ("OFAC SDN", "EU Consolidated", "UN Consolidated", "UK HMT")
 _ATLAS_OWNERSHIP_TYPES = ("individual", "entity")
 
@@ -323,20 +327,23 @@ def _atlas_beneficial_owners(rng: random.Random, country: str) -> list[dict]:
             break
         share = remaining if n == 2 else rng.randint(15, min(60, remaining))
         remaining -= share
-        owners.append({
-            "ownerId": f"UBO-{rng.randint(10**4, 10**5 - 1)}",
-            "name": _person(rng),
-            "type": "individual",
-            "ownershipPercent": share,
-            "nationality": country,
-            "screened": rng.random() > 0.1,
-            "pep": rng.random() < 0.06,
-        })
+        owners.append(
+            {
+                "ownerId": f"UBO-{rng.randint(10**4, 10**5 - 1)}",
+                "name": _person(rng),
+                "type": "individual",
+                "ownershipPercent": share,
+                "nationality": country,
+                "screened": rng.random() > 0.1,
+                "pep": rng.random() < 0.06,
+            }
+        )
     return owners
 
 
-def _atlas_events(rng: random.Random, vendor_id: str, stage: str,
-                  created: str, checklist: list[dict]) -> list[dict]:
+def _atlas_events(
+    rng: random.Random, vendor_id: str, stage: str, created: str, checklist: list[dict]
+) -> list[dict]:
     """A reverse-chronological change history for the vendor record."""
     events: list[dict] = []
     seq = 0
@@ -344,31 +351,53 @@ def _atlas_events(rng: random.Random, vendor_id: str, stage: str,
     def add(kind: str, summary: str, when: str, actor: str = "intake-queue") -> None:
         nonlocal seq
         seq += 1
-        events.append({
-            "eventId": f"EVT-{vendor_id.split('-')[-1]}-{seq:03d}",
-            "type": kind, "summary": summary, "actor": actor, "occurredAt": when,
-        })
+        events.append(
+            {
+                "eventId": f"EVT-{vendor_id.split('-')[-1]}-{seq:03d}",
+                "type": kind,
+                "summary": summary,
+                "actor": actor,
+                "occurredAt": when,
+            }
+        )
 
     add("vendor.registered", "Vendor master record created", created)
     for step in checklist:
         if step["status"] == "completed" and step.get("completedAt"):
-            add(f"onboarding.{step['step']}.completed", step["label"], step["completedAt"])
+            add(
+                f"onboarding.{step['step']}.completed",
+                step["label"],
+                step["completedAt"],
+            )
     if stage in ("active", "suspended"):
-        add("compliance.screening.completed", "KYB and sanctions screening cleared",
-            _instant(rng, -200, -20), actor=rng.choice(_ATLAS_SCREENING_PROVIDERS))
+        add(
+            "compliance.screening.completed",
+            "KYB and sanctions screening cleared",
+            _instant(rng, -200, -20),
+            actor=rng.choice(_ATLAS_SCREENING_PROVIDERS),
+        )
     if stage == "active":
-        add("vendor.activated", "Vendor activated for transacting", _instant(rng, -180, -5),
-            actor=_person(rng))
+        add(
+            "vendor.activated",
+            "Vendor activated for transacting",
+            _instant(rng, -180, -5),
+            actor=_person(rng),
+        )
     if stage == "suspended":
-        add("vendor.suspended", "Vendor suspended pending review", _instant(rng, -30, -2),
-            actor=_person(rng))
+        add(
+            "vendor.suspended",
+            "Vendor suspended pending review",
+            _instant(rng, -30, -2),
+            actor=_person(rng),
+        )
     events.sort(key=lambda e: e["occurredAt"], reverse=True)
     return events
 
 
 def _atlas_classifications(rng: random.Random, stage: str) -> dict:
-    diversity = (rng.sample(_ATLAS_DIVERSITY, rng.randint(1, 2))
-                 if rng.random() < 0.25 else [])
+    diversity = (
+        rng.sample(_ATLAS_DIVERSITY, rng.randint(1, 2)) if rng.random() < 0.25 else []
+    )
     return {
         "diversity": diversity,
         "diversityCertified": bool(diversity),
@@ -630,7 +659,9 @@ def bank_accounts(seed: str, count: int) -> list[dict]:
             identification["scheme"] = "IBAN"
             identification["iban"] = _iban(rng, country, account_number)
             identification["accountNumber"] = account_number
-        identification["secondaryIdentification"] = f"LYNX-{purpose[:3].upper()}-{i:02d}"
+        identification["secondaryIdentification"] = (
+            f"LYNX-{purpose[:3].upper()}-{i:02d}"
+        )
         as_of = _instant(rng, -1, 0)
         balances = {
             "available": available,
@@ -692,8 +723,11 @@ def bank_balances(account: dict) -> list[dict]:
         }
         if credit_line and credit_limit:
             entry["creditLine"] = [
-                {"included": True, "type": "Pre-Agreed",
-                 "amount": {"amount": credit_limit, "currency": currency}},
+                {
+                    "included": True,
+                    "type": "Pre-Agreed",
+                    "amount": {"amount": credit_limit, "currency": currency},
+                },
             ]
         return entry
 
@@ -706,8 +740,9 @@ def bank_balances(account: dict) -> list[dict]:
     ]
 
 
-def bank_beneficiaries(seed: str, accounts_index: dict[str, dict],
-                       per_account: int = 3) -> list[dict]:
+def bank_beneficiaries(
+    seed: str, accounts_index: dict[str, dict], per_account: int = 3
+) -> list[dict]:
     """Trusted payee beneficiaries saved against accounts, as a real open-banking
     /beneficiaries endpoint exposes them for pre-authorized payment routing."""
     out = []
@@ -721,25 +756,36 @@ def bank_beneficiaries(seed: str, accounts_index: dict[str, dict],
             name = _company(rng)
             country = account["country"]
             number = f"{rng.randint(10**7, 10**8 - 1)}"
-            creditor: dict = {"scheme": "IBAN", "name": name,
-                              "iban": _iban(rng, country, number)}
+            creditor: dict = {
+                "scheme": "IBAN",
+                "name": name,
+                "iban": _iban(rng, country, number),
+            }
             if country == "US":
-                creditor = {"scheme": "US.RoutingNumberAccountNumber", "name": name,
-                            "routingNumber": f"{rng.randint(10**8, 10**9 - 1)}",
-                            "accountNumber": number}
+                creditor = {
+                    "scheme": "US.RoutingNumberAccountNumber",
+                    "name": name,
+                    "routingNumber": f"{rng.randint(10**8, 10**9 - 1)}",
+                    "accountNumber": number,
+                }
             elif country == "GB":
-                creditor = {"scheme": "UK.OBIE.SortCodeAccountNumber", "name": name,
-                            "sortCode": f"{rng.randint(0, 99):02d}-{rng.randint(0, 99):02d}-{rng.randint(0, 99):02d}",
-                            "accountNumber": number}
-            out.append({
-                "beneficiaryId": f"BEN-{serial:05d}",
-                "accountId": account_id,
-                "reference": f"{name.split()[0].upper()}-{rng.randint(100, 999)}",
-                "beneficiaryType": "Trusted",
-                "currency": account["currency"],
-                "creditorAccount": creditor,
-                "createdDateTime": _instant(rng, -720, -30),
-            })
+                creditor = {
+                    "scheme": "UK.OBIE.SortCodeAccountNumber",
+                    "name": name,
+                    "sortCode": f"{rng.randint(0, 99):02d}-{rng.randint(0, 99):02d}-{rng.randint(0, 99):02d}",
+                    "accountNumber": number,
+                }
+            out.append(
+                {
+                    "beneficiaryId": f"BEN-{serial:05d}",
+                    "accountId": account_id,
+                    "reference": f"{name.split()[0].upper()}-{rng.randint(100, 999)}",
+                    "beneficiaryType": "Trusted",
+                    "currency": account["currency"],
+                    "creditorAccount": creditor,
+                    "createdDateTime": _instant(rng, -720, -30),
+                }
+            )
     return out
 
 
@@ -748,8 +794,14 @@ def bank_standing_orders(seed: str, accounts_index: dict[str, dict]) -> list[dic
     OBIE /standing-orders resource models them."""
     out = []
     serial = 0
-    freqs = ("EvryDay", "EvryWorkgDay", "IntrvlWkDay:01:01", "WkInMnthDay:01:01",
-             "IntrvlMnthDay:01:01", "IntrvlMnthDay:03:01")
+    freqs = (
+        "EvryDay",
+        "EvryWorkgDay",
+        "IntrvlWkDay:01:01",
+        "WkInMnthDay:01:01",
+        "IntrvlMnthDay:01:01",
+        "IntrvlMnthDay:03:01",
+    )
     for account_id, account in accounts_index.items():
         if account["accountSubType"] != "CurrentAccount":
             continue
@@ -757,19 +809,27 @@ def bank_standing_orders(seed: str, accounts_index: dict[str, dict]) -> list[dic
         for _ in range(rng.randint(1, 3)):
             serial += 1
             amount = round(rng.uniform(500, 45_000), 2)
-            out.append({
-                "standingOrderId": f"STO-{serial:05d}",
-                "accountId": account_id,
-                "creditorName": _company(rng),
-                "frequency": rng.choice(freqs),
-                "reference": f"STO-{rng.randint(1000, 9999)}",
-                "firstPaymentDateTime": _instant(rng, -365, -90),
-                "nextPaymentDateTime": _instant(rng, 1, 30),
-                "finalPaymentDateTime": _instant(rng, 200, 720),
-                "firstPaymentAmount": {"amount": amount, "currency": account["currency"]},
-                "nextPaymentAmount": {"amount": amount, "currency": account["currency"]},
-                "standingOrderStatusCode": "Active",
-            })
+            out.append(
+                {
+                    "standingOrderId": f"STO-{serial:05d}",
+                    "accountId": account_id,
+                    "creditorName": _company(rng),
+                    "frequency": rng.choice(freqs),
+                    "reference": f"STO-{rng.randint(1000, 9999)}",
+                    "firstPaymentDateTime": _instant(rng, -365, -90),
+                    "nextPaymentDateTime": _instant(rng, 1, 30),
+                    "finalPaymentDateTime": _instant(rng, 200, 720),
+                    "firstPaymentAmount": {
+                        "amount": amount,
+                        "currency": account["currency"],
+                    },
+                    "nextPaymentAmount": {
+                        "amount": amount,
+                        "currency": account["currency"],
+                    },
+                    "standingOrderStatusCode": "Active",
+                }
+            )
     return out
 
 
@@ -785,16 +845,23 @@ def bank_direct_debits(seed: str, accounts_index: dict[str, dict]) -> list[dict]
         for _ in range(rng.randint(1, 4)):
             serial += 1
             amount = round(rng.uniform(120, 12_000), 2)
-            out.append({
-                "directDebitId": f"DDI-{serial:05d}",
-                "accountId": account_id,
-                "mandateIdentification": f"DDM-{rng.randint(10**5, 10**6 - 1)}",
-                "directDebitStatusCode": rng.choice(("Active", "Active", "Inactive")),
-                "name": _company(rng),
-                "previousPaymentDateTime": _instant(rng, -60, -1),
-                "previousPaymentAmount": {"amount": amount, "currency": account["currency"]},
-                "frequency": rng.choice(("Monthly", "Quarterly", "Annual")),
-            })
+            out.append(
+                {
+                    "directDebitId": f"DDI-{serial:05d}",
+                    "accountId": account_id,
+                    "mandateIdentification": f"DDM-{rng.randint(10**5, 10**6 - 1)}",
+                    "directDebitStatusCode": rng.choice(
+                        ("Active", "Active", "Inactive")
+                    ),
+                    "name": _company(rng),
+                    "previousPaymentDateTime": _instant(rng, -60, -1),
+                    "previousPaymentAmount": {
+                        "amount": amount,
+                        "currency": account["currency"],
+                    },
+                    "frequency": rng.choice(("Monthly", "Quarterly", "Annual")),
+                }
+            )
     return out
 
 
@@ -810,18 +877,26 @@ def bank_scheduled_payments(seed: str, accounts_index: dict[str, dict]) -> list[
         for _ in range(rng.randint(0, 2)):
             serial += 1
             amount = round(rng.uniform(1_000, 250_000), 2)
-            out.append({
-                "scheduledPaymentId": f"SPM-{serial:05d}",
-                "accountId": account_id,
-                "scheduledType": rng.choice(("Execution", "Arrival")),
-                "scheduledPaymentDateTime": _instant(rng, 2, 45),
-                "instructedAmount": {"amount": amount, "currency": account["currency"]},
-                "reference": f"SP-{rng.randint(1000, 9999)}",
-                "creditorAccount": {
-                    "scheme": "IBAN", "name": _company(rng),
-                    "iban": _iban(rng, account["country"], f"{rng.randint(10**7, 10**8 - 1)}"),
-                },
-            })
+            out.append(
+                {
+                    "scheduledPaymentId": f"SPM-{serial:05d}",
+                    "accountId": account_id,
+                    "scheduledType": rng.choice(("Execution", "Arrival")),
+                    "scheduledPaymentDateTime": _instant(rng, 2, 45),
+                    "instructedAmount": {
+                        "amount": amount,
+                        "currency": account["currency"],
+                    },
+                    "reference": f"SP-{rng.randint(1000, 9999)}",
+                    "creditorAccount": {
+                        "scheme": "IBAN",
+                        "name": _company(rng),
+                        "iban": _iban(
+                            rng, account["country"], f"{rng.randint(10**7, 10**8 - 1)}"
+                        ),
+                    },
+                }
+            )
     return out
 
 
@@ -878,9 +953,7 @@ def bank_transactions(
             "amount": amount,
             "currency": currency,
             "bookingDateTime": _instant(rng, booking_day, booking_day),
-            "valueDateTime": _instant(
-                rng, booking_day, min(0, booking_day + 1)
-            ),
+            "valueDateTime": _instant(rng, booking_day, min(0, booking_day + 1)),
             "transactionReference": f"E2E-{rng.randint(10**9, 10**10 - 1)}",
             "bankTransactionCode": {"code": code, "subCode": sub_code},
             "proprietaryBankTransactionCode": {"code": code, "issuer": "Halcyon"},
@@ -899,7 +972,10 @@ def bank_transactions(
             },
         }
         if is_fee:
-            txn["chargeAmount"] = {"amount": round(amount * 0.0, 2), "currency": currency}
+            txn["chargeAmount"] = {
+                "amount": round(amount * 0.0, 2),
+                "currency": currency,
+            }
         if is_card:
             txn["cardInstrument"] = {
                 "cardSchemeName": rng.choice(("Visa", "Mastercard", "Amex")),
@@ -910,7 +986,9 @@ def bank_transactions(
             rate = round(rng.uniform(0.7, 1.4), 5)
             txn["currencyExchange"] = {
                 "sourceCurrency": currency,
-                "targetCurrency": rng.choice([c for _, c in _COUNTRIES if c != currency]),
+                "targetCurrency": rng.choice(
+                    [c for _, c in _COUNTRIES if c != currency]
+                ),
                 "exchangeRate": rate,
                 "quotationDate": txn["bookingDateTime"],
             }
@@ -995,12 +1073,16 @@ def bank_statements(
                     ),
                     "transactionCount": len(window),
                     "statementAmounts": [
-                        {"type": "ServiceCharge",
-                         "amount": {"amount": fees, "currency": currency},
-                         "creditDebitIndicator": "Debit"},
-                        {"type": "InterestEarned",
-                         "amount": {"amount": interest, "currency": currency},
-                         "creditDebitIndicator": "Credit"},
+                        {
+                            "type": "ServiceCharge",
+                            "amount": {"amount": fees, "currency": currency},
+                            "creditDebitIndicator": "Debit",
+                        },
+                        {
+                            "type": "InterestEarned",
+                            "amount": {"amount": interest, "currency": currency},
+                            "creditDebitIndicator": "Credit",
+                        },
                     ],
                     "formats": ["application/json", "application/pdf"],
                     "downloadUrl": f"/api/get_statement?statementId=STMT-{serial:05d}&format=pdf",
@@ -1344,18 +1426,36 @@ _LUMEN_ROLES = (
 # Each pair is a maker/checker or grant/review conflict an access review must catch.
 # (roleId, conflictingRoleId, rationale)
 _LUMEN_SOD_CONFLICTS = (
-    ("ROLE-ap-clerk", "ROLE-ap-approver",
-     "Entering supplier bills and approving their payment is an AP maker/checker conflict."),
-    ("ROLE-treasury-operator", "ROLE-treasury-manager",
-     "Initiating and approving the same payment removes dual control over cash movement."),
-    ("ROLE-gl-accountant", "ROLE-controller",
-     "Posting journals and owning the close lets one identity self-approve ledger entries."),
-    ("ROLE-ap-approver", "ROLE-controller",
-     "Releasing payments and closing the ledger concentrates spend and reporting control."),
-    ("ROLE-it-admin", "ROLE-internal-auditor",
-     "Granting access and auditing it lets an administrator conceal their own changes."),
-    ("ROLE-directory-admin", "ROLE-internal-auditor",
-     "Administering identities and auditing them undermines independent assurance."),
+    (
+        "ROLE-ap-clerk",
+        "ROLE-ap-approver",
+        "Entering supplier bills and approving their payment is an AP maker/checker conflict.",
+    ),
+    (
+        "ROLE-treasury-operator",
+        "ROLE-treasury-manager",
+        "Initiating and approving the same payment removes dual control over cash movement.",
+    ),
+    (
+        "ROLE-gl-accountant",
+        "ROLE-controller",
+        "Posting journals and owning the close lets one identity self-approve ledger entries.",
+    ),
+    (
+        "ROLE-ap-approver",
+        "ROLE-controller",
+        "Releasing payments and closing the ledger concentrates spend and reporting control.",
+    ),
+    (
+        "ROLE-it-admin",
+        "ROLE-internal-auditor",
+        "Granting access and auditing it lets an administrator conceal their own changes.",
+    ),
+    (
+        "ROLE-directory-admin",
+        "ROLE-internal-auditor",
+        "Administering identities and auditing them undermines independent assurance.",
+    ),
 )
 
 # (id, name, deptId, function, memberRole, managerRole, groupId, managerTitle, memberTitle, size)
@@ -1852,7 +1952,9 @@ def lumen_directory(seed: str) -> dict[str, dict]:
             "requiresMfa": r[8],
             "privileged": r[3] == "privileged",
             "assignable": r[3] != "birthright",
-            "sodConflictRoleIds": sorted(c["roleId"] for c in sod_conflicts.get(r[0], [])),
+            "sodConflictRoleIds": sorted(
+                c["roleId"] for c in sod_conflicts.get(r[0], [])
+            ),
             "assignedCount": 0,
         }
         for r in _LUMEN_ROLES
@@ -1920,7 +2022,11 @@ def lumen_directory(seed: str) -> dict[str, dict]:
             contract_end = _instant(rng, 30, 400)[:10]
         enabled = status in _LUMEN_ENABLED_STATES
         if leader:
-            job_level = "EXEC" if title.startswith("Chief") or title.endswith("Officer") else "M4"
+            job_level = (
+                "EXEC"
+                if title.startswith("Chief") or title.endswith("Officer")
+                else "M4"
+            )
         elif role_ids and role_ids[0].endswith(("manager", "officer", "controller")):
             job_level = rng.choice(("M2", "M3"))
         else:
@@ -2060,9 +2166,13 @@ def lumen_directory(seed: str) -> dict[str, dict]:
     )
     for team_id, extra_role in sod_seed_plan:
         member = next(
-            (u for u in sorted(users.values(), key=lambda u: u["id"])
-             if u["teamId"] == team_id and not u["isManager"]
-             and u["status"] == "active"),
+            (
+                u
+                for u in sorted(users.values(), key=lambda u: u["id"])
+                if u["teamId"] == team_id
+                and not u["isManager"]
+                and u["status"] == "active"
+            ),
             None,
         )
         if member and extra_role not in member["roleIds"]:
@@ -2079,7 +2189,15 @@ def lumen_directory(seed: str) -> dict[str, dict]:
         role["assignedCount"] = sum(1 for u in users.values() if rid in u["roleIds"])
 
     service_accounts = {}
-    for sid, uname, purpose, owner_team, role_id, env, cred_type in _LUMEN_SERVICE_ACCOUNTS:
+    for (
+        sid,
+        uname,
+        purpose,
+        owner_team,
+        role_id,
+        env,
+        cred_type,
+    ) in _LUMEN_SERVICE_ACCOUNTS:
         rng = _rng(seed, "svc", sid)
         owner_emp = teams.get(owner_team, {}).get("managerId")
         rotation_interval = 90 if env == "production" else 180
@@ -2709,7 +2827,9 @@ def _erp_vendor(seed: str, i: int) -> dict:
     status = rng.choices(("active", "inactive", "onHold"), weights=(86, 8, 6))[0]
     contact = _person(rng)
     email = f"{contact.split()[0].lower()}.{contact.split()[1].lower()}@{_slug(name).split('-')[0]}.example"
-    phone = f"+1-{rng.randint(200, 989)}-{rng.randint(200, 989)}-{rng.randint(1000, 9999)}"
+    phone = (
+        f"+1-{rng.randint(200, 989)}-{rng.randint(200, 989)}-{rng.randint(1000, 9999)}"
+    )
     legal_name = f"{name} {_LEGAL_SUFFIX.get(country, 'Ltd.')}"
     terms = rng.choice(_TERMS)
     return {
@@ -2921,7 +3041,9 @@ def _vendor_bill(seed: str, idx: int, vendor: dict, po: dict | None) -> dict:
         "currency": currency,
         "exchangeRate": _fx_rate(currency),
         "terms": vendor["terms"],
-        "discountDate": (created_day + timedelta(days=10)).isoformat() if discount_pct else None,
+        "discountDate": (created_day + timedelta(days=10)).isoformat()
+        if discount_pct
+        else None,
         "discountAmount": round(subtotal * discount_pct, 2) if discount_pct else 0.0,
         "lines": lines,
         "subtotal": subtotal,
@@ -3043,9 +3165,12 @@ def ironbark_dataset(seed: str) -> dict[str, dict]:
         vendor = vendors[bill["vendorId"]]
         prng = _rng(seed, "vendpmt", idx)
         paid = date.fromisoformat(bill["createdDate"][:10]) + timedelta(
-            days=prng.randint(2, _term_days(vendor["terms"])))
+            days=prng.randint(2, _term_days(vendor["terms"]))
+        )
         currency = bill["currency"]
-        bank = _BANK_ACCOUNT_BY_CURRENCY.get(currency, _DEFAULT_BANK_ACCOUNT).removeprefix("ACCT-")
+        bank = _BANK_ACCOUNT_BY_CURRENCY.get(
+            currency, _DEFAULT_BANK_ACCOUNT
+        ).removeprefix("ACCT-")
         payment = {
             "id": f"PAYMENT-{idx:06d}",
             "tranId": f"BILLPMT-{idx:06d}",
@@ -3061,7 +3186,13 @@ def ironbark_dataset(seed: str) -> dict[str, dict]:
             "exchangeRate": _fx_rate(currency),
             "paymentMethod": vendor["paymentMethod"],
             "memo": f"Payment to {vendor['companyName']} for {bill['tranId']}",
-            "applied": [{"billId": bill["id"], "tranId": bill["tranId"], "amount": bill["total"]}],
+            "applied": [
+                {
+                    "billId": bill["id"],
+                    "tranId": bill["tranId"],
+                    "amount": bill["total"],
+                }
+            ],
             "total": bill["total"],
             "postingPeriod": _posting_period(paid.isoformat()),
             "createdDate": _instant(prng, -120, -2),
@@ -3070,13 +3201,18 @@ def ironbark_dataset(seed: str) -> dict[str, dict]:
 
     item_receipts: dict[str, dict] = {}
     for idx, po in enumerate(
-        (p for p in purchase_orders.values()
-         if p["receivedStatus"] in ("partiallyReceived", "fullyReceived")),
+        (
+            p
+            for p in purchase_orders.values()
+            if p["receivedStatus"] in ("partiallyReceived", "fullyReceived")
+        ),
         start=1,
     ):
         vendor = vendors[po["vendorId"]]
         rrng = _rng(seed, "itemrcpt", idx)
-        received = date.fromisoformat(po["createdDate"][:10]) + timedelta(days=rrng.randint(2, 21))
+        received = date.fromisoformat(po["createdDate"][:10]) + timedelta(
+            days=rrng.randint(2, 21)
+        )
         receipt = {
             "id": f"ITEMRCPT-{idx:06d}",
             "tranId": f"ITEMRCPT-{idx:06d}",
@@ -3091,9 +3227,14 @@ def ironbark_dataset(seed: str) -> dict[str, dict]:
             "location": po["location"],
             "status": "received",
             "lines": [
-                {"lineId": l["lineId"], "item": l["item"],
-                 "quantity": l["quantityReceived"], "quantityOrdered": l["quantity"]}
-                for l in po["lines"] if l.get("quantityReceived")
+                {
+                    "lineId": l["lineId"],
+                    "item": l["item"],
+                    "quantity": l["quantityReceived"],
+                    "quantityOrdered": l["quantity"],
+                }
+                for l in po["lines"]
+                if l.get("quantityReceived")
             ],
             "createdDate": _instant(rrng, -120, -2),
         }
@@ -3104,7 +3245,9 @@ def ironbark_dataset(seed: str) -> dict[str, dict]:
     for bill in bills.values():
         if bill["status"] in ("open", "pendingApproval"):
             vendor = vendors[bill["vendorId"]]
-            vendor["balancePrimary"] = round(vendor["balancePrimary"] + bill["amountRemaining"], 2)
+            vendor["balancePrimary"] = round(
+                vendor["balancePrimary"] + bill["amountRemaining"], 2
+            )
             vendor["openBillCount"] += 1
             if date.fromisoformat(bill["dueDate"][:10]) < today:
                 vendor["overdueBalancePrimary"] = round(
@@ -3255,8 +3398,14 @@ def _junction_approval_chain(manager: dict, steps: int) -> list[dict]:
 
 def _junction_tax_registrations(country: str, tax_id: str) -> list[dict]:
     kind = {
-        "US": "EIN", "CA": "BN", "GB": "VAT", "DE": "VAT", "FR": "VAT",
-        "BR": "CNPJ", "SG": "GST", "JP": "CN",
+        "US": "EIN",
+        "CA": "BN",
+        "GB": "VAT",
+        "DE": "VAT",
+        "FR": "VAT",
+        "BR": "CNPJ",
+        "SG": "GST",
+        "JP": "CN",
     }.get(country, "VAT")
     return [{"country": country, "type": kind, "number": tax_id}]
 
@@ -3270,12 +3419,14 @@ def _junction_compliance_documents(rng: random.Random, status: str) -> list[dict
         lapse_rate = 0.6 if status == "on_hold" else 0.08
         expired = rng.random() < lapse_rate
         days = rng.randint(-90, -10) if expired else rng.randint(30, 540)
-        docs.append({
-            "type": doc_type,
-            "documentName": valid,
-            "status": "expired" if expired else "valid",
-            "expiresOn": (_EPOCH + timedelta(days=days)).isoformat(),
-        })
+        docs.append(
+            {
+                "type": doc_type,
+                "documentName": valid,
+                "status": "expired" if expired else "valid",
+                "expiresOn": (_EPOCH + timedelta(days=days)).isoformat(),
+            }
+        )
     return docs
 
 
@@ -3292,10 +3443,18 @@ def _junction_supplier(seed: str, i: int) -> dict:
     handle = _slug(name).split("-")[0]
     tax_id = f"{country}{rng.randint(10**8, 10**9 - 1)}"
     preferred = rng.random() < 0.35 and status == "active"
-    diversity = rng.sample(_JUNCTION_DIVERSITY, rng.randint(1, 2)) if rng.random() < 0.22 else []
+    diversity = (
+        rng.sample(_JUNCTION_DIVERSITY, rng.randint(1, 2))
+        if rng.random() < 0.22
+        else []
+    )
     on_time = round(rng.uniform(0.86, 0.998), 3)
     quality = round(rng.uniform(3.4, 5.0), 1)
-    contract_ref = f"CW-2026-{rng.randint(1000, 9999)}" if (preferred or rng.random() < 0.3) else None
+    contract_ref = (
+        f"CW-2026-{rng.randint(1000, 9999)}"
+        if (preferred or rng.random() < 0.3)
+        else None
+    )
     return {
         "supplierId": f"SUP-{100000 + i}",
         "supplierNumber": f"V{100000 + i}",
@@ -3826,14 +3985,30 @@ _PULSE_CCY_NAME = {
 }
 # ISO 4217 numeric codes, carried on instrument reference like real market-data feeds.
 _PULSE_CCY_NUMERIC = {
-    "USD": "840", "EUR": "978", "GBP": "826", "JPY": "392", "BRL": "986",
-    "SGD": "702", "CAD": "124", "CHF": "756", "AUD": "036", "MXN": "484",
+    "USD": "840",
+    "EUR": "978",
+    "GBP": "826",
+    "JPY": "392",
+    "BRL": "986",
+    "SGD": "702",
+    "CAD": "124",
+    "CHF": "756",
+    "AUD": "036",
+    "MXN": "484",
     "INR": "356",
 }
 # Majors trade tightest margins; EM and exotics post higher initial-margin rates.
 _PULSE_MARGIN_RATE = {
-    "EUR": 0.02, "GBP": 0.03, "CHF": 0.03, "CAD": 0.03, "JPY": 0.04,
-    "SGD": 0.05, "AUD": 0.03, "MXN": 0.08, "INR": 0.10, "BRL": 0.10,
+    "EUR": 0.02,
+    "GBP": 0.03,
+    "CHF": 0.03,
+    "CAD": 0.03,
+    "JPY": 0.04,
+    "SGD": 0.05,
+    "AUD": 0.03,
+    "MXN": 0.08,
+    "INR": 0.10,
+    "BRL": 0.10,
 }
 _PULSE_EPOCH = datetime(2026, 1, 1, tzinfo=timezone.utc)
 _PULSE_FIXING_DAYS = 5
@@ -3868,7 +4043,9 @@ def pulse_instrument(seed: str, symbol: str) -> dict:
     pip_location = -2 if quote == "JPY" else -4
     # FX spot settles T+2, except USD/CAD which settles T+1.
     settlement_days = 1 if {base, quote} == {"USD", "CAD"} else 2
-    margin_rate = max(_PULSE_MARGIN_RATE.get(base, 0.03), _PULSE_MARGIN_RATE.get(quote, 0.03))
+    margin_rate = max(
+        _PULSE_MARGIN_RATE.get(base, 0.03), _PULSE_MARGIN_RATE.get(quote, 0.03)
+    )
     return {
         "symbol": symbol,
         "ticker": f"{base}{quote}",
@@ -3896,7 +4073,11 @@ def pulse_instrument(seed: str, symbol: str) -> dict:
         "settlementDays": settlement_days,
         "venue": _PULSE_VENUE.get(base, "LDN"),
         "tradingSession": "24x5",
-        "tradingHours": {"openUtc": "Sun 22:00", "closeUtc": "Fri 22:00", "timezone": "UTC"},
+        "tradingHours": {
+            "openUtc": "Sun 22:00",
+            "closeUtc": "Fri 22:00",
+            "timezone": "UTC",
+        },
         "prevClose": prev_close,
         "dayOpen": day_open,
         "tradeable": True,
@@ -3937,7 +4118,9 @@ def pulse_reference_rates(seed: str) -> list[dict]:
             ask_rate = round(rate + half_spread, decimals)
             published = datetime.combine(fixing_date, time(16, 0), tzinfo=timezone.utc)
             change = round(rate - prior_rate, decimals) if prior_rate else 0.0
-            change_pct = round((rate - prior_rate) / prior_rate * 100, 4) if prior_rate else 0.0
+            change_pct = (
+                round((rate - prior_rate) / prior_rate * 100, 4) if prior_rate else 0.0
+            )
             out.append(
                 {
                     "rateId": f"{base}{quote}-{fixing_date.isoformat()}",
@@ -4470,7 +4653,9 @@ def _keystone_hedge(seed: str, idx: int) -> dict:
         "status": status,
         "markToMarket": mtm,
         "markToMarketCurrency": "USD",
-        "markToMarketAsOf": _fx_iso(_KEYSTONE_EPOCH - timedelta(hours=rng.randint(1, 10))),
+        "markToMarketAsOf": _fx_iso(
+            _KEYSTONE_EPOCH - timedelta(hours=rng.randint(1, 10))
+        ),
         "realizedPnl": mtm if status == "settled" else 0.0,
     }
 
@@ -4503,8 +4688,10 @@ def _keystone_transfer(seed: str, idx: int) -> dict:
     else:
         method = rng.choice(("rtgs", "ach"))
     history = [
-        {"status": _KEYSTONE_TRANSFER_STATUS_FLOW[s],
-         "at": _fx_iso(initiated + timedelta(hours=s * 6))}
+        {
+            "status": _KEYSTONE_TRANSFER_STATUS_FLOW[s],
+            "at": _fx_iso(initiated + timedelta(hours=s * 6)),
+        }
         for s in range(stage + 1)
     ]
     return {
@@ -4527,7 +4714,9 @@ def _keystone_transfer(seed: str, idx: int) -> dict:
         "settlementRail": "ISO20022_pain.001" if method == "swift" else method.upper(),
         "crossBorder": cross_border,
         "chargeBearer": "OUR" if same_entity else rng.choice(_KEYSTONE_CHARGE_BEARERS),
-        "correspondentBank": rng.choice(_KEYSTONE_COUNTERPARTIES) if cross_border else None,
+        "correspondentBank": rng.choice(_KEYSTONE_COUNTERPARTIES)
+        if cross_border
+        else None,
         "purposeCode": rng.choice(("INTC", "CASH", "TREA", "LOAN")),
         "regulatoryReportingRequired": cross_border and amount > 1_000_000,
         "fee": fee,
@@ -4562,14 +4751,20 @@ def _keystone_exposure(seed: str, currency: str, positions: dict, hedges: dict) 
     ratio = round(min(1.0, hedged / net), 4) if net > 0 else 0.0
     var = round(abs(unhedged) * rng.uniform(0.008, 0.018), 2)
     # Split the net exposure across maturity buckets the risk desk reports on.
-    weights = [rng.uniform(0.2, 0.5), rng.uniform(0.2, 0.4),
-               rng.uniform(0.1, 0.3), rng.uniform(0.05, 0.2)]
+    weights = [
+        rng.uniform(0.2, 0.5),
+        rng.uniform(0.2, 0.4),
+        rng.uniform(0.1, 0.3),
+        rng.uniform(0.05, 0.2),
+    ]
     total_w = sum(weights)
     buckets = ("0-30d", "31-90d", "91-180d", "180d+")
     by_tenor = [
-        {"bucket": b,
-         "netExposure": round(net * w / total_w, 2),
-         "netExposureBase": round(keystone_usd(net * w / total_w, currency), 2)}
+        {
+            "bucket": b,
+            "netExposure": round(net * w / total_w, 2),
+            "netExposureBase": round(keystone_usd(net * w / total_w, currency), 2),
+        }
         for b, w in zip(buckets, weights)
     ]
     translation = round(net * rng.uniform(0.25, 0.5), 2)
@@ -4595,7 +4790,9 @@ def _keystone_exposure(seed: str, currency: str, positions: dict, hedges: dict) 
         "varConfidence": 0.95,
         "varHorizonDays": 1,
         "exposureLimitBase": limit_base,
-        "limitUtilization": round(min(1.0, abs(unhedged_base) / limit_base), 4) if limit_base else 0.0,
+        "limitUtilization": round(min(1.0, abs(unhedged_base) / limit_base), 4)
+        if limit_base
+        else 0.0,
         "withinLimit": abs(unhedged_base) <= limit_base,
         "reportingCurrency": _KEYSTONE_REPORTING_CCY,
         "netExposureBase": round(keystone_usd(net, currency), 2),
@@ -4703,54 +4900,222 @@ def keystone_dataset(seed: str) -> dict[str, dict]:
 # Chart of accounts modeled on Sage Intacct / NetSuite GL master records:
 # (accountNo, name, type, subtype, normalBalance, parentAccountNo, description).
 _SLATE_CHART = (
-    ("1000", "Cash - Operating USD", "asset", "bank", "debit", None,
-     "Primary USD operating bank account"),
-    ("1010", "Cash - Operating EUR", "asset", "bank", "debit", None,
-     "EUR operating bank account, revalued at period end"),
-    ("1020", "Cash - Payroll", "asset", "bank", "debit", None,
-     "Dedicated payroll disbursement account"),
-    ("1100", "Accounts Receivable", "asset", "accounts_receivable", "debit", None,
-     "Trade receivables control account"),
-    ("1200", "Prepaid Expenses", "asset", "other_current_asset", "debit", None,
-     "Prepaid expenses amortized over their service period"),
-    ("1210", "Prepaid Insurance", "asset", "other_current_asset", "debit", "1200",
-     "Prepaid insurance premiums"),
-    ("1500", "Fixed Assets", "asset", "fixed_asset", "debit", None,
-     "Property, plant, and equipment at cost"),
-    ("1510", "Accumulated Depreciation", "asset", "fixed_asset", "credit", "1500",
-     "Contra-asset accumulating depreciation"),
-    ("2000", "Accounts Payable", "liability", "accounts_payable", "credit", None,
-     "Trade payables control account"),
-    ("2100", "Accrued Liabilities", "liability", "other_current_liability", "credit", None,
-     "Accrued expenses awaiting invoicing"),
-    ("2110", "Accrued Payroll", "liability", "other_current_liability", "credit", "2100",
-     "Accrued wages, bonuses, and benefits"),
-    ("2200", "Sales Tax Payable", "liability", "other_current_liability", "credit", None,
-     "Sales and use tax collected and owed"),
-    ("2300", "Deferred Revenue", "liability", "other_current_liability", "credit", None,
-     "Unearned revenue from billed-in-advance contracts"),
-    ("3000", "Common Stock", "equity", "equity", "credit", None,
-     "Par value of issued common shares"),
-    ("3900", "Retained Earnings", "equity", "equity", "credit", None,
-     "Cumulative earnings retained in the business"),
-    ("4000", "Subscription Revenue", "income", "income", "credit", None,
-     "Recurring subscription revenue"),
-    ("4100", "Services Revenue", "income", "income", "credit", None,
-     "Professional and implementation services revenue"),
-    ("5000", "Cost of Revenue", "expense", "cost_of_goods_sold", "debit", None,
-     "Direct cost of delivering the product"),
-    ("6000", "Salaries & Wages", "expense", "expense", "debit", None,
-     "Employee compensation"),
-    ("6100", "Facilities & Rent", "expense", "expense", "debit", None,
-     "Office rent, utilities, and facilities"),
-    ("6200", "Software Subscriptions", "expense", "expense", "debit", None,
-     "SaaS and cloud infrastructure subscriptions"),
-    ("6300", "Professional Fees", "expense", "expense", "debit", None,
-     "Legal, audit, and consulting fees"),
-    ("6400", "Depreciation Expense", "expense", "expense", "debit", None,
-     "Periodic depreciation of fixed assets"),
-    ("6900", "Insurance Expense", "expense", "expense", "debit", None,
-     "Insurance expense recognized from prepaids"),
+    (
+        "1000",
+        "Cash - Operating USD",
+        "asset",
+        "bank",
+        "debit",
+        None,
+        "Primary USD operating bank account",
+    ),
+    (
+        "1010",
+        "Cash - Operating EUR",
+        "asset",
+        "bank",
+        "debit",
+        None,
+        "EUR operating bank account, revalued at period end",
+    ),
+    (
+        "1020",
+        "Cash - Payroll",
+        "asset",
+        "bank",
+        "debit",
+        None,
+        "Dedicated payroll disbursement account",
+    ),
+    (
+        "1100",
+        "Accounts Receivable",
+        "asset",
+        "accounts_receivable",
+        "debit",
+        None,
+        "Trade receivables control account",
+    ),
+    (
+        "1200",
+        "Prepaid Expenses",
+        "asset",
+        "other_current_asset",
+        "debit",
+        None,
+        "Prepaid expenses amortized over their service period",
+    ),
+    (
+        "1210",
+        "Prepaid Insurance",
+        "asset",
+        "other_current_asset",
+        "debit",
+        "1200",
+        "Prepaid insurance premiums",
+    ),
+    (
+        "1500",
+        "Fixed Assets",
+        "asset",
+        "fixed_asset",
+        "debit",
+        None,
+        "Property, plant, and equipment at cost",
+    ),
+    (
+        "1510",
+        "Accumulated Depreciation",
+        "asset",
+        "fixed_asset",
+        "credit",
+        "1500",
+        "Contra-asset accumulating depreciation",
+    ),
+    (
+        "2000",
+        "Accounts Payable",
+        "liability",
+        "accounts_payable",
+        "credit",
+        None,
+        "Trade payables control account",
+    ),
+    (
+        "2100",
+        "Accrued Liabilities",
+        "liability",
+        "other_current_liability",
+        "credit",
+        None,
+        "Accrued expenses awaiting invoicing",
+    ),
+    (
+        "2110",
+        "Accrued Payroll",
+        "liability",
+        "other_current_liability",
+        "credit",
+        "2100",
+        "Accrued wages, bonuses, and benefits",
+    ),
+    (
+        "2200",
+        "Sales Tax Payable",
+        "liability",
+        "other_current_liability",
+        "credit",
+        None,
+        "Sales and use tax collected and owed",
+    ),
+    (
+        "2300",
+        "Deferred Revenue",
+        "liability",
+        "other_current_liability",
+        "credit",
+        None,
+        "Unearned revenue from billed-in-advance contracts",
+    ),
+    (
+        "3000",
+        "Common Stock",
+        "equity",
+        "equity",
+        "credit",
+        None,
+        "Par value of issued common shares",
+    ),
+    (
+        "3900",
+        "Retained Earnings",
+        "equity",
+        "equity",
+        "credit",
+        None,
+        "Cumulative earnings retained in the business",
+    ),
+    (
+        "4000",
+        "Subscription Revenue",
+        "income",
+        "income",
+        "credit",
+        None,
+        "Recurring subscription revenue",
+    ),
+    (
+        "4100",
+        "Services Revenue",
+        "income",
+        "income",
+        "credit",
+        None,
+        "Professional and implementation services revenue",
+    ),
+    (
+        "5000",
+        "Cost of Revenue",
+        "expense",
+        "cost_of_goods_sold",
+        "debit",
+        None,
+        "Direct cost of delivering the product",
+    ),
+    (
+        "6000",
+        "Salaries & Wages",
+        "expense",
+        "expense",
+        "debit",
+        None,
+        "Employee compensation",
+    ),
+    (
+        "6100",
+        "Facilities & Rent",
+        "expense",
+        "expense",
+        "debit",
+        None,
+        "Office rent, utilities, and facilities",
+    ),
+    (
+        "6200",
+        "Software Subscriptions",
+        "expense",
+        "expense",
+        "debit",
+        None,
+        "SaaS and cloud infrastructure subscriptions",
+    ),
+    (
+        "6300",
+        "Professional Fees",
+        "expense",
+        "expense",
+        "debit",
+        None,
+        "Legal, audit, and consulting fees",
+    ),
+    (
+        "6400",
+        "Depreciation Expense",
+        "expense",
+        "expense",
+        "debit",
+        None,
+        "Periodic depreciation of fixed assets",
+    ),
+    (
+        "6900",
+        "Insurance Expense",
+        "expense",
+        "expense",
+        "debit",
+        None,
+        "Insurance expense recognized from prepaids",
+    ),
 )
 
 # Balance-sheet vs income-statement classification, the way GL platforms tag
@@ -4775,16 +5140,41 @@ _SLATE_ACCRUAL_TEMPLATES = (
 # Standard close checklist, mirroring a FloQast / BlackLine task list with
 # owners, dependencies, and sign-off: (taskKey, name, category, owner, dependsOn).
 _SLATE_CLOSE_TASKS = (
-    ("post_accruals", "Post recurring accruals", "accruals",
-     "staff-accountant@slate-ledger.test", ()),
-    ("recon_cash", "Reconcile cash accounts", "reconciliation",
-     "staff-accountant@slate-ledger.test", ("post_accruals",)),
-    ("recon_ap", "Reconcile accounts payable", "reconciliation",
-     "staff-accountant@slate-ledger.test", ("post_accruals",)),
-    ("review_tb", "Review trial balance", "review",
-     "controller@slate-ledger.test", ("recon_cash", "recon_ap")),
-    ("subledger_cutoff", "Sub-ledger cutoff", "cutoff",
-     "controller@slate-ledger.test", ()),
+    (
+        "post_accruals",
+        "Post recurring accruals",
+        "accruals",
+        "staff-accountant@slate-ledger.test",
+        (),
+    ),
+    (
+        "recon_cash",
+        "Reconcile cash accounts",
+        "reconciliation",
+        "staff-accountant@slate-ledger.test",
+        ("post_accruals",),
+    ),
+    (
+        "recon_ap",
+        "Reconcile accounts payable",
+        "reconciliation",
+        "staff-accountant@slate-ledger.test",
+        ("post_accruals",),
+    ),
+    (
+        "review_tb",
+        "Review trial balance",
+        "review",
+        "controller@slate-ledger.test",
+        ("recon_cash", "recon_ap"),
+    ),
+    (
+        "subledger_cutoff",
+        "Sub-ledger cutoff",
+        "cutoff",
+        "controller@slate-ledger.test",
+        (),
+    ),
 )
 
 # Statement-line categories that drive a bank/sub-ledger reconciliation, the
@@ -5214,16 +5604,18 @@ def _qbo_tax_detail(tax: float, currency: str, taxable: bool) -> dict:
         detail["TxnTaxCodeRef"] = {"value": "NON"}
         return detail
     detail["TxnTaxCodeRef"] = {"value": "TAX"}
-    detail["TaxLine"] = [{
-        "Amount": tax,
-        "DetailType": "TaxLineDetail",
-        "TaxLineDetail": {
-            "TaxRateRef": {"value": "1"},
-            "PercentBased": True,
-            "TaxPercent": 8.25,
-            "NetAmountTaxable": _qbo_round(tax / 0.0825, currency) if tax else 0.0,
-        },
-    }]
+    detail["TaxLine"] = [
+        {
+            "Amount": tax,
+            "DetailType": "TaxLineDetail",
+            "TaxLineDetail": {
+                "TaxRateRef": {"value": "1"},
+                "PercentBased": True,
+                "TaxPercent": 8.25,
+                "NetAmountTaxable": _qbo_round(tax / 0.0825, currency) if tax else 0.0,
+            },
+        }
+    ]
     return detail
 
 
@@ -5474,7 +5866,10 @@ def _qbo_invoice(
         "DocNumber": f"INV-{1000 + idx}",
         "CustomerRef": {"value": customer["Id"], "name": customer["DisplayName"]},
         "ARAccountRef": {"value": ar["Id"], "name": ar["Name"]},
-        "SalesTermRef": {"value": str(_TERMS.index(term) + 1), "name": _QBO_TERMS[term][0]},
+        "SalesTermRef": {
+            "value": str(_TERMS.index(term) + 1),
+            "name": _QBO_TERMS[term][0],
+        },
         "TxnDate": issued.isoformat(),
         "DueDate": due.isoformat(),
         "CurrencyRef": _ccy_ref(currency),
@@ -5620,7 +6015,10 @@ def quickbooks_company(seed: str) -> dict:
             {"Name": "IndustryType", "Value": "Retail Trade"},
             {"Name": "IndustryCode", "Value": "4400"},
             {"Name": "AccountingMethod", "Value": "Accrual"},
-            {"Name": "QBOEnabledTime", "Value": (_EPOCH - timedelta(days=1825)).isoformat()},
+            {
+                "Name": "QBOEnabledTime",
+                "Value": (_EPOCH - timedelta(days=1825)).isoformat(),
+            },
         ],
         "realmId": _QBO_REALM,
         "domain": "QBO",
@@ -5858,10 +6256,10 @@ _INKWELL_MAX_BYTES = 25_000_000
 _INKWELL_MAX_PAGES = 50
 
 _INKWELL_PAGE_SIZES = (
-    (2480, 3508),    # A4 @ 300dpi
-    (2550, 3300),    # US Letter @ 300dpi
-    (1700, 2200),    # US Letter @ 200dpi
-    (4960, 7016),    # A4 @ 600dpi
+    (2480, 3508),  # A4 @ 300dpi
+    (2550, 3300),  # US Letter @ 300dpi
+    (1700, 2200),  # US Letter @ 200dpi
+    (4960, 7016),  # A4 @ 600dpi
 )
 _INKWELL_DPI_CHOICES = (200, 300, 300, 400, 600)
 
@@ -5885,8 +6283,13 @@ _INKWELL_LANG_BY_COUNTRY = {
     "CA": ("en", "fr"),
 }
 _INKWELL_CURRENCY_SYMBOL = {
-    "USD": "$", "GBP": "£", "EUR": "€", "JPY": "¥",
-    "CAD": "C$", "SGD": "S$", "BRL": "R$",
+    "USD": "$",
+    "GBP": "£",
+    "EUR": "€",
+    "JPY": "¥",
+    "CAD": "C$",
+    "SGD": "S$",
+    "BRL": "R$",
 }
 _INKWELL_DATE_LOCALES = {
     "US": "%m/%d/%Y",
@@ -6003,8 +6406,12 @@ def inkwell_models() -> dict[str, dict]:
     out: dict[str, dict] = {}
     supported_mimes = sorted(set(_INKWELL_MIME.values()))
     pricing_by_model = {
-        "invoice": 0.05, "receipt": 0.03, "credit_note": 0.05,
-        "purchase_order": 0.05, "bank_statement": 0.04, "w9": 0.02,
+        "invoice": 0.05,
+        "receipt": 0.03,
+        "credit_note": 0.05,
+        "purchase_order": 0.05,
+        "bank_statement": 0.04,
+        "w9": 0.02,
     }
     for model_id, name, desc, version, avg in _INKWELL_MODELS:
         out[model_id] = {
@@ -6080,18 +6487,32 @@ def _inkwell_outcome(file_name: str, model: str) -> dict:
     return {"status": "extracted", "documentType": document_type, "degraded": degraded}
 
 
-def inkwell_submit_check(file_name: str, size_bytes: int, pages: int) -> tuple[int, str, str] | None:
+def inkwell_submit_check(
+    file_name: str, size_bytes: int, pages: int
+) -> tuple[int, str, str] | None:
     """Pre-extraction validation a real OCR API runs synchronously on submit.
 
     Returns ``(status, errorCode, errorMessage)`` for an upstream-rejectable payload, or
     ``None`` to let the document enter the async pipeline."""
     name = str(file_name or "").lower()
-    if any(t in name for t in ("huge", "oversized", "xxl")) or size_bytes > _INKWELL_MAX_BYTES:
-        return (413, "media_too_large",
-                f"file exceeds the {_INKWELL_MAX_BYTES // 1_000_000} MB limit for this account")
-    if any(t in name for t in ("manypages", "100page", "200page")) or pages > _INKWELL_MAX_PAGES:
-        return (422, "too_many_pages",
-                f"document has more than {_INKWELL_MAX_PAGES} pages")
+    if (
+        any(t in name for t in ("huge", "oversized", "xxl"))
+        or size_bytes > _INKWELL_MAX_BYTES
+    ):
+        return (
+            413,
+            "media_too_large",
+            f"file exceeds the {_INKWELL_MAX_BYTES // 1_000_000} MB limit for this account",
+        )
+    if (
+        any(t in name for t in ("manypages", "100page", "200page"))
+        or pages > _INKWELL_MAX_PAGES
+    ):
+        return (
+            422,
+            "too_many_pages",
+            f"document has more than {_INKWELL_MAX_PAGES} pages",
+        )
     return None
 
 
@@ -6105,7 +6526,14 @@ def _inkwell_value_type(name: str) -> str:
     lower = name.lower()
     if lower.endswith("date"):
         return "date"
-    if lower in {"subtotal", "tip", "amountdue", "taxamount", "totalamount", "unitprice"}:
+    if lower in {
+        "subtotal",
+        "tip",
+        "amountdue",
+        "taxamount",
+        "totalamount",
+        "unitprice",
+    }:
         return "currency"
     if "amount" in lower and "tax" in lower:
         return "currency"
@@ -6116,7 +6544,9 @@ def _inkwell_value_type(name: str) -> str:
     return "string"
 
 
-def _inkwell_raw_text(name: str, value, currency: str | None, country: str | None) -> str:
+def _inkwell_raw_text(
+    name: str, value, currency: str | None, country: str | None
+) -> str:
     """Stringify the field's value the way an OCR engine would output the verbatim text."""
     if value is None or value == "":
         return ""
@@ -6148,14 +6578,27 @@ def _inkwell_box(rng: random.Random) -> list[float]:
 def _inkwell_polygon(bbox: list[float]) -> list[float]:
     """8-point axis-aligned polygon over a (x, y, w, h) bounding box, matching the Google DocAI shape."""
     x, y, w, h = bbox
-    return [round(x, 4), round(y, 4),
-            round(x + w, 4), round(y, 4),
-            round(x + w, 4), round(y + h, 4),
-            round(x, 4), round(y + h, 4)]
+    return [
+        round(x, 4),
+        round(y, 4),
+        round(x + w, 4),
+        round(y, 4),
+        round(x + w, 4),
+        round(y + h, 4),
+        round(x, 4),
+        round(y + h, 4),
+    ]
 
 
-def _inkwell_field(rng: random.Random, name: str, value, page: int, base_conf: float,
-                   currency: str | None = None, country: str | None = None) -> dict:
+def _inkwell_field(
+    rng: random.Random,
+    name: str,
+    value,
+    page: int,
+    base_conf: float,
+    currency: str | None = None,
+    country: str | None = None,
+) -> dict:
     conf = round(min(0.999, max(0.30, rng.gauss(base_conf, 0.025))), 3)
     box = _inkwell_box(rng)
     return {
@@ -6177,24 +6620,30 @@ def _inkwell_pages(rng: random.Random, page_count: int, country: str) -> list[di
         width, height = rng.choice(_INKWELL_PAGE_SIZES)
         dpi = rng.choice(_INKWELL_DPI_CHOICES)
         angle = round(rng.gauss(0.0, 0.4), 2)
-        detected = [{"language": langs[0],
-                     "confidence": round(rng.uniform(0.92, 0.998), 3)}]
+        detected = [
+            {"language": langs[0], "confidence": round(rng.uniform(0.92, 0.998), 3)}
+        ]
         if len(langs) > 1 and rng.random() < 0.25:
-            detected.append({"language": langs[1],
-                             "confidence": round(rng.uniform(0.20, 0.55), 3)})
-        pages.append({
-            "pageNumber": n,
-            "width": width,
-            "height": height,
-            "unit": "pixel",
-            "angle": angle,
-            "dpi": dpi,
-            "detectedLanguages": detected,
-        })
+            detected.append(
+                {"language": langs[1], "confidence": round(rng.uniform(0.20, 0.55), 3)}
+            )
+        pages.append(
+            {
+                "pageNumber": n,
+                "width": width,
+                "height": height,
+                "unit": "pixel",
+                "angle": angle,
+                "dpi": dpi,
+                "detectedLanguages": detected,
+            }
+        )
     return pages
 
 
-def _inkwell_full_text(rng: random.Random, document_type: str, body: dict, page_count: int) -> str:
+def _inkwell_full_text(
+    rng: random.Random, document_type: str, body: dict, page_count: int
+) -> str:
     """Plausible raw-OCR text reconstructed from the structured extraction body."""
     fields = body.get("fields", {})
     line_items = body.get("lineItems", [])
@@ -6208,23 +6657,33 @@ def _inkwell_full_text(rng: random.Random, document_type: str, body: dict, page_
         return "" if f is None else str(f["value"])
 
     if document_type == "receipt":
-        header = [fv("merchantName"), fv("merchantAddress"),
-                  f"Date: {fv('transactionDate')}  Time: {fv('transactionTime')}",
-                  f"Payment: {fv('paymentMethod')}  Card: ****{fv('cardLast4')}", ""]
-        rows = [f"  {it['description']:<28} {it['quantity']:>3}  "
-                f"{symbol}{it['unitPrice']:>8.2f}  {symbol}{it['amount']:>9.2f}"
-                for it in line_items]
-        footer = ["",
-                  f"  Subtotal{'':>32}{symbol}{fv('subtotal')}",
-                  f"  Tax{'':>37}{symbol}{fv('taxAmount')}",
-                  f"  Tip{'':>37}{symbol}{fv('tip')}",
-                  f"  TOTAL{'':>35}{symbol}{fv('totalAmount')}",
-                  "",
-                  "  Thank you for your business."]
+        header = [
+            fv("merchantName"),
+            fv("merchantAddress"),
+            f"Date: {fv('transactionDate')}  Time: {fv('transactionTime')}",
+            f"Payment: {fv('paymentMethod')}  Card: ****{fv('cardLast4')}",
+            "",
+        ]
+        rows = [
+            f"  {it['description']:<28} {it['quantity']:>3}  "
+            f"{symbol}{it['unitPrice']:>8.2f}  {symbol}{it['amount']:>9.2f}"
+            for it in line_items
+        ]
+        footer = [
+            "",
+            f"  Subtotal{'':>32}{symbol}{fv('subtotal')}",
+            f"  Tax{'':>37}{symbol}{fv('taxAmount')}",
+            f"  Tip{'':>37}{symbol}{fv('tip')}",
+            f"  TOTAL{'':>35}{symbol}{fv('totalAmount')}",
+            "",
+            "  Thank you for your business.",
+        ]
         return "\n".join(header + rows + footer)
 
     header = [
-        f"INVOICE {fv('invoiceNumber')}" if document_type != "credit_note" else f"CREDIT NOTE {fv('invoiceNumber')}",
+        f"INVOICE {fv('invoiceNumber')}"
+        if document_type != "credit_note"
+        else f"CREDIT NOTE {fv('invoiceNumber')}",
         "",
         fv("supplierName"),
         fv("supplierAddress"),
@@ -6239,32 +6698,39 @@ def _inkwell_full_text(rng: random.Random, document_type: str, body: dict, page_
         "Description                                Qty   Unit Price        Amount",
         "-" * 76,
     ]
-    rows = [f"{it['description']:<42} {it['quantity']:>4}   "
-            f"{symbol}{it['unitPrice']:>10,.2f}   {symbol}{it['amount']:>11,.2f}"
-            for it in line_items]
-    footer = ["-" * 76,
-              f"{'Subtotal':>62}   {symbol}{fv('subtotal')}",
-              f"{'Tax':>62}   {symbol}{fv('taxAmount')}",
-              f"{'TOTAL':>62}   {symbol}{fv('totalAmount')}",
-              f"{'Amount due':>62}   {symbol}{fv('amountDue')}",
-              "",
-              f"Remit to IBAN: {fv('supplierIban')}"]
+    rows = [
+        f"{it['description']:<42} {it['quantity']:>4}   "
+        f"{symbol}{it['unitPrice']:>10,.2f}   {symbol}{it['amount']:>11,.2f}"
+        for it in line_items
+    ]
+    footer = [
+        "-" * 76,
+        f"{'Subtotal':>62}   {symbol}{fv('subtotal')}",
+        f"{'Tax':>62}   {symbol}{fv('taxAmount')}",
+        f"{'TOTAL':>62}   {symbol}{fv('totalAmount')}",
+        f"{'Amount due':>62}   {symbol}{fv('amountDue')}",
+        "",
+        f"Remit to IBAN: {fv('supplierIban')}",
+    ]
     text = "\n".join(header + rows + footer)
     if page_count > 1:
-        continuation = "\n\n--- Page break ---\n\n(continued from previous page)\n" + \
-                       "Payment is due per the terms above. " \
-                       f"Currency: {currency}. " \
-                       "Please reference the invoice number on all remittances. " \
-                       "Late payments may incur a 1.5% monthly service charge under the " \
-                       "vendor's standard credit terms. " \
-                       "Please remit by wire or ACH to the IBAN on the cover page.\n"
+        continuation = (
+            "\n\n--- Page break ---\n\n(continued from previous page)\n"
+            + "Payment is due per the terms above. "
+            f"Currency: {currency}. "
+            "Please reference the invoice number on all remittances. "
+            "Late payments may incur a 1.5% monthly service charge under the "
+            "vendor's standard credit terms. "
+            "Please remit by wire or ACH to the IBAN on the cover page.\n"
+        )
         text += continuation * max(1, min(page_count - 1, 3))
     _ = rng  # seed already consumed upstream; kept for signature symmetry
     return text
 
 
-def _inkwell_signatures(rng: random.Random, document_type: str, page_count: int,
-                        base_conf: float) -> list[dict]:
+def _inkwell_signatures(
+    rng: random.Random, document_type: str, page_count: int, base_conf: float
+) -> list[dict]:
     """Signature detections that a real invoice/PO/W-9 capture model returns."""
     if document_type in ("receipt", "bank_statement", "credit_note"):
         return []
@@ -6272,17 +6738,23 @@ def _inkwell_signatures(rng: random.Random, document_type: str, page_count: int,
     out: list[dict] = []
     for _ in range(count):
         page = rng.randint(1, max(1, page_count))
-        box = [round(rng.uniform(0.55, 0.75), 4),
-               round(rng.uniform(0.78, 0.92), 4),
-               round(rng.uniform(0.15, 0.25), 4),
-               round(rng.uniform(0.04, 0.08), 4)]
-        out.append({
-            "page": page,
-            "boundingBox": box,
-            "polygon": _inkwell_polygon(box),
-            "confidence": round(min(0.99, max(0.45, rng.gauss(base_conf, 0.05))), 3),
-            "isSigned": rng.random() > 0.15,
-        })
+        box = [
+            round(rng.uniform(0.55, 0.75), 4),
+            round(rng.uniform(0.78, 0.92), 4),
+            round(rng.uniform(0.15, 0.25), 4),
+            round(rng.uniform(0.04, 0.08), 4),
+        ]
+        out.append(
+            {
+                "page": page,
+                "boundingBox": box,
+                "polygon": _inkwell_polygon(box),
+                "confidence": round(
+                    min(0.99, max(0.45, rng.gauss(base_conf, 0.05))), 3
+                ),
+                "isSigned": rng.random() > 0.15,
+            }
+        )
     return out
 
 
@@ -6309,10 +6781,18 @@ def _inkwell_invoice(
                     min(0.999, max(0.40, rng.gauss(base_conf, 0.04))), 3
                 ),
                 "valueConfidences": {
-                    "description": round(min(0.999, max(0.45, rng.gauss(base_conf, 0.045))), 3),
-                    "quantity":    round(min(0.999, max(0.55, rng.gauss(base_conf, 0.035))), 3),
-                    "unitPrice":   round(min(0.999, max(0.50, rng.gauss(base_conf, 0.040))), 3),
-                    "amount":      round(min(0.999, max(0.50, rng.gauss(base_conf, 0.040))), 3),
+                    "description": round(
+                        min(0.999, max(0.45, rng.gauss(base_conf, 0.045))), 3
+                    ),
+                    "quantity": round(
+                        min(0.999, max(0.55, rng.gauss(base_conf, 0.035))), 3
+                    ),
+                    "unitPrice": round(
+                        min(0.999, max(0.50, rng.gauss(base_conf, 0.040))), 3
+                    ),
+                    "amount": round(
+                        min(0.999, max(0.50, rng.gauss(base_conf, 0.040))), 3
+                    ),
                 },
             }
         )
@@ -6334,28 +6814,35 @@ def _inkwell_invoice(
         return _inkwell_field(rng, name, value, page, base_conf, currency, country)
 
     fields = {
-        "supplierName":       F("supplierName", supplier, 1),
-        "supplierTaxId":      F("supplierTaxId",
-                                f"{rng.randint(10, 99)}-{rng.randint(10**6, 10**7 - 1)}", 1),
-        "supplierVatNumber":  F("supplierVatNumber",
-                                f"{country}{rng.randint(10**8, 10**9 - 1)}", 1),
-        "supplierAddress":    F("supplierAddress",
-                                f"{rng.randint(1, 9999)} {rng.choice(_ROOTS)} Ave, {country}", 1),
-        "supplierIban":       F("supplierIban", _iban(rng, country, account), last_page),
-        "customerName":       F("customerName", customer_name, 1),
-        "customerAddress":    F("customerAddress", customer_address, 1),
-        "invoiceNumber":      F("invoiceNumber",
-                                f"{prefix}-{issued.year}-{rng.randint(1000, 9999)}", 1),
-        "purchaseOrderNumber":F("purchaseOrderNumber",
-                                f"PO-{rng.randint(100000, 999999)}", 1),
-        "invoiceDate":        F("invoiceDate", issued.isoformat(), 1),
-        "dueDate":            F("dueDate", due.isoformat(), 1),
-        "paymentTerms":       F("paymentTerms", f"NET{term_days}", 1),
-        "currency":           F("currency", currency, last_page),
-        "subtotal":           F("subtotal", subtotal, last_page),
-        "taxAmount":          F("taxAmount", tax_amount, last_page),
-        "totalAmount":        F("totalAmount", total, last_page),
-        "amountDue":          F("amountDue", total, last_page),
+        "supplierName": F("supplierName", supplier, 1),
+        "supplierTaxId": F(
+            "supplierTaxId", f"{rng.randint(10, 99)}-{rng.randint(10**6, 10**7 - 1)}", 1
+        ),
+        "supplierVatNumber": F(
+            "supplierVatNumber", f"{country}{rng.randint(10**8, 10**9 - 1)}", 1
+        ),
+        "supplierAddress": F(
+            "supplierAddress",
+            f"{rng.randint(1, 9999)} {rng.choice(_ROOTS)} Ave, {country}",
+            1,
+        ),
+        "supplierIban": F("supplierIban", _iban(rng, country, account), last_page),
+        "customerName": F("customerName", customer_name, 1),
+        "customerAddress": F("customerAddress", customer_address, 1),
+        "invoiceNumber": F(
+            "invoiceNumber", f"{prefix}-{issued.year}-{rng.randint(1000, 9999)}", 1
+        ),
+        "purchaseOrderNumber": F(
+            "purchaseOrderNumber", f"PO-{rng.randint(100000, 999999)}", 1
+        ),
+        "invoiceDate": F("invoiceDate", issued.isoformat(), 1),
+        "dueDate": F("dueDate", due.isoformat(), 1),
+        "paymentTerms": F("paymentTerms", f"NET{term_days}", 1),
+        "currency": F("currency", currency, last_page),
+        "subtotal": F("subtotal", subtotal, last_page),
+        "taxAmount": F("taxAmount", tax_amount, last_page),
+        "totalAmount": F("totalAmount", total, last_page),
+        "amountDue": F("amountDue", total, last_page),
     }
     taxes = [
         {
@@ -6365,8 +6852,11 @@ def _inkwell_invoice(
             "amount": tax_amount,
         }
     ]
-    locale = {"language": _INKWELL_LANG_BY_COUNTRY.get(country, ("en",))[0],
-              "country": country, "currency": currency}
+    locale = {
+        "language": _INKWELL_LANG_BY_COUNTRY.get(country, ("en",))[0],
+        "country": country,
+        "currency": currency,
+    }
     return {"locale": locale, "fields": fields, "lineItems": line_items, "taxes": taxes}
 
 
@@ -6388,10 +6878,18 @@ def _inkwell_receipt(rng: random.Random, page_count: int, base_conf: float) -> d
                     min(0.999, max(0.40, rng.gauss(base_conf, 0.05))), 3
                 ),
                 "valueConfidences": {
-                    "description": round(min(0.999, max(0.45, rng.gauss(base_conf, 0.05))), 3),
-                    "quantity":    round(min(0.999, max(0.55, rng.gauss(base_conf, 0.04))), 3),
-                    "unitPrice":   round(min(0.999, max(0.50, rng.gauss(base_conf, 0.05))), 3),
-                    "amount":      round(min(0.999, max(0.50, rng.gauss(base_conf, 0.05))), 3),
+                    "description": round(
+                        min(0.999, max(0.45, rng.gauss(base_conf, 0.05))), 3
+                    ),
+                    "quantity": round(
+                        min(0.999, max(0.55, rng.gauss(base_conf, 0.04))), 3
+                    ),
+                    "unitPrice": round(
+                        min(0.999, max(0.50, rng.gauss(base_conf, 0.05))), 3
+                    ),
+                    "amount": round(
+                        min(0.999, max(0.50, rng.gauss(base_conf, 0.05))), 3
+                    ),
                 },
             }
         )
@@ -6406,20 +6904,25 @@ def _inkwell_receipt(rng: random.Random, page_count: int, base_conf: float) -> d
         return _inkwell_field(rng, name, value, page, base_conf, currency, country)
 
     fields = {
-        "merchantName":     F("merchantName", _company(rng), 1),
-        "merchantAddress":  F("merchantAddress",
-                              f"{rng.randint(1, 999)} {rng.choice(_ROOTS)} St, {country}", 1),
-        "transactionDate":  F("transactionDate", purchased.isoformat(), 1),
-        "transactionTime":  F("transactionTime",
-                              f"{rng.randint(7, 21):02d}:{rng.randint(0, 59):02d}", 1),
-        "paymentMethod":    F("paymentMethod", method, 1),
-        "cardLast4":        F("cardLast4",
-                              "" if method == "CASH" else f"{rng.randint(0, 9999):04d}", 1),
-        "currency":         F("currency", currency, 1),
-        "subtotal":         F("subtotal", subtotal, 1),
-        "taxAmount":        F("taxAmount", tax_amount, 1),
-        "tip":              F("tip", tip, 1),
-        "totalAmount":      F("totalAmount", total, 1),
+        "merchantName": F("merchantName", _company(rng), 1),
+        "merchantAddress": F(
+            "merchantAddress",
+            f"{rng.randint(1, 999)} {rng.choice(_ROOTS)} St, {country}",
+            1,
+        ),
+        "transactionDate": F("transactionDate", purchased.isoformat(), 1),
+        "transactionTime": F(
+            "transactionTime", f"{rng.randint(7, 21):02d}:{rng.randint(0, 59):02d}", 1
+        ),
+        "paymentMethod": F("paymentMethod", method, 1),
+        "cardLast4": F(
+            "cardLast4", "" if method == "CASH" else f"{rng.randint(0, 9999):04d}", 1
+        ),
+        "currency": F("currency", currency, 1),
+        "subtotal": F("subtotal", subtotal, 1),
+        "taxAmount": F("taxAmount", tax_amount, 1),
+        "tip": F("tip", tip, 1),
+        "totalAmount": F("totalAmount", total, 1),
     }
     taxes = [
         {
@@ -6429,8 +6932,11 @@ def _inkwell_receipt(rng: random.Random, page_count: int, base_conf: float) -> d
             "amount": tax_amount,
         }
     ]
-    locale = {"language": _INKWELL_LANG_BY_COUNTRY.get(country, ("en",))[0],
-              "country": country, "currency": currency}
+    locale = {
+        "language": _INKWELL_LANG_BY_COUNTRY.get(country, ("en",))[0],
+        "country": country,
+        "currency": currency,
+    }
     return {"locale": locale, "fields": fields, "lineItems": line_items, "taxes": taxes}
 
 
@@ -6665,7 +7171,10 @@ _AEGIS_PEP_POSITIONS = (
 
 # Adverse-media categories used to enrich adverse-media subjects.
 _AEGIS_ADVERSE_CATEGORIES = (
-    ("financial_crime", "Reported in connection with a cross-border fraud investigation."),
+    (
+        "financial_crime",
+        "Reported in connection with a cross-border fraud investigation.",
+    ),
     ("corruption", "Named in procurement bribery allegations by regional press."),
     ("money_laundering", "Linked to a shell-company layering scheme under inquiry."),
     ("regulatory_action", "Subject of a securities regulator enforcement notice."),
@@ -6821,7 +7330,10 @@ def aegis_reference(seed: str) -> dict:
             record["dateOfBirth"] = _day(rng, -22000, -12000)
             record["placeOfBirth"] = country
             record["identifiers"] = [
-                {"type": "passport", "value": f"{country}{rng.randint(1000000, 9999999)}"}
+                {
+                    "type": "passport",
+                    "value": f"{country}{rng.randint(1000000, 9999999)}",
+                }
             ]
         else:
             record["incorporationDate"] = _day(rng, -7000, -1500)
@@ -7171,7 +7683,12 @@ _CRM_OWNER_TEAMS = ("Enterprise", "Mid-Market", "SMB", "Partnerships")
 CRM_PORTAL_ID = "portal-48213307"
 CRM_PORTAL_DOMAIN = "lynxcapital.example"
 _CRM_CITIES = {
-    "US": (("San Francisco", "CA"), ("Austin", "TX"), ("New York", "NY"), ("Chicago", "IL")),
+    "US": (
+        ("San Francisco", "CA"),
+        ("Austin", "TX"),
+        ("New York", "NY"),
+        ("Chicago", "IL"),
+    ),
     "GB": (("London", "England"), ("Manchester", "England"), ("Bristol", "England")),
     "DE": (("Berlin", "Berlin"), ("Munich", "Bavaria"), ("Hamburg", "Hamburg")),
     "FR": (("Paris", "Île-de-France"), ("Lyon", "Auvergne-Rhône-Alpes")),
@@ -7219,14 +7736,16 @@ def crm_pipeline_definition() -> dict:
     pipeline object so a client can discover stage probabilities and closed flags."""
     stages = []
     for order, (name, probability) in enumerate(CRM_STAGES):
-        stages.append({
-            "id": name,
-            "label": _CRM_STAGE_LABELS[name],
-            "displayOrder": order,
-            "probability": probability,
-            "isClosed": name in ("won", "lost"),
-            "isWon": name == "won",
-        })
+        stages.append(
+            {
+                "id": name,
+                "label": _CRM_STAGE_LABELS[name],
+                "displayOrder": order,
+                "probability": probability,
+                "isClosed": name in ("won", "lost"),
+                "isWon": name == "won",
+            }
+        )
     return {
         "id": CRM_PIPELINE,
         "label": "Sales Pipeline",
@@ -7622,25 +8141,52 @@ _SABRE_US_JURISDICTIONS = {
 
 # region -> ANSI state FIPS code, surfaced on per-jurisdiction tax detail lines
 _SABRE_STATE_FIPS = {
-    "CA": "06", "NY": "36", "TX": "48", "WA": "53", "IL": "17", "FL": "12",
-    "CO": "08", "MA": "25", "GA": "13", "NJ": "34", "PA": "42", "OH": "39",
-    "AZ": "04", "TN": "47",
+    "CA": "06",
+    "NY": "36",
+    "TX": "48",
+    "WA": "53",
+    "IL": "17",
+    "FL": "12",
+    "CO": "08",
+    "MA": "25",
+    "GA": "13",
+    "NJ": "34",
+    "PA": "42",
+    "OH": "39",
+    "AZ": "04",
+    "TN": "47",
 }
 
 # Representative rooftop coordinates returned by address resolution, keyed by
 # US region and by country for international single-jurisdiction regimes.
 _SABRE_STATE_CENTROID = {
-    "CA": (33.6846, -117.8265), "NY": (40.7128, -74.0060), "TX": (30.2672, -97.7431),
-    "WA": (47.6062, -122.3321), "IL": (41.8781, -87.6298), "FL": (25.7617, -80.1918),
-    "CO": (39.7392, -104.9903), "MA": (42.3601, -71.0589), "GA": (33.7490, -84.3880),
-    "NJ": (40.0583, -74.4057), "PA": (39.9526, -75.1652), "OH": (39.9612, -82.9988),
-    "AZ": (33.4484, -112.0740), "TN": (36.1627, -86.7816),
+    "CA": (33.6846, -117.8265),
+    "NY": (40.7128, -74.0060),
+    "TX": (30.2672, -97.7431),
+    "WA": (47.6062, -122.3321),
+    "IL": (41.8781, -87.6298),
+    "FL": (25.7617, -80.1918),
+    "CO": (39.7392, -104.9903),
+    "MA": (42.3601, -71.0589),
+    "GA": (33.7490, -84.3880),
+    "NJ": (40.0583, -74.4057),
+    "PA": (39.9526, -75.1652),
+    "OH": (39.9612, -82.9988),
+    "AZ": (33.4484, -112.0740),
+    "TN": (36.1627, -86.7816),
 }
 _SABRE_COUNTRY_CENTROID = {
-    "GB": (51.5074, -0.1278), "DE": (52.5200, 13.4050), "FR": (48.8566, 2.3522),
-    "NL": (52.3676, 4.9041), "IE": (53.3498, -6.2603), "SG": (1.3521, 103.8198),
-    "JP": (35.6762, 139.6503), "BR": (-23.5505, -46.6333), "IN": (19.0760, 72.8777),
-    "CA": (45.4215, -75.6972), "AU": (-33.8688, 151.2093),
+    "GB": (51.5074, -0.1278),
+    "DE": (52.5200, 13.4050),
+    "FR": (48.8566, 2.3522),
+    "NL": (52.3676, 4.9041),
+    "IE": (53.3498, -6.2603),
+    "SG": (1.3521, 103.8198),
+    "JP": (35.6762, 139.6503),
+    "BR": (-23.5505, -46.6333),
+    "IN": (19.0760, 72.8777),
+    "CA": (45.4215, -75.6972),
+    "AU": (-33.8688, 151.2093),
 }
 
 # ISO country -> single transaction-tax (VAT/GST/consumption) regime
@@ -7995,7 +8541,9 @@ def _sabre_taxcode_physical(code: str) -> bool:
     return not code.upper().startswith(_SABRE_NON_PHYSICAL_PREFIXES)
 
 
-def _sabre_taxcode_entry(code: str, category: str, description: str, taxable: bool) -> dict:
+def _sabre_taxcode_entry(
+    code: str, category: str, description: str, taxable: bool
+) -> dict:
     return {
         "id": int(_rng("sabre-taxcode", code).randint(8_000_000, 8_999_999)),
         "taxCode": code,
@@ -8042,7 +8590,9 @@ def sabre_state_fips(region: str) -> str:
     return _SABRE_STATE_FIPS.get(str(region).upper(), "")
 
 
-def sabre_coordinates(country: str, region: str | None = None) -> tuple[float, float] | None:
+def sabre_coordinates(
+    country: str, region: str | None = None
+) -> tuple[float, float] | None:
     """Representative rooftop coordinates for a resolved address."""
     country = str(country).upper()
     if country == "US":
@@ -8161,7 +8711,9 @@ def _sabre_exemption_certificates(seed: str) -> dict:
             "customerCode": customer,
             "entityUseCode": code,
             "exemptionReason": {"code": code, "name": reason.upper()},
-            "validatedExemptionReason": {"code": code, "name": reason.upper()} if verified else None,
+            "validatedExemptionReason": {"code": code, "name": reason.upper()}
+            if verified
+            else None,
             "exposureZone": {
                 "region": zone,
                 "country": "US",
@@ -8408,7 +8960,7 @@ _VELA_STREAM_DEFS: tuple[dict, ...] = (
         "id": "outbound-transactional",
         "name": "Transactional",
         "description": "One-to-one transactional mail and SMS: receipts, confirmations, "
-                       "remittance advice, dunning, and verification codes.",
+        "remittance advice, dunning, and verification codes.",
         "messageStreamType": "Transactional",
         "unsubscribeHandlingType": "None",
     },
@@ -8568,23 +9120,29 @@ def _vela_messages(
             "updatedAt": None,
         }
         if channel == "email":
-            message.update({
-                "cc": [],
-                "bcc": [],
-                "replyTo": f"ap@{_VELA_EMAIL_DOMAIN}",
-                "trackOpens": True,
-                "trackLinks": "HtmlAndText",
-                "openCount": 0,
-                "clickCount": 0,
-            })
+            message.update(
+                {
+                    "cc": [],
+                    "bcc": [],
+                    "replyTo": f"ap@{_VELA_EMAIL_DOMAIN}",
+                    "trackOpens": True,
+                    "trackLinks": "HtmlAndText",
+                    "openCount": 0,
+                    "clickCount": 0,
+                }
+            )
         else:
             body = template["smsBody"]
-            message.update({
-                "segments": _vela_segments(body),
-                "price": {"amount": _VELA_SMS_PRICE.get(region, 0.05),
-                          "currency": "USD"},
-                "carrier": rng.choice(_VELA_SMS_CARRIERS),
-            })
+            message.update(
+                {
+                    "segments": _vela_segments(body),
+                    "price": {
+                        "amount": _VELA_SMS_PRICE.get(region, 0.05),
+                        "currency": "USD",
+                    },
+                    "carrier": rng.choice(_VELA_SMS_CARRIERS),
+                }
+            )
 
         # Build the event timeline that produced the terminal status.
         if channel == "email":
@@ -8616,8 +9174,14 @@ def _vela_messages(
                 )
                 message["status"] = "delivered"
             elif terminal == "delivered":
-                add_event(rng, message, "Delivery", submitted, 5,
-                          {"smtpResponse": "250 2.0.0 OK"})
+                add_event(
+                    rng,
+                    message,
+                    "Delivery",
+                    submitted,
+                    5,
+                    {"smtpResponse": "250 2.0.0 OK"},
+                )
                 if with_open:
                     add_event(
                         rng,
@@ -8639,8 +9203,10 @@ def _vela_messages(
                         "Click",
                         submitted,
                         960,
-                        {"url": "https://portal.lynxcapital.test/payments",
-                         "linkLocation": "HTML"},
+                        {
+                            "url": "https://portal.lynxcapital.test/payments",
+                            "linkLocation": "HTML",
+                        },
                     )
                     message["openCount"] = 1
                     message["clickCount"] = 1
@@ -8652,10 +9218,18 @@ def _vela_messages(
                 add_event(rng, message, "sending", submitted, 1)
             if terminal == "delivered":
                 add_event(rng, message, "sent", submitted, 3)
-                add_event(rng, message, "delivered", submitted, 8,
-                          {"carrier": message["carrier"],
-                           "segments": message["segments"],
-                           "price": message["price"]})
+                add_event(
+                    rng,
+                    message,
+                    "delivered",
+                    submitted,
+                    8,
+                    {
+                        "carrier": message["carrier"],
+                        "segments": message["segments"],
+                        "price": message["price"],
+                    },
+                )
             elif terminal in _VELA_SMS_ERRORS:
                 code, reason = _VELA_SMS_ERRORS[terminal]
                 add_event(
@@ -8664,8 +9238,11 @@ def _vela_messages(
                     terminal,
                     submitted,
                     7,
-                    {"errorCode": code, "reason": reason,
-                     "carrier": message["carrier"]},
+                    {
+                        "errorCode": code,
+                        "reason": reason,
+                        "carrier": message["carrier"],
+                    },
                 )
                 message["status"] = terminal
                 message["errorCode"] = code
@@ -8931,7 +9508,9 @@ def _cb_line_items(rng: random.Random, segment: str) -> tuple[list[dict], float]
                 "quantity": qty,
                 "unitPrice": unit,
                 "amount": amount,
-                "revenueAccount": _CB_REVENUE_ACCOUNT.get(sku, "4000-SubscriptionRevenue"),
+                "revenueAccount": _CB_REVENUE_ACCOUNT.get(
+                    sku, "4000-SubscriptionRevenue"
+                ),
             }
         )
     return lines, round(subtotal, 2)
@@ -9026,8 +9605,12 @@ def _cb_invoice(seed: str, idx: int, customer: dict, inv_no: int) -> dict:
     }
     if status == "disputed":
         invoice["disputeReason"] = rng.choice(
-            ("billing_amount_disputed", "service_not_delivered",
-             "duplicate_charge", "pricing_discrepancy")
+            (
+                "billing_amount_disputed",
+                "service_not_delivered",
+                "duplicate_charge",
+                "pricing_discrepancy",
+            )
         )
         invoice["disputedAt"] = invoice["updatedAt"]
     return invoice
@@ -9135,7 +9718,8 @@ def core_billing_dataset(seed: str) -> dict[str, dict]:
     for cust in customers.values():
         cid = cust["customerId"]
         inv_dates = [
-            inv["issueDate"] for inv in invoices.values()
+            inv["issueDate"]
+            for inv in invoices.values()
             if inv["customerId"] == cid and inv["status"] != "draft"
         ]
         if inv_dates:
@@ -9146,10 +9730,15 @@ def core_billing_dataset(seed: str) -> dict[str, dict]:
         if pay_dates:
             cust["lastPaymentDate"] = max(pay_dates)
         days_to_pay = [
-            (date.fromisoformat(p["allocations"][0]["appliedAt"])
-             - date.fromisoformat(invoices[p["allocations"][0]["invoiceId"]]["issueDate"])).days
+            (
+                date.fromisoformat(p["allocations"][0]["appliedAt"])
+                - date.fromisoformat(
+                    invoices[p["allocations"][0]["invoiceId"]]["issueDate"]
+                )
+            ).days
             for p in payments.values()
-            if p["customerId"] == cid and p["allocations"]
+            if p["customerId"] == cid
+            and p["allocations"]
             and p["allocations"][0]["invoiceId"] in invoices
         ]
         if days_to_pay:

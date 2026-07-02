@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 Identity-model loader and Control provisioning-plan builders for the Lynx Capital swarm.
 """
+
 from __future__ import annotations
 
 import json
@@ -72,10 +73,14 @@ class ProviderSpec(BaseModel):
                     name, default = match.group(1), match.group(2)
                     value = env.get(name, "") or (default or "")
                     if not value:
-                        raise KeyError(f"provider {self.id}: config {key} requires env {name}")
+                        raise KeyError(
+                            f"provider {self.id}: config {key} requires env {name}"
+                        )
             resolved[key] = value
         if self.kind == "bearer_token":
-            resolved["allowed_token_hosts"] = [urlsplit(self.upstream_url()).hostname or ""]
+            resolved["allowed_token_hosts"] = [
+                urlsplit(self.upstream_url()).hostname or ""
+            ]
         return resolved
 
 
@@ -138,10 +143,16 @@ class TenancyModel(BaseModel):
     def application_resources(self, app_key: str) -> list[ResourceSpec]:
         return [r for r in self.resources if r.application == app_key]
 
-    def view_for(self, app_key: str, provider_id: str, scope: str) -> ResourceSpec | None:
+    def view_for(
+        self, app_key: str, provider_id: str, scope: str
+    ) -> ResourceSpec | None:
         """The application's resource view of a provider that exposes the scope."""
         for spec in self.resources:
-            if spec.application == app_key and spec.provider == provider_id and scope in spec.scopes:
+            if (
+                spec.application == app_key
+                and spec.provider == provider_id
+                and scope in spec.scopes
+            ):
                 return spec
         return None
 
@@ -157,7 +168,11 @@ def load_model(path: str | os.PathLike[str] | None = None) -> TenancyModel:
     global _model
     if _model is not None and path is None:
         return _model
-    target = Path(path) if path is not None else Path(os.environ.get("LYNX_TENANCY", DEFAULT_TENANCY_PATH))
+    target = (
+        Path(path)
+        if path is not None
+        else Path(os.environ.get("LYNX_TENANCY", DEFAULT_TENANCY_PATH))
+    )
     data = yaml.safe_load(target.read_text(encoding="utf-8"))
     model = TenancyModel.model_validate(data)
     _validate(model)
@@ -213,29 +228,46 @@ def _validate(model: TenancyModel) -> None:
     _validate_operation_governance(model)
     for provider in model.providers:
         if provider.integrationView not in views:
-            raise ValueError(f"provider {provider.id}: unknown integrationView {provider.integrationView!r}")
+            raise ValueError(
+                f"provider {provider.id}: unknown integrationView {provider.integrationView!r}"
+            )
         seen: dict[str, str] = {}
         for scope, operations in provider.scopes.items():
             for operation in operations:
                 if operation in seen:
-                    raise ValueError(f"provider {provider.id}: operation {operation!r} mapped to both "
-                                     f"{seen[operation]!r} and {scope!r}")
+                    raise ValueError(
+                        f"provider {provider.id}: operation {operation!r} mapped to both "
+                        f"{seen[operation]!r} and {scope!r}"
+                    )
                 seen[operation] = scope
     for resource in model.resources:
         if resource.application not in apps:
-            raise ValueError(f"resource {resource.id}: unknown application {resource.application!r}")
+            raise ValueError(
+                f"resource {resource.id}: unknown application {resource.application!r}"
+            )
         if resource.provider not in providers:
-            raise ValueError(f"resource {resource.id}: unknown provider {resource.provider!r}")
+            raise ValueError(
+                f"resource {resource.id}: unknown provider {resource.provider!r}"
+            )
         provider = model.provider(resource.provider)
         unknown = [s for s in resource.scopes if s not in provider.scopes]
         if unknown:
-            raise ValueError(f"resource {resource.id}: scopes not in provider vocabulary: {unknown}")
+            raise ValueError(
+                f"resource {resource.id}: scopes not in provider vocabulary: {unknown}"
+            )
     for role in model.roles:
         if role.application not in apps:
-            raise ValueError(f"role {role.name}: unknown application {role.application!r}")
+            raise ValueError(
+                f"role {role.name}: unknown application {role.application!r}"
+            )
         for scope in role.scopes:
-            if model.view_for(role.application, _scope_provider(model, scope), scope) is None:
-                raise ValueError(f"role {role.name}: no {role.application} view exposes scope {scope!r}")
+            if (
+                model.view_for(role.application, _scope_provider(model, scope), scope)
+                is None
+            ):
+                raise ValueError(
+                    f"role {role.name}: no {role.application} view exposes scope {scope!r}"
+                )
 
 
 def _scope_provider(model: TenancyModel, scope: str) -> str:
@@ -282,7 +314,9 @@ def agent_metadata(
     return metadata
 
 
-def operation_scope(provider_id: str, operation: str, model: TenancyModel | None = None) -> str | None:
+def operation_scope(
+    provider_id: str, operation: str, model: TenancyModel | None = None
+) -> str | None:
     model = model or load_model()
     return model.provider(provider_id).operation_scope(operation)
 
@@ -295,7 +329,11 @@ def role_views(role: str, model: TenancyModel | None = None) -> list[str]:
     views = {
         view.identifier
         for scope in spec.scopes
-        if (view := model.view_for(spec.application, _scope_provider(model, scope), scope))
+        if (
+            view := model.view_for(
+                spec.application, _scope_provider(model, scope), scope
+            )
+        )
     }
     return sorted(views)
 
@@ -320,7 +358,9 @@ def partnership_manifest(model: TenancyModel | None = None) -> dict[str, dict]:
     }
 
 
-def partner_plan(provider_id: str, operation: str, model: TenancyModel | None = None) -> tuple[str, str, str] | None:
+def partner_plan(
+    provider_id: str, operation: str, model: TenancyModel | None = None
+) -> tuple[str, str, str] | None:
     """The (application, scope, view identifier) a dynamic partner-integration worker
     needs for one provider operation, or None when the operation maps to no view."""
     model = model or load_model()
@@ -349,12 +389,18 @@ def load_provisioned() -> dict:
 def application_commands(model: TenancyModel) -> list[dict]:
     """Control invoke payloads that create each managed application boundary."""
     return [
-        {"command": "app", "subcommand": "create", "flags": {"name": app.applicationName}}
+        {
+            "command": "app",
+            "subcommand": "create",
+            "flags": {"name": app.applicationName},
+        }
         for app in model.applications
     ]
 
 
-def provider_commands(model: TenancyModel, env: dict[str, str] | None = None) -> list[dict]:
+def provider_commands(
+    model: TenancyModel, env: dict[str, str] | None = None
+) -> list[dict]:
     """Control invoke payloads that register each partner credential provider in the
     exact config shape its kind supports."""
     return [
@@ -372,7 +418,9 @@ def provider_commands(model: TenancyModel, env: dict[str, str] | None = None) ->
     ]
 
 
-def resource_operations(resource: ResourceSpec, provider: ProviderSpec) -> list[dict[str, str]]:
+def resource_operations(
+    resource: ResourceSpec, provider: ProviderSpec
+) -> list[dict[str, str]]:
     """The operation-authority list the Control plane stores on the resource: for a
     path-addressed (REST) view, each upstream operation path and the scope it requires,
     invoked through the Gateway with POST. MCP views address every call at one transport
@@ -385,7 +433,9 @@ def resource_operations(resource: ResourceSpec, provider: ProviderSpec) -> list[
     for scope in resource.scopes:
         for op in provider.scopes.get(scope, []):
             paths[f"/api/{op}"] = scope
-    return [{"method": "POST", "path": path, "scope": paths[path]} for path in sorted(paths)]
+    return [
+        {"method": "POST", "path": path, "scope": paths[path]} for path in sorted(paths)
+    ]
 
 
 def resource_commands(
@@ -399,20 +449,24 @@ def resource_commands(
     for resource in model.resources:
         provider = model.provider(resource.provider)
         operations = resource_operations(resource, provider)
-        commands.append({
-            "command": "resource",
-            "subcommand": "create",
-            "flags": {
-                "name": resource.name,
-                "identifier": resource.identifier,
-                "scopes": resource.registered_scopes(),
-                "upstream-url": provider.upstream_url(),
-                "credential-provider-id": provider_ids[provider.identifier],
-                "gateway-application-id": application_ids[resource.application],
-                "operations": operations,
-                "operation-enforcement": "enforced" if operations else "transport_uniform",
-            },
-        })
+        commands.append(
+            {
+                "command": "resource",
+                "subcommand": "create",
+                "flags": {
+                    "name": resource.name,
+                    "identifier": resource.identifier,
+                    "scopes": resource.registered_scopes(),
+                    "upstream-url": provider.upstream_url(),
+                    "credential-provider-id": provider_ids[provider.identifier],
+                    "gateway-application-id": application_ids[resource.application],
+                    "operations": operations,
+                    "operation-enforcement": "enforced"
+                    if operations
+                    else "transport_uniform",
+                },
+            }
+        )
     return commands
 
 
@@ -458,18 +512,21 @@ def render_grants_rego(model: TenancyModel | None = None) -> str:
         integration = model.integration_view(resource.provider)
         if integration.id == resource.id:
             roles["partner-integration"] = sorted(resource.scopes)
-        grants[resource.identifier] = {"application": resource.application, "roles": roles}
+        grants[resource.identifier] = {
+            "application": resource.application,
+            "roles": roles,
+        }
     return (
-        '# caracal:data-document\n'
-        '# Copyright (C) 2026 Garudex Labs.  All Rights Reserved.\n'
-        '# Caracal, a product of Garudex Labs\n'
-        '#\n'
-        '# Generated grants data: resource views, owning applications, and role scope sets.\n'
-        '# Rendered by app.tenancy.render_grants_rego from config/tenancy.yaml; do not edit.\n'
-        '# Grants are data for the platform decision contract; this document never decides.\n'
-        'package caracal.authz\n\n'
-        'import rego.v1\n\n'
-        f'{_rego_grants(grants)}\n'
+        "# caracal:data-document\n"
+        "# Copyright (C) 2026 Garudex Labs.  All Rights Reserved.\n"
+        "# Caracal, a product of Garudex Labs\n"
+        "#\n"
+        "# Generated grants data: resource views, owning applications, and role scope sets.\n"
+        "# Rendered by app.tenancy.render_grants_rego from config/tenancy.yaml; do not edit.\n"
+        "# Grants are data for the platform decision contract; this document never decides.\n"
+        "package caracal.authz\n\n"
+        "import rego.v1\n\n"
+        f"{_rego_grants(grants)}\n"
     )
 
 
@@ -481,16 +538,16 @@ def render_bindings_rego(application_ids: dict[str, str]) -> str:
     )
     body = "{\n" + rows + "\n}"
     return (
-        '# caracal:data-document\n'
-        '# Copyright (C) 2026 Garudex Labs.  All Rights Reserved.\n'
-        '# Caracal, a product of Garudex Labs\n'
-        '#\n'
-        '# Application bindings: the control-plane application ids each policy keys on.\n'
-        '# Rendered by scripts/provision.py from the created applications; do not edit.\n'
-        '# Bindings are data for the platform decision contract; this document never decides.\n'
-        'package caracal.authz\n\n'
-        'import rego.v1\n\n'
-        f'app_ids := {body}\n'
+        "# caracal:data-document\n"
+        "# Copyright (C) 2026 Garudex Labs.  All Rights Reserved.\n"
+        "# Caracal, a product of Garudex Labs\n"
+        "#\n"
+        "# Application bindings: the control-plane application ids each policy keys on.\n"
+        "# Rendered by scripts/provision.py from the created applications; do not edit.\n"
+        "# Bindings are data for the platform decision contract; this document never decides.\n"
+        "package caracal.authz\n\n"
+        "import rego.v1\n\n"
+        f"app_ids := {body}\n"
     )
 
 
@@ -502,8 +559,12 @@ def policy_files(
     replaces a file's content by stem (used to author real bindings at provision time)."""
     directory = Path(policies_dir) if policies_dir is not None else DEFAULT_POLICIES_DIR
     overrides = overrides or {}
-    files = sorted(p for p in directory.glob("*.rego") if not p.name.endswith("_test.rego"))
-    return [(p.stem, overrides.get(p.stem, p.read_text(encoding="utf-8"))) for p in files]
+    files = sorted(
+        p for p in directory.glob("*.rego") if not p.name.endswith("_test.rego")
+    )
+    return [
+        (p.stem, overrides.get(p.stem, p.read_text(encoding="utf-8"))) for p in files
+    ]
 
 
 def policy_commands(
@@ -516,7 +577,11 @@ def policy_commands(
         {
             "command": "policy",
             "subcommand": "create",
-            "flags": {"name": name, "content": content, "schema-version": model.policySet.schemaVersion},
+            "flags": {
+                "name": name,
+                "content": content,
+                "schema-version": model.policySet.schemaVersion,
+            },
         }
         for name, content in policy_files(policies_dir, overrides)
     ]

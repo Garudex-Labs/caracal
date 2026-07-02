@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 Web HTML routes: landing, overview, setup, demo, and logs pages.
 """
+
 from __future__ import annotations
 
 import os
@@ -51,8 +52,12 @@ def _overview() -> dict:
         "auth_methods": [{"name": k, "count": v} for k, v in sorted(auth.items())],
         "protocols": [{"name": k, "count": v} for k, v in sorted(protocols.items())],
         "categories": [{"name": k, "count": v} for k, v in sorted(categories.items())],
-        "internal_providers": [p.model_dump() for p in cfg.providers if p.authType == "none"],
-        "mandate_providers": [p.model_dump() for p in cfg.providers if p.authType == "caracal_mandate"],
+        "internal_providers": [
+            p.model_dump() for p in cfg.providers if p.authType == "none"
+        ],
+        "mandate_providers": [
+            p.model_dump() for p in cfg.providers if p.authType == "caracal_mandate"
+        ],
     }
 
 
@@ -91,7 +96,10 @@ def _overview_pages() -> dict[str, dict]:
             "items": [
                 {"label": "Workspace purpose", "value": cfg.content.tagline},
                 {"label": "Primary scenario", "value": cfg.content.scenarioTitle},
-                {"label": "Covered operations", "value": ", ".join(item["label"] for item in operations)},
+                {
+                    "label": "Covered operations",
+                    "value": ", ".join(item["label"] for item in operations),
+                },
             ],
         },
         "architecture": {
@@ -239,7 +247,7 @@ def _caracal_steps() -> list[dict[str, object]]:
     cfg = get_config()
     model = tenancy.load_model()
     zone = _env("CARACAL_ZONE_ID") or "<zone-id>"
-    app_names = ", ".join(f"\"{a.applicationName}\"" for a in model.applications)
+    app_names = ", ".join(f'"{a.applicationName}"' for a in model.applications)
     role_names = ", ".join(r.name for r in model.roles if not r.dynamic)
     return [
         {
@@ -247,7 +255,7 @@ def _caracal_steps() -> list[dict[str, object]]:
             "title": "Create the zone",
             "path": "Web console: Zones > New",
             "consoleFields": [
-                {"label": "Name", "value": f"\"{cfg.company}\""},
+                {"label": "Name", "value": f'"{cfg.company}"'},
                 {"label": "Zone ID", "value": zone},
             ],
             "why": "The zone is the isolation boundary that owns the applications, providers, resource views, and policy set.",
@@ -257,7 +265,7 @@ def _caracal_steps() -> list[dict[str, object]]:
         {
             "step": "02",
             "title": "Create one managed application per permission boundary",
-            "path": f"Web console: Applications > New in the \"{cfg.company}\" zone",
+            "path": f'Web console: Applications > New in the "{cfg.company}" zone',
             "consoleFields": [
                 {"label": "Names", "value": app_names},
                 {"label": "Registration method", "value": "managed"},
@@ -269,8 +277,14 @@ def _caracal_steps() -> list[dict[str, object]]:
             "title": "Register the partner credential providers",
             "path": "Control key > identity-provider create (scripts/provision.py)",
             "consoleFields": [
-                {"label": "Providers", "value": f"{len(model.providers)} partners, identifier provider://<slug>"},
-                {"label": "Kinds", "value": "api_key, bearer_token, caracal_mandate, none"},
+                {
+                    "label": "Providers",
+                    "value": f"{len(model.providers)} partners, identifier provider://<slug>",
+                },
+                {
+                    "label": "Kinds",
+                    "value": "api_key, bearer_token, caracal_mandate, none",
+                },
             ],
             "why": "Each partner is registered in the exact config shape its kind supports. The Gateway holds these credentials; agents never do.",
         },
@@ -279,8 +293,14 @@ def _caracal_steps() -> list[dict[str, object]]:
             "title": "Create the per-application resource views",
             "path": "Control key > resource create (scripts/provision.py)",
             "consoleFields": [
-                {"label": "Views", "value": f"{len(model.resources)} resources, identifier resource://<app>-<provider>"},
-                {"label": "Gateway binding", "value": "each view binds to exactly one application"},
+                {
+                    "label": "Views",
+                    "value": f"{len(model.resources)} resources, identifier resource://<app>-<provider>",
+                },
+                {
+                    "label": "Gateway binding",
+                    "value": "each view binds to exactly one application",
+                },
             ],
             "why": "Every view binds to exactly one application and carries only the scopes that boundary may hold.",
         },
@@ -290,8 +310,11 @@ def _caracal_steps() -> list[dict[str, object]]:
             "path": "Control key > policy create, policy-set activate (scripts/provision.py)",
             "consoleFields": [
                 {"label": "Library", "value": "examples/lynxCapital/policies"},
-                {"label": "Policy set", "value": f"\"{model.policySet.name}\""},
-                {"label": "Bindings", "value": "01-bindings.rego is rendered from the created application ids"},
+                {"label": "Policy set", "value": f'"{model.policySet.name}"'},
+                {
+                    "label": "Bindings",
+                    "value": "01-bindings.rego is rendered from the created application ids",
+                },
             ],
             "why": "The base policy default-denies; one policy per application allows exactly its roles' mandate mints and gateway calls.",
         },
@@ -301,8 +324,14 @@ def _caracal_steps() -> list[dict[str, object]]:
             "path": "Application code - AgentRunner.spawn(role, ...) per agent",
             "consoleFields": [
                 {"label": "Roles", "value": role_names},
-                {"label": "Identity", "value": "labels [role, lynx-swarm] + run/agent metadata"},
-                {"label": "Grants", "value": "Grant.narrow(role scopes, views, max_hops=1, run TTL)"},
+                {
+                    "label": "Identity",
+                    "value": "labels [role, lynx-swarm] + run/agent metadata",
+                },
+                {
+                    "label": "Grants",
+                    "value": "Grant.narrow(role scopes, views, max_hops=1, run TTL)",
+                },
             ],
             "why": "Every spawned agent gets its own labeled session, narrowed by a delegation edge to its role's scopes and views.",
         },
@@ -316,7 +345,8 @@ def _setup_ctx(request: Request) -> dict:
     provisioned = [p for p in providers if p["status"] == "Provisioned"]
     model = tenancy.load_model()
     credentialed = [
-        app.id for app in model.applications
+        app.id
+        for app in model.applications
         if caracal.application_credentials(app.id) == (True, True)
     ]
     configured = {
@@ -337,29 +367,33 @@ def _setup_ctx(request: Request) -> dict:
         }
         for app in model.applications
     ]
-    ctx.update({
-        "setup_providers": providers,
-        "setup_external_count": len(external),
-        "setup_mapped_count": len(provisioned),
-        "setup_caracal_steps": _caracal_steps(),
-        "setup_automate": {"scopes": CONTROL_SCOPES},
-        "setup_env": {
-            "zone": _env("CARACAL_ZONE_ID") or "<zone-id>",
-            "applications": applications,
-            "openaiKey": "sk-...",
-            "controlClient": "<control-key-client-id>",
-            "controlSecret": "<one-time-control-key-secret>",
-        },
-        "setup_progress": {
-            "ready": ready,
-            "total": len(configured),
-            "percent": round((ready / len(configured)) * 100),
-        },
-        "setup_status": {
-            "caracal": configured["zone"] and configured["applications"] and configured["openai"],
-            "providers": configured["providers"],
-        },
-    })
+    ctx.update(
+        {
+            "setup_providers": providers,
+            "setup_external_count": len(external),
+            "setup_mapped_count": len(provisioned),
+            "setup_caracal_steps": _caracal_steps(),
+            "setup_automate": {"scopes": CONTROL_SCOPES},
+            "setup_env": {
+                "zone": _env("CARACAL_ZONE_ID") or "<zone-id>",
+                "applications": applications,
+                "openaiKey": "sk-...",
+                "controlClient": "<control-key-client-id>",
+                "controlSecret": "<one-time-control-key-secret>",
+            },
+            "setup_progress": {
+                "ready": ready,
+                "total": len(configured),
+                "percent": round((ready / len(configured)) * 100),
+            },
+            "setup_status": {
+                "caracal": configured["zone"]
+                and configured["applications"]
+                and configured["openai"],
+                "providers": configured["providers"],
+            },
+        }
+    )
     return ctx
 
 
@@ -370,17 +404,23 @@ def landing(request: Request):
 
 @router.get("/overview/about", response_class=HTMLResponse)
 def overview_about(request: Request):
-    return templates.TemplateResponse(request, "overview.html", _overview_ctx(request, "about"))
+    return templates.TemplateResponse(
+        request, "overview.html", _overview_ctx(request, "about")
+    )
 
 
 @router.get("/overview/architecture", response_class=HTMLResponse)
 def overview_architecture(request: Request):
-    return templates.TemplateResponse(request, "overview.html", _overview_ctx(request, "architecture"))
+    return templates.TemplateResponse(
+        request, "overview.html", _overview_ctx(request, "architecture")
+    )
 
 
 @router.get("/overview/notice", response_class=HTMLResponse)
 def overview_notice(request: Request):
-    return templates.TemplateResponse(request, "overview.html", _overview_ctx(request, "notice"))
+    return templates.TemplateResponse(
+        request, "overview.html", _overview_ctx(request, "notice")
+    )
 
 
 @router.get("/favicon.ico")
