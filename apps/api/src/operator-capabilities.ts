@@ -577,12 +577,7 @@ export const ProposedPlan = z
 export type ProposedPlanInput = z.infer<typeof ProposedPlan>
 
 export type DiagnosticCode =
-  | 'unknown_capability'
-  | 'invalid_args'
-  | 'duplicate_step_id'
-  | 'unknown_dependency'
-  | 'unknown_reference'
-  | 'dependency_cycle'
+  'unknown_capability' | 'invalid_args' | 'duplicate_step_id' | 'unknown_dependency' | 'unknown_reference' | 'dependency_cycle'
 
 export interface PlanDiagnostic {
   step_id: string

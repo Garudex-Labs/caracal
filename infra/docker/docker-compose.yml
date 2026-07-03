@@ -421,11 +421,20 @@ services:
       start_period: 20s
 
   gateway:
-    <<: [*appService, *appResources]
+    <<: *appService
     image: localhost/caracal-go:${CARACAL_DEV_VERSION:-${CARACAL_BASE_VERSION:-2026.05.26}-dev.sha${CARACAL_DEV_SHA:-local}}
     # Reuses the image built by sts; never reach for the localhost registry.
     pull_policy: never
     command: ["/usr/local/bin/gateway"]
+    deploy:
+      resources:
+        limits:
+          cpus: "${CARACAL_GATEWAY_CPU_LIMIT:-2.0}"
+          memory: "${CARACAL_GATEWAY_MEM_LIMIT:-1G}"
+          pids: 256
+        reservations:
+          cpus: "${CARACAL_APP_CPU_RESERVE:-0.1}"
+          memory: "${CARACAL_APP_MEM_RESERVE:-128M}"
     depends_on:
       replayVolumeInit:
         condition: service_completed_successfully

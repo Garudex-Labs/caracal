@@ -313,7 +313,7 @@ services:
       start_period: 20s
 
   gateway:
-    <<: [*appService, *appResources]
+    <<: *appService
     image: ${CARACAL_REGISTRY:-ghcr.io/garudex-labs/}caracal-go:v${CARACAL_VERSION}
     command: ["/usr/local/bin/gateway"]
     deploy:
