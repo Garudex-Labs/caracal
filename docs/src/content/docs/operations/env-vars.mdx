@@ -103,6 +103,7 @@ The API service runs the Control plane in-process and powers the Caracal Operato
 | `API_OPERATOR_ALLOWED_CAPABILITIES` | no | built-in set | Overrides the Operator's state-changing capability allowlist. |
 | `API_OPERATOR_SYSTEM_ZONES` | no | empty | Additional zones marked as system zones the Operator must not act in. |
 | `API_OPERATOR_AUTOPILOT_ENABLED` | no | `false` | Master switch; when on, an agent-mode conversation that engages autopilot has every plan auto-approved. The governed execute path still enforces the capability allowlist, least-privilege token, and zone isolation. |
+| `API_OPERATOR_AUTOPILOT_WRITE_BUDGET` | no | `0` | Conversation write budget for autopilot. When set above zero, autopilot pauses once the cumulative auto-approved write operations in a conversation would exceed this count, and further plans wait for explicit human approval. `0` disables the budget. |
 
 ## Runtime Workload Variables
 

@@ -131,6 +131,8 @@ Auto-approval never widens authority. It only fills the human-approval step - th
 
 When autopilot approves a plan, the approval is recorded as a first-class turn attributed to autopilot and to you - the operator acting in the conversation - never to the model, so every auto-approved change stays attributable and reviewable on the timeline. The platform-level master switch is a single kill switch: turning it off stops all auto-approval on the next turn.
 
+A deployment can additionally bound how much an engaged conversation writes with a **conversation write budget** (`API_OPERATOR_AUTOPILOT_WRITE_BUDGET`). Each autopilot approval records the plan's write operations against the budget; once a plan would spend past it, autopilot pauses, a note in the conversation explains the pause, and that plan - and every later one - waits for your explicit approval. The budget is off by default and applies per conversation.
+
 ### Natural-language provider
 
 Turning your words into a plan needs a language model, and that model is something you supply. The Operator is built on the [Vercel AI SDK](https://ai-sdk.dev) and talks to any OpenAI-compatible endpoint, so you can bring a hosted provider key, point at a local model server, or list several providers that are tried in order for resilience. For production the recommended backend is a self-hosted [LiteLLM](https://docs.litellm.ai) proxy, which owns per-provider integration, bring-your-own-key budgets, and local-model routing behind one OpenAI-compatible endpoint - so Caracal never maintains provider SDKs itself. Keys are read from the API service environment and never stored in or returned by the console.
