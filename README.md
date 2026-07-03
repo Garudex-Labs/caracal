@@ -84,15 +84,12 @@ Read the full documentation at [docs.caracal.run](https://docs.caracal.run).
 
 ## Get Started
 
-<details>
-<summary><strong>Install and run locally</strong></summary>
-
 ### Prerequisites
 
 - Docker Desktop 4.x or Docker Engine 24+ with Compose v2
 - Git 2.x
 
-### Install
+### Install Released Version
 
 > Check [GitHub Releases](https://github.com/Garudex-Labs/caracal/releases) for the latest available tag.
 
@@ -137,14 +134,37 @@ caracal status [--ready]              # probe all services
 
 caracal down                          # stop; add -v to remove volumes
 caracal purge                         # interactive cleanup (containers, volumes, config, runtime, examples, caches)
+```
 
-caracal web                           # Console Interface
+Before the first sign-in, configure a sign-in method (Google/GitHub OAuth or email/password with SMTP) in `$CARACAL_HOME/caracal.env` - see [First Protected Call](https://docs.caracal.run/get-started/first-protected-call/#sign-in-and-create-your-first-zone).
+
+```bash
+caracal web                           # Console Interface http://localhost:3001
 caracal run -- node worker.js         # workload execution
 ```
 
-Open the web console at [http://localhost:3001](http://localhost:3001). Before the first sign-in, configure a sign-in method (Google/GitHub OAuth or email/password with SMTP) in `$CARACAL_HOME/caracal.env` - see [First Protected Call](https://docs.caracal.run/get-started/first-protected-call/#sign-in-and-create-your-first-zone).
+---
 
-</details>
+## Contributing
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for setup, workflow, tests, and pull request standards.
+
+
+## Community & Partnerships
+
+<div align="center">
+
+|                                                                                                                                                                                                                                                                                                                Program                                                                                                                                                                                                                                                                                                                |      Timeline      |
+| :-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------: | :----------------: |
+|                                                                                                                                                                                                                   <a href="https://www.youtube.com/live/tZ4FdO-zjeE"><img src="https://img.shields.io/badge/GitHub-Open%20Source%20Friday-E74C3C?style=for-the-badge&logo=github&logoColor=white" width="240"/></a>                                                                                                                                                                                                                   |      Feb 2026      |
+|                                                                                                                                                                                                                        <a href="https://vercel.com/open-source-program"><img src="https://img.shields.io/badge/Vercel-OSS%20Program-2ECC71?style=for-the-badge&logo=vercel&logoColor=white" width="240"/></a>                                                                                                                                                                                                                         |    Spring 2026     |
+|                                                                                                                                                                                                                                                  <a href="#"><img src="https://img.shields.io/badge/Founders%20Inc.-%20Canopy%20Online-F39C12?style=for-the-badge" width="240"/></a>                                                                                                                                                                                                                                                  |   Apr – Jun 2026   |
+| <a href="https://www.microsoft.com/startups"><img src="https://img.shields.io/badge/Microsoft%20for%20Startups-Member-0078D4?style=for-the-badge&logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyMyAyMyI%2BPHJlY3QgeD0iMSIgeT0iMSIgd2lkdGg9IjEwIiBoZWlnaHQ9IjEwIiBmaWxsPSIjRjI1MDIyIi8%2BPHJlY3QgeD0iMTIiIHk9IjEiIHdpZHRoPSIxMCIgaGVpZ2h0PSIxMCIgZmlsbD0iIzdGQkEwMCIvPjxyZWN0IHg9IjEiIHk9IjEyIiB3aWR0aD0iMTAiIGhlaWdodD0iMTAiIGZpbGw9IiMwMEE0RUYiLz48cmVjdCB4PSIxMiIgeT0iMTIiIHdpZHRoPSIxMCIgaGVpZ2h0PSIxMCIgZmlsbD0iI0ZGQjkwMCIvPjwvc3ZnPg%3D%3D" width="240"/></a> | May 2026 – Present |
+|                                                                                                                                                                                           <a href="https://mentorship.lfx.linuxfoundation.org/project/9cfe285b-7006-4610-84a8-1a52b0dff662"><img src="https://img.shields.io/badge/LFX-Mentorship%202026-8E44AD?style=for-the-badge&logo=linuxfoundation&logoColor=white" width="240"/></a>                                                                                                                                                                                           | Jun 2026 – present |
+
+</div>
+
+---
 
 ---
 
@@ -154,20 +174,6 @@ Open the web console at [http://localhost:3001](http://localhost:3001). Before t
 | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Community Edition**  | Apache-2.0. The complete authority model (mandates, delegation, policy, revocation, audit), self-hosted, with no feature gates on security.                                                                                             |
 | **Enterprise Edition** | Caracal run for you: managed multi-tenancy, hosted control plane, SSO/SCIM, and a fully managed data plane. [Compare editions](https://docs.caracal.run/enterprise/) or [book a call](https://cal.com/rawx18/caracal-enterprise-sales). |
-
----
-
-## Security & Trust
-
-Caracal is built to be the enforcement point you can audit, not another black box: a published [threat model](governance/THREAT_MODEL.md), signed releases with verified assets, OpenSSF Best Practices and Scorecard tracking, and a tamper-evident audit chain at runtime. Start with the [Enterprise Security Readiness](https://docs.caracal.run/security/enterprise-readiness) review checklist.
-
-Report vulnerabilities privately through [SECURITY.md](./.github/SECURITY.md).
-
----
-
-## Contributing
-
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for setup, workflow, tests, and pull request standards.
 
 ---
 
@@ -208,19 +214,11 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for setup, workflow, tests, and pull re
 
 ---
 
-## Community & Partnerships
+## Security & Trust
 
-<div align="center">
+Caracal is built to be the enforcement point you can audit, not another black box: a published [threat model](governance/THREAT_MODEL.md), signed releases with verified assets, OpenSSF Best Practices and Scorecard tracking, and a tamper-evident audit chain at runtime. Start with the [Enterprise Security Readiness](https://docs.caracal.run/security/enterprise-readiness) review checklist.
 
-|                                                                                                                                                                                                                                                                                                                Program                                                                                                                                                                                                                                                                                                                |      Timeline      |
-| :-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------: | :----------------: |
-|                                                                                                                                                                                                                   <a href="https://www.youtube.com/live/tZ4FdO-zjeE"><img src="https://img.shields.io/badge/GitHub-Open%20Source%20Friday-E74C3C?style=for-the-badge&logo=github&logoColor=white" width="240"/></a>                                                                                                                                                                                                                   |      Feb 2026      |
-|                                                                                                                                                                                                                        <a href="https://vercel.com/open-source-program"><img src="https://img.shields.io/badge/Vercel-OSS%20Program-2ECC71?style=for-the-badge&logo=vercel&logoColor=white" width="240"/></a>                                                                                                                                                                                                                         |    Spring 2026     |
-|                                                                                                                                                                                                                                                  <a href="#"><img src="https://img.shields.io/badge/Founders%20Inc.-%20Canopy%20Online-F39C12?style=for-the-badge" width="240"/></a>                                                                                                                                                                                                                                                  |   Apr – Jun 2026   |
-| <a href="https://www.microsoft.com/startups"><img src="https://img.shields.io/badge/Microsoft%20for%20Startups-Member-0078D4?style=for-the-badge&logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyMyAyMyI%2BPHJlY3QgeD0iMSIgeT0iMSIgd2lkdGg9IjEwIiBoZWlnaHQ9IjEwIiBmaWxsPSIjRjI1MDIyIi8%2BPHJlY3QgeD0iMTIiIHk9IjEiIHdpZHRoPSIxMCIgaGVpZ2h0PSIxMCIgZmlsbD0iIzdGQkEwMCIvPjxyZWN0IHg9IjEiIHk9IjEyIiB3aWR0aD0iMTAiIGhlaWdodD0iMTAiIGZpbGw9IiMwMEE0RUYiLz48cmVjdCB4PSIxMiIgeT0iMTIiIHdpZHRoPSIxMCIgaGVpZ2h0PSIxMCIgZmlsbD0iI0ZGQjkwMCIvPjwvc3ZnPg%3D%3D" width="240"/></a> | May 2026 – Present |
-|                                                                                                                                                                                           <a href="https://mentorship.lfx.linuxfoundation.org/project/9cfe285b-7006-4610-84a8-1a52b0dff662"><img src="https://img.shields.io/badge/LFX-Mentorship%202026-8E44AD?style=for-the-badge&logo=linuxfoundation&logoColor=white" width="240"/></a>                                                                                                                                                                                           | Jun 2026 – present |
-
-</div>
+Report vulnerabilities privately through [SECURITY.md](./.github/SECURITY.md).
 
 ---
 
