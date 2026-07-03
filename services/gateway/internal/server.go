@@ -77,7 +77,16 @@ func New(ctx context.Context) (*Server, error) {
 		return nil, fmt.Errorf("streams hmac key: %w", err)
 	}
 	rdb.SetStreamSigning(streamKey, cfg.Mode != "dev")
-	tracker, err := newJTITracker(rdb, log, cfg.JTIFailOpen, cfg.AuditHMACKey)
+	auditClient, err := audit.NewClient(rdb, audit.ClientConfig{
+		AuditHMACKey: cfg.AuditHMACKey,
+		ReplayDir:    cfg.AuditReplayDir,
+		Logger:       log,
+		Production:   cfg.Mode != "dev",
+	})
+	if err != nil {
+		return nil, err
+	}
+	tracker, err := newJTITracker(rdb, log, cfg.JTIFailOpen, auditClient)
 	if err != nil {
 		return nil, err
 	}
@@ -92,15 +101,6 @@ func New(ctx context.Context) (*Server, error) {
 	revocations := newRevocationStore(log)
 	if err := reloadRevocationSnapshot(ctx, pool, revocations); err != nil {
 		return nil, fmt.Errorf("revocation snapshot: %w", err)
-	}
-	auditClient, err := audit.NewClient(rdb, audit.ClientConfig{
-		AuditHMACKey: cfg.AuditHMACKey,
-		ReplayDir:    cfg.AuditReplayDir,
-		Logger:       log,
-		Production:   cfg.Mode != "dev",
-	})
-	if err != nil {
-		return nil, err
 	}
 	return &Server{
 		cfg:         cfg,

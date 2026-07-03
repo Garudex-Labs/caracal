@@ -7,10 +7,7 @@ package internal
 
 import (
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -21,16 +18,11 @@ import (
 	"github.com/rs/zerolog"
 )
 
-const (
-	seenJTIPrefix = "seen:jti:"
-	auditStream   = "caracal.audit.events"
-)
+const seenJTIPrefix = "seen:jti:"
 
-// jtiRedis is the narrow Redis surface the tracker needs: a SETNX-style first-use
-// marker and the audit stream append.
+// jtiRedis is the narrow Redis surface the tracker needs: a SETNX-style first-use marker.
 type jtiRedis interface {
 	SetNXTTL(ctx context.Context, key, value string, ttl time.Duration) (bool, error)
-	XAdd(ctx context.Context, stream string, values map[string]any) error
 }
 
 // jtiTracker records the first use of every token's JTI and rejects subsequent
@@ -39,14 +31,14 @@ type jtiTracker struct {
 	redis    jtiRedis
 	log      zerolog.Logger
 	failOpen bool
-	auditKey []byte
+	audit    auditEmitter
 }
 
-func newJTITracker(redis jtiRedis, log zerolog.Logger, failOpen bool, auditKey []byte) (*jtiTracker, error) {
+func newJTITracker(redis jtiRedis, log zerolog.Logger, failOpen bool, emitter auditEmitter) (*jtiTracker, error) {
 	if redis == nil {
 		return nil, errors.New("jti tracker requires redis")
 	}
-	return &jtiTracker{redis: redis, log: log, failOpen: failOpen, auditKey: auditKey}, nil
+	return &jtiTracker{redis: redis, log: log, failOpen: failOpen, audit: emitter}, nil
 }
 
 // Check records the JTI as seen with TTL = time-until-exp. Returns true when the
@@ -91,16 +83,17 @@ func (t *jtiTracker) Check(ctx context.Context, jti string, exp time.Time, use, 
 		"subject_fp": subjectFP,
 		"request_id": requestID,
 	})
-	values := buildReplayAudit(id.String(), zoneID, requestID, meta, time.Now().UTC(), t.auditKey)
-	if err := t.redis.XAdd(ctx, auditStream, values); err != nil {
-		t.log.Error().Err(err).Str("jti", jti).Msg("replay_detected audit emit failed")
+	// The durable audit client signs the event and falls back to disk replay when the
+	// stream is unreachable, so a replay anomaly record survives a Redis outage.
+	if t.audit != nil {
+		t.audit.Emit(buildReplayAudit(id.String(), zoneID, requestID, meta, time.Now().UTC()))
 	}
 	t.log.Warn().Str("jti", jti).Str("resource", resource).Str("client_id", clientID).Msg("jti replay rejected")
 	return false
 }
 
-func buildReplayAudit(id, zoneID, requestID string, meta json.RawMessage, occurredAt time.Time, key []byte) map[string]any {
-	event := audit.Event{
+func buildReplayAudit(id, zoneID, requestID string, meta json.RawMessage, occurredAt time.Time) audit.Event {
+	return audit.Event{
 		ID:                      id,
 		ZoneID:                  zoneID,
 		EventType:               "replay_detected",
@@ -112,17 +105,6 @@ func buildReplayAudit(id, zoneID, requestID string, meta json.RawMessage, occurr
 		MetadataJSON:            meta,
 		OccurredAt:              occurredAt,
 	}
-	data, _ := json.Marshal(event)
-	values := map[string]any{
-		"id":   id,
-		"data": string(data),
-	}
-	if len(key) > 0 {
-		mac := hmac.New(sha256.New, key)
-		mac.Write(data)
-		values["sig"] = hex.EncodeToString(mac.Sum(nil))
-	}
-	return values
 }
 
 // jwtJTI extracts the jti claim from a JWT without verifying its signature. Used in
