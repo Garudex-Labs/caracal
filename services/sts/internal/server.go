@@ -59,6 +59,7 @@ type stsRedis interface {
 	Get(context.Context, string) (string, error)
 	Del(context.Context, string) error
 	DelIfValue(context.Context, string, string) error
+	ExpireIfValue(context.Context, string, string, time.Duration) (bool, error)
 	Exists(context.Context, string) (bool, error)
 	IncrWithExpiry(context.Context, string, time.Duration) (int64, error)
 	EnsureGroup(context.Context, string, string) error

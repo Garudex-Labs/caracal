@@ -268,7 +268,13 @@ func (s *Server) coordinatedDistributedGrantRefresh(ctx context.Context, key str
 			if s.metrics != nil {
 				s.metrics.ProviderRefreshLeased.Add(1)
 			}
+			// The lease renews while this holder still owns it, so a refresh that outlives one
+			// TTL never loses its lease mid-flight to a second concurrent refresher, while a
+			// crashed holder stops renewing and its lease expires within one TTL.
+			renewCtx, stopRenew := context.WithCancel(ctx)
+			go s.renewRefreshLease(renewCtx, lockKey, leaseID.String())
 			err := refresh(ctx)
+			stopRenew()
 			if setErr := s.redis.SetTTL(ctx, resultKey, refreshResultFromError(err), refreshResultTTL); setErr != nil {
 				if s.metrics != nil {
 					s.metrics.ProviderRefreshErrors.Add(1)
@@ -298,6 +304,30 @@ func refreshCoordinationKeys(key string) (string, string) {
 	sum := sha256.Sum256([]byte(key))
 	base := "provider-refresh:" + hex.EncodeToString(sum[:])
 	return base + ":lock", base + ":result"
+}
+
+func (s *Server) renewRefreshLease(ctx context.Context, lockKey, leaseID string) {
+	ticker := time.NewTicker(refreshLeaseTTL / 3)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			renewed, err := s.redis.ExpireIfValue(ctx, lockKey, leaseID, refreshLeaseTTL)
+			if err != nil {
+				if s.metrics != nil {
+					s.metrics.ProviderRefreshErrors.Add(1)
+				}
+				s.log.Warn().Err(err).Msg("provider refresh lease renewal failed")
+				continue
+			}
+			if !renewed {
+				s.log.Warn().Msg("provider refresh lease no longer owned; renewal stopped")
+				return
+			}
+		}
+	}
 }
 
 func refreshResultFromError(err *sharederr.CaracalError) distributedRefreshResult {

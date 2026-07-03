@@ -104,6 +104,12 @@ func (m *memSTSRedis) DelIfValue(_ context.Context, key, value string) error {
 	return nil
 }
 
+func (m *memSTSRedis) ExpireIfValue(_ context.Context, key, value string, _ time.Duration) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.values[key] == value, nil
+}
+
 func (m *memSTSRedis) Exists(_ context.Context, key string) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
