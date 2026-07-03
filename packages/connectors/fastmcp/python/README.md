@@ -2,7 +2,7 @@
 
 FastMCP adapter for Caracal MCP authentication.
 
-Part of [Caracal](https://github.com/Garudex-Labs/caracal): a security-first authority and delegation system for AI agents.
+Part of [Caracal](https://github.com/Garudex-Labs/caracal): the identity and authorization layer for AI agents - short-lived, policy-approved authority instead of credentials.
 
 ## Install
 

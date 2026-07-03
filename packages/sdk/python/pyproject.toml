@@ -10,7 +10,7 @@ build-backend = "hatchling.build"
 [project]
 name = "caracalai-sdk"
 version = "0.1.6rc2"
-description = "Caracal agent identity and delegation SDK: context propagation, spawn, delegate, transport hooks"
+description = "Caracal SDK for Python: short-lived, policy-approved authority for AI agents - agent sessions, delegation, and transport hooks"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 readme = "README.md"
