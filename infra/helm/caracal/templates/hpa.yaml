@@ -29,6 +29,17 @@ spec:
         target:
           type: Utilization
           averageUtilization: {{ $service.hpa.targetCPUUtilizationPercentage }}
+    {{- with $service.hpa.targetMemoryUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ . }}
+    {{- end }}
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
 ---
 {{- end }}
 {{- end }}

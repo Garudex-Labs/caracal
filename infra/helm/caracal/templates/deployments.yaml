@@ -28,6 +28,12 @@ metadata:
 spec:
   {{- if $statefulReplay }}
   serviceName: {{ include "caracal.fullname" $root }}-{{ $name }}
+  {{- else }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   {{- end }}
   replicas: {{ $service.replicas }}
   selector:
@@ -43,10 +49,21 @@ spec:
         {{- toYaml . | nindent 8 }}
         {{- end }}
       annotations:
+        {{- if $root.Values.secrets.create }}
+        checksum/secret: {{ $root.Values.secrets | toYaml | sha256sum }}
+        {{- end }}
         {{- with $root.Values.global.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
     spec:
+      {{- with $root.Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with default $root.Values.scheduling.priorityClassName $service.priorityClassName }}
+      priorityClassName: {{ . | quote }}
+      {{- end }}
+      terminationGracePeriodSeconds: {{ $root.Values.scheduling.terminationGracePeriodSeconds }}
       serviceAccountName: {{ include "caracal.serviceAccountName" $root }}
       automountServiceAccountToken: {{ $root.Values.serviceAccount.automountToken }}
       securityContext:
@@ -186,6 +203,12 @@ spec:
               port: http
             initialDelaySeconds: 10
             periodSeconds: 10
+          {{- if gt (int $root.Values.scheduling.preStopSleepSeconds) 0 }}
+          lifecycle:
+            preStop:
+              sleep:
+                seconds: {{ $root.Values.scheduling.preStopSleepSeconds }}
+          {{- end }}
           resources:
             {{- toYaml $service.resources | nindent 12 }}
           securityContext:
