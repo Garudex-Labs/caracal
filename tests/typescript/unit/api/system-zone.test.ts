@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Unit tests for the idempotent caracal.sys system zone provisioner and the Operator's least-privilege identity.
+// Unit tests for the idempotent caracal.sys system zone provisioner and the Operator's least-privilege role identities.
 
 import { describe, it, expect } from 'vitest'
 import { createHash } from 'node:crypto'
@@ -9,11 +9,14 @@ import type { AdminClient } from '@caracalai/admin'
 import {
   provisionSystemZone,
   authorOperatorPolicy,
-  operatorControlScopes,
-  operatorIdentityTraits,
+  roleIdentityTraits,
   SYSTEM_ZONE_SLUG,
   SYSTEM_ZONE_NAME,
   OPERATOR_APP_NAME,
+  RESEARCHER_APP_NAME,
+  EXECUTOR_APP_NAME,
+  CONTROL_TOKEN_MAX_TTL_SEC,
+  type OperatorRoleScopes,
 } from '../../../../apps/api/src/system-zone.js'
 
 interface FakeResource {
@@ -223,49 +226,30 @@ function fakeAdmin(seed: Partial<FakeState> = {}): { admin: AdminClient; state: 
   return { admin, state }
 }
 
-describe('operatorControlScopes', () => {
-  it('is exactly the union of the governed-executable capability scopes, least privilege', () => {
-    expect(operatorControlScopes()).toEqual([
-      'control:agent:read',
-      'control:app:delete',
-      'control:app:read',
-      'control:app:write',
-      'control:audit:read',
-      'control:delegation:read',
-      'control:grant:delete',
-      'control:grant:read',
-      'control:grant:write',
-      'control:identity-provider:delete',
-      'control:identity-provider:read',
-      'control:identity-provider:write',
-      'control:policy-set:write',
-      'control:policy:delete',
-      'control:policy:read',
-      'control:policy:write',
-      'control:resource:delete',
-      'control:resource:read',
-      'control:resource:write',
-      'control:session:read',
+describe('roleIdentityTraits', () => {
+  it('carries control:invoke, the token-lifetime cap, the credential deadline, and one sorted scope trait per scope', () => {
+    const expiresAt = new Date('2026-06-01T00:00:00.000Z')
+    const traits = roleIdentityTraits(['control:app:write', 'control:app:read'], expiresAt)
+    expect(traits).toEqual([
+      'control:invoke',
+      `control:max-ttl:${CONTROL_TOKEN_MAX_TTL_SEC}`,
+      'control:expires:2026-06-01T00:00:00.000Z',
+      'control:scope:control:app:read',
+      'control:scope:control:app:write',
     ])
   })
 })
 
-describe('operatorIdentityTraits', () => {
-  it('grants control:invoke plus one scope trait per least-privilege scope', () => {
-    const traits = operatorIdentityTraits()
-    expect(traits).toContain('control:invoke')
-    for (const scope of operatorControlScopes()) {
-      expect(traits).toContain(`control:scope:${scope}`)
-    }
-    // No traits beyond invoke + the scope set: the identity is exactly least privilege.
-    expect(traits.length).toBe(1 + operatorControlScopes().length)
-  })
-})
+// A representative per-role scope split: the researcher reads, the executor also writes.
+const roles: OperatorRoleScopes = {
+  researcher: ['control:app:read'],
+  executor: ['control:app:read', 'control:app:write'],
+}
 
 describe('provisionSystemZone', () => {
-  it('creates the reserved zone, control resource, and least-privilege identity from scratch', async () => {
+  it('creates the reserved zone, control resource, and one least-privilege application per role from scratch', async () => {
     const { admin, state } = fakeAdmin()
-    const result = await provisionSystemZone(admin, 'cs_sealed_secret', 'caracal-control', fakeFindZoneBySlug(state))
+    const result = await provisionSystemZone(admin, 'caracal-control', fakeFindZoneBySlug(state), roles)
 
     const zone = state.zones[0]
     expect(zone).toMatchObject({ name: SYSTEM_ZONE_NAME, slug: SYSTEM_ZONE_SLUG })
@@ -274,57 +258,77 @@ describe('provisionSystemZone', () => {
     // The control resource was created in the system zone.
     expect(state.resources).toHaveLength(1)
 
-    // The operator identity was created with exactly the least-privilege traits, and its
-    // secret was set to the sealed configured value rather than the one-time minted secret.
-    const app = state.apps.find((a) => a.name === OPERATOR_APP_NAME)!
-    expect(app.id).toBe(result.operatorApplicationId)
-    expect([...(app.traits ?? [])].sort()).toEqual(operatorIdentityTraits())
-    expect(app.client_secret).toBe('cs_sealed_secret')
-    expect(state.calls).toContain('applications.create')
-    expect(state.calls).toContain('applications.patch:secret')
+    // Each permission boundary is its own application. The base LLM identity holds no control
+    // traits at all; the researcher and executor carry exactly their role's traits.
+    const llm = state.apps.find((a) => a.name === OPERATOR_APP_NAME)!
+    const researcher = state.apps.find((a) => a.name === RESEARCHER_APP_NAME)!
+    const executor = state.apps.find((a) => a.name === EXECUTOR_APP_NAME)!
+    expect(llm.id).toBe(result.llm.applicationId)
+    expect(researcher.id).toBe(result.researcher.applicationId)
+    expect(executor.id).toBe(result.executor.applicationId)
+    expect(llm.traits).toEqual([])
+    expect(researcher.traits).toEqual(roleIdentityTraits(roles.researcher, result.expiresAt))
+    expect(executor.traits).toEqual(roleIdentityTraits(roles.executor, result.expiresAt))
   })
 
-  it('is idempotent: reuses the existing zone and reconciles the identity without duplicating', async () => {
-    const seeded = fakeAdmin({
-      zones: [{ id: 'zone-sys', name: SYSTEM_ZONE_NAME, slug: SYSTEM_ZONE_SLUG }],
-      resources: [{ id: 'res-control', identifier: 'caracal-control', scopes: [] }],
-      apps: [
-        {
-          id: 'app-op',
-          name: OPERATOR_APP_NAME,
-          traits: operatorIdentityTraits(),
-          client_secret: 'old',
-          registration_method: 'managed',
-          expires_at: null,
-        },
-      ],
-    })
-    const result = await provisionSystemZone(seeded.admin, 'cs_rotated', 'caracal-control', fakeFindZoneBySlug(seeded.state))
+  it('issues fresh in-process secrets: each identity is sealed with the generated credential, never the one-time minted secret', async () => {
+    const { admin, state } = fakeAdmin()
+    const result = await provisionSystemZone(admin, 'caracal-control', fakeFindZoneBySlug(state), roles)
 
-    // No new zone or application was created.
-    expect(result.zoneId).toBe('zone-sys')
-    expect(result.operatorApplicationId).toBe('app-op')
-    expect(seeded.state.zones).toHaveLength(1)
-    expect(seeded.state.apps).toHaveLength(1)
-    expect(seeded.state.calls).not.toContain('zones.create')
-    expect(seeded.state.calls).not.toContain('applications.create')
+    for (const [name, credential] of [
+      [OPERATOR_APP_NAME, result.llm],
+      [RESEARCHER_APP_NAME, result.researcher],
+      [EXECUTOR_APP_NAME, result.executor],
+    ] as const) {
+      const app = state.apps.find((a) => a.name === name)!
+      expect(credential.clientSecret).toMatch(/^cs_[A-Za-z0-9_-]{40,}$/)
+      expect(app.client_secret).toBe(credential.clientSecret)
+      expect(app.client_secret).not.toBe('cs_minted_once')
+    }
+    // The three boundaries never share a credential.
+    expect(new Set([result.llm.clientSecret, result.researcher.clientSecret, result.executor.clientSecret]).size).toBe(3)
+    // The credential deadline is enforced, not advisory: it rides into the STS traits.
+    expect(result.expiresAt.getTime()).toBeGreaterThan(Date.now())
+    expect(state.apps.find((a) => a.name === RESEARCHER_APP_NAME)!.traits).toContain(`control:expires:${result.expiresAt.toISOString()}`)
+  })
+
+  it('rotates on every run: re-provisioning reuses the applications but seals new secrets and advances the deadline', async () => {
+    const { admin, state } = fakeAdmin()
+    const first = await provisionSystemZone(admin, 'caracal-control', fakeFindZoneBySlug(state), roles)
+    state.calls.length = 0
+    const second = await provisionSystemZone(admin, 'caracal-control', fakeFindZoneBySlug(state), roles)
+
+    // No new zone or application: rotation converges on the same objects.
+    expect(state.zones).toHaveLength(1)
+    expect(state.apps).toHaveLength(3)
+    expect(state.calls).not.toContain('zones.create')
+    expect(state.calls).not.toContain('applications.create')
     // The zone is found deterministically by slug, never by scanning the zone list - so a
     // deployment whose system zone has fallen off the newest-first first page still resolves.
-    expect(seeded.state.calls).not.toContain('zones.list')
-    expect(seeded.state.calls).toContain('findZoneBySlug')
-    // Traits already match, so they are not re-patched; the secret is reconciled to config.
-    expect(seeded.state.calls).not.toContain('applications.patch:traits')
-    expect(seeded.state.apps[0].client_secret).toBe('cs_rotated')
+    expect(state.calls).not.toContain('zones.list')
+    expect(state.calls).toContain('findZoneBySlug')
+    expect(second.llm.applicationId).toBe(first.llm.applicationId)
+    expect(second.researcher.applicationId).toBe(first.researcher.applicationId)
+    expect(second.executor.applicationId).toBe(first.executor.applicationId)
+    // Rotation is revocation: sealing the new secret is what stops the previous one working.
+    expect(state.calls).toContain('applications.patch:secret')
+    expect(second.llm.clientSecret).not.toBe(first.llm.clientSecret)
+    expect(second.researcher.clientSecret).not.toBe(first.researcher.clientSecret)
+    expect(second.executor.clientSecret).not.toBe(first.executor.clientSecret)
+    expect(state.apps.find((a) => a.name === EXECUTOR_APP_NAME)!.client_secret).toBe(second.executor.clientSecret)
+    // The deadline always moves forward with the rotation.
+    expect(second.expiresAt.getTime()).toBeGreaterThanOrEqual(first.expiresAt.getTime())
+    expect(state.apps.find((a) => a.name === EXECUTOR_APP_NAME)!.traits).toContain(`control:expires:${second.expiresAt.toISOString()}`)
   })
 
-  it('self-heals a tampered identity back to least-privilege traits', async () => {
+  it('self-heals a tampered role identity back to exactly its least-privilege traits', async () => {
     const seeded = fakeAdmin({
       zones: [{ id: 'zone-sys', name: SYSTEM_ZONE_NAME, slug: SYSTEM_ZONE_SLUG }],
-      // A widened identity: an extra scope trait that is not least privilege.
+      // A widened researcher: an extra write scope trait that is not least privilege.
       apps: [
         {
-          id: 'app-op',
-          name: OPERATOR_APP_NAME,
+          id: 'app-r',
+          name: RESEARCHER_APP_NAME,
           traits: ['control:invoke', 'control:scope:control:zone:write'],
           client_secret: 'x',
           registration_method: 'managed',
@@ -332,31 +336,41 @@ describe('provisionSystemZone', () => {
         },
       ],
     })
-    await provisionSystemZone(seeded.admin, 'cs_sealed', 'caracal-control', fakeFindZoneBySlug(seeded.state))
+    const result = await provisionSystemZone(seeded.admin, 'caracal-control', fakeFindZoneBySlug(seeded.state), roles)
     expect(seeded.state.calls).toContain('applications.patch:traits')
-    expect([...(seeded.state.apps[0].traits ?? [])].sort()).toEqual(operatorIdentityTraits())
+    expect(seeded.state.apps.find((a) => a.name === RESEARCHER_APP_NAME)!.traits).toEqual(
+      roleIdentityTraits(roles.researcher, result.expiresAt),
+    )
   })
 
-  it('fails closed when the reserved identity exists but cannot mint tokens (expired or non-managed)', async () => {
+  it('fails closed when a reserved identity exists but cannot serve as a managed credential (expired or non-managed)', async () => {
     const expired = fakeAdmin({
       zones: [{ id: 'zone-sys', name: SYSTEM_ZONE_NAME, slug: SYSTEM_ZONE_SLUG }],
-      // An expired reserved-name app cannot mint control tokens; binding to it would report
-      // governed execution configured while every execution failed at the mint.
+      // An app-expiring reserved-name application cannot carry the rotating credential;
+      // binding to it would report governed execution configured while every mint failed.
       apps: [
         {
-          id: 'app-op',
-          name: OPERATOR_APP_NAME,
-          traits: operatorIdentityTraits(),
+          id: 'app-x',
+          name: EXECUTOR_APP_NAME,
+          traits: [],
           registration_method: 'managed',
           expires_at: '2020-01-01T00:00:00Z',
         },
       ],
     })
-    await expect(provisionSystemZone(expired.admin, 'cs_sealed', 'caracal-control', fakeFindZoneBySlug(expired.state))).rejects.toThrow(
-      /usable non-expiring managed credential/,
+    await expect(provisionSystemZone(expired.admin, 'caracal-control', fakeFindZoneBySlug(expired.state), roles)).rejects.toThrow(
+      /not a usable managed credential/,
     )
     // It never widens authority by reusing an unusable identity or creating a duplicate.
-    expect(expired.state.calls).not.toContain('applications.create')
+    expect(expired.state.apps.filter((a) => a.name === EXECUTOR_APP_NAME)).toHaveLength(1)
+
+    const dcr = fakeAdmin({
+      zones: [{ id: 'zone-sys', name: SYSTEM_ZONE_NAME, slug: SYSTEM_ZONE_SLUG }],
+      apps: [{ id: 'app-d', name: OPERATOR_APP_NAME, traits: [], registration_method: 'dcr', expires_at: null }],
+    })
+    await expect(provisionSystemZone(dcr.admin, 'caracal-control', fakeFindZoneBySlug(dcr.state), roles)).rejects.toThrow(
+      /not a usable managed credential/,
+    )
   })
 })
 
@@ -383,7 +397,7 @@ describe('provisionSystemZone with governed upstreams', () => {
 
   it('seals the key, binds the resource, and activates the single grant policy-set from scratch', async () => {
     const { admin, state } = fakeAdmin({ zones: [{ id: 'zone-sys', name: SYSTEM_ZONE_NAME, slug: SYSTEM_ZONE_SLUG }] })
-    const result = await provisionSystemZone(admin, 'cs_sealed', 'caracal-control', fakeFindZoneBySlug(state), [upstream])
+    const result = await provisionSystemZone(admin, 'caracal-control', fakeFindZoneBySlug(state), roles, [upstream])
 
     // An api_key provider holds the sealed key and allows gateway runtime injection.
     const provider = state.providers.find((p) => p.identifier === 'provider://caracal-sys-operator-llm-openai')!
@@ -391,14 +405,14 @@ describe('provisionSystemZone with governed upstreams', () => {
     expect(provider.config_json).toMatchObject({ api_key: 'sk-live-secret', allow_runtime_injection: true, header_name: 'Authorization' })
 
     // The resource declares the data scope plus agent:lifecycle, binds the credential
-    // provider, and routes through the gateway as the Operator identity.
+    // provider, and routes through the gateway as the base LLM identity.
     const resource = state.resources.find((r) => r.identifier === 'caracal-sys://operator-llm-openai')!
     expect([...resource.scopes].sort()).toEqual(['agent:lifecycle', 'llm:invoke'])
     expect(resource.credential_provider_id).toBe(provider.id)
-    expect(resource.gateway_application_id).toBe(result.operatorApplicationId)
+    expect(resource.gateway_application_id).toBe(result.llm.applicationId)
     expect(resource.operation_enforcement).toBe('transport_uniform')
 
-    // Exactly one policy and one policy-set, activated, granting the Operator the resource.
+    // Exactly one policy and one policy-set, activated, granting the base identity the resource.
     expect(state.policies).toHaveLength(1)
     expect(state.policySets).toHaveLength(1)
     expect(state.policySets[0].active_version_id).not.toBeNull()
@@ -407,9 +421,9 @@ describe('provisionSystemZone with governed upstreams', () => {
 
   it('is idempotent: an unchanged upstream set adds no policy version and does not re-activate', async () => {
     const { admin, state } = fakeAdmin({ zones: [{ id: 'zone-sys', name: SYSTEM_ZONE_NAME, slug: SYSTEM_ZONE_SLUG }] })
-    await provisionSystemZone(admin, 'cs_sealed', 'caracal-control', fakeFindZoneBySlug(state), [upstream])
+    await provisionSystemZone(admin, 'caracal-control', fakeFindZoneBySlug(state), roles, [upstream])
     state.calls.length = 0
-    await provisionSystemZone(admin, 'cs_sealed', 'caracal-control', fakeFindZoneBySlug(state), [upstream])
+    await provisionSystemZone(admin, 'caracal-control', fakeFindZoneBySlug(state), roles, [upstream])
 
     // Steady state: no new policy version, no re-activation, no duplicate objects.
     expect(state.calls).not.toContain('policies.create')
@@ -425,10 +439,10 @@ describe('provisionSystemZone with governed upstreams', () => {
 
   it('adds a new policy version and re-activates when a governed upstream is added', async () => {
     const { admin, state } = fakeAdmin({ zones: [{ id: 'zone-sys', name: SYSTEM_ZONE_NAME, slug: SYSTEM_ZONE_SLUG }] })
-    await provisionSystemZone(admin, 'cs_sealed', 'caracal-control', fakeFindZoneBySlug(state), [upstream])
+    await provisionSystemZone(admin, 'caracal-control', fakeFindZoneBySlug(state), roles, [upstream])
     state.calls.length = 0
     const second = { id: 'anthropic', baseUrl: 'https://api.anthropic.test/v1', apiKey: 'sk-other' }
-    await provisionSystemZone(admin, 'cs_sealed', 'caracal-control', fakeFindZoneBySlug(state), [upstream, second])
+    await provisionSystemZone(admin, 'caracal-control', fakeFindZoneBySlug(state), roles, [upstream, second])
 
     expect(state.calls).toContain('policies.addVersion')
     expect(state.calls).toContain('policySets.activate')
@@ -439,11 +453,11 @@ describe('provisionSystemZone with governed upstreams', () => {
 
   it('re-activates to self-heal a deactivated policy-set even when content is unchanged', async () => {
     const { admin, state } = fakeAdmin({ zones: [{ id: 'zone-sys', name: SYSTEM_ZONE_NAME, slug: SYSTEM_ZONE_SLUG }] })
-    await provisionSystemZone(admin, 'cs_sealed', 'caracal-control', fakeFindZoneBySlug(state), [upstream])
+    await provisionSystemZone(admin, 'caracal-control', fakeFindZoneBySlug(state), roles, [upstream])
     // Simulate a manual deactivation of the system policy-set.
     state.policySets[0].active_version_id = null
     state.calls.length = 0
-    await provisionSystemZone(admin, 'cs_sealed', 'caracal-control', fakeFindZoneBySlug(state), [upstream])
+    await provisionSystemZone(admin, 'caracal-control', fakeFindZoneBySlug(state), roles, [upstream])
 
     expect(state.calls).not.toContain('policies.addVersion')
     expect(state.calls).toContain('policySets.activate')
@@ -452,7 +466,7 @@ describe('provisionSystemZone with governed upstreams', () => {
 
   it('does no LLM provisioning when no governed upstreams are supplied', async () => {
     const { admin, state } = fakeAdmin({ zones: [{ id: 'zone-sys', name: SYSTEM_ZONE_NAME, slug: SYSTEM_ZONE_SLUG }] })
-    const result = await provisionSystemZone(admin, 'cs_sealed', 'caracal-control', fakeFindZoneBySlug(state))
+    const result = await provisionSystemZone(admin, 'caracal-control', fakeFindZoneBySlug(state), roles)
     expect(state.providers).toHaveLength(0)
     expect(state.policies).toHaveLength(0)
     expect(state.policySets).toHaveLength(0)
@@ -462,10 +476,10 @@ describe('provisionSystemZone with governed upstreams', () => {
   it('prunes a removed upstream: archives its provider, neutralizes its resource binding, and revokes its grant', async () => {
     const { admin, state } = fakeAdmin({ zones: [{ id: 'zone-sys', name: SYSTEM_ZONE_NAME, slug: SYSTEM_ZONE_SLUG }] })
     const second = { id: 'anthropic', baseUrl: 'https://api.anthropic.test/v1', apiKey: 'sk-other' }
-    await provisionSystemZone(admin, 'cs_sealed', 'caracal-control', fakeFindZoneBySlug(state), [upstream, second])
+    await provisionSystemZone(admin, 'caracal-control', fakeFindZoneBySlug(state), roles, [upstream, second])
     state.calls.length = 0
     // Remove the second upstream from config and re-provision.
-    const result = await provisionSystemZone(admin, 'cs_sealed', 'caracal-control', fakeFindZoneBySlug(state), [upstream])
+    const result = await provisionSystemZone(admin, 'caracal-control', fakeFindZoneBySlug(state), roles, [upstream])
 
     // The removed upstream's sealed provider is gone, so its key is no longer usable.
     expect(state.providers.find((p) => p.identifier === 'provider://caracal-sys-operator-llm-anthropic')).toBeUndefined()
@@ -484,9 +498,9 @@ describe('provisionSystemZone with governed upstreams', () => {
 
   it('reconciles grants to empty and prunes every provider when all governed upstreams are removed', async () => {
     const { admin, state } = fakeAdmin({ zones: [{ id: 'zone-sys', name: SYSTEM_ZONE_NAME, slug: SYSTEM_ZONE_SLUG }] })
-    await provisionSystemZone(admin, 'cs_sealed', 'caracal-control', fakeFindZoneBySlug(state), [upstream])
+    await provisionSystemZone(admin, 'caracal-control', fakeFindZoneBySlug(state), roles, [upstream])
     state.calls.length = 0
-    const result = await provisionSystemZone(admin, 'cs_sealed', 'caracal-control', fakeFindZoneBySlug(state), [])
+    const result = await provisionSystemZone(admin, 'caracal-control', fakeFindZoneBySlug(state), roles, [])
 
     // No provider survives, so no sealed key remains usable.
     expect(state.providers).toHaveLength(0)
@@ -495,20 +509,20 @@ describe('provisionSystemZone with governed upstreams', () => {
     const content = state.policies[0].versions.at(-1)!
     expect(state.policies[0].versions).toHaveLength(2)
     expect(state.calls).toContain('policySets.activate')
-    expect(content.content_sha256).toBe(sha256Hex(authorOperatorPolicy(result.operatorApplicationId, [])))
+    expect(content.content_sha256).toBe(sha256Hex(authorOperatorPolicy(result.llm.applicationId, [])))
     expect(result.governedResources).toEqual([])
   })
 
   it('re-adds a previously pruned upstream cleanly: a fresh provider re-bound to the reused resource', async () => {
     const { admin, state } = fakeAdmin({ zones: [{ id: 'zone-sys', name: SYSTEM_ZONE_NAME, slug: SYSTEM_ZONE_SLUG }] })
-    await provisionSystemZone(admin, 'cs_sealed', 'caracal-control', fakeFindZoneBySlug(state), [upstream])
-    await provisionSystemZone(admin, 'cs_sealed', 'caracal-control', fakeFindZoneBySlug(state), [])
-    const result = await provisionSystemZone(admin, 'cs_sealed', 'caracal-control', fakeFindZoneBySlug(state), [upstream])
+    await provisionSystemZone(admin, 'caracal-control', fakeFindZoneBySlug(state), roles, [upstream])
+    await provisionSystemZone(admin, 'caracal-control', fakeFindZoneBySlug(state), roles, [])
+    const result = await provisionSystemZone(admin, 'caracal-control', fakeFindZoneBySlug(state), roles, [upstream])
 
     // The single resource (never archived) is re-bound to the freshly created provider.
     const resource = state.resources.find((r) => r.identifier === 'caracal-sys://operator-llm-openai')!
     const provider = state.providers.find((p) => p.identifier === 'provider://caracal-sys-operator-llm-openai')!
-    expect(resource.gateway_application_id).toBe(result.operatorApplicationId)
+    expect(resource.gateway_application_id).toBe(result.llm.applicationId)
     expect(resource.credential_provider_id).toBe(provider.id)
     expect(state.resources.filter((r) => r.identifier === 'caracal-sys://operator-llm-openai')).toHaveLength(1)
     expect(result.governedResources).toEqual([{ id: 'openai', resourceIdentifier: 'caracal-sys://operator-llm-openai' }])
@@ -520,8 +534,8 @@ describe('provisionSystemZone with governed upstreams', () => {
       resources: [{ id: 'res-control', identifier: 'caracal-control', scopes: [] }],
       providers: [{ id: 'prov-keep', identifier: 'provider://tenant-thing', kind: 'api_key', config_json: {} }],
     })
-    await provisionSystemZone(admin, 'cs_sealed', 'caracal-control', fakeFindZoneBySlug(state), [upstream])
-    await provisionSystemZone(admin, 'cs_sealed', 'caracal-control', fakeFindZoneBySlug(state), [])
+    await provisionSystemZone(admin, 'caracal-control', fakeFindZoneBySlug(state), roles, [upstream])
+    await provisionSystemZone(admin, 'caracal-control', fakeFindZoneBySlug(state), roles, [])
 
     // The unrelated provider and the control resource are never pruned.
     expect(state.providers.find((p) => p.identifier === 'provider://tenant-thing')).toBeDefined()

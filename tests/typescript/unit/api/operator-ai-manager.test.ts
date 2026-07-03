@@ -16,6 +16,7 @@ import {
   OperatorAiNotFoundError,
 } from '../../../../apps/api/src/operator-ai-manager.js'
 import type { ProviderConfig } from '../../../../apps/api/src/operator-gateway.js'
+import type { OperatorControlIdentity } from '../../../../apps/api/src/config.js'
 
 interface StoreRow {
   slug: string
@@ -181,7 +182,13 @@ function fakeTransport(): OperatorLlmTransport {
 }
 
 const AUTH = { location: 'header' as const, headerName: 'Authorization', authScheme: 'Bearer' }
-const IDENTITY = { applicationId: 'op-app', clientSecret: 'secret', zoneId: 'sys-zone' }
+const IDENTITY: OperatorControlIdentity = {
+  zoneId: 'sys-zone',
+  llm: { applicationId: 'op-app', clientSecret: 'secret' },
+  researcher: { applicationId: 'op-researcher', clientSecret: 'secret' },
+  executor: { applicationId: 'op-executor', clientSecret: 'secret' },
+  expiresAt: new Date(Date.now() + 3600_000),
+}
 
 function buildManager(identity: typeof IDENTITY | null) {
   const { db } = fakeDb()
