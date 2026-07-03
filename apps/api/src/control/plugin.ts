@@ -14,16 +14,21 @@ import { RedisSink } from './audit.js'
 import { RateLimiter } from './ratelimit.js'
 import { RedisReplay } from './replay.js'
 import { fileGate } from './gate.js'
-import { registerInvokeRoute } from './handler.js'
+import { registerInvokeRoute, type ZoneScopeTarget } from './handler.js'
 
 export interface ControlPluginOptions {
   cfg: ControlConfig
   redis: RedisClient
   auditHmacKey: Buffer | null
   controlLogLevel: string
-  // The reserved Operator's application id, used to authorize its cross-zone governance. Null
-  // until the system zone is provisioned, or when self-governance is disabled.
-  resolvePlatformOperatorSubject?: () => string | null
+  // The reserved Operator role identities' application ids, used to authorize cross-zone
+  // governance and attribution. Null until the system zone is provisioned, when the
+  // credentials have expired, or when self-governance is disabled.
+  resolveOperatorSubjects?: () => ReadonlySet<string> | null
+  // Authoritative zone lookup for the zone-scope boundary; null when the zone does not exist.
+  lookupZoneScopeTarget?: (zoneId: string) => Promise<ZoneScopeTarget | null>
+  // Zones isolated from Operator administration by deployment policy.
+  isolatedZones?: ReadonlySet<string>
 }
 
 const controlPluginImpl: FastifyPluginAsync<ControlPluginOptions> = async (app, opts) => {
@@ -45,7 +50,9 @@ const controlPluginImpl: FastifyPluginAsync<ControlPluginOptions> = async (app, 
     gate,
     redis,
     ipRateLimitPerMin: cfg.ipRateLimitPerMin,
-    resolvePlatformOperatorSubject: opts.resolvePlatformOperatorSubject,
+    resolveOperatorSubjects: opts.resolveOperatorSubjects,
+    lookupZoneScopeTarget: opts.lookupZoneScopeTarget,
+    isolatedZones: opts.isolatedZones,
   })
 }
 
