@@ -1,0 +1,63 @@
+---
+title: Provision with OpenTofu
+description: Provision Caracal on Kubernetes with the OpenTofu module and environment roots.
+pageType: workflow
+---
+
+The OpenTofu configuration in `infra/tofu` provisions Caracal declaratively: a pod-security-restricted namespace, optional runtime credentials, and the Helm release. It wraps the same chart described in [Deploy with Helm](/operations/kubernetes-helm/), so chart values profiles stay the single source of deployment defaults while OpenTofu owns environment identity, chart provenance, and drift control.
+
+## Layout
+
+| Path                              | Purpose                                                                                          |
+| --------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `infra/tofu/modules/caracalStack` | Reusable module: namespace, optional runtime Secret, Helm release.                               |
+| `infra/tofu/envs/dev`             | Installs the working-tree chart with `values.dev.yaml` against any kubeconfig-reachable cluster. |
+| `infra/tofu/envs/production`      | Installs a pinned OCI-published chart version with `values.production.yaml`.                     |
+| `infra/tofu/scripts/validate.sh`  | Formatting and offline validation harness used by CI.                                            |
+
+## Requirements
+
+- OpenTofu `>= 1.8`
+- Kubernetes `>= 1.30` (the chart's floor)
+- A kubeconfig context for the target cluster; the provider blocks in each environment root can be swapped for exec-based cloud IAM auth without touching the module.
+
+## Dev Environment
+
+The dev root deploys the chart directly from the working tree, so infrastructure changes are exercised before any artifact is published:
+
+```bash
+cd infra/tofu/envs/dev
+cp terraform.tfvars.example terraform.tfvars   # fill in throwaway credentials
+tofu init
+tofu apply
+```
+
+Dev runs in `mode: dev` with `evaluation: true`. The `runtimeSecrets` variable provisions the `caracal-runtime` Secret through OpenTofu instead of chart plaintext values, keeping one secret-delivery path across environments.
+
+## Production Environment
+
+The production root always pins a released chart version from the OCI registry and enforces the chart's stable-mode guardrails, which reject in-cluster data-store defaults:
+
+```bash
+cd infra/tofu/envs/production
+cp terraform.tfvars.example terraform.tfvars   # pin chartVersion, set HA hosts
+tofu init
+tofu plan
+tofu apply
+```
+
+Production never carries credentials in variables. Deliver the `caracal-runtime` Secret with your secret manager - for example the External Secrets Operator flow in [Deploy on Managed Kubernetes](/operations/cloud-reference-deployments/) - before the first apply.
+
+Set `extraValues` for environment overlays such as ingress hosts, the web console `publicUrl`, and OTLP endpoints. Every apply is atomic: a failed install or upgrade rolls back automatically, including migration hook Jobs.
+
+## State Management
+
+Roots default to local state for evaluation. For shared environments, configure a remote backend (S3-compatible object storage, Kubernetes Secret backend, or your platform's state service) with `tofu init -backend-config`; the roots contain no provider-specific backend assumptions.
+
+## Validation
+
+```bash
+bash infra/tofu/scripts/validate.sh
+```
+
+The harness runs `tofu fmt -check` across the tree and an offline `tofu validate` of every environment root. CI runs the same harness on any `infra/` change.
