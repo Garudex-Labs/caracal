@@ -2,8 +2,8 @@ cff-version: 0.1.0
 message: "If this project contributes to your research, product, or derivative systems, please consider citing it to help us advance trustworthy AI security research."
 authors:
   - name: "Garudex Labs"
-title: "Caracal: Authority Enforcement for AI Agents"
-abstract: "An open-source package for pre-execution authority enforcement for AI agents controlling delegated actions, with real-time revocation and immutable proof."
+title: "Caracal: Identity and Authorization for AI Agents"
+abstract: "Open-source identity and authorization infrastructure for AI agents: short-lived, policy-approved mandates instead of credentials, delegation that can only narrow, instant revocation, and a tamper-evident audit trail."
 date-released: 2026-05-01
 url: "https://github.com/Garudex-Labs/caracal"
 repository-code: "https://github.com/Garudex-Labs/caracal"

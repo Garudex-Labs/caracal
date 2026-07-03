@@ -148,7 +148,7 @@ function LeftRail() {
           <LicenseBanner />
         </div>
         <h1 className="text-[1.9rem] font-medium leading-[1.05] tracking-tight text-foreground xl:text-[2.2rem]">
-          Authority and Delegation layer for ai agents.
+          Authority, not credentials, for AI agents.
         </h1>
         <div className="flex flex-wrap items-center gap-2">
           <a
