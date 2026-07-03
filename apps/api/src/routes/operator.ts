@@ -23,7 +23,6 @@ import { previewPlan, type StepPreview } from '../operator-preview.js'
 import { buildOperatorAuthority, isZoneIsolated, authorizePlanSteps, type OperatorAuthority } from '../operator-authority.js'
 import { buildOperatorControlClient, type OperatorControlEndpoints } from '../operator-control-client.js'
 import { executeViaControlPlane, type GovernedPlanStep } from '../operator-governed-execute.js'
-import { createRoleScopedClient, roleScopes } from '../operator-agent-roles.js'
 import { isControlExecutable } from '../operator-control-map.js'
 import { SYSTEM_ZONE_SLUG } from '../system-zone.js'
 import { mayAutoApprove, autopilotAvailable, buildAutopilotPolicy, type AutopilotPolicy } from '../operator-autopilot.js'
@@ -742,15 +741,16 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
   // Built once for the plugin; it holds no per-request state.
   const orchestrator = createOrchestrator()
 
-  // Builds the Operator's governed control client for the currently resolved identity scoped to
-  // the zone the conversation acts in, or null when governed execution is not fully configured -
-  // no identity, or the control plane is disabled. The Operator governs every zone it operates in:
-  // for its own (system) zone it acts directly; for any tenant zone the client carries a zone-scope
-  // header the in-process control handler honors for the reserved Operator subject, so the
-  // approval-gated mutation is applied in the conversation's zone without provisioning an identity
-  // there. Resolved per request because the identity is populated after the system zone is
-  // provisioned at startup; constructing the client is cheap. A null result means execution refuses
-  // rather than falling back to any other authority.
+  // Builds the Operator's governed control client for the executor role identity scoped to the
+  // zone the conversation acts in, or null when governed execution is not fully configured - no
+  // live identity, or the control plane is disabled. Each role is a separate Caracal application
+  // whose STS traits bound what it can mint, so the executor's write authority exists in its
+  // credential, not in any in-process wrapper. For the Operator's own (system) zone the client
+  // acts directly; for any other zone it carries a zone-scope header the in-process control
+  // handler authorizes against that zone's explicit administration grant. Resolved per request
+  // because the identity rotates and is populated after the server is listening; constructing the
+  // client is cheap. A null result means execution refuses rather than falling back to any other
+  // authority.
   const resolveControlClient = (
     zoneId: string,
     authorizedBy?: string,
@@ -759,26 +759,38 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
     const identity = opts.resolveControlIdentity?.() ?? null
     if (!identity || !opts.controlEndpoints) return null
     const zoneScope = identity.zoneId === zoneId ? undefined : zoneId
-    const client = buildOperatorControlClient(identity, opts.controlEndpoints, opts.fetchImpl, zoneScope, authorizedBy, coAuthorOperator)
+    const client = buildOperatorControlClient(identity, 'executor', opts.controlEndpoints, opts.fetchImpl, zoneScope, authorizedBy, coAuthorOperator)
     return client ? { client, identity } : null
   }
 
   // Builds a read-only researcher that grounds an answer in the conversation zone's live state
-  // through a governed mandate. The Operator acts as its single reserved system-zone identity in
-  // every zone: for caracal.sys it reads directly; for any tenant zone the control client carries a
-  // zone-scope header the in-process control handler honors for the reserved Operator subject, so
-  // live state is read without provisioning any identity in the tenant zone. The worker is narrowed
-  // to the read role, so it can never mint a write token regardless of what the zone-scope header
-  // permits; every change still flows through the approval-gated execution path. Null when
-  // self-governance is not configured, in which case the read agents say live state could not be
-  // read rather than guess.
+  // through a governed mandate. The researcher role is a separate Caracal application whose STS
+  // traits carry only read scopes, so it can never mint a write token regardless of what the
+  // zone-scope header permits; every change still flows through the approval-gated execution
+  // path. For any zone other than the Operator's own, the control client carries a zone-scope
+  // header the in-process control handler authorizes against that zone's explicit administration
+  // grant. Null when self-governance is not configured, in which case the read agents say live
+  // state could not be read rather than guess.
   const resolveZoneResearcher = (zoneId: string): ReturnType<typeof createStateResearcher> | null => {
     const identity = opts.resolveControlIdentity?.() ?? null
     if (!identity || !opts.controlEndpoints) return null
     const zoneScope = identity.zoneId === zoneId ? undefined : zoneId
-    const client = buildOperatorControlClient(identity, opts.controlEndpoints, opts.fetchImpl, zoneScope)
+    const client = buildOperatorControlClient(identity, 'researcher', opts.controlEndpoints, opts.fetchImpl, zoneScope)
     if (!client) return null
-    return createStateResearcher(createRoleScopedClient(client, 'researcher', roleScopes('researcher', authority)))
+    return createStateResearcher(client)
+  }
+
+  // The explicit per-zone administration grant, read from the same authoritative zone record the
+  // control handler enforces, so a route refuses upfront with a precise error instead of failing
+  // at dispatch. The Operator's own system zone needs no grant: it acts there under its token's
+  // own zone rather than through the zone-scope boundary.
+  const zoneGoverned = async (zoneId: string, identity: OperatorControlIdentity): Promise<boolean> => {
+    if (zoneId === identity.zoneId) return true
+    const { rows } = await fastify.db.query<{ operator_governed: boolean }>(
+      'SELECT operator_governed FROM zones WHERE id = $1 AND archived_at IS NULL LIMIT 1',
+      [zoneId],
+    )
+    return rows[0]?.operator_governed === true
   }
 
   // Always cheap and always present so the console can render a precise enabled/disabled
@@ -1551,6 +1563,12 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
     if (!governed) {
       return reply.code(409).send({ error: 'governed_execution_unconfigured' })
     }
+    // The target zone must have explicitly granted Operator administration; the control handler
+    // enforces the same grant at dispatch, so this refusal is a precise error before any lock or
+    // preflight work rather than the boundary itself.
+    if (!(await zoneGoverned(params.zoneId, governed.identity))) {
+      return reply.code(403).send({ error: 'zone_not_governed' })
+    }
     const controlClient = governed.client
 
     const lockKey = `operator:exec:${params.zoneId}:${params.id}:${planSeq}`
@@ -1685,14 +1703,13 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
       })
 
       if (!pre.ok) return reply.code(pre.status).send(pre.body)
-      // Apply the plan through the control plane as the Operator's scoped identity, spawned under
-      // the executor role: the control client is bounded to exactly the scopes the Operator's
-      // authority grants, so a write scope it was never granted can never be minted even if a step
-      // slipped past the authority check. Each step mints a least-privilege token and invokes its
-      // governed control command; the control plane authorizes, executes, and audits it natively. A
-      // denial or failure stops the plan, so it never silently half-applies.
-      const executor = createRoleScopedClient(controlClient, 'executor', roleScopes('executor', authority))
-      const result = await executeViaControlPlane(executor, pre.steps)
+      // Apply the plan through the control plane as the executor role identity: a separate
+      // Caracal application whose STS traits carry exactly the scopes the Operator's authority
+      // grants, so a write scope it was never granted can never be minted even if a step slipped
+      // past the authority check. Each step mints a least-privilege token and invokes its
+      // governed control command; the control plane authorizes, executes, and audits it natively.
+      // A denial or failure stops the plan, so it never silently half-applies.
+      const result = await executeViaControlPlane(controlClient, pre.steps)
 
       // Record the applied steps and any failure in the ledger. The control plane already
       // wrote the tamper-evident admin audit for each mutation, so no manual audit record
@@ -1913,15 +1930,18 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
       loadConversationState(fastify.db, params.id, params.zoneId, MESSAGE_CONTEXT_WINDOW),
       loadConversationFacts(fastify.db, params.id, params.zoneId),
       recallZoneMemory(fastify.db, params.zoneId),
-      fastify.db.query<{ name: string | null; slug: string | null }>('SELECT name, slug FROM zones WHERE id = $1 LIMIT 1', [params.zoneId]),
+      fastify.db.query<{ name: string | null; slug: string | null; operator_governed: boolean }>(
+        'SELECT name, slug, operator_governed FROM zones WHERE id = $1 LIMIT 1',
+        [params.zoneId],
+      ),
     ])
     // Ground the agents in their one operating zone. canApply mirrors the execute handler's gate:
-    // the Operator governs every zone it operates in, so a conversation can apply changes whenever
-    // its governed identity and control plane are configured. The zone-isolation refusal above
-    // already excludes the reserved system zones, so any zone that reaches here is governable.
-    // Surfacing it lets the Operator say so upfront instead of only confirming at apply time.
+    // governed identity and control plane configured, and the zone has explicitly granted
+    // Operator administration (the Operator's own system zone needs no grant). Surfacing it lets
+    // the Operator say so upfront instead of only confirming at apply time.
     const governedIdentity = opts.resolveControlIdentity?.() ?? null
-    const canApply = !!governedIdentity && !!opts.controlEndpoints
+    const zoneGrant = params.zoneId === governedIdentity?.zoneId || zoneRow.rows[0]?.operator_governed === true
+    const canApply = !!governedIdentity && !!opts.controlEndpoints && zoneGrant
     const zoneName = zoneRow.rows[0]?.name ?? zoneRow.rows[0]?.slug ?? 'this zone'
     const context: AgentContext = { facts, state, zoneMemory, zone: { name: zoneName, canApply } }
 
@@ -2008,14 +2028,14 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
 
     try {
       // For a read tier the orchestrator first gathers live state through governed reads, so the
-      // answer is grounded in current state rather than the model's guess. The researcher is bound
-      // to the conversation's zone: the Operator's system-zone identity is reused for caracal.sys,
-      // and for any other zone a least-privilege, read-only reader identity is provisioned in that
-      // zone. The worker is further narrowed to the read role, so it can never mint a write token -
-      // every change still flows through the approval-gated execution path below. When
-      // self-governance is not configured the researcher is null and the answer falls back to
-      // conversation context, and the read agents say live state could not be read for this zone.
-      const researcher = resolveZoneResearcher(params.zoneId)
+      // answer is grounded in current state rather than the model's guess. The researcher is the
+      // Operator's read-only role application bound to the conversation's zone; its STS traits
+      // carry only read scopes, so it can never mint a write token - every change still flows
+      // through the approval-gated execution path below. A zone that has not granted Operator
+      // administration gets no researcher: the control handler would deny every read, so the
+      // answer falls back to conversation context and the read agents say live state could not
+      // be read for this zone. The same happens when self-governance is not configured.
+      const researcher = zoneGrant ? resolveZoneResearcher(params.zoneId) : null
 
       // The conversation's operation mode, read under the lock that recorded the message. In ask
       // mode the orchestrator never produces a plan, so the message path cannot persist one.
