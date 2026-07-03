@@ -34,7 +34,7 @@ x-appResources: &appResources
     resources:
       limits:
         cpus: "${CARACAL_APP_CPU_LIMIT:-1.0}"
-        memory: "${CARACAL_APP_MEM_LIMIT:-1G}"
+        memory: "${CARACAL_APP_MEM_LIMIT:-512M}"
         pids: 256
       reservations:
         cpus: "${CARACAL_APP_CPU_RESERVE:-0.1}"

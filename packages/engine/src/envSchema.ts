@@ -76,10 +76,20 @@ export const ENV_SCHEMA = {
     secret: true,
     file: 'postgresPassword',
   },
-  POSTGRES_SHARED_BUFFERS: { kind: 'string', description: 'shared_buffers tuning. Target ~25% of DB memory.', default: '256MB', exposed: true },
+  POSTGRES_SHARED_BUFFERS: {
+    kind: 'string',
+    description: 'shared_buffers tuning. Target ~25% of DB memory.',
+    default: '256MB',
+    exposed: true,
+  },
   POSTGRES_EFFECTIVE_CACHE_SIZE: { kind: 'string', description: 'effective_cache_size planner hint.', default: '768MB', exposed: true },
   POSTGRES_WORK_MEM: { kind: 'string', description: 'work_mem per sort/hash op.', default: '8MB', exposed: true },
-  POSTGRES_MAINTENANCE_WORK_MEM: { kind: 'string', description: 'maintenance_work_mem for VACUUM/CREATE INDEX.', default: '64MB', exposed: true },
+  POSTGRES_MAINTENANCE_WORK_MEM: {
+    kind: 'string',
+    description: 'maintenance_work_mem for VACUUM/CREATE INDEX.',
+    default: '64MB',
+    exposed: true,
+  },
   POSTGRES_MAX_CONNECTIONS: { kind: 'int', description: 'max_connections ceiling.', default: '100', exposed: true },
   POSTGRES_LOG_MIN_DURATION_MS: { kind: 'int', description: 'Slow query log threshold in ms.', default: '500', exposed: true },
 
@@ -150,7 +160,8 @@ export const ENV_SCHEMA = {
   },
   UPSTREAM_HOST_ALLOWLIST: {
     kind: 'string',
-    description: 'Gateway: optional comma-separated allowlist pinning upstream egress to named hosts. Empty permits any operator-provisioned host. Private and on-prem upstreams are allowed by default; dangerous ranges (cloud metadata, loopback, CGNAT, multicast) are always blocked.',
+    description:
+      'Gateway: optional comma-separated allowlist pinning upstream egress to named hosts. Empty permits any operator-provisioned host. Private and on-prem upstreams are allowed by default; dangerous ranges (cloud metadata, loopback, CGNAT, multicast) are always blocked.',
     default: '',
     exposed: true,
   },
@@ -181,6 +192,8 @@ export const ENV_SCHEMA = {
   CARACAL_APP_CPU_RESERVE: { kind: 'string', description: 'Per-app-container CPU reservation.', default: '0.1', exposed: true },
   CARACAL_APP_MEM_LIMIT: { kind: 'string', description: 'Per-app-container memory limit.', default: '512M', exposed: true },
   CARACAL_APP_MEM_RESERVE: { kind: 'string', description: 'Per-app-container memory reservation.', default: '128M', exposed: true },
+  CARACAL_GATEWAY_CPU_LIMIT: { kind: 'string', description: 'Gateway container CPU limit.', default: '2.0', exposed: true },
+  CARACAL_GATEWAY_MEM_LIMIT: { kind: 'string', description: 'Gateway container memory limit.', default: '1G', exposed: true },
   CARACAL_DB_CPU_LIMIT: { kind: 'string', description: 'Postgres CPU limit.', default: '2.0', exposed: true },
   CARACAL_DB_MEM_LIMIT: { kind: 'string', description: 'Postgres memory limit.', default: '1G', exposed: true },
   CARACAL_DB_MEM_RESERVE: { kind: 'string', description: 'Postgres memory reservation.', default: '256M', exposed: true },
@@ -195,7 +208,13 @@ export const ENV_SCHEMA = {
     default: '',
     exposed: true,
   },
-  LOG_LEVEL: { kind: 'enum', values: ['trace', 'debug', 'info', 'warn', 'error', 'fatal'], description: 'Log verbosity for all services.', default: 'info', exposed: true },
+  LOG_LEVEL: {
+    kind: 'enum',
+    values: ['trace', 'debug', 'info', 'warn', 'error', 'fatal'],
+    description: 'Log verbosity for all services.',
+    default: 'info',
+    exposed: true,
+  },
   OPERATOR_UPSTREAM_ALLOWLIST: {
     kind: 'string',
     description: 'Comma-separated host allowlist the Operator LLM normalizer may forward to. Blank allows any (dev).',
