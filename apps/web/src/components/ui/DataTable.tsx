@@ -32,6 +32,7 @@ export interface SortState {
 function SortGlyph({ active, direction }: { active: boolean; direction: SortDirection }) {
   return (
     <span
+      aria-hidden="true"
       className={cx(
         "inline-flex flex-col leading-none",
         active ? "text-foreground" : "text-muted-foreground/40",
@@ -102,9 +103,18 @@ export function DataTable<T>({
               <tr className="bg-muted text-left">
                 {columns.map((col) => {
                   const active = sort?.column === col.id;
+                  const ariaSort =
+                    col.sortable && onSortChange
+                      ? active
+                        ? sort?.direction === "desc"
+                          ? "descending"
+                          : "ascending"
+                        : "none"
+                      : undefined;
                   return (
                     <th
                       key={col.id}
+                      aria-sort={ariaSort}
                       style={col.width ? { width: col.width } : undefined}
                       className={cx(
                         "border-b border-border px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground whitespace-nowrap",
@@ -115,6 +125,7 @@ export function DataTable<T>({
                       {col.sortable && onSortChange ? (
                         <button
                           onClick={() => onSortChange(col.id)}
+                          aria-label={`Sort by ${col.header}`}
                           className={cx(
                             "inline-flex items-center gap-1 outline-none transition-colors hover:text-foreground",
                             col.align === "right" && "flex-row-reverse",
