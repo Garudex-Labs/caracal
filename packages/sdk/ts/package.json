@@ -1,7 +1,7 @@
 {
   "name": "@caracalai/sdk",
   "version": "0.1.6-rc.2",
-  "description": "Caracal agent identity and delegation SDK.",
+  "description": "Caracal SDK for TypeScript: short-lived, policy-approved authority for AI agents instead of long-lived credentials.",
   "license": "Apache-2.0",
   "homepage": "https://github.com/Garudex-Labs/caracal",
   "repository": {

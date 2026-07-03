@@ -2,7 +2,7 @@
   "name": "@caracalai/runtime",
   "version": "0.1.6-rc.2",
   "private": true,
-  "description": "Caracal runtime shell for local stack lifecycle and workload execution.",
+  "description": "Caracal local runtime CLI: stack lifecycle, console launcher, and governed workload execution.",
   "license": "Apache-2.0",
   "homepage": "https://github.com/Garudex-Labs/caracal",
   "repository": {
