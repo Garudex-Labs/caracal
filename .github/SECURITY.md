@@ -14,7 +14,7 @@ caracal supports two primary reporting methods. For open-source related issues, 
 [https://github.com/Garudex-Labs/caracal/security/advisories/new](https://github.com/Garudex-Labs/caracal/security/advisories/new)
 
 For more sensitive disclosures, detailed reports, or anything requiring attachments such as patches or exploit demonstrations, you should use email:
-[support@garudexlabs.com](mailto:support@garudexlabs.com)
+[support@caracal.run](mailto:support@caracal.run)
 
 If the issue relates to enterprise-only code, enterprise deployment material, or non-public customer context, it must be reported strictly via email. GitHub advisories must not be used for enterprise-related vulnerabilities. These reports are handled directly by the founding team at Garudex Labs.
 

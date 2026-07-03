@@ -149,7 +149,6 @@ caracal run -- node worker.js         # workload execution
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for setup, workflow, tests, and pull request standards.
 
-
 ## Community & Partnerships
 
 <div align="center">
@@ -163,8 +162,6 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for setup, workflow, tests, and pull re
 |                                                                                                                                                                                           <a href="https://mentorship.lfx.linuxfoundation.org/project/9cfe285b-7006-4610-84a8-1a52b0dff662"><img src="https://img.shields.io/badge/LFX-Mentorship%202026-8E44AD?style=for-the-badge&logo=linuxfoundation&logoColor=white" width="240"/></a>                                                                                                                                                                                           | Jun 2026 – present |
 
 </div>
-
----
 
 ---
 
