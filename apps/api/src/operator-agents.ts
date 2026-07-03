@@ -4,7 +4,13 @@
 // The Operator agent layer: purpose-built agents that turn intent into typed artifacts the deterministic engine governs.
 
 import { z } from 'zod'
-import { CAPABILITIES, describeCapabilitiesForPrompt, ProposedPlan, type CapabilityDomain, type ProposedPlanInput } from './operator-capabilities.js'
+import {
+  CAPABILITIES,
+  describeCapabilitiesForPrompt,
+  ProposedPlan,
+  type CapabilityDomain,
+  type ProposedPlanInput,
+} from './operator-capabilities.js'
 import { PROVIDER_CONFIG_FIELDS, PROVIDER_KINDS, type ProviderConfigField } from './provider-config.js'
 import type { ConversationState, RecentMessage } from './operator-state.js'
 import { describeFacts, type ConversationFacts } from './operator-memory.js'
@@ -646,6 +652,11 @@ export function buildPlannerMessages(message: string, context: AgentContext, fee
           'one already serves the same upstream, reuse it and never propose a duplicate. A request to add a',
           'resource "using this provider" or an existing provider plans ONLY the defineResource step, with',
           'that provider\u2019s id as credential_provider_id - a resource step never collects credentials.',
+          'NEVER RE-CREATE WHAT EXISTS. Before proposing any create or register step, check the live',
+          'state: when an object with that name already exists, do not plan its creation again - Caracal',
+          'refuses a create whose target exists rather than duplicating it. Return an empty steps array',
+          'and a "clarification" that says it already exists and asks what should change about it, unless',
+          'the request also asks for other work, in which case plan only the steps that remain to be done.',
           'DEFINING A RESOURCE. defineResource carries the resource\u2019s full Gateway binding in one step:',
           'upstream_url (the upstream API base URL the Gateway forwards to), gateway_application_id (an',
           'existing managed application in the live state), and credential_provider_id (an existing',

@@ -1547,14 +1547,16 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
       const preview = await previewPlan(fastify.db, params.zoneId, { summary: stored.content.summary, steps })
       // The same deterministic applicability gate the message path and the execute route use: the
       // zone must hold governed execution - identity, control plane, and its explicit
-      // administration grant - or the completed vault still stops for a human.
+      // administration grant - and no step may already be satisfied, because execute refuses a
+      // plan whose create now targets something that exists rather than duplicating it.
       const governedIdentity = opts.resolveControlIdentity?.() ?? null
       const canApply = !!governedIdentity && !!opts.controlEndpoints && (await zoneGoverned(params.zoneId, governedIdentity))
+      const applicable = preview.ok && canApply && preview.steps.every((step) => step.effect !== 'exists')
       const mutatingSteps = stored.content.steps.filter((step) => step.mutating === true).length
       const budget = autopilotPolicy.conversationWriteBudget
       const priorApprovedWrites = budget !== null ? await autopilotApprovedWrites(fastify.db, params.id, params.zoneId) : 0
       const decision = mayAutoApprove(
-        { engaged: true, applicable: preview.ok && canApply, credentialsSatisfied: true, steps, mutatingSteps, priorApprovedWrites },
+        { engaged: true, applicable, credentialsSatisfied: true, steps, mutatingSteps, priorApprovedWrites },
         autopilotPolicy,
       )
       if (decision.autoApprove) {
@@ -2305,6 +2307,33 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
         }
 
         const preview = await previewPlan(fastify.db, params.zoneId, planned.value)
+        // A plan that would change nothing is a category error the same way an all-read plan is:
+        // when every step resolves against live state as already satisfied or read-only, there is
+        // nothing to approve and the execute path would refuse it as already satisfied. The
+        // deterministic preview details already say what exists, so the turn answers plainly with
+        // them instead of surfacing an approvable card that can only dead-end.
+        const satisfied =
+          preview.ok && preview.steps.length > 0 && preview.steps.every((step) => step.effect === 'exists' || step.effect === 'read_only')
+        if (satisfied && preview.steps.some((step) => step.effect === 'exists')) {
+          const details = preview.steps.filter((step) => step.effect === 'exists').map((step) => step.detail)
+          const text = `Nothing to change - this is already in place. ${details.join(' ')}`
+          const noteContent: Record<string, unknown> = { text }
+          if (deliberation.length > 0) noteContent.deliberation = deliberation
+          const turn = await appendTurnTx(
+            fastify.db,
+            params.id,
+            params.zoneId,
+            'operator',
+            'note',
+            JSON.stringify(noteContent),
+            req.actor.id,
+          )
+          return finish(
+            201,
+            { intent: 'explain', tier, ok: true, text, turn: turn.ok ? turn.turn : null, ...meta() },
+            { state: 'completed', reason: 'plan_already_satisfied' },
+          )
+        }
         // A composed plan carries the guardian's review state; the route persists it with the plan
         // and surfaces it to whoever decides. The advisory and its guidance - the guardian's
         // concrete recommendation when it judged the plan risky or misaligned - are informational
@@ -2360,11 +2389,20 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
           const budget = autopilotPolicy.conversationWriteBudget
           const priorApprovedWrites = budget !== null ? await autopilotApprovedWrites(fastify.db, params.id, params.zoneId) : 0
           // Applicability is the same deterministic gate the execute route enforces: the preview
-          // must say every step can apply AND the zone must be able to apply at all - governed
-          // identity configured and the zone's explicit administration grant in place. A plan that
-          // would only dead-end at execute stops for a human who can see why instead.
+          // must say every step can apply, the zone must be able to apply at all - governed
+          // identity configured and the zone's explicit administration grant in place - and no
+          // step may already be satisfied, because execute refuses a plan whose create now
+          // targets something that exists. A plan that would only dead-end at execute stops for
+          // a human who can see why instead.
           const decision = mayAutoApprove(
-            { engaged: true, applicable: preview.ok && canApply, credentialsSatisfied, steps: planned.value.steps, mutatingSteps, priorApprovedWrites },
+            {
+              engaged: true,
+              applicable: preview.ok && canApply && preview.steps.every((step) => step.effect !== 'exists'),
+              credentialsSatisfied,
+              steps: planned.value.steps,
+              mutatingSteps,
+              priorApprovedWrites,
+            },
             autopilotPolicy,
           )
           if (decision.autoApprove) {
