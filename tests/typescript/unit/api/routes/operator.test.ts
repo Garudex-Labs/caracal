@@ -608,7 +608,7 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/plan/validate', () =
     const res = await app.inject({
       method: 'POST',
       url: '/v1/zones/z1/operator-conversations/conv-x/plan/validate',
-      payload: { summary: 'x', steps: [{ id: 's1', capability: 'listZones', args: {} }] },
+      payload: { summary: 'x', steps: [{ id: 's1', capability: 'listApplications', args: {} }] },
     })
     expect(res.statusCode).toBe(404)
     expect(JSON.parse(res.body)).toMatchObject({ error: 'conversation_not_found' })
@@ -658,7 +658,7 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/plan/preview', () =>
     const res = await app.inject({
       method: 'POST',
       url: '/v1/zones/z1/operator-conversations/conv-x/plan/preview',
-      payload: { summary: 'x', steps: [{ id: 's1', capability: 'listZones', args: {} }] },
+      payload: { summary: 'x', steps: [{ id: 's1', capability: 'listApplications', args: {} }] },
     })
     expect(res.statusCode).toBe(404)
     expect(JSON.parse(res.body)).toMatchObject({ error: 'conversation_not_found' })
@@ -1396,6 +1396,7 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/plan/execute', () =>
       .mockResolvedValueOnce({ rows: [{ content: resumePlan }] }) // plan content
       .mockResolvedValueOnce({ rows: [{ kind: 'approval' }] }) // approved
       .mockResolvedValueOnce({ rows: [{ step_id: 's1', status: 'succeeded' }] }) // s1 already applied
+      .mockResolvedValueOnce({ rows: [{ one: 1 }] }) // preview: application name taken (s1, already applied)
       .mockResolvedValueOnce({ rows: [{ one: 1 }] }) // preview: application lives (s2)
       .mockResolvedValueOnce({ rows: [{ one: 1 }] }) // preview: resource lives (s2)
       .mockResolvedValueOnce(undefined) // COMMIT
@@ -1426,10 +1427,17 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/plan/execute', () =>
   })
 
   it('refuses an approved plan the Operator is not authorized to execute', async () => {
-    const { app, clientQuery } = buildApp(true, governedControl)
+    const { app, clientQuery } = buildApp(true, { ...governedControl, allowedCapabilities: ['registerApplication'] })
     const forbiddenPlan = {
-      summary: 'Create a zone',
-      steps: [{ id: 's1', capability: 'createZone', mutating: true, args: { name: 'Hooli Staging' } }],
+      summary: 'Grant access',
+      steps: [
+        {
+          id: 's1',
+          capability: 'grantAccess',
+          mutating: true,
+          args: { application_id: 'app-1', user_id: 'user-1', resource_id: 'res-1', scopes: ['invoices:read'] },
+        },
+      ],
     }
     clientQuery
       .mockResolvedValueOnce(undefined) // BEGIN
@@ -1444,13 +1452,13 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/plan/execute', () =>
       url: '/v1/zones/z1/operator-conversations/conv-1/plan/execute',
       payload: { plan_seq: 2 },
     })
-    // Authority is the primary boundary: createZone is a platform operation outside the
+    // Authority is the primary boundary: grantAccess sits outside this deployment's narrowed
     // least-privilege grant, so it is forbidden before executability is even considered.
     expect(res.statusCode).toBe(403)
     const body = JSON.parse(res.body)
     expect(body.error).toBe('capability_forbidden')
     expect(body.principal).toBe('system:caracal-operator')
-    expect(body.steps[0]).toMatchObject({ step_id: 's1', capability: 'createZone', code: 'capability_forbidden' })
+    expect(body.steps[0]).toMatchObject({ step_id: 's1', capability: 'grantAccess', code: 'capability_forbidden' })
   })
 
   it('refuses an authorized step that maps to no governed control command', async () => {
@@ -2037,10 +2045,10 @@ describe('operator authority and zone isolation', () => {
   })
 
   it('exposes a widened grant when configured', async () => {
-    const { app } = buildApp(true, { allowedCapabilities: ['createZone'] })
+    const { app } = buildApp(true, { allowedCapabilities: ['registerApplication'] })
     await app.ready()
     const res = await app.inject({ method: 'GET', url: '/v1/operator/status' })
-    expect(JSON.parse(res.body).allowed_capabilities).toEqual(['createZone'])
+    expect(JSON.parse(res.body).allowed_capabilities).toEqual(['registerApplication'])
   })
 })
 
@@ -3177,7 +3185,7 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
     // The governed reads ran: one control invoke per governed read capability, each a read
     // verb, so a read answer is grounded in live state and never reaches a mutating command.
     const invokeCalls = fetchImpl.mock.calls.filter((c) => String(c[0]).endsWith('/v1/control/invoke'))
-    expect(invokeCalls).toHaveLength(9)
+    expect(invokeCalls).toHaveLength(10)
     for (const call of invokeCalls) {
       expect(['list', 'active', 'tail']).toContain(JSON.parse(String((call[1] as RequestInit).body)).subcommand)
     }

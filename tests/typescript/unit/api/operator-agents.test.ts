@@ -17,7 +17,6 @@ import {
   runTriage,
   tierPlans,
   tierReadsState,
-  tierComposes,
   runPlanner,
   runExplainer,
   runTroubleshooter,
@@ -165,7 +164,7 @@ describe('buildPlannerMessages', () => {
     const messages = buildPlannerMessages('connect github', { facts: null, state: null })
     const system = messages[0].content
     expect(system).toContain('connectProvider')
-    expect(system).toContain('createZone')
+    expect(system).toContain('registerApplication')
     // The effect classification is surfaced so the model cannot mislabel a step.
     expect(system).toContain('changes state')
   })
@@ -246,7 +245,7 @@ describe('buildPlannerMessages', () => {
         },
       ],
     })
-    expect(messages[1].content).toContain('application (1): Heiro (id 019f194f-34f8-72aa-9a70-afd41264bf3d)')
+    expect(messages[1].content).toContain('applications (1): Heiro (id 019f194f-34f8-72aa-9a70-afd41264bf3d)')
     expect(messages[0].content).toContain('TARGET EXISTING OBJECTS BY THEIR LIVE ID')
   })
 })
@@ -263,8 +262,8 @@ describe('buildExplainerMessages', () => {
     })
     const content = messages[1].content
     expect(content).toContain('Live state (read just now)')
-    expect(content).toContain('provider (2): GitHub, Stripe')
-    expect(content).toContain('resource: none')
+    expect(content).toContain('providers (2): GitHub, Stripe')
+    expect(content).toContain('resources: none')
     // The system prompt instructs the model to ground in the live state and not invent entities.
     expect(messages[0].content).toContain('do not invent')
   })
@@ -293,8 +292,8 @@ describe('buildExplainerMessages', () => {
       ],
     })
     const content = messages[1].content
-    expect(content).toContain('provider (2): GitHub, Okta [auth: api_key, oauth2_authorization_code]')
-    expect(content).toContain('resource (1): Stripe [scopes: read, write]')
+    expect(content).toContain('providers (2): GitHub, Okta [auth: api_key, oauth2_authorization_code]')
+    expect(content).toContain('resources (1): Stripe [scopes: read, write]')
   })
 
   it('truncates the names list while keeping the live count', () => {
@@ -303,7 +302,7 @@ describe('buildExplainerMessages', () => {
       state: null,
       evidence: [{ capability: 'listApplications', domain: 'application', ok: true, count: 9, names: ['a', 'b', 'c'] }],
     })
-    expect(messages[1].content).toContain('application (9): a, b, c, …')
+    expect(messages[1].content).toContain('applications (9): a, b, c, …')
   })
 
   it('reports a read that could not be gathered without failing the answer', () => {
@@ -312,7 +311,7 @@ describe('buildExplainerMessages', () => {
       state: null,
       evidence: [{ capability: 'listPolicies', domain: 'policy', ok: false, error: 'missing scope control:policy:read' }],
     })
-    expect(messages[1].content).toContain('policy: could not read (missing scope control:policy:read)')
+    expect(messages[1].content).toContain('policies: could not read (missing scope control:policy:read)')
   })
 
   it('omits the live state block when no evidence was gathered', () => {
@@ -413,15 +412,6 @@ describe('tierReadsState', () => {
     expect(tierReadsState('conversational')).toBe(false)
     expect(tierReadsState('change')).toBe(false)
     expect(tierReadsState('compound')).toBe(false)
-  })
-})
-
-describe('tierComposes', () => {
-  it('composes specialists only for the compound tier', () => {
-    expect(tierComposes('compound')).toBe(true)
-    expect(tierComposes('change')).toBe(false)
-    expect(tierComposes('read')).toBe(false)
-    expect(tierComposes('conversational')).toBe(false)
   })
 })
 

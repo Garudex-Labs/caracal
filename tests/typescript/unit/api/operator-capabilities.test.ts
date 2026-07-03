@@ -18,7 +18,8 @@ describe('capability catalog', () => {
   })
 
   it('classifies read capabilities as non-mutating', () => {
-    expect(CAPABILITIES.listZones.mutating).toBe(false)
+    expect(CAPABILITIES.listApplications.mutating).toBe(false)
+    expect(CAPABILITIES.listPolicySets.mutating).toBe(false)
     expect(CAPABILITIES.explainAccess.mutating).toBe(false)
     expect(CAPABILITIES.grantAccess.mutating).toBe(true)
     expect(CAPABILITIES.rotateApplicationSecret.mutating).toBe(true)
@@ -136,10 +137,10 @@ describe('validateProposedPlan', () => {
 
   it('flags duplicate step ids', () => {
     const result = parse({
-      summary: 'Two zones',
+      summary: 'Two applications',
       steps: [
-        { id: 's1', capability: 'createZone', args: { name: 'Prod' } },
-        { id: 's1', capability: 'createZone', args: { name: 'Staging' } },
+        { id: 's1', capability: 'registerApplication', args: { name: 'Son of Anton' } },
+        { id: 's1', capability: 'registerApplication', args: { name: 'Fiona' } },
       ],
     })
     expect(result.ok).toBe(false)
@@ -151,7 +152,7 @@ describe('validateProposedPlan', () => {
     const result = parse({
       summary: 'Stand up production',
       steps: [
-        { id: 's1', capability: 'createZone', args: { name: 'Production' } },
+        { id: 's1', capability: 'registerApplication', args: { name: 'Son of Anton' } },
         { id: 's2', capability: 'registerApplication', args: {} },
         { id: 's3', capability: 'connectProvider', args: { name: 'GitHub', kind: 'oauth2_authorization_code' } },
       ],
@@ -164,8 +165,8 @@ describe('validateProposedPlan', () => {
 
   it('rejects unknown argument fields via strict schemas', () => {
     const result = parse({
-      summary: 'Create zone with junk',
-      steps: [{ id: 's1', capability: 'createZone', args: { name: 'Prod', junk: true } }],
+      summary: 'Register application with junk',
+      steps: [{ id: 's1', capability: 'registerApplication', args: { name: 'Son of Anton', junk: true } }],
     })
     expect(result.ok).toBe(false)
     expect(result.diagnostics[0]).toMatchObject({ code: 'invalid_args' })
@@ -208,10 +209,10 @@ describe('validateProposedPlan', () => {
 
   it('flags a dependency cycle so a sequenced apply can never deadlock', () => {
     const result = parse({
-      summary: 'Two zones that wait on each other',
+      summary: 'Two applications that wait on each other',
       steps: [
-        { id: 's1', capability: 'createZone', args: { name: 'Pied Piper Production' }, depends_on: ['s2'] },
-        { id: 's2', capability: 'createZone', args: { name: 'Hooli Staging' }, depends_on: ['s1'] },
+        { id: 's1', capability: 'registerApplication', args: { name: 'Son of Anton' }, depends_on: ['s2'] },
+        { id: 's2', capability: 'registerApplication', args: { name: 'Fiona' }, depends_on: ['s1'] },
       ],
     })
     expect(result.ok).toBe(false)
@@ -220,8 +221,84 @@ describe('validateProposedPlan', () => {
 
   it('flags a step that depends on itself as a cycle', () => {
     const result = parse({
-      summary: 'A self-referential zone',
-      steps: [{ id: 's1', capability: 'createZone', args: { name: 'Raviga Capital Sandbox' }, depends_on: ['s1'] }],
+      summary: 'A self-referential application',
+      steps: [{ id: 's1', capability: 'registerApplication', args: { name: 'PiperNet AI' }, depends_on: ['s1'] }],
+    })
+    expect(result.ok).toBe(false)
+    expect(result.diagnostics).toEqual([{ step_id: 's1', code: 'dependency_cycle', message: expect.stringContaining('s1') }])
+  })
+
+  it('folds a step-output reference into the referencing step\u2019s dependencies', () => {
+    const result = parse({
+      summary: 'Connect a provider and bind a resource to it',
+      steps: [
+        { id: 's1', capability: 'connectProvider', args: { name: 'Hooli OIDC', kind: 'oauth2_client_credentials' } },
+        {
+          id: 's2',
+          capability: 'defineResource',
+          args: {
+            name: 'PiperNet',
+            scopes: ['pipernet:read'],
+            upstream_url: 'https://api.pipernet.example',
+            gateway_application_id: 'app-1',
+            credential_provider_id: '{{steps.s1.outputs.provider_id}}',
+          },
+        },
+      ],
+    })
+    expect(result.ok).toBe(true)
+    expect(result.steps[1].depends_on).toEqual(['s1'])
+  })
+
+  it('flags a reference to a step the plan never declares', () => {
+    const result = parse({
+      summary: 'Bind a resource to a phantom provider',
+      steps: [
+        {
+          id: 's1',
+          capability: 'defineResource',
+          args: {
+            name: 'PiperNet',
+            scopes: ['pipernet:read'],
+            upstream_url: 'https://api.pipernet.example',
+            gateway_application_id: 'app-1',
+            credential_provider_id: '{{steps.s0.outputs.provider_id}}',
+          },
+        },
+      ],
+    })
+    expect(result.ok).toBe(false)
+    expect(result.diagnostics).toEqual([{ step_id: 's1', code: 'unknown_reference', message: expect.stringContaining('s0') }])
+  })
+
+  it('flags a reference to an output the producing step does not declare', () => {
+    const result = parse({
+      summary: 'Bind a resource to a secret',
+      steps: [
+        { id: 's1', capability: 'registerApplication', args: { name: 'Son of Anton' } },
+        {
+          id: 's2',
+          capability: 'defineResource',
+          args: {
+            name: 'PiperNet',
+            scopes: ['pipernet:read'],
+            upstream_url: 'https://api.pipernet.example',
+            gateway_application_id: '{{steps.s1.outputs.client_secret}}',
+            credential_provider_id: 'prov-1',
+          },
+        },
+      ],
+    })
+    expect(result.ok).toBe(false)
+    expect(result.diagnostics).toEqual([{ step_id: 's2', code: 'unknown_reference', message: expect.stringContaining('client_secret') }])
+  })
+
+  it('flags a step that references its own output as a cycle', () => {
+    const result = parse({
+      summary: 'An application that rotates itself into existence',
+      steps: [
+        { id: 's1', capability: 'rotateApplicationSecret', args: { application_id: '{{steps.s1.outputs.application_id}}' } },
+      ],
     })
     expect(result.ok).toBe(false)
     expect(result.diagnostics).toEqual([{ step_id: 's1', code: 'dependency_cycle', message: expect.stringContaining('s1') }])

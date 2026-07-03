@@ -37,8 +37,8 @@ describe('buildOperatorAuthority', () => {
   })
 
   it('accepts an explicit subset grant', () => {
-    const authority = buildOperatorAuthority({ allowedCapabilities: ['createZone'] })
-    expect([...authority.allowedCapabilities]).toEqual(['createZone'])
+    const authority = buildOperatorAuthority({ allowedCapabilities: ['registerApplication'] })
+    expect([...authority.allowedCapabilities]).toEqual(['registerApplication'])
   })
 
   it('records system zones for isolation', () => {
@@ -52,7 +52,7 @@ describe('buildOperatorAuthority', () => {
   })
 
   it('fails closed when a read-only capability is granted', () => {
-    expect(() => buildOperatorAuthority({ allowedCapabilities: ['listZones'] })).toThrow(/read-only/)
+    expect(() => buildOperatorAuthority({ allowedCapabilities: ['listApplications'] })).toThrow(/read-only/)
   })
 })
 
@@ -61,7 +61,7 @@ describe('authorizeCapability', () => {
 
   it('always permits read-only capabilities', () => {
     expect(authorizeCapability(authority, 'explainAccess')).toEqual({ ok: true })
-    expect(authorizeCapability(authority, 'listZones')).toEqual({ ok: true })
+    expect(authorizeCapability(authority, 'listApplications')).toEqual({ ok: true })
   })
 
   it('permits a granted mutating capability', () => {
@@ -69,7 +69,8 @@ describe('authorizeCapability', () => {
   })
 
   it('forbids a mutating capability outside the grant', () => {
-    const decision = authorizeCapability(authority, 'createZone')
+    const narrowed = buildOperatorAuthority({ allowedCapabilities: ['registerApplication'] })
+    const decision = authorizeCapability(narrowed, 'grantAccess')
     expect(decision.ok).toBe(false)
     expect(decision.code).toBe('capability_forbidden')
   })
@@ -82,7 +83,7 @@ describe('authorizeCapability', () => {
 
 describe('authorizePlanSteps', () => {
   it('returns one denial per forbidden step and nothing when all are permitted', () => {
-    const authority = buildOperatorAuthority()
+    const authority = buildOperatorAuthority({ allowedCapabilities: ['grantAccess'] })
     expect(
       authorizePlanSteps(authority, [
         { id: 's1', capability: 'grantAccess' },
@@ -92,9 +93,9 @@ describe('authorizePlanSteps', () => {
 
     const denials = authorizePlanSteps(authority, [
       { id: 's1', capability: 'grantAccess' },
-      { id: 's2', capability: 'createZone' },
+      { id: 's2', capability: 'registerApplication' },
     ])
     expect(denials.map((d) => d.step_id)).toEqual(['s2'])
-    expect(denials[0]).toMatchObject({ capability: 'createZone', code: 'capability_forbidden' })
+    expect(denials[0]).toMatchObject({ capability: 'registerApplication', code: 'capability_forbidden' })
   })
 })
