@@ -5,7 +5,7 @@
 
 import Fastify from 'fastify'
 import { hostname } from 'node:os'
-import { timingSafeEqual } from 'node:crypto'
+import { timingSafeEqual, randomUUID } from 'node:crypto'
 import pino from 'pino'
 import type { Pool } from 'pg'
 import type { Redis as RedisClient } from 'ioredis'
@@ -109,6 +109,12 @@ export async function buildApp({ cfg, db, redis, isDraining }: CoordinatorDeps) 
     },
     requestTimeout: cfg.requestTimeoutMs,
     keepAliveTimeout: cfg.keepAliveTimeoutMs,
+    genReqId: (req) => {
+      const incoming = req.headers['x-request-id']
+      const value = Array.isArray(incoming) ? incoming[0] : incoming
+      return value && /^[A-Za-z0-9_.\-:]{1,128}$/.test(value) ? value : randomUUID()
+    },
+    requestIdHeader: 'x-request-id',
     trustProxy: cfg.trustProxy,
   })
   app.decorate('db', db)

@@ -3,7 +3,7 @@
 //
 // Shared interval-job infrastructure for coordinator background workers.
 
-import { withTimeout } from '@caracalai/core'
+import { newTraceContext, runWithTrace, withTimeout } from '@caracalai/core'
 
 export interface JobLogger {
   error: (obj: object, msg?: string) => void
@@ -27,7 +27,7 @@ export function makeIntervalJob(
   const tick = (): void => {
     if (stopped || running) return
     running = true
-    pending = run()
+    pending = runWithTrace(newTraceContext(), run)
       .catch(onError)
       .finally(() => {
         running = false
