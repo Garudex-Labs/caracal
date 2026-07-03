@@ -45,9 +45,7 @@ afterEach(() => {
   delete process.env.CARACAL_RUN_CREDENTIALS_FILE
   delete process.env.CARACAL_RUN_CONTINUE_ON_FAILURE
   delete process.env.CARACAL_RUN_TTL_SECONDS
-  delete process.env.CARACAL_MCP_GOVERNANCE_MODE
   delete process.env.CARACAL_ALLOW_INSECURE_CONFIG_URLS
-  delete process.env.CARACAL_ALLOW_MCP_GOVERNANCE_LOG
   delete process.env.CARACAL_ALLOW_REQUIRED_CREDENTIAL_FAILURE
   delete process.env.PWD
   delete process.env.INIT_CWD
@@ -215,7 +213,6 @@ describe('resolveRuntimeConfigPath', () => {
       JSON.stringify({
         credentials: [{ env: 'RESOURCE_TOKEN', resource: 'resource://api' }],
         optional_credentials: [{ env: 'OPTIONAL_TOKEN', resource: 'resource://optional' }],
-        mcp_governance: { mode: 'log' },
       }),
     )
     if (process.platform !== 'win32') {
@@ -229,7 +226,6 @@ describe('resolveRuntimeConfigPath', () => {
     process.env.CARACAL_RUN_CREDENTIALS_FILE = credentials
     process.env.CARACAL_RUN_CONTINUE_ON_FAILURE = 'true'
     process.env.CARACAL_RUN_TTL_SECONDS = '600'
-    process.env.CARACAL_MCP_GOVERNANCE_MODE = 'block'
 
     expect(loadRuntimeConfig(true)).toMatchObject({
       zone_url: 'https://sts.example.com',
@@ -240,7 +236,6 @@ describe('resolveRuntimeConfigPath', () => {
       ttl_seconds: 600,
       credentials: [{ env: 'RESOURCE_TOKEN', resource: 'resource://api' }],
       optional_credentials: [{ env: 'OPTIONAL_TOKEN', resource: 'resource://optional', on_failure: 'warn' }],
-      mcp_governance: { mode: 'block' },
     })
   })
 
@@ -476,14 +471,8 @@ describe('resolveRuntimeConfigPath', () => {
 
     expect(() => loadRuntimeConfig(true)).toThrow(/continue_on_failure=true is not allowed outside development/)
 
-    process.env.CARACAL_RUN_CREDENTIALS = JSON.stringify({
-      credentials: [{ env: 'RESOURCE_TOKEN', resource: 'resource://api' }],
-      mcp_governance: { mode: 'log' },
-    })
-    expect(() => loadRuntimeConfig(true)).toThrow(/mcp_governance\.mode=log is not allowed outside development/)
-
-    process.env.CARACAL_ALLOW_MCP_GOVERNANCE_LOG = 'true'
-    expect(loadRuntimeConfig(true)?.mcp_governance).toEqual({ mode: 'log' })
+    process.env.CARACAL_ALLOW_REQUIRED_CREDENTIAL_FAILURE = 'true'
+    expect(loadRuntimeConfig(true)?.continue_on_failure).toBe(true)
   })
 })
 

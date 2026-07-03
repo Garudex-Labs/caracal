@@ -111,14 +111,17 @@ describe('runCommand', () => {
   })
 
   it('strips the pnpm separator before spawning the child command', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        access_token: 'caracal-mandate',
-        expires_in: 900,
-        upstreams: { 'resource://api': { provider_token: 'resource-token' } },
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          access_token: 'caracal-mandate',
+          expires_in: 900,
+          upstreams: { 'resource://api': { provider_token: 'resource-token' } },
+        }),
       }),
-    }))
+    )
 
     await expect(runCommand(['--', 'node', 'tool.js'], cfg)).rejects.toThrow('exit:0')
 
@@ -142,34 +145,44 @@ describe('runCommand', () => {
   })
 
   it('warns for optional credential failures and still runs child command', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: false,
-      status: 403,
-      text: async () => JSON.stringify({ error_description: 'optional denied' }),
-    }))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 403,
+        text: async () => JSON.stringify({ error_description: 'optional denied' }),
+      }),
+    )
 
-    await expect(runCommand(['node', 'tool.js'], {
-      ...cfg,
-      credentials: [],
-      optional_credentials: [{ env: 'OPTIONAL_TOKEN', resource: 'resource://optional', on_failure: 'warn' }],
-    })).rejects.toThrow('exit:0')
+    await expect(
+      runCommand(['node', 'tool.js'], {
+        ...cfg,
+        credentials: [],
+        optional_credentials: [{ env: 'OPTIONAL_TOKEN', resource: 'resource://optional', on_failure: 'warn' }],
+      }),
+    ).rejects.toThrow('exit:0')
 
     expect(stdout).toContain('optional credential skipped resource=resource://optional reason=optional denied')
     expect(spawnMock).toHaveBeenCalledTimes(1)
   })
 
   it('fails when optional credential policy requires success', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: false,
-      status: 403,
-      text: async () => JSON.stringify({ error_description: 'optional denied' }),
-    }))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 403,
+        text: async () => JSON.stringify({ error_description: 'optional denied' }),
+      }),
+    )
 
-    await expect(runCommand(['node', 'tool.js'], {
-      ...cfg,
-      credentials: [],
-      optional_credentials: [{ env: 'OPTIONAL_TOKEN', resource: 'resource://optional', on_failure: 'error' }],
-    })).rejects.toThrow('exit:1')
+    await expect(
+      runCommand(['node', 'tool.js'], {
+        ...cfg,
+        credentials: [],
+        optional_credentials: [{ env: 'OPTIONAL_TOKEN', resource: 'resource://optional', on_failure: 'error' }],
+      }),
+    ).rejects.toThrow('exit:1')
 
     expect(stderr).toContain('"resource":"resource://optional"')
     expect(spawnMock).not.toHaveBeenCalled()
@@ -179,17 +192,20 @@ describe('runCommand', () => {
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
 
-    await expect(runCommand(['node', 'tool.js'], {
-      ...cfg,
-      credentials: [{ env: 'NODE_OPTIONS', resource: 'resource://api' }],
-    })).rejects.toThrow('exit:1')
+    await expect(
+      runCommand(['node', 'tool.js'], {
+        ...cfg,
+        credentials: [{ env: 'NODE_OPTIONS', resource: 'resource://api' }],
+      }),
+    ).rejects.toThrow('exit:1')
 
     expect(stderr).toContain('blocked_credential_env:NODE_OPTIONS')
     expect(fetchMock).not.toHaveBeenCalled()
     expect(spawnMock).not.toHaveBeenCalled()
   })
 
-  it('blocks workloads when legacy workspace operator secrets are present', async () => {    const cwd = process.cwd()
+  it('blocks workloads when workspace operator secrets are present', async () => {
+    const cwd = process.cwd()
     const repo = mkdtempSync(join(tmpdir(), 'caracal-run-repo-'))
     try {
       delete process.env.CARACAL_RUN_ALLOW_WORKSPACE_SECRETS
@@ -202,7 +218,7 @@ describe('runCommand', () => {
 
       await expect(runCommand(['node', 'tool.js'], cfg)).rejects.toThrow('exit:1')
 
-      expect(stderr).toContain('refusing to run workload while legacy workspace operator secrets are present')
+      expect(stderr).toContain('refusing to run workload while workspace operator secrets are present')
       expect(spawnMock).not.toHaveBeenCalled()
     } finally {
       process.chdir(cwd)
@@ -233,18 +249,20 @@ describe('runCommand', () => {
   })
 
   it('runs a literal command after the -- separator instead of treating it as help', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        access_token: 'caracal-mandate',
-        expires_in: 900,
-        upstreams: { 'resource://api': { provider_token: 'resource-token' } },
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          access_token: 'caracal-mandate',
+          expires_in: 900,
+          upstreams: { 'resource://api': { provider_token: 'resource-token' } },
+        }),
       }),
-    }))
+    )
 
     await expect(runCommand(['--', 'help'], cfg)).rejects.toThrow('exit:0')
 
     expect(spawnMock).toHaveBeenCalledWith('help', [], expect.objectContaining({ stdio: 'inherit' }))
   })
-
 })

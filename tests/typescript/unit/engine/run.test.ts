@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Tests for run verb bodies: MCP governance, credential env building, and safe spawning.
+// Tests for run verb bodies: credential env building and safe spawning.
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -17,7 +17,7 @@ vi.mock('@caracalai/oauth', async (orig) => {
   }
 })
 
-import { checkMcpGovernance, buildRunEnv, runExec } from '../../../../packages/engine/src/run.js'
+import { buildRunEnv, runExec } from '../../../../packages/engine/src/run.js'
 import { InteractionRequiredError } from '@caracalai/oauth'
 import type { RuntimeConfig } from '../../../../packages/engine/src/runtimeConfig.js'
 
@@ -31,30 +31,6 @@ const baseConfig: RuntimeConfig = {
 afterEach(() => {
   exchangeMock.mockReset()
   vi.restoreAllMocks()
-})
-
-describe('checkMcpGovernance', () => {
-  it('does nothing for ordinary commands', () => {
-    const lines: string[] = []
-    expect(() => checkMcpGovernance(['node', 'app.js'], baseConfig, (l) => lines.push(l))).not.toThrow()
-    expect(lines).toHaveLength(0)
-  })
-
-  it('blocks unauthorized MCP servers by default', () => {
-    const lines: string[] = []
-    expect(() => checkMcpGovernance('npx @modelcontextprotocol/server', baseConfig, (l) => lines.push(l))).toThrow(
-      'mcp_governance_blocked',
-    )
-    expect(lines[0]).toContain('"action":"blocked"')
-  })
-
-  it('logs but allows when governance mode is log', () => {
-    const lines: string[] = []
-    expect(() =>
-      checkMcpGovernance('python -m fastmcp', { ...baseConfig, mcp_governance: { mode: 'log' } }, (l) => lines.push(l)),
-    ).not.toThrow()
-    expect(lines[0]).toContain('"action":"log"')
-  })
 })
 
 describe('buildRunEnv', () => {
@@ -93,9 +69,7 @@ describe('buildRunEnv', () => {
 
   it('rejects invalid, blocked, and duplicate credential env names', async () => {
     exchangeMock.mockResolvedValue({ accessToken: 'tok' })
-    await expect(buildRunEnv({ ...baseConfig, credentials: [{ env: '1bad', resource: 'r' }] })).rejects.toThrow(
-      /invalid_credential_env/,
-    )
+    await expect(buildRunEnv({ ...baseConfig, credentials: [{ env: '1bad', resource: 'r' }] })).rejects.toThrow(/invalid_credential_env/)
     await expect(buildRunEnv({ ...baseConfig, credentials: [{ env: 'LD_PRELOAD', resource: 'r' }] })).rejects.toThrow(
       /blocked_credential_env/,
     )
@@ -123,9 +97,7 @@ describe('buildRunEnv', () => {
 
   it('throws on a required credential failure without continue_on_failure', async () => {
     exchangeMock.mockRejectedValue(new Error('exchange failed'))
-    await expect(buildRunEnv({ ...baseConfig, credentials: [{ env: 'API_KEY', resource: 'r' }] })).rejects.toThrow(
-      'exchange failed',
-    )
+    await expect(buildRunEnv({ ...baseConfig, credentials: [{ env: 'API_KEY', resource: 'r' }] })).rejects.toThrow('exchange failed')
   })
 
   it('skips optional credentials that fail with on_failure warn', async () => {
@@ -154,10 +126,7 @@ describe('buildRunEnv', () => {
       .spyOn(globalThis, 'fetch')
       .mockResolvedValue({ ok: true, status: 200, json: async () => ({ satisfied: true }) } as unknown as Response)
     const lines: string[] = []
-    const env = await buildRunEnv(
-      { ...baseConfig, credentials: [{ env: 'API_KEY', resource: 'r' }] },
-      { onLine: (l) => lines.push(l) },
-    )
+    const env = await buildRunEnv({ ...baseConfig, credentials: [{ env: 'API_KEY', resource: 'r' }] }, { onLine: (l) => lines.push(l) })
     expect(env.API_KEY).toBe('after-stepup')
     expect(lines.some((l) => l.includes('step_up_required'))).toBe(true)
     fetchSpy.mockRestore()
@@ -172,9 +141,7 @@ describe('runExec', () => {
 
   it('rejects invalid child env keys', () => {
     expect(() => runExec({ argv: ['true'], env: { '1bad': 'x' }, forwardSignals: false })).toThrow(/invalid_child_env/)
-    expect(() => runExec({ argv: ['true'], env: { LD_PRELOAD: 'x' }, forwardSignals: false })).toThrow(
-      /blocked_child_env/,
-    )
+    expect(() => runExec({ argv: ['true'], env: { LD_PRELOAD: 'x' }, forwardSignals: false })).toThrow(/blocked_child_env/)
   })
 
   it('captures output and resolves the exit code', async () => {

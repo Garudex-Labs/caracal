@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Runtime shell entrypoint tests verify command wiring and MCP governance gating.
+// Runtime shell entrypoint tests verify command wiring and registry filtering.
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { RuntimeConfig } from '../../../../apps/runtime/src/config.ts'
@@ -17,7 +17,6 @@ const state = vi.hoisted(() => ({
   purgeCommand: vi.fn(),
   webCommand: vi.fn(),
   webInterfaceAvailable: vi.fn(() => true),
-  checkMcpGovernance: vi.fn(),
 }))
 
 vi.mock('@caracalai/engine/scrubCwdEnv', () => ({}))
@@ -50,7 +49,6 @@ vi.mock('../../../../apps/runtime/src/commands/web.ts', () => ({
   webCommand: state.webCommand,
   webInterfaceAvailable: state.webInterfaceAvailable,
 }))
-vi.mock('../../../../apps/runtime/src/mcp.ts', () => ({ checkMcpGovernance: state.checkMcpGovernance }))
 vi.mock('../../../../apps/runtime/src/dispatcher.ts', () => ({ dispatch: state.dispatch }))
 
 async function importShell(): Promise<Awaited<ReturnType<typeof loadShell>>> {
@@ -103,18 +101,16 @@ describe('runtime shell entrypoint', () => {
     expect(state.downCommand).toHaveBeenCalledWith(['--volumes'])
     expect(state.statusCommand).toHaveBeenCalledWith(['--json'])
     expect(state.purgeCommand).toHaveBeenCalledWith(['--force'])
-    expect(state.checkMcpGovernance).toHaveBeenCalledWith(['node', 'tool.js'], cfg)
     expect(state.runCommand).toHaveBeenCalledWith(['--', 'node', 'tool.js'], cfg)
   })
 
-  it('skips MCP governance when run has no command or no loaded config', async () => {
+  it('routes run and web straight to their executors', async () => {
     const opts = await importShell()
 
     await opts.registry.byName.get('run')!.run([], undefined)
     await opts.registry.byName.get('run')!.run(['python', 'tool.py'], undefined)
     await opts.registry.byName.get('web')!.run(['--allow-offline'])
 
-    expect(state.checkMcpGovernance).not.toHaveBeenCalled()
     expect(state.runCommand).toHaveBeenCalledWith([], undefined)
     expect(state.runCommand).toHaveBeenCalledWith(['python', 'tool.py'], undefined)
     expect(state.webCommand).toHaveBeenCalledWith(['--allow-offline'])
