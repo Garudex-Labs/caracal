@@ -4,6 +4,7 @@
 // Structured JSON logger for TypeScript services.
 
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
 import type { Writable } from 'node:stream';
 
@@ -196,6 +197,15 @@ export function bindTrace(tc: TraceContext): void {
 /** Returns the trace context bound to the current async chain, or undefined. */
 export function getTraceContext(): TraceContext | undefined {
   return traceStore.getStore();
+}
+
+/**
+ * Returns a fresh synthetic trace context for work that starts outside any request,
+ * such as background jobs, so its logs stay correlatable per run.
+ */
+export function newTraceContext(): TraceContext {
+  const traceId = randomUUID().replace(/-/g, '');
+  return { traceId, spanId: traceId.slice(0, 16) };
 }
 
 /** Parse a W3C traceparent header (`version-traceid-spanid-flags`). */

@@ -6,7 +6,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { dispatch, DispatchError, type DispatchContext, type FlagMap, type Principal } from '@caracalai/engine'
 import { Authenticator, AuthError } from './auth.js'
-import { newRequestId, type EventSink } from './audit.js'
+import type { AuditEvent, EventSink } from './audit.js'
 import type { Replay } from './replay.js'
 import type { RateLimiter } from './ratelimit.js'
 import type { ControlGate } from './gate.js'
@@ -110,10 +110,22 @@ export function registerInvokeRoute(app: FastifyInstance, deps: InvokeDeps): voi
 }
 
 async function handle(req: FastifyRequest, reply: FastifyReply, deps: InvokeDeps): Promise<void> {
-  const requestId = newRequestId()
+  // The request id is Fastify's, which honors a well-formed inbound x-request-id, so every
+  // audit event this invoke emits correlates with the caller's own trace instead of starting
+  // a fresh chain at the control boundary.
+  const requestId = req.id
   reply.header('x-request-id', requestId)
+  // A refusal is already the safe outcome, so an audit failure on a deny path never converts
+  // the response; the sink has durably queued or loudly logged the loss either way.
+  const emitDeny = async (ev: AuditEvent): Promise<void> => {
+    try {
+      await deps.sink.emit(ev)
+    } catch (err) {
+      req.log.error({ err, requestId }, 'control deny audit could not be recorded')
+    }
+  }
   if (!deps.gate.enabled()) {
-    await deps.sink.emit({
+    await emitDeny({
       at: new Date(),
       subject: 'anonymous',
       jti: '',
@@ -125,7 +137,7 @@ async function handle(req: FastifyRequest, reply: FastifyReply, deps: InvokeDeps
   }
 
   if (await ipRateExceeded(deps.redis, req.ip, deps.ipRateLimitPerMin)) {
-    await deps.sink.emit({
+    await emitDeny({
       at: new Date(),
       subject: 'anonymous',
       jti: '',
@@ -140,7 +152,7 @@ async function handle(req: FastifyRequest, reply: FastifyReply, deps: InvokeDeps
   try {
     claims = await deps.auth.verify(req.headers.authorization)
   } catch (err) {
-    await deps.sink.emit({
+    await emitDeny({
       at: new Date(),
       subject: 'anonymous',
       jti: '',
@@ -152,7 +164,7 @@ async function handle(req: FastifyRequest, reply: FastifyReply, deps: InvokeDeps
   }
 
   if (!(await deps.replay.mark(claims.jti, claims.exp))) {
-    await deps.sink.emit({
+    await emitDeny({
       at: new Date(),
       zoneId: claims.zoneId,
       clientId: claims.clientId,
@@ -165,7 +177,7 @@ async function handle(req: FastifyRequest, reply: FastifyReply, deps: InvokeDeps
     return reply.code(401).send({ error: 'token replay' })
   }
   if (!deps.rate.allow(claims.sub)) {
-    await deps.sink.emit({
+    await emitDeny({
       at: new Date(),
       zoneId: claims.zoneId,
       clientId: claims.clientId,
@@ -200,7 +212,7 @@ async function handle(req: FastifyRequest, reply: FastifyReply, deps: InvokeDeps
   // dispatch, so each cross-zone authorization decision is reconstructable from the chain.
   const zoneScope = await resolveEffectiveZone(req, deps, claims, operatorSubjects)
   if (zoneScope.denied) {
-    await deps.sink.emit({
+    await emitDeny({
       at: new Date(),
       zoneId: claims.zoneId,
       clientId: claims.clientId,
@@ -226,24 +238,32 @@ async function handle(req: FastifyRequest, reply: FastifyReply, deps: InvokeDeps
   }
 
   try {
-    const result = await dispatch({ command, subcommand, flags }, principal, dispatchCtx(deps, authorizedBy, coAuthorOperator))
-    await deps.sink.emit({
-      at: new Date(),
-      zoneId: effectiveZone,
-      clientId: claims.clientId,
-      subject: claims.sub,
-      jti: claims.jti,
-      command,
-      subcommand,
-      decision: 'allow',
-      requestId,
-      idempotencyKey,
-      authorizedBy,
-    })
+    const result = await dispatch({ command, subcommand, flags }, principal, dispatchCtx(deps, requestId, authorizedBy, coAuthorOperator))
+    // The allow audit is the governance record of a completed change, so it is fail-closed:
+    // when the event cannot be durably recorded on either the stream or the outbox, the
+    // invoke is reported as failed rather than silently succeeding unaudited.
+    try {
+      await deps.sink.emit({
+        at: new Date(),
+        zoneId: effectiveZone,
+        clientId: claims.clientId,
+        subject: claims.sub,
+        jti: claims.jti,
+        command,
+        subcommand,
+        decision: 'allow',
+        requestId,
+        idempotencyKey,
+        authorizedBy,
+      })
+    } catch (err) {
+      req.log.error({ err, command, requestId }, 'control allow audit could not be recorded; refusing to report success')
+      return reply.code(500).send({ ok: false, error: errorBody('audit_unavailable', 'operation applied but its audit record could not be durably recorded') })
+    }
     return reply.code(200).send({ ok: true, result })
   } catch (err) {
     const reason = describe(err)
-    await deps.sink.emit({
+    await emitDeny({
       at: new Date(),
       zoneId: effectiveZone,
       clientId: claims.clientId,
@@ -280,15 +300,14 @@ function errorBody(code: string, reason: string, remediation?: string): Record<s
   return remediation ? { code, reason, remediation } : { code, reason }
 }
 
-// Derives the dispatch context for an invoke, attaching request-scoped attribution headers so a
-// create route can stamp the human the Operator acted for and mark operator co-authorship. The
-// shared client is returned unchanged when the invoke carries no attribution, keeping the common
-// path allocation-free.
-function dispatchCtx(deps: InvokeDeps, authorizedBy: string | undefined, coAuthorOperator: boolean): DispatchContext {
-  const headers: Record<string, string> = {}
+// Derives the dispatch context for an invoke, attaching the request id and any request-scoped
+// attribution headers so downstream admin calls and their audit records correlate with this
+// invoke's trace, and a create route can stamp the human the Operator acted for and mark
+// operator co-authorship.
+function dispatchCtx(deps: InvokeDeps, requestId: string, authorizedBy: string | undefined, coAuthorOperator: boolean): DispatchContext {
+  const headers: Record<string, string> = { 'x-request-id': requestId }
   if (authorizedBy) headers[AUTHORIZED_BY_HEADER] = authorizedBy
   if (coAuthorOperator) headers[CREATED_VIA_HEADER] = 'operator'
-  if (Object.keys(headers).length === 0) return deps.ctx
   return { ...deps.ctx, admin: deps.ctx.admin.withDefaultHeaders(headers) }
 }
 
