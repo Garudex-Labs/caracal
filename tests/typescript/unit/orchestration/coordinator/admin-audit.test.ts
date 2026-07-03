@@ -73,14 +73,15 @@ describe('coordinator admin audit hook', () => {
     expect(insertAdminAuditRecord).not.toHaveBeenCalled()
   })
 
-  it('does not fail the request when audit persistence fails', async () => {
+  it('refuses to report success when audit persistence fails', async () => {
     insertAdminAuditRecord.mockRejectedValueOnce(new Error('audit down'))
     const app = buildApp()
     await app.ready()
 
     const res = await app.inject({ method: 'POST', url: '/zones/zone-1/agents/agent-1/suspend' })
 
-    expect(res.statusCode).toBe(200)
+    expect(res.statusCode).toBe(500)
+    expect(res.json()).toMatchObject({ error: 'audit_unavailable' })
     expect(insertAdminAuditRecord).toHaveBeenCalledTimes(1)
   })
 })

@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Unit tests for the admin audit onResponse hook recording mutations.
+// Unit tests for the admin audit hook recording mutations before success is reported.
 
 import { describe, it, expect, vi } from 'vitest'
 import Fastify from 'fastify'
@@ -131,13 +131,37 @@ describe('admin audit hook', () => {
     expect(ins!.params![16]).toMatch(/^[0-9a-f]{64}$/)
   })
 
-  it('swallows insert failures without breaking the response', async () => {
+  it('strips NUL bytes from the record before persistence', async () => {
+    const captured: Captured[] = []
+    const app = buildApp(captured)
+    await app.inject({ method: 'POST', url: '/v1/zones/z1/policies/p1', payload: { 'na\u0000me': 'x' } })
+    await app.close()
+    const ins = insertCall(captured)
+    expect(ins).toBeDefined()
+    const payload = ins!.params![12] as { changed_fields: string[] }
+    expect(payload.changed_fields).toEqual(['name'])
+    expect(JSON.stringify(ins!.params)).not.toContain('\\u0000')
+  })
+
+  it('refuses to report success when the audit insert fails for a successful mutation', async () => {
     const app = Fastify({ logger: false })
     const db = { connect: vi.fn().mockRejectedValue(new Error('db down')) } as unknown as DB
     registerAdminAuditHook(app, { db })
     app.post('/v1/zones/:zoneId/policies/:id', async () => ({ ok: true }))
     const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/policies/p1', payload: {} })
     await app.close()
-    expect(res.statusCode).toBe(200)
+    expect(res.statusCode).toBe(500)
+    expect(res.json()).toMatchObject({ error: 'audit_unavailable' })
+  })
+
+  it('keeps the failure response when the audit insert fails for a failed request', async () => {
+    const app = Fastify({ logger: false })
+    const db = { connect: vi.fn().mockRejectedValue(new Error('db down')) } as unknown as DB
+    registerAdminAuditHook(app, { db })
+    app.post('/v1/zones/:zoneId/policies/:id', async (_req, reply) => reply.code(403).send({ error: 'denied' }))
+    const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/policies/p1', payload: {} })
+    await app.close()
+    expect(res.statusCode).toBe(403)
+    expect(res.json()).toEqual({ error: 'denied' })
   })
 })

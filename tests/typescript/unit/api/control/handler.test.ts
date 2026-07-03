@@ -44,6 +44,13 @@ function claims(overrides: Partial<Claims> = {}): Claims {
   }
 }
 
+// Builds a dispatch context whose admin mock supports the request-scoped header wrapping the
+// handler applies to every dispatch.
+function ctx(admin: Record<string, unknown>): DispatchContext {
+  const full: Record<string, unknown> = { ...admin, withDefaultHeaders: () => full }
+  return { admin: full } as unknown as DispatchContext
+}
+
 describe('registerInvokeRoute', () => {
   it('blocks invoke requests when the runtime endpoint gate is closed', async () => {
     const app = Fastify()
@@ -140,7 +147,7 @@ describe('registerInvokeRoute', () => {
     apps.push(app)
     const d = deps(vi.fn(async () => claims()))
     d.replay.mark = vi.fn(async () => true)
-    d.ctx = { admin: { agents: { list: vi.fn(async () => [{ id: 'agent-1' }]) } } } as DispatchContext
+    d.ctx = ctx({ agents: { list: vi.fn(async () => [{ id: 'agent-1' }]) } })
 
     registerInvokeRoute(app, d)
     await app.ready()
@@ -154,6 +161,30 @@ describe('registerInvokeRoute', () => {
     expect(res.statusCode).toBe(200)
     expect(res.json()).toEqual({ ok: true, result: [{ id: 'agent-1' }] })
     expect(d.sink.emit).toHaveBeenCalledWith(expect.objectContaining({ decision: 'allow', command: 'agent' }))
+  })
+
+  it('refuses to report success when the allow audit cannot be durably recorded', async () => {
+    const app = Fastify()
+    apps.push(app)
+    const d = deps(vi.fn(async () => claims()))
+    d.replay.mark = vi.fn(async () => true)
+    const emit = vi.fn(async (ev: { decision: string }) => {
+      if (ev.decision === 'allow') throw new Error('audit store unavailable')
+    })
+    d.sink = { emit } as EventSink
+    d.ctx = ctx({ agents: { list: vi.fn(async () => [{ id: 'agent-1' }]) } })
+
+    registerInvokeRoute(app, d)
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/control/invoke',
+      headers: { authorization: 'Bearer token' },
+      payload: { command: 'agent', subcommand: 'list' },
+    })
+
+    expect(res.statusCode).toBe(500)
+    expect(res.json()).toEqual({ ok: false, error: { code: 'audit_unavailable', reason: expect.any(String) } })
   })
 
   it('records the body authorizing actor as audit attribution when the subject is a reserved Operator identity', async () => {
@@ -183,8 +214,7 @@ describe('registerInvokeRoute', () => {
     const d = deps(vi.fn(async () => claims({ sub: 'tenant-key' })))
     d.replay.mark = vi.fn(async () => true)
     d.resolveOperatorSubjects = () => new Set(['operator-executor'])
-    const withDefaultHeaders = vi.fn()
-    const admin = { agents: { list: vi.fn(async () => [{ id: 'agent-1' }]) }, withDefaultHeaders }
+    const admin = { agents: { list: vi.fn(async () => [{ id: 'agent-1' }]) }, withDefaultHeaders: vi.fn(() => admin) }
     d.ctx = { admin } as unknown as DispatchContext
 
     registerInvokeRoute(app, d)
@@ -197,9 +227,10 @@ describe('registerInvokeRoute', () => {
     })
 
     // The command still runs in the caller's own authority, but no attribution header is ever
-    // derived from the client-supplied fields and the audit carries no forged actor.
+    // derived from the client-supplied fields and the audit carries no forged actor. The only
+    // header stamped on the dispatch is the request id for trace correlation.
     expect(res.statusCode).toBe(200)
-    expect(withDefaultHeaders).not.toHaveBeenCalled()
+    expect(admin.withDefaultHeaders).toHaveBeenCalledWith({ 'x-request-id': expect.any(String) })
     expect(d.sink.emit).toHaveBeenCalledWith(expect.objectContaining({ decision: 'allow', authorizedBy: undefined }))
   })
 
@@ -211,7 +242,7 @@ describe('registerInvokeRoute', () => {
 
     const deniedDeps = deps(vi.fn(async () => claims()))
     deniedDeps.replay.mark = vi.fn(async () => true)
-    deniedDeps.ctx = { admin: { zones: { list: vi.fn() } } } as DispatchContext
+    deniedDeps.ctx = ctx({ zones: { list: vi.fn() } })
     registerInvokeRoute(denied, deniedDeps)
     await denied.ready()
     const deniedRes = await denied.inject({
@@ -225,7 +256,7 @@ describe('registerInvokeRoute', () => {
 
     const invalidDeps = deps(vi.fn(async () => claims()))
     invalidDeps.replay.mark = vi.fn(async () => true)
-    invalidDeps.ctx = { admin: { agents: { suspend: vi.fn() } } } as DispatchContext
+    invalidDeps.ctx = ctx({ agents: { suspend: vi.fn() } })
     registerInvokeRoute(invalid, invalidDeps)
     await invalid.ready()
     const invalidRes = await invalid.inject({
@@ -239,15 +270,13 @@ describe('registerInvokeRoute', () => {
 
     const upstreamDeps = deps(vi.fn(async () => claims()))
     upstreamDeps.replay.mark = vi.fn(async () => true)
-    upstreamDeps.ctx = {
-      admin: {
-        agents: {
-          list: vi.fn(async () => {
-            throw new Error('api down')
-          }),
-        },
+    upstreamDeps.ctx = ctx({
+      agents: {
+        list: vi.fn(async () => {
+          throw new Error('api down')
+        }),
       },
-    } as DispatchContext
+    })
     registerInvokeRoute(upstream, upstreamDeps)
     await upstream.ready()
     const upstreamRes = await upstream.inject({
@@ -268,7 +297,7 @@ describe('registerInvokeRoute', () => {
     d.replay.mark = vi.fn(async () => true)
     d.resolveOperatorSubjects = () => new Set(['operator-reader'])
     d.lookupZoneScopeTarget = vi.fn(async () => ({ reserved: false, archived: false, operatorGoverned: true }))
-    d.ctx = { admin: { applications: { list } } } as unknown as DispatchContext
+    d.ctx = ctx({ applications: { list } })
 
     registerInvokeRoute(app, d)
     await app.ready()
@@ -294,7 +323,7 @@ describe('registerInvokeRoute', () => {
     d.replay.mark = vi.fn(async () => true)
     d.resolveOperatorSubjects = () => new Set(['operator-executor'])
     d.lookupZoneScopeTarget = vi.fn(async () => ({ reserved: false, archived: false, operatorGoverned: true }))
-    d.ctx = { admin: { applications: { create } } } as unknown as DispatchContext
+    d.ctx = ctx({ applications: { create } })
 
     registerInvokeRoute(app, d)
     await app.ready()
@@ -319,7 +348,7 @@ describe('registerInvokeRoute', () => {
     d.replay.mark = vi.fn(async () => true)
     d.resolveOperatorSubjects = () => new Set(['operator-reader'])
     d.lookupZoneScopeTarget = vi.fn(async () => null)
-    d.ctx = { admin: { applications: { list } } } as unknown as DispatchContext
+    d.ctx = ctx({ applications: { list } })
 
     registerInvokeRoute(app, d)
     await app.ready()
