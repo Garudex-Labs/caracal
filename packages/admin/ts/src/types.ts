@@ -495,7 +495,7 @@ export interface AgentSessionQuery {
 }
 
 export interface AgentListQuery {
-  status?: 'active' | 'suspended' | 'terminated'
+  status?: 'active' | 'suspended' | 'terminated' | 'expired'
   lifecycle?: 'task' | 'service'
   application_id?: string
   label?: string

@@ -11,27 +11,19 @@ import (
 	"time"
 )
 
-func TestBuildReplayAuditUsesCanonicalSignedEvent(t *testing.T) {
-	key := make([]byte, 32)
-	values := buildReplayAudit("audit-1", "zone-1", "req-1", json.RawMessage(`{"jti":"token-1"}`), time.Unix(1, 0).UTC(), key)
-	if values["id"] != "audit-1" {
-		t.Fatalf("unexpected audit id %#v", values["id"])
+func TestBuildReplayAuditProducesCanonicalEvent(t *testing.T) {
+	event := buildReplayAudit("audit-1", "zone-1", "req-1", json.RawMessage(`{"jti":"token-1"}`), time.Unix(1, 0).UTC())
+	if event.ID != "audit-1" || event.ZoneID != "zone-1" || event.RequestID != "req-1" {
+		t.Fatalf("unexpected replay audit identity %#v", event)
 	}
-	if values["sig"] == "" {
-		t.Fatal("canonical replay audit must include audit HMAC signature")
+	if event.EventType != "replay_detected" || event.Decision != "deny" || event.EvaluationStatus != "anomaly" {
+		t.Fatalf("unexpected replay audit classification %#v", event)
 	}
-	var event struct {
-		ID               string          `json:"id"`
-		ZoneID           string          `json:"zone_id"`
-		EventType        string          `json:"event_type"`
-		Decision         string          `json:"decision"`
-		EvaluationStatus string          `json:"evaluation_status"`
-		MetadataJSON     json.RawMessage `json:"metadata_json"`
+	var meta map[string]any
+	if err := json.Unmarshal(event.MetadataJSON, &meta); err != nil {
+		t.Fatalf("decode audit metadata: %v", err)
 	}
-	if err := json.Unmarshal([]byte(values["data"].(string)), &event); err != nil {
-		t.Fatalf("decode audit data: %v", err)
-	}
-	if event.ID != "audit-1" || event.ZoneID != "zone-1" || event.EventType != "replay_detected" || event.Decision != "deny" || event.EvaluationStatus != "anomaly" {
-		t.Fatalf("unexpected replay audit event %#v", event)
+	if meta["jti"] != "token-1" {
+		t.Fatalf("unexpected replay audit metadata %#v", meta)
 	}
 }
