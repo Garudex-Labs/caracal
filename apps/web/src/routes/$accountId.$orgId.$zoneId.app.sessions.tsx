@@ -28,7 +28,7 @@ import {
 import { cx } from "@/lib/cx";
 import { auditDecisionTone, auditEventContext, auditEventLabel } from "@/lib/auditPresentation";
 import { appLink } from "@/platform/nav/appLink";
-import { ConsoleApiError } from "@/platform/api/client";
+import { errorMessage } from "@/platform/api/errors";
 import { useSessionActivity, useSessionsFeed } from "@/platform/api/hooks";
 import type { Session, SessionQuery } from "@/platform/api/types";
 
@@ -50,15 +50,6 @@ function SessionsRoute() {
       {(zone) => <SessionsPage zoneId={zone.id} initialSubject={subject} />}
     </ZoneScopedPage>
   );
-}
-
-function errorMessage(error: unknown): string {
-  if (error instanceof ConsoleApiError) {
-    if (error.notConfigured) return "Control plane not connected.";
-    if (error.unreachable) return "Control plane unreachable.";
-    return error.code;
-  }
-  return "Unexpected error.";
 }
 
 type EffectiveStatus = "active" | "expired" | "revoked";

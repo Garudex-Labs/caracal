@@ -33,6 +33,7 @@ import {
   type FilterGroup,
 } from "@/components/ui";
 import { ConsoleApiError } from "@/platform/api/client";
+import { errorMessage } from "@/platform/api/errors";
 import {
   useAuthorizeProviderGrant,
   useCreateProvider,
@@ -90,15 +91,6 @@ function ProvidersRoute() {
       {(zone) => <ProvidersPage zoneId={zone.id} zoneName={zone.name} />}
     </ZoneScopedPage>
   );
-}
-
-function errorMessage(error: unknown): string {
-  if (error instanceof ConsoleApiError) {
-    if (error.notConfigured) return "Control plane not connected.";
-    if (error.unreachable) return "Control plane unreachable.";
-    return error.code.replace(/_/g, " ");
-  }
-  return "Unexpected error.";
 }
 
 // Surfaces the concrete blast radius of deleting a provider: the resources bound to it as

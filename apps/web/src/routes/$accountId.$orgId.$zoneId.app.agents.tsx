@@ -40,6 +40,7 @@ import {
 import { cx } from "@/lib/cx";
 import { auditDecisionTone, auditEventContext, auditEventLabel } from "@/lib/auditPresentation";
 import { ConsoleApiError } from "@/platform/api/client";
+import { coordinatorErrorMessage as errorMessage } from "@/platform/api/errors";
 import {
   useAgentActivity,
   useAgentChildren,
@@ -111,15 +112,6 @@ function AgentsRoute() {
       }
     </ZoneScopedPage>
   );
-}
-
-function errorMessage(error: unknown): string {
-  if (error instanceof ConsoleApiError) {
-    if (error.code === "coordinator_not_configured") return "Coordinator service not connected.";
-    if (error.code === "upstream_unreachable") return "Coordinator service unreachable.";
-    return error.code.replace(/_/g, " ");
-  }
-  return "Unexpected error.";
 }
 
 function CoordinatorOffline({ code, onRetry }: { code: string; onRetry: () => void }) {
