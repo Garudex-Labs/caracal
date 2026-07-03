@@ -434,6 +434,23 @@ export function PlanArtifact({
       </div>
 
       {plan.advisory ? <PlanAdvisory advisory={plan.advisory} /> : null}
+      {plan.reviewFailure ? (
+        <div className="border-t border-border bg-surface px-3.5 py-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <AlertGlyph className="h-3 w-3 text-muted-foreground" />
+              <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                Security review
+              </span>
+            </div>
+            <Badge tone="warning">Not reviewed</Badge>
+          </div>
+          <p className="mt-1.5 text-xs text-foreground">
+            The guardian review did not complete: {plan.reviewFailure}. Evaluate this plan yourself
+            before deciding.
+          </p>
+        </div>
+      ) : null}
 
       {plan.canDecide ? (
         <Confirmation approval={planApproval(plan)} state={planConfirmationState(plan)}>

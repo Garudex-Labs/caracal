@@ -124,6 +124,7 @@ export function DataTable<T>({
                     >
                       {col.sortable && onSortChange ? (
                         <button
+                          type="button"
                           onClick={() => onSortChange(col.id)}
                           aria-label={`Sort by ${col.header}`}
                           className={cx(

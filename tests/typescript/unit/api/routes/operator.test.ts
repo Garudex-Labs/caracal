@@ -2594,6 +2594,132 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
     expect(JSON.parse(String(planInsert![1][6])).deliberation).toContain('triaging')
   })
 
+  it('records the write ledger on an autopilot approval when a write budget is configured', async () => {
+    // With a conversation write budget in force, the approval turn carries the accounting the
+    // decision was made on: this plan's writes, the running total, and the configured budget.
+    const plan = {
+      summary: 'Register the billing app',
+      steps: [{ id: 's1', capability: 'registerApplication', args: { name: 'Billing' } }],
+    }
+    const fetchImpl = fetchReturning('{"tier":"change"}', JSON.stringify(plan))
+    const { app, clientQuery, db } = buildApp(true, {
+      aiProviders: [provider],
+      fetchImpl,
+      autopilotPolicy: buildAutopilotPolicy({ enabled: true, conversationWriteBudget: 5 }),
+    })
+    clientQuery
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ rows: [{ status: 'active', mode: 'agent', autopilot: true, next_seq: 1 }] })
+      .mockResolvedValueOnce({ rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: 'turn-1', seq: 1, kind: 'message' }] })
+      .mockResolvedValueOnce(undefined)
+    db.query
+      .mockResolvedValueOnce({ rows: [] }) // latest plan seq
+      .mockResolvedValueOnce({ rows: [] }) // error rows
+      .mockResolvedValueOnce({ rows: [] }) // messages
+      .mockResolvedValueOnce({ rows: [] }) // facts
+      .mockResolvedValueOnce({ rows: [] }) // zone memory recall
+      .mockResolvedValueOnce({ rows: [{ name: 'Pied Piper Production', slug: 'z1' }] }) // operating zone
+      .mockResolvedValueOnce({ rows: [] }) // previewPlan: application name free
+      .mockResolvedValueOnce({ rows: [{ writes: 2 }] }) // prior autopilot-approved writes
+    // plan turn persist
+    clientQuery
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ rows: [{ status: 'active', mode: 'agent', autopilot: true, next_seq: 2 }] })
+      .mockResolvedValueOnce({ rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: 'turn-2', seq: 2, kind: 'plan' }] })
+      .mockResolvedValueOnce(undefined)
+    // autopilot approval turn persist
+    clientQuery
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ rows: [{ status: 'active', mode: 'agent', autopilot: true, next_seq: 3 }] })
+      .mockResolvedValueOnce({ rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: 'turn-3', seq: 3, kind: 'approval' }] })
+      .mockResolvedValueOnce(undefined)
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/operator-conversations/conv-1/message',
+      payload: { message: 'register the billing app' },
+    })
+    expect(res.statusCode).toBe(201)
+    expect(JSON.parse(res.body)).toMatchObject({ intent: 'plan', ok: true, auto_approved: true })
+    const approvalInsert = clientQuery.mock.calls.find(
+      (c) => String(c[0]).includes('INSERT INTO operator_turns') && String(c[1]?.[5]) === 'approval',
+    )
+    expect(approvalInsert).toBeDefined()
+    expect(JSON.parse(String(approvalInsert![1][6]))).toMatchObject({
+      plan_seq: 2,
+      autopilot: true,
+      writes: 1,
+      writes_total: 3,
+      write_budget: 5,
+    })
+  })
+
+  it('pauses autopilot and records a note when the plan would spend past the write budget', async () => {
+    // Once the budget is spent, autopilot stops filling approvals: the plan persists undecided,
+    // a note explains the pause in the conversation ledger, and a human must approve manually.
+    const plan = {
+      summary: 'Register the billing app',
+      steps: [{ id: 's1', capability: 'registerApplication', args: { name: 'Billing' } }],
+    }
+    const fetchImpl = fetchReturning('{"tier":"change"}', JSON.stringify(plan))
+    const { app, clientQuery, db } = buildApp(true, {
+      aiProviders: [provider],
+      fetchImpl,
+      autopilotPolicy: buildAutopilotPolicy({ enabled: true, conversationWriteBudget: 2 }),
+    })
+    clientQuery
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ rows: [{ status: 'active', mode: 'agent', autopilot: true, next_seq: 1 }] })
+      .mockResolvedValueOnce({ rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: 'turn-1', seq: 1, kind: 'message' }] })
+      .mockResolvedValueOnce(undefined)
+    db.query
+      .mockResolvedValueOnce({ rows: [] }) // latest plan seq
+      .mockResolvedValueOnce({ rows: [] }) // error rows
+      .mockResolvedValueOnce({ rows: [] }) // messages
+      .mockResolvedValueOnce({ rows: [] }) // facts
+      .mockResolvedValueOnce({ rows: [] }) // zone memory recall
+      .mockResolvedValueOnce({ rows: [{ name: 'Pied Piper Production', slug: 'z1' }] }) // operating zone
+      .mockResolvedValueOnce({ rows: [] }) // previewPlan: application name free
+      .mockResolvedValueOnce({ rows: [{ writes: 2 }] }) // prior autopilot-approved writes exhaust the budget
+    // plan turn persist
+    clientQuery
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ rows: [{ status: 'active', mode: 'agent', autopilot: true, next_seq: 2 }] })
+      .mockResolvedValueOnce({ rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: 'turn-2', seq: 2, kind: 'plan' }] })
+      .mockResolvedValueOnce(undefined)
+    // budget pause note persist
+    clientQuery
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ rows: [{ status: 'active', mode: 'agent', autopilot: true, next_seq: 3 }] })
+      .mockResolvedValueOnce({ rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: 'turn-3', seq: 3, kind: 'note' }] })
+      .mockResolvedValueOnce(undefined)
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/operator-conversations/conv-1/message',
+      payload: { message: 'register the billing app' },
+    })
+    expect(res.statusCode).toBe(201)
+    expect(JSON.parse(res.body)).toMatchObject({ intent: 'plan', ok: true, auto_approved: false })
+    const approvalInsert = clientQuery.mock.calls.find(
+      (c) => String(c[0]).includes('INSERT INTO operator_turns') && String(c[1]?.[5]) === 'approval',
+    )
+    expect(approvalInsert).toBeUndefined()
+    const noteInsert = clientQuery.mock.calls.find(
+      (c) => String(c[0]).includes('INSERT INTO operator_turns') && String(c[1]?.[5]) === 'note',
+    )
+    expect(noteInsert).toBeDefined()
+    const note = JSON.parse(String(noteInsert![1][6]))
+    expect(note.text).toContain('write budget of 2')
+    expect(note.autopilot).toEqual({ reason: 'write_budget_exceeded', writes: 1, writes_total: 2, write_budget: 2 })
+  })
+
   it('defers autopilot for a credential-bearing provider plan until the secure prompt satisfies it', async () => {
     // An api_key provider collects its key through the console's secure prompt, so even an engaged
     // pass-all conversation cannot auto-approve at plan time: the plan persists undecided and the
