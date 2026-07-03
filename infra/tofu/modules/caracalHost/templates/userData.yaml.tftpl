@@ -1,0 +1,30 @@
+#cloud-config
+# Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+# Caracal, a product of Garudex Labs
+#
+# First-boot bootstrap: install Docker and the Caracal runtime CLI, then start the pinned stack.
+package_update: true
+packages:
+  - ca-certificates
+  - curl
+%{ if length(envLines) > 0 ~}
+write_files:
+  - path: ${caracalHome}/caracal.env
+    permissions: "0600"
+    content: |
+%{ for line in envLines ~}
+      ${line}
+%{ endfor ~}
+%{ endif ~}
+runcmd:
+  - sh -c 'command -v docker >/dev/null 2>&1 || curl -fsSL https://get.docker.com | sh'
+  - systemctl enable --now docker
+  - sh -c 'id caracal >/dev/null 2>&1 || useradd --system --home-dir ${caracalHome} --shell /usr/sbin/nologin caracal'
+  - usermod -aG docker caracal
+  - mkdir -p ${caracalHome}
+  - chown -R caracal:caracal ${caracalHome}
+  - sh -c 'curl -fsSL ${installScriptUrl} | CARACAL_INSTALL_DIR=/usr/local/bin CARACAL_REQUIRE_PROVENANCE=${requireProvenance ? 1 : 0} sh -s -- --version ${caracalVersion}'
+%{ for cmd in extraRuncmd ~}
+  - ${jsonencode(cmd)}
+%{ endfor ~}
+  - runuser -u caracal -- env HOME=${caracalHome} CARACAL_HOME=${caracalHome} /usr/local/bin/caracal up
