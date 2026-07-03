@@ -1,0 +1,29 @@
+# Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+# Caracal, a product of Garudex Labs
+#
+# Example inputs for the dev environment. Copy to terraform.tfvars and fill in.
+# Generate each secret with: openssl rand -base64 32
+
+kubeconfigPath = "~/.kube/config"
+kubeContext    = "kind-caracal"
+namespace      = "caracal"
+
+# Dev-only throwaway credentials. The module provisions these as the
+# caracal-runtime Secret; the chart never stores them in values.
+runtimeSecrets = {
+  postgresPassword        = "REPLACE_ME"
+  redisPassword           = "REPLACE_ME"
+  caracalAdminToken       = "REPLACE_ME"
+  stsAdminToken           = "REPLACE_ME"
+  auditAdminToken         = "REPLACE_ME"
+  metricsBearer           = "REPLACE_ME"
+  caracalCoordinatorToken = "REPLACE_ME"
+  caracalAuthSecret       = "REPLACE_ME"
+  zoneKek                 = "REPLACE_ME"
+  auditHmacKey            = "REPLACE_ME"
+  streamsHmacKey          = "REPLACE_ME"
+  gatewayStsHmacKey       = "REPLACE_ME"
+  databaseUrl             = "postgres://caracal:REPLACE_ME@postgres.default.svc.cluster.local:5432/caracal?sslmode=require"
+  authDatabaseUrl         = "postgres://caracal:REPLACE_ME@postgres.default.svc.cluster.local:5432/caracal_auth?sslmode=require"
+  redisUrl                = "redis://:REPLACE_ME@redis.default.svc.cluster.local:6379/0"
+}
