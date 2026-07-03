@@ -73,6 +73,16 @@ function bearerOf(req: { headers: { authorization?: string } }): string {
   return req.headers.authorization ?? ''
 }
 
+// Correlation headers every internal hop carries: the caller's bearer, the request id the
+// zone route inherits, and the inbound traceparent so the inner request rebinds the same trace.
+function hopHeaders(req: FastifyRequest): Record<string, string> {
+  const headers: Record<string, string> = { authorization: bearerOf(req), 'x-request-id': String(req.id) }
+  const tp = req.headers['traceparent']
+  const value = Array.isArray(tp) ? tp[0] : tp
+  if (value) headers.traceparent = value
+  return headers
+}
+
 function clientIp(req: FastifyRequest): string {
   return req.ip || 'unknown'
 }
@@ -97,7 +107,7 @@ export const v1Routes: FastifyPluginAsync = async (fastify) => {
     const res = await fastify.inject({
       method: 'POST',
       url: `/zones/${encodeURIComponent(body.zone_id)}/agents`,
-      headers: { authorization: bearerOf(req), 'content-type': 'application/json' },
+      headers: { ...hopHeaders(req), 'content-type': 'application/json' },
       payload: {
         application_id: body.application_id,
         subject_session_id: body.subject_session_id,
@@ -117,7 +127,7 @@ export const v1Routes: FastifyPluginAsync = async (fastify) => {
     const res = await fastify.inject({
       method: 'DELETE',
       url: `/zones/${encodeURIComponent(body.zone_id)}/agents/${encodeURIComponent(body.agent_session_id)}${reasonQs}`,
-      headers: { authorization: bearerOf(req) },
+      headers: hopHeaders(req),
     })
     if (res.statusCode === 204) return reply.code(204).send()
     return reply.code(res.statusCode).send(res.json())
@@ -129,7 +139,7 @@ export const v1Routes: FastifyPluginAsync = async (fastify) => {
     const res = await fastify.inject({
       method: 'POST',
       url: `/zones/${encodeURIComponent(body.zone_id)}/agents`,
-      headers: { authorization: bearerOf(req), 'content-type': 'application/json' },
+      headers: { ...hopHeaders(req), 'content-type': 'application/json' },
       payload: {
         application_id: body.application_id,
         subject_session_id: body.subject_session_id,
@@ -149,7 +159,7 @@ export const v1Routes: FastifyPluginAsync = async (fastify) => {
     const res = await fastify.inject({
       method: 'POST',
       url: `/zones/${encodeURIComponent(zone_id)}/delegations`,
-      headers: { authorization: bearerOf(req), 'content-type': 'application/json' },
+      headers: { ...hopHeaders(req), 'content-type': 'application/json' },
       payload,
     })
     return reply.code(res.statusCode).send(res.json())
@@ -161,7 +171,7 @@ export const v1Routes: FastifyPluginAsync = async (fastify) => {
     const res = await fastify.inject({
       method: 'POST',
       url: `/zones/${encodeURIComponent(body.zone_id)}/delegations`,
-      headers: { authorization: bearerOf(req), 'content-type': 'application/json' },
+      headers: { ...hopHeaders(req), 'content-type': 'application/json' },
       payload: {
         source_session_id: body.from_agent_session_id,
         target_session_id: body.to_agent_session_id,
@@ -182,7 +192,7 @@ export const v1Routes: FastifyPluginAsync = async (fastify) => {
     const res = await fastify.inject({
       method: 'PATCH',
       url: `/zones/${encodeURIComponent(body.zone_id)}/delegations/${encodeURIComponent(body.delegation_edge_id)}/revoke`,
-      headers: { authorization: bearerOf(req) },
+      headers: hopHeaders(req),
     })
     return reply.code(res.statusCode).send(res.statusCode === 204 ? undefined : res.json())
   })

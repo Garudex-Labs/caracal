@@ -302,16 +302,28 @@ func (c *Client) xadd(ctx context.Context, ev Event) error {
 	return c.stream.XAdd(ctx, c.cfg.Stream, values)
 }
 
-func (c *Client) persistBatch(batch []Event) {
+// recordLoss escalates definitive audit loss: both the stream and the disk fallback
+// failed, so the events are unrecoverable and the loss must be visible in logs and metrics.
+func (c *Client) recordLoss(count uint64, err error) {
+	dropped := c.dropped.Add(count)
+	if c.cfg.Metrics.OnDropped != nil {
+		c.cfg.Metrics.OnDropped(dropped)
+	}
+	c.cfg.Logger.Error().Err(err).Uint64("count", count).Msg("audit events lost: stream and disk persistence both failed")
+}
+
+// persistBatch appends events to a per-process ndjson file for later replay. Returns
+// an error when the batch could not be durably persisted.
+func (c *Client) persistBatch(batch []Event) error {
 	if len(batch) == 0 {
-		return
+		return nil
 	}
 	name := fmt.Sprintf("pending-%d-%d%s", os.Getpid(), time.Now().UnixNano(), replayFileExt)
 	path := filepath.Join(c.cfg.ReplayDir, name)
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, replayFilePerm)
 	if err != nil {
 		c.cfg.Logger.Error().Err(err).Str("path", path).Msg("audit replay file open")
-		return
+		return err
 	}
 	closed := false
 	defer func() {
@@ -330,32 +342,33 @@ func (c *Client) persistBatch(batch []Event) {
 		}
 		if _, err := w.Write(append(data, '\n')); err != nil {
 			c.cfg.Logger.Error().Err(err).Msg("audit replay file write")
-			return
+			return err
 		}
 	}
 	if err := w.Flush(); err != nil {
 		c.cfg.Logger.Error().Err(err).Msg("audit replay file flush")
-		return
+		return err
 	}
 	if err := f.Sync(); err != nil {
 		c.cfg.Logger.Error().Err(err).Str("path", path).Msg("audit replay file sync")
-		return
+		return err
 	}
 	if err := f.Close(); err != nil {
 		closed = true
 		c.cfg.Logger.Error().Err(err).Str("path", path).Msg("audit replay file close")
-		return
+		return err
 	}
 	closed = true
 	if err := syncReplayDir(c.cfg.ReplayDir); err != nil {
 		c.cfg.Logger.Error().Err(err).Str("dir", c.cfg.ReplayDir).Msg("audit replay dir sync")
-		return
+		return err
 	}
 	if c.cfg.Metrics.OnReplayPersisted != nil {
 		c.cfg.Metrics.OnReplayPersisted(uint64(len(batch)))
 	}
 	c.persisted.Add(uint64(len(batch)))
 	c.cfg.Logger.Warn().Str("path", path).Int("count", len(batch)).Msg("audit batch persisted to disk for later replay")
+	return nil
 }
 
 func (c *Client) replayFile(ctx context.Context, path string) error {
@@ -408,7 +421,9 @@ func (c *Client) run(ctx context.Context) {
 			}
 		}
 		if len(failed) > 0 {
-			c.persistBatch(failed)
+			if err := c.persistBatch(failed); err != nil {
+				c.recordLoss(uint64(len(failed)), err)
+			}
 		}
 		batch = batch[:0]
 	}
@@ -433,7 +448,9 @@ func (c *Client) run(ctx context.Context) {
 					drained = true
 				}
 			}
-			c.persistBatch(batch)
+			if err := c.persistBatch(batch); err != nil {
+				c.recordLoss(uint64(len(batch)), err)
+			}
 			return
 		}
 	}

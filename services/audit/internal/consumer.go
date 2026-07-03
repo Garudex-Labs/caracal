@@ -8,10 +8,12 @@
 package internal
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"strconv"
 	"strings"
@@ -292,7 +294,7 @@ func (c *Consumer) processOnce(ctx context.Context, msg redis.XMessage, delivCou
 		return
 	}
 
-	_, err = c.db.Insert(ctx, ev, sig)
+	_, err = c.db.Insert(ctx, sanitizeEvent(ev), sig)
 	if errors.Is(err, ErrConflictMismatch) {
 		c.tamperReplay.Add(1)
 		c.dlqAndAck(ctx, msg, "tamper_on_replay")
@@ -381,6 +383,70 @@ func unmarshalEvent(raw string) (AuditEvent, error) {
 		return ev, errors.New("required fields missing (id, zone_id, occurred_at)")
 	}
 	return ev, nil
+}
+
+// sanitizeEvent strips NUL characters, which Postgres rejects in text and jsonb
+// values, from every string field so a crafted but HMAC-valid payload cannot
+// force its own audit record into the dead-letter queue and suppress it.
+func sanitizeEvent(ev AuditEvent) AuditEvent {
+	ev.ID = stripNul(ev.ID)
+	ev.ZoneID = stripNul(ev.ZoneID)
+	ev.EventType = stripNul(ev.EventType)
+	ev.RequestID = stripNul(ev.RequestID)
+	ev.Decision = stripNul(ev.Decision)
+	ev.PolicySetID = stripNul(ev.PolicySetID)
+	ev.PolicySetVersionID = stripNul(ev.PolicySetVersionID)
+	ev.ManifestSHA = stripNul(ev.ManifestSHA)
+	ev.EvaluationStatus = stripNul(ev.EvaluationStatus)
+	ev.DeterminingPoliciesJSON = sanitizeRawJSON(ev.DeterminingPoliciesJSON)
+	ev.DiagnosticsJSON = sanitizeRawJSON(ev.DiagnosticsJSON)
+	ev.MetadataJSON = sanitizeRawJSON(ev.MetadataJSON)
+	return ev
+}
+
+func stripNul(s string) string {
+	if !strings.Contains(s, "\x00") {
+		return s
+	}
+	return strings.ReplaceAll(s, "\x00", "")
+}
+
+// sanitizeRawJSON rewrites a JSON document whose strings contain NUL escapes.
+// Valid JSON can only carry NUL as the \u0000 escape, so documents without that
+// sequence pass through untouched.
+func sanitizeRawJSON(raw json.RawMessage) json.RawMessage {
+	if len(raw) == 0 || !bytes.Contains(raw, []byte(`\u0000`)) {
+		return raw
+	}
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return raw
+	}
+	out, err := json.Marshal(sanitizeJSONValue(v))
+	if err != nil {
+		return raw
+	}
+	return out
+}
+
+func sanitizeJSONValue(v any) any {
+	switch t := v.(type) {
+	case string:
+		return stripNul(t)
+	case []any:
+		for i, e := range t {
+			t[i] = sanitizeJSONValue(e)
+		}
+		return t
+	case map[string]any:
+		out := make(map[string]any, len(t))
+		for k, e := range t {
+			out[stripNul(k)] = sanitizeJSONValue(e)
+		}
+		return out
+	default:
+		return v
+	}
 }
 
 func ensureGroup(ctx context.Context, r auditStreamClient, stream, group string) error {
