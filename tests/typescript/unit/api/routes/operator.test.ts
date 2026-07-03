@@ -11,6 +11,7 @@ import '../../../../../apps/api/src/fastify-augmentation.js'
 import { operatorRoutes } from '../../../../../apps/api/src/routes/operator.js'
 import { buildAutopilotPolicy } from '../../../../../apps/api/src/operator-autopilot.js'
 import type { OperatorAiManager } from '../../../../../apps/api/src/operator-ai-manager.js'
+import type { OperatorControlIdentity } from '../../../../../apps/api/src/config.js'
 
 // Test-only deterministic KEK fixture (32-byte hex) so the plan credential vault can seal. Never use in production.
 process.env.ZONE_KEK = '2222222222222222222222222222222222222222222222222222222222222222'
@@ -22,7 +23,7 @@ function buildApp(
     systemZones?: string[]
     aiProviders?: { id: string; baseUrl: string; model: string; apiKey?: string; timeoutMs: number; contextWindow: number }[]
     aiManager?: OperatorAiManager | null
-    controlIdentity?: { applicationId: string; clientSecret: string; zoneId: string }
+    controlIdentity?: OperatorControlIdentity
     controlEndpoints?: { stsUrl: string; audience: string; controlUrl: string; controlEnabled: boolean }
     fetchImpl?: typeof fetch
     autopilotPolicy?: ReturnType<typeof buildAutopilotPolicy>
@@ -89,10 +90,22 @@ function controlFetch(invokeResults: unknown[], invokeError?: { status: number; 
   })
 }
 
+// A short-lived provisioned Operator identity bound to the given system zone, with the three
+// reserved role applications sharing a sealed test secret.
+function sysIdentity(zoneId: string): OperatorControlIdentity {
+  return {
+    zoneId,
+    llm: { applicationId: 'caracal-sys-operator', clientSecret: 'cs_sealed' },
+    researcher: { applicationId: 'caracal-sys-operator-researcher', clientSecret: 'cs_sealed' },
+    executor: { applicationId: 'caracal-sys-operator-executor', clientSecret: 'cs_sealed' },
+    expiresAt: new Date(Date.now() + 3600_000),
+  }
+}
+
 // The internal control identity and endpoints that make governed execution available for
 // zone z1: the identity is bound to z1, so the control token executes in z1.
 const governedControl = {
-  controlIdentity: { applicationId: 'caracal-sys-operator', clientSecret: 'cs_sealed', zoneId: 'z1' },
+  controlIdentity: sysIdentity('z1'),
   controlEndpoints: { stsUrl: 'http://sts.test', audience: 'caracal-control', controlUrl: 'http://api.test', controlEnabled: true },
 }
 
@@ -159,7 +172,7 @@ describe('operator enablement gating', () => {
 
   it('reports governed execution configured with its zone, never the secret, when a control identity is supplied', async () => {
     const { app } = buildApp(true, {
-      controlIdentity: { applicationId: 'caracal-sys-operator', clientSecret: 'cs_sealed', zoneId: 'zone-sys' },
+      controlIdentity: sysIdentity('zone-sys'),
     })
     await app.ready()
     const status = await app.inject({ method: 'GET', url: '/v1/operator/status' })
@@ -1201,15 +1214,17 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/plan/execute', () =>
 
   it('governs a tenant zone its control identity is not bound to via the zone-scope header', async () => {
     // The Operator governs every zone it operates in. Its control identity is provisioned in the
-    // reserved system zone, so a conversation in a tenant zone executes through a control client
-    // that stamps the zone-scope header naming that zone, and the control plane applies the
-    // mutation there.
+    // reserved system zone, so a conversation in a tenant zone that has granted Operator
+    // administration executes through a control client that stamps the zone-scope header naming
+    // that zone, and the control plane applies the mutation there.
     const fetchMock = controlFetch([{ id: 'grant-xyz' }])
-    const { app, clientQuery } = buildApp(true, {
-      controlIdentity: { applicationId: 'caracal-sys-operator', clientSecret: 'cs_sealed', zoneId: 'zone-sys' },
+    const { app, db, clientQuery } = buildApp(true, {
+      controlIdentity: sysIdentity('zone-sys'),
       controlEndpoints: governedControl.controlEndpoints,
       fetchImpl: fetchMock as unknown as typeof fetch,
     })
+    // The tenant zone carries the explicit per-zone administration grant.
+    db.query.mockResolvedValueOnce({ rows: [{ operator_governed: true }] })
     const executionTurn = {
       id: 'turn-x',
       conversation_id: 'conv-1',
@@ -3092,7 +3107,7 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
     const { app, clientQuery, db } = buildApp(true, {
       aiProviders: [provider],
       fetchImpl,
-      controlIdentity: { applicationId: 'caracal-sys-operator', clientSecret: 'cs_sealed', zoneId: 'other-zone' },
+      controlIdentity: sysIdentity('other-zone'),
       controlEndpoints: governedControl.controlEndpoints,
     })
     clientQuery
@@ -3101,11 +3116,11 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
       .mockResolvedValueOnce({ rowCount: 1 })
       .mockResolvedValueOnce({ rows: [{ id: 'turn-1', seq: 1 }] })
       .mockResolvedValueOnce(undefined)
-    db.query
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [] })
+    // The zone record answers with the explicit per-zone administration grant; every other
+    // read (state, facts, memory) is empty.
+    db.query.mockImplementation(async (sql: unknown) =>
+      String(sql).includes('operator_governed') ? { rows: [{ name: 'Zone One', slug: 'z1', operator_governed: true }] } : { rows: [] },
+    )
     clientQuery
       .mockResolvedValueOnce(undefined)
       .mockResolvedValueOnce({ rows: [{ status: 'active', next_seq: 2 }] })

@@ -33,7 +33,6 @@ const SAVED_KEYS = [
   'API_OPERATOR_AI_LOCAL_BASE_URL',
   'API_OPERATOR_AI_LOCAL_MODEL',
   'API_OPERATOR_SELF_GOVERN',
-  'API_OPERATOR_CONTROL_CLIENT_SECRET',
   'API_MAX_RESOURCES_PER_ZONE',
   'API_READY_OUTBOX_DEAD_MAX',
   'CARACAL_MODE',
@@ -156,29 +155,19 @@ describe('api config trustProxy', () => {
     expect(loadConfig().trustProxy).toBe(true)
   })
 
-  test('defaults self-governance off and leaves the control secret null when unset', async () => {
+  test('defaults self-governance off when unset', async () => {
     const { loadConfig } = (await import(CONFIG_PATH)) as typeof import('../../../../apps/api/src/config')
-    const cfg = loadConfig()
-    expect(cfg.operatorSelfGovern).toBe(false)
-    expect(cfg.operatorControlSecret).toBeNull()
+    expect(loadConfig().operatorSelfGovern).toBe(false)
   })
 
-  test('enables self-governance and loads the control secret when configured', async () => {
+  test('enables self-governance when configured; no credential env exists', async () => {
     process.env.API_OPERATOR_SELF_GOVERN = 'true'
-    process.env.API_OPERATOR_CONTROL_CLIENT_SECRET = 'cs_operator_secret'
     const { loadConfig } = (await import(CONFIG_PATH)) as typeof import('../../../../apps/api/src/config')
     const cfg = loadConfig()
     expect(cfg.operatorSelfGovern).toBe(true)
-    expect(cfg.operatorControlSecret).toBe('cs_operator_secret')
-  })
-
-  test('resolves the operator control secret from a secret file', async () => {
-    const secretFile = join(dir, 'operatorControlSecret')
-    writeFileSync(secretFile, 'cs_from_file\n')
-    process.env.API_OPERATOR_CONTROL_CLIENT_SECRET_FILE = secretFile
-    const { loadConfig } = (await import(CONFIG_PATH)) as typeof import('../../../../apps/api/src/config')
-    expect(loadConfig().operatorControlSecret).toBe('cs_from_file')
-    delete process.env.API_OPERATOR_CONTROL_CLIENT_SECRET_FILE
+    // The Operator's credentials are generated and rotated in process; the runtime trust
+    // boundary carries no permanent administrative credential to configure.
+    expect('operatorControlSecret' in cfg).toBe(false)
   })
 
   test('resolves required database and redis URLs from secret files', async () => {
