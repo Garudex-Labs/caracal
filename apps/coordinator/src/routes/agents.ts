@@ -38,7 +38,7 @@ const SpawnBody = z.object({
 const ListQuery = z.object({
   limit: z.coerce.number().int().min(1).max(LIST_MAX_LIMIT).default(LIST_DEFAULT_LIMIT),
   cursor: z.string().min(1).optional(),
-  status: z.enum(['active', 'suspended', 'terminated']).optional(),
+  status: z.enum(['active', 'suspended', 'terminated', 'expired']).optional(),
   lifecycle: z.enum(['task', 'service']).optional(),
   application_id: z.string().min(1).optional(),
   label: z.string().min(1).optional(),
@@ -617,7 +617,13 @@ export async function suspendSubtree(client: PoolClient, zoneId: string, rootIds
   return rows.length
 }
 
-export async function terminateSubtree(client: PoolClient, zoneId: string, rootIds: string[], reason: string): Promise<number> {
+export async function terminateSubtree(
+  client: PoolClient,
+  zoneId: string,
+  rootIds: string[],
+  reason: string,
+  rootStatus: 'terminated' | 'expired' = 'terminated',
+): Promise<number> {
   if (rootIds.length === 0) return 0
   const { rows } = await client.query<TerminatedRow>(
     `WITH RECURSIVE tree AS (
@@ -632,7 +638,8 @@ export async function terminateSubtree(client: PoolClient, zoneId: string, rootI
      ),
      terminated AS (
        UPDATE agent_sessions
-       SET status = 'terminated', terminated_at = now(), updated_at = now(),
+       SET status = CASE WHEN id = ANY($1::text[]) THEN $4 ELSE 'terminated' END,
+           terminated_at = now(), updated_at = now(),
            termination_reason = CASE WHEN id = ANY($1::text[]) THEN $3 ELSE 'parent_terminated' END
        WHERE id IN (SELECT id FROM tree) AND zone_id = $2
       RETURNING id, subject_session_id, parent_id
@@ -652,7 +659,7 @@ export async function terminateSubtree(client: PoolClient, zoneId: string, rootI
        RETURNING s.id
      )
     SELECT id, subject_session_id, parent_id FROM terminated`,
-    [rootIds, zoneId, reason],
+    [rootIds, zoneId, reason, rootStatus],
   )
   if (rows.length === 0) return 0
   const exemptSessions = await revocationExemptSessions(client, zoneId, rows)

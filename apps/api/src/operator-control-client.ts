@@ -37,6 +37,7 @@ export function buildOperatorControlClient(
   zoneScope?: string,
   authorizedBy?: string,
   coAuthorOperator?: boolean,
+  requestId?: string,
 ): ControlClient | null {
   if (!identity || !endpoints.controlEnabled) return null
   const credential = identity[role]
@@ -51,6 +52,7 @@ export function buildOperatorControlClient(
       zoneScope,
       authorizedBy,
       coAuthorOperator,
+      requestId,
     },
     fetchImpl,
   )
