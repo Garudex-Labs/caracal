@@ -14,7 +14,7 @@ import {
 import { PROVIDER_CONFIG_FIELDS, PROVIDER_KINDS, type ProviderConfigField } from './provider-config.js'
 import type { ConversationState, RecentMessage } from './operator-state.js'
 import { describeFacts, type ConversationFacts } from './operator-memory.js'
-import { describeZoneMemory, type ZoneMemoryEntry } from './operator-zone-memory.js'
+import { describeConversationMemory, type ConversationMemoryEntry } from './operator-conversation-memory.js'
 import type { Evidence } from './operator-research.js'
 import type { DocSnippet } from './operator-docs.js'
 import { GatewayBudgetError, GatewayError, GatewayUnavailableError, type Gateway, type GatewayMessage } from './operator-gateway.js'
@@ -473,10 +473,10 @@ export interface AgentContext {
   // whether governed execution is configured for this zone: when false the Operator can plan and
   // explain here but cannot apply changes, and says so rather than implying an apply will work.
   zone?: { name: string; canApply: boolean }
-  // Durable, zone-scoped knowledge of governed changes already applied in this zone, carried
-  // across conversations. Grounds an agent in the zone's established shape so it does not
-  // re-propose what already exists or ignore conventions set in earlier conversations.
-  zoneMemory?: ZoneMemoryEntry[]
+  // Durable memory of this one conversation: the governed changes it applied earlier, isolated
+  // from every other chat so no cross-conversation history colors this turn's reasoning. The
+  // zone's current shape reaches an agent only through the live state evidence below.
+  conversationMemory?: ConversationMemoryEntry[]
   evidence?: Evidence[]
   // True when this turn needed live state but no governed read mandate is active for the
   // conversation's zone, so nothing could be read. The read agents must then say so plainly
@@ -562,8 +562,8 @@ function describeContext(context: AgentContext): string {
     sections.push(lines.join(' '))
   }
 
-  const zoneMemory = describeZoneMemory(context.zoneMemory)
-  if (zoneMemory) sections.push(zoneMemory)
+  const conversationMemory = describeConversationMemory(context.conversationMemory)
+  if (conversationMemory) sections.push(conversationMemory)
 
   const facts = describeFacts(context.facts)
   if (facts) sections.push(`Session facts:\n${facts}`)
@@ -580,10 +580,10 @@ function describeContext(context: AgentContext): string {
   // Memory is history, never proof of existence: an object a memory section mentions may have
   // been deleted or renamed outside this conversation since it was written. The ranking is stated
   // whenever any history section is present so an agent can never mistake recall for a read.
-  if (zoneMemory || facts || context.state) {
+  if (conversationMemory || facts || context.state) {
     sections.push(
       'SOURCE OF TRUTH FOR EXISTENCE: only the live state read just now proves what exists in this ' +
-        'zone. Durable zone memory, session facts, and earlier messages are history - an object they ' +
+        "zone. This chat's durable memory, session facts, and earlier messages are history - an object they " +
         'mention may have since been deleted or renamed, so never claim it exists, cite its id, or ' +
         'target it in a plan from those alone; confirm it in the live state first. When no live read ' +
         'covers the domain in question, say plainly that you have not read it (a planner requests it ' +

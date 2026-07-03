@@ -49,7 +49,7 @@ import {
 } from '../operator-gateway.js'
 import { type GovernanceLimits } from '../operator-ai-governance.js'
 import { runVerifier, type AgentContext, type OperatorMode, type PolicyDraft } from '../operator-agents.js'
-import { recallZoneMemory, rememberAppliedChange } from '../operator-zone-memory.js'
+import { recallConversationMemory, rememberAppliedChange } from '../operator-conversation-memory.js'
 import { createOrchestrator, type OnProgress, type PlanReview, type ProgressEvent } from '../operator-orchestrator.js'
 import { createStateResearcher } from '../operator-research.js'
 import type { Evidence } from '../operator-research.js'
@@ -2120,10 +2120,10 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
     }
     messageRun = await transitionMessageRun(fastify.db, messageRun, 'waiting_for_model', { reason: 'model_requested' })
 
-    const [state, facts, zoneMemory, zoneRow] = await Promise.all([
+    const [state, facts, conversationMemory, zoneRow] = await Promise.all([
       loadConversationState(fastify.db, params.id, params.zoneId, MESSAGE_CONTEXT_WINDOW),
       loadConversationFacts(fastify.db, params.id, params.zoneId),
-      recallZoneMemory(fastify.db, params.zoneId),
+      recallConversationMemory(fastify.db, params.zoneId, params.id),
       fastify.db.query<{ name: string | null; slug: string | null; operator_governed: boolean }>(
         'SELECT name, slug, operator_governed FROM zones WHERE id = $1 LIMIT 1',
         [params.zoneId],
@@ -2137,7 +2137,7 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
     const zoneGrant = params.zoneId === governedIdentity?.zoneId || zoneRow.rows[0]?.operator_governed === true
     const canApply = !!governedIdentity && !!opts.controlEndpoints && zoneGrant
     const zoneName = zoneRow.rows[0]?.name ?? zoneRow.rows[0]?.slug ?? 'this zone'
-    const context: AgentContext = { facts, state, zoneMemory, zone: { name: zoneName, canApply } }
+    const context: AgentContext = { facts, state, conversationMemory, zone: { name: zoneName, canApply } }
 
     // Track the real token usage of every completion made while answering this one
     // message, and report it alongside the model that answered and its context window so
