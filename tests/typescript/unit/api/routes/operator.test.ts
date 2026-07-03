@@ -2464,7 +2464,6 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
       'triaging',
       'gathering',
       'planning',
-      'critiquing',
       'guarding',
     ])
     const terminal = frames.at(-1)!
@@ -2486,7 +2485,7 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
       }
     })
     expect(planInsert).toBeDefined()
-    expect(JSON.parse(planInsert![1][6]).deliberation).toEqual(['triaging', 'gathering', 'planning', 'critiquing', 'guarding'])
+    expect(JSON.parse(planInsert![1][6]).deliberation).toEqual(['triaging', 'gathering', 'planning', 'guarding'])
     // The effect each step was previewed to have against live state is recorded per step, so the
     // console can show the consequence the human reviewed rather than only the step's claim.
     expect(JSON.parse(planInsert![1][6]).steps[0].effect).toBe('create')
@@ -2702,14 +2701,24 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
     const res = await app.inject({ method: 'GET', url: '/v1/operator/status' })
     expect(res.statusCode).toBe(200)
     const body = JSON.parse(res.body)
-    expect(body.autopilot).toEqual({ available: true })
+    expect(body.autopilot).toEqual({ available: true, write_budget: null })
+  })
+
+  it('surfaces a configured autopilot write budget on the status endpoint', async () => {
+    const { app } = buildApp(true, {
+      aiProviders: [provider],
+      autopilotPolicy: buildAutopilotPolicy({ enabled: true, conversationWriteBudget: 5 }),
+    })
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/operator/status' })
+    expect(JSON.parse(res.body).autopilot).toEqual({ available: true, write_budget: 5 })
   })
 
   it('reports autopilot unavailable by default', async () => {
     const { app } = buildApp(true, { aiProviders: [provider] })
     await app.ready()
     const res = await app.inject({ method: 'GET', url: '/v1/operator/status' })
-    expect(JSON.parse(res.body).autopilot).toEqual({ available: false })
+    expect(JSON.parse(res.body).autopilot).toEqual({ available: false, write_budget: null })
   })
 
   it('refuses to plan in ask mode and answers with a switch-to-agent note', async () => {
@@ -2793,14 +2802,9 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
       findings: [{ severity: 'caution', concern: 'Confirm the OAuth app is restricted to the finance org.' }],
     }
     // No control identity, so the researcher is absent and the compound path degrades to no
-    // evidence - but it still plans and still runs the correctness critic and the advisory review.
-    // Four model calls in order: triage (compound), planner, correctness critic, security analyst.
-    const fetchImpl = fetchReturning(
-      '{"tier":"compound"}',
-      JSON.stringify(plan),
-      JSON.stringify({ verdict: 'sound', summary: 'Plan achieves the goal.', deficiencies: [] }),
-      JSON.stringify(advisory),
-    )
+    // evidence - but it still plans and still runs the advisory review. Three model calls in
+    // order: triage (compound), planner, security analyst; the single-step plan skips the critic.
+    const fetchImpl = fetchReturning('{"tier":"compound"}', JSON.stringify(plan), JSON.stringify(advisory))
     const { app, clientQuery, db } = buildApp(true, { aiProviders: [provider], fetchImpl })
     clientQuery
       .mockResolvedValueOnce(undefined)
@@ -2840,11 +2844,13 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
     // previewed, and awaiting approval.
     expect(body.advisory).toEqual(advisory)
     expect(body.validation.ok).toBe(true)
-    // The advisory is persisted in the plan turn content for durable, audited human review.
+    // The advisory is persisted in the plan turn content for durable, audited human review,
+    // alongside the explicit review state proving the guardian completed.
     expect(persistedContent).toBeDefined()
     expect(JSON.parse(persistedContent!).advisory).toEqual(advisory)
-    // Four model calls: triage + planner + correctness critic + security analyst.
-    expect((fetchImpl as unknown as { mock: { calls: unknown[] } }).mock.calls).toHaveLength(4)
+    expect(JSON.parse(persistedContent!).review).toEqual({ status: 'reviewed' })
+    // Three model calls: triage + planner + security analyst.
+    expect((fetchImpl as unknown as { mock: { calls: unknown[] } }).mock.calls).toHaveLength(3)
   })
 
   it('records an error turn when the model cannot produce a usable plan', async () => {

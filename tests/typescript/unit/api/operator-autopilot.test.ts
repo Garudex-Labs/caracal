@@ -17,6 +17,8 @@ function evaluation(over: Partial<AutopilotEvaluation> = {}): AutopilotEvaluatio
     applicable: true,
     credentialsSatisfied: true,
     steps: [{ id: 's1', capability: 'registerApplication' }],
+    mutatingSteps: 1,
+    priorApprovedWrites: 0,
     ...over,
   }
 }
@@ -32,6 +34,15 @@ describe('buildAutopilotPolicy', () => {
     const policy = buildAutopilotPolicy({ enabled: true })
     expect(policy.enabled).toBe(true)
     expect(autopilotAvailable(policy)).toBe(true)
+  })
+
+  it('enforces no write budget by default or when configured as zero', () => {
+    expect(buildAutopilotPolicy({ enabled: true }).conversationWriteBudget).toBeNull()
+    expect(buildAutopilotPolicy({ enabled: true, conversationWriteBudget: 0 }).conversationWriteBudget).toBeNull()
+  })
+
+  it('keeps a positive write budget', () => {
+    expect(buildAutopilotPolicy({ enabled: true, conversationWriteBudget: 5 }).conversationWriteBudget).toBe(5)
   })
 })
 
@@ -94,5 +105,23 @@ describe('mayAutoApprove', () => {
       autoApprove: false,
       reason: 'plan_not_applicable',
     })
+  })
+
+  it('approves within a configured write budget', () => {
+    const policy = buildAutopilotPolicy({ enabled: true, conversationWriteBudget: 3 })
+    expect(mayAutoApprove(evaluation({ mutatingSteps: 1, priorApprovedWrites: 2 }), policy)).toEqual({ autoApprove: true })
+  })
+
+  it('stops when the plan would spend past the conversation write budget', () => {
+    const policy = buildAutopilotPolicy({ enabled: true, conversationWriteBudget: 3 })
+    expect(mayAutoApprove(evaluation({ mutatingSteps: 2, priorApprovedWrites: 2 }), policy)).toEqual({
+      autoApprove: false,
+      reason: 'write_budget_exceeded',
+    })
+  })
+
+  it('places no bound on writes when the budget is disabled', () => {
+    const policy = buildAutopilotPolicy({ enabled: true })
+    expect(mayAutoApprove(evaluation({ mutatingSteps: 50, priorApprovedWrites: 500 }), policy)).toEqual({ autoApprove: true })
   })
 })
