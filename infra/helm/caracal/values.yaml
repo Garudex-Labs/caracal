@@ -7,6 +7,8 @@ global:
   registry: ghcr.io/garudex-labs
   tag: "2026.06.25-rc.1"
   imagePullPolicy: IfNotPresent
+  # Secret names used to pull images from private registries, e.g. [{name: ghcr-pull}].
+  imagePullSecrets: []
   mode: rc
   evaluation: false
   otelExporterOtlpEndpoint: ""
@@ -62,6 +64,15 @@ secrets:
 migrations:
   enabled: true
   backoffLimit: 3
+  # Upper bound before a hung migration Job fails the install/upgrade instead of blocking it forever.
+  activeDeadlineSeconds: 900
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
 
 networkPolicy:
   enabled: true
@@ -109,6 +120,15 @@ alertRules:
   readinessFlapsPer10m: 4
 
 scheduling:
+  # Existing PriorityClass assigned to every Caracal workload so the control plane
+  # outlives best-effort pods under node pressure. Override per service via
+  # services.<name>.priorityClassName.
+  priorityClassName: ""
+  # Rolling updates and evictions first remove the pod from Service endpoints, then the
+  # preStop sleep lets in-flight requests drain before SIGTERM; the grace period bounds
+  # the remaining shutdown (audit flush, replay persistence, connection close).
+  terminationGracePeriodSeconds: 30
+  preStopSleepSeconds: 5
   # Soft pod-anti-affinity on hostname spreads replicas of the same service
   # across nodes; topology spread balances them across failure domains.
   # Override per service via services.<name>.affinity / topologySpreadConstraints.
@@ -153,6 +173,7 @@ services:
       minReplicas: 2
       maxReplicas: 8
       targetCPUUtilizationPercentage: 70
+      targetMemoryUtilizationPercentage: 80
   api:
     enabled: true
     replicas: 2
@@ -173,6 +194,7 @@ services:
       minReplicas: 2
       maxReplicas: 8
       targetCPUUtilizationPercentage: 70
+      targetMemoryUtilizationPercentage: 80
   gateway:
     enabled: true
     replicas: 2
@@ -193,6 +215,7 @@ services:
       minReplicas: 2
       maxReplicas: 16
       targetCPUUtilizationPercentage: 65
+      targetMemoryUtilizationPercentage: 80
   audit:
     enabled: true
     replicas: 2
@@ -213,6 +236,7 @@ services:
       minReplicas: 2
       maxReplicas: 8
       targetCPUUtilizationPercentage: 70
+      targetMemoryUtilizationPercentage: 80
   coordinator:
     enabled: true
     replicas: 2
@@ -234,6 +258,7 @@ services:
       minReplicas: 2
       maxReplicas: 8
       targetCPUUtilizationPercentage: 70
+      targetMemoryUtilizationPercentage: 80
   # Browser-facing web tier: the SPA served same-origin from its session-guarded
   # backend-for-frontend. The only service intended for ingress exposure.
   web:
@@ -271,6 +296,7 @@ services:
       minReplicas: 2
       maxReplicas: 6
       targetCPUUtilizationPercentage: 70
+      targetMemoryUtilizationPercentage: 80
 
 # In-process control plane hosted by the API. Disabled by default.
 control:
