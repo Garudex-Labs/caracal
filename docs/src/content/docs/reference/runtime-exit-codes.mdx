@@ -16,7 +16,7 @@ Top-level `caracal` commands are limited to local runtime lifecycle, status, upg
 | `caracal status --ready` | `0` when readiness probes pass. | `1` when dependency readiness fails. |
 | `caracal upgrade` | `0` after runtime assets upgrade successfully. | Non-zero when download, verification, or replacement fails. |
 | `caracal purge` | `0` after selected state is removed. | Non-zero when cleanup fails. |
-| `caracal run -- <command>` | Child process exit code after credentials are acquired. | Non-zero before spawn when config, credential exchange, step-up, or governance fails. |
+| `caracal run -- <command>` | Child process exit code after credentials are acquired; `128 + N` when the child dies from signal N. | `1` before spawn when config, credential exchange, or step-up fails; `127` when the command cannot be spawned. |
 | `caracal web` | `0` after the web console exits cleanly. | Non-zero when launcher, port binding, build, session backend, or required stack checks fail. |
 
 ## Structured Output
