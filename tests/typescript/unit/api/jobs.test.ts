@@ -30,17 +30,6 @@ function dbWithClient(client: FakeClient): DB {
   } as unknown as DB
 }
 
-function dbWithQuery(step: QueryStep): DB {
-  return {
-    query: vi.fn(async () => {
-      if (step instanceof Error) throw step
-      return { rows: [], rowCount: 0, ...step }
-    }),
-    connect: vi.fn(),
-    end: vi.fn(),
-  } as unknown as DB
-}
-
 function silentLog() {
   return { error: vi.fn() }
 }
@@ -52,16 +41,28 @@ afterEach(() => {
 
 describe('DCR garbage collection job', () => {
   it('archives expired DCR applications in deterministic batches', async () => {
-    const db = dbWithQuery({ rowCount: 4 })
+    const client = new FakeClient([{ rows: [{ acquired: true }] }, { rowCount: 4 }, { rowCount: 1 }])
+    const db = dbWithClient(client)
 
     await expect(runDCRGC(db)).resolves.toBe(4)
-    expect(db.query).toHaveBeenCalledTimes(1)
-    expect(vi.mocked(db.query).mock.calls[0][1]).toEqual([500])
-    expect(vi.mocked(db.query).mock.calls[0][0]).toContain("registration_method = 'dcr'")
+    expect(client.query).toHaveBeenCalledTimes(3)
+    expect(client.query.mock.calls[1][1]).toEqual([500])
+    expect(client.query.mock.calls[1][0]).toContain("registration_method = 'dcr'")
+    expect(client.query.mock.calls[2][0]).toContain('pg_advisory_unlock')
+    expect(client.release).toHaveBeenCalledTimes(1)
   })
 
   it('normalizes null row counts to zero', async () => {
-    await expect(runDCRGC(dbWithQuery({ rowCount: null }))).resolves.toBe(0)
+    const client = new FakeClient([{ rows: [{ acquired: true }] }, { rowCount: null }, { rowCount: 1 }])
+    await expect(runDCRGC(dbWithClient(client))).resolves.toBe(0)
+  })
+
+  it('returns zero and releases the connection when another worker owns the advisory lock', async () => {
+    const client = new FakeClient([{ rows: [{ acquired: false }] }])
+
+    await expect(runDCRGC(dbWithClient(client))).resolves.toBe(0)
+    expect(client.query).toHaveBeenCalledTimes(1)
+    expect(client.release).toHaveBeenCalledTimes(1)
   })
 
   it('skips interval work when another worker owns the advisory lock', async () => {

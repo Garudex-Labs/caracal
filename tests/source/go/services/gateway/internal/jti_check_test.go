@@ -7,15 +7,13 @@ package internal
 
 import (
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"testing"
 	"time"
 
+	"github.com/garudex-labs/caracal/packages/core/go/audit"
 	"github.com/rs/zerolog"
 )
 
@@ -24,8 +22,6 @@ type fakeJTIRedis struct {
 	setErr   error
 	setNXKey string
 	setNXTTL time.Duration
-	xadds    []map[string]any
-	xaddErr  error
 }
 
 func (f *fakeJTIRedis) SetNXTTL(_ context.Context, key, _ string, ttl time.Duration) (bool, error) {
@@ -34,9 +30,12 @@ func (f *fakeJTIRedis) SetNXTTL(_ context.Context, key, _ string, ttl time.Durat
 	return f.created, f.setErr
 }
 
-func (f *fakeJTIRedis) XAdd(_ context.Context, _ string, values map[string]any) error {
-	f.xadds = append(f.xadds, values)
-	return f.xaddErr
+type fakeReplayEmitter struct {
+	events []audit.Event
+}
+
+func (f *fakeReplayEmitter) Emit(ev audit.Event) {
+	f.events = append(f.events, ev)
 }
 
 func TestNewJTITrackerRequiresRedis(t *testing.T) {
@@ -82,36 +81,23 @@ func TestJTICheckAllowsFirstUse(t *testing.T) {
 	}
 }
 
-func TestJTICheckRejectsReplayAndEmitsSignedAudit(t *testing.T) {
-	key := make([]byte, 32)
+func TestJTICheckRejectsReplayAndEmitsAudit(t *testing.T) {
 	redis := &fakeJTIRedis{created: false}
-	tracker := &jtiTracker{redis: redis, log: zerolog.Nop(), auditKey: key}
+	emitter := &fakeReplayEmitter{}
+	tracker := &jtiTracker{redis: redis, log: zerolog.Nop(), audit: emitter}
 
 	if tracker.Check(context.Background(), "jti-1", time.Now().Add(time.Minute), "resource", "req-1", "resource://nucleus", "zone-1", "app-1", "fp-1") {
 		t.Fatal("replayed resource mandate must be rejected")
 	}
-	if len(redis.xadds) != 1 {
-		t.Fatalf("replay must emit exactly one audit event, got %d", len(redis.xadds))
+	if len(emitter.events) != 1 {
+		t.Fatalf("replay must emit exactly one audit event, got %d", len(emitter.events))
 	}
-	values := redis.xadds[0]
-	data, ok := values["data"].(string)
-	if !ok || data == "" {
-		t.Fatalf("audit event missing data payload: %#v", values)
-	}
-	mac := hmac.New(sha256.New, key)
-	mac.Write([]byte(data))
-	if values["sig"] != hex.EncodeToString(mac.Sum(nil)) {
-		t.Fatal("audit signature must be the HMAC of the event data")
-	}
-	var event struct {
-		EventType    string          `json:"event_type"`
-		MetadataJSON json.RawMessage `json:"metadata_json"`
-	}
-	if err := json.Unmarshal([]byte(data), &event); err != nil {
-		t.Fatalf("decode audit event: %v", err)
-	}
+	event := emitter.events[0]
 	if event.EventType != "replay_detected" {
 		t.Fatalf("unexpected event type %q", event.EventType)
+	}
+	if event.ZoneID != "zone-1" || event.RequestID != "req-1" || event.Decision != "deny" || event.EvaluationStatus != "anomaly" {
+		t.Fatalf("audit event must carry deny anomaly attribution, got %#v", event)
 	}
 	var meta map[string]any
 	if err := json.Unmarshal(event.MetadataJSON, &meta); err != nil {
@@ -122,11 +108,11 @@ func TestJTICheckRejectsReplayAndEmitsSignedAudit(t *testing.T) {
 	}
 }
 
-func TestJTICheckRejectsReplayEvenWhenAuditEmitFails(t *testing.T) {
-	redis := &fakeJTIRedis{created: false, xaddErr: errors.New("stream down")}
+func TestJTICheckRejectsReplayWithoutEmitter(t *testing.T) {
+	redis := &fakeJTIRedis{created: false}
 	tracker := &jtiTracker{redis: redis, log: zerolog.Nop()}
 	if tracker.Check(context.Background(), "jti-1", time.Now().Add(time.Minute), "resource", "req-1", "resource://nucleus", "zone-1", "app-1", "fp-1") {
-		t.Fatal("replay must be rejected even when the audit emit fails")
+		t.Fatal("replay must be rejected even without a wired audit emitter")
 	}
 }
 
