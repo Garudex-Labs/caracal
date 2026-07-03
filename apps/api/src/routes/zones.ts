@@ -39,6 +39,7 @@ const ZoneUpdateBody = z
     dcr_enabled: z.boolean().optional(),
     dcr_shutdown: z.enum(['keep_live', 'revoke_live']).optional(),
     operator_coauthor_badge: z.boolean().optional(),
+    operator_governed: z.boolean().optional(),
   })
   .strict()
 
@@ -54,6 +55,7 @@ interface ZoneRow {
   slug: string
   dcr_enabled: boolean
   operator_coauthor_badge: boolean
+  operator_governed: boolean
   created_at: string
   updated_at: string
 }
@@ -118,7 +120,7 @@ export async function createZoneRecord(
       const { rows } = await db.query<ZoneRow>(
         `INSERT INTO zones (id, name, slug, dek_ciphertext, dcr_enabled, owner_account_id)
          VALUES ($1, $2, $3, gen_random_bytes(32), $4, $5)
-         RETURNING id, name, slug, dcr_enabled, operator_coauthor_badge, created_at, updated_at`,
+         RETURNING id, name, slug, dcr_enabled, operator_coauthor_badge, operator_governed, created_at, updated_at`,
         [
           mintZoneId(uuidv7),
           input.name,
@@ -314,13 +316,14 @@ async function patchZone(client: Queryable, id: string, body: ZoneUpdateBody): P
       patchColumn('slug', body.slug),
       patchColumn('dcr_enabled', body.dcr_enabled),
       patchColumn('operator_coauthor_badge', body.operator_coauthor_badge),
+      patchColumn('operator_governed', body.operator_governed),
     ],
   )
   if (!update) return undefined
   const { rows } = await client.query<ZoneRow>(
     `UPDATE zones SET ${update.sets.join(', ')}, updated_at = now()
      WHERE id = $1 AND archived_at IS NULL
-     RETURNING id, name, slug, dcr_enabled, operator_coauthor_badge, created_at, updated_at`,
+     RETURNING id, name, slug, dcr_enabled, operator_coauthor_badge, operator_governed, created_at, updated_at`,
     update.values,
   )
   return rows[0] ?? null
@@ -343,7 +346,7 @@ export const zonesRoutes: FastifyPluginAsync = async (fastify) => {
     }
     const keyset = appendKeysetCondition({ conds, values }, page)
     const { rows } = await fastify.db.query(
-      `SELECT id, name, slug, dcr_enabled, operator_coauthor_badge, created_at, updated_at
+      `SELECT id, name, slug, dcr_enabled, operator_coauthor_badge, operator_governed, created_at, updated_at
        FROM zones WHERE ${keyset.conds.join(' AND ')}
        ORDER BY created_at DESC, id DESC LIMIT ${keyset.limitPlaceholder}`,
       keyset.values,
@@ -376,7 +379,7 @@ export const zonesRoutes: FastifyPluginAsync = async (fastify) => {
     const params = parseParams(IdParams, req, reply)
     if (!params) return
     const { rows } = await fastify.db.query(
-      `SELECT id, name, slug, dcr_enabled, operator_coauthor_badge, created_at, updated_at
+      `SELECT id, name, slug, dcr_enabled, operator_coauthor_badge, operator_governed, created_at, updated_at
        FROM zones WHERE id = $1 AND archived_at IS NULL`,
       [params.id],
     )

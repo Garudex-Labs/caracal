@@ -184,7 +184,7 @@ export function createOperatorAiManager(deps: OperatorAiManagerDeps): OperatorAi
     if (!identity) throw new OperatorAiUnavailableError()
     const records = await listAiProviders(deps.db)
     const upstreams = mergeDesiredUpstreams(deps.envUpstreams, records, deps.proxyUrl, keyOverride)
-    const governed = await provisionGovernedUpstreams(deps.admin, identity.zoneId, identity.applicationId, upstreams)
+    const governed = await provisionGovernedUpstreams(deps.admin, identity.zoneId, identity.llm.applicationId, upstreams)
     const resourceBySlug = new Map(governed.map((entry) => [entry.id, entry.resourceIdentifier]))
     deps.onRegistryChange(buildStoreProviderConfigs(records, resourceBySlug, deps.gatewayUrl, deps.transport))
   }
