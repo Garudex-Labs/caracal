@@ -46,7 +46,7 @@ RUN set -e; \
     pnpm --filter @caracalai/engine build; \
     VITE_CARACAL_AUTH_URL="${SPA_BACKEND_BASE}" pnpm --filter @caracalai/web build; \
     pnpm --filter @caracalai/auth build; \
-    pnpm --config.inject-workspace-packages=true --filter @caracalai/auth deploy --legacy --prod /out/auth; \
+    pnpm --config.inject-workspace-packages=true --filter @caracalai/auth deploy --prod /out/auth; \
     mkdir -p /out/auth/web && cp -r apps/web/dist/* /out/auth/web/; \
     find /out -type d \( -name test -o -name tests -o -name __tests__ \) -prune -exec rm -rf {} + 2>/dev/null || true; \
     find /out -type f \( -name '*.md' -o -name '*.markdown' -o -name '*.map' -o -name 'CHANGELOG*' -o -name '.npmignore' -o -name '.eslintrc*' -o -name '.prettierrc*' \) -delete 2>/dev/null || true
