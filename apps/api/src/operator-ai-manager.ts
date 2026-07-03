@@ -117,7 +117,7 @@ export function buildStoreProviderConfigs(
         model,
         timeoutMs: DEFAULT_TIMEOUT_MS,
         contextWindow: record.contextWindow,
-        transport: transport.governedFetch(resourceIdentifier, record.baseUrl),
+        transport: transport.governedFetch(resourceIdentifier),
       })
     }
   }
@@ -132,16 +132,15 @@ export function buildStoreProviderConfigs(
 export function mergeDesiredUpstreams(
   envUpstreams: GovernedUpstream[],
   records: OperatorAiProviderRecord[],
-  proxyUrl: string,
   keyOverride?: { slug: string; apiKey: string },
 ): GovernedUpstream[] {
   const bySlug = new Map<string, GovernedUpstream>()
   for (const upstream of envUpstreams) bySlug.set(upstream.id, upstream)
   for (const record of records) {
     const apiKey = keyOverride && keyOverride.slug === record.slug ? keyOverride.apiKey : undefined
-    // The governed resource points at the normalizer; the operator's real endpoint travels as a
-    // header on each call, so any provider works with no per-model proxy config.
-    bySlug.set(record.slug, { id: record.slug, baseUrl: proxyUrl, apiKey, auth: record.auth })
+    // The governed resource points at the OpenAI-compatible endpoint the operator entered; the
+    // gateway injects the sealed key at call time with the record's placement.
+    bySlug.set(record.slug, { id: record.slug, baseUrl: record.baseUrl, apiKey, auth: record.auth })
   }
   return [...bySlug.values()]
 }
@@ -164,10 +163,6 @@ export interface OperatorAiManagerDeps {
   resolveIdentity: () => OperatorControlIdentity | null
   envUpstreams: GovernedUpstream[]
   gatewayUrl: string
-  // The OpenAI-compatible normalizer (LiteLLM) the governed LLM resource points at. The
-  // operator's real endpoint is forwarded to it per request, so models route there regardless
-  // of provider with no per-model config.
-  proxyUrl: string
   transport: OperatorLlmTransport
   // Publishes the rebuilt store-provider gateway entries so the next request's gateway includes
   // the change without an env edit or restart.
@@ -183,7 +178,7 @@ export function createOperatorAiManager(deps: OperatorAiManagerDeps): OperatorAi
     const identity = deps.resolveIdentity()
     if (!identity) throw new OperatorAiUnavailableError()
     const records = await listAiProviders(deps.db)
-    const upstreams = mergeDesiredUpstreams(deps.envUpstreams, records, deps.proxyUrl, keyOverride)
+    const upstreams = mergeDesiredUpstreams(deps.envUpstreams, records, keyOverride)
     const governed = await provisionGovernedUpstreams(deps.admin, identity.zoneId, identity.llm.applicationId, upstreams)
     const resourceBySlug = new Map(governed.map((entry) => [entry.id, entry.resourceIdentifier]))
     deps.onRegistryChange(buildStoreProviderConfigs(records, resourceBySlug, deps.gatewayUrl, deps.transport))
