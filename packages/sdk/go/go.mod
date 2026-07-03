@@ -7,4 +7,4 @@ module github.com/garudex-labs/caracal/packages/sdk/go
 
 go 1.26
 
-require github.com/garudex-labs/caracal/packages/oauth/go v0.1.6-rc.2
+require github.com/garudex-labs/caracal/packages/oauth/go v0.1.6-rc.3

@@ -9,7 +9,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "caracalai-sdk"
-version = "0.1.6rc2"
+version = "0.1.6rc3"
 description = "Caracal SDK for Python: short-lived, policy-approved authority for AI agents - agent sessions, delegation, and transport hooks"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
@@ -18,7 +18,7 @@ requires-python = ">=3.12"
 dependencies = [
   "httpx>=0.28.0",
   "idna>=3.15",
-  "caracalai-identity==0.1.6rc2",
+  "caracalai-identity==0.1.6rc3",
 ]
 
 [tool.hatch.build.targets.wheel]

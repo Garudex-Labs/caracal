@@ -1,6 +1,6 @@
 {
   "name": "@caracalai/identity",
-  "version": "0.1.6-rc.2",
+  "version": "0.1.6-rc.3",
   "description": "Caracal identity primitives: JWT verification, JWKS, scope, claims.",
   "license": "Apache-2.0",
   "homepage": "https://github.com/Garudex-Labs/caracal",
@@ -40,7 +40,7 @@
     "prepublishOnly": "tsc"
   },
   "dependencies": {
-    "@caracalai/core": "0.1.6-rc.2",
+    "@caracalai/core": "0.1.6-rc.3",
     "jose": "^6.2.3"
   },
   "devDependencies": {

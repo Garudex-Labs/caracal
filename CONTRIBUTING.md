@@ -23,8 +23,8 @@
 |                       | Dev                                                      | RC                                                          | Stable                                                     |
 | --------------------- | -------------------------------------------------------- | ----------------------------------------------------------- | ---------------------------------------------------------- |
 | Purpose               | Development builds                                      | rc builds                                                   | Released production versions                               |
-| Version               | `2026.06.04-dev.sha<sha>`                                | `2026.06.25-rc.1` / `0.1.6-rc.2`                          | `2026.06.04` / `0.1.4`                                    |
-| Container images      | `localhost/caracal-{svc}:2026.06.04-dev.sha<sha>`        | `ghcr.io/garudex-labs/caracal-{svc}:v2026.06.25-rc.1`      | `ghcr.io/garudex-labs/caracal-{svc}:v2026.06.04`          |
+| Version               | `2026.06.04-dev.sha<sha>`                                | `2026.07.03-rc.1` / `0.1.6-rc.3`                          | `2026.06.04` / `0.1.4`                                    |
+| Container images      | `localhost/caracal-{svc}:2026.06.04-dev.sha<sha>`        | `ghcr.io/garudex-labs/caracal-{svc}:v2026.07.03-rc.1`      | `ghcr.io/garudex-labs/caracal-{svc}:v2026.06.04`          |
 
 </details>
 
@@ -190,16 +190,16 @@ Use the same flow for rc and stable: plan, dry-run, publish, validate. rc proves
 | Prepare | `scripts/release.sh rc prepare --base-version 2026.06.10 --suffix rc.1` | `scripts/release.sh stable --dry-run` |
 | Review | Commit the generated manifest and metadata. | Review the stable diff and generated version. |
 | Dry-run | `scripts/release.sh rc dry-run --base-version 2026.06.10 --suffix rc.1 --local` for local simulation; remote dry-run requires the rc commit on the selected ref. | `scripts/release.sh stable --dry-run` |
-| Publish | Tag and push `v2026.06.25-rc.1`. | `scripts/release.sh stable` |
+| Publish | Tag and push `v2026.07.03-rc.1`. | `scripts/release.sh stable` |
 | Validate | Pre-publish gate proves artifacts before the tag is published. | Pre-publish gate proves artifacts before stable promotion. |
 
 ```bash
 # rc
 scripts/release.sh rc prepare --base-version 2026.06.10 --suffix rc.1
-git add -A && git commit -m "rc: v2026.06.25-rc.1"
+git add -A && git commit -m "rc: v2026.07.03-rc.1"
 scripts/release.sh rc dry-run --base-version 2026.06.10 --suffix rc.1 --local
-git tag -a v2026.06.25-rc.1 -m v2026.06.25-rc.1
-git push origin HEAD && git push origin v2026.06.25-rc.1
+git tag -a v2026.07.03-rc.1 -m v2026.07.03-rc.1
+git push origin HEAD && git push origin v2026.07.03-rc.1
 
 # stable
 scripts/release.sh stable --dry-run

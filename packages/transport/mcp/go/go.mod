@@ -8,11 +8,11 @@ module github.com/garudex-labs/caracal/packages/transport/mcp/go
 go 1.26
 
 require (
-	github.com/garudex-labs/caracal/packages/identity/go v0.1.6-rc.2
-	github.com/garudex-labs/caracal/packages/revocation/go v0.1.6-rc.2
+	github.com/garudex-labs/caracal/packages/identity/go v0.1.6-rc.3
+	github.com/garudex-labs/caracal/packages/revocation/go v0.1.6-rc.3
 )
 
 require (
-	github.com/garudex-labs/caracal/packages/core/go v0.1.6-rc.2 // indirect
+	github.com/garudex-labs/caracal/packages/core/go v0.1.6-rc.3 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
 )

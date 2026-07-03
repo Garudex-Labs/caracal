@@ -5,7 +5,7 @@
 
 global:
   registry: ghcr.io/garudex-labs
-  tag: "2026.06.25-rc.1"
+  tag: "2026.07.03-rc.1"
   imagePullPolicy: IfNotPresent
   # Secret names used to pull images from private registries, e.g. [{name: ghcr-pull}].
   imagePullSecrets: []
