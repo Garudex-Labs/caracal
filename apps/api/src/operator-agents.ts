@@ -201,10 +201,10 @@ const REASONING_PRINCIPLES = [
 ].join('\n')
 
 // The documentation discipline. The Operator already carries the platform model above, so it reasons
-// first and reaches for docs only for specifics it should verify rather than guess. When it does, it
-// points to the single most relevant canonical page and summarizes the point in context - it never
-// dumps documentation or treats this as a keyword search. The map lists real, stable doc paths so a
-// pointer is always correct.
+// first and reaches for docs only for specifics it should verify rather than guess. Citation is
+// retrieval-only: the corpus retrieval attaches the relevant pages to the context each turn, and the
+// agent cites exclusively from that block - so every citation is backed by content the agent actually
+// saw, and the prompt never carries a hand-maintained page list that drifts from the real site.
 const DOCS_DISCIPLINE = [
   "USING DOCUMENTATION. You already hold Caracal's core model; reason from it first and answer",
   'directly whenever you can. For anything that turns on an exact detail - a package name, an',
@@ -212,29 +212,15 @@ const DOCS_DISCIPLINE = [
   'When the context includes a "Reference documentation (retrieved just now)" block, treat it as the',
   'authoritative source: take exact names, endpoints, and fields verbatim from it, summarize the',
   "relevant point in your own words, tie it to the user's situation, and cite the page as a Markdown",
-  'link the reader can click - write the page title as the link text and its full canonical address as',
-  'the target, e.g. [Zones](https://docs.caracal.run/concepts/zone/). When a retrieved block already',
-  'shows the page as a [title](url) heading, reuse that exact URL verbatim. Never write a bare path',
-  'like /concepts/zone and never leave a raw URL as plain text. Put the link inline where you make the',
-  'point, or as a short "For more details" source at the end. Never paste documentation wholesale and',
-  'never list several links - one precise source beats many.',
-  'If the retrieved passages do not cover the exact detail asked, say what you are confident about,',
-  'link the single most relevant page to confirm it, and do not invent the specific. When no',
-  'documentation was retrieved, reason from the core model and still avoid guessing precise',
-  'identifiers you are unsure of. Each page below is a path under https://docs.caracal.run - always',
-  'cite it as the full URL https://docs.caracal.run<path>/. Canonical pages you can cite:',
-  '- Concepts: /concepts/model-overview, /concepts/authority-model, /concepts/zone,',
-  '  /concepts/resource-grant, /concepts/policy, /concepts/mandate, /concepts/delegation,',
-  '  /concepts/constraint, /concepts/principal, /concepts/sessions-revocation, /concepts/audit-ledger,',
-  '  /concepts/step-up.',
-  '- Get started: /get-started, /get-started/install-caracal, /get-started/first-protected-call,',
-  '  /get-started/first-run-troubleshooting.',
-  '- Guides: /guides/modeling-recipes, /guides/serve-customers, /guides/resources-providers,',
-  '  /guides/provider-recipes, /guides/author-policy, /guides/activate-policy-set,',
-  '  /guides/authorize-access, /guides/delegation, /guides/step-up, /guides/audit-stream,',
-  '  /guides/sdk-typescript, /guides/sdk-python, /guides/sdk-go, /guides/runtime-run,',
-  '  /guides/protect-gateway-http, /guides/protect-express, /guides/protect-fastmcp,',
-  '  /guides/protect-nethttp, /guides/protect-mcp.',
+  'link the reader can click - write the page title as the link text and reuse the exact URL from the',
+  "page's [title](url) heading verbatim, e.g. [Zones](https://docs.caracal.run/concepts/zone/). Never",
+  'write a bare path like /concepts/zone and never leave a raw URL as plain text. Put the link inline',
+  'where you make the point, or as a short "For more details" source at the end. Never paste',
+  'documentation wholesale and never list several links - the single most relevant page beats many.',
+  'Cite ONLY pages present in the retrieved block: never cite from memory, and never invent or guess',
+  'a documentation URL. If the retrieved passages do not cover the exact detail asked, say what you',
+  'are confident about and do not invent the specific. When no documentation was retrieved, reason',
+  'from the core model, name no page, and still avoid guessing precise identifiers you are unsure of.',
 ].join('\n')
 
 // The input-integrity discipline every user-facing agent shares. The Operator regularly receives
@@ -631,7 +617,6 @@ export function buildPlannerMessages(message: string, context: AgentContext, fee
         OPERATOR_PERSONA,
         CARACAL_PLATFORM,
         REASONING_PRINCIPLES,
-        DOCS_DISCIPLINE,
         INPUT_INTEGRITY,
         PROVIDER_FIELDS_GUIDE,
         [
@@ -1330,7 +1315,6 @@ export function buildPolicyAuthorMessages(message: string, context: AgentContext
         OPERATOR_PERSONA,
         CARACAL_PLATFORM,
         REASONING_PRINCIPLES,
-        DOCS_DISCIPLINE,
         INPUT_INTEGRITY,
         POLICY_AUTHORING,
         [
@@ -1637,14 +1621,14 @@ export function buildAnswerCheckMessages(message: string, answer: string, contex
     {
       role: 'system',
       content: systemPrompt(
-        OPERATOR_PERSONA,
-        CARACAL_PLATFORM,
         [
-          'THIS TURN: ANSWER GROUNDING CHECK. Another Operator agent has drafted a read-only answer to the',
-          "user. Your one job is to confirm it is grounded in reality: every claim it makes about this zone's",
-          'state - which applications, providers, resources, or policies exist, their counts, their auth modes',
-          'or scopes - must be supported by the live state read just now in the context. You judge grounding',
-          'only; you do not rewrite the answer, change its advice, or second-guess a correct judgement call.',
+          'THIS TURN: ANSWER GROUNDING CHECK. You are a verification step of Caracal Operator, the',
+          'assistant that manages a Caracal zone: its applications, providers, resources, policies, and',
+          'grants. Another Operator agent has drafted a read-only answer to the user. Your one job is to',
+          "confirm it is grounded in reality: every claim it makes about this zone's state - which",
+          'applications, providers, resources, or policies exist, their counts, their auth modes or scopes',
+          '- must be supported by the live state read just now in the context. You judge grounding only;',
+          'you do not rewrite the answer, change its advice, or second-guess a correct judgement call.',
           'Set "grounded" to true when every factual claim about current state matches the evidence, or when',
           'the answer makes no state claim at all (a general explanation, a how-to, a recommendation). Set it',
           'to false only when the answer asserts a concrete state fact the evidence contradicts or does not',

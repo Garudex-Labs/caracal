@@ -26,7 +26,7 @@ import {
   type RepairFeedback,
   type SecurityAdvisory,
 } from './operator-agents.js'
-import { CAPABILITIES, validateProposedPlan, type ProposedPlanInput } from './operator-capabilities.js'
+import { CAPABILITIES, collectStepReferences, validateProposedPlan, type ProposedPlanInput } from './operator-capabilities.js'
 import type { Researcher } from './operator-research.js'
 import type { Evidence } from './operator-research.js'
 import type { DocSnippet } from './operator-docs.js'
@@ -272,6 +272,14 @@ async function expandEvidence(context: AgentContext, researcher: Researcher | nu
   }
 }
 
+// Whether a plan's steps are structurally coupled: one step depends on or references another, or
+// the plan is large enough that ordering and completeness need review. Only a coupled plan has the
+// cross-step semantics the correctness critic judges; independent steps have none.
+function planIsCoupled(plan: ProposedPlanInput): boolean {
+  if (plan.steps.length >= 3) return true
+  return plan.steps.some((step) => (step.depends_on?.length ?? 0) > 0 || collectStepReferences(step.args).length > 0)
+}
+
 // Proposes a plan, repairs it once when it fails catalog validation, then critiques the catalog-
 // valid plan for correctness and completeness and revises it once when the critic finds a material
 // defect. It returns the strongest plan it reached: a critic-revised plan when the revision still
@@ -308,11 +316,12 @@ async function deliberatePlan(
   // concrete deficiencies drives one replanning pass, and the revision is adopted only when it
   // still proposes steps and still validates against the catalog. A 'sound' verdict, an empty
   // deficiency list, or a failed critique leaves the plan unchanged, so the critic only ever
-  // sharpens a proposal and never blocks or empties one. The critique runs only for multi-step
-  // plans: its judgement is ordering, completeness, and cross-step fit, which a single step has
-  // none of, and that step is still fully governed by catalog validation, preview, the guardian's
-  // review, and the approval gate - so skipping the call spends no safety, only a model call.
-  if (candidate.value.steps.length < 2) return candidate
+  // sharpens a proposal and never blocks or empties one. The critique runs only for coupled
+  // plans - ones with declared dependencies, step-output references, or three or more steps -
+  // because its judgement is ordering, completeness, and cross-step fit, which independent steps
+  // have none of. Every skipped plan is still fully governed by catalog validation, preview, the
+  // guardian's review, and the approval gate, so skipping spends no safety, only a model call.
+  if (!planIsCoupled(candidate.value)) return candidate
   emit({ stage: 'critiquing' })
   const critique = await runCritic(gateway, candidate.value, message, context)
   if (critique.ok && critique.value.verdict === 'revise' && critique.value.deficiencies.length > 0) {

@@ -355,11 +355,14 @@ describe('shared prompt foundations', () => {
     }
   })
 
-  it('gives the text-answering agents the documentation discipline with a canonical page map', () => {
+  it('gives the text-answering agents the retrieval-only documentation discipline', () => {
     for (const system of [reasoningAgents[1][1], reasoningAgents[2][1], reasoningAgents[3][1]]) {
       expect(system).toContain('USING DOCUMENTATION')
       expect(system).toContain('single most relevant page')
-      expect(system).toContain('/concepts/authority-model')
+      // Citation is retrieval-only: every cited page must come from the retrieved block, so the
+      // prompt carries no hand-maintained page list that could drift from the real site.
+      expect(system).toContain('Cite ONLY pages present in the retrieved block')
+      expect(system).not.toContain('/concepts/authority-model')
     }
   })
 
@@ -773,7 +776,7 @@ describe('buildTroubleshooterMessages', () => {
       evidence: [{ capability: 'listResources', domain: 'resource', ok: true, count: 1, names: ['Stripe invoices'] }],
     })
     const system = messages[0].content
-    expect(system).toContain('troubleshooting')
+    expect(system).toContain('DIAGNOSE, READ-ONLY')
     expect(system).toContain('denied')
     expect(system).toContain('never make changes')
     expect(messages[1].content).toContain('Live state (read just now)')

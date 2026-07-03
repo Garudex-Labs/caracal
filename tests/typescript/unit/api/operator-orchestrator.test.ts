@@ -705,14 +705,14 @@ describe('createOrchestrator', () => {
       summary: 'Connect GitHub with a static key and register the sync app',
       steps: [
         { id: 's1', capability: 'connectProvider', args: { name: 'GitHub', kind: 'api_key' } },
-        { id: 's2', capability: 'registerApplication', args: { name: 'Sync' } },
+        { id: 's2', capability: 'registerApplication', args: { name: 'Sync' }, depends_on: ['s1'] },
       ],
     }
     const revisedPlan = {
       summary: 'Connect GitHub over OAuth and register the sync app',
       steps: [
         { id: 's1', capability: 'connectProvider', args: { name: 'GitHub', kind: 'oauth2_authorization_code' } },
-        { id: 's2', capability: 'registerApplication', args: { name: 'Sync' } },
+        { id: 's2', capability: 'registerApplication', args: { name: 'Sync' }, depends_on: ['s1'] },
       ],
     }
     const critique = {
@@ -744,7 +744,7 @@ describe('createOrchestrator', () => {
       summary: 'Connect GitHub and register the sync app',
       steps: [
         { id: 's1', capability: 'connectProvider', args: { name: 'GitHub', kind: 'api_key' } },
-        { id: 's2', capability: 'registerApplication', args: { name: 'Sync' } },
+        { id: 's2', capability: 'registerApplication', args: { name: 'Sync' }, depends_on: ['s1'] },
       ],
     }
     const completeObject = vi
@@ -784,6 +784,64 @@ describe('createOrchestrator', () => {
     expect(result.outcome.kind).toBe('plan')
     // triage + plan + guardian: no critique call for a single step.
     expect(completeObject).toHaveBeenCalledTimes(3)
+  })
+
+  it('skips the correctness critic for an uncoupled two-step plan', async () => {
+    const plan = {
+      summary: 'Register the sync and reporting apps',
+      steps: [
+        { id: 's1', capability: 'registerApplication', args: { name: 'Sync' } },
+        { id: 's2', capability: 'registerApplication', args: { name: 'Reporting' } },
+      ],
+    }
+    const completeObject = vi
+      .fn()
+      .mockResolvedValueOnce({ value: { tier: 'compound' }, provider: 't', model: 'm' })
+      .mockResolvedValueOnce({ value: plan, provider: 't', model: 'm' })
+      .mockResolvedValueOnce({ value: { summary: 'Narrow and aligned.', findings: [] }, provider: 't', model: 'm' })
+    const gateway = { status: () => ({ enabled: true, providers: [] }), completeObject } as unknown as Gateway
+    const result = await createOrchestrator().handle(gateway, 'register sync and reporting', emptyContext)
+    // Two steps with no dependency, no step-output reference, and no ordering semantics give the
+    // critic nothing to judge; validation, preview, the guardian, and approval still govern both.
+    expect(result.outcome.kind).toBe('plan')
+    // triage + plan + guardian: no critique call for independent steps.
+    expect(completeObject).toHaveBeenCalledTimes(3)
+  })
+
+  it('critiques a two-step plan coupled by a step-output reference', async () => {
+    const plan = {
+      summary: 'Register the sync app and define its resource',
+      steps: [
+        { id: 's1', capability: 'registerApplication', args: { name: 'Sync' } },
+        {
+          id: 's2',
+          capability: 'defineResource',
+          args: {
+            name: 'Sync API',
+            scopes: ['read'],
+            upstream_url: 'https://api.sync.example',
+            gateway_application_id: '{{steps.s1.outputs.application_id}}',
+            credential_provider_id: 'prov-1',
+          },
+        },
+      ],
+    }
+    const completeObject = vi
+      .fn()
+      .mockResolvedValueOnce({ value: { tier: 'compound' }, provider: 't', model: 'm' })
+      .mockResolvedValueOnce({ value: plan, provider: 't', model: 'm' })
+      .mockResolvedValueOnce({
+        value: { verdict: 'sound', summary: 'Plan achieves the goal.', deficiencies: [] },
+        provider: 't',
+        model: 'm',
+      })
+      .mockResolvedValueOnce({ value: { summary: 'Narrow and aligned.', findings: [] }, provider: 't', model: 'm' })
+    const gateway = { status: () => ({ enabled: true, providers: [] }), completeObject } as unknown as Gateway
+    const result = await createOrchestrator().handle(gateway, 'register sync and define its resource', emptyContext)
+    // A step-output reference couples the steps, so ordering and cross-step fit are worth a review.
+    expect(result.outcome.kind).toBe('plan')
+    // triage + plan + critic + guardian.
+    expect(completeObject).toHaveBeenCalledTimes(4)
   })
 
   it('attaches no advisory when a compound plan proposes no steps', async () => {
