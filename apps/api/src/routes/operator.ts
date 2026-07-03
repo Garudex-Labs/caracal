@@ -784,11 +784,12 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
     zoneId: string,
     authorizedBy?: string,
     coAuthorOperator?: boolean,
+    requestId?: string,
   ): { client: ControlClient; identity: OperatorControlIdentity } | null => {
     const identity = opts.resolveControlIdentity?.() ?? null
     if (!identity || !opts.controlEndpoints) return null
     const zoneScope = identity.zoneId === zoneId ? undefined : zoneId
-    const client = buildOperatorControlClient(identity, 'executor', opts.controlEndpoints, opts.fetchImpl, zoneScope, authorizedBy, coAuthorOperator)
+    const client = buildOperatorControlClient(identity, 'executor', opts.controlEndpoints, opts.fetchImpl, zoneScope, authorizedBy, coAuthorOperator, requestId)
     return client ? { client, identity } : null
   }
 
@@ -800,11 +801,11 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
   // header the in-process control handler authorizes against that zone's explicit administration
   // grant. Null when self-governance is not configured, in which case the read agents say live
   // state could not be read rather than guess.
-  const resolveZoneResearcher = (zoneId: string): ReturnType<typeof createStateResearcher> | null => {
+  const resolveZoneResearcher = (zoneId: string, requestId?: string): ReturnType<typeof createStateResearcher> | null => {
     const identity = opts.resolveControlIdentity?.() ?? null
     if (!identity || !opts.controlEndpoints) return null
     const zoneScope = identity.zoneId === zoneId ? undefined : zoneId
-    const client = buildOperatorControlClient(identity, 'researcher', opts.controlEndpoints, opts.fetchImpl, zoneScope)
+    const client = buildOperatorControlClient(identity, 'researcher', opts.controlEndpoints, opts.fetchImpl, zoneScope, undefined, undefined, requestId)
     if (!client) return null
     return createStateResearcher(client)
   }
@@ -1616,7 +1617,7 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
     // than applying changes as any other authority. There is no admin-actor fallback. The
     // executing actor rides as the audit attribution so every governed mutation in the
     // tamper-evident control audit names the human who applied the plan.
-    const governed = resolveControlClient(params.zoneId, req.account?.name ?? req.account?.email ?? req.actor.id, true)
+    const governed = resolveControlClient(params.zoneId, req.account?.name ?? req.account?.email ?? req.actor.id, true, req.id)
     if (!governed) {
       return reply.code(409).send({ error: 'governed_execution_unconfigured' })
     }
@@ -1924,7 +1925,7 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
       // gateway is enabled and a governed reader is available for the zone, and any failure is
       // swallowed so the apply's success is never affected by an unverifiable turn.
       const verifyGateway = buildGateway()
-      const verifier = resolveZoneResearcher(params.zoneId)
+      const verifier = resolveZoneResearcher(params.zoneId, req.id)
       if (verifyGateway.status().enabled && verifier) {
         void (async () => {
           try {
@@ -2151,7 +2152,7 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
       // administration gets no researcher: the control handler would deny every read, so the
       // answer falls back to conversation context and the read agents say live state could not
       // be read for this zone. The same happens when self-governance is not configured.
-      const researcher = zoneGrant ? resolveZoneResearcher(params.zoneId) : null
+      const researcher = zoneGrant ? resolveZoneResearcher(params.zoneId, req.id) : null
 
       // The conversation's operation mode, read under the lock that recorded the message. In ask
       // mode the orchestrator never produces a plan, so the message path cannot persist one.

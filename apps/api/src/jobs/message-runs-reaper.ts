@@ -4,6 +4,7 @@
 // Message run deadline reaper: forces expired chat runs to the timeout terminal state.
 
 import type { FastifyBaseLogger } from 'fastify'
+import { newTraceContext, runWithTrace } from '@caracalai/core'
 import type { DB } from '../db.js'
 
 const REAP_LOCK_KEY = '7163920485318482'
@@ -65,7 +66,7 @@ export function startMessageRunsReaper(
   intervalMs = 30_000,
 ): NodeJS.Timeout {
   return setInterval(() => {
-    runMessageRunsReap(db).catch((err) => {
+    runWithTrace(newTraceContext(), () => runMessageRunsReap(db)).catch((err) => {
       log.error({ err }, 'message runs reaper failed')
     })
   }, intervalMs)
