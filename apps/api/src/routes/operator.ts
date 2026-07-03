@@ -14,6 +14,7 @@ import { parseTurnContent, deriveConversationState, type TurnKind, type TurnReco
 import {
   CAPABILITIES,
   ProposedPlan,
+  collectStepReferences,
   listCapabilities,
   validateProposedPlan,
   type CapabilityDomain,
@@ -139,11 +140,13 @@ const PlanSecretsBody = z
 // dedup (an execution turn already exists) prevents re-running a completed plan.
 const EXECUTE_LOCK_TTL_SEC = 120
 
-// The outcome of the read-only execute pre-flight: the validated steps to apply, or a
-// business response to return unchanged. Pre-flight writes nothing, so the governed
-// control calls run outside any transaction.
+// The outcome of the read-only execute pre-flight: the validated steps to apply plus the
+// referencable outputs a prior partial run persisted, or a business response to return
+// unchanged. Pre-flight writes nothing, so the governed control calls run outside any
+// transaction.
 type PreflightResult =
-  { ok: true; summary: string; steps: GovernedPlanStep[] } | { ok: false; status: number; body: Record<string, unknown> }
+  | { ok: true; summary: string; steps: GovernedPlanStep[]; priorOutputs: Record<string, Record<string, unknown>> }
+  | { ok: false; status: number; body: Record<string, unknown> }
 
 const MESSAGE_MAX_LENGTH = 4000
 const MESSAGE_RUN_DEADLINE_MS = 120_000
@@ -192,7 +195,7 @@ function writeSseEvent(reply: FastifyReply, event: 'stage' | 'reasoning' | 'toke
 
 interface PlanTurnContent {
   summary: string
-  steps: { id: string; capability: string; args?: Record<string, unknown>; mutating?: boolean }[]
+  steps: { id: string; capability: string; args?: Record<string, unknown>; depends_on?: string[]; mutating?: boolean }[]
 }
 
 const ContextQuery = z.object({
@@ -1671,8 +1674,8 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
         // whole plan is never retriable. Otherwise every recorded step succeeded, and a plan
         // that stopped on a definitive, nothing-applied failure can be resumed from its first
         // unapplied step rather than refused outright.
-        const { rows: priorSteps } = await client.query<{ step_id: string; status: string }>(
-          `SELECT content->>'step_id' AS step_id, content->>'status' AS status
+        const { rows: priorSteps } = await client.query<{ step_id: string; status: string; outputs: Record<string, unknown> | null }>(
+          `SELECT content->>'step_id' AS step_id, content->>'status' AS status, content->'outputs' AS outputs
            FROM operator_turns
            WHERE conversation_id = $1 AND zone_id = $2 AND kind = 'execution'
              AND (content->>'plan_seq')::bigint = $3`,
@@ -1682,21 +1685,50 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
           return { ok: false, status: 409, body: { error: 'plan_already_executed' } }
         }
         const appliedStepIds = new Set(priorSteps.filter((row) => row.status === 'succeeded').map((row) => row.step_id))
+        // The referencable outputs each applied step persisted, seeding reference resolution so
+        // a resumed step can still bind to an identifier a prior run produced.
+        const priorOutputs: Record<string, Record<string, unknown>> = {}
+        for (const row of priorSteps) {
+          if (row.status === 'succeeded' && row.outputs && typeof row.outputs === 'object') {
+            priorOutputs[row.step_id] = row.outputs
+          }
+        }
 
-        const steps: GovernedPlanStep[] = planRows[0].content.steps.map((step) => ({
+        const steps = planRows[0].content.steps.map((step) => ({
           id: step.id,
           capability: step.capability,
           args: step.args ?? {},
+          ...(step.depends_on ? { depends_on: step.depends_on } : {}),
         }))
 
-        // Re-validate the whole persisted plan against the live catalog before applying anything.
+        // Re-validate the whole persisted plan against the live catalog before applying anything;
+        // validation also resolves every step-output reference and folds it into the step's
+        // dependency set alongside the declared dependencies.
         const revalidation = validateProposedPlan({ summary: planRows[0].content.summary, steps })
         if (!revalidation.ok) return { ok: false, status: 409, body: { error: 'plan_invalid', validation: revalidation } }
 
-        // Resume applies only the steps not already applied. A plan whose every step already
-        // succeeded is fully executed and is refused as such.
-        const remaining = steps.filter((step) => !appliedStepIds.has(step.id))
+        // Resume applies only the steps not already applied, keeping the validator's dependency
+        // set so the executor honors the plan's graph. A plan whose every step already succeeded
+        // is fully executed and is refused as such.
+        const remaining: GovernedPlanStep[] = revalidation.steps
+          .filter((step) => !appliedStepIds.has(step.id))
+          .map((step) => ({ id: step.id, capability: step.capability, args: step.args, depends_on: step.depends_on }))
         if (remaining.length === 0) return { ok: false, status: 409, body: { error: 'plan_already_executed' } }
+
+        // A remaining step may reference an output only a prior run could have produced; when
+        // that output was never persisted, the reference can never resolve, so the plan is
+        // refused as non-resumable rather than half-applied and then stopped.
+        for (const step of remaining) {
+          for (const ref of collectStepReferences(step.args)) {
+            if (appliedStepIds.has(ref.stepId) && priorOutputs[ref.stepId]?.[ref.output] === undefined) {
+              return {
+                ok: false,
+                status: 409,
+                body: { error: 'plan_not_resumable', step_id: step.id, reference: `steps.${ref.stepId}.outputs.${ref.output}` },
+              }
+            }
+          }
+        }
 
         // Authority is the primary boundary: a mutating step outside the Operator's
         // least-privilege grant is forbidden before executability is even considered.
@@ -1716,13 +1748,19 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
           }
         }
 
-        // Re-preview against current state; a now-blocked step stops the plan before any call.
-        const preview = await previewPlan(client, params.zoneId, { summary: planRows[0].content.summary, steps: remaining })
-        if (!preview.ok) return { ok: false, status: 409, body: { error: 'plan_blocked', preview } }
+        // Re-preview the whole plan against current state and judge only the remaining steps: an
+        // applied step legitimately resolves as already existing, while a now-blocked remaining
+        // step stops the plan before any call.
+        const preview = await previewPlan(client, params.zoneId, { summary: planRows[0].content.summary, steps })
+        const remainingIds = new Set(remaining.map((step) => step.id))
+        const remainingPreview = preview.steps.filter((step) => remainingIds.has(step.id))
+        if (remainingPreview.length === 0 || remainingPreview.some((step) => step.effect === 'blocked')) {
+          return { ok: false, status: 409, body: { error: 'plan_blocked', preview } }
+        }
 
         // A create step whose target now already exists would duplicate it, so the plan is
         // refused rather than applied - re-running must never silently create a second one.
-        const existing = preview.steps.filter((step) => step.effect === 'exists')
+        const existing = remainingPreview.filter((step) => step.effect === 'exists')
         if (existing.length > 0) {
           return {
             ok: false,
@@ -1753,17 +1791,18 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
           return { ok: false, status: 409, body: { error: 'plan_credentials_required', steps: missingCredentials } }
         }
 
-        return { ok: true, summary: planRows[0].content.summary, steps: remaining }
+        return { ok: true, summary: planRows[0].content.summary, steps: remaining, priorOutputs }
       })
 
       if (!pre.ok) return reply.code(pre.status).send(pre.body)
       // Apply the plan through the control plane as the executor role identity: a separate
       // Caracal application whose STS traits carry exactly the scopes the Operator's authority
       // grants, so a write scope it was never granted can never be minted even if a step slipped
-      // past the authority check. Each step mints a least-privilege token and invokes its
+      // past the authority check. The plan applies as a dependency-ordered graph: each step mints
+      // a least-privilege token, resolves any references to earlier outputs, and invokes its
       // governed control command; the control plane authorizes, executes, and audits it natively.
       // A denial or failure stops the plan, so it never silently half-applies.
-      const result = await executeViaControlPlane(controlClient, pre.steps)
+      const result = await executeViaControlPlane(controlClient, pre.steps, pre.priorOutputs)
 
       // Record the applied steps and any failure in the ledger. The control plane already
       // wrote the tamper-evident admin audit for each mutation, so no manual audit record
@@ -1786,6 +1825,8 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
         if (!conv[0]) return { turns, outputs }
         let seq = conv[0].next_seq
         for (const step of result.applied) {
+          const referencable = CAPABILITIES[step.capability]?.outputs ?? []
+          const persistedOutputs = Object.fromEntries(Object.entries(step.output ?? {}).filter(([key]) => referencable.includes(key)))
           const turn = await writeTurnLocked(client, {
             conversationId: params.id,
             zoneId: params.zoneId,
@@ -1797,6 +1838,10 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
               step_id: step.id,
               status: 'succeeded',
               detail: step.detail,
+              // The step's referencable outputs - durable identifiers only, never one-time
+              // material such as a client secret - persist with the turn so a resumed run can
+              // still resolve later steps' references against them.
+              ...(Object.keys(persistedOutputs).length > 0 ? { outputs: persistedOutputs } : {}),
               executed_by: authority.principal,
             }),
             actorId: req.actor.id,

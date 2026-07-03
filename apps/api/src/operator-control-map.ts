@@ -118,6 +118,7 @@ export const CONTROL_CAPABILITIES: Record<string, ControlCapability> = {
   // Rego source, which lives in policy versions behind a separate read. So a list is safe to
   // surface in full without leaking policy logic.
   listPolicies: readControl('policy', 'policy'),
+  listPolicySets: readControl('policy-set', 'policy set'),
   listGrants: readControl('grant', 'grant'),
   listSessions: readControl('session', 'session'),
   listAgents: readControl('agent', 'agent session'),
