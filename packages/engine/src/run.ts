@@ -89,17 +89,6 @@ export interface BuildRunEnvOptions {
   readonly onLine?: RunLineSink
 }
 
-export function checkMcpGovernance(args: readonly string[] | string, cfg: RuntimeConfig, onLine?: RunLineSink): void {
-  const haystack = (Array.isArray(args) ? args : [args]).join(' ')
-  const isUnauthorized = ['mcp-server', 'fastmcp', '@modelcontextprotocol'].some((indicator) => haystack.includes(indicator))
-  if (!isUnauthorized) return
-
-  const mode = cfg.mcp_governance?.mode ?? 'block'
-  const action = mode === 'log' ? 'log' : 'blocked'
-  onLine?.(JSON.stringify({ event: 'mcp_governance', action, cmd: haystack }), 'stderr')
-  if (mode !== 'log') throw new Error('mcp_governance_blocked')
-}
-
 async function waitForChallenge(zoneUrl: string, challengeId: string): Promise<boolean> {
   const deadline = Date.now() + STEP_UP_TIMEOUT_MS
   while (Date.now() < deadline) {

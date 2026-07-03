@@ -30,10 +30,6 @@ export interface OptionalCredential extends Credential {
   on_failure: 'warn' | 'error'
 }
 
-export interface McpGovernance {
-  mode: 'block' | 'log'
-}
-
 export interface RuntimeConfig {
   zone_url: string
   sts_url?: string
@@ -46,7 +42,6 @@ export interface RuntimeConfig {
   continue_on_failure?: boolean
   credentials?: Credential[]
   optional_credentials?: OptionalCredential[]
-  mcp_governance?: McpGovernance
 }
 
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
@@ -75,12 +70,11 @@ const RUNTIME_CONFIG_KEYS = new Set([
   'continue_on_failure',
   'credentials',
   'optional_credentials',
-  'mcp_governance',
 ])
 
 const CREDENTIAL_KEYS = new Set(['env', 'resource', 'upstream_prefix', 'credential_type'])
 const OPTIONAL_CREDENTIAL_KEYS = new Set(['env', 'resource', 'upstream_prefix', 'credential_type', 'on_failure'])
-const CREDENTIAL_MANIFEST_KEYS = new Set(['credentials', 'optional_credentials', 'continue_on_failure', 'mcp_governance'])
+const CREDENTIAL_MANIFEST_KEYS = new Set(['credentials', 'optional_credentials', 'continue_on_failure'])
 
 type UnknownRecord = Record<string, unknown>
 
@@ -393,23 +387,6 @@ function normalizeCredentials(
   })
 }
 
-function normalizeMcpGovernance(record: UnknownRecord, source: string, env: NodeJS.ProcessEnv): McpGovernance | undefined {
-  const override = env.CARACAL_MCP_GOVERNANCE_MODE
-  if (override !== undefined) {
-    if (override !== 'block' && override !== 'log') failConfig(source, 'CARACAL_MCP_GOVERNANCE_MODE must be block or log')
-    assertMcpGovernanceModeAllowed(override, source, env)
-    return { mode: override }
-  }
-  const value = record.mcp_governance
-  if (value === undefined) return undefined
-  if (!isRecord(value)) failConfig(source, 'mcp_governance must be a table')
-  assertNoUnknownKeys(value, new Set(['mode']), source, 'mcp_governance')
-  const mode = requiredStringField(value, 'mode', source)
-  if (mode !== 'block' && mode !== 'log') failConfig(source, 'mcp_governance.mode must be block or log')
-  assertMcpGovernanceModeAllowed(mode, source, env)
-  return { mode }
-}
-
 function normalizeRuntimeConfig(value: unknown, source: string, env: NodeJS.ProcessEnv): RuntimeConfig {
   if (!isRecord(value)) failConfig(source, 'runtime config must be a table')
   assertNoUnknownKeys(value, RUNTIME_CONFIG_KEYS, source, 'runtime config')
@@ -444,15 +421,7 @@ function normalizeRuntimeConfig(value: unknown, source: string, env: NodeJS.Proc
   const optionalCredentials = normalizeCredentials(value, 'optional_credentials', source)
   if (optionalCredentials) cfg.optional_credentials = optionalCredentials
   assertUniqueCredentialEnv(cfg.credentials, cfg.optional_credentials, source)
-  const governance = normalizeMcpGovernance(value, source, env)
-  if (governance) cfg.mcp_governance = governance
   return cfg
-}
-
-function assertMcpGovernanceModeAllowed(mode: 'block' | 'log', source: string, env: NodeJS.ProcessEnv): void {
-  if (mode === 'log' && (env.NODE_ENV ?? 'development') !== 'development' && env.CARACAL_ALLOW_MCP_GOVERNANCE_LOG !== 'true') {
-    failConfig(source, 'mcp_governance.mode=log is not allowed outside development')
-  }
 }
 
 function assertUniqueCredentialEnv(

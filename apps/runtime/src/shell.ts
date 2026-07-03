@@ -11,7 +11,6 @@ import { runCommand } from './commands/run.ts'
 import { upCommand, downCommand, statusCommand, upgradeCommand } from './commands/stack.ts'
 import { purgeCommand } from './commands/purge.ts'
 import { webCommand, webInterfaceAvailable } from './commands/web.ts'
-import { checkMcpGovernance } from './mcp.ts'
 import { CARACAL_MODE, CARACAL_SHA, CARACAL_VERSION } from './runtime/version.gen.ts'
 import { SHELL_COMMANDS } from '@caracalai/engine/commands'
 import { buildRegistry, type Executor } from './registry.ts'
@@ -25,11 +24,7 @@ const executors: Record<string, Executor> = {
   status: (argv) => statusCommand([...argv]),
   upgrade: (argv) => upgradeCommand([...argv]),
   purge: (argv) => purgeCommand([...argv]),
-  run: (argv, cfg) => {
-    const cmdArgs = argv[0] === '--' ? argv.slice(1) : argv
-    if (cmdArgs.length > 0 && cfg) checkMcpGovernance(cmdArgs, cfg)
-    return runCommand([...argv], cfg)
-  },
+  run: (argv, cfg) => runCommand([...argv], cfg),
   web: (argv) => {
     void webCommand([...argv])
   },

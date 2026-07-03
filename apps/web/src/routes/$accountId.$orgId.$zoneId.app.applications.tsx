@@ -112,6 +112,7 @@ function ApplicationsPage({ zoneId, zoneName }: { zoneId: string; zoneName: stri
   });
   const [secret, setSecret] = useState<{
     name: string;
+    appId: string;
     clientSecret: string;
     rotated: boolean;
   } | null>(null);
@@ -284,7 +285,12 @@ function ApplicationsPage({ zoneId, zoneName }: { zoneId: string; zoneName: stri
             });
             setCreateOpen(false);
             if (app.client_secret) {
-              setSecret({ name: app.name, clientSecret: app.client_secret, rotated: false });
+              setSecret({
+                name: app.name,
+                appId: app.id,
+                clientSecret: app.client_secret,
+                rotated: false,
+              });
             } else {
               toast({ tone: "success", title: "Application created", description: app.name });
             }
@@ -296,6 +302,7 @@ function ApplicationsPage({ zoneId, zoneName }: { zoneId: string; zoneName: stri
 
       <SecretModal
         secret={secret}
+        zoneId={zoneId}
         onClose={() => setSecret(null)}
         onCopied={() => toast({ tone: "success", title: "Client secret copied" })}
       />
@@ -314,6 +321,7 @@ function ApplicationsPage({ zoneId, zoneName }: { zoneId: string; zoneName: stri
             if (rotated.client_secret) {
               setSecret({
                 name: rotateTarget.name,
+                appId: rotateTarget.id,
                 clientSecret: rotated.client_secret,
                 rotated: true,
               });
@@ -581,10 +589,12 @@ function CreateApplicationModal({
 
 function SecretModal({
   secret,
+  zoneId,
   onClose,
   onCopied,
 }: {
-  secret: { name: string; clientSecret: string; rotated: boolean } | null;
+  secret: { name: string; appId: string; clientSecret: string; rotated: boolean } | null;
+  zoneId: string;
   onClose: () => void;
   onCopied: () => void;
 }) {
@@ -613,6 +623,15 @@ function SecretModal({
               Copy
             </Button>
           </div>
+          <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+            For local <code className="font-mono">caracal run</code> launches, store it owner-only
+            (chmod 600) at{" "}
+            <code className="break-all font-mono">
+              {`<Caracal config dir>/runtime/${zoneId}/${secret.appId}/client-secret`}
+            </code>
+            . For cloud or custom deployments, place it in your secret store and reference it from
+            the runtime profile.
+          </p>
         </div>
       ) : null}
     </Modal>
