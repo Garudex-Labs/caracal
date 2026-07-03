@@ -105,13 +105,6 @@ export interface Config {
   // safe defaults that bound runaways without affecting normal operation; zero lifts a bound.
   operatorAiMaxOutputTokens: number
   operatorAiMaxCallsPerTurn: number
-  // Internal-only: when set, the Operator provisions and self-governs the reserved
-  // caracal.sys system zone, executing through the governed control plane as real
-  // least-privilege control identities - exactly as a customer's control key does - rather
-  // than borrowing the admin token. The system zone and those identities are provisioned
-  // autonomously at startup with in-process generated, automatically rotated credentials,
-  // so there is no user surface at all beyond this switch.
-  operatorSelfGovern: boolean
   metricsBearer: string | null
   control: ControlConfig | null
 }
@@ -217,13 +210,6 @@ function loadOperatorAiProviders(): ProviderConfig[] {
   return providers
 }
 
-// Internal-only: resolves whether the Operator should self-govern the caracal.sys system
-// zone. Governed execution requires the control plane (checked by the caller); the system
-// zone, identities, and their rotating credentials are provisioned autonomously at startup.
-function loadOperatorSelfGovern(): boolean {
-  return boolEnv('API_OPERATOR_SELF_GOVERN', false)
-}
-
 export function loadConfig(): Config {
   const gatewayStsHmacKey = process.env.GATEWAY_STS_HMAC_KEY ? Buffer.from(process.env.GATEWAY_STS_HMAC_KEY, 'hex') : null
   if (gatewayStsHmacKey && gatewayStsHmacKey.length < 32) {
@@ -289,7 +275,6 @@ export function loadConfig(): Config {
     operatorAutopilotWriteBudget: intEnv('API_OPERATOR_AUTOPILOT_WRITE_BUDGET', 0, 0),
     operatorAiMaxOutputTokens: intEnv('API_OPERATOR_AI_MAX_OUTPUT_TOKENS', 4096, 0),
     operatorAiMaxCallsPerTurn: intEnv('API_OPERATOR_AI_MAX_CALLS_PER_TURN', 12, 0),
-    operatorSelfGovern: loadOperatorSelfGovern(),
     metricsBearer: process.env.METRICS_BEARER ?? null,
     control,
   }

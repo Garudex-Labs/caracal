@@ -312,15 +312,15 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
     return identity
   }
 
-  // When self-governance is active, the Operator must not hold its upstream LLM keys: the
-  // provisioner seals each keyed provider into Caracal, and here the matching providers are
-  // re-pointed at the gateway with a per-provider transport that mints and presents a Caracal
-  // resource mandate. The key is dropped from the in-process config, so a governed provider
-  // calls its model only through Caracal's own authority plane. Keyless local providers need
-  // no protection and are left calling directly. The transport resolves the Operator identity
-  // lazily because it is provisioned after the server is listening; until then a governed call
-  // fails closed rather than leaking a key.
-  const governanceActive = Boolean(cfg.control && cfg.operatorSelfGovern)
+  // The Operator is always governed: whenever the control plane is available it must not hold
+  // its upstream LLM keys. The provisioner seals each keyed provider into Caracal, and here the
+  // matching providers are re-pointed at the gateway with a per-provider transport that mints and
+  // presents a Caracal resource mandate. The key is dropped from the in-process config, so a
+  // governed provider calls its model only through Caracal's own authority plane. Keyless local
+  // providers need no protection and are left calling directly. The transport resolves the
+  // Operator identity lazily because it is provisioned after the server is listening; until then
+  // a governed call fails closed rather than leaking a key.
+  const governanceActive = Boolean(cfg.control)
 
   // The Operator's governed LLM transport mints and presents a Caracal resource mandate per
   // call, so a governed provider reaches its model only through Caracal's own authority plane.
@@ -408,15 +408,16 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
       : null,
   })
 
-  // When self-governance is enabled, provision the reserved caracal.sys system zone and the
-  // Operator's least-privilege role identities once the server is listening - the only
-  // point the in-process admin client can reach the control plane over loopback. The same
+  // Whenever the control plane is available, provision the reserved caracal.sys system zone and
+  // the Operator's least-privilege role identities once the server is listening - the only
+  // point the in-process admin client can reach the control plane over loopback. Governance is
+  // not optional: an Operator with a control plane always executes through it. The same
   // provision runs again on every rotation tick: each run generates fresh in-process secrets
   // and a fresh credential deadline, so no long-lived credential ever exists. Provisioning
   // failure leaves governed execution unconfigured rather than crashing the API; the next
   // rotation tick retries, and a credential whose rotation keeps failing expires and fails
   // closed at both the identity holder and the STS.
-  if (cfg.control && cfg.operatorSelfGovern && provisionAdmin) {
+  if (cfg.control && provisionAdmin) {
     const audience = cfg.control.audience
     const isolatedSystemZone = new Set(cfg.operatorSystemZones)
     const admin = provisionAdmin

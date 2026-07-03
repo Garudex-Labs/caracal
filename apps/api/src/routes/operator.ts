@@ -195,7 +195,7 @@ function writeSseEvent(reply: FastifyReply, event: 'stage' | 'reasoning' | 'toke
 
 interface PlanTurnContent {
   summary: string
-  steps: { id: string; capability: string; args?: Record<string, unknown>; depends_on?: string[]; mutating?: boolean }[]
+  steps: { id: string; capability: string; args?: Record<string, unknown>; depends_on?: string[]; mutating?: boolean; effect?: string }[]
 }
 
 const ContextQuery = z.object({
@@ -1817,6 +1817,33 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
             body: {
               error: 'plan_already_satisfied',
               steps: existing.map((step) => ({ step_id: step.id, capability: step.capability, detail: step.detail })),
+            },
+          }
+        }
+
+        // An approval covers the consequences the plan was previewed to have when it was reviewed,
+        // recorded per step in the plan turn. A remaining step whose live consequence now differs
+        // from the reviewed one - a "no change" step that would now create because the object was
+        // deleted in the meantime - would apply against a world the approver never saw, so the
+        // plan is refused and a fresh request composes a new plan against current state.
+        const reviewedEffects = new Map(planRows[0].content.steps.map((step) => [step.id, step.effect]))
+        const drifted = remainingPreview.filter((step) => {
+          const reviewed = reviewedEffects.get(step.id)
+          return typeof reviewed === 'string' && reviewed !== step.effect
+        })
+        if (drifted.length > 0) {
+          return {
+            ok: false,
+            status: 409,
+            body: {
+              error: 'plan_state_changed',
+              steps: drifted.map((step) => ({
+                step_id: step.id,
+                capability: step.capability,
+                reviewed: reviewedEffects.get(step.id),
+                current: step.effect,
+                detail: step.detail,
+              })),
             },
           }
         }
