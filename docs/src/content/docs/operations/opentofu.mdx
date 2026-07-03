@@ -1,16 +1,17 @@
 ---
 title: Provision with OpenTofu
-description: Provision Caracal on Kubernetes with the OpenTofu module and environment roots.
+description: Provision Caracal on Kubernetes or single VMs with the OpenTofu modules and environment roots.
 pageType: workflow
 ---
 
-The OpenTofu configuration in `infra/tofu` provisions Caracal declaratively: a pod-security-restricted namespace, optional runtime credentials, and the Helm release. It wraps the same chart described in [Deploy with Helm](/operations/kubernetes-helm/), so chart values profiles stay the single source of deployment defaults while OpenTofu owns environment identity, chart provenance, and drift control.
+The OpenTofu configuration in `infra/tofu` provisions Caracal declaratively across two substrates: Kubernetes through the Helm chart, and single VMs through cloud-init. The Kubernetes path wraps the same chart described in [Deploy with Helm](/operations/kubernetes-helm/), so chart values profiles stay the single source of deployment defaults while OpenTofu owns environment identity, chart provenance, and drift control.
 
 ## Layout
 
 | Path                              | Purpose                                                                                          |
 | --------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `infra/tofu/modules/caracalStack` | Reusable module: namespace, optional runtime Secret, Helm release.                               |
+| `infra/tofu/modules/caracalStack` | Kubernetes module: namespace, optional runtime Secret, Helm release.                             |
+| `infra/tofu/modules/caracalHost`  | VM module: provider-agnostic cloud-init user data for any VM resource.                           |
 | `infra/tofu/envs/dev`             | Installs the working-tree chart with `values.dev.yaml` against any kubeconfig-reachable cluster. |
 | `infra/tofu/envs/production`      | Installs a pinned OCI-published chart version with `values.production.yaml`.                     |
 | `infra/tofu/scripts/validate.sh`  | Formatting and offline validation harness used by CI.                                            |
@@ -50,6 +51,29 @@ Production never carries credentials in variables. Deliver the `caracal-runtime`
 
 Set `extraValues` for environment overlays such as ingress hosts, the web console `publicUrl`, and OTLP endpoints. Every apply is atomic: a failed install or upgrade rolls back automatically, including migration hook Jobs.
 
+## Single VM Bootstrap
+
+The `caracalHost` module renders cloud-init user data that installs Docker and the Caracal runtime CLI on first boot, then starts the pinned stack. It declares no providers, so the output attaches to any VM resource - AWS, Google Cloud, Azure, or your own hypervisor - and the host generates its runtime secrets locally at first start, keeping credential material out of OpenTofu state.
+
+```hcl
+module "caracal" {
+  source         = "github.com/Garudex-Labs/caracal//infra/tofu/modules/caracalHost"
+  caracalVersion = "v2026.06.25-rc.1"
+
+  envOverrides = {
+    CARACAL_WEB_URL = "https://caracal.pipernet.example"
+  }
+}
+
+resource "aws_instance" "caracal" {
+  ami           = data.aws_ami.host.id
+  instance_type = "t3.large"
+  user_data     = module.caracal.userData
+}
+```
+
+Use `userDataBase64` for providers that require encoded input, such as `azurerm_linux_virtual_machine.custom_data`. Overrides in `envOverrides` land in the host's `caracal.env` before first start, and `extraRuncmd` inserts commands - a reverse proxy or monitoring agent install, for example - between the CLI install and stack start. Service ports stay loopback-bound on the VM; publish the web console or Gateway through the reverse proxy you attach. See [Choose a Deployment Profile](/operations/deployment-profiles/) for when the single-VM tier fits and when to move to the cluster tiers.
+
 ## State Management
 
 Roots default to local state for evaluation. For shared environments, configure a remote backend (S3-compatible object storage, Kubernetes Secret backend, or your platform's state service) with `tofu init -backend-config`; the roots contain no provider-specific backend assumptions.
@@ -60,4 +84,4 @@ Roots default to local state for evaluation. For shared environments, configure 
 bash infra/tofu/scripts/validate.sh
 ```
 
-The harness runs `tofu fmt -check` across the tree and an offline `tofu validate` of every environment root. CI runs the same harness on any `infra/` change.
+The harness runs `tofu fmt -check` across the tree and an offline `tofu validate` of every environment root and module. CI runs the same harness on any `infra/` change.

@@ -8,7 +8,7 @@
 
 - `docker/` owns local and runtime Compose orchestration.
 - `helm/` owns the Kubernetes chart and its render validation harness.
-- `tofu/` owns OpenTofu provisioning: the reusable stack module and per-environment roots.
+- `tofu/` owns OpenTofu provisioning: the Kubernetes stack module, the VM host module, and per-environment roots.
 - `postgres/` owns the database image, migrations, and verification scripts.
 - `redis/` owns Redis configuration and stream provisioning.
 - `healthcheck/` owns the reusable Go healthcheck binary used by service images.
