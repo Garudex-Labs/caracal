@@ -79,8 +79,6 @@ secrets:
     file: ${CARACAL_SECRETS_DIR:-../secrets/files}/streamsHmacKey
   gatewayStsHmacKey:
     file: ${CARACAL_SECRETS_DIR:-../secrets/files}/gatewayStsHmacKey
-  operatorControlSecret:
-    file: ${CARACAL_SECRETS_DIR:-../secrets/files}/operatorControlSecret
   databaseUrl:
     file: ${CARACAL_SECRETS_DIR:-../secrets/files}/databaseUrl
   authDatabaseUrl:
@@ -359,8 +357,6 @@ services:
         target: metricsBearer
       - source: auditHmacKey
         target: auditHmacKey
-      - source: operatorControlSecret
-        target: operatorControlSecret
     environment:
       CARACAL_MODE: ${CARACAL_MODE:-dev}
       DATABASE_URL_FILE: /run/secrets/databaseUrl
@@ -399,11 +395,10 @@ services:
       API_OPERATOR_AI_LOCAL_API_KEY: ${API_OPERATOR_AI_LOCAL_API_KEY:-}
       API_OPERATOR_AI_LOCAL_CONTEXT_WINDOW: ${API_OPERATOR_AI_LOCAL_CONTEXT_WINDOW:-}
       # Operator self-governance: when enabled the Operator provisions and self-governs the
-      # reserved caracal.sys system zone, executing through the governed control plane as a
-      # least-privilege control identity. The only knob is the sealed client secret; the
-      # system zone and identity are provisioned autonomously. Internal-only.
+      # reserved caracal.sys system zone, executing through the governed control plane as
+      # least-privilege role identities whose short-lived credentials are generated and rotated
+      # autonomously; there is no credential knob. Internal-only.
       API_OPERATOR_SELF_GOVERN: ${API_OPERATOR_SELF_GOVERN:-true}
-      API_OPERATOR_CONTROL_CLIENT_SECRET_FILE: /run/secrets/operatorControlSecret
       # Caracal-governed autopilot master switch. On by default for local dev so an agent-mode
       # conversation that engages autopilot has its plan approvals auto-satisfied; set to false to
       # require human approval again.
