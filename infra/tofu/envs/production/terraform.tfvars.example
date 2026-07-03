@@ -1,0 +1,29 @@
+# Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+# Caracal, a product of Garudex Labs
+#
+# Example inputs for the production environment. Copy to terraform.tfvars and
+# fill in. Provision the caracal-runtime Secret with your secret manager
+# before the first apply; production never carries credentials in tfvars.
+
+kubeconfigPath = "~/.kube/config"
+kubeContext    = "production-cluster"
+namespace      = "caracal"
+
+# Pin the released chart version to deploy.
+chartVersion = "2026.6.25-rc.1"
+
+# Externally managed HA data stores; stable mode rejects in-cluster defaults.
+databaseHost = "postgres-ha.data-platform.svc.cluster.local"
+redisHost    = "redis-ha.data-platform.svc.cluster.local"
+
+# Pull secrets for private registry mirrors, if any.
+imagePullSecretNames = []
+
+# Environment-specific overlays: ingress, web publicUrl, OTLP endpoint.
+extraValues = [
+  <<-YAML
+  services:
+    web:
+      publicUrl: https://caracal.example.com
+  YAML
+]
