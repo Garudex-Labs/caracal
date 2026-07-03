@@ -67,8 +67,7 @@ export function registerAdminAuditHook(app: FastifyInstance, db: Pool, hmacKey: 
     }
   }
 
-  const auditExempt = (path: string): boolean =>
-    path === '/health' || path === '/ready' || path === '/metrics' || path === '/stats'
+  const auditExempt = (path: string): boolean => path === '/health' || path === '/ready' || path === '/metrics' || path === '/stats'
 
   const gated = new WeakSet<FastifyRequest>()
 
