@@ -42,7 +42,6 @@ resolveFileSecrets([
   'GATEWAY_STS_HMAC_KEY',
   'METRICS_BEARER',
   'CONTROL_API_TOKEN',
-  'API_OPERATOR_CONTROL_CLIENT_SECRET',
 ])
 
 export interface Config {
@@ -104,27 +103,37 @@ export interface Config {
   operatorAiMaxOutputTokens: number
   operatorAiMaxCallsPerTurn: number
   // Internal-only: when set, the Operator provisions and self-governs the reserved
-  // caracal.sys system zone, executing through the governed control plane as a real
-  // least-privilege control identity - exactly as a customer's control key does - rather
-  // than borrowing the admin token. The system zone and that identity are provisioned
-  // autonomously at startup; the only knob is the sealed client secret below, so the user
-  // surface is one secret rather than a hand-wired identity.
+  // caracal.sys system zone, executing through the governed control plane as real
+  // least-privilege control identities - exactly as a customer's control key does - rather
+  // than borrowing the admin token. The system zone and those identities are provisioned
+  // autonomously at startup with in-process generated, automatically rotated credentials,
+  // so there is no user surface at all beyond this switch.
   operatorSelfGovern: boolean
-  // The sealed client secret for the Operator's reserved control identity. Sourced from
-  // platform config (file-resolvable like every platform secret) and never set by an end
-  // user. Null leaves governed execution unconfigured.
-  operatorControlSecret: string | null
   metricsBearer: string | null
   control: ControlConfig | null
 }
 
-// Internal-only: the resolved credentials and zone binding for the Operator's caracal.sys
-// control identity, assembled at startup from the provisioned system zone plus the sealed
-// secret. Strictly a platform-internal adapter; never exposed to or set by end users.
-export interface OperatorControlIdentity {
+// One provisioned application credential: the reserved application's id and the in-process
+// generated client secret currently sealed into it. Held in memory only, rotated
+// automatically, and never persisted or exposed.
+export interface OperatorControlCredential {
   applicationId: string
   clientSecret: string
+}
+
+// Internal-only: the resolved credentials and zone binding for the Operator's caracal.sys
+// identities, assembled at startup by the system-zone provisioner and refreshed on every
+// rotation. Each agent permission boundary is a separate Caracal application whose STS
+// traits structurally bound what it can mint: llm owns the governed model resources on the
+// data plane, researcher holds only the read control scopes, and executor holds the read
+// scopes plus the mutating scopes the Operator's authority grants. expiresAt is the
+// fail-closed deadline: past it every consumer must treat the identity as unconfigured.
+export interface OperatorControlIdentity {
   zoneId: string
+  llm: OperatorControlCredential
+  researcher: OperatorControlCredential
+  executor: OperatorControlCredential
+  expiresAt: Date
 }
 
 export interface ControlConfig {
@@ -206,9 +215,8 @@ function loadOperatorAiProviders(): ProviderConfig[] {
 }
 
 // Internal-only: resolves whether the Operator should self-govern the caracal.sys system
-// zone. Governed execution requires the control plane (checked by the caller) and the
-// sealed control secret; the system zone and identity are provisioned autonomously at
-// startup, so the only user-facing knob is the secret.
+// zone. Governed execution requires the control plane (checked by the caller); the system
+// zone, identities, and their rotating credentials are provisioned autonomously at startup.
 function loadOperatorSelfGovern(): boolean {
   return boolEnv('API_OPERATOR_SELF_GOVERN', false)
 }
@@ -279,7 +287,6 @@ export function loadConfig(): Config {
     operatorAiMaxOutputTokens: intEnv('API_OPERATOR_AI_MAX_OUTPUT_TOKENS', 4096, 0),
     operatorAiMaxCallsPerTurn: intEnv('API_OPERATOR_AI_MAX_CALLS_PER_TURN', 12, 0),
     operatorSelfGovern: loadOperatorSelfGovern(),
-    operatorControlSecret: process.env.API_OPERATOR_CONTROL_CLIENT_SECRET?.trim() || null,
     metricsBearer: process.env.METRICS_BEARER ?? null,
     control,
   }

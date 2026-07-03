@@ -3,10 +3,10 @@
 //
 // Idempotent provisioner for the reserved caracal.sys system zone the Operator self-governs through the control plane.
 
-import { createHash } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import type { AdminClient, Application } from '@caracalai/admin'
 import { ensureControlResource } from '@caracalai/engine'
-import { CONTROL_CAPABILITIES } from './operator-control-map.js'
+import type { OperatorControlCredential } from './config.js'
 
 // The reserved system zone, encoded per the caracal.sys namespace standard: a slug in the
 // caracal-sys- form and a name in the caracal.sys/ form. Both are reserved, so only a
@@ -15,41 +15,61 @@ import { CONTROL_CAPABILITIES } from './operator-control-map.js'
 export const SYSTEM_ZONE_SLUG = 'caracal-sys-internal'
 export const SYSTEM_ZONE_NAME = 'caracal.sys/system'
 
-// The Operator's reserved control identity inside the system zone, named in the reserved
-// caracal.sys/ form so a tenant can never create or impersonate it.
+// The Operator's reserved identities inside the system zone, named in the reserved
+// caracal.sys/ form so a tenant can never create or impersonate them. Each agent permission
+// boundary is its own application: the base identity owns the governed LLM resources on the
+// data plane and holds no control authority at all, while the researcher and executor are
+// distinct control identities whose STS traits bound exactly what each can mint.
 export const OPERATOR_APP_NAME = 'caracal.sys/operator'
+export const RESEARCHER_APP_NAME = 'caracal.sys/operator-researcher'
+export const EXECUTOR_APP_NAME = 'caracal.sys/operator-executor'
 
 const CONTROL_INVOKE_TRAIT = 'control:invoke'
 const CONTROL_SCOPE_TRAIT_PREFIX = 'control:scope:'
+const CONTROL_MAX_TTL_TRAIT_PREFIX = 'control:max-ttl:'
+const CONTROL_EXPIRES_TRAIT_PREFIX = 'control:expires:'
 
-// The least-privilege control scopes the Operator identity is granted: exactly the union
-// of every governed-executable capability's scopes, so the identity can do everything the
-// Operator may execute and nothing more. Adding a governed capability widens this set on
-// the next provision; it never silently over-grants.
-export function operatorControlScopes(): string[] {
-  const scopes = new Set<string>()
-  for (const capability of Object.values(CONTROL_CAPABILITIES)) {
-    for (const scope of capability.scopes) scopes.add(scope)
-  }
-  return [...scopes].sort()
+// Credential lifecycle: every secret is generated in process, sealed into its application,
+// and held in memory only - no environment or persisted credential exists. The STS enforces
+// the deadline through the control:expires trait, so a credential that misses its rotation
+// stops minting at the STS itself, not just in this process. Rotation re-provisions with
+// fresh secrets and a new deadline well before expiry.
+export const OPERATOR_CREDENTIAL_TTL_SEC = 3600
+export const OPERATOR_CREDENTIAL_ROTATE_SEC = 2700
+// Caps every minted control token's lifetime at the STS regardless of the requested ttl.
+export const CONTROL_TOKEN_MAX_TTL_SEC = 300
+
+// The least-privilege control scope sets for the role identities, derived by the caller
+// from the capability catalog and the Operator's granted authority.
+export interface OperatorRoleScopes {
+  researcher: string[]
+  executor: string[]
 }
 
-// The canonical trait set for the Operator identity: control:invoke plus one control:scope:
-// trait per least-privilege scope. The provisioner reconciles the live identity to exactly
-// this set on every run, so a hand-narrowed or widened identity self-heals to least
-// privilege.
-export function operatorIdentityTraits(): string[] {
-  return [CONTROL_INVOKE_TRAIT, ...operatorControlScopes().map((scope) => `${CONTROL_SCOPE_TRAIT_PREFIX}${scope}`)].sort()
+// The canonical trait set for one control role identity: control:invoke, the token-lifetime
+// cap, the credential deadline, and one control:scope: trait per role scope. The provisioner
+// reconciles the live identity to exactly this set on every run, so a hand-narrowed or
+// widened identity self-heals to least privilege.
+export function roleIdentityTraits(scopes: string[], expiresAt: Date): string[] {
+  return [
+    CONTROL_INVOKE_TRAIT,
+    `${CONTROL_MAX_TTL_TRAIT_PREFIX}${CONTROL_TOKEN_MAX_TTL_SEC}`,
+    `${CONTROL_EXPIRES_TRAIT_PREFIX}${expiresAt.toISOString()}`,
+    ...[...scopes].sort().map((scope) => `${CONTROL_SCOPE_TRAIT_PREFIX}${scope}`),
+  ]
 }
 
-// The resolved system-zone identity the Operator executes as: the system zone it governs
-// and the application id of its reserved control identity. The client secret is supplied
-// separately from sealed config and is never returned here. governedResources maps each
-// governed upstream's id to the Caracal resource identifier the Operator routes its calls
-// through, so the runtime can address the gateway by resource.
+// The resolved system-zone identities the Operator executes as: the system zone, one
+// credential per permission boundary, and the fail-closed deadline after which every
+// credential must be treated as unconfigured. Secrets are in-memory only and never returned
+// through any API surface. governedResources maps each governed upstream's id to the Caracal
+// resource identifier the Operator routes its calls through.
 export interface SystemZoneIdentity {
   zoneId: string
-  operatorApplicationId: string
+  llm: OperatorControlCredential
+  researcher: OperatorControlCredential
+  executor: OperatorControlCredential
+  expiresAt: Date
   governedResources: { id: string; resourceIdentifier: string }[]
 }
 
@@ -155,28 +175,35 @@ async function ensureSystemZone(admin: AdminClient, findZoneBySlug: FindZoneBySl
   return admin.zones.create({ name: SYSTEM_ZONE_NAME, slug: SYSTEM_ZONE_SLUG })
 }
 
-async function ensureOperatorIdentity(admin: AdminClient, zoneId: string, secret: string): Promise<string> {
-  const traits = operatorIdentityTraits()
+// Generates a fresh high-entropy client secret in the format the applications route issues.
+// Secrets exist only in process memory: generated here, sealed into the application, and
+// replaced wholesale on every rotation, so a captured secret has a bounded useful life and
+// no environment or file ever carries one.
+function generateClientSecret(): string {
+  return `cs_${randomBytes(32).toString('base64url')}`
+}
+
+async function ensureRoleIdentity(admin: AdminClient, zoneId: string, name: string, traits: string[], secret: string): Promise<string> {
   const apps = await admin.applications.list(zoneId)
-  const existing = apps.find((app: Application) => app.name === OPERATOR_APP_NAME)
+  const existing = apps.find((app: Application) => app.name === name)
   if (!existing) {
-    const created = await admin.applications.create(zoneId, { name: OPERATOR_APP_NAME, registration_method: 'managed', traits })
-    // Set the identity's secret to the sealed, configured value, so the running secret is
-    // the platform's source of truth - supporting rotation by config change plus restart -
-    // rather than the one-time secret minted at creation and never persisted.
+    const created = await admin.applications.create(zoneId, { name, registration_method: 'managed', traits })
+    // Seal the freshly generated secret so the one-time secret minted at creation is never
+    // the running credential.
     await admin.applications.patch(zoneId, created.id, { client_secret: secret })
     return created.id
   }
-  // An existing reserved-name identity must be a usable, non-expiring managed credential; a
-  // DCR or expired application with the reserved name cannot mint control tokens, so binding
+  // An existing reserved-name identity must be a usable managed credential; a DCR or
+  // app-expiring application with the reserved name cannot serve as the identity, so binding
   // to it would report governed execution as configured while every execution failed at the
   // token mint. Fail closed instead, so the misconfiguration surfaces rather than hiding.
   if (existing.registration_method !== 'managed' || (existing.expires_at !== null && existing.expires_at !== undefined)) {
-    throw new Error('reserved operator identity exists but is not a usable non-expiring managed credential')
+    throw new Error(`reserved identity ${name} exists but is not a usable managed credential`)
   }
-  // Reconcile the live identity to least privilege and the configured secret. Patching the
-  // secret every run keeps the running credential equal to sealed config; patching traits
-  // only when drifted avoids needless writes while still self-healing a tampered identity.
+  // Reconcile the live identity to least privilege and seal the fresh secret. The trait set
+  // carries the credential deadline, so a rotation always advances it; the secret patch on
+  // every run is the rotation itself - the previous secret stops working the moment the new
+  // one is sealed, which is also how a compromised credential is revoked.
   if (!sameTraitSet(existing.traits, traits)) {
     await admin.applications.patch(zoneId, existing.id, { traits })
   }
@@ -382,27 +409,51 @@ export async function provisionGovernedUpstreams(
 }
 
 // Provisions the reserved caracal.sys system zone and the Operator's least-privilege
-// control identity within it, idempotently. Runs as the global-scope bootstrap admin
-// identity (the only actor allowed to create reserved-namespace objects), using the same
-// control primitives a customer uses: a real zone, the control resource, and a real
-// least-privilege control application. When governed upstreams are supplied, it also seals
-// each upstream's key into Caracal and grants the Operator data-plane access through the
-// gateway. Re-running converges without duplicating anything, so it is safe to call on every
-// startup. The caller serializes concurrent instances so the find-then-create lookups never
-// race into duplicate objects. Returns the resolved identity the Operator binds to.
+// identities within it, idempotently. Runs as the global-scope bootstrap admin identity
+// (the only actor allowed to create reserved-namespace objects), using the same control
+// primitives a customer uses: a real zone, the control resource, and real least-privilege
+// control applications - one per agent permission boundary, so the STS can only ever mint
+// what each role's own traits grant. Every call generates fresh secrets and a fresh
+// credential deadline, so re-running is also the rotation path; it converges without
+// duplicating anything and is safe to call on every startup and every rotation tick. When
+// governed upstreams are supplied, it also seals each upstream's key into Caracal and grants
+// the base identity data-plane access through the gateway. The caller serializes concurrent
+// instances so the find-then-create lookups never race into duplicate objects. Returns the
+// resolved identities the Operator binds to.
 export async function provisionSystemZone(
   admin: AdminClient,
-  operatorSecret: string,
   audience: string,
   findZoneBySlug: FindZoneBySlug,
+  roles: OperatorRoleScopes,
   governedUpstreams: GovernedUpstream[] = [],
 ): Promise<SystemZoneIdentity> {
   const zone = await ensureSystemZone(admin, findZoneBySlug)
   await ensureControlResource(admin, zone.id, audience)
-  const operatorApplicationId = await ensureOperatorIdentity(admin, zone.id, operatorSecret)
+  const expiresAt = new Date(Date.now() + OPERATOR_CREDENTIAL_TTL_SEC * 1000)
+  const llmSecret = generateClientSecret()
+  const researcherSecret = generateClientSecret()
+  const executorSecret = generateClientSecret()
+  // The base identity holds no control traits at all: it exists only to own the governed
+  // LLM resources on the data plane, so it can never invoke the control plane.
+  const llmId = await ensureRoleIdentity(admin, zone.id, OPERATOR_APP_NAME, [], llmSecret)
+  const researcherId = await ensureRoleIdentity(
+    admin,
+    zone.id,
+    RESEARCHER_APP_NAME,
+    roleIdentityTraits(roles.researcher, expiresAt),
+    researcherSecret,
+  )
+  const executorId = await ensureRoleIdentity(admin, zone.id, EXECUTOR_APP_NAME, roleIdentityTraits(roles.executor, expiresAt), executorSecret)
   // Always reconcile governed upstreams, even with an empty set, so a previously governed
   // upstream that has been removed from config is pruned and its grant revoked rather than
   // left authorized with a live sealed key.
-  const governedResources = await provisionGovernedUpstreams(admin, zone.id, operatorApplicationId, governedUpstreams)
-  return { zoneId: zone.id, operatorApplicationId, governedResources }
+  const governedResources = await provisionGovernedUpstreams(admin, zone.id, llmId, governedUpstreams)
+  return {
+    zoneId: zone.id,
+    llm: { applicationId: llmId, clientSecret: llmSecret },
+    researcher: { applicationId: researcherId, clientSecret: researcherSecret },
+    executor: { applicationId: executorId, clientSecret: executorSecret },
+    expiresAt,
+    governedResources,
+  }
 }
