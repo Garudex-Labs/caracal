@@ -550,23 +550,27 @@ describe('createOrchestrator', () => {
     expect(researcher.gather).toHaveBeenCalledTimes(1)
   })
 
-  it('answers without evidence when the researcher throws', async () => {
+  it('answers without evidence when the researcher throws, marking live state unavailable', async () => {
     const researcher = { gather: vi.fn().mockRejectedValue(new Error('control unreachable')) }
     let seen: unknown = 'unset'
+    let marked: unknown = 'unset'
     const registry: SkillRegistry = {
       select: () => ({
         id: 'probe',
         kind: 'answer',
         run: async (_g, _m, context) => {
           seen = context.evidence
+          marked = context.liveStateUnavailable
           return { ok: true, value: { text: 'degraded' } }
         },
       }),
     }
     const result = await createOrchestrator(registry).handle(gatewayFor('read'), 'state', emptyContext, { researcher })
-    // A researcher failure degrades to no evidence; the turn still answers rather than erroring.
+    // A researcher failure degrades to no evidence; the turn still answers rather than erroring,
+    // and the agent is told it is blind so memory can never masquerade as live state.
     expect(result.outcome.kind).toBe('answer')
     expect(seen).toBeUndefined()
+    expect(marked).toBe(true)
   })
 
   it('marks live state unavailable for a read tier when no researcher is active for the zone', async () => {

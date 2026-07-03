@@ -36,14 +36,16 @@ describe('describeZoneMemory', () => {
     expect(describeZoneMemory([])).toBe('')
   })
 
-  it('renders durable memory as a labelled, cross-conversation block', () => {
+  it('renders durable memory as a dated, history-only activity log', () => {
     const block = describeZoneMemory([
       { text: 'Connect the Hooli OIDC provider', created_at: '2026-06-01T00:00:00Z' },
       { text: 'Register the Son of Anton application', created_at: '2026-06-02T00:00:00Z' },
     ])
     expect(block).toContain('Durable zone memory')
-    expect(block).toContain('- Connect the Hooli OIDC provider')
-    expect(block).toContain('- Register the Son of Anton application')
+    expect(block).toContain('history only, not current state')
+    expect(block).toContain('never treat an entry as proof the object still exists')
+    expect(block).toContain('- 2026-06-01: applied "Connect the Hooli OIDC provider"')
+    expect(block).toContain('- 2026-06-02: applied "Register the Son of Anton application"')
   })
 })
 
