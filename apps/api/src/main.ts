@@ -10,6 +10,7 @@ import { newRedis } from './redis.js'
 import { startDCRGC } from './jobs/dcr-gc.js'
 import { startSessionsReaper } from './jobs/sessions-reaper.js'
 import { startMessageRunsReaper } from './jobs/message-runs-reaper.js'
+import { startPlanSecretsReaper } from './jobs/plan-secrets-reaper.js'
 import { OutboxDispatcher } from './outbox.js'
 import { seedBootstrapAdminToken, seedConsoleReadToken, seedConsoleWriteToken } from './auth.js'
 import { assertPublishedSafe, createLogger, initNodeTelemetry, ShutdownRegistry, withTimeout } from '@caracalai/core'
@@ -89,6 +90,7 @@ try {
   const dcrTimer = startDCRGC(db, app.log)
   const sessionsReaperTimer = startSessionsReaper(db, app.log)
   const messageRunsReaperTimer = startMessageRunsReaper(db, app.log)
+  const planSecretsReaperTimer = startPlanSecretsReaper(db, app.log)
 
   shutdown.register('dcr-gc-timer', () => {
     clearInterval(dcrTimer)
@@ -98,6 +100,9 @@ try {
   })
   shutdown.register('message-runs-reaper', () => {
     clearInterval(messageRunsReaperTimer)
+  })
+  shutdown.register('plan-secrets-reaper', () => {
+    clearInterval(planSecretsReaperTimer)
   })
   shutdown.register('outbox-dispatcher', () => dispatcher.stop())
   shutdown.register('fastify', () => app.close())

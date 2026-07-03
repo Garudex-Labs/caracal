@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// TTL sweeper: terminates expired task agents and their descendants transactionally.
+// TTL sweeper: settles expired task agents as expired and their descendants as terminated transactionally.
 
 import type { Pool } from 'pg'
 import { cfg } from '../config.js'
@@ -52,7 +52,7 @@ export async function runTTLSweep(db: Pool): Promise<number> {
     let terminated = 0
     for (const [zoneId, ids] of byZone) {
       await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [spawnLockKey(zoneId)])
-      terminated += await terminateSubtree(client, zoneId, ids, 'ttl')
+      terminated += await terminateSubtree(client, zoneId, ids, 'ttl', 'expired')
     }
     await client.query('COMMIT')
     return terminated

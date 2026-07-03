@@ -36,6 +36,10 @@ export interface ControlClientConfig {
   // with operator co-authorship. Set only by the Operator's own governed execution path, never by
   // direct control-plane automation.
   coAuthorOperator?: boolean
+  // The originating request id, forwarded as x-request-id on both the token exchange and the
+  // control invoke so the STS log, the control dispatch, and its audit record all correlate
+  // back to the request that triggered them.
+  requestId?: string
 }
 
 // A control invoke failed. stage distinguishes a token-exchange failure from a control
@@ -103,9 +107,11 @@ export function createControlClient(config: ControlClientConfig, fetchImpl: Fetc
       scope: scopes.join(' '),
     })
     if (config.ttlSeconds !== undefined) form.set('ttl_seconds', String(config.ttlSeconds))
+    const headers: Record<string, string> = { 'content-type': 'application/x-www-form-urlencoded' }
+    if (config.requestId) headers['x-request-id'] = config.requestId
     const res = await fetchImpl(`${stsUrl}${STS_TOKEN_PATH}`, {
       method: 'POST',
-      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      headers,
       body: form.toString(),
     })
     const body = await readJson(res)
@@ -125,6 +131,7 @@ export function createControlClient(config: ControlClientConfig, fetchImpl: Fetc
       const token = await mintToken(scopes)
       const headers: Record<string, string> = { 'content-type': 'application/json', authorization: `Bearer ${token}` }
       if (config.zoneScope) headers['x-caracal-zone-scope'] = config.zoneScope
+      if (config.requestId) headers['x-request-id'] = config.requestId
       const invokeBody: Record<string, unknown> = { command, subcommand, flags }
       if (config.authorizedBy) invokeBody.authorized_by = config.authorizedBy
       if (config.coAuthorOperator) invokeBody.co_author_operator = true

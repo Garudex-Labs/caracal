@@ -171,6 +171,13 @@ type Liveness = { tone: "success" | "warning" | "danger" | "muted"; label: strin
 // Derives a single runtime-health signal from lifecycle fields so operators can spot dying
 // agents at a glance: task agents are governed by TTL, service agents by heartbeat lease.
 function liveness(agent: Agent, now = Date.now()): Liveness {
+  if (agent.status === "expired") {
+    return {
+      tone: "muted",
+      label: "Expired",
+      detail: agent.terminated_at ? `TTL elapsed ${relativeTime(agent.terminated_at, now)}` : "TTL elapsed",
+    };
+  }
   if (agent.status === "terminated") {
     return {
       tone: "muted",
@@ -424,7 +431,7 @@ function AgentsPage({ zoneId, tabs }: { zoneId: string; tabs: ReactNode }) {
       header: "Outcome",
       align: "right",
       cell: (a) =>
-        a.status === "terminated" ? (
+        a.status === "terminated" || a.status === "expired" ? (
           <span className="text-xs text-muted-foreground">
             {a.termination_reason ? terminationReasonLabel(a.termination_reason) : "Ended"}
           </span>
@@ -548,6 +555,7 @@ function AgentFilterBar({
         <option value="active">Active</option>
         <option value="suspended">Suspended</option>
         <option value="terminated">Terminated</option>
+        <option value="expired">Expired</option>
       </Select>
       <Select label="Lifecycle" value={lifecycle} onChange={(e) => onLifecycle(e.target.value)}>
         <option value="all">All lifecycles</option>
@@ -830,7 +838,7 @@ function AgentInspector({
 }) {
   const authority = useAgentEffectiveAuthority(zoneId, agent.agent_session_id);
   const children = useAgentChildren(zoneId, agent.agent_session_id);
-  const terminal = agent.status === "terminated";
+  const terminal = agent.status === "terminated" || agent.status === "expired";
   const metadata = agent.metadata ?? {};
   const live = liveness(agent);
   const copy = useCopyToClipboard();
@@ -961,7 +969,7 @@ function AgentInspector({
             {new Date(agent.terminated_at).toLocaleString()}
           </DetailField>
         ) : null}
-        {agent.status === "terminated" ? (
+        {agent.status === "terminated" || agent.status === "expired" ? (
           <DetailField label="Reason">
             {agent.termination_reason ? terminationReasonLabel(agent.termination_reason) : "Ended"}
           </DetailField>
