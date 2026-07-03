@@ -144,7 +144,7 @@ export async function GET() {
   const lines: string[] = [
     '# Caracal',
     '',
-    '> Pre-execution authority enforcement for AI agents. Policies, mandates, and audit for production-grade autonomous systems.',
+    '> The identity and authorization layer for AI agents. Policy-approved mandates instead of credentials, instant revocation, and tamper-evident audit evidence.',
     '',
     'Caracal is an open-source system built by Garudex Labs. It issues short-lived signed mandates that bind agents and workloads to policy before protected-resource access. The core primitives are: principal, mandate, policy, zone, resource, grant, delegation edge, constraint, agent session, step-up challenge, and audit ledger.',
     '',
