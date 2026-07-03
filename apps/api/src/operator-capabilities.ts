@@ -119,7 +119,8 @@ export const CAPABILITIES: Record<string, Capability> = {
   deleteApplication: {
     id: 'deleteApplication',
     title: 'Delete an application',
-    summary: 'Permanently remove an application identity from the zone.',
+    summary:
+      'Archive an application identity, removing it from active use in the zone and revoking its Gateway bindings; the record is retained for audit.',
     domain: 'application',
     mutating: true,
     args: z.object({ application_id: IdRef }).strict(),
@@ -174,7 +175,7 @@ export const CAPABILITIES: Record<string, Capability> = {
   deleteProvider: {
     id: 'deleteProvider',
     title: 'Delete a provider',
-    summary: 'Permanently remove an upstream provider from the zone.',
+    summary: 'Archive an upstream provider, removing it from active use in the zone; the record is retained for audit.',
     domain: 'provider',
     mutating: true,
     args: z.object({ provider_id: IdRef }).strict(),
@@ -230,7 +231,7 @@ export const CAPABILITIES: Record<string, Capability> = {
   deleteResource: {
     id: 'deleteResource',
     title: 'Delete a resource',
-    summary: 'Permanently remove a protected resource from the zone.',
+    summary: 'Archive a protected resource, removing it from active use in the zone; the record is retained for audit.',
     domain: 'resource',
     mutating: true,
     args: z.object({ resource_id: IdRef }).strict(),
@@ -332,7 +333,7 @@ export const CAPABILITIES: Record<string, Capability> = {
   deletePolicy: {
     id: 'deletePolicy',
     title: 'Delete a policy',
-    summary: 'Permanently remove a policy from the zone.',
+    summary: 'Archive a policy, removing it from active use in the zone; the record is retained for audit.',
     domain: 'policy',
     mutating: true,
     args: z.object({ policy_id: IdRef }).strict(),
@@ -439,6 +440,12 @@ export const CAPABILITIES: Record<string, Capability> = {
     },
     outputs: ['policy_set_id', 'policy_set_version_id'],
   },
+  // The session, agent, delegation, and audit domains are deliberately read-only here. Runtime
+  // authority interventions - suspending or terminating an agent session, revoking a delegation
+  // edge - are live incident controls that belong to the console's runtime surfaces and the Admin
+  // SDK, where a human acts directly on the running system; they are not zone-topology changes an
+  // agent should plan, batch, or hold at an approval gate. The Operator reads these domains so it
+  // can reason about them, and stops there.
   listSessions: {
     id: 'listSessions',
     title: 'List sessions',

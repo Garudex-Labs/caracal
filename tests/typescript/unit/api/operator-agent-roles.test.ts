@@ -17,6 +17,7 @@ describe('researcherRoleScopes', () => {
       'control:delegation:read',
       'control:grant:read',
       'control:identity-provider:read',
+      'control:policy-set:read',
       'control:policy:read',
       'control:resource:read',
       'control:session:read',
