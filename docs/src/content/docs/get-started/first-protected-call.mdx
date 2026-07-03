@@ -82,7 +82,7 @@ Guided setup ticks each step off from live zone data and opens the same Applicat
 
 The console does not write configuration to your machine. After creating the objects above, configure `caracal run` and the SDKs with the zone, application, and client secret you just created. Use either environment variables or a `caracal.toml` runtime profile.
 
-**Environment variables** - the quickest path for a single workload:
+**Environment variables** - the quickest path for a single workload. These configure the launcher itself; they are not passed through to the child process:
 
 ```sh
 export CARACAL_ZONE_ID=<zone ID>
@@ -104,7 +104,7 @@ env = "EXAMPLE_API_TOKEN"
 resource = "resource://example-api"
 ```
 
-Each `[[credentials]]` entry names an environment variable and the resource whose scoped token `caracal run` injects into it. Store the client secret in an owner-only file (`app_client_secret_file`) or a secret manager rather than inline. Local dev and stable stacks can also auto-detect credential files under the OS Caracal config directory.
+Each `[[credentials]]` entry names an environment variable and the resource whose scoped token `caracal run` injects into it. Store the client secret in an owner-only file (`app_client_secret_file`) or a secret manager rather than inline. Local dev and stable stacks can also read credential files you store at the runtime paths under the OS Caracal config directory; see [Configure Workloads](/runtime-console/config-file/).
 
 ## Run Your Workload
 
@@ -121,9 +121,9 @@ $env:CARACAL_CONFIG = "C:\path\to\caracal.toml"
 caracal run -- .\start-agent.ps1
 ```
 
-`caracal run` exchanges the configured application secret for resource-specific Caracal access tokens and injects them into the environment variables named in the profile. The workload reads those variables and presents the token to the Gateway or protected service.
+`caracal run` exchanges the configured application secret for resource-specific Caracal access tokens and injects them into the environment variables named in the profile. The child environment is otherwise scrubbed: `CARACAL_*` variables configure the launcher and do not reach the workload. The workload reads the injected variables and presents the token to the Gateway or protected service.
 
-For SDK-based workloads, the same runtime profile or environment variables are read by the SDK constructors (`new Caracal()`, `Caracal()`, `caracal.New()`).
+SDK constructors (`new Caracal()`, `Caracal()`, `caracal.New()`) read the same runtime profile from the default config path. When an SDK workload runs directly (not under `caracal run`), the constructors also read the `CARACAL_*` environment variables.
 
 ## Call the Gateway
 

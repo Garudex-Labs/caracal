@@ -20,14 +20,14 @@ The profile is the source for SDK client constructors and `caracal run`.
 caracal run -- npm start
 ```
 
-The child process receives the Caracal variables needed to locate the profile, exchange credentials, and route configured resources through the Gateway.
+The launcher exchanges each `[[credentials]]` entry for a short-lived credential and injects the results into the configured environment variables. The child environment is otherwise scrubbed: `CARACAL_*` configuration variables stay with the launcher, and only a small allowlist such as `PATH`, `HOME`, locale, and `XDG_*` directories is inherited. SDK-based children read the profile from the default config path rather than from environment variables. Credentials are exchanged once at launch and never renewed; workloads that outlive the 15-minute TTL should use an SDK. See [Run Workloads](/runtime-console/runtime/) for the full contract.
 
 ## Validate the run
 
 | Check | Command or surface |
 | --- | --- |
 | Runtime is ready | `caracal status --ready` |
-| Profile is readable | `caracal run -- env | grep CARACAL` |
+| Credential is injected | `caracal run -- printenv OPENAI_API_KEY` (use your configured `env` name) |
 | First request succeeds | Send a request to a configured resource path. |
 | Audit captured the request | web console **Audit**. |
 

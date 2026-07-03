@@ -33,18 +33,31 @@ The runtime does not read `./caracal.toml` from the current working directory.
 | `CARACAL_RUN_CREDENTIALS` | Inline JSON credential manifest. |
 | `CARACAL_RUN_CONTINUE_ON_FAILURE` | `true` or `false` for required credential failure behavior. |
 | `CARACAL_RUN_TTL_SECONDS` | Credential exchange TTL, capped at 900 seconds. |
-| `CARACAL_MCP_GOVERNANCE_MODE` | `block` or `log`. |
 
 Set only one of `CARACAL_RUN_CREDENTIALS_FILE` and `CARACAL_RUN_CREDENTIALS`.
 
 Local dev and stable runtime launches normally set only `CARACAL_ZONE_ID` and
-`CARACAL_APPLICATION_ID`. The runtime and SDKs auto-detect the client secret and
-credential manifest from the OS Caracal config directory:
+`CARACAL_APPLICATION_ID`. The runtime and SDKs then read the client secret and
+credential manifest from these paths under the OS Caracal config directory:
 
 ```text
 <Caracal config dir>/runtime/<zone_id>/<application_id>/client-secret
 <Caracal config dir>/runtime/<zone_id>/<application_id>/credentials.json
 ```
+
+You create these files yourself. The web console shows the one-time client secret
+at application creation but never writes to your machine:
+
+```bash
+mkdir -p ~/.config/caracal/runtime/<zone_id>/<application_id>
+printf '%s' '<client secret>' > ~/.config/caracal/runtime/<zone_id>/<application_id>/client-secret
+chmod 600 ~/.config/caracal/runtime/<zone_id>/<application_id>/client-secret
+```
+
+The `credentials.json` manifest at the same path holds `credentials` and
+`optional_credentials` arrays with the same entry fields as the TOML schema below.
+These paths are read only in local dev and stable modes; production launches
+(`NODE_ENV=production`) require explicit secret-file configuration.
 
 Local dev and stable service URLs also resolve automatically. Set service URL
 overrides only for cloud deployments, containers, or custom service locations.
@@ -67,9 +80,6 @@ env = "CARACAL_MANDATE"
 resource = "resource://mandate-aware-api"
 credential_type = "caracal_mandate"
 on_failure = "warn"
-
-[mcp_governance]
-mode = "block"
 ```
 
 ## Field Reference
@@ -87,13 +97,12 @@ mode = "block"
 | `continue_on_failure` | Required credential failure behavior; defaults to `false`. |
 | `credentials[]` | Required resource tokens. |
 | `optional_credentials[]` | Optional resource tokens with `on_failure = "warn"` or `"error"`. |
-| `mcp_governance.mode` | `block` or `log` for likely MCP subprocesses. |
 
 Credential entries use `env`, `resource`, optional `upstream_prefix`, and optional `credential_type`. `provider_token` is the `caracal run` golden path and requires a provider with `allow_runtime_injection = true`; `caracal_mandate` is for workloads that consume Caracal mandates directly. SDKs can also use entries as resource audiences and Gateway routing hints.
 
 ## Security Rules
 
-- Use auto-detected local credential files for dev and stable runtime launches.
+- Store local credential files at the runtime path with owner-only permissions for dev and stable launches.
 - Use explicit secret-file paths for cloud deployments, containers, or external secret stores.
 - Secret files and explicit config files must not be group- or world-writable.
 - The default profile path must use owner-only permissions on POSIX systems.
@@ -103,7 +112,7 @@ Credential entries use `env`, `resource`, optional `upstream_prefix`, and option
 ## Cloud and Custom Secret Paths
 
 Cloud deployments, containers, and external secret stores can override the
-auto-detected local paths with `CARACAL_APP_CLIENT_SECRET_FILE`,
+local runtime paths with `CARACAL_APP_CLIENT_SECRET_FILE`,
 `CARACAL_RUN_CREDENTIALS_FILE`, or `app_client_secret_file` in a runtime profile.
 Use these only when the standard OS Caracal config directory is not the correct
 secret location for the workload.
