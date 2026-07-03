@@ -226,14 +226,14 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
     )
   })
 
-  app.addHook('onSend', async (req, reply, payload) => {
+  app.addHook('onSend', (req, reply, payload, done) => {
     reply.header('x-request-id', req.id)
     if (req.url.startsWith('/v1/')) {
       reply.header('x-content-type-options', 'nosniff')
       reply.header('referrer-policy', 'no-referrer')
       reply.header('cache-control', 'no-store')
     }
-    return payload
+    done(null, payload)
   })
 
   if (cfg.v1RateLimitPerMin > 0) {

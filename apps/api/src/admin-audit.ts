@@ -70,12 +70,7 @@ export interface AuditPluginOptions {
 export function registerAdminAuditHook(app: FastifyInstance, opts: AuditPluginOptions): void {
   if (opts.enabled === false) return
 
-  app.addHook('onSend', async (req: FastifyRequest, reply: FastifyReply, payload: unknown) => {
-    if (!req.url.startsWith('/v1/')) return payload
-
-    const success = reply.statusCode < 400
-    if (!MUTATING_METHODS.has(req.method) && success && !isProviderOAuthCallback(req.method, req.url)) return payload
-
+  const record = (req: FastifyRequest, reply: FastifyReply): Promise<unknown> => {
     const actor: Actor | null = req.actor ?? null
     const entity = entityFromUrl(req.url)
     const path = pathOnly(req.url)
@@ -83,39 +78,71 @@ export function registerAdminAuditHook(app: FastifyInstance, opts: AuditPluginOp
     const rls = zoneScoped
       ? { rls_mode: 'zone_scoped', rls_zone_guc: zoneScoped }
       : { rls_mode: 'control_plane_wildcard', rls_zone_guc: '*' }
-    const change = success ? changeSummary(req.method, req.body) : null
-    try {
-      await withTransaction(opts.db, (client) =>
-        insertAdminAuditRecord(
-          client,
-          {
-            requestId: req.id,
-            actorId: actor?.id ?? null,
-            actorName: actor?.name ?? null,
-            actorScope: actor?.scope ?? null,
-            action: `${req.method} ${path}`,
-            method: req.method,
-            path,
-            zoneId: zoneFromUrl(req.url),
-            entityType: entity.type,
-            entityId: entity.id,
-            statusCode: reply.statusCode,
-            payloadJson: change ? { ...rls, ...change } : rls,
-          },
-          opts.hmacKey ?? null,
-        ),
-      )
-    } catch (err) {
-      // A successful mutation whose audit record cannot be persisted must not be reported
-      // as success; a failure response is already the safe outcome, so its audit loss is
-      // logged loudly without altering the reply.
-      if (success) {
+    const change = reply.statusCode < 400 ? changeSummary(req.method, req.body) : null
+    return withTransaction(opts.db, (client) =>
+      insertAdminAuditRecord(
+        client,
+        {
+          requestId: req.id,
+          actorId: actor?.id ?? null,
+          actorName: actor?.name ?? null,
+          actorScope: actor?.scope ?? null,
+          action: `${req.method} ${path}`,
+          method: req.method,
+          path,
+          zoneId: zoneFromUrl(req.url),
+          entityType: entity.type,
+          entityId: entity.id,
+          statusCode: reply.statusCode,
+          payloadJson: change ? { ...rls, ...change } : rls,
+        },
+        opts.hmacKey ?? null,
+      ),
+    )
+  }
+
+  const gated = new WeakSet<FastifyRequest>()
+
+  // A successful mutation must not be reported as success unless its audit record is
+  // durably persisted, so success responses are gated here before headers are written.
+  // The hook uses the callback form and completes synchronously on every skip path:
+  // a promise-returning onSend hook defers chain completion past the handler's own
+  // resolution, which makes Fastify re-send replies from handlers that send inside
+  // the handler body and resolve with undefined.
+  app.addHook('onSend', (req: FastifyRequest, reply: FastifyReply, payload: unknown, done) => {
+    if (
+      !req.url.startsWith('/v1/') ||
+      reply.statusCode >= 400 ||
+      (!MUTATING_METHODS.has(req.method) && !isProviderOAuthCallback(req.method, req.url))
+    ) {
+      done(null, payload)
+      return
+    }
+    record(req, reply).then(
+      () => {
+        gated.add(req)
+        done(null, payload)
+      },
+      (err) => {
+        gated.add(req)
         req.log.error({ err, requestId: req.id }, 'admin audit record could not be persisted; refusing to report success')
         reply.code(500)
-        return JSON.stringify({ error: 'audit_unavailable', message: 'operation applied but its audit record could not be persisted' })
-      }
+        done(null, JSON.stringify({ error: 'audit_unavailable', message: 'operation applied but its audit record could not be persisted' }))
+      },
+    )
+  })
+
+  // A failure response is already the safe outcome, so its audit record is written after
+  // the response completes; that keeps helper-sent error replies (which send inside the
+  // handler and resolve with undefined) from racing async work in the send pipeline.
+  app.addHook('onResponse', async (req: FastifyRequest, reply: FastifyReply) => {
+    if (gated.has(req)) return
+    if (!req.url.startsWith('/v1/')) return
+    if (reply.statusCode < 400) return
+    try {
+      await record(req, reply)
+    } catch (err) {
       req.log.error({ err, requestId: req.id }, 'failed to record admin audit event')
     }
-    return payload
   })
 }
