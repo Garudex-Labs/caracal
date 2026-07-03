@@ -11,7 +11,7 @@ import { describeFacts, type ConversationFacts } from './operator-memory.js'
 import { describeZoneMemory, type ZoneMemoryEntry } from './operator-zone-memory.js'
 import type { Evidence } from './operator-research.js'
 import type { DocSnippet } from './operator-docs.js'
-import { GatewayBudgetError, type Gateway, type GatewayMessage } from './operator-gateway.js'
+import { GatewayBudgetError, GatewayError, GatewayUnavailableError, type Gateway, type GatewayMessage } from './operator-gateway.js'
 import { validateAuthzPolicy, previewAuthzPolicy, OPA_INPUT_SCHEMA_VERSION, type AuthzPolicyPreview } from './rego.js'
 
 // The agents never hold authority. Each one produces a typed artifact - an intent,
@@ -1022,8 +1022,10 @@ export function buildSecurityAnalystMessages(plan: ProposedPlanInput, context: A
 
 // Reviews a proposed plan and returns advisory findings. The answer is generated as a
 // schema-validated object, so a malformed or off-schema review fails closed as an error rather
-// than a guessed verdict; the orchestrator then simply attaches no advisory. The review never
-// gates the plan - it only informs the human - so a failed review never blocks a change.
+// than a guessed verdict. The failure reason names its cause - a governance budget stop, a
+// provider outage, or an unusable model reply - so the orchestrator records exactly why the plan
+// went unreviewed instead of silently attaching nothing. The review never gates the plan - it
+// only informs the human - so a failed review never blocks a change.
 export async function runSecurityAnalyst(
   gateway: Gateway,
   plan: ProposedPlanInput,
@@ -1035,8 +1037,11 @@ export async function runSecurityAnalyst(
       temperature: 0,
     })
     return { ok: true, value: completion.value }
-  } catch {
-    return { ok: false, error: 'security review did not produce a usable advisory' }
+  } catch (err) {
+    if (err instanceof GatewayBudgetError || err instanceof GatewayError || err instanceof GatewayUnavailableError) {
+      return { ok: false, error: err.message }
+    }
+    return { ok: false, error: 'the guardian returned an unusable review' }
   }
 }
 
@@ -1460,9 +1465,11 @@ export function buildVerifierMessages(plan: ProposedPlanInput, context: AgentCon
 
 // Verifies an applied plan against live state read just now and returns a verdict. The answer is a
 // schema-validated object, so a malformed or off-schema verdict fails closed as an error rather than
-// a guessed claim of success; the caller then records no verification note. The verdict never gates
-// or reverses the apply - the mutations are already durable - so a failed verification only means
-// the turn went unverified, never that anything is rolled back.
+// a guessed claim of success. The failure reason names its cause - a governance budget stop, a
+// provider outage, or an unusable model reply - so the caller records an explicit unverified note
+// instead of silence. The verdict never gates or reverses the apply - the mutations are already
+// durable - so a failed verification only means the turn went unverified, never that anything is
+// rolled back.
 export async function runVerifier(
   gateway: Gateway,
   plan: ProposedPlanInput,
@@ -1474,8 +1481,11 @@ export async function runVerifier(
       temperature: 0,
     })
     return { ok: true, value: completion.value }
-  } catch {
-    return { ok: false, error: 'verification did not produce a usable verdict' }
+  } catch (err) {
+    if (err instanceof GatewayBudgetError || err instanceof GatewayError || err instanceof GatewayUnavailableError) {
+      return { ok: false, error: err.message }
+    }
+    return { ok: false, error: 'the verifier returned an unusable verdict' }
   }
 }
 
