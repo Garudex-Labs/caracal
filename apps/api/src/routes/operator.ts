@@ -1545,11 +1545,16 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
     if (stored.allSatisfied && stored.mode === 'agent' && stored.autopilot && autopilotAvailable(autopilotPolicy)) {
       const steps = stored.content.steps.map((step) => ({ id: step.id, capability: step.capability, args: step.args ?? {} }))
       const preview = await previewPlan(fastify.db, params.zoneId, { summary: stored.content.summary, steps })
+      // The same deterministic applicability gate the message path and the execute route use: the
+      // zone must hold governed execution - identity, control plane, and its explicit
+      // administration grant - or the completed vault still stops for a human.
+      const governedIdentity = opts.resolveControlIdentity?.() ?? null
+      const canApply = !!governedIdentity && !!opts.controlEndpoints && (await zoneGoverned(params.zoneId, governedIdentity))
       const mutatingSteps = stored.content.steps.filter((step) => step.mutating === true).length
       const budget = autopilotPolicy.conversationWriteBudget
       const priorApprovedWrites = budget !== null ? await autopilotApprovedWrites(fastify.db, params.id, params.zoneId) : 0
       const decision = mayAutoApprove(
-        { engaged: true, applicable: preview.ok, credentialsSatisfied: true, steps, mutatingSteps, priorApprovedWrites },
+        { engaged: true, applicable: preview.ok && canApply, credentialsSatisfied: true, steps, mutatingSteps, priorApprovedWrites },
         autopilotPolicy,
       )
       if (decision.autoApprove) {
@@ -2354,8 +2359,12 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
           const mutatingSteps = validation.steps.filter((step) => step.mutating).length
           const budget = autopilotPolicy.conversationWriteBudget
           const priorApprovedWrites = budget !== null ? await autopilotApprovedWrites(fastify.db, params.id, params.zoneId) : 0
+          // Applicability is the same deterministic gate the execute route enforces: the preview
+          // must say every step can apply AND the zone must be able to apply at all - governed
+          // identity configured and the zone's explicit administration grant in place. A plan that
+          // would only dead-end at execute stops for a human who can see why instead.
           const decision = mayAutoApprove(
-            { engaged: true, applicable: preview.ok, credentialsSatisfied, steps: planned.value.steps, mutatingSteps, priorApprovedWrites },
+            { engaged: true, applicable: preview.ok && canApply, credentialsSatisfied, steps: planned.value.steps, mutatingSteps, priorApprovedWrites },
             autopilotPolicy,
           )
           if (decision.autoApprove) {

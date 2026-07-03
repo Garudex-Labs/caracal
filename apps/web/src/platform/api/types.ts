@@ -12,6 +12,7 @@ export interface Zone {
   slug: string;
   dcr_enabled: boolean;
   operator_coauthor_badge: boolean;
+  operator_governed: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -33,6 +34,7 @@ export interface ZonePatchInput {
   dcr_enabled?: boolean;
   dcr_shutdown?: DcrShutdownMode;
   operator_coauthor_badge?: boolean;
+  operator_governed?: boolean;
 }
 
 export interface ZoneDcrStatus {

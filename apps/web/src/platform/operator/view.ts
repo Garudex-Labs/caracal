@@ -153,6 +153,8 @@ export function executeErrorMessage(err: unknown): string {
   switch (code) {
     case "governed_execution_unconfigured":
       return "Caracal can't apply changes in this zone - governed execution isn't configured here.";
+    case "zone_not_governed":
+      return "This zone hasn't granted the Operator administration, so changes can't be applied here. Grant it above or in Settings, then try again.";
     case "zone_forbidden":
       return "This zone is internal to Caracal, so the Operator can't apply changes here.";
     case "mode_forbidden":
