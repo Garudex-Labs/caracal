@@ -150,6 +150,11 @@ spec:
               value: {{ default "caracal-control" $root.Values.control.audience | quote }}
             - name: CONTROL_API_TOKEN_FILE
               value: /run/secrets/caracalAdminToken
+            # Self-governance provisions the caracal.sys system zone and its rotating
+            # least-privilege identities, so console-sealed Operator AI providers work
+            # with no extra configuration.
+            - name: API_OPERATOR_SELF_GOVERN
+              value: "true"
             {{- end }}
             {{- if eq $name "coordinator" }}
             - name: CARACAL_COORDINATOR_TOKEN_FILE

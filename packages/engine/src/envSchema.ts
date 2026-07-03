@@ -215,10 +215,13 @@ export const ENV_SCHEMA = {
     default: 'info',
     exposed: true,
   },
-  OPERATOR_UPSTREAM_ALLOWLIST: {
-    kind: 'string',
-    description: 'Comma-separated host allowlist the Operator LLM normalizer may forward to. Blank allows any (dev).',
-    default: '',
+
+  // ─── Caracal Operator ──────────────────────────────────────────────────────
+  API_OPERATOR_ENABLED: {
+    kind: 'bool',
+    description:
+      'Enables the Caracal Operator console capability. AI providers are configured in the console and stay off until one is added.',
+    default: 'true',
     exposed: true,
   },
 } as const satisfies Record<string, EnvSpec>
