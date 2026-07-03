@@ -33,6 +33,7 @@ describe('governedReadCapabilities', () => {
       'listDelegations',
       'listGrants',
       'listPolicies',
+      'listPolicySets',
       'listProviders',
       'listResources',
       'listSessions',
@@ -63,7 +64,9 @@ describe('createStateResearcher', () => {
     expect(byDomain.application).toMatchObject({ ok: true, count: 2, names: ['Billing', 'Finance'] })
     expect(byDomain.provider).toMatchObject({ ok: true, count: 1, names: ['GitHub'] })
     expect(byDomain.resource).toMatchObject({ ok: true, count: 0, names: [] })
-    expect(byDomain.policy).toMatchObject({ ok: true, count: 1, names: ['default'] })
+    // Policies and policy sets share the policy domain, each grounded by its own read.
+    expect(evidence.find((e) => e.capability === 'listPolicies')).toMatchObject({ ok: true, count: 1, names: ['default'] })
+    expect(evidence.find((e) => e.capability === 'listPolicySets')).toMatchObject({ ok: true, count: 0, names: [] })
     // The live id is carried alongside the name so a change can target an object by its real id.
     expect(byDomain.application.items).toEqual([
       { id: 'a1', name: 'Billing' },

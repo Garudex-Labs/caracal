@@ -40,6 +40,7 @@ describe('executeViaControlPlane', () => {
           args: { application_id: 'app-1', user_id: 'user-1', resource_id: 'res-1', scopes: ['invoices:read'] },
         },
       ],
+      {},
       secret,
     )
 
@@ -61,6 +62,7 @@ describe('executeViaControlPlane', () => {
     const result = await executeViaControlPlane(
       client,
       [{ id: 's1', capability: 'rotateApplicationSecret', args: { application_id: 'app-1' } }],
+      {},
       secret,
     )
 
@@ -73,7 +75,7 @@ describe('executeViaControlPlane', () => {
 
   it('surfaces live read output for a list capability', async () => {
     const { client } = fakeClient([[{ id: 'a' }, { id: 'b' }]])
-    const result = await executeViaControlPlane(client, [{ id: 's1', capability: 'listApplications', args: {} }], secret)
+    const result = await executeViaControlPlane(client, [{ id: 's1', capability: 'listApplications', args: {} }], {}, secret)
     expect(result.applied[0].output).toEqual({ applications: [{ id: 'a' }, { id: 'b' }] })
     expect(result.applied[0].detail).toBe('Found 2 applications in this zone.')
   })
@@ -86,6 +88,7 @@ describe('executeViaControlPlane', () => {
         { id: 's1', capability: 'registerApplication', args: { name: 'worker' } },
         { id: 's2', capability: 'grantAccess', args: { application_id: 'app-1', user_id: 'u', resource_id: 'r', scopes: ['read'] } },
       ],
+      {},
       secret,
     )
     expect(result.failure).toBeNull()
@@ -93,7 +96,7 @@ describe('executeViaControlPlane', () => {
     expect(calls.map((c) => `${c.command}:${c.subcommand}`)).toEqual(['app:create', 'grant:create'])
   })
 
-  it('stops at the first failing step and reports the applied steps and the failure', async () => {
+  it('stops at the first failing step and never schedules the steps behind it', async () => {
     const { client, calls } = fakeClient([
       { id: 'app-1' },
       new ControlClientError('invoke', 403, 'missing scope control:grant:write', 'denied'),
@@ -103,8 +106,9 @@ describe('executeViaControlPlane', () => {
       [
         { id: 's1', capability: 'registerApplication', args: { name: 'worker' } },
         { id: 's2', capability: 'grantAccess', args: { application_id: 'app-1', user_id: 'u', resource_id: 'r', scopes: ['read'] } },
-        { id: 's3', capability: 'listProviders', args: {} },
+        { id: 's3', capability: 'listProviders', args: {}, depends_on: ['s2'] },
       ],
+      {},
       secret,
     )
 
@@ -122,9 +126,130 @@ describe('executeViaControlPlane', () => {
 
   it('fails closed when a step is not governed-executable, before any invoke', async () => {
     const { client, calls } = fakeClient([])
-    const result = await executeViaControlPlane(client, [{ id: 's1', capability: 'createZone', args: { name: 'Prod' } }], secret)
+    const result = await executeViaControlPlane(client, [{ id: 's1', capability: 'explainAccess', args: { application_id: 'app-1' } }], {}, secret)
     expect(result.applied).toHaveLength(0)
-    expect(result.failure).toMatchObject({ stepId: 's1', capability: 'createZone' })
+    expect(result.failure).toMatchObject({ stepId: 's1', capability: 'explainAccess' })
     expect(calls).toHaveLength(0)
+  })
+
+  it('resolves a step-output reference from the step that produced it', async () => {
+    const { client, calls } = fakeClient([{ id: 'prov-9' }, { id: 'res-1' }])
+    const result = await executeViaControlPlane(
+      client,
+      [
+        { id: 's1', capability: 'connectProvider', args: { name: 'Hooli OIDC', kind: 'oauth2_client_credentials' } },
+        {
+          id: 's2',
+          capability: 'defineResource',
+          args: {
+            name: 'PiperNet',
+            scopes: ['pipernet:read'],
+            upstream_url: 'https://api.pipernet.example',
+            gateway_application_id: 'app-1',
+            credential_provider_id: '{{steps.s1.outputs.provider_id}}',
+          },
+          depends_on: ['s1'],
+        },
+      ],
+      {},
+      secret,
+    )
+    expect(result.failure).toBeNull()
+    expect(calls[1].flags['credential-provider-id']).toBe('prov-9')
+  })
+
+  it('resolves a reference from a prior run\u2019s persisted outputs on resume', async () => {
+    const { client, calls } = fakeClient([{ id: 'res-1' }])
+    const result = await executeViaControlPlane(
+      client,
+      [
+        {
+          id: 's2',
+          capability: 'defineResource',
+          args: {
+            name: 'PiperNet',
+            scopes: ['pipernet:read'],
+            upstream_url: 'https://api.pipernet.example',
+            gateway_application_id: 'app-1',
+            credential_provider_id: '{{steps.s1.outputs.provider_id}}',
+          },
+          depends_on: ['s1'],
+        },
+      ],
+      { s1: { provider_id: 'prov-9' } },
+      secret,
+    )
+    expect(result.failure).toBeNull()
+    expect(calls[0].flags['credential-provider-id']).toBe('prov-9')
+  })
+
+  it('fails a step whose reference was never produced, without invoking it', async () => {
+    const { client, calls } = fakeClient([])
+    const result = await executeViaControlPlane(
+      client,
+      [
+        {
+          id: 's2',
+          capability: 'defineResource',
+          args: {
+            name: 'PiperNet',
+            scopes: ['pipernet:read'],
+            upstream_url: 'https://api.pipernet.example',
+            gateway_application_id: 'app-1',
+            credential_provider_id: '{{steps.s1.outputs.provider_id}}',
+          },
+        },
+      ],
+      {},
+      secret,
+    )
+    expect(calls).toHaveLength(0)
+    expect(result.failure).toMatchObject({ stepId: 's2', terminal: false })
+    expect(result.failure?.reason).toContain('provider_id')
+  })
+
+  it('runs a wave\u2019s read-only steps concurrently and its writes sequentially in plan order', async () => {
+    const invoked: string[] = []
+    const client: ControlClient = {
+      invoke: vi.fn(async (command, subcommand) => {
+        invoked.push(`${command}:${subcommand}`)
+        if (command === 'app' && subcommand === 'list') return []
+        if (command === 'identity-provider' && subcommand === 'list') return []
+        return { id: 'app-1' }
+      }),
+    }
+    const result = await executeViaControlPlane(
+      client,
+      [
+        { id: 's1', capability: 'listApplications', args: {} },
+        { id: 's2', capability: 'registerApplication', args: { name: 'Son of Anton' } },
+        { id: 's3', capability: 'listProviders', args: {} },
+      ],
+      {},
+      secret,
+    )
+    expect(result.failure).toBeNull()
+    expect(invoked).toEqual(['app:list', 'identity-provider:list', 'app:create'])
+    expect(result.applied.map((s) => s.id)).toEqual(['s1', 's3', 's2'])
+  })
+
+  it('retries once when the token stage failed transiently, and never retries an invoke failure', async () => {
+    const { client, calls } = fakeClient([
+      new ControlClientError('token', 503, 'sts unavailable', 'unavailable'),
+      { id: 'app-1', client_secret: 'cs_issued' },
+    ])
+    const retried = await executeViaControlPlane(client, [{ id: 's1', capability: 'registerApplication', args: { name: 'Fiona' } }], {}, secret)
+    expect(retried.failure).toBeNull()
+    expect(calls).toHaveLength(2)
+
+    const invokeFail = fakeClient([new ControlClientError('invoke', 503, 'control plane unavailable', 'unavailable')])
+    const stopped = await executeViaControlPlane(
+      invokeFail.client,
+      [{ id: 's1', capability: 'registerApplication', args: { name: 'Fiona' } }],
+      {},
+      secret,
+    )
+    expect(invokeFail.calls).toHaveLength(1)
+    expect(stopped.failure).toMatchObject({ stepId: 's1', terminal: true })
   })
 })

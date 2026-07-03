@@ -34,13 +34,13 @@ describe('summarizeHistory', () => {
   })
 
   it('omits an undecided plan from the facts', () => {
-    const facts = summarizeHistory([plan(1, ['createZone'])])
+    const facts = summarizeHistory([plan(1, ['registerApplication'])])
     expect(facts.decided_plans).toEqual([])
   })
 
   it('summarizes an approved, executed plan with its outcome', () => {
     const facts = summarizeHistory([
-      plan(1, ['createZone', 'registerApplication']),
+      plan(1, ['registerApplication', 'connectProvider']),
       turn({ seq: 2, kind: 'approval', content: { plan_seq: 1 } }),
       turn({ seq: 3, kind: 'execution', content: { plan_seq: 1, step_id: 's1', status: 'succeeded' } }),
       turn({ seq: 4, kind: 'execution', content: { plan_seq: 1, step_id: 's2', status: 'failed' } }),
@@ -136,7 +136,7 @@ describe('summarizeHistory', () => {
     const turns: TurnRecord[] = []
     let seq = 1
     for (let i = 0; i < 15; i++) {
-      turns.push(plan(seq, ['createZone'], `plan ${i}`))
+      turns.push(plan(seq, ['registerApplication'], `plan ${i}`))
       turns.push(turn({ seq: seq + 1, kind: 'approval', content: { plan_seq: seq } }))
       seq += 2
     }
@@ -148,7 +148,7 @@ describe('summarizeHistory', () => {
   })
 
   it('folds turns regardless of input ordering', () => {
-    const facts = summarizeHistory([turn({ seq: 2, kind: 'approval', content: { plan_seq: 1 } }), plan(1, ['createZone'])])
+    const facts = summarizeHistory([turn({ seq: 2, kind: 'approval', content: { plan_seq: 1 } }), plan(1, ['registerApplication'])])
     expect(facts.decided_plans[0]).toMatchObject({ seq: 1, decision: 'approved' })
   })
 })

@@ -50,15 +50,13 @@ describe('isControlExecutable', () => {
     expect(isControlExecutable('deletePolicy')).toBe(true)
     expect(isControlExecutable('revokeGrant')).toBe(true)
     expect(isControlExecutable('listGrants')).toBe(true)
+    expect(isControlExecutable('listPolicySets')).toBe(true)
     expect(isControlExecutable('defineResource')).toBe(true)
     expect(isControlExecutable('createPolicy')).toBe(true)
     expect(isControlExecutable('versionPolicy')).toBe(true)
     expect(isControlExecutable('createPolicySet')).toBe(true)
     expect(isControlExecutable('versionPolicySet')).toBe(true)
     expect(isControlExecutable('activatePolicySet')).toBe(true)
-    // Zone lifecycle is a platform operation, not governed-executable by the Operator.
-    expect(isControlExecutable('createZone')).toBe(false)
-    expect(isControlExecutable('listZones')).toBe(false)
     // Read-only explanation is not a control command.
     expect(isControlExecutable('explainAccess')).toBe(false)
     // Connecting a credential-free provider is a thin create the Operator applies directly.
