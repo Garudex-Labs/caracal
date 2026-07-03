@@ -33,8 +33,7 @@ export async function runDeadlineSweep(db: Pool): Promise<number> {
     const { rows } = await client.query<OverdueRow>(
       `UPDATE agent_invocations AS i
        SET status = CASE WHEN i.attempts < i.max_attempts THEN 'failed' ELSE 'timed_out' END,
-           started_at = CASE WHEN i.attempts < i.max_attempts THEN NULL ELSE i.started_at END,
-           completed_at = CASE WHEN i.attempts < i.max_attempts THEN NULL ELSE now() END,
+           completed_at = now(),
            error_json = COALESCE(i.error_json, '{}'::jsonb)
                         || jsonb_build_object('reason', 'deadline_exceeded'),
            updated_at = now()

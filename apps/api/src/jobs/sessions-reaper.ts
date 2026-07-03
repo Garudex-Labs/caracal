@@ -1,9 +1,10 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Sessions orphan reaper: archives sessions whose zone has been deleted.
+// Sessions reaper: expires active sessions past their TTL or whose zone has been deleted.
 
 import type { FastifyBaseLogger } from 'fastify'
+import { newTraceContext, runWithTrace } from '@caracalai/core'
 import type { DB } from '../db.js'
 
 const REAP_LOCK_KEY = '7163920485318481'
@@ -19,19 +20,20 @@ export async function runSessionsReap(db: DB): Promise<number> {
     if (!rows[0]?.acquired) return 0
     try {
       const { rowCount } = await client.query(
-        `WITH orphan_sessions AS (
+        `WITH reapable_sessions AS (
            SELECT s.id
            FROM sessions s
            WHERE s.status = 'active'
-             AND NOT EXISTS (SELECT 1 FROM zones z WHERE z.id = s.zone_id)
+             AND (s.expires_at < now()
+               OR NOT EXISTS (SELECT 1 FROM zones z WHERE z.id = s.zone_id))
            ORDER BY s.created_at
            LIMIT $1
            FOR UPDATE SKIP LOCKED
          )
          UPDATE sessions s
          SET status = 'expired'
-         FROM orphan_sessions
-         WHERE s.id = orphan_sessions.id`,
+         FROM reapable_sessions
+         WHERE s.id = reapable_sessions.id`,
         [REAP_BATCH_SIZE],
       )
       return rowCount ?? 0
@@ -49,7 +51,7 @@ export function startSessionsReaper(
   intervalMs = 300_000,
 ): NodeJS.Timeout {
   return setInterval(() => {
-    runSessionsReap(db).catch((err) => {
+    runWithTrace(newTraceContext(), () => runSessionsReap(db)).catch((err) => {
       log.error({ err }, 'sessions reaper failed')
     })
   }, intervalMs)

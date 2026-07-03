@@ -29,6 +29,42 @@ export interface Queryable {
 
 const GLOBAL_CHAIN_KEY = '\u0000admin-global'
 
+// Postgres rejects NUL bytes in text and jsonb values, so caller-influenced strings are
+// sanitized before hashing and insertion; the chain hashes the sanitized record so
+// verification matches the stored content.
+function stripNul(value: string): string {
+  return value.includes('\u0000') ? value.replaceAll('\u0000', '') : value
+}
+
+function sanitizeJson(value: unknown): unknown {
+  if (typeof value === 'string') return stripNul(value)
+  if (Array.isArray(value)) return value.map(sanitizeJson)
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {}
+    for (const [key, entry] of Object.entries(value)) out[stripNul(key)] = sanitizeJson(entry)
+    return out
+  }
+  return value
+}
+
+function sanitizeRecord(rec: AdminAuditRecord): AdminAuditRecord {
+  const text = (value: string | null): string | null => (value === null ? null : stripNul(value))
+  return {
+    ...rec,
+    requestId: stripNul(rec.requestId),
+    actorId: text(rec.actorId),
+    actorName: text(rec.actorName),
+    actorScope: text(rec.actorScope),
+    action: stripNul(rec.action),
+    method: stripNul(rec.method),
+    path: stripNul(rec.path),
+    zoneId: text(rec.zoneId),
+    entityType: text(rec.entityType),
+    entityId: text(rec.entityId),
+    payloadJson: rec.payloadJson ? (sanitizeJson(rec.payloadJson) as Record<string, unknown>) : rec.payloadJson,
+  }
+}
+
 function contentHash(id: string, occurredAt: string, rec: AdminAuditRecord): string {
   const h = createHash('sha256')
   const write = (s: string | null): void => {
@@ -75,6 +111,7 @@ export async function insertAdminAuditRecord(
   rec: AdminAuditRecord,
   hmacKey: Buffer | null = null,
 ): Promise<void> {
+  rec = sanitizeRecord(rec)
   const id = uuidv7()
   const occurredAt = new Date().toISOString()
   const chainKey = rec.zoneId ?? GLOBAL_CHAIN_KEY
