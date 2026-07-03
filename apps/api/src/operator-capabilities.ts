@@ -23,7 +23,7 @@ export type CapabilityDomain =
 // A live-state target a preview resolves against. The catalog names the logical noun; the
 // preview interpreter owns the table and liveness predicate, so the catalog stays free of
 // any database detail.
-export type PreviewTarget = 'zones' | 'applications' | 'providers' | 'resources' | 'policies' | 'policySets' | 'grants'
+export type PreviewTarget = 'applications' | 'providers' | 'resources' | 'policies' | 'policySets' | 'grants'
 
 // How a capability's effect is resolved against live state, declared on the capability so a
 // new capability needs no change to the preview interpreter: a read changes nothing; a
@@ -62,36 +62,16 @@ export interface Capability {
   // How the preview resolves this capability's effect against live state. Co-located here so
   // the single declaration that adds a capability also describes how it previews.
   preview: CapabilityPreview
+  // The output keys the governed apply surfaces for this step, referencable by later steps
+  // through the {{steps.<id>.outputs.<key>}} syntax. Only durable identifiers appear here:
+  // one-time material such as an issued client secret is never persisted, so it is never
+  // referencable. Absent when a capability produces nothing a later step could bind to.
+  outputs?: readonly string[]
 }
 
 const NoArgs = z.object({}).strict()
 
 export const CAPABILITIES: Record<string, Capability> = {
-  listZones: {
-    id: 'listZones',
-    title: 'List zones',
-    summary: 'Read the zones in the workspace.',
-    domain: 'zone',
-    mutating: false,
-    args: NoArgs,
-    argsHint: 'no arguments',
-    preview: { kind: 'read' },
-  },
-  createZone: {
-    id: 'createZone',
-    title: 'Create a zone',
-    summary: 'Create a new zone to isolate a set of applications and policy.',
-    domain: 'zone',
-    mutating: true,
-    args: z.object({ name: z.string().min(1).max(200) }).strict(),
-    argsHint: 'name (string)',
-    preview: {
-      kind: 'createByName',
-      target: 'zones',
-      exists: (name) => `A zone named “${name}” already exists.`,
-      create: (name) => `Would create zone “${name}”.`,
-    },
-  },
   listApplications: {
     id: 'listApplications',
     title: 'List applications',
@@ -116,6 +96,7 @@ export const CAPABILITIES: Record<string, Capability> = {
       exists: (name) => `An application named “${name}” already exists.`,
       create: (name) => `Would register application “${name}”.`,
     },
+    outputs: ['application_id'],
   },
   rotateApplicationSecret: {
     id: 'rotateApplicationSecret',
@@ -133,6 +114,7 @@ export const CAPABILITIES: Record<string, Capability> = {
       live: (id) => `Would rotate the secret for application ${id}.`,
       blocked: (id) => `Application ${id} was not found in this zone.`,
     },
+    outputs: ['application_id'],
   },
   deleteApplication: {
     id: 'deleteApplication',
@@ -187,6 +169,7 @@ export const CAPABILITIES: Record<string, Capability> = {
       exists: (name) => `A provider named \u201c${name}\u201d already exists.`,
       create: (name) => `Would connect provider \u201c${name}\u201d.`,
     },
+    outputs: ['provider_id'],
   },
   deleteProvider: {
     id: 'deleteProvider',
@@ -232,6 +215,7 @@ export const CAPABILITIES: Record<string, Capability> = {
       create: (args) =>
         `Would define resource “${String(args.name)}” exposing ${(Array.isArray(args.scopes) ? (args.scopes as string[]) : []).join(', ')}, routed to ${String(args.upstream_url)}.`,
     },
+    outputs: ['resource_id'],
   },
   listResources: {
     id: 'listResources',
@@ -296,6 +280,7 @@ export const CAPABILITIES: Record<string, Capability> = {
           args.application_id,
         )} on resource ${String(args.resource_id)}.`,
     },
+    outputs: ['grant_id'],
   },
   revokeGrant: {
     id: 'revokeGrant',
@@ -328,6 +313,16 @@ export const CAPABILITIES: Record<string, Capability> = {
     id: 'listPolicies',
     title: 'List policies',
     summary: 'Read the policies defined in the zone by name and description. Returns no policy source.',
+    domain: 'policy',
+    mutating: false,
+    args: NoArgs,
+    argsHint: 'no arguments',
+    preview: { kind: 'read' },
+  },
+  listPolicySets: {
+    id: 'listPolicySets',
+    title: 'List policy sets',
+    summary: 'Read the policy sets composed in the zone and their activation state.',
     domain: 'policy',
     mutating: false,
     args: NoArgs,
@@ -372,6 +367,7 @@ export const CAPABILITIES: Record<string, Capability> = {
       exists: (name) => `A policy named “${name}” already exists.`,
       create: (name) => `Would create policy “${name}” and seal its first version.`,
     },
+    outputs: ['policy_id', 'policy_version_id'],
   },
   versionPolicy: {
     id: 'versionPolicy',
@@ -389,6 +385,7 @@ export const CAPABILITIES: Record<string, Capability> = {
       live: (id) => `Would seal a new version of policy ${id}.`,
       blocked: (id) => `Policy ${id} was not found in this zone.`,
     },
+    outputs: ['policy_id', 'policy_version_id'],
   },
   createPolicySet: {
     id: 'createPolicySet',
@@ -404,6 +401,7 @@ export const CAPABILITIES: Record<string, Capability> = {
       exists: (name) => `A policy set named “${name}” already exists.`,
       create: (name) => `Would create policy set “${name}”.`,
     },
+    outputs: ['policy_set_id'],
   },
   versionPolicySet: {
     id: 'versionPolicySet',
@@ -421,6 +419,7 @@ export const CAPABILITIES: Record<string, Capability> = {
       live: (id) => `Would seal a new version of policy set ${id}.`,
       blocked: (id) => `Policy set ${id} was not found in this zone.`,
     },
+    outputs: ['policy_set_id', 'policy_set_version_id'],
   },
   activatePolicySet: {
     id: 'activatePolicySet',
@@ -438,6 +437,7 @@ export const CAPABILITIES: Record<string, Capability> = {
       live: (id) => `Would activate a version of policy set ${id} for the whole zone.`,
       blocked: (id) => `Policy set ${id} was not found in this zone.`,
     },
+    outputs: ['policy_set_id', 'policy_set_version_id'],
   },
   listSessions: {
     id: 'listSessions',
@@ -482,11 +482,15 @@ export const CAPABILITIES: Record<string, Capability> = {
 }
 
 // Renders the catalog as a compact, deterministic block for grounding the planner
-// agent: one line per capability with its id, effect, argument shape, and purpose.
+// agent: one line per capability with its id, effect, argument shape, referencable
+// outputs, and purpose.
 export function describeCapabilitiesForPrompt(): string {
   return Object.values(CAPABILITIES)
     .sort((a, b) => a.id.localeCompare(b.id))
-    .map((c) => `- ${c.id} [${c.mutating ? 'changes state' : 'read-only'}] args: ${c.argsHint} - ${c.summary}`)
+    .map((c) => {
+      const outputs = c.outputs && c.outputs.length > 0 ? ` outputs: ${c.outputs.join(', ')}` : ''
+      return `- ${c.id} [${c.mutating ? 'changes state' : 'read-only'}] args: ${c.argsHint}${outputs} - ${c.summary}`
+    })
     .join('\n')
 }
 
@@ -506,6 +510,40 @@ export function listCapabilities(): CapabilityDescriptor[] {
 
 const PROPOSED_STEP_MAX = 50
 const STEP_ID_PATTERN = /^[A-Za-z0-9_.\-:]{1,128}$/
+
+// A step-output reference: a whole-string argument value of the form
+// {{steps.<stepId>.outputs.<key>}} that binds a later step's argument to an identifier an
+// earlier step produces at apply time. Whole-string only - a reference never embeds inside
+// a longer string - so resolution is a typed value substitution, never text interpolation.
+const STEP_REFERENCE_PATTERN = /^\{\{steps\.([A-Za-z0-9_.\-:]{1,128})\.outputs\.([a-z0-9_]{1,64})\}\}$/
+
+export interface StepReference {
+  stepId: string
+  output: string
+}
+
+export function parseStepReference(value: unknown): StepReference | null {
+  if (typeof value !== 'string') return null
+  const match = STEP_REFERENCE_PATTERN.exec(value)
+  return match ? { stepId: match[1], output: match[2] } : null
+}
+
+// Collects every step-output reference in a step's arguments, walking nested arrays and
+// records so a reference is found wherever the argument schema allows a string.
+export function collectStepReferences(args: Record<string, unknown>): StepReference[] {
+  const refs: StepReference[] = []
+  const walk = (value: unknown): void => {
+    const ref = parseStepReference(value)
+    if (ref) {
+      refs.push(ref)
+      return
+    }
+    if (Array.isArray(value)) for (const item of value) walk(item)
+    else if (value && typeof value === 'object') for (const item of Object.values(value)) walk(item)
+  }
+  for (const value of Object.values(args)) walk(value)
+  return refs
+}
 
 // The per-step risk a planner may declare, ordered low→high. It is the planner's own honest
 // assessment of how consequential a step is; the guardian and the human approver still decide.
@@ -531,7 +569,13 @@ export const ProposedPlan = z
 
 export type ProposedPlanInput = z.infer<typeof ProposedPlan>
 
-export type DiagnosticCode = 'unknown_capability' | 'invalid_args' | 'duplicate_step_id' | 'unknown_dependency' | 'dependency_cycle'
+export type DiagnosticCode =
+  | 'unknown_capability'
+  | 'invalid_args'
+  | 'duplicate_step_id'
+  | 'unknown_dependency'
+  | 'unknown_reference'
+  | 'dependency_cycle'
 
 export interface PlanDiagnostic {
   step_id: string
@@ -559,9 +603,12 @@ export interface PlanValidation {
 }
 
 // Validates a proposed plan against the catalog. Pure and side-effect free: it
-// resolves each step's capability, checks its arguments, and stamps the
+// resolves each step's capability, checks its arguments, resolves every step-output
+// reference against the producing step's declared outputs, and stamps the
 // authoritative mutating classification from the catalog so a downstream
-// approval can never be granted against a mislabeled or unknown action.
+// approval can never be granted against a mislabeled or unknown action. A
+// reference implies a dependency, so referenced steps fold into depends_on and
+// ride the same cycle check as declared dependencies.
 export function validateProposedPlan(plan: ProposedPlanInput): PlanValidation {
   const diagnostics: PlanDiagnostic[] = []
   const steps: ValidatedStep[] = []
@@ -598,6 +645,30 @@ export function validateProposedPlan(plan: ProposedPlanInput): PlanValidation {
       continue
     }
 
+    const references = collectStepReferences(args.data)
+    const referencedSteps: string[] = []
+    for (const ref of references) {
+      const producer = plan.steps.find((candidate) => candidate.id === ref.stepId)
+      if (!producer) {
+        diagnostics.push({
+          step_id: step.id,
+          code: 'unknown_reference',
+          message: `step '${step.id}' references unknown step '${ref.stepId}'`,
+        })
+        continue
+      }
+      const outputs = CAPABILITIES[producer.capability]?.outputs ?? []
+      if (!outputs.includes(ref.output)) {
+        diagnostics.push({
+          step_id: step.id,
+          code: 'unknown_reference',
+          message: `step '${step.id}' references output '${ref.output}' that step '${ref.stepId}' does not produce`,
+        })
+        continue
+      }
+      referencedSteps.push(ref.stepId)
+    }
+
     steps.push({
       id: step.id,
       capability: capability.id,
@@ -605,7 +676,7 @@ export function validateProposedPlan(plan: ProposedPlanInput): PlanValidation {
       domain: capability.domain,
       mutating: capability.mutating,
       args: args.data,
-      depends_on: [...new Set(step.depends_on ?? [])],
+      depends_on: [...new Set([...(step.depends_on ?? []), ...referencedSteps])],
       risk: step.risk,
     })
   }

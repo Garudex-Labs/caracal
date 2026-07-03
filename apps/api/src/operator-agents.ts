@@ -4,7 +4,7 @@
 // The Operator agent layer: purpose-built agents that turn intent into typed artifacts the deterministic engine governs.
 
 import { z } from 'zod'
-import { describeCapabilitiesForPrompt, ProposedPlan, type CapabilityDomain, type ProposedPlanInput } from './operator-capabilities.js'
+import { CAPABILITIES, describeCapabilitiesForPrompt, ProposedPlan, type CapabilityDomain, type ProposedPlanInput } from './operator-capabilities.js'
 import { PROVIDER_CONFIG_FIELDS, PROVIDER_KINDS, type ProviderConfigField } from './provider-config.js'
 import type { ConversationState, RecentMessage } from './operator-state.js'
 import { describeFacts, type ConversationFacts } from './operator-memory.js'
@@ -57,15 +57,6 @@ export function tierPlans(tier: OperatorTier): boolean {
 // and capability questions that need no state read, so it pays nothing.
 export function tierReadsState(tier: OperatorTier): boolean {
   return tier === 'read'
-}
-
-// Whether a tier composes multiple specialists rather than running a single skill. compound is a
-// request that combines several changes or needs investigation first, so it gathers live state
-// evidence to plan against and runs an advisory security review over the proposed plan. change is
-// a single-domain request and stays the cheap single-skill path; both still require human
-// approval before anything is applied.
-export function tierComposes(tier: OperatorTier): boolean {
-  return tier === 'compound'
 }
 
 // Whether a tier authors an authorization-policy draft rather than answering or planning a control
@@ -495,15 +486,24 @@ export interface AgentContext {
 // live count, a bounded list of objects each shown as its name and live id, and the
 // decision-relevant attributes its domain exposes - the provider auth modes and resource scopes
 // the planner and guardian must reason against - or the typed reason a read could not be gathered.
-// The id is surfaced so a change can target an existing object by its real identifier rather than
-// its name. Only names, ids, and allowlisted descriptor fields reach the prompt, never whole rows,
-// so a read never leaks an arbitrary field.
+// Each line is labeled with the read's own plural noun rather than its domain, because a domain
+// can carry several reads - policies and policy sets both live in the policy domain - and two
+// lines under one label would contradict each other. The id is surfaced so a change can target
+// an existing object by its real identifier rather than its name. Only names, ids, and
+// allowlisted descriptor fields reach the prompt, never whole rows, so a read never leaks an
+// arbitrary field.
+function evidenceLabel(item: Evidence): string {
+  const title = CAPABILITIES[item.capability]?.title
+  return title?.startsWith('List ') ? title.slice(5) : item.domain
+}
+
 function describeEvidence(evidence: Evidence[] | undefined): string | null {
   if (!evidence || evidence.length === 0) return null
   const lines = evidence.map((item) => {
-    if (!item.ok) return `- ${item.domain}: could not read (${item.error ?? 'read failed'})`
+    const label = evidenceLabel(item)
+    if (!item.ok) return `- ${label}: could not read (${item.error ?? 'read failed'})`
     const count = item.count ?? 0
-    if (count === 0) return `- ${item.domain}: none`
+    if (count === 0) return `- ${label}: none`
     const entries = item.items ?? []
     const names = item.names ?? []
     let listed = ''
@@ -518,7 +518,7 @@ function describeEvidence(evidence: Evidence[] | undefined): string | null {
           .map(([label, values]) => ` [${label}: ${values.join(', ')}]`)
           .join('')
       : ''
-    return `- ${item.domain} (${count})${listed}${attributes}`
+    return `- ${label} (${count})${listed}${attributes}`
   })
   return `Live state (read just now):\n${lines.join('\n')}`
 }
@@ -650,11 +650,18 @@ export function buildPlannerMessages(message: string, context: AgentContext, fee
           'upstream_url (the upstream API base URL the Gateway forwards to), gateway_application_id (an',
           'existing managed application in the live state), and credential_provider_id (an existing',
           'provider in the live state). All three are required - the control plane rejects a resource',
-          'without them. Use ids exactly as the live state shows them; a step cannot reference an id an',
-          'earlier step of the same plan will create, so the provider and application must already exist',
-          'before the resource step is possible - when one is missing, plan its create first and tell the',
-          'user the resource comes next. When the upstream URL is not in the request or the live state, ask',
-          'for it via "clarification" (it is not sensitive).',
+          'without them. Use ids exactly as the live state shows them. When the objects a step binds do',
+          'not exist yet, plan their creates in the same plan and bind them with step-output references',
+          '(below) - for example connectProvider as s1, then defineResource with credential_provider_id',
+          '"{{steps.s1.outputs.provider_id}}". When the upstream URL is not in the request or the live',
+          'state, ask for it via "clarification" (it is not sensitive).',
+          'STEP-OUTPUT REFERENCES. When a step needs an identifier an earlier step of the same plan will',
+          'create, set that argument to exactly the string "{{steps.<stepId>.outputs.<key>}}" - nothing',
+          'more, never embedded inside a longer string. Caracal resolves it at apply time from the value',
+          'the earlier step actually produced. Each capability\u2019s referencable keys are listed as',
+          '"outputs" in the catalog below; reference only those keys, and never reference a secret - an',
+          'issued client secret is one-time material and is not referencable. A reference implies the',
+          'dependency, so you may omit it from "depends_on".',
           'Use exactly the capability ids and argument names listed, with no invented capabilities or',
           'arguments. If the request maps to no listed capability, return an empty steps array rather than',
           'forcing an ill-fitting one.',
@@ -683,9 +690,11 @@ export function buildPlannerMessages(message: string, context: AgentContext, fee
           '"clarification" when only the operator can supply the missing decision.',
           'TARGET EXISTING OBJECTS BY THEIR LIVE ID. When a capability argument is an id -',
           'application_id, resource_id, provider_id, policy_id, grant_id, user_id - its value MUST be',
-          'the exact id shown for that object in the live state above, copied verbatim. The live state',
+          'the exact id shown for that object in the live state above, copied verbatim, or a step-output',
+          'reference to a step of this plan that creates it. The live state',
           'lists each object as "name (id …)"; use the id, never the name, for an id argument. If the',
-          'object the request names is not present in the live state, do NOT invent or guess its id:',
+          'object the request names is not present in the live state and no step of this plan creates',
+          'it, do NOT invent or guess its id:',
           'return "needs" to read that domain, or "clarification" if it genuinely does not exist.',
           'Reply with ONLY a JSON object {"summary": string, "steps": [{"id": string, "capability":',
           'string, "args": object, "depends_on"?: string[], "risk"?: "low"|"medium"|"high"}],',
