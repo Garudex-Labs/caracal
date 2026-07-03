@@ -380,7 +380,6 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
           resolveIdentity: currentIdentity,
           envUpstreams: envGovernedUpstreams,
           gatewayUrl: cfg.gatewayUrl,
-          proxyUrl: cfg.operatorLlmProxyUrl,
           transport,
           onRegistryChange: (configs) => {
             storeConfigs = configs
@@ -459,7 +458,7 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
         const storeRecords = await listAiProviders(db)
         const storeUpstreams: GovernedUpstream[] = storeRecords.map((record) => ({
           id: record.slug,
-          baseUrl: cfg.operatorLlmProxyUrl,
+          baseUrl: record.baseUrl,
           auth: record.auth,
         }))
         const desiredUpstreams = [...envGovernedUpstreams, ...storeUpstreams]

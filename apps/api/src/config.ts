@@ -56,7 +56,6 @@ export interface Config {
   // surface.
   gatewayUrl: string
   coordinatorUrl: string
-  operatorLlmProxyUrl: string
   gatewayStsHmacKey: Buffer | null
   auditHmacKey: Buffer | null
   logLevel: string
@@ -247,7 +246,6 @@ export function loadConfig(): Config {
     stsUrl: getenv('STS_URL', 'http://localhost:8080'),
     gatewayUrl: getenv('CARACAL_GATEWAY_URL', 'http://localhost:8081'),
     coordinatorUrl: getenv('CARACAL_COORDINATOR_URL', 'http://localhost:4000'),
-    operatorLlmProxyUrl: getenv('API_OPERATOR_LLM_PROXY_URL', 'http://litellm:4000/v1'),
     gatewayStsHmacKey,
     auditHmacKey,
     logLevel: getenv('LOG_LEVEL', 'info'),

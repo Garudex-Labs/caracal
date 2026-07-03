@@ -19,10 +19,9 @@ import { buildGovernanceMiddleware, type GovernanceLimits } from './operator-ai-
 
 // A single configured backend. The OpenAI-compatible chat surface is the common
 // denominator across hosted providers (OpenAI, Together, Groq), local servers
-// Gateways (LiteLLM), so one client reaches all of them. In
-// production the recommended backend is a LiteLLM proxy, which owns per-provider
-// integration, BYOK, and key budgets so Caracal never maintains provider SDKs. A
-// missing apiKey is valid for local backends that need no credential.
+// (Ollama, vLLM), and aggregators (OpenRouter), so one client reaches all of them
+// with no per-vendor SDK. A missing apiKey is valid for local backends that need
+// no credential.
 export interface ProviderConfig {
   id: string
   baseUrl: string
@@ -190,8 +189,7 @@ function providerAvailable(provider: ProviderConfig): boolean {
 // Builds the OpenAI-compatible backend for one provider. A governed provider carries its own
 // transport that routes through the Caracal gateway with a minted mandate; an ungoverned one
 // uses the shared fetch. fetchImpl is injectable so the transport can be exercised without a
-// live backend. In production the recommended backend is a LiteLLM proxy that fronts every
-// provider behind this one wire format.
+// live backend.
 function buildBackend(fetchImpl: FetchImpl, provider: ProviderConfig) {
   return createOpenAICompatible({
     name: provider.id,
