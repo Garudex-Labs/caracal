@@ -577,6 +577,20 @@ function describeContext(context: AgentContext): string {
     )
   }
 
+  // Memory is history, never proof of existence: an object a memory section mentions may have
+  // been deleted or renamed outside this conversation since it was written. The ranking is stated
+  // whenever any history section is present so an agent can never mistake recall for a read.
+  if (zoneMemory || facts || context.state) {
+    sections.push(
+      'SOURCE OF TRUTH FOR EXISTENCE: only the live state read just now proves what exists in this ' +
+        'zone. Durable zone memory, session facts, and earlier messages are history - an object they ' +
+        'mention may have since been deleted or renamed, so never claim it exists, cite its id, or ' +
+        'target it in a plan from those alone; confirm it in the live state first. When no live read ' +
+        'covers the domain in question, say plainly that you have not read it (a planner requests it ' +
+        'via "needs") - never assume.',
+    )
+  }
+
   const docs = describeDocs(context.docs)
   if (docs) sections.push(docs)
 

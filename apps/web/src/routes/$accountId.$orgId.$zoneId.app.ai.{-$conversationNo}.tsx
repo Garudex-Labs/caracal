@@ -60,6 +60,7 @@ import {
   useSetOperatorConversationAutopilot,
   useOperatorAutopilotAvailable,
   useSendOperatorMessage,
+  useUpdateZone,
 } from "@/platform/api/hooks";
 import {
   buildTimeline,
@@ -121,6 +122,7 @@ import type {
   OperatorConversationMode,
   OperatorProgressStage,
   OperatorUsageMeta,
+  Zone,
 } from "@/platform/api/types";
 
 export const Route = createFileRoute("/$accountId/$orgId/$zoneId/app/ai/{-$conversationNo}")({
@@ -306,6 +308,42 @@ function writeLastConversation(zoneId: string | null, number: number | null): vo
 }
 
 /* ------------------------------ workspace ------------------------------ */
+
+// The zone's administration grant is the deterministic gate on everything the Operator does here
+// beyond chat: governed reads and the apply path both refuse without it. Surfacing it inside the
+// workspace with a one-click grant turns a dead end - plans that could never apply - into a
+// self-explanatory setup step. The server remains the boundary; this only makes the state visible
+// and fixable where the operator is working.
+function ZoneAdministrationNotice({ zone }: { zone: Zone }) {
+  const updateZone = useUpdateZone();
+  const toast = useToast();
+  if (zone.operator_governed) return null;
+  return (
+    <div className="flex flex-shrink-0 flex-wrap items-center gap-2 border-b border-amber-500/30 bg-amber-500/10 px-4 py-2">
+      <span className="min-w-0 flex-1 text-xs text-amber-700 dark:text-amber-400">
+        This zone hasn't granted the Operator administration, so it can chat and draft plans but
+        can't read live state or apply changes.
+      </span>
+      <Button
+        size="sm"
+        variant="secondary"
+        mutating
+        loading={updateZone.isPending}
+        onClick={() =>
+          updateZone.mutate(
+            { id: zone.id, input: { operator_governed: true } },
+            {
+              onSuccess: () => toast({ tone: "success", title: "Operator administration granted" }),
+              onError: () => toast({ tone: "error", title: "Could not grant administration" }),
+            },
+          )
+        }
+      >
+        Grant administration
+      </Button>
+    </div>
+  );
+}
 
 function OperatorWorkspace() {
   const { activeZone } = useActiveZone();
@@ -657,6 +695,7 @@ function OperatorWorkspace() {
             {fullscreen ? <ShrinkGlyph className="h-4 w-4" /> : <ExpandGlyph className="h-4 w-4" />}
           </button>
         </div>
+        <ZoneAdministrationNotice zone={activeZone} />
         <SessionStrip
           conversations={conversations.data ?? []}
           selectedId={selectedId}

@@ -247,6 +247,8 @@ function OperatorPage() {
         </div>
       </SettingsGroup>
 
+      <AdministrationGroup />
+
       <AttributionGroup />
 
       <ProviderFormModal
@@ -293,6 +295,57 @@ function OperatorPage() {
         }}
       />
     </div>
+  );
+}
+
+// The zone's explicit administration grant to the Operator: the deterministic gate governed reads
+// and the execute path both enforce. Without it the Operator can chat and draft plans here but
+// cannot read live state or apply anything, so the switch lives with the Operator configuration.
+function AdministrationGroup() {
+  const { activeZone } = useActiveZone();
+  const updateZone = useUpdateZone();
+  const toast = useToast();
+  const governed = activeZone?.operator_governed ?? false;
+
+  async function toggleGoverned(next: boolean) {
+    if (!activeZone) return;
+    try {
+      await updateZone.mutateAsync({
+        id: activeZone.id,
+        input: { operator_governed: next },
+      });
+    } catch {
+      toast({ title: "Could not update the administration grant.", tone: "error" });
+    }
+  }
+
+  return (
+    <SettingsGroup
+      title="Zone administration"
+      description="Allow the Operator to read live state and apply approved plans in this zone. Until granted, it can only chat and draft plans that cannot be applied."
+      action={
+        <button
+          type="button"
+          role="switch"
+          aria-checked={governed}
+          aria-label="Operator zone administration"
+          disabled={!activeZone || updateZone.isPending}
+          onClick={() => toggleGoverned(!governed)}
+          className={[
+            "relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors",
+            governed ? "bg-foreground" : "bg-muted",
+            !activeZone || updateZone.isPending ? "opacity-60" : "",
+          ].join(" ")}
+        >
+          <span
+            className={[
+              "inline-block h-4 w-4 transform rounded-full bg-background shadow transition-transform",
+              governed ? "translate-x-4" : "translate-x-0.5",
+            ].join(" ")}
+          />
+        </button>
+      }
+    />
   );
 }
 
