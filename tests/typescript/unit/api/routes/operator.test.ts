@@ -1066,7 +1066,7 @@ describe('plan credential vault endpoints', () => {
   })
 
   it('completes the deferred autopilot approval once the vault satisfies the plan', async () => {
-    const { app, db, clientQuery } = buildApp(true, { autopilotPolicy: buildAutopilotPolicy({ enabled: true }) })
+    const { app, db, clientQuery } = buildApp(true, { autopilotPolicy: buildAutopilotPolicy({ enabled: true }), ...governedControl })
     db.query.mockImplementation(async (sql: string) => (String(sql).includes('WHERE id = $1') ? { rows: [{ one: 1 }] } : { rows: [] }))
     const approvalRow = {
       id: 'turn-3',
@@ -2143,6 +2143,22 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
     return fn as unknown as typeof fetch
   }
 
+  // A fetch that also answers the governed control plane by URL - the STS mint and empty
+  // invoke results - while serving the given assistant contents to the model calls in
+  // sequence, so a governed change turn is scripted end to end without a live backend.
+  function governedFetchReturning(...contents: string[]) {
+    let next = 0
+    return vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.endsWith('/oauth/2/token')) return jsonResponse({ access_token: 'control-token' })
+      if (url.endsWith('/v1/control/invoke')) return jsonResponse({ result: [] })
+      return new Response(JSON.stringify({ choices: [{ message: { content: contents[next++] } }] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }) as unknown as typeof fetch
+  }
+
   // Parses a Server-Sent Events payload into its frames, so a streaming response can be asserted
   // by event name and decoded data the same way a streaming client would read it.
   function parseSse(payload: string): { event: string; data: unknown }[] {
@@ -2535,17 +2551,18 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
   })
 
   it('auto-approves a low-risk plan in agent mode when autopilot is engaged and the master switch is on', async () => {
-    // With the master switch on and the conversation engaged, Caracal auto-satisfies the approval
-    // for any non-empty plan. The conversation row reports agent mode with autopilot engaged.
+    // With the master switch on, the conversation engaged, and the zone able to apply - governed
+    // identity plus the zone grant - Caracal auto-satisfies the approval for any non-empty plan.
     const plan = {
       summary: 'Register the billing app',
       steps: [{ id: 's1', capability: 'registerApplication', args: { name: 'Billing' } }],
     }
-    const fetchImpl = fetchReturning('{"tier":"change"}', JSON.stringify(plan))
+    const fetchImpl = governedFetchReturning('{"tier":"change"}', JSON.stringify(plan))
     const { app, clientQuery, db } = buildApp(true, {
       aiProviders: [provider],
       fetchImpl,
       autopilotPolicy: buildAutopilotPolicy({ enabled: true }),
+      ...governedControl,
     })
     // user message turn
     clientQuery
@@ -2609,11 +2626,12 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
       summary: 'Register the billing app',
       steps: [{ id: 's1', capability: 'registerApplication', args: { name: 'Billing' } }],
     }
-    const fetchImpl = fetchReturning('{"tier":"change"}', JSON.stringify(plan))
+    const fetchImpl = governedFetchReturning('{"tier":"change"}', JSON.stringify(plan))
     const { app, clientQuery, db } = buildApp(true, {
       aiProviders: [provider],
       fetchImpl,
       autopilotPolicy: buildAutopilotPolicy({ enabled: true, conversationWriteBudget: 5 }),
+      ...governedControl,
     })
     clientQuery
       .mockResolvedValueOnce(undefined)
@@ -2672,11 +2690,12 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
       summary: 'Register the billing app',
       steps: [{ id: 's1', capability: 'registerApplication', args: { name: 'Billing' } }],
     }
-    const fetchImpl = fetchReturning('{"tier":"change"}', JSON.stringify(plan))
+    const fetchImpl = governedFetchReturning('{"tier":"change"}', JSON.stringify(plan))
     const { app, clientQuery, db } = buildApp(true, {
       aiProviders: [provider],
       fetchImpl,
       autopilotPolicy: buildAutopilotPolicy({ enabled: true, conversationWriteBudget: 2 }),
+      ...governedControl,
     })
     clientQuery
       .mockResolvedValueOnce(undefined)
@@ -2736,11 +2755,12 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
       summary: 'Connect GitHub',
       steps: [{ id: 's1', capability: 'connectProvider', args: { name: 'GitHub', kind: 'api_key' } }],
     }
-    const fetchImpl = fetchReturning('{"tier":"change"}', JSON.stringify(plan))
+    const fetchImpl = governedFetchReturning('{"tier":"change"}', JSON.stringify(plan))
     const { app, clientQuery, db } = buildApp(true, {
       aiProviders: [provider],
       fetchImpl,
       autopilotPolicy: buildAutopilotPolicy({ enabled: true }),
+      ...governedControl,
     })
     clientQuery
       .mockResolvedValueOnce(undefined)
@@ -2779,6 +2799,102 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
     )
     expect(planInsert).toBeDefined()
     expect(JSON.parse(String(planInsert![1][6])).steps[0].secret_fields).toEqual(['api_key'])
+  })
+
+  it('defers autopilot when the zone has not granted Operator administration', async () => {
+    // The zone gate is the same one the execute route enforces: with the identity bound elsewhere
+    // and no explicit administration grant on this zone, the plan could only dead-end at apply, so
+    // autopilot stops for a human instead of approving into a guaranteed refusal.
+    const plan = {
+      summary: 'Register the billing app',
+      steps: [{ id: 's1', capability: 'registerApplication', args: { name: 'Billing' } }],
+    }
+    const fetchImpl = governedFetchReturning('{"tier":"change"}', JSON.stringify(plan))
+    const { app, clientQuery, db } = buildApp(true, {
+      aiProviders: [provider],
+      fetchImpl,
+      autopilotPolicy: buildAutopilotPolicy({ enabled: true }),
+      controlIdentity: sysIdentity('other-zone'),
+      controlEndpoints: governedControl.controlEndpoints,
+    })
+    // The zone record answers the administration-grant read as ungoverned; every other read is
+    // empty, which also leaves the preview clean so the deferral is attributable to the zone gate.
+    db.query.mockImplementation(async (sql: unknown) =>
+      String(sql).includes('operator_governed') ? { rows: [{ name: 'Zone One', slug: 'z1', operator_governed: false }] } : { rows: [] },
+    )
+    clientQuery
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ rows: [{ status: 'active', mode: 'agent', autopilot: true, next_seq: 1 }] })
+      .mockResolvedValueOnce({ rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: 'turn-1', seq: 1, kind: 'message' }] })
+      .mockResolvedValueOnce(undefined)
+    clientQuery
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ rows: [{ status: 'active', mode: 'agent', autopilot: true, next_seq: 2 }] })
+      .mockResolvedValueOnce({ rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: 'turn-2', seq: 2, kind: 'plan' }] })
+      .mockResolvedValueOnce(undefined)
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/operator-conversations/conv-1/message',
+      payload: { message: 'register the billing app' },
+    })
+    expect(res.statusCode).toBe(201)
+    expect(JSON.parse(res.body)).toMatchObject({ intent: 'plan', ok: true, auto_approved: false, approval_turn: null })
+    // No approval turn was written: the plan waits for a human who can see the zone is ungoverned.
+    expect(
+      clientQuery.mock.calls.some((c) => String(c[0]).includes('INSERT INTO operator_turns') && String(c[1]?.[5]) === 'approval'),
+    ).toBe(false)
+  })
+
+  it('answers instead of surfacing a plan when every step is already satisfied', async () => {
+    // A create whose target already exists previews as 'exists': the plan would change nothing and
+    // execute would refuse it as already satisfied, so the turn answers plainly with the preview
+    // detail - no approvable card, no autopilot approval, no apply attempt.
+    const plan = {
+      summary: 'Register the billing app',
+      steps: [{ id: 's1', capability: 'registerApplication', args: { name: 'Billing' } }],
+    }
+    const fetchImpl = governedFetchReturning('{"tier":"change"}', JSON.stringify(plan))
+    const { app, clientQuery, db } = buildApp(true, {
+      aiProviders: [provider],
+      fetchImpl,
+      autopilotPolicy: buildAutopilotPolicy({ enabled: true }),
+      ...governedControl,
+    })
+    // The preview's name-taken read finds an application named Billing; every other read is empty.
+    db.query.mockImplementation(async (sql: unknown) => (String(sql).includes('WHERE name = $1') ? { rows: [{ one: 1 }] } : { rows: [] }))
+    clientQuery
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ rows: [{ status: 'active', mode: 'agent', autopilot: true, next_seq: 1 }] })
+      .mockResolvedValueOnce({ rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: 'turn-1', seq: 1, kind: 'message' }] })
+      .mockResolvedValueOnce(undefined)
+    clientQuery
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ rows: [{ status: 'active', mode: 'agent', autopilot: true, next_seq: 2 }] })
+      .mockResolvedValueOnce({ rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: 'turn-2', seq: 2, kind: 'note' }] })
+      .mockResolvedValueOnce(undefined)
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/operator-conversations/conv-1/message',
+      payload: { message: 'register the billing app' },
+    })
+    expect(res.statusCode).toBe(201)
+    const body = JSON.parse(res.body)
+    expect(body).toMatchObject({ intent: 'explain', tier: 'change', ok: true })
+    expect(body.text).toContain('already in place')
+    expect(body.text).toContain('Billing')
+    // No plan turn and no approval turn were written: the ledger records a plain note answer.
+    expect(clientQuery.mock.calls.some((c) => String(c[0]).includes('INSERT INTO operator_turns') && String(c[1]?.[5]) === 'plan')).toBe(
+      false,
+    )
+    expect(
+      clientQuery.mock.calls.some((c) => String(c[0]).includes('INSERT INTO operator_turns') && String(c[1]?.[5]) === 'approval'),
+    ).toBe(false)
   })
 
   it('does not auto-approve when autopilot is not engaged on the conversation', async () => {

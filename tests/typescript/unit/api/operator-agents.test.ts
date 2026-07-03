@@ -400,6 +400,12 @@ describe('shared prompt foundations', () => {
     expect(system).toContain('plans ONLY the defineResource step')
   })
 
+  it('directs the planner to never re-create an object the live state already holds', () => {
+    const system = reasoningAgents[0][1]
+    expect(system).toContain('NEVER RE-CREATE WHAT EXISTS')
+    expect(system).toContain('plan only the steps that remain to be done')
+  })
+
   it('keeps the planner and security analyst on a strict JSON-only output contract', () => {
     expect(buildPlannerMessages('do it', ctx)[0].content).toContain('Reply with ONLY a JSON object')
     expect(buildSecurityAnalystMessages({ summary: 's', steps: [] }, ctx)[0].content).toContain('Reply with ONLY a JSON object')

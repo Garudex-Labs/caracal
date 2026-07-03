@@ -191,6 +191,8 @@ describe('executeErrorMessage', () => {
   it('names known execution failures', () => {
     expect(executeErrorMessage({ code: 'plan_already_executed' })).toBe('This plan was already applied.')
     expect(executeErrorMessage({ code: 'zone_forbidden' })).toContain('internal to Caracal')
+    expect(executeErrorMessage({ code: 'zone_not_governed' })).toContain('granted the Operator administration')
+    expect(executeErrorMessage({ code: 'plan_already_satisfied' })).toContain('already exists')
     expect(executeErrorMessage({ code: 'plan_blocked' })).toContain("can't be applied")
   })
   it('falls back for unknown codes', () => {
