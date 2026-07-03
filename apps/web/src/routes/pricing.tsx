@@ -14,12 +14,12 @@ export const Route = createFileRoute("/pricing")({
       {
         name: "description",
         content:
-          "Free open-source framework. Managed infrastructure plans for production teams and enterprises.",
+          "Caracal Community Edition is free and Apache 2.0: the complete authority model, self-hosted. Enterprise Edition adds managed multi-tenancy, SSO, and a fully managed data plane.",
       },
       { property: "og:title", content: "Caracal Pricing" },
       {
         property: "og:description",
-        content: "Starter, Pro, and Enterprise plans for Caracal infrastructure.",
+        content: "Free open-source Community Edition. Fully managed Enterprise Edition.",
       },
     ],
   }),
@@ -31,7 +31,7 @@ const PLANS = [
     name: "Community Edition",
     price: "Free",
     suffix: "Apache 2.0",
-    blurb: "Self-host the full Caracal stack and integrate the SDK.",
+    blurb: "The complete authority model, self-hosted. No feature gates on security.",
     features: [
       "Full authority model: mandates, delegation, policy, audit",
       "TypeScript, Python, and Go SDKs and connectors",
@@ -46,7 +46,7 @@ const PLANS = [
     name: "Enterprise Edition",
     price: "Custom",
     suffix: "",
-    blurb: "Fully managed Caracal for production teams.",
+    blurb: "Caracal run for you: production governance without operating the stack.",
     features: [
       "Managed multi-tenancy: tenants, organizations, workspaces",
       "Hosted management UI for every tenant",
@@ -64,7 +64,7 @@ function PricingPage() {
     <div className="px-4 py-10 sm:px-6 md:px-10 md:py-14">
       <SectionLabel>Pricing</SectionLabel>
       <h1 className="mt-6 max-w-3xl text-3xl font-medium leading-tight tracking-tight md:text-5xl">
-        Start free and self-hosted. Scale to fully managed Caracal.
+        Every agent governed. Start free, scale to fully managed.
       </h1>
 
       <div className="mt-12 grid grid-cols-1 gap-4 md:grid-cols-2">

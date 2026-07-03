@@ -54,8 +54,8 @@ function CommunityPage() {
         Built in the open, by the community.
       </h1>
       <p className="mt-6 max-w-2xl text-base text-muted-foreground md:text-lg">
-        Caracal is open source under Apache 2.0. Come help us build authority infrastructure for
-        agents and services.
+        Caracal is open source under Apache 2.0. Come help us build the identity and authorization
+        layer for AI agents.
       </p>
 
       <div className="mt-12 grid grid-cols-1 gap-px border border-border bg-border sm:grid-cols-2 [&>*]:bg-background">
