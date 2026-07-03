@@ -131,6 +131,7 @@ jobs:
       docs: ${{ steps.paths.outputs.docs }}
       postgres: ${{ steps.paths.outputs.postgres }}
       helm: ${{ steps.paths.outputs.helm }}
+      infra: ${{ steps.paths.outputs.infra }}
     steps:
       - name: Checkout
         if: github.event_name == 'pull_request'
@@ -152,6 +153,7 @@ jobs:
               echo 'docs=true'
               echo 'postgres=true'
               echo 'helm=true'
+              echo 'infra=true'
               exit 0
             fi
 
@@ -163,6 +165,7 @@ jobs:
             docs=false
             postgres=false
             helm=false
+            infra=false
             # bash case patterns are not pathname-aware: * matches across '/',
             # so these globs intentionally over-match and err toward running an
             # extra job rather than skipping a needed one. Detection never
@@ -201,6 +204,11 @@ jobs:
                   helm=true
                   ;;
               esac
+              case "$path" in
+                .github/workflows/test.yml|infra/docker/**|infra/scripts/**|infra/tofu/**|infra/redis/**|infra/secrets/**|infra/healthcheck/**)
+                  infra=true
+                  ;;
+              esac
             done < changed.txt
 
             echo "typescript=$typescript"
@@ -210,6 +218,7 @@ jobs:
             echo "docs=$docs"
             echo "postgres=$postgres"
             echo "helm=$helm"
+            echo "infra=$infra"
           } >> "$GITHUB_OUTPUT"
 
   style:
@@ -493,6 +502,36 @@ jobs:
 
       - name: Validate Helm chart
         run: bash infra/helm/caracal/scripts/validate.sh
+
+  infra:
+    name: Infrastructure validation
+    needs: changes
+    if: needs.changes.outputs.infra == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Shellcheck infra scripts
+        run: shellcheck infra/scripts/*.sh infra/tofu/scripts/*.sh infra/redis/*.sh infra/postgres/scripts/*.sh infra/helm/caracal/scripts/*.sh
+
+      - name: Validate compose files
+        env:
+          CARACAL_VERSION: 0.0.0
+        run: |
+          docker compose -f infra/docker/docker-compose.yml config --quiet
+          docker compose -f infra/docker/runtime-compose.yml config --quiet
+
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
+        with:
+          tofu_version: 1.11.5
+
+      - name: Validate OpenTofu configuration
+        run: bash infra/tofu/scripts/validate.sh
 
   releaseConfig:
     name: Release config drift

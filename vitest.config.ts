@@ -10,6 +10,9 @@ const src = (path: string): string => fileURLToPath(new URL(path, import.meta.ur
 
 export default defineConfig({
   test: {
+    // Examples are self-contained node:test suites run from their own
+    // directories; vitest cannot execute them and must not collect them.
+    exclude: ['**/node_modules/**', 'examples/**'],
     coverage: {
       provider: 'v8',
       exclude: [

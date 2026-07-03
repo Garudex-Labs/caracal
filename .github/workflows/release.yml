@@ -464,6 +464,30 @@ jobs:
       - name: Verify release assets
         run: node scripts/verifyReleaseAssets.mjs "${{ needs.context.outputs.releaseTag }}" dist
 
+  helmChart:
+    name: Publish Helm chart
+    needs: [context, verifyAssets, serviceImages, runtimeImage]
+    if: github.repository == 'Garudex-Labs/caracal' && needs.context.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.context.outputs.checkoutRef }}
+          persist-credentials: false
+
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login "${{ env.REGISTRY }}" --username "${{ github.actor }}" --password-stdin
+
+      - name: Package chart
+        run: helm package infra/helm/caracal --destination chart-dist
+
+      - name: Push chart
+        run: helm push chart-dist/caracal-*.tgz "oci://${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/charts"
+
   publishNpmPackages:
     name: Publish npm packages
     needs: [context, verifyAssets, serviceImages, runtimeImage]
@@ -496,7 +520,7 @@ jobs:
 
   githubRelease:
     name: Publish GitHub Release
-    needs: [context, publishNpmPackages, publishPypiPackages]
+    needs: [context, publishNpmPackages, publishPypiPackages, helmChart]
     if: github.repository == 'Garudex-Labs/caracal' && needs.context.outputs.publish == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10

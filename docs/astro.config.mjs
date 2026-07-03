@@ -324,6 +324,7 @@ export default defineConfig({
               items: [
                 { label: 'Deploy with Docker Compose', link: '/operations/docker-compose/' },
                 { label: 'Deploy with Helm', link: '/operations/kubernetes-helm/' },
+                { label: 'Provision with OpenTofu', link: '/operations/opentofu/' },
                 { label: 'Choose a Cloud Profile', link: '/operations/cloud-native-profiles/' },
                 { label: 'Deploy on Managed Kubernetes', link: '/operations/cloud-reference-deployments/' },
                 { label: 'Package an Install Kit', link: '/operations/enterprise-install-kit/' },
