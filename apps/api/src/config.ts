@@ -97,6 +97,10 @@ export interface Config {
   // default). When on, an agent-mode conversation that engages autopilot has its plan approvals
   // auto-satisfied; the switch is set here in Caracal and never by the model or a conversation.
   operatorAutopilotEnabled: boolean
+  // Conversation-level governance over autopilot writes: the cumulative number of mutating plan
+  // steps autopilot may auto-approve in one conversation before further plans stop for explicit
+  // human approval. Zero disables the budget so autopilot is unbounded per conversation.
+  operatorAutopilotWriteBudget: number
   // Caracal-set governance over the Operator's model usage, enforced above the spine: a hard
   // ceiling on a single completion's output tokens and a per-turn model-call budget. Both have
   // safe defaults that bound runaways without affecting normal operation; zero lifts a bound.
@@ -284,6 +288,7 @@ export function loadConfig(): Config {
     operatorSystemZones: csvEnv('API_OPERATOR_SYSTEM_ZONES') ?? [],
     operatorAiProviders: loadOperatorAiProviders(),
     operatorAutopilotEnabled: boolEnv('API_OPERATOR_AUTOPILOT_ENABLED', false),
+    operatorAutopilotWriteBudget: intEnv('API_OPERATOR_AUTOPILOT_WRITE_BUDGET', 0, 0),
     operatorAiMaxOutputTokens: intEnv('API_OPERATOR_AI_MAX_OUTPUT_TOKENS', 4096, 0),
     operatorAiMaxCallsPerTurn: intEnv('API_OPERATOR_AI_MAX_CALLS_PER_TURN', 12, 0),
     operatorSelfGovern: loadOperatorSelfGovern(),
