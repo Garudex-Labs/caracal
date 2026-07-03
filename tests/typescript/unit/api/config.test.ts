@@ -32,7 +32,6 @@ const SAVED_KEYS = [
   'API_OPERATOR_AI_OPENAI_API_KEY',
   'API_OPERATOR_AI_LOCAL_BASE_URL',
   'API_OPERATOR_AI_LOCAL_MODEL',
-  'API_OPERATOR_SELF_GOVERN',
   'API_MAX_RESOURCES_PER_ZONE',
   'API_READY_OUTBOX_DEAD_MAX',
   'CARACAL_MODE',
@@ -155,19 +154,14 @@ describe('api config trustProxy', () => {
     expect(loadConfig().trustProxy).toBe(true)
   })
 
-  test('defaults self-governance off when unset', async () => {
-    const { loadConfig } = (await import(CONFIG_PATH)) as typeof import('../../../../apps/api/src/config')
-    expect(loadConfig().operatorSelfGovern).toBe(false)
-  })
-
-  test('enables self-governance when configured; no credential env exists', async () => {
-    process.env.API_OPERATOR_SELF_GOVERN = 'true'
+  test('carries no permanent administrative credential for the Operator', async () => {
     const { loadConfig } = (await import(CONFIG_PATH)) as typeof import('../../../../apps/api/src/config')
     const cfg = loadConfig()
-    expect(cfg.operatorSelfGovern).toBe(true)
-    // The Operator's credentials are generated and rotated in process; the runtime trust
-    // boundary carries no permanent administrative credential to configure.
+    // The Operator always self-governs when the control plane is available; its credentials are
+    // generated and rotated in process, so the runtime trust boundary carries no permanent
+    // administrative credential and no governance switch to configure.
     expect('operatorControlSecret' in cfg).toBe(false)
+    expect('operatorSelfGovern' in cfg).toBe(false)
   })
 
   test('resolves required database and redis URLs from secret files', async () => {

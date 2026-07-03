@@ -1706,6 +1706,39 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/plan/execute', () =>
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
+  it('refuses to execute when a step\u2019s live consequence differs from the reviewed one', async () => {
+    // The plan was reviewed and approved when its create step resolved as already existing - no
+    // change. The object was then deleted, so the same step would now create. Applying it would do
+    // something the approval never covered, so it is refused with no control call; a fresh request
+    // composes a new plan against current state.
+    const fetchMock = controlFetch([])
+    const { app, clientQuery } = buildApp(true, { ...governedControl, fetchImpl: fetchMock as unknown as typeof fetch })
+    const reviewedPlan = {
+      summary: 'Register',
+      steps: [{ id: 's1', capability: 'registerApplication', mutating: true, effect: 'exists', args: { name: 'Billing' } }],
+    }
+    clientQuery
+      .mockResolvedValueOnce(undefined) // BEGIN
+      .mockResolvedValueOnce({ rows: [{ status: 'active' }] }) // conv status
+      .mockResolvedValueOnce({ rows: [{ content: reviewedPlan }] }) // plan
+      .mockResolvedValueOnce({ rows: [{ kind: 'approval' }] }) // approved
+      .mockResolvedValueOnce({ rows: [] }) // not executed
+      .mockResolvedValueOnce({ rows: [] }) // preview: name now FREE -> create
+      .mockResolvedValueOnce(undefined) // COMMIT
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/operator-conversations/conv-1/plan/execute',
+      payload: { plan_seq: 2 },
+    })
+    expect(res.statusCode).toBe(409)
+    const body = JSON.parse(res.body)
+    expect(body.error).toBe('plan_state_changed')
+    expect(body.steps[0]).toMatchObject({ step_id: 's1', capability: 'registerApplication', reviewed: 'exists', current: 'create' })
+    // Nothing was applied: the control plane was never called.
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
   it('records an error turn when a control step is denied', async () => {
     const fetchMock = controlFetch([], { status: 403, body: { error: { reason: 'missing scope control:grant:write', code: 'forbidden' } } })
     const { app, clientQuery } = buildApp(true, { ...governedControl, fetchImpl: fetchMock as unknown as typeof fetch })

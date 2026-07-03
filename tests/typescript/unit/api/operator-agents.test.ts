@@ -211,8 +211,21 @@ describe('buildPlannerMessages', () => {
     })
     const content = messages[1].content
     expect(content).toContain('Durable zone memory')
+    expect(content).toContain('history only, not current state')
     expect(content).toContain('Connect the Hooli OIDC provider')
     expect(content).toContain('Register the Son of Anton application')
+  })
+
+  it('ranks the live state read just now above every memory section for existence', () => {
+    const messages = buildPlannerMessages('register the billing app', {
+      facts: null,
+      state: null,
+      zoneMemory: [{ text: 'Register the Son of Anton application', created_at: '2026-06-02T00:00:00Z' }],
+    })
+    const content = messages[1].content
+    expect(content).toContain('SOURCE OF TRUTH FOR EXISTENCE')
+    expect(content).toContain('only the live state read just now proves what exists')
+    expect(content).toContain('never claim it exists, cite its id, or target it in a plan from those alone')
   })
 
   it('instructs the planner to ask one clarifying question instead of guessing essential detail', () => {
