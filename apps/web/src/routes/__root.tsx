@@ -43,7 +43,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       {
         name: "description",
         content:
-          "Authority infrastructure for agents and services. Caracal issues short-lived, policy-approved mandates for protected resources and records the decision trail.",
+          "The identity and authorization layer for AI agents. Agents never hold credentials: every action is policy-approved before it runs, revocable in one call, and recorded as tamper-evident evidence.",
       },
       { name: "author", content: "Caracal" },
       {
@@ -52,7 +52,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       },
       {
         property: "og:description",
-        content: "Authority infrastructure for agents and services.",
+        content: "Authority, not credentials, for AI agents.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
@@ -62,7 +62,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       },
       {
         name: "twitter:description",
-        content: "Authority infrastructure for agents and services.",
+        content: "Authority, not credentials, for AI agents.",
       },
     ],
   }),
