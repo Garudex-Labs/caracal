@@ -31,9 +31,7 @@ function chatResponse(content: string, usage?: { prompt_tokens: number; completi
 // a terminal stop chunk carrying usage, then the [DONE] sentinel, so streamText parses the same
 // shape a real provider sends.
 function streamResponse(parts: string[], usage?: { prompt_tokens: number; completion_tokens: number }): Response {
-  const frames = parts.map(
-    (content) => `data: ${JSON.stringify({ choices: [{ index: 0, delta: { content }, finish_reason: null }] })}\n\n`,
-  )
+  const frames = parts.map((content) => `data: ${JSON.stringify({ choices: [{ index: 0, delta: { content }, finish_reason: null }] })}\n\n`)
   const stop = `data: ${JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: 'stop' }], usage })}\n\n`
   return new Response(frames.join('') + stop + 'data: [DONE]\n\n', {
     status: 200,
@@ -139,6 +137,131 @@ describe('gateway complete', () => {
     const gateway = createGateway([provider({ id: 'slow', timeoutMs: 10 }), provider({ id: 'fast' })], fetchMock as unknown as typeof fetch)
     const result = await gateway.complete([{ role: 'user', content: 'ping' }])
     expect(result.provider).toBe('fast')
+  })
+})
+
+describe('gateway wire-parameter adaptation', () => {
+  function rejectsParam(param: string, hint: string): Response {
+    return new Response(
+      JSON.stringify({
+        error: {
+          message: `Unsupported parameter: '${param}' is not supported with this model.${hint}`,
+          type: 'invalid_request_error',
+          param,
+          code: 'unsupported_parameter',
+        },
+      }),
+      { status: 400, headers: { 'content-type': 'application/json' } },
+    )
+  }
+
+  it('renames max_tokens to max_completion_tokens when the model rejects it', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(rejectsParam('max_tokens', " Use 'max_completion_tokens' instead."))
+      .mockResolvedValueOnce(chatResponse('OK'))
+    const gateway = createGateway([provider({ model: 'o-reason-rename' })], fetchMock as unknown as typeof fetch)
+    const result = await gateway.complete([{ role: 'user', content: 'ping' }], { maxTokens: 5 })
+    expect(result.text).toBe('OK')
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    const retried = JSON.parse((fetchMock.mock.calls[1]![1] as RequestInit).body as string)
+    expect(retried.max_completion_tokens).toBe(5)
+    expect(retried).not.toHaveProperty('max_tokens')
+  })
+
+  it('drops a rejected sampling value and retries', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            error: {
+              message: "Unsupported value: 'temperature' does not support 0 with this model.",
+              type: 'invalid_request_error',
+              param: 'temperature',
+              code: 'unsupported_value',
+            },
+          }),
+          { status: 400, headers: { 'content-type': 'application/json' } },
+        ),
+      )
+      .mockResolvedValueOnce(chatResponse('OK'))
+    const gateway = createGateway([provider({ model: 'o-reason-drop' })], fetchMock as unknown as typeof fetch)
+    const result = await gateway.complete([{ role: 'user', content: 'ping' }], { maxTokens: 5, temperature: 0 })
+    expect(result.text).toBe('OK')
+    const retried = JSON.parse((fetchMock.mock.calls[1]![1] as RequestInit).body as string)
+    expect(retried).not.toHaveProperty('temperature')
+    expect(retried.max_tokens).toBe(5)
+  })
+
+  it('adapts consecutive rejections within one call', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(rejectsParam('max_tokens', " Use 'max_completion_tokens' instead."))
+      .mockResolvedValueOnce(rejectsParam('temperature', ''))
+      .mockResolvedValueOnce(chatResponse('OK'))
+    const gateway = createGateway([provider({ model: 'o-reason-both' })], fetchMock as unknown as typeof fetch)
+    const result = await gateway.complete([{ role: 'user', content: 'ping' }], { maxTokens: 5, temperature: 0 })
+    expect(result.text).toBe('OK')
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    const final = JSON.parse((fetchMock.mock.calls[2]![1] as RequestInit).body as string)
+    expect(final.max_completion_tokens).toBe(5)
+    expect(final).not.toHaveProperty('max_tokens')
+    expect(final).not.toHaveProperty('temperature')
+  })
+
+  it('remembers a learned rewrite so the next call adapts before sending', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(rejectsParam('max_tokens', " Use 'max_completion_tokens' instead."))
+      .mockResolvedValueOnce(chatResponse('first'))
+      .mockResolvedValueOnce(chatResponse('second'))
+    const providers = [provider({ model: 'o-reason-memo' })]
+    const first = createGateway(providers, fetchMock as unknown as typeof fetch)
+    await first.complete([{ role: 'user', content: 'ping' }], { maxTokens: 5 })
+    const second = createGateway(providers, fetchMock as unknown as typeof fetch)
+    const result = await second.complete([{ role: 'user', content: 'ping' }], { maxTokens: 5 })
+    expect(result.text).toBe('second')
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    const memoized = JSON.parse((fetchMock.mock.calls[2]![1] as RequestInit).body as string)
+    expect(memoized.max_completion_tokens).toBe(5)
+    expect(memoized).not.toHaveProperty('max_tokens')
+  })
+
+  it('surfaces a 400 that names no parameter through failover unchanged', async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ error: { message: 'model not found', type: 'invalid_request_error' } }), {
+          status: 400,
+          headers: { 'content-type': 'application/json' },
+        }),
+    )
+    const gateway = createGateway([provider({ model: 'o-reason-opaque' })], fetchMock as unknown as typeof fetch)
+    const error = await gateway.complete([{ role: 'user', content: 'ping' }], { maxTokens: 5 }).catch((e) => e)
+    expect(error).toBeInstanceOf(GatewayError)
+    expect(error.attempts[0].reason).toContain('400')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('returns the 400 when the named parameter is not in the request', async () => {
+    const fetchMock = vi.fn(async () => rejectsParam('logprobs', ''))
+    const gateway = createGateway([provider({ model: 'o-reason-absent' })], fetchMock as unknown as typeof fetch)
+    const error = await gateway.complete([{ role: 'user', content: 'ping' }], { maxTokens: 5 }).catch((e) => e)
+    expect(error).toBeInstanceOf(GatewayError)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('adapts the streaming path the same way', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(rejectsParam('max_tokens', " Use 'max_completion_tokens' instead."))
+      .mockResolvedValueOnce(streamResponse(['OK']))
+    const gateway = createGateway([provider({ model: 'o-reason-stream' })], fetchMock as unknown as typeof fetch)
+    const result = await gateway.stream([{ role: 'user', content: 'ping' }], { onText: () => {} }, { maxTokens: 5 })
+    expect(result.text).toBe('OK')
+    const retried = JSON.parse((fetchMock.mock.calls[1]![1] as RequestInit).body as string)
+    expect(retried.max_completion_tokens).toBe(5)
+    expect(retried).not.toHaveProperty('max_tokens')
   })
 })
 

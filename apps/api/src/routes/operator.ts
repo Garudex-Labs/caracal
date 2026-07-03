@@ -789,7 +789,16 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
     const identity = opts.resolveControlIdentity?.() ?? null
     if (!identity || !opts.controlEndpoints) return null
     const zoneScope = identity.zoneId === zoneId ? undefined : zoneId
-    const client = buildOperatorControlClient(identity, 'executor', opts.controlEndpoints, opts.fetchImpl, zoneScope, authorizedBy, coAuthorOperator, requestId)
+    const client = buildOperatorControlClient(
+      identity,
+      'executor',
+      opts.controlEndpoints,
+      opts.fetchImpl,
+      zoneScope,
+      authorizedBy,
+      coAuthorOperator,
+      requestId,
+    )
     return client ? { client, identity } : null
   }
 
@@ -805,7 +814,16 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
     const identity = opts.resolveControlIdentity?.() ?? null
     if (!identity || !opts.controlEndpoints) return null
     const zoneScope = identity.zoneId === zoneId ? undefined : zoneId
-    const client = buildOperatorControlClient(identity, 'researcher', opts.controlEndpoints, opts.fetchImpl, zoneScope, undefined, undefined, requestId)
+    const client = buildOperatorControlClient(
+      identity,
+      'researcher',
+      opts.controlEndpoints,
+      opts.fetchImpl,
+      zoneScope,
+      undefined,
+      undefined,
+      requestId,
+    )
     if (!client) return null
     return createStateResearcher(client)
   }
@@ -868,6 +886,8 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
   // Verifies AI connectivity by sending a minimal completion through the failover
   // chain. This is the one place a real provider call is made on an explicit operator
   // action, so an operator can confirm their bring-your-own-key configuration works.
+  // The probe budget leaves room for a reasoning model to think before it answers;
+  // a tighter cap would starve one into an empty completion and a false failure.
   fastify.post('/operator/ai/check', async (_req, reply) => {
     const started = Date.now()
     try {
@@ -876,7 +896,7 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
           { role: 'system', content: 'You are a connectivity probe. Reply with the single word OK.' },
           { role: 'user', content: 'OK' },
         ],
-        { maxTokens: 5, temperature: 0 },
+        { maxTokens: 256, temperature: 0 },
       )
       return {
         ok: true,
@@ -1639,20 +1659,23 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
     // The lock renews while this request still owns it, so an apply that legitimately runs
     // longer than one TTL never loses its lock mid-flight, while an abandoned lock (a crashed
     // holder stops renewing) still expires within one TTL.
-    const renewLock = setInterval(() => {
-      fastify.redis
-        .eval(
-          "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('expire', KEYS[1], ARGV[2]) else return 0 end",
-          1,
-          lockKey,
-          lockOwner,
-          EXECUTE_LOCK_TTL_SEC,
-        )
-        .then((renewed) => {
-          if (renewed !== 1) req.log.warn({ lockKey }, 'execute lock renewal skipped: lock no longer owned')
-        })
-        .catch((err) => req.log.warn({ err, lockKey }, 'execute lock renewal failed'))
-    }, (EXECUTE_LOCK_TTL_SEC * 1000) / 3)
+    const renewLock = setInterval(
+      () => {
+        fastify.redis
+          .eval(
+            "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('expire', KEYS[1], ARGV[2]) else return 0 end",
+            1,
+            lockKey,
+            lockOwner,
+            EXECUTE_LOCK_TTL_SEC,
+          )
+          .then((renewed) => {
+            if (renewed !== 1) req.log.warn({ lockKey }, 'execute lock renewal skipped: lock no longer owned')
+          })
+          .catch((err) => req.log.warn({ err, lockKey }, 'execute lock renewal failed'))
+      },
+      (EXECUTE_LOCK_TTL_SEC * 1000) / 3,
+    )
 
     try {
       // Pre-flight: read-only validation in one short transaction. Resolves the approved,
@@ -2383,7 +2406,11 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
             turn: turn.turn,
             validation,
             preview,
-            review: review ? (review.status === 'reviewed' ? { status: review.status } : { status: review.status, reason: review.reason }) : undefined,
+            review: review
+              ? review.status === 'reviewed'
+                ? { status: review.status }
+                : { status: review.status, reason: review.reason }
+              : undefined,
             advisory,
             guidance,
             auto_approved: autoApproved,

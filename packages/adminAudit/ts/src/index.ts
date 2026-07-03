@@ -27,7 +27,10 @@ export interface Queryable {
   query(sql: string, params: (string | number | Record<string, unknown> | null)[]): Promise<{ rows: unknown[] }>
 }
 
-const GLOBAL_CHAIN_KEY = '\u0000admin-global'
+// Lock key for the zone-less global chain. It is sent to Postgres as the
+// hashtext() argument for the per-chain advisory lock, so it must be NUL-free;
+// '::' keeps it from ever matching a minted zone id.
+const GLOBAL_CHAIN_KEY = 'admin-audit::global'
 
 // Postgres rejects NUL bytes in text and jsonb values, so caller-influenced strings are
 // sanitized before hashing and insertion; the chain hashes the sanitized record so
@@ -106,11 +109,7 @@ interface ChainHead {
 // caller MUST run this inside a transaction so the advisory lock, chain-head
 // read, and insert are atomic. hmacKey signs each link; when absent the chain is
 // still hash-linked but unsigned.
-export async function insertAdminAuditRecord(
-  tx: Queryable,
-  rec: AdminAuditRecord,
-  hmacKey: Buffer | null = null,
-): Promise<void> {
+export async function insertAdminAuditRecord(tx: Queryable, rec: AdminAuditRecord, hmacKey: Buffer | null = null): Promise<void> {
   rec = sanitizeRecord(rec)
   const id = uuidv7()
   const occurredAt = new Date().toISOString()

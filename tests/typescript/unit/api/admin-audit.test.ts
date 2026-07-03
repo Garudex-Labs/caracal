@@ -143,6 +143,22 @@ describe('admin audit hook', () => {
     expect(JSON.stringify(ins!.params)).not.toContain('\\u0000')
   })
 
+  it('audits global-scope mutations without sending NUL bytes in any query parameter', async () => {
+    const captured: Captured[] = []
+    const app = buildApp(captured)
+    app.post('/v1/zones', async () => ({ ok: true }))
+    const res = await app.inject({ method: 'POST', url: '/v1/zones', payload: { name: 'Pied Piper Production' } })
+    await app.close()
+    expect(res.statusCode).toBe(200)
+    const ins = insertCall(captured)
+    expect(ins).toBeDefined()
+    // zone_id is null for global-scope mutations; the chain lock key must stay NUL-free.
+    expect(ins!.params![8]).toBeNull()
+    for (const call of captured) {
+      expect(JSON.stringify(call.params ?? [])).not.toContain('\\u0000')
+    }
+  })
+
   it('refuses to report success when the audit insert fails for a successful mutation', async () => {
     const app = Fastify({ logger: false })
     const db = { connect: vi.fn().mockRejectedValue(new Error('db down')) } as unknown as DB
