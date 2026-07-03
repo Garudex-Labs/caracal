@@ -388,7 +388,7 @@ export interface DiagnosticsReport {
   generatedAt: string;
 }
 
-export type AgentStatus = "active" | "suspended" | "terminated";
+export type AgentStatus = "active" | "suspended" | "terminated" | "expired";
 
 export interface Agent {
   agent_session_id: string;

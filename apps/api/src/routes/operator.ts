@@ -1636,6 +1636,24 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
     const locked = await fastify.redis.set(lockKey, lockOwner, 'EX', EXECUTE_LOCK_TTL_SEC, 'NX')
     if (locked !== 'OK') return reply.code(409).send({ error: 'plan_already_executed' })
 
+    // The lock renews while this request still owns it, so an apply that legitimately runs
+    // longer than one TTL never loses its lock mid-flight, while an abandoned lock (a crashed
+    // holder stops renewing) still expires within one TTL.
+    const renewLock = setInterval(() => {
+      fastify.redis
+        .eval(
+          "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('expire', KEYS[1], ARGV[2]) else return 0 end",
+          1,
+          lockKey,
+          lockOwner,
+          EXECUTE_LOCK_TTL_SEC,
+        )
+        .then((renewed) => {
+          if (renewed !== 1) req.log.warn({ lockKey }, 'execute lock renewal skipped: lock no longer owned')
+        })
+        .catch((err) => req.log.warn({ err, lockKey }, 'execute lock renewal failed'))
+    }, (EXECUTE_LOCK_TTL_SEC * 1000) / 3)
+
     try {
       // Pre-flight: read-only validation in one short transaction. Resolves the approved,
       // not-yet-executed, still-valid, still-unblocked plan to the steps to execute. It
@@ -1978,11 +1996,13 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
 
       return reply
     } finally {
+      clearInterval(renewLock)
       // Release the lock only if this request still owns it: a compare-and-delete so an
-      // expired-then-reacquired lock held by another request is never deleted here.
+      // expired-then-reacquired lock held by another request is never deleted here. A failed
+      // release is logged - the lock still expires on its TTL, but the delay is visible.
       await fastify.redis
         .eval("if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end", 1, lockKey, lockOwner)
-        .catch(() => {})
+        .catch((err) => req.log.error({ err, lockKey }, 'execute lock release failed'))
     }
   })
 
