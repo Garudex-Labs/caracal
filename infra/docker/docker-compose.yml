@@ -487,35 +487,6 @@ services:
       retries: 20
       start_period: 15s
 
-  # LiteLLM proxy: the single OpenAI-compatible normalization layer the Operator's governed
-  # gateway forwards to. It maps one canonical request onto each provider's dialect (dropping
-  # or renaming params like temperature/max_tokens for GPT-5), so Caracal stays one schema and
-  # never maintains per-provider quirks. The Operator still mints a Caracal mandate and routes
-  # through the gateway; LiteLLM is just the sealed upstream. Provider keys are passed as env
-  # and the master key from a secret file; no key is committed.
-  litellm:
-    <<: *defaultSecurity
-    image: ghcr.io/berriai/litellm:main-stable
-    restart: unless-stopped
-    init: true
-    logging: *defaultLogging
-    networks:
-      - caracalData
-    environment:
-      PYTHONPATH: /etc/litellm
-      CARACAL_UPSTREAM_ALLOWLIST: ${OPERATOR_UPSTREAM_ALLOWLIST:-}
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - 'exec litellm --config /etc/litellm/config.yaml --port 4000'
-    volumes:
-      - ./litellm:/etc/litellm:ro
-    healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://localhost:4000/health/liveliness')\""]
-      interval: 10s
-      timeout: 5s
-      retries: 12
-      start_period: 20s
-
   audit:
     <<: [*appService, *appResources]
     image: localhost/caracal-go:${CARACAL_DEV_VERSION:-${CARACAL_BASE_VERSION:-2026.05.26}-dev.sha${CARACAL_DEV_SHA:-local}}
