@@ -45,7 +45,7 @@ export function printUsage(opts: DispatchOptions, out: NodeJS.WriteStream = proc
   const lines: string[] = [
     `${style.title('Usage:')} ${opts.binary} <command> [options]`,
     '',
-    'Caracal runtime command surface.',
+    'Caracal local runtime: start the stack, open the console, execute governed workloads.',
     '',
   ]
   const groups = new Map<CommandGroup, typeof opts.registry.ordered>()
@@ -73,12 +73,7 @@ export function printUsage(opts: DispatchOptions, out: NodeJS.WriteStream = proc
     for (const line of opts.extras) lines.push(line)
     lines.push('')
   }
-  lines.push(
-    H('Global options'),
-    '  -h, --help      Show help',
-    '  -v, --version   Show version',
-    '',
-  )
+  lines.push(H('Global options'), '  -h, --help      Show help', '  -v, --version   Show version', '')
   out.write(lines.join('\n'))
 }
 
@@ -97,12 +92,14 @@ export async function dispatch(opts: DispatchOptions, rawArgs: readonly string[]
   }
   if (command === '--version' || command === '-v' || command === 'version') {
     if (rest.includes('--json')) {
-      process.stdout.write(JSON.stringify({
-        binary: opts.binary,
-        version: opts.version,
-        mode: opts.mode,
-        sha: opts.sha,
-      }) + '\n')
+      process.stdout.write(
+        JSON.stringify({
+          binary: opts.binary,
+          version: opts.version,
+          mode: opts.mode,
+          sha: opts.sha,
+        }) + '\n',
+      )
     } else {
       process.stdout.write(formatVersionOutput(opts))
     }

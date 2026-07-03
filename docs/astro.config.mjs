@@ -15,7 +15,7 @@ import { remarkMermaid } from './src/plugins/remarkMermaid.mjs'
 const site = 'https://docs.caracal.run'
 const ogImage = '/img/caracal.png'
 const description =
-  'Pre-execution authority enforcement for AI agents. Policies, mandates, and audit for production-grade autonomous systems.'
+  'The identity and authorization layer for AI agents. Policy-approved mandates instead of credentials, instant revocation, and tamper-evident audit evidence.'
 
 export default defineConfig({
   output: 'static',
