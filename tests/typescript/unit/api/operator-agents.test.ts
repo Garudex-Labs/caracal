@@ -200,17 +200,17 @@ describe('buildPlannerMessages', () => {
     expect(content).toContain('3 change(s) already applied')
   })
 
-  it('grounds the planner with durable zone memory carried across conversations', () => {
+  it('grounds the planner with the durable memory of this conversation', () => {
     const messages = buildPlannerMessages('register the billing app', {
       facts: null,
       state: null,
-      zoneMemory: [
+      conversationMemory: [
         { text: 'Connect the Hooli OIDC provider', created_at: '2026-06-01T00:00:00Z' },
         { text: 'Register the Son of Anton application', created_at: '2026-06-02T00:00:00Z' },
       ],
     })
     const content = messages[1].content
-    expect(content).toContain('Durable zone memory')
+    expect(content).toContain('Durable memory of this chat')
     expect(content).toContain('history only, not current state')
     expect(content).toContain('Connect the Hooli OIDC provider')
     expect(content).toContain('Register the Son of Anton application')
@@ -220,7 +220,7 @@ describe('buildPlannerMessages', () => {
     const messages = buildPlannerMessages('register the billing app', {
       facts: null,
       state: null,
-      zoneMemory: [{ text: 'Register the Son of Anton application', created_at: '2026-06-02T00:00:00Z' }],
+      conversationMemory: [{ text: 'Register the Son of Anton application', created_at: '2026-06-02T00:00:00Z' }],
     })
     const content = messages[1].content
     expect(content).toContain('SOURCE OF TRUTH FOR EXISTENCE')

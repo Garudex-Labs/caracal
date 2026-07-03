@@ -1552,7 +1552,7 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/plan/execute', () =>
     expect(redis.eval).toHaveBeenCalled()
   })
 
-  it('records durable zone memory of a plan it actually applied', async () => {
+  it('records durable conversation memory of a plan it actually applied', async () => {
     const fetchMock = controlFetch([{ id: 'grant-xyz' }])
     const { app, clientQuery } = buildApp(true, { ...governedControl, fetchImpl: fetchMock as unknown as typeof fetch })
     const executionTurn = {
@@ -2609,7 +2609,7 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
       .mockResolvedValueOnce({ rows: [] }) // error rows
       .mockResolvedValueOnce({ rows: [] }) // messages
       .mockResolvedValueOnce({ rows: [] }) // facts
-      .mockResolvedValueOnce({ rows: [] }) // zone memory recall
+      .mockResolvedValueOnce({ rows: [] }) // conversation memory recall
       .mockResolvedValueOnce({ rows: [{ name: 'Pied Piper Production', slug: 'z1' }] }) // operating zone
       .mockResolvedValueOnce({ rows: [] }) // previewPlan: application name free
     // plan turn persist
@@ -2677,7 +2677,7 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
       .mockResolvedValueOnce({ rows: [] }) // error rows
       .mockResolvedValueOnce({ rows: [] }) // messages
       .mockResolvedValueOnce({ rows: [] }) // facts
-      .mockResolvedValueOnce({ rows: [] }) // zone memory recall
+      .mockResolvedValueOnce({ rows: [] }) // conversation memory recall
       .mockResolvedValueOnce({ rows: [{ name: 'Pied Piper Production', slug: 'z1' }] }) // operating zone
       .mockResolvedValueOnce({ rows: [] }) // previewPlan: application name free
       .mockResolvedValueOnce({ rows: [{ writes: 2 }] }) // prior autopilot-approved writes
@@ -2741,7 +2741,7 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
       .mockResolvedValueOnce({ rows: [] }) // error rows
       .mockResolvedValueOnce({ rows: [] }) // messages
       .mockResolvedValueOnce({ rows: [] }) // facts
-      .mockResolvedValueOnce({ rows: [] }) // zone memory recall
+      .mockResolvedValueOnce({ rows: [] }) // conversation memory recall
       .mockResolvedValueOnce({ rows: [{ name: 'Pied Piper Production', slug: 'z1' }] }) // operating zone
       .mockResolvedValueOnce({ rows: [] }) // previewPlan: application name free
       .mockResolvedValueOnce({ rows: [{ writes: 2 }] }) // prior autopilot-approved writes exhaust the budget
