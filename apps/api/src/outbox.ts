@@ -18,7 +18,7 @@ export interface OutboxRow {
   attempts: number
 }
 
-interface ClientLike {
+export interface ClientLike {
   query: <T = unknown>(text: string, params?: unknown[]) => Promise<{ rows: T[]; rowCount?: number | null }>
 }
 

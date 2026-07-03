@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Admin audit log: structured per-action records of every authenticated mutation.
+// Admin audit log: structured per-action records of every authenticated mutation, recorded before the response is reported as success.
 
 import { pathOnly } from '@caracalai/core'
 import { MUTATING_METHODS, insertAdminAuditRecord } from '@caracalai/admin-audit'
@@ -70,11 +70,11 @@ export interface AuditPluginOptions {
 export function registerAdminAuditHook(app: FastifyInstance, opts: AuditPluginOptions): void {
   if (opts.enabled === false) return
 
-  app.addHook('onResponse', async (req: FastifyRequest, reply: FastifyReply) => {
-    if (!req.url.startsWith('/v1/')) return
+  app.addHook('onSend', async (req: FastifyRequest, reply: FastifyReply, payload: unknown) => {
+    if (!req.url.startsWith('/v1/')) return payload
 
     const success = reply.statusCode < 400
-    if (!MUTATING_METHODS.has(req.method) && success && !isProviderOAuthCallback(req.method, req.url)) return
+    if (!MUTATING_METHODS.has(req.method) && success && !isProviderOAuthCallback(req.method, req.url)) return payload
 
     const actor: Actor | null = req.actor ?? null
     const entity = entityFromUrl(req.url)
@@ -106,7 +106,16 @@ export function registerAdminAuditHook(app: FastifyInstance, opts: AuditPluginOp
         ),
       )
     } catch (err) {
-      req.log.warn({ err, requestId: req.id }, 'failed to record admin audit event')
+      // A successful mutation whose audit record cannot be persisted must not be reported
+      // as success; a failure response is already the safe outcome, so its audit loss is
+      // logged loudly without altering the reply.
+      if (success) {
+        req.log.error({ err, requestId: req.id }, 'admin audit record could not be persisted; refusing to report success')
+        reply.code(500)
+        return JSON.stringify({ error: 'audit_unavailable', message: 'operation applied but its audit record could not be persisted' })
+      }
+      req.log.error({ err, requestId: req.id }, 'failed to record admin audit event')
     }
+    return payload
   })
 }

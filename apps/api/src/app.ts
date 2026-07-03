@@ -516,6 +516,7 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
       redis,
       auditHmacKey: cfg.auditHmacKey,
       controlLogLevel: cfg.logLevel,
+      auditOutbox: db,
       resolveOperatorSubjects: () => {
         const identity = currentIdentity()
         return identity ? new Set([identity.researcher.applicationId, identity.executor.applicationId]) : null
