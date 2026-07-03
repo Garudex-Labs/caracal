@@ -80,9 +80,7 @@ export interface SkillRegistry {
 // they are surfaced to whoever decides, but they never gate the plan and never enter the
 // approval decision. Approval is decided solely by the human gate or, when the operator engaged
 // it, the deployment's configured autopilot policy.
-export type PlanReview =
-  | { status: 'reviewed'; advisory: SecurityAdvisory }
-  | { status: 'review_failed'; reason: string }
+export type PlanReview = { status: 'reviewed'; advisory: SecurityAdvisory } | { status: 'review_failed'; reason: string }
 
 export type OrchestrationOutcome =
   | { kind: 'plan'; result: AgentResult<ProposedPlanInput>; review?: PlanReview; guidance?: string }
@@ -229,9 +227,12 @@ async function withEvidence(context: AgentContext, researcher: Researcher | null
   if (!researcher) return { ...context, liveStateUnavailable: true }
   try {
     const blackboard = await researcher.gather(domains)
-    return blackboard.evidence.length > 0 ? { ...context, evidence: blackboard.evidence } : context
+    if (blackboard.evidence.length > 0) return { ...context, evidence: blackboard.evidence }
+    return { ...context, liveStateUnavailable: true }
   } catch {
-    return context
+    // A failed gather leaves the turn blind, and the agents must know it: an unmarked fallback
+    // would let memory masquerade as live state.
+    return { ...context, liveStateUnavailable: true }
   }
 }
 

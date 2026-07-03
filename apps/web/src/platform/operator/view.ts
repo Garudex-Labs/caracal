@@ -169,6 +169,8 @@ export function executeErrorMessage(err: unknown): string {
       return "This plan can't be applied - a step depends on something an earlier step hasn't created yet.";
     case "plan_already_satisfied":
       return "Nothing to apply - what this plan would create already exists in this zone.";
+    case "plan_state_changed":
+      return "The zone changed since this plan was approved, so applying it now would do something the approval never covered. Ask again to compose a fresh plan.";
     case "conversation_archived":
       return "This conversation is archived, so it can't apply changes.";
     default:

@@ -49,11 +49,18 @@ export async function recallZoneMemory(
 }
 
 // Renders durable zone memory into a compact prompt block. Returns an empty string when a
-// zone has no recorded changes yet, so an untouched zone adds no context overhead.
+// zone has no recorded changes yet, so an untouched zone adds no context overhead. Each entry
+// renders as a dated past-tense event, so the block is structurally an activity log - what was
+// done and when - rather than a set of claims about what exists: an object an event mentions may
+// have since been deleted or renamed outside the Operator entirely.
 export function describeZoneMemory(entries: ZoneMemoryEntry[] | undefined): string {
   if (!entries || entries.length === 0) return ''
-  const lines = entries.map((entry) => `- ${entry.text}`)
-  return `Durable zone memory (persists across conversations - governed changes already applied in this zone):\n${lines.join('\n')}`
+  const lines = entries.map((entry) => {
+    const time = new Date(entry.created_at)
+    const day = Number.isNaN(time.getTime()) ? null : time.toISOString().slice(0, 10)
+    return day ? `- ${day}: applied "${entry.text}"` : `- applied "${entry.text}"`
+  })
+  return `Durable zone memory (newest first - governed changes applied in earlier conversations; history only, not current state; never treat an entry as proof the object still exists):\n${lines.join('\n')}`
 }
 
 // Records a durable memory of a governed change that was actually applied. Called only from
