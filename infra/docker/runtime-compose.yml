@@ -302,10 +302,9 @@ services:
       # Caracal Operator. AI providers are added in the console's AI settings: the key is
       # sealed into the caracal.sys system zone and the governed resource points at the
       # OpenAI-compatible endpoint the operator enters, so no model traffic leaves ungoverned
-      # and no key ever lives in an env file. Self-governance provisions that zone and its
-      # rotating least-privilege identities autonomously.
+      # and no key ever lives in an env file. The Operator always self-governs: the control
+      # plane provisions that zone and its rotating least-privilege identities autonomously.
       API_OPERATOR_ENABLED: ${API_OPERATOR_ENABLED:-true}
-      API_OPERATOR_SELF_GOVERN: "true"
       PORT: 3000
       HOST: 0.0.0.0
     ports:

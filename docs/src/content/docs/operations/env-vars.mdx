@@ -98,7 +98,6 @@ The API service runs the Control plane in-process and powers the Caracal Operato
 | `API_OPERATOR_AI_<ID>_CONTEXT_WINDOW` | no | `0` | Context-window hint for provider `<ID>`; `0` leaves it unset. |
 | `API_OPERATOR_AI_MAX_OUTPUT_TOKENS` | no | `4096` | Per-call ceiling on generated tokens. |
 | `API_OPERATOR_AI_MAX_CALLS_PER_TURN` | no | `12` | Per-turn budget on model calls. |
-| `API_OPERATOR_SELF_GOVERN` | no | `false` | Lets the Operator self-govern the `caracal.sys` system zone; requires the Control plane. Role credentials are generated and rotated autonomously. |
 | `API_OPERATOR_ALLOWED_CAPABILITIES` | no | built-in set | Overrides the Operator's state-changing capability allowlist. |
 | `API_OPERATOR_SYSTEM_ZONES` | no | empty | Additional zones marked as system zones the Operator must not act in. |
 | `API_OPERATOR_AUTOPILOT_ENABLED` | no | `false` | Master switch; when on, an agent-mode conversation that engages autopilot has every plan auto-approved. The governed execute path still enforces the capability allowlist, least-privilege token, and zone isolation. |

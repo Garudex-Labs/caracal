@@ -394,11 +394,6 @@ services:
       API_OPERATOR_AI_LOCAL_MODEL: ${API_OPERATOR_AI_LOCAL_MODEL:-}
       API_OPERATOR_AI_LOCAL_API_KEY: ${API_OPERATOR_AI_LOCAL_API_KEY:-}
       API_OPERATOR_AI_LOCAL_CONTEXT_WINDOW: ${API_OPERATOR_AI_LOCAL_CONTEXT_WINDOW:-}
-      # Operator self-governance: when enabled the Operator provisions and self-governs the
-      # reserved caracal.sys system zone, executing through the governed control plane as
-      # least-privilege role identities whose short-lived credentials are generated and rotated
-      # autonomously; there is no credential knob. Internal-only.
-      API_OPERATOR_SELF_GOVERN: ${API_OPERATOR_SELF_GOVERN:-true}
       # Caracal-governed autopilot master switch. On by default for local dev so an agent-mode
       # conversation that engages autopilot has its plan approvals auto-satisfied; set to false to
       # require human approval again.
