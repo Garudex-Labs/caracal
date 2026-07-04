@@ -12,7 +12,7 @@
 - Must run on Node 24+ and keep release binaries produced by the existing Bun compile scripts.
 - Must keep runtime handlers thin: parse flags, call package APIs, format output, and set exit codes.
 - Must resolve stack mode through stamped version constants with explicit environment override only.
-- Must resolve workload identity for `caracal run` only from `CARACAL_APPLICATION_ID` plus a client secret source, and fetch credential bindings from the STS run manifest.
+- Must resolve workload identity for `caracal run` only from `CARACAL_WORKLOAD_ID` plus a workload secret source, and fetch credential bindings from the STS run manifest.
 - Must scrub tokens, credentials, and sensitive environment values from errors and streamed output.
 
 ## Forbidden

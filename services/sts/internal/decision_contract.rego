@@ -115,6 +115,18 @@ principal_has_prefix(prefix) if {
 	startswith(label, prefix)
 }
 
+# A workload minting one bound runtime credential during caracal run. The binding a
+# zone admin authored in the console is the grant: it names the resource, the scopes,
+# and the env var, and STS resolves it server-side so the request wire carries no
+# authority. No agent, delegation, or subject context may ride along.
+workload_mint if {
+	input.principal.type == "Workload"
+	input.action.id == "CredentialInjection"
+	not input.context.subject_claims
+	not input.delegation_edge
+	not input.context.agent_session_id
+}
+
 # A spawned agent presenting its minted mandate at the Gateway. The mandate must be
 # delegation-bound and name this resource in its target audience, and the Gateway
 # exchange requests no scopes: authority rides in the mandate claims. Per-operation
@@ -218,6 +230,14 @@ result := mint_allow(sprintf("caracal-%s-mint", [principal_app])) if {
 	principal_owns_resource
 	delegated_mint
 	mint_role_allowed
+	not restriction_denied
+	not malformed_approval_declarations
+}
+
+# A workload minting a bound runtime credential. Restrictions and approval-gated risk
+# tiers subtract and gate exactly as they do for application mints.
+result := mint_allow("caracal-workload-mint") if {
+	workload_mint
 	not restriction_denied
 	not malformed_approval_declarations
 }
