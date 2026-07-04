@@ -52,7 +52,7 @@ An edge bounds **the token issued for that edge** and **any further edge chained
 
 - When a child is created with a **narrowing grant**, a `source → child` edge is recorded. A token exchange that presents this edge is bounded to the edge's scopes, and the coordinator enforces that any edge chained from the child is a subset of it (`scopes ⊆ parent`, plus TTL, hop, budget, and resource narrowing).
 - When a child is created with **inherit** (the default) under a **narrowed parent**, the coordinator **mirrors the parent's edge onto the child** in the same spawn transaction - a `parent → child` edge copying the parent's exact scopes, resource, constraints, and expiry. Least-privilege is therefore **transitive by default**: an inherit child cannot exceed its parent's narrowing.
-- When a child is created with **inherit** under a **root parent** (one that holds the application's full authority with no inbound edge), no edge is recorded and the child runs under the application's authority bounded by policy. There is nothing narrower to carry forward.
+- When a child is created with **inherit** under a **root parent** (one that holds the application's full authority with no inbound edge), no edge is recorded and the child runs under the application's policy-bounded authority. There is nothing narrower to carry forward - and because the decision contract mints resource mandates only over a delegation edge, an edge-less session cannot present *delegated* authority at all.
 
 Worked example: A spawns B with `grant=narrow([tickets:read])`, then B spawns C.
 
@@ -63,15 +63,15 @@ The consequence: the **application plus policy** is the hard, server-enforced bo
 
 ## SDK Relationship
 
-The SDKs expose one primitive for creating children and one for granting a peer:
+The SDKs expose one primitive for creating children, one for granting a peer, and one for presenting a received grant:
 
-| Language | Spawn a child | Grant to an existing peer |
-| --- | --- | --- |
-| TypeScript | `spawn()` / `spawn({ grant })` | `delegate()` |
-| Python | `spawn()` / `spawn(grant=…)` | `delegate()` |
-| Go | `Spawn()` / `Spawn` with `Grant` | `Delegate()` |
+| Language | Spawn a child | Grant to an existing peer | Present a received grant |
+| --- | --- | --- | --- |
+| TypeScript | `spawn()` / `spawn({ grant })` | `delegate()` | `adoptDelegation()` |
+| Python | `spawn()` / `spawn(grant=…)` | `delegate()` | `adopt_delegation()` |
+| Go | `Spawn()` / `Spawn` with `Grant` | `Delegate()` | `AdoptDelegation()` |
 
-`spawn()` returns a child running under the **same application's** authority - it never moves a child into a different application. Pass a **narrowing grant** (`Grant.narrow([...])`, `Grant.narrow(...)`, or `GrantNarrow(...)`) to bind a least-privilege delegation edge to the child, or `Grant.none()` for a child with no inherited authority. To hand authority across applications, use `delegate()`, which records an edge to an already-existing peer session under that other application.
+`spawn()` returns a child running under the **same application's** authority - it never moves a child into a different application. Pass a **narrowing grant** (`Grant.narrow([...])`, `Grant.narrow(...)`, or `GrantNarrow(...)`) to bind a least-privilege delegation edge to the child, or `Grant.none()` for a child with no inherited authority. To hand authority across applications, use `delegate()`, which records an edge to an already-existing peer session under that other application and returns the edge. The issuer's own context is unchanged - issuing an edge grants authority to the receiver, not the issuer - so the receiving session presents the edge by deriving its context with `adoptDelegation()`.
 
 These helpers propagate session and delegation context so later token exchanges include the correct graph proof.
 
