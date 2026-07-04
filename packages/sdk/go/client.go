@@ -18,6 +18,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	oauth "github.com/garudex-labs/caracal/packages/oauth/go"
@@ -40,6 +41,7 @@ type Caracal struct {
 
 	agentStartHooks []LifecycleHook
 	agentEndHooks   []LifecycleHook
+	invalidate      func()
 }
 
 // TokenSource returns an application subject token for root SDK operations.
@@ -169,13 +171,15 @@ func FromClientSecret(opts ClientSecretOptions) (*Caracal, error) {
 	if len(opts.Resources) == 0 {
 		return nil, fmt.Errorf("caracal: FromClientSecret requires at least one resource")
 	}
+	source, invalidate := clientSecretTokenSource(opts)
 	return &Caracal{
 		Coordinator:   &CoordinatorClient{BaseURL: opts.CoordinatorURL},
 		ZoneID:        opts.ZoneID,
 		ApplicationID: opts.ApplicationID,
-		TokenSource:   clientSecretTokenSource(opts),
+		TokenSource:   source,
 		GatewayURL:    opts.GatewayURL,
 		Resources:     sortBindingsLongestFirst(opts.ResourceBindings),
+		invalidate:    invalidate,
 	}, nil
 }
 
@@ -263,7 +267,11 @@ func stsURLFromEnv() (string, error) {
 	return serviceURL("CARACAL_STS_URL", defaultSTSURL)
 }
 
-func clientSecretTokenSource(opts ClientSecretOptions) TokenSource {
+// clientSecretTokenSource returns a token source backed by the caching STS
+// exchange client, plus an invalidate hook that forces the next call to mint
+// a fresh token (a verifier can reject a cached token before its exp after a
+// server-side revocation).
+func clientSecretTokenSource(opts ClientSecretOptions) (TokenSource, func()) {
 	client := oauth.NewClient(opts.STSURL, opts.ZoneID, opts.ApplicationID, nil)
 	if opts.HTTPClient != nil {
 		client.SetHTTPClient(opts.HTTPClient)
@@ -272,16 +280,29 @@ func clientSecretTokenSource(opts ClientSecretOptions) TokenSource {
 	if scope == "" {
 		scope = "agent:lifecycle"
 	}
-	return func(ctx context.Context) (string, error) {
+	var mu sync.Mutex
+	force := false
+	source := func(ctx context.Context) (string, error) {
+		mu.Lock()
+		refresh := force
+		force = false
+		mu.Unlock()
 		token, err := client.ExchangeResources(ctx, "", opts.Resources, oauth.ExchangeOptions{
 			ClientSecret: opts.ClientSecret,
 			Scopes:       []string{scope},
+			ForceRefresh: refresh,
 		})
 		if err != nil {
 			return "", err
 		}
 		return token.AccessToken, nil
 	}
+	invalidate := func() {
+		mu.Lock()
+		force = true
+		mu.Unlock()
+	}
+	return source, invalidate
 }
 
 // sortBindingsLongestFirst returns a copy of bindings sorted by upstream prefix
@@ -888,6 +909,8 @@ func (c *Caracal) Spawn(ctx context.Context, fn func(context.Context) error, opt
 		ZoneID:        c.ZoneID,
 		ApplicationID: c.ApplicationID,
 		SubjectToken:  subjectToken,
+		TokenSource:   c.TokenSource,
+		Invalidate:    c.invalidate,
 		ParentID:      o.ParentID,
 		Grant:         o.Grant,
 		TTLSeconds:    ttl,
@@ -901,6 +924,7 @@ func (c *Caracal) Spawn(ctx context.Context, fn func(context.Context) error, opt
 
 // ServiceOptions overrides defaults for a single Service call.
 type ServiceOptions struct {
+	Grant      Grant
 	TTLSeconds int
 	ParentID   string
 	Metadata   map[string]any
@@ -934,7 +958,10 @@ func (c *Caracal) SpawnService(ctx context.Context, opts ...ServiceOptions) (*Se
 		ZoneID:        c.ZoneID,
 		ApplicationID: c.ApplicationID,
 		SubjectToken:  subjectToken,
+		TokenSource:   c.TokenSource,
+		Invalidate:    c.invalidate,
 		ParentID:      o.ParentID,
+		Grant:         o.Grant,
 		TTLSeconds:    ttl,
 		Metadata:      o.Metadata,
 		Labels:        o.Labels,
@@ -968,10 +995,11 @@ func (c *Caracal) Delegate(ctx context.Context, opts DelegateOptions, fn func(co
 // CaracalContext is bound, and optional bearer verification at the inbound
 // boundary. Verify is invoked by BindFromRequest with the inbound token and
 // must return an error to reject the request; back it with the identity
-// package so binding happens only after the mandate is proven.
+// package so binding happens only after the mandate is proven. Claims the
+// verifier returns take precedence over the caller-supplied envelope.
 type RootOptions struct {
 	AllowRoot bool
-	Verify    func(context.Context, string) error
+	Verify    func(context.Context, string) (*VerifiedClaims, error)
 }
 
 func allowRoot(opts []RootOptions) bool {
@@ -1002,13 +1030,15 @@ func (c *Caracal) Headers(ctx context.Context, opts ...RootOptions) (http.Header
 
 // BindFromRequest extracts the envelope from an inbound request and returns a
 // context bound with the resulting CaracalContext. When RootOptions.Verify is
-// set, the inbound bearer is verified before binding.
+// set, the inbound bearer is verified before binding and any claims it returns
+// override the envelope, so a forged envelope cannot outrun the token.
 func (c *Caracal) BindFromRequest(ctx context.Context, r *http.Request, opts ...RootOptions) (context.Context, error) {
 	var opt RootOptions
 	if len(opts) > 0 {
 		opt = opts[0]
 	}
 	env := FromHTTPRequest(r)
+	var claims *VerifiedClaims
 	if env.SubjectToken == "" {
 		if !opt.AllowRoot {
 			return ctx, fmt.Errorf("caracal: BindFromRequest missing bearer token")
@@ -1019,11 +1049,38 @@ func (c *Caracal) BindFromRequest(ctx context.Context, r *http.Request, opts ...
 		}
 		env.SubjectToken = subjectToken
 	} else if opt.Verify != nil {
-		if err := opt.Verify(ctx, env.SubjectToken); err != nil {
+		verified, err := opt.Verify(ctx, env.SubjectToken)
+		if err != nil {
 			return ctx, err
 		}
+		claims = verified
 	}
-	cc, err := FromEnvelope(env, c.ZoneID, c.ApplicationID)
+	zoneID := c.ZoneID
+	applicationID := c.ApplicationID
+	if claims != nil {
+		if claims.ZoneID != "" {
+			zoneID = claims.ZoneID
+		}
+		if claims.ApplicationID != "" {
+			applicationID = claims.ApplicationID
+		}
+		if claims.AgentSessionID != "" {
+			env.AgentSessionID = claims.AgentSessionID
+		}
+		if claims.DelegationEdgeID != "" {
+			env.DelegationEdgeID = claims.DelegationEdgeID
+		}
+		if claims.ParentEdgeID != "" {
+			env.ParentEdgeID = claims.ParentEdgeID
+		}
+		if claims.SessionID != "" {
+			env.SessionID = claims.SessionID
+		}
+		if claims.Hop != nil {
+			env.Hop = *claims.Hop
+		}
+	}
+	cc, err := FromEnvelope(env, zoneID, applicationID)
 	if err != nil {
 		return ctx, err
 	}

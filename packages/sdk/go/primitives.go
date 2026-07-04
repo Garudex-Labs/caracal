@@ -60,6 +60,8 @@ type SpawnInput struct {
 	ZoneID           string
 	ApplicationID    string
 	SubjectToken     string
+	TokenSource      func(context.Context) (string, error)
+	Invalidate       func()
 	SubjectSessionID string
 	ParentID         string
 	Grant            Grant
@@ -71,59 +73,110 @@ type SpawnInput struct {
 	OnAgentEnd       LifecycleHook
 }
 
-// Spawn spawns a child agent session, runs fn with the bound CaracalContext,
-// then terminates the session. The child inherits its application's authority
-// by default; set Grant to GrantNarrow(...) to issue a bounded delegation edge
-// so the child holds only a subset of scopes.
-func Spawn(ctx context.Context, opts SpawnInput, fn func(context.Context) error) error {
-	grant := opts.Grant
+type sessionInput struct {
+	coordinator      *CoordinatorClient
+	zoneID           string
+	applicationID    string
+	subjectToken     string
+	tokenSource      func(context.Context) (string, error)
+	invalidate       func()
+	subjectSessionID string
+	parentID         string
+	grant            Grant
+	ttlSeconds       int
+	metadata         map[string]any
+	labels           []string
+	traceID          string
+}
+
+type session struct {
+	agentSessionID string
+	ctx            CaracalContext
+	bearer         func(context.Context) (string, error)
+}
+
+// retire terminates a session on a cleanup path. It detaches from the caller's
+// cancellation so an expired or canceled caller context cannot strand the
+// session, and resolves a fresh bearer when a token source is configured.
+func retire(ctx context.Context, coordinator *CoordinatorClient, bearer func(context.Context) (string, error), zoneID, agentSessionID string) error {
+	cleanupCtx := context.WithoutCancel(ctx)
+	token, err := bearer(cleanupCtx)
+	if err != nil {
+		return err
+	}
+	return TerminateAgent(cleanupCtx, coordinator, token, zoneID, agentSessionID)
+}
+
+func establishSession(ctx context.Context, in sessionInput, lifecycle Lifecycle) (*session, error) {
+	grant := in.grant
 	if grant.Mode == "" {
 		grant.Mode = GrantModeInherit
 	}
-	parent, _ := Current(ctx)
-	parentID := opts.ParentID
+	parent, hasParent := Current(ctx)
+	parentID := in.parentID
 	if parentID == "" {
 		parentID = parent.AgentSessionID
+	}
+	token := in.subjectToken
+	bearer := func(c context.Context) (string, error) {
+		if in.tokenSource != nil {
+			return in.tokenSource(c)
+		}
+		return token, nil
 	}
 
 	var inheritParentEdgeID string
 	if grant.Mode == GrantModeInherit && parent.AgentSessionID != "" &&
-		parent.DelegationEdgeID != "" && opts.ApplicationID == parent.ApplicationID {
+		parent.DelegationEdgeID != "" && in.applicationID == parent.ApplicationID {
 		inheritParentEdgeID = parent.DelegationEdgeID
 	}
-
-	res, err := SpawnAgent(ctx, opts.Coordinator, opts.SubjectToken, SpawnRequest{
-		ZoneID:              opts.ZoneID,
-		ApplicationID:       opts.ApplicationID,
-		SubjectSessionID:    opts.SubjectSessionID,
+	req := SpawnRequest{
+		ZoneID:              in.zoneID,
+		ApplicationID:       in.applicationID,
+		SubjectSessionID:    in.subjectSessionID,
 		ParentID:            parentID,
-		TTLSeconds:          opts.TTLSeconds,
-		Metadata:            opts.Metadata,
-		Labels:              opts.Labels,
+		Lifecycle:           lifecycle,
+		TTLSeconds:          in.ttlSeconds,
+		Metadata:            in.metadata,
+		Labels:              in.labels,
 		InheritParentEdgeID: inheritParentEdgeID,
-	})
+	}
+	res, err := SpawnAgent(ctx, in.coordinator, token, req)
 	if err != nil {
-		return err
+		// A cached token can be rejected before its exp (server-side session
+		// revocation after a credential rotation); force one refresh and retry
+		// the spawn once.
+		var coordErr *CoordinatorError
+		if !errors.As(err, &coordErr) || coordErr.StatusCode != 401 || in.invalidate == nil || in.tokenSource == nil {
+			return nil, err
+		}
+		in.invalidate()
+		if token, err = in.tokenSource(ctx); err != nil {
+			return nil, err
+		}
+		if res, err = SpawnAgent(ctx, in.coordinator, token, req); err != nil {
+			return nil, err
+		}
 	}
 
 	delegationEdgeID := res.DelegationEdgeID
 	hop := parent.Hop
-	if delegationEdgeID != "" {
+	if delegationEdgeID != "" && hasParent {
 		hop = parent.Hop + 1
 	}
 	if grant.Mode == GrantModeNarrow {
 		if parent.AgentSessionID == "" {
-			return errors.Join(
+			return nil, errors.Join(
 				errors.New("caracal: grant narrow requires an active parent agent session"),
-				TerminateAgent(ctx, opts.Coordinator, opts.SubjectToken, opts.ZoneID, res.AgentSessionID),
+				retire(ctx, in.coordinator, bearer, in.zoneID, res.AgentSessionID),
 			)
 		}
-		delRes, derr := CreateDelegation(ctx, opts.Coordinator, parent.SubjectToken, DelegationRequest{
-			ZoneID:                opts.ZoneID,
+		delRes, derr := CreateDelegation(ctx, in.coordinator, parent.SubjectToken, DelegationRequest{
+			ZoneID:                in.zoneID,
 			IssuerApplicationID:   parent.ApplicationID,
 			SourceSessionID:       parent.AgentSessionID,
 			TargetSessionID:       res.AgentSessionID,
-			ReceiverApplicationID: opts.ApplicationID,
+			ReceiverApplicationID: in.applicationID,
 			ParentEdgeID:          parent.DelegationEdgeID,
 			ResourceID:            grant.ResourceID,
 			Scopes:                grant.Scopes,
@@ -131,25 +184,25 @@ func Spawn(ctx context.Context, opts SpawnInput, fn func(context.Context) error)
 			TTLSeconds:            grant.TTLSeconds,
 		})
 		if derr != nil {
-			return errors.Join(derr, TerminateAgent(ctx, opts.Coordinator, opts.SubjectToken, opts.ZoneID, res.AgentSessionID))
+			return nil, errors.Join(derr, retire(ctx, in.coordinator, bearer, in.zoneID, res.AgentSessionID))
 		}
 		delegationEdgeID = delRes.DelegationEdgeID
 		hop = parent.Hop + 1
 	}
 
-	traceID := opts.TraceID
+	traceID := in.traceID
 	if traceID == "" {
 		traceID = parent.TraceID
 	}
-	sessionID := opts.SubjectSessionID
+	sessionID := in.subjectSessionID
 	if sessionID == "" {
 		sessionID = parent.SessionID
 	}
 
 	c := CaracalContext{
-		SubjectToken:     opts.SubjectToken,
-		ZoneID:           opts.ZoneID,
-		ApplicationID:    opts.ApplicationID,
+		SubjectToken:     token,
+		ZoneID:           in.zoneID,
+		ApplicationID:    in.applicationID,
 		AgentSessionID:   res.AgentSessionID,
 		DelegationEdgeID: delegationEdgeID,
 		ParentEdgeID:     parent.DelegationEdgeID,
@@ -160,19 +213,44 @@ func Spawn(ctx context.Context, opts SpawnInput, fn func(context.Context) error)
 		Baggage:          parent.Baggage,
 		Hop:              hop,
 	}
+	return &session{agentSessionID: res.AgentSessionID, ctx: c, bearer: bearer}, nil
+}
 
-	child := Bind(ctx, c)
+// Spawn spawns a child agent session, runs fn with the bound CaracalContext,
+// then terminates the session. The child inherits its application's authority
+// by default; set Grant to GrantNarrow(...) to issue a bounded delegation edge
+// so the child holds only a subset of scopes.
+func Spawn(ctx context.Context, opts SpawnInput, fn func(context.Context) error) error {
+	sess, err := establishSession(ctx, sessionInput{
+		coordinator:      opts.Coordinator,
+		zoneID:           opts.ZoneID,
+		applicationID:    opts.ApplicationID,
+		subjectToken:     opts.SubjectToken,
+		tokenSource:      opts.TokenSource,
+		invalidate:       opts.Invalidate,
+		subjectSessionID: opts.SubjectSessionID,
+		parentID:         opts.ParentID,
+		grant:            opts.Grant,
+		ttlSeconds:       opts.TTLSeconds,
+		metadata:         opts.Metadata,
+		labels:           opts.Labels,
+		traceID:          opts.TraceID,
+	}, "")
+	if err != nil {
+		return err
+	}
+
+	child := Bind(ctx, sess.ctx)
 	if opts.OnAgentStart != nil {
-		if err := opts.OnAgentStart(child, c); err != nil {
-			return errors.Join(err, TerminateAgent(ctx, opts.Coordinator, opts.SubjectToken, opts.ZoneID, res.AgentSessionID))
+		if err := opts.OnAgentStart(child, sess.ctx); err != nil {
+			return errors.Join(err, retire(ctx, opts.Coordinator, sess.bearer, opts.ZoneID, sess.agentSessionID))
 		}
 	}
 	runErr := fn(child)
 	if opts.OnAgentEnd != nil {
-		runErr = errors.Join(runErr, opts.OnAgentEnd(child, c))
+		runErr = errors.Join(runErr, opts.OnAgentEnd(child, sess.ctx))
 	}
-	runErr = errors.Join(runErr, TerminateAgent(ctx, opts.Coordinator, opts.SubjectToken, opts.ZoneID, res.AgentSessionID))
-	return runErr
+	return errors.Join(runErr, retire(ctx, opts.Coordinator, sess.bearer, opts.ZoneID, sess.agentSessionID))
 }
 
 // DelegateInput controls delegation edge creation.
@@ -224,8 +302,11 @@ type SpawnServiceInput struct {
 	ZoneID            string
 	ApplicationID     string
 	SubjectToken      string
+	TokenSource       func(context.Context) (string, error)
+	Invalidate        func()
 	SubjectSessionID  string
 	ParentID          string
+	Grant             Grant
 	TTLSeconds        int
 	Metadata          map[string]any
 	Labels            []string
@@ -242,9 +323,12 @@ type SpawnServiceInput struct {
 type ServiceAgent struct {
 	Context     CaracalContext
 	coordinator *CoordinatorClient
+	tokenSource func(context.Context) (string, error)
+	invalidate  func()
 	stop        chan struct{}
-	stopOnce    sync.Once
 	wg          sync.WaitGroup
+	closeOnce   sync.Once
+	closeErr    error
 }
 
 // AgentSessionID returns the service session identifier.
@@ -252,9 +336,35 @@ func (s *ServiceAgent) AgentSessionID() string {
 	return s.Context.AgentSessionID
 }
 
+func (s *ServiceAgent) bearer(ctx context.Context) (string, error) {
+	if s.tokenSource != nil {
+		return s.tokenSource(ctx)
+	}
+	return s.Context.SubjectToken, nil
+}
+
 // Heartbeat renews the service session lease.
 func (s *ServiceAgent) Heartbeat(ctx context.Context) error {
-	return HeartbeatAgent(ctx, s.coordinator, s.Context.SubjectToken, s.Context.ZoneID, s.Context.AgentSessionID)
+	token, err := s.bearer(ctx)
+	if err != nil {
+		return err
+	}
+	err = HeartbeatAgent(ctx, s.coordinator, token, s.Context.ZoneID, s.Context.AgentSessionID)
+	if err == nil {
+		return nil
+	}
+	// A cached token can be rejected before its exp (server-side session
+	// revocation after a credential rotation); force one refresh and retry so
+	// the lease survives the rotation.
+	var coordErr *CoordinatorError
+	if !errors.As(err, &coordErr) || coordErr.StatusCode != 401 || s.invalidate == nil {
+		return err
+	}
+	s.invalidate()
+	if token, err = s.bearer(ctx); err != nil {
+		return err
+	}
+	return HeartbeatAgent(ctx, s.coordinator, token, s.Context.ZoneID, s.Context.AgentSessionID)
 }
 
 func (s *ServiceAgent) startAutoHeartbeat(interval time.Duration) {
@@ -269,7 +379,10 @@ func (s *ServiceAgent) startAutoHeartbeat(interval time.Duration) {
 			case <-s.stop:
 				return
 			case <-ticker.C:
-				if err := s.Heartbeat(context.Background()); err != nil {
+				tickCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				err := s.Heartbeat(tickCtx)
+				cancel()
+				if err != nil {
 					slog.Warn("caracal auto-heartbeat failed; retrying next tick",
 						"agent_session_id", s.Context.AgentSessionID, "err", err)
 				}
@@ -278,67 +391,59 @@ func (s *ServiceAgent) startAutoHeartbeat(interval time.Duration) {
 	}()
 }
 
-// Close retires the service session.
+// Close retires the service session. Idempotent: repeat calls return the
+// first result.
 func (s *ServiceAgent) Close(ctx context.Context) error {
-	if s.stop != nil {
-		s.stopOnce.Do(func() { close(s.stop) })
-		s.wg.Wait()
-	}
-	return TerminateAgent(ctx, s.coordinator, s.Context.SubjectToken, s.Context.ZoneID, s.Context.AgentSessionID)
+	s.closeOnce.Do(func() {
+		if s.stop != nil {
+			close(s.stop)
+			s.wg.Wait()
+		}
+		token, err := s.bearer(ctx)
+		if err != nil {
+			s.closeErr = err
+			return
+		}
+		s.closeErr = TerminateAgent(ctx, s.coordinator, token, s.Context.ZoneID, s.Context.AgentSessionID)
+	})
+	return s.closeErr
 }
 
 // SpawnService spawns a long-lived service agent session and returns a handle
 // the caller owns. The session carries a heartbeat lease; renew it with
-// ServiceAgent.Heartbeat and retire it with ServiceAgent.Close.
+// ServiceAgent.Heartbeat and retire it with ServiceAgent.Close. Set Grant to
+// GrantNarrow(...) to issue a bounded delegation edge so the handle holds only
+// a subset of scopes.
 func SpawnService(ctx context.Context, opts SpawnServiceInput) (*ServiceAgent, error) {
-	parent, _ := Current(ctx)
-	parentID := opts.ParentID
-	if parentID == "" {
-		parentID = parent.AgentSessionID
-	}
-
-	res, err := SpawnAgent(ctx, opts.Coordinator, opts.SubjectToken, SpawnRequest{
-		ZoneID:           opts.ZoneID,
-		ApplicationID:    opts.ApplicationID,
-		SubjectSessionID: opts.SubjectSessionID,
-		ParentID:         parentID,
-		Lifecycle:        LifecycleService,
-		TTLSeconds:       opts.TTLSeconds,
-		Metadata:         opts.Metadata,
-		Labels:           opts.Labels,
-	})
+	sess, err := establishSession(ctx, sessionInput{
+		coordinator:      opts.Coordinator,
+		zoneID:           opts.ZoneID,
+		applicationID:    opts.ApplicationID,
+		subjectToken:     opts.SubjectToken,
+		tokenSource:      opts.TokenSource,
+		invalidate:       opts.Invalidate,
+		subjectSessionID: opts.SubjectSessionID,
+		parentID:         opts.ParentID,
+		grant:            opts.Grant,
+		ttlSeconds:       opts.TTLSeconds,
+		metadata:         opts.Metadata,
+		labels:           opts.Labels,
+		traceID:          opts.TraceID,
+	}, LifecycleService)
 	if err != nil {
 		return nil, err
 	}
-
-	traceID := opts.TraceID
-	if traceID == "" {
-		traceID = parent.TraceID
-	}
-	sessionID := opts.SubjectSessionID
-	if sessionID == "" {
-		sessionID = parent.SessionID
-	}
-
-	c := CaracalContext{
-		SubjectToken:   opts.SubjectToken,
-		ZoneID:         opts.ZoneID,
-		ApplicationID:  opts.ApplicationID,
-		AgentSessionID: res.AgentSessionID,
-		ParentEdgeID:   parent.DelegationEdgeID,
-		SessionID:      sessionID,
-		TraceID:        traceID,
-		TraceFlags:     parent.TraceFlags,
-		TraceState:     parent.TraceState,
-		Baggage:        parent.Baggage,
-		Hop:            parent.Hop,
-	}
 	if opts.OnAgentStart != nil {
-		if err := opts.OnAgentStart(ctx, c); err != nil {
-			return nil, errors.Join(err, TerminateAgent(ctx, opts.Coordinator, opts.SubjectToken, opts.ZoneID, res.AgentSessionID))
+		if err := opts.OnAgentStart(ctx, sess.ctx); err != nil {
+			return nil, errors.Join(err, retire(ctx, opts.Coordinator, sess.bearer, opts.ZoneID, sess.agentSessionID))
 		}
 	}
-	agent := &ServiceAgent{Context: c, coordinator: opts.Coordinator}
+	agent := &ServiceAgent{
+		Context:     sess.ctx,
+		coordinator: opts.Coordinator,
+		tokenSource: opts.TokenSource,
+		invalidate:  opts.Invalidate,
+	}
 	if opts.HeartbeatInterval > 0 {
 		agent.startAutoHeartbeat(opts.HeartbeatInterval)
 	}

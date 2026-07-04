@@ -20,6 +20,19 @@ type CoordinatorClient struct {
 	HTTPClient *http.Client
 }
 
+// CoordinatorError is a non-2xx coordinator response, carrying the status code
+// so callers can branch on it (e.g. refresh a rejected bearer on 401).
+type CoordinatorError struct {
+	Method     string
+	Path       string
+	StatusCode int
+	Body       string
+}
+
+func (e *CoordinatorError) Error() string {
+	return fmt.Sprintf("coordinator %s %s: %d %s", e.Method, e.Path, e.StatusCode, e.Body)
+}
+
 func (c *CoordinatorClient) http() *http.Client {
 	if c.HTTPClient != nil {
 		return c.HTTPClient
@@ -222,9 +235,9 @@ func doJSON(ctx context.Context, client *CoordinatorClient, method, path, bearer
 	if resp.StatusCode >= 300 {
 		raw, readErr := io.ReadAll(resp.Body)
 		if readErr != nil {
-			return fmt.Errorf("coordinator %s %s: %d (reading response body: %w)", method, path, resp.StatusCode, readErr)
+			return &CoordinatorError{Method: method, Path: path, StatusCode: resp.StatusCode, Body: fmt.Sprintf("(reading response body: %v)", readErr)}
 		}
-		return fmt.Errorf("coordinator %s %s: %d %s", method, path, resp.StatusCode, raw)
+		return &CoordinatorError{Method: method, Path: path, StatusCode: resp.StatusCode, Body: string(raw)}
 	}
 
 	if out != nil {
