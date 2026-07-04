@@ -89,7 +89,7 @@ Run `caracal web` and create:
    | `resource://openai` | `https://api.openai.com/v1` |
 
 4. A policy allowing the application to request all three resources.
-5. Launch bindings on the application (its **Run** section): bind
+5. Launch bindings on the console's **Run** page: bind
    `GOOGLE_DRIVE_ACCESS_TOKEN` to `resource://google-drive`,
    `GOOGLE_CALENDAR_ACCESS_TOKEN` to `resource://google-calendar`, and
    `OPENAI_API_KEY` to `resource://openai`, each with credential type
@@ -139,7 +139,7 @@ for this application, so `env.example` carries only
 | --- | --- |
 | `[agent] missing ...` (exit 2) | Launch through `caracal run` with the setup in place. |
 | `workload identity is required to run a command` | Source `.env` or set `CARACAL_APPLICATION_ID` plus a client secret source. |
-| `run manifest not configured` | Define launch bindings in the application's Run section in Console. |
+| `run manifest not configured` | Define launch bindings on the Run page in Console. |
 | Permission error on the secret file | `chmod 600` the file. |
 | `"reason": "step_up_required"` | Approve the challenge in Console; the launcher resumes. |
 | `provider_credential_unavailable:<resource>` | Enable `allow_runtime_injection = true` on the provider. |

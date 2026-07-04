@@ -35,7 +35,7 @@ printf '%s' '<client secret>' > ~/.config/caracal/runtime/<application_id>/clien
 chmod 600 ~/.config/caracal/runtime/<application_id>/client-secret
 ```
 
-The default path is read only in local dev and stable modes; production launches (`NODE_ENV=production`) require explicit secret configuration.
+The default path is read only in local dev and stable modes; production launches (`CARACAL_ENV=production`) require explicit secret configuration.
 
 ## Launch Bindings
 
