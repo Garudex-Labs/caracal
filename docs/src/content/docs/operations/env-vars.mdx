@@ -105,11 +105,25 @@ The API service runs the Control plane in-process and powers the Caracal Operato
 
 ## Runtime Workload Variables
 
-These variables belong to `caracal run` and SDK profile loading, not to service deployment:
+These variables belong to `caracal run` and SDK profile loading, not to service deployment.
+
+`caracal run` reads only workload identity; its credential bindings come from the application's run manifest in the web console:
 
 | Variable | Meaning |
 | --- | --- |
-| `CARACAL_CONFIG` | Explicit runtime profile path. |
+| `CARACAL_APPLICATION_ID` | Confidential application ID. Required. |
+| `CARACAL_APP_CLIENT_SECRET` | Inline local-development client secret. |
+| `CARACAL_APP_CLIENT_SECRET_FILE` | Cloud/custom mounted client-secret file. |
+| `CARACAL_STS_URL` | Cloud/custom STS URL override for token exchange. |
+
+Local dev and stable launches can omit both secret variables and read the
+owner-only file at `<Caracal config dir>/runtime/<application_id>/client-secret`.
+
+SDK profile loading reads:
+
+| Variable | Meaning |
+| --- | --- |
+| `CARACAL_CONFIG` | Explicit SDK profile path. |
 | `CARACAL_STS_URL` or `CARACAL_ZONE_URL` | Cloud/custom STS URL override for token exchange. |
 | `CARACAL_GATEWAY_URL` | Cloud/custom Gateway URL override for SDK transports. |
 | `CARACAL_ZONE_ID` | Zone identifier. |
@@ -121,7 +135,7 @@ These variables belong to `caracal run` and SDK profile loading, not to service 
 | `CARACAL_RESOURCES` | Comma-separated `resource_id=upstream_prefix` bindings for Gateway routing. |
 | `CARACAL_RESOURCES_FILE` | JSON resource binding file for Gateway routing. |
 
-Local dev and stable runtime launches auto-detect credential files from the OS
+Local dev and stable SDK loads auto-detect credential files from the OS
 Caracal config directory. Use the explicit file variables only when a deployment
 mounts secrets somewhere else.
 
