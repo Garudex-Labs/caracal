@@ -19,7 +19,6 @@ const SIGNAL_EXIT_MAP: Record<string, number> = {
   SIGQUIT: 3,
 }
 
-const STEP_UP_POLL_MS = 2000
 const STEP_UP_TIMEOUT_MS = 300_000
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
 const BLOCKED_CREDENTIAL_ENV = new Set([
@@ -89,26 +88,6 @@ export interface BuildRunEnvOptions {
   readonly onLine?: RunLineSink
 }
 
-async function waitForChallenge(zoneUrl: string, challengeId: string): Promise<boolean> {
-  const deadline = Date.now() + STEP_UP_TIMEOUT_MS
-  while (Date.now() < deadline) {
-    try {
-      const res = await fetch(`${zoneUrl}/step-up/${challengeId}`)
-      if (res.status === 404 || res.status === 410) {
-        throw new Error(`step_up_challenge_expired (${res.status})`)
-      }
-      if (res.ok) {
-        const data = (await res.json()) as { satisfied: boolean }
-        if (data.satisfied) return true
-      }
-    } catch (err) {
-      if (err instanceof Error && err.message.startsWith('step_up_challenge_expired')) throw err
-    }
-    await new Promise((resolve) => setTimeout(resolve, STEP_UP_POLL_MS))
-  }
-  return false
-}
-
 function runTTLSeconds(cfg: RuntimeConfig): number {
   return cfg.ttl_seconds ?? DEFAULT_RUN_TTL_SECONDS
 }
@@ -138,10 +117,21 @@ async function exchangeWithStepUp(client: OAuthClient, cfg: RuntimeConfig, cred:
     return injectedCredential(cred.resource, type, token)
   } catch (err) {
     if (!(err instanceof InteractionRequiredError) || !err.challengeId) throw err
-    onLine?.(JSON.stringify({ resource: cred.resource, challenge_id: err.challengeId, reason: 'step_up_required' }), 'stderr')
-    const satisfied = await waitForChallenge(cfg.zone_url, err.challengeId)
-    if (!satisfied) throw new Error('step_up_challenge_timed_out')
-    const token = await client.exchange('', cred.resource, exchangeOptions)
+    // The hold's id and binding go to stderr so whatever surface supervises this
+    // runtime can relay them to an approver; the runtime itself just waits.
+    onLine?.(
+      JSON.stringify({
+        resource: cred.resource,
+        challenge_id: err.challengeId,
+        binding: err.binding,
+        expires_at: err.expiresAt,
+        reason: 'approval_required',
+      }),
+      'stderr',
+    )
+    const state = await client.waitForApproval(err.challengeId, { timeoutMs: STEP_UP_TIMEOUT_MS })
+    if (state !== 'approved') throw new Error(`approval_${state}`)
+    const token = await client.exchange('', cred.resource, { ...exchangeOptions, challengeId: err.challengeId })
     return injectedCredential(cred.resource, type, token)
   }
 }

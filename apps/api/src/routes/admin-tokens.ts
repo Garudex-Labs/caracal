@@ -18,10 +18,11 @@ const MintBody = z
     name: z.string().min(1).max(120),
     scope: z.enum(['global', 'zone']),
     zone_id: z.string().min(1).max(128).optional(),
-    // Whether the minted token may mutate state. Defaults to write so an unspecified mint is a
+    // What the minted token may do. Defaults to write so an unspecified mint is a
     // full-capability token exactly as before; a read token is the opt-in least-privilege
-    // credential that cannot change state at the API.
-    capability: z.enum(['read', 'write']).default('write'),
+    // credential that cannot change state at the API; an approve token may read and decide
+    // human-approval holds but mutate nothing else.
+    capability: z.enum(['read', 'write', 'approve']).default('write'),
   })
   .strict()
 

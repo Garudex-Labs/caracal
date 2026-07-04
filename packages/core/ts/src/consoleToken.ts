@@ -11,6 +11,7 @@ import { createHmac } from 'node:crypto'
 // and write credentials independent; versioned so a derivation can be rotated without ambiguity.
 const CONSOLE_READ_TOKEN_LABEL = 'caracal:console:read-only:v1'
 const CONSOLE_WRITE_TOKEN_LABEL = 'caracal:console:write:v1'
+const CONSOLE_APPROVE_TOKEN_LABEL = 'caracal:console:approve:v1'
 
 function deriveConsoleToken(adminToken: string, label: string): string {
   const mac = createHmac('sha256', adminToken).update(label).digest('base64url')
@@ -34,4 +35,12 @@ export function deriveConsoleReadToken(adminToken: string): string {
 // has full authority - so its existence grants nothing new.
 export function deriveConsoleWriteToken(adminToken: string): string {
   return deriveConsoleToken(adminToken, CONSOLE_WRITE_TOKEN_LABEL)
+}
+
+// Derives the Console BFF's approve admin token, the credential it presents on step-up decision
+// traffic. Approval is a distinct authority from write - deciding a human-approval hold is a
+// judgment about one agent action, not a platform configuration change - so it rides its own
+// least-privilege credential: reads plus the decision endpoints, nothing else.
+export function deriveConsoleApproveToken(adminToken: string): string {
+  return deriveConsoleToken(adminToken, CONSOLE_APPROVE_TOKEN_LABEL)
 }
