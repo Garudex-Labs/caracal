@@ -532,9 +532,6 @@ importers:
       '@caracalai/oauth':
         specifier: workspace:*
         version: link:../oauth/ts
-      smol-toml:
-        specifier: ^1.7.0
-        version: 1.7.0
     devDependencies:
       '@types/node':
         specifier: ^26.0.1

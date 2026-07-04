@@ -51,8 +51,7 @@
   "dependencies": {
     "@caracalai/admin": "workspace:*",
     "@caracalai/core": "workspace:*",
-    "@caracalai/oauth": "workspace:*",
-    "smol-toml": "^1.7.0"
+    "@caracalai/oauth": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^26.0.1",
