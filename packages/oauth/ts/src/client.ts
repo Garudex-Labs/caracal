@@ -74,8 +74,11 @@ export class OAuthClient {
     if (!opts.forceRefresh) {
       const cached = this.cache.get(cacheSubject, cacheResource)
       if (cached) {
+        // Cap the preflight window at half the token lifetime so short-lived
+        // tokens are still served from cache instead of re-minted every call.
+        const window = Math.min(preflightWindow, cached.expiresIn / 2)
         const remaining = cached.issuedAt + cached.expiresIn - Date.now() / 1000
-        if (remaining > preflightWindow) return cached
+        if (remaining > window) return cached
       }
     }
 

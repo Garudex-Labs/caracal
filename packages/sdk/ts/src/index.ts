@@ -15,11 +15,16 @@ export type {
   GatewayRequest,
   LifecycleHook,
   RootOptions,
+  TransportOptions,
+  MandateOptions,
   BindOptions,
   TokenSource,
+  ClientSecretExchanger,
   ClientSecretOptions,
   CaracalOptions,
 } from './client.js'
+export { InteractionRequiredError } from '@caracalai/oauth'
+export type { InteractionRequiredDetails } from '@caracalai/oauth'
 export { captureContext, describeAuthority } from './context.js'
 export type { AuthoritySummary, CaracalContext, VerifiedClaims } from './context.js'
 export { CoordinatorError } from './coordinator.js'
