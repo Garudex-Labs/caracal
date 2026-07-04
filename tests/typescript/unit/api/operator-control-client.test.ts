@@ -27,11 +27,11 @@ function endpoints(overrides: Partial<OperatorControlEndpoints> = {}): OperatorC
 
 describe('buildOperatorControlClient', () => {
   it('returns null when the identity is not configured', () => {
-    expect(buildOperatorControlClient(null, 'executor', endpoints())).toBeNull()
+    expect(buildOperatorControlClient({ identity: null, role: 'executor', endpoints: endpoints() })).toBeNull()
   })
 
   it('returns null when the control plane is disabled', () => {
-    expect(buildOperatorControlClient(identity, 'executor', endpoints({ controlEnabled: false }))).toBeNull()
+    expect(buildOperatorControlClient({ identity, role: 'executor', endpoints: endpoints({ controlEnabled: false }) })).toBeNull()
   })
 
   it('builds a client that mints with the named role credential and invokes the configured control plane', async () => {
@@ -43,7 +43,12 @@ describe('buildOperatorControlClient', () => {
       .mockResolvedValueOnce(
         new Response(JSON.stringify({ ok: true, result: [] }), { status: 200, headers: { 'content-type': 'application/json' } }),
       )
-    const client = buildOperatorControlClient(identity, 'researcher', endpoints(), fetchMock as unknown as typeof fetch)
+    const client = buildOperatorControlClient({
+      identity,
+      role: 'researcher',
+      endpoints: endpoints(),
+      fetchImpl: fetchMock as unknown as typeof fetch,
+    })
     expect(client).not.toBeNull()
 
     await client!.invoke('app', 'list', {}, ['control:app:read'])

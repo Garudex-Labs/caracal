@@ -69,9 +69,9 @@ importers:
       '@caracalai/engine':
         specifier: workspace:*
         version: link:../../packages/engine
-      '@caracalai/oauth':
+      '@caracalai/sdk':
         specifier: workspace:*
-        version: link:../../packages/oauth/ts
+        version: link:../../packages/sdk/ts
       '@fastify/swagger':
         specifier: ^9.4.0
         version: 9.7.0

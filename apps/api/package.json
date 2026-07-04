@@ -16,7 +16,7 @@
     "@caracalai/admin-audit": "workspace:*",
     "@caracalai/core": "workspace:*",
     "@caracalai/engine": "workspace:*",
-    "@caracalai/oauth": "workspace:*",
+    "@caracalai/sdk": "workspace:*",
     "@fastify/swagger": "^9.4.0",
     "@fastify/swagger-ui": "^6.0.0",
     "@node-rs/argon2": "^2.0.2",
