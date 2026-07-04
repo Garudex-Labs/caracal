@@ -14,6 +14,7 @@ import httpx
 from caracalai.auth import (
     GRANT_TYPE,
     ApprovalRequired,
+    ClientCredentials,
     ClientSecretExchanger,
     _decode_jwt_exp,
 )
@@ -37,9 +38,9 @@ def _jwt(payload: dict) -> str:
 def _exchanger(**overrides) -> ClientSecretExchanger:
     args = dict(
         sts_url="https://sts.example.com/",
-        zone_id="zone-1",
-        application_id="app-1",
-        client_secret="secret",
+        credentials=lambda: ClientCredentials(
+            zone_id="zone-1", application_id="app-1", client_secret="secret"
+        ),
         resources=["urn:res:a"],
     )
     args.update(overrides)
@@ -74,9 +75,10 @@ class DecodeJwtExpTests(unittest.TestCase):
 
 
 class ConstructorTests(unittest.TestCase):
-    def test_rejects_empty_resources(self):
-        with self.assertRaises(ValueError):
-            _exchanger(resources=[])
+    def test_lifecycle_token_requires_resources(self):
+        ex = _exchanger(resources=[])
+        with self.assertRaisesRegex(RuntimeError, "no resources configured"):
+            ex.get_token()
 
     def test_strips_trailing_slash_from_sts_url(self):
         ex = _exchanger(sts_url="https://sts.example.com///")
