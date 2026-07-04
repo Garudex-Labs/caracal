@@ -56,6 +56,12 @@ const PATHS: Record<string, ReactNode> = {
       <path d="M9 13h.01M15 13h.01" />
     </>
   ),
+  run: (
+    <>
+      <rect x="3" y="4" width="18" height="16" rx="2.5" />
+      <path d="m10 9 5 3-5 3V9Z" />
+    </>
+  ),
   sessions: (
     <>
       <path d="M3 12h4l2 6 4-14 2 8h6" />
