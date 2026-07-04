@@ -18,7 +18,6 @@ import {
   BaggageSession,
   BaggageHop,
   describeAuthority,
-  parseBaggage,
   parseTraceparent,
 } from '../../../../packages/sdk/ts/src/advanced.js'
 
@@ -213,7 +212,7 @@ describe('Caracal.headers', () => {
     const h = c.headers({ allowRoot: true })
     expect(h[HeaderAuthorization]).toBe('Bearer tok')
     expect(parseTraceparent(h[HeaderTraceparent]!)).toBeTruthy()
-    expect(parseBaggage(h[HeaderBaggage])[BaggageHop]).toBe('0')
+    expect(h[HeaderBaggage]).toBeUndefined()
   })
 })
 
@@ -268,6 +267,25 @@ describe('contextMiddleware + bindFromHeaders', () => {
   it('rejects inbound requests without a bearer token by default', async () => {
     const c = new Caracal(baseConfig)
     await expect(c.bindFromHeaders({}, async () => undefined)).rejects.toThrow(/missing a bearer token/)
+  })
+
+  it('runs the verify hook against the inbound token before binding', async () => {
+    const c = new Caracal(baseConfig)
+    const seen: string[] = []
+    await c.bindFromHeaders(
+      { [HeaderAuthorization]: 'Bearer inbound' },
+      async () => undefined,
+      { verify: (token) => void seen.push(token) },
+    )
+    expect(seen).toEqual(['inbound'])
+
+    await expect(
+      c.bindFromHeaders({ [HeaderAuthorization]: 'Bearer inbound' }, async () => undefined, {
+        verify: () => {
+          throw new Error('revoked')
+        },
+      }),
+    ).rejects.toThrow(/revoked/)
   })
 })
 
@@ -408,7 +426,7 @@ describe('caracal.transport', () => {
     const c = new Caracal({ ...baseConfig, coordinator: { baseUrl: 'http://c', fetchImpl: fakeFetch } })
     await c.transport({ allowRoot: true })('http://api/x')
     expect(calls).toHaveLength(1)
-    expect(calls[0].headers.get(HeaderAuthorization)).toBe('Bearer tok')
+    expect(calls[0].headers.get(HeaderAuthorization)).toBeNull()
     expect(parseTraceparent(calls[0].headers.get(HeaderTraceparent)!)).toBeTruthy()
   })
 

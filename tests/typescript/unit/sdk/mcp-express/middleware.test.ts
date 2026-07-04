@@ -150,6 +150,51 @@ describe('caracalAuth middleware', () => {
     })
   })
 
+  it('prefers signed claims over unsigned baggage hints when binding context', async () => {
+    vi.mocked(authenticate).mockResolvedValueOnce({
+      ok: true,
+      principal: {
+        sub: 'user-1',
+        clientId: 'app-1',
+        sid: 'sid-1',
+        rootSid: 'root-1',
+        use: 'resource',
+        subType: 'user',
+        jti: 'jti-1',
+        issuedAt: 1,
+        expiresAt: 2,
+        scope: 'tickets:read',
+        agentSessionId: 'agent-claim',
+        delegationEdgeId: 'edge-claim',
+        hopCount: 1,
+      },
+    })
+    const middleware = caracalAuth({ issuer: 'https://sts.zone1', audience: 'resource://api', zoneId: 'zone-1', revocations })
+    const req = {
+      headers: {
+        authorization: 'Bearer valid.jwt.token',
+        baggage: 'caracal.agent_session=agent-header,caracal.delegation_edge=edge-header,caracal.hop=9',
+      },
+    } as unknown as Request
+    const res = makeMockRes()
+    const next = vi.fn()
+
+    await middleware(req, res as Response, next as unknown as NextFunction)
+
+    expect(next).toHaveBeenCalledOnce()
+    expect(
+      (
+        req as Request & {
+          caracalContext?: { agentSessionId: string; delegationEdgeId: string; hop: number }
+        }
+      ).caracalContext,
+    ).toMatchObject({
+      agentSessionId: 'agent-claim',
+      delegationEdgeId: 'edge-claim',
+      hop: 1,
+    })
+  })
+
   it('maps insufficient scope and agent/delegation failures to forbidden responses', async () => {
     for (const code of ['insufficient_scope', 'agent_required', 'delegation_required', 'chain_mismatch', 'hop_count_exceeded'] as const) {
       const verifier: MandateVerifier = {

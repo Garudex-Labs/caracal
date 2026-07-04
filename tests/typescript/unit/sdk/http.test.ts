@@ -41,23 +41,33 @@ describe('caracalContextMiddleware', () => {
 })
 
 describe('caracalFastifyHook', () => {
-  it('awaits header binding for the request', async () => {
-    const bind = vi.fn(async () => undefined) as unknown as Caracal['bindFromHeaders']
+  it('binds headers and signals done inside the bound scope', async () => {
+    const order: string[] = []
+    const bind = vi.fn(async (_headers, cb: () => Promise<void>) => {
+      order.push('bind')
+      await cb()
+      order.push('unbind')
+    }) as unknown as Caracal['bindFromHeaders']
     const caracal = fakeCaracal(bind)
 
+    const done = vi.fn(() => order.push('done'))
     const hook = caracalFastifyHook(caracal)
-    await hook({ headers: { authorization: 'Bearer y' } })
-    expect(bind).toHaveBeenCalledTimes(1)
+    hook({ headers: { authorization: 'Bearer y' } }, {}, done)
+    await vi.waitFor(() => expect(done).toHaveBeenCalledTimes(1))
+    expect(done).toHaveBeenCalledWith()
+    expect(order).toEqual(['bind', 'done', 'unbind'])
   })
 
-  it('propagates binding rejection', async () => {
+  it('propagates binding rejection through done', async () => {
     const failure = new Error('bind failed')
     const bind = vi.fn(async () => {
       throw failure
     }) as unknown as Caracal['bindFromHeaders']
     const caracal = fakeCaracal(bind)
 
+    const done = vi.fn()
     const hook = caracalFastifyHook(caracal)
-    await expect(hook({ headers: {} })).rejects.toThrow('bind failed')
+    hook({ headers: {} }, {}, done)
+    await vi.waitFor(() => expect(done).toHaveBeenCalledWith(failure))
   })
 })
