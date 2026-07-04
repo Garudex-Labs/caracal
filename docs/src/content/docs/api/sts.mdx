@@ -12,7 +12,8 @@ STS is served on port `8080` and issues scoped Caracal mandate JWTs.
 | --- | --- | --- |
 | `POST` | `/oauth/2/token` | OAuth token exchange for resource, session, Gateway, or delegated mandates. |
 | `GET` | `/.well-known/jwks.json?zone_id={zone}` | Public signing keys for mandate verification, scoped per zone. |
-| `GET` | `/step-up/{id}` | Step-up challenge status. |
+| `GET` | `/step-up/{id}` | Step-up hold state; `?wait={seconds}` long-polls until the state changes. |
+| `POST` | `/step-up/{id}/decision` | Subject-plane approval decision, authenticated with a session mandate. |
 | `GET` | `/health` | Liveness check. |
 | `GET` | `/ready` | Readiness check. |
 | `GET` | `/metrics` | Prometheus metrics. |
@@ -34,11 +35,11 @@ STS is served on port `8080` and issues scoped Caracal mandate JWTs.
 | `client_secret`, `client_assertion`, `client_assertion_type` | Application authentication. |
 | `session_id`, `agent_session_id`, `delegation_edge_id` | Session and delegation anchors. |
 | `ttl_seconds` | Requested TTL. |
-| `challenge_id`, `challenge_response` | Step-up completion. |
+| `challenge_id` | Consumes an approved step-up hold during retry. |
 
 ## Responses
 
-Successful exchanges return an OAuth-style token response with `access_token`, `token_type`, `expires_in`, and related fields. Step-up returns `interaction_required` with challenge data. Errors use the shared `error` and `error_description` shape.
+Successful exchanges return an OAuth-style token response with `access_token`, `token_type`, `expires_in`, and related fields. When policy gates the mint on human approval, the STS answers `401` with `error: interaction_required` plus the hold's `challenge_id`, `challenge_type`, `state`, `tier`, `binding`, and `challenge_expires_at`, so the caller can wait on `/step-up/{id}` and retry. Other errors use the shared `error` and `error_description` shape.
 
 ## Internal Endpoints
 

@@ -13,7 +13,7 @@ STS is the authority issuance boundary. It authenticates applications, validates
 | Port | `8080` |
 | Token exchange | `POST /oauth/2/token` |
 | JWKS | `GET /.well-known/jwks.json?zone_id={zone}` |
-| Step-up status | `GET /step-up/{id}` |
+| Step-up hold state and decision | `GET /step-up/{id}`, `POST /step-up/{id}/decision` |
 | Health/readiness | `GET /health`, `GET /ready` |
 | Metrics | `GET /metrics`, `GET /metrics.json` |
 | Internal policy simulation | `POST /internal/policy/simulate` |
@@ -40,7 +40,7 @@ STS is the authority issuance boundary. It authenticates applications, validates
 
 ## Failure Posture
 
-Invalid client credentials, missing resources, invalid subject tokens, revoked sessions, unsatisfied step-up, policy denial, invalid delegation, and failed Gateway signatures deny exchange. Gateway-authenticated mandate use is additionally held to the resource's native operation floor: an operation that is not declared on an enforced resource, or whose required scope is absent from the mandate, is denied with `operation_not_permitted` independently of policy.
+Invalid client credentials, missing resources, invalid subject tokens, revoked sessions, undecided step-up holds, policy denial, invalid delegation, and failed Gateway signatures deny exchange. Gateway-authenticated mandate use is additionally held to the resource's native operation floor: an operation that is not declared on an enforced resource, or whose required scope is absent from the mandate, is denied with `operation_not_permitted` independently of policy.
 
 ## Next Step
 
