@@ -17,6 +17,7 @@ ARG GO_LDFLAGS
 ENV CGO_ENABLED=${CGO_ENABLED} GOOS=linux
 WORKDIR /build
 COPY go.work go.work
+COPY packages/admin/go/ packages/admin/go/
 COPY packages/core/go/ packages/core/go/
 COPY packages/identity/go/ packages/identity/go/
 COPY packages/oauth/go/ packages/oauth/go/

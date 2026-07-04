@@ -42,6 +42,7 @@ RUN set -e; \
     pnpm --filter @caracalai/engine build; \
     pnpm --filter @caracalai/admin-audit build; \
     pnpm --filter @caracalai/identity build; \
+    pnpm --filter @caracalai/sdk build; \
     pnpm --filter @caracalai/api build; \
     pnpm --filter @caracalai/coordinator build; \
     pnpm --config.inject-workspace-packages=true --filter @caracalai/api deploy --prod /out/api; \
