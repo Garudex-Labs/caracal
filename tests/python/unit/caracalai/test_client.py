@@ -349,7 +349,29 @@ class HeadersTests(unittest.IsolatedAsyncioTestCase):
         h = c.headers(allow_root=True)
         self.assertEqual(h[HEADER_AUTHORIZATION], "Bearer tok")
         self.assertIsNotNone(parse_traceparent(h[HEADER_TRACEPARENT]))
-        self.assertEqual(parse_baggage(h.get(HEADER_BAGGAGE)).get(BAGGAGE_HOP), "0")
+        self.assertNotIn(HEADER_BAGGAGE, h)
+
+    async def test_bind_from_headers_runs_verifier_before_binding(self) -> None:
+        c = _build_caracal()
+        seen: list[str] = []
+
+        async def verifier(token: str) -> None:
+            seen.append(token)
+
+        async with c.bind_from_headers(
+            {HEADER_AUTHORIZATION: "Bearer inbound"}, verifier=verifier
+        ) as ctx:
+            self.assertEqual(ctx.subject_token, "inbound")
+        self.assertEqual(seen, ["inbound"])
+
+        async def rejecting(token: str) -> None:
+            raise RuntimeError("revoked")
+
+        with self.assertRaises(RuntimeError):
+            async with c.bind_from_headers(
+                {HEADER_AUTHORIZATION: "Bearer inbound"}, verifier=rejecting
+            ):
+                pass
 
     async def test_bind_from_headers_allows_trusted_root_and_resets_context(
         self,
@@ -436,6 +458,30 @@ class GatewayRoutingTests(unittest.IsolatedAsyncioTestCase):
             await client.get("https://api.example.com/v1/markets/spot")
 
         self.assertEqual(seen, ["treasury", "accounts", "broad"])
+
+    async def test_direct_upstream_never_receives_subject_token(self) -> None:
+        c = Caracal(
+            CaracalConfig(
+                coordinator=CoordinatorClient(base_url="http://coord"),
+                zone_id="z",
+                application_id="app",
+                subject_token="tok",
+            )
+        )
+        seen = {}
+
+        async def handler(request):
+            seen["auth"] = request.headers.get(HEADER_AUTHORIZATION)
+            seen["traceparent"] = request.headers.get(HEADER_TRACEPARENT)
+            return httpx.Response(204)
+
+        async with c.transport(
+            transport=httpx.MockTransport(handler), allow_root=True
+        ) as client:
+            await client.get("https://api.unbound.example.com/data")
+
+        self.assertIsNone(seen["auth"])
+        self.assertIsNotNone(parse_traceparent(seen["traceparent"]))
 
 
 class LifecycleTests(unittest.IsolatedAsyncioTestCase):
