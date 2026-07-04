@@ -426,7 +426,8 @@ describe('AdminClient', () => {
     await c.audit.list('z1', { limit: 5 } as never)
     await c.stepUpChallenges.list('z1')
     await c.stepUpChallenges.get('z1', 'challenge1')
-    await c.stepUpChallenges.satisfy('z1', 'challenge1')
+    await c.stepUpChallenges.approve('z1', 'challenge1')
+    await c.stepUpChallenges.reject('z1', 'challenge1', 'wrong amount')
 
     await c.agents.get('z1', 'ag1')
     await c.agents.children('z1', 'ag1')
@@ -446,7 +447,8 @@ describe('AdminClient', () => {
       true,
     )
     expect(calls.some((x) => x.url === 'http://api/v1/zones/z1/provider-grants' && x.method === 'POST')).toBe(true)
-    expect(calls.some((x) => x.url === 'http://api/v1/zones/z1/step-up-challenges/challenge1/satisfy' && x.method === 'POST')).toBe(true)
+    expect(calls.some((x) => x.url === 'http://api/v1/zones/z1/step-up-challenges/challenge1/approve' && x.method === 'POST')).toBe(true)
+    expect(calls.some((x) => x.url === 'http://api/v1/zones/z1/step-up-challenges/challenge1/reject' && x.method === 'POST')).toBe(true)
     expect(calls.some((x) => x.url === 'http://coord/zones/z1/agents/ag1/suspend' && x.method === 'PATCH')).toBe(true)
     expect(calls.some((x) => x.url === 'http://coord/zones/z1/delegations/d1/revoke' && x.method === 'PATCH')).toBe(true)
     expect(calls.some((x) => x.url === 'http://api/v1/zones/z1/sessions?status=active')).toBe(true)
