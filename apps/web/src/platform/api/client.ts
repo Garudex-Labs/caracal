@@ -62,6 +62,7 @@ import type {
   ResourceInput,
   ResourcePatchInput,
   RowList,
+  RunManifest,
   Session,
   SessionQuery,
   SimulateResult,
@@ -496,6 +497,16 @@ export const consoleApi = {
       request<Application>(
         `/v1/zones/${encodeURIComponent(zoneId)}/applications/${encodeURIComponent(id)}/rotate-secret`,
         { method: "POST", body: "{}" },
+      ),
+    runManifest: (zoneId: string, id: string, signal?: AbortSignal) =>
+      request<{ run_manifest: RunManifest | null }>(
+        `/v1/zones/${encodeURIComponent(zoneId)}/applications/${encodeURIComponent(id)}/run-manifest`,
+        { signal },
+      ),
+    saveRunManifest: (zoneId: string, id: string, input: RunManifest) =>
+      request<{ run_manifest: RunManifest | null }>(
+        `/v1/zones/${encodeURIComponent(zoneId)}/applications/${encodeURIComponent(id)}/run-manifest`,
+        { method: "PUT", body: JSON.stringify(input) },
       ),
     delete: (zoneId: string, id: string) =>
       request<void>(

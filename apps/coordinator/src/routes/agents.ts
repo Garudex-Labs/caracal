@@ -31,6 +31,7 @@ const SpawnBody = z.object({
   lifecycle: Lifecycle.optional(),
   labels: AgentLabels,
   ttl_seconds: z.number().int().min(1).max(86400).optional(),
+  parent_authority: z.enum(['inherit', 'none']).default('inherit'),
   inherit_parent_edge_id: z.string().min(1).optional(),
   metadata: z.record(z.string(), z.unknown()).default({}),
 })
@@ -48,33 +49,49 @@ const TerminateQuery = z.object({
   reason: z.string().min(1).max(256).default('requested'),
 })
 
+// Spawn and cascade terminate serialize on one zone-wide advisory lock. Two
+// invariants depend on it: the zone and per-application capacity checks are
+// count-then-insert, which two concurrent spawns would overshoot, and a spawn
+// committing under a subtree being terminated would otherwise create an orphan
+// the terminate cascade's recursive CTE never saw.
 export function spawnLockKey(zoneId: string): string {
   return `coordinator:agent_spawn:${zoneId}`
 }
 
+type InheritOutcome = { edgeId: string | null } | { conflict: 'inherit_parent_edge_not_active' | 'inherit_parent_edge_ambiguous' }
+
 // inheritParentEdge mirrors the parent's narrowing edge onto a freshly spawned
 // child so an inherit spawn carries the parent's effective authority forward
-// instead of regaining full application authority. The copy is escalation-proof
-// by construction: the child edge holds the parent edge's exact scopes, resource,
-// constraints, and expiry. Returns the new edge id, null when no inheritance was
-// requested, or false when the requested parent edge is not an active edge into
-// the parent under the same application.
+// instead of regaining full application authority. The coordinator resolves the
+// parent's edge itself: with parent_authority inherit it mirrors the parent's
+// single active same-application inbound edge, spawns edge-less when the parent
+// never held one, fails when the parent's narrowing has lapsed, and demands an
+// explicit inherit_parent_edge_id when several edges are live. The copy is
+// escalation-proof by construction: the child edge holds the parent edge's
+// exact scopes, resource, constraints, and expiry.
 async function inheritParentEdge(
   client: PoolClient,
   zoneId: string,
   body: z.infer<typeof SpawnBody>,
   childId: string,
-): Promise<string | null | false> {
-  if (!body.inherit_parent_edge_id || !body.parent_id) return null
+): Promise<InheritOutcome> {
+  if (!body.parent_id || body.parent_authority === 'none') return { edgeId: null }
+  const explicitEdgeId = body.inherit_parent_edge_id ?? null
   const { rows } = await client.query(
-    `SELECT id, receiver_application_id, resource_id, scopes, constraints_json, expires_at
+    `SELECT id, receiver_application_id, resource_id, scopes, constraints_json, expires_at,
+            (status = 'active' AND expires_at > now()) AS live
      FROM delegation_edges
-     WHERE id = $1 AND zone_id = $2 AND target_session_id = $3
-       AND receiver_application_id = $4 AND status = 'active' AND expires_at > now()`,
-    [body.inherit_parent_edge_id, zoneId, body.parent_id, body.application_id],
+     WHERE zone_id = $1 AND target_session_id = $2 AND receiver_application_id = $3
+       AND ($4::text IS NULL OR id = $4)`,
+    [zoneId, body.parent_id, body.application_id, explicitEdgeId],
   )
-  const parentEdge = rows[0]
-  if (!parentEdge) return false
+  const liveEdges = rows.filter((row) => row.live)
+  if (liveEdges.length === 0) {
+    if (explicitEdgeId || rows.length > 0) return { conflict: 'inherit_parent_edge_not_active' }
+    return { edgeId: null }
+  }
+  if (liveEdges.length > 1) return { conflict: 'inherit_parent_edge_ambiguous' }
+  const parentEdge = liveEdges[0]
   const edgeId = uuidv7()
   await client.query(
     `INSERT INTO delegation_edges
@@ -104,7 +121,7 @@ async function inheritParentEdge(
     target_session_id: childId,
     epoch,
   })
-  return edgeId
+  return { edgeId }
 }
 
 export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
@@ -188,6 +205,9 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
           detail: 'subject_session_id must reference an STS sessions.id; for business correlation use metadata',
         })
       }
+      // Capacity counts sessions that still hold a slot: tasks inside their TTL
+      // window, active services with a live lease, and suspended services, whose
+      // lease deadline is frozen until resume and must not read as expired.
       const { rows: cnt } = await client.query(
         `SELECT
            COUNT(*) FILTER (WHERE application_id = $2) AS app_n,
@@ -195,8 +215,10 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
          FROM agent_sessions
          WHERE zone_id = $1
            AND status IN ('active', 'suspended')
-           AND spawned_at + make_interval(secs => COALESCE(ttl_seconds, $3)) > now()
-           AND (heartbeat_deadline_at IS NULL OR heartbeat_deadline_at > now())`,
+           AND (CASE WHEN lifecycle = 'service'
+                THEN status = 'suspended' OR heartbeat_deadline_at > now()
+                ELSE spawned_at + make_interval(secs => COALESCE(ttl_seconds, $3)) > now()
+                END)`,
         [zoneId, body.application_id, DEFAULT_TTL],
       )
       if (parseInt(cnt[0].zone_n, 10) >= cfg.maxAgentsPerZone) {
@@ -282,10 +304,10 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
         await client.query(`INSERT INTO agent_topology (parent_id, child_id) VALUES ($1,$2)`, [body.parent_id, id])
         await client.query(`UPDATE agent_sessions SET child_count = child_count + 1 WHERE id = $1`, [body.parent_id])
       }
-      const inheritedEdgeId = await inheritParentEdge(client, zoneId, body, id)
-      if (inheritedEdgeId === false) {
+      const inherited = await inheritParentEdge(client, zoneId, body, id)
+      if ('conflict' in inherited) {
         await client.query('ROLLBACK')
-        return reply.code(409).send({ error: 'inherit_parent_edge_not_active' })
+        return reply.code(409).send({ error: inherited.conflict })
       }
       await enqueue(client, Topics.AgentsLifecycle, `spawn:${id}`, {
         event: 'spawn',
@@ -295,7 +317,7 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
         application_id: body.application_id,
       })
       await client.query('COMMIT')
-      return reply.code(201).send({ ...rows[0], delegation_edge_id: inheritedEdgeId })
+      return reply.code(201).send({ ...rows[0], delegation_edge_id: inherited.edgeId })
     } catch (err) {
       await client.query('ROLLBACK')
       throw err
@@ -662,8 +684,30 @@ export async function terminateSubtree(
     [rootIds, zoneId, reason, rootStatus],
   )
   if (rows.length === 0) return 0
+  // A terminated session must not remain a live delegation endpoint: revoking
+  // its edges stops delegated minting immediately instead of waiting for edge
+  // expiry, and keeps the graph consistent for later inherit resolution.
+  const { rows: revokedEdges } = await client.query<{ id: string }>(
+    `UPDATE delegation_edges
+     SET status = 'revoked', revoked_at = now(),
+         edge_version = edge_version + 1, updated_at = now()
+     WHERE zone_id = $1 AND status = 'active'
+       AND (source_session_id = ANY($2::text[]) OR target_session_id = ANY($2::text[]))
+     RETURNING id`,
+    [zoneId, rows.map((row) => row.id)],
+  )
   const exemptSessions = await revocationExemptSessions(client, zoneId, rows)
   const items: OutboxItem[] = []
+  if (revokedEdges.length > 0) {
+    const epoch = await bumpDelegationEpoch(client, zoneId)
+    for (const edge of revokedEdges) {
+      items.push({
+        topic: Topics.DelegationsInvalidate,
+        dedupeKey: `edge_revoke:${edge.id}`,
+        payload: { event: 'edge_revoke', zone_id: zoneId, edge_id: edge.id, reason, epoch },
+      })
+    }
+  }
   for (const row of rows) {
     items.push({
       topic: Topics.AgentsLifecycle,

@@ -1,12 +1,13 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Application CRUD routes: managed and DCR app registration.
+// Application CRUD routes: managed and DCR app registration and run manifest authoring.
 
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify'
 import { z } from 'zod'
 import { v7 as uuidv7 } from 'uuid'
 import { randomBytes } from 'node:crypto'
+import { assertCredentialEnvName } from '@caracalai/engine/runtime-config'
 import { hashClientSecret } from '../hash-secret.js'
 import { withTransaction, TxAbort } from '../db.js'
 import { buildPatchUpdate, patchColumn } from './patch.js'
@@ -45,6 +46,59 @@ const PatchBody = z
     traits: z.array(z.string()).optional(),
   })
   .strict()
+
+const RUN_MANIFEST_MAX_CREDENTIALS = 64
+const RUN_MANIFEST_MAX_TTL_SECONDS = 900
+const RESOURCE_MAX_LENGTH = 500
+
+const RunManifestCredential = z
+  .object({
+    env: z.string().trim().min(1).max(NAME_MAX_LENGTH),
+    resource: z.string().trim().min(1).max(RESOURCE_MAX_LENGTH),
+    credential_type: z.enum(['provider_token', 'caracal_mandate']).default('provider_token'),
+    optional: z.boolean().default(false),
+    on_failure: z.enum(['warn', 'error']).default('error'),
+  })
+  .strict()
+
+const RunManifestBody = z
+  .object({
+    ttl_seconds: z.number().int().min(1).max(RUN_MANIFEST_MAX_TTL_SECONDS).optional(),
+    continue_on_failure: z.boolean().optional(),
+    credentials: z.array(RunManifestCredential).max(RUN_MANIFEST_MAX_CREDENTIALS),
+  })
+  .strict()
+
+// Normalizes a validated manifest body into its stored form: env names are checked against
+// the engine's injection blocklist, duplicates are rejected, and on_failure is kept only
+// where it applies. Returns null when the body clears the manifest.
+function normalizeRunManifest(
+  body: z.infer<typeof RunManifestBody>,
+): { manifest: Record<string, unknown> | null } | { error: Record<string, string> } {
+  const seen = new Set<string>()
+  for (const cred of body.credentials) {
+    try {
+      assertCredentialEnvName(cred.env)
+    } catch {
+      return { error: { error: 'invalid_credential_env', env: cred.env } }
+    }
+    if (seen.has(cred.env)) return { error: { error: 'duplicate_credential_env', env: cred.env } }
+    seen.add(cred.env)
+  }
+  if (body.credentials.length === 0) return { manifest: null }
+  return {
+    manifest: {
+      ...(body.ttl_seconds !== undefined ? { ttl_seconds: body.ttl_seconds } : {}),
+      ...(body.continue_on_failure !== undefined ? { continue_on_failure: body.continue_on_failure } : {}),
+      credentials: body.credentials.map((cred) => ({
+        env: cred.env,
+        resource: cred.resource,
+        credential_type: cred.credential_type,
+        ...(cred.optional ? { optional: true, on_failure: cred.on_failure } : {}),
+      })),
+    },
+  }
+}
 
 function generateClientSecret(): string {
   return `cs_${randomBytes(32).toString('base64url')}`
@@ -172,6 +226,42 @@ export const applicationsRoutes: FastifyPluginAsync = async (fastify) => {
     const rotated = await rotateApplicationClientSecret(fastify.db, params.zoneId, params.id)
     if (!rotated) return reply.code(404).send({ error: 'application_not_found' })
     return { ...rotated.row, client_secret: rotated.clientSecret }
+  })
+
+  fastify.get('/zones/:zoneId/applications/:id/run-manifest', async (req, reply) => {
+    const params = parseParams(ZoneIdParams, req, reply)
+    if (!params) return
+    const { rows } = await fastify.db.query(
+      `SELECT run_manifest FROM applications WHERE id = $1 AND zone_id = $2 AND archived_at IS NULL`,
+      [params.id, params.zoneId],
+    )
+    if (!rows[0]) return reply.code(404).send({ error: 'application_not_found' })
+    return { run_manifest: rows[0].run_manifest ?? null }
+  })
+
+  fastify.put('/zones/:zoneId/applications/:id/run-manifest', async (req, reply) => {
+    const params = parseParams(ZoneIdParams, req, reply)
+    if (!params) return
+    const parsed = RunManifestBody.safeParse(req.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'invalid_run_manifest' })
+    const normalized = normalizeRunManifest(parsed.data)
+    if ('error' in normalized) return reply.code(400).send(normalized.error)
+    const { rows: existing } = await fastify.db.query(
+      `SELECT registration_method FROM applications WHERE id = $1 AND zone_id = $2 AND archived_at IS NULL`,
+      [params.id, params.zoneId],
+    )
+    if (!existing[0]) return reply.code(404).send({ error: 'application_not_found' })
+    if (existing[0].registration_method !== 'managed') {
+      return reply.code(409).send({ error: 'run_manifest_managed_only' })
+    }
+    const { rows } = await fastify.db.query(
+      `UPDATE applications SET run_manifest = $3
+       WHERE id = $1 AND zone_id = $2 AND archived_at IS NULL
+       RETURNING run_manifest`,
+      [params.id, params.zoneId, normalized.manifest === null ? null : JSON.stringify(normalized.manifest)],
+    )
+    if (!rows[0]) return reply.code(404).send({ error: 'application_not_found' })
+    return { run_manifest: rows[0].run_manifest ?? null }
   })
 
   fastify.patch('/zones/:zoneId/applications/:id', async (req, reply) => {
