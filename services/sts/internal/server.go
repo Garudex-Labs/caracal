@@ -150,6 +150,7 @@ func (s *Server) Run(ctx context.Context) error {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /oauth/2/token", s.handleTokenExchange)
+	mux.HandleFunc("POST /v1/run/manifest", s.handleRunManifest)
 	mux.HandleFunc("GET /.well-known/jwks.json", s.handleJWKS)
 	mux.HandleFunc("GET /step-up/{id}", s.handleStepUpStatus)
 	mux.HandleFunc("POST /step-up/{id}/decision", s.handleStepUpDecision)
