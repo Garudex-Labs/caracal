@@ -597,16 +597,57 @@ export function useRotateApplicationSecret(zoneId: string | null) {
   });
 }
 
-export function useSaveRunManifest(zoneId: string | null) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id, input }: { id: string; input: RunManifest }) =>
-      consoleApi.applications.saveRunManifest(zoneId as string, id, input),
-    onSuccess: () => qc.invalidateQueries({ queryKey: keys.applications(zoneId) }),
+export function useWorkloads(zoneId: string | null) {
+  return useQuery({
+    queryKey: keys.workloads(zoneId),
+    queryFn: ({ signal }) => consoleApi.workloads.list(zoneId as string, signal),
+    enabled: Boolean(zoneId),
   });
 }
 
-PLACEHOLDER_WORKLOAD_HOOKS
+export function useCreateWorkload(zoneId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { name: string }) => consoleApi.workloads.create(zoneId as string, input),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.workloads(zoneId) }),
+  });
+}
+
+export function useUpdateWorkload(zoneId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: WorkloadUpdateInput }) =>
+      consoleApi.workloads.update(zoneId as string, id, input),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.workloads(zoneId) }),
+  });
+}
+
+export function useRotateWorkloadSecret(zoneId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => consoleApi.workloads.rotateSecret(zoneId as string, id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.workloads(zoneId) }),
+  });
+}
+
+export function useDeleteWorkload(zoneId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => consoleApi.workloads.delete(zoneId as string, id),
+    onMutate: async (id) => {
+      await qc.cancelQueries({ queryKey: keys.workloads(zoneId) });
+      const previous = qc.getQueryData<Workload[]>(keys.workloads(zoneId));
+      qc.setQueryData<Workload[]>(keys.workloads(zoneId), (old) =>
+        old?.filter((workload) => workload.id !== id),
+      );
+      return { previous };
+    },
+    onError: (_error, _id, context) => {
+      if (context?.previous) qc.setQueryData(keys.workloads(zoneId), context.previous);
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: keys.workloads(zoneId) }),
+  });
+}
 
 export function useDeleteApplication(zoneId: string | null) {
   const qc = useQueryClient();

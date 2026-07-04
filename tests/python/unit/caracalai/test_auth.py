@@ -269,6 +269,29 @@ class MintMandateTests(unittest.TestCase):
         self.assertNotEqual(first, other_scope)
         self.assertEqual(len(calls), 3)
 
+    def test_caches_per_ttl(self):
+        calls = []
+
+        def handler(req: httpx.Request) -> httpx.Response:
+            calls.append(req)
+            return httpx.Response(
+                200,
+                json={
+                    "access_token": _jwt({"exp": time.time() + 300, "n": len(calls)})
+                },
+            )
+
+        with _patch_client(handler):
+            ex = _exchanger()
+            short = ex.mint_mandate(
+                resource="urn:res:a", scopes=["s.read"], ttl_seconds=60
+            )
+            long = ex.mint_mandate(
+                resource="urn:res:a", scopes=["s.read"], ttl_seconds=3600
+            )
+        self.assertNotEqual(short, long)
+        self.assertEqual(len(calls), 2)
+
     def test_refreshes_mandate_near_expiry(self):
         tokens = [
             _jwt({"exp": time.time() + 3600}),

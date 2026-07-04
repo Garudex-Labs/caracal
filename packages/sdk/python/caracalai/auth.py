@@ -50,7 +50,7 @@ class ClientCredentials:
 
 CredentialsResolver = Callable[[], "ClientCredentials | None"]
 
-_MandateKey = tuple[str, str, str, frozenset[str], str | None, str | None]
+_MandateKey = tuple[str, str, str, frozenset[str], str | None, str | None, int | None]
 
 __all__ = [
     "ApprovalRequired",
@@ -312,6 +312,7 @@ class ClientSecretExchanger:
             scope_set,
             agent_session_id,
             delegation_edge_id,
+            ttl_seconds,
         )
         cached = self._cached_mandate(key)
         if cached is not None:
