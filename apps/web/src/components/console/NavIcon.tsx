@@ -61,6 +61,13 @@ const PATHS: Record<string, ReactNode> = {
       <path d="M3 12h4l2 6 4-14 2 8h6" />
     </>
   ),
+  approvals: (
+    <>
+      <circle cx="12" cy="12" r="7" />
+      <path d="m9 12 2 2 4-4.5" />
+      <path d="M12 2v3M12 19v3" />
+    </>
+  ),
   audit: (
     <>
       <path d="M8 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2h-2" />

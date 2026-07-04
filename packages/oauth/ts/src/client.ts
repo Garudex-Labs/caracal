@@ -12,7 +12,10 @@ interface STSErrorResponse {
   error?: string
   error_description?: string
   challenge_id?: string
-  acr_values?: string
+  state?: string
+  tier?: string
+  binding?: string
+  challenge_expires_at?: string
   requestId?: string
 }
 
@@ -157,6 +160,7 @@ export class OAuthClient {
     if (scope) body.set('scope', scope)
     if (opts.ttlSeconds) body.set('ttl_seconds', String(opts.ttlSeconds))
     if (opts.runtimeCredentialInjection === true) body.set('runtime_credential_injection', 'true')
+    if (opts.challengeId) body.set('challenge_id', opts.challengeId)
 
     const maxRetries = opts.retries ?? 3
     let res: Awaited<ReturnType<typeof fetch>> | undefined
@@ -202,10 +206,15 @@ export class OAuthClient {
       }
       if (err['error'] === 'interaction_required') {
         throw new InteractionRequiredError(
-          err['error_description'] ?? 'Step-up required',
+          err['error_description'] ?? 'Approval required',
           err['challenge_id'] ?? '',
-          resourceList(resource)[0],
-          err['acr_values'],
+          {
+            resource: resourceList(resource)[0],
+            state: err['state'],
+            tier: err['tier'],
+            binding: err['binding'],
+            expiresAt: err['challenge_expires_at'],
+          },
         )
       }
       if (res.status === 401 && !isRetry) {
@@ -219,6 +228,28 @@ export class OAuthClient {
     }
     const data = (await res.json()) as STSSuccessResponse
     return validateSuccessResponse(data)
+  }
+
+  /**
+   * Long-polls an approval challenge until an approver decides it, it expires, or
+   * the timeout elapses. Returns the final lifecycle state: 'approved' means a
+   * retry of exchange() with challengeId will mint; 'rejected' and 'expired' are
+   * terminal; 'pending' means the timeout elapsed and waiting again is safe.
+   */
+  async waitForApproval(challengeId: string, opts: { timeoutMs?: number } = {}): Promise<string> {
+    if (!challengeId) throw new Error('waitForApproval requires a challengeId')
+    const deadline = performance.now() + (opts.timeoutMs ?? 300_000)
+    for (;;) {
+      const remainingMs = deadline - performance.now()
+      if (remainingMs <= 0) return 'pending'
+      const wait = Math.max(1, Math.min(25, Math.floor(remainingMs / 1000)))
+      const res = await (this.fetchImpl ?? fetch)(
+        `${this.stsUrl}/step-up/${encodeURIComponent(challengeId)}?wait=${wait}`,
+      )
+      if (!res.ok) throw new Error(`step-up status failed: ${res.status}`)
+      const data = (await res.json()) as { state?: unknown }
+      if (typeof data.state === 'string' && data.state !== 'pending') return data.state
+    }
   }
 }
 
