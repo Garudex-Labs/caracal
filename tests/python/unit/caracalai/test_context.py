@@ -7,6 +7,7 @@ Unit tests for CaracalContext bound context and envelope conversion.
 
 from __future__ import annotations
 
+import asyncio
 import unittest
 
 from caracalai.advanced import (
@@ -70,6 +71,25 @@ class AbindTests(unittest.IsolatedAsyncioTestCase):
         await abind(ctx, coro())
         self.assertIs(captured, ctx)
         self.assertIsNone(current())
+
+    async def test_isolates_concurrent_bind_scopes(self) -> None:
+        async def scoped(agent: str) -> str | None:
+            ctx = CaracalContext(
+                subject_token="tok",
+                zone_id="z",
+                application_id="app",
+                agent_session_id=agent,
+            )
+
+            async def observe() -> str | None:
+                await asyncio.sleep(0.001)
+                active = current()
+                return active.agent_session_id if active else None
+
+            return await abind(ctx, observe())
+
+        results = await asyncio.gather(*(scoped(f"agent-{n}") for n in "abc"))
+        self.assertEqual(results, ["agent-a", "agent-b", "agent-c"])
 
 
 class WithOverridesTests(unittest.TestCase):

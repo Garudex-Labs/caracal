@@ -30,6 +30,7 @@ from .envelope import (
 from .context import (
     CaracalContext,
     AuthoritySummary,
+    VerifiedClaims,
     abind,
     bind,
     capture_context,
@@ -61,6 +62,7 @@ from .primitives import (
     spawn_service,
 )
 from .client import Caracal, CaracalConfig, ResourceBinding
+from .errors import MissingTokenError
 from .http import CaracalASGIMiddleware
 
 __all__ = [
@@ -86,6 +88,7 @@ __all__ = [
     "parse_traceparent",
     "CaracalContext",
     "AuthoritySummary",
+    "VerifiedClaims",
     "current",
     "capture_context",
     "bind",
@@ -114,5 +117,6 @@ __all__ = [
     "Caracal",
     "CaracalConfig",
     "ResourceBinding",
+    "MissingTokenError",
     "CaracalASGIMiddleware",
 ]
