@@ -80,50 +80,37 @@ Guided setup ticks each step off from live zone data and opens the same Applicat
 
 ## Configure Runtime Access
 
-The console does not write configuration to your machine. After creating the objects above, configure `caracal run` and the SDKs with the zone, application, and client secret you just created. Use either environment variables or a `caracal.toml` runtime profile.
+The console does not write configuration to your machine, and `caracal run` needs no local config file. The workload carries only its identity; everything else lives in the console:
 
-**Environment variables** - the quickest path for a single workload. These configure the launcher itself; they are not passed through to the child process:
+1. Open the application you created in **Applications** and use its **Run** section to add a launch binding: an environment variable name (for example `EXAMPLE_API_TOKEN`) bound to the resource you created. The section then shows the exact launch command and whether the Gateway is required.
+2. Give the workload its identity:
 
 ```sh
-export CARACAL_ZONE_ID=<zone ID>
 export CARACAL_APPLICATION_ID=<application ID>
 export CARACAL_APP_CLIENT_SECRET=<client secret shown once>
 ```
 
-**Runtime profile** - a `caracal.toml` you author once and reuse. `caracal run` and the SDKs resolve it from `$CARACAL_CONFIG`, then `$XDG_CONFIG_HOME/caracal/caracal.toml`, then the OS Caracal config directory:
-
-```toml
-zone_url = "http://localhost:8080"
-gateway_url = "http://localhost:8081"
-zone_id = "<zone ID>"
-application_id = "<application ID>"
-app_client_secret_file = "/path/to/secret"
-
-[[credentials]]
-env = "EXAMPLE_API_TOKEN"
-resource = "resource://example-api"
-```
-
-Each `[[credentials]]` entry names an environment variable and the resource whose scoped token `caracal run` injects into it. Store the client secret in an owner-only file (`app_client_secret_file`) or a secret manager rather than inline. Local dev and stable stacks can also read credential files you store at the runtime paths under the OS Caracal config directory; see [Configure Workloads](/runtime-console/config-file/).
+These configure the launcher itself; they are not passed through to the child process. Instead of the inline secret, local dev and stable launches can read the owner-only file at `<Caracal config dir>/runtime/<application_id>/client-secret`, and cloud deployments can point `CARACAL_APP_CLIENT_SECRET_FILE` at a mounted secret; see [Configure Workloads](/runtime-console/config-file/).
 
 ## Run Your Workload
 
-Run your workload through `caracal run`. With `CARACAL_CONFIG` set (or the environment variables above exported):
+Run your workload through `caracal run`. With the identity variables above exported:
 
 ```sh
-CARACAL_CONFIG=/path/to/caracal.toml caracal run -- ./start-agent.sh
+caracal run -- ./start-agent.sh
 ```
 
 On Windows PowerShell:
 
 ```powershell
-$env:CARACAL_CONFIG = "C:\path\to\caracal.toml"
+$env:CARACAL_APPLICATION_ID = "<application ID>"
+$env:CARACAL_APP_CLIENT_SECRET = "<client secret shown once>"
 caracal run -- .\start-agent.ps1
 ```
 
-`caracal run` exchanges the configured application secret for resource-specific Caracal access tokens and injects them into the environment variables named in the profile. The child environment is otherwise scrubbed: `CARACAL_*` variables configure the launcher and do not reach the workload. The workload reads the injected variables and presents the token to the Gateway or protected service.
+`caracal run` authenticates as the application, fetches its launch bindings from STS, exchanges the client secret for resource-specific Caracal access tokens, and injects them into the environment variables named by the bindings. The child environment is otherwise scrubbed: `CARACAL_*` variables configure the launcher and do not reach the workload. The workload reads the injected variables and presents the token to the Gateway or protected service.
 
-SDK constructors (`new Caracal()`, `Caracal()`, `caracal.New()`) read the same runtime profile from the default config path. When an SDK workload runs directly (not under `caracal run`), the constructors also read the `CARACAL_*` environment variables.
+SDK constructors (`new Caracal()`, `Caracal()`, `caracal.New()`) resolve their own configuration from a `caracal.toml` profile or `CARACAL_*` environment variables when the workload runs directly (not under `caracal run`); see [Add SDK to Your App](/get-started/add-sdk-to-your-app/).
 
 ## Call the Gateway
 
@@ -134,7 +121,7 @@ For a Gateway-routed HTTP resource, send the request to the Gateway URL (`http:/
 | `Authorization` | `Bearer <Caracal access token>` |
 | `X-Caracal-Resource` | The resource identifier you created in guided setup. |
 
-`caracal run` injects the scoped token into the environment variable named by your `[[credentials]]` entry, so the workload reads that variable and presents the token. The SDK helpers `gatewayRequest()` / `GatewayRequest()` build this URL and header for you.
+`caracal run` injects the scoped token into the environment variable named by your launch binding, so the workload reads that variable and presents the token. The SDK helpers `gatewayRequest()` / `GatewayRequest()` build this URL and header for you.
 
 ## Inspect Audit
 

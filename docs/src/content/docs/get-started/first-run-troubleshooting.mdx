@@ -35,30 +35,32 @@ caracal status --ready --json
 | Google or GitHub buttons are missing | Set both the client ID and client secret for the provider, then rerun `caracal up`. |
 | Password sign-in is blocked pending verification | The packaged console requires a verified email. Confirm `CARACAL_SMTP_URL` and `CARACAL_SMTP_FROM` are set and the verification message was delivered. |
 
-## Profile Issues
+## Workload Identity Issues
 
 | Symptom | Check |
 | --- | --- |
-| `CARACAL_CONFIG` is missing | Set it to your `caracal.toml` path, or export `CARACAL_ZONE_ID` and `CARACAL_APPLICATION_ID` instead. |
-| Profile values are wrong | Open the `caracal.toml` and confirm it matches the current zone, application, Gateway, STS, and secret-file path. |
+| `workload identity is required to run a command` | Export `CARACAL_APPLICATION_ID` and provide a client secret source. |
+| `run manifest not configured` | Define launch bindings in the application's **Run** section in the web console. |
 | Secret file is rejected | Ensure the secret file exists and is readable only by the current user. |
-| SDK cannot load configuration | Start the process from a shell that has `CARACAL_CONFIG` set, or pass the profile path using the SDK-supported configuration mechanism. |
+| SDK cannot load configuration | Set `CARACAL_CONFIG` to your `caracal.toml` path, or pass the profile path using the SDK-supported configuration mechanism. |
 
 Linux and macOS:
 
 ```sh
-export CARACAL_CONFIG=/path/to/caracal.toml
+export CARACAL_APPLICATION_ID=<application ID>
+export CARACAL_APP_CLIENT_SECRET=<client secret>
 ```
 
 Windows PowerShell:
 
 ```powershell
-$env:CARACAL_CONFIG = "C:\path\to\caracal.toml"
+$env:CARACAL_APPLICATION_ID = "<application ID>"
+$env:CARACAL_APP_CLIENT_SECRET = "<client secret>"
 ```
 
 ## Lost App Secret
 
-The app client secret is shown once when the app is created. If you lose it, create a new secret from the web console **Applications** view and update your runtime configuration with the new value.
+The app client secret is shown once when the app is created. If you lose it, create a new secret from the web console **Applications** view and update your secret file or environment with the new value.
 
 ## STS 403
 
