@@ -402,5 +402,38 @@ class DelegationConstraintsTests(unittest.TestCase):
         self.assertEqual(wire["broad_reason"], "operator approved")
 
 
+class EventTests(unittest.IsolatedAsyncioTestCase):
+    async def test_emits_coordinator_call_events(self) -> None:
+        async def handler(req: httpx.Request) -> httpx.Response:
+            if req.method == "DELETE":
+                return httpx.Response(403, json={"error": "denied"})
+            return httpx.Response(200, json={"agent_session_id": "agent-1"})
+
+        events = []
+
+        def sink(event):
+            events.append(event)
+            raise RuntimeError("sink failure")
+
+        client = _client(handler)
+        client.on_event = sink
+        await spawn_agent(
+            client, "tok", SpawnRequest(zone_id="z", application_id="app")
+        )
+        with self.assertRaises(CoordinatorError):
+            await terminate_agent(client, "tok", "z", "agent-1")
+
+        self.assertEqual(len(events), 2)
+        spawned, denied = events
+        self.assertEqual(spawned.type, "coordinator.call")
+        self.assertEqual(spawned.method, "POST")
+        self.assertEqual(spawned.path, "/zones/z/agents")
+        self.assertTrue(spawned.ok)
+        self.assertEqual(spawned.status, 200)
+        self.assertFalse(denied.ok)
+        self.assertEqual(denied.status, 403)
+        self.assertEqual(denied.method, "DELETE")
+
+
 if __name__ == "__main__":
     unittest.main()

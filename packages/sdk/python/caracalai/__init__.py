@@ -33,6 +33,7 @@ from .errors import (
     ServiceUnavailable,
     ZoneMismatch,
 )
+from .events import CaracalEvent, EventHook
 from .http import CaracalASGIMiddleware, TokenVerifier
 from .json_types import JsonObject, JsonPrimitive, JsonValue
 from .primitives import Grant, LifecycleHook, ServiceAgent, adopt_delegation
@@ -54,6 +55,8 @@ __all__ = [
     "Caracal",
     "CaracalConfig",
     "CaracalContext",
+    "CaracalEvent",
+    "EventHook",
     "AuthoritySummary",
     "VerifiedClaims",
     "abind",

@@ -406,5 +406,69 @@ class TypedErrorTests(unittest.TestCase):
         self.assertEqual(caught.exception.http_status, 502)
 
 
+class EventTests(unittest.TestCase):
+    def test_emits_exchange_events_for_fresh_cached_and_failed(self):
+        token = _jwt({"exp": time.time() + 3600})
+        requests: list[httpx.Request] = []
+
+        def handler(req: httpx.Request) -> httpx.Response:
+            requests.append(req)
+            if len(requests) > 1:
+                return httpx.Response(
+                    403,
+                    json={
+                        "error": "access_denied",
+                        "error_description": "Denied",
+                        "requestId": "req-2",
+                    },
+                )
+            return httpx.Response(200, json={"access_token": token})
+
+        events = []
+
+        def sink(event):
+            events.append(event)
+            raise RuntimeError("sink failure")
+
+        with _patch_client(handler):
+            ex = _exchanger()
+            ex.on_event = sink
+            ex.get_token()
+            ex.get_token()
+            with self.assertRaises(AccessDenied):
+                ex.mint_mandate(resource="urn:res:a", scopes=["pay:write"])
+
+        self.assertEqual(len(events), 3)
+        fresh, cached, failed = events
+        self.assertEqual(fresh.type, "token.exchange")
+        self.assertTrue(fresh.ok)
+        self.assertFalse(fresh.cached)
+        self.assertEqual(fresh.resources, ("urn:res:a",))
+        self.assertTrue(cached.ok)
+        self.assertTrue(cached.cached)
+        self.assertFalse(failed.ok)
+        self.assertEqual(failed.code, "access_denied")
+        self.assertEqual(failed.status, 403)
+        self.assertEqual(failed.scopes, ("pay:write",))
+
+    def test_emits_approval_wait_event(self):
+        events = []
+
+        def handler(req: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json={"id": "chal_1", "state": "approved"})
+
+        with _patch_client(handler):
+            ex = _exchanger()
+            ex.on_event = events.append
+            state = ex.wait_for_approval("chal_1", timeout_seconds=60.0)
+
+        self.assertEqual(state, "approved")
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].type, "approval.wait")
+        self.assertTrue(events[0].ok)
+        self.assertEqual(events[0].challenge_id, "chal_1")
+        self.assertEqual(events[0].state, "approved")
+
+
 if __name__ == "__main__":
     unittest.main()
