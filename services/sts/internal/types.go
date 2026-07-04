@@ -25,26 +25,25 @@ type TokenResponse = corests.TokenResponse
 
 // TokenExchangeRequest is the parsed body of POST /oauth/2/token (application/x-www-form-urlencoded).
 type TokenExchangeRequest struct {
-	GrantType                  string
-	SubjectToken               string
-	SubjectTokenType           string
-	ActorToken                 string
-	Resources                  []string // one or more resource identifiers; repeated param supported
-	Scope                      string
-	ZoneID                     string
-	ApplicationID              string
-	ClientSecret               string
-	ClientAssertion            string
-	ClientAssertionType        string
-	ChallengeID                string // identifier of a previously issued step-up challenge
-	SessionID                  string
-	AgentSessionID             string
-	DelegationEdgeID           string
-	RequestMethod              string // upstream HTTP method the gateway is authorizing, if any
-	RequestPath                string // upstream request path the gateway is authorizing, if any
-	TTLSeconds                 int
-	GatewayAuthenticated       bool
-	RuntimeCredentialInjection bool
+	GrantType            string
+	SubjectToken         string
+	SubjectTokenType     string
+	ActorToken           string
+	Resources            []string // one or more resource identifiers; repeated param supported
+	Scope                string
+	ZoneID               string
+	ApplicationID        string
+	ClientSecret         string
+	ClientAssertion      string
+	ClientAssertionType  string
+	ChallengeID          string // identifier of a previously issued step-up challenge
+	SessionID            string
+	AgentSessionID       string
+	DelegationEdgeID     string
+	RequestMethod        string // upstream HTTP method the gateway is authorizing, if any
+	RequestPath          string // upstream request path the gateway is authorizing, if any
+	TTLSeconds           int
+	GatewayAuthenticated bool
 }
 
 // UpstreamAuthMode classifies how the gateway must authenticate to a resource.

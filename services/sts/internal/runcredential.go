@@ -1,0 +1,342 @@
+// Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+// Caracal, a product of Garudex Labs
+//
+// Run credential endpoint: mints one binding's provider credential for an authenticated workload launch.
+
+package internal
+
+import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"strings"
+
+	"github.com/google/uuid"
+
+	sharederr "github.com/garudex-labs/caracal/packages/core/go/errors"
+)
+
+// RunCredentialResponse carries the injected credential for one binding.
+type RunCredentialResponse struct {
+	Env        string `json:"env"`
+	Credential string `json:"credential"`
+	ExpiresAt  int64  `json:"expires_at,omitempty"`
+}
+
+func workloadAuditMeta(workload *Workload) map[string]any {
+	return map[string]any{
+		"workload_id":   workload.ID,
+		"workload_name": workload.Name,
+	}
+}
+
+// handleRunCredential resolves a workload binding by env name and mints its provider
+// credential. The request carries no authority: the resource, scopes, and provider all
+// come from the console-authored binding, so a leaked secret can only replay the
+// workload's own least-privilege profile. Every mint is policy-evaluated as a Workload
+// principal and can be held for human approval exactly like an application exchange.
+func (s *Server) handleRunCredential(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
+	if err := r.ParseForm(); err != nil {
+		writeError(w, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "malformed request body"))
+		return
+	}
+	workloadID := strings.TrimSpace(r.FormValue("workload_id"))
+	secret := r.FormValue("secret")
+	env := strings.TrimSpace(r.FormValue("env"))
+	challengeID := strings.TrimSpace(r.FormValue("challenge_id"))
+	if workloadID == "" || secret == "" || env == "" {
+		writeError(w, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "workload_id, secret, and env are required"))
+		return
+	}
+
+	requestID := r.Header.Get("X-Request-Id")
+	if requestID == "" {
+		id, err := uuid.NewV7()
+		if err != nil {
+			s.log.Error().Err(err).Msg("request id generation failed")
+			writeError(w, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "generate request id"))
+			return
+		}
+		requestID = id.String()
+	}
+
+	ctx := r.Context()
+	if rateErr := s.checkRateLimit(ctx, "run-credential", workloadID, "mint"); rateErr != nil {
+		writeError(w, http.StatusTooManyRequests, rateErr)
+		return
+	}
+
+	workload := s.authenticateRunWorkload(ctx, workloadID, secret)
+	if workload == nil {
+		writeError(w, http.StatusUnauthorized, sharederr.New(sharederr.AccessDenied, "invalid workload credentials"))
+		return
+	}
+	zoneID := workload.ZoneID
+	meta := workloadAuditMeta(workload)
+
+	now, timeErr := s.db.CurrentTime(ctx)
+	if timeErr != nil {
+		writeError(w, http.StatusServiceUnavailable, sharederr.New(sharederr.STSUnavailable, "trusted time unavailable"))
+		return
+	}
+
+	bindings, bindErr := runBindings(workload)
+	if bindErr != nil {
+		s.log.Error().Err(bindErr).Str("workload_id", workload.ID).Msg("workload bindings are not valid JSON")
+		writeError(w, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "workload bindings are invalid"))
+		return
+	}
+	var binding *RunBinding
+	for i := range bindings {
+		if bindings[i].Env == env {
+			binding = &bindings[i]
+			break
+		}
+	}
+	if binding == nil {
+		writeError(w, http.StatusNotFound, sharederr.New(sharederr.ResourceNotFound,
+			"no credential binding for env "+env+"; define it for this workload on the Launcher page in the Caracal web console"))
+		return
+	}
+
+	resource, dbErr := s.db.GetResourceByIdentifier(ctx, zoneID, binding.Resource)
+	if dbErr != nil {
+		if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "resource_not_found", &OPAResult{},
+			mergeAuditMeta(meta, map[string]any{"resource": binding.Resource, "env": env})); auditErr != nil {
+			writeError(w, http.StatusInternalServerError, auditErr)
+			return
+		}
+		writeError(w, http.StatusNotFound, sharederr.New(sharederr.ResourceNotFound,
+			"resource "+binding.Resource+" not found in the workload's zone"))
+		return
+	}
+	resourceMeta := mergeAuditMeta(meta, map[string]any{"resource": resource.Identifier, "env": env})
+
+	if resource.CredentialProviderID == nil {
+		if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "credential_not_provisioned", &OPAResult{},
+			mergeAuditMeta(resourceMeta, map[string]any{"reason": "no_provider"})); auditErr != nil {
+			writeError(w, http.StatusInternalServerError, auditErr)
+			return
+		}
+		writeError(w, http.StatusForbidden, sharederr.New(sharederr.AccessDenied,
+			"resource "+resource.Identifier+" has no credential provider; attach one in the Caracal web console"))
+		return
+	}
+	provider, perr := s.db.GetProvider(ctx, *resource.CredentialProviderID)
+	if perr != nil {
+		if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "provider_unavailable", &OPAResult{},
+			mergeAuditMeta(resourceMeta, map[string]any{"reason": "provider_not_found"})); auditErr != nil {
+			writeError(w, http.StatusInternalServerError, auditErr)
+			return
+		}
+		writeError(w, http.StatusForbidden, sharederr.New(sharederr.AccessDenied, "credential provider unavailable"))
+		return
+	}
+	providerCfg, cfgErr := providerDirectiveConfig(provider.ConfigJSON)
+	if cfgErr != nil {
+		if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "provider_unavailable", &OPAResult{},
+			mergeAuditMeta(resourceMeta, map[string]any{"reason": "provider_config_invalid"})); auditErr != nil {
+			writeError(w, http.StatusInternalServerError, auditErr)
+			return
+		}
+		writeError(w, http.StatusForbidden, sharederr.New(sharederr.AccessDenied, "credential provider unavailable"))
+		return
+	}
+	kind := derefStr(provider.ProviderKind)
+	if !providerCfg.AllowRuntimeInjection || kind == "none" || kind == "caracal_mandate" {
+		if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "credential_injection_denied", &OPAResult{},
+			mergeAuditMeta(resourceMeta, map[string]any{"reason": "runtime_injection_not_allowed"})); auditErr != nil {
+			writeError(w, http.StatusInternalServerError, auditErr)
+			return
+		}
+		writeError(w, http.StatusForbidden, sharederr.New(sharederr.AccessDenied,
+			"provider does not allow runtime credential injection for resource "+resource.Identifier))
+		return
+	}
+	if providerRequiresUserGrant(provider) {
+		if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "credential_not_provisioned", &OPAResult{},
+			mergeAuditMeta(resourceMeta, map[string]any{"reason": "no_user_principal"})); auditErr != nil {
+			writeError(w, http.StatusInternalServerError, auditErr)
+			return
+		}
+		writeError(w, http.StatusForbidden, sharederr.New(sharederr.AccessDenied,
+			"resource "+resource.Identifier+" uses a user-consent provider; workload launches have no user principal"))
+		return
+	}
+
+	scopes := binding.Scopes
+	boundResources := []string{resource.Identifier}
+
+	challengeResolved := false
+	var approval *StepUpChallengePG
+	if challengeID != "" {
+		// Verify the presented approval against the binding without consuming it:
+		// consumption happens after policy evaluation so a downstream deny never
+		// burns a granted approval. The generic invalid answer covers lookup failure
+		// and every binding mismatch alike.
+		existing, lookupErr := s.db.GetStepUpChallenge(ctx, challengeID)
+		if lookupErr != nil || existing.ChallengeType != humanApprovalChallengeType ||
+			existing.ZoneID != zoneID || existing.PrincipalID != workload.ID ||
+			existing.SessionID != "" ||
+			!bytes.Equal(existing.ResourceSetHash, hashApprovalBinding(boundResources, scopes)) {
+			if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "approval_invalid", &OPAResult{}, resourceMeta); auditErr != nil {
+				writeError(w, http.StatusInternalServerError, auditErr)
+				return
+			}
+			writeError(w, http.StatusUnauthorized, sharederr.New(sharederr.AccessDenied, "approval not found or bindings do not match"))
+			return
+		}
+		switch challengeLifecycleState(existing, now) {
+		case ChallengeStateConsumed:
+			if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "approval_already_consumed", &OPAResult{}, resourceMeta); auditErr != nil {
+				writeError(w, http.StatusInternalServerError, auditErr)
+				return
+			}
+			writeError(w, http.StatusUnauthorized, sharederr.New(sharederr.AccessDenied, "approval already used"))
+			return
+		case ChallengeStateRejected:
+			if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "approval_rejected", &OPAResult{},
+				mergeAuditMeta(resourceMeta, stepUpAuditMeta(existing))); auditErr != nil {
+				writeError(w, http.StatusInternalServerError, auditErr)
+				return
+			}
+			writeError(w, http.StatusForbidden, sharederr.New(sharederr.AccessDenied, "approval was rejected"))
+			return
+		case ChallengeStateExpired:
+			if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "approval_expired", &OPAResult{}, resourceMeta); auditErr != nil {
+				writeError(w, http.StatusInternalServerError, auditErr)
+				return
+			}
+			writeError(w, http.StatusUnauthorized, sharederr.New(sharederr.AccessDenied, "approval expired"))
+			return
+		case ChallengeStatePending:
+			writeStepUp(w, requestID, challengeWire(existing, now))
+			return
+		default:
+			approval = existing
+			challengeResolved = true
+		}
+	}
+
+	opaInput := OPAInput{
+		SchemaVersion: opaInputSchemaVersion,
+		Principal: OPAPrincipal{
+			Type:   "Workload",
+			ID:     workload.ID,
+			ZoneID: zoneID,
+		},
+		Resource: OPAResource{
+			Type:       "Resource",
+			ID:         resource.ID,
+			Identifier: resource.Identifier,
+			Scopes:     resource.Scopes,
+		},
+		Action: OPAAction{ID: "CredentialInjection"},
+		Context: OPAContext{
+			ActorClaims:       map[string]any{"caracal_client_id": workload.ID},
+			TraceID:           requestID,
+			ChallengeResolved: challengeResolved,
+			RequestedScopes:   scopes,
+		},
+	}
+
+	result, evalErr := s.opa.Evaluate(ctx, opaInput)
+	bundle := s.opa.BundleInfo(zoneID)
+	if evalErr != nil {
+		if auditErr := s.emitAuditEventWithBundle(requestID, zoneID, "deny", "policy_eval_failed", &OPAResult{}, resourceMeta, bundle); auditErr != nil {
+			writeError(w, http.StatusInternalServerError, auditErr)
+			return
+		}
+		writeError(w, http.StatusServiceUnavailable, sharederr.New(sharederr.PolicyEvalFailed, "policy evaluation unavailable"))
+		return
+	}
+	if auditErr := s.emitAuditEventWithBundle(requestID, zoneID, result.Decision, result.EvaluationStatus, result,
+		mergeAuditMeta(resourceMeta, map[string]any{"requested_scopes": scopes}), bundle); auditErr != nil {
+		writeError(w, http.StatusInternalServerError, auditErr)
+		return
+	}
+	// Only an explicit "complete" status is treated as a usable decision; any other
+	// value is a hard deny so an unknown state cannot silently grant access.
+	if result.EvaluationStatus != "complete" {
+		writeError(w, http.StatusForbidden, sharederr.New(sharederr.PolicyEvalFailed, "policy evaluation incomplete"))
+		return
+	}
+
+	if !challengeResolved {
+		if gateDecls := parseTierDeclarations(result); len(gateDecls) > 0 {
+			// The gate is a hold, not a deny: issuance is idempotent per binding, and a
+			// hold an approver has already granted releases the mint right here even
+			// when the retry did not carry the challenge id. Workload holds bind to the
+			// workload principal with no session.
+			hold, created, holdErr := s.ensureApproval(ctx, zoneID, "", workload.ID, "", resolveApproval(gateDecls), boundResources, scopes)
+			if holdErr != nil {
+				writeError(w, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "challenge creation failed"))
+				return
+			}
+			switch challengeLifecycleState(hold, now) {
+			case ChallengeStateApproved:
+				approval = hold
+				challengeResolved = true
+			case ChallengeStateRejected:
+				if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "approval_rejected", &OPAResult{},
+					mergeAuditMeta(resourceMeta, stepUpAuditMeta(hold))); auditErr != nil {
+					writeError(w, http.StatusInternalServerError, auditErr)
+					return
+				}
+				writeError(w, http.StatusForbidden, sharederr.New(sharederr.AccessDenied, "approval was rejected"))
+				return
+			default:
+				if created {
+					if auditErr := s.emitStepUpAudit(requestID, zoneID, "step_up_issued", "pending",
+						mergeAuditMeta(resourceMeta, stepUpAuditMeta(hold))); auditErr != nil {
+						writeError(w, http.StatusInternalServerError, auditErr)
+						return
+					}
+				}
+				writeStepUp(w, requestID, challengeWire(hold, now))
+				return
+			}
+		}
+	}
+
+	if result.Decision != "allow" {
+		writeError(w, http.StatusForbidden, sharederr.New(sharederr.AccessDenied, "policy denied"))
+		return
+	}
+
+	if approval != nil {
+		// Consume as the final fallible step before the credential is minted: every
+		// deny above leaves the approval intact for the corrected retry.
+		if cerr := s.consumeApproval(ctx, zoneID, workload.ID, approval.ID, boundResources, scopes); cerr != nil {
+			if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "approval_already_consumed", &OPAResult{},
+				mergeAuditMeta(resourceMeta, stepUpAuditMeta(approval))); auditErr != nil {
+				writeError(w, http.StatusInternalServerError, auditErr)
+				return
+			}
+			writeError(w, http.StatusUnauthorized, sharederr.New(sharederr.AccessDenied, "approval no longer valid"))
+			return
+		}
+		if auditErr := s.emitStepUpAudit(requestID, zoneID, "step_up_consumed", "consumed",
+			mergeAuditMeta(resourceMeta, stepUpAuditMeta(approval))); auditErr != nil {
+			writeError(w, http.StatusInternalServerError, auditErr)
+			return
+		}
+	}
+
+	directive, derr := s.buildUpstreamDirective(ctx, zoneID, nil, resource, true, true)
+	if derr != nil || directive.ProviderToken == "" {
+		if derr != nil {
+			s.log.Error().Err(derr).Str("zone_id", zoneID).Str("workload_id", workload.ID).Msg("run credential directive build failed")
+		}
+		writeError(w, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "provider credential unavailable"))
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(RunCredentialResponse{
+		Env:        binding.Env,
+		Credential: directive.ProviderToken,
+		ExpiresAt:  directive.ExpiresAt,
+	})
+}

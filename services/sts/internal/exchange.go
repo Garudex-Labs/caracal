@@ -78,14 +78,6 @@ func (s *Server) handleTokenExchange(w http.ResponseWriter, r *http.Request) {
 		}
 		ttlSeconds = parsedTTL
 	}
-	runtimeCredentialInjection := false
-	if rawRuntimeInjection := r.FormValue("runtime_credential_injection"); rawRuntimeInjection != "" {
-		if rawRuntimeInjection != "true" && rawRuntimeInjection != "false" {
-			writeError(w, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "invalid runtime_credential_injection"))
-			return
-		}
-		runtimeCredentialInjection = rawRuntimeInjection == "true"
-	}
 
 	requestID := r.Header.Get("X-Request-Id")
 	if requestID == "" {
@@ -123,7 +115,6 @@ func (s *Server) handleTokenExchange(w http.ResponseWriter, r *http.Request) {
 		RequestPath:                r.FormValue("request_path"),
 		TTLSeconds:                 ttlSeconds,
 		GatewayAuthenticated:       gatewayAuthenticated,
-		RuntimeCredentialInjection: runtimeCredentialInjection,
 	}
 
 	resp, challenge, code, apiErr := s.exchange(r.Context(), req, requestID)
@@ -418,14 +409,7 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 			continue
 		}
 
-		providerCredentialAccess := req.GatewayAuthenticated || req.RuntimeCredentialInjection
-		if req.RuntimeCredentialInjection && resource.CredentialProviderID == nil {
-			if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "credential_not_provisioned", &OPAResult{},
-				mergeAuditMeta(appMeta, map[string]any{"resource": resource.Identifier, "reason": "no_provider"})); auditErr != nil {
-				return nil, nil, http.StatusInternalServerError, auditErr
-			}
-			continue
-		}
+		providerCredentialAccess := req.GatewayAuthenticated
 		if providerCredentialAccess && resource.CredentialProviderID != nil {
 			provider, perr := s.db.GetProvider(ctx, *resource.CredentialProviderID)
 			if perr != nil {
@@ -434,24 +418,6 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 					return nil, nil, http.StatusInternalServerError, auditErr
 				}
 				continue
-			}
-			if req.RuntimeCredentialInjection {
-				providerCfg, cfgErr := providerDirectiveConfig(provider.ConfigJSON)
-				if cfgErr != nil {
-					if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "provider_unavailable", &OPAResult{},
-						mergeAuditMeta(appMeta, map[string]any{"resource": resource.Identifier, "reason": "provider_config_invalid"})); auditErr != nil {
-						return nil, nil, http.StatusInternalServerError, auditErr
-					}
-					continue
-				}
-				kind := derefStr(provider.ProviderKind)
-				if !providerCfg.AllowRuntimeInjection || kind == "none" || kind == "caracal_mandate" {
-					if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "credential_injection_denied", &OPAResult{},
-						mergeAuditMeta(appMeta, map[string]any{"resource": resource.Identifier, "reason": "runtime_injection_not_allowed"})); auditErr != nil {
-						return nil, nil, http.StatusInternalServerError, auditErr
-					}
-					continue
-				}
 			}
 			if providerRequiresUserGrant(provider) {
 				userID, _ := subjectClaims["sub"].(string)
@@ -524,12 +490,11 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 
 		if auditErr := s.emitAuditEventWithBundle(requestID, zoneID, result.Decision, result.EvaluationStatus, result,
 			mergeAuditMeta(mergeAuditMeta(mergeAuditMeta(appMeta, map[string]any{
-				"resource":                     resource.Identifier,
-				"requested_scopes":             scopes,
-				"session_id":                   req.SessionID,
-				"agent_session_id":             req.AgentSessionID,
-				"delegation_edge_id":           req.DelegationEdgeID,
-				"runtime_credential_injection": req.RuntimeCredentialInjection,
+				"resource":           resource.Identifier,
+				"requested_scopes":   scopes,
+				"session_id":         req.SessionID,
+				"agent_session_id":   req.AgentSessionID,
+				"delegation_edge_id": req.DelegationEdgeID,
 			}), agentAuditMeta(agentSession)), delegationMeta), bundle); auditErr != nil {
 			return nil, nil, http.StatusInternalServerError, auditErr
 		}
@@ -696,9 +661,9 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		return nil, nil, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "token issuance failed")
 	}
 
-	if req.GatewayAuthenticated || req.RuntimeCredentialInjection {
+	if req.GatewayAuthenticated {
 		for _, identifier := range grantedResources {
-			directive, err := s.buildUpstreamDirective(ctx, zoneID, subjectClaims, grantedResourceRows[identifier], req.GatewayAuthenticated || req.RuntimeCredentialInjection, req.RuntimeCredentialInjection)
+			directive, err := s.buildUpstreamDirective(ctx, zoneID, subjectClaims, grantedResourceRows[identifier], req.GatewayAuthenticated, false)
 			if err != nil {
 				return nil, nil, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "upstream directive build failed")
 			}
