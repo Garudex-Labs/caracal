@@ -109,25 +109,6 @@ function dependencyWaves(steps: GovernedPlanStep[]): GovernedPlanStep[][] | null
   return waves
 }
 
-// Invokes a control command, retrying once when the token stage failed transiently: a token
-// failure is definitive - no token was minted, so nothing was applied - which makes a single
-// retry on a server error or lost response safe and idempotent. Invoke-stage failures are
-// never retried here because the mutation may already have been applied.
-async function invokeControl(
-  client: ControlClient,
-  invocation: { command: string; subcommand: string; flags: Record<string, unknown> },
-  scopes: readonly string[],
-): Promise<unknown> {
-  try {
-    return await client.invoke(invocation.command, invocation.subcommand, invocation.flags, scopes)
-  } catch (err) {
-    if (err instanceof ControlClientError && err.stage === 'token' && (err.status >= 500 || err.status === 0)) {
-      return await client.invoke(invocation.command, invocation.subcommand, invocation.flags, scopes)
-    }
-    throw err
-  }
-}
-
 type StepApply = { ok: true; result: GovernedStepResult } | { ok: false; failure: GovernedStepFailure }
 
 // Applies one step: resolves its output references, mints a least-privilege token narrowed
@@ -154,18 +135,19 @@ async function applyStep(
   const gen: ControlGen = { secret: genSecret() }
   const invocation = capability.buildInvocation(resolved.args, gen, step.secrets)
   try {
-    const result = await invokeControl(client, invocation, capability.scopes)
+    const result = await client.invoke(invocation.command, invocation.subcommand, invocation.flags, capability.scopes)
     const outcome = capability.describeOutcome(result, resolved.args, gen)
     if (outcome.output) outputs.set(step.id, outcome.output)
     return { ok: true, result: { id: step.id, capability: step.capability, detail: outcome.detail, output: outcome.output } }
   } catch (err) {
     if (err instanceof ControlClientError) {
-      // A definitive failure applies nothing and is safe to retry: the token was never
-      // minted (token stage), or the control plane rejected the command (a 4xx client
-      // error). An ambiguous failure - a server error or a lost response (5xx, or no
-      // status) at the invoke stage - may have applied the mutation, so it is terminal.
-      const terminal = err.stage === 'invoke' && (err.status >= 500 || err.status === 0)
-      return { ok: false, failure: { stepId: step.id, capability: step.capability, reason: err.reason, code: err.code, terminal } }
+      // A definitive failure applies nothing and is safe to retry. An ambiguous one - a
+      // server error or a lost response at the invoke stage - may have applied the
+      // mutation, so it is terminal.
+      return {
+        ok: false,
+        failure: { stepId: step.id, capability: step.capability, reason: err.reason, code: err.code, terminal: !err.definitive },
+      }
     }
     // An unknown throw cannot be proven not to have applied, so it is treated as terminal.
     const reason = err instanceof Error ? err.message : 'step failed'

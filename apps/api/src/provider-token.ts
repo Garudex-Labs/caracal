@@ -3,6 +3,7 @@
 //
 // Hardened outbound OAuth token-endpoint client shared by provider grant exchange and provider connection tests.
 
+import { createPrivateKey, randomUUID, sign, type KeyObject } from 'node:crypto'
 import { lookup } from 'node:dns/promises'
 import { request as httpsRequest } from 'node:https'
 import { isIP } from 'node:net'
@@ -124,12 +125,47 @@ export interface TokenRequestParts {
   body: URLSearchParams
 }
 
-export function buildTokenRequest(form: URLSearchParams, clientId: string, clientSecret: string, method: string): TokenRequestParts {
+function assertionSigning(key: KeyObject): { alg: string; hash: string } {
+  if (key.asymmetricKeyType === 'rsa') return { alg: 'RS256', hash: 'sha256' }
+  if (key.asymmetricKeyType === 'ec') {
+    const curve = key.asymmetricKeyDetails?.namedCurve
+    if (curve === 'prime256v1') return { alg: 'ES256', hash: 'sha256' }
+    if (curve === 'secp384r1') return { alg: 'ES384', hash: 'sha384' }
+    if (curve === 'secp521r1') return { alg: 'ES512', hash: 'sha512' }
+    throw new Error(`unsupported EC curve for client assertion: ${curve ?? 'unknown'}`)
+  }
+  throw new Error(`unsupported private key type for client assertion: ${key.asymmetricKeyType ?? 'unknown'}`)
+}
+
+export function buildClientAssertion(audience: string, clientId: string, keyId: string, privateKeyPem: string): string {
+  const key = createPrivateKey(privateKeyPem)
+  const { alg, hash } = assertionSigning(key)
+  const now = Math.floor(Date.now() / 1000)
+  const header: Record<string, string> = { alg, typ: 'JWT' }
+  if (keyId) header.kid = keyId
+  const claims = { iss: clientId, sub: clientId, aud: audience, iat: now, exp: now + 60, jti: randomUUID() }
+  const signingInput = `${Buffer.from(JSON.stringify(header)).toString('base64url')}.${Buffer.from(JSON.stringify(claims)).toString('base64url')}`
+  const signature = sign(hash, Buffer.from(signingInput), key.asymmetricKeyType === 'ec' ? { key, dsaEncoding: 'ieee-p1363' } : key)
+  return `${signingInput}.${signature.toString('base64url')}`
+}
+
+export function buildTokenRequest(
+  form: URLSearchParams,
+  clientId: string,
+  clientSecret: string,
+  method: string,
+  assertion?: string,
+): TokenRequestParts {
   const body = new URLSearchParams(form)
   const headers: Record<string, string> = { 'Content-Type': 'application/x-www-form-urlencoded' }
   if (method === 'client_secret_post') {
     body.set('client_id', clientId)
     body.set('client_secret', clientSecret)
+  } else if (method === 'private_key_jwt') {
+    if (!assertion) throw new Error('private_key_jwt requires a client assertion')
+    body.set('client_id', clientId)
+    body.set('client_assertion_type', 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer')
+    body.set('client_assertion', assertion)
   } else if (method === 'none') {
     body.set('client_id', clientId)
   } else {
