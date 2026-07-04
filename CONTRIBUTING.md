@@ -59,7 +59,7 @@ pnpm caracal web              # Human-facing product management in the browser
 
 #### Standalone execution
 
-`pnpm caracal run -- <command>` authenticates as the workload's application, fetches its launch bindings from STS, injects scoped resource tokens into the child process, and runs it directly (no shell). It does not create apps, secrets, zones, or bindings. Create a managed application first, save the one-time client secret to the runtime secret path, and author the launch bindings on the Run page in the web console.
+`pnpm caracal run -- <command>` authenticates as a workload, fetches its launch bindings from STS, injects scoped resource credentials into the child process, and runs it directly (no shell). It does not create workloads, secrets, zones, or bindings. Create a workload on the Launcher page in the web console, save the one-time workload secret to the runtime secret path, and author the launch bindings on the same page.
 
 Run example workloads from their example directory:
 

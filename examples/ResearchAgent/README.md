@@ -17,7 +17,7 @@ After the one-time setup below:
 
 ```bash
 cd examples/ResearchAgent
-cp env.example .env          # fill in your application ID
+cp env.example .env          # fill in your workload ID
 . .env
 caracal run -- node agent.mjs
 ```
@@ -49,12 +49,12 @@ files. `caracal run` replaces that:
 - **No secrets on disk.** Tokens exist only in the child-process env and
   vanish on exit.
 - **Least privilege.** Google tokens carry only read-only scopes; each
-  resource is exchanged under a policy decision.
-- **Short-lived.** Credentials expire with the run TTL (15 minutes maximum).
+  credential is minted under a policy decision.
+- **Short-lived.** Credentials expire on their own TTL and are never renewed.
 - **Clean environment.** Only PATH-like variables and the bound credentials
   reach the agent.
-- **Audited.** Every exchange is an authenticated STS call by a named
-  application in a zone.
+- **Audited.** Every mint is an authenticated STS call by a named
+  workload in a zone.
 - **Centrally managed.** The env-var-to-resource bindings live in the web
   console, so rotating a resource or renaming a variable never touches the
   machines that run the agent.
@@ -70,9 +70,7 @@ launcher injects them.
 
 Run `caracal web` and create:
 
-1. A zone (e.g. `Pied Piper Production`) and a managed confidential
-   application (e.g. `PiperNet AI Research Agent`). Keep the one-time client
-   secret.
+1. A zone (e.g. `Pied Piper Production`).
 2. Three providers, each with `allow_runtime_injection = true`:
    - Google Drive: OAuth/token-broker provider, scope
      `https://www.googleapis.com/auth/drive.readonly`.
@@ -88,14 +86,14 @@ Run `caracal web` and create:
    | `resource://google-calendar` | `https://www.googleapis.com/calendar/v3` |
    | `resource://openai` | `https://api.openai.com/v1` |
 
-4. A policy allowing the application to request all three resources.
-5. Launch bindings on the console's **Run** page: bind
+4. A policy allowing the workload to request all three resources.
+5. A workload on the console's **Launcher** page (e.g.
+   `PiperNet AI Research Agent`). Keep the one-time workload secret. Bind
    `GOOGLE_DRIVE_ACCESS_TOKEN` to `resource://google-drive`,
    `GOOGLE_CALENDAR_ACCESS_TOKEN` to `resource://google-calendar`, and
-   `OPENAI_API_KEY` to `resource://openai`, each with credential type
-   **Provider token**. Set the credential TTL to 900 seconds. The console
-   then shows the exact launch command and confirms no gateway is needed
-   for this all-provider-token profile.
+   `OPENAI_API_KEY` to `resource://openai`, selecting the read-only scope
+   on each Google binding. The console then shows the exact launch
+   commands.
 
 The read-only scopes are the least-privilege grant: the agent only reads
 Drive (`https://www.googleapis.com`) and Calendar, and a write attempt with
@@ -103,27 +101,27 @@ these tokens is refused upstream. Prefer a service-account or token-broker
 flow for Google; `caracal run` is not an OAuth consent UI, so user-delegated
 grants must already exist.
 
-### 2. Local client secret
+### 2. Local workload secret
 
-The launcher needs exactly one local file: the application's one-time client
-secret, auto-detected at
-`~/.config/caracal/runtime/<application_id>/client-secret`:
+The launcher needs exactly one local file: the workload's one-time secret,
+auto-detected at
+`~/.config/caracal/runtime/<workload_id>/secret`:
 
 ```bash
-export CARACAL_APPLICATION_ID="app_support_research_agent"
-CARACAL_RUNTIME_DIR="$HOME/.config/caracal/runtime/$CARACAL_APPLICATION_ID"
+export CARACAL_WORKLOAD_ID="<workload ID from the Launcher page>"
+CARACAL_RUNTIME_DIR="$HOME/.config/caracal/runtime/$CARACAL_WORKLOAD_ID"
 mkdir -p "$CARACAL_RUNTIME_DIR"
 
-install -m 600 /dev/null "$CARACAL_RUNTIME_DIR/client-secret"
-printf '%s' '<paste-one-time-client-secret-here>' > "$CARACAL_RUNTIME_DIR/client-secret"
+install -m 600 /dev/null "$CARACAL_RUNTIME_DIR/secret"
+printf '%s' '<paste-one-time-workload-secret-here>' > "$CARACAL_RUNTIME_DIR/secret"
 ```
 
-Use your Console value for the application ID. In CI or containers, skip the
-file and set `CARACAL_APP_CLIENT_SECRET` (or `CARACAL_APP_CLIENT_SECRET_FILE`
+Use your Console value for the workload ID. In CI or containers, skip the
+file and set `CARACAL_WORKLOAD_SECRET` (or `CARACAL_WORKLOAD_SECRET_FILE`
 pointing at a mounted secret) instead. Everything else - the zone, the
-resource bindings, the TTL - comes from the run manifest the console stores
-for this application, so `env.example` carries only
-`CARACAL_APPLICATION_ID` and never provider secrets.
+resource bindings, the scopes - comes from the launch bindings the console
+stores for this workload, so `env.example` carries only
+`CARACAL_WORKLOAD_ID` and never provider secrets.
 
 ## Files
 
@@ -138,14 +136,15 @@ for this application, so `env.example` carries only
 | Symptom | Fix |
 | --- | --- |
 | `[agent] missing ...` (exit 2) | Launch through `caracal run` with the setup in place. |
-| `workload identity is required to run a command` | Source `.env` or set `CARACAL_APPLICATION_ID` plus a client secret source. |
-| `run manifest not configured` | Define launch bindings on the Run page in Console. |
+| `workload identity not found` | Source `.env` or set `CARACAL_WORKLOAD_ID` plus a workload secret source. |
+| `no credential bindings configured` | Define launch bindings on the Launcher page in Console. |
 | Permission error on the secret file | `chmod 600` the file. |
 | `"reason": "step_up_required"` | Approve the challenge in Console; the launcher resumes. |
 | `provider_credential_unavailable:<resource>` | Enable `allow_runtime_injection = true` on the provider. |
 | Google 401/403 during a question | Token expired (relaunch) or provider scopes too narrow. |
 
 Good to know: injected env vars are static for the process lifetime, so
-long-running agents must finish before the TTL or be relaunched. The same
+long-running agents must finish before the credentials expire or be
+relaunched. The same
 launch pattern works in CI jobs, container entrypoints, and schedulers -
 anywhere a process starts with `caracal run --`.
