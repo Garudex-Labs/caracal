@@ -37,7 +37,6 @@ type TokenExchangeRequest struct {
 	ClientAssertion            string
 	ClientAssertionType        string
 	ChallengeID                string // identifier of a previously issued step-up challenge
-	ChallengeResponse          string // single-use secret presented to consume the challenge
 	SessionID                  string
 	AgentSessionID             string
 	DelegationEdgeID           string
@@ -143,15 +142,19 @@ type OPAResult struct {
 	Diagnostics         []map[string]any `json:"diagnostics"`
 }
 
-// StepUpChallenge describes the 401 response body for interaction_required.
-// ChallengeSecret is the high-entropy single-use proof the client must echo back as
-// challenge_response on the follow-up token-exchange request.
+// StepUpChallenge describes the 401 response body for interaction_required. State is
+// the challenge's current lifecycle state so a retry against a pending approval is
+// distinguishable from a fresh hold. Binding is the hex request hash an approver echoes
+// on the decision endpoint, proving the decision targets this exact challenge instance;
+// the requesting application relays it to its approver surface alongside the id.
 type StepUpChallenge struct {
 	Error              string `json:"error"`
 	ErrorDescription   string `json:"error_description"`
 	ChallengeID        string `json:"challenge_id"`
 	ChallengeType      string `json:"challenge_type"`
-	ChallengeSecret    string `json:"challenge_secret"`
+	State              string `json:"state"`
+	Tier               string `json:"tier,omitempty"`
+	Binding            string `json:"binding"`
 	ChallengeExpiresAt string `json:"challenge_expires_at"`
 	RequestID          string `json:"requestId"`
 }

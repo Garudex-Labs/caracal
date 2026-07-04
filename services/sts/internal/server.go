@@ -7,6 +7,7 @@ package internal
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
@@ -14,6 +15,8 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -32,6 +35,11 @@ import (
 const (
 	maxRequestBodyBytes = 64 * 1024
 	jwksCacheMaxAge     = 300
+
+	stepUpMaxWaitSeconds  = 25
+	stepUpReasonMaxLength = 500
+	stepUpSweepInterval   = time.Hour
+	stepUpRetention       = 24 * time.Hour
 )
 
 // Server holds all runtime state for the STS.
@@ -46,7 +54,6 @@ type Server struct {
 	refreshGroup       singleflight.Group
 	providerTokenMu    sync.RWMutex
 	providerTokenCache map[string]providerServiceTokenCacheEntry
-	stepUpThrottle     *stepUpThrottle
 	consumersReady     chan struct{}
 	log                zerolog.Logger
 }
@@ -125,7 +132,6 @@ func New(ctx context.Context) (*Server, error) {
 		keys:           keys,
 		auditBuffer:    buf,
 		metrics:        metrics,
-		stepUpThrottle: newStepUpThrottle(),
 		consumersReady: make(chan struct{}),
 		log:            log,
 	}, nil
@@ -140,12 +146,13 @@ func (s *Server) Run(ctx context.Context) error {
 	go s.startConsumers(ctx)
 	go s.opa.StartPGPolling(ctx)
 	go s.opa.SeedZones(ctx)
+	go s.startStepUpSweeper(ctx)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /oauth/2/token", s.handleTokenExchange)
 	mux.HandleFunc("GET /.well-known/jwks.json", s.handleJWKS)
 	mux.HandleFunc("GET /step-up/{id}", s.handleStepUpStatus)
-	mux.HandleFunc("POST /internal/step-up/{id}/approve", s.handleApproveStepUp)
+	mux.HandleFunc("POST /step-up/{id}/decision", s.handleStepUpDecision)
 	mux.HandleFunc("GET /health", handleHealth)
 	mux.HandleFunc("GET /ready", s.handleReady)
 	mux.HandleFunc("GET /metrics", s.handleMetrics)
@@ -240,66 +247,225 @@ func handleHealth(w http.ResponseWriter, _ *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+// handleStepUpStatus reports the lifecycle state of a challenge and nothing else. The
+// challenge id is an unguessable capability held by the party that received the 401,
+// and the body discloses no approver identity, no request metadata, and no bindings,
+// so polling it leaks nothing worth authenticating. An optional wait parameter
+// long-polls until the state leaves pending or the window closes, replacing tight
+// client-side polling loops.
 func (s *Server) handleStepUpStatus(w http.ResponseWriter, r *http.Request) {
 	challengeID := r.PathValue("id")
 	if _, err := uuid.Parse(challengeID); err != nil {
 		writeError(w, http.StatusNotFound, sharederr.New(sharederr.ResourceNotFound, "challenge not found"))
 		return
 	}
-	c, err := s.db.GetStepUpChallenge(r.Context(), challengeID)
-	if err != nil {
-		writeError(w, http.StatusNotFound, sharederr.New(sharederr.ResourceNotFound, "challenge not found"))
-		return
+	wait := time.Duration(0)
+	if raw := r.URL.Query().Get("wait"); raw != "" {
+		seconds, err := strconv.Atoi(raw)
+		if err != nil || seconds < 0 {
+			writeError(w, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "invalid wait"))
+			return
+		}
+		if seconds > stepUpMaxWaitSeconds {
+			seconds = stepUpMaxWaitSeconds
+		}
+		wait = time.Duration(seconds) * time.Second
 	}
-	metadata := c.MetadataJSON
-	if len(metadata) == 0 {
-		metadata = []byte("{}")
+	if wait > 0 {
+		// The server-wide write timeout is shorter than the poll window, so the
+		// deadline is extended for exactly this response.
+		rc := http.NewResponseController(w)
+		_ = rc.SetWriteDeadline(time.Now().Add(wait + 5*time.Second))
 	}
+	deadline := time.Now().Add(wait)
+	for {
+		c, err := s.db.GetStepUpChallenge(r.Context(), challengeID)
+		if err != nil {
+			writeError(w, http.StatusNotFound, sharederr.New(sharederr.ResourceNotFound, "challenge not found"))
+			return
+		}
+		now, err := s.db.CurrentTime(r.Context())
+		if err != nil {
+			writeError(w, http.StatusServiceUnavailable, sharederr.New(sharederr.STSUnavailable, "trusted time unavailable"))
+			return
+		}
+		state := challengeLifecycleState(c, now)
+		if state != ChallengeStatePending || !time.Now().Before(deadline) {
+			writeStepUpState(w, c, state)
+			return
+		}
+		select {
+		case <-r.Context().Done():
+			return
+		case <-time.After(time.Second):
+		}
+	}
+}
+
+func writeStepUpState(w http.ResponseWriter, c *StepUpChallengePG, state string) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
-		"id":             c.ID,
-		"challenge_type": c.ChallengeType,
-		"satisfied":      c.SatisfiedAt != nil,
-		"consumed":       c.ConsumedAt != nil,
-		"expires_at":     c.ExpiresAt.Format(time.RFC3339),
-		"approver":       c.ApproverSubjectID,
-		"metadata":       json.RawMessage(metadata),
+		"id":         c.ID,
+		"state":      state,
+		"expires_at": c.ExpiresAt.Format(time.RFC3339),
 	})
 }
 
-// handleApproveStepUp lets the control plane record an authenticated approver
-// satisfying a pending human-approval challenge. The control plane authenticates the
-// human approver and presents the approver's subject id; STS owns the durable artifact
-// and the single-use, bound consumption that the mandate mint then requires. The update
-// only lands on a live, unsatisfied human-approval challenge, so it can neither approve
-// an mfa challenge nor resurrect an expired or already consumed one.
-func (s *Server) handleApproveStepUp(w http.ResponseWriter, r *http.Request) {
-	if !s.adminAuthorized(w, r) {
-		return
-	}
+// handleStepUpDecision records an approver's decision on a pending hold from the
+// subject plane: the approver is an authenticated end user of the requesting
+// application, presenting the session mandate that application minted for them.
+// Caracal never learns who the application's users are beyond this mandate; the
+// application owns the approval surface and relays only the challenge id and binding.
+// The guards, in order: the mandate must verify for the challenge's zone and belong to
+// a user, its session must be live and minted by the very application the hold binds,
+// the hold must admit subject decisions, the approver's session may not share a
+// delegation lineage with the session that raised the hold, and the echoed binding
+// must match the hold exactly. The decision record applies the tier's privacy mode.
+func (s *Server) handleStepUpDecision(w http.ResponseWriter, r *http.Request) {
 	challengeID := r.PathValue("id")
 	if _, err := uuid.Parse(challengeID); err != nil {
 		writeError(w, http.StatusNotFound, sharederr.New(sharederr.ResourceNotFound, "challenge not found"))
 		return
 	}
+	token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	if !ok || token == "" {
+		w.Header().Set("WWW-Authenticate", `Bearer realm="caracal-sts"`)
+		writeError(w, http.StatusUnauthorized, sharederr.New(sharederr.InvalidToken, "session mandate required"))
+		return
+	}
 	var body struct {
-		ZoneID            string `json:"zone_id"`
-		ApproverSubjectID string `json:"approver_subject_id"`
+		Decision string `json:"decision"`
+		Binding  string `json:"binding"`
+		Reason   string `json:"reason"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "malformed request body"))
 		return
 	}
-	if body.ZoneID == "" || body.ApproverSubjectID == "" {
-		writeError(w, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "zone_id and approver_subject_id required"))
+	if body.Decision != "approved" && body.Decision != "rejected" {
+		writeError(w, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "decision must be approved or rejected"))
 		return
 	}
-	if err := s.db.ApproveStepUpChallenge(r.Context(), challengeID, body.ZoneID, body.ApproverSubjectID); err != nil {
-		writeError(w, http.StatusNotFound, sharederr.New(sharederr.ResourceNotFound, "no pending human-approval challenge for this id"))
+	if len(body.Reason) > stepUpReasonMaxLength {
+		writeError(w, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "reason too long"))
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{"approved": true, "challenge_id": challengeID})
+	c, err := s.db.GetStepUpChallenge(r.Context(), challengeID)
+	if err != nil || c.ChallengeType != humanApprovalChallengeType {
+		writeError(w, http.StatusNotFound, sharederr.New(sharederr.ResourceNotFound, "challenge not found"))
+		return
+	}
+	claims, err := s.validateSubjectToken(r.Context(), token, c.ZoneID)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, sharederr.New(sharederr.InvalidToken, "invalid session mandate"))
+		return
+	}
+	if claimString(claims, "sub_type") != SubTypeUser {
+		writeError(w, http.StatusForbidden, sharederr.New(sharederr.AccessDenied, "approver must be a user session"))
+		return
+	}
+	if c.ApplicationID == "" {
+		writeError(w, http.StatusForbidden, sharederr.New(sharederr.AccessDenied, "challenge does not admit subject decisions"))
+		return
+	}
+	approverSID, serr := s.validateTokenSession(r.Context(), c.ZoneID, c.ApplicationID, "", claims)
+	if serr != nil {
+		writeError(w, http.StatusForbidden, serr)
+		return
+	}
+	if c.ApproverClass != ApproverClassSubject && c.ApproverClass != ApproverClassAny {
+		writeError(w, http.StatusForbidden, sharederr.New(sharederr.AccessDenied, "this approval requires an operator decision"))
+		return
+	}
+	related, err := s.db.SessionsRelated(r.Context(), c.ZoneID, approverSID, c.SessionID)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, sharederr.New(sharederr.STSUnavailable, "session lineage unavailable"))
+		return
+	}
+	if related {
+		writeError(w, http.StatusForbidden, sharederr.New(sharederr.AccessDenied, "an approver cannot decide a hold raised by its own session lineage"))
+		return
+	}
+	if body.Binding != hex.EncodeToString(c.ResourceSetHash) {
+		writeError(w, http.StatusConflict, sharederr.New(sharederr.AccessDenied, "binding does not match this challenge"))
+		return
+	}
+	decideErr := s.db.DecideStepUpChallenge(r.Context(), DecideStepUpParams{
+		ID:                c.ID,
+		ZoneID:            c.ZoneID,
+		Approve:           body.Decision == "approved",
+		ApproverSubjectID: approverRecordID(c.PrivacyMode, c.ZoneID, claimString(claims, "sub")),
+		ApproverSessionID: approverSID,
+		Reason:            body.Reason,
+	})
+	if decideErr != nil {
+		writeError(w, http.StatusConflict, sharederr.New(sharederr.AccessDenied, "challenge is not pending"))
+		return
+	}
+	if auditErr := s.emitStepUpAudit(c.ID, c.ZoneID, "step_up_decided", body.Decision,
+		mergeAuditMeta(stepUpAuditMeta(c), map[string]any{
+			"approver_plane":      "subject",
+			"approver_session_id": approverSID,
+		})); auditErr != nil {
+		writeError(w, http.StatusInternalServerError, auditErr)
+		return
+	}
+	updated, err := s.db.GetStepUpChallenge(r.Context(), c.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "challenge reload failed"))
+		return
+	}
+	now, err := s.db.CurrentTime(r.Context())
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, sharederr.New(sharederr.STSUnavailable, "trusted time unavailable"))
+		return
+	}
+	writeStepUpState(w, updated, challengeLifecycleState(updated, now))
+}
+
+// approverRecordID applies a hold's privacy mode to the approver identity the decision
+// record retains. identified stores the subject verbatim; pseudonymous stores a stable
+// zone-scoped pseudonym so decisions by one approver correlate without naming anyone;
+// anonymous stores only a redaction marker. Every mode retains the approver's session
+// id separately as the forensic and revocation anchor.
+func approverRecordID(privacyMode, zoneID, sub string) string {
+	switch privacyMode {
+	case PrivacyAnonymous:
+		return "subject:redacted"
+	case PrivacyPseudonymous:
+		sum := sha256.Sum256([]byte(zoneID + "\x00" + sub))
+		return "subject:pseudonym:" + hex.EncodeToString(sum[:8])
+	default:
+		return "subject:" + sub
+	}
+}
+
+// startStepUpSweeper deletes challenge rows whose lifecycle ended more than the
+// retention window ago. The audit stream is the durable record; the table only needs
+// terminal rows long enough for operators to inspect recent decisions.
+func (s *Server) startStepUpSweeper(ctx context.Context) {
+	ticker := time.NewTicker(stepUpSweepInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			now, err := s.db.CurrentTime(ctx)
+			if err != nil {
+				s.log.Warn().Err(err).Msg("step-up sweep: trusted time unavailable")
+				continue
+			}
+			deleted, err := s.db.DeleteExpiredStepUpChallenges(ctx, now.Add(-stepUpRetention))
+			if err != nil {
+				s.log.Warn().Err(err).Msg("step-up sweep failed")
+				continue
+			}
+			if deleted > 0 {
+				s.log.Info().Int64("deleted", deleted).Msg("step-up sweep purged terminal challenges")
+			}
+		}
+	}
 }
 
 func (s *Server) handleRotateZoneSigningKey(w http.ResponseWriter, r *http.Request) {
