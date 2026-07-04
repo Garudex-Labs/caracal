@@ -9,7 +9,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Caracal } from '../../../../packages/sdk/ts/src/index.js'
+import { Caracal, type CaracalEvent } from '../../../../packages/sdk/ts/src/index.js'
 import {
   HeaderAuthorization,
   HeaderTraceparent,
@@ -711,6 +711,49 @@ describe('agent lifecycle and delegation', () => {
       expect(key).toMatch(/[0-9a-f-]{32,}/)
     }
     expect(new Set(keys).size).toBe(keys.length)
+  })
+
+  it('forwards coordinator and token exchange events to onEvent hooks', async () => {
+    const fakeFetch = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
+      if (init.method === 'POST' && String(input).endsWith('/agents')) {
+        return new Response(JSON.stringify({ agent_session_id: 'agent-1' }), { status: 200 })
+      }
+      return new Response(null, { status: 204 })
+    }) as unknown as typeof fetch
+    const stsFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ access_token: 'fresh-root', expires_in: 900 }),
+    })
+    vi.stubGlobal('fetch', stsFetch)
+    const secretSource = Caracal.fromEnv({
+      CARACAL_COORDINATOR_URL: 'http://coord',
+      CARACAL_ZONE_URL: 'http://sts',
+      CARACAL_ZONE_ID: 'z1',
+      CARACAL_APPLICATION_ID: 'a1',
+      CARACAL_APP_CLIENT_SECRET: 'shh',
+      CARACAL_RESOURCES: 'calendar=https://calendar.example.com',
+    })
+    const c = new Caracal({
+      ...baseConfig,
+      coordinator: { baseUrl: 'https://coordinator.example.com', fetchImpl: fakeFetch },
+    })
+    const events: CaracalEvent[] = []
+    const secretEvents: CaracalEvent[] = []
+    c.onEvent((event) => events.push(event))
+    c.onEvent(() => {
+      throw new Error('sink failure')
+    })
+    secretSource.onEvent((event) => secretEvents.push(event))
+
+    await c.spawn(async () => undefined)
+    await secretSource.headersAsync({ allowRoot: true })
+
+    expect(events.map((event) => event.type)).toEqual(['coordinator.call', 'coordinator.call'])
+    expect(events[0]).toMatchObject({ type: 'coordinator.call', method: 'POST', ok: true })
+    expect(events[1]).toMatchObject({ type: 'coordinator.call', method: 'DELETE', ok: true })
+    expect(secretEvents.map((event) => event.type)).toEqual(['token.exchange'])
+    expect(secretEvents[0]).toMatchObject({ type: 'token.exchange', ok: true, cached: false })
   })
 })
 

@@ -10,6 +10,7 @@ import {
   terminateAgent,
   createDelegation,
   heartbeatAgent,
+  type CoordinatorCallEvent,
   type CoordinatorClient,
 } from '../../../../packages/sdk/ts/src/coordinator.js'
 
@@ -165,5 +166,37 @@ describe('coordinator client', () => {
     const controller = new AbortController()
     controller.abort()
     await expect(spawnAgent(client, 'tok', { zoneId: 'z1', applicationId: 'app-1' }, controller.signal)).rejects.toThrow()
+  })
+
+  it('emits coordinator.call events for success, denial, and transport failure', async () => {
+    const events: CoordinatorCallEvent[] = []
+    const { client } = stub((rec) =>
+      rec.method === 'DELETE'
+        ? new Response(JSON.stringify({ error: 'denied' }), { status: 403 })
+        : new Response(JSON.stringify({ agent_session_id: 'agent-1' }), { status: 201 }),
+    )
+    client.onEvent = (event) => {
+      events.push(event)
+      throw new Error('sink failure')
+    }
+
+    await spawnAgent(client, 'tok', { zoneId: 'z1', applicationId: 'app-1' })
+    await expect(terminateAgent(client, 'tok', 'z1', 'agent-1')).rejects.toThrow(CoordinatorError)
+
+    const failing: CoordinatorClient = {
+      baseUrl: 'http://coord',
+      fetchImpl: (async () => {
+        throw new Error('network down')
+      }) as unknown as typeof fetch,
+      onEvent: (event) => events.push(event),
+    }
+    await expect(spawnAgent(failing, 'tok', { zoneId: 'z1', applicationId: 'app-1' })).rejects.toThrow('network down')
+
+    expect(events).toHaveLength(3)
+    expect(events[0]).toMatchObject({ type: 'coordinator.call', method: 'POST', ok: true, status: 201 })
+    expect(events[0].path).toBe('/zones/z1/agents')
+    expect(events[1]).toMatchObject({ type: 'coordinator.call', method: 'DELETE', ok: false, status: 403 })
+    expect(events[2]).toMatchObject({ type: 'coordinator.call', method: 'POST', ok: false, status: 0 })
+    expect(events[0].durationMs).toBeGreaterThanOrEqual(0)
   })
 })

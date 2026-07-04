@@ -5,7 +5,12 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { OAuthClient } from '../../../../../packages/oauth/ts/src/client.js'
-import { InteractionRequiredError } from '../../../../../packages/oauth/ts/src/types.js'
+import {
+  CaracalError,
+  InteractionRequiredError,
+  type OAuthEvent,
+  type TokenExchangeEvent,
+} from '../../../../../packages/oauth/ts/src/types.js'
 
 describe('OAuthClient', () => {
   beforeEach(() => {
@@ -395,5 +400,101 @@ describe('OAuthClient', () => {
     const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
 
     await expect(client.exchange('subject-tok', 'resource://api')).rejects.toThrow(message)
+  })
+
+  it('carries typed error fields on STS denials', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 403,
+        json: async () => ({ error: 'access_denied', error_description: 'Denied', requestId: 'req-2' }),
+      }),
+    )
+    const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
+
+    const err = await client.exchange('subject-tok', 'resource://api').catch((error: unknown) => error)
+    expect(err).toBeInstanceOf(CaracalError)
+    expect((err as CaracalError).code).toBe('access_denied')
+    expect((err as CaracalError).requestId).toBe('req-2')
+    expect((err as CaracalError).httpStatus).toBe(403)
+  })
+
+  it('carries request id and status on InteractionRequiredError', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 401,
+        json: async () => ({
+          error: 'interaction_required',
+          error_description: 'Approval required',
+          challenge_id: 'chal-9',
+          requestId: 'req-9',
+        }),
+      }),
+    )
+    const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
+
+    const err = await client.exchange('subject-tok', 'resource://api').catch((error: unknown) => error)
+    expect(err).toBeInstanceOf(InteractionRequiredError)
+    expect((err as InteractionRequiredError).requestId).toBe('req-9')
+    expect((err as InteractionRequiredError).httpStatus).toBe(401)
+  })
+
+  it('emits token.exchange events for fresh, cached, and failed exchanges', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ access_token: 'tok-events', expires_in: 900 }),
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 403,
+        json: async () => ({ error: 'access_denied', error_description: 'Denied' }),
+      })
+    vi.stubGlobal('fetch', fetchMock)
+    const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
+    const events: OAuthEvent[] = []
+    client.onEvent = (event) => events.push(event)
+
+    await client.exchange('subject-a', 'resource://api', { scopes: ['write', 'read'] })
+    await client.exchange('subject-a', 'resource://api', { scopes: ['read', 'write'] })
+    await client.exchange('subject-b', 'resource://api').catch(() => undefined)
+
+    expect(events).toHaveLength(3)
+    expect(events[0]).toMatchObject({
+      type: 'token.exchange',
+      ok: true,
+      cached: false,
+      resources: ['resource://api'],
+      scopes: ['read', 'write'],
+    })
+    expect(events[1]).toMatchObject({ type: 'token.exchange', ok: true, cached: true })
+    expect(events[2]).toMatchObject({ type: 'token.exchange', ok: false, cached: false, status: 403, code: 'access_denied' })
+    expect((events[0] as TokenExchangeEvent).durationMs).toBeGreaterThanOrEqual(0)
+  })
+
+  it('emits approval.wait events and survives a throwing sink', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ state: 'approved' }),
+      }),
+    )
+    const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
+    const events: OAuthEvent[] = []
+    client.onEvent = (event) => {
+      events.push(event)
+      throw new Error('sink failure')
+    }
+
+    await expect(client.waitForApproval('chal-1', { timeoutSeconds: 5 })).resolves.toBe('approved')
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({ type: 'approval.wait', ok: true, challengeId: 'chal-1', state: 'approved' })
   })
 })
