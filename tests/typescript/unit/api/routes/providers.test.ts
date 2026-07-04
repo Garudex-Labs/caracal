@@ -21,7 +21,7 @@ function sealedSecretConfig(config: Record<string, string>): { ciphertext: Buffe
   return seal(loadZoneKek(), Buffer.from(JSON.stringify(config), 'utf8'))
 }
 
-function mockTokenResponse(body: Record<string, unknown>, statusCode: number): string[] {
+function mockTokenResponse(body: Record<string, unknown> | string, statusCode: number): string[] {
   const bodies: string[] = []
   vi.mocked(httpsRequest).mockImplementation((_url, _opts, callback) => {
     const req = new EventEmitter() as EventEmitter & { write: (chunk: string) => void; end: () => void; destroy: (err?: Error) => void }
@@ -37,7 +37,7 @@ function mockTokenResponse(body: Record<string, unknown>, statusCode: number): s
       }
       queueMicrotask(() => {
         callback(res)
-        res.emit('data', JSON.stringify(body))
+        res.emit('data', typeof body === 'string' ? body : JSON.stringify(body))
         res.emit('end')
       })
     }
@@ -935,6 +935,8 @@ describe('POST /v1/zones/:zoneId/providers/:id/test', () => {
     expect(res.body).not.toContain('issued-token')
     expect(bodies.join('')).toContain('grant_type=client_credentials')
     expect(bodies.join('')).toContain('scope=pipernet.read')
+    const requestHeaders = (vi.mocked(httpsRequest).mock.calls[0][1] as { headers: Record<string, string> }).headers
+    expect(requestHeaders.Accept).toBe('application/json')
     expect(db.query).toHaveBeenLastCalledWith(expect.stringContaining('SET connectivity_failed_at'), ['provider-1', 'z1', null])
   })
 
@@ -987,6 +989,69 @@ describe('POST /v1/zones/:zoneId/providers/:id/test', () => {
     expect(res.statusCode).toBe(200)
     expect(JSON.parse(res.body)).toMatchObject({ status: 'ok' })
     expect(bodies.join('')).toContain('code=caracal-connection-test')
+    expect(bodies.join('')).toContain('code_verifier=')
+  })
+
+  it('reads form-encoded HTTP 200 vendor errors so GitHub-style endpoints classify correctly', async () => {
+    const config = {
+      authorization_endpoint: 'https://login.hooli.example/oauth/authorize',
+      token_endpoint: 'https://login.hooli.example/oauth/token',
+      redirect_uri: 'https://caracal.piedpiper.example/v1/zones/z1/provider-grants/oauth/callback',
+      client_id: 'hooli-client',
+      client_auth_method: 'client_secret_post',
+      allowed_token_hosts: ['login.hooli.example'],
+    }
+    for (const [kind, errBody, status] of [
+      ['oauth2_authorization_code', 'error=bad_verification_code&error_description=The+code+passed+is+incorrect', 'ok'],
+      [
+        'oauth2_authorization_code',
+        'error=incorrect_client_credentials&error_description=The+client_id+or+client_secret+is+incorrect',
+        'auth_failed',
+      ],
+      [
+        'oauth2_client_credentials',
+        'error=incorrect_client_credentials&error_description=The+client_id+or+client_secret+is+incorrect',
+        'auth_failed',
+      ],
+    ] as const) {
+      const { app, db, redis } = buildRouteApp(providersRoutes)
+      redis.incr.mockResolvedValueOnce(1)
+      db.query.mockResolvedValueOnce({ rows: [oauthProviderRow(kind, config)] })
+      vi.mocked(lookup).mockResolvedValue([{ address: '203.0.113.10', family: 4 }] as never)
+      mockTokenResponse(errBody, 200)
+
+      await app.ready()
+      const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/providers/provider-1/test', payload: {} })
+
+      expect(res.statusCode).toBe(200)
+      expect(JSON.parse(res.body)).toMatchObject({ status })
+      vi.clearAllMocks()
+    }
+  })
+
+  it('classifies scope and audience rejections as configuration errors', async () => {
+    const { app, db, redis } = buildRouteApp(providersRoutes)
+    redis.incr.mockResolvedValueOnce(1)
+    db.query.mockResolvedValueOnce({
+      rows: [
+        oauthProviderRow('oauth2_client_credentials', {
+          token_endpoint: 'https://login.hooli.example/oauth/token',
+          client_id: 'hooli-client',
+          client_auth_method: 'client_secret_basic',
+          allowed_token_hosts: ['login.hooli.example'],
+          scopes: ['pipernet.admin'],
+        }),
+      ],
+    })
+    vi.mocked(lookup).mockResolvedValue([{ address: '203.0.113.10', family: 4 }] as never)
+    mockTokenResponse({ error: 'invalid_scope' }, 400)
+
+    await app.ready()
+    const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/providers/provider-1/test', payload: {} })
+
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body)).toMatchObject({ status: 'config_error' })
+    expect(JSON.parse(res.body).detail).toContain('invalid_scope')
   })
 
   it('reports a non-allowlisted token endpoint as config_error without any outbound request', async () => {

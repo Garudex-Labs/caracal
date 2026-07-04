@@ -14,6 +14,7 @@ const sourceDir = join(root, 'tests', 'source', 'go')
 
 const GO_PKGS = [
   './packages/core/go/...',
+  './packages/admin/go/...',
   './services/sts/...',
   './services/audit/...',
   './services/gateway/...',

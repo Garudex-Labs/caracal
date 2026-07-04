@@ -13,6 +13,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
 const PACKAGES = [
   { path: 'packages/core/python', module: 'caracalai_core' },
+  { path: 'packages/admin/python', module: 'caracalai_admin' },
   { path: 'packages/identity/python', module: 'caracalai_identity' },
   { path: 'packages/oauth/python', module: 'caracalai_oauth' },
   { path: 'packages/revocation/python', module: 'caracalai_revocation' },
