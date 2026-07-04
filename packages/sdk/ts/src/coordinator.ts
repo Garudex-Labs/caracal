@@ -10,6 +10,22 @@ import type { JsonObject } from './json.js'
 export interface CoordinatorClient {
   baseUrl: string
   fetchImpl?: typeof fetch
+  timeoutMs?: number
+}
+
+const DEFAULT_TIMEOUT_MS = 10_000
+
+/** Coordinator rejected a request; carries the HTTP status so callers can branch on it. */
+export class CoordinatorError extends Error {
+  constructor(
+    readonly method: string,
+    readonly path: string,
+    readonly status: number,
+    body: string,
+  ) {
+    super(`coordinator ${method} ${path} failed: ${status} ${body}`)
+    this.name = 'CoordinatorError'
+  }
 }
 
 export const Lifecycle = {
@@ -83,12 +99,15 @@ async function call<T>(
     method,
     headers,
     body: body ? JSON.stringify(body) : undefined,
+    signal: AbortSignal.timeout(client.timeoutMs ?? DEFAULT_TIMEOUT_MS),
   })
   if (!res.ok) {
     const text = await res.text()
-    throw new Error(`coordinator ${method} ${path} failed: ${res.status} ${text}`)
+    throw new CoordinatorError(method, path, res.status, text)
   }
-  return (await res.json()) as T
+  if (res.status === 204) return undefined as T
+  const text = await res.text()
+  return (text ? JSON.parse(text) : undefined) as T
 }
 
 export async function spawnAgent(client: CoordinatorClient, bearer: string, req: SpawnRequest): Promise<SpawnResponse> {
@@ -114,15 +133,12 @@ export async function spawnAgent(client: CoordinatorClient, bearer: string, req:
 }
 
 export async function terminateAgent(client: CoordinatorClient, bearer: string, zoneId: string, agentSessionId: string): Promise<void> {
-  const fetchFn = client.fetchImpl ?? fetch
-  const del = await fetchFn(`${client.baseUrl}/zones/${encodeURIComponent(zoneId)}/agents/${encodeURIComponent(agentSessionId)}`, {
-    method: 'DELETE',
-    headers: { authorization: `Bearer ${bearer}` },
-  })
-  if (!del.ok) {
-    const text = await del.text()
-    throw new Error(`coordinator DELETE /zones/${zoneId}/agents/${agentSessionId} failed: ${del.status} ${text}`)
-  }
+  await call<unknown>(
+    client,
+    'DELETE',
+    `/zones/${encodeURIComponent(zoneId)}/agents/${encodeURIComponent(agentSessionId)}`,
+    bearer,
+  )
 }
 
 export async function createDelegation(client: CoordinatorClient, bearer: string, req: DelegationRequest): Promise<DelegationResponse> {

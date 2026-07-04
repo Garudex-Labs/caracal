@@ -21,7 +21,8 @@ export type {
   CaracalOptions,
 } from './client.js'
 export { captureContext, describeAuthority } from './context.js'
-export type { AuthoritySummary, CaracalContext } from './context.js'
+export type { AuthoritySummary, CaracalContext, VerifiedClaims } from './context.js'
+export { CoordinatorError } from './coordinator.js'
 export type { CoordinatorClient } from './coordinator.js'
 export { Grant } from './primitives.js'
 export type { GrantMode } from './primitives.js'

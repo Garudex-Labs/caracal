@@ -5,9 +5,10 @@
  * SDK primitives: spawn an agent session and delegate authority.
  */
 
-import { bind, current, CaracalContext } from './context.js'
+import { bind, cloneBaggage, current, CaracalContext } from './context.js'
 import {
   CoordinatorClient,
+  CoordinatorError,
   spawnAgent,
   terminateAgent,
   heartbeatAgent,
@@ -53,6 +54,8 @@ export interface SpawnInput {
   zoneId: string
   applicationId: string
   subjectToken: string
+  tokenSource?: () => string | Promise<string>
+  invalidate?: () => void
   subjectSessionId?: string
   parentId?: string
   grant?: Grant
@@ -64,30 +67,66 @@ export interface SpawnInput {
   onAgentEnd?: (ctx: CaracalContext) => void | Promise<void>
 }
 
+interface SessionInput {
+  coordinator: CoordinatorClient
+  zoneId: string
+  applicationId: string
+  subjectToken: string
+  tokenSource?: () => string | Promise<string>
+  invalidate?: () => void
+  subjectSessionId?: string
+  parentId?: string
+  grant?: Grant
+  ttlSeconds?: number
+  metadata?: JsonObject
+  labels?: string[]
+  traceId?: string
+}
+
+interface Session {
+  agentSessionId: string
+  ctx: CaracalContext
+  bearer: () => Promise<string>
+}
+
 /**
- * Spawn a child agent session and bind it to fn. The child inherits its
- * application's authority by default; pass `grant: Grant.narrow([...])` to issue
- * a bounded delegation edge so the child holds only a subset of scopes.
+ * Lifecycle operations that outlive the spawn call (cleanup terminates,
+ * service heartbeats) resolve a fresh bearer from the token source when one is
+ * configured, so a token that expired since spawn never strands the session.
  */
-export async function spawn<T>(input: SpawnInput, fn: () => Promise<T>): Promise<T> {
+async function establishSession(input: SessionInput, lifecycle?: Lifecycle): Promise<Session> {
   const grant = input.grant ?? Grant.inherit()
   const parent = current()
   const parentId = input.parentId ?? parent?.agentSessionId
-  const bearer = input.subjectToken
+  let token = input.subjectToken
+  const bearer = async () => (input.tokenSource ? await input.tokenSource() : token)
   const inheritParentEdgeId =
     grant.mode === 'inherit' && parent?.agentSessionId && parent.delegationEdgeId && input.applicationId === parent.applicationId
       ? parent.delegationEdgeId
       : undefined
-  const res = await spawnAgent(input.coordinator, bearer, {
+  const spawnReq = {
     zoneId: input.zoneId,
     applicationId: input.applicationId,
     subjectSessionId: input.subjectSessionId,
     parentId,
+    lifecycle,
     ttlSeconds: input.ttlSeconds,
     metadata: input.metadata,
     labels: input.labels,
     inheritParentEdgeId,
-  })
+  }
+  let res
+  try {
+    res = await spawnAgent(input.coordinator, token, spawnReq)
+  } catch (e) {
+    // A cached token can be rejected before its exp (server-side session
+    // revocation after a credential rotation); force one refresh and retry
+    // the spawn once.
+    if (!(e instanceof CoordinatorError) || e.status !== 401 || !input.invalidate || !input.tokenSource) throw e
+    input.invalidate()
+    token = await input.tokenSource()
+    res = await spawnAgent(input.coordinator, token, spawnReq)
+  }
 
   let delegationEdgeId: string | undefined = res.delegation_edge_id ?? undefined
   let hop = delegationEdgeId && parent ? parent.hop + 1 : (parent?.hop ?? 0)
@@ -112,12 +151,12 @@ export async function spawn<T>(input: SpawnInput, fn: () => Promise<T>): Promise
       hop = parent.hop + 1
     }
   } catch (e) {
-    await terminateAgent(input.coordinator, bearer, input.zoneId, res.agent_session_id)
+    await terminateAgent(input.coordinator, await bearer(), input.zoneId, res.agent_session_id)
     throw e
   }
 
   const ctx: CaracalContext = {
-    subjectToken: bearer,
+    subjectToken: token,
     zoneId: input.zoneId,
     applicationId: input.applicationId,
     agentSessionId: res.agent_session_id,
@@ -127,17 +166,31 @@ export async function spawn<T>(input: SpawnInput, fn: () => Promise<T>): Promise
     traceId: input.traceId ?? parent?.traceId,
     traceFlags: parent?.traceFlags,
     traceState: parent?.traceState,
-    baggage: parent?.baggage,
+    baggage: cloneBaggage(parent?.baggage),
     hop,
   }
+  return { agentSessionId: res.agent_session_id, ctx, bearer }
+}
+
+/**
+ * Spawn a child agent session and bind it to fn. The child inherits its
+ * application's authority by default; pass `grant: Grant.narrow([...])` to issue
+ * a bounded delegation edge so the child holds only a subset of scopes.
+ */
+export async function spawn<T>(input: SpawnInput, fn: () => Promise<T>): Promise<T> {
+  const session = await establishSession(input)
+  const { ctx, agentSessionId, bearer } = session
   let started = false
   try {
     if (input.onAgentStart) await input.onAgentStart(ctx)
     started = true
-    return await (bind(ctx, fn) as Promise<T>)
+    return await bind(ctx, fn)
   } finally {
-    if (started && input.onAgentEnd) await input.onAgentEnd(ctx)
-    await terminateAgent(input.coordinator, bearer, input.zoneId, res.agent_session_id)
+    try {
+      if (started && input.onAgentEnd) await input.onAgentEnd(ctx)
+    } finally {
+      await terminateAgent(input.coordinator, await bearer(), input.zoneId, agentSessionId)
+    }
   }
 }
 
@@ -173,9 +226,10 @@ export async function delegate<T>(input: DelegateInput, fn: () => Promise<T>): P
     ...ctx,
     parentEdgeId: ctx.delegationEdgeId,
     delegationEdgeId: res.delegation_edge_id,
+    baggage: cloneBaggage(ctx.baggage),
     hop: ctx.hop + 1,
   }
-  return bind(child, fn) as Promise<T>
+  return bind(child, fn)
 }
 
 export interface SpawnServiceInput {
@@ -183,6 +237,8 @@ export interface SpawnServiceInput {
   zoneId: string
   applicationId: string
   subjectToken: string
+  tokenSource?: () => string | Promise<string>
+  invalidate?: () => void
   subjectSessionId?: string
   parentId?: string
   grant?: Grant
@@ -208,92 +264,46 @@ export interface ServiceAgent {
 }
 
 export async function spawnService(input: SpawnServiceInput): Promise<ServiceAgent> {
-  const grant = input.grant ?? Grant.inherit()
-  const parent = current()
-  const parentId = input.parentId ?? parent?.agentSessionId
-  const bearer = input.subjectToken
-  const inheritParentEdgeId =
-    grant.mode === 'inherit' && parent?.agentSessionId && parent.delegationEdgeId && input.applicationId === parent.applicationId
-      ? parent.delegationEdgeId
-      : undefined
-  const res = await spawnAgent(input.coordinator, bearer, {
-    zoneId: input.zoneId,
-    applicationId: input.applicationId,
-    subjectSessionId: input.subjectSessionId,
-    parentId,
-    lifecycle: Lifecycle.Service,
-    ttlSeconds: input.ttlSeconds,
-    metadata: input.metadata,
-    labels: input.labels,
-    inheritParentEdgeId,
-  })
-
-  let delegationEdgeId: string | undefined = res.delegation_edge_id ?? undefined
-  let hop = delegationEdgeId && parent ? parent.hop + 1 : (parent?.hop ?? 0)
-  try {
-    if (grant.mode === 'narrow') {
-      if (!parent || !parent.agentSessionId) {
-        throw new Error('grant narrow requires an active parent agent session')
-      }
-      const delRes = await createDelegation(input.coordinator, parent.subjectToken, {
-        zoneId: input.zoneId,
-        issuerApplicationId: parent.applicationId,
-        sourceSessionId: parent.agentSessionId,
-        targetSessionId: res.agent_session_id,
-        receiverApplicationId: input.applicationId,
-        parentEdgeId: parent.delegationEdgeId,
-        resourceId: grant.resourceId,
-        scopes: grant.scopes ?? [],
-        constraints: grant.constraints,
-        ttlSeconds: grant.ttlSeconds,
-      })
-      delegationEdgeId = delRes.delegation_edge_id
-      hop = parent.hop + 1
-    }
-  } catch (e) {
-    await terminateAgent(input.coordinator, bearer, input.zoneId, res.agent_session_id)
-    throw e
-  }
-
-  const ctx: CaracalContext = {
-    subjectToken: bearer,
-    zoneId: input.zoneId,
-    applicationId: input.applicationId,
-    agentSessionId: res.agent_session_id,
-    delegationEdgeId,
-    parentEdgeId: parent?.delegationEdgeId,
-    sessionId: input.subjectSessionId ?? parent?.sessionId,
-    traceId: input.traceId ?? parent?.traceId,
-    traceFlags: parent?.traceFlags,
-    traceState: parent?.traceState,
-    baggage: parent?.baggage,
-    hop,
-  }
+  const session = await establishSession(input, Lifecycle.Service)
+  const { ctx, agentSessionId, bearer } = session
   if (input.onAgentStart) {
     try {
       await input.onAgentStart(ctx)
     } catch (e) {
-      await terminateAgent(input.coordinator, bearer, input.zoneId, res.agent_session_id)
+      await terminateAgent(input.coordinator, await bearer(), input.zoneId, agentSessionId)
       throw e
     }
   }
-  const heartbeat = () => heartbeatAgent(input.coordinator, bearer, input.zoneId, res.agent_session_id)
+  const heartbeat = async () => {
+    try {
+      await heartbeatAgent(input.coordinator, await bearer(), input.zoneId, agentSessionId)
+    } catch (e) {
+      // A cached token can be rejected before its exp (server-side session
+      // revocation after a credential rotation); force one refresh and retry
+      // so the lease survives the rotation.
+      if (!(e instanceof CoordinatorError) || e.status !== 401 || !input.invalidate) throw e
+      input.invalidate()
+      await heartbeatAgent(input.coordinator, await bearer(), input.zoneId, agentSessionId)
+    }
+  }
   let timer: ReturnType<typeof setInterval> | undefined
   if (input.heartbeatIntervalMs && input.heartbeatIntervalMs > 0) {
     timer = setInterval(() => {
       heartbeat().catch((err) => {
-        console.warn(`caracal: auto-heartbeat failed for agent ${res.agent_session_id}; retrying next tick`, err)
+        console.warn(`caracal: auto-heartbeat failed for agent ${agentSessionId}; retrying next tick`, err)
       })
     }, input.heartbeatIntervalMs)
     timer.unref?.()
   }
+  let closing: Promise<void> | undefined
   return {
     context: ctx,
-    agentSessionId: res.agent_session_id,
+    agentSessionId,
     heartbeat,
-    close: () => {
-      if (timer) clearInterval(timer)
-      return terminateAgent(input.coordinator, bearer, input.zoneId, res.agent_session_id)
-    },
+    close: () =>
+      (closing ??= (async () => {
+        if (timer) clearInterval(timer)
+        await terminateAgent(input.coordinator, await bearer(), input.zoneId, agentSessionId)
+      })()),
   }
 }
