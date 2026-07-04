@@ -45,6 +45,7 @@ type Caracal struct {
 
 	agentStartHooks []LifecycleHook
 	agentEndHooks   []LifecycleHook
+	eventHooks      []func(oauth.Event)
 	exchanger       *clientSecretExchanger
 }
 
@@ -901,6 +902,32 @@ func (c *Caracal) OnAgentStart(h LifecycleHook) {
 // OnAgentEnd registers a hook fired when Spawn unwinds an agent session.
 func (c *Caracal) OnAgentEnd(h LifecycleHook) {
 	c.agentEndHooks = append(c.agentEndHooks, h)
+}
+
+// OnEvent subscribes to control-plane operation events: token exchanges (with
+// cache outcome), approval waits, and coordinator calls, each carrying outcome
+// and duration. Bridge them to any metrics or tracing system; a hook that
+// panics is ignored and never disturbs the operation that emitted the event.
+func (c *Caracal) OnEvent(h func(oauth.Event)) {
+	c.eventHooks = append(c.eventHooks, h)
+	if c.Coordinator != nil {
+		c.Coordinator.OnEvent = c.emitEvent
+	}
+	if c.exchanger != nil {
+		c.exchanger.client.OnEvent = c.emitEvent
+	}
+}
+
+func (c *Caracal) emitEvent(event oauth.Event) {
+	for _, h := range c.eventHooks {
+		func() {
+			defer func() {
+				// The observability sink must never break the operation path.
+				_ = recover()
+			}()
+			h(event)
+		}()
+	}
 }
 
 func (c *Caracal) fire(hooks []LifecycleHook, ctx context.Context, cc CaracalContext) error {

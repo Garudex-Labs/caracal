@@ -18,6 +18,7 @@ import (
 	"strings"
 	"testing"
 
+	oauth "github.com/garudex-labs/caracal/packages/oauth/go"
 	sdk "github.com/garudex-labs/caracal/packages/sdk/go"
 )
 
@@ -994,4 +995,68 @@ type roundTripFunc func(req *http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return f(req)
+}
+
+func TestOnEventForwardsCoordinatorAndExchangeEvents(t *testing.T) {
+	sts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"fresh-root","token_type":"Bearer","expires_in":3600}`))
+	}))
+	defer sts.Close()
+	coord := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/agents") {
+			_, _ = w.Write([]byte(`{"agent_session_id":"agent-1"}`))
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer coord.Close()
+
+	c, err := sdk.New(sdk.ClientSecretOptions{
+		CoordinatorURL: coord.URL,
+		STSURL:         sts.URL,
+		ZoneID:         "z",
+		ApplicationID:  "app",
+		ClientSecret:   "secret",
+		Resources:      []string{"resource://pipernet"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var events []oauth.Event
+	c.OnEvent(func(event oauth.Event) {
+		events = append(events, event)
+		panic("sink failure")
+	})
+
+	if _, err := c.Headers(context.Background(), sdk.RootOptions{AllowRoot: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Spawn(context.Background(), func(context.Context) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+
+	var types []string
+	for _, event := range events {
+		types = append(types, event.Type)
+	}
+	if len(events) < 3 || types[0] != "token.exchange" {
+		t.Fatalf("unexpected event sequence: %v", types)
+	}
+	if !events[0].Ok || events[0].Cached {
+		t.Fatalf("unexpected exchange event: %+v", events[0])
+	}
+	sawSpawn := false
+	for _, event := range events[1:] {
+		if !event.Ok {
+			t.Fatalf("unexpected failed event: %+v", event)
+		}
+		if event.Type == "coordinator.call" && event.Method == http.MethodPost && strings.HasSuffix(event.Path, "/agents") {
+			sawSpawn = true
+		}
+	}
+	if !sawSpawn {
+		t.Fatal("expected a coordinator.call event for the spawn request")
+	}
 }

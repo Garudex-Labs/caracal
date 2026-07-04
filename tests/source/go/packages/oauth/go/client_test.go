@@ -379,3 +379,99 @@ func TestInMemoryTokenCacheBoundaries(t *testing.T) {
 		t.Fatalf("unexpected cache key: %q", key)
 	}
 }
+
+func TestExchangeReturnsTypedCaracalError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		w.Write([]byte(`{"error":"access_denied","error_description":"Denied","requestId":"req-2"}`))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "zone1", "app1", nil)
+	_, err := client.Exchange(context.Background(), "subject", "resource://api", ExchangeOptions{})
+	var caracalErr *CaracalError
+	if !errors.As(err, &caracalErr) {
+		t.Fatalf("expected CaracalError, got %T", err)
+	}
+	if caracalErr.Code != "access_denied" || caracalErr.RequestID != "req-2" || caracalErr.HTTPStatus != http.StatusForbidden {
+		t.Fatalf("unexpected typed error: %+v", caracalErr)
+	}
+	if !strings.Contains(err.Error(), "request_id=req-2") {
+		t.Fatalf("expected request id in message, got %q", err.Error())
+	}
+}
+
+func TestExchangeEmitsEventsForFreshCachedAndFailedExchanges(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests++
+		w.Header().Set("Content-Type", "application/json")
+		if requests > 1 {
+			w.WriteHeader(http.StatusForbidden)
+			w.Write([]byte(`{"error":"access_denied","error_description":"Denied"}`))
+			return
+		}
+		w.Write([]byte(`{"access_token":"tok","token_type":"Bearer","expires_in":3600}`))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "zone1", "app1", nil)
+	var events []Event
+	client.OnEvent = func(event Event) {
+		events = append(events, event)
+		panic("sink failure")
+	}
+
+	if _, err := client.Exchange(context.Background(), "subject-a", "resource://api", ExchangeOptions{Scopes: []string{"write", "read"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Exchange(context.Background(), "subject-a", "resource://api", ExchangeOptions{Scopes: []string{"read", "write"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Exchange(context.Background(), "subject-b", "resource://api", ExchangeOptions{}); err == nil {
+		t.Fatal("expected denial")
+	}
+
+	if len(events) != 3 {
+		t.Fatalf("expected 3 events, got %d", len(events))
+	}
+	if events[0].Type != "token.exchange" || !events[0].Ok || events[0].Cached {
+		t.Fatalf("unexpected fresh event: %+v", events[0])
+	}
+	if len(events[0].Resources) != 1 || events[0].Resources[0] != "resource://api" {
+		t.Fatalf("unexpected resources: %+v", events[0].Resources)
+	}
+	if len(events[0].Scopes) != 2 || events[0].Scopes[0] != "read" || events[0].Scopes[1] != "write" {
+		t.Fatalf("unexpected scopes: %+v", events[0].Scopes)
+	}
+	if !events[1].Cached || !events[1].Ok {
+		t.Fatalf("expected cached hit event: %+v", events[1])
+	}
+	if events[2].Ok || events[2].Code != "access_denied" || events[2].Status != http.StatusForbidden {
+		t.Fatalf("unexpected failure event: %+v", events[2])
+	}
+}
+
+func TestWaitForApprovalEmitsEvent(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"state":"approved"}`))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "zone1", "app1", nil)
+	var events []Event
+	client.OnEvent = func(event Event) { events = append(events, event) }
+
+	state, err := client.WaitForApproval(context.Background(), "chal-1", 5*time.Second)
+	if err != nil || state != "approved" {
+		t.Fatalf("unexpected result: %q %v", state, err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+	if events[0].Type != "approval.wait" || !events[0].Ok || events[0].ChallengeID != "chal-1" || events[0].State != "approved" {
+		t.Fatalf("unexpected approval event: %+v", events[0])
+	}
+}
