@@ -94,9 +94,9 @@ The contract reads your data documents through `data.caracal.authz.*` - `grants`
 | --- | --- |
 | `allow` | STS signs a mandate if token and session checks also pass. |
 | `deny` | STS refuses the exchange and records diagnostics. |
-| step-up diagnostic | STS returns `interaction_required` with a challenge ID. |
+| approval gate | STS holds the mint and returns `interaction_required` with a challenge ID. |
 
-Step-up is expressed as a diagnostic such as `{"step_up_required": "mfa"}`. The STS creates a challenge and expects a later exchange with the challenge proof.
+Approval gates are declared as data: `risk` names a tier for each sensitive scope and `approval_tiers` declares which tiers require a human decision. When a mint requests a gated scope, the STS creates a durable hold and releases the mandate only after an authorized approver decides it. See [Step-Up Challenges](/concepts/step-up/).
 
 ## Authoring Rules
 
@@ -108,7 +108,7 @@ Step-up is expressed as a diagnostic such as `{"step_up_required": "mfa"}`. The 
 
 ## Next Step
 
-Read [Step-Up Challenges](/concepts/step-up/) to understand how policies pause sensitive exchanges for fresh proof.
+Read [Step-Up Challenges](/concepts/step-up/) to understand how policies hold sensitive exchanges for a human decision.
 
 ## Related Pages
 

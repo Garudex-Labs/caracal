@@ -39,6 +39,32 @@ application owns the view, the agent's role label grants the scope, and the
 delegation edge narrows to it. You declare the grant; the contract enforces the
 narrowing.
 
+## Gate scopes on human approval
+
+Two further documents add an optional human gate on top of a grant. `risk` names a
+tier for each sensitive scope, and `approval_tiers` declares which tiers hold the
+mint until a person decides it:
+
+```text
+# caracal:data-document
+package caracal.authz
+
+import rego.v1
+
+risk := [
+  {"scope": "pipernet:refund", "tier": "high"},
+]
+
+approval_tiers := [
+  {"tier": "high", "approver": "operator", "ttl_seconds": 1800, "privacy": "identified"},
+]
+```
+
+Like `restrict` and `confinement`, an approval declaration can only add a gate,
+never widen authority, and a malformed declaration fails the gated mint closed.
+[Human Approval](/guides/step-up/) covers the tier fields, both decision planes,
+and the agent-side wait-and-retry flow.
+
 ## Start from a template
 
 You do not have to write each document by hand. Caracal ships a built-in catalog of
@@ -173,7 +199,6 @@ fields to the input before simulating.
 ## Keep policies reviewable
 
 - Default to deny.
-- Return diagnostics for denies and step-up triggers.
 - Keep resource identifiers stable and scopes action-oriented.
 - Keep decision logic in policy rather than duplicating allow tables across rules.
 - Split policies by ownership only when separate review or activation is useful.
