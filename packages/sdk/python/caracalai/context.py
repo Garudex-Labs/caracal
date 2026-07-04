@@ -50,6 +50,21 @@ class AuthoritySummary:
     chain: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class VerifiedClaims:
+    """Attribution a verify hook proved from the token itself. Fields set here
+    override the caller-supplied envelope when binding inbound context, so
+    attribution comes from verified claims rather than forgeable headers."""
+
+    zone_id: str | None = None
+    application_id: str | None = None
+    agent_session_id: str | None = None
+    delegation_edge_id: str | None = None
+    parent_edge_id: str | None = None
+    session_id: str | None = None
+    hop: int | None = None
+
+
 class CaracalContextPatch(TypedDict):
     subject_token: NotRequired[str]
     zone_id: NotRequired[str]

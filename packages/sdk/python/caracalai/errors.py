@@ -101,6 +101,12 @@ class ServiceUnavailable(CaracalError):
     code = "sts_unavailable"
 
 
+class MissingTokenError(RuntimeError):
+    """An inbound request reached a Caracal binding boundary without a bearer
+    token. Middleware answers this with 401; pass ``allow_root=True`` only for
+    trusted service-root ingress."""
+
+
 class ApprovalRequired(CaracalError):
     """Raised when minting a mandate is gated on human approval. The platform has
     recorded a durable approval challenge that an authenticated approver must
