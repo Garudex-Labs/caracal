@@ -37,6 +37,9 @@ type Client struct {
 	httpClient    *http.Client
 	mu            sync.Mutex
 	inflight      map[string]*exchangeCall
+	// OnEvent is the observability sink; each completed exchange and approval
+	// wait reports here. Panics inside the sink never reach the caller.
+	OnEvent func(Event)
 }
 
 type exchangeCall struct {
@@ -53,6 +56,7 @@ type stsErrorResponse struct {
 	Tier               string `json:"tier"`
 	Binding            string `json:"binding"`
 	ChallengeExpiresAt string `json:"challenge_expires_at"`
+	RequestID          string `json:"requestId"`
 }
 
 type stsSuccessResponse struct {
@@ -85,6 +89,17 @@ func (c *Client) SetHTTPClient(client *http.Client) {
 	}
 }
 
+func (c *Client) emit(event Event) {
+	if c.OnEvent == nil {
+		return
+	}
+	defer func() {
+		// The observability sink must never break the token path.
+		_ = recover()
+	}()
+	c.OnEvent(event)
+}
+
 // Exchange performs RFC 8693 token exchange or returns a safe cached response.
 func (c *Client) Exchange(ctx context.Context, subjectToken, resource string, opts ExchangeOptions) (TokenExchangeResponse, error) {
 	return c.ExchangeResources(ctx, subjectToken, []string{resource}, opts)
@@ -96,6 +111,8 @@ func (c *Client) ExchangeResources(ctx context.Context, subjectToken string, res
 	preflightWindow := int64(timeout/time.Second) + 30
 	cacheSubject := c.cacheSubject(subjectToken, opts)
 	cacheResource := c.cacheResource(resources, opts)
+	eventResources := resourceList(resources)
+	eventScopes := strings.Fields(normalizedScopes(opts.Scopes))
 	if !opts.ForceRefresh {
 		if cached, ok := c.cache.Get(cacheSubject, cacheResource); ok {
 			// The preflight window is capped at half the token lifetime so
@@ -103,6 +120,7 @@ func (c *Client) ExchangeResources(ctx context.Context, subjectToken string, res
 			// re-exchanged on every call.
 			window := min(preflightWindow, int64(cached.ExpiresIn)/2)
 			if cached.IssuedAt+int64(cached.ExpiresIn)-time.Now().Unix() > window {
+				c.emit(Event{Type: "token.exchange", Ok: true, Cached: true, Resources: eventResources, Scopes: eventScopes})
 				return cached, nil
 			}
 		}
@@ -121,10 +139,23 @@ func (c *Client) ExchangeResources(ctx context.Context, subjectToken string, res
 	defer c.clearInflight(inflightKey, call)
 	defer close(call.done)
 
-	call.token, call.err = c.doExchange(ctx, subjectToken, resourceList(resources), opts, false, time.Now().Add(timeout))
+	start := time.Now()
+	call.token, call.err = c.doExchange(ctx, subjectToken, eventResources, opts, false, start.Add(timeout))
+	event := Event{Type: "token.exchange", Ok: call.err == nil, Duration: time.Since(start), Resources: eventResources, Scopes: eventScopes}
 	if call.err == nil {
 		c.cache.Set(cacheSubject, cacheResource, call.token)
+	} else {
+		var caracalErr *CaracalError
+		var interactionErr *InteractionRequiredError
+		if errors.As(call.err, &caracalErr) {
+			event.Code = caracalErr.Code
+			event.Status = caracalErr.HTTPStatus
+		} else if errors.As(call.err, &interactionErr) {
+			event.Code = "interaction_required"
+			event.Status = interactionErr.HTTPStatus
+		}
 	}
+	c.emit(event)
 	return call.token, call.err
 }
 
@@ -263,16 +294,24 @@ func (c *Client) doExchange(ctx context.Context, subjectToken string, resources 
 				Tier:        body.Tier,
 				Binding:     body.Binding,
 				ExpiresAt:   body.ChallengeExpiresAt,
+				RequestID:   body.RequestID,
+				HTTPStatus:  res.StatusCode,
 			}
 		}
 		if res.StatusCode == http.StatusUnauthorized && !isRetry {
 			opts.Retries = 0
 			return c.doExchange(ctx, subjectToken, resources, opts, true, deadline)
 		}
-		if body.ErrorDescription != "" {
-			return TokenExchangeResponse{}, errors.New(body.ErrorDescription)
+		code := body.Error
+		if code == "" {
+			code = "error"
 		}
-		return TokenExchangeResponse{}, fmt.Errorf("STS error %d", res.StatusCode)
+		return TokenExchangeResponse{}, &CaracalError{
+			Code:        code,
+			Description: body.ErrorDescription,
+			RequestID:   body.RequestID,
+			HTTPStatus:  res.StatusCode,
+		}
 	}
 	if !jsonResponse(res.Header.Get("Content-Type")) {
 		return TokenExchangeResponse{}, fmt.Errorf("STS response invalid: expected application/json")
@@ -306,11 +345,16 @@ func (c *Client) WaitForApproval(ctx context.Context, challengeID string, timeou
 	if challengeID == "" {
 		return "", errors.New("WaitForApproval requires a challenge id")
 	}
-	deadline := time.Now().Add(timeout)
+	start := time.Now()
+	finish := func(state string, err error) (string, error) {
+		c.emit(Event{Type: "approval.wait", Ok: err == nil, Duration: time.Since(start), ChallengeID: challengeID, State: state})
+		return state, err
+	}
+	deadline := start.Add(timeout)
 	for {
 		remaining := time.Until(deadline)
 		if remaining <= 0 {
-			return "pending", nil
+			return finish("pending", nil)
 		}
 		wait := int(remaining / time.Second)
 		if wait > 25 {
@@ -323,7 +367,7 @@ func (c *Client) WaitForApproval(ctx context.Context, challengeID string, timeou
 		req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, fmt.Sprintf("%s/step-up/%s?wait=%d", c.stsURL, url.PathEscape(challengeID), wait), nil)
 		if err != nil {
 			cancel()
-			return "", err
+			return finish("", err)
 		}
 		c.mu.Lock()
 		client := c.httpClient
@@ -331,7 +375,7 @@ func (c *Client) WaitForApproval(ctx context.Context, challengeID string, timeou
 		res, err := client.Do(req)
 		cancel()
 		if err != nil {
-			return "", err
+			return finish("", err)
 		}
 		var body struct {
 			State string `json:"state"`
@@ -339,13 +383,13 @@ func (c *Client) WaitForApproval(ctx context.Context, challengeID string, timeou
 		decodeErr := json.NewDecoder(io.LimitReader(res.Body, 64*1024)).Decode(&body)
 		res.Body.Close()
 		if res.StatusCode != http.StatusOK {
-			return "", fmt.Errorf("step-up status failed: %d", res.StatusCode)
+			return finish("", fmt.Errorf("step-up status failed: %d", res.StatusCode))
 		}
 		if decodeErr != nil {
-			return "", decodeErr
+			return finish("", decodeErr)
 		}
 		if body.State != "" && body.State != "pending" {
-			return body.State, nil
+			return finish(body.State, nil)
 		}
 	}
 }

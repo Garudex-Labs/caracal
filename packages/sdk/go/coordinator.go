@@ -16,12 +16,18 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	oauth "github.com/garudex-labs/caracal/packages/oauth/go"
 )
 
 // CoordinatorClient is the Caracal coordinator REST client.
 type CoordinatorClient struct {
 	BaseURL    string
 	HTTPClient *http.Client
+	// OnEvent is the observability sink attached by the Caracal facade; each
+	// completed request reports here. Panics inside the sink never reach the
+	// caller.
+	OnEvent func(oauth.Event)
 }
 
 // CoordinatorError is a non-2xx coordinator response, carrying the status code
@@ -266,19 +272,33 @@ func doJSON(ctx context.Context, client *CoordinatorClient, method, path, bearer
 		req.Header.Set(k, v)
 	}
 
+	start := time.Now()
+	emit := func(status int, ok bool) {
+		if client.OnEvent == nil {
+			return
+		}
+		defer func() {
+			// The observability sink must never break the coordinator path.
+			_ = recover()
+		}()
+		client.OnEvent(oauth.Event{Type: "coordinator.call", Method: method, Path: path, Status: status, Ok: ok, Duration: time.Since(start)})
+	}
 	resp, err := client.http().Do(req)
 	if err != nil {
+		emit(0, false)
 		return err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 300 {
+		emit(resp.StatusCode, false)
 		raw, readErr := io.ReadAll(resp.Body)
 		if readErr != nil {
 			return &CoordinatorError{Method: method, Path: path, StatusCode: resp.StatusCode, Body: fmt.Sprintf("(reading response body: %v)", readErr)}
 		}
 		return &CoordinatorError{Method: method, Path: path, StatusCode: resp.StatusCode, Body: string(raw)}
 	}
+	emit(resp.StatusCode, true)
 
 	if out != nil && resp.StatusCode != http.StatusNoContent {
 		return json.NewDecoder(resp.Body).Decode(out)

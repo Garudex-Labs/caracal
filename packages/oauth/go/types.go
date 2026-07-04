@@ -5,7 +5,10 @@
 
 package oauth
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 // ExchangeOptions configures one token exchange request.
 type ExchangeOptions struct {
@@ -44,6 +47,8 @@ type InteractionRequiredError struct {
 	Tier        string
 	Binding     string
 	ExpiresAt   string
+	RequestID   string
+	HTTPStatus  int
 }
 
 func (e *InteractionRequiredError) Error() string {
@@ -51,4 +56,46 @@ func (e *InteractionRequiredError) Error() string {
 		return "interaction required"
 	}
 	return fmt.Sprintf("interaction required: %s", e.Message)
+}
+
+// CaracalError is a platform-reported token exchange failure. Callers branch on
+// Code — the canonical error the STS emitted, such as access_denied,
+// invalid_token, zone_invalid, or scope_insufficient — via errors.As; the
+// description and request id are for logs and triage, never for control flow.
+type CaracalError struct {
+	Code        string
+	Description string
+	RequestID   string
+	HTTPStatus  int
+}
+
+func (e *CaracalError) Error() string {
+	msg := e.Description
+	if msg == "" {
+		msg = fmt.Sprintf("STS error %d", e.HTTPStatus)
+	}
+	if e.RequestID != "" {
+		return fmt.Sprintf("%s (request_id=%s)", msg, e.RequestID)
+	}
+	return msg
+}
+
+// Event is one completed control-plane operation reported to the OnEvent sink.
+// Type is "token.exchange" or "approval.wait"; the SDK adds "coordinator.call".
+// Cache hits count as exchanges with Cached set; single-flight joiners do not
+// report. Status carries the HTTP status when a response arrived and Code the
+// platform error code when the operation failed with one.
+type Event struct {
+	Type        string
+	Ok          bool
+	Duration    time.Duration
+	Resources   []string
+	Scopes      []string
+	Cached      bool
+	Status      int
+	Code        string
+	Method      string
+	Path        string
+	ChallengeID string
+	State       string
 }
