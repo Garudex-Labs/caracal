@@ -115,7 +115,7 @@ class FromEnvTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "CARACAL_COORDINATOR_URL"):
             Caracal.from_env(
                 {
-                    "NODE_ENV": "production",
+                    "CARACAL_ENV": "production",
                     "CARACAL_ZONE_ID": "z",
                     "CARACAL_APPLICATION_ID": "app",
                     "CARACAL_SUBJECT_TOKEN": "tok",

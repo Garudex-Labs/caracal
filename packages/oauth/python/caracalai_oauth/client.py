@@ -53,7 +53,10 @@ class OAuthClient:
         cache_subject = self._cache_subject(subject_token, opts)
         cache_resource = self._cache_resource(resource, opts)
         cached = self._cache.get(cache_subject, cache_resource)
-        if cached is not None and cached.issued_at + cached.expires_in - time() > preflight_window:
+        if (
+            cached is not None
+            and cached.issued_at + cached.expires_in - time() > preflight_window
+        ):
             return cached
 
         inflight_key = f"{cache_subject}::{cache_resource}"
@@ -61,7 +64,11 @@ class OAuthClient:
         if task is not None:
             return await task
 
-        task = asyncio.create_task(self._exchange_and_cache(subject_token, resource, opts, cache_subject, cache_resource))
+        task = asyncio.create_task(
+            self._exchange_and_cache(
+                subject_token, resource, opts, cache_subject, cache_resource
+            )
+        )
         self._inflight[inflight_key] = task
         try:
             return await task
@@ -76,7 +83,9 @@ class OAuthClient:
         cache_subject: str,
         cache_resource: str,
     ) -> TokenExchangeResponse:
-        token = await self._do_exchange(subject_token, resource, opts, False, time() + opts.timeout_ms / 1000)
+        token = await self._do_exchange(
+            subject_token, resource, opts, False, time() + opts.timeout_ms / 1000
+        )
         self._cache.set(cache_subject, cache_resource, token)
         return token
 
@@ -95,10 +104,14 @@ class OAuthClient:
         )
 
     def _cache_resource(self, resource: str, opts: ExchangeOptions) -> str:
-        return "::".join([resource, _normalized_scopes(opts.scopes), str(opts.ttl_seconds or "")])
+        return "::".join(
+            [resource, _normalized_scopes(opts.scopes), str(opts.ttl_seconds or "")]
+        )
 
     def _auth_context(self, opts: ExchangeOptions) -> str:
-        secret = f"secret:{_hash_secret(opts.client_secret)}" if opts.client_secret else ""
+        secret = (
+            f"secret:{_hash_secret(opts.client_secret)}" if opts.client_secret else ""
+        )
         assertion = "assertion" if opts.client_assertion else ""
         return ":".join([secret, assertion, opts.client_assertion_type or ""])
 
@@ -183,7 +196,11 @@ class OAuthClient:
                     True,
                     deadline,
                 )
-            raise RuntimeError(str(body.get("error_description") or f"STS error {response.status_code}"))
+            raise RuntimeError(
+                str(
+                    body.get("error_description") or f"STS error {response.status_code}"
+                )
+            )
 
         if not _json_response(response.headers.get("content-type")):
             raise RuntimeError("STS response invalid: expected application/json")
@@ -210,9 +227,20 @@ def _validate_success(payload: dict[str, Any]) -> TokenExchangeResponse:
     if token_type is not None and token_type != "Bearer":
         raise RuntimeError("STS response invalid: token_type must be Bearer")
     expires_in = payload.get("expires_in")
-    if isinstance(expires_in, bool) or not isinstance(expires_in, int) or expires_in <= 0:
-        raise RuntimeError("STS response invalid: expires_in must be a positive integer")
-    return TokenExchangeResponse(access_token=access_token, token_type="Bearer", expires_in=expires_in, issued_at=int(time()))
+    if (
+        isinstance(expires_in, bool)
+        or not isinstance(expires_in, int)
+        or expires_in <= 0
+    ):
+        raise RuntimeError(
+            "STS response invalid: expires_in must be a positive integer"
+        )
+    return TokenExchangeResponse(
+        access_token=access_token,
+        token_type="Bearer",
+        expires_in=expires_in,
+        issued_at=int(time()),
+    )
 
 
 def _set_value(data: dict[str, str], name: str, value: str | None) -> None:
