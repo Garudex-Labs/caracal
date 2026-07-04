@@ -6,20 +6,21 @@
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { discoverRepoRoot } from '@caracalai/core'
-import { buildRunEnv, runExec } from '@caracalai/engine'
-import type { RuntimeConfig } from '../config.ts'
+import { buildRunEnv, resolveRunConfig, runExec } from '@caracalai/engine'
+import type { RuntimeIdentity } from '../config.ts'
 import { printError } from '../style.ts'
 
 const RUN_HELP = `Usage: caracal run [--] <command> [args...]
 
 Launch <command> with short-lived Caracal credentials injected as environment variables.
 
-caracal run is the data-plane launcher. It exchanges the configured application
-identity for scoped credentials (15-minute maximum TTL), injects them into the
-environment variables named in the credential manifest, spawns the command with a
-scrubbed environment (PATH-like allowlist plus injected credentials, no other
-variables), forwards SIGINT/SIGTERM/SIGHUP/SIGQUIT, and exits with the command's
-exit code.
+caracal run is the data-plane launcher. It authenticates with the application id
+and client secret, fetches the run manifest authored for that application in the
+web console, exchanges the identity for scoped credentials (15-minute maximum
+TTL), injects them into the environment variables named in the manifest, spawns
+the command with a scrubbed environment (PATH-like allowlist plus injected
+credentials, no other variables), forwards SIGINT/SIGTERM/SIGHUP/SIGQUIT, and
+exits with the command's exit code.
 
 It does not manage zones, applications, resources, policies, or providers (use the
 web console), does not renew credentials after launch (long-running workloads use a
@@ -34,13 +35,12 @@ Examples:
   caracal run -- printenv OPENAI_API_KEY
 
 Configuration:
-  Identity comes from a caracal.toml runtime profile or environment variables:
-  zone ID, application ID, client secret, and credential entries mapping env names
-  to resources. Create the objects in the Caracal web console, store the one-time
-  client secret in an owner-only file, and grant access through an active policy.
-  Use credential_type=provider_token for provider-native key injection and
-  credential_type=caracal_mandate for mandate-aware code. See the Configure
-  Workloads documentation for profile paths and cloud/custom deployments.
+  The workload carries only its identity. Set CARACAL_APPLICATION_ID and provide
+  the client secret via CARACAL_APP_CLIENT_SECRET, CARACAL_APP_CLIENT_SECRET_FILE,
+  or the owner-only default file under the OS Caracal config directory. Everything
+  else (zone, resources, env names, credential types, TTL) lives in the run
+  manifest on the application's page in the web console. Set CARACAL_STS_URL only
+  when STS is not the local default.
 `
 
 function isHelpToken(arg: string | undefined): boolean {
@@ -58,7 +58,7 @@ function assertNoWorkspaceOperatorSecrets(): void {
   )
 }
 
-export async function runCommand(argv: string[], cfg?: RuntimeConfig): Promise<void> {
+export async function runCommand(argv: string[], cfg?: RuntimeIdentity): Promise<void> {
   if (isHelpToken(argv[0])) {
     process.stdout.write(RUN_HELP)
     process.exit(0)
@@ -69,14 +69,15 @@ export async function runCommand(argv: string[], cfg?: RuntimeConfig): Promise<v
     process.exit(1)
   }
   if (!cfg) {
-    printError('runtime config is required to run a command')
+    printError('workload identity is required to run a command')
     process.exit(1)
   }
 
   let env: Record<string, string>
   try {
     assertNoWorkspaceOperatorSecrets()
-    env = await buildRunEnv(cfg, {
+    const runConfig = await resolveRunConfig(cfg)
+    env = await buildRunEnv(runConfig, {
       onLine: (line, stream) => {
         const target = stream === 'stderr' ? process.stderr : process.stdout
         target.write(line + '\n')

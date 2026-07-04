@@ -11,7 +11,7 @@ import { dirname, join, relative } from 'node:path'
 import pg from 'pg'
 import { devSecretsHome } from '@caracalai/core'
 import { authMaintenanceUrl, configuredAuthDatabaseName } from './authStore.ts'
-import { resolveRuntimeConfigPath } from '@caracalai/engine/runtime-config'
+import { defaultCaracalConfigDir } from '@caracalai/engine/runtime-config'
 import {
   caracalBinaries as caracalBinariesCore,
   composeRun,
@@ -74,6 +74,7 @@ interface PurgeContext {
   cwd: string
   stacks: ComposeStack[]
   configPath: string | undefined
+  credentialDir: string | undefined
   runtimeHome: string
   repoRoot: string | undefined
   composeAvailable: boolean
@@ -155,7 +156,7 @@ function purgeHelp(): never {
     '  logs        Truncate container log files via `compose down` + recreate',
     '',
     'Local install & operator state (state):',
-    '  config      Remove caracal.toml (zone client secret and config)',
+    '  config      Remove local SDK profile (caracal.toml) and stored workload client secrets',
     '  runtime     Remove runtime assets at $CARACAL_HOME (.env, compose.yml)',
     '  secrets     Remove operator overrides and generated secret files',
     '  web         Drop the web console operator database (PostgreSQL caracal_auth)',
@@ -183,7 +184,11 @@ function purgeHelp(): never {
 function buildContext(dryRun: boolean): PurgeContext {
   const paths = resolvePaths()
   const runtime = runtimePaths()
-  const configPath = resolveRuntimeConfigPath()
+  const configDir = defaultCaracalConfigDir()
+  const tomlPath = process.env.CARACAL_CONFIG ?? join(configDir, 'caracal.toml')
+  const configPath = existsSync(tomlPath) ? tomlPath : undefined
+  const storedSecretsDir = join(configDir, 'runtime')
+  const credentialDir = existsSync(storedSecretsDir) ? storedSecretsDir : undefined
   const repoRoot = paths.mode === 'dev' ? paths.cwd : undefined
   const stacks: ComposeStack[] = [
     { label: paths.mode, composeFile: paths.composeFile, envFiles: paths.envFiles, cwd: paths.cwd, secretsDir: paths.secretsDir },
@@ -204,6 +209,7 @@ function buildContext(dryRun: boolean): PurgeContext {
     cwd: paths.cwd,
     stacks,
     configPath,
+    credentialDir,
     runtimeHome: runtime.home,
     repoRoot,
     composeAvailable: dryRun || dockerComposeAvailable(),
@@ -374,11 +380,12 @@ const TARGETS: Target[] = [
   },
   {
     id: 'config',
-    label: 'Remove caracal.toml',
-    describe: (ctx) => ctx.configPath ?? '(no caracal.toml found)',
-    available: (ctx) => ctx.configPath !== undefined,
+    label: 'Remove local config and workload client secrets',
+    describe: (ctx) => [ctx.configPath, ctx.credentialDir].filter(Boolean).join(', ') || '(no local config found)',
+    available: (ctx) => ctx.configPath !== undefined || ctx.credentialDir !== undefined,
     run: async (ctx) => {
       if (ctx.configPath) removePath(ctx.configPath, ctx, 'config')
+      if (ctx.credentialDir) removePath(ctx.credentialDir, ctx, 'config')
     },
   },
   {

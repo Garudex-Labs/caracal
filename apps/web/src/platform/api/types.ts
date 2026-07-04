@@ -65,6 +65,22 @@ export interface ApplicationPatchInput {
   traits?: string[];
 }
 
+export type RunCredentialType = "provider_token" | "caracal_mandate";
+
+export interface RunManifestCredential {
+  env: string;
+  resource: string;
+  credential_type: RunCredentialType;
+  optional: boolean;
+  on_failure?: "warn" | "error";
+}
+
+export interface RunManifest {
+  ttl_seconds?: number;
+  continue_on_failure?: boolean;
+  credentials: RunManifestCredential[];
+}
+
 export type ResourceOperationEnforcement = "enforced" | "transport_uniform";
 
 export interface ResourceOperation {
