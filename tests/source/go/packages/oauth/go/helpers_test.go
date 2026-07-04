@@ -76,20 +76,20 @@ func TestRetryDelayHonorsRetryAfterHTTPDateAndInvalidValues(t *testing.T) {
 		t.Fatalf("date Retry-After must be near future, got %s", got)
 	}
 	res.Header.Set("Retry-After", "soon")
-	if got := retryDelay(res, 1); got != 500*time.Millisecond {
-		t.Fatalf("invalid Retry-After must fall back to attempt backoff, got %s", got)
+	if got := retryDelay(res, 1); got < 250*time.Millisecond || got > 500*time.Millisecond {
+		t.Fatalf("invalid Retry-After must fall back to jittered attempt backoff, got %s", got)
 	}
 }
 
 func TestRetryDelayExponentialBackoffWithCap(t *testing.T) {
-	if got := retryDelay(nil, 0); got != 250*time.Millisecond {
-		t.Fatalf("attempt 0 must be 250ms, got %s", got)
+	if got := retryDelay(nil, 0); got < 125*time.Millisecond || got > 250*time.Millisecond {
+		t.Fatalf("attempt 0 must jitter within (125ms, 250ms], got %s", got)
 	}
-	if got := retryDelay(nil, 2); got != time.Second {
-		t.Fatalf("attempt 2 must be 1s, got %s", got)
+	if got := retryDelay(nil, 2); got < 500*time.Millisecond || got > time.Second {
+		t.Fatalf("attempt 2 must jitter within (500ms, 1s], got %s", got)
 	}
-	if got := retryDelay(nil, 10); got != 5*time.Second {
-		t.Fatalf("backoff must cap at 5s, got %s", got)
+	if got := retryDelay(nil, 10); got < 2500*time.Millisecond || got > 5*time.Second {
+		t.Fatalf("backoff must cap at 5s with jitter, got %s", got)
 	}
 }
 

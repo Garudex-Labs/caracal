@@ -13,39 +13,6 @@ import (
 	"testing"
 )
 
-func TestStripTomlComment(t *testing.T) {
-	cases := map[string]string{
-		`key = "value" # trailing`: `key = "value" `,
-		`# whole line`:             ``,
-		`key = "a # b"`:            `key = "a # b"`,
-		`key = "esc \" # in"`:      `key = "esc \" # in"`,
-		`no comment`:               `no comment`,
-	}
-	for in, want := range cases {
-		if got := stripTomlComment(in); got != want {
-			t.Errorf("stripTomlComment(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
-
-func TestParseTomlString(t *testing.T) {
-	if v, ok := parseTomlString(`"hello"`); !ok || v != "hello" {
-		t.Fatalf("quoted string must parse, got %q ok=%v", v, ok)
-	}
-	if v, ok := parseTomlString(`"with \"escape\""`); !ok || v != `with "escape"` {
-		t.Fatalf("escaped quotes must parse, got %q ok=%v", v, ok)
-	}
-	if _, ok := parseTomlString(`bare`); ok {
-		t.Fatal("unquoted value must be rejected")
-	}
-	if _, ok := parseTomlString(`"`); ok {
-		t.Fatal("single quote must be rejected")
-	}
-	if _, ok := parseTomlString(`"unterminated`); ok {
-		t.Fatal("unterminated string must be rejected")
-	}
-}
-
 func TestCompactStrings(t *testing.T) {
 	got := compactStrings([]string{"a", "", "b", "a", "c", ""})
 	want := []string{"a", "b", "c"}
@@ -54,26 +21,11 @@ func TestCompactStrings(t *testing.T) {
 	}
 }
 
-func TestCredentialCounts(t *testing.T) {
-	cfg := map[string]string{
-		"credentials.0.resource":          "r0",
-		"credentials.1.resource":          "r1",
-		"optional_credentials.0.resource": "o0",
-		"zone_id":                         "z",
-	}
-	counts := credentialCounts(cfg)
-	if counts["credentials"] != 2 {
-		t.Fatalf("expected 2 credentials, got %d", counts["credentials"])
-	}
-	if counts["optional_credentials"] != 1 {
-		t.Fatalf("expected 1 optional credential, got %d", counts["optional_credentials"])
-	}
-}
-
 func TestParseProfileValid(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "profile.toml")
 	content := `zone_id = "zone-1"
 application_id = "app-1"
+default_ttl_seconds = 300
 [[credentials]]
 resource = "db" # primary
 upstream_prefix = "/db"
@@ -85,11 +37,42 @@ upstream_prefix = "/db"
 	if err != nil {
 		t.Fatalf("valid profile must parse: %v", err)
 	}
-	if cfg["zone_id"] != "zone-1" || cfg["application_id"] != "app-1" {
-		t.Fatalf("top-level keys wrong: %v", cfg)
+	if cfg.ZoneID != "zone-1" || cfg.ApplicationID != "app-1" {
+		t.Fatalf("top-level keys wrong: %+v", cfg)
 	}
-	if cfg["credentials.0.resource"] != "db" || cfg["credentials.0.upstream_prefix"] != "/db" {
-		t.Fatalf("credential section keys wrong: %v", cfg)
+	if cfg.DefaultTTLSeconds != 300 {
+		t.Fatalf("default_ttl_seconds wrong: %+v", cfg)
+	}
+	if len(cfg.Credentials) != 1 || cfg.Credentials[0].Resource != "db" || cfg.Credentials[0].UpstreamPrefix != "/db" {
+		t.Fatalf("credential section wrong: %+v", cfg.Credentials)
+	}
+}
+
+func TestParseProfileToleratesUnknownKeys(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "profile.toml")
+	content := `zone_id = "z"
+application_id = "a"
+runtime_only_setting = "kept for the runtime"
+`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("write profile: %v", err)
+	}
+	if _, err := parseProfile(path); err != nil {
+		t.Fatalf("unknown keys must be tolerated: %v", err)
+	}
+}
+
+func TestParseProfileRejectsNegativeTTL(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "profile.toml")
+	content := `zone_id = "z"
+application_id = "a"
+default_ttl_seconds = -5
+`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("write profile: %v", err)
+	}
+	if _, err := parseProfile(path); err == nil {
+		t.Fatal("negative default_ttl_seconds must be rejected")
 	}
 }
 

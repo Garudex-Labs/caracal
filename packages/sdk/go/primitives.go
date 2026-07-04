@@ -268,6 +268,7 @@ func establishSession(ctx context.Context, in sessionInput, lifecycle Lifecycle)
 		TraceState:       parent.TraceState,
 		Baggage:          parent.Baggage,
 		Hop:              hop,
+		OwnToken:         true,
 	}
 	return &session{agentSessionID: res.AgentSessionID, ctx: c, bearer: bearer, heartbeatDeadlineAt: res.HeartbeatDeadlineAt}, nil
 }
