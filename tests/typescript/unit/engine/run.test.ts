@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const exchangeMock = vi.fn()
 const waitForApprovalMock = vi.fn()
+const fetchRunManifestMock = vi.hoisted(() => vi.fn())
 
 vi.mock('@caracalai/oauth', async (orig) => {
   const actual = (await orig()) as Record<string, unknown>
@@ -16,12 +17,13 @@ vi.mock('@caracalai/oauth', async (orig) => {
       exchange = exchangeMock
       waitForApproval = waitForApprovalMock
     },
+    fetchRunManifest: fetchRunManifestMock,
   }
 })
 
-import { buildRunEnv, runExec } from '../../../../packages/engine/src/run.js'
+import { buildRunEnv, resolveRunConfig, runExec } from '../../../../packages/engine/src/run.js'
 import { InteractionRequiredError } from '@caracalai/oauth'
-import type { RuntimeConfig } from '../../../../packages/engine/src/runtimeConfig.js'
+import type { RuntimeConfig, RuntimeIdentity } from '../../../../packages/engine/src/runtimeConfig.js'
 
 const baseConfig: RuntimeConfig = {
   zone_url: 'http://localhost:8080',
@@ -33,7 +35,80 @@ const baseConfig: RuntimeConfig = {
 afterEach(() => {
   exchangeMock.mockReset()
   waitForApprovalMock.mockReset()
+  fetchRunManifestMock.mockReset()
   vi.restoreAllMocks()
+})
+
+describe('resolveRunConfig', () => {
+  const identity: RuntimeIdentity = {
+    sts_url: 'http://localhost:8080',
+    application_id: 'app1',
+    app_client_secret: 'secret',
+  }
+
+  it('assembles the launch profile from the STS manifest', async () => {
+    fetchRunManifestMock.mockResolvedValue({
+      zoneId: 'z1',
+      applicationId: 'app1',
+      ttlSeconds: 300,
+      credentials: [
+        { env: 'API_KEY', resource: 'urn:api', credentialType: 'provider_token', optional: false, onFailure: 'error' },
+        { env: 'OPT', resource: 'urn:opt', credentialType: 'caracal_mandate', optional: true, onFailure: 'warn' },
+      ],
+    })
+    const cfg = await resolveRunConfig(identity)
+    expect(fetchRunManifestMock).toHaveBeenCalledWith('http://localhost:8080', 'app1', 'secret')
+    expect(cfg).toEqual({
+      zone_url: 'http://localhost:8080',
+      zone_id: 'z1',
+      application_id: 'app1',
+      app_client_secret: 'secret',
+      ttl_seconds: 300,
+      credentials: [{ env: 'API_KEY', resource: 'urn:api', credential_type: 'provider_token' }],
+      optional_credentials: [{ env: 'OPT', resource: 'urn:opt', credential_type: 'caracal_mandate', on_failure: 'warn' }],
+    })
+  })
+
+  it('rejects manifests with blocked or duplicate env names', async () => {
+    fetchRunManifestMock.mockResolvedValue({
+      zoneId: 'z1',
+      applicationId: 'app1',
+      credentials: [{ env: 'LD_PRELOAD', resource: 'urn:api', credentialType: 'provider_token', optional: false, onFailure: 'error' }],
+    })
+    await expect(resolveRunConfig(identity)).rejects.toThrow(/blocked credential env/)
+    fetchRunManifestMock.mockResolvedValue({
+      zoneId: 'z1',
+      applicationId: 'app1',
+      credentials: [
+        { env: 'DUP', resource: 'urn:a', credentialType: 'provider_token', optional: false, onFailure: 'error' },
+        { env: 'DUP', resource: 'urn:b', credentialType: 'provider_token', optional: true, onFailure: 'warn' },
+      ],
+    })
+    await expect(resolveRunConfig(identity)).rejects.toThrow(/duplicate credential env/)
+  })
+
+  it('rejects manifests whose ttl exceeds the maximum', async () => {
+    fetchRunManifestMock.mockResolvedValue({
+      zoneId: 'z1',
+      applicationId: 'app1',
+      ttlSeconds: 3600,
+      credentials: [{ env: 'API_KEY', resource: 'urn:api', credentialType: 'provider_token', optional: false, onFailure: 'error' }],
+    })
+    await expect(resolveRunConfig(identity)).rejects.toThrow(/ttl_seconds must be between/)
+  })
+
+  it('rejects continue_on_failure outside development without the explicit override', async () => {
+    fetchRunManifestMock.mockResolvedValue({
+      zoneId: 'z1',
+      applicationId: 'app1',
+      continueOnFailure: true,
+      credentials: [{ env: 'API_KEY', resource: 'urn:api', credentialType: 'provider_token', optional: false, onFailure: 'error' }],
+    })
+    await expect(resolveRunConfig(identity, { NODE_ENV: 'production' })).rejects.toThrow(/not allowed outside development/)
+    await expect(
+      resolveRunConfig(identity, { NODE_ENV: 'production', CARACAL_ALLOW_REQUIRED_CREDENTIAL_FAILURE: 'true' }),
+    ).resolves.toMatchObject({ continue_on_failure: true })
+  })
 })
 
 describe('buildRunEnv', () => {

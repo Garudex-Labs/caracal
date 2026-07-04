@@ -127,15 +127,8 @@ describe('dispatch', () => {
   })
 
   it('still requires config for a normal run invocation', async () => {
-    vi.stubEnv('CARACAL_CONFIG', undefined)
     vi.stubEnv('XDG_CONFIG_HOME', '/nonexistent-caracal-config')
-    for (const key of [
-      'CARACAL_APPLICATION_ID',
-      'CARACAL_APP_CLIENT_SECRET',
-      'CARACAL_APP_CLIENT_SECRET_FILE',
-      'CARACAL_RUN_CREDENTIALS',
-      'CARACAL_RUN_CREDENTIALS_FILE',
-    ]) {
+    for (const key of ['CARACAL_APPLICATION_ID', 'CARACAL_APP_CLIENT_SECRET', 'CARACAL_APP_CLIENT_SECRET_FILE']) {
       vi.stubEnv(key, undefined)
     }
     const exit = exitSpy()
