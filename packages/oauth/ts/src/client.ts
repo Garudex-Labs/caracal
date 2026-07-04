@@ -146,7 +146,6 @@ export class OAuthClient {
       resourceList(resource).join(' '),
       this.normalizedScopes(opts.scopes),
       opts.ttlSeconds?.toString() ?? '',
-      opts.runtimeCredentialInjection === true ? 'runtime-credential-injection' : '',
     ].join('::')
   }
 
@@ -189,7 +188,6 @@ export class OAuthClient {
     const scope = this.normalizedScopes(opts.scopes)
     if (scope) body.set('scope', scope)
     if (opts.ttlSeconds) body.set('ttl_seconds', String(opts.ttlSeconds))
-    if (opts.runtimeCredentialInjection === true) body.set('runtime_credential_injection', 'true')
     if (opts.challengeId) body.set('challenge_id', opts.challengeId)
 
     const maxRetries = opts.retries ?? 3
@@ -270,23 +268,36 @@ export class OAuthClient {
   async waitForApproval(challengeId: string, opts: { timeoutMs?: number } = {}): Promise<string> {
     if (!challengeId) throw new Error('waitForApproval requires a challengeId')
     const start = performance.now()
-    const finish = (state: string, ok: boolean): string => {
-      this.emit({ type: 'approval.wait', challengeId, state, ok, durationMs: performance.now() - start })
+    try {
+      const state = await pollStepUpState(this.stsUrl, challengeId, { ...opts, fetchImpl: this.fetchImpl })
+      this.emit({ type: 'approval.wait', challengeId, state, ok: true, durationMs: performance.now() - start })
       return state
+    } catch (err) {
+      this.emit({ type: 'approval.wait', challengeId, state: '', ok: false, durationMs: performance.now() - start })
+      throw err
     }
-    const deadline = start + (opts.timeoutMs ?? 300_000)
-    for (;;) {
-      const remainingMs = deadline - performance.now()
-      if (remainingMs <= 0) return finish('pending', true)
-      const wait = Math.max(1, Math.min(25, Math.floor(remainingMs / 1000)))
-      const res = await (this.fetchImpl ?? fetch)(`${this.stsUrl}/step-up/${encodeURIComponent(challengeId)}?wait=${wait}`)
-      if (!res.ok) {
-        finish('', false)
-        throw new Error(`step-up status failed: ${res.status}`)
-      }
-      const data = (await res.json()) as { state?: unknown }
-      if (typeof data.state === 'string' && data.state !== 'pending') return finish(data.state, true)
-    }
+  }
+}
+
+/**
+ * Long-polls an approval challenge's lifecycle state against STS without any client
+ * context: only the challenge id and the STS URL are required, so run launches and
+ * exchange clients share one polling path.
+ */
+export async function pollStepUpState(
+  stsUrl: string,
+  challengeId: string,
+  opts: { timeoutMs?: number; fetchImpl?: typeof fetch } = {},
+): Promise<string> {
+  const deadline = performance.now() + (opts.timeoutMs ?? 300_000)
+  for (;;) {
+    const remainingMs = deadline - performance.now()
+    if (remainingMs <= 0) return 'pending'
+    const wait = Math.max(1, Math.min(25, Math.floor(remainingMs / 1000)))
+    const res = await (opts.fetchImpl ?? fetch)(`${stsUrl}/step-up/${encodeURIComponent(challengeId)}?wait=${wait}`)
+    if (!res.ok) throw new Error(`step-up status failed: ${res.status}`)
+    const data = (await res.json()) as { state?: unknown }
+    if (typeof data.state === 'string' && data.state !== 'pending') return data.state
   }
 }
 

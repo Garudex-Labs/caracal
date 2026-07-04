@@ -20,7 +20,6 @@ export interface TokenExchangeRequest {
   delegationEdgeId?: string
   scopes?: string[]
   ttlSeconds?: number
-  runtimeCredentialInjection?: boolean
 }
 
 export interface UpstreamDirective {
@@ -59,7 +58,6 @@ export interface ExchangeOptions {
   timeoutMs?: number
   retries?: number
   ttlSeconds?: number
-  runtimeCredentialInjection?: boolean
   challengeId?: string
   /** Skip the cached token and mint a fresh one; the result still refills the cache. */
   forceRefresh?: boolean

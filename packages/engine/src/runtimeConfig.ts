@@ -13,45 +13,22 @@ export const DEFAULT_COORDINATOR_URL = 'http://localhost:4000'
 export const DEFAULT_STS_URL = 'http://localhost:8080'
 export const DEFAULT_GATEWAY_URL = 'http://localhost:8081'
 export const DEFAULT_ZONE_URL = DEFAULT_STS_URL
-export const DEFAULT_RUN_TTL_SECONDS = 900
-export const MAX_RUN_TTL_SECONDS = 900
-
-export type RunCredentialType = 'provider_token' | 'caracal_mandate'
-
-export interface Credential {
-  env: string
-  resource: string
-  upstream_prefix?: string
-  credential_type?: RunCredentialType
-}
-
-export interface OptionalCredential extends Credential {
-  on_failure: 'warn' | 'error'
-}
 
 // RuntimeIdentity is everything a workload carries locally: who it is and where STS lives.
 // The credential bindings themselves are authored in the web console and served by STS.
 export interface RuntimeIdentity {
   sts_url: string
-  application_id: string
-  app_client_secret: string
+  workload_id: string
+  workload_secret: string
 }
 
-// RuntimeConfig is the fully resolved launch profile a run executes with. It is assembled
-// from the identity plus the STS-served run manifest; the Console BFF also builds it
-// directly for interactive credential reads.
+// RuntimeConfig is the application credential profile the Console BFF exchanges Control
+// tokens with.
 export interface RuntimeConfig {
   zone_url: string
-  sts_url?: string
-  coordinator_url?: string
-  gateway_url?: string
   zone_id: string
   application_id: string
   app_client_secret: string
-  ttl_seconds?: number
-  continue_on_failure?: boolean
-  credentials?: Credential[]
-  optional_credentials?: OptionalCredential[]
 }
 
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
@@ -65,7 +42,7 @@ const BLOCKED_CREDENTIAL_ENV = new Set([
 ])
 
 const CONFIG_MISSING_MESSAGE =
-  'workload identity not found; caracal run authenticates with an application id and client secret. Create a managed application in the Caracal web console, configure its run manifest, then set CARACAL_APPLICATION_ID and provide the secret via CARACAL_APP_CLIENT_SECRET, CARACAL_APP_CLIENT_SECRET_FILE, or the owner-only default file under the OS Caracal config directory. Set CARACAL_STS_URL only when STS is not the local default.'
+  'workload identity not found; caracal run authenticates with a workload id and secret. Create a launcher workload in the Caracal web console, define its credential bindings, then set CARACAL_WORKLOAD_ID and provide the secret via CARACAL_WORKLOAD_SECRET, CARACAL_WORKLOAD_SECRET_FILE, or the owner-only default file under the OS Caracal config directory. Set CARACAL_STS_URL only when STS is not the local default.'
 
 export class RuntimeConfigValidationError extends CaracalError {
   readonly source: string
@@ -96,12 +73,12 @@ export function defaultCaracalConfigDir(env: NodeJS.ProcessEnv = process.env): s
   return join(homedir(), '.config', 'caracal')
 }
 
-export function defaultRuntimeCredentialDir(applicationId: string, env: NodeJS.ProcessEnv = process.env): string {
-  return join(defaultCaracalConfigDir(env), 'runtime', safePathSegment(applicationId))
+export function defaultRuntimeCredentialDir(workloadId: string, env: NodeJS.ProcessEnv = process.env): string {
+  return join(defaultCaracalConfigDir(env), 'runtime', safePathSegment(workloadId))
 }
 
-export function defaultAppClientSecretFilePath(applicationId: string, env: NodeJS.ProcessEnv = process.env): string {
-  return join(defaultRuntimeCredentialDir(applicationId, env), 'client-secret')
+export function defaultWorkloadSecretFilePath(workloadId: string, env: NodeJS.ProcessEnv = process.env): string {
+  return join(defaultRuntimeCredentialDir(workloadId, env), 'secret')
 }
 
 function safePathSegment(value: string): string {
@@ -118,33 +95,33 @@ export function assertCredentialEnvName(name: string): void {
   if (BLOCKED_CREDENTIAL_ENV.has(name)) throw new RuntimeConfigValidationError('runtime config', `blocked credential env '${name}'`)
 }
 
-// Resolves the workload identity from the environment. The application id names the
-// workload; the client secret comes from CARACAL_APP_CLIENT_SECRET, an explicit
-// secret-file path, or the owner-only default file in non-production environments.
+// Resolves the workload identity from the environment. The workload id names the
+// launcher; the secret comes from CARACAL_WORKLOAD_SECRET, an explicit secret-file
+// path, or the owner-only default file in non-production environments.
 export function loadRuntimeIdentity(required = false, env: NodeJS.ProcessEnv = process.env): RuntimeIdentity | undefined {
-  const applicationId = env.CARACAL_APPLICATION_ID
-  if (!applicationId) {
+  const workloadId = env.CARACAL_WORKLOAD_ID
+  if (!workloadId) {
     if (required) throw new RuntimeConfigMissingError()
     return undefined
   }
   return {
     sts_url: validateEndpointUrl(resolveStsUrl(env), 'sts_url', 'environment', env),
-    application_id: applicationId,
-    app_client_secret: resolveClientSecret(applicationId, env),
+    workload_id: workloadId,
+    workload_secret: resolveWorkloadSecret(workloadId, env),
   }
 }
 
-function resolveClientSecret(applicationId: string, env: NodeJS.ProcessEnv): string {
-  const value = env.CARACAL_APP_CLIENT_SECRET
-  const file = env.CARACAL_APP_CLIENT_SECRET_FILE
-  if (value && file) failConfig('environment', 'set only one of CARACAL_APP_CLIENT_SECRET or CARACAL_APP_CLIENT_SECRET_FILE')
+function resolveWorkloadSecret(workloadId: string, env: NodeJS.ProcessEnv): string {
+  const value = env.CARACAL_WORKLOAD_SECRET
+  const file = env.CARACAL_WORKLOAD_SECRET_FILE
+  if (value && file) failConfig('environment', 'set only one of CARACAL_WORKLOAD_SECRET or CARACAL_WORKLOAD_SECRET_FILE')
   if (file) return readSecretFile(file, 'environment')
   if (value) return value
-  const localFile = existingLocalFile(defaultAppClientSecretFilePath(applicationId, env), env)
+  const localFile = existingLocalFile(defaultWorkloadSecretFilePath(workloadId, env), env)
   if (localFile) return readSecretFile(localFile, 'environment')
   failConfig(
     'environment',
-    `client secret is required; set CARACAL_APP_CLIENT_SECRET, point CARACAL_APP_CLIENT_SECRET_FILE at an owner-only file, or store the secret at ${defaultAppClientSecretFilePath(applicationId, env)}`,
+    `workload secret is required; set CARACAL_WORKLOAD_SECRET, point CARACAL_WORKLOAD_SECRET_FILE at an owner-only file, or store the secret at ${defaultWorkloadSecretFilePath(workloadId, env)}`,
   )
 }
 
@@ -182,10 +159,10 @@ function isLocalHostname(hostname: string): boolean {
 }
 
 function readSecretFile(path: string, source: string): string {
-  if (path.startsWith('cs_')) {
+  if (path.startsWith('ws_')) {
     failConfig(
       source,
-      `secret file path looks like a client secret; write the secret to the local auto-detected owner-only file or configure an explicit secret-file path for cloud/custom deployments`,
+      `secret file path looks like a workload secret; write the secret to the local auto-detected owner-only file or configure an explicit secret-file path for cloud/custom deployments`,
     )
   }
   if (!existsSync(path)) failConfig(source, `secret file does not exist: ${path}`)
