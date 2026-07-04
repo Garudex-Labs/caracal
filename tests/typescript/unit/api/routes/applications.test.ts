@@ -629,28 +629,34 @@ describe('DELETE /v1/zones/:zoneId/applications/:id', () => {
 describe('GET /v1/zones/:zoneId/applications/:id/run-manifest', () => {
   it('returns null when no manifest is configured', async () => {
     const { app, db } = buildApp()
-    db.query.mockResolvedValueOnce({ rows: [{ run_manifest: null }] })
+    db.query.mockResolvedValueOnce({ rows: [{ run_manifest: null, run_manifest_updated_by: null, run_manifest_updated_at: null }] })
 
     await app.ready()
     const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/applications/app-1/run-manifest' })
 
     expect(res.statusCode).toBe(200)
-    expect(JSON.parse(res.body)).toEqual({ run_manifest: null })
+    expect(JSON.parse(res.body)).toEqual({ run_manifest: null, updated_by: null, updated_at: null })
   })
 
-  it('returns the stored manifest', async () => {
+  it('returns the stored manifest with its authorship stamp', async () => {
     const { app, db } = buildApp()
     const manifest = {
       ttl_seconds: 300,
       credentials: [{ env: 'PIPERNET_TOKEN', resource: 'resource://pipernet', credential_type: 'provider_token' }],
     }
-    db.query.mockResolvedValueOnce({ rows: [{ run_manifest: manifest }] })
+    db.query.mockResolvedValueOnce({
+      rows: [{ run_manifest: manifest, run_manifest_updated_by: 'Richard Hendricks', run_manifest_updated_at: '2026-06-01T12:00:00.000Z' }],
+    })
 
     await app.ready()
     const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/applications/app-1/run-manifest' })
 
     expect(res.statusCode).toBe(200)
-    expect(JSON.parse(res.body)).toEqual({ run_manifest: manifest })
+    expect(JSON.parse(res.body)).toEqual({
+      run_manifest: manifest,
+      updated_by: 'Richard Hendricks',
+      updated_at: '2026-06-01T12:00:00.000Z',
+    })
   })
 
   it('returns 404 for a missing application', async () => {
@@ -676,7 +682,9 @@ describe('PUT /v1/zones/:zoneId/applications/:id/run-manifest', () => {
         { env: 'HOOLIBOX_TOKEN', resource: 'resource://hoolibox', credential_type: 'caracal_mandate', optional: true, on_failure: 'warn' },
       ],
     }
-    db.query.mockResolvedValueOnce({ rows: [{ run_manifest: stored }] })
+    db.query.mockResolvedValueOnce({
+      rows: [{ run_manifest: stored, run_manifest_updated_by: 'operator', run_manifest_updated_at: '2026-06-01T12:00:00.000Z' }],
+    })
 
     await app.ready()
     const res = await app.inject({
@@ -698,14 +706,19 @@ describe('PUT /v1/zones/:zoneId/applications/:id/run-manifest', () => {
     })
 
     expect(res.statusCode).toBe(200)
-    expect(JSON.parse(res.body)).toEqual({ run_manifest: stored })
+    expect(JSON.parse(res.body)).toEqual({
+      run_manifest: stored,
+      updated_by: 'operator',
+      updated_at: '2026-06-01T12:00:00.000Z',
+    })
     expect(JSON.parse(db.query.mock.calls[1][1][2])).toEqual(stored)
+    expect(db.query.mock.calls[1][1][3]).toBe('operator')
   })
 
-  it('clears the manifest when credentials are empty', async () => {
+  it('clears the manifest and its authorship stamp when credentials are empty', async () => {
     const { app, db } = buildApp()
     db.query.mockResolvedValueOnce({ rows: [{ registration_method: 'managed' }] })
-    db.query.mockResolvedValueOnce({ rows: [{ run_manifest: null }] })
+    db.query.mockResolvedValueOnce({ rows: [{ run_manifest: null, run_manifest_updated_by: null, run_manifest_updated_at: null }] })
 
     await app.ready()
     const res = await app.inject({
@@ -715,8 +728,9 @@ describe('PUT /v1/zones/:zoneId/applications/:id/run-manifest', () => {
     })
 
     expect(res.statusCode).toBe(200)
-    expect(JSON.parse(res.body)).toEqual({ run_manifest: null })
+    expect(JSON.parse(res.body)).toEqual({ run_manifest: null, updated_by: null, updated_at: null })
     expect(db.query.mock.calls[1][1][2]).toBeNull()
+    expect(db.query.mock.calls[1][1][3]).toBeNull()
   })
 
   it('rejects blocked env names', async () => {

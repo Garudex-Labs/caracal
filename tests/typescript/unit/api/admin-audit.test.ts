@@ -59,6 +59,42 @@ describe('admin audit hook', () => {
     expect(params[17]).toBe(1)
   })
 
+  it('records the verified console operator profile alongside the credential actor', async () => {
+    const captured: Captured[] = []
+    const app = Fastify({ logger: false })
+    registerAdminAuditHook(app, { db: makeDb(captured) })
+    app.addHook('preHandler', async (req) => {
+      ;(req as unknown as { account: unknown }).account = {
+        id: 'acct-1',
+        name: 'Richard Hendricks',
+        email: 'richard.hendricks@piedpiper.example',
+      }
+    })
+    app.put('/v1/zones/:zoneId/applications/:id/run-manifest', async () => ({ ok: true }))
+    await app.inject({
+      method: 'PUT',
+      url: '/v1/zones/z1/applications/app-1/run-manifest',
+      payload: { credentials: [] },
+    })
+    await app.close()
+    const ins = insertCall(captured)
+    expect(ins).toBeDefined()
+    const payload = ins!.params![12] as Record<string, unknown>
+    expect(payload.operator).toBe('Richard Hendricks')
+    expect(ins!.params![9]).toBe('applications')
+    expect(ins!.params![10]).toBe('app-1')
+  })
+
+  it('omits the operator field when the request carries no verified account', async () => {
+    const captured: Captured[] = []
+    const app = buildApp(captured)
+    await app.inject({ method: 'POST', url: '/v1/zones/z1/policies/p1', payload: {} })
+    await app.close()
+    const ins = insertCall(captured)
+    expect(ins).toBeDefined()
+    expect(ins!.params![12]).not.toHaveProperty('operator')
+  })
+
   it('records a secret-free change summary distinguishing field edits from secret rotation', async () => {
     const captured: Captured[] = []
     const app = buildApp(captured)
