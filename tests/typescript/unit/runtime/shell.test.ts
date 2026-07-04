@@ -4,7 +4,7 @@
 // Runtime shell entrypoint tests verify command wiring and registry filtering.
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { RuntimeConfig } from '../../../../apps/runtime/src/config.ts'
+import type { RuntimeIdentity } from '../../../../apps/runtime/src/config.ts'
 
 const state = vi.hoisted(() => ({
   dispatch: vi.fn(),
@@ -88,7 +88,7 @@ describe('runtime shell entrypoint', () => {
   it('wires stack, purge, and run executors without exposing unavailable interfaces', async () => {
     state.webInterfaceAvailable.mockReturnValueOnce(false)
     const opts = await importShell()
-    const cfg = { zone_url: 'https://sts.example.com' } as RuntimeConfig
+    const cfg = { sts_url: 'https://sts.example.com' } as RuntimeIdentity
 
     expect(opts.registry.byName.has('web')).toBe(false)
     await opts.registry.byName.get('up')!.run(['--detach'], cfg)

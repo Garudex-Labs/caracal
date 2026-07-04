@@ -19,27 +19,27 @@ import { runCommand } from '../../../../apps/runtime/src/commands/run.js'
 
 const cfg: RuntimeIdentity = {
   sts_url: 'https://sts.example.com',
-  application_id: 'app1',
-  app_client_secret: 'secret',
+  workload_id: 'wl1',
+  workload_secret: 'ws_secret',
 }
 
-function manifestResponse(credentials: unknown[]): Record<string, unknown> {
-  return { zone_id: 'zone1', application_id: 'app1', credentials }
+function manifestResponse(bindings: unknown[]): Record<string, unknown> {
+  return { zone_id: 'zone1', workload_id: 'wl1', bindings }
 }
 
 function stubRunFetch(
   manifest: Record<string, unknown>,
-  exchange: { ok: boolean; status?: number; body: unknown } = { ok: true, body: {} },
+  mint: { ok: boolean; status?: number; body: unknown } = { ok: true, body: {} },
 ): ReturnType<typeof vi.fn> {
   const fetchMock = vi.fn().mockImplementation(async (url: string) => {
     if (String(url).includes('/v1/run/manifest')) {
       return { ok: true, status: 200, json: async () => manifest }
     }
     return {
-      ok: exchange.ok,
-      status: exchange.status ?? 200,
-      json: async () => exchange.body,
-      text: async () => JSON.stringify(exchange.body),
+      ok: mint.ok,
+      status: mint.status ?? 200,
+      json: async () => mint.body,
+      text: async () => JSON.stringify(mint.body),
     }
   })
   vi.stubGlobal('fetch', fetchMock)
@@ -102,21 +102,16 @@ describe('runCommand', () => {
       })
       const fetchMock = stubRunFetch(manifestResponse([{ env: 'RESOURCE_TOKEN', resource: 'resource://api' }]), {
         ok: true,
-        body: {
-          access_token: 'caracal-mandate',
-          expires_in: 900,
-          upstreams: { 'resource://api': { provider_token: 'resource-token' } },
-        },
+        body: { env: 'RESOURCE_TOKEN', credential: 'resource-token' },
       })
 
       await expect(runCommand(['node', 'tool.js'], cfg)).rejects.toThrow('exit:0')
 
       const manifestBody = fetchMock.mock.calls[0][1].body as URLSearchParams
-      expect(manifestBody.get('application_id')).toBe('app1')
+      expect(manifestBody.get('workload_id')).toBe('wl1')
       const body = fetchMock.mock.calls[1][1].body as URLSearchParams
-      expect(body.get('ttl_seconds')).toBe('900')
-      expect(body.get('resource')).toBe('resource://api')
-      expect(body.get('runtime_credential_injection')).toBe('true')
+      expect(body.get('env')).toBe('RESOURCE_TOKEN')
+      expect(body.get('secret')).toBe('ws_secret')
       expect(spawnMock).toHaveBeenCalledWith('node', ['tool.js'], expect.objectContaining({ stdio: 'inherit' }))
       expect(childEnv.RESOURCE_TOKEN).toBe('resource-token')
       expect(childEnv.CARACAL_ADMIN_TOKEN).toBeUndefined()
@@ -135,11 +130,7 @@ describe('runCommand', () => {
   it('strips the pnpm separator before spawning the child command', async () => {
     stubRunFetch(manifestResponse([{ env: 'RESOURCE_TOKEN', resource: 'resource://api' }]), {
       ok: true,
-      body: {
-        access_token: 'caracal-mandate',
-        expires_in: 900,
-        upstreams: { 'resource://api': { provider_token: 'resource-token' } },
-      },
+      body: { env: 'RESOURCE_TOKEN', credential: 'resource-token' },
     })
 
     await expect(runCommand(['--', 'node', 'tool.js'], cfg)).rejects.toThrow('exit:0')
@@ -150,11 +141,7 @@ describe('runCommand', () => {
   it('reports child process spawn errors before returning command-not-found', async () => {
     stubRunFetch(manifestResponse([{ env: 'RESOURCE_TOKEN', resource: 'resource://api' }]), {
       ok: true,
-      body: {
-        access_token: 'caracal-mandate',
-        expires_in: 900,
-        upstreams: { 'resource://api': { provider_token: 'resource-token' } },
-      },
+      body: { env: 'RESOURCE_TOKEN', credential: 'resource-token' },
     })
     spawnMock.mockImplementationOnce((_cmd: string, _args: string[], _opts: unknown) => ({
       on: (event: string, handler: (err?: Error) => void) => {
@@ -252,11 +239,7 @@ describe('runCommand', () => {
   it('runs a literal command after the -- separator instead of treating it as help', async () => {
     stubRunFetch(manifestResponse([{ env: 'RESOURCE_TOKEN', resource: 'resource://api' }]), {
       ok: true,
-      body: {
-        access_token: 'caracal-mandate',
-        expires_in: 900,
-        upstreams: { 'resource://api': { provider_token: 'resource-token' } },
-      },
+      body: { env: 'RESOURCE_TOKEN', credential: 'resource-token' },
     })
 
     await expect(runCommand(['--', 'help'], cfg)).rejects.toThrow('exit:0')
