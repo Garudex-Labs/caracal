@@ -458,6 +458,7 @@ func buildUpstreamRequest(r *http.Request, upstreamURL *url.URL, caracalToken st
 	}
 	req.Header = r.Header.Clone()
 	stripHopByHop(req.Header)
+	stripCaracalBaggage(req.Header)
 	req.Header.Del("X-Caracal-Client-ID")
 	req.Header.Del("X-Caracal-Resource")
 	req.Header.Del("X-Caracal-Upstream")

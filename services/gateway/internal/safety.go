@@ -55,6 +55,36 @@ func stripHopByHop(h http.Header) {
 	}
 }
 
+// stripCaracalBaggage removes caracal.* entries from the Baggage header so
+// internal delegation topology never reaches third-party upstreams, while
+// preserving tenant-owned baggage entries.
+func stripCaracalBaggage(h http.Header) {
+	values := h.Values("Baggage")
+	if len(values) == 0 {
+		return
+	}
+	kept := make([]string, 0, len(values))
+	for _, entry := range strings.Split(strings.Join(values, ","), ",") {
+		trimmed := strings.TrimSpace(entry)
+		if trimmed == "" {
+			continue
+		}
+		key := trimmed
+		if eq := strings.Index(trimmed, "="); eq >= 0 {
+			key = strings.TrimSpace(trimmed[:eq])
+		}
+		if strings.HasPrefix(key, "caracal.") {
+			continue
+		}
+		kept = append(kept, trimmed)
+	}
+	if len(kept) == 0 {
+		h.Del("Baggage")
+		return
+	}
+	h.Set("Baggage", strings.Join(kept, ","))
+}
+
 // pathContainsTraversal reports whether p contains a "." or ".." segment, recursively
 // undoing percent-encoding so multi-decoded sequences like %252e are also caught.
 func pathContainsTraversal(p string) bool {

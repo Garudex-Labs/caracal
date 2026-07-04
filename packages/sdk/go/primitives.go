@@ -155,6 +155,9 @@ func Spawn(ctx context.Context, opts SpawnInput, fn func(context.Context) error)
 		ParentEdgeID:     parent.DelegationEdgeID,
 		SessionID:        sessionID,
 		TraceID:          traceID,
+		TraceFlags:       parent.TraceFlags,
+		TraceState:       parent.TraceState,
+		Baggage:          parent.Baggage,
 		Hop:              hop,
 	}
 
@@ -325,6 +328,9 @@ func SpawnService(ctx context.Context, opts SpawnServiceInput) (*ServiceAgent, e
 		ParentEdgeID:   parent.DelegationEdgeID,
 		SessionID:      sessionID,
 		TraceID:        traceID,
+		TraceFlags:     parent.TraceFlags,
+		TraceState:     parent.TraceState,
+		Baggage:        parent.Baggage,
 		Hop:            parent.Hop,
 	}
 	if opts.OnAgentStart != nil {
