@@ -280,8 +280,8 @@ type stubDB struct {
 	secretsErr    error
 	insertedKey   *SecretRow
 	now           time.Time
-	runManifest   []byte
-	runManErr     error
+	workload      *Workload
+	workloadErr   error
 }
 
 func (s *stubDB) Ping(_ context.Context) error { return nil }
@@ -300,8 +300,14 @@ func (s *stubDB) GetApplicationByIDGlobal(_ context.Context, _ string) (*Applica
 	}
 	return s.app, s.appErr
 }
-func (s *stubDB) GetApplicationRunManifest(_ context.Context, _ string) ([]byte, error) {
-	return s.runManifest, s.runManErr
+func (s *stubDB) GetWorkloadByID(_ context.Context, _ string) (*Workload, error) {
+	if s.workloadErr != nil {
+		return nil, s.workloadErr
+	}
+	if s.workload == nil {
+		return nil, errors.New("stub")
+	}
+	return s.workload, nil
 }
 func (s *stubDB) GetResourceByIdentifier(_ context.Context, _, _ string) (*Resource, error) {
 	return s.resource, s.resErr

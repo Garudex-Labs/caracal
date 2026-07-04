@@ -278,6 +278,77 @@ restrict := {"maintenance_freeze"}
 	}
 }
 
+func workloadMintInput() OPAInput {
+	return OPAInput{
+		Principal: OPAPrincipal{ID: "wl-1", ZoneID: "z1", Type: "Workload"},
+		Resource:  OPAResource{Identifier: "resource://nucleus", Scopes: []string{"nucleus:read"}},
+		Action:    OPAAction{ID: "CredentialInjection"},
+		Context:   OPAContext{RequestedScopes: []string{"nucleus:read"}, ActorClaims: map[string]any{"caracal_client_id": "wl-1"}},
+	}
+}
+
+// A workload mint needs no grants data: the console-authored binding is the grant, and
+// STS resolves it server-side before evaluation ever runs.
+func TestDecisionContractWorkloadMintAllow(t *testing.T) {
+	res := simulateContract(t, workloadMintInput(), nil)
+	if res.Decision != "allow" {
+		t.Fatalf("workload credential injection must allow, got %q diagnostics %+v", res.Decision, res.Diagnostics)
+	}
+	if len(res.DeterminingPolicies) != 1 || res.DeterminingPolicies[0]["policy"] != "caracal-workload-mint" {
+		t.Fatalf("workload mint must name its policy, got %+v", res.DeterminingPolicies)
+	}
+}
+
+func TestDecisionContractWorkloadMintRequiresCredentialInjectionAction(t *testing.T) {
+	input := workloadMintInput()
+	input.Action = OPAAction{ID: "token_exchange"}
+	res := simulateContract(t, input, nil)
+	if res.Decision != "deny" {
+		t.Fatalf("a workload principal outside credential injection must deny, got %q", res.Decision)
+	}
+}
+
+func TestDecisionContractWorkloadMintRejectsRiddenContext(t *testing.T) {
+	input := workloadMintInput()
+	input.Context.SubjectClaims = map[string]any{"sub": "user1"}
+	res := simulateContract(t, input, nil)
+	if res.Decision != "deny" {
+		t.Fatalf("a workload mint carrying subject context must deny, got %q", res.Decision)
+	}
+}
+
+func TestDecisionContractWorkloadMintRestricted(t *testing.T) {
+	restriction := `package caracal.authz
+
+import rego.v1
+
+restrict := {"maintenance_freeze"}
+`
+	res := simulateContract(t, workloadMintInput(), []OPAPolicyModule{{ID: "restriction", Content: restriction}})
+	if res.Decision != "deny" {
+		t.Fatalf("a restriction must deny a workload mint, got %q", res.Decision)
+	}
+}
+
+func TestDecisionContractWorkloadMintApprovalGate(t *testing.T) {
+	risk := `package caracal.authz
+
+import rego.v1
+
+risk := [{"scope": "nucleus:read", "tier": "sensitive"}]
+
+approval_declarations := [{"tier": "sensitive", "approver": "operator", "ttl_seconds": 600, "privacy": "identified"}]
+`
+	res := simulateContract(t, workloadMintInput(), []OPAPolicyModule{{ID: "risk", Content: risk}})
+	if res.Decision != "allow" {
+		t.Fatalf("a gated workload mint stays allow pending approval, got %q", res.Decision)
+	}
+	decls := parseTierDeclarations(res)
+	if len(decls) != 1 || decls[0].Tier != "sensitive" || decls[0].Approver != "operator" {
+		t.Fatalf("a gated workload mint must surface the matched declaration, got %+v", decls)
+	}
+}
+
 func TestDecisionContractRejectsAdopterResult(t *testing.T) {
 	adopterDecision := `package caracal.authz
 
