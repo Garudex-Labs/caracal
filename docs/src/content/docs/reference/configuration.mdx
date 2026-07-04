@@ -8,22 +8,36 @@ Caracal has three configuration domains:
 
 | Domain | Used by | Choose it when |
 | --- | --- | --- |
-| Runtime workload config | `caracal run` and SDK clients. | A workload needs Caracal-issued resource credentials. |
+| Workload identity | `caracal run`. | A workload launches with console-managed credential bindings. |
+| SDK profile | SDK clients. | An SDK workload needs Caracal-issued resource credentials. |
 | Service environment config | API, STS, Gateway, Audit, Coordinator, and Control. | A service needs URLs, secrets, limits, or readiness settings. |
 | Deployment values | Helm, Compose, Postgres, and Redis. | Operators size, schedule, expose, or secure infrastructure. |
 
 ```mermaid
 flowchart TD
   Need{What are you configuring?}
-  Need -->|workload credentials| Runtime[Runtime profile and CARACAL_CONFIG]
+  Need -->|caracal run launch| Identity[Workload identity env plus console Run bindings]
+  Need -->|SDK credentials| Profile[SDK profile and CARACAL_CONFIG]
   Need -->|service behavior| Env[Service environment variables]
   Need -->|deployment shape| Deploy[Helm values or Compose files]
-  Runtime --> Precedence[Config precedence reference]
+  Identity --> Precedence[Config precedence reference]
+  Profile --> Precedence
   Env --> Ops[Environment variables reference]
   Deploy --> Platform[Operations deployment pages]
 ```
 
-## Runtime Profile Fields
+## Workload Identity Keys
+
+| Key | Meaning |
+| --- | --- |
+| `CARACAL_APPLICATION_ID` | Confidential application ID; required by `caracal run`. |
+| `CARACAL_APP_CLIENT_SECRET` | Inline local-development client secret. |
+| `CARACAL_APP_CLIENT_SECRET_FILE` | Cloud/custom mounted client-secret file path. |
+| `CARACAL_STS_URL` | Cloud/custom STS URL override. |
+
+Credential bindings, zone, TTL, and failure behavior come from the application's run manifest, authored in the web console. Local dev and stable launches can omit both secret variables and read the owner-only file at `<Caracal config dir>/runtime/<application_id>/client-secret`.
+
+## SDK Profile Fields
 
 | Field | Meaning |
 | --- | --- |
@@ -35,14 +49,14 @@ flowchart TD
 | `application_id` | Confidential application ID. |
 | `app_client_secret_file` | Cloud/custom secret-file path override. |
 | `app_client_secret` | Inline local-development secret. |
-| `ttl_seconds` | `caracal run` exchange TTL, capped at 900 seconds. |
+| `ttl_seconds` | Credential exchange TTL, capped at 900 seconds. |
 | `continue_on_failure` | Required credential failure behavior. |
 | `credentials[]` | Required resource credentials. |
 | `optional_credentials[]` | Optional resource credentials with `on_failure`. |
 
-Credential entries use `env`, `resource`, optional `upstream_prefix`, and optional `credential_type`. Use `provider_token` for direct `caracal run` provider-key injection and `caracal_mandate` for mandate-aware workloads.
+Credential entries use `env`, `resource`, optional `upstream_prefix`, and optional `credential_type`. Use `provider_token` for direct provider-key access and `caracal_mandate` for mandate-aware workloads.
 
-Local dev and stable runtime launches read the client secret and credential
+Local dev and stable SDK loads read the client secret and credential
 manifest from files you store under the OS Caracal config directory. Use explicit
 secret-file paths and service URLs only for cloud deployments, containers, or
 custom infrastructure.

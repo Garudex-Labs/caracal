@@ -26,7 +26,8 @@ Use these terms consistently across docs, API names, web console labels, and exa
 | Provider | Credential source or upstream integration for a protected resource. |
 | Resource | Protected API, tool, MCP server, provider target, or upstream identifier. |
 | Root session | Originating session at the root of a delegation chain; its ID is propagated as the authority root and checked as a revocation anchor. |
-| Runtime profile | `caracal.toml` or environment configuration used by `caracal run` and SDKs. |
+| Runtime profile | `caracal.toml` or environment configuration used by SDK credential loaders. |
+| Run manifest | Console-authored launch bindings served by STS to `caracal run`. |
 | Service agent | Long-lived agent session started with the SDK `service()` handle; it holds a heartbeat lease and is retired explicitly rather than when a block exits. |
 | STS | Security Token Service that performs token exchange and mandate issuance. |
 | Step-up challenge | A policy-raised hold requiring a human decision before STS issues authority. |
