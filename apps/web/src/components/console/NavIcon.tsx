@@ -115,6 +115,36 @@ const PATHS: Record<string, ReactNode> = {
       <path d="M9 7h.01M9 11h.01M9 15h.01M15 7h.01M15 11h.01M15 15h.01M10 21v-3h4v3" />
     </>
   ),
+  profile: (
+    <>
+      <circle cx="12" cy="8" r="4" />
+      <path d="M4 20.5c1.5-3.5 4.5-5 8-5s6.5 1.5 8 5" />
+    </>
+  ),
+  security: (
+    <>
+      <rect x="5" y="10.5" width="14" height="9.5" rx="2" />
+      <path d="M8 10.5v-3a4 4 0 0 1 8 0v3" />
+    </>
+  ),
+  preferences: (
+    <>
+      <path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3" />
+      <path d="M1 14h6M9 8h6M17 16h6" />
+    </>
+  ),
+  operator: (
+    <>
+      <path d="M12 3l1.6 4.4L18 9l-4.4 1.6L12 15l-1.6-4.4L6 9z" />
+      <path d="M19 14l.8 2.2L22 17l-2.2.8L19 20l-.8-2.2L16 17z" />
+    </>
+  ),
+  danger: (
+    <>
+      <path d="M10.3 4.1 2.9 17.3a2 2 0 0 0 1.7 3h14.8a2 2 0 0 0 1.7-3L13.7 4.1a2 2 0 0 0-3.4 0Z" />
+      <path d="M12 9.5v4M12 16.8h.01" />
+    </>
+  ),
   analytics: (
     <>
       <path d="M4 20V4" />
