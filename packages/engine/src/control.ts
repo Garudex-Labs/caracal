@@ -3,7 +3,7 @@
 //
 // Control API credential lifecycle helpers for least-privilege Control API keys.
 
-import type { AdminClient, Application, Resource } from '@caracalai/admin'
+import { ensureResource, type AdminClient, type Application, type Resource } from '@caracalai/admin'
 import { describeRemoteSurface } from './dispatch.js'
 
 export const CONTROL_INVOKE_TRAIT = 'control:invoke'
@@ -93,21 +93,7 @@ export async function ensureControlResource(
   zoneId: string,
   audience = process.env.CONTROL_AUDIENCE ?? DEFAULT_CONTROL_AUDIENCE,
 ): Promise<Resource> {
-  const scopes = controlScopes()
-  const resources = await client.resources.list(zoneId)
-  const current = resources.find((resource) => resource.identifier === audience)
-  if (!current) {
-    return client.resources.create(zoneId, {
-      name: 'Control API',
-      identifier: audience,
-      scopes,
-    })
-  }
-  const currentScopes = [...current.scopes].sort()
-  if (scopes.length === currentScopes.length && scopes.every((scope, index) => scope === currentScopes[index])) {
-    return current
-  }
-  return client.resources.patch(zoneId, current.id, { scopes })
+  return ensureResource(client, zoneId, { name: 'Control API', identifier: audience, scopes: controlScopes() })
 }
 
 export async function controlKeyList(client: AdminClient, zoneId: string): Promise<ControlKeyRecord[]> {
