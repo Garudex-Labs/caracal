@@ -79,11 +79,11 @@ type DBQuerier interface {
 	InsertSession(ctx context.Context, s *Session) error
 	RevokeSession(ctx context.Context, zoneID, sid, reason string) error
 	GetStepUpChallenge(ctx context.Context, id string) (*StepUpChallengePG, error)
-	InsertStepUpChallenge(ctx context.Context, c *StepUpChallengePG) error
-	SatisfyStepUpChallenge(ctx context.Context, id string) error
-	ConsumeStepUpChallenge(ctx context.Context, p ConsumeStepUpParams) error
-	ApproveStepUpChallenge(ctx context.Context, id, zoneID, approverSubjectID string) error
+	GetOrCreateApprovalChallenge(ctx context.Context, c *StepUpChallengePG) (*StepUpChallengePG, bool, error)
+	DecideStepUpChallenge(ctx context.Context, p DecideStepUpParams) error
 	ConsumeApprovalChallenge(ctx context.Context, p ConsumeApprovalParams) error
+	SessionsRelated(ctx context.Context, zoneID, sessionA, sessionB string) (bool, error)
+	DeleteExpiredStepUpChallenges(ctx context.Context, cutoff time.Time) (int64, error)
 	EnsureZoneSigningKeySecret(ctx context.Context, zoneID string, ciphertext, nonce []byte) (*SecretRow, error)
 	InsertZoneSigningKeySecret(ctx context.Context, zoneID string, ciphertext, nonce []byte) (*SecretRow, error)
 	GetZoneSigningKeySecret(ctx context.Context, zoneID string) (*SecretRow, error)
@@ -414,21 +414,28 @@ func (d *DB) RevokeSession(ctx context.Context, zoneID, sid, reason string) erro
 	return err
 }
 
-// StepUpChallengePG is stored in the database as the proof-bound, single-use record
-// behind every step-up challenge.
+// StepUpChallengePG is the durable approval hold behind a gated mint: one live row per
+// exact authority binding, carrying the resolved tier declaration and the approver's
+// decision.
 type StepUpChallengePG struct {
-	ID                  string
-	ZoneID              string
-	SessionID           string
-	ChallengeType       string
-	ChallengeSecretHash []byte
-	PrincipalID         string
-	ResourceSetHash     []byte
-	ExpiresAt           time.Time
-	SatisfiedAt         *time.Time
-	ConsumedAt          *time.Time
-	ApproverSubjectID   *string
-	MetadataJSON        []byte
+	ID                string
+	ZoneID            string
+	SessionID         string
+	ChallengeType     string
+	PrincipalID       string
+	ApplicationID     string
+	Tier              string
+	ApproverClass     string
+	PrivacyMode       string
+	ResourceSetHash   []byte
+	ExpiresAt         time.Time
+	SatisfiedAt       *time.Time
+	RejectedAt        *time.Time
+	ConsumedAt        *time.Time
+	ApproverSubjectID *string
+	ApproverSessionID *string
+	DecisionReason    *string
+	MetadataJSON      []byte
 }
 
 // ConsumeApprovalParams holds the bindings the caller must present to consume a
@@ -443,56 +450,118 @@ type ConsumeApprovalParams struct {
 	Now             time.Time
 }
 
-// ConsumeStepUpParams holds the bindings the caller must present to consume a challenge.
-type ConsumeStepUpParams struct {
-	ID                  string
-	ZoneID              string
-	PrincipalID         string
-	ChallengeSecretHash []byte
-	ResourceSetHash     []byte
-	Now                 time.Time
+// DecideStepUpParams records an authenticated approver's decision on a pending hold.
+// ApproverSubjectID arrives with the challenge's privacy mode already applied; the
+// approver's session id, when present, is the forensic and revocation anchor.
+type DecideStepUpParams struct {
+	ID                string
+	ZoneID            string
+	Approve           bool
+	ApproverSubjectID string
+	ApproverSessionID string
+	Reason            string
 }
 
-func (d *DB) InsertStepUpChallenge(ctx context.Context, c *StepUpChallengePG) error {
+const stepUpChallengeColumns = `id, zone_id, session_id, challenge_type, principal_id,
+	application_id, tier, approver_class, privacy_mode, resource_set_hash, expires_at,
+	satisfied_at, rejected_at, consumed_at, approver_subject_id, approver_session_id,
+	decision_reason, metadata_json`
+
+func scanStepUpChallenge(row pgx.Row) (*StepUpChallengePG, error) {
+	var c StepUpChallengePG
+	var appID *string
+	var tier *string
+	err := row.Scan(&c.ID, &c.ZoneID, &c.SessionID, &c.ChallengeType, &c.PrincipalID,
+		&appID, &tier, &c.ApproverClass, &c.PrivacyMode, &c.ResourceSetHash, &c.ExpiresAt,
+		&c.SatisfiedAt, &c.RejectedAt, &c.ConsumedAt, &c.ApproverSubjectID, &c.ApproverSessionID,
+		&c.DecisionReason, &c.MetadataJSON)
+	if err != nil {
+		return nil, err
+	}
+	if appID != nil {
+		c.ApplicationID = *appID
+	}
+	if tier != nil {
+		c.Tier = *tier
+	}
+	return &c, nil
+}
+
+// GetOrCreateApprovalChallenge converges every gated mint for one exact authority
+// binding onto a single live hold. Expired unconsumed holds for the binding are purged
+// to free the uniqueness slot, then the insert either lands or yields to the live row
+// under the partial unique index, so concurrent duplicate mints, retries after a
+// decision, and re-mints inside a rejection window all observe the same challenge.
+// Returns the live row and whether this call created it.
+func (d *DB) GetOrCreateApprovalChallenge(ctx context.Context, c *StepUpChallengePG) (*StepUpChallengePG, bool, error) {
 	metadata := c.MetadataJSON
 	if len(metadata) == 0 {
 		metadata = []byte("{}")
 	}
-	_, err := d.pool.Exec(ctx,
+	tx, err := d.pool.Begin(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM step_up_challenges
+		 WHERE zone_id = $1 AND principal_id = $2 AND session_id = $3 AND resource_set_hash = $4
+		   AND consumed_at IS NULL AND expires_at <= now()`,
+		c.ZoneID, c.PrincipalID, c.SessionID, c.ResourceSetHash,
+	); err != nil {
+		return nil, false, err
+	}
+	row := tx.QueryRow(ctx,
 		`INSERT INTO step_up_challenges
-		   (id, zone_id, session_id, challenge_type, challenge_secret_hash,
-		    principal_id, resource_set_hash, expires_at, metadata_json)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-		c.ID, c.ZoneID, c.SessionID, c.ChallengeType,
-		c.ChallengeSecretHash, c.PrincipalID, c.ResourceSetHash, c.ExpiresAt, metadata,
+		   (id, zone_id, session_id, challenge_type, principal_id, application_id,
+		    tier, approver_class, privacy_mode, resource_set_hash, expires_at, metadata_json)
+		 VALUES ($1, $2, $3, $4, $5, NULLIF($6, ''), NULLIF($7, ''), $8, $9, $10, $11, $12)
+		 ON CONFLICT (zone_id, principal_id, session_id, resource_set_hash)
+		   WHERE consumed_at IS NULL DO NOTHING
+		 RETURNING `+stepUpChallengeColumns,
+		c.ID, c.ZoneID, c.SessionID, c.ChallengeType, c.PrincipalID, c.ApplicationID,
+		c.Tier, c.ApproverClass, c.PrivacyMode, c.ResourceSetHash, c.ExpiresAt, metadata,
 	)
-	return err
+	created, err := scanStepUpChallenge(row)
+	if err == nil {
+		return created, true, tx.Commit(ctx)
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return nil, false, err
+	}
+	existing, err := scanStepUpChallenge(tx.QueryRow(ctx,
+		`SELECT `+stepUpChallengeColumns+`
+		 FROM step_up_challenges
+		 WHERE zone_id = $1 AND principal_id = $2 AND session_id = $3 AND resource_set_hash = $4
+		   AND consumed_at IS NULL`,
+		c.ZoneID, c.PrincipalID, c.SessionID, c.ResourceSetHash,
+	))
+	if err != nil {
+		return nil, false, err
+	}
+	return existing, false, tx.Commit(ctx)
 }
 
-func (d *DB) SatisfyStepUpChallenge(ctx context.Context, id string) error {
-	_, err := d.pool.Exec(ctx,
-		`UPDATE step_up_challenges SET satisfied_at = now() WHERE id = $1`, id,
-	)
-	return err
-}
-
-// ApproveStepUpChallenge records an authenticated approver satisfying a pending
-// human-approval challenge. It is the async counterpart to a returned step-up secret:
-// instead of the caller echoing a proof, a named approver satisfies the challenge
-// out-of-band. The update only lands on a live, unsatisfied, unconsumed human-approval
-// challenge in the named zone, so an mfa challenge, an expired one, or a replay cannot
-// be approved. Returns ErrChallengeInvalid when no such challenge exists.
-func (d *DB) ApproveStepUpChallenge(ctx context.Context, id, zoneID, approverSubjectID string) error {
+// DecideStepUpChallenge atomically records an approver's decision on a pending hold.
+// The update only lands on a live, undecided, unconsumed human-approval challenge in
+// the named zone, so an expired hold, a decided one, or a replay cannot be re-decided.
+// Returns ErrChallengeInvalid when no such challenge exists.
+func (d *DB) DecideStepUpChallenge(ctx context.Context, p DecideStepUpParams) error {
 	tag, err := d.pool.Exec(ctx,
 		`UPDATE step_up_challenges
-		 SET satisfied_at = now(), approver_subject_id = $3
+		 SET satisfied_at = CASE WHEN $3 THEN now() END,
+		     rejected_at = CASE WHEN NOT $3 THEN now() END,
+		     approver_subject_id = $4,
+		     approver_session_id = NULLIF($5, ''),
+		     decision_reason = NULLIF($6, '')
 		 WHERE id = $1
 		   AND zone_id = $2
 		   AND challenge_type = 'human_approval'
 		   AND satisfied_at IS NULL
+		   AND rejected_at IS NULL
 		   AND consumed_at IS NULL
 		   AND expires_at > now()`,
-		id, zoneID, approverSubjectID,
+		p.ID, p.ZoneID, p.Approve, p.ApproverSubjectID, p.ApproverSessionID, p.Reason,
 	)
 	if err != nil {
 		return err
@@ -503,46 +572,13 @@ func (d *DB) ApproveStepUpChallenge(ctx context.Context, id, zoneID, approverSub
 	return nil
 }
 
-// ConsumeStepUpChallenge atomically transitions a challenge to consumed state, but only
-// when every binding matches: zone, principal, secret hash, resource set, satisfied,
-// not yet expired, not yet consumed, and the originating session is still active.
-// Returns ErrChallengeInvalid otherwise.
-func (d *DB) ConsumeStepUpChallenge(ctx context.Context, p ConsumeStepUpParams) error {
-	tag, err := d.pool.Exec(ctx,
-		`UPDATE step_up_challenges c
-		 SET consumed_at = now()
-		 WHERE c.id = $1
-		   AND c.zone_id = $2
-		   AND c.principal_id = $3
-		   AND c.challenge_secret_hash = $4
-		   AND c.resource_set_hash = $5
-		   AND c.satisfied_at IS NOT NULL
-		   AND c.consumed_at IS NULL
-		   AND c.expires_at > now()
-		   AND EXISTS (
-		     SELECT 1 FROM sessions s
-		     WHERE s.id = c.session_id
-		       AND s.zone_id = c.zone_id
-		       AND s.status = 'active'
-		       AND s.expires_at > now()
-		   )`,
-		p.ID, p.ZoneID, p.PrincipalID, p.ChallengeSecretHash, p.ResourceSetHash,
-	)
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() == 0 {
-		return ErrChallengeInvalid
-	}
-	return nil
-}
-
-// ConsumeApprovalChallenge atomically transitions a human-approval challenge to
-// consumed, but only when every binding matches: zone, principal, request hash, an
-// approver having satisfied it, not yet expired, not yet consumed, and the originating
-// session still active. A human approval carries no client secret, so consumption
-// proves an authenticated approver satisfied this exact request rather than a returned
-// proof. Returns ErrChallengeInvalid otherwise.
+// ConsumeApprovalChallenge atomically transitions an approved challenge to consumed,
+// but only when every binding matches: zone, principal, request hash, an approver
+// having approved it, no rejection, not yet expired, not yet consumed, and the
+// originating session, when the hold is bound to one, still active. A human approval
+// carries no client secret, so consumption proves an authenticated approver approved
+// this exact request rather than a returned proof. Returns ErrChallengeInvalid
+// otherwise.
 func (d *DB) ConsumeApprovalChallenge(ctx context.Context, p ConsumeApprovalParams) error {
 	tag, err := d.pool.Exec(ctx,
 		`UPDATE step_up_challenges c
@@ -553,9 +589,17 @@ func (d *DB) ConsumeApprovalChallenge(ctx context.Context, p ConsumeApprovalPara
 		   AND c.resource_set_hash = $4
 		   AND c.challenge_type = 'human_approval'
 		   AND c.satisfied_at IS NOT NULL
+		   AND c.rejected_at IS NULL
 		   AND c.approver_subject_id IS NOT NULL
 		   AND c.consumed_at IS NULL
-		   AND c.expires_at > now()`,
+		   AND c.expires_at > now()
+		   AND (c.session_id = '' OR EXISTS (
+		     SELECT 1 FROM sessions s
+		     WHERE s.id = c.session_id
+		       AND s.zone_id = c.zone_id
+		       AND s.status = 'active'
+		       AND s.expires_at > now()
+		   ))`,
 		p.ID, p.ZoneID, p.PrincipalID, p.ResourceSetHash,
 	)
 	if err != nil {
@@ -568,19 +612,56 @@ func (d *DB) ConsumeApprovalChallenge(ctx context.Context, p ConsumeApprovalPara
 }
 
 func (d *DB) GetStepUpChallenge(ctx context.Context, id string) (*StepUpChallengePG, error) {
-	var c StepUpChallengePG
-	err := d.pool.QueryRow(ctx,
-		`SELECT id, zone_id, session_id, challenge_type, challenge_secret_hash,
-		        principal_id, resource_set_hash, expires_at, satisfied_at, consumed_at,
-		        approver_subject_id, metadata_json
+	return scanStepUpChallenge(d.pool.QueryRow(ctx,
+		`SELECT `+stepUpChallengeColumns+`
 		 FROM step_up_challenges WHERE id = $1`, id,
-	).Scan(&c.ID, &c.ZoneID, &c.SessionID, &c.ChallengeType, &c.ChallengeSecretHash,
-		&c.PrincipalID, &c.ResourceSetHash, &c.ExpiresAt, &c.SatisfiedAt, &c.ConsumedAt,
-		&c.ApproverSubjectID, &c.MetadataJSON)
-	if err != nil {
-		return nil, err
+	))
+}
+
+// SessionsRelated reports whether two sessions in a zone sit on the same delegation
+// ancestry line: identical, ancestor, or descendant. Used to stop an approver session
+// from deciding a hold raised by its own session chain, closing the loop where an
+// agent's work is approved by the very session that spawned or descends from it.
+func (d *DB) SessionsRelated(ctx context.Context, zoneID, sessionA, sessionB string) (bool, error) {
+	if sessionA == "" || sessionB == "" {
+		return sessionA != "" && sessionA == sessionB, nil
 	}
-	return &c, nil
+	var related bool
+	err := d.pool.QueryRow(ctx,
+		`WITH RECURSIVE lineage AS (
+		   SELECT id, parent_id FROM sessions WHERE id = $2 AND zone_id = $1
+		   UNION ALL
+		   SELECT s.id, s.parent_id FROM sessions s
+		   JOIN lineage l ON s.id = l.parent_id
+		   WHERE s.zone_id = $1
+		 ), reverse_lineage AS (
+		   SELECT id, parent_id FROM sessions WHERE id = $3 AND zone_id = $1
+		   UNION ALL
+		   SELECT s.id, s.parent_id FROM sessions s
+		   JOIN reverse_lineage r ON s.id = r.parent_id
+		   WHERE s.zone_id = $1
+		 )
+		 SELECT EXISTS (SELECT 1 FROM lineage WHERE id = $3)
+		     OR EXISTS (SELECT 1 FROM reverse_lineage WHERE id = $2)`,
+		zoneID, sessionA, sessionB,
+	).Scan(&related)
+	return related, err
+}
+
+// DeleteExpiredStepUpChallenges purges challenge rows whose lifecycle ended before the
+// cutoff: consumed, rejected, or expired. Terminal rows stay queryable inside the
+// retention window for observability, then leave the store entirely, because the audit
+// stream, not this table, is the durable record.
+func (d *DB) DeleteExpiredStepUpChallenges(ctx context.Context, cutoff time.Time) (int64, error) {
+	tag, err := d.pool.Exec(ctx,
+		`DELETE FROM step_up_challenges
+		 WHERE GREATEST(COALESCE(consumed_at, '-infinity'), COALESCE(rejected_at, '-infinity'), expires_at) < $1`,
+		cutoff,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
 }
 
 // SecretRow holds an encrypted secret blob.

@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -115,7 +116,6 @@ func (s *Server) handleTokenExchange(w http.ResponseWriter, r *http.Request) {
 		ClientAssertion:            r.FormValue("client_assertion"),
 		ClientAssertionType:        r.FormValue("client_assertion_type"),
 		ChallengeID:                r.FormValue("challenge_id"),
-		ChallengeResponse:          r.FormValue("challenge_response"),
 		SessionID:                  r.FormValue("session_id"),
 		AgentSessionID:             r.FormValue("agent_session_id"),
 		DelegationEdgeID:           r.FormValue("delegation_edge_id"),
@@ -296,55 +296,46 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 	}
 
 	challengeResolved := false
-	if req.ChallengeID != "" || req.ChallengeResponse != "" {
-		var approval *StepUpChallengePG
-		if req.ChallengeID != "" {
-			if existing, lookupErr := s.db.GetStepUpChallenge(ctx, req.ChallengeID); lookupErr == nil && existing.ChallengeType == humanApprovalChallengeType {
-				approval = existing
+	var approval *StepUpChallengePG
+	if req.ChallengeID != "" {
+		// Verify the presented approval against every binding without consuming it:
+		// consumption happens after the policy loop, immediately before the session is
+		// created, so a downstream deny never burns a granted approval. The generic
+		// invalid answer covers lookup failure and every binding mismatch alike, so a
+		// probe cannot distinguish another zone's challenge from a wrong scope set.
+		existing, lookupErr := s.db.GetStepUpChallenge(ctx, req.ChallengeID)
+		if lookupErr != nil || existing.ChallengeType != humanApprovalChallengeType ||
+			existing.ZoneID != zoneID || existing.PrincipalID != principalID ||
+			existing.SessionID != req.SessionID ||
+			!bytes.Equal(existing.ResourceSetHash, hashApprovalBinding(req.Resources, strings.Fields(req.Scope))) {
+			if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "approval_invalid", &OPAResult{}, appMeta); auditErr != nil {
+				return nil, nil, http.StatusInternalServerError, auditErr
 			}
+			return nil, nil, http.StatusUnauthorized, sharederr.New(sharederr.AccessDenied, "approval not found or bindings do not match")
 		}
-		if approval != nil {
-			// Async human approval: satisfied out-of-band by a named approver, so it
-			// carries no secret and never feeds the brute-force throttle.
-			if approval.ConsumedAt != nil {
-				if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "approval_already_consumed", &OPAResult{}, appMeta); auditErr != nil {
-					return nil, nil, http.StatusInternalServerError, auditErr
-				}
-				return nil, nil, http.StatusUnauthorized, sharederr.New(sharederr.AccessDenied, "approval already used")
+		switch challengeLifecycleState(existing, exchangeNow) {
+		case ChallengeStateConsumed:
+			if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "approval_already_consumed", &OPAResult{}, appMeta); auditErr != nil {
+				return nil, nil, http.StatusInternalServerError, auditErr
 			}
-			if approval.SatisfiedAt == nil {
-				// Still pending: re-surface the same challenge so a premature retry
-				// waits on the approver rather than failing.
-				return nil, &challengeState{
-					ID:            approval.ID,
-					ZoneID:        approval.ZoneID,
-					SessionID:     approval.SessionID,
-					ChallengeType: approval.ChallengeType,
-					ExpiresAt:     approval.ExpiresAt,
-				}, http.StatusUnauthorized, nil
+			return nil, nil, http.StatusUnauthorized, sharederr.New(sharederr.AccessDenied, "approval already used")
+		case ChallengeStateRejected:
+			if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "approval_rejected", &OPAResult{},
+				mergeAuditMeta(appMeta, stepUpAuditMeta(existing))); auditErr != nil {
+				return nil, nil, http.StatusInternalServerError, auditErr
 			}
-			if cerr := s.verifyAndConsumeApproval(ctx, zoneID, principalID, req.ChallengeID, req.Resources, strings.Fields(req.Scope)); cerr != nil {
-				if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "approval_invalid", &OPAResult{}, appMeta); auditErr != nil {
-					return nil, nil, http.StatusInternalServerError, auditErr
-				}
-				return nil, nil, http.StatusUnauthorized, sharederr.New(sharederr.AccessDenied, "approval not satisfied or expired")
+			return nil, nil, http.StatusForbidden, sharederr.New(sharederr.AccessDenied, "approval was rejected")
+		case ChallengeStateExpired:
+			if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "approval_expired", &OPAResult{}, appMeta); auditErr != nil {
+				return nil, nil, http.StatusInternalServerError, auditErr
 			}
-			challengeResolved = true
-		} else {
-			if ok, _ := s.stepUpThrottle.Allow(zoneID, principalID); !ok {
-				if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "challenge_cooldown", &OPAResult{}, appMeta); auditErr != nil {
-					return nil, nil, http.StatusInternalServerError, auditErr
-				}
-				return nil, nil, http.StatusTooManyRequests, sharederr.New(sharederr.AccessDenied, "too many failed step-up attempts; try again later")
-			}
-			if cerr := s.verifyAndConsumeChallenge(ctx, zoneID, principalID, req.ChallengeID, req.ChallengeResponse, req.Resources); cerr != nil {
-				s.stepUpThrottle.RecordFailure(zoneID, principalID)
-				if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "challenge_invalid", &OPAResult{}, appMeta); auditErr != nil {
-					return nil, nil, http.StatusInternalServerError, auditErr
-				}
-				return nil, nil, http.StatusUnauthorized, sharederr.New(sharederr.AccessDenied, "challenge not satisfied or expired")
-			}
-			s.stepUpThrottle.RecordSuccess(zoneID, principalID)
+			return nil, nil, http.StatusUnauthorized, sharederr.New(sharederr.AccessDenied, "approval expired")
+		case ChallengeStatePending:
+			// Still pending: re-surface the same challenge so a premature retry waits
+			// on the approver rather than failing.
+			return nil, challengeWire(existing, exchangeNow), http.StatusUnauthorized, nil
+		default:
+			approval = existing
 			challengeResolved = true
 		}
 	}
@@ -361,8 +352,7 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 	var grantedResources []string
 	grantedDirectives := map[string]UpstreamDirective{}
 	grantedResourceRows := map[string]*Resource{}
-	var pendingChallenge *challengeState
-	stepUpType := ""
+	var gateDecls []tierDeclaration
 	controlKeyExchange := false
 
 	for _, identifier := range req.Resources {
@@ -552,9 +542,7 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		}
 
 		if !challengeResolved {
-			if t := stepUpRequired(result); t != "" {
-				stepUpType = t
-			}
+			gateDecls = append(gateDecls, parseTierDeclarations(result)...)
 		}
 
 		if result.Decision == "allow" {
@@ -563,16 +551,34 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		}
 	}
 
-	if !challengeResolved && stepUpType != "" {
-		c, cErr := s.createChallenge(ctx, zoneID, req.SessionID, principalID, stepUpType, req.Resources, scopes)
-		if cErr != nil {
+	if !challengeResolved && len(gateDecls) > 0 {
+		// The gate is a hold, not a deny: the decision was allow, so the mint waits on
+		// an approval bound to this exact request. Issuance is idempotent per binding,
+		// and a hold an approver has already granted releases the mint right here even
+		// when the retry did not carry the challenge id.
+		hold, created, holdErr := s.ensureApproval(ctx, zoneID, req.SessionID, principalID, app.ID, resolveApproval(gateDecls), req.Resources, scopes)
+		if holdErr != nil {
 			return nil, nil, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "challenge creation failed")
 		}
-		pendingChallenge = c
-	}
-
-	if pendingChallenge != nil {
-		return nil, pendingChallenge, http.StatusUnauthorized, nil
+		switch challengeLifecycleState(hold, exchangeNow) {
+		case ChallengeStateApproved:
+			approval = hold
+			challengeResolved = true
+		case ChallengeStateRejected:
+			if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "approval_rejected", &OPAResult{},
+				mergeAuditMeta(appMeta, stepUpAuditMeta(hold))); auditErr != nil {
+				return nil, nil, http.StatusInternalServerError, auditErr
+			}
+			return nil, nil, http.StatusForbidden, sharederr.New(sharederr.AccessDenied, "approval was rejected")
+		default:
+			if created {
+				if auditErr := s.emitStepUpAudit(requestID, zoneID, "step_up_issued", "pending",
+					mergeAuditMeta(appMeta, stepUpAuditMeta(hold))); auditErr != nil {
+					return nil, nil, http.StatusInternalServerError, auditErr
+				}
+			}
+			return nil, challengeWire(hold, exchangeNow), http.StatusUnauthorized, nil
+		}
 	}
 
 	if len(grantedResources) == 0 {
@@ -637,6 +643,22 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		Status:          "active",
 		ExpiresAt:       now.Add(ttl),
 		AuthenticatedAt: now,
+	}
+	if approval != nil {
+		// Consume as the final fallible step before the session exists: every deny
+		// above leaves the approval intact for the corrected retry, and a concurrent
+		// consumer losing this race is told so precisely.
+		if cerr := s.consumeApproval(ctx, zoneID, principalID, approval.ID, req.Resources, scopes); cerr != nil {
+			if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "approval_already_consumed", &OPAResult{},
+				mergeAuditMeta(appMeta, stepUpAuditMeta(approval))); auditErr != nil {
+				return nil, nil, http.StatusInternalServerError, auditErr
+			}
+			return nil, nil, http.StatusUnauthorized, sharederr.New(sharederr.AccessDenied, "approval no longer valid")
+		}
+		if auditErr := s.emitStepUpAudit(requestID, zoneID, "step_up_consumed", "consumed",
+			mergeAuditMeta(appMeta, stepUpAuditMeta(approval))); auditErr != nil {
+			return nil, nil, http.StatusInternalServerError, auditErr
+		}
 	}
 	if err := s.db.InsertSession(ctx, sess); err != nil {
 		return nil, nil, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "session creation failed")
@@ -1406,6 +1428,53 @@ func (s *Server) emitAuditEvent(requestID, zoneID, decision, status string, resu
 	return s.emitAuditEventWithBundle(requestID, zoneID, decision, status, result, meta, ZoneBundleInfo{})
 }
 
+// emitStepUpAudit records a step-up lifecycle transition (issued, decided, consumed) as
+// a first-class audit event distinct from the token-exchange decision events that
+// surround it, so the full life of an approval hold is reconstructable from the stream.
+func (s *Server) emitStepUpAudit(requestID, zoneID, eventType, decision string, meta map[string]any) *sharederr.CaracalError {
+	event, err := buildAuditEventWithBundle(requestID, zoneID, decision, "complete", &OPAResult{}, meta, ZoneBundleInfo{})
+	if err != nil {
+		s.log.Error().Err(err).Str("request_id", requestID).Str("zone_id", zoneID).Msg("audit event id generation failed")
+		return sharederr.New(sharederr.Internal, "audit event creation failed")
+	}
+	event.EventType = eventType
+	s.auditBuffer.Emit(event)
+	return nil
+}
+
+// stepUpAuditMeta is the challenge context every step-up audit event and step-up deny
+// carries: the authorization facts of the hold, never request business context.
+func stepUpAuditMeta(c *StepUpChallengePG) map[string]any {
+	meta := map[string]any{
+		"challenge_id":   c.ID,
+		"tier":           c.Tier,
+		"approver_class": c.ApproverClass,
+		"privacy_mode":   c.PrivacyMode,
+		"binding":        hex.EncodeToString(c.ResourceSetHash),
+	}
+	if c.ApplicationID != "" {
+		meta["application_id"] = c.ApplicationID
+	}
+	if c.SessionID != "" {
+		meta["session_id"] = c.SessionID
+	}
+	return meta
+}
+
+// challengeWire converts a stored challenge row to the 401 interaction_required body.
+func challengeWire(c *StepUpChallengePG, now time.Time) *challengeState {
+	return &challengeState{
+		ID:            c.ID,
+		ZoneID:        c.ZoneID,
+		SessionID:     c.SessionID,
+		ChallengeType: c.ChallengeType,
+		State:         challengeLifecycleState(c, now),
+		Tier:          c.Tier,
+		Binding:       c.ResourceSetHash,
+		ExpiresAt:     c.ExpiresAt,
+	}
+}
+
 func (s *Server) emitAuditEventWithBundle(requestID, zoneID, decision, status string, result *OPAResult, meta map[string]any, bundle ZoneBundleInfo) *sharederr.CaracalError {
 	event, err := buildAuditEventWithBundle(requestID, zoneID, decision, status, result, meta, bundle)
 	if err != nil {
@@ -1484,15 +1553,6 @@ func mergeAuditMeta(base, extra map[string]any) map[string]any {
 		merged[k] = v
 	}
 	return merged
-}
-
-func stepUpRequired(result *OPAResult) string {
-	for _, d := range result.Diagnostics {
-		if ct, ok := d["step_up_required"].(string); ok {
-			return ct
-		}
-	}
-	return ""
 }
 
 func sessionInput(sessionID string) *OPASession {
@@ -1904,10 +1964,12 @@ func writeStepUp(w http.ResponseWriter, requestID string, challenge *challengeSt
 	w.WriteHeader(http.StatusUnauthorized)
 	json.NewEncoder(w).Encode(StepUpChallenge{
 		Error:              "interaction_required",
-		ErrorDescription:   "Step-up authorization required for this resource",
+		ErrorDescription:   "Human approval required for this request",
 		ChallengeID:        challenge.ID,
 		ChallengeType:      challenge.ChallengeType,
-		ChallengeSecret:    challenge.Secret,
+		State:              challenge.State,
+		Tier:               challenge.Tier,
+		Binding:            hex.EncodeToString(challenge.Binding),
 		ChallengeExpiresAt: challenge.ExpiresAt.Format(time.RFC3339),
 		RequestID:          requestID,
 	})
