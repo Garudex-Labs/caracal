@@ -30,10 +30,9 @@ describe('OAuthClient', () => {
     expect(res.expiresIn).toBe(900)
     const body = fetchMock.mock.calls[0][1].body as URLSearchParams
     expect(body.get('client_secret')).toBe('secret-1')
-    expect(body.get('runtime_credential_injection')).toBeNull()
   })
 
-  it('sends runtime credential injection requests and returns upstream directives', async () => {
+  it('returns upstream directives from gateway-authenticated exchanges', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
@@ -52,13 +51,8 @@ describe('OAuthClient', () => {
     })
     vi.stubGlobal('fetch', fetchMock)
     const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
-    const res = await client.exchange('', 'resource://openai', {
-      clientSecret: 'secret-1',
-      runtimeCredentialInjection: true,
-    })
+    const res = await client.exchange('', 'resource://openai', { clientSecret: 'secret-1' })
 
-    const body = fetchMock.mock.calls[0][1].body as URLSearchParams
-    expect(body.get('runtime_credential_injection')).toBe('true')
     expect(res.upstreams?.['resource://openai']?.providerToken).toBe('provider-token')
   })
 
