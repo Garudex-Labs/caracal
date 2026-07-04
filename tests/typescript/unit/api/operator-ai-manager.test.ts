@@ -6,7 +6,6 @@
 import { describe, it, expect } from 'vitest'
 import type { AdminClient } from '@caracalai/admin'
 import type { Queryable } from '../../../../apps/api/src/db.js'
-import type { OperatorLlmTransport } from '../../../../apps/api/src/operator-llm-transport.js'
 import {
   createOperatorAiManager,
   buildStoreProviderConfigs,
@@ -169,16 +168,12 @@ function fakeAdmin(): { admin: AdminClient; state: AdminState } {
   return { admin: admin as unknown as AdminClient, state }
 }
 
-// A transport double whose governedFetch records the resource it is bound to, so a test can
-// confirm the gateway entries route through the right minted-mandate fetch.
-function fakeTransport(): OperatorLlmTransport {
-  return {
-    governedFetch: (resourceIdentifier: string) => {
-      const fn = (async () => new Response('{}')) as unknown as typeof fetch
-      ;(fn as unknown as { resourceIdentifier: string }).resourceIdentifier = resourceIdentifier
-      return fn
-    },
-  }
+// A governedFetch double that records the resource it is bound to, so a test can confirm
+// the gateway entries route through the right minted-mandate fetch.
+function fakeGovernedFetch(resourceIdentifier: string): typeof fetch {
+  const fn = (async () => new Response('{}')) as unknown as typeof fetch
+  ;(fn as unknown as { resourceIdentifier: string }).resourceIdentifier = resourceIdentifier
+  return fn
 }
 
 const AUTH = { location: 'header' as const, headerName: 'Authorization', authScheme: 'Bearer' }
@@ -200,7 +195,7 @@ function buildManager(identity: typeof IDENTITY | null) {
     resolveIdentity: () => identity,
     envUpstreams: [],
     gatewayUrl: 'http://gateway',
-    transport: fakeTransport(),
+    governedFetch: fakeGovernedFetch,
     onRegistryChange: (configs) => {
       published = configs
     },
@@ -230,7 +225,7 @@ describe('operator ai manager helpers', () => {
       ],
       new Map([['openai', 'caracal-sys://operator-llm-openai']]),
       'http://gateway',
-      fakeTransport(),
+      fakeGovernedFetch,
     )
     expect(configs).toHaveLength(2)
     expect(configs.map((c) => c.id)).toEqual(['openai__a', 'openai__b'])
@@ -242,14 +237,14 @@ describe('operator ai manager helpers', () => {
       [{ slug: 'x', label: 'X', baseUrl: 'u', models: ['m'], contextWindow: 0, enabled: false, sortOrder: 1, auth: AUTH }],
       new Map([['x', 'res']]),
       'http://gateway',
-      fakeTransport(),
+      fakeGovernedFetch,
     )
     expect(disabled).toHaveLength(0)
     const unresolved = buildStoreProviderConfigs(
       [{ slug: 'x', label: 'X', baseUrl: 'u', models: ['m'], contextWindow: 0, enabled: true, sortOrder: 1, auth: AUTH }],
       new Map(),
       'http://gateway',
-      fakeTransport(),
+      fakeGovernedFetch,
     )
     expect(unresolved).toHaveLength(0)
   })

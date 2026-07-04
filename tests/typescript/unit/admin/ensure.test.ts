@@ -6,9 +6,11 @@
 import { describe, it, expect, vi } from 'vitest'
 import { createHash } from 'node:crypto'
 import {
+  authorGrantsDocument,
   ensureActivePolicySet,
   ensureApiKeyProvider,
   ensureApplication,
+  ensureGrants,
   ensureResource,
   type AdminClient,
 } from '../../../../packages/admin/ts/src/index.js'
@@ -228,6 +230,65 @@ describe('ensureResource', () => {
       upstream_url: 'https://api.pipernet.example',
     })
   })
+
+  it('adds agent:lifecycle to a gateway-bound resource so the owner can bootstrap its governed transport', async () => {
+    const client = admin([])
+    await ensureResource(client as unknown as AdminClient, ZONE, {
+      name: 'PiperNet',
+      identifier: 'resource://pipernet',
+      scopes: ['data:read'],
+      gateway_application_id: 'app-son-of-anton',
+    })
+
+    expect(client.resources.create).toHaveBeenCalledWith(ZONE, {
+      name: 'PiperNet',
+      identifier: 'resource://pipernet',
+      scopes: ['data:read', 'agent:lifecycle'],
+      gateway_application_id: 'app-son-of-anton',
+    })
+  })
+
+  it('does not duplicate agent:lifecycle when the caller already declares it', async () => {
+    const client = admin([])
+    await ensureResource(client as unknown as AdminClient, ZONE, {
+      name: 'PiperNet',
+      identifier: 'resource://pipernet',
+      scopes: ['agent:lifecycle', 'data:read'],
+      gateway_application_id: 'app-son-of-anton',
+    })
+
+    expect(client.resources.create).toHaveBeenCalledWith(ZONE, expect.objectContaining({ scopes: ['agent:lifecycle', 'data:read'] }))
+  })
+
+  it('treats a gateway-bound resource already carrying agent:lifecycle as converged', async () => {
+    const client = admin([
+      {
+        id: 'res-1',
+        identifier: 'resource://pipernet',
+        scopes: ['data:read', 'agent:lifecycle'],
+        gateway_application_id: 'app-son-of-anton',
+      },
+    ])
+    await ensureResource(client as unknown as AdminClient, ZONE, {
+      name: 'PiperNet',
+      identifier: 'resource://pipernet',
+      scopes: ['data:read'],
+      gateway_application_id: 'app-son-of-anton',
+    })
+
+    expect(client.resources.patch).not.toHaveBeenCalled()
+  })
+
+  it('never adds agent:lifecycle to a resource without a gateway binding', async () => {
+    const client = admin([])
+    await ensureResource(client as unknown as AdminClient, ZONE, {
+      name: 'PiperNet',
+      identifier: 'resource://pipernet',
+      scopes: ['data:read'],
+    })
+
+    expect(client.resources.create).toHaveBeenCalledWith(ZONE, expect.objectContaining({ scopes: ['data:read'] }))
+  })
 })
 
 describe('ensureActivePolicySet', () => {
@@ -330,5 +391,109 @@ describe('ensureActivePolicySet', () => {
     expect(client.policies.addVersion).not.toHaveBeenCalled()
     expect(client.policySets.addVersion).toHaveBeenCalledWith(ZONE, 'set-1', [{ policy_version_id: 'ver-2' }])
     expect(client.policySets.activate).toHaveBeenCalledWith(ZONE, 'set-1', 'setver-1')
+  })
+})
+
+describe('authorGrantsDocument', () => {
+  it('renders the app_ids and grants data documents the decision contract reads', () => {
+    const content = authorGrantsDocument([
+      { applicationId: 'app-son-of-anton', resourceIdentifier: 'resource://pipernet', scopes: ['data:read'], role: 'operator' },
+    ])
+    expect(content).toContain('# caracal:data-document')
+    expect(content).toContain('package caracal.authz')
+    expect(content).toContain('app_ids := {"operator":"app-son-of-anton"}')
+    expect(content).toContain('grants := {"resource://pipernet":{"application":"operator","roles":{"operator":["data:read"]}}}')
+  })
+
+  it('defaults the role to the application id, matching the governed transport label default', () => {
+    const content = authorGrantsDocument([
+      { applicationId: 'app-son-of-anton', resourceIdentifier: 'resource://pipernet', scopes: ['data:read'] },
+    ])
+    expect(content).toContain('app_ids := {"app-son-of-anton":"app-son-of-anton"}')
+    expect(content).toContain('"roles":{"app-son-of-anton":["data:read"]}')
+  })
+
+  it('is deterministic: grant order, scope order, and duplicate scopes never change the content', () => {
+    const a = authorGrantsDocument([
+      { applicationId: 'app-1', resourceIdentifier: 'resource://b', scopes: ['y', 'x'], role: 'operator' },
+      { applicationId: 'app-1', resourceIdentifier: 'resource://a', scopes: ['x'], role: 'operator' },
+    ])
+    const b = authorGrantsDocument([
+      { applicationId: 'app-1', resourceIdentifier: 'resource://a', scopes: ['x'], role: 'operator' },
+      { applicationId: 'app-1', resourceIdentifier: 'resource://b', scopes: ['x', 'y', 'x'], role: 'operator' },
+    ])
+    expect(a).toBe(b)
+  })
+
+  it('merges scopes for repeated grants on the same resource and role', () => {
+    const content = authorGrantsDocument([
+      { applicationId: 'app-1', resourceIdentifier: 'resource://pipernet', scopes: ['data:read'], role: 'operator' },
+      { applicationId: 'app-1', resourceIdentifier: 'resource://pipernet', scopes: ['data:write'], role: 'operator' },
+    ])
+    expect(content).toContain('"roles":{"operator":["data:read","data:write"]}')
+  })
+
+  it('rejects one role claimed by two applications', () => {
+    expect(() =>
+      authorGrantsDocument([
+        { applicationId: 'app-1', resourceIdentifier: 'resource://a', scopes: ['x'], role: 'operator' },
+        { applicationId: 'app-2', resourceIdentifier: 'resource://b', scopes: ['x'], role: 'operator' },
+      ]),
+    ).toThrow(/claimed by two applications/)
+  })
+})
+
+describe('ensureGrants', () => {
+  function admin() {
+    return {
+      policies: {
+        list: vi.fn().mockResolvedValue([]),
+        create: vi.fn().mockResolvedValue({ id: 'pol-created', version_id: 'ver-created' }),
+        get: vi.fn().mockResolvedValue({ id: 'pol-1', versions: [] }),
+        addVersion: vi.fn().mockResolvedValue({ version_id: 'ver-added' }),
+      },
+      policySets: {
+        list: vi.fn().mockResolvedValue([]),
+        create: vi.fn().mockResolvedValue({ id: 'set-created', active_version_id: null }),
+        addVersion: vi.fn().mockResolvedValue({ version_id: 'setver-1' }),
+        activate: vi.fn().mockResolvedValue({}),
+      },
+    }
+  }
+
+  it('converges the default-named policy and set to the authored grant document', async () => {
+    const client = admin()
+    await ensureGrants(client as unknown as AdminClient, ZONE, {
+      grants: [{ applicationId: 'app-son-of-anton', resourceIdentifier: 'resource://pipernet', scopes: ['data:read'] }],
+    })
+
+    expect(client.policies.create).toHaveBeenCalledWith(ZONE, {
+      name: 'application-grants',
+      content: authorGrantsDocument([
+        { applicationId: 'app-son-of-anton', resourceIdentifier: 'resource://pipernet', scopes: ['data:read'] },
+      ]),
+    })
+    expect(client.policySets.create).toHaveBeenCalledWith(ZONE, 'application-grant-policy')
+    expect(client.policySets.activate).toHaveBeenCalled()
+  })
+
+  it('creates nothing for an empty grant set with no existing policy', async () => {
+    const client = admin()
+    await ensureGrants(client as unknown as AdminClient, ZONE, { grants: [] })
+
+    expect(client.policies.create).not.toHaveBeenCalled()
+    expect(client.policySets.create).not.toHaveBeenCalled()
+  })
+
+  it('uses the caller-supplied policy and set names', async () => {
+    const client = admin()
+    await ensureGrants(client as unknown as AdminClient, ZONE, {
+      policyName: 'caracal.sys/operator-bindings',
+      setName: 'caracal.sys/operator-policy',
+      grants: [{ applicationId: 'app-op', resourceIdentifier: 'resource://pipernet', scopes: ['llm:invoke'], role: 'operator' }],
+    })
+
+    expect(client.policies.create).toHaveBeenCalledWith(ZONE, expect.objectContaining({ name: 'caracal.sys/operator-bindings' }))
+    expect(client.policySets.create).toHaveBeenCalledWith(ZONE, 'caracal.sys/operator-policy')
   })
 })

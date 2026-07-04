@@ -145,11 +145,83 @@ describe('ControlClient invoke', () => {
     await expect(client({}, fetchMock).invoke('zone', 'list', {}, ['control:zone:read'])).rejects.toBeInstanceOf(ControlClientError)
   })
 
+  it('retries a transient token failure once and proceeds when the retry mints', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response('upstream boom', { status: 502 }))
+      .mockResolvedValueOnce(tokenResponse())
+      .mockResolvedValueOnce(invokeResponse({ ok: true }))
+
+    const result = await client({}, fetchMock).invoke('zone', 'list', {}, ['control:zone:read'])
+
+    expect(result).toEqual({ ok: true })
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+  })
+
+  it('retries a thrown token network failure once', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError('fetch failed'))
+      .mockResolvedValueOnce(tokenResponse())
+      .mockResolvedValueOnce(invokeResponse({ ok: true }))
+
+    await expect(client({}, fetchMock).invoke('zone', 'list', {}, ['control:zone:read'])).resolves.toEqual({ ok: true })
+  })
+
+  it('does not retry a denied token exchange', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: { code: 'access_denied', reason: 'policy denied' } }), {
+        status: 403,
+        headers: { 'content-type': 'application/json' },
+      }),
+    )
+
+    await expect(client({}, fetchMock).invoke('zone', 'list', {}, ['control:zone:read'])).rejects.toBeInstanceOf(ControlClientError)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('never retries an invoke failure: the mutation may already have applied', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(tokenResponse())
+      .mockResolvedValueOnce(new Response('gateway timeout', { status: 504 }))
+
+    const error = await client({}, fetchMock)
+      .invoke('zone', 'create', { name: 'x' }, ['control:zone:write'])
+      .catch((e) => e)
+    expect(error.stage).toBe('invoke')
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('normalizes a thrown invoke network failure into the taxonomy as status 0', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(tokenResponse()).mockRejectedValueOnce(new TypeError('socket hang up'))
+
+    const error = await client({}, fetchMock)
+      .invoke('zone', 'create', { name: 'x' }, ['control:zone:write'])
+      .catch((e) => e)
+    expect(error).toBeInstanceOf(ControlClientError)
+    expect(error.stage).toBe('invoke')
+    expect(error.status).toBe(0)
+    expect(error.reason).toContain('socket hang up')
+  })
+
+  it('classifies definitive failures: token always, invoke only on a client error', () => {
+    expect(new ControlClientError('token', 503, 'unavailable').definitive).toBe(true)
+    expect(new ControlClientError('token', 0, 'network').definitive).toBe(true)
+    expect(new ControlClientError('invoke', 403, 'denied').definitive).toBe(true)
+    expect(new ControlClientError('invoke', 504, 'timeout').definitive).toBe(false)
+    expect(new ControlClientError('invoke', 0, 'network').definitive).toBe(false)
+  })
+
   it('keeps the client secret out of error surfaces', async () => {
-    const fetchMock = vi.fn().mockResolvedValueOnce(new Response('upstream boom', { status: 502 }))
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response('upstream boom', { status: 502 }))
+      .mockResolvedValueOnce(new Response('upstream boom', { status: 502 }))
     const error = await client({}, fetchMock)
       .invoke('zone', 'list', {}, ['control:zone:read'])
       .catch((e) => e)
+    expect(error).toBeInstanceOf(ControlClientError)
     expect(JSON.stringify({ message: error.message, reason: error.reason })).not.toContain('cs_super_secret')
   })
 })

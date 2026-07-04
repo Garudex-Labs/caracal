@@ -238,19 +238,18 @@ describe('executeViaControlPlane', () => {
     expect(result.applied.map((s) => s.id)).toEqual(['s1', 's3', 's2'])
   })
 
-  it('retries once when the token stage failed transiently, and never retries an invoke failure', async () => {
-    const { client, calls } = fakeClient([
-      new ControlClientError('token', 503, 'sts unavailable', 'unavailable'),
-      { id: 'app-1', client_secret: 'cs_issued' },
-    ])
-    const retried = await executeViaControlPlane(
+  it('classifies a surfaced token failure as retryable and an ambiguous invoke failure as terminal', async () => {
+    // The client owns transient token retries; a token failure that still surfaces is
+    // definitive - no token was minted, nothing applied - so the step stays retryable.
+    const { client, calls } = fakeClient([new ControlClientError('token', 503, 'sts unavailable', 'unavailable')])
+    const tokenFail = await executeViaControlPlane(
       client,
       [{ id: 's1', capability: 'registerApplication', args: { name: 'Fiona' } }],
       {},
       secret,
     )
-    expect(retried.failure).toBeNull()
-    expect(calls).toHaveLength(2)
+    expect(calls).toHaveLength(1)
+    expect(tokenFail.failure).toMatchObject({ stepId: 's1', terminal: false })
 
     const invokeFail = fakeClient([new ControlClientError('invoke', 503, 'control plane unavailable', 'unavailable')])
     const stopped = await executeViaControlPlane(
