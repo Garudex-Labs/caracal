@@ -965,17 +965,21 @@ func (c *Caracal) Delegate(ctx context.Context, opts DelegateOptions, fn func(co
 }
 
 // RootOptions controls explicit use of the application subject token when no
-// CaracalContext is bound.
+// CaracalContext is bound, and optional bearer verification at the inbound
+// boundary. Verify is invoked by BindFromRequest with the inbound token and
+// must return an error to reject the request; back it with the identity
+// package so binding happens only after the mandate is proven.
 type RootOptions struct {
 	AllowRoot bool
+	Verify    func(context.Context, string) error
 }
 
 func allowRoot(opts []RootOptions) bool {
 	return len(opts) > 0 && opts[0].AllowRoot
 }
 
-// Headers returns the envelope headers for the current ctx. Root application
-// identity requires RootOptions{AllowRoot: true}.
+// Headers returns the envelope headers plus the bearer credential for the
+// current ctx. Root application identity requires RootOptions{AllowRoot: true}.
 func (c *Caracal) Headers(ctx context.Context, opts ...RootOptions) (http.Header, error) {
 	h := http.Header{}
 	cur, ok := Current(ctx)
@@ -987,19 +991,26 @@ func (c *Caracal) Headers(ctx context.Context, opts ...RootOptions) (http.Header
 		if err != nil {
 			return nil, err
 		}
-		InjectHTTP(Envelope{SubjectToken: subjectToken, Hop: 0}, h)
+		InjectHTTP(Envelope{Hop: 0}, h)
+		h.Set(HeaderAuthorization, "Bearer "+subjectToken)
 		return h, nil
 	}
 	InjectHTTP(ToEnvelope(cur), h)
+	h.Set(HeaderAuthorization, "Bearer "+cur.SubjectToken)
 	return h, nil
 }
 
 // BindFromRequest extracts the envelope from an inbound request and returns a
-// context bound with the resulting CaracalContext.
+// context bound with the resulting CaracalContext. When RootOptions.Verify is
+// set, the inbound bearer is verified before binding.
 func (c *Caracal) BindFromRequest(ctx context.Context, r *http.Request, opts ...RootOptions) (context.Context, error) {
+	var opt RootOptions
+	if len(opts) > 0 {
+		opt = opts[0]
+	}
 	env := FromHTTPRequest(r)
 	if env.SubjectToken == "" {
-		if !allowRoot(opts) {
+		if !opt.AllowRoot {
 			return ctx, fmt.Errorf("caracal: BindFromRequest missing bearer token")
 		}
 		subjectToken, err := c.rootToken(ctx)
@@ -1007,6 +1018,10 @@ func (c *Caracal) BindFromRequest(ctx context.Context, r *http.Request, opts ...
 			return ctx, err
 		}
 		env.SubjectToken = subjectToken
+	} else if opt.Verify != nil {
+		if err := opt.Verify(ctx, env.SubjectToken); err != nil {
+			return ctx, err
+		}
 	}
 	cc, err := FromEnvelope(env, c.ZoneID, c.ApplicationID)
 	if err != nil {
@@ -1020,9 +1035,11 @@ func (c *Caracal) Current(ctx context.Context) (CaracalContext, bool) {
 	return Current(ctx)
 }
 
-// Transport returns an *http.Client whose RoundTripper auto-injects the
-// Caracal envelope headers from the request's context. Pass to any HTTP or
-// provider SDK that accepts a custom *http.Client.
+// Transport returns an *http.Client whose RoundTripper merges the Caracal
+// context envelope onto each request from its context. The subject token is
+// attached only to gateway-routed requests, where the Gateway terminates it
+// at the trust boundary. Pass to any HTTP or provider SDK that accepts a
+// custom *http.Client.
 func (c *Caracal) Transport(base *http.Client, opts ...RootOptions) *http.Client {
 	if base == nil {
 		base = &http.Client{}
@@ -1110,20 +1127,30 @@ func (t *caracalTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 		env = ToEnvelope(cur)
 	}
 	clone := req.Clone(req.Context())
-	EncodeEnvelope(env, func(name, value string) {
-		canon := http.CanonicalHeaderKey(name)
-		if clone.Header.Get(canon) == "" {
-			clone.Header.Set(canon, value)
-		}
-	})
+	InjectHTTP(env, clone.Header)
 	if rewritten := t.client.routeThroughGateway(clone.URL, clone.Header.Get("X-Caracal-Resource")); rewritten != nil {
 		clone.URL = rewritten.url
 		clone.Host = rewritten.url.Host
 		clone.RequestURI = ""
 		clone.Header.Set("X-Caracal-Resource", rewritten.resourceID)
 		clone.Header.Set("Authorization", "Bearer "+env.SubjectToken)
+	} else if t.client.targetsGateway(clone.URL) {
+		clone.Header.Set("Authorization", "Bearer "+env.SubjectToken)
 	}
 	return t.base.RoundTrip(clone)
+}
+
+// targetsGateway reports whether the request is already addressed to the
+// configured Gateway origin, where the subject token terminates.
+func (c *Caracal) targetsGateway(target *url.URL) bool {
+	if c.GatewayURL == "" || target == nil {
+		return false
+	}
+	gw, err := url.Parse(c.GatewayURL)
+	if err != nil {
+		return false
+	}
+	return sameOrigin(target, gw)
 }
 
 func (c *Caracal) rootToken(ctx context.Context) (string, error) {

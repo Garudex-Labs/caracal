@@ -23,6 +23,9 @@ type CaracalContext struct {
 	ParentEdgeID     string
 	SessionID        string
 	TraceID          string
+	TraceFlags       string
+	TraceState       string
+	Baggage          map[string]string
 	Hop              int
 }
 
@@ -72,6 +75,9 @@ func FromEnvelope(env Envelope, zoneID, applicationID string) (CaracalContext, e
 		ParentEdgeID:     env.ParentEdgeID,
 		SessionID:        env.SessionID,
 		TraceID:          env.TraceID,
+		TraceFlags:       env.TraceFlags,
+		TraceState:       env.TraceState,
+		Baggage:          env.Baggage,
 		Hop:              env.Hop,
 	}, nil
 }
@@ -85,6 +91,9 @@ func ToEnvelope(c CaracalContext) Envelope {
 		ParentEdgeID:     c.ParentEdgeID,
 		SessionID:        c.SessionID,
 		TraceID:          c.TraceID,
+		TraceFlags:       c.TraceFlags,
+		TraceState:       c.TraceState,
+		Baggage:          c.Baggage,
 		Hop:              c.Hop,
 	}
 }
