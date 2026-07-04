@@ -595,21 +595,12 @@ export function useRotateApplicationSecret(zoneId: string | null) {
   });
 }
 
-export function useRunManifest(zoneId: string | null, appId: string | null) {
-  return useQuery({
-    queryKey: ["console", "run-manifest", zoneId, appId] as const,
-    queryFn: ({ signal }) =>
-      consoleApi.applications.runManifest(zoneId as string, appId as string, signal),
-    enabled: Boolean(zoneId) && Boolean(appId),
-  });
-}
-
 export function useSaveRunManifest(zoneId: string | null) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, input }: { id: string; input: RunManifest }) =>
       consoleApi.applications.saveRunManifest(zoneId as string, id, input),
-    onSuccess: (data, { id }) => qc.setQueryData(["console", "run-manifest", zoneId, id], data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.applications(zoneId) }),
   });
 }
 

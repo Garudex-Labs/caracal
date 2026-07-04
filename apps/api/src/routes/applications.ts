@@ -165,8 +165,8 @@ async function rotateApplicationClientSecret(
 
 function applicationSelect(req: FastifyRequest): string {
   return req.actor?.scope === 'global'
-    ? 'id, zone_id, name, registration_method, traits, expires_at, created_at'
-    : 'id, zone_id, name, registration_method, expires_at, created_at'
+    ? 'id, zone_id, name, registration_method, traits, expires_at, created_at, run_manifest, run_manifest_updated_by, run_manifest_updated_at'
+    : 'id, zone_id, name, registration_method, expires_at, created_at, run_manifest, run_manifest_updated_by, run_manifest_updated_at'
 }
 
 export const applicationsRoutes: FastifyPluginAsync = async (fastify) => {
