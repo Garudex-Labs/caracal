@@ -17,10 +17,12 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/BurntSushi/toml"
 	oauth "github.com/garudex-labs/caracal/packages/oauth/go"
 )
 
@@ -43,7 +45,7 @@ type Caracal struct {
 
 	agentStartHooks []LifecycleHook
 	agentEndHooks   []LifecycleHook
-	invalidate      func()
+	exchanger       *clientSecretExchanger
 }
 
 // TokenSource returns an application subject token for root SDK operations.
@@ -113,6 +115,10 @@ func FromEnv() (*Caracal, error) {
 	if err != nil {
 		return nil, err
 	}
+	ttl, err := defaultTTLFromEnv()
+	if err != nil {
+		return nil, err
+	}
 	envBindings, err := parseResourceBindings(os.Getenv("CARACAL_RESOURCES"))
 	if err != nil {
 		return nil, err
@@ -127,15 +133,20 @@ func FromEnv() (*Caracal, error) {
 	}
 	bindings := sortBindingsLongestFirst(mergeResourceBindings(credentialBindings, fileBindings, envBindings))
 	if clientSecret != "" {
+		resources := resourceIDsFromEnv(os.Getenv("CARACAL_APP_RESOURCES"), credentialIDs, bindings)
+		if len(resources) == 0 {
+			return nil, fmt.Errorf("caracal: FromEnv with a client secret requires resources; set CARACAL_APP_RESOURCES, CARACAL_RESOURCES, or CARACAL_RESOURCES_FILE, or provide run credentials")
+		}
 		return FromClientSecret(ClientSecretOptions{
-			CoordinatorURL:   coordinatorURL,
-			STSURL:           stsURL,
-			ZoneID:           zone,
-			ApplicationID:    app,
-			ClientSecret:     clientSecret,
-			Resources:        resourceIDsFromEnv(os.Getenv("CARACAL_APP_RESOURCES"), credentialIDs, bindings),
-			ResourceBindings: bindings,
-			GatewayURL:       gatewayURL,
+			CoordinatorURL:    coordinatorURL,
+			STSURL:            stsURL,
+			ZoneID:            zone,
+			ApplicationID:     app,
+			ClientSecret:      clientSecret,
+			Resources:         resources,
+			ResourceBindings:  bindings,
+			GatewayURL:        gatewayURL,
+			DefaultTTLSeconds: ttl,
 		})
 	}
 	if tok == "" {
@@ -145,43 +156,66 @@ func FromEnv() (*Caracal, error) {
 		return nil, err
 	}
 	return &Caracal{
-		Coordinator:   &CoordinatorClient{BaseURL: coordinatorURL},
-		ZoneID:        zone,
-		ApplicationID: app,
-		SubjectToken:  tok,
-		GatewayURL:    gatewayURL,
-		Resources:     sortBindingsLongestFirst(bindings),
+		Coordinator:       &CoordinatorClient{BaseURL: coordinatorURL},
+		ZoneID:            zone,
+		ApplicationID:     app,
+		SubjectToken:      tok,
+		GatewayURL:        gatewayURL,
+		Resources:         sortBindingsLongestFirst(bindings),
+		DefaultTTLSeconds: ttl,
 	}, nil
 }
 
 // ClientSecretOptions configures an SDK client backed by STS client-secret exchange.
+// DefaultTTLSeconds seeds Caracal.DefaultTTLSeconds for task spawns.
 type ClientSecretOptions struct {
-	CoordinatorURL   string
-	STSURL           string
-	ZoneID           string
-	ApplicationID    string
-	ClientSecret     string
-	Resources        []string
-	ResourceBindings []ResourceBinding
-	GatewayURL       string
-	Scope            string
-	HTTPClient       *http.Client
+	CoordinatorURL    string
+	STSURL            string
+	ZoneID            string
+	ApplicationID     string
+	ClientSecret      string
+	Resources         []string
+	ResourceBindings  []ResourceBinding
+	GatewayURL        string
+	Scope             string
+	HTTPClient        *http.Client
+	DefaultTTLSeconds int
 }
 
 // FromClientSecret returns a Caracal client that refreshes its application subject token through STS.
 func FromClientSecret(opts ClientSecretOptions) (*Caracal, error) {
+	missing := []string{}
+	for name, value := range map[string]string{
+		"CoordinatorURL": opts.CoordinatorURL,
+		"STSURL":         opts.STSURL,
+		"ZoneID":         opts.ZoneID,
+		"ApplicationID":  opts.ApplicationID,
+		"ClientSecret":   opts.ClientSecret,
+	} {
+		if value == "" {
+			missing = append(missing, name)
+		}
+	}
+	if len(missing) > 0 {
+		sort.Strings(missing)
+		return nil, fmt.Errorf("caracal: FromClientSecret missing %v", missing)
+	}
 	if len(opts.Resources) == 0 {
 		return nil, fmt.Errorf("caracal: FromClientSecret requires at least one resource")
 	}
-	source, invalidate := clientSecretTokenSource(opts)
+	if opts.DefaultTTLSeconds < 0 {
+		return nil, fmt.Errorf("caracal: FromClientSecret DefaultTTLSeconds must be a positive integer")
+	}
+	exchanger := newClientSecretExchanger(opts)
 	return &Caracal{
-		Coordinator:   &CoordinatorClient{BaseURL: opts.CoordinatorURL},
-		ZoneID:        opts.ZoneID,
-		ApplicationID: opts.ApplicationID,
-		TokenSource:   source,
-		GatewayURL:    opts.GatewayURL,
-		Resources:     sortBindingsLongestFirst(opts.ResourceBindings),
-		invalidate:    invalidate,
+		Coordinator:       &CoordinatorClient{BaseURL: opts.CoordinatorURL},
+		ZoneID:            opts.ZoneID,
+		ApplicationID:     opts.ApplicationID,
+		TokenSource:       exchanger.source,
+		GatewayURL:        opts.GatewayURL,
+		Resources:         sortBindingsLongestFirst(opts.ResourceBindings),
+		DefaultTTLSeconds: opts.DefaultTTLSeconds,
+		exchanger:         exchanger,
 	}, nil
 }
 
@@ -191,9 +225,9 @@ func FromConfig(path string) (*Caracal, error) {
 	if err != nil {
 		return nil, err
 	}
-	stsURL := cfg["sts_url"]
+	stsURL := cfg.STSURL
 	if stsURL == "" {
-		stsURL = cfg["zone_url"]
+		stsURL = cfg.ZoneURL
 	}
 	if stsURL == "" {
 		stsURL, err = stsURLFromEnv()
@@ -201,19 +235,19 @@ func FromConfig(path string) (*Caracal, error) {
 			return nil, err
 		}
 	}
-	coordinatorURL := cfg["coordinator_url"]
+	coordinatorURL := cfg.CoordinatorURL
 	if coordinatorURL == "" {
 		coordinatorURL, err = serviceURL("CARACAL_COORDINATOR_URL", defaultCoordinatorURL)
 		if err != nil {
 			return nil, err
 		}
 	}
-	secret, err := clientSecretFromProfile(path, cfg, cfg["zone_id"], cfg["application_id"])
+	secret, err := clientSecretFromProfile(path, cfg)
 	if err != nil {
 		return nil, err
 	}
 	resourceIDs, profileBindings := resourceIDsFromProfile(cfg)
-	credentialIDs, credentialBindings, err := credentialManifestFromEnv(cfg["zone_id"], cfg["application_id"])
+	credentialIDs, credentialBindings, err := credentialManifestFromEnv(cfg.ZoneID, cfg.ApplicationID)
 	if err != nil {
 		return nil, err
 	}
@@ -230,22 +264,30 @@ func FromConfig(path string) (*Caracal, error) {
 	if len(resourceIDs) == 0 {
 		return nil, fmt.Errorf("caracal: %s requires at least one resource via credentials, CARACAL_RESOURCES, or CARACAL_RESOURCES_FILE", path)
 	}
-	gatewayURL := cfg["gateway_url"]
+	gatewayURL := cfg.GatewayURL
 	if gatewayURL == "" {
 		gatewayURL, err = serviceURL("CARACAL_GATEWAY_URL", defaultGatewayURL)
 		if err != nil {
 			return nil, err
 		}
 	}
+	ttl := cfg.DefaultTTLSeconds
+	if ttl == 0 {
+		ttl, err = defaultTTLFromEnv()
+		if err != nil {
+			return nil, err
+		}
+	}
 	return FromClientSecret(ClientSecretOptions{
-		CoordinatorURL:   coordinatorURL,
-		STSURL:           stsURL,
-		ZoneID:           cfg["zone_id"],
-		ApplicationID:    cfg["application_id"],
-		ClientSecret:     secret,
-		Resources:        resourceIDs,
-		ResourceBindings: bindings,
-		GatewayURL:       gatewayURL,
+		CoordinatorURL:    coordinatorURL,
+		STSURL:            stsURL,
+		ZoneID:            cfg.ZoneID,
+		ApplicationID:     cfg.ApplicationID,
+		ClientSecret:      secret,
+		Resources:         resourceIDs,
+		ResourceBindings:  bindings,
+		GatewayURL:        gatewayURL,
+		DefaultTTLSeconds: ttl,
 	})
 }
 
@@ -253,10 +295,28 @@ func serviceURL(key string, fallback string) (string, error) {
 	if value := os.Getenv(key); value != "" {
 		return value, nil
 	}
-	if os.Getenv("NODE_ENV") == "production" {
-		return "", fmt.Errorf("caracal: %s is required when NODE_ENV=production", key)
+	if productionEnv() {
+		return "", fmt.Errorf("caracal: %s is required when CARACAL_ENV=production", key)
 	}
 	return fallback, nil
+}
+
+// productionEnv reports whether the process declares a production environment
+// through CARACAL_ENV, the language-neutral gate every Caracal SDK honors.
+func productionEnv() bool {
+	return os.Getenv("CARACAL_ENV") == "production"
+}
+
+func defaultTTLFromEnv() (int, error) {
+	raw := os.Getenv("CARACAL_DEFAULT_TTL_SECONDS")
+	if raw == "" {
+		return 0, nil
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value <= 0 {
+		return 0, fmt.Errorf("caracal: CARACAL_DEFAULT_TTL_SECONDS must be a positive integer")
+	}
+	return value, nil
 }
 
 func stsURLFromEnv() (string, error) {
@@ -269,11 +329,19 @@ func stsURLFromEnv() (string, error) {
 	return serviceURL("CARACAL_STS_URL", defaultSTSURL)
 }
 
-// clientSecretTokenSource returns a token source backed by the caching STS
-// exchange client, plus an invalidate hook that forces the next call to mint
-// a fresh token (a verifier can reject a cached token before its exp after a
-// server-side revocation).
-func clientSecretTokenSource(opts ClientSecretOptions) (TokenSource, func()) {
+// clientSecretExchanger owns the caching STS exchange client for a
+// client-secret configuration: it resolves the application lifecycle token
+// and mints scoped resource mandates for the current agent identity.
+type clientSecretExchanger struct {
+	client       *oauth.Client
+	clientSecret string
+	resources    []string
+	scope        string
+	mu           sync.Mutex
+	force        bool
+}
+
+func newClientSecretExchanger(opts ClientSecretOptions) *clientSecretExchanger {
 	client := oauth.NewClient(opts.STSURL, opts.ZoneID, opts.ApplicationID, nil)
 	if opts.HTTPClient != nil {
 		client.SetHTTPClient(opts.HTTPClient)
@@ -282,29 +350,54 @@ func clientSecretTokenSource(opts ClientSecretOptions) (TokenSource, func()) {
 	if scope == "" {
 		scope = "agent:lifecycle"
 	}
-	var mu sync.Mutex
-	force := false
-	source := func(ctx context.Context) (string, error) {
-		mu.Lock()
-		refresh := force
-		force = false
-		mu.Unlock()
-		token, err := client.ExchangeResources(ctx, "", opts.Resources, oauth.ExchangeOptions{
-			ClientSecret: opts.ClientSecret,
-			Scopes:       []string{scope},
-			ForceRefresh: refresh,
-		})
-		if err != nil {
-			return "", err
-		}
-		return token.AccessToken, nil
+	return &clientSecretExchanger{client: client, clientSecret: opts.ClientSecret, resources: opts.Resources, scope: scope}
+}
+
+func (e *clientSecretExchanger) source(ctx context.Context) (string, error) {
+	e.mu.Lock()
+	refresh := e.force
+	e.force = false
+	e.mu.Unlock()
+	token, err := e.client.ExchangeResources(ctx, "", e.resources, oauth.ExchangeOptions{
+		ClientSecret: e.clientSecret,
+		Scopes:       []string{e.scope},
+		ForceRefresh: refresh,
+	})
+	if err != nil {
+		return "", err
 	}
-	invalidate := func() {
-		mu.Lock()
-		force = true
-		mu.Unlock()
+	return token.AccessToken, nil
+}
+
+// invalidate forces the next lifecycle token resolution to mint fresh (a
+// verifier can reject a cached token before its exp after a server-side
+// revocation).
+func (e *clientSecretExchanger) invalidate() {
+	e.mu.Lock()
+	e.force = true
+	e.mu.Unlock()
+}
+
+func (e *clientSecretExchanger) mintMandate(ctx context.Context, resourceID string, scopes []string, agentSessionID, delegationEdgeID string, opts MandateOptions) (string, error) {
+	token, err := e.client.Exchange(ctx, "", resourceID, oauth.ExchangeOptions{
+		ClientSecret:     e.clientSecret,
+		Scopes:           scopes,
+		AgentSessionID:   agentSessionID,
+		DelegationEdgeID: delegationEdgeID,
+		TTLSeconds:       opts.TTLSeconds,
+		ChallengeID:      opts.ApprovalID,
+	})
+	if err != nil {
+		return "", err
 	}
-	return source, invalidate
+	return token.AccessToken, nil
+}
+
+func (c *Caracal) invalidateHook() func() {
+	if c.exchanger == nil {
+		return nil
+	}
+	return c.exchanger.invalidate
 }
 
 // sortBindingsLongestFirst returns a copy of bindings sorted by upstream prefix
@@ -510,17 +603,14 @@ func isAbsoluteURL(value string) bool {
 
 func resourceIDsFromEnv(raw string, first []string, bindings []ResourceBinding) []string {
 	out := append([]string(nil), first...)
-	if raw != "" {
-		for _, value := range strings.Split(raw, ",") {
-			value = strings.TrimSpace(value)
-			if value != "" {
-				out = append(out, value)
-			}
-		}
-		if len(out) > 0 {
-			return compactStrings(out)
+	for _, value := range strings.Split(raw, ",") {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			out = append(out, value)
 		}
 	}
+	// Binding-derived ids always join the STS audience set so a routed
+	// resource can never be minted without an audience.
 	for _, binding := range bindings {
 		out = append(out, binding.ResourceID)
 	}
@@ -597,7 +687,7 @@ func safePathSegment(value string) string {
 }
 
 func existingLocalFile(path string) string {
-	if path == "" || os.Getenv("NODE_ENV") == "production" {
+	if path == "" || productionEnv() {
 		return ""
 	}
 	if _, err := os.Stat(path); err == nil {
@@ -612,13 +702,19 @@ func permTooBroad(info os.FileInfo) bool {
 	return runtime.GOOS != "windows" && info.Mode().Perm()&0o022 != 0
 }
 
+// permBeyondOwner reports any group or other access bits: a file carrying a
+// secret must be readable only by its owner.
+func permBeyondOwner(info os.FileInfo) bool {
+	return runtime.GOOS != "windows" && info.Mode().Perm()&0o077 != 0
+}
+
 func readSecretFile(path string) (string, error) {
 	info, err := os.Stat(path)
 	if err != nil {
 		return "", fmt.Errorf("caracal: secret file is not readable: %w", err)
 	}
-	if permTooBroad(info) {
-		return "", fmt.Errorf("caracal: secret file permissions are too broad: %s", path)
+	if permBeyondOwner(info) {
+		return "", fmt.Errorf("caracal: secret file must be readable only by its owner: %s", path)
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -640,155 +736,99 @@ func clientSecretFromEnv(zoneID string, applicationID string) (string, error) {
 	if fileValue != "" {
 		return readSecretFile(fileValue)
 	}
-	if localFile := existingLocalFile(defaultClientSecretPath(zoneID, applicationID)); localFile != "" {
-		return readSecretFile(localFile)
-	}
-	return value, nil
-}
-
-func clientSecretFromProfile(path string, cfg map[string]string, zoneID string, applicationID string) (string, error) {
-	value := cfg["app_client_secret"]
-	fileValue := cfg["app_client_secret_file"]
-	if value != "" && fileValue != "" {
-		return "", fmt.Errorf("caracal: %s sets both app_client_secret and app_client_secret_file", path)
-	}
 	if value != "" {
 		return value, nil
 	}
+	if localFile := existingLocalFile(defaultClientSecretPath(zoneID, applicationID)); localFile != "" {
+		return readSecretFile(localFile)
+	}
+	return "", nil
+}
+
+func clientSecretFromProfile(path string, cfg profileFile) (string, error) {
+	if cfg.AppClientSecret != "" && cfg.AppClientSecretFile != "" {
+		return "", fmt.Errorf("caracal: %s sets both app_client_secret and app_client_secret_file", path)
+	}
+	if cfg.AppClientSecret != "" {
+		info, err := os.Stat(path)
+		if err != nil {
+			return "", err
+		}
+		if permBeyondOwner(info) {
+			return "", fmt.Errorf("caracal: %s carries an inline app_client_secret and must be readable only by its owner", path)
+		}
+		return cfg.AppClientSecret, nil
+	}
+	fileValue := cfg.AppClientSecretFile
 	if fileValue == "" {
-		fileValue = existingLocalFile(defaultClientSecretPath(zoneID, applicationID))
+		fileValue = existingLocalFile(defaultClientSecretPath(cfg.ZoneID, cfg.ApplicationID))
 	}
 	if fileValue == "" {
-		return "", fmt.Errorf("caracal: %s requires a client secret; local dev/stable auto-detects %s when it exists", path, defaultClientSecretPath(zoneID, applicationID))
+		return "", fmt.Errorf("caracal: %s requires a client secret; local dev/stable auto-detects %s when it exists", path, defaultClientSecretPath(cfg.ZoneID, cfg.ApplicationID))
 	}
 	return readSecretFile(fileValue)
 }
 
-func parseProfile(path string) (map[string]string, error) {
-	data, err := os.ReadFile(path)
+type profileCredential struct {
+	Resource       string `toml:"resource"`
+	UpstreamPrefix string `toml:"upstream_prefix"`
+}
+
+// profileFile is the SDK-relevant subset of a generated caracal.toml profile.
+// Unknown keys are tolerated so the profile can carry runtime-only settings.
+type profileFile struct {
+	ZoneID              string              `toml:"zone_id"`
+	ApplicationID       string              `toml:"application_id"`
+	STSURL              string              `toml:"sts_url"`
+	ZoneURL             string              `toml:"zone_url"`
+	CoordinatorURL      string              `toml:"coordinator_url"`
+	GatewayURL          string              `toml:"gateway_url"`
+	AppClientSecret     string              `toml:"app_client_secret"`
+	AppClientSecretFile string              `toml:"app_client_secret_file"`
+	DefaultTTLSeconds   int                 `toml:"default_ttl_seconds"`
+	Credentials         []profileCredential `toml:"credentials"`
+	OptionalCredentials []profileCredential `toml:"optional_credentials"`
+}
+
+func parseProfile(path string) (profileFile, error) {
+	info, err := os.Stat(path)
 	if err != nil {
-		return nil, err
+		return profileFile{}, err
 	}
-	if info, err := os.Stat(path); err == nil && permTooBroad(info) {
-		return nil, fmt.Errorf("caracal: profile permissions are too broad: %s", path)
+	if permTooBroad(info) {
+		return profileFile{}, fmt.Errorf("caracal: profile permissions are too broad: %s", path)
 	}
-	out := map[string]string{}
-	section := ""
-	credentialIndex := -1
-	for lineNo, line := range strings.Split(string(data), "\n") {
-		line = strings.TrimSpace(stripTomlComment(line))
-		if line == "" {
-			continue
-		}
-		if line == "[[credentials]]" || line == "[[optional_credentials]]" {
-			section = strings.Trim(line, "[]")
-			credentialIndex++
-			continue
-		}
-		if strings.HasPrefix(line, "[") {
-			section = strings.Trim(line, "[]")
-			continue
-		}
-		idx := strings.Index(line, "=")
-		if idx <= 0 {
-			return nil, fmt.Errorf("caracal: invalid profile line %d", lineNo+1)
-		}
-		key := strings.TrimSpace(line[:idx])
-		value := strings.TrimSpace(line[idx+1:])
-		parsed, ok := parseTomlString(value)
-		if !ok {
-			return nil, fmt.Errorf("caracal: profile line %d must use string values", lineNo+1)
-		}
-		if section == "credentials" || section == "optional_credentials" {
-			out[fmt.Sprintf("%s.%d.%s", section, credentialIndex, key)] = parsed
-			continue
-		}
-		out[key] = parsed
+	var cfg profileFile
+	if _, err := toml.DecodeFile(path, &cfg); err != nil {
+		return profileFile{}, fmt.Errorf("caracal: invalid profile %s: %w", path, err)
 	}
-	for _, key := range []string{"zone_id", "application_id"} {
-		if out[key] == "" {
-			return nil, fmt.Errorf("caracal: %s requires %s", path, key)
-		}
+	if cfg.ZoneID == "" {
+		return profileFile{}, fmt.Errorf("caracal: %s requires zone_id", path)
 	}
-	return out, nil
+	if cfg.ApplicationID == "" {
+		return profileFile{}, fmt.Errorf("caracal: %s requires application_id", path)
+	}
+	if cfg.DefaultTTLSeconds < 0 {
+		return profileFile{}, fmt.Errorf("caracal: %s default_ttl_seconds must be a positive integer", path)
+	}
+	return cfg, nil
 }
 
-func stripTomlComment(line string) string {
-	inString := false
-	escaped := false
-	for i, r := range line {
-		if escaped {
-			escaped = false
-			continue
-		}
-		if r == '\\' {
-			escaped = true
-			continue
-		}
-		if r == '"' {
-			inString = !inString
-			continue
-		}
-		if r == '#' && !inString {
-			return line[:i]
-		}
-	}
-	return line
-}
-
-func parseTomlString(value string) (string, bool) {
-	if len(value) < 2 || value[0] != '"' || value[len(value)-1] != '"' {
-		return "", false
-	}
-	var out string
-	if err := json.Unmarshal([]byte(value), &out); err != nil {
-		return "", false
-	}
-	return out, true
-}
-
-func resourceIDsFromProfile(cfg map[string]string) ([]string, []ResourceBinding) {
+func resourceIDsFromProfile(cfg profileFile) ([]string, []ResourceBinding) {
 	ids := []string{}
 	bindings := []ResourceBinding{}
 	seen := map[string]bool{}
-	counts := credentialCounts(cfg)
-	for _, prefix := range []string{"credentials", "optional_credentials"} {
-		count := counts[prefix]
-		for i := 0; i < count; i++ {
-			resource := cfg[fmt.Sprintf("%s.%d.resource", prefix, i)]
-			if resource == "" || seen[resource] {
-				continue
-			}
-			seen[resource] = true
-			ids = append(ids, resource)
-			if upstream := cfg[fmt.Sprintf("%s.%d.upstream_prefix", prefix, i)]; upstream != "" {
-				bindings = append(bindings, ResourceBinding{ResourceID: resource, UpstreamPrefix: upstream})
-			}
+	for _, cred := range append(append([]profileCredential{}, cfg.Credentials...), cfg.OptionalCredentials...) {
+		if cred.Resource == "" || seen[cred.Resource] {
+			continue
+		}
+		seen[cred.Resource] = true
+		ids = append(ids, cred.Resource)
+		if cred.UpstreamPrefix != "" {
+			bindings = append(bindings, ResourceBinding{ResourceID: cred.Resource, UpstreamPrefix: cred.UpstreamPrefix})
 		}
 	}
 	return ids, sortBindingsLongestFirst(bindings)
-}
-
-func credentialCounts(cfg map[string]string) map[string]int {
-	counts := map[string]int{"credentials": 0, "optional_credentials": 0}
-	for key := range cfg {
-		for prefix := range counts {
-			start := prefix + "."
-			if !strings.HasPrefix(key, start) {
-				continue
-			}
-			rest := strings.TrimPrefix(key, start)
-			idx := strings.Index(rest, ".")
-			if idx <= 0 {
-				continue
-			}
-			var n int
-			if _, err := fmt.Sscanf(rest[:idx], "%d", &n); err == nil && n+1 > counts[prefix] {
-				counts[prefix] = n + 1
-			}
-		}
-	}
-	return counts
 }
 
 func credentialManifestFromEnv(zoneID string, applicationID string) ([]string, []ResourceBinding, error) {
@@ -913,7 +953,7 @@ func (c *Caracal) Spawn(ctx context.Context, fn func(context.Context) error, opt
 		ApplicationID: c.ApplicationID,
 		SubjectToken:  subjectToken,
 		TokenSource:   c.TokenSource,
-		Invalidate:    c.invalidate,
+		Invalidate:    c.invalidateHook(),
 		ParentID:      o.ParentID,
 		Grant:         o.Grant,
 		TTLSeconds:    ttl,
@@ -968,7 +1008,7 @@ func (c *Caracal) SpawnService(ctx context.Context, opts ...ServiceOptions) (*Se
 		ApplicationID:     c.ApplicationID,
 		SubjectToken:      subjectToken,
 		TokenSource:       c.TokenSource,
-		Invalidate:        c.invalidate,
+		Invalidate:        c.invalidateHook(),
 		ParentID:          o.ParentID,
 		Grant:             o.Grant,
 		TTLSeconds:        o.TTLSeconds,
@@ -1012,23 +1052,79 @@ func (c *Caracal) AdoptDelegation(ctx context.Context, delegationEdgeID string) 
 	return AdoptDelegation(ctx, delegationEdgeID)
 }
 
+// MandateOptions carries optional mint inputs: a TTL override and the
+// approval challenge id for retrying an approval-gated mint.
+type MandateOptions struct {
+	TTLSeconds int
+	ApprovalID string
+}
+
+// MintMandate mints a resource mandate for the current agent: a short-lived
+// token audienced to resourceID and narrowed to scopes, carrying the agent
+// session and delegation edge of the bound CaracalContext. The STS evaluates
+// policy against that agent's authority, so a narrowed child can mint only
+// what its delegation edge allows. Results are cached per resource, scope
+// set, and agent identity, and refreshed before expiry.
+//
+// When a scope is approval-gated the mint returns
+// *oauth.InteractionRequiredError; retry with ApprovalID set to the returned
+// challenge id once an authenticated approver has satisfied it. Requires a
+// client-secret configuration.
+func (c *Caracal) MintMandate(ctx context.Context, resourceID string, scopes []string, opts ...MandateOptions) (string, error) {
+	if c.exchanger == nil {
+		return "", fmt.Errorf("caracal: MintMandate requires a client-secret configuration")
+	}
+	var o MandateOptions
+	if len(opts) > 0 {
+		o = opts[0]
+	}
+	cur, _ := Current(ctx)
+	return c.exchanger.mintMandate(ctx, resourceID, scopes, cur.AgentSessionID, cur.DelegationEdgeID, o)
+}
+
+// WaitForApproval long-polls an approval challenge until an approver decides
+// it, it expires, or the timeout elapses. Returns the final lifecycle state:
+// "approved" means retrying the mint with ApprovalID set will succeed;
+// "rejected" and "expired" are terminal; "pending" means the timeout elapsed
+// with no decision and waiting again is safe.
+func (c *Caracal) WaitForApproval(ctx context.Context, challengeID string, timeout time.Duration) (string, error) {
+	if c.exchanger == nil {
+		return "", fmt.Errorf("caracal: WaitForApproval requires a client-secret configuration")
+	}
+	return c.exchanger.client.WaitForApproval(ctx, challengeID, timeout)
+}
+
 // RootOptions controls explicit use of the application subject token when no
 // CaracalContext is bound, and optional bearer verification at the inbound
 // boundary. Verify is invoked by BindFromRequest with the inbound token and
 // must return an error to reject the request; back it with the identity
 // package so binding happens only after the mandate is proven. Claims the
 // verifier returns take precedence over the caller-supplied envelope.
+// Scopes switches gateway-routed requests from the raw subject token to a
+// scoped resource mandate minted for the routed resource and the bound agent
+// identity; requires a client-secret configuration. Used by Transport and Fetch.
 type RootOptions struct {
 	AllowRoot bool
 	Verify    func(context.Context, string) (*VerifiedClaims, error)
+	Scopes    []string
 }
 
 func allowRoot(opts []RootOptions) bool {
 	return len(opts) > 0 && opts[0].AllowRoot
 }
 
+func scopesOf(opts []RootOptions) []string {
+	if len(opts) == 0 {
+		return nil
+	}
+	return opts[0].Scopes
+}
+
 // Headers returns the envelope headers plus the bearer credential for the
 // current ctx. Root application identity requires RootOptions{AllowRoot: true}.
+// For contexts this process spawned from its own credentials, the bearer is
+// resolved fresh through the token source so long-lived holders never present
+// an expired token.
 func (c *Caracal) Headers(ctx context.Context, opts ...RootOptions) (http.Header, error) {
 	h := http.Header{}
 	cur, ok := Current(ctx)
@@ -1045,7 +1141,15 @@ func (c *Caracal) Headers(ctx context.Context, opts ...RootOptions) (http.Header
 		return h, nil
 	}
 	InjectHTTP(ToEnvelope(cur), h)
-	h.Set(HeaderAuthorization, "Bearer "+cur.SubjectToken)
+	token := cur.SubjectToken
+	if cur.OwnToken && c.TokenSource != nil {
+		fresh, err := c.TokenSource(ctx)
+		if err != nil {
+			return nil, err
+		}
+		token = fresh
+	}
+	h.Set(HeaderAuthorization, "Bearer "+token)
 	return h, nil
 }
 
@@ -1060,6 +1164,7 @@ func (c *Caracal) BindFromRequest(ctx context.Context, r *http.Request, opts ...
 	}
 	env := FromHTTPRequest(r)
 	var claims *VerifiedClaims
+	rootInjected := false
 	if env.SubjectToken == "" {
 		if !opt.AllowRoot {
 			return ctx, fmt.Errorf("caracal: BindFromRequest missing bearer token")
@@ -1069,6 +1174,7 @@ func (c *Caracal) BindFromRequest(ctx context.Context, r *http.Request, opts ...
 			return ctx, err
 		}
 		env.SubjectToken = subjectToken
+		rootInjected = true
 	} else if opt.Verify != nil {
 		verified, err := opt.Verify(ctx, env.SubjectToken)
 		if err != nil {
@@ -1105,6 +1211,7 @@ func (c *Caracal) BindFromRequest(ctx context.Context, r *http.Request, opts ...
 	if err != nil {
 		return ctx, err
 	}
+	cc.OwnToken = rootInjected
 	return Bind(ctx, cc), nil
 }
 
@@ -1127,7 +1234,7 @@ func (c *Caracal) Transport(base *http.Client, opts ...RootOptions) *http.Client
 		rt = http.DefaultTransport
 	}
 	out := *base
-	out.Transport = &caracalTransport{base: rt, client: c, allowRoot: allowRoot(opts)}
+	out.Transport = &caracalTransport{base: rt, client: c, allowRoot: allowRoot(opts), scopes: scopesOf(opts)}
 	return &out
 }
 
@@ -1148,11 +1255,14 @@ func (c *Caracal) GatewayRequest(resourceID, path string) (GatewayRequest, error
 	return GatewayRequest{URL: target, Header: header}, nil
 }
 
-// FetchOptions carries the optional request inputs for Fetch.
+// FetchOptions carries the optional request inputs for Fetch. Scopes
+// authorizes with a scoped resource mandate minted for the target resource
+// instead of the raw subject token; requires a client-secret configuration.
 type FetchOptions struct {
 	Body      io.Reader
 	Header    http.Header
 	AllowRoot bool
+	Scopes    []string
 }
 
 // Fetch is the one-call happy path: it sends an HTTP request to path on the given
@@ -1180,28 +1290,23 @@ func (c *Caracal) Fetch(ctx context.Context, method, resourceID, path string, op
 			req.Header.Set(key, value)
 		}
 	}
-	return c.Transport(nil, RootOptions{AllowRoot: opt.AllowRoot}).Do(req)
+	return c.Transport(nil, RootOptions{AllowRoot: opt.AllowRoot, Scopes: opt.Scopes}).Do(req)
 }
 
 type caracalTransport struct {
 	base      http.RoundTripper
 	client    *Caracal
 	allowRoot bool
+	scopes    []string
 }
 
 func (t *caracalTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	cur, ok := Current(req.Context())
-	var env Envelope
-	if !ok {
-		if !t.allowRoot {
-			return nil, fmt.Errorf("caracal: Transport request has no bound CaracalContext; pass RootOptions{AllowRoot: true} to use the application subject token")
-		}
-		subjectToken, err := t.client.rootToken(req.Context())
-		if err != nil {
-			return nil, err
-		}
-		env = Envelope{SubjectToken: subjectToken, Hop: 0}
-	} else {
+	if !ok && !t.allowRoot {
+		return nil, fmt.Errorf("caracal: Transport request has no bound CaracalContext; pass RootOptions{AllowRoot: true} to use the application subject token")
+	}
+	env := Envelope{Hop: 0}
+	if ok {
 		env = ToEnvelope(cur)
 	}
 	clone := req.Clone(req.Context())
@@ -1211,11 +1316,40 @@ func (t *caracalTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 		clone.Host = rewritten.url.Host
 		clone.RequestURI = ""
 		clone.Header.Set("X-Caracal-Resource", rewritten.resourceID)
-		clone.Header.Set("Authorization", "Bearer "+env.SubjectToken)
+		token, err := t.gatewayToken(req.Context(), rewritten.resourceID, cur, ok)
+		if err != nil {
+			return nil, err
+		}
+		clone.Header.Set("Authorization", "Bearer "+token)
 	} else if t.client.targetsGateway(clone.URL) {
-		clone.Header.Set("Authorization", "Bearer "+env.SubjectToken)
+		token, err := t.gatewayToken(req.Context(), clone.Header.Get("X-Caracal-Resource"), cur, ok)
+		if err != nil {
+			return nil, err
+		}
+		clone.Header.Set("Authorization", "Bearer "+token)
 	}
 	return t.base.RoundTrip(clone)
+}
+
+// gatewayToken resolves the bearer for a gateway-bound request: a scoped
+// mandate when the transport carries scopes and the routed resource is known,
+// a fresh token from the client token source for contexts this process
+// spawned from its own credentials, the pinned context token for
+// inbound-bound contexts, or the application token in root mode.
+func (t *caracalTransport) gatewayToken(ctx context.Context, resourceID string, cur CaracalContext, ok bool) (string, error) {
+	if len(t.scopes) > 0 && resourceID != "" {
+		if t.client.exchanger == nil {
+			return "", fmt.Errorf("caracal: Transport scopes require a client-secret configuration")
+		}
+		return t.client.exchanger.mintMandate(ctx, resourceID, t.scopes, cur.AgentSessionID, cur.DelegationEdgeID, MandateOptions{})
+	}
+	if !ok {
+		return t.client.rootToken(ctx)
+	}
+	if cur.OwnToken && t.client.TokenSource != nil {
+		return t.client.TokenSource(ctx)
+	}
+	return cur.SubjectToken, nil
 }
 
 // targetsGateway reports whether the request is already addressed to the

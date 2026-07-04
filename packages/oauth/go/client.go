@@ -7,12 +7,14 @@ package oauth
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"net/http"
 	"net/url"
 	"sort"
@@ -96,7 +98,11 @@ func (c *Client) ExchangeResources(ctx context.Context, subjectToken string, res
 	cacheResource := c.cacheResource(resources, opts)
 	if !opts.ForceRefresh {
 		if cached, ok := c.cache.Get(cacheSubject, cacheResource); ok {
-			if cached.IssuedAt+int64(cached.ExpiresIn)-time.Now().Unix() > preflightWindow {
+			// The preflight window is capped at half the token lifetime so
+			// short-lived tokens are still served from cache instead of
+			// re-exchanged on every call.
+			window := min(preflightWindow, int64(cached.ExpiresIn)/2)
+			if cached.IssuedAt+int64(cached.ExpiresIn)-time.Now().Unix() > window {
 				return cached, nil
 			}
 		}
@@ -399,9 +405,10 @@ func retryDelay(res *http.Response, attempt int) time.Duration {
 	}
 	delay := time.Duration(250*(1<<attempt)) * time.Millisecond
 	if delay > 5*time.Second {
-		return 5 * time.Second
+		delay = 5 * time.Second
 	}
-	return delay
+	half := delay / 2
+	return half + rand.N(half+1)
 }
 
 func sleepWithinDeadline(ctx context.Context, delay time.Duration, deadline time.Time) error {
@@ -447,10 +454,13 @@ func ttlString(ttl int) string {
 	return fmt.Sprintf("%d", ttl)
 }
 
+// hashSecret derives a cache-key component from a secret with a keyed MAC so
+// the component cannot be recomputed from a known token by an observer.
 func hashSecret(value string) string {
 	if value == "" {
 		return ""
 	}
-	sum := sha256.Sum256([]byte(value))
-	return hex.EncodeToString(sum[:])
+	mac := hmac.New(sha256.New, cacheKeySecret)
+	mac.Write([]byte(value))
+	return hex.EncodeToString(mac.Sum(nil))
 }

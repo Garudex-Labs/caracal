@@ -28,6 +28,14 @@ type CaracalContext struct {
 	TraceState       string
 	Baggage          map[string]string
 	Hop              int
+
+	// OwnToken marks a context whose subject token came from this process's
+	// own credential configuration, so the transport may resolve a fresh
+	// token through the client token source instead of pinning the value
+	// captured at spawn. Inbound tokens bound from an envelope stay pinned:
+	// substituting the application token for a caller's token would escalate
+	// authority. Process-local; never serialized to the envelope.
+	OwnToken bool
 }
 
 // AuthoritySummary is a redacted operator view of the bound authority chain.
