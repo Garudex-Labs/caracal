@@ -1,6 +1,7 @@
 go 1.26
 
 use (
+	./packages/admin/go
 	./packages/connectors/nethttp/go
 	./packages/connectors/redis/go
 	./packages/core/go

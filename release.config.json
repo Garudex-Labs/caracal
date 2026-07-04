@@ -212,6 +212,16 @@
         "publish": true
       },
       {
+        "id": "admin",
+        "name": "caracalai-admin",
+        "dir": "packages/admin/python",
+        "module": "caracalai_admin",
+        "group": "admin",
+        "version": "0.1.6-rc.3",
+        "tier": "sdk",
+        "publish": true
+      },
+      {
         "id": "identity",
         "name": "caracalai-identity",
         "dir": "packages/identity/python",
@@ -299,6 +309,15 @@
         "group": "oauth",
         "version": "0.1.6-rc.3",
         "tier": "core",
+        "publish": true
+      },
+      {
+        "id": "admin",
+        "module": "github.com/garudex-labs/caracal/packages/admin/go",
+        "dir": "packages/admin/go",
+        "group": "admin",
+        "version": "0.1.6-rc.3",
+        "tier": "sdk",
         "publish": true
       },
       {
