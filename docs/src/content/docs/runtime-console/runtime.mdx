@@ -51,7 +51,7 @@ workload identity -> run manifest fetch -> STS token exchange -> env injection -
 | STS URL | Automatic for local dev/stable; `CARACAL_STS_URL` only for cloud/custom deployments. |
 | Application ID | `CARACAL_APPLICATION_ID`. |
 | Client secret | `CARACAL_APP_CLIENT_SECRET`, `CARACAL_APP_CLIENT_SECRET_FILE`, or the owner-only file at `<Caracal config dir>/runtime/<application_id>/client-secret`. |
-| Launch bindings | The application's run manifest, authored in its **Run** section in the web console and served by STS. |
+| Launch bindings | The application's run manifest, authored on the console's **Run** page and served by STS. |
 
 Web console **Guided setup** is the recommended way to create the first zone, application, resource, and policy. The application's one-time client secret is shown once at creation; you store it in a local file yourself, because the console never writes files to your machine. See [Configure Workloads](/runtime-console/config-file/) for the exact paths and permissions. Local dev and stable service URLs resolve automatically; cloud/custom deployments configure explicit overrides.
 
@@ -97,7 +97,7 @@ SDK-based children resolve their own configuration from the default profile path
 | Symptom | Check |
 | --- | --- |
 | `workload identity is required to run a command` | Run Web console **Guided setup**, then set `CARACAL_APPLICATION_ID` and a client secret source. |
-| `run manifest not configured` | Define launch bindings in the application's **Run** section in the web console. |
+| `run manifest not configured` | Define launch bindings on the **Run** page in the web console. |
 | Secret-file validation fails | Store the secret value in the file and ensure it is not group- or world-writable. |
 | Token exchange fails | Confirm `caracal status --ready`, application ID, client secret, resource ID, and policy coverage. |
 | Child command never starts | Required credential exchange, step-up, or manifest validation failed before spawn. |

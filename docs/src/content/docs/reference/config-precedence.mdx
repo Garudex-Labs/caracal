@@ -57,7 +57,7 @@ Services support `*_FILE` variants for configured secret keys. File values are r
 | Symptom | Check |
 | --- | --- |
 | Expected SDK profile is ignored | `CARACAL_CONFIG` may point elsewhere or environment runtime config may be winning. |
-| `caracal run` cannot find bindings | Bindings live in the application's **Run** section in the web console, not in a local file. |
+| `caracal run` cannot find bindings | Bindings live on the **Run** page in the web console, not in a local file. |
 | Service fails with missing secret | Confirm the `*_FILE` variable name is supported by that service and the file is readable. |
 | Helm values render unexpected defaults | Check values file order and CLI overrides. |
 

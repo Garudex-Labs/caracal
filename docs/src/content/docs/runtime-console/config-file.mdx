@@ -39,11 +39,11 @@ The default path is read only in local dev and stable modes; production launches
 
 ## Launch Bindings
 
-Which environment variables `caracal run` injects, which resources fill them, the credential type, the TTL, and optional-credential behavior are all part of the application's run manifest, authored in the application's **Run** section in the web console. STS serves the manifest to the workload after it proves possession of the client secret, so the zone, resource identifiers, and variable names never live on the machine that launches the workload.
+Which environment variables `caracal run` injects, which resources fill them, the credential type, the TTL, and optional-credential behavior are all part of the application's run manifest, authored on the **Run** page in the web console. STS serves the manifest to the workload after it proves possession of the client secret, so the zone, resource identifiers, and variable names never live on the machine that launches the workload.
 
-Every manifest is scoped to its application's zone, and each save is attributed: the Run section shows which console operator configured the bindings and when, and the change appears in the zone's admin audit feed under that operator's profile.
+Every manifest is scoped to its application's zone, and each save is attributed: the Run page shows which console operator configured the bindings and when, and the change appears in the zone's admin audit feed under that operator's profile.
 
-The Run section also renders the exact launch command for the application and states whether the binding profile requires the Gateway: `caracal_mandate` bindings need workload traffic pointed at the Gateway, while an all-`provider_token` profile calls providers directly. See [Run Workloads](/runtime-console/runtime/) for the launch flow.
+The Run page also renders the exact launch command for the application and states whether the binding profile requires the Gateway: `caracal_mandate` bindings need workload traffic pointed at the Gateway, while an all-`provider_token` profile calls providers directly. See [Run Workloads](/runtime-console/runtime/) for the launch flow.
 
 ## SDK Profile
 
@@ -108,7 +108,7 @@ Credential entries use `env`, `resource`, optional `upstream_prefix`, and option
 | Symptom | Check |
 | --- | --- |
 | `workload identity is required to run a command` | Set `CARACAL_APPLICATION_ID` and a client secret source. |
-| `run manifest not configured` | Define launch bindings in the application's Run section in the web console. |
+| `run manifest not configured` | Define launch bindings on the Run page in the web console. |
 | Provider key is not injected | Confirm the binding uses the **Provider token** credential type and the provider config allows runtime injection. |
 | Permission error on the secret file | The file must be owner-only; `chmod 600` it. |
 | `CARACAL_CONFIG` is set but ignored (SDKs) | The file must exist; when it is set, no other profile path is considered. |
