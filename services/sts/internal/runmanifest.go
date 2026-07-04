@@ -6,6 +6,7 @@
 package internal
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -13,85 +14,88 @@ import (
 	sharederr "github.com/garudex-labs/caracal/packages/core/go/errors"
 )
 
-// RunManifestCredential is one env-to-resource binding a caracal run launch injects.
-type RunManifestCredential struct {
-	Env            string `json:"env"`
-	Resource       string `json:"resource"`
-	CredentialType string `json:"credential_type,omitempty"`
-	Optional       bool   `json:"optional,omitempty"`
-	OnFailure      string `json:"on_failure,omitempty"`
+// RunBinding is one env-to-resource credential binding a caracal run launch injects.
+// The scopes are the authority the binding requests when its credential is minted.
+type RunBinding struct {
+	Env       string   `json:"env"`
+	Resource  string   `json:"resource"`
+	Scopes    []string `json:"scopes,omitempty"`
+	Optional  bool     `json:"optional,omitempty"`
+	OnFailure string   `json:"on_failure,omitempty"`
 }
 
-// RunManifest is the stored launch profile for an application.
-type RunManifest struct {
-	TTLSeconds        *int                    `json:"ttl_seconds,omitempty"`
-	ContinueOnFailure *bool                   `json:"continue_on_failure,omitempty"`
-	Credentials       []RunManifestCredential `json:"credentials"`
-}
-
-// RunManifestResponse is the manifest joined with the identity STS resolved for it.
+// RunManifestResponse is the workload's binding list joined with the identity STS resolved.
 type RunManifestResponse struct {
-	ZoneID            string                  `json:"zone_id"`
-	ApplicationID     string                  `json:"application_id"`
-	TTLSeconds        *int                    `json:"ttl_seconds,omitempty"`
-	ContinueOnFailure *bool                   `json:"continue_on_failure,omitempty"`
-	Credentials       []RunManifestCredential `json:"credentials"`
+	ZoneID     string       `json:"zone_id"`
+	WorkloadID string       `json:"workload_id"`
+	Bindings   []RunBinding `json:"bindings"`
 }
 
-// handleRunManifest resolves the launch profile for a workload that proves possession of
-// its client secret. The lookup is global so launches carry only the application identity;
-// every authentication failure is reported identically to avoid an enumeration oracle.
+// authenticateRunWorkload resolves a workload that proves possession of its secret.
+// Every failure returns nil so callers report one opaque error: an unknown id and a
+// wrong secret are indistinguishable, avoiding an enumeration oracle.
+func (s *Server) authenticateRunWorkload(ctx context.Context, workloadID, secret string) *Workload {
+	workload, err := s.db.GetWorkloadByID(ctx, workloadID)
+	if err != nil || workload.SecretHash == "" || !verifyClientSecret(workload.SecretHash, secret) {
+		return nil
+	}
+	return workload
+}
+
+// runBindings decodes a workload's stored binding list.
+func runBindings(workload *Workload) ([]RunBinding, error) {
+	var bindings []RunBinding
+	if len(workload.Bindings) > 0 {
+		if err := json.Unmarshal(workload.Bindings, &bindings); err != nil {
+			return nil, err
+		}
+	}
+	return bindings, nil
+}
+
+// handleRunManifest resolves the launch profile for a workload that proves possession
+// of its secret. The lookup is global so launches carry only the workload identity.
 func (s *Server) handleRunManifest(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
 	if err := r.ParseForm(); err != nil {
 		writeError(w, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "malformed request body"))
 		return
 	}
-	appID := strings.TrimSpace(r.FormValue("application_id"))
-	clientSecret := r.FormValue("client_secret")
-	if appID == "" || clientSecret == "" {
-		writeError(w, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "application_id and client_secret are required"))
+	workloadID := strings.TrimSpace(r.FormValue("workload_id"))
+	secret := r.FormValue("secret")
+	if workloadID == "" || secret == "" {
+		writeError(w, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "workload_id and secret are required"))
 		return
 	}
 
 	ctx := r.Context()
-	if rateErr := s.checkRateLimit(ctx, "run-manifest", appID, "fetch"); rateErr != nil {
+	if rateErr := s.checkRateLimit(ctx, "run-manifest", workloadID, "fetch"); rateErr != nil {
 		writeError(w, http.StatusTooManyRequests, rateErr)
 		return
 	}
 
-	app, err := s.db.GetApplicationByIDGlobal(ctx, appID)
-	if err != nil || app.ClientSecretHash == nil || !verifyClientSecret(*app.ClientSecretHash, clientSecret) {
-		writeError(w, http.StatusUnauthorized, sharederr.New(sharederr.AccessDenied, "invalid application credentials"))
+	workload := s.authenticateRunWorkload(ctx, workloadID, secret)
+	if workload == nil {
+		writeError(w, http.StatusUnauthorized, sharederr.New(sharederr.AccessDenied, "invalid workload credentials"))
 		return
 	}
 
-	raw, err := s.db.GetApplicationRunManifest(ctx, app.ID)
+	bindings, err := runBindings(workload)
 	if err != nil {
-		s.log.Error().Err(err).Str("application_id", app.ID).Msg("run manifest lookup failed")
-		writeError(w, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "run manifest lookup failed"))
+		s.log.Error().Err(err).Str("workload_id", workload.ID).Msg("workload bindings are not valid JSON")
+		writeError(w, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "workload bindings are invalid"))
 		return
 	}
-	var manifest RunManifest
-	if len(raw) > 0 {
-		if err := json.Unmarshal(raw, &manifest); err != nil {
-			s.log.Error().Err(err).Str("application_id", app.ID).Msg("run manifest is not valid JSON")
-			writeError(w, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "run manifest is invalid"))
-			return
-		}
-	}
-	if len(manifest.Credentials) == 0 {
+	if len(bindings) == 0 {
 		writeError(w, http.StatusNotFound, sharederr.New(sharederr.ResourceNotFound,
-			"run manifest not configured; define credential bindings for this application in the Caracal web console"))
+			"no credential bindings configured; define them for this workload on the Launcher page in the Caracal web console"))
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(RunManifestResponse{
-		ZoneID:            app.ZoneID,
-		ApplicationID:     app.ID,
-		TTLSeconds:        manifest.TTLSeconds,
-		ContinueOnFailure: manifest.ContinueOnFailure,
-		Credentials:       manifest.Credentials,
+		ZoneID:     workload.ZoneID,
+		WorkloadID: workload.ID,
+		Bindings:   bindings,
 	})
 }

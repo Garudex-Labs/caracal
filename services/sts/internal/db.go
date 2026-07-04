@@ -92,7 +92,7 @@ type DBQuerier interface {
 	GetPolicySetVersion(ctx context.Context, id string) (*PolicySetVersion, error)
 	GetPolicyVersionsByIDs(ctx context.Context, ids []string) ([]PolicyVersion, error)
 	GetApplicationByIDGlobal(ctx context.Context, id string) (*Application, error)
-	GetApplicationRunManifest(ctx context.Context, id string) ([]byte, error)
+	GetWorkloadByID(ctx context.Context, id string) (*Workload, error)
 	ListBoundZoneIDs(ctx context.Context) ([]string, error)
 }
 
@@ -153,19 +153,25 @@ func (d *DB) GetApplicationByIDGlobal(ctx context.Context, id string) (*Applicat
 	return &a, nil
 }
 
-// GetApplicationRunManifest returns the raw run manifest JSON for an active
-// application, or nil when no manifest is configured.
-func (d *DB) GetApplicationRunManifest(ctx context.Context, id string) ([]byte, error) {
-	var manifest []byte
+// Workload holds the fields STS needs from the workloads table.
+type Workload struct {
+	ID         string
+	ZoneID     string
+	Name       string
+	SecretHash string
+	Bindings   []byte
+}
+
+func (d *DB) GetWorkloadByID(ctx context.Context, id string) (*Workload, error) {
+	var w Workload
 	err := d.pool.QueryRow(ctx,
-		`SELECT run_manifest FROM applications
-		 WHERE id = $1 AND archived_at IS NULL
-		   AND (expires_at IS NULL OR expires_at > now())`, id,
-	).Scan(&manifest)
+		`SELECT id, zone_id, name, secret_hash, bindings
+		 FROM workloads WHERE id = $1`, id,
+	).Scan(&w.ID, &w.ZoneID, &w.Name, &w.SecretHash, &w.Bindings)
 	if err != nil {
 		return nil, err
 	}
-	return manifest, nil
+	return &w, nil
 }
 
 // Resource holds the fields STS needs from the resources table.
