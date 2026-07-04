@@ -6,7 +6,7 @@
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify'
 import fp from 'fastify-plugin'
 import { timingSafeEqual } from 'node:crypto'
-import { sha256, deriveConsoleReadToken, deriveConsoleWriteToken, verifyAccountAssertion, verifyOperatorAssertion } from '@caracalai/core'
+import { sha256, deriveConsoleReadToken, deriveConsoleWriteToken, deriveConsoleApproveToken, verifyAccountAssertion, verifyOperatorAssertion } from '@caracalai/core'
 import { v7 as uuidv7 } from 'uuid'
 import type { DB } from './db.js'
 import type { RedisClient } from './redis.js'
@@ -16,16 +16,18 @@ import { bindRequestZoneScope, GLOBAL_ZONE_SCOPE } from './zone-context.js'
 import { isInternalProvisioner, isReservedZone } from './reserved-namespace.js'
 
 type AdminScope = 'global' | 'zone'
-type AdminCapability = 'read' | 'write'
+type AdminCapability = 'read' | 'write' | 'approve'
 
 export interface Actor {
   id: string
   name: string
   scope: AdminScope
-  // Whether the token may mutate state at the API. A read-capability token is denied any
-  // mutating request at the auth choke point, so a least-privilege admin credential cannot
-  // change state even on a route that does not check it. Defaults to write for every existing
-  // and bootstrap token, so the capability only ever narrows authority, never widens it.
+  // What the token may do at the API. A read-capability token is denied any mutating request
+  // at the auth choke point, so a least-privilege admin credential cannot change state even on
+  // a route that does not check it. An approve-capability token may read and decide human
+  // approvals but mutate nothing else - and approval authority is granted only by that
+  // capability, never implied by write, so configuring the platform and approving gated agent
+  // actions stay separable duties. Defaults to write for every existing and bootstrap token.
   capability: AdminCapability
   zoneId: string | null
   // The seed marker the token was provisioned under. It classifies the credential - bootstrap,
@@ -127,6 +129,15 @@ function isReadOnlyRequest(method: string, url: string): boolean {
   return isGlobalReadPath(method, url)
 }
 
+// Whether a request decides a human-approval hold. These two POSTs are the entire authority of
+// an approve-capability token beyond reads, and the only mutations it is granted, so the
+// classifier is deliberately exact: one resource, two verbs.
+function isApprovalDecisionPath(method: string, url: string): boolean {
+  if (method !== 'POST') return false
+  const path = url.split('?')[0]
+  return /^\/v1\/zones\/[^/]+\/step-up-challenges\/[^/]+\/(approve|reject)$/.test(path)
+}
+
 export async function lookupAdminToken(db: DB, plaintext: string): Promise<Actor | null> {
   const digest = sha256(plaintext)
   const { rows } = await db.query<AdminTokenRow>(
@@ -215,6 +226,8 @@ const CONSOLE_READ_TOKEN_NAME = 'console-read-only'
 const CONSOLE_READ_TOKEN_CREATED_BY = 'env-derived'
 const CONSOLE_WRITE_TOKEN_NAME = 'console-write'
 const CONSOLE_WRITE_TOKEN_CREATED_BY = 'env-derived-write'
+const CONSOLE_APPROVE_TOKEN_NAME = 'console-approve'
+const CONSOLE_APPROVE_TOKEN_CREATED_BY = 'env-derived-approve'
 
 // Both derived Console creators share this prefix, so a single predicate recognises every derived
 // Console credential regardless of capability. Derived tokens are strictly operational, so they are
@@ -300,6 +313,26 @@ export async function seedConsoleWriteToken(db: DB, opts: SeedOptions): Promise<
       capability: 'write',
       createdBy: CONSOLE_WRITE_TOKEN_CREATED_BY,
       logLabel: 'seeded console write admin token',
+    },
+    opts.log,
+  )
+}
+
+// Provisions the Console BFF's approve admin token: a global, approve-capability credential the
+// BFF presents on step-up decision traffic. Approval authority is deliberately not part of the
+// write token - deciding a human-approval hold is a judgment about one agent action, not a
+// configuration change - so the decision endpoints ride their own least-privilege credential
+// that can read and decide but never mutate anything else.
+export async function seedConsoleApproveToken(db: DB, opts: SeedOptions): Promise<void> {
+  if (!opts.envToken) return
+  await seedDerivedConsoleToken(
+    db,
+    deriveConsoleApproveToken(opts.envToken),
+    {
+      name: CONSOLE_APPROVE_TOKEN_NAME,
+      capability: 'approve',
+      createdBy: CONSOLE_APPROVE_TOKEN_CREATED_BY,
+      logLabel: 'seeded console approve admin token',
     },
     opts.log,
   )
@@ -461,6 +494,18 @@ const adminAuthImpl: FastifyPluginAsync<AuthPluginOptions> = async (fastify, opt
     // so this gate governs only the admin route surface.
     if (actor.capability === 'read' && !isReadOnlyRequest(req.method, req.url)) {
       return reply.code(403).send({ error: 'admin_token_read_only' })
+    }
+
+    // An approve-capability token is reads plus approval decisions, nothing else: a leaked or
+    // over-shared approver credential cannot reconfigure the platform. The inverse gate keeps
+    // the duties separated - deciding a human-approval hold demands the approve capability, so
+    // a write token cannot quietly self-approve the escalations its own automation triggered.
+    // The bootstrap deployment token is exempt as the break-glass credential with full authority.
+    if (actor.capability === 'approve' && !isReadOnlyRequest(req.method, req.url) && !isApprovalDecisionPath(req.method, req.url)) {
+      return reply.code(403).send({ error: 'admin_token_approve_only' })
+    }
+    if (isApprovalDecisionPath(req.method, req.url) && actor.capability === 'write' && actor.createdBy !== 'env-bootstrap') {
+      return reply.code(403).send({ error: 'approve_capability_required' })
     }
 
     if (actor.scope === 'zone') {

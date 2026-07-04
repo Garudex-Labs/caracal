@@ -1,11 +1,109 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Step-up challenge metadata endpoints: inspection and external satisfaction.
+// Human-approval hold endpoints: inspection and operator-plane approve/reject decisions.
 
-import type { FastifyPluginAsync } from 'fastify'
+import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify'
+import { createHmac } from 'node:crypto'
+import { z } from 'zod'
+import { v7 as uuidv7 } from 'uuid'
+import { AUDIT_STREAM } from '@caracalai/core'
 import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
 import { appendKeysetCondition, parseListPagination, setNextLink } from './list-pagination.js'
+import { withTransaction, TxAbort } from '../db.js'
+import { enqueueOutbox, type ClientLike } from '../outbox.js'
+
+// The reason bound matches the STS decision endpoint, so a rationale accepted on one plane is
+// never rejected on the other.
+const REASON_MAX_LENGTH = 500
+
+const DecisionBody = z.object({ reason: z.string().max(REASON_MAX_LENGTH).optional() })
+
+// Every read returns the full approval fact plus a derived lifecycle state. The precedence
+// mirrors the STS exactly - consumed and rejected are terminal and outrank expiry, an approved
+// hold past its window reads expired - so both planes always report the same state for the same
+// row. The binding is the canonical resource+scope hash the agent printed alongside the
+// challenge id, exposed so an approver can cross-check that the hold they see is the hold the
+// agent asked about.
+const CHALLENGE_COLUMNS = `id, zone_id, session_id, principal_id, application_id, challenge_type,
+       tier, approver_class, privacy_mode, encode(resource_set_hash, 'hex') AS binding,
+       metadata_json, decision_reason, created_at, expires_at,
+       satisfied_at, rejected_at, consumed_at, approver_subject_id,
+       CASE
+         WHEN consumed_at IS NOT NULL THEN 'consumed'
+         WHEN rejected_at IS NOT NULL THEN 'rejected'
+         WHEN expires_at <= now() THEN 'expired'
+         WHEN satisfied_at IS NOT NULL THEN 'approved'
+         ELSE 'pending'
+       END AS state`
+
+interface DecidedRow {
+  id: string
+  session_id: string
+  application_id: string | null
+  tier: string | null
+  approver_class: string
+  privacy_mode: string
+  binding: string
+  satisfied_at: string | null
+  rejected_at: string | null
+  decision_reason: string | null
+  approver_subject_id: string
+}
+
+// The identity recorded as the deciding approver. A console operator is attributed by the
+// verified account behind the BFF assertion; a direct admin or automation call is attributed to
+// the credential itself. Operator identities are recorded verbatim regardless of the hold's
+// privacy mode: privacy modes shield an application's end users on the subject plane, while
+// zone operators act under full admin accountability.
+function approverId(req: FastifyRequest): string {
+  const account = req.account
+  if (account) return `console:${account.email ?? account.id}`
+  return `admin:${req.actor.id}`
+}
+
+// The zone audit record of an operator-plane decision, enqueued through the transactional
+// outbox inside the decision's own transaction: the decision commits if and only if its audit
+// event is durably queued for the audit stream. The payload is the same wire shape the STS
+// emits for subject-plane decisions, so the zone timeline reads uniformly across both planes.
+async function enqueueDecisionAudit(
+  client: ClientLike,
+  hmacKey: Buffer | null,
+  req: FastifyRequest,
+  zoneId: string,
+  decision: 'approved' | 'rejected',
+  row: DecidedRow,
+): Promise<void> {
+  const metadata: Record<string, string> = {
+    challenge_id: row.id,
+    tier: row.tier ?? '',
+    approver_class: row.approver_class,
+    privacy_mode: row.privacy_mode,
+    binding: row.binding,
+    session_id: row.session_id,
+    approver_plane: 'operator',
+    approver_subject_id: row.approver_subject_id,
+  }
+  if (row.application_id) metadata.application_id = row.application_id
+  if (row.decision_reason) metadata.reason = row.decision_reason
+  const data = JSON.stringify({
+    id: uuidv7(),
+    zone_id: zoneId,
+    event_type: 'step_up_decided',
+    request_id: req.id,
+    decision,
+    evaluation_status: 'complete',
+    determining_policies_json: [],
+    diagnostics_json: [],
+    metadata_json: metadata,
+    occurred_at: new Date().toISOString(),
+  })
+  const payload: Record<string, string> = { id: req.id, data }
+  if (hmacKey && hmacKey.length > 0) {
+    payload.sig = createHmac('sha256', hmacKey).update(data).digest('hex')
+  }
+  await enqueueOutbox(client, { streamName: AUDIT_STREAM, payload, requestId: req.id })
+}
 
 export const stepUpChallengesRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get('/zones/:zoneId/step-up-challenges', async (req, reply) => {
@@ -18,8 +116,7 @@ export const stepUpChallengesRoutes: FastifyPluginAsync = async (fastify) => {
       page,
     )
     const { rows } = await fastify.db.query(
-      `SELECT id, zone_id, session_id, challenge_type, metadata_json,
-              created_at, expires_at, satisfied_at, approver_subject_id
+      `SELECT ${CHALLENGE_COLUMNS}
        FROM step_up_challenges WHERE ${keyset.conds.join(' AND ')}
        ORDER BY created_at DESC, id DESC LIMIT ${keyset.limitPlaceholder}`,
       keyset.values,
@@ -32,8 +129,7 @@ export const stepUpChallengesRoutes: FastifyPluginAsync = async (fastify) => {
     const params = parseParams(ZoneIdParams, req, reply)
     if (!params) return
     const { rows } = await fastify.db.query(
-      `SELECT id, zone_id, session_id, challenge_type, metadata_json,
-              created_at, expires_at, satisfied_at, approver_subject_id
+      `SELECT ${CHALLENGE_COLUMNS}
        FROM step_up_challenges WHERE id = $1 AND zone_id = $2`,
       [params.id, params.zoneId],
     )
@@ -41,25 +137,64 @@ export const stepUpChallengesRoutes: FastifyPluginAsync = async (fastify) => {
     return rows[0]
   })
 
-  fastify.post('/zones/:zoneId/step-up-challenges/:id/satisfy', async (req, reply) => {
+  // Decides a live hold on the operator plane. The guards live in the UPDATE itself, so a
+  // decision lands exactly once on exactly one live hold: it must still be pending (never
+  // decided, never consumed), unexpired, and open to operators - a subject-only hold is the
+  // application's promise that only its own end user may approve, and no zone credential
+  // overrides that. A miss is then classified for the caller: absent, operator-forbidden, or
+  // already settled with its current state.
+  const decide = async (req: FastifyRequest, reply: FastifyReply, decision: 'approved' | 'rejected'): Promise<unknown> => {
     const params = parseParams(ZoneIdParams, req, reply)
     if (!params) return
-    const approverId = `admin:${req.actor.id}`
+    const body = DecisionBody.safeParse(req.body ?? {})
+    if (!body.success) return reply.code(400).send({ error: 'invalid_body' })
+    const approver = approverId(req)
+    const decidedColumn = decision === 'approved' ? 'satisfied_at' : 'rejected_at'
 
-    const { rows } = await fastify.db.query(
-      `UPDATE step_up_challenges c
-       SET satisfied_at = now(), approver_subject_id = $3
-       FROM sessions s
-       WHERE c.id = $1 AND c.zone_id = $2
-         AND c.satisfied_at IS NULL AND c.expires_at > now()
-         AND c.session_id = s.id
-         AND (s.subject_id IS NULL OR s.subject_id <> $3)
-       RETURNING c.id, c.satisfied_at, c.approver_subject_id`,
-      [params.id, params.zoneId, approverId],
-    )
-    if (!rows[0]) {
-      return reply.code(409).send({ error: 'challenge_not_satisfiable' })
-    }
-    return rows[0]
-  })
+    return withTransaction(fastify.db, async (client) => {
+      const { rows } = await client.query<DecidedRow>(
+        `UPDATE step_up_challenges
+         SET ${decidedColumn} = now(), approver_subject_id = $3, decision_reason = $4
+         WHERE id = $1 AND zone_id = $2
+           AND approver_class IN ('operator', 'any')
+           AND satisfied_at IS NULL AND rejected_at IS NULL AND consumed_at IS NULL
+           AND expires_at > now()
+         RETURNING id, session_id, application_id, tier, approver_class, privacy_mode,
+                   encode(resource_set_hash, 'hex') AS binding,
+                   satisfied_at, rejected_at, decision_reason, approver_subject_id`,
+        [params.id, params.zoneId, approver, body.data.reason ?? null],
+      )
+      if (!rows[0]) {
+        const { rows: existing } = await client.query<{ approver_class: string; state: string }>(
+          `SELECT approver_class,
+                  CASE
+                    WHEN consumed_at IS NOT NULL THEN 'consumed'
+                    WHEN rejected_at IS NOT NULL THEN 'rejected'
+                    WHEN expires_at <= now() THEN 'expired'
+                    WHEN satisfied_at IS NOT NULL THEN 'approved'
+                    ELSE 'pending'
+                  END AS state
+           FROM step_up_challenges WHERE id = $1 AND zone_id = $2`,
+          [params.id, params.zoneId],
+        )
+        if (!existing[0]) throw new TxAbort(reply.code(404).send({ error: 'challenge_not_found' }))
+        if (existing[0].state === 'pending' && existing[0].approver_class === 'subject') {
+          throw new TxAbort(reply.code(403).send({ error: 'subject_approval_required' }))
+        }
+        throw new TxAbort(reply.code(409).send({ error: 'challenge_not_decidable', state: existing[0].state }))
+      }
+      await enqueueDecisionAudit(client, fastify.cfg?.auditHmacKey ?? null, req, params.zoneId, decision, rows[0])
+      return {
+        id: rows[0].id,
+        state: decision,
+        satisfied_at: rows[0].satisfied_at,
+        rejected_at: rows[0].rejected_at,
+        approver_subject_id: rows[0].approver_subject_id,
+      }
+    })
+  }
+
+  fastify.post('/zones/:zoneId/step-up-challenges/:id/approve', async (req, reply) => decide(req, reply, 'approved'))
+
+  fastify.post('/zones/:zoneId/step-up-challenges/:id/reject', async (req, reply) => decide(req, reply, 'rejected'))
 }

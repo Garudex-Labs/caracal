@@ -12,7 +12,7 @@ import { startSessionsReaper } from './jobs/sessions-reaper.js'
 import { startMessageRunsReaper } from './jobs/message-runs-reaper.js'
 import { startPlanSecretsReaper } from './jobs/plan-secrets-reaper.js'
 import { OutboxDispatcher } from './outbox.js'
-import { seedBootstrapAdminToken, seedConsoleReadToken, seedConsoleWriteToken } from './auth.js'
+import { seedBootstrapAdminToken, seedConsoleReadToken, seedConsoleWriteToken, seedConsoleApproveToken } from './auth.js'
 import { assertPublishedSafe, createLogger, initNodeTelemetry, ShutdownRegistry, withTimeout } from '@caracalai/core'
 
 assertPublishedSafe()
@@ -69,6 +69,10 @@ try {
     log: (msg) => log('info', msg),
   })
   await seedConsoleWriteToken(db, {
+    envToken: cfg.bootstrapAdminToken,
+    log: (msg) => log('info', msg),
+  })
+  await seedConsoleApproveToken(db, {
     envToken: cfg.bootstrapAdminToken,
     log: (msg) => log('info', msg),
   })
