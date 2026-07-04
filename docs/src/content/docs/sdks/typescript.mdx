@@ -75,6 +75,28 @@ Use `bindFromHeaders()` to propagate a Caracal context after an upstream Gateway
 
 Header and transport helpers refuse to fall back to the application root token unless you pass `{ allowRoot: true }`. Use that option only for trusted service-root ingress or setup calls. Normal agent work should run inside `spawn()`, `delegate()`, or `bindFromHeaders()`.
 
+## Errors and Observability
+
+STS denials throw `CaracalError` carrying `code`, `httpStatus`, and `requestId`, so callers branch on the machine-readable code instead of matching message text. Approval-gated exchanges throw `InteractionRequiredError`, a `CaracalError` subclass that adds the challenge fields, and coordinator failures throw `CoordinatorError` with `status`, `method`, and `path`.
+
+```ts
+import { Caracal, CaracalError } from "@caracalai/sdk";
+
+try {
+  await caracal.mintMandate("https://api.example.com/tickets", ["tickets:read"]);
+} catch (err) {
+  if (err instanceof CaracalError && err.code === "access_denied") {
+    console.warn(`denied by policy (request ${err.requestId})`);
+  }
+}
+
+caracal.onEvent((event) => {
+  metrics.timing(`caracal.${event.type}`, event.durationMs, { ok: event.ok });
+});
+```
+
+`onEvent(hook)` reports every control-plane operation: `token.exchange` (with `resources`, `scopes`, and `cached` for cache hits), `approval.wait` (with `challengeId` and the final `state`), and `coordinator.call` (with `method`, `path`, and `status`). Each event carries `ok` and `durationMs`, ready to bridge into any metrics or tracing system. A hook that throws is ignored and never disturbs the operation that emitted the event.
+
 ## Related pages
 
 - [Integrate the TypeScript SDK](/guides/sdk-typescript/)

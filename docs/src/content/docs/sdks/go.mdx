@@ -61,6 +61,26 @@ Use `BindFromRequest()` to propagate a Caracal context after an upstream Gateway
 
 `Headers` and `Transport` require a bound Caracal context by default. Pass `caracal.RootOptions{AllowRoot: true}` only when the call should intentionally use the application subject token.
 
+## Errors and Observability
+
+STS denials return `*oauth.CaracalError` carrying `Code`, `HTTPStatus`, and `RequestID`, so callers branch with `errors.As` instead of matching message text. Approval-gated exchanges return `*oauth.InteractionRequiredError` with the challenge fields, and coordinator failures return `*caracal.CoordinatorError` with `StatusCode`, `Method`, and `Path`.
+
+```go
+import oauth "github.com/garudex-labs/caracal/packages/oauth/go"
+
+_, err := client.MintMandate(ctx, "https://api.example.com/tickets", []string{"tickets:read"})
+var denied *oauth.CaracalError
+if errors.As(err, &denied) && denied.Code == "access_denied" {
+	log.Printf("denied by policy (request %s)", denied.RequestID)
+}
+
+client.OnEvent(func(event oauth.Event) {
+	metrics.Timing("caracal."+event.Type, event.Duration, event.Ok)
+})
+```
+
+`OnEvent(hook)` reports every control-plane operation: `token.exchange` (with `Resources`, `Scopes`, and `Cached` for cache hits), `approval.wait` (with `ChallengeID` and the final `State`), and `coordinator.call` (with `Method`, `Path`, and `Status`). Each event carries `Ok` and `Duration`, ready to bridge into any metrics or tracing system. A hook that panics is recovered and never disturbs the operation that emitted the event.
+
 ## Related pages
 
 - [Integrate the Go SDK](/guides/sdk-go/)

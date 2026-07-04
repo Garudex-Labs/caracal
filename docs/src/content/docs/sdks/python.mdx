@@ -84,6 +84,25 @@ app.add_middleware(caracal.context_middleware(verifier=verify))
 
 See [Enforce, propagate, or attribute](/concepts/authority-model/#enforce-propagate-or-attribute) for which call path verifies authority.
 
+## Errors and Observability
+
+STS denials raise typed subclasses of `CaracalError` (`AccessDenied`, `ScopeInsufficient`, `ZoneMismatch`, and the rest of the taxonomy), each carrying `code`, `http_status`, and `request_id`, so callers branch on the exception type instead of matching message text. Approval-gated exchanges raise `ApprovalRequired` with the challenge fields, and coordinator failures raise `CoordinatorError` with `status`, `method`, and `path`.
+
+```python
+from caracalai import AccessDenied, Caracal
+
+try:
+    caracal.mint_mandate("https://api.example.com/tickets", ["tickets:read"])
+except AccessDenied as err:
+    print(f"denied by policy (request {err.request_id})")
+
+caracal.on_event(
+    lambda event: metrics.timing(f"caracal.{event.type}", event.duration_ms)
+)
+```
+
+`on_event(hook)` reports every control-plane operation: `token.exchange` (with `resources`, `scopes`, and `cached` for cache hits), `approval.wait` (with `challenge_id` and the final `state`), and `coordinator.call` (with `method`, `path`, and `status`). Each event carries `ok` and `duration_ms`, ready to bridge into any metrics or tracing system. A hook that raises is ignored and never disturbs the operation that emitted the event.
+
 ## Related pages
 
 - [Integrate the Python SDK](/guides/sdk-python/)
