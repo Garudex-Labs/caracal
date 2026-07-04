@@ -11,7 +11,7 @@ import asyncio
 import json
 import os
 import sys
-from contextlib import AsyncExitStack, asynccontextmanager
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 from collections.abc import AsyncGenerator, Callable, Mapping
@@ -860,40 +860,32 @@ class Caracal:
         )
 
         subject_token = await self.config.asubject_token()
+        invalidate = (
+            self.config.exchanger.invalidate
+            if self.config.exchanger is not None
+            else None
+        )
 
-        def opener():
-            return spawn(
-                coordinator=self.config.coordinator,
-                zone_id=self.config.zone_id,
-                application_id=self.config.application_id,
-                subject_token=subject_token,
-                token_source=self.config._token_source,
-                subject_session_id=subject_session_id,
-                parent_id=parent_id,
-                parent_ctx=parent_ctx,
-                grant=grant,
-                ttl_seconds=ttl_seconds
-                if ttl_seconds is not None
-                else self.config.default_ttl_seconds,
-                metadata=metadata,
-                labels=labels,
-                trace_id=trace_id,
-                on_agent_start=on_start,
-                on_agent_end=on_end,
-            )
-
-        async with AsyncExitStack() as stack:
-            try:
-                ctx = await stack.enter_async_context(opener())
-            except httpx.HTTPStatusError as exc:
-                # A verifier may reject a cached subject token before its exp
-                # (server-side session revocation); exchange a fresh one and
-                # retry the spawn once.
-                if exc.response.status_code != 401 or self.config.exchanger is None:
-                    raise
-                self.config.exchanger.invalidate()
-                subject_token = await self.config.asubject_token()
-                ctx = await stack.enter_async_context(opener())
+        async with spawn(
+            coordinator=self.config.coordinator,
+            zone_id=self.config.zone_id,
+            application_id=self.config.application_id,
+            subject_token=subject_token,
+            token_source=self.config._token_source,
+            invalidate=invalidate,
+            subject_session_id=subject_session_id,
+            parent_id=parent_id,
+            parent_ctx=parent_ctx,
+            grant=grant,
+            ttl_seconds=ttl_seconds
+            if ttl_seconds is not None
+            else self.config.default_ttl_seconds,
+            metadata=metadata,
+            labels=labels,
+            trace_id=trace_id,
+            on_agent_start=on_start,
+            on_agent_end=on_end,
+        ) as ctx:
             yield ctx
 
     async def spawn_service(
@@ -908,16 +900,19 @@ class Caracal:
         labels: list[str] | None = None,
         trace_id: str | None = None,
         heartbeat_interval: float | None = None,
+        on_lease_lost: Callable[[BaseException], None] | None = None,
     ) -> ServiceAgent:
         """Start a long-lived service agent and return a handle the caller owns.
 
-        Unlike :meth:`spawn`, the session is not retired when a block exits: keep
-        it alive by calling :meth:`ServiceAgent.heartbeat` and retire it with
-        :meth:`ServiceAgent.aclose`. Use for daemons and workers that outlive a
-        single request. Pass ``grant=Grant.narrow([...])`` to issue a bounded
-        delegation edge so the handle holds only a subset of scopes, and
-        ``heartbeat_interval`` to renew the lease from a background task so it
-        survives long provider/resource streams."""
+        Unlike :meth:`spawn`, the session is not retired when a block exits: a
+        background task renews the lease by default and the handle is retired
+        with :meth:`ServiceAgent.aclose`. Use for daemons and workers that
+        outlive a single request. Pass ``grant=Grant.narrow([...])`` to issue a
+        bounded delegation edge so the handle holds only a subset of scopes.
+        Leave ``heartbeat_interval`` unset to derive the renewal cadence from
+        the server lease, pass a positive value to fix it, or zero to renew
+        manually; ``on_lease_lost`` fires once if the coordinator reports the
+        session permanently gone."""
         on_start: LifecycleHook | None = (
             (lambda c: self._fire(self._agent_start_hooks, c))
             if self._agent_start_hooks
@@ -931,39 +926,27 @@ class Caracal:
             else None
         )
 
-        def opener():
-            return spawn_service(
-                coordinator=self.config.coordinator,
-                zone_id=self.config.zone_id,
-                application_id=self.config.application_id,
-                subject_token=subject_token,
-                token_source=self.config._token_source,
-                invalidate=invalidate,
-                subject_session_id=subject_session_id,
-                parent_id=parent_id,
-                parent_ctx=parent_ctx,
-                grant=grant,
-                ttl_seconds=ttl_seconds
-                if ttl_seconds is not None
-                else self.config.default_ttl_seconds,
-                metadata=metadata,
-                labels=labels,
-                trace_id=trace_id,
-                heartbeat_interval=heartbeat_interval,
-                on_agent_start=on_start,
-            )
-
-        try:
-            return await opener()
-        except httpx.HTTPStatusError as exc:
-            # A verifier may reject a cached subject token before its exp
-            # (server-side session revocation); exchange a fresh one and retry
-            # the spawn once, matching spawn().
-            if exc.response.status_code != 401 or self.config.exchanger is None:
-                raise
-            self.config.exchanger.invalidate()
-            subject_token = await self.config.asubject_token()
-            return await opener()
+        return await spawn_service(
+            coordinator=self.config.coordinator,
+            zone_id=self.config.zone_id,
+            application_id=self.config.application_id,
+            subject_token=subject_token,
+            token_source=self.config._token_source,
+            invalidate=invalidate,
+            subject_session_id=subject_session_id,
+            parent_id=parent_id,
+            parent_ctx=parent_ctx,
+            grant=grant,
+            ttl_seconds=ttl_seconds
+            if ttl_seconds is not None
+            else self.config.default_ttl_seconds,
+            metadata=metadata,
+            labels=labels,
+            trace_id=trace_id,
+            heartbeat_interval=heartbeat_interval,
+            on_lease_lost=on_lease_lost,
+            on_agent_start=on_start,
+        )
 
     @asynccontextmanager
     async def delegate(

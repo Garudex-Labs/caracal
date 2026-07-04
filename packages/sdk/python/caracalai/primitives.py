@@ -9,8 +9,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
+import time
+import uuid
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass, field, replace
+from datetime import datetime
 from collections.abc import AsyncGenerator, Awaitable, Callable
 
 import httpx
@@ -28,12 +32,33 @@ from .coordinator import (
     spawn_agent,
     terminate_agent,
 )
+from .errors import CoordinatorError
 from .json_types import JsonObject
 
 
 logger = logging.getLogger("caracalai")
 
 LifecycleHook = Callable[[CaracalContext], Awaitable[None]]
+
+_SPAWN_RETRIES = 2
+_MIN_AUTO_HEARTBEAT = 1.0
+_MAX_AUTO_HEARTBEAT = 300.0
+_FALLBACK_AUTO_HEARTBEAT = 30.0
+
+
+def _is_gone(exc: BaseException) -> bool:
+    """A session the coordinator no longer holds live (terminated or reaped)
+    counts as retired."""
+    return isinstance(exc, CoordinatorError) and exc.status in (404, 409)
+
+
+def _parse_deadline(value: str | None) -> float | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value).timestamp()
+    except ValueError:
+        return None
 
 
 async def _resolve_bearer(token_source: TokenSource | None, fallback: str) -> str:
@@ -49,14 +74,30 @@ async def _terminate_shielded(
     *,
     token_source: TokenSource | None,
     fallback_token: str,
+    propagate: bool = False,
 ) -> None:
     """Retire a session even while the awaiting task is being cancelled: the
     terminate call runs as a shielded task, so caller cancellation cannot
-    orphan a live server-side session."""
+    orphan a live server-side session. A session the coordinator already
+    retired counts as success; other failures raise only when ``propagate``
+    is set - cleanup paths log instead so they never mask the caller's
+    primary outcome, and the coordinator's TTL sweeper retires whatever this
+    misses."""
 
     async def retire() -> None:
         bearer = await _resolve_bearer(token_source, fallback_token)
-        await terminate_agent(coordinator, bearer, zone_id, agent_session_id)
+        try:
+            await terminate_agent(coordinator, bearer, zone_id, agent_session_id)
+        except Exception as exc:
+            if _is_gone(exc):
+                return
+            if propagate:
+                raise
+            logger.warning(
+                "terminate failed for agent %s; the coordinator TTL sweeper will retire it",
+                agent_session_id,
+                exc_info=True,
+            )
 
     cleanup = asyncio.ensure_future(retire())
     try:
@@ -121,41 +162,32 @@ class Grant:
         )
 
 
-@asynccontextmanager
-async def spawn(
+@dataclass
+class _Session:
+    agent_session_id: str
+    ctx: CaracalContext
+    subject_token: str
+    heartbeat_deadline_at: str | None
+
+
+async def _establish_session(
     *,
     coordinator: CoordinatorClient,
     zone_id: str,
     application_id: str,
     subject_token: str,
-    token_source: TokenSource | None = None,
-    subject_session_id: str | None = None,
-    parent_id: str | None = None,
-    parent_ctx: CaracalContext | None = None,
-    grant: Grant | None = None,
-    ttl_seconds: int | None = None,
-    metadata: JsonObject | None = None,
-    labels: list[str] | None = None,
-    trace_id: str | None = None,
-    on_agent_start: LifecycleHook | None = None,
-    on_agent_end: LifecycleHook | None = None,
-) -> AsyncGenerator[CaracalContext, None]:
-    """Spawn a child agent session and bind it to the current task.
-
-    The child inherits its parent's effective authority by default: a child of a
-    narrowed parent carries that same narrowing forward (transitive
-    least-privilege), while a child of a root parent runs under full application
-    authority. Pass ``grant=Grant.narrow([...])`` to issue a bounded delegation
-    edge so the child holds only a subset. ``parent_ctx`` overrides the bound
-    :func:`current` lookup; pass it explicitly when the orchestrator owns the
-    parent context but the spawn runs on a different task (asyncio TaskGroup,
-    thread pool, framework worker) where the parent's contextvar is not visible.
-
-    Spawn scopes bind via a contextvar and must nest: exit them in reverse order
-    of entry on any given task. Cleanup terminates the session with a fresh
-    bearer from ``token_source`` when one is provided, so a token that expired
-    while the body ran cannot strand the session.
-    """
+    token_source: TokenSource | None,
+    invalidate: Callable[[], None] | None,
+    subject_session_id: str | None,
+    parent_id: str | None,
+    parent_ctx: CaracalContext | None,
+    grant: Grant | None,
+    ttl_seconds: int | None,
+    metadata: JsonObject | None,
+    labels: list[str] | None,
+    trace_id: str | None,
+    lifecycle: Lifecycle | None = None,
+) -> _Session:
     grant = grant or Grant.inherit()
     parent = parent_ctx if parent_ctx is not None else current()
     parent_agent_session_id = parent_id or (parent.agent_session_id if parent else None)
@@ -173,20 +205,50 @@ async def spawn(
         else None
     )
 
-    res = await spawn_agent(
-        coordinator,
-        bearer,
-        SpawnRequest(
-            zone_id=zone_id,
-            application_id=application_id,
-            subject_session_id=subject_session_id,
-            parent_id=parent_agent_session_id,
-            ttl_seconds=ttl_seconds,
-            metadata=metadata,
-            labels=labels,
-            inherit_parent_edge_id=inherit_parent_edge_id,
-        ),
+    req = SpawnRequest(
+        zone_id=zone_id,
+        application_id=application_id,
+        subject_session_id=subject_session_id,
+        parent_id=parent_agent_session_id,
+        lifecycle=lifecycle,
+        ttl_seconds=ttl_seconds,
+        metadata=metadata,
+        labels=labels,
+        idempotency_key=uuid.uuid4().hex,
+        inherit_parent_edge_id=inherit_parent_edge_id,
     )
+    refreshed = False
+    attempt = 0
+    while True:
+        try:
+            res = await spawn_agent(coordinator, bearer, req)
+            break
+        except CoordinatorError as exc:
+            # A cached token can be rejected before its exp (server-side
+            # session revocation after a credential rotation); force one
+            # refresh and retry the spawn once.
+            if (
+                exc.status == 401
+                and not refreshed
+                and invalidate is not None
+                and token_source is not None
+            ):
+                refreshed = True
+                invalidate()
+                bearer = await _resolve_bearer(token_source, subject_token)
+                continue
+            # The idempotency key makes retrying a 5xx safe: the coordinator
+            # replays the already-created session instead of minting a
+            # duplicate.
+            if exc.status < 500 or attempt >= _SPAWN_RETRIES:
+                raise
+            attempt += 1
+            await asyncio.sleep(0.25 * attempt + random.random() * 0.1)
+        except httpx.TransportError:
+            if attempt >= _SPAWN_RETRIES:
+                raise
+            attempt += 1
+            await asyncio.sleep(0.25 * attempt + random.random() * 0.1)
 
     delegation_edge_id: str | None = res.delegation_edge_id
     hop = (
@@ -242,6 +304,62 @@ async def spawn(
         baggage=parent.baggage if parent else (),
         hop=hop,
     )
+    return _Session(res.agent_session_id, ctx, bearer, res.heartbeat_deadline_at)
+
+
+@asynccontextmanager
+async def spawn(
+    *,
+    coordinator: CoordinatorClient,
+    zone_id: str,
+    application_id: str,
+    subject_token: str,
+    token_source: TokenSource | None = None,
+    invalidate: Callable[[], None] | None = None,
+    subject_session_id: str | None = None,
+    parent_id: str | None = None,
+    parent_ctx: CaracalContext | None = None,
+    grant: Grant | None = None,
+    ttl_seconds: int | None = None,
+    metadata: JsonObject | None = None,
+    labels: list[str] | None = None,
+    trace_id: str | None = None,
+    on_agent_start: LifecycleHook | None = None,
+    on_agent_end: LifecycleHook | None = None,
+) -> AsyncGenerator[CaracalContext, None]:
+    """Spawn a child agent session and bind it to the current task.
+
+    The child inherits its parent's effective authority by default: a child of a
+    narrowed parent carries that same narrowing forward (transitive
+    least-privilege), while a child of a root parent runs under full application
+    authority. Pass ``grant=Grant.narrow([...])`` to issue a bounded delegation
+    edge so the child holds only a subset. ``parent_ctx`` overrides the bound
+    :func:`current` lookup; pass it explicitly when the orchestrator owns the
+    parent context but the spawn runs on a different task (asyncio TaskGroup,
+    thread pool, framework worker) where the parent's contextvar is not visible.
+
+    Spawn scopes bind via a contextvar and must nest: exit them in reverse order
+    of entry on any given task. Cleanup terminates the session with a fresh
+    bearer from ``token_source`` when one is provided, so a token that expired
+    while the body ran cannot strand the session.
+    """
+    session = await _establish_session(
+        coordinator=coordinator,
+        zone_id=zone_id,
+        application_id=application_id,
+        subject_token=subject_token,
+        token_source=token_source,
+        invalidate=invalidate,
+        subject_session_id=subject_session_id,
+        parent_id=parent_id,
+        parent_ctx=parent_ctx,
+        grant=grant,
+        ttl_seconds=ttl_seconds,
+        metadata=metadata,
+        labels=labels,
+        trace_id=trace_id,
+    )
+    ctx = session.ctx
 
     token = None
     started = False
@@ -261,23 +379,28 @@ async def spawn(
             await _terminate_shielded(
                 coordinator,
                 zone_id,
-                res.agent_session_id,
+                session.agent_session_id,
                 token_source=token_source,
-                fallback_token=bearer,
+                fallback_token=session.subject_token,
             )
 
 
 @dataclass
 class ServiceAgent:
     """Handle for a long-lived service agent session. Unlike :func:`spawn`,
-    a service session is not terminated automatically: the holder must
-    :meth:`heartbeat` to keep its lease and :meth:`aclose` to retire it.
+    a service session is not terminated automatically: a background task
+    renews the lease by default and the holder retires the session with
+    :meth:`aclose`.
 
-    Pass ``heartbeat_interval`` to :func:`spawn_service` to have the handle
-    renew its own lease from an independent background task. The renewal runs
-    on its own loop iteration, so the lease keeps advancing even while the
-    calling coroutine is awaiting a long provider/resource stream. A transient
-    renewal error is logged and retried on the next tick rather than raised."""
+    With ``heartbeat_interval`` unset the renewal cadence is derived from the
+    server lease (renewing at roughly a third of the remaining lease, with
+    jitter); a positive value fixes the cadence, and zero or a negative value
+    disables the background task, leaving the lease to manual
+    :meth:`heartbeat` calls. The renewal runs on its own loop iteration, so
+    the lease keeps advancing even while the calling coroutine is awaiting a
+    long provider/resource stream. A transient renewal error is logged and
+    retried; if the coordinator reports the session permanently gone the task
+    stops and ``on_lease_lost`` fires once."""
 
     coordinator: CoordinatorClient
     subject_token: str
@@ -286,6 +409,8 @@ class ServiceAgent:
     status: str = "healthy"
     token_source: TokenSource | None = None
     invalidate: Callable[[], None] | None = None
+    heartbeat_deadline_at: str | None = None
+    on_lease_lost: Callable[[BaseException], None] | None = None
     _auto_task: asyncio.Task[None] | None = field(
         default=None, init=False, repr=False, compare=False
     )
@@ -300,42 +425,69 @@ class ServiceAgent:
 
     async def heartbeat(self, status: str = "healthy") -> None:
         try:
-            await heartbeat_agent(
+            res = await heartbeat_agent(
                 self.coordinator,
                 await self._bearer(),
                 self.context.zone_id,
                 self.context.agent_session_id,
                 status,
             )
-        except httpx.HTTPStatusError as exc:
+        except CoordinatorError as exc:
             # A cached token can be rejected before its exp (server-side
             # session revocation after a credential rotation); force one
             # refresh and retry so the lease survives the rotation.
-            if exc.response.status_code != 401 or self.invalidate is None:
+            if exc.status != 401 or self.invalidate is None:
                 raise
             self.invalidate()
-            await heartbeat_agent(
+            res = await heartbeat_agent(
                 self.coordinator,
                 await self._bearer(),
                 self.context.zone_id,
                 self.context.agent_session_id,
                 status,
             )
+        if res.heartbeat_deadline_at:
+            self.heartbeat_deadline_at = res.heartbeat_deadline_at
 
     def _start_auto_heartbeat(self) -> None:
-        if self.heartbeat_interval is None or self._auto_task is not None:
+        if self._closed or self._auto_task is not None:
+            return
+        if self.heartbeat_interval is not None and self.heartbeat_interval <= 0:
             return
         self._auto_task = asyncio.create_task(self._auto_heartbeat_loop())
 
+    def _next_delay(self) -> float:
+        if self.heartbeat_interval is not None:
+            return self.heartbeat_interval
+        jitter = 0.9 + random.random() * 0.2
+        deadline = _parse_deadline(self.heartbeat_deadline_at)
+        if deadline is None:
+            return _FALLBACK_AUTO_HEARTBEAT * jitter
+        remaining = deadline - time.time()
+        return (
+            min(max(remaining / 3, _MIN_AUTO_HEARTBEAT), _MAX_AUTO_HEARTBEAT) * jitter
+        )
+
     async def _auto_heartbeat_loop(self) -> None:
-        assert self.heartbeat_interval is not None
         while True:
-            await asyncio.sleep(self.heartbeat_interval)
+            await asyncio.sleep(self._next_delay())
             try:
                 await self.heartbeat(self.status)
             except asyncio.CancelledError:
                 raise
-            except Exception:
+            except Exception as exc:
+                if _is_gone(exc):
+                    # The coordinator no longer holds the session live
+                    # (terminated or lease-reaped); further beats can never
+                    # revive it.
+                    logger.warning(
+                        "lease lost for agent %s; auto-heartbeat stopped",
+                        self.context.agent_session_id,
+                        exc_info=True,
+                    )
+                    if self.on_lease_lost is not None:
+                        self.on_lease_lost(exc)
+                    return
                 logger.warning(
                     "auto-heartbeat failed for agent %s; retrying next tick",
                     self.context.agent_session_id,
@@ -357,6 +509,7 @@ class ServiceAgent:
             self.context.agent_session_id,
             token_source=self.token_source,
             fallback_token=self.subject_token,
+            propagate=True,
         )
 
     async def __aenter__(self) -> ServiceAgent:
@@ -384,107 +537,42 @@ async def spawn_service(
     labels: list[str] | None = None,
     trace_id: str | None = None,
     heartbeat_interval: float | None = None,
+    on_lease_lost: Callable[[BaseException], None] | None = None,
     on_agent_start: LifecycleHook | None = None,
 ) -> ServiceAgent:
     """Spawn a long-lived service agent session and return a handle the caller
-    owns. The session carries a heartbeat lease; renew it with
-    :meth:`ServiceAgent.heartbeat` and retire it with :meth:`ServiceAgent.aclose`.
+    owns. A background task renews the heartbeat lease by default; retire the
+    session with :meth:`ServiceAgent.aclose`.
 
     Authority follows the same model as :func:`spawn`: the session inherits its
     parent's effective authority by default, and ``grant=Grant.narrow([...])``
     issues a bounded delegation edge so the handle holds only a subset.
 
-    Pass ``heartbeat_interval`` (seconds, well below the server lease) to renew
-    the lease automatically from a background task - the lease keeps advancing
-    even while the caller is blocked on a long provider/resource stream. With
-    ``token_source`` set, every lease renewal and the final terminate resolve a
-    fresh bearer, so the handle outlives the token minted at spawn."""
-    grant = grant or Grant.inherit()
-    parent = parent_ctx if parent_ctx is not None else current()
-    parent_agent_session_id = parent_id or (parent.agent_session_id if parent else None)
-
-    inherit_parent_edge_id = (
-        parent.delegation_edge_id
-        if (
-            grant.mode == "inherit"
-            and parent is not None
-            and parent.agent_session_id
-            and parent.delegation_edge_id
-            and application_id == parent.application_id
-        )
-        else None
-    )
-
-    res = await spawn_agent(
-        coordinator,
-        subject_token,
-        SpawnRequest(
-            zone_id=zone_id,
-            application_id=application_id,
-            subject_session_id=subject_session_id,
-            parent_id=parent_agent_session_id,
-            lifecycle=Lifecycle.SERVICE,
-            ttl_seconds=ttl_seconds,
-            metadata=metadata,
-            labels=labels,
-            inherit_parent_edge_id=inherit_parent_edge_id,
-        ),
-    )
-
-    delegation_edge_id: str | None = res.delegation_edge_id
-    hop = (
-        parent.hop + 1
-        if (delegation_edge_id is not None and parent is not None)
-        else (parent.hop if parent else 0)
-    )
-    try:
-        if grant.mode == "narrow":
-            if parent is None or not parent.agent_session_id:
-                raise RuntimeError(
-                    "grant=narrow requires an active parent agent session"
-                )
-            deleg = await create_delegation(
-                coordinator,
-                parent.subject_token,
-                DelegationRequest(
-                    zone_id=zone_id,
-                    issuer_application_id=parent.application_id,
-                    source_session_id=parent.agent_session_id,
-                    target_session_id=res.agent_session_id,
-                    receiver_application_id=application_id,
-                    parent_edge_id=parent.delegation_edge_id,
-                    resource_id=grant.resource_id,
-                    scopes=list(grant.scopes),
-                    constraints=grant.constraints,
-                    ttl_seconds=grant.ttl_seconds,
-                ),
-            )
-            delegation_edge_id = deleg.delegation_edge_id
-            hop = parent.hop + 1
-    except (asyncio.CancelledError, Exception):
-        await _terminate_shielded(
-            coordinator,
-            zone_id,
-            res.agent_session_id,
-            token_source=token_source,
-            fallback_token=subject_token,
-        )
-        raise
-
-    ctx = CaracalContext(
-        subject_token=subject_token,
+    Leave ``heartbeat_interval`` unset to derive the renewal cadence from the
+    server lease; pass a positive value to fix it, or zero to disable the
+    background task and renew with :meth:`ServiceAgent.heartbeat` manually.
+    ``on_lease_lost`` fires once if the coordinator reports the session
+    permanently gone. With ``token_source`` set, every lease renewal and the
+    final terminate resolve a fresh bearer, so the handle outlives the token
+    minted at spawn."""
+    session = await _establish_session(
+        coordinator=coordinator,
         zone_id=zone_id,
         application_id=application_id,
-        agent_session_id=res.agent_session_id,
-        delegation_edge_id=delegation_edge_id,
-        parent_edge_id=parent.delegation_edge_id if parent else None,
-        session_id=subject_session_id or (parent.session_id if parent else None),
-        trace_id=trace_id or (parent.trace_id if parent else None),
-        trace_flags=parent.trace_flags if parent else None,
-        trace_state=parent.trace_state if parent else None,
-        baggage=parent.baggage if parent else (),
-        hop=hop,
+        subject_token=subject_token,
+        token_source=token_source,
+        invalidate=invalidate,
+        subject_session_id=subject_session_id,
+        parent_id=parent_id,
+        parent_ctx=parent_ctx,
+        grant=grant,
+        ttl_seconds=ttl_seconds,
+        metadata=metadata,
+        labels=labels,
+        trace_id=trace_id,
+        lifecycle=Lifecycle.SERVICE,
     )
+    ctx = session.ctx
     if on_agent_start is not None:
         try:
             await on_agent_start(ctx)
@@ -492,18 +580,20 @@ async def spawn_service(
             await _terminate_shielded(
                 coordinator,
                 zone_id,
-                res.agent_session_id,
+                session.agent_session_id,
                 token_source=token_source,
-                fallback_token=subject_token,
+                fallback_token=session.subject_token,
             )
             raise
     agent = ServiceAgent(
         coordinator=coordinator,
-        subject_token=subject_token,
+        subject_token=session.subject_token,
         context=ctx,
         heartbeat_interval=heartbeat_interval,
         token_source=token_source,
         invalidate=invalidate,
+        heartbeat_deadline_at=session.heartbeat_deadline_at,
+        on_lease_lost=on_lease_lost,
     )
     agent._start_auto_heartbeat()
     return agent

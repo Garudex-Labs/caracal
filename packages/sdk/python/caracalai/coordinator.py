@@ -9,9 +9,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
+from urllib.parse import quote
 
 import httpx
 
+from .errors import CoordinatorError
 from .json_types import JsonObject, JsonValue
 
 
@@ -24,19 +26,41 @@ class Lifecycle(StrEnum):
 class CoordinatorClient:
     base_url: str
     timeout: float = 10.0
-    _client: httpx.AsyncClient | None = field(default=None, repr=False)
+    http_client: httpx.AsyncClient | None = field(default=None, repr=False)
 
     def _http(self) -> httpx.AsyncClient:
-        if self._client is None:
-            self._client = httpx.AsyncClient(timeout=self.timeout)
-        return self._client
+        if self.http_client is None:
+            self.http_client = httpx.AsyncClient(timeout=self.timeout)
+        return self.http_client
 
     async def aclose(self) -> None:
         """Close the lazy HTTP client. Idempotent and safe to call from FastAPI
         lifespan shutdown."""
-        if self._client is not None:
-            await self._client.aclose()
-            self._client = None
+        if self.http_client is not None:
+            await self.http_client.aclose()
+            self.http_client = None
+
+
+async def _call(
+    client: CoordinatorClient,
+    method: str,
+    path: str,
+    bearer: str,
+    json_body: dict[str, JsonValue] | None = None,
+    headers: dict[str, str] | None = None,
+) -> httpx.Response:
+    request_headers = {"authorization": f"Bearer {bearer}"}
+    if headers:
+        request_headers.update(headers)
+    resp = await client._http().request(
+        method,
+        client.base_url.rstrip("/") + path,
+        json=json_body,
+        headers=request_headers,
+    )
+    if resp.status_code >= 300:
+        raise CoordinatorError(method, path, resp.status_code, resp.text)
+    return resp
 
 
 @dataclass
@@ -89,6 +113,7 @@ class SpawnRequest:
 class SpawnResponse:
     agent_session_id: str
     delegation_edge_id: str | None = None
+    heartbeat_deadline_at: str | None = None
 
 
 @dataclass
@@ -108,6 +133,12 @@ class DelegationRequest:
 @dataclass
 class DelegationResponse:
     delegation_edge_id: str
+
+
+@dataclass
+class HeartbeatResponse:
+    status: str | None = None
+    heartbeat_deadline_at: str | None = None
 
 
 async def spawn_agent(
@@ -131,34 +162,36 @@ async def spawn_agent(
     if req.inherit_parent_edge_id:
         body["inherit_parent_edge_id"] = req.inherit_parent_edge_id
 
-    headers = {"authorization": f"Bearer {bearer}"}
-    if req.idempotency_key:
-        headers["idempotency-key"] = req.idempotency_key
+    headers = {"idempotency-key": req.idempotency_key} if req.idempotency_key else None
 
-    resp = await client._http().post(
-        f"{client.base_url}/zones/{req.zone_id}/agents",
-        json=body,
+    resp = await _call(
+        client,
+        "POST",
+        f"/zones/{quote(req.zone_id, safe='')}/agents",
+        bearer,
+        json_body=body,
         headers=headers,
     )
-    resp.raise_for_status()
     data = resp.json()
     agent_session_id = data.get("agent_session_id")
     if not agent_session_id:
-        raise KeyError("agent_session_id")
+        raise ValueError("coordinator spawn response missing agent_session_id")
     return SpawnResponse(
         agent_session_id=agent_session_id,
         delegation_edge_id=data.get("delegation_edge_id"),
+        heartbeat_deadline_at=data.get("heartbeat_deadline_at"),
     )
 
 
 async def terminate_agent(
     client: CoordinatorClient, bearer: str, zone_id: str, agent_session_id: str
 ) -> None:
-    resp = await client._http().delete(
-        f"{client.base_url}/zones/{zone_id}/agents/{agent_session_id}",
-        headers={"authorization": f"Bearer {bearer}"},
+    await _call(
+        client,
+        "DELETE",
+        f"/zones/{quote(zone_id, safe='')}/agents/{quote(agent_session_id, safe='')}",
+        bearer,
     )
-    resp.raise_for_status()
 
 
 async def heartbeat_agent(
@@ -167,15 +200,24 @@ async def heartbeat_agent(
     zone_id: str,
     agent_session_id: str,
     status: str = "healthy",
-) -> None:
+) -> HeartbeatResponse:
     """Renew a service agent's lease. A service session is reaped by the
-    coordinator if it stops heartbeating before the lease expires."""
-    resp = await client._http().post(
-        f"{client.base_url}/zones/{zone_id}/agents/{agent_session_id}/heartbeat",
-        json={"status": status},
-        headers={"authorization": f"Bearer {bearer}"},
+    coordinator if it stops heartbeating before the lease expires; the
+    response reports the renewed deadline so callers can pace renewals."""
+    resp = await _call(
+        client,
+        "POST",
+        f"/zones/{quote(zone_id, safe='')}/agents/{quote(agent_session_id, safe='')}/heartbeat",
+        bearer,
+        json_body={"status": status},
     )
-    resp.raise_for_status()
+    if resp.status_code == 204 or not resp.content:
+        return HeartbeatResponse()
+    agent = resp.json().get("agent") or {}
+    return HeartbeatResponse(
+        status=agent.get("status"),
+        heartbeat_deadline_at=agent.get("heartbeat_deadline_at"),
+    )
 
 
 async def create_delegation(
@@ -197,14 +239,15 @@ async def create_delegation(
     if req.ttl_seconds:
         body["ttl_seconds"] = req.ttl_seconds
 
-    resp = await client._http().post(
-        f"{client.base_url}/zones/{req.zone_id}/delegations",
-        json=body,
-        headers={"authorization": f"Bearer {bearer}"},
+    resp = await _call(
+        client,
+        "POST",
+        f"/zones/{quote(req.zone_id, safe='')}/delegations",
+        bearer,
+        json_body=body,
     )
-    resp.raise_for_status()
     data = resp.json()
     delegation_edge_id = data.get("delegation_edge_id")
     if not delegation_edge_id:
-        raise KeyError("delegation_edge_id")
+        raise ValueError("coordinator delegation response missing delegation_edge_id")
     return DelegationResponse(delegation_edge_id=delegation_edge_id)
