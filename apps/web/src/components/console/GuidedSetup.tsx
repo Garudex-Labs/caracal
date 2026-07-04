@@ -180,7 +180,7 @@ export function GuidedSetup() {
         details: (
           <Fields
             items={[
-              { name: "Name", hint: "a label for the workload, e.g. Son of Anton." },
+              { name: "Name", hint: "a label for the agent, e.g. Son of Anton." },
               { name: "Traits", hint: "optional tags; leave empty to start." },
             ]}
           />
