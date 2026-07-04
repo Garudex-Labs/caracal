@@ -3,23 +3,23 @@ title: Run an Agent with caracal run
 description: Launch a workload with console-managed credential bindings injected as environment variables.
 ---
 
-`caracal run` starts a local subprocess with scoped, short-lived credentials injected as environment variables. The workload carries only its application identity; the credential bindings live in the web console. Use it for development, demos, and controlled local runs.
+`caracal run` starts a local subprocess with scoped, short-lived credentials injected as environment variables. The workload carries only its workload ID and secret; the credential bindings live in the web console. Use it for development, demos, and controlled local runs.
 
 ## Prepare the workload
 
 1. Run `caracal up`.
-2. Sign in to the web console and use **Guided setup** to create the zone, application, resource, and policy.
-3. Store the application's one-time client secret in the owner-only file at `<Caracal config dir>/runtime/<application_id>/client-secret`, or export `CARACAL_APP_CLIENT_SECRET`.
-4. On the console's **Run** page, select the workload and bind an environment variable to each resource it needs. The page then shows the exact launch command and whether the Gateway is required. See [Configure Workloads](/runtime-console/config-file/).
+2. Sign in to the web console and use **Guided setup** to create the zone, provider, resource, and policy.
+3. On the console's **Launcher** page, create a workload. Store its one-time secret in the owner-only file at `<Caracal config dir>/runtime/<workload_id>/secret`, or export `CARACAL_WORKLOAD_SECRET`.
+4. On the same page, bind an environment variable to each resource the workload needs and select the scopes each credential should carry. The page then shows the exact launch commands. See [Configure Workloads](/runtime-console/config-file/).
 
 ## Run a command
 
 ```bash
-export CARACAL_APPLICATION_ID=<application_id>
+export CARACAL_WORKLOAD_ID=<workload_id>
 caracal run -- npm start
 ```
 
-The launcher fetches the application's run manifest from STS, exchanges each binding for a short-lived credential, and injects the results into the configured environment variables. The child environment is otherwise scrubbed: `CARACAL_*` configuration variables stay with the launcher, and only a small allowlist such as `PATH`, `HOME`, locale, and `XDG_*` directories is inherited. SDK-based children read their own profile from the default config path rather than from environment variables. Credentials are exchanged once at launch and never renewed; workloads that outlive the 15-minute TTL should use an SDK. See [Run Workloads](/runtime-console/runtime/) for the full contract.
+The launcher fetches the workload's launch bindings from STS, mints a short-lived credential for each binding under only its selected scopes, and injects the results into the configured environment variables. The child environment is otherwise scrubbed: `CARACAL_*` configuration variables stay with the launcher, and only a small allowlist such as `PATH`, `HOME`, locale, and `XDG_*` directories is inherited. Credentials are minted once at launch and never renewed; long-running workloads should use an SDK. If policy requires step-up approval for a binding, the launch pauses and emits an `approval_required` line on stderr until the challenge is decided. See [Run Workloads](/runtime-console/runtime/) for the full contract.
 
 ## Validate the run
 
@@ -34,10 +34,11 @@ The launcher fetches the application's run manifest from STS, exchanges each bin
 
 | Symptom | Fix |
 | --- | --- |
-| `workload identity is required to run a command` | Set `CARACAL_APPLICATION_ID` and a client secret source. |
-| `run manifest not configured` | Define launch bindings on the console's **Run** page. |
+| `workload identity not found` | Set `CARACAL_WORKLOAD_ID` and a workload secret source. |
+| `invalid workload credentials` | The workload ID or secret is wrong or was rotated; copy the current values from the **Launcher** page. |
+| `no credential bindings configured` | Define launch bindings for this workload on the console's **Launcher** page. |
 | Secret file rejected | Restrict file permissions and avoid setting both inline and file secrets. |
-| Gateway routing misses the resource | Point the workload's base URL for mandate-bound resources at the Gateway. |
+| Launch pauses on `approval_required` | Approve the step-up challenge in the web console, or adjust the policy tier. |
 | Request denied | Check policy-set activation, scopes, and audit diagnostics. |
 
 Related pages: [First Protected Call](/get-started/first-protected-call/), [Add SDK to Your App](/get-started/add-sdk-to-your-app/), and [Audit and Request Traces](/concepts/audit-ledger/).

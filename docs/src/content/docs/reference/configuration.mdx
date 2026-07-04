@@ -16,7 +16,7 @@ Caracal has three configuration domains:
 ```mermaid
 flowchart TD
   Need{What are you configuring?}
-  Need -->|caracal run launch| Identity[Workload identity env plus console Run bindings]
+  Need -->|caracal run launch| Identity[Workload identity env plus console Launcher bindings]
   Need -->|SDK credentials| Profile[SDK profile and CARACAL_CONFIG]
   Need -->|service behavior| Env[Service environment variables]
   Need -->|deployment shape| Deploy[Helm values or Compose files]
@@ -30,12 +30,12 @@ flowchart TD
 
 | Key | Meaning |
 | --- | --- |
-| `CARACAL_APPLICATION_ID` | Confidential application ID; required by `caracal run`. |
-| `CARACAL_APP_CLIENT_SECRET` | Inline local-development client secret. |
-| `CARACAL_APP_CLIENT_SECRET_FILE` | Cloud/custom mounted client-secret file path. |
+| `CARACAL_WORKLOAD_ID` | Workload ID from the console's Launcher page; required by `caracal run`. |
+| `CARACAL_WORKLOAD_SECRET` | Inline local-development workload secret. |
+| `CARACAL_WORKLOAD_SECRET_FILE` | Cloud/custom mounted workload-secret file path. |
 | `CARACAL_STS_URL` | Cloud/custom STS URL override. |
 
-Credential bindings, zone, TTL, and failure behavior come from the application's run manifest, authored in the web console. Local dev and stable launches can omit both secret variables and read the owner-only file at `<Caracal config dir>/runtime/<application_id>/client-secret`.
+Credential bindings, zone, scopes, and failure behavior come from the workload's launch bindings, authored in the web console. Local dev and stable launches can omit both secret variables and read the owner-only file at `<Caracal config dir>/runtime/<workload_id>/secret`.
 
 ## SDK Profile Fields
 

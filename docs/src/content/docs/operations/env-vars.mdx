@@ -107,17 +107,17 @@ The API service runs the Control plane in-process and powers the Caracal Operato
 
 These variables belong to `caracal run` and SDK profile loading, not to service deployment.
 
-`caracal run` reads only workload identity; its credential bindings come from the application's run manifest in the web console:
+`caracal run` reads only workload identity; its credential bindings come from the workload's launch bindings authored on the console's Launcher page:
 
 | Variable | Meaning |
 | --- | --- |
-| `CARACAL_APPLICATION_ID` | Confidential application ID. Required. |
-| `CARACAL_APP_CLIENT_SECRET` | Inline local-development client secret. |
-| `CARACAL_APP_CLIENT_SECRET_FILE` | Cloud/custom mounted client-secret file. |
-| `CARACAL_STS_URL` | Cloud/custom STS URL override for token exchange. |
+| `CARACAL_WORKLOAD_ID` | Workload ID from the Launcher page. Required. |
+| `CARACAL_WORKLOAD_SECRET` | Inline local-development workload secret. |
+| `CARACAL_WORKLOAD_SECRET_FILE` | Cloud/custom mounted workload-secret file. |
+| `CARACAL_STS_URL` | Cloud/custom STS URL override for credential minting. |
 
 Local dev and stable launches can omit both secret variables and read the
-owner-only file at `<Caracal config dir>/runtime/<application_id>/client-secret`.
+owner-only file at `<Caracal config dir>/runtime/<workload_id>/secret`.
 
 SDK profile loading reads:
 
