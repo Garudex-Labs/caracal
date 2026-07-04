@@ -51,6 +51,7 @@ import {
 } from '@caracalai/core'
 import { zonesRoutes } from './routes/zones.js'
 import { applicationsRoutes } from './routes/applications.js'
+import { workloadsRoutes } from './routes/workloads.js'
 import { resourcesRoutes } from './routes/resources.js'
 import { providersRoutes } from './routes/providers.js'
 import { policiesRoutes } from './routes/policies.js'
@@ -291,6 +292,7 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
 
   await app.register(zonesRoutes, { prefix: '/v1' })
   await app.register(applicationsRoutes, { prefix: '/v1' })
+  await app.register(workloadsRoutes, { prefix: '/v1' })
   await app.register(resourcesRoutes, { prefix: '/v1' })
   await app.register(providersRoutes, { prefix: '/v1' })
   await app.register(policiesRoutes, { prefix: '/v1' })
