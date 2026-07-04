@@ -21,6 +21,7 @@ import httpx
 
 from .context import (
     CaracalContext,
+    VerifiedClaims,
     _ctx_var,
     current,
     from_envelope,
@@ -35,6 +36,7 @@ from .envelope import (
     encode_envelope,
     to_headers,
 )
+from .errors import MissingTokenError
 from .json_types import JsonObject
 from .primitives import (
     Grant,
@@ -104,6 +106,15 @@ class CaracalConfig:
     def subject_token(self) -> str:
         if self._token_source is not None:
             return self._token_source()
+        assert self._static_token is not None
+        return self._static_token
+
+    async def asubject_token(self) -> str:
+        """Resolve the subject token without blocking the event loop: a token
+        source may perform a synchronous STS exchange, so it runs on a worker
+        thread."""
+        if self._token_source is not None:
+            return await asyncio.to_thread(self._token_source)
         assert self._static_token is not None
         return self._static_token
 
@@ -827,6 +838,7 @@ class Caracal:
         *,
         grant: Grant | None = None,
         ttl_seconds: int | None = None,
+        subject_session_id: str | None = None,
         parent_id: str | None = None,
         parent_ctx: CaracalContext | None = None,
         metadata: JsonObject | None = None,
@@ -847,12 +859,16 @@ class Caracal:
             else None
         )
 
+        subject_token = await self.config.asubject_token()
+
         def opener():
             return spawn(
                 coordinator=self.config.coordinator,
                 zone_id=self.config.zone_id,
                 application_id=self.config.application_id,
-                subject_token=self.config.subject_token,
+                subject_token=subject_token,
+                token_source=self.config._token_source,
+                subject_session_id=subject_session_id,
                 parent_id=parent_id,
                 parent_ctx=parent_ctx,
                 grant=grant,
@@ -876,6 +892,7 @@ class Caracal:
                 if exc.response.status_code != 401 or self.config.exchanger is None:
                     raise
                 self.config.exchanger.invalidate()
+                subject_token = await self.config.asubject_token()
                 ctx = await stack.enter_async_context(opener())
             yield ctx
 
@@ -884,6 +901,7 @@ class Caracal:
         *,
         grant: Grant | None = None,
         ttl_seconds: int | None = None,
+        subject_session_id: str | None = None,
         parent_id: str | None = None,
         parent_ctx: CaracalContext | None = None,
         metadata: JsonObject | None = None,
@@ -906,12 +924,22 @@ class Caracal:
             else None
         )
 
+        subject_token = await self.config.asubject_token()
+        invalidate = (
+            self.config.exchanger.invalidate
+            if self.config.exchanger is not None
+            else None
+        )
+
         def opener():
             return spawn_service(
                 coordinator=self.config.coordinator,
                 zone_id=self.config.zone_id,
                 application_id=self.config.application_id,
-                subject_token=self.config.subject_token,
+                subject_token=subject_token,
+                token_source=self.config._token_source,
+                invalidate=invalidate,
+                subject_session_id=subject_session_id,
                 parent_id=parent_id,
                 parent_ctx=parent_ctx,
                 grant=grant,
@@ -934,6 +962,7 @@ class Caracal:
             if exc.response.status_code != 401 or self.config.exchanger is None:
                 raise
             self.config.exchanger.invalidate()
+            subject_token = await self.config.asubject_token()
             return await opener()
 
     @asynccontextmanager
@@ -1028,19 +1057,39 @@ class Caracal:
             return None
 
         env = decode_envelope(get)
+        claims: VerifiedClaims | None = None
         if not env.subject_token:
             if not allow_root:
-                raise RuntimeError(
+                raise MissingTokenError(
                     "Caracal.bind_from_headers(): inbound request is missing a bearer token. "
                     "Pass allow_root=True only for trusted service-root ingress."
                 )
-            env.subject_token = self.config.subject_token
+            env.subject_token = await self.config.asubject_token()
         elif verifier is not None:
-            await verifier(env.subject_token)
+            claims = await verifier(env.subject_token)
+        if claims is not None:
+            if claims.agent_session_id is not None:
+                env.agent_session_id = claims.agent_session_id
+            if claims.delegation_edge_id is not None:
+                env.delegation_edge_id = claims.delegation_edge_id
+            if claims.parent_edge_id is not None:
+                env.parent_edge_id = claims.parent_edge_id
+            if claims.session_id is not None:
+                env.session_id = claims.session_id
+            if claims.hop is not None:
+                env.hop = claims.hop
         ctx = from_envelope(
             env,
-            zone_id=self.config.zone_id,
-            application_id=self.config.application_id,
+            zone_id=(
+                claims.zone_id
+                if claims is not None and claims.zone_id is not None
+                else self.config.zone_id
+            ),
+            application_id=(
+                claims.application_id
+                if claims is not None and claims.application_id is not None
+                else self.config.application_id
+            ),
         )
         token = _ctx_var.set(ctx)
         try:
@@ -1071,9 +1120,11 @@ class Caracal:
         Pass ``verifier`` to enforce at the boundary. The callable receives the
         bearer token and must raise on failure; back it with
         ``caracalai_identity.verify_token`` so the application sees a request
-        only after the mandate is proven. The SDK never inspects token internals
-        itself. This middleware is framework-agnostic and runs on any ASGI app
-        (FastAPI, Starlette, Quart, Django ASGI).
+        only after the mandate is proven. Return :class:`VerifiedClaims` from
+        the verifier to stamp token-proven attribution over the caller-supplied
+        envelope. The SDK never inspects token internals itself. This middleware
+        is framework-agnostic and runs on any ASGI app (FastAPI, Starlette,
+        Quart, Django ASGI).
 
         Install at module load: `app.add_middleware()` only registers middleware
         before Starlette/FastAPI startup, so this cannot be called from inside a
@@ -1179,11 +1230,8 @@ class Caracal:
             ) -> None:
                 if gateway_bound:
                     if token is None:
-                        token = (
-                            bound.subject_token
-                            if bound is not None
-                            else outer.config.subject_token
-                        )
+                        assert bound is not None
+                        token = bound.subject_token
                     request.headers["Authorization"] = f"Bearer {token}"
                 env = to_envelope(bound) if bound is not None else Envelope(hop=0)
                 encode_envelope(
@@ -1199,6 +1247,8 @@ class Caracal:
                     if resource is not None and scopes
                     else None
                 )
+                if token is None and gateway_bound and bound is None:
+                    token = outer.config.subject_token
                 self._finish(request, bound, gateway_bound, token)
                 yield request
 
@@ -1211,6 +1261,8 @@ class Caracal:
                     if resource is not None and scopes
                     else None
                 )
+                if token is None and gateway_bound and bound is None:
+                    token = await outer.config.asubject_token()
                 self._finish(request, bound, gateway_bound, token)
                 yield request
 
