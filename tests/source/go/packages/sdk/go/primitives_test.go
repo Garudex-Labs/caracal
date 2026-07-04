@@ -388,19 +388,19 @@ func TestDelegateRequiresActiveSession(t *testing.T) {
 	srv, _ := makeCoordinatorServer(t)
 	coord := &sdk.CoordinatorClient{BaseURL: srv.URL}
 
-	err := sdk.Delegate(context.Background(), sdk.DelegateInput{
+	_, err := sdk.Delegate(context.Background(), sdk.DelegateInput{
 		Coordinator:      coord,
 		ToAgentSessionID: "agent-2",
 		ToApplicationID:  "app-2",
 		Scopes:           []string{"tool:call"},
-	}, func(ctx context.Context) error { return nil })
+	})
 
 	if err == nil {
 		t.Fatal("expected error when no active agent session")
 	}
 }
 
-func TestDelegateIncrementsHopAndBindsEdge(t *testing.T) {
+func TestDelegateReturnsEdgeWithoutRebindingIssuer(t *testing.T) {
 	srv, _ := makeCoordinatorServer(t)
 	coord := &sdk.CoordinatorClient{BaseURL: srv.URL}
 
@@ -413,28 +413,55 @@ func TestDelegateIncrementsHopAndBindsEdge(t *testing.T) {
 	}
 	ctx := sdk.Bind(context.Background(), parent)
 
-	var child sdk.CaracalContext
-	err := sdk.Delegate(ctx, sdk.DelegateInput{
+	res, err := sdk.Delegate(ctx, sdk.DelegateInput{
 		Coordinator:      coord,
 		ToAgentSessionID: "agent-2",
 		ToApplicationID:  "app-2",
 		Scopes:           []string{"tool:call"},
-	}, func(ctx context.Context) error {
-		c, _ := sdk.Current(ctx)
-		child = c
-		return nil
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if child.DelegationEdgeID != "edge-1" {
-		t.Errorf("expected edge-1, got %q", child.DelegationEdgeID)
+	if res.DelegationEdgeID != "edge-1" {
+		t.Errorf("expected edge-1, got %q", res.DelegationEdgeID)
+	}
+	issuer, _ := sdk.Current(ctx)
+	if issuer.DelegationEdgeID != parent.DelegationEdgeID || issuer.Hop != parent.Hop {
+		t.Errorf("issuer context changed: %+v", issuer)
+	}
+}
+
+func TestAdoptDelegationDerivesReceiverContext(t *testing.T) {
+	receiver := sdk.CaracalContext{
+		SubjectToken:     "tok",
+		ZoneID:           "z",
+		ApplicationID:    "app-2",
+		AgentSessionID:   "agent-2",
+		DelegationEdgeID: "edge-own",
+		Hop:              1,
+	}
+	ctx := sdk.Bind(context.Background(), receiver)
+
+	adopted, err := sdk.AdoptDelegation(ctx, "edge-42")
+	if err != nil {
+		t.Fatal(err)
+	}
+	child, _ := sdk.Current(adopted)
+	if child.DelegationEdgeID != "edge-42" {
+		t.Errorf("expected edge-42, got %q", child.DelegationEdgeID)
+	}
+	if child.ParentEdgeID != "edge-own" {
+		t.Errorf("parent edge not threaded: %q", child.ParentEdgeID)
 	}
 	if child.Hop != 2 {
 		t.Errorf("expected hop 2, got %d", child.Hop)
 	}
-	if child.ParentEdgeID != parent.DelegationEdgeID {
-		t.Errorf("parent edge not threaded: %q vs %q", child.ParentEdgeID, parent.DelegationEdgeID)
+	if child.AgentSessionID != "agent-2" {
+		t.Errorf("receiver session changed: %q", child.AgentSessionID)
+	}
+
+	if _, err := sdk.AdoptDelegation(context.Background(), "edge-42"); err == nil {
+		t.Fatal("expected error without a bound Caracal context")
 	}
 }
 
@@ -446,7 +473,7 @@ func TestSpawnNarrowRequiresActiveParent(t *testing.T) {
 		ZoneID:        "z",
 		ApplicationID: "app-child",
 		SubjectToken:  "tok",
-		Grant:         sdk.GrantNarrow("tool:call"),
+		Grant:         sdk.GrantNarrow([]string{"tool:call"}),
 	}, func(ctx context.Context) error { return nil })
 	if err == nil {
 		t.Fatal("expected error without active parent")
@@ -464,7 +491,7 @@ func TestSpawnNarrowIssuesSpawnThenDelegation(t *testing.T) {
 	}, func(parentCtx context.Context) error {
 		return sdk.Spawn(parentCtx, sdk.SpawnInput{
 			Coordinator: coord, ZoneID: "z", ApplicationID: "app-child",
-			SubjectToken: "tok", Grant: sdk.GrantNarrow("tool:call"),
+			SubjectToken: "tok", Grant: sdk.GrantNarrow([]string{"tool:call"}),
 		}, func(ctx context.Context) error {
 			c, _ := sdk.Current(ctx)
 			child = c
@@ -552,8 +579,11 @@ func TestSpawnInheritCarriesParentEdgeForward(t *testing.T) {
 	if child.Hop != 2 {
 		t.Errorf("expected hop 2, got %d", child.Hop)
 	}
-	if len(bodies) != 1 || !strings.Contains(bodies[0], `"inherit_parent_edge_id":"edge-parent"`) {
-		t.Errorf("spawn body missing inherit_parent_edge_id: %v", bodies)
+	if len(bodies) != 1 || !strings.Contains(bodies[0], `"parent_authority":"inherit"`) {
+		t.Errorf("spawn body missing parent_authority inherit: %v", bodies)
+	}
+	if strings.Contains(bodies[0], "inherit_parent_edge_id") {
+		t.Errorf("spawn body should not carry a client-resolved edge id: %v", bodies)
 	}
 }
 
@@ -602,7 +632,10 @@ func TestSpawnInheritSkipsEdgeCrossApp(t *testing.T) {
 	if child.DelegationEdgeID != "" {
 		t.Errorf("expected no child edge cross-app, got %q", child.DelegationEdgeID)
 	}
-	if len(bodies) != 1 || strings.Contains(bodies[0], "inherit_parent_edge_id") {
-		t.Errorf("cross-app spawn should not request inherit edge: %v", bodies)
+	if len(bodies) != 1 || !strings.Contains(bodies[0], `"parent_authority":"inherit"`) {
+		t.Errorf("spawn body missing parent_authority inherit: %v", bodies)
+	}
+	if strings.Contains(bodies[0], "inherit_parent_edge_id") {
+		t.Errorf("cross-app spawn should not resolve an edge client-side: %v", bodies)
 	}
 }

@@ -29,6 +29,8 @@ const defaultCoordinatorURL = "http://localhost:4000"
 const defaultGatewayURL = "http://localhost:8081"
 
 // Caracal binds the four config values needed to integrate with Caracal.
+// DefaultTTLSeconds applies to task spawns only; a service session lives by
+// its heartbeat lease instead.
 type Caracal struct {
 	Coordinator       *CoordinatorClient
 	ZoneID            string
@@ -881,7 +883,8 @@ type SpawnOptions struct {
 }
 
 // Spawn spawns a child agent session and invokes fn with the bound context.
-// The child inherits this application's authority by default; set Options.Grant
+// By default the coordinator carries the parent's effective authority forward
+// by mirroring its active narrowing edge onto the child; set Options.Grant
 // to GrantNarrow(...) to issue a bounded delegation edge so the child holds
 // only a subset of scopes.
 func (c *Caracal) Spawn(ctx context.Context, fn func(context.Context) error, opts ...SpawnOptions) error {
@@ -948,13 +951,12 @@ func (c *Caracal) SpawnService(ctx context.Context, opts ...ServiceOptions) (*Se
 	if len(opts) > 0 {
 		o = opts[0]
 	}
-	ttl := o.TTLSeconds
-	if ttl == 0 {
-		ttl = c.DefaultTTLSeconds
-	}
-	var onStart LifecycleHook
+	var onStart, onEnd LifecycleHook
 	if len(c.agentStartHooks) > 0 {
 		onStart = func(cx context.Context, cc CaracalContext) error { return c.fire(c.agentStartHooks, cx, cc) }
+	}
+	if len(c.agentEndHooks) > 0 {
+		onEnd = func(cx context.Context, cc CaracalContext) error { return c.fire(c.agentEndHooks, cx, cc) }
 	}
 	subjectToken, err := c.rootToken(ctx)
 	if err != nil {
@@ -969,13 +971,14 @@ func (c *Caracal) SpawnService(ctx context.Context, opts ...ServiceOptions) (*Se
 		Invalidate:        c.invalidate,
 		ParentID:          o.ParentID,
 		Grant:             o.Grant,
-		TTLSeconds:        ttl,
+		TTLSeconds:        o.TTLSeconds,
 		Metadata:          o.Metadata,
 		Labels:            o.Labels,
 		TraceID:           o.TraceID,
 		HeartbeatInterval: o.HeartbeatInterval,
 		OnLeaseLost:       o.OnLeaseLost,
 		OnAgentStart:      onStart,
+		OnAgentEnd:        onEnd,
 	})
 }
 
@@ -988,8 +991,10 @@ type DelegateOptions struct {
 	TTLSeconds      int
 }
 
-// Delegate creates a delegation edge from the current session and runs fn under it.
-func (c *Caracal) Delegate(ctx context.Context, opts DelegateOptions, fn func(context.Context) error) error {
+// Delegate creates a delegation edge from the current session to a peer and
+// returns it. The caller's context is unchanged; hand the edge id to the
+// receiving session, which presents it with AdoptDelegation.
+func (c *Caracal) Delegate(ctx context.Context, opts DelegateOptions) (DelegationResponse, error) {
 	return Delegate(ctx, DelegateInput{
 		Coordinator:      c.Coordinator,
 		ToAgentSessionID: opts.To,
@@ -997,7 +1002,14 @@ func (c *Caracal) Delegate(ctx context.Context, opts DelegateOptions, fn func(co
 		Scopes:           opts.Scopes,
 		Constraints:      opts.Constraints,
 		TTLSeconds:       opts.TTLSeconds,
-	}, fn)
+	})
+}
+
+// AdoptDelegation derives a receiver context presenting the given delegation
+// edge and binds it: calls made under the returned context carry the edge's
+// bounded authority.
+func (c *Caracal) AdoptDelegation(ctx context.Context, delegationEdgeID string) (context.Context, error) {
+	return AdoptDelegation(ctx, delegationEdgeID)
 }
 
 // RootOptions controls explicit use of the application subject token when no
