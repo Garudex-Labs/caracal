@@ -309,6 +309,35 @@ func TestPersistBatchInvokesMetricHookAndSnapshot(t *testing.T) {
 	}
 }
 
+func TestPersistBatchRecordsMetricsWhenReplayDirSyncFails(t *testing.T) {
+	c, _, dir := newTestClient(t, nil, false)
+	var persisted atomic.Uint64
+	c.cfg.Metrics.OnReplayPersisted = func(n uint64) { persisted.Add(n) }
+
+	var syncCalled bool
+	c.syncReplayDir = func(got string) error {
+		syncCalled = true
+		if got != dir {
+			t.Fatalf("syncReplayDir got %q, want %q", got, dir)
+		}
+		return errors.New("dir sync unsupported")
+	}
+
+	if err := c.persistBatch([]Event{{ID: "ev-1"}, {ID: "ev-2"}}); err != nil {
+		t.Fatalf("persistBatch should retain written replay file metrics when dir sync fails: %v", err)
+	}
+	if !syncCalled {
+		t.Fatal("expected replay directory sync attempt")
+	}
+	if persisted.Load() != 2 || c.Snapshot().Persisted != 2 {
+		t.Fatalf("unexpected persisted metrics hook=%d snapshot=%d", persisted.Load(), c.Snapshot().Persisted)
+	}
+	stats := ReplayStatsForDir(dir, time.Now())
+	if stats.Files != 1 {
+		t.Fatalf("want one replay file, got %d", stats.Files)
+	}
+}
+
 func TestCloseReturnsContextErrorWhenFlushDoesNotFinish(t *testing.T) {
 	c, _, _ := newTestClient(t, nil, false)
 	c.done = make(chan struct{})
