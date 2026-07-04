@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 import httpx
 
-from caracalai.auth import ClientSecretExchanger
+from caracalai.auth import ClientCredentials, ClientSecretExchanger
 
 _RealClient = httpx.Client
 
@@ -44,9 +44,9 @@ class MultiResourceBodyRegression(unittest.TestCase):
         with patch("caracalai.auth.httpx.Client", factory):
             exchanger = ClientSecretExchanger(
                 sts_url="https://sts.example.com",
-                zone_id="zone-1",
-                application_id="app-1",
-                client_secret="secret",
+                credentials=lambda: ClientCredentials(
+                    zone_id="zone-1", application_id="app-1", client_secret="secret"
+                ),
                 resources=["urn:res:a", "urn:res:b", "urn:res:c"],
             )
             token = exchanger.get_token()
