@@ -5,10 +5,12 @@
  * Public surface of the Caracal SDK.
  */
 
-export { Caracal } from './client.js'
+export { Caracal, CredentialsUnavailableError } from './client.js'
 export type {
   CaracalConfig,
   CaracalEvent,
+  ClientCredentials,
+  CredentialsResolver,
   EventHook,
   SpawnOptions,
   ServiceOptions,

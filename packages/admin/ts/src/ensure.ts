@@ -6,6 +6,11 @@
 import type { AdminClient } from './client.js'
 import type { APIKeyProviderConfig, ProviderIdentifier, Resource, ResourceInput, ResourceOperationEnforcement } from './types.js'
 
+// The scope an owning application requests on its resource to bootstrap a governed mint
+// cycle. Declared automatically on every gateway-bound resource so no caller has to know
+// the invariant.
+const LIFECYCLE_SCOPE = 'agent:lifecycle'
+
 function sameStringSet(live: readonly string[] | undefined, desired: readonly string[]): boolean {
   const have = new Set(live ?? [])
   return have.size === desired.length && desired.every((value) => have.has(value))
@@ -99,10 +104,12 @@ export interface EnsureResourceInput {
 // Converges a resource to the given desired fields, creating it when absent and patching
 // it only on drift so a steady state never bumps caches keyed on the resource row. Fields
 // left undefined are not managed: they are excluded from both the drift comparison and the
-// patch, so a reconciler that owns only some fields never clobbers the rest. Returns the
-// live resource.
+// patch, so a reconciler that owns only some fields never clobbers the rest. A
+// gateway-bound resource always also carries agent:lifecycle, the scope its owner's
+// governed transport bootstraps with. Returns the live resource.
 export async function ensureResource(client: AdminClient, zoneId: string, input: EnsureResourceInput): Promise<Resource> {
-  const desired: Partial<ResourceInput> = { scopes: input.scopes }
+  const scopes = input.gateway_application_id && !input.scopes.includes(LIFECYCLE_SCOPE) ? [...input.scopes, LIFECYCLE_SCOPE] : input.scopes
+  const desired: Partial<ResourceInput> = { scopes }
   if (input.upstream_url !== undefined) desired.upstream_url = input.upstream_url
   if (input.credential_provider_id !== undefined) desired.credential_provider_id = input.credential_provider_id
   if (input.gateway_application_id !== undefined) desired.gateway_application_id = input.gateway_application_id
@@ -110,10 +117,10 @@ export async function ensureResource(client: AdminClient, zoneId: string, input:
   const resources = await client.resources.list(zoneId)
   const existing = resources.find((resource) => resource.identifier === input.identifier)
   if (!existing) {
-    return client.resources.create(zoneId, { name: input.name, identifier: input.identifier, ...desired, scopes: input.scopes })
+    return client.resources.create(zoneId, { name: input.name, identifier: input.identifier, ...desired, scopes })
   }
   const drifted =
-    !sameStringSet(existing.scopes, input.scopes) ||
+    !sameStringSet(existing.scopes, scopes) ||
     (desired.upstream_url !== undefined && existing.upstream_url !== desired.upstream_url) ||
     (desired.credential_provider_id !== undefined && existing.credential_provider_id !== desired.credential_provider_id) ||
     (desired.gateway_application_id !== undefined && existing.gateway_application_id !== desired.gateway_application_id) ||
@@ -168,4 +175,86 @@ export async function ensureActivePolicySet(client: AdminClient, zoneId: string,
     const version = await client.policySets.addVersion(zoneId, set.id, [{ policy_version_id: policyVersionId }])
     await client.policySets.activate(zoneId, set.id, version.version_id)
   }
+}
+
+// One data-plane grant: the application may mint the given scopes on the resource. role is
+// the agent label the zone's decision contract matches at mint and use time; it defaults to
+// the application id, the same default label the SDK's governed transport spawns with, so a
+// grant and its transport align without either naming a role. The first grant for a
+// resource names its owning application - the identity whose governed transport may
+// bootstrap on it; later grants for the same resource add roles only.
+export interface ResourceGrant {
+  applicationId: string
+  resourceIdentifier: string
+  scopes: string[]
+  role?: string
+}
+
+export interface EnsureGrantsInput {
+  grants: ResourceGrant[]
+  // The named policy and policy set carrying the grant document. Defaults suit a zone whose
+  // grants are owned by one reconciler; name them explicitly to keep several documents apart.
+  policyName?: string
+  setName?: string
+}
+
+const GRANT_POLICY_NAME = 'application-grants'
+const GRANT_POLICY_SET_NAME = 'application-grant-policy'
+
+// Authors the zone's grant data document: the platform decision contract reads app_ids and
+// grants to authorize data-plane exchanges, and this renders them so no caller ever touches
+// the document format. Deterministic - roles, resources, and scopes are sorted and rendered
+// as canonical JSON - so an unchanged grant set produces an identical document and the
+// reconciler adds no new policy version.
+export function authorGrantsDocument(grants: ResourceGrant[]): string {
+  const appIds: Record<string, string> = {}
+  const byResource = new Map<string, { application: string; roles: Record<string, string[]> }>()
+  for (const grant of grants) {
+    const role = grant.role ?? grant.applicationId
+    if (appIds[role] !== undefined && appIds[role] !== grant.applicationId) {
+      throw new Error(`grant role '${role}' is claimed by two applications`)
+    }
+    appIds[role] = grant.applicationId
+    const entry = byResource.get(grant.resourceIdentifier) ?? { application: role, roles: {} }
+    entry.roles[role] = [...new Set([...(entry.roles[role] ?? []), ...grant.scopes])].sort()
+    byResource.set(grant.resourceIdentifier, entry)
+  }
+  const sortedAppIds = Object.fromEntries(
+    Object.keys(appIds)
+      .sort()
+      .map((role) => [role, appIds[role]]),
+  )
+  const sortedGrants: Record<string, unknown> = {}
+  for (const identifier of [...byResource.keys()].sort()) {
+    const entry = byResource.get(identifier)!
+    const roles = Object.fromEntries(
+      Object.keys(entry.roles)
+        .sort()
+        .map((role) => [role, entry.roles[role]]),
+    )
+    sortedGrants[identifier] = { application: entry.application, roles }
+  }
+  return [
+    '# caracal:data-document',
+    'package caracal.authz',
+    'import rego.v1',
+    `app_ids := ${JSON.stringify(sortedAppIds)}`,
+    `grants := ${JSON.stringify(sortedGrants)}`,
+    '',
+  ].join('\n')
+}
+
+// Converges the zone's grant policy so each application may mint exactly the given scopes
+// on its resources. This owns the decision-contract data-document format end to end: pair
+// it with ensureResource and a governed transport and an application's authority is fully
+// declared without authoring policy text. With an empty grant set and no existing policy it
+// creates nothing; with an existing policy it converges the document to the (possibly
+// empty) set, revoking what is no longer granted.
+export async function ensureGrants(client: AdminClient, zoneId: string, input: EnsureGrantsInput): Promise<void> {
+  return ensureActivePolicySet(client, zoneId, {
+    policyName: input.policyName ?? GRANT_POLICY_NAME,
+    setName: input.setName ?? GRANT_POLICY_SET_NAME,
+    content: authorGrantsDocument(input.grants),
+    createWhenMissing: input.grants.length > 0,
+  })
 }

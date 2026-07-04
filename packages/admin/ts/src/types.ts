@@ -99,7 +99,8 @@ export interface ResourceInput {
   operation_enforcement?: ResourceOperationEnforcement
 }
 
-export type ProviderKind = 'none' | 'caracal_mandate' | 'oauth2_authorization_code' | 'oauth2_client_credentials' | 'api_key' | 'bearer_token'
+export type ProviderKind =
+  'none' | 'caracal_mandate' | 'oauth2_authorization_code' | 'oauth2_client_credentials' | 'api_key' | 'bearer_token'
 export type ProviderSecretConfigKey = 'client_secret' | 'private_key' | 'api_key' | 'bearer_token'
 export type OAuthClientAuthMethod = 'client_secret_basic' | 'client_secret_post' | 'private_key_jwt' | 'none'
 export type APIKeyAuthLocation = 'header' | 'query'
@@ -140,19 +141,20 @@ export interface OAuth2ClientCredentialsProviderConfig extends ProviderConfigBas
   token_params?: Record<string, string>
 }
 
-export type APIKeyProviderConfig = ProviderConfigBase & (
-  | {
-      auth_location?: 'header'
-      header_name: string
-      api_key?: string
-    }
-  | {
-      auth_location: 'query'
-      query_param_name: string
-      api_key?: string
-      auth_scheme?: never
-    }
-)
+export type APIKeyProviderConfig = ProviderConfigBase &
+  (
+    | {
+        auth_location?: 'header'
+        header_name: string
+        api_key?: string
+      }
+    | {
+        auth_location: 'query'
+        query_param_name: string
+        api_key?: string
+        auth_scheme?: never
+      }
+  )
 
 export interface BearerTokenProviderConfig extends ProviderConfigBase {
   bearer_token?: string
@@ -192,6 +194,7 @@ export interface Provider {
   kind: ProviderKind
   config_json: ProviderConfig
   secret_config_keys: ProviderSecretConfigKey[]
+  connectivity_failed_at: string | null
   created_at: string
   updated_at: string
 }
