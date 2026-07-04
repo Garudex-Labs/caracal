@@ -31,6 +31,9 @@ class CaracalContext:
     parent_edge_id: str | None = None
     session_id: str | None = None
     trace_id: str | None = None
+    trace_flags: str | None = None
+    trace_state: str | None = None
+    baggage: tuple[tuple[str, str], ...] = ()
     hop: int = 0
 
 
@@ -56,6 +59,9 @@ class CaracalContextPatch(TypedDict):
     parent_edge_id: NotRequired[str | None]
     session_id: NotRequired[str | None]
     trace_id: NotRequired[str | None]
+    trace_flags: NotRequired[str | None]
+    trace_state: NotRequired[str | None]
+    baggage: NotRequired[tuple[tuple[str, str], ...]]
     hop: NotRequired[int]
 
 
@@ -98,6 +104,9 @@ def to_envelope(ctx: CaracalContext) -> Envelope:
         parent_edge_id=ctx.parent_edge_id,
         session_id=ctx.session_id,
         trace_id=ctx.trace_id,
+        trace_flags=ctx.trace_flags,
+        trace_state=ctx.trace_state,
+        baggage=dict(ctx.baggage),
         hop=ctx.hop,
     )
 
@@ -119,6 +128,9 @@ def from_envelope(
         parent_edge_id=env.parent_edge_id,
         session_id=env.session_id,
         trace_id=env.trace_id,
+        trace_flags=env.trace_flags,
+        trace_state=env.trace_state,
+        baggage=tuple(sorted(env.baggage.items())),
         hop=env.hop,
     )
 

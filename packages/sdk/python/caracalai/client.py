@@ -28,7 +28,13 @@ from .context import (
 )
 from .auth import ClientSecretExchanger, TokenSource, _decode_jwt_exp
 from .coordinator import CoordinatorClient, DelegationConstraints
-from .envelope import decode_envelope, to_headers
+from .envelope import (
+    HEADER_AUTHORIZATION,
+    Envelope,
+    decode_envelope,
+    encode_envelope,
+    to_headers,
+)
 from .json_types import JsonObject
 from .primitives import (
     Grant,
@@ -999,10 +1005,12 @@ class Caracal:
                     "before fan-out, or pass `allow_root=True` to explicitly use "
                     "the application's service identity."
                 )
-            from .envelope import Envelope
-
-            return to_headers(Envelope(subject_token=self.config.subject_token, hop=0))
-        return to_headers(to_envelope(ctx))
+            out = to_headers(Envelope(hop=0))
+            out[HEADER_AUTHORIZATION] = f"Bearer {self.config.subject_token}"
+            return out
+        out = to_headers(to_envelope(ctx))
+        out[HEADER_AUTHORIZATION] = f"Bearer {ctx.subject_token}"
+        return out
 
     @asynccontextmanager
     async def bind_from_headers(
@@ -1010,6 +1018,7 @@ class Caracal:
         headers: Mapping[str, str],
         *,
         allow_root: bool = False,
+        verifier: TokenVerifier | None = None,
     ) -> AsyncGenerator[CaracalContext, None]:
         def get(name: str) -> str | None:
             lower = name.lower()
@@ -1026,6 +1035,8 @@ class Caracal:
                     "Pass allow_root=True only for trusted service-root ingress."
                 )
             env.subject_token = self.config.subject_token
+        elif verifier is not None:
+            await verifier(env.subject_token)
         ctx = from_envelope(
             env,
             zone_id=self.config.zone_id,
@@ -1135,35 +1146,38 @@ class Caracal:
 
             def _begin(
                 self, request: httpx.Request
-            ) -> tuple[CaracalContext | None, str | None]:
+            ) -> tuple[CaracalContext | None, str | None, bool]:
                 rewritten = outer._route_through_gateway(
                     request.url, request.headers.get("X-Caracal-Resource")
                 )
                 bound = ctx if ctx is not None else current()
                 resource = None
+                gateway_bound = False
                 if rewritten is not None:
                     request.url = httpx.URL(rewritten[0])
                     request.headers["host"] = request.url.host
                     request.headers["X-Caracal-Resource"] = rewritten[1]
                     resource = rewritten[1]
+                    gateway_bound = True
                 elif outer._targets_gateway(request.url):
                     resource = request.headers.get("X-Caracal-Resource")
-                if resource is not None and bound is None and not allow_root:
+                    gateway_bound = True
+                if bound is None and not allow_root:
                     raise RuntimeError(
-                        f"Caracal.{label}(): gateway-routed request fired with "
-                        "no CaracalContext bound. Bind a child context, pass "
-                        "`ctx=`, or opt in with `allow_root=True`."
+                        f"Caracal.{label}(): request fired with no CaracalContext "
+                        "bound. Bind a child context, pass `ctx=`, or opt in with "
+                        "`allow_root=True`."
                     )
-                return bound, resource
+                return bound, resource, gateway_bound
 
             def _finish(
                 self,
                 request: httpx.Request,
                 bound: CaracalContext | None,
-                resource: str | None,
+                gateway_bound: bool,
                 token: str | None,
             ) -> None:
-                if resource is not None:
+                if gateway_bound:
                     if token is None:
                         token = (
                             bound.subject_token
@@ -1171,22 +1185,25 @@ class Caracal:
                             else outer.config.subject_token
                         )
                     request.headers["Authorization"] = f"Bearer {token}"
-                for k, v in outer.headers(allow_root=allow_root, ctx=bound).items():
-                    if k not in request.headers:
-                        request.headers[k] = v
+                env = to_envelope(bound) if bound is not None else Envelope(hop=0)
+                encode_envelope(
+                    env,
+                    lambda n, v: request.headers.__setitem__(n, v),
+                    lambda n: request.headers.get(n),
+                )
 
             def sync_auth_flow(self, request: httpx.Request):
-                bound, resource = self._begin(request)
+                bound, resource, gateway_bound = self._begin(request)
                 token = (
                     outer.mint_mandate(resource, scopes, ctx=bound)
                     if resource is not None and scopes
                     else None
                 )
-                self._finish(request, bound, resource, token)
+                self._finish(request, bound, gateway_bound, token)
                 yield request
 
             async def async_auth_flow(self, request: httpx.Request):
-                bound, resource = self._begin(request)
+                bound, resource, gateway_bound = self._begin(request)
                 token = (
                     await asyncio.to_thread(
                         outer.mint_mandate, resource, scopes, ctx=bound
@@ -1194,7 +1211,7 @@ class Caracal:
                     if resource is not None and scopes
                     else None
                 )
-                self._finish(request, bound, resource, token)
+                self._finish(request, bound, gateway_bound, token)
                 yield request
 
         return _CaracalAuth()

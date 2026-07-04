@@ -180,6 +180,9 @@ async def spawn(
         parent_edge_id=parent.delegation_edge_id if parent else None,
         session_id=parent.session_id if parent else None,
         trace_id=trace_id or (parent.trace_id if parent else None),
+        trace_flags=parent.trace_flags if parent else None,
+        trace_state=parent.trace_state if parent else None,
+        baggage=parent.baggage if parent else (),
         hop=hop,
     )
 
@@ -375,6 +378,9 @@ async def spawn_service(
         parent_edge_id=parent.delegation_edge_id if parent else None,
         session_id=parent.session_id if parent else None,
         trace_id=trace_id or (parent.trace_id if parent else None),
+        trace_flags=parent.trace_flags if parent else None,
+        trace_state=parent.trace_state if parent else None,
+        baggage=parent.baggage if parent else (),
         hop=hop,
     )
     if on_agent_start is not None:
