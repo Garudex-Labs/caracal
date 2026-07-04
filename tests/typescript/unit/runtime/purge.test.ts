@@ -69,11 +69,11 @@ vi.mock('../../../../packages/engine/dist/index.js', async (importOriginal) => {
 })
 
 vi.mock('@caracalai/engine/runtime-config', () => ({
-  resolveRuntimeConfigPath: vi.fn(() => undefined),
+  defaultCaracalConfigDir: vi.fn(() => '/nonexistent-caracal-config'),
 }))
 
 vi.mock('../../../../packages/engine/dist/runtimeConfig.js', () => ({
-  resolveRuntimeConfigPath: vi.fn(() => undefined),
+  defaultCaracalConfigDir: vi.fn(() => '/nonexistent-caracal-config'),
 }))
 
 import { purgeCommand } from '../../../../apps/runtime/src/commands/purge.ts'

@@ -48,8 +48,20 @@ interface SpawnStage {
   } | null
   insert?: { rows: unknown[] }
   withTopology?: boolean
-  inheritEdge?: 'active' | 'inactive'
+  inheritEdge?: 'active' | 'inactive' | 'lapsed' | 'ambiguous'
   outbox?: boolean
+}
+
+function inheritEdgeRow(id: string, live: boolean): Record<string, unknown> {
+  return {
+    id,
+    receiver_application_id: 'app-1',
+    resource_id: null,
+    scopes: ['payments:read'],
+    constraints_json: {},
+    expires_at: '2099-01-01T00:00:00.000Z',
+    live,
+  }
 }
 
 function spawnClient(stages: SpawnStage): { query: ReturnType<typeof vi.fn>; release: ReturnType<typeof vi.fn> } {
@@ -60,23 +72,21 @@ function spawnClient(stages: SpawnStage): { query: ReturnType<typeof vi.fn>; rel
   if (stages.insert) responses.push(stages.insert)
   if (stages.withTopology) responses.push({ rows: [] }, { rows: [] })
   if (stages.inheritEdge === 'active') {
-    responses.push({
-      rows: [
-        {
-          id: 'edge-parent',
-          receiver_application_id: 'app-1',
-          resource_id: null,
-          scopes: ['payments:read'],
-          constraints_json: {},
-          expires_at: '2099-01-01T00:00:00.000Z',
-        },
-      ],
-    })
+    responses.push({ rows: [inheritEdgeRow('edge-parent', true)] })
     responses.push({ rows: [] })
     responses.push({ rows: [{ epoch: '1' }] })
     responses.push({ rows: [] })
   }
   if (stages.inheritEdge === 'inactive') {
+    responses.push({ rows: [] })
+  }
+  if (stages.inheritEdge === 'lapsed') {
+    responses.push({ rows: [inheritEdgeRow('edge-lapsed', false)] })
+  }
+  if (stages.inheritEdge === 'ambiguous') {
+    responses.push({ rows: [inheritEdgeRow('edge-a', true), inheritEdgeRow('edge-b', true)] })
+  }
+  if (stages.insert && stages.parent && !stages.inheritEdge) {
     responses.push({ rows: [] })
   }
   if (stages.outbox) responses.push({ rows: [] })
@@ -316,6 +326,9 @@ describe('POST /v1/zones/:zoneId/agents: spawn', () => {
     expect(client.query).toHaveBeenCalledWith(expect.stringContaining('pg_advisory_xact_lock'), [
       expect.stringContaining('coordinator:agent_spawn:z1'),
     ])
+    const countCall = client.query.mock.calls.find((call) => String(call[0]).includes('COUNT(*) FILTER'))
+    expect(String(countCall?.[0])).toContain("CASE WHEN lifecycle = 'service'")
+    expect(String(countCall?.[0])).toContain("status = 'suspended' OR heartbeat_deadline_at > now()")
     const outboxCall = client.query.mock.calls.find((call) => String(call[0]).includes('caracal_outbox'))
     expect(outboxCall?.[1]?.[1]).toBe('caracal.agents.lifecycle')
   })
@@ -342,7 +355,40 @@ describe('POST /v1/zones/:zoneId/agents: spawn', () => {
     expect(client.query).toHaveBeenCalledWith(expect.stringContaining('UPDATE agent_sessions SET child_count'), ['parent-1'])
   })
 
-  it('mirrors the parent narrowing edge onto an inherit child and returns its edge id', async () => {
+  it('mirrors the parent narrowing edge onto an inherit child without an explicit edge id', async () => {
+    const { app, db } = buildApp()
+    const client = spawnClient({
+      refs: { application_exists: true, session_exists: true, registration_method: 'managed' },
+      count: { app_n: '0', zone_n: '0' },
+      parent: { depth: 1, child_count: 0, max_children: 10, application_id: 'app-1', registration_method: 'managed' },
+      insert: { rows: [{ agent_session_id: 'agent-child', zone_id: 'z1', application_id: 'app-1', parent_id: 'parent-1' }] },
+      withTopology: true,
+      inheritEdge: 'active',
+      outbox: true,
+    })
+    db.connect.mockResolvedValueOnce(client)
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/agents',
+      payload: { application_id: 'app-1', subject_session_id: 'sid-1', parent_id: 'parent-1' },
+    })
+    expect(res.statusCode).toBe(201)
+    const body = JSON.parse(res.body)
+    expect(typeof body.delegation_edge_id).toBe('string')
+    expect(body.delegation_edge_id.length).toBeGreaterThan(0)
+    const edgeInsert = client.query.mock.calls.find((call) => String(call[0]).includes('INSERT INTO delegation_edges'))
+    expect(edgeInsert).toBeDefined()
+    expect(edgeInsert?.[1]?.[2]).toBe('parent-1')
+    expect(typeof edgeInsert?.[1]?.[3]).toBe('string')
+    expect(edgeInsert?.[1]?.[8]).toEqual(['payments:read'])
+    const invalidate = client.query.mock.calls.find(
+      (call) => String(call[0]).includes('caracal_outbox') && call[1]?.[1] === 'caracal.delegations.invalidate',
+    )
+    expect(invalidate).toBeDefined()
+  })
+
+  it('mirrors the explicitly requested parent edge onto an inherit child', async () => {
     const { app, db } = buildApp()
     const client = spawnClient({
       refs: { application_exists: true, session_exists: true, registration_method: 'managed' },
@@ -363,16 +409,10 @@ describe('POST /v1/zones/:zoneId/agents: spawn', () => {
     expect(res.statusCode).toBe(201)
     const body = JSON.parse(res.body)
     expect(typeof body.delegation_edge_id).toBe('string')
-    expect(body.delegation_edge_id.length).toBeGreaterThan(0)
+    const edgeSelect = client.query.mock.calls.find((call) => String(call[0]).includes('FROM delegation_edges'))
+    expect(edgeSelect?.[1]?.[3]).toBe('edge-parent')
     const edgeInsert = client.query.mock.calls.find((call) => String(call[0]).includes('INSERT INTO delegation_edges'))
-    expect(edgeInsert).toBeDefined()
-    expect(edgeInsert?.[1]?.[2]).toBe('parent-1')
-    expect(typeof edgeInsert?.[1]?.[3]).toBe('string')
     expect(edgeInsert?.[1]?.[8]).toEqual(['payments:read'])
-    const invalidate = client.query.mock.calls.find(
-      (call) => String(call[0]).includes('caracal_outbox') && call[1]?.[1] === 'caracal.delegations.invalidate',
-    )
-    expect(invalidate).toBeDefined()
   })
 
   it('fails closed with 409 when the requested inherit parent edge is not active', async () => {
@@ -397,6 +437,71 @@ describe('POST /v1/zones/:zoneId/agents: spawn', () => {
     expect(client.query).toHaveBeenCalledWith('ROLLBACK')
     const edgeInsert = client.query.mock.calls.find((call) => String(call[0]).includes('INSERT INTO delegation_edges'))
     expect(edgeInsert).toBeUndefined()
+  })
+
+  it('fails closed with 409 when the parent narrowing has lapsed', async () => {
+    const { app, db } = buildApp()
+    const client = spawnClient({
+      refs: { application_exists: true, session_exists: true, registration_method: 'managed' },
+      count: { app_n: '0', zone_n: '0' },
+      parent: { depth: 1, child_count: 0, max_children: 10, application_id: 'app-1', registration_method: 'managed' },
+      insert: { rows: [{ agent_session_id: 'agent-child', zone_id: 'z1', application_id: 'app-1', parent_id: 'parent-1' }] },
+      withTopology: true,
+      inheritEdge: 'lapsed',
+    })
+    db.connect.mockResolvedValueOnce(client)
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/agents',
+      payload: { application_id: 'app-1', subject_session_id: 'sid-1', parent_id: 'parent-1' },
+    })
+    expect(res.statusCode).toBe(409)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'inherit_parent_edge_not_active' })
+  })
+
+  it('demands an explicit edge id when several parent edges are live', async () => {
+    const { app, db } = buildApp()
+    const client = spawnClient({
+      refs: { application_exists: true, session_exists: true, registration_method: 'managed' },
+      count: { app_n: '0', zone_n: '0' },
+      parent: { depth: 1, child_count: 0, max_children: 10, application_id: 'app-1', registration_method: 'managed' },
+      insert: { rows: [{ agent_session_id: 'agent-child', zone_id: 'z1', application_id: 'app-1', parent_id: 'parent-1' }] },
+      withTopology: true,
+      inheritEdge: 'ambiguous',
+    })
+    db.connect.mockResolvedValueOnce(client)
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/agents',
+      payload: { application_id: 'app-1', subject_session_id: 'sid-1', parent_id: 'parent-1' },
+    })
+    expect(res.statusCode).toBe(409)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'inherit_parent_edge_ambiguous' })
+  })
+
+  it('skips edge inheritance entirely when parent_authority is none', async () => {
+    const { app, db } = buildApp()
+    const client = spawnClient({
+      refs: { application_exists: true, session_exists: true, registration_method: 'managed' },
+      count: { app_n: '0', zone_n: '0' },
+      parent: { depth: 1, child_count: 0, max_children: 10, application_id: 'app-1', registration_method: 'managed' },
+      insert: { rows: [{ agent_session_id: 'agent-child', zone_id: 'z1', application_id: 'app-1', parent_id: 'parent-1' }] },
+      withTopology: true,
+      outbox: true,
+    })
+    db.connect.mockResolvedValueOnce(client)
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/agents',
+      payload: { application_id: 'app-1', subject_session_id: 'sid-1', parent_id: 'parent-1', parent_authority: 'none' },
+    })
+    expect(res.statusCode).toBe(201)
+    expect(JSON.parse(res.body).delegation_edge_id).toBeNull()
+    const edgeQuery = client.query.mock.calls.find((call) => String(call[0]).includes('FROM delegation_edges'))
+    expect(edgeQuery).toBeUndefined()
   })
 
   it('rolls back and releases the connection when spawn insert fails', async () => {
@@ -622,6 +727,7 @@ describe('DELETE /v1/zones/:zoneId/agents/:id: cascade terminate', () => {
             { id: 'agent-child', subject_session_id: 'sid-own', parent_id: 'agent-root' },
           ],
         })
+        .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [{ subject_session_id: 'sid-shared' }] })
         .mockResolvedValue({ rows: [] }),
       release: vi.fn(),
@@ -635,6 +741,45 @@ describe('DELETE /v1/zones/:zoneId/agents/:id: cascade terminate', () => {
     const dedupeKeys = params.filter((_, i) => i % 4 === 2)
     expect(dedupeKeys).toEqual(expect.arrayContaining(['terminate:agent-root', 'terminate:agent-child', 'agent_terminate:agent-child']))
     expect(dedupeKeys).not.toContain('agent_terminate:agent-root')
+  })
+
+  it('revokes delegation edges touching the terminated subtree and invalidates them', async () => {
+    const { app, db } = buildApp()
+    const client = {
+      query: vi
+        .fn()
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [{ application_id: 'app-1' }] })
+        .mockResolvedValueOnce({
+          rows: [
+            { id: 'agent-root', subject_session_id: 'sid-root', parent_id: null },
+            { id: 'agent-child', subject_session_id: 'sid-child', parent_id: 'agent-root' },
+          ],
+        })
+        .mockResolvedValueOnce({ rows: [{ id: 'edge-1' }, { id: 'edge-2' }] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [{ epoch: '7' }] })
+        .mockResolvedValue({ rows: [] }),
+      release: vi.fn(),
+    }
+    db.connect.mockResolvedValueOnce(client)
+    await app.ready()
+    const res = await app.inject({ method: 'DELETE', url: '/v1/zones/z1/agents/agent-root' })
+    expect(res.statusCode).toBe(204)
+    const revokeCall = client.query.mock.calls.find((call) => String(call[0]).includes('UPDATE delegation_edges'))
+    expect(String(revokeCall?.[0])).toContain("SET status = 'revoked'")
+    expect(revokeCall?.[1]).toEqual(['z1', ['agent-root', 'agent-child']])
+    const outboxCalls = client.query.mock.calls.filter((call) => String(call[0]).includes('INSERT INTO caracal_outbox'))
+    const params = (outboxCalls[0]?.[1] ?? []) as unknown[]
+    const topics = params.filter((_, i) => i % 4 === 1)
+    expect(topics).toEqual(expect.arrayContaining(['caracal.delegations.invalidate']))
+    const dedupeKeys = params.filter((_, i) => i % 4 === 2)
+    expect(dedupeKeys).toEqual(expect.arrayContaining(['edge_revoke:edge-1', 'edge_revoke:edge-2']))
+    const payloads = params.filter((_, i) => i % 4 === 3)
+    expect(payloads).toEqual(
+      expect.arrayContaining([expect.objectContaining({ event: 'edge_revoke', edge_id: 'edge-1', epoch: 7 })]),
+    )
   })
 })
 

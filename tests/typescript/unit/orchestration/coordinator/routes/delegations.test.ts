@@ -906,8 +906,8 @@ describe('PATCH /v1/zones/:zoneId/delegations/:id/revoke', () => {
         ] })
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [{ epoch: '5' }] })
         .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [{ epoch: '5' }] })
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValue({ rows: [] }),
       release: vi.fn(),
