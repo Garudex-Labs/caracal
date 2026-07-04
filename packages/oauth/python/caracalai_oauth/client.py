@@ -8,6 +8,8 @@ RFC 8693 token exchange client with cache isolation and bounded retries.
 from __future__ import annotations
 
 import asyncio
+import hmac
+import secrets
 from hashlib import sha256
 from time import time
 from typing import Any
@@ -257,4 +259,9 @@ def _json_response(content_type: str | None) -> bool:
 def _hash_secret(value: str | None) -> str:
     if not value:
         return ""
-    return sha256(value.encode()).hexdigest()
+    # Keyed per process so cache keys cannot serve as an offline-crackable
+    # digest of the credential.
+    return hmac.new(_CACHE_KEY_SECRET, value.encode(), sha256).hexdigest()
+
+
+_CACHE_KEY_SECRET = secrets.token_bytes(32)

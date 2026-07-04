@@ -35,6 +35,11 @@ class CaracalContext:
     trace_state: str | None = None
     baggage: tuple[tuple[str, str], ...] = ()
     hop: int = 0
+    # Marks a context whose subject token came from this process's own
+    # credential configuration, so the client may refresh it through its
+    # token source. Inbound contexts carry a caller's token and stay pinned.
+    # Process-local; never serialized to the envelope.
+    own_token: bool = False
 
 
 @dataclass(frozen=True)
@@ -78,6 +83,7 @@ class CaracalContextPatch(TypedDict):
     trace_state: NotRequired[str | None]
     baggage: NotRequired[tuple[tuple[str, str], ...]]
     hop: NotRequired[int]
+    own_token: NotRequired[bool]
 
 
 def current() -> CaracalContext | None:

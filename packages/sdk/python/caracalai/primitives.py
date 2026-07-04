@@ -300,6 +300,7 @@ async def _establish_session(
         trace_state=parent.trace_state if parent else None,
         baggage=parent.baggage if parent else (),
         hop=hop,
+        own_token=True,
     )
     return _Session(res.agent_session_id, ctx, bearer, res.heartbeat_deadline_at)
 
