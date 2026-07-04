@@ -9,9 +9,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strings"
+	"time"
 )
 
 // CoordinatorClient is the Caracal coordinator REST client.
@@ -33,11 +37,15 @@ func (e *CoordinatorError) Error() string {
 	return fmt.Sprintf("coordinator %s %s: %d %s", e.Method, e.Path, e.StatusCode, e.Body)
 }
 
+// defaultHTTPClient bounds coordinator calls when no client is injected, so a
+// stalled coordinator cannot hang a caller that forgot a context deadline.
+var defaultHTTPClient = &http.Client{Timeout: 10 * time.Second}
+
 func (c *CoordinatorClient) http() *http.Client {
 	if c.HTTPClient != nil {
 		return c.HTTPClient
 	}
-	return http.DefaultClient
+	return defaultHTTPClient
 }
 
 // Lifecycle distinguishes the agent session lifecycle.
@@ -64,8 +72,9 @@ type SpawnRequest struct {
 
 // SpawnResponse from the coordinator.
 type SpawnResponse struct {
-	AgentSessionID   string `json:"agent_session_id"`
-	DelegationEdgeID string `json:"delegation_edge_id"`
+	AgentSessionID      string `json:"agent_session_id"`
+	DelegationEdgeID    string `json:"delegation_edge_id"`
+	HeartbeatDeadlineAt string `json:"heartbeat_deadline_at"`
 }
 
 // DelegationConstraints narrows a delegation edge.
@@ -128,6 +137,12 @@ type DelegationResponse struct {
 	DelegationEdgeID string `json:"delegation_edge_id"`
 }
 
+// HeartbeatResponse reports the session state and renewed lease deadline.
+type HeartbeatResponse struct {
+	Status              string
+	HeartbeatDeadlineAt string
+}
+
 // SpawnAgent calls POST /zones/:zoneId/agents.
 func SpawnAgent(ctx context.Context, client *CoordinatorClient, bearer string, req SpawnRequest) (SpawnResponse, error) {
 	body := map[string]any{
@@ -161,20 +176,37 @@ func SpawnAgent(ctx context.Context, client *CoordinatorClient, bearer string, r
 	}
 
 	var out SpawnResponse
-	err := doJSON(ctx, client, "POST", fmt.Sprintf("/zones/%s/agents", req.ZoneID), bearer, body, extra, &out)
-	return out, err
+	if err := doJSON(ctx, client, "POST", "/zones/"+url.PathEscape(req.ZoneID)+"/agents", bearer, body, extra, &out); err != nil {
+		return out, err
+	}
+	if out.AgentSessionID == "" {
+		return out, errors.New("caracal: coordinator spawn response missing agent_session_id")
+	}
+	return out, nil
 }
 
 // TerminateAgent calls DELETE /zones/:zoneId/agents/:id.
 func TerminateAgent(ctx context.Context, client *CoordinatorClient, bearer, zoneID, agentSessionID string) error {
-	return doJSON(ctx, client, "DELETE", fmt.Sprintf("/zones/%s/agents/%s", zoneID, agentSessionID), bearer, nil, nil, nil)
+	return doJSON(ctx, client, "DELETE", "/zones/"+url.PathEscape(zoneID)+"/agents/"+url.PathEscape(agentSessionID), bearer, nil, nil, nil)
 }
 
 // HeartbeatAgent renews a service agent's lease. A service session is reaped by
-// the coordinator if it stops heartbeating before the lease expires.
-func HeartbeatAgent(ctx context.Context, client *CoordinatorClient, bearer, zoneID, agentSessionID string) error {
-	body := map[string]any{"status": "healthy"}
-	return doJSON(ctx, client, "POST", fmt.Sprintf("/zones/%s/agents/%s/heartbeat", zoneID, agentSessionID), bearer, body, nil, nil)
+// the coordinator if it stops heartbeating before the lease expires; the
+// response reports the renewed deadline so callers can pace renewals. An empty
+// status reports "healthy".
+func HeartbeatAgent(ctx context.Context, client *CoordinatorClient, bearer, zoneID, agentSessionID, status string) (HeartbeatResponse, error) {
+	if status == "" {
+		status = "healthy"
+	}
+	body := map[string]any{"status": status}
+	var wire struct {
+		Agent struct {
+			Status              string `json:"status"`
+			HeartbeatDeadlineAt string `json:"heartbeat_deadline_at"`
+		} `json:"agent"`
+	}
+	err := doJSON(ctx, client, "POST", "/zones/"+url.PathEscape(zoneID)+"/agents/"+url.PathEscape(agentSessionID)+"/heartbeat", bearer, body, nil, &wire)
+	return HeartbeatResponse{Status: wire.Agent.Status, HeartbeatDeadlineAt: wire.Agent.HeartbeatDeadlineAt}, err
 }
 
 // CreateDelegation calls POST /zones/:zoneId/delegations.
@@ -200,8 +232,13 @@ func CreateDelegation(ctx context.Context, client *CoordinatorClient, bearer str
 	}
 
 	var out DelegationResponse
-	err := doJSON(ctx, client, "POST", fmt.Sprintf("/zones/%s/delegations", req.ZoneID), bearer, body, nil, &out)
-	return out, err
+	if err := doJSON(ctx, client, "POST", "/zones/"+url.PathEscape(req.ZoneID)+"/delegations", bearer, body, nil, &out); err != nil {
+		return out, err
+	}
+	if out.DelegationEdgeID == "" {
+		return out, errors.New("caracal: coordinator delegation response missing delegation_edge_id")
+	}
+	return out, nil
 }
 
 func doJSON(ctx context.Context, client *CoordinatorClient, method, path, bearer string, body any, extraHeaders map[string]string, out any) error {
@@ -214,7 +251,7 @@ func doJSON(ctx context.Context, client *CoordinatorClient, method, path, bearer
 		bodyReader = bytes.NewReader(b)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, method, client.BaseURL+path, bodyReader)
+	req, err := http.NewRequestWithContext(ctx, method, strings.TrimRight(client.BaseURL, "/")+path, bodyReader)
 	if err != nil {
 		return err
 	}
@@ -240,7 +277,7 @@ func doJSON(ctx context.Context, client *CoordinatorClient, method, path, bearer
 		return &CoordinatorError{Method: method, Path: path, StatusCode: resp.StatusCode, Body: string(raw)}
 	}
 
-	if out != nil {
+	if out != nil && resp.StatusCode != http.StatusNoContent {
 		return json.NewDecoder(resp.Body).Decode(out)
 	}
 	return nil

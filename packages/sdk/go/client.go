@@ -923,19 +923,26 @@ func (c *Caracal) Spawn(ctx context.Context, fn func(context.Context) error, opt
 }
 
 // ServiceOptions overrides defaults for a single Service call.
+// HeartbeatInterval selects the lease renewal mode: zero (the default)
+// derives the cadence from the server lease, a positive value fixes it, and a
+// negative value disables the background renewal. OnLeaseLost fires once if
+// the coordinator reports the session permanently gone.
 type ServiceOptions struct {
-	Grant      Grant
-	TTLSeconds int
-	ParentID   string
-	Metadata   map[string]any
-	Labels     []string
-	TraceID    string
+	Grant             Grant
+	TTLSeconds        int
+	ParentID          string
+	Metadata          map[string]any
+	Labels            []string
+	TraceID           string
+	HeartbeatInterval time.Duration
+	OnLeaseLost       func(error)
 }
 
 // Service starts a long-lived service agent and returns a handle the caller
-// owns. Unlike Spawn, the session is not retired when a block exits: keep it
-// alive with ServiceAgent.Heartbeat and retire it with ServiceAgent.Close. Use
-// for daemons and workers that outlive a single request.
+// owns. Unlike Spawn, the session is not retired when a block exits: a
+// background goroutine renews the lease by default and the handle is retired
+// with ServiceAgent.Close. Use for daemons and workers that outlive a single
+// request.
 func (c *Caracal) SpawnService(ctx context.Context, opts ...ServiceOptions) (*ServiceAgent, error) {
 	o := ServiceOptions{}
 	if len(opts) > 0 {
@@ -954,19 +961,21 @@ func (c *Caracal) SpawnService(ctx context.Context, opts ...ServiceOptions) (*Se
 		return nil, err
 	}
 	return SpawnService(ctx, SpawnServiceInput{
-		Coordinator:   c.Coordinator,
-		ZoneID:        c.ZoneID,
-		ApplicationID: c.ApplicationID,
-		SubjectToken:  subjectToken,
-		TokenSource:   c.TokenSource,
-		Invalidate:    c.invalidate,
-		ParentID:      o.ParentID,
-		Grant:         o.Grant,
-		TTLSeconds:    ttl,
-		Metadata:      o.Metadata,
-		Labels:        o.Labels,
-		TraceID:       o.TraceID,
-		OnAgentStart:  onStart,
+		Coordinator:       c.Coordinator,
+		ZoneID:            c.ZoneID,
+		ApplicationID:     c.ApplicationID,
+		SubjectToken:      subjectToken,
+		TokenSource:       c.TokenSource,
+		Invalidate:        c.invalidate,
+		ParentID:          o.ParentID,
+		Grant:             o.Grant,
+		TTLSeconds:        ttl,
+		Metadata:          o.Metadata,
+		Labels:            o.Labels,
+		TraceID:           o.TraceID,
+		HeartbeatInterval: o.HeartbeatInterval,
+		OnLeaseLost:       o.OnLeaseLost,
+		OnAgentStart:      onStart,
 	})
 }
 
