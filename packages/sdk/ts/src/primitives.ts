@@ -10,6 +10,7 @@ import {
   AgentStatus,
   CoordinatorClient,
   CoordinatorError,
+  DelegationResponse,
   SpawnResponse,
   spawnAgent,
   terminateAgent,
@@ -30,20 +31,39 @@ function isGone(e: unknown): boolean {
   return e instanceof CoordinatorError && (e.status === 404 || e.status === 409)
 }
 
-function backoff(attempt: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1) + Math.random() * 100))
+function backoff(attempt: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason instanceof Error ? signal.reason : new Error('aborted'))
+      return
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve()
+    }, 250 * (attempt + 1) + Math.random() * 100)
+    timer.unref?.()
+    const onAbort = () => {
+      clearTimeout(timer)
+      reject(signal?.reason instanceof Error ? signal.reason : new Error('aborted'))
+    }
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
 }
 
 export type GrantMode = 'inherit' | 'narrow' | 'none'
 
 /**
- * Authority handed to a spawned child. `inherit` (the default) runs the child
- * under its parent's effective session: a child of a narrowed parent inherits
- * that same narrowing (the server mirrors the parent's edge onto the child), so
- * least-privilege is transitive by default; a child of a root parent runs under
- * full application authority. `narrow` issues a bounded delegation edge so the
- * child holds only the listed scopes; the server re-validates the subset, so a
- * narrow can never broaden. `none` spawns without issuing any edge.
+ * Authority handed to a spawned child. `inherit` (the default) carries the
+ * parent's effective authority forward: the coordinator resolves the parent's
+ * active narrowing edge server-side and mirrors it onto the child (same scopes,
+ * resource, constraints, and expiry), so least-privilege is transitive by
+ * default. A parent with no inbound edge yields an edge-less child holding the
+ * application's policy-bounded authority; under the platform decision contract
+ * resource mandates only mint over a delegation edge, so resource authority
+ * enters a tree through `narrow` or an adopted delegation. Inheritance never
+ * crosses an application boundary. `narrow` issues a bounded delegation edge so
+ * the child holds only the listed scopes; the server re-validates the subset,
+ * so a narrow can never broaden. `none` spawns an explicitly edge-less child.
  */
 export interface Grant {
   mode: GrantMode
@@ -60,6 +80,11 @@ export const Grant = {
   none(): Grant {
     return { mode: 'none' }
   },
+  /**
+   * A narrow edge defaults to a hop budget of 1; pass
+   * `constraints: { maxHops: 2 }` (or more) when the child must re-delegate or
+   * sub-narrow its slice further down the tree.
+   */
   narrow(scopes: string[], opts?: { resourceId?: string; constraints?: DelegationConstraints; ttlSeconds?: number }): Grant {
     return { mode: 'narrow', scopes, ...opts }
   },
@@ -119,10 +144,6 @@ async function establishSession(input: SessionInput, lifecycle?: Lifecycle): Pro
   const parentId = input.parentId ?? parent?.agentSessionId
   let token = input.subjectToken
   const bearer = async () => (input.tokenSource ? await input.tokenSource() : token)
-  const inheritParentEdgeId =
-    grant.mode === 'inherit' && parent?.agentSessionId && parent.delegationEdgeId && input.applicationId === parent.applicationId
-      ? parent.delegationEdgeId
-      : undefined
   const spawnReq = {
     zoneId: input.zoneId,
     applicationId: input.applicationId,
@@ -132,7 +153,10 @@ async function establishSession(input: SessionInput, lifecycle?: Lifecycle): Pro
     ttlSeconds: input.ttlSeconds,
     metadata: input.metadata,
     labels: input.labels,
-    inheritParentEdgeId,
+    // A narrowing (or none) grant suppresses server-side edge inheritance:
+    // the child must hold exactly the granted slice, not a mirrored copy of
+    // the parent's wider edge alongside it.
+    parentAuthority: (grant.mode === 'inherit' ? 'inherit' : 'none') as 'inherit' | 'none',
     idempotencyKey: crypto.randomUUID(),
   }
   let res: SpawnResponse | undefined
@@ -156,7 +180,7 @@ async function establishSession(input: SessionInput, lifecycle?: Lifecycle): Pro
       // duplicate.
       const transient = !(e instanceof CoordinatorError) || e.status >= 500
       if (!transient || attempt >= SPAWN_RETRIES) throw e
-      await backoff(attempt)
+      await backoff(attempt, input.signal)
     }
   }
 
@@ -230,9 +254,10 @@ async function retire(
 }
 
 /**
- * Spawn a child agent session and bind it to fn. The child inherits its
- * application's authority by default; pass `grant: Grant.narrow([...])` to issue
- * a bounded delegation edge so the child holds only a subset of scopes.
+ * Spawn a child agent session and bind it to fn. By default the coordinator
+ * carries the parent's effective authority forward by mirroring its active
+ * narrowing edge onto the child; pass `grant: Grant.narrow([...])` to bound the
+ * child to a subset of scopes instead.
  */
 export async function spawn<T>(input: SpawnInput, fn: () => Promise<T>): Promise<T> {
   const session = await establishSession(input)
@@ -259,34 +284,56 @@ export interface DelegateInput {
   scopes: string[]
   constraints?: DelegationConstraints
   ttlSeconds?: number
+  signal?: AbortSignal
 }
 
-export async function delegate<T>(input: DelegateInput, fn: () => Promise<T>): Promise<T> {
+/**
+ * Delegate a slice of the current agent's authority to an existing peer
+ * session, typically one running under another application. The edge is
+ * created issuer-side and returned as a handle; it does not change the local
+ * context, because the authority now belongs to the receiver. The receiving
+ * agent presents the edge by binding it into its own context with
+ * adoptDelegation.
+ */
+export async function delegate(input: DelegateInput): Promise<DelegationResponse> {
   const ctx = current()
   if (!ctx) throw new Error('delegate requires a Caracal context bound on this path')
   if (!ctx.agentSessionId) {
     throw new Error('delegate requires an active agent session in context')
   }
-  const res = await createDelegation(input.coordinator, ctx.subjectToken, {
-    zoneId: ctx.zoneId,
-    issuerApplicationId: ctx.applicationId,
-    sourceSessionId: ctx.agentSessionId,
-    targetSessionId: input.toAgentSessionId,
-    receiverApplicationId: input.toApplicationId,
-    parentEdgeId: ctx.delegationEdgeId,
-    resourceId: input.resourceId,
-    scopes: input.scopes,
-    constraints: input.constraints,
-    ttlSeconds: input.ttlSeconds,
-  })
-  const child: CaracalContext = {
+  return createDelegation(
+    input.coordinator,
+    ctx.subjectToken,
+    {
+      zoneId: ctx.zoneId,
+      issuerApplicationId: ctx.applicationId,
+      sourceSessionId: ctx.agentSessionId,
+      targetSessionId: input.toAgentSessionId,
+      receiverApplicationId: input.toApplicationId,
+      parentEdgeId: ctx.delegationEdgeId,
+      resourceId: input.resourceId,
+      scopes: input.scopes,
+      constraints: input.constraints,
+      ttlSeconds: input.ttlSeconds,
+    },
+    input.signal,
+  )
+}
+
+/**
+ * Adopt a delegation edge received from a peer: derive a context whose token
+ * exchanges present the edge. Call this in the receiving agent, with the
+ * receiver's own context, after the edge id arrives over whatever channel the
+ * two agents share.
+ */
+export function adoptDelegation(ctx: CaracalContext, delegationEdgeId: string): CaracalContext {
+  return {
     ...ctx,
     parentEdgeId: ctx.delegationEdgeId,
-    delegationEdgeId: res.delegationEdgeId,
+    delegationEdgeId,
     baggage: cloneBaggage(ctx.baggage),
     hop: ctx.hop + 1,
   }
-  return bind(child, fn)
 }
 
 export interface SpawnServiceInput {
@@ -318,6 +365,8 @@ export interface SpawnServiceInput {
   onLeaseLost?: (err: unknown) => void
   signal?: AbortSignal
   onAgentStart?: (ctx: CaracalContext) => void | Promise<void>
+  /** Called by close before the session terminates, mirroring spawn's end hook. */
+  onAgentEnd?: (ctx: CaracalContext) => void | Promise<void>
 }
 
 /**
@@ -362,6 +411,7 @@ export async function spawnService(input: SpawnServiceInput): Promise<ServiceAge
   const mode = input.heartbeatIntervalMs === undefined ? 'auto' : input.heartbeatIntervalMs > 0 ? 'fixed' : 'manual'
   let timer: ReturnType<typeof setTimeout> | undefined
   let stopped = false
+  let closing: Promise<void> | undefined
   const nextDelayMs = () => {
     if (mode === 'fixed') return input.heartbeatIntervalMs as number
     const jitter = 0.9 + Math.random() * 0.2
@@ -375,8 +425,12 @@ export async function spawnService(input: SpawnServiceInput): Promise<ServiceAge
     } catch (err) {
       if (isGone(err)) {
         stopped = true
-        console.warn(`caracal: lease lost for agent ${agentSessionId}; auto-heartbeat stopped`, err)
-        input.onLeaseLost?.(err)
+        // A beat racing close sees the session gone because close terminated
+        // it; that is an ordinary shutdown, not a lost lease.
+        if (!closing) {
+          console.warn(`caracal: lease lost for agent ${agentSessionId}; auto-heartbeat stopped`, err)
+          input.onLeaseLost?.(err)
+        }
         return
       }
       console.warn(`caracal: auto-heartbeat failed for agent ${agentSessionId}; retrying`, err)
@@ -389,7 +443,6 @@ export async function spawnService(input: SpawnServiceInput): Promise<ServiceAge
     timer.unref?.()
   }
   if (mode !== 'manual') schedule()
-  let closing: Promise<void> | undefined
   return {
     context: ctx,
     agentSessionId,
@@ -399,9 +452,13 @@ export async function spawnService(input: SpawnServiceInput): Promise<ServiceAge
         stopped = true
         if (timer) clearTimeout(timer)
         try {
-          await terminateAgent(input.coordinator, await bearer(), input.zoneId, agentSessionId)
-        } catch (e) {
-          if (!isGone(e)) throw e
+          if (input.onAgentEnd) await input.onAgentEnd(ctx)
+        } finally {
+          try {
+            await terminateAgent(input.coordinator, await bearer(), input.zoneId, agentSessionId)
+          } catch (e) {
+            if (!isGone(e)) throw e
+          }
         }
       })()),
   }

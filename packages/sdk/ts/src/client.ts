@@ -11,17 +11,17 @@ import { homedir, platform } from 'node:os'
 import { join } from 'node:path'
 import { parse } from 'smol-toml'
 import { decodeEnvelope, encodeEnvelope, toHeaders, HeaderAuthorization, type Envelope, type HeaderGetter } from './envelope.js'
-import { type CoordinatorClient } from './coordinator.js'
 import {
   spawn as spawnPrimitive,
   spawnService as spawnServicePrimitive,
   delegate as delegatePrimitive,
+  adoptDelegation,
   type Grant,
   type SpawnInput,
   type ServiceAgent,
   type DelegateInput,
 } from './primitives.js'
-import { type DelegationConstraints } from './coordinator.js'
+import { type CoordinatorClient, type DelegationConstraints, type DelegationResponse } from './coordinator.js'
 import type { JsonObject } from './json.js'
 import { OAuthClient } from '@caracalai/oauth'
 
@@ -45,6 +45,7 @@ export interface CaracalConfig {
   exchanger?: { invalidate(): void }
   gatewayUrl?: string
   resources?: ResourceBinding[]
+  /** Default TTL for task spawns; a service session lives by its heartbeat lease instead. */
   defaultTtlSeconds?: number
 }
 
@@ -85,6 +86,7 @@ export interface DelegateOptions {
   scopes: string[]
   constraints?: DelegationConstraints
   ttlSeconds?: number
+  signal?: AbortSignal
 }
 
 export type LifecycleHook = (ctx: CaracalContext) => void | Promise<void>
@@ -184,7 +186,7 @@ export class Caracal {
       subjectToken: await this.rootToken(),
       tokenSource: this.config.tokenSource,
       invalidate: this.invalidate(),
-      ttlSeconds: opts.ttlSeconds ?? this.config.defaultTtlSeconds,
+      ttlSeconds: opts.ttlSeconds,
       subjectSessionId: opts.subjectSessionId,
       parentId: opts.parentId,
       grant: opts.grant,
@@ -195,10 +197,16 @@ export class Caracal {
       onLeaseLost: opts.onLeaseLost,
       signal: opts.signal,
       onAgentStart: this.agentStartHooks.length ? (c) => this.fire(this.agentStartHooks, c) : undefined,
+      onAgentEnd: this.agentEndHooks.length ? (c) => this.fire(this.agentEndHooks, c) : undefined,
     })
   }
 
-  delegate<T>(opts: DelegateOptions, fn: () => Promise<T>): Promise<T> {
+  /**
+   * Delegate a slice of the current agent's authority to an existing peer
+   * session and return the created edge. The receiving agent adopts the edge
+   * with adoptDelegation.
+   */
+  delegate(opts: DelegateOptions): Promise<DelegationResponse> {
     const input: DelegateInput = {
       coordinator: this.config.coordinator,
       toAgentSessionId: opts.to,
@@ -207,8 +215,19 @@ export class Caracal {
       scopes: opts.scopes,
       constraints: opts.constraints,
       ttlSeconds: opts.ttlSeconds,
+      signal: opts.signal,
     }
-    return delegatePrimitive(input, fn)
+    return delegatePrimitive(input)
+  }
+
+  /**
+   * Run fn under a delegation edge received from a peer: the current agent
+   * context is rebound so token exchanges inside fn present the edge.
+   */
+  adoptDelegation<T>(delegationEdgeId: string, fn: () => Promise<T>): Promise<T> {
+    const ctx = current()
+    if (!ctx) throw new Error('adoptDelegation requires a Caracal context bound on this path')
+    return bind(adoptDelegation(ctx, delegationEdgeId), fn)
   }
 
   bind<T>(ctx: CaracalContext, fn: () => Promise<T>): Promise<T> {

@@ -58,7 +58,7 @@ export interface SpawnRequest {
   metadata?: JsonObject
   labels?: string[]
   idempotencyKey?: string
-  inheritParentEdgeId?: string
+  parentAuthority?: 'inherit' | 'none'
 }
 
 export interface SpawnResponse {
@@ -80,8 +80,11 @@ export interface DelegationRequest {
   ttlSeconds?: number
 }
 
+/** The created delegation edge: its id, the scopes it bounds, and when it lapses. */
 export interface DelegationResponse {
   delegationEdgeId: string
+  scopes: string[]
+  expiresAt?: string
 }
 
 export interface HeartbeatResponse {
@@ -140,7 +143,7 @@ export async function spawnAgent(
       ttl_seconds: req.ttlSeconds,
       metadata: req.metadata,
       labels: req.labels,
-      inherit_parent_edge_id: req.inheritParentEdgeId,
+      parent_authority: req.parentAuthority,
     },
     headers,
     signal,
@@ -175,7 +178,7 @@ export async function createDelegation(
         broad_reason: req.constraints.broadReason,
       }
     : undefined
-  const res = await call<{ delegation_edge_id?: string }>(
+  const res = await call<{ delegation_edge_id?: string; scopes?: string[]; expires_at?: string | null }>(
     client,
     'POST',
     `/zones/${encodeURIComponent(req.zoneId)}/delegations`,
@@ -195,7 +198,11 @@ export async function createDelegation(
     signal,
   )
   if (!res?.delegation_edge_id) throw new Error('coordinator delegation response missing delegation_edge_id')
-  return { delegationEdgeId: res.delegation_edge_id }
+  return {
+    delegationEdgeId: res.delegation_edge_id,
+    scopes: res.scopes ?? [],
+    expiresAt: res.expires_at ?? undefined,
+  }
 }
 
 export async function heartbeatAgent(
