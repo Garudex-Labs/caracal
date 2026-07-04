@@ -46,6 +46,7 @@ from .coordinator import (
     DelegationConstraints,
     DelegationRequest,
     DelegationResponse,
+    HeartbeatResponse,
     SpawnRequest,
     SpawnResponse,
     create_delegation,
@@ -62,7 +63,7 @@ from .primitives import (
     spawn_service,
 )
 from .client import Caracal, CaracalConfig, ResourceBinding
-from .errors import MissingTokenError
+from .errors import CoordinatorError, MissingTokenError
 from .http import CaracalASGIMiddleware
 
 __all__ = [
@@ -104,6 +105,7 @@ __all__ = [
     "SpawnResponse",
     "DelegationRequest",
     "DelegationResponse",
+    "HeartbeatResponse",
     "spawn_agent",
     "terminate_agent",
     "heartbeat_agent",
@@ -117,6 +119,7 @@ __all__ = [
     "Caracal",
     "CaracalConfig",
     "ResourceBinding",
+    "CoordinatorError",
     "MissingTokenError",
     "CaracalASGIMiddleware",
 ]

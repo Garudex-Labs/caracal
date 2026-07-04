@@ -107,6 +107,18 @@ class MissingTokenError(RuntimeError):
     trusted service-root ingress."""
 
 
+class CoordinatorError(RuntimeError):
+    """The coordinator rejected a request; carries the HTTP status so callers
+    can branch on it."""
+
+    def __init__(self, method: str, path: str, status: int, body: str) -> None:
+        super().__init__(f"coordinator {method} {path} failed: {status} {body}")
+        self.method = method
+        self.path = path
+        self.status = status
+        self.body = body
+
+
 class ApprovalRequired(CaracalError):
     """Raised when minting a mandate is gated on human approval. The platform has
     recorded a durable approval challenge that an authenticated approver must
@@ -183,9 +195,7 @@ def raise_for_caracal_error(resp: httpx.Response) -> None:
         )
     mapped = _CODE_MAP.get(code)
     if mapped is not None:
-        raise mapped(
-            description, request_id=request_id, http_status=resp.status_code
-        )
+        raise mapped(description, request_id=request_id, http_status=resp.status_code)
     raise CaracalError(
         description,
         request_id=request_id,

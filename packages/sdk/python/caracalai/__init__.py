@@ -22,6 +22,7 @@ from .envelope import Envelope
 from .errors import (
     AccessDenied,
     CaracalError,
+    CoordinatorError,
     DelegationRequired,
     InvalidRequest,
     InvalidToken,
@@ -40,6 +41,7 @@ __all__ = [
     "ApprovalRequired",
     "AccessDenied",
     "CaracalError",
+    "CoordinatorError",
     "DelegationRequired",
     "InvalidRequest",
     "InvalidToken",
