@@ -42,11 +42,7 @@ import {
   useUpdateApplication,
 } from "@/platform/api/hooks";
 import { useCreateDeepLink } from "@/platform/nav/createDeepLink";
-import type {
-  Application,
-  RunManifest,
-  RunManifestCredential,
-} from "@/platform/api/types";
+import type { Application, RunManifest, RunManifestCredential } from "@/platform/api/types";
 
 export const Route = createFileRoute("/$accountId/$orgId/$zoneId/app/applications")({
   component: ApplicationsRoute,
@@ -311,7 +307,6 @@ function ApplicationsPage({ zoneId, zoneName }: { zoneId: string; zoneName: stri
 
       <SecretModal
         secret={secret}
-        zoneId={zoneId}
         onClose={() => setSecret(null)}
         onCopied={() => toast({ tone: "success", title: "Client secret copied" })}
       />
@@ -536,6 +531,317 @@ function CredentialsSection({ onRotate }: { onRotate: () => void }) {
   );
 }
 
+/* ------------------------------ run manifest ----------------------------- */
+
+type BindingBehavior = "required" | "optional_warn" | "optional_error";
+
+function bindingBehavior(cred: RunManifestCredential): BindingBehavior {
+  if (!cred.optional) return "required";
+  return cred.on_failure === "error" ? "optional_error" : "optional_warn";
+}
+
+function applyBehavior(
+  cred: RunManifestCredential,
+  behavior: BindingBehavior,
+): RunManifestCredential {
+  if (behavior === "required") return { ...cred, optional: false, on_failure: undefined };
+  return { ...cred, optional: true, on_failure: behavior === "optional_warn" ? "warn" : "error" };
+}
+
+const EMPTY_BINDING: RunManifestCredential = {
+  env: "",
+  resource: "",
+  credential_type: "provider_token",
+  optional: false,
+};
+
+function RunSection({ app, zoneId }: { app: Application; zoneId: string }) {
+  const toast = useToast();
+  const manifestQuery = useRunManifest(zoneId, app.id);
+  const saveManifest = useSaveRunManifest(zoneId);
+  const resourcesQuery = useResources(zoneId);
+
+  const saved = manifestQuery.data?.run_manifest ?? null;
+  const [editing, setEditing] = useState(false);
+  const [rows, setRows] = useState<RunManifestCredential[]>([]);
+  const [ttl, setTtl] = useState("");
+
+  useEffect(() => {
+    setEditing(false);
+  }, [app.id]);
+
+  function openEditor() {
+    setRows(saved && saved.credentials.length > 0 ? saved.credentials : [{ ...EMPTY_BINDING }]);
+    setTtl(saved?.ttl_seconds !== undefined ? String(saved.ttl_seconds) : "");
+    setEditing(true);
+  }
+
+  function setRow(index: number, row: RunManifestCredential) {
+    setRows((current) => current.map((existing, i) => (i === index ? row : existing)));
+  }
+
+  const ttlValue = ttl.trim() === "" ? undefined : Number(ttl);
+  const ttlInvalid =
+    ttlValue !== undefined && (!Number.isInteger(ttlValue) || ttlValue < 1 || ttlValue > 900);
+  const incomplete = rows.some((row) => !row.env.trim() || !row.resource);
+  const duplicateEnv = new Set(rows.map((row) => row.env.trim())).size !== rows.length;
+
+  async function submit(credentials: RunManifestCredential[]) {
+    const input: RunManifest = { credentials };
+    if (credentials.length > 0 && ttlValue !== undefined) input.ttl_seconds = ttlValue;
+    try {
+      await saveManifest.mutateAsync({ id: app.id, input });
+      setEditing(false);
+      toast({
+        tone: "success",
+        title: credentials.length > 0 ? "Launch bindings saved" : "Launch bindings cleared",
+        description: app.name,
+      });
+    } catch (err) {
+      toast({ tone: "error", title: "Save failed", description: errorMessage(err) });
+    }
+  }
+
+  if (manifestQuery.isLoading) {
+    return (
+      <DetailSection title="Run">
+        <p className="rounded-lg border border-border bg-card px-3 py-3 text-xs text-muted-foreground">
+          Loading launch bindings…
+        </p>
+      </DetailSection>
+    );
+  }
+
+  if (editing) {
+    return (
+      <DetailSection
+        title="Run"
+        action={
+          <div className="flex items-center gap-2">
+            {saved && saved.credentials.length > 0 ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                mutating
+                loading={saveManifest.isPending}
+                onClick={() => void submit([])}
+              >
+                Clear
+              </Button>
+            ) : null}
+            <Button variant="ghost" size="sm" onClick={() => setEditing(false)}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              mutating
+              loading={saveManifest.isPending}
+              disabled={rows.length === 0 || incomplete || duplicateEnv || ttlInvalid}
+              onClick={() => void submit(rows)}
+            >
+              Save
+            </Button>
+          </div>
+        }
+      >
+        <div className="flex flex-col gap-3">
+          {rows.map((row, index) => (
+            <div
+              key={index}
+              className="flex flex-col gap-3 rounded-lg border border-border bg-card px-3 py-3"
+            >
+              <div className="flex items-end gap-2">
+                <Field
+                  label="Environment variable"
+                  info="The variable name the workload reads its credential from. caracal run injects the exchanged credential under this exact name at launch."
+                  placeholder="CARACAL_RESOURCE_PIPERNET_TOKEN"
+                  className="font-mono text-xs"
+                  value={row.env}
+                  onChange={(e) => setRow(index, { ...row, env: e.target.value })}
+                />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-label="Remove binding"
+                  onClick={() => setRows((current) => current.filter((_, i) => i !== index))}
+                >
+                  Remove
+                </Button>
+              </div>
+              <Select
+                label="Resource"
+                info="The protected resource this credential grants access to. Policy decides whether this application may reach it."
+                value={row.resource}
+                onChange={(e) => setRow(index, { ...row, resource: e.target.value })}
+              >
+                <option value="" disabled>
+                  Select a resource…
+                </option>
+                {(resourcesQuery.data ?? []).map((resource) => (
+                  <option key={resource.id} value={resource.identifier}>
+                    {resource.name} ({resource.identifier})
+                  </option>
+                ))}
+              </Select>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <Select
+                  label="Credential"
+                  info="Provider token injects the upstream provider's own credential for direct calls. Caracal mandate injects a Caracal token for workloads that call through the Gateway."
+                  value={row.credential_type}
+                  onChange={(e) =>
+                    setRow(index, {
+                      ...row,
+                      credential_type: e.target.value as RunManifestCredential["credential_type"],
+                    })
+                  }
+                >
+                  <option value="provider_token">Provider token (direct call)</option>
+                  <option value="caracal_mandate">Caracal mandate (via Gateway)</option>
+                </Select>
+                <Select
+                  label="If unavailable"
+                  info="What happens at launch when this credential cannot be issued, for example when policy denies it or the provider is down."
+                  value={bindingBehavior(row)}
+                  onChange={(e) =>
+                    setRow(index, applyBehavior(row, e.target.value as BindingBehavior))
+                  }
+                >
+                  <option value="required">Fail the launch</option>
+                  <option value="optional_warn">Warn and launch without it</option>
+                  <option value="optional_error">Optional, but fail the launch</option>
+                </Select>
+              </div>
+            </div>
+          ))}
+          <div className="flex items-center justify-between gap-3">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setRows((current) => [...current, { ...EMPTY_BINDING }])}
+            >
+              Add binding
+            </Button>
+            <Field
+              label="Credential TTL (seconds)"
+              info="Lifetime of each injected credential, up to the 900-second platform maximum. Leave empty for the default."
+              placeholder="900"
+              inputMode="numeric"
+              className="w-40"
+              value={ttl}
+              error={ttlInvalid ? "1–900" : undefined}
+              onChange={(e) => setTtl(e.target.value)}
+            />
+          </div>
+          {duplicateEnv ? (
+            <p className="text-xs text-destructive">
+              Each binding must use a unique environment variable name.
+            </p>
+          ) : null}
+        </div>
+      </DetailSection>
+    );
+  }
+
+  if (!saved || saved.credentials.length === 0) {
+    return (
+      <DetailSection
+        title="Run"
+        action={
+          <Button variant="secondary" size="sm" mutating onClick={openEditor}>
+            Configure launch
+          </Button>
+        }
+      >
+        <p className="rounded-lg border border-border bg-card px-3 py-3 text-xs text-muted-foreground">
+          Define which credentials <code className="font-mono">caracal run</code> injects into this
+          workload's environment. Once configured, the workload launches with only its application
+          ID and client secret; the zone, resources, and variable names all live here.
+        </p>
+      </DetailSection>
+    );
+  }
+
+  const gatewayNeeded = saved.credentials.some(
+    (cred) => cred.credential_type === "caracal_mandate",
+  );
+
+  return (
+    <DetailSection
+      title="Run"
+      action={
+        <Button variant="secondary" size="sm" mutating onClick={openEditor}>
+          Edit bindings
+        </Button>
+      }
+    >
+      <div className="flex flex-col gap-3">
+        <dl className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-card">
+          {saved.credentials.map((cred) => (
+            <div
+              key={cred.env}
+              className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5"
+            >
+              <div className="min-w-0">
+                <div className="truncate font-mono text-xs text-foreground">{cred.env}</div>
+                <div className="truncate font-mono text-[11px] text-muted-foreground">
+                  {cred.resource}
+                </div>
+              </div>
+              <div className="flex flex-shrink-0 items-center gap-1.5">
+                <Badge tone="neutral">
+                  {cred.credential_type === "caracal_mandate" ? "Mandate" : "Provider token"}
+                </Badge>
+                {cred.optional ? <Badge tone="muted">Optional</Badge> : null}
+              </div>
+            </div>
+          ))}
+          {saved.ttl_seconds !== undefined ? (
+            <DetailField label="Credential TTL">{saved.ttl_seconds}s</DetailField>
+          ) : null}
+        </dl>
+
+        <div
+          className={
+            gatewayNeeded
+              ? "rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-muted-foreground"
+              : "rounded-md border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-xs text-muted-foreground"
+          }
+        >
+          {gatewayNeeded ? (
+            <>
+              <span className="font-medium text-foreground">Gateway required.</span> At least one
+              binding injects a Caracal mandate, so point the workload's base URL for those
+              resources at the Caracal Gateway (default{" "}
+              <code className="font-mono">http://localhost:8081</code>). The Gateway authorizes each
+              call and forwards it upstream.
+            </>
+          ) : (
+            <>
+              <span className="font-medium text-foreground">No gateway required.</span> Every
+              binding injects the provider's own credential, so the workload calls each provider
+              directly.
+            </>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-2 rounded-lg border border-border bg-card px-3 py-3">
+          <p className="text-xs font-medium text-foreground">Launch this workload</p>
+          <CopyValue value={`export CARACAL_APPLICATION_ID=${app.id}`} />
+          <CopyValue value="caracal run -- <your command>" />
+          <p className="text-xs text-muted-foreground">
+            Provide the client secret via{" "}
+            <code className="font-mono">CARACAL_APP_CLIENT_SECRET</code>,{" "}
+            <code className="font-mono">CARACAL_APP_CLIENT_SECRET_FILE</code>, or the owner-only
+            file at{" "}
+            <code className="break-all font-mono">{`<Caracal config dir>/runtime/${app.id}/client-secret`}</code>
+            .
+          </p>
+        </div>
+      </div>
+    </DetailSection>
+  );
+}
+
 /* ------------------------------- modals -------------------------------- */
 
 function CreateApplicationModal({
@@ -602,12 +908,10 @@ function CreateApplicationModal({
 
 function SecretModal({
   secret,
-  zoneId,
   onClose,
   onCopied,
 }: {
   secret: { name: string; appId: string; clientSecret: string; rotated: boolean } | null;
-  zoneId: string;
   onClose: () => void;
   onCopied: () => void;
 }) {
@@ -643,8 +947,8 @@ function SecretModal({
             <code className="break-all font-mono">
               {`<Caracal config dir>/runtime/${secret.appId}/client-secret`}
             </code>
-            , where <code className="font-mono">caracal run</code> finds it automatically. For
-            cloud or custom deployments, keep it in your secret store and point{" "}
+            , where <code className="font-mono">caracal run</code> finds it automatically. For cloud
+            or custom deployments, keep it in your secret store and point{" "}
             <code className="font-mono">CARACAL_APP_CLIENT_SECRET_FILE</code> at the mounted file.
           </p>
         </div>

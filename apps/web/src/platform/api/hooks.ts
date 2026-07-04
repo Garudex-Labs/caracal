@@ -609,8 +609,7 @@ export function useSaveRunManifest(zoneId: string | null) {
   return useMutation({
     mutationFn: ({ id, input }: { id: string; input: RunManifest }) =>
       consoleApi.applications.saveRunManifest(zoneId as string, id, input),
-    onSuccess: (data, { id }) =>
-      qc.setQueryData(["console", "run-manifest", zoneId, id], data),
+    onSuccess: (data, { id }) => qc.setQueryData(["console", "run-manifest", zoneId, id], data),
   });
 }
 

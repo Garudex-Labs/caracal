@@ -106,6 +106,7 @@ class SpawnRequest:
     metadata: JsonObject | None = None
     labels: list[str] | None = None
     idempotency_key: str | None = None
+    parent_authority: str | None = None
     inherit_parent_edge_id: str | None = None
 
 
@@ -132,7 +133,11 @@ class DelegationRequest:
 
 @dataclass
 class DelegationResponse:
+    """The created delegation edge: its id, the scopes it bounds, and when it lapses."""
+
     delegation_edge_id: str
+    scopes: list[str] = field(default_factory=list)
+    expires_at: str | None = None
 
 
 @dataclass
@@ -159,6 +164,8 @@ async def spawn_agent(
         body["metadata"] = req.metadata
     if req.labels:
         body["labels"] = req.labels
+    if req.parent_authority:
+        body["parent_authority"] = req.parent_authority
     if req.inherit_parent_edge_id:
         body["inherit_parent_edge_id"] = req.inherit_parent_edge_id
 
@@ -250,4 +257,8 @@ async def create_delegation(
     delegation_edge_id = data.get("delegation_edge_id")
     if not delegation_edge_id:
         raise ValueError("coordinator delegation response missing delegation_edge_id")
-    return DelegationResponse(delegation_edge_id=delegation_edge_id)
+    return DelegationResponse(
+        delegation_edge_id=delegation_edge_id,
+        scopes=data.get("scopes") or [],
+        expires_at=data.get("expires_at"),
+    )

@@ -175,7 +175,9 @@ function liveness(agent: Agent, now = Date.now()): Liveness {
     return {
       tone: "muted",
       label: "Expired",
-      detail: agent.terminated_at ? `TTL elapsed ${relativeTime(agent.terminated_at, now)}` : "TTL elapsed",
+      detail: agent.terminated_at
+        ? `TTL elapsed ${relativeTime(agent.terminated_at, now)}`
+        : "TTL elapsed",
     };
   }
   if (agent.status === "terminated") {
