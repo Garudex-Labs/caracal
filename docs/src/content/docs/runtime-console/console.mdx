@@ -172,7 +172,7 @@ Guided setup is a coachmark walkthrough that orients you, then opens the real cr
 
 Each step opens the same Applications, Providers, Resources, and Policies forms you reach from the navigation and ticks off as live zone data satisfies it. Important guided fields include the `resource identifier`, `resource scopes`, `upstream URL`, and `Gateway application binding`. The application form shows the client secret once; copy it before leaving the step.
 
-Guided setup creates product objects only. Configure `caracal run` and the SDKs afterward with environment variables or a `caracal.toml` profile, as described in [Configure Workloads](/runtime-console/config-file/).
+Guided setup creates product objects only. Bind launch credentials in the application's **Run** section afterward and give the workload its application ID and client secret, as described in [Configure Workloads](/runtime-console/config-file/).
 
 ## Troubleshooting
 
@@ -188,4 +188,4 @@ Guided setup creates product objects only. Configure `caracal run` and the SDKs 
 
 ## Next Step
 
-Use [Configure Workloads](/runtime-console/config-file/) when a workload needs a runtime profile, credential manifest, secret file, or service endpoint override.
+Use [Configure Workloads](/runtime-console/config-file/) when a workload needs its identity configured, a secret file, an SDK profile, or a service endpoint override.

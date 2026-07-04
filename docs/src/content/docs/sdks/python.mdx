@@ -34,7 +34,8 @@ caracal = Caracal()
 | --- | --- |
 | `async with caracal.spawn(...)` | Create and bind an agent session; pass `grant=Grant.narrow(...)` to bound the child's authority. |
 | `await caracal.spawn_service(...)` | Start a long-lived service agent; auto-renews its lease and returns a handle with `heartbeat()` and `aclose()`. Pass `grant=Grant.narrow(...)` to bound the handle's authority. |
-| `async with caracal.delegate(...)` | Create and bind a delegation edge to an existing agent session. |
+| `await caracal.delegate(...)` | Create a delegation edge to an existing agent session; returns the edge for the receiver to adopt. |
+| `async with caracal.adopt_delegation(edge_id)` | Present a received delegation edge: bind a derived context carrying it. |
 | `caracal.headers(allow_root=False, ctx=None)` | Project the bound context (or an explicit `ctx`) into HTTP headers. |
 | `async with caracal.bind(ctx)` | Rebind a captured context into a new async task. |
 | `async with caracal.bind_from_headers(headers, allow_root=False, verifier=None)` | Bind inbound Caracal envelope headers; pass `verifier=` to enforce the bearer token before binding. |

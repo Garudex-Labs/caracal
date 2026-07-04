@@ -31,27 +31,27 @@ The launcher performs one credential exchange per configured entry at startup an
 ## Execution Flow
 
 ```text
-runtime config -> STS token exchange -> env injection -> child process -> exit code
+workload identity -> run manifest fetch -> STS token exchange -> env injection -> child process -> exit code
 ```
 
-1. Load runtime config from environment, `CARACAL_CONFIG`, or the default profile path.
-2. Validate config keys, URL safety, secret-file permissions, and credential environment names.
-3. Exchange each required `credentials[]` entry for a resource token.
-4. Exchange each `optional_credentials[]` entry and apply its `on_failure` behavior.
-5. Spawn the child process without `shell: true`, attached to your terminal's stdin, stdout, and stderr.
-6. Wait for the child and exit with its exit code.
+1. Load the workload identity: `CARACAL_APPLICATION_ID` plus a client secret from the environment or the default secret file.
+2. Fetch the application's run manifest from STS; the manifest carries the zone, credential bindings, TTL, and failure behavior authored in the web console.
+3. Validate URL safety, secret-file permissions, and credential environment names.
+4. Exchange each required binding for a resource token.
+5. Exchange each optional binding and apply its unavailable behavior.
+6. Spawn the child process without `shell: true`, attached to your terminal's stdin, stdout, and stderr.
+7. Wait for the child and exit with its exit code.
 
-## Required Runtime Identity
+## Required Workload Identity
 
 `caracal run` needs:
 
 | Input | Source |
 | --- | --- |
-| STS/zone URL | Automatic for local dev/stable; explicit only for cloud/custom deployments. |
-| Zone ID | `CARACAL_ZONE_ID` or `zone_id`. |
-| Application ID | `CARACAL_APPLICATION_ID` or `application_id`. |
-| Client secret | A client-secret file you store at the local runtime path, or explicit cloud/custom secret-file config. |
-| Credential manifest | A `credentials.json` file you store at the local runtime path, or `credentials[]` / `optional_credentials[]` in a profile. |
+| STS URL | Automatic for local dev/stable; `CARACAL_STS_URL` only for cloud/custom deployments. |
+| Application ID | `CARACAL_APPLICATION_ID`. |
+| Client secret | `CARACAL_APP_CLIENT_SECRET`, `CARACAL_APP_CLIENT_SECRET_FILE`, or the owner-only file at `<Caracal config dir>/runtime/<application_id>/client-secret`. |
+| Launch bindings | The application's run manifest, authored in its **Run** section in the web console and served by STS. |
 
 Web console **Guided setup** is the recommended way to create the first zone, application, resource, and policy. The application's one-time client secret is shown once at creation; you store it in a local file yourself, because the console never writes files to your machine. See [Configure Workloads](/runtime-console/config-file/) for the exact paths and permissions. Local dev and stable service URLs resolve automatically; cloud/custom deployments configure explicit overrides.
 
@@ -59,9 +59,9 @@ Web console **Guided setup** is the recommended way to create the first zone, ap
 
 | Stage | Behavior |
 | --- | --- |
-| Provisioning | Create the application in the web console; copy its one-time client secret into an owner-only file at the runtime path. |
-| Consumption | At launch, the client secret authenticates one token exchange per credential entry; results are injected as child environment variables. |
-| TTL | Injected credentials expire within 15 minutes (`ttl_seconds`, capped at 900). |
+| Provisioning | Create the application and its launch bindings in the web console; copy its one-time client secret into an owner-only file at the runtime path. |
+| Consumption | At launch, the client secret authenticates the manifest fetch and one token exchange per binding; results are injected as child environment variables. |
+| TTL | Injected credentials expire within 15 minutes (the manifest's credential TTL, capped at 900 seconds). |
 | Renewal | None. The launcher never re-exchanges after spawn; long-running workloads use a Caracal SDK. |
 | Rotation | Rotate the client secret in the web console, then update the local secret file. |
 | Revocation | Revoke through the web console; Gateway-routed requests are rejected immediately, and injected tokens expire at TTL. |
@@ -96,10 +96,11 @@ SDK-based children resolve their own configuration from the default profile path
 
 | Symptom | Check |
 | --- | --- |
-| `runtime config not found` | Run Web console **Guided setup**, set platform env vars, or point `CARACAL_CONFIG` at a profile. |
+| `workload identity is required to run a command` | Run Web console **Guided setup**, then set `CARACAL_APPLICATION_ID` and a client secret source. |
+| `run manifest not configured` | Define launch bindings in the application's **Run** section in the web console. |
 | Secret-file validation fails | Store the secret value in the file and ensure it is not group- or world-writable. |
-| Token exchange fails | Confirm `caracal status --ready`, zone ID, application ID, client secret, resource ID, and policy coverage. |
-| Child command never starts | Required credential exchange, step-up, or config validation failed before spawn. |
+| Token exchange fails | Confirm `caracal status --ready`, application ID, client secret, resource ID, and policy coverage. |
+| Child command never starts | Required credential exchange, step-up, or manifest validation failed before spawn. |
 | Child cannot see a `CARACAL_*` variable | Expected: launcher configuration never propagates. Verify injected credentials with `caracal run -- printenv <ENV_NAME>`. |
 | Credentials expire mid-run | Expected after the TTL. Use a Caracal SDK for workloads that outlive the exchange TTL. |
 | Child command exits non-zero | The runtime returns the child process exit code after successful token injection. |
