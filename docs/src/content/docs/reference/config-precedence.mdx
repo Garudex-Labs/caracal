@@ -8,11 +8,11 @@ pageType: config
 
 `caracal run` reads no profile file. It resolves only the workload identity:
 
-1. `CARACAL_APPLICATION_ID` names the application.
-2. The client secret comes from `CARACAL_APP_CLIENT_SECRET`, or `CARACAL_APP_CLIENT_SECRET_FILE`, or (local dev and stable only) the owner-only file at `<Caracal config dir>/runtime/<application_id>/client-secret`. Set at most one of the two variables.
+1. `CARACAL_WORKLOAD_ID` names the workload created on the console's Launcher page.
+2. The workload secret comes from `CARACAL_WORKLOAD_SECRET`, or `CARACAL_WORKLOAD_SECRET_FILE`, or (local dev and stable only) the owner-only file at `<Caracal config dir>/runtime/<workload_id>/secret`. Set at most one of the two variables.
 3. `CARACAL_STS_URL` overrides the STS endpoint; local dev and stable resolve it automatically.
 
-The credential bindings, zone, TTL, and failure behavior come from the application's run manifest, authored in the web console and served by STS at launch.
+The credential bindings, zone, scopes, and failure behavior come from the workload's launch bindings, authored in the web console and served by STS at launch.
 
 ## SDK Profile Resolution
 
