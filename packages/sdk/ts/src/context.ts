@@ -35,6 +35,25 @@ export interface AuthoritySummary {
   chain: string[]
 }
 
+/**
+ * Attribution a verify hook proved from the token itself. Fields returned here
+ * override the caller-supplied envelope when binding inbound context, so
+ * attribution comes from verified claims rather than forgeable headers.
+ */
+export interface VerifiedClaims {
+  zoneId?: string
+  applicationId?: string
+  agentSessionId?: string
+  delegationEdgeId?: string
+  parentEdgeId?: string
+  sessionId?: string
+  hop?: number
+}
+
+export function cloneBaggage(baggage: Record<string, string> | undefined): Record<string, string> | undefined {
+  return baggage ? { ...baggage } : undefined
+}
+
 const storage = new AsyncLocalStorage<CaracalContext>()
 
 export function current(): CaracalContext | undefined {
@@ -43,17 +62,19 @@ export function current(): CaracalContext | undefined {
 
 export function captureContext(): CaracalContext | undefined {
   const ctx = current()
-  return ctx ? { ...ctx } : undefined
+  return ctx ? { ...ctx, baggage: cloneBaggage(ctx.baggage) } : undefined
 }
 
-export function bind<T>(ctx: CaracalContext, fn: () => T | Promise<T>): T | Promise<T> {
+export function bind<T>(ctx: CaracalContext, fn: () => T): T {
   return storage.run(ctx, fn)
 }
 
-export function withOverrides<T>(patch: Partial<CaracalContext>, fn: () => T | Promise<T>): T | Promise<T> {
+export function withOverrides(patch: Partial<CaracalContext>): CaracalContext {
   const base = current()
   if (!base) throw new Error('withOverrides requires an existing Caracal context')
-  return storage.run({ ...base, ...patch }, fn)
+  const merged = { ...base, ...patch }
+  if (!('baggage' in patch)) merged.baggage = cloneBaggage(base.baggage)
+  return merged
 }
 
 export function toEnvelope(ctx: CaracalContext): Envelope {
@@ -84,7 +105,7 @@ export function fromEnvelope(env: Envelope, base: { zoneId: string; applicationI
     traceId: env.traceId,
     traceFlags: env.traceFlags,
     traceState: env.traceState,
-    baggage: env.baggage,
+    baggage: cloneBaggage(env.baggage),
     hop: env.hop,
   }
 }

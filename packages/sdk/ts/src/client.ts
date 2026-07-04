@@ -5,7 +5,7 @@
  * Caracal: drop-in bound client wrapping zone, application, subject token, and coordinator.
  */
 
-import { bind, fromEnvelope, toEnvelope, current, type CaracalContext } from './context.js'
+import { bind, fromEnvelope, toEnvelope, current, type CaracalContext, type VerifiedClaims } from './context.js'
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { homedir, platform } from 'node:os'
 import { join } from 'node:path'
@@ -42,6 +42,7 @@ export interface CaracalConfig {
   applicationId: string
   subjectToken?: string
   tokenSource?: TokenSource
+  exchanger?: { invalidate(): void }
   gatewayUrl?: string
   resources?: ResourceBinding[]
   defaultTtlSeconds?: number
@@ -84,7 +85,7 @@ export interface RootOptions {
 }
 
 export interface BindOptions extends RootOptions {
-  verify?: (token: string) => void | Promise<void>
+  verify?: (token: string) => void | VerifiedClaims | Promise<void | VerifiedClaims>
 }
 
 export interface ClientSecretOptions {
@@ -150,6 +151,8 @@ export class Caracal {
       zoneId: this.config.zoneId,
       applicationId: this.config.applicationId,
       subjectToken: await this.rootToken(),
+      tokenSource: this.config.tokenSource,
+      invalidate: this.invalidate(),
       grant: opts.grant,
       ttlSeconds: opts.ttlSeconds ?? this.config.defaultTtlSeconds,
       subjectSessionId: opts.subjectSessionId,
@@ -169,6 +172,8 @@ export class Caracal {
       zoneId: this.config.zoneId,
       applicationId: this.config.applicationId,
       subjectToken: await this.rootToken(),
+      tokenSource: this.config.tokenSource,
+      invalidate: this.invalidate(),
       ttlSeconds: opts.ttlSeconds ?? this.config.defaultTtlSeconds,
       subjectSessionId: opts.subjectSessionId,
       parentId: opts.parentId,
@@ -195,7 +200,7 @@ export class Caracal {
   }
 
   bind<T>(ctx: CaracalContext, fn: () => Promise<T>): Promise<T> {
-    return bind(ctx, fn) as Promise<T>
+    return bind(ctx, fn)
   }
 
   onAgentStart(cb: LifecycleHook): void {
@@ -268,6 +273,7 @@ export class Caracal {
             }
             return undefined
           })
+    let claims: VerifiedClaims | undefined
     if (!env.subjectToken) {
       if (!opts.allowRoot) {
         throw new Error(
@@ -276,13 +282,21 @@ export class Caracal {
       }
       env.subjectToken = await this.rootToken()
     } else if (opts.verify) {
-      await opts.verify(env.subjectToken)
+      const verified = await opts.verify(env.subjectToken)
+      if (verified) claims = verified
+    }
+    if (claims) {
+      if (claims.agentSessionId !== undefined) env.agentSessionId = claims.agentSessionId
+      if (claims.delegationEdgeId !== undefined) env.delegationEdgeId = claims.delegationEdgeId
+      if (claims.parentEdgeId !== undefined) env.parentEdgeId = claims.parentEdgeId
+      if (claims.sessionId !== undefined) env.sessionId = claims.sessionId
+      if (claims.hop !== undefined) env.hop = claims.hop
     }
     const ctx = fromEnvelope(env as Envelope, {
-      zoneId: this.config.zoneId,
-      applicationId: this.config.applicationId,
+      zoneId: claims?.zoneId ?? this.config.zoneId,
+      applicationId: claims?.applicationId ?? this.config.applicationId,
     })
-    return (await bind(ctx, fn)) as T
+    return await bind(ctx, fn)
   }
 
   /**
@@ -391,18 +405,39 @@ export class Caracal {
   /**
    * Binds Caracal context at the inbound request boundary. Pass `verify` to
    * enforce the bearer token before binding; without it this middleware only
-   * propagates context and must sit behind a verifier boundary.
+   * propagates context and must sit behind a verifier boundary. Boundary
+   * failures (missing token, verify rejection) answer 401 directly; errors
+   * thrown by downstream handlers still flow to the framework error path.
    */
   contextMiddleware(opts: BindOptions = {}) {
-    return (req: { headers: Record<string, string | string[] | undefined> }, _res: unknown, next: (err?: unknown) => void): void => {
+    return (
+      req: { headers: Record<string, string | string[] | undefined> },
+      res: { statusCode: number; setHeader(name: string, value: string): void; end(body?: string): void },
+      next: (err?: unknown) => void,
+    ): void => {
+      let entered = false
       this.bindFromHeaders(
         req.headers,
         async () => {
+          entered = true
           next()
         },
         opts,
-      ).catch(next)
+      ).catch((err) => {
+        if (entered) {
+          next(err)
+          return
+        }
+        res.statusCode = 401
+        res.setHeader('content-type', 'application/json')
+        res.end('{"error":"unauthorized","error_description":"invalid or missing authorization"}')
+      })
     }
+  }
+
+  private invalidate(): (() => void) | undefined {
+    const exchanger = this.config.exchanger
+    return exchanger ? () => exchanger.invalidate() : undefined
   }
 
   private rootTokenSync(): string {
@@ -550,19 +585,21 @@ function configFromClientSecret(opts: ClientSecretOptions): CaracalConfig {
   const resourceIds = opts.resources.map((value) => (typeof value === 'string' ? value : value.resourceId))
   if (!resourceIds.length) throw new Error('Caracal.fromClientSecret requires at least one resource')
   const bindings = opts.resources.filter((value): value is ResourceBinding => typeof value !== 'string')
+  const tokenSource = createClientSecretTokenSource(
+    opts.stsUrl,
+    opts.zoneId,
+    opts.applicationId,
+    opts.clientSecret,
+    resourceIds,
+    opts.scope,
+    opts.fetchImpl,
+  )
   return {
     coordinator: { baseUrl: opts.coordinatorUrl },
     zoneId: opts.zoneId,
     applicationId: opts.applicationId,
-    tokenSource: createClientSecretTokenSource(
-      opts.stsUrl,
-      opts.zoneId,
-      opts.applicationId,
-      opts.clientSecret,
-      resourceIds,
-      opts.scope,
-      opts.fetchImpl,
-    ),
+    tokenSource: tokenSource.source,
+    exchanger: tokenSource,
     gatewayUrl: opts.gatewayUrl,
     resources: bindings.length ? bindings : undefined,
   }
@@ -928,6 +965,12 @@ function resourceIdsFromEnv(
   )
 }
 
+/**
+ * Token source backed by client-secret exchange. The OAuth client caches and
+ * single-flights exchanges, so calling the source per operation is cheap;
+ * `invalidate` forces the next call to bypass the cached token after a
+ * server-side rejection.
+ */
 function createClientSecretTokenSource(
   stsUrl: string,
   zoneId: string,
@@ -936,11 +979,19 @@ function createClientSecretTokenSource(
   resources: string[],
   scope = 'agent:lifecycle',
   fetchImpl?: typeof fetch,
-): TokenSource {
+): { source: TokenSource; invalidate(): void } {
   const client = new OAuthClient(stsUrl, zoneId, applicationId, undefined, fetchImpl)
-  return async () => {
-    const token = await client.exchange('', resources, { clientSecret, scopes: [scope] })
-    return token.accessToken
+  let force = false
+  return {
+    source: async () => {
+      const forceRefresh = force
+      force = false
+      const token = await client.exchange('', resources, { clientSecret, scopes: [scope], forceRefresh })
+      return token.accessToken
+    },
+    invalidate: () => {
+      force = true
+    },
   }
 }
 
