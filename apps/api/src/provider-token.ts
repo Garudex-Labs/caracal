@@ -157,7 +157,9 @@ export function buildTokenRequest(
   assertion?: string,
 ): TokenRequestParts {
   const body = new URLSearchParams(form)
-  const headers: Record<string, string> = { 'Content-Type': 'application/x-www-form-urlencoded' }
+  // Accept pins the response to JSON: endpoints that predate RFC 6749 defaults, such as
+  // GitHub's, answer form-encoded without it.
+  const headers: Record<string, string> = { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' }
   if (method === 'client_secret_post') {
     body.set('client_id', clientId)
     body.set('client_secret', clientSecret)

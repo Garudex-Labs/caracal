@@ -39,7 +39,7 @@ export const TEST_STATUS: Record<
   auth_failed: { label: "Authentication failed", tone: "danger" },
   unreachable: { label: "Endpoint unreachable", tone: "danger" },
   endpoint_error: { label: "Unexpected endpoint response", tone: "warning" },
-  config_error: { label: "Configuration incomplete", tone: "warning" },
+  config_error: { label: "Configuration error", tone: "warning" },
 };
 
 const KIND_OPTIONS: { value: ProviderKind; label: string }[] = [

@@ -421,16 +421,25 @@ interface ProviderTestResult {
   checked_at: string
 }
 
-// Only the standard OAuth error code is taken from the upstream response, so nothing
-// the provider returns can flow back to the caller beyond a fixed-vocabulary token.
+// Only a standard OAuth error code is taken from the upstream response - JSON per RFC 6749,
+// with a form-encoded fallback for endpoints that answer that way regardless of Accept - so
+// nothing the provider returns can flow back to the caller beyond a fixed-vocabulary token.
 function oauthErrorCode(body: string): string {
+  const valid = (code: unknown): code is string => typeof code === 'string' && /^[a-z_]{1,64}$/.test(code)
   try {
     const parsed = JSON.parse(body) as Record<string, unknown>
-    return typeof parsed.error === 'string' && /^[a-z_]{1,64}$/.test(parsed.error) ? parsed.error : ''
+    return valid(parsed.error) ? parsed.error : ''
   } catch {
-    return ''
+    const code = new URLSearchParams(body).get('error')
+    return valid(code) ? code : ''
   }
 }
+
+// Vendor endpoints use their own vocabulary for the two signals the check cares about:
+// GitHub answers HTTP 200 with incorrect_client_credentials or bad_verification_code where
+// RFC 6749 servers answer 401 invalid_client or 400 invalid_grant.
+const CLIENT_REJECTED_CODES: ReadonlySet<string> = new Set(['invalid_client', 'unauthorized_client', 'incorrect_client_credentials'])
+const GRANT_REJECTED_CODES: ReadonlySet<string> = new Set(['invalid_grant', 'bad_verification_code'])
 
 // Verifies an OAuth provider against its own allowlisted HTTPS token endpoint. Only OAuth
 // kinds are checkable: the other kinds make no upstream credential request of their own, so
@@ -477,13 +486,16 @@ async function runProviderCheck(
 
   // client_credentials providers perform a real token request; authorization_code
   // providers submit a placeholder code, which a healthy endpoint rejects with
-  // invalid_grant after accepting the client credentials.
+  // invalid_grant after accepting the client credentials. The placeholder verifier
+  // keeps PKCE-mandating endpoints moving past request validation to code validation;
+  // endpoints without PKCE ignore it.
   const form =
     kind === 'oauth2_client_credentials'
       ? new URLSearchParams({ grant_type: 'client_credentials' })
       : new URLSearchParams({
           grant_type: 'authorization_code',
           code: 'caracal-connection-test',
+          code_verifier: 'caracal-connection-test-code-verifier-0123456789abcdefghijklmn',
           redirect_uri: stringConfig(config, 'redirect_uri'),
         })
   const scopes = stringListConfig(config, 'scopes')
@@ -508,7 +520,7 @@ async function runProviderCheck(
 
   const errCode = oauthErrorCode(response.body)
   if (kind === 'oauth2_client_credentials') {
-    if (response.statusCode === 200) {
+    if (response.statusCode === 200 && !errCode) {
       // The issued token is parsed for presence only and discarded, never stored or returned.
       let issued = false
       try {
@@ -520,15 +532,21 @@ async function runProviderCheck(
         ? result('ok', 'The provider authenticated the client and issued a token.')
         : result('endpoint_error', 'The token endpoint returned HTTP 200 without an access token.')
     }
-    if (errCode === 'invalid_client' || errCode === 'unauthorized_client' || response.statusCode === 401) {
+    if (CLIENT_REJECTED_CODES.has(errCode) || response.statusCode === 401) {
       return result('auth_failed', 'The provider rejected the client credentials.')
+    }
+    if (errCode === 'invalid_scope' || errCode === 'invalid_target') {
+      return result(
+        'config_error',
+        `The provider accepted the client but rejected the request (${errCode}). Align the provider's scope, audience, and resource settings with what the token endpoint expects.`,
+      )
     }
     return result('endpoint_error', `The token endpoint responded with HTTP ${response.statusCode}${errCode ? ` (${errCode})` : ''}.`)
   }
-  if (errCode === 'invalid_grant') {
+  if (GRANT_REJECTED_CODES.has(errCode)) {
     return result('ok', 'The provider authenticated the client and rejected the placeholder code, as expected.')
   }
-  if (errCode === 'invalid_client' || response.statusCode === 401) {
+  if (CLIENT_REJECTED_CODES.has(errCode) || response.statusCode === 401) {
     return result('auth_failed', 'The provider rejected the client credentials.')
   }
   return result('endpoint_error', `The token endpoint responded with HTTP ${response.statusCode}${errCode ? ` (${errCode})` : ''}.`)
