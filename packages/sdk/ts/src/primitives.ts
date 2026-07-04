@@ -229,6 +229,7 @@ async function establishSession(input: SessionInput, lifecycle?: Lifecycle): Pro
     traceState: parent?.traceState,
     baggage: cloneBaggage(parent?.baggage),
     hop,
+    ownToken: true,
   }
   return { agentSessionId: res.agentSessionId, ctx, bearer, heartbeatDeadlineAt: res.heartbeatDeadlineAt }
 }

@@ -21,6 +21,13 @@ export interface CaracalContext {
   traceState?: string
   baggage?: Record<string, string>
   hop: number
+  /**
+   * Marks a context whose subject token came from this process's own
+   * credential configuration, so the client may refresh it through its token
+   * source. Inbound contexts carry a caller's token and stay pinned.
+   * Process-local; never serialized to the envelope.
+   */
+  ownToken?: boolean
 }
 
 export interface AuthoritySummary {

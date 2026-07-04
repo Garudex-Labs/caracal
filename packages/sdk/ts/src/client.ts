@@ -24,7 +24,6 @@ import {
 import { type CoordinatorClient, type DelegationConstraints, type DelegationResponse } from './coordinator.js'
 import type { JsonObject } from './json.js'
 import { OAuthClient } from '@caracalai/oauth'
-
 const DEFAULT_STS_URL = 'http://localhost:8080'
 const DEFAULT_COORDINATOR_URL = 'http://localhost:4000'
 const DEFAULT_GATEWAY_URL = 'http://localhost:8081'
@@ -36,13 +35,28 @@ export interface ResourceBinding {
 
 export type TokenSource = () => string | Promise<string>
 
+/**
+ * Client-secret credential surface behind a configured Caracal client:
+ * invalidates the cached lifecycle token after a server-side rejection and
+ * mints scoped resource mandates for gateway calls.
+ */
+export interface ClientSecretExchanger {
+  invalidate(): void
+  mintMandate(
+    resourceId: string,
+    scopes: string[],
+    opts?: { agentSessionId?: string; delegationEdgeId?: string; ttlSeconds?: number; approvalId?: string },
+  ): Promise<string>
+  waitForApproval(challengeId: string, opts?: { timeoutMs?: number }): Promise<string>
+}
+
 export interface CaracalConfig {
   coordinator: CoordinatorClient
   zoneId: string
   applicationId: string
   subjectToken?: string
   tokenSource?: TokenSource
-  exchanger?: { invalidate(): void }
+  exchanger?: ClientSecretExchanger
   gatewayUrl?: string
   resources?: ResourceBinding[]
   /** Default TTL for task spawns; a service session lives by its heartbeat lease instead. */
@@ -95,6 +109,23 @@ export interface RootOptions {
   allowRoot?: boolean
 }
 
+/**
+ * Transport behavior options. `scopes` switches gateway-routed requests from
+ * the raw subject token to a scoped resource mandate minted for the routed
+ * resource and the bound agent identity; requires a client-secret
+ * configuration.
+ */
+export interface TransportOptions extends RootOptions {
+  scopes?: string[]
+}
+
+/** Optional mint inputs: a TTL override, the approval challenge id for retrying an approval-gated mint, and an explicit context. */
+export interface MandateOptions {
+  ttlSeconds?: number
+  approvalId?: string
+  ctx?: CaracalContext
+}
+
 export interface BindOptions extends RootOptions {
   verify?: (token: string) => void | VerifiedClaims | Promise<void | VerifiedClaims>
 }
@@ -108,6 +139,8 @@ export interface ClientSecretOptions {
   resources: Array<string | ResourceBinding>
   gatewayUrl?: string
   scope?: string
+  /** Seeds CaracalConfig.defaultTtlSeconds for task spawns. */
+  defaultTtlSeconds?: number
   fetchImpl?: typeof fetch
 }
 
@@ -250,6 +283,12 @@ export class Caracal {
     return current()
   }
 
+  /**
+   * Envelope headers plus the bearer credential for the current context.
+   * The context token is returned as bound; long-lived holders needing a
+   * refreshed own-credential token use headersAsync. Root application
+   * identity requires `{ allowRoot: true }`.
+   */
   headers(opts: RootOptions = {}): Record<string, string> {
     const ctx = current()
     if (!ctx) {
@@ -267,6 +306,12 @@ export class Caracal {
     }
   }
 
+  /**
+   * Async variant of headers. For contexts this process spawned from its own
+   * credentials, the bearer is resolved fresh through the token source so
+   * long-lived holders never present an expired token; inbound contexts stay
+   * pinned to the caller's token.
+   */
   async headersAsync(opts: RootOptions = {}): Promise<Record<string, string>> {
     const ctx = current()
     if (!ctx) {
@@ -280,9 +325,10 @@ export class Caracal {
         [HeaderAuthorization]: `Bearer ${await this.rootToken()}`,
       }
     }
+    const token = ctx.ownToken && this.config.tokenSource ? await this.config.tokenSource() : ctx.subjectToken
     return {
       ...toHeaders(toEnvelope(ctx)),
-      [HeaderAuthorization]: `Bearer ${ctx.subjectToken}`,
+      [HeaderAuthorization]: `Bearer ${token}`,
     }
   }
 
@@ -305,6 +351,7 @@ export class Caracal {
             return undefined
           })
     let claims: VerifiedClaims | undefined
+    let rootInjected = false
     if (!env.subjectToken) {
       if (!opts.allowRoot) {
         throw new Error(
@@ -312,6 +359,7 @@ export class Caracal {
         )
       }
       env.subjectToken = await this.rootToken()
+      rootInjected = true
     } else if (opts.verify) {
       const verified = await opts.verify(env.subjectToken)
       if (verified) claims = verified
@@ -327,25 +375,29 @@ export class Caracal {
       zoneId: claims?.zoneId ?? this.config.zoneId,
       applicationId: claims?.applicationId ?? this.config.applicationId,
     })
-    return await bind(ctx, fn)
+    return await bind(rootInjected ? { ...ctx, ownToken: true } : ctx, fn)
   }
 
   /**
    * Returns a fetch-shaped function that injects the Caracal context envelope
    * (traceparent, tracestate, baggage) onto outbound requests, merging with any
-   * headers the caller or an OpenTelemetry SDK already set. The subject token is
-   * attached only to gateway-routed calls, where the Gateway terminates it at the
-   * trust boundary. Pass to any provider SDK that accepts a custom fetch.
+   * headers the caller or an OpenTelemetry SDK already set. The bearer is
+   * attached only to gateway-routed calls, where the Gateway terminates it at
+   * the trust boundary: a scoped mandate when `scopes` is set, otherwise the
+   * context's subject token. No default timeout is applied; pass
+   * `init.signal` (e.g. AbortSignal.timeout) to bound a call. Pass to any
+   * provider SDK that accepts a custom fetch.
    */
-  transport(opts: RootOptions = {}): typeof fetch {
+  transport(opts: TransportOptions = {}): typeof fetch {
     const outer = this
     const rootAllowed = opts.allowRoot === true
+    const scopes = opts.scopes
     const fn: typeof fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const ctx = current()
       if (!ctx && !rootAllowed) {
         throw new Error('Caracal.transport(): no Caracal context is bound. Pass { allowRoot: true } to use the application subject token.')
       }
-      const env: Envelope = ctx ? toEnvelope(ctx) : { subjectToken: await outer.rootToken(), hop: 0 }
+      const env: Envelope = ctx ? toEnvelope(ctx) : { hop: 0 }
       const merged = new Headers(init?.headers ?? {})
       encodeEnvelope(
         env,
@@ -358,15 +410,74 @@ export class Caracal {
       const rewritten = outer.routeThroughGateway(input, explicitResource)
       if (rewritten) {
         merged.set('X-Caracal-Resource', rewritten.resourceId)
-        merged.set('Authorization', `Bearer ${env.subjectToken}`)
+        merged.set('Authorization', `Bearer ${await outer.gatewayToken(ctx, rewritten.resourceId, scopes)}`)
         return fetchImpl(rewritten.url as unknown as URL, { ...init, headers: merged })
       }
       if (outer.targetsGateway(input)) {
-        merged.set('Authorization', `Bearer ${env.subjectToken}`)
+        merged.set('Authorization', `Bearer ${await outer.gatewayToken(ctx, explicitResource, scopes)}`)
       }
       return fetchImpl(input as URL, { ...init, headers: merged })
     }) as typeof fetch
     return fn
+  }
+
+  /**
+   * Resolves the bearer for a gateway-bound request: a scoped mandate when
+   * scopes are set and the routed resource is known, a fresh token from the
+   * token source for contexts this process spawned from its own credentials,
+   * the pinned context token for inbound-bound contexts, or the application
+   * token in root mode.
+   */
+  private async gatewayToken(ctx: CaracalContext | undefined, resourceId: string | undefined, scopes: string[] | undefined): Promise<string> {
+    if (scopes?.length && resourceId) {
+      const exchanger = this.config.exchanger
+      if (!exchanger) throw new Error('Caracal.transport(): scopes require a client-secret configuration')
+      return exchanger.mintMandate(resourceId, scopes, {
+        agentSessionId: ctx?.agentSessionId,
+        delegationEdgeId: ctx?.delegationEdgeId,
+      })
+    }
+    if (!ctx) return this.rootToken()
+    if (ctx.ownToken && this.config.tokenSource) return await this.config.tokenSource()
+    return ctx.subjectToken
+  }
+
+  /**
+   * Mints a resource mandate for the current agent: a short-lived token
+   * audienced to `resourceId` and narrowed to `scopes`, carrying the agent
+   * session and delegation edge of the bound context. The STS evaluates
+   * policy against that agent's authority, so a narrowed child can mint only
+   * what its delegation edge allows. Results are cached per resource, scope
+   * set, and agent identity, and refreshed before expiry.
+   *
+   * When a scope is approval-gated this throws InteractionRequiredError;
+   * retry with `approvalId` set to the returned challenge id once an
+   * authenticated approver has satisfied it. Requires a client-secret
+   * configuration.
+   */
+  mintMandate(resourceId: string, scopes: string[], opts: MandateOptions = {}): Promise<string> {
+    const exchanger = this.config.exchanger
+    if (!exchanger) throw new Error('Caracal.mintMandate(): requires a client-secret configuration')
+    const ctx = opts.ctx ?? current()
+    return exchanger.mintMandate(resourceId, scopes, {
+      agentSessionId: ctx?.agentSessionId,
+      delegationEdgeId: ctx?.delegationEdgeId,
+      ttlSeconds: opts.ttlSeconds,
+      approvalId: opts.approvalId,
+    })
+  }
+
+  /**
+   * Long-polls an approval challenge until an approver decides it, it
+   * expires, or the timeout elapses. Returns the final lifecycle state:
+   * 'approved' means retrying the mint with `approvalId` set will succeed;
+   * 'rejected' and 'expired' are terminal; 'pending' means the timeout
+   * elapsed with no decision and waiting again is safe.
+   */
+  waitForApproval(challengeId: string, opts: { timeoutMs?: number } = {}): Promise<string> {
+    const exchanger = this.config.exchanger
+    if (!exchanger) throw new Error('Caracal.waitForApproval(): requires a client-secret configuration')
+    return exchanger.waitForApproval(challengeId, opts)
   }
 
   gatewayRequest(resourceId: string, path: string = '/'): GatewayRequest {
@@ -382,9 +493,10 @@ export class Caracal {
    * One-call happy path: sends `init` to `path` on the given resource through the
    * Gateway with Caracal context and authority injected. Equivalent to building a
    * `gatewayRequest` and calling it with `transport`. The resource header always
-   * wins over any caller-supplied `X-Caracal-Resource`.
+   * wins over any caller-supplied `X-Caracal-Resource`. No default timeout is
+   * applied; pass `init.signal` (e.g. AbortSignal.timeout) to bound a call.
    */
-  fetch(resourceId: string, path: string = '/', init: RequestInit = {}, opts: RootOptions = {}): Promise<Response> {
+  fetch(resourceId: string, path: string = '/', init: RequestInit = {}, opts: TransportOptions = {}): Promise<Response> {
     const request = this.gatewayRequest(resourceId, path)
     const headers = new Headers(init.headers ?? {})
     for (const [key, value] of Object.entries(request.headers)) headers.set(key, value)
@@ -483,10 +595,17 @@ export class Caracal {
   }
 }
 
+function productionEnv(env: NodeJS.ProcessEnv): boolean {
+  // CARACAL_ENV is the language-neutral gate every Caracal SDK honors; when
+  // unset, Node deployments fall back to NODE_ENV.
+  if (env.CARACAL_ENV) return env.CARACAL_ENV === 'production'
+  return env.NODE_ENV === 'production'
+}
+
 function serviceUrl(env: NodeJS.ProcessEnv, key: string, fallback: string): string {
   const value = env[key]
   if (value) return value
-  if (env.NODE_ENV === 'production') throw new Error(`Caracal SDK: ${key} is required when NODE_ENV=production`)
+  if (productionEnv(env)) throw new Error(`Caracal SDK: ${key} is required in production`)
   return fallback
 }
 
@@ -539,7 +658,7 @@ function safePathSegment(value: string): string {
 }
 
 function existingLocalFile(path: string, env: NodeJS.ProcessEnv): string | undefined {
-  if (env.NODE_ENV === 'production') return undefined
+  if (productionEnv(env)) return undefined
   return existsSync(path) ? path : undefined
 }
 
@@ -587,6 +706,7 @@ function configFromEnv(env: NodeJS.ProcessEnv): CaracalConfig {
   const clientSecret = clientSecretFromEnv(env, zoneId!, applicationId!)
   const profileResources = resourcesFromEnv(env, zoneId!, applicationId!)
   const resources = profileResources.bindings
+  const defaultTtlSeconds = defaultTtlFromEnv(env)
   if (clientSecret) {
     return configFromClientSecret({
       coordinatorUrl: url,
@@ -596,6 +716,7 @@ function configFromEnv(env: NodeJS.ProcessEnv): CaracalConfig {
       clientSecret,
       resources: resourceIdsFromEnv(env.CARACAL_APP_RESOURCES, profileResources.credentialResources ?? [], profileResources.resources),
       gatewayUrl,
+      defaultTtlSeconds,
     })
   }
   if (!subjectToken) {
@@ -609,10 +730,34 @@ function configFromEnv(env: NodeJS.ProcessEnv): CaracalConfig {
     subjectToken: subjectToken!,
     gatewayUrl,
     resources,
+    defaultTtlSeconds,
   }
 }
 
+function defaultTtlFromEnv(env: NodeJS.ProcessEnv): number | undefined {
+  const raw = env.CARACAL_DEFAULT_TTL_SECONDS
+  if (!raw) return undefined
+  const value = Number(raw)
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error('Caracal: CARACAL_DEFAULT_TTL_SECONDS must be a positive integer')
+  }
+  return value
+}
+
 function configFromClientSecret(opts: ClientSecretOptions): CaracalConfig {
+  const missing = [
+    ['coordinatorUrl', opts.coordinatorUrl],
+    ['stsUrl', opts.stsUrl],
+    ['zoneId', opts.zoneId],
+    ['applicationId', opts.applicationId],
+    ['clientSecret', opts.clientSecret],
+  ]
+    .filter(([, v]) => !v)
+    .map(([k]) => k)
+  if (missing.length) throw new Error(`Caracal.fromClientSecret missing ${missing.join(', ')}`)
+  if (opts.defaultTtlSeconds !== undefined && (!Number.isInteger(opts.defaultTtlSeconds) || opts.defaultTtlSeconds <= 0)) {
+    throw new Error('Caracal.fromClientSecret: defaultTtlSeconds must be a positive integer')
+  }
   const resourceIds = opts.resources.map((value) => (typeof value === 'string' ? value : value.resourceId))
   if (!resourceIds.length) throw new Error('Caracal.fromClientSecret requires at least one resource')
   const bindings = opts.resources.filter((value): value is ResourceBinding => typeof value !== 'string')
@@ -633,6 +778,7 @@ function configFromClientSecret(opts: ClientSecretOptions): CaracalConfig {
     exchanger: tokenSource,
     gatewayUrl: opts.gatewayUrl,
     resources: bindings.length ? bindings : undefined,
+    defaultTtlSeconds: opts.defaultTtlSeconds,
   }
 }
 
@@ -664,7 +810,17 @@ function configFromProfile(path: string, env: NodeJS.ProcessEnv): CaracalConfig 
     clientSecret: clientSecretFromProfile(value, path, env, zoneId, applicationId),
     resources: resources.resources,
     gatewayUrl: stringValue(value, 'gateway_url') ?? serviceUrl(env, 'CARACAL_GATEWAY_URL', DEFAULT_GATEWAY_URL),
+    defaultTtlSeconds: profileTtlSeconds(value, path) ?? defaultTtlFromEnv(env),
   })
+}
+
+function profileTtlSeconds(record: Record<string, unknown>, source: string): number | undefined {
+  const value = record.default_ttl_seconds
+  if (value === undefined) return undefined
+  if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) {
+    throw new Error(`${source}: default_ttl_seconds must be a positive integer`)
+  }
+  return value
 }
 
 function resolveProfilePath(env: NodeJS.ProcessEnv): string | undefined {
@@ -685,7 +841,8 @@ function assertProfileFileSecure(path: string): void {
 function assertSecretFileSecure(path: string): void {
   if (process.platform === 'win32') return
   const mode = statSync(path).mode & 0o777
-  if ((mode & 0o022) !== 0) throw new Error(`Caracal profile secret file permissions are too broad: ${path}`)
+  // A file carrying a secret must be readable only by its owner.
+  if ((mode & 0o077) !== 0) throw new Error(`Caracal: secret file must be readable only by its owner: ${path}`)
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -715,7 +872,12 @@ function clientSecretFromProfile(
   const inline = stringValue(record, 'app_client_secret')
   const file = stringValue(record, 'app_client_secret_file')
   if (inline && file) throw new Error(`${source}: set only one of app_client_secret or app_client_secret_file`)
-  if (inline) return inline
+  if (inline) {
+    if (process.platform !== 'win32' && (statSync(source).mode & 0o077) !== 0) {
+      throw new Error(`${source} carries an inline app_client_secret and must be readable only by its owner`)
+    }
+    return inline
+  }
   const localFile = file ?? existingLocalFile(defaultClientSecretPath(env, zoneId, applicationId), env)
   if (!localFile)
     throw new Error(
@@ -729,9 +891,10 @@ function clientSecretFromEnv(env: NodeJS.ProcessEnv, zoneId: string, application
     throw new Error('Caracal.fromEnv: set only one of CARACAL_APP_CLIENT_SECRET or CARACAL_APP_CLIENT_SECRET_FILE')
   }
   if (env.CARACAL_APP_CLIENT_SECRET_FILE) return readSecretFile(env.CARACAL_APP_CLIENT_SECRET_FILE)
+  if (env.CARACAL_APP_CLIENT_SECRET) return env.CARACAL_APP_CLIENT_SECRET
   const localFile = existingLocalFile(defaultClientSecretPath(env, zoneId, applicationId), env)
   if (localFile) return readSecretFile(localFile)
-  return env.CARACAL_APP_CLIENT_SECRET
+  return undefined
 }
 
 function readSecretFile(path: string): string {
@@ -985,22 +1148,25 @@ function resourceIdsFromEnv(
   first: Array<string | ResourceBinding>,
   resources: Array<string | ResourceBinding> | undefined,
 ): Array<string | ResourceBinding> {
-  const explicit = raw
-    ?.split(',')
-    .map((value) => value.trim())
-    .filter(Boolean)
-  if (explicit?.length) return compactResourceValues([...first, ...explicit])
-  if (resources?.length) return resources
+  const explicit =
+    raw
+      ?.split(',')
+      .map((value) => value.trim())
+      .filter(Boolean) ?? []
+  // Binding-derived ids always join the STS audience set so a routed resource
+  // can never be minted without an audience.
+  const values = compactResourceValues([...first, ...explicit, ...(resources ?? [])])
+  if (values.length) return values
   throw new Error(
     'Caracal.fromEnv: client-secret mode requires resources via CARACAL_APP_RESOURCES, CARACAL_RUN_CREDENTIALS, CARACAL_RESOURCES, or CARACAL_RESOURCES_FILE',
   )
 }
 
 /**
- * Token source backed by client-secret exchange. The OAuth client caches and
- * single-flights exchanges, so calling the source per operation is cheap;
- * `invalidate` forces the next call to bypass the cached token after a
- * server-side rejection.
+ * Client-secret credential surface: a lifecycle token source backed by the
+ * OAuth client's cached, single-flighted exchange, plus scoped mandate
+ * minting for gateway calls. `invalidate` forces the next lifecycle token to
+ * bypass the cache after a server-side rejection.
  */
 function createClientSecretTokenSource(
   stsUrl: string,
@@ -1010,7 +1176,7 @@ function createClientSecretTokenSource(
   resources: string[],
   scope = 'agent:lifecycle',
   fetchImpl?: typeof fetch,
-): { source: TokenSource; invalidate(): void } {
+): ClientSecretExchanger & { source: TokenSource } {
   const client = new OAuthClient(stsUrl, zoneId, applicationId, undefined, fetchImpl)
   let force = false
   return {
@@ -1023,6 +1189,18 @@ function createClientSecretTokenSource(
     invalidate: () => {
       force = true
     },
+    mintMandate: async (resourceId, scopes, opts = {}) => {
+      const token = await client.exchange('', resourceId, {
+        clientSecret,
+        scopes: [...new Set(scopes)].sort(),
+        agentSessionId: opts.agentSessionId,
+        delegationEdgeId: opts.delegationEdgeId,
+        ttlSeconds: opts.ttlSeconds,
+        challengeId: opts.approvalId,
+      })
+      return token.accessToken
+    },
+    waitForApproval: (challengeId, opts = {}) => client.waitForApproval(challengeId, opts),
   }
 }
 
