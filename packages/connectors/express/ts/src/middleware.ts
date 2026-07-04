@@ -55,12 +55,15 @@ export function caracalAuth(opts: MiddlewareOptions | VerifierMiddlewareOptions,
       subjectToken: token,
       zoneId: result.principal.zoneId ?? middlewareZone(opts) ?? '',
       applicationId: result.principal.clientId ?? '',
-      agentSessionId: env.agentSessionId ?? result.principal.agentSessionId,
-      delegationEdgeId: env.delegationEdgeId ?? result.principal.delegationEdgeId,
+      agentSessionId: result.principal.agentSessionId ?? env.agentSessionId,
+      delegationEdgeId: result.principal.delegationEdgeId ?? env.delegationEdgeId,
       parentEdgeId: env.parentEdgeId,
       sessionId: result.principal.sid,
       traceId: env.traceId,
-      hop: env.hop,
+      traceFlags: env.traceFlags,
+      traceState: env.traceState,
+      baggage: env.baggage,
+      hop: result.principal.hopCount ?? env.hop,
     }
     req.caracalContext = baseCtx
 

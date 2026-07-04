@@ -15,6 +15,7 @@ export type {
   GatewayRequest,
   LifecycleHook,
   RootOptions,
+  BindOptions,
   TokenSource,
   ClientSecretOptions,
   CaracalOptions,
