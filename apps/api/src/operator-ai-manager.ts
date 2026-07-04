@@ -7,7 +7,6 @@ import type { AdminClient } from '@caracalai/admin'
 import type { Queryable } from './db.js'
 import type { OperatorControlIdentity } from './config.js'
 import type { ProviderConfig } from './operator-gateway.js'
-import type { OperatorLlmTransport } from './operator-llm-transport.js'
 import { GovernedUpstream, provisionGovernedUpstreams } from './system-zone.js'
 import {
   deleteAiProvider,
@@ -102,7 +101,7 @@ export function buildStoreProviderConfigs(
   records: OperatorAiProviderRecord[],
   resourceBySlug: Map<string, string>,
   gatewayUrl: string,
-  transport: OperatorLlmTransport,
+  governedFetch: (resourceIdentifier: string) => typeof fetch,
 ): ProviderConfig[] {
   const configs: ProviderConfig[] = []
   for (const record of records) {
@@ -117,7 +116,7 @@ export function buildStoreProviderConfigs(
         model,
         timeoutMs: DEFAULT_TIMEOUT_MS,
         contextWindow: record.contextWindow,
-        transport: transport.governedFetch(resourceIdentifier),
+        transport: governedFetch(resourceIdentifier),
       })
     }
   }
@@ -163,7 +162,9 @@ export interface OperatorAiManagerDeps {
   resolveIdentity: () => OperatorControlIdentity | null
   envUpstreams: GovernedUpstream[]
   gatewayUrl: string
-  transport: OperatorLlmTransport
+  // Builds the governed transport for one resource: the SDK client's minted-mandate fetch,
+  // bound to the Operator identity the credentials resolver supplies.
+  governedFetch: (resourceIdentifier: string) => typeof fetch
   // Publishes the rebuilt store-provider gateway entries so the next request's gateway includes
   // the change without an env edit or restart.
   onRegistryChange: (configs: ProviderConfig[]) => void
@@ -181,7 +182,7 @@ export function createOperatorAiManager(deps: OperatorAiManagerDeps): OperatorAi
     const upstreams = mergeDesiredUpstreams(deps.envUpstreams, records, keyOverride)
     const governed = await provisionGovernedUpstreams(deps.admin, identity.zoneId, identity.llm.applicationId, upstreams)
     const resourceBySlug = new Map(governed.map((entry) => [entry.id, entry.resourceIdentifier]))
-    deps.onRegistryChange(buildStoreProviderConfigs(records, resourceBySlug, deps.gatewayUrl, deps.transport))
+    deps.onRegistryChange(buildStoreProviderConfigs(records, resourceBySlug, deps.gatewayUrl, deps.governedFetch))
   }
 
   return {

@@ -19,17 +19,19 @@ import { adminAuthPlugin } from './auth.js'
 import { registerAdminAuditHook } from './admin-audit.js'
 import { controlPlugin } from './control/plugin.js'
 import { AdminClient } from '@caracalai/admin'
+import { Caracal } from '@caracalai/sdk'
 import {
   provisionSystemZone,
   llmResourceIdentifier,
+  LLM_SCOPE,
   OPERATOR_CREDENTIAL_ROTATE_SEC,
+  OPERATOR_ROLE,
   type GovernedUpstream,
   type OperatorRoleScopes,
 } from './system-zone.js'
 import { buildOperatorAuthority } from './operator-authority.js'
 import { researcherRoleScopes, executorRoleScopes } from './operator-agent-roles.js'
 import { isReservedZone } from './reserved-namespace.js'
-import { createOperatorLlmTransport, type OperatorLlmTransport } from './operator-llm-transport.js'
 import type { ProviderConfig } from './operator-gateway.js'
 import { createOperatorAiManager, buildStoreProviderConfigs, type OperatorAiManager } from './operator-ai-manager.js'
 import { listAiProviders } from './operator-ai-store.js'
@@ -314,45 +316,48 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
 
   // The Operator is always governed: whenever the control plane is available it must not hold
   // its upstream LLM keys. The provisioner seals each keyed provider into Caracal, and here the
-  // matching providers are re-pointed at the gateway with a per-provider transport that mints and
-  // presents a Caracal resource mandate. The key is dropped from the in-process config, so a
-  // governed provider calls its model only through Caracal's own authority plane. Keyless local
-  // providers need no protection and are left calling directly. The transport resolves the
-  // Operator identity lazily because it is provisioned after the server is listening; until then
-  // a governed call fails closed rather than leaking a key.
+  // matching providers are re-pointed at the gateway through a per-resource governed transport
+  // that mints and presents a Caracal resource mandate. The key is dropped from the in-process
+  // config, so a governed provider calls its model only through Caracal's own authority plane.
+  // Keyless local providers need no protection and are left calling directly.
   const governanceActive = Boolean(cfg.control)
 
-  // The Operator's governed LLM transport mints and presents a Caracal resource mandate per
-  // call, so a governed provider reaches its model only through Caracal's own authority plane.
-  // It resolves the Operator identity lazily because that identity is provisioned after the
-  // server is listening; until then a governed call fails closed rather than leaking a key.
-  const transport: OperatorLlmTransport | null = governanceActive
-    ? createOperatorLlmTransport({
-        stsUrl: cfg.stsUrl,
-        coordinatorUrl: cfg.coordinatorUrl,
-        gatewayUrl: cfg.gatewayUrl,
-        resolveIdentity: () => {
-          const identity = currentIdentity()
-          return identity ? { zoneId: identity.zoneId, ...identity.llm } : null
+  // The Operator's own SDK client. Its credentials resolve per call from the mutable identity
+  // holder: the identity is provisioned after the server is listening, rotates on a deadline,
+  // and the resolver returning null fails a governed call closed rather than leaking a key.
+  const caracal = governanceActive
+    ? new Caracal({
+        clientSecret: {
+          coordinatorUrl: cfg.coordinatorUrl,
+          stsUrl: cfg.stsUrl,
+          gatewayUrl: cfg.gatewayUrl,
+          credentials: () => {
+            const identity = currentIdentity()
+            return identity ? { zoneId: identity.zoneId, ...identity.llm } : null
+          },
         },
       })
     : null
 
+  const governedFetch = caracal
+    ? (resourceIdentifier: string): typeof fetch =>
+        caracal.governedTransport(resourceIdentifier, { scopes: [LLM_SCOPE], labels: [OPERATOR_ROLE] })
+    : null
+
   // The env-configured providers, governed when a key is supplied (the key is dropped from the
   // in-process config and the call is routed through the gateway) and direct when keyless.
-  const envConfigs: ProviderConfig[] =
-    governanceActive && transport
-      ? cfg.operatorAiProviders.map((provider) =>
-          provider.apiKey
-            ? {
-                ...provider,
-                apiKey: undefined,
-                baseUrl: cfg.gatewayUrl,
-                transport: transport.governedFetch(llmResourceIdentifier(provider.id)),
-              }
-            : provider,
-        )
-      : cfg.operatorAiProviders
+  const envConfigs: ProviderConfig[] = governedFetch
+    ? cfg.operatorAiProviders.map((provider) =>
+        provider.apiKey
+          ? {
+              ...provider,
+              apiKey: undefined,
+              baseUrl: cfg.gatewayUrl,
+              transport: governedFetch(llmResourceIdentifier(provider.id)),
+            }
+          : provider,
+      )
+    : cfg.operatorAiProviders
 
   // The store-managed providers' gateway entries, rebuilt whenever the registry changes so a
   // provider added or edited from the console applies to the next request without an env edit.
@@ -373,14 +378,14 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
   // keys; the routes surface its absence so the console explains the prerequisite rather than
   // accepting a key it cannot protect.
   const aiManager: OperatorAiManager | null =
-    governanceActive && transport && provisionAdmin
+    governedFetch && provisionAdmin
       ? createOperatorAiManager({
           db,
           admin: provisionAdmin,
           resolveIdentity: currentIdentity,
           envUpstreams: envGovernedUpstreams,
           gatewayUrl: cfg.gatewayUrl,
-          transport,
+          governedFetch,
           onRegistryChange: (configs) => {
             storeConfigs = configs
           },
@@ -474,7 +479,7 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
         // Publish the store providers' gateway entries from the freshly reconciled resource
         // map, so a console-added provider is live immediately after a restart.
         const resourceBySlug = new Map(identity.governedResources.map((entry) => [entry.id, entry.resourceIdentifier]))
-        if (transport) storeConfigs = buildStoreProviderConfigs(storeRecords, resourceBySlug, cfg.gatewayUrl, transport)
+        if (governedFetch) storeConfigs = buildStoreProviderConfigs(storeRecords, resourceBySlug, cfg.gatewayUrl, governedFetch)
         if (isolatedSystemZone.has(identity.zoneId)) {
           // The Operator must govern its own system zone; listing it as an isolated zone
           // would block self-governance before the identity check. Warn rather than fail so
