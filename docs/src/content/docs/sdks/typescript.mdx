@@ -33,7 +33,7 @@ const caracal = new Caracal();
 | Method | Purpose |
 | --- | --- |
 | `spawn(fn, options?)` | Create an agent session and bind context while `fn` runs; pass `grant: Grant.narrow(...)` to bound the child's authority. |
-| `spawnService(options?)` | Start a long-lived service agent; returns a handle with `heartbeat()` and `close()`. Pass `grant: Grant.narrow(...)` to bound the handle's authority. |
+| `spawnService(options?)` | Start a long-lived service agent; auto-renews its lease and returns a handle with `heartbeat()` and `close()`. Pass `grant: Grant.narrow(...)` to bound the handle's authority. |
 | `delegate(options, fn)` | Create a delegation edge to an existing agent session. |
 | `headers(options?)` | Project the current bound context into HTTP headers synchronously. |
 | `headersAsync(options?)` | Project headers when a root token may require async refresh. |

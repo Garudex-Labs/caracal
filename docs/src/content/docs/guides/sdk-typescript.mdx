@@ -51,35 +51,31 @@ See [If many agents share one managed application, can policy and audit still te
 
 ## Long-lived service agents
 
-Daemons and workers that outlive a single request use `spawnService()` instead of `spawn()`. It returns a handle you own: keep the session alive by calling `heartbeat()` on a timer and retire it with `close()`. Each `heartbeat()` **renews the lease** - it extends the deadline the coordinator measures liveness against; it does not merely check status. A service session is reaped by the coordinator only if it stops heartbeating before its lease expires. Unlike a `task`, a `service` is **not** subject to the wall-clock TTL sweeper; its lifetime is governed entirely by the lease, so a faithfully heartbeated service runs until you close it.
+Daemons and workers that outlive a single request use `spawnService()` instead of `spawn()`. It returns a handle you own: the SDK renews the lease from an independent background timer by default, and you retire the session with `close()`. Each renewal **extends the lease** - the deadline the coordinator measures liveness against; it does not merely check status. A service session is reaped by the coordinator only if it stops heartbeating before its lease expires. Unlike a `task`, a `service` is **not** subject to the wall-clock TTL sweeper; its lifetime is governed entirely by the lease, so a faithfully heartbeated service runs until you close it.
 
 ```ts
 const svc = await caracal.spawnService({ labels: ["billing-worker"] });
 try {
   while (running) {
-    await svc.heartbeat();
-    await doWork(await caracal.headersAsync());
-    await sleep(30_000);
+    await doWork(await caracal.headersAsync()); // lease renews in the background
   }
 } finally {
   await svc.close();
 }
 ```
 
-When your code spends long stretches awaiting a provider (a streaming response, a slow tool), renewing the lease from the same loop can starve. Pass `heartbeatIntervalMs` to renew the lease from an independent timer, so the lease stays current even while your code is blocked on a long `await`:
+The renewal cadence follows the server lease, renewing at roughly a third of the remaining lease with jitter. Pass a positive `heartbeatIntervalMs` to fix the cadence, or `0` to disable the background timer and call `heartbeat()` yourself. Because renewal runs on an independent timer, the lease stays current even while your code is blocked on a long `await` (a streaming response, a slow tool).
+
+Transient renewal errors are logged and retried on the next tick rather than crashing the worker. If the coordinator reports the session permanently gone (terminated elsewhere or lease-reaped), the timer stops and `onLeaseLost` fires once so the worker can resign instead of spinning:
 
 ```ts
-const svc = await caracal.spawnService({ labels: ["voice-worker"], heartbeatIntervalMs: 30_000 });
-try {
-  for await (const chunk of stream(await caracal.headersAsync())) {  // lease renews in the background
-    await handle(chunk);
-  }
-} finally {
-  await svc.close();
-}
+const svc = await caracal.spawnService({
+  labels: ["voice-worker"],
+  onLeaseLost: () => shutdown(),
+});
 ```
 
-Auto-heartbeat is opt-in (omit `heartbeatIntervalMs` to renew manually). Transient renewal errors are logged and retried on the next tick rather than crashing the worker. A renewal cannot run while the event loop is blocked synchronously; in that case the lease correctly lapses, which is the liveness signal working as intended.
+A renewal cannot run while the event loop is blocked synchronously; in that case the lease correctly lapses, which is the liveness signal working as intended.
 
 ## Spawn a narrowed child
 
