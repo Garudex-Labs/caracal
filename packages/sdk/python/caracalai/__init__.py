@@ -17,7 +17,7 @@ from .context import (
     current,
     describe_authority,
 )
-from .coordinator import CoordinatorClient, DelegationConstraints
+from .coordinator import CoordinatorClient, DelegationConstraints, DelegationResponse
 from .envelope import Envelope
 from .errors import (
     AccessDenied,
@@ -35,7 +35,7 @@ from .errors import (
 )
 from .http import CaracalASGIMiddleware, TokenVerifier
 from .json_types import JsonObject, JsonPrimitive, JsonValue
-from .primitives import Grant, LifecycleHook, ServiceAgent
+from .primitives import Grant, LifecycleHook, ServiceAgent, adopt_delegation
 
 __all__ = [
     "ApprovalRequired",
@@ -65,6 +65,7 @@ __all__ = [
     "TokenVerifier",
     "CoordinatorClient",
     "DelegationConstraints",
+    "DelegationResponse",
     "Envelope",
     "GatewayRequest",
     "Grant",
@@ -74,4 +75,5 @@ __all__ = [
     "LifecycleHook",
     "ResourceBinding",
     "ServiceAgent",
+    "adopt_delegation",
 ]

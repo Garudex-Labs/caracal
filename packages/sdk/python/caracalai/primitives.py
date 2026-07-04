@@ -2,7 +2,7 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-SDK primitives: spawn an agent session and delegate authority as async context managers.
+SDK primitives: spawn agent sessions, delegate authority, and adopt delegation edges.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ import random
 import time
 import uuid
 from contextlib import asynccontextmanager, suppress
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from datetime import datetime
 from collections.abc import AsyncGenerator, Awaitable, Callable
 
@@ -26,6 +26,7 @@ from .coordinator import (
     CoordinatorClient,
     DelegationConstraints,
     DelegationRequest,
+    DelegationResponse,
     SpawnRequest,
     create_delegation,
     heartbeat_agent,
@@ -121,14 +122,19 @@ async def _terminate_shielded(
 class Grant:
     """Authority handed to a spawned child.
 
-    ``inherit`` (the default) runs the child under its parent's effective
-    session: if the parent itself holds a narrowing delegation edge the child
-    inherits that same narrowing (the server mirrors the parent's edge onto the
-    child), so least-privilege is transitive by default; a root parent under full
-    application authority yields a child under that same full authority.
-    ``narrow`` issues a bounded delegation edge so the child holds only the listed
-    scopes; the server re-validates the subset, so a narrow can never broaden.
-    ``none`` spawns without issuing any edge.
+    ``inherit`` (the default) carries the parent's effective authority forward:
+    the coordinator resolves the parent's active narrowing edge server-side and
+    mirrors it onto the child, so least-privilege is transitive by default. A
+    parent that holds no edge yields an edge-less child running under the
+    application's policy-bounded authority; the platform decision contract
+    mints resource mandates only over a delegation edge, so an edge-less
+    session cannot present delegated authority. Inheritance never crosses an
+    application boundary. ``narrow`` issues a bounded delegation edge so the
+    child holds only the listed scopes; the server re-validates the subset, so
+    a narrow can never broaden. A narrow edge defaults to a hop budget of 1;
+    pass ``constraints=DelegationConstraints(max_hops=2)`` (or more) when the
+    child must re-delegate or sub-narrow. ``none`` spawns the child explicitly
+    edge-less, suppressing server-side inheritance.
     """
 
     mode: str = "inherit"
@@ -193,18 +199,9 @@ async def _establish_session(
     parent_agent_session_id = parent_id or (parent.agent_session_id if parent else None)
     bearer = subject_token
 
-    inherit_parent_edge_id = (
-        parent.delegation_edge_id
-        if (
-            grant.mode == "inherit"
-            and parent is not None
-            and parent.agent_session_id
-            and parent.delegation_edge_id
-            and application_id == parent.application_id
-        )
-        else None
-    )
-
+    # A narrowing (or none) grant suppresses server-side edge inheritance: the
+    # child must hold exactly the granted slice, not a mirrored copy of the
+    # parent's wider edge alongside it.
     req = SpawnRequest(
         zone_id=zone_id,
         application_id=application_id,
@@ -215,7 +212,7 @@ async def _establish_session(
         metadata=metadata,
         labels=labels,
         idempotency_key=uuid.uuid4().hex,
-        inherit_parent_edge_id=inherit_parent_edge_id,
+        parent_authority="inherit" if grant.mode == "inherit" else "none",
     )
     refreshed = False
     attempt = 0
@@ -329,9 +326,10 @@ async def spawn(
 ) -> AsyncGenerator[CaracalContext, None]:
     """Spawn a child agent session and bind it to the current task.
 
-    The child inherits its parent's effective authority by default: a child of a
-    narrowed parent carries that same narrowing forward (transitive
-    least-privilege), while a child of a root parent runs under full application
+    By default the coordinator carries the parent's effective authority forward
+    by mirroring its active narrowing edge onto the child, so a child of a
+    narrowed parent stays narrowed (transitive least-privilege) and a child of
+    an edge-less parent runs edge-less under the application's policy-bounded
     authority. Pass ``grant=Grant.narrow([...])`` to issue a bounded delegation
     edge so the child holds only a subset. ``parent_ctx`` overrides the bound
     :func:`current` lookup; pass it explicitly when the orchestrator owns the
@@ -385,7 +383,6 @@ async def spawn(
             )
 
 
-@dataclass
 class ServiceAgent:
     """Handle for a long-lived service agent session. Unlike :func:`spawn`,
     a service session is not terminated automatically: a background task
@@ -402,32 +399,45 @@ class ServiceAgent:
     retried; if the coordinator reports the session permanently gone the task
     stops and ``on_lease_lost`` fires once."""
 
-    coordinator: CoordinatorClient
-    subject_token: str
-    context: CaracalContext
-    heartbeat_interval: float | None = None
-    status: str = "healthy"
-    token_source: TokenSource | None = None
-    invalidate: Callable[[], None] | None = None
-    heartbeat_deadline_at: str | None = None
-    on_lease_lost: Callable[[BaseException], None] | None = None
-    _auto_task: asyncio.Task[None] | None = field(
-        default=None, init=False, repr=False, compare=False
-    )
-    _closed: bool = field(default=False, init=False, repr=False, compare=False)
+    def __init__(
+        self,
+        *,
+        coordinator: CoordinatorClient,
+        subject_token: str,
+        context: CaracalContext,
+        heartbeat_interval: float | None = None,
+        token_source: TokenSource | None = None,
+        invalidate: Callable[[], None] | None = None,
+        heartbeat_deadline_at: str | None = None,
+        on_lease_lost: Callable[[BaseException], None] | None = None,
+        on_agent_end: LifecycleHook | None = None,
+    ) -> None:
+        self.context = context
+        self.heartbeat_deadline_at = heartbeat_deadline_at
+        self._coordinator = coordinator
+        self._subject_token = subject_token
+        self._heartbeat_interval = heartbeat_interval
+        self._token_source = token_source
+        self._invalidate = invalidate
+        self._on_lease_lost = on_lease_lost
+        self._on_agent_end = on_agent_end
+        self._refresh_lock = asyncio.Lock()
+        self._auto_task: asyncio.Task[None] | None = None
+        self._closing: asyncio.Task[None] | None = None
 
     @property
     def agent_session_id(self) -> str:
         return self.context.agent_session_id
 
     async def _bearer(self) -> str:
-        return await _resolve_bearer(self.token_source, self.subject_token)
+        return await _resolve_bearer(self._token_source, self._subject_token)
 
     async def heartbeat(self, status: str = "healthy") -> None:
+        bearer = await self._bearer()
         try:
             res = await heartbeat_agent(
-                self.coordinator,
-                await self._bearer(),
+                self._coordinator,
+                bearer,
                 self.context.zone_id,
                 self.context.agent_session_id,
                 status,
@@ -435,13 +445,20 @@ class ServiceAgent:
         except CoordinatorError as exc:
             # A cached token can be rejected before its exp (server-side
             # session revocation after a credential rotation); force one
-            # refresh and retry so the lease survives the rotation.
-            if exc.status != 401 or self.invalidate is None:
+            # refresh and retry so the lease survives the rotation. The lock
+            # single-flights the refresh so concurrent beats do not each
+            # invalidate the cache and stampede the token endpoint: only the
+            # beat that still sees the rejected bearer invalidates it.
+            if exc.status != 401 or self._invalidate is None:
                 raise
-            self.invalidate()
+            async with self._refresh_lock:
+                fresh = await self._bearer()
+                if fresh == bearer:
+                    self._invalidate()
+                    fresh = await self._bearer()
             res = await heartbeat_agent(
-                self.coordinator,
-                await self._bearer(),
+                self._coordinator,
+                fresh,
                 self.context.zone_id,
                 self.context.agent_session_id,
                 status,
@@ -450,15 +467,15 @@ class ServiceAgent:
             self.heartbeat_deadline_at = res.heartbeat_deadline_at
 
     def _start_auto_heartbeat(self) -> None:
-        if self._closed or self._auto_task is not None:
+        if self._closing is not None or self._auto_task is not None:
             return
-        if self.heartbeat_interval is not None and self.heartbeat_interval <= 0:
+        if self._heartbeat_interval is not None and self._heartbeat_interval <= 0:
             return
         self._auto_task = asyncio.create_task(self._auto_heartbeat_loop())
 
     def _next_delay(self) -> float:
-        if self.heartbeat_interval is not None:
-            return self.heartbeat_interval
+        if self._heartbeat_interval is not None:
+            return self._heartbeat_interval
         jitter = 0.9 + random.random() * 0.2
         deadline = _parse_deadline(self.heartbeat_deadline_at)
         if deadline is None:
@@ -472,21 +489,23 @@ class ServiceAgent:
         while True:
             await asyncio.sleep(self._next_delay())
             try:
-                await self.heartbeat(self.status)
+                await self.heartbeat()
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
                 if _is_gone(exc):
-                    # The coordinator no longer holds the session live
-                    # (terminated or lease-reaped); further beats can never
-                    # revive it.
+                    # A beat racing aclose sees the session gone because close
+                    # terminated it; that is an ordinary shutdown, not a lost
+                    # lease.
+                    if self._closing is not None:
+                        return
                     logger.warning(
                         "lease lost for agent %s; auto-heartbeat stopped",
                         self.context.agent_session_id,
                         exc_info=True,
                     )
-                    if self.on_lease_lost is not None:
-                        self.on_lease_lost(exc)
+                    if self._on_lease_lost is not None:
+                        self._on_lease_lost(exc)
                     return
                 logger.warning(
                     "auto-heartbeat failed for agent %s; retrying next tick",
@@ -494,23 +513,29 @@ class ServiceAgent:
                     exc_info=True,
                 )
 
-    async def aclose(self) -> None:
-        if self._closed:
-            return
-        self._closed = True
+    async def _close(self) -> None:
         if self._auto_task is not None:
             self._auto_task.cancel()
             with suppress(asyncio.CancelledError):
                 await self._auto_task
             self._auto_task = None
-        await _terminate_shielded(
-            self.coordinator,
-            self.context.zone_id,
-            self.context.agent_session_id,
-            token_source=self.token_source,
-            fallback_token=self.subject_token,
-            propagate=True,
-        )
+        try:
+            if self._on_agent_end is not None:
+                await self._on_agent_end(self.context)
+        finally:
+            await _terminate_shielded(
+                self._coordinator,
+                self.context.zone_id,
+                self.context.agent_session_id,
+                token_source=self._token_source,
+                fallback_token=self._subject_token,
+                propagate=True,
+            )
+
+    async def aclose(self) -> None:
+        if self._closing is None:
+            self._closing = asyncio.ensure_future(self._close())
+        await asyncio.shield(self._closing)
 
     async def __aenter__(self) -> ServiceAgent:
         self._start_auto_heartbeat()
@@ -539,22 +564,25 @@ async def spawn_service(
     heartbeat_interval: float | None = None,
     on_lease_lost: Callable[[BaseException], None] | None = None,
     on_agent_start: LifecycleHook | None = None,
+    on_agent_end: LifecycleHook | None = None,
 ) -> ServiceAgent:
     """Spawn a long-lived service agent session and return a handle the caller
     owns. A background task renews the heartbeat lease by default; retire the
     session with :meth:`ServiceAgent.aclose`.
 
-    Authority follows the same model as :func:`spawn`: the session inherits its
-    parent's effective authority by default, and ``grant=Grant.narrow([...])``
-    issues a bounded delegation edge so the handle holds only a subset.
+    Authority follows the same model as :func:`spawn`: the coordinator mirrors
+    the parent's active narrowing edge onto the session by default, and
+    ``grant=Grant.narrow([...])`` issues a bounded delegation edge so the
+    handle holds only a subset.
 
     Leave ``heartbeat_interval`` unset to derive the renewal cadence from the
     server lease; pass a positive value to fix it, or zero to disable the
     background task and renew with :meth:`ServiceAgent.heartbeat` manually.
     ``on_lease_lost`` fires once if the coordinator reports the session
-    permanently gone. With ``token_source`` set, every lease renewal and the
-    final terminate resolve a fresh bearer, so the handle outlives the token
-    minted at spawn."""
+    permanently gone. ``on_agent_end`` runs inside :meth:`ServiceAgent.aclose`
+    before the session terminates, mirroring :func:`spawn`'s end hook. With
+    ``token_source`` set, every lease renewal and the final terminate resolve
+    a fresh bearer, so the handle outlives the token minted at spawn."""
     session = await _establish_session(
         coordinator=coordinator,
         zone_id=zone_id,
@@ -594,12 +622,12 @@ async def spawn_service(
         invalidate=invalidate,
         heartbeat_deadline_at=session.heartbeat_deadline_at,
         on_lease_lost=on_lease_lost,
+        on_agent_end=on_agent_end,
     )
     agent._start_auto_heartbeat()
     return agent
 
 
-@asynccontextmanager
 async def delegate(
     *,
     coordinator: CoordinatorClient,
@@ -609,12 +637,20 @@ async def delegate(
     resource_id: str | None = None,
     constraints: DelegationConstraints | None = None,
     ttl_seconds: int | None = None,
-) -> AsyncGenerator[CaracalContext, None]:
+) -> DelegationResponse:
+    """Create a delegation edge from the bound agent session to a peer.
+
+    The caller is the issuer: its own context is unchanged, because issuing an
+    edge grants authority to the receiver rather than to the issuer. The
+    returned handle identifies the created edge; hand its
+    ``delegation_edge_id`` to the receiving session, which presents the edge by
+    deriving its context with :func:`adopt_delegation`.
+    """
     ctx = current()
     if ctx is None or not ctx.agent_session_id:
         raise RuntimeError("delegate requires an active agent session in context")
 
-    res = await create_delegation(
+    return await create_delegation(
         coordinator,
         ctx.subject_token,
         DelegationRequest(
@@ -631,14 +667,17 @@ async def delegate(
         ),
     )
 
-    child = replace(
+
+def adopt_delegation(ctx: CaracalContext, delegation_edge_id: str) -> CaracalContext:
+    """Derive a receiver context that presents the given delegation edge.
+
+    The receiving session calls this with its own context and the edge id the
+    issuer handed over; calls made under the derived context carry the edge's
+    bounded authority. The source context is untouched.
+    """
+    return replace(
         ctx,
         parent_edge_id=ctx.delegation_edge_id,
-        delegation_edge_id=res.delegation_edge_id,
+        delegation_edge_id=delegation_edge_id,
         hop=ctx.hop + 1,
     )
-    token = _ctx_var.set(child)
-    try:
-        yield child
-    finally:
-        _ctx_var.reset(token)

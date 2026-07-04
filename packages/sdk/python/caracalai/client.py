@@ -28,7 +28,7 @@ from .context import (
     to_envelope,
 )
 from .auth import ClientSecretExchanger, TokenSource, _decode_jwt_exp
-from .coordinator import CoordinatorClient, DelegationConstraints
+from .coordinator import CoordinatorClient, DelegationConstraints, DelegationResponse
 from .envelope import (
     HEADER_AUTHORIZATION,
     Envelope,
@@ -42,6 +42,7 @@ from .primitives import (
     Grant,
     LifecycleHook,
     ServiceAgent,
+    adopt_delegation,
     delegate,
     spawn,
     spawn_service,
@@ -72,7 +73,8 @@ class CaracalConfig:
 
     `subject_token` may be supplied either as a static string or implicitly via
     `token_source`: a callable returning a fresh STS access token on demand.
-    Exactly one must be provided.
+    Exactly one must be provided. `default_ttl_seconds` applies to task spawns
+    only; a service session lives by its heartbeat lease instead.
     """
 
     def __init__(
@@ -912,10 +914,17 @@ class Caracal:
         Leave ``heartbeat_interval`` unset to derive the renewal cadence from
         the server lease, pass a positive value to fix it, or zero to renew
         manually; ``on_lease_lost`` fires once if the coordinator reports the
-        session permanently gone."""
+        session permanently gone; ``on_agent_end`` hooks registered on the
+        client run inside :meth:`ServiceAgent.aclose` before the session
+        terminates."""
         on_start: LifecycleHook | None = (
             (lambda c: self._fire(self._agent_start_hooks, c))
             if self._agent_start_hooks
+            else None
+        )
+        on_end: LifecycleHook | None = (
+            (lambda c: self._fire(self._agent_end_hooks, c))
+            if self._agent_end_hooks
             else None
         )
 
@@ -937,18 +946,16 @@ class Caracal:
             parent_id=parent_id,
             parent_ctx=parent_ctx,
             grant=grant,
-            ttl_seconds=ttl_seconds
-            if ttl_seconds is not None
-            else self.config.default_ttl_seconds,
+            ttl_seconds=ttl_seconds,
             metadata=metadata,
             labels=labels,
             trace_id=trace_id,
             heartbeat_interval=heartbeat_interval,
             on_lease_lost=on_lease_lost,
             on_agent_start=on_start,
+            on_agent_end=on_end,
         )
 
-    @asynccontextmanager
     async def delegate(
         self,
         *,
@@ -958,8 +965,13 @@ class Caracal:
         resource_id: str | None = None,
         constraints: DelegationConstraints | None = None,
         ttl_seconds: int | None = None,
-    ) -> AsyncGenerator[CaracalContext, None]:
-        async with delegate(
+    ) -> DelegationResponse:
+        """Create a delegation edge from the bound agent session to a peer.
+
+        The caller is the issuer and its own context is unchanged; hand the
+        returned ``delegation_edge_id`` to the receiving session, which
+        presents the edge with :meth:`adopt_delegation`."""
+        return await delegate(
             coordinator=self.config.coordinator,
             to_agent_session_id=to,
             to_application_id=to_application_id,
@@ -967,8 +979,25 @@ class Caracal:
             scopes=scopes,
             constraints=constraints,
             ttl_seconds=ttl_seconds,
-        ) as ctx:
-            yield ctx
+        )
+
+    @asynccontextmanager
+    async def adopt_delegation(
+        self, delegation_edge_id: str
+    ) -> AsyncGenerator[CaracalContext, None]:
+        """Present a delegation edge issued to the bound agent session: binds a
+        derived context carrying the edge for the duration of the block."""
+        ctx = current()
+        if ctx is None:
+            raise RuntimeError(
+                "adopt_delegation requires a Caracal context bound on this path"
+            )
+        adopted = adopt_delegation(ctx, delegation_edge_id)
+        token = _ctx_var.set(adopted)
+        try:
+            yield adopted
+        finally:
+            _ctx_var.reset(token)
 
     @asynccontextmanager
     async def bind(
