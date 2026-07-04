@@ -507,17 +507,29 @@ export interface StepUpChallenge {
   id: string
   zone_id: string
   session_id: string
+  principal_id: string
+  application_id: string | null
   challenge_type: string
+  tier: string | null
+  approver_class: string
+  privacy_mode: string
+  binding: string
+  state: string
   metadata_json: JsonObject
+  decision_reason: string | null
   created_at: string
   expires_at: string
   satisfied_at: string | null
+  rejected_at: string | null
+  consumed_at: string | null
   approver_subject_id: string | null
 }
 
-export interface StepUpChallengeSatisfaction {
+export interface StepUpDecision {
   id: string
-  satisfied_at: string
+  state: string
+  satisfied_at: string | null
+  rejected_at: string | null
   approver_subject_id: string
 }
 

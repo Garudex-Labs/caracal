@@ -58,25 +58,35 @@ export interface ExchangeOptions {
   retries?: number
   ttlSeconds?: number
   runtimeCredentialInjection?: boolean
+  challengeId?: string
+}
+
+export interface InteractionRequiredDetails {
+  resource?: string
+  state?: string
+  tier?: string
+  binding?: string
+  expiresAt?: string
 }
 
 export class InteractionRequiredError extends CaracalError {
   readonly challengeId: string
   readonly resource?: string
-  readonly acrValues?: string
+  readonly state?: string
+  readonly tier?: string
+  readonly binding?: string
+  readonly expiresAt?: string
 
-  constructor(
-    message: string,
-    challengeId: string,
-    resource?: string,
-    acrValues?: string,
-  ) {
+  constructor(message: string, challengeId: string, details: InteractionRequiredDetails = {}) {
     super('interaction_required', message, {
-      details: { challengeId, ...(resource ? { resource } : {}), ...(acrValues ? { acrValues } : {}) },
+      details: { challengeId, ...details },
     })
     this.name = 'InteractionRequiredError'
     this.challengeId = challengeId
-    this.resource = resource
-    this.acrValues = acrValues
+    this.resource = details.resource
+    this.state = details.state
+    this.tier = details.tier
+    this.binding = details.binding
+    this.expiresAt = details.expiresAt
   }
 }

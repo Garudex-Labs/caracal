@@ -47,7 +47,7 @@ import type {
   AgentSessionRow,
   AgentSessionQuery,
   StepUpChallenge,
-  StepUpChallengeSatisfaction,
+  StepUpDecision,
   TraverseNode,
   Zone,
   ZoneDcrStatus,
@@ -418,8 +418,16 @@ export class AdminClient {
   stepUpChallenges = {
     list: (zoneId: string) => this.request<StepUpChallenge[]>(`/v1/zones/${zoneId}/step-up-challenges`),
     get: (zoneId: string, id: string) => this.request<StepUpChallenge>(`/v1/zones/${zoneId}/step-up-challenges/${id}`),
-    satisfy: (zoneId: string, id: string) =>
-      this.request<StepUpChallengeSatisfaction>(`/v1/zones/${zoneId}/step-up-challenges/${id}/satisfy`, { method: 'POST', body: {} }),
+    approve: (zoneId: string, id: string, reason?: string) =>
+      this.request<StepUpDecision>(`/v1/zones/${zoneId}/step-up-challenges/${id}/approve`, {
+        method: 'POST',
+        body: reason ? { reason } : {},
+      }),
+    reject: (zoneId: string, id: string, reason?: string) =>
+      this.request<StepUpDecision>(`/v1/zones/${zoneId}/step-up-challenges/${id}/reject`, {
+        method: 'POST',
+        body: reason ? { reason } : {},
+      }),
   }
 
   // Agents (coordinator)
