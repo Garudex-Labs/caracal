@@ -8,6 +8,8 @@
 export { Caracal } from './client.js'
 export type {
   CaracalConfig,
+  CaracalEvent,
+  EventHook,
   SpawnOptions,
   ServiceOptions,
   DelegateOptions,
@@ -23,12 +25,12 @@ export type {
   ClientSecretOptions,
   CaracalOptions,
 } from './client.js'
-export { InteractionRequiredError } from '@caracalai/oauth'
-export type { InteractionRequiredDetails } from '@caracalai/oauth'
+export { CaracalError, InteractionRequiredError } from '@caracalai/oauth'
+export type { ApprovalWaitEvent, InteractionRequiredDetails, OAuthEvent, TokenExchangeEvent } from '@caracalai/oauth'
 export { captureContext, describeAuthority } from './context.js'
 export type { AuthoritySummary, CaracalContext, VerifiedClaims } from './context.js'
 export { CoordinatorError } from './coordinator.js'
-export type { AgentStatus, CoordinatorClient, DelegationResponse } from './coordinator.js'
+export type { AgentStatus, CoordinatorCallEvent, CoordinatorClient, DelegationResponse } from './coordinator.js'
 export { Grant, adoptDelegation } from './primitives.js'
 export type { GrantMode } from './primitives.js'
 export type { DelegationConstraints } from './coordinator.js'

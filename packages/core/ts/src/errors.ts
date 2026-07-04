@@ -7,7 +7,9 @@ import type { JsonObject } from './json.js';
 
 export type WellKnownErrorCode =
   | 'access_denied'
+  | 'invalid_request'
   | 'invalid_token'
+  | 'operation_not_permitted'
   | 'resource_not_found'
   | 'internal_error'
   | 'policy_eval_failed'
@@ -33,12 +35,14 @@ export interface CaracalErrorOptions {
   requestId?: string;
   details?: JsonObject;
   cause?: unknown;
+  httpStatus?: number;
 }
 
 export class CaracalError extends Error {
   readonly code: ErrorCode;
   readonly requestId?: string;
   readonly details?: JsonObject;
+  readonly httpStatus?: number;
 
   constructor(code: ErrorCode, message: string, opts: CaracalErrorOptions | string = {}) {
     const options: CaracalErrorOptions = typeof opts === 'string' ? { requestId: opts } : opts;
@@ -47,6 +51,7 @@ export class CaracalError extends Error {
     this.code = code;
     if (options.requestId) this.requestId = options.requestId;
     if (options.details) this.details = options.details;
+    if (options.httpStatus) this.httpStatus = options.httpStatus;
   }
 
   toJSON() {

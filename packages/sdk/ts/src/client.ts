@@ -21,9 +21,9 @@ import {
   type ServiceAgent,
   type DelegateInput,
 } from './primitives.js'
-import { type CoordinatorClient, type DelegationConstraints, type DelegationResponse } from './coordinator.js'
+import { type CoordinatorCallEvent, type CoordinatorClient, type DelegationConstraints, type DelegationResponse } from './coordinator.js'
 import type { JsonObject } from './json.js'
-import { OAuthClient } from '@caracalai/oauth'
+import { OAuthClient, type OAuthEvent } from '@caracalai/oauth'
 const DEFAULT_STS_URL = 'http://localhost:8080'
 const DEFAULT_COORDINATOR_URL = 'http://localhost:4000'
 const DEFAULT_GATEWAY_URL = 'http://localhost:8081'
@@ -48,6 +48,8 @@ export interface ClientSecretExchanger {
     opts?: { agentSessionId?: string; delegationEdgeId?: string; ttlSeconds?: number; approvalId?: string },
   ): Promise<string>
   waitForApproval(challengeId: string, opts?: { timeoutMs?: number }): Promise<string>
+  /** Backing OAuth client; the Caracal facade attaches its event sink here. */
+  client?: OAuthClient
 }
 
 export interface CaracalConfig {
@@ -105,6 +107,11 @@ export interface DelegateOptions {
 
 export type LifecycleHook = (ctx: CaracalContext) => void | Promise<void>
 
+/** Control-plane operation reported to onEvent subscribers: a token exchange, an approval wait, or a coordinator call. */
+export type CaracalEvent = OAuthEvent | CoordinatorCallEvent
+
+export type EventHook = (event: CaracalEvent) => void
+
 export interface RootOptions {
   allowRoot?: boolean
 }
@@ -159,6 +166,7 @@ export class Caracal {
   readonly config: CaracalConfig
   private agentStartHooks: LifecycleHook[] = []
   private agentEndHooks: LifecycleHook[] = []
+  private eventHooks: EventHook[] = []
 
   /**
    * Creates a Caracal client. With no arguments, credentials are
@@ -171,8 +179,12 @@ export class Caracal {
     if ((config.subjectToken === undefined) === (config.tokenSource === undefined)) {
       throw new Error('CaracalConfig requires exactly one of subjectToken or tokenSource')
     }
-    this.config =
-      config.resources && config.resources.length > 1 ? { ...config, resources: sortBindingsLongestFirst(config.resources) } : config
+    this.config = {
+      ...config,
+      coordinator: { ...config.coordinator, onEvent: (e) => this.emitEvent(e) },
+      ...(config.resources && config.resources.length > 1 ? { resources: sortBindingsLongestFirst(config.resources) } : {}),
+    }
+    if (this.config.exchanger?.client) this.config.exchanger.client.onEvent = (e) => this.emitEvent(e)
   }
 
   static fromEnv(env: NodeJS.ProcessEnv = process.env): Caracal {
@@ -273,6 +285,26 @@ export class Caracal {
 
   onAgentEnd(cb: LifecycleHook): void {
     this.agentEndHooks.push(cb)
+  }
+
+  /**
+   * Subscribes to control-plane operation events: token exchanges (with cache
+   * outcome), approval waits, and coordinator calls, each carrying outcome and
+   * duration. Bridge them to any metrics or tracing system; a hook that throws
+   * is ignored and never disturbs the operation that emitted the event.
+   */
+  onEvent(cb: EventHook): void {
+    this.eventHooks.push(cb)
+  }
+
+  private emitEvent(event: CaracalEvent): void {
+    for (const h of this.eventHooks) {
+      try {
+        h(event)
+      } catch {
+        // The observability sink must never break the operation path.
+      }
+    }
   }
 
   private async fire(hooks: LifecycleHook[], ctx: CaracalContext): Promise<void> {
@@ -1180,6 +1212,7 @@ function createClientSecretTokenSource(
   const client = new OAuthClient(stsUrl, zoneId, applicationId, undefined, fetchImpl)
   let force = false
   return {
+    client,
     source: async () => {
       const forceRefresh = force
       force = false
