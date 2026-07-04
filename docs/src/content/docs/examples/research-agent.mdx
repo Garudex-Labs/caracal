@@ -30,32 +30,27 @@ Use Console to create or select:
 | Resources | Map `resource://google-drive`, `resource://google-calendar`, and `resource://openai` to providers. |
 | Policy | Allows the run application to request all three resources. |
 
-Enable runtime injection on each provider and map each run credential with `credential_type = "provider_token"`.
+Enable runtime injection on each provider.
 
-## Write the runtime profile
+Then open the application's **Run** section and add three launch bindings, each with the **Provider token** credential type:
 
-Use Console-generated values for the zone id and application id. Store the one-time application secret in the local runtime secret path and write a `caracal.toml` profile:
+| Environment variable | Resource |
+| --- | --- |
+| `GOOGLE_DRIVE_ACCESS_TOKEN` | `resource://google-drive` |
+| `GOOGLE_CALENDAR_ACCESS_TOKEN` | `resource://google-calendar` |
+| `OPENAI_API_KEY` | `resource://openai` |
 
-```toml
-zone_id = "zone_prod"
-application_id = "app_support_research_agent"
-ttl_seconds = 900
-continue_on_failure = false
+Set the credential TTL to 900 seconds. The Run section then shows the exact launch command and confirms this all-provider-token profile needs no Gateway.
 
-[[credentials]]
-env = "GOOGLE_DRIVE_ACCESS_TOKEN"
-resource = "resource://google-drive"
-credential_type = "provider_token"
+## Store the client secret
 
-[[credentials]]
-env = "GOOGLE_CALENDAR_ACCESS_TOKEN"
-resource = "resource://google-calendar"
-credential_type = "provider_token"
+The launcher needs one local file: the application's one-time client secret at the runtime secret path.
 
-[[credentials]]
-env = "OPENAI_API_KEY"
-resource = "resource://openai"
-credential_type = "provider_token"
+```bash
+export CARACAL_APPLICATION_ID="app_support_research_agent"
+mkdir -p ~/.config/caracal/runtime/$CARACAL_APPLICATION_ID
+printf '%s' '<one-time client secret>' > ~/.config/caracal/runtime/$CARACAL_APPLICATION_ID/client-secret
+chmod 600 ~/.config/caracal/runtime/$CARACAL_APPLICATION_ID/client-secret
 ```
 
 Do not export `GOOGLE_DRIVE_ACCESS_TOKEN`, `GOOGLE_CALENDAR_ACCESS_TOKEN`, or `OPENAI_API_KEY` yourself. Caracal injects them into the child process after STS authorization.
@@ -64,7 +59,7 @@ Do not export `GOOGLE_DRIVE_ACCESS_TOKEN`, `GOOGLE_CALENDAR_ACCESS_TOKEN`, or `O
 
 ```bash
 cd examples/ResearchAgent
-export CARACAL_CONFIG="$HOME/.config/caracal/research-agent/caracal.toml"
+export CARACAL_APPLICATION_ID="app_support_research_agent"
 caracal run -- node agent.mjs
 ```
 

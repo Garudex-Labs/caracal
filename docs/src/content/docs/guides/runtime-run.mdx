@@ -1,26 +1,25 @@
 ---
 title: Run an Agent with caracal run
-description: Use a runtime profile to inject scoped Caracal access into a subprocess.
+description: Launch a workload with console-managed credential bindings injected as environment variables.
 ---
 
-`caracal run` starts a local subprocess with Caracal runtime environment variables and profile-backed credentials. Use it for development, demos, and controlled local runs.
+`caracal run` starts a local subprocess with scoped, short-lived credentials injected as environment variables. The workload carries only its application identity; the credential bindings live in the web console. Use it for development, demos, and controlled local runs.
 
-## Prepare a profile
+## Prepare the workload
 
 1. Run `caracal up`.
 2. Sign in to the web console and use **Guided setup** to create the zone, application, resource, and policy.
-3. Copy the application's one-time client secret.
-4. Author a `caracal.toml` profile with the zone, application, secret file, and a `[[credentials]]` entry for each resource. See [Configure Workloads](/runtime-console/config-file/).
-
-The profile is the source for SDK client constructors and `caracal run`.
+3. Store the application's one-time client secret in the owner-only file at `<Caracal config dir>/runtime/<application_id>/client-secret`, or export `CARACAL_APP_CLIENT_SECRET`.
+4. In the application's **Run** section, bind an environment variable to each resource the workload needs. The section then shows the exact launch command and whether the Gateway is required. See [Configure Workloads](/runtime-console/config-file/).
 
 ## Run a command
 
 ```bash
+export CARACAL_APPLICATION_ID=<application_id>
 caracal run -- npm start
 ```
 
-The launcher exchanges each `[[credentials]]` entry for a short-lived credential and injects the results into the configured environment variables. The child environment is otherwise scrubbed: `CARACAL_*` configuration variables stay with the launcher, and only a small allowlist such as `PATH`, `HOME`, locale, and `XDG_*` directories is inherited. SDK-based children read the profile from the default config path rather than from environment variables. Credentials are exchanged once at launch and never renewed; workloads that outlive the 15-minute TTL should use an SDK. See [Run Workloads](/runtime-console/runtime/) for the full contract.
+The launcher fetches the application's run manifest from STS, exchanges each binding for a short-lived credential, and injects the results into the configured environment variables. The child environment is otherwise scrubbed: `CARACAL_*` configuration variables stay with the launcher, and only a small allowlist such as `PATH`, `HOME`, locale, and `XDG_*` directories is inherited. SDK-based children read their own profile from the default config path rather than from environment variables. Credentials are exchanged once at launch and never renewed; workloads that outlive the 15-minute TTL should use an SDK. See [Run Workloads](/runtime-console/runtime/) for the full contract.
 
 ## Validate the run
 
@@ -35,9 +34,10 @@ The launcher exchanges each `[[credentials]]` entry for a short-lived credential
 
 | Symptom | Fix |
 | --- | --- |
-| SDK cannot find config | Confirm `CARACAL_CONFIG` points to your profile. |
+| `workload identity is required to run a command` | Set `CARACAL_APPLICATION_ID` and a client secret source. |
+| `run manifest not configured` | Define launch bindings in the application's **Run** section. |
 | Secret file rejected | Restrict file permissions and avoid setting both inline and file secrets. |
-| Gateway routing misses the resource | Confirm resource bindings and upstream prefixes in the profile. |
+| Gateway routing misses the resource | Point the workload's base URL for mandate-bound resources at the Gateway. |
 | Request denied | Check policy-set activation, scopes, and audit diagnostics. |
 
 Related pages: [First Protected Call](/get-started/first-protected-call/), [Add SDK to Your App](/get-started/add-sdk-to-your-app/), and [Audit and Request Traces](/concepts/audit-ledger/).
