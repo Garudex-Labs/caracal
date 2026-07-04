@@ -4,7 +4,7 @@
 // Integration-style tests for SDK primitives: spawn (with grant) and delegate drive the coordinator client end-to-end.
 
 import { describe, it, expect, vi } from 'vitest'
-import { spawn, spawnService, delegate, Grant } from '../../../../packages/sdk/ts/src/primitives.js'
+import { spawn, spawnService, delegate, adoptDelegation, Grant } from '../../../../packages/sdk/ts/src/primitives.js'
 import { type CoordinatorClient } from '../../../../packages/sdk/ts/src/coordinator.js'
 import { bind, current, type CaracalContext } from '../../../../packages/sdk/ts/src/context.js'
 
@@ -108,7 +108,7 @@ describe('spawn', () => {
     expect(calls.some((c) => c.path.endsWith('/agents'))).toBe(true)
   })
 
-  it('carries the parent narrowing edge forward on an intra-app inherit child', async () => {
+  it('requests server-side edge inheritance and adopts the mirrored edge', async () => {
     const bodies: Record<string, unknown>[] = []
     const fetchImpl = (async (url: string, init?: { method?: string; body?: string }) => {
       const method = init?.method ?? 'GET'
@@ -129,12 +129,13 @@ describe('spawn', () => {
         childHop = current()?.hop
       })
     })
-    expect(bodies[0]?.inherit_parent_edge_id).toBe('edge-parent')
+    expect(bodies[0]?.parent_authority).toBe('inherit')
+    expect(bodies[0]).not.toHaveProperty('inherit_parent_edge_id')
     expect(childEdge).toBe('edge-child')
     expect(childHop).toBe(2)
   })
 
-  it('does not request an inherit edge when spawning into another application', async () => {
+  it('leaves the child edge-less when the coordinator mirrors no edge', async () => {
     const bodies: Record<string, unknown>[] = []
     const fetchImpl = (async (url: string, init?: { method?: string; body?: string }) => {
       const method = init?.method ?? 'GET'
@@ -153,8 +154,30 @@ describe('spawn', () => {
         childEdge = current()?.delegationEdgeId
       })
     })
-    expect(bodies[0]?.inherit_parent_edge_id).toBeUndefined()
+    expect(bodies[0]?.parent_authority).toBe('inherit')
     expect(childEdge).toBeUndefined()
+  })
+
+  it('suppresses edge inheritance for a narrowing grant', async () => {
+    const bodies: Record<string, unknown>[] = []
+    const fetchImpl = (async (url: string, init?: { method?: string; body?: string }) => {
+      const method = init?.method ?? 'GET'
+      const path = new URL(url).pathname
+      if (method === 'DELETE') return new Response(null, { status: 204 })
+      if (path.endsWith('/delegations')) {
+        return new Response(JSON.stringify({ delegation_edge_id: 'edge-narrow' }), { status: 200 })
+      }
+      bodies.push(JSON.parse(init?.body ?? '{}'))
+      return new Response(JSON.stringify({ agent_session_id: 'agent-child' }), { status: 200 })
+    }) as unknown as typeof fetch
+    const client: CoordinatorClient = { baseUrl: 'http://coord', fetchImpl }
+    await bind(baseCtx({ delegationEdgeId: 'edge-parent', hop: 1 }), async () => {
+      await spawn(
+        { coordinator: client, zoneId: 'zone-1', applicationId: 'app-1', subjectToken: 'tok', grant: Grant.narrow(['read']) },
+        async () => {},
+      )
+    })
+    expect(bodies[0]?.parent_authority).toBe('none')
   })
 })
 
@@ -220,30 +243,37 @@ describe('spawnService with grant', () => {
 describe('delegate', () => {
   it('requires an active context', async () => {
     const { client } = recorder()
-    await expect(
-      delegate({ coordinator: client, toAgentSessionId: 'a2', toApplicationId: 'app-2', scopes: ['read'] }, async () => {}),
-    ).rejects.toThrow(/requires a Caracal context/)
+    await expect(delegate({ coordinator: client, toAgentSessionId: 'a2', toApplicationId: 'app-2', scopes: ['read'] })).rejects.toThrow(
+      /requires a Caracal context/,
+    )
   })
 
   it('requires an active agent session in context', async () => {
     const { client } = recorder()
     await bind(baseCtx({ agentSessionId: undefined }), async () => {
-      await expect(
-        delegate({ coordinator: client, toAgentSessionId: 'a2', toApplicationId: 'app-2', scopes: ['read'] }, async () => {}),
-      ).rejects.toThrow(/active agent session/)
+      await expect(delegate({ coordinator: client, toAgentSessionId: 'a2', toApplicationId: 'app-2', scopes: ['read'] })).rejects.toThrow(
+        /active agent session/,
+      )
     })
   })
 
-  it('records a delegation edge and increments the hop in the child context', async () => {
+  it('returns the created edge without rebinding the issuer context', async () => {
     const { client } = recorder('agent-new', 'edge-42')
     await bind(baseCtx(), async () => {
-      const childHop = await delegate(
-        { coordinator: client, toAgentSessionId: 'a2', toApplicationId: 'app-2', scopes: ['read'] },
-        async () => ({ hop: current()?.hop, edge: current()?.delegationEdgeId }),
-      )
-      expect(childHop.hop).toBe(1)
-      expect(childHop.edge).toBe('edge-42')
+      const res = await delegate({ coordinator: client, toAgentSessionId: 'a2', toApplicationId: 'app-2', scopes: ['read'] })
+      expect(res.delegationEdgeId).toBe('edge-42')
+      expect(current()?.delegationEdgeId).toBeUndefined()
+      expect(current()?.hop).toBe(0)
     })
+  })
+
+  it('adoptDelegation derives a receiver context presenting the edge', async () => {
+    const ctx = baseCtx({ delegationEdgeId: 'edge-own', hop: 1 })
+    const adopted = adoptDelegation(ctx, 'edge-42')
+    expect(adopted.delegationEdgeId).toBe('edge-42')
+    expect(adopted.parentEdgeId).toBe('edge-own')
+    expect(adopted.hop).toBe(2)
+    expect(ctx.delegationEdgeId).toBe('edge-own')
   })
 })
 
@@ -507,5 +537,92 @@ describe('service auto-heartbeat', () => {
       heartbeatIntervalMs: 0,
     })
     await expect(svc.close()).resolves.toBeUndefined()
+  })
+
+  it('does not report onLeaseLost for a heartbeat racing close', async () => {
+    vi.useFakeTimers()
+    try {
+      let resolveBeat: ((r: Response) => void) | undefined
+      const fetchImpl = (async (url: string, init: RequestInit = {}) => {
+        const path = new URL(url).pathname
+        if (init.method === 'DELETE') return new Response(null, { status: 204 })
+        if (path.endsWith('/heartbeat')) {
+          return new Promise<Response>((resolve) => {
+            resolveBeat = resolve
+          })
+        }
+        return new Response(JSON.stringify({ agent_session_id: 'svc-1' }), { status: 200 })
+      }) as unknown as typeof fetch
+      const client: CoordinatorClient = { baseUrl: 'http://coord', fetchImpl }
+      const onLeaseLost = vi.fn()
+      const svc = await spawnService({
+        coordinator: client,
+        zoneId: 'zone-1',
+        applicationId: 'app-1',
+        subjectToken: 'tok',
+        heartbeatIntervalMs: 5,
+        onLeaseLost,
+      })
+      await vi.advanceTimersByTimeAsync(6)
+      const closing = svc.close()
+      resolveBeat?.(new Response('{"error":"agent_not_found"}', { status: 404 }))
+      await closing
+      await vi.advanceTimersByTimeAsync(20)
+      expect(onLeaseLost).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('runs onAgentEnd exactly once before terminating on close', async () => {
+    const order: string[] = []
+    const fetchImpl = (async (url: string, init: RequestInit = {}) => {
+      if (init.method === 'DELETE') {
+        order.push('terminate')
+        return new Response(null, { status: 204 })
+      }
+      if (new URL(url).pathname.endsWith('/agents')) {
+        return new Response(JSON.stringify({ agent_session_id: 'svc-1' }), { status: 200 })
+      }
+      return new Response(JSON.stringify({}), { status: 200 })
+    }) as unknown as typeof fetch
+    const client: CoordinatorClient = { baseUrl: 'http://coord', fetchImpl }
+    const svc = await spawnService({
+      coordinator: client,
+      zoneId: 'zone-1',
+      applicationId: 'app-1',
+      subjectToken: 'tok',
+      heartbeatIntervalMs: 0,
+      onAgentEnd: async () => {
+        order.push('end')
+      },
+    })
+    await svc.close()
+    await svc.close()
+    expect(order).toEqual(['end', 'terminate'])
+  })
+
+  it('aborts a spawn retry backoff when the signal fires', async () => {
+    vi.useFakeTimers()
+    try {
+      const controller = new AbortController()
+      let spawnCalls = 0
+      const fetchImpl = (async () => {
+        spawnCalls += 1
+        return new Response('unavailable', { status: 503 })
+      }) as unknown as typeof fetch
+      const client: CoordinatorClient = { baseUrl: 'http://coord', fetchImpl }
+      const result = spawn(
+        { coordinator: client, zoneId: 'zone-1', applicationId: 'app-1', subjectToken: 'tok', signal: controller.signal },
+        async () => 'ok',
+      )
+      const expectation = expect(result).rejects.toThrow('cancelled')
+      await vi.advanceTimersByTimeAsync(0)
+      controller.abort(new Error('cancelled'))
+      await expectation
+      expect(spawnCalls).toBe(1)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
