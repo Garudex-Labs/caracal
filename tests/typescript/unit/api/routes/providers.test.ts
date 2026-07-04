@@ -4,6 +4,7 @@
 // Provider route unit tests for zone ownership and configuration updates.
 
 import { afterEach, describe, it, expect, vi } from 'vitest'
+import { generateKeyPairSync } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import { lookup } from 'node:dns/promises'
 import { request as httpsRequest } from 'node:https'
@@ -15,6 +16,48 @@ vi.mock('node:dns/promises', () => ({ lookup: vi.fn() }))
 vi.mock('node:https', () => ({ request: vi.fn() }))
 
 process.env.ZONE_KEK = '1111111111111111111111111111111111111111111111111111111111111111'
+
+function sealedSecretConfig(config: Record<string, string>): { ciphertext: Buffer; nonce: Buffer } {
+  return seal(loadZoneKek(), Buffer.from(JSON.stringify(config), 'utf8'))
+}
+
+function mockTokenResponse(body: Record<string, unknown>, statusCode: number): string[] {
+  const bodies: string[] = []
+  vi.mocked(httpsRequest).mockImplementation((_url, _opts, callback) => {
+    const req = new EventEmitter() as EventEmitter & { write: (chunk: string) => void; end: () => void; destroy: (err?: Error) => void }
+    req.write = (chunk: string) => {
+      bodies.push(String(chunk))
+    }
+    req.end = () => {
+      const res = new EventEmitter() as EventEmitter & { statusCode: number; setEncoding: () => void; destroy: (err?: Error) => void }
+      res.statusCode = statusCode
+      res.setEncoding = () => undefined
+      res.destroy = (err?: Error) => {
+        if (err) res.emit('error', err)
+      }
+      queueMicrotask(() => {
+        callback(res)
+        res.emit('data', JSON.stringify(body))
+        res.emit('end')
+      })
+    }
+    req.destroy = (err?: Error) => {
+      if (err) req.emit('error', err)
+    }
+    return req
+  })
+  return bodies
+}
+
+function oauthProviderRow(kind: string, config: Record<string, unknown>): Record<string, unknown> {
+  const sealed = sealedSecretConfig({ client_secret: 'hooli-secret' })
+  return {
+    kind,
+    config_json: config,
+    secret_config_ct: sealed.ciphertext,
+    secret_config_nonce: sealed.nonce,
+  }
+}
 
 describe('GET /v1/zones/:zoneId/providers/:id', () => {
   it('returns 404 when provider is outside the zone', async () => {
@@ -830,51 +873,8 @@ describe('POST /v1/zones/:zoneId/providers/:id/test', () => {
     vi.clearAllMocks()
   })
 
-  function sealedSecretConfig(config: Record<string, string>): { ciphertext: Buffer; nonce: Buffer } {
-    return seal(loadZoneKek(), Buffer.from(JSON.stringify(config), 'utf8'))
-  }
-
-  function mockTokenResponse(body: Record<string, unknown>, statusCode: number): string[] {
-    const bodies: string[] = []
-    vi.mocked(httpsRequest).mockImplementation((_url, _opts, callback) => {
-      const req = new EventEmitter() as EventEmitter & { write: (chunk: string) => void; end: () => void; destroy: (err?: Error) => void }
-      req.write = (chunk: string) => {
-        bodies.push(String(chunk))
-      }
-      req.end = () => {
-        const res = new EventEmitter() as EventEmitter & { statusCode: number; setEncoding: () => void; destroy: (err?: Error) => void }
-        res.statusCode = statusCode
-        res.setEncoding = () => undefined
-        res.destroy = (err?: Error) => {
-          if (err) res.emit('error', err)
-        }
-        queueMicrotask(() => {
-          callback(res)
-          res.emit('data', JSON.stringify(body))
-          res.emit('end')
-        })
-      }
-      req.destroy = (err?: Error) => {
-        if (err) req.emit('error', err)
-      }
-      return req
-    })
-    return bodies
-  }
-
-  function oauthProviderRow(kind: string, config: Record<string, unknown>): Record<string, unknown> {
-    const sealed = sealedSecretConfig({ client_secret: 'hooli-secret' })
-    return {
-      kind,
-      config_json: config,
-      secret_config_ct: sealed.ciphertext,
-      secret_config_nonce: sealed.nonce,
-    }
-  }
-
-  it('reports static-credential providers as untestable without any outbound request', async () => {
+  it('verifies static-credential providers from configuration alone without any outbound request', async () => {
     const { app, db, redis } = buildRouteApp(providersRoutes)
-    redis.incr.mockResolvedValueOnce(1)
     db.query.mockResolvedValueOnce({
       rows: [{ kind: 'api_key', config_json: { header_name: 'X-API-Key' }, secret_config_ct: null, secret_config_nonce: null }],
     })
@@ -883,12 +883,24 @@ describe('POST /v1/zones/:zoneId/providers/:id/test', () => {
     const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/providers/provider-1/test', payload: {} })
 
     expect(res.statusCode).toBe(200)
-    expect(JSON.parse(res.body)).toMatchObject({ status: 'untestable' })
+    expect(JSON.parse(res.body)).toMatchObject({ status: 'ok' })
     expect(httpsRequest).not.toHaveBeenCalled()
+    expect(redis.incr).not.toHaveBeenCalled()
+    expect(db.query).toHaveBeenLastCalledWith(expect.stringContaining('SET connectivity_failed_at'), ['provider-1', 'z1', null])
   })
 
-  it('rate limits connection tests per zone', async () => {
-    const { app, redis } = buildRouteApp(providersRoutes)
+  it('rate limits OAuth connectivity checks per zone', async () => {
+    const { app, db, redis } = buildRouteApp(providersRoutes)
+    db.query.mockResolvedValueOnce({
+      rows: [
+        oauthProviderRow('oauth2_client_credentials', {
+          token_endpoint: 'https://login.hooli.example/oauth/token',
+          client_id: 'hooli-client',
+          client_auth_method: 'client_secret_basic',
+          allowed_token_hosts: ['login.hooli.example'],
+        }),
+      ],
+    })
     redis.incr.mockResolvedValueOnce(11)
 
     await app.ready()
@@ -923,6 +935,7 @@ describe('POST /v1/zones/:zoneId/providers/:id/test', () => {
     expect(res.body).not.toContain('issued-token')
     expect(bodies.join('')).toContain('grant_type=client_credentials')
     expect(bodies.join('')).toContain('scope=pipernet.read')
+    expect(db.query).toHaveBeenLastCalledWith(expect.stringContaining('SET connectivity_failed_at'), ['provider-1', 'z1', null])
   })
 
   it('classifies rejected client credentials as auth_failed', async () => {
@@ -946,6 +959,8 @@ describe('POST /v1/zones/:zoneId/providers/:id/test', () => {
 
     expect(res.statusCode).toBe(200)
     expect(JSON.parse(res.body)).toMatchObject({ status: 'auth_failed' })
+    const [, updateValues] = db.query.mock.calls[1] as [string, unknown[]]
+    expect(updateValues[2]).toBeInstanceOf(Date)
   })
 
   it('treats invalid_grant for the placeholder code as a verified authorization-code provider', async () => {
@@ -994,5 +1009,144 @@ describe('POST /v1/zones/:zoneId/providers/:id/test', () => {
     expect(res.statusCode).toBe(200)
     expect(JSON.parse(res.body)).toMatchObject({ status: 'config_error' })
     expect(httpsRequest).not.toHaveBeenCalled()
+  })
+})
+
+describe('POST /v1/zones/:zoneId/providers with connectivity check', () => {
+  afterEach(() => {
+    vi.clearAllMocks()
+  })
+
+  const oauthPayload = {
+    identifier: 'provider://hooli-oidc',
+    kind: 'oauth2_client_credentials',
+    config_json: {
+      token_endpoint: 'https://login.hooli.example/oauth/token',
+      client_id: 'hooli-client',
+      client_secret: 'hooli-secret',
+    },
+  }
+
+  it('creates a checked OAuth provider clean after a passing check and never returns the token', async () => {
+    const { app, db, redis } = buildRouteApp(providersRoutes)
+    redis.incr.mockResolvedValueOnce(1)
+    db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] }).mockResolvedValueOnce({
+      rows: [{ id: 'provider-1', zone_id: 'z1', identifier: 'provider://hooli-oidc', kind: 'oauth2_client_credentials' }],
+    })
+    vi.mocked(lookup).mockResolvedValue([{ address: '203.0.113.10', family: 4 }] as never)
+    const bodies = mockTokenResponse({ access_token: 'issued-token', token_type: 'Bearer' }, 200)
+
+    await app.ready()
+    const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/providers', payload: { ...oauthPayload, check: true } })
+
+    expect(res.statusCode).toBe(201)
+    expect(res.body).not.toContain('issued-token')
+    expect(bodies.join('')).toContain('grant_type=client_credentials')
+    const values = db.query.mock.calls[1][1] as unknown[]
+    expect(values[9]).toBeNull()
+  })
+
+  it('returns the check result and creates nothing when the check fails', async () => {
+    const { app, db, redis } = buildRouteApp(providersRoutes)
+    redis.incr.mockResolvedValueOnce(1)
+    db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
+    vi.mocked(lookup).mockResolvedValue([{ address: '203.0.113.10', family: 4 }] as never)
+    mockTokenResponse({ error: 'invalid_client' }, 401)
+
+    await app.ready()
+    const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/providers', payload: { ...oauthPayload, check: true } })
+
+    expect(res.statusCode).toBe(422)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'provider_check_failed', check: { status: 'auth_failed' } })
+    expect(db.query).toHaveBeenCalledTimes(1)
+  })
+
+  it('rate limits checked OAuth creation per zone', async () => {
+    const { app, db, redis } = buildRouteApp(providersRoutes)
+    redis.incr.mockResolvedValueOnce(11)
+    db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
+
+    await app.ready()
+    const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/providers', payload: { ...oauthPayload, check: true } })
+
+    expect(res.statusCode).toBe(429)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'provider_test_rate_limited' })
+    expect(httpsRequest).not.toHaveBeenCalled()
+  })
+
+  it('signs a private_key_jwt client assertion for the connectivity check', async () => {
+    const { privateKey } = generateKeyPairSync('ec', { namedCurve: 'prime256v1' })
+    const pem = privateKey.export({ type: 'pkcs8', format: 'pem' }) as string
+    const { app, db, redis } = buildRouteApp(providersRoutes)
+    redis.incr.mockResolvedValueOnce(1)
+    db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] }).mockResolvedValueOnce({
+      rows: [{ id: 'provider-1', zone_id: 'z1', identifier: 'provider://hooli-oidc', kind: 'oauth2_client_credentials' }],
+    })
+    vi.mocked(lookup).mockResolvedValue([{ address: '203.0.113.10', family: 4 }] as never)
+    const bodies = mockTokenResponse({ access_token: 'issued-token', token_type: 'Bearer' }, 200)
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/providers',
+      payload: {
+        identifier: 'provider://hooli-oidc',
+        kind: 'oauth2_client_credentials',
+        check: true,
+        config_json: {
+          token_endpoint: 'https://login.hooli.example/oauth/token',
+          client_id: 'hooli-client',
+          client_auth_method: 'private_key_jwt',
+          key_id: 'key-1',
+          private_key: pem,
+        },
+      },
+    })
+
+    expect(res.statusCode).toBe(201)
+    const body = bodies.join('')
+    expect(body).toContain('grant_type=client_credentials')
+    expect(body).toContain('client_assertion_type=urn%3Aietf%3Aparams%3Aoauth%3Aclient-assertion-type%3Ajwt-bearer')
+    expect(body).toContain('client_assertion=')
+  })
+
+  it('marks an unchecked OAuth provider as connectivity failed at creation', async () => {
+    const { app, db } = buildRouteApp(providersRoutes)
+    db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] }).mockResolvedValueOnce({
+      rows: [{ id: 'provider-1', zone_id: 'z1', identifier: 'provider://hooli-oidc', kind: 'oauth2_client_credentials' }],
+    })
+
+    await app.ready()
+    const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/providers', payload: oauthPayload })
+
+    expect(res.statusCode).toBe(201)
+    expect(httpsRequest).not.toHaveBeenCalled()
+    const values = db.query.mock.calls[1][1] as unknown[]
+    expect(values[9]).toBeInstanceOf(Date)
+  })
+
+  it('creates checked static providers clean without any outbound request', async () => {
+    const { app, db, redis } = buildRouteApp(providersRoutes)
+    db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] }).mockResolvedValueOnce({
+      rows: [{ id: 'provider-1', zone_id: 'z1', identifier: 'provider://not-hotdog-api', kind: 'api_key' }],
+    })
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/providers',
+      payload: {
+        identifier: 'provider://not-hotdog-api',
+        kind: 'api_key',
+        check: true,
+        config_json: { header_name: 'X-API-Key', api_key: 'hotdog-secret' },
+      },
+    })
+
+    expect(res.statusCode).toBe(201)
+    expect(httpsRequest).not.toHaveBeenCalled()
+    expect(redis.incr).not.toHaveBeenCalled()
+    const values = db.query.mock.calls[1][1] as unknown[]
+    expect(values[9]).toBeNull()
   })
 })

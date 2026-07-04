@@ -5,10 +5,9 @@
 
 import { describe, it, expect } from 'vitest'
 import { createHash } from 'node:crypto'
-import type { AdminClient } from '@caracalai/admin'
+import { authorGrantsDocument, type AdminClient } from '@caracalai/admin'
 import {
   provisionSystemZone,
-  authorOperatorPolicy,
   roleIdentityTraits,
   SYSTEM_ZONE_SLUG,
   SYSTEM_ZONE_NAME,
@@ -374,24 +373,6 @@ describe('provisionSystemZone', () => {
   })
 })
 
-describe('authorOperatorPolicy', () => {
-  it('renders deterministic app_ids and grants data documents the decision contract reads', () => {
-    const content = authorOperatorPolicy('app-op', ['caracal-sys://operator-llm-openai'])
-    expect(content).toContain('# caracal:data-document')
-    expect(content).toContain('package caracal.authz')
-    expect(content).toContain('app_ids := {"operator":"app-op"}')
-    expect(content).toContain(
-      'grants := {"caracal-sys://operator-llm-openai":{"application":"operator","roles":{"operator":["llm:invoke"]}}}',
-    )
-  })
-
-  it('is order-independent in the resource list, so an unchanged grant set yields identical content', () => {
-    const a = authorOperatorPolicy('app-op', ['caracal-sys://b', 'caracal-sys://a'])
-    const b = authorOperatorPolicy('app-op', ['caracal-sys://a', 'caracal-sys://b'])
-    expect(a).toBe(b)
-  })
-})
-
 describe('provisionSystemZone with governed upstreams', () => {
   const upstream = { id: 'openai', baseUrl: 'https://api.openai.test/v1', apiKey: 'sk-live-secret' }
 
@@ -404,8 +385,9 @@ describe('provisionSystemZone with governed upstreams', () => {
     expect(provider.kind).toBe('api_key')
     expect(provider.config_json).toMatchObject({ api_key: 'sk-live-secret', allow_runtime_injection: true, header_name: 'Authorization' })
 
-    // The resource declares the data scope plus agent:lifecycle, binds the credential
-    // provider, and routes through the gateway as the base LLM identity.
+    // The resource declares the data scope (the admin reconciler adds agent:lifecycle to
+    // every gateway-bound resource), binds the credential provider, and routes through the
+    // gateway as the base LLM identity.
     const resource = state.resources.find((r) => r.identifier === 'caracal-sys://operator-llm-openai')!
     expect([...resource.scopes].sort()).toEqual(['agent:lifecycle', 'llm:invoke'])
     expect(resource.credential_provider_id).toBe(provider.id)
@@ -509,7 +491,7 @@ describe('provisionSystemZone with governed upstreams', () => {
     const content = state.policies[0].versions.at(-1)!
     expect(state.policies[0].versions).toHaveLength(2)
     expect(state.calls).toContain('policySets.activate')
-    expect(content.content_sha256).toBe(sha256Hex(authorOperatorPolicy(result.llm.applicationId, [])))
+    expect(content.content_sha256).toBe(sha256Hex(authorGrantsDocument([])))
     expect(result.governedResources).toEqual([])
   })
 

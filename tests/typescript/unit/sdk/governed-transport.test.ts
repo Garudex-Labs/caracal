@@ -189,4 +189,94 @@ describe('Caracal.governedTransport', () => {
     expect(() => client(fetchImpl).governedTransport('', { scopes: ['data:read'] })).toThrow(/resourceId is required/)
     expect(() => client(fetchImpl).governedTransport(RESOURCE, { scopes: [] })).toThrow(/scopes are required/)
   })
+
+  it('labels the spawned sessions with the application id when none are given', async () => {
+    const { fetchImpl, calls } = fakeFetch()
+    const governed = client(fetchImpl).governedTransport(RESOURCE, { scopes: ['data:read'] })
+
+    await governed(`${GATEWAY}/v1/things`, { method: 'POST', body: '{}' })
+
+    const spawnBody = JSON.parse(calls.find((c) => c.url.endsWith('/agents'))!.body!)
+    expect(spawnBody.labels).toEqual(['app-1'])
+  })
+})
+
+describe('Caracal.fromClientSecret with a credentials resolver', () => {
+  function resolverClient(fetchImpl: typeof fetch, resolve: () => { zoneId: string; applicationId: string; clientSecret: string } | null) {
+    return Caracal.fromClientSecret({
+      coordinatorUrl: COORD,
+      stsUrl: STS,
+      gatewayUrl: GATEWAY,
+      credentials: resolve,
+      fetchImpl,
+    })
+  }
+
+  it('runs a governed transport without any configured resources', async () => {
+    const { fetchImpl } = fakeFetch()
+    const caracal = resolverClient(fetchImpl, () => ({ zoneId: 'zone-1', applicationId: 'app-1', clientSecret: 'cs_test' }))
+    const governed = caracal.governedTransport(RESOURCE, { scopes: ['data:read'] })
+
+    const res = await governed(`${GATEWAY}/v1/things`, { method: 'POST', body: '{}' })
+    expect(((await res.json()) as { presented: string }).presented).toBe('Bearer mandate-1')
+  })
+
+  it('fails closed with CredentialsUnavailableError while the resolver returns nothing', async () => {
+    const { fetchImpl, calls } = fakeFetch()
+    const caracal = resolverClient(fetchImpl, () => null)
+    const governed = caracal.governedTransport(RESOURCE, { scopes: ['data:read'] })
+
+    await expect(governed(`${GATEWAY}/v1/things`, { method: 'POST' })).rejects.toMatchObject({ name: 'CredentialsUnavailableError' })
+    expect(calls).toHaveLength(0)
+  })
+
+  it('recovers on the next call once the resolver supplies credentials', async () => {
+    const { fetchImpl } = fakeFetch()
+    let creds: { zoneId: string; applicationId: string; clientSecret: string } | null = null
+    const caracal = resolverClient(fetchImpl, () => creds)
+    const governed = caracal.governedTransport(RESOURCE, { scopes: ['data:read'] })
+
+    await expect(governed(`${GATEWAY}/v1/things`, { method: 'POST' })).rejects.toMatchObject({ name: 'CredentialsUnavailableError' })
+    creds = { zoneId: 'zone-1', applicationId: 'app-1', clientSecret: 'cs_test' }
+    const res = await governed(`${GATEWAY}/v1/things`, { method: 'POST', body: '{}' })
+    expect(((await res.json()) as { presented: string }).presented).toBe('Bearer mandate-1')
+  })
+
+  it('runs a fresh mint cycle when the resolved identity changes, never serving the old identity\u2019s mandate', async () => {
+    const { fetchImpl, calls, counters } = fakeFetch()
+    let creds = { zoneId: 'zone-1', applicationId: 'app-1', clientSecret: 'cs_test' }
+    const caracal = resolverClient(fetchImpl, () => creds)
+    const governed = caracal.governedTransport(RESOURCE, { scopes: ['data:read'] })
+
+    await governed(`${GATEWAY}/a`, { method: 'POST', body: '{}' })
+    creds = { zoneId: 'zone-2', applicationId: 'app-2', clientSecret: 'cs_next' }
+    const res = await governed(`${GATEWAY}/b`, { method: 'POST', body: '{}' })
+
+    expect(((await res.json()) as { presented: string }).presented).toBe('Bearer mandate-2')
+    expect(counters.mint).toBe(2)
+    const lastMint = calls
+      .filter((c) => c.url === `${STS}/oauth/2/token`)
+      .map((c) => new URLSearchParams(c.body!))
+      .at(-1)!
+    expect(lastMint.get('zone_id')).toBe('zone-2')
+    expect(lastMint.get('application_id')).toBe('app-2')
+  })
+
+  it('rejects a resolver combined with static credentials, and a spawn path without resources', async () => {
+    const { fetchImpl } = fakeFetch()
+    expect(() =>
+      Caracal.fromClientSecret({
+        coordinatorUrl: COORD,
+        stsUrl: STS,
+        zoneId: 'zone-1',
+        applicationId: 'app-1',
+        clientSecret: 'cs_test',
+        credentials: () => null,
+        fetchImpl,
+      }),
+    ).toThrow(/not both/)
+
+    const caracal = resolverClient(fetchImpl, () => ({ zoneId: 'zone-1', applicationId: 'app-1', clientSecret: 'cs_test' }))
+    await expect(caracal.spawn(async () => 'unreached')).rejects.toThrow(/no resources configured/)
+  })
 })
