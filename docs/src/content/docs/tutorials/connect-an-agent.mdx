@@ -137,7 +137,7 @@ if err != nil {
 | `new Caracal()` / `Caracal()` / `New()` | Loads configuration and prepares app-secret token exchange. |
 | `spawn()` / `Spawn()` | Creates an agent session, binds context, and tears it down after the block returns. |
 | `gatewayRequest()` / `GatewayRequest()` | Builds the Gateway URL and `X-Caracal-Resource` header. |
-| `transport()` / `Transport()` | Injects Authorization, trace, baggage, and Gateway routing behavior. |
+| `transport()` / `Transport()` | Injects trace and baggage context, Gateway routing, and Authorization on Gateway-routed calls. |
 
 `spawn()` is the session boundary. If the function exits or raises, the SDK terminates the agent session and active authority for that session is revoked.
 

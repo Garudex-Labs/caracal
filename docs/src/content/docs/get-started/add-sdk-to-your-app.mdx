@@ -143,7 +143,7 @@ func main() {
 | `spawn()` / `Spawn()` | Creates an agent session, binds context for the work, and terminates the session when the block exits. |
 | `fetch()` / `Fetch()` | Sends one request to a resource through the Gateway with context and authority injected. |
 | `gatewayRequest()` / `GatewayRequest()` | Builds the Gateway URL and `X-Caracal-Resource` header for explicit resource routing. |
-| `transport()` / `Transport()` | Injects Caracal context, authorization, trace, and baggage headers on outbound calls. |
+| `transport()` / `Transport()` | Injects Caracal trace and baggage context on outbound calls and attaches authorization on Gateway-routed calls. |
 
 `spawn()` creates an agent session under the application from your runtime profile. You reuse that one application for every agent session your workload spawns; you do not register an application per agent. See [Should I create one application per agent?](/reference/faq/#faq-006).
 

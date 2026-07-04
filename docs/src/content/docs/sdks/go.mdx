@@ -54,7 +54,7 @@ Available fields are `Resources`, `MaxDepth`, `MaxHops`, `TTLSeconds`, `Budget`,
 
 ## Protect Inbound Requests
 
-Use `BindFromRequest()` to propagate a Caracal context after an upstream Gateway, connector, or transport verifier has accepted the inbound mandate. Use [Verification Layer Overview](/sdks/verification-layer/) when the Go service must enforce mandate signatures, scopes, targets, agent identity, delegation, or revocation at its own boundary.
+Use `BindFromRequest()` to propagate a Caracal context after an upstream Gateway, connector, or transport verifier has accepted the inbound mandate. Set `RootOptions.Verify` to enforce the bearer token at the boundary itself; the callback receives the inbound token and must return an error on failure. Use [Verification Layer Overview](/sdks/verification-layer/) when the Go service must enforce mandate signatures, scopes, targets, agent identity, delegation, or revocation at its own boundary.
 
 `Headers` and `Transport` require a bound Caracal context by default. Pass `caracal.RootOptions{AllowRoot: true}` only when the call should intentionally use the application subject token.
 
