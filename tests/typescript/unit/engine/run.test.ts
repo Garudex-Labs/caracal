@@ -5,215 +5,138 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-const exchangeMock = vi.fn()
-const waitForApprovalMock = vi.fn()
+const fetchRunCredentialMock = vi.hoisted(() => vi.fn())
 const fetchRunManifestMock = vi.hoisted(() => vi.fn())
+const pollStepUpStateMock = vi.hoisted(() => vi.fn())
 
 vi.mock('@caracalai/oauth', async (orig) => {
   const actual = (await orig()) as Record<string, unknown>
   return {
     ...actual,
-    OAuthClient: class {
-      exchange = exchangeMock
-      waitForApproval = waitForApprovalMock
-    },
+    fetchRunCredential: fetchRunCredentialMock,
     fetchRunManifest: fetchRunManifestMock,
+    pollStepUpState: pollStepUpStateMock,
   }
 })
 
 import { buildRunEnv, resolveRunConfig, runExec } from '../../../../packages/engine/src/run.js'
+import type { RunProfile } from '../../../../packages/engine/src/run.js'
 import { InteractionRequiredError } from '@caracalai/oauth'
-import type { RuntimeConfig, RuntimeIdentity } from '../../../../packages/engine/src/runtimeConfig.js'
+import type { RunBinding } from '@caracalai/oauth'
+import type { RuntimeIdentity } from '../../../../packages/engine/src/runtimeConfig.js'
 
-const baseConfig: RuntimeConfig = {
-  zone_url: 'http://localhost:8080',
-  zone_id: 'z1',
-  application_id: 'app1',
-  app_client_secret: 'secret',
-} as unknown as RuntimeConfig
+const identity: RuntimeIdentity = {
+  sts_url: 'http://localhost:8080',
+  workload_id: 'wl1',
+  workload_secret: 'ws_secret',
+}
+
+function binding(overrides: Partial<RunBinding> = {}): RunBinding {
+  return { env: 'API_KEY', resource: 'urn:api', scopes: [], optional: false, onFailure: 'error', ...overrides }
+}
+
+function profile(bindings: RunBinding[]): RunProfile {
+  return { identity, zoneId: 'z1', bindings }
+}
 
 afterEach(() => {
-  exchangeMock.mockReset()
-  waitForApprovalMock.mockReset()
+  fetchRunCredentialMock.mockReset()
   fetchRunManifestMock.mockReset()
+  pollStepUpStateMock.mockReset()
   vi.restoreAllMocks()
 })
 
 describe('resolveRunConfig', () => {
-  const identity: RuntimeIdentity = {
-    sts_url: 'http://localhost:8080',
-    application_id: 'app1',
-    app_client_secret: 'secret',
-  }
-
   it('assembles the launch profile from the STS manifest', async () => {
-    fetchRunManifestMock.mockResolvedValue({
-      zoneId: 'z1',
-      applicationId: 'app1',
-      ttlSeconds: 300,
-      credentials: [
-        { env: 'API_KEY', resource: 'urn:api', credentialType: 'provider_token', optional: false, onFailure: 'error' },
-        { env: 'OPT', resource: 'urn:opt', credentialType: 'caracal_mandate', optional: true, onFailure: 'warn' },
-      ],
-    })
+    const bindings = [
+      binding({ env: 'API_KEY', resource: 'urn:api', scopes: ['api:read'] }),
+      binding({ env: 'OPT', resource: 'urn:opt', optional: true, onFailure: 'warn' }),
+    ]
+    fetchRunManifestMock.mockResolvedValue({ zoneId: 'z1', workloadId: 'wl1', bindings })
     const cfg = await resolveRunConfig(identity)
-    expect(fetchRunManifestMock).toHaveBeenCalledWith('http://localhost:8080', 'app1', 'secret')
-    expect(cfg).toEqual({
-      zone_url: 'http://localhost:8080',
-      zone_id: 'z1',
-      application_id: 'app1',
-      app_client_secret: 'secret',
-      ttl_seconds: 300,
-      credentials: [{ env: 'API_KEY', resource: 'urn:api', credential_type: 'provider_token' }],
-      optional_credentials: [{ env: 'OPT', resource: 'urn:opt', credential_type: 'caracal_mandate', on_failure: 'warn' }],
-    })
+    expect(fetchRunManifestMock).toHaveBeenCalledWith('http://localhost:8080', 'wl1', 'ws_secret')
+    expect(cfg).toEqual({ identity, zoneId: 'z1', bindings })
   })
 
   it('rejects manifests with blocked or duplicate env names', async () => {
     fetchRunManifestMock.mockResolvedValue({
       zoneId: 'z1',
-      applicationId: 'app1',
-      credentials: [{ env: 'LD_PRELOAD', resource: 'urn:api', credentialType: 'provider_token', optional: false, onFailure: 'error' }],
+      workloadId: 'wl1',
+      bindings: [binding({ env: 'LD_PRELOAD' })],
     })
     await expect(resolveRunConfig(identity)).rejects.toThrow(/blocked credential env/)
     fetchRunManifestMock.mockResolvedValue({
       zoneId: 'z1',
-      applicationId: 'app1',
-      credentials: [
-        { env: 'DUP', resource: 'urn:a', credentialType: 'provider_token', optional: false, onFailure: 'error' },
-        { env: 'DUP', resource: 'urn:b', credentialType: 'provider_token', optional: true, onFailure: 'warn' },
-      ],
+      workloadId: 'wl1',
+      bindings: [binding({ env: 'DUP', resource: 'urn:a' }), binding({ env: 'DUP', resource: 'urn:b' })],
     })
     await expect(resolveRunConfig(identity)).rejects.toThrow(/duplicate credential env/)
-  })
-
-  it('rejects manifests whose ttl exceeds the maximum', async () => {
-    fetchRunManifestMock.mockResolvedValue({
-      zoneId: 'z1',
-      applicationId: 'app1',
-      ttlSeconds: 3600,
-      credentials: [{ env: 'API_KEY', resource: 'urn:api', credentialType: 'provider_token', optional: false, onFailure: 'error' }],
-    })
-    await expect(resolveRunConfig(identity)).rejects.toThrow(/ttl_seconds must be between/)
-  })
-
-  it('rejects continue_on_failure outside development without the explicit override', async () => {
-    fetchRunManifestMock.mockResolvedValue({
-      zoneId: 'z1',
-      applicationId: 'app1',
-      continueOnFailure: true,
-      credentials: [{ env: 'API_KEY', resource: 'urn:api', credentialType: 'provider_token', optional: false, onFailure: 'error' }],
-    })
-    await expect(resolveRunConfig(identity, { NODE_ENV: 'production' })).rejects.toThrow(/not allowed outside development/)
-    await expect(
-      resolveRunConfig(identity, { NODE_ENV: 'production', CARACAL_ALLOW_REQUIRED_CREDENTIAL_FAILURE: 'true' }),
-    ).resolves.toMatchObject({ continue_on_failure: true })
   })
 })
 
 describe('buildRunEnv', () => {
-  it('exchanges tokens for each credential', async () => {
-    exchangeMock.mockResolvedValue({ accessToken: 'mandate', upstreams: { 'urn:api': { providerToken: 'tok-123' } } })
-    const env = await buildRunEnv({ ...baseConfig, credentials: [{ env: 'API_KEY', resource: 'urn:api' }] })
+  it('mints a credential for each binding', async () => {
+    fetchRunCredentialMock.mockResolvedValue({ env: 'API_KEY', credential: 'tok-123' })
+    const env = await buildRunEnv(profile([binding()]))
     expect(env.API_KEY).toBe('tok-123')
-    expect(exchangeMock).toHaveBeenCalledWith('', 'urn:api', {
-      clientSecret: 'secret',
-      ttlSeconds: 900,
-      runtimeCredentialInjection: true,
-    })
-  })
-
-  it('can inject a Caracal mandate for mandate-aware workloads', async () => {
-    exchangeMock.mockResolvedValue({ accessToken: 'mandate-token' })
-    const env = await buildRunEnv({
-      ...baseConfig,
-      credentials: [{ env: 'CARACAL_TOKEN', resource: 'urn:api', credential_type: 'caracal_mandate' }],
-      ttl_seconds: 300,
-    })
-    expect(env.CARACAL_TOKEN).toBe('mandate-token')
-    expect(exchangeMock).toHaveBeenCalledWith('', 'urn:api', {
-      clientSecret: 'secret',
-      ttlSeconds: 300,
-      runtimeCredentialInjection: false,
-    })
-  })
-
-  it('fails when provider-token injection is unavailable', async () => {
-    exchangeMock.mockResolvedValue({ accessToken: 'mandate' })
-    await expect(buildRunEnv({ ...baseConfig, credentials: [{ env: 'API_KEY', resource: 'urn:api' }] })).rejects.toThrow(
-      'provider_credential_unavailable:urn:api',
-    )
+    expect(fetchRunCredentialMock).toHaveBeenCalledWith('http://localhost:8080', 'wl1', 'ws_secret', 'API_KEY')
   })
 
   it('rejects invalid, blocked, and duplicate credential env names', async () => {
-    exchangeMock.mockResolvedValue({ accessToken: 'tok' })
-    await expect(buildRunEnv({ ...baseConfig, credentials: [{ env: '1bad', resource: 'r' }] })).rejects.toThrow(/invalid_credential_env/)
-    await expect(buildRunEnv({ ...baseConfig, credentials: [{ env: 'LD_PRELOAD', resource: 'r' }] })).rejects.toThrow(
-      /blocked_credential_env/,
+    fetchRunCredentialMock.mockResolvedValue({ env: 'X', credential: 'tok' })
+    await expect(buildRunEnv(profile([binding({ env: '1bad' })]))).rejects.toThrow(/invalid_credential_env/)
+    await expect(buildRunEnv(profile([binding({ env: 'LD_PRELOAD' })]))).rejects.toThrow(/blocked_credential_env/)
+    await expect(buildRunEnv(profile([binding({ env: 'DUP', resource: 'r1' }), binding({ env: 'DUP', resource: 'r2' })]))).rejects.toThrow(
+      /duplicate_credential_env/,
     )
-    await expect(
-      buildRunEnv({
-        ...baseConfig,
-        credentials: [
-          { env: 'DUP', resource: 'r1' },
-          { env: 'DUP', resource: 'r2' },
-        ],
-      }),
-    ).rejects.toThrow(/duplicate_credential_env/)
   })
 
-  it('continues past a failed credential when continue_on_failure is set', async () => {
-    exchangeMock.mockRejectedValue(new Error('exchange failed'))
+  it('throws on a required credential failure', async () => {
+    fetchRunCredentialMock.mockRejectedValue(new Error('mint failed'))
     const lines: string[] = []
-    const env = await buildRunEnv(
-      { ...baseConfig, continue_on_failure: true, credentials: [{ env: 'API_KEY', resource: 'r' }] },
-      { onLine: (l) => lines.push(l) },
-    )
-    expect(env.API_KEY).toBeUndefined()
+    await expect(buildRunEnv(profile([binding({ resource: 'r' })]), { onLine: (l) => lines.push(l) })).rejects.toThrow('mint failed')
     expect(lines.some((l) => l.includes('"resource":"r"'))).toBe(true)
   })
 
-  it('throws on a required credential failure without continue_on_failure', async () => {
-    exchangeMock.mockRejectedValue(new Error('exchange failed'))
-    await expect(buildRunEnv({ ...baseConfig, credentials: [{ env: 'API_KEY', resource: 'r' }] })).rejects.toThrow('exchange failed')
-  })
-
   it('skips optional credentials that fail with on_failure warn', async () => {
-    exchangeMock.mockRejectedValue(new Error('nope'))
+    fetchRunCredentialMock.mockRejectedValue(new Error('nope'))
     const lines: string[] = []
-    const env = await buildRunEnv(
-      { ...baseConfig, optional_credentials: [{ env: 'OPT', resource: 'r', on_failure: 'warn' }] },
-      { onLine: (l) => lines.push(l) },
-    )
+    const env = await buildRunEnv(profile([binding({ env: 'OPT', resource: 'r', optional: true, onFailure: 'warn' })]), {
+      onLine: (l) => lines.push(l),
+    })
     expect(env.OPT).toBeUndefined()
     expect(lines.some((l) => l.includes('optional credential skipped'))).toBe(true)
   })
 
   it('throws when an optional credential with on_failure error fails', async () => {
-    exchangeMock.mockRejectedValue(new Error('nope'))
-    await expect(
-      buildRunEnv({ ...baseConfig, optional_credentials: [{ env: 'OPT', resource: 'r', on_failure: 'error' }] }),
-    ).rejects.toThrow('nope')
+    fetchRunCredentialMock.mockRejectedValue(new Error('nope'))
+    await expect(buildRunEnv(profile([binding({ env: 'OPT', resource: 'r', optional: true, onFailure: 'error' })]))).rejects.toThrow(
+      'nope',
+    )
   })
 
-  it('waits for an approval and retries the exchange with the challenge id', async () => {
-    exchangeMock
-      .mockRejectedValueOnce(new InteractionRequiredError('approval required', 'chal-1', { resource: 'r', binding: 'aa', expiresAt: '2026-01-01T00:00:00Z' }))
-      .mockResolvedValueOnce({ accessToken: 'mandate', upstreams: { r: { providerToken: 'after-approval' } } })
-    waitForApprovalMock.mockResolvedValue('approved')
+  it('waits for an approval and retries the mint with the challenge id', async () => {
+    fetchRunCredentialMock
+      .mockRejectedValueOnce(
+        new InteractionRequiredError('approval required', 'chal-1', { binding: 'aa', expiresAt: '2026-01-01T00:00:00Z' }),
+      )
+      .mockResolvedValueOnce({ env: 'API_KEY', credential: 'after-approval' })
+    pollStepUpStateMock.mockResolvedValue('approved')
     const lines: string[] = []
-    const env = await buildRunEnv({ ...baseConfig, credentials: [{ env: 'API_KEY', resource: 'r' }] }, { onLine: (l) => lines.push(l) })
+    const env = await buildRunEnv(profile([binding({ resource: 'r' })]), { onLine: (l) => lines.push(l) })
     expect(env.API_KEY).toBe('after-approval')
     expect(lines.some((l) => l.includes('approval_required') && l.includes('chal-1') && l.includes('"binding":"aa"'))).toBe(true)
-    expect(waitForApprovalMock).toHaveBeenCalledWith('chal-1', { timeoutMs: 300_000 })
-    expect(exchangeMock).toHaveBeenLastCalledWith('', 'r', expect.objectContaining({ challengeId: 'chal-1' }))
+    expect(pollStepUpStateMock).toHaveBeenCalledWith('http://localhost:8080', 'chal-1', { timeoutMs: 300_000 })
+    expect(fetchRunCredentialMock).toHaveBeenLastCalledWith('http://localhost:8080', 'wl1', 'ws_secret', 'API_KEY', {
+      challengeId: 'chal-1',
+    })
   })
 
   it('fails the credential when the approval is rejected', async () => {
-    exchangeMock.mockRejectedValue(new InteractionRequiredError('approval required', 'chal-1', { resource: 'r' }))
-    waitForApprovalMock.mockResolvedValue('rejected')
-    await expect(buildRunEnv({ ...baseConfig, credentials: [{ env: 'API_KEY', resource: 'r' }] })).rejects.toThrow('approval_rejected')
-    expect(exchangeMock).toHaveBeenCalledTimes(1)
+    fetchRunCredentialMock.mockRejectedValue(new InteractionRequiredError('approval required', 'chal-1', {}))
+    pollStepUpStateMock.mockResolvedValue('rejected')
+    await expect(buildRunEnv(profile([binding({ resource: 'r' })]))).rejects.toThrow('approval_rejected')
+    expect(fetchRunCredentialMock).toHaveBeenCalledTimes(1)
   })
 })
 

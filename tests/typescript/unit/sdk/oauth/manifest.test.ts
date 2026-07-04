@@ -1,20 +1,19 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// fetchRunManifest unit tests: manifest retrieval, validation, and STS error surfacing.
+// Run client unit tests: manifest retrieval, credential minting, validation, and STS error surfacing.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { fetchRunManifest } from '../../../../../packages/oauth/ts/src/manifest.js'
+import { fetchRunCredential, fetchRunManifest } from '../../../../../packages/oauth/ts/src/manifest.js'
+import { InteractionRequiredError } from '../../../../../packages/oauth/ts/src/types.js'
 
 function manifestBody(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     zone_id: 'z1',
-    application_id: 'app1',
-    ttl_seconds: 300,
-    continue_on_failure: false,
-    credentials: [
-      { env: 'CARACAL_RESOURCE_PIPERNET_TOKEN', resource: 'resource://pipernet', credential_type: 'provider_token' },
-      { env: 'OPT', resource: 'resource://hoolibox', credential_type: 'caracal_mandate', optional: true, on_failure: 'warn' },
+    workload_id: 'wl1',
+    bindings: [
+      { env: 'CARACAL_RESOURCE_PIPERNET_TOKEN', resource: 'resource://pipernet', scopes: ['pipernet:read'] },
+      { env: 'OPT', resource: 'resource://hoolibox', optional: true, on_failure: 'warn' },
     ],
     ...overrides,
   }
@@ -27,25 +26,23 @@ describe('fetchRunManifest', () => {
 
   it('posts the workload identity and maps the manifest', async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => manifestBody() })
-    const manifest = await fetchRunManifest('http://sts:8080', 'app1', 'cs_secret', { fetchImpl: fetchMock })
+    const manifest = await fetchRunManifest('http://sts:8080', 'wl1', 'ws_secret', { fetchImpl: fetchMock })
     expect(fetchMock).toHaveBeenCalledWith('http://sts:8080/v1/run/manifest', expect.objectContaining({ method: 'POST' }))
     const body = fetchMock.mock.calls[0][1].body as URLSearchParams
-    expect(body.get('application_id')).toBe('app1')
-    expect(body.get('client_secret')).toBe('cs_secret')
+    expect(body.get('workload_id')).toBe('wl1')
+    expect(body.get('secret')).toBe('ws_secret')
     expect(manifest).toEqual({
       zoneId: 'z1',
-      applicationId: 'app1',
-      ttlSeconds: 300,
-      continueOnFailure: false,
-      credentials: [
+      workloadId: 'wl1',
+      bindings: [
         {
           env: 'CARACAL_RESOURCE_PIPERNET_TOKEN',
           resource: 'resource://pipernet',
-          credentialType: 'provider_token',
+          scopes: ['pipernet:read'],
           optional: false,
           onFailure: 'error',
         },
-        { env: 'OPT', resource: 'resource://hoolibox', credentialType: 'caracal_mandate', optional: true, onFailure: 'warn' },
+        { env: 'OPT', resource: 'resource://hoolibox', scopes: [], optional: true, onFailure: 'warn' },
       ],
     })
   })
@@ -54,10 +51,10 @@ describe('fetchRunManifest', () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: false,
       status: 404,
-      json: async () => ({ error: 'resource_not_found', error_description: 'run manifest not configured' }),
+      json: async () => ({ error: 'resource_not_found', error_description: 'no credential bindings configured' }),
     })
-    await expect(fetchRunManifest('http://sts:8080', 'app1', 'cs_secret', { fetchImpl: fetchMock })).rejects.toThrow(
-      'run manifest not configured',
+    await expect(fetchRunManifest('http://sts:8080', 'wl1', 'ws_secret', { fetchImpl: fetchMock })).rejects.toThrow(
+      'no credential bindings configured',
     )
   })
 
@@ -69,22 +66,96 @@ describe('fetchRunManifest', () => {
         throw new Error('not json')
       },
     })
-    await expect(fetchRunManifest('http://sts:8080', 'app1', 'cs_secret', { fetchImpl: fetchMock })).rejects.toThrow('STS error 500')
+    await expect(fetchRunManifest('http://sts:8080', 'wl1', 'ws_secret', { fetchImpl: fetchMock })).rejects.toThrow('STS error 500')
   })
 
   it('rejects malformed manifest shapes', async () => {
     const cases = [
       manifestBody({ zone_id: '' }),
-      manifestBody({ credentials: [] }),
-      manifestBody({ ttl_seconds: -1 }),
-      manifestBody({ credentials: [{ env: '', resource: 'r' }] }),
-      manifestBody({ credentials: [{ env: 'A', resource: 'r', credential_type: 'bogus' }] }),
-      manifestBody({ credentials: [{ env: 'A', resource: 'r', on_failure: 'explode' }] }),
+      manifestBody({ bindings: [] }),
+      manifestBody({ bindings: [{ env: '', resource: 'r' }] }),
+      manifestBody({ bindings: [{ env: 'A', resource: '' }] }),
+      manifestBody({ bindings: [{ env: 'A', resource: 'r', scopes: [''] }] }),
+      manifestBody({ bindings: [{ env: 'A', resource: 'r', on_failure: 'explode' }] }),
     ]
     for (const body of cases) {
       const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => body })
-      await expect(fetchRunManifest('http://sts:8080', 'app1', 'cs_secret', { fetchImpl: fetchMock })).rejects.toThrow(
+      await expect(fetchRunManifest('http://sts:8080', 'wl1', 'ws_secret', { fetchImpl: fetchMock })).rejects.toThrow(
         /run manifest invalid/,
+      )
+    }
+  })
+})
+
+describe('fetchRunCredential', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('posts the binding env and maps the minted credential', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ env: 'CARACAL_RESOURCE_PIPERNET_TOKEN', credential: 'pipernet-api-key', expires_at: 1234 }),
+    })
+    const minted = await fetchRunCredential('http://sts:8080', 'wl1', 'ws_secret', 'CARACAL_RESOURCE_PIPERNET_TOKEN', {
+      fetchImpl: fetchMock,
+    })
+    expect(fetchMock).toHaveBeenCalledWith('http://sts:8080/v1/run/credential', expect.objectContaining({ method: 'POST' }))
+    const body = fetchMock.mock.calls[0][1].body as URLSearchParams
+    expect(body.get('workload_id')).toBe('wl1')
+    expect(body.get('secret')).toBe('ws_secret')
+    expect(body.get('env')).toBe('CARACAL_RESOURCE_PIPERNET_TOKEN')
+    expect(body.get('challenge_id')).toBeNull()
+    expect(minted).toEqual({ env: 'CARACAL_RESOURCE_PIPERNET_TOKEN', credential: 'pipernet-api-key', expiresAt: 1234 })
+  })
+
+  it('forwards an approved challenge id on retry', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ env: 'OPT', credential: 'tok' }),
+    })
+    await fetchRunCredential('http://sts:8080', 'wl1', 'ws_secret', 'OPT', { fetchImpl: fetchMock, challengeId: 'ch-1' })
+    const body = fetchMock.mock.calls[0][1].body as URLSearchParams
+    expect(body.get('challenge_id')).toBe('ch-1')
+  })
+
+  it('raises InteractionRequiredError when the mint is held for approval', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+      json: async () => ({
+        error: 'interaction_required',
+        error_description: 'Approval required',
+        challenge_id: 'ch-9',
+        state: 'pending',
+        tier: 'sensitive',
+      }),
+    })
+    const err = await fetchRunCredential('http://sts:8080', 'wl1', 'ws_secret', 'OPT', { fetchImpl: fetchMock }).catch((e) => e)
+    expect(err).toBeInstanceOf(InteractionRequiredError)
+    expect(err.challengeId).toBe('ch-9')
+    expect(err.tier).toBe('sensitive')
+  })
+
+  it('surfaces the STS error description on denial', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 403,
+      json: async () => ({ error: 'access_denied', error_description: 'policy denied' }),
+    })
+    await expect(fetchRunCredential('http://sts:8080', 'wl1', 'ws_secret', 'OPT', { fetchImpl: fetchMock })).rejects.toThrow(
+      'policy denied',
+    )
+  })
+
+  it('rejects malformed credential responses', async () => {
+    const cases = [{ env: '', credential: 'tok' }, { env: 'A', credential: '' }, { env: 'A', credential: 'tok', expires_at: 1.5 }, []]
+    for (const body of cases) {
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => body })
+      await expect(fetchRunCredential('http://sts:8080', 'wl1', 'ws_secret', 'A', { fetchImpl: fetchMock })).rejects.toThrow(
+        /run credential invalid/,
       )
     }
   })

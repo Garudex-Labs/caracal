@@ -14,7 +14,7 @@ import {
   RuntimeConfigValidationError,
   ServiceUrlMissingError,
   assertCredentialEnvName,
-  defaultAppClientSecretFilePath,
+  defaultWorkloadSecretFilePath,
   loadRuntimeIdentity,
   resolveServiceUrl,
 } from '../../../../packages/engine/src/runtimeConfig.ts'
@@ -30,9 +30,9 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true })
   delete process.env.CARACAL_STS_URL
   delete process.env.CARACAL_ZONE_URL
-  delete process.env.CARACAL_APPLICATION_ID
-  delete process.env.CARACAL_APP_CLIENT_SECRET
-  delete process.env.CARACAL_APP_CLIENT_SECRET_FILE
+  delete process.env.CARACAL_WORKLOAD_ID
+  delete process.env.CARACAL_WORKLOAD_SECRET
+  delete process.env.CARACAL_WORKLOAD_SECRET_FILE
   delete process.env.CARACAL_ALLOW_INSECURE_CONFIG_URLS
   delete process.env.XDG_CONFIG_HOME
   delete process.env.CARACAL_API_URL
@@ -46,112 +46,112 @@ function writeSecretFile(path: string, value: string): void {
 }
 
 describe('loadRuntimeIdentity', () => {
-  it('returns undefined when no application id is set and identity is optional', () => {
+  it('returns undefined when no workload id is set and identity is optional', () => {
     expect(loadRuntimeIdentity(false)).toBeUndefined()
   })
 
   it('throws RuntimeConfigMissingError when identity is required but absent', () => {
     expect(() => loadRuntimeIdentity(true)).toThrow(RuntimeConfigMissingError)
-    expect(() => loadRuntimeIdentity(true)).toThrow(/CARACAL_APPLICATION_ID/)
+    expect(() => loadRuntimeIdentity(true)).toThrow(/CARACAL_WORKLOAD_ID/)
   })
 
   it('loads the identity from environment variables', () => {
-    process.env.CARACAL_APPLICATION_ID = 'app1'
-    process.env.CARACAL_APP_CLIENT_SECRET = 'cs_secret'
+    process.env.CARACAL_WORKLOAD_ID = 'wl1'
+    process.env.CARACAL_WORKLOAD_SECRET = 'ws_secret'
     expect(loadRuntimeIdentity(true)).toEqual({
       sts_url: DEFAULT_STS_URL,
-      application_id: 'app1',
-      app_client_secret: 'cs_secret',
+      workload_id: 'wl1',
+      workload_secret: 'ws_secret',
     })
   })
 
   it('reads the secret from an explicit secret file', () => {
-    const secretPath = join(root, 'client-secret')
-    writeSecretFile(secretPath, 'cs_from_file\n')
-    process.env.CARACAL_APPLICATION_ID = 'app1'
-    process.env.CARACAL_APP_CLIENT_SECRET_FILE = secretPath
-    expect(loadRuntimeIdentity(true)).toMatchObject({ app_client_secret: 'cs_from_file' })
+    const secretPath = join(root, 'secret')
+    writeSecretFile(secretPath, 'ws_from_file\n')
+    process.env.CARACAL_WORKLOAD_ID = 'wl1'
+    process.env.CARACAL_WORKLOAD_SECRET_FILE = secretPath
+    expect(loadRuntimeIdentity(true)).toMatchObject({ workload_secret: 'ws_from_file' })
   })
 
   it('auto-detects the owner-only default secret file outside production', () => {
-    process.env.CARACAL_APPLICATION_ID = 'app1'
-    const secretPath = defaultAppClientSecretFilePath('app1')
-    writeSecretFile(secretPath, 'cs_local')
-    expect(loadRuntimeIdentity(true)).toMatchObject({ app_client_secret: 'cs_local' })
+    process.env.CARACAL_WORKLOAD_ID = 'wl1'
+    const secretPath = defaultWorkloadSecretFilePath('wl1')
+    writeSecretFile(secretPath, 'ws_local')
+    expect(loadRuntimeIdentity(true)).toMatchObject({ workload_secret: 'ws_local' })
   })
 
-  it('sanitizes the application id into the default secret path', () => {
-    process.env.CARACAL_APPLICATION_ID = '  app/value  '
-    const secretPath = defaultAppClientSecretFilePath('  app/value  ')
+  it('sanitizes the workload id into the default secret path', () => {
+    process.env.CARACAL_WORKLOAD_ID = '  wl/value  '
+    const secretPath = defaultWorkloadSecretFilePath('  wl/value  ')
     expect(secretPath).not.toContain('/value')
-    writeSecretFile(secretPath, 'cs_local')
-    expect(loadRuntimeIdentity(true)).toMatchObject({ app_client_secret: 'cs_local' })
+    writeSecretFile(secretPath, 'ws_local')
+    expect(loadRuntimeIdentity(true)).toMatchObject({ workload_secret: 'ws_local' })
   })
 
   it('ignores the default secret file in production', () => {
     process.env.NODE_ENV = 'production'
     process.env.CARACAL_STS_URL = 'https://sts.pipernet.example'
-    process.env.CARACAL_APPLICATION_ID = 'app1'
-    const secretPath = defaultAppClientSecretFilePath('app1')
-    writeSecretFile(secretPath, 'cs_local')
-    expect(() => loadRuntimeIdentity(true)).toThrow(/client secret is required/)
+    process.env.CARACAL_WORKLOAD_ID = 'wl1'
+    const secretPath = defaultWorkloadSecretFilePath('wl1')
+    writeSecretFile(secretPath, 'ws_local')
+    expect(() => loadRuntimeIdentity(true)).toThrow(/workload secret is required/)
   })
 
-  it('fails when the application id is set but no secret source exists', () => {
-    process.env.CARACAL_APPLICATION_ID = 'app1'
-    expect(() => loadRuntimeIdentity(true)).toThrow(/client secret is required/)
+  it('fails when the workload id is set but no secret source exists', () => {
+    process.env.CARACAL_WORKLOAD_ID = 'wl1'
+    expect(() => loadRuntimeIdentity(true)).toThrow(/workload secret is required/)
     expect(() => loadRuntimeIdentity(true)).toThrow(RuntimeConfigValidationError)
   })
 
   it('rejects setting both the inline secret and the secret file', () => {
-    process.env.CARACAL_APPLICATION_ID = 'app1'
-    process.env.CARACAL_APP_CLIENT_SECRET = 'cs_secret'
-    process.env.CARACAL_APP_CLIENT_SECRET_FILE = join(root, 'client-secret')
+    process.env.CARACAL_WORKLOAD_ID = 'wl1'
+    process.env.CARACAL_WORKLOAD_SECRET = 'ws_secret'
+    process.env.CARACAL_WORKLOAD_SECRET_FILE = join(root, 'secret')
     expect(() => loadRuntimeIdentity(true)).toThrow(/set only one of/)
   })
 
-  it('rejects a secret file path that looks like a client secret', () => {
-    process.env.CARACAL_APPLICATION_ID = 'app1'
-    process.env.CARACAL_APP_CLIENT_SECRET_FILE = 'cs_pasted_secret_value'
-    expect(() => loadRuntimeIdentity(true)).toThrow(/looks like a client secret/)
+  it('rejects a secret file path that looks like a workload secret', () => {
+    process.env.CARACAL_WORKLOAD_ID = 'wl1'
+    process.env.CARACAL_WORKLOAD_SECRET_FILE = 'ws_pasted_secret_value'
+    expect(() => loadRuntimeIdentity(true)).toThrow(/looks like a workload secret/)
   })
 
   it('rejects a group-writable secret file', () => {
-    const secretPath = join(root, 'client-secret')
-    writeSecretFile(secretPath, 'cs_from_file')
+    const secretPath = join(root, 'secret')
+    writeSecretFile(secretPath, 'ws_from_file')
     chmodSync(secretPath, 0o660)
-    process.env.CARACAL_APPLICATION_ID = 'app1'
-    process.env.CARACAL_APP_CLIENT_SECRET_FILE = secretPath
+    process.env.CARACAL_WORKLOAD_ID = 'wl1'
+    process.env.CARACAL_WORKLOAD_SECRET_FILE = secretPath
     expect(() => loadRuntimeIdentity(true)).toThrow(/permissions are too broad/)
   })
 
   it('rejects an empty secret file', () => {
-    const secretPath = join(root, 'client-secret')
+    const secretPath = join(root, 'secret')
     writeSecretFile(secretPath, '   \n')
-    process.env.CARACAL_APPLICATION_ID = 'app1'
-    process.env.CARACAL_APP_CLIENT_SECRET_FILE = secretPath
+    process.env.CARACAL_WORKLOAD_ID = 'wl1'
+    process.env.CARACAL_WORKLOAD_SECRET_FILE = secretPath
     expect(() => loadRuntimeIdentity(true)).toThrow(/secret file is empty/)
   })
 
   it('honors CARACAL_STS_URL for the STS endpoint', () => {
-    process.env.CARACAL_APPLICATION_ID = 'app1'
-    process.env.CARACAL_APP_CLIENT_SECRET = 'cs_secret'
+    process.env.CARACAL_WORKLOAD_ID = 'wl1'
+    process.env.CARACAL_WORKLOAD_SECRET = 'ws_secret'
     process.env.CARACAL_STS_URL = 'https://sts.pipernet.example'
     expect(loadRuntimeIdentity(true)).toMatchObject({ sts_url: 'https://sts.pipernet.example' })
   })
 
   it('rejects a plain-http STS URL outside development', () => {
     process.env.NODE_ENV = 'production'
-    process.env.CARACAL_APPLICATION_ID = 'app1'
-    process.env.CARACAL_APP_CLIENT_SECRET = 'cs_secret'
+    process.env.CARACAL_WORKLOAD_ID = 'wl1'
+    process.env.CARACAL_WORKLOAD_SECRET = 'ws_secret'
     process.env.CARACAL_STS_URL = 'http://sts.pipernet.example'
     expect(() => loadRuntimeIdentity(true)).toThrow(/must use https outside local development/)
   })
 
   it('requires an explicit STS URL outside development', () => {
     process.env.NODE_ENV = 'production'
-    process.env.CARACAL_APPLICATION_ID = 'app1'
-    process.env.CARACAL_APP_CLIENT_SECRET = 'cs_secret'
+    process.env.CARACAL_WORKLOAD_ID = 'wl1'
+    process.env.CARACAL_WORKLOAD_SECRET = 'ws_secret'
     expect(() => loadRuntimeIdentity(true)).toThrow(ServiceUrlMissingError)
   })
 })
