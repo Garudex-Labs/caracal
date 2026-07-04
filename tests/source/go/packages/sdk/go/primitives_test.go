@@ -7,12 +7,15 @@ package sdk_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	sdk "github.com/garudex-labs/caracal/packages/sdk/go"
 )
@@ -195,8 +198,10 @@ func TestSpawnOnAgentStartErrorAbortsAndTerminates(t *testing.T) {
 }
 
 func TestSpawnPropagatesCoordinatorError(t *testing.T) {
+	attempts := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
+		attempts++
+		w.WriteHeader(http.StatusForbidden)
 	}))
 	defer srv.Close()
 	coord := &sdk.CoordinatorClient{BaseURL: srv.URL}
@@ -208,8 +213,174 @@ func TestSpawnPropagatesCoordinatorError(t *testing.T) {
 		SubjectToken:  "tok",
 	}, func(ctx context.Context) error { return nil })
 
-	if err == nil {
-		t.Error("expected error from coordinator 500")
+	var coordErr *sdk.CoordinatorError
+	if !errors.As(err, &coordErr) || coordErr.StatusCode != http.StatusForbidden {
+		t.Errorf("expected 403 CoordinatorError, got: %v", err)
+	}
+	if attempts != 1 {
+		t.Errorf("client errors must not be retried, got %d attempts", attempts)
+	}
+}
+
+func TestSpawnRetriesTransientFailureWithSameIdempotencyKey(t *testing.T) {
+	var keys []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/agents"):
+			keys = append(keys, r.Header.Get("Idempotency-Key"))
+			if len(keys) == 1 {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				return
+			}
+			_, _ = w.Write([]byte(`{"agent_session_id":"agent-1"}`))
+		case r.Method == http.MethodDelete:
+			w.WriteHeader(http.StatusNoContent)
+		}
+	}))
+	defer srv.Close()
+	coord := &sdk.CoordinatorClient{BaseURL: srv.URL}
+
+	err := sdk.Spawn(context.Background(), sdk.SpawnInput{
+		Coordinator:   coord,
+		ZoneID:        "z",
+		ApplicationID: "app",
+		SubjectToken:  "tok",
+	}, func(ctx context.Context) error { return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(keys) != 2 {
+		t.Fatalf("expected 2 spawn attempts, got %d", len(keys))
+	}
+	if keys[0] == "" || keys[0] != keys[1] {
+		t.Errorf("retry must reuse the same idempotency key, got %q then %q", keys[0], keys[1])
+	}
+}
+
+func TestSpawnServiceLeaseLostStopsAutoHeartbeatAndNotifiesOnce(t *testing.T) {
+	var mu sync.Mutex
+	heartbeats := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/heartbeat"):
+			mu.Lock()
+			heartbeats++
+			mu.Unlock()
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"error":"not found"}`))
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/agents"):
+			_, _ = w.Write([]byte(`{"agent_session_id":"svc-1"}`))
+		case r.Method == http.MethodDelete:
+			w.WriteHeader(http.StatusNoContent)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	coord := &sdk.CoordinatorClient{BaseURL: srv.URL}
+
+	lost := make(chan error, 2)
+	svc, err := sdk.SpawnService(context.Background(), sdk.SpawnServiceInput{
+		Coordinator:       coord,
+		ZoneID:            "z",
+		ApplicationID:     "app",
+		SubjectToken:      "tok",
+		HeartbeatInterval: 5 * time.Millisecond,
+		OnLeaseLost:       func(err error) { lost <- err },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-lost:
+		var coordErr *sdk.CoordinatorError
+		if !errors.As(err, &coordErr) || coordErr.StatusCode != http.StatusNotFound {
+			t.Errorf("expected 404 CoordinatorError, got: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("OnLeaseLost never fired")
+	}
+	time.Sleep(30 * time.Millisecond)
+	mu.Lock()
+	beats := heartbeats
+	mu.Unlock()
+	if beats != 1 {
+		t.Errorf("auto-heartbeat must stop after the lease is lost, got %d beats", beats)
+	}
+	if len(lost) != 0 {
+		t.Error("OnLeaseLost must fire exactly once")
+	}
+	if err := svc.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestServiceCloseTreatsRetiredSessionAsSuccess(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/agents"):
+			_, _ = w.Write([]byte(`{"agent_session_id":"svc-1"}`))
+		case r.Method == http.MethodDelete:
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"error":"not found"}`))
+		}
+	}))
+	t.Cleanup(srv.Close)
+	coord := &sdk.CoordinatorClient{BaseURL: srv.URL}
+
+	svc, err := sdk.SpawnService(context.Background(), sdk.SpawnServiceInput{
+		Coordinator:       coord,
+		ZoneID:            "z",
+		ApplicationID:     "app",
+		SubjectToken:      "tok",
+		HeartbeatInterval: -1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Close(context.Background()); err != nil {
+		t.Errorf("close must treat an already-retired session as success, got: %v", err)
+	}
+}
+
+func TestServiceHeartbeatReportsStatusAndUpdatesDeadline(t *testing.T) {
+	var body map[string]any
+	deadline := time.Now().Add(30 * time.Second).UTC().Format(time.RFC3339Nano)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/heartbeat"):
+			raw, _ := io.ReadAll(r.Body)
+			_ = json.Unmarshal(raw, &body)
+			_, _ = w.Write([]byte(`{"agent":{"status":"suspended","heartbeat_deadline_at":"` + deadline + `"}}`))
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/agents"):
+			_, _ = w.Write([]byte(`{"agent_session_id":"svc-1"}`))
+		case r.Method == http.MethodDelete:
+			w.WriteHeader(http.StatusNoContent)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	coord := &sdk.CoordinatorClient{BaseURL: srv.URL}
+
+	svc, err := sdk.SpawnService(context.Background(), sdk.SpawnServiceInput{
+		Coordinator:       coord,
+		ZoneID:            "z",
+		ApplicationID:     "app",
+		SubjectToken:      "tok",
+		HeartbeatInterval: -1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Heartbeat(context.Background(), "degraded"); err != nil {
+		t.Fatal(err)
+	}
+	if body["status"] != "degraded" {
+		t.Errorf("expected degraded status in heartbeat body, got %#v", body)
+	}
+	if err := svc.Close(context.Background()); err != nil {
+		t.Fatal(err)
 	}
 }
 
