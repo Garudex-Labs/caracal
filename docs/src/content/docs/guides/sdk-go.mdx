@@ -63,7 +63,7 @@ The transport injects Caracal envelope headers from `context.Context`. For expli
 
 ## Long-lived service agents
 
-Daemons and workers that outlive a single request use `Service` instead of `Spawn`. It returns a handle you own: keep the session alive by calling `Heartbeat` on a timer and retire it with `Close`. A service session is reaped by the coordinator if it stops heartbeating before its lease expires.
+Daemons and workers that outlive a single request use `SpawnService` instead of `Spawn`. It returns a handle you own: the SDK renews the lease from a background goroutine by default, and you retire the session with `Close`. A service session is reaped by the coordinator if it stops heartbeating before its lease expires.
 
 ```go
 svc, err := client.SpawnService(context.Background(), caracal.ServiceOptions{
@@ -75,13 +75,11 @@ if err != nil {
 defer svc.Close(context.Background())
 
 for running {
-	if err := svc.Heartbeat(context.Background()); err != nil {
-		return err
-	}
-	doWork(svc.Context)
-	time.Sleep(30 * time.Second)
+	doWork(svc.Context) // lease renews in the background
 }
 ```
+
+The renewal cadence follows the server lease, renewing at roughly a third of the remaining lease with jitter. Set `ServiceOptions.HeartbeatInterval` to a positive duration to fix the cadence, or a negative one to disable the background goroutine and call `Heartbeat` yourself. Transient renewal errors are logged and retried on the next tick; if the coordinator reports the session permanently gone, the goroutine stops and `ServiceOptions.OnLeaseLost` fires once so the worker can resign instead of spinning.
 
 ## Spawn a narrowed child
 
