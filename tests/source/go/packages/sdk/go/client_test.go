@@ -334,7 +334,7 @@ func TestHeadersRequiresRootOptIn(t *testing.T) {
 	if h.Get(sdk.HeaderAuthorization) != "Bearer tok" {
 		t.Fatalf("missing authorization: %v", h)
 	}
-	if sdk.ParseTraceparent(h.Get(sdk.HeaderTraceparent)) == "" {
+	if tid, _ := sdk.ParseTraceparent(h.Get(sdk.HeaderTraceparent)); tid == "" {
 		t.Fatalf("missing traceparent: %v", h)
 	}
 }
@@ -433,6 +433,9 @@ func TestHTTPClientInjects(t *testing.T) {
 	}
 	if bag[sdk.BaggageHop] != "1" {
 		t.Fatalf("hop not injected: %v", got)
+	}
+	if got.Get(sdk.HeaderAuthorization) != "" {
+		t.Fatalf("direct upstream must not receive the subject token: %v", got)
 	}
 }
 
@@ -640,7 +643,7 @@ func TestHTTPClientRejectsUnboundRootByDefault(t *testing.T) {
 	}
 }
 
-func TestTransportUsesRootTokenWhenAllowed(t *testing.T) {
+func TestTransportAllowsUnboundRootWhenOptedIn(t *testing.T) {
 	c := &sdk.Caracal{
 		ZoneID:       "z",
 		SubjectToken: "root-token",
@@ -662,8 +665,40 @@ func TestTransportUsesRootTokenWhenAllowed(t *testing.T) {
 	}
 	resp.Body.Close()
 
-	if got.Get(sdk.HeaderAuthorization) != "Bearer root-token" {
-		t.Fatalf("expected root token authorization, got %v", got)
+	if got.Get(sdk.HeaderAuthorization) != "" {
+		t.Fatalf("direct upstream must not receive the subject token: %v", got)
+	}
+	if tid, _ := sdk.ParseTraceparent(got.Get(sdk.HeaderTraceparent)); tid == "" {
+		t.Fatalf("missing traceparent: %v", got)
+	}
+}
+
+func TestBindFromRequestVerifyHook(t *testing.T) {
+	c := &sdk.Caracal{ZoneID: "z", ApplicationID: "a"}
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set(sdk.HeaderAuthorization, "Bearer inbound")
+
+	var seen string
+	ctx, err := c.BindFromRequest(context.Background(), req, sdk.RootOptions{
+		Verify: func(_ context.Context, token string) error {
+			seen = token
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if seen != "inbound" {
+		t.Fatalf("verify hook must receive the inbound token, got %q", seen)
+	}
+	if cur, ok := sdk.Current(ctx); !ok || cur.SubjectToken != "inbound" {
+		t.Fatalf("unexpected bound context: %#v", cur)
+	}
+
+	if _, err := c.BindFromRequest(context.Background(), req, sdk.RootOptions{
+		Verify: func(_ context.Context, _ string) error { return fmt.Errorf("revoked") },
+	}); err == nil {
+		t.Fatal("verify failure must reject the bind")
 	}
 }
 

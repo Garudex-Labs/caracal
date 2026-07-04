@@ -52,7 +52,7 @@ func TestCaptureReturnsCurrentContext(t *testing.T) {
 	if !ok {
 		t.Fatal("Capture must return true after Bind")
 	}
-	if got != want {
+	if got.SubjectToken != want.SubjectToken || got.ZoneID != want.ZoneID || got.ApplicationID != want.ApplicationID {
 		t.Fatalf("Capture = %#v, want %#v", got, want)
 	}
 }
