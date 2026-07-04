@@ -52,6 +52,9 @@ export interface Application {
   expires_at?: string | null;
   client_secret?: string;
   created_at: string;
+  run_manifest?: RunManifest | null;
+  run_manifest_updated_by?: string | null;
+  run_manifest_updated_at?: string | null;
 }
 
 export interface ApplicationInput {

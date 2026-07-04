@@ -499,11 +499,6 @@ export const consoleApi = {
         `/v1/zones/${encodeURIComponent(zoneId)}/applications/${encodeURIComponent(id)}/rotate-secret`,
         { method: "POST", body: "{}" },
       ),
-    runManifest: (zoneId: string, id: string, signal?: AbortSignal) =>
-      request<RunManifestState>(
-        `/v1/zones/${encodeURIComponent(zoneId)}/applications/${encodeURIComponent(id)}/run-manifest`,
-        { signal },
-      ),
     saveRunManifest: (zoneId: string, id: string, input: RunManifest) =>
       request<RunManifestState>(
         `/v1/zones/${encodeURIComponent(zoneId)}/applications/${encodeURIComponent(id)}/run-manifest`,
