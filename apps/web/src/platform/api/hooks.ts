@@ -83,6 +83,7 @@ const keys = {
   policy: (zoneId: string | null, id: string | null) => ["console", "policy", zoneId, id] as const,
   policySets: (zoneId: string | null) => ["console", "policy-sets", zoneId] as const,
   sessions: (zoneId: string | null) => ["console", "sessions", zoneId] as const,
+  approvals: (zoneId: string | null) => ["console", "approvals", zoneId] as const,
   audit: (zoneId: string | null) => ["console", "audit", zoneId] as const,
   auditRetention: ["console", "audit-retention"] as const,
   auditExplain: (zoneId: string | null, requestId: string | null) =>
@@ -883,6 +884,34 @@ export function useSessionsFeed(zoneId: string | null, query: SessionQuery) {
     getNextPageParam: (last) => last.nextCursor ?? undefined,
     enabled: Boolean(zoneId),
     refetchInterval: LIVE_MS,
+  });
+}
+
+// Cursor-paginated feed of human-approval holds. Live polling keeps pending holds visible
+// the moment an agent run parks on one, since approval latency is the whole user experience.
+export function useApprovalsFeed(zoneId: string | null) {
+  return useInfiniteQuery({
+    queryKey: [...keys.approvals(zoneId), "feed"],
+    queryFn: ({ pageParam }) => consoleApi.approvals.list(zoneId as string, pageParam ?? undefined),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+    enabled: Boolean(zoneId),
+    refetchInterval: LIVE_MS,
+  });
+}
+
+// Decides one live hold on the operator plane. The control plane enforces every guard
+// (liveness, approver class, single decision), so this only carries the verdict across.
+export function useDecideApproval(zoneId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { id: string; decision: "approve" | "reject"; reason?: string }) =>
+      input.decision === "approve"
+        ? consoleApi.approvals.approve(zoneId as string, input.id, input.reason)
+        : consoleApi.approvals.reject(zoneId as string, input.id, input.reason),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: keys.approvals(zoneId) });
+    },
   });
 }
 

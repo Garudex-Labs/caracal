@@ -298,6 +298,38 @@ export interface AuditRetention {
   updated_at: string | null;
 }
 
+export type StepUpState = "pending" | "approved" | "rejected" | "expired" | "consumed";
+
+export interface StepUpChallenge {
+  id: string;
+  zone_id: string;
+  session_id: string;
+  principal_id: string;
+  application_id: string | null;
+  challenge_type: string;
+  tier: string | null;
+  approver_class: "operator" | "subject" | "any";
+  privacy_mode: "identified" | "pseudonymous" | "anonymous";
+  binding: string;
+  metadata_json: Record<string, unknown> | null;
+  decision_reason: string | null;
+  created_at: string;
+  expires_at: string;
+  satisfied_at: string | null;
+  rejected_at: string | null;
+  consumed_at: string | null;
+  approver_subject_id: string | null;
+  state: StepUpState;
+}
+
+export interface StepUpDecision {
+  id: string;
+  state: "approved" | "rejected";
+  satisfied_at: string | null;
+  rejected_at: string | null;
+  approver_subject_id: string;
+}
+
 export interface DeniedDecision {
   event_id: string;
   event_type: string;
