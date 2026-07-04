@@ -125,6 +125,9 @@ export async function spawn<T>(input: SpawnInput, fn: () => Promise<T>): Promise
     parentEdgeId: parent?.delegationEdgeId,
     sessionId: input.subjectSessionId ?? parent?.sessionId,
     traceId: input.traceId ?? parent?.traceId,
+    traceFlags: parent?.traceFlags,
+    traceState: parent?.traceState,
+    baggage: parent?.baggage,
     hop,
   }
   let started = false
@@ -261,6 +264,9 @@ export async function spawnService(input: SpawnServiceInput): Promise<ServiceAge
     parentEdgeId: parent?.delegationEdgeId,
     sessionId: input.subjectSessionId ?? parent?.sessionId,
     traceId: input.traceId ?? parent?.traceId,
+    traceFlags: parent?.traceFlags,
+    traceState: parent?.traceState,
+    baggage: parent?.baggage,
     hop,
   }
   if (input.onAgentStart) {
