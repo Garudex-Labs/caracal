@@ -35,7 +35,7 @@ import {
   openPlanStepSecrets,
   storePlanStepSecrets,
 } from '../operator-plan-secrets.js'
-import type { ControlClient } from '../control-client.js'
+import type { ControlClient } from '@caracalai/admin'
 import type { OperatorControlIdentity } from '../config.js'
 import {
   createGateway,
@@ -789,16 +789,16 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
     const identity = opts.resolveControlIdentity?.() ?? null
     if (!identity || !opts.controlEndpoints) return null
     const zoneScope = identity.zoneId === zoneId ? undefined : zoneId
-    const client = buildOperatorControlClient(
+    const client = buildOperatorControlClient({
       identity,
-      'executor',
-      opts.controlEndpoints,
-      opts.fetchImpl,
+      role: 'executor',
+      endpoints: opts.controlEndpoints,
+      fetchImpl: opts.fetchImpl,
       zoneScope,
       authorizedBy,
       coAuthorOperator,
       requestId,
-    )
+    })
     return client ? { client, identity } : null
   }
 
@@ -814,16 +814,14 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
     const identity = opts.resolveControlIdentity?.() ?? null
     if (!identity || !opts.controlEndpoints) return null
     const zoneScope = identity.zoneId === zoneId ? undefined : zoneId
-    const client = buildOperatorControlClient(
+    const client = buildOperatorControlClient({
       identity,
-      'researcher',
-      opts.controlEndpoints,
-      opts.fetchImpl,
+      role: 'researcher',
+      endpoints: opts.controlEndpoints,
+      fetchImpl: opts.fetchImpl,
       zoneScope,
-      undefined,
-      undefined,
       requestId,
-    )
+    })
     if (!client) return null
     return createStateResearcher(client)
   }

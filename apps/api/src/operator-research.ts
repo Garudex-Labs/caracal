@@ -5,7 +5,7 @@
 
 import { CONTROL_CAPABILITIES, type ControlGen } from './operator-control-map.js'
 import { CAPABILITIES } from './operator-capabilities.js'
-import { ControlClientError, type ControlClient } from './control-client.js'
+import { ControlClientError, type ControlClient } from '@caracalai/admin'
 
 // The most rows a single read contributes to the prompt. Evidence carries the full live count
 // but only a bounded list of names, so a large zone never inflates the prompt.
