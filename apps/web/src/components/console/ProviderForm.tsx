@@ -6,7 +6,16 @@ This file builds the kind-aware create and edit form for upstream credential pro
 */
 import { useState } from "react";
 
-import { Button, Disclosure, Field, Modal, PasswordField, Select, Textarea } from "@/components/ui";
+import {
+  Badge,
+  Button,
+  Disclosure,
+  Field,
+  Modal,
+  PasswordField,
+  Select,
+  Textarea,
+} from "@/components/ui";
 import {
   crossFieldIssues,
   parseParams,
@@ -15,7 +24,23 @@ import {
   validateFieldFormat,
   validateIdentifier,
 } from "@/components/console/providerValidation";
-import type { Provider, ProviderInput, ProviderKind } from "@/platform/api/types";
+import type {
+  Provider,
+  ProviderInput,
+  ProviderKind,
+  ProviderTestResult,
+} from "@/platform/api/types";
+
+export const TEST_STATUS: Record<
+  ProviderTestResult["status"],
+  { label: string; tone: "success" | "danger" | "warning" }
+> = {
+  ok: { label: "Connection verified", tone: "success" },
+  auth_failed: { label: "Authentication failed", tone: "danger" },
+  unreachable: { label: "Endpoint unreachable", tone: "danger" },
+  endpoint_error: { label: "Unexpected endpoint response", tone: "warning" },
+  config_error: { label: "Configuration incomplete", tone: "warning" },
+};
 
 const KIND_OPTIONS: { value: ProviderKind; label: string }[] = [
   { value: "caracal_mandate", label: "Caracal mandate" },
@@ -417,7 +442,7 @@ export function ProviderFormModal({
   provider?: Provider;
   busy: boolean;
   onClose: () => void;
-  onSubmit: (input: ProviderInput) => void;
+  onSubmit: (input: ProviderInput) => Promise<ProviderTestResult | undefined>;
 }) {
   const isEdit = mode === "edit";
   const [name, setName] = useState("");
@@ -425,6 +450,8 @@ export function ProviderFormModal({
   const [kind, setKind] = useState<ProviderKind>("caracal_mandate");
   const [values, setValues] = useState<Values>({});
   const [touched, setTouched] = useState(false);
+  const [checkFailed, setCheckFailed] = useState<ProviderTestResult | null>(null);
+  const [action, setAction] = useState<"connect" | "skip">("connect");
 
   // Seed (or fully reset) the form each time the modal opens. Resetting the seed ref on
   // close is essential: for "create" the seed key is constant, so without this the previous
@@ -439,6 +466,7 @@ export function ProviderFormModal({
     setKind(provider?.kind ?? "caracal_mandate");
     setValues(initialValues(provider));
     setTouched(false);
+    setCheckFailed(null);
   } else if (!open && seedRef !== null) {
     setSeedRef(null);
   }
@@ -450,6 +478,7 @@ export function ProviderFormModal({
 
   function setValue(key: string, value: string) {
     setValues((prev) => ({ ...prev, [key]: value }));
+    setCheckFailed(null);
   }
 
   function missingRequired(): string | null {
@@ -498,7 +527,8 @@ export function ProviderFormModal({
     return errors;
   }
 
-  function submit() {
+  async function submit(check: boolean) {
+    setAction(check ? "connect" : "skip");
     setTouched(true);
     if (missingRequired()) return;
     if (Object.keys(fieldErrors()).length > 0) return;
@@ -508,8 +538,11 @@ export function ProviderFormModal({
       ...(name.trim() ? { name: name.trim() } : {}),
       ...(identifier.trim() ? { identifier: identifier.trim() } : {}),
       ...(kind === "none" || kind === "caracal_mandate" ? {} : { config_json: config }),
+      ...(check ? { check: true } : {}),
     };
-    onSubmit(input);
+    setCheckFailed(null);
+    const failed = await onSubmit(input);
+    if (failed) setCheckFailed(failed);
   }
 
   const errors = touched ? fieldErrors() : {};
@@ -532,9 +565,29 @@ export function ProviderFormModal({
           <Button variant="secondary" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button onClick={submit} loading={busy}>
-            {isEdit ? "Save changes" : "Create provider"}
-          </Button>
+          {isEdit ? (
+            <Button onClick={() => void submit(false)} loading={busy}>
+              Save changes
+            </Button>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="px-1 text-xs text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline disabled:pointer-events-none disabled:opacity-50"
+                onClick={() => void submit(false)}
+                disabled={busy}
+              >
+                Skip for now
+              </button>
+              <Button
+                onClick={() => void submit(true)}
+                loading={busy && action === "connect"}
+                disabled={busy}
+              >
+                Connect
+              </Button>
+            </>
+          )}
         </>
       }
     >
@@ -552,7 +605,10 @@ export function ProviderFormModal({
             label="Type"
             info="The credential mechanism this provider uses to obtain upstream access. Selecting a type determines the rest of the configuration fields."
             value={kind}
-            onChange={(e) => setKind(e.target.value as ProviderKind)}
+            onChange={(e) => {
+              setKind(e.target.value as ProviderKind);
+              setCheckFailed(null);
+            }}
           >
             {KIND_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>
@@ -605,6 +661,24 @@ export function ProviderFormModal({
             onChange={(e) => setIdentifier(e.target.value)}
           />
         </Disclosure>
+
+        {checkFailed ? (
+          <div className="flex flex-col gap-1.5 rounded-lg border border-destructive/25 bg-destructive/5 px-3 py-2.5">
+            <div className="flex items-center gap-2">
+              <Badge tone={TEST_STATUS[checkFailed.status].tone}>
+                {TEST_STATUS[checkFailed.status].label}
+              </Badge>
+              <span className="text-xs text-muted-foreground">
+                {new Date(checkFailed.checked_at).toLocaleTimeString()}
+              </span>
+            </div>
+            <p className="text-xs text-foreground">{checkFailed.detail}</p>
+            <p className="text-xs text-muted-foreground">
+              The provider was not created. Fix the configuration and connect again, or use
+              &quot;Skip for now&quot; to create it with a Failed badge until a check passes.
+            </p>
+          </div>
+        ) : null}
 
         {error ? (
           <p className="text-sm text-destructive">{error}</p>

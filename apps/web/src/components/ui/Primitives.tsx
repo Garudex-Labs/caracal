@@ -337,10 +337,12 @@ export function Badge({
   children,
   tone = "neutral",
   dot,
+  title,
 }: {
   children: ReactNode;
   tone?: BadgeTone;
   dot?: boolean;
+  title?: string;
 }) {
   const tones: Record<BadgeTone, string> = {
     neutral: "border-border bg-secondary/60 text-secondary-foreground",
@@ -361,6 +363,7 @@ export function Badge({
   const showDot = dot ?? (tone === "success" || tone === "warning" || tone === "danger");
   return (
     <span
+      title={title}
       className={cx(
         "inline-flex items-center gap-1.5 rounded-[5px] border px-1.5 py-0.5 text-[11px] font-medium leading-none",
         tones[tone],

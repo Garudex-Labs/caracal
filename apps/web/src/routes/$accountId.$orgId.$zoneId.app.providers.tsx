@@ -7,7 +7,7 @@ This file defines the Providers route.
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 
-import { ProviderFormModal } from "@/components/console/ProviderForm";
+import { ProviderFormModal, TEST_STATUS } from "@/components/console/ProviderForm";
 import {
   CopyValue,
   DangerZone,
@@ -189,7 +189,14 @@ function ProvidersPage({ zoneId, zoneName }: { zoneId: string; zoneName: string 
       truncate: true,
       cell: (p) => (
         <div className="min-w-0">
-          <div className="truncate font-medium text-foreground">{p.name}</div>
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="truncate font-medium text-foreground">{p.name}</span>
+            {p.connectivity_failed_at ? (
+              <Badge tone="danger" title="Connectivity check failed">
+                Failed
+              </Badge>
+            ) : null}
+          </div>
           <div className="truncate font-mono text-xs text-muted-foreground">{p.identifier}</div>
         </div>
       ),
@@ -297,13 +304,34 @@ function ProvidersPage({ zoneId, zoneName }: { zoneId: string; zoneName: string 
         mode="create"
         busy={createProvider.isPending}
         onClose={() => setCreateOpen(false)}
-        onSubmit={async (input) => {
+        onSubmit={async (input): Promise<ProviderTestResult | undefined> => {
           try {
             const created = await createProvider.mutateAsync(input);
             setCreateOpen(false);
-            toast({ tone: "success", title: "Provider created", description: created.name });
+            if (input.check) {
+              toast({ tone: "success", title: "Provider connected", description: created.name });
+            } else if (created.connectivity_failed_at) {
+              toast({
+                tone: "info",
+                title: "Provider created without a connectivity check",
+                description: `${created.name} is marked Failed until a check passes.`,
+              });
+            } else {
+              toast({ tone: "success", title: "Provider created", description: created.name });
+            }
           } catch (err) {
-            toast({ tone: "error", title: "Create failed", description: errorMessage(err) });
+            if (err instanceof ConsoleApiError && err.code === "provider_check_failed") {
+              const check = (err.detail as { check?: ProviderTestResult } | undefined)?.check;
+              if (check) return check;
+            }
+            toast({
+              tone: "error",
+              title: "Create failed",
+              description:
+                err instanceof ConsoleApiError && err.code === "provider_test_rate_limited"
+                  ? "Too many connection checks. Wait a minute and try again."
+                  : errorMessage(err),
+            });
           }
         }}
       />
@@ -314,7 +342,7 @@ function ProvidersPage({ zoneId, zoneName }: { zoneId: string; zoneName: string 
         provider={editTarget ?? undefined}
         busy={updateProvider.isPending}
         onClose={() => setEditTarget(null)}
-        onSubmit={async (input: ProviderInput) => {
+        onSubmit={async (input: ProviderInput): Promise<ProviderTestResult | undefined> => {
           if (!editTarget) return;
           const kindUnchanged = input.kind === editTarget.kind;
           const patch = kindUnchanged
@@ -396,6 +424,11 @@ function ProviderDetail({
         }
       >
         <Badge tone="neutral">{KIND_LABEL[provider.kind]}</Badge>
+        {provider.connectivity_failed_at ? (
+          <Badge tone="danger" title="Connectivity check failed">
+            Failed
+          </Badge>
+        ) : null}
         {provider.secret_config_keys.length > 0 ? (
           <Badge tone="warning">Secrets sealed</Badge>
         ) : credentialKind ? (
@@ -503,21 +536,9 @@ function formatValue(value: unknown): string {
 
 /* ------------------------------- Connectivity ------------------------------- */
 
-const TEST_STATUS: Record<
-  ProviderTestResult["status"],
-  { label: string; tone: "success" | "danger" | "warning" | "muted" }
-> = {
-  ok: { label: "Connection verified", tone: "success" },
-  auth_failed: { label: "Authentication failed", tone: "danger" },
-  unreachable: { label: "Endpoint unreachable", tone: "danger" },
-  endpoint_error: { label: "Unexpected endpoint response", tone: "warning" },
-  config_error: { label: "Configuration incomplete", tone: "warning" },
-  untestable: { label: "Not testable", tone: "muted" },
-};
-
-// Runs the control-plane connection test: a real client-credentials request or a
-// placeholder-code probe against the provider's allowlisted token endpoint. Only OAuth
-// providers have an endpoint of their own to verify.
+// Runs the provider connectivity check from the control plane: configuration verification
+// for static kinds, and a real probe of the allowlisted token endpoint for OAuth kinds.
+// A passing check clears the provider's Failed badge.
 function ProviderConnectivity({ provider, zoneId }: { provider: Provider; zoneId: string }) {
   const test = useTestProvider(zoneId);
   const [result, setResult] = useState<ProviderTestResult | null>(null);
@@ -532,7 +553,6 @@ function ProviderConnectivity({ provider, zoneId }: { provider: Provider; zoneId
 
   const isOAuth =
     provider.kind === "oauth2_authorization_code" || provider.kind === "oauth2_client_credentials";
-  if (!isOAuth) return null;
 
   async function run() {
     setError(null);
@@ -542,7 +562,7 @@ function ProviderConnectivity({ provider, zoneId }: { provider: Provider; zoneId
       setResult(null);
       setError(
         err instanceof ConsoleApiError && err.code === "provider_test_rate_limited"
-          ? "Too many tests. Wait a minute and try again."
+          ? "Too many connection checks. Wait a minute and try again."
           : errorMessage(err),
       );
     }
@@ -553,7 +573,7 @@ function ProviderConnectivity({ provider, zoneId }: { provider: Provider; zoneId
       title="Connectivity"
       action={
         <Button variant="secondary" size="sm" loading={test.isPending} onClick={() => void run()}>
-          Test connection
+          Connect
         </Button>
       }
     >
@@ -571,8 +591,11 @@ function ProviderConnectivity({ provider, zoneId }: { provider: Provider; zoneId
         <p className="text-xs text-destructive">{error}</p>
       ) : (
         <p className="text-xs text-muted-foreground">
-          Verifies that the token endpoint is reachable and accepts this provider's client
-          credentials. Runs from the control plane; no tokens are stored.
+          {provider.connectivity_failed_at
+            ? "The last connectivity check failed. Connect again after fixing the configuration; a passing check clears the Failed badge."
+            : isOAuth
+              ? "Verifies that the token endpoint is reachable and accepts this provider's client credentials. Runs from the control plane; no tokens are stored."
+              : "Verifies that this provider's configuration and sealed credential are complete. Static credentials are exercised once a resource uses them."}
         </p>
       )}
     </DetailSection>
