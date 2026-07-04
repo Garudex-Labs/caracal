@@ -6,9 +6,14 @@
 import { spawn, type ChildProcess, type StdioOptions } from 'node:child_process'
 import { createInterface } from 'node:readline'
 import { scrubTokens } from './crash.js'
-import { InteractionRequiredError, OAuthClient } from '@caracalai/oauth'
-import { DEFAULT_RUN_TTL_SECONDS } from './runtimeConfig.js'
-import type { RuntimeConfig, Credential, RunCredentialType } from './runtimeConfig.js'
+import { InteractionRequiredError, OAuthClient, fetchRunManifest } from '@caracalai/oauth'
+import {
+  DEFAULT_RUN_TTL_SECONDS,
+  MAX_RUN_TTL_SECONDS,
+  RuntimeConfigValidationError,
+  assertCredentialEnvName,
+} from './runtimeConfig.js'
+import type { RuntimeConfig, RuntimeIdentity, Credential, OptionalCredential, RunCredentialType } from './runtimeConfig.js'
 import type { TokenExchangeResponse } from '@caracalai/oauth'
 
 const SIGNAL_EXIT_MAP: Record<string, number> = {
@@ -147,6 +152,49 @@ function validateCredentialEnv(cred: Credential, used: Set<string>): void {
   if (BLOCKED_CREDENTIAL_ENV.has(cred.env)) throw new Error(`blocked_credential_env:${cred.env}`)
   if (used.has(cred.env)) throw new Error(`duplicate_credential_env:${cred.env}`)
   used.add(cred.env)
+}
+
+// Resolves the full launch profile for a workload: authenticates against STS with the
+// local identity, fetches the console-authored run manifest, and revalidates it locally
+// so a compromised control plane still cannot inject blocked env names or oversized TTLs.
+export async function resolveRunConfig(identity: RuntimeIdentity, env: NodeJS.ProcessEnv = process.env): Promise<RuntimeConfig> {
+  const manifest = await fetchRunManifest(identity.sts_url, identity.application_id, identity.app_client_secret)
+  const required: Credential[] = []
+  const optional: OptionalCredential[] = []
+  const used = new Set<string>()
+  for (const cred of manifest.credentials) {
+    assertCredentialEnvName(cred.env)
+    if (used.has(cred.env)) throw new RuntimeConfigValidationError('run manifest', `duplicate credential env '${cred.env}'`)
+    used.add(cred.env)
+    const entry: Credential = { env: cred.env, resource: cred.resource, credential_type: cred.credentialType }
+    if (cred.optional) optional.push({ ...entry, on_failure: cred.onFailure })
+    else required.push(entry)
+  }
+  const cfg: RuntimeConfig = {
+    zone_url: identity.sts_url,
+    zone_id: manifest.zoneId,
+    application_id: identity.application_id,
+    app_client_secret: identity.app_client_secret,
+  }
+  if (manifest.ttlSeconds !== undefined) {
+    if (manifest.ttlSeconds > MAX_RUN_TTL_SECONDS) {
+      throw new RuntimeConfigValidationError('run manifest', `ttl_seconds must be between 1 and ${MAX_RUN_TTL_SECONDS}`)
+    }
+    cfg.ttl_seconds = manifest.ttlSeconds
+  }
+  if (manifest.continueOnFailure !== undefined) {
+    if (
+      manifest.continueOnFailure &&
+      (env.NODE_ENV ?? 'development') !== 'development' &&
+      env.CARACAL_ALLOW_REQUIRED_CREDENTIAL_FAILURE !== 'true'
+    ) {
+      throw new RuntimeConfigValidationError('run manifest', 'continue_on_failure=true is not allowed outside development')
+    }
+    cfg.continue_on_failure = manifest.continueOnFailure
+  }
+  if (required.length > 0) cfg.credentials = required
+  if (optional.length > 0) cfg.optional_credentials = optional
+  return cfg
 }
 
 export async function buildRunEnv(cfg: RuntimeConfig, opts: BuildRunEnvOptions = {}): Promise<Record<string, string>> {
