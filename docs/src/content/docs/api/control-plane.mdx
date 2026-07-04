@@ -45,7 +45,7 @@ Use Console when you are performing these operations interactively. Use the Admi
 | Admin audit | `GET /v1/zones/:zoneId/admin-audit` |
 | Sessions | `GET /v1/zones/:zoneId/sessions` |
 | Agent sessions | `GET /v1/zones/:zoneId/agent-sessions` (filter by `status`, `lifecycle`, `label`, `parent_id`, `application_id`; `format=csv` to export) |
-| Step-up challenges | `GET /v1/zones/:zoneId/step-up-challenges`, `GET /v1/zones/:zoneId/step-up-challenges/:id`, `POST /v1/zones/:zoneId/step-up-challenges/:id/satisfy` |
+| Step-up challenges | `GET /v1/zones/:zoneId/step-up-challenges`, `GET /v1/zones/:zoneId/step-up-challenges/:id`, `POST /v1/zones/:zoneId/step-up-challenges/:id/approve`, `POST /v1/zones/:zoneId/step-up-challenges/:id/reject` |
 | Zone events | Zone-scoped event routes under `/v1/zones/:zoneId/...` |
 
 ## Usage Notes
