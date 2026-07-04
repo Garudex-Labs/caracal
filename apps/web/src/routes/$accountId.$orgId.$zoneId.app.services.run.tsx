@@ -42,7 +42,7 @@ import {
 import { useCreateDeepLink } from "@/platform/nav/createDeepLink";
 import type { Application, RunManifest, RunManifestCredential } from "@/platform/api/types";
 
-export const Route = createFileRoute("/$accountId/$orgId/$zoneId/app/run")({
+export const Route = createFileRoute("/$accountId/$orgId/$zoneId/app/services/run")({
   component: RunRoute,
   validateSearch: (search: Record<string, unknown>): { create?: string; focus?: string } => ({
     create: typeof search.create === "string" ? search.create : undefined,
@@ -55,7 +55,11 @@ function RunRoute() {
     <ZoneScopedPage
       title="Run"
       description="Workloads that caracal run launches with injected credentials."
-      breadcrumbs={[{ label: "Console", to: "/app" }, { label: "Run" }]}
+      breadcrumbs={[
+        { label: "Console", to: "/app" },
+        { label: "Services", to: "/app/services" },
+        { label: "Run" },
+      ]}
     >
       {(zone) => <RunPage zoneId={zone.id} zoneName={zone.name} />}
     </ZoneScopedPage>
@@ -96,7 +100,7 @@ function RunPage({ zoneId, zoneName }: { zoneId: string; zoneName: string }) {
 
   const [createOpen, setCreateOpen] = useState(false);
   useCreateDeepLink({
-    to: "/app/run",
+    to: "/app/services/run",
     value: Route.useSearch().create,
     open: () => setCreateOpen(true),
   });
@@ -200,7 +204,11 @@ function RunPage({ zoneId, zoneName }: { zoneId: string; zoneName: string }) {
       <ResourceWorkspace
         title="Run"
         description="Workloads that caracal run launches with injected credentials."
-        breadcrumbs={[{ label: "Console", to: "/app" }, { label: "Run" }]}
+        breadcrumbs={[
+          { label: "Console", to: "/app" },
+          { label: "Services", to: "/app/services" },
+          { label: "Run" },
+        ]}
         primaryAction={{ label: "New workload", onClick: () => setCreateOpen(true) }}
         rows={rows}
         loading={query.isLoading}

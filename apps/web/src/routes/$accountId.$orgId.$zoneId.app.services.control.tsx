@@ -48,7 +48,7 @@ import {
 } from "@/platform/api/hooks";
 import type { ControlKey, ControlKeyCreateResult, ControlTokenResult } from "@/platform/api/types";
 
-export const Route = createFileRoute("/$accountId/$orgId/$zoneId/app/control")({
+export const Route = createFileRoute("/$accountId/$orgId/$zoneId/app/services/control")({
   component: ControlRoute,
 });
 
@@ -57,7 +57,11 @@ function ControlRoute() {
     <ZoneScopedPage
       title="Control API"
       description="Programmatic, scoped automation of zone management."
-      breadcrumbs={[{ label: "Console", to: "/app" }, { label: "Control API" }]}
+      breadcrumbs={[
+        { label: "Console", to: "/app" },
+        { label: "Services", to: "/app/services" },
+        { label: "Control API" },
+      ]}
     >
       {(zone) => <ControlPage zoneId={zone.id} zoneSlug={zone.slug} />}
     </ZoneScopedPage>
@@ -127,7 +131,11 @@ function ResourceWorkspaceShell({
     <ModulePage
       title="Control API"
       description="Programmatic, scoped automation of zone management."
-      breadcrumbs={[{ label: "Console", to: "/app" }, { label: "Control API" }]}
+      breadcrumbs={[
+        { label: "Console", to: "/app" },
+        { label: "Services", to: "/app/services" },
+        { label: "Control API" },
+      ]}
     >
       <div className="mb-6">{headerExtra}</div>
       {children}
@@ -221,7 +229,11 @@ function ControlKeysTab({
       <ResourceWorkspace
         title="Control API"
         description="Programmatic, scoped automation of zone management."
-        breadcrumbs={[{ label: "Console", to: "/app" }, { label: "Control API" }]}
+        breadcrumbs={[
+          { label: "Console", to: "/app" },
+          { label: "Services", to: "/app/services" },
+          { label: "Control API" },
+        ]}
         primaryAction={{ label: "New control key", onClick: () => setCreateOpen(true) }}
         headerExtra={headerExtra}
         rows={keys}
@@ -1257,7 +1269,11 @@ function ReferenceTab({ zoneSlug, headerExtra }: { zoneSlug: string; headerExtra
     <ResourceWorkspace
       title="Control API"
       description="Programmatic, scoped automation of zone management."
-      breadcrumbs={[{ label: "Console", to: "/app" }, { label: "Control API" }]}
+      breadcrumbs={[
+        { label: "Console", to: "/app" },
+        { label: "Services", to: "/app/services" },
+        { label: "Control API" },
+      ]}
       headerExtra={headerExtra}
       toolbarExtra={
         <div className="ml-auto">
