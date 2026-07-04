@@ -256,7 +256,7 @@ describe('OAuthClient', () => {
     expect(body.get('scope')).toBe('read write')
   })
 
-  it('refreshes cached tokens inside the timeout preflight window', async () => {
+  it('caps the preflight window at half the token lifetime', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
@@ -266,6 +266,11 @@ describe('OAuthClient', () => {
     const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
 
     await client.exchange('subject-a', 'resource://api', { timeoutMs: 5_000 })
+    await client.exchange('subject-a', 'resource://api', { timeoutMs: 5_000 })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    const now = Date.now()
+    vi.spyOn(Date, 'now').mockReturnValue(now + 11_000)
     const res = await client.exchange('subject-a', 'resource://api', { timeoutMs: 5_000 })
 
     expect(res.accessToken).toBe('tok-fresh')

@@ -45,7 +45,7 @@ describe('navigation model', () => {
   it('keeps the dashboard unscoped while resource surfaces are zone-scoped', () => {
     const dashboard = items.find((i) => i.id === 'dashboard')
     expect(dashboard?.zoneScoped).toBeFalsy()
-    for (const id of ['applications', 'providers', 'resources', 'policies', 'agents', 'audit']) {
+    for (const id of ['applications', 'providers', 'resources', 'policies', 'agents', 'audit', 'services']) {
       expect(items.find((i) => i.id === id)?.zoneScoped, `${id} zoneScoped`).toBe(true)
     }
   })

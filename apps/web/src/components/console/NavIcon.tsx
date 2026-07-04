@@ -62,6 +62,15 @@ const PATHS: Record<string, ReactNode> = {
       <path d="m10 9 5 3-5 3V9Z" />
     </>
   ),
+  services: (
+    <>
+      <circle cx="12" cy="12" r="2.5" />
+      <circle cx="5" cy="5" r="2" />
+      <circle cx="19" cy="5" r="2" />
+      <circle cx="12" cy="19.5" r="2" />
+      <path d="M10.2 10.2 6.4 6.4M13.8 10.2l3.8-3.8M12 14.5v3" />
+    </>
+  ),
   sessions: (
     <>
       <path d="M3 12h4l2 6 4-14 2 8h6" />

@@ -18,7 +18,6 @@ requires-python = ">=3.12"
 dependencies = [
   "httpx>=0.28.0",
   "idna>=3.15",
-  "caracalai-identity==0.1.6rc3",
 ]
 
 [tool.hatch.build.targets.wheel]
