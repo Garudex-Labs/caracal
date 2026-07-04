@@ -33,7 +33,7 @@ interface Command {
 const SERVICE_PAGES = [
   {
     id: "run",
-    label: "Run",
+    label: "Launcher",
     keywords: "run launcher workloads caracal run credentials services platform",
     to: "/app/services/run",
   },

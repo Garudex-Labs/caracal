@@ -281,9 +281,10 @@ function ApplicationsPage({ zoneId, zoneName }: { zoneId: string; zoneName: stri
             setCreateOpen(false);
             if (app.client_secret) {
               setSecret({
+                kind: "application",
                 name: app.name,
-                appId: app.id,
-                clientSecret: app.client_secret,
+                id: app.id,
+                value: app.client_secret,
                 rotated: false,
               });
             } else {
@@ -314,9 +315,10 @@ function ApplicationsPage({ zoneId, zoneName }: { zoneId: string; zoneName: stri
             const rotated = await rotateSecret.mutateAsync(rotateTarget.id);
             if (rotated.client_secret) {
               setSecret({
+                kind: "application",
                 name: rotateTarget.name,
-                appId: rotateTarget.id,
-                clientSecret: rotated.client_secret,
+                id: rotateTarget.id,
+                value: rotated.client_secret,
                 rotated: true,
               });
             }
