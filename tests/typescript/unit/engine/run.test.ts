@@ -6,6 +6,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const exchangeMock = vi.fn()
+const waitForApprovalMock = vi.fn()
 
 vi.mock('@caracalai/oauth', async (orig) => {
   const actual = (await orig()) as Record<string, unknown>
@@ -13,6 +14,7 @@ vi.mock('@caracalai/oauth', async (orig) => {
     ...actual,
     OAuthClient: class {
       exchange = exchangeMock
+      waitForApproval = waitForApprovalMock
     },
   }
 })
@@ -30,6 +32,7 @@ const baseConfig: RuntimeConfig = {
 
 afterEach(() => {
   exchangeMock.mockReset()
+  waitForApprovalMock.mockReset()
   vi.restoreAllMocks()
 })
 
@@ -118,18 +121,24 @@ describe('buildRunEnv', () => {
     ).rejects.toThrow('nope')
   })
 
-  it('completes a step-up challenge and retries the exchange', async () => {
+  it('waits for an approval and retries the exchange with the challenge id', async () => {
     exchangeMock
-      .mockRejectedValueOnce(new InteractionRequiredError('step up', 'chal-1', 'r'))
-      .mockResolvedValueOnce({ accessToken: 'mandate', upstreams: { r: { providerToken: 'after-stepup' } } })
-    const fetchSpy = vi
-      .spyOn(globalThis, 'fetch')
-      .mockResolvedValue({ ok: true, status: 200, json: async () => ({ satisfied: true }) } as unknown as Response)
+      .mockRejectedValueOnce(new InteractionRequiredError('approval required', 'chal-1', { resource: 'r', binding: 'aa', expiresAt: '2026-01-01T00:00:00Z' }))
+      .mockResolvedValueOnce({ accessToken: 'mandate', upstreams: { r: { providerToken: 'after-approval' } } })
+    waitForApprovalMock.mockResolvedValue('approved')
     const lines: string[] = []
     const env = await buildRunEnv({ ...baseConfig, credentials: [{ env: 'API_KEY', resource: 'r' }] }, { onLine: (l) => lines.push(l) })
-    expect(env.API_KEY).toBe('after-stepup')
-    expect(lines.some((l) => l.includes('step_up_required'))).toBe(true)
-    fetchSpy.mockRestore()
+    expect(env.API_KEY).toBe('after-approval')
+    expect(lines.some((l) => l.includes('approval_required') && l.includes('chal-1') && l.includes('"binding":"aa"'))).toBe(true)
+    expect(waitForApprovalMock).toHaveBeenCalledWith('chal-1', { timeoutMs: 300_000 })
+    expect(exchangeMock).toHaveBeenLastCalledWith('', 'r', expect.objectContaining({ challengeId: 'chal-1' }))
+  })
+
+  it('fails the credential when the approval is rejected', async () => {
+    exchangeMock.mockRejectedValue(new InteractionRequiredError('approval required', 'chal-1', { resource: 'r' }))
+    waitForApprovalMock.mockResolvedValue('rejected')
+    await expect(buildRunEnv({ ...baseConfig, credentials: [{ env: 'API_KEY', resource: 'r' }] })).rejects.toThrow('approval_rejected')
+    expect(exchangeMock).toHaveBeenCalledTimes(1)
   })
 })
 
