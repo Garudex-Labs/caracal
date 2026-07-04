@@ -7,12 +7,12 @@ import { COMMAND_NAME_PATTERN, type CommandGroup } from '@caracalai/engine/comma
 import {
   RuntimeConfigMissingError,
   RuntimeConfigValidationError,
-  loadRuntimeConfig as loadValidatedRuntimeConfig,
+  loadRuntimeIdentity,
 } from '@caracalai/engine/runtime-config'
 import { formatVersionOutput } from '@caracalai/engine'
 import { style, printError } from './style.ts'
 import type { CommandRegistry } from './registry.ts'
-import type { RuntimeConfig } from './config.ts'
+import type { RuntimeIdentity } from './config.ts'
 
 const GROUP_TITLES: Record<CommandGroup, string> = {
   stack: 'Stack',
@@ -32,12 +32,8 @@ export interface DispatchOptions {
   readonly loadConfig?: boolean
 }
 
-function loadConfig(required: boolean): RuntimeConfig | undefined {
-  return loadValidatedRuntimeConfig(required)
-}
-
-export function loadRuntimeConfig(required: boolean): RuntimeConfig | undefined {
-  return loadConfig(required)
+function loadConfig(required: boolean): RuntimeIdentity | undefined {
+  return loadRuntimeIdentity(required)
 }
 
 export function printUsage(opts: DispatchOptions, out: NodeJS.WriteStream = process.stderr): void {
@@ -116,7 +112,7 @@ export async function dispatch(opts: DispatchOptions, rawArgs: readonly string[]
   // help/usage path without first demanding runtime config the user has no chance to supply.
   const operands = rest[0] === '--' ? rest.slice(1) : rest
   const skipConfig = isHelpToken(rest[0]) || ((binding.descriptor.requiresArgs ?? false) && operands.length === 0)
-  let cfg: RuntimeConfig | undefined
+  let cfg: RuntimeIdentity | undefined
   if (opts.loadConfig && !skipConfig) {
     try {
       cfg = loadConfig(binding.descriptor.requiresConfig ?? false)

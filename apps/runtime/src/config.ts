@@ -1,9 +1,9 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Runtime exit codes and canonical caracal.toml config exports.
+// Runtime exit codes and workload identity type exports.
 
-export type { RuntimeConfig } from '@caracalai/engine/runtime-config'
+export type { RuntimeIdentity } from '@caracalai/engine/runtime-config'
 
 export const EXIT_CODES = {
   ok: 0,
