@@ -145,12 +145,14 @@ restriction_denied if {
 }
 
 # Risk classification and approval gating. An adopter may tag scopes with an opaque
-# risk tier and declare which tiers require human approval. The platform reads the
-# tier as metadata, names it in mint diagnostics for audit and observability, and
-# holds any mint whose scope tier is approval-gated behind a durable approval an
-# authenticated approver must satisfy before it is minted. The tier vocabulary is the
-# adopter's; the platform fixes no taxonomy. Like restrictions, a risk rule can only
-# add a gate, never widen authority.
+# risk tier and declare which tiers gate minting behind a durable human approval. An
+# approval declaration names its tier and may shape the hold: who may decide it
+# (operator, subject, or any), how long it lives, and how much approver identity the
+# decision record retains. The platform reads tiers as opaque metadata, names the
+# classified risk of every requested scope in mint diagnostics, and holds any gated
+# mint until an authenticated approver decides it. The tier vocabulary is the
+# adopter's; the platform fixes no taxonomy. Like restrictions, an approval
+# declaration can only add a gate, never widen authority.
 default risk_rules := []
 
 risk_rules := data.caracal.authz.risk
@@ -161,9 +163,9 @@ scope_tier(scope) := tier if {
 	tier := rule.tier
 }
 
-default gated_tiers := []
+default approval_declarations := []
 
-gated_tiers := data.caracal.authz.approval_tiers
+approval_declarations := data.caracal.authz.approval_tiers
 
 risk_scopes := sort([scope |
 	some scope in input.context.requested_scopes
@@ -174,16 +176,30 @@ requested_risk := [{"scope": scope, "tier": scope_tier(scope)} |
 	some scope in risk_scopes
 ]
 
-approval_required if {
-	some scope in input.context.requested_scopes
-	scope_tier(scope) in gated_tiers
+# A declaration without a tier name can never match a scope, which would silently
+# drop the gate it was meant to add. Malformed approval data therefore fails closed:
+# scope mints deny until the data document is repaired.
+malformed_approval_declarations if {
+	some decl in approval_declarations
+	not decl.tier
 }
+
+matched_declarations := sort({decl |
+	some decl in approval_declarations
+	some scope in input.context.requested_scopes
+	scope_tier(scope) == decl.tier
+})
+
+approval_required if count(matched_declarations) > 0
 
 mint_diagnostics := array.concat(step_up_diagnostics, risk_diagnostics)
 
 default step_up_diagnostics := []
 
-step_up_diagnostics := [{"step_up_required": "human_approval"}] if approval_required
+step_up_diagnostics := [{"step_up_required": {
+	"type": "human_approval",
+	"tiers": matched_declarations,
+}}] if approval_required
 
 default risk_diagnostics := []
 
@@ -203,6 +219,7 @@ result := mint_allow(sprintf("caracal-%s-mint", [principal_app])) if {
 	delegated_mint
 	mint_role_allowed
 	not restriction_denied
+	not malformed_approval_declarations
 }
 
 # A spawned agent presenting its minted mandate at the Gateway, bound to a role its
