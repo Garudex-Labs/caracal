@@ -549,6 +549,10 @@ export function ProviderFormModal({
   const error = touched ? missingRequired() : null;
   const hasFieldError = Object.keys(errors).length > 0;
   const hasAdvancedError = advancedFields.some((f) => errors[f.key]);
+  // Only OAuth kinds own a token endpoint Caracal can genuinely verify before creation.
+  // Every other kind gets the plain create flow: presenting a check that cannot fail
+  // would be a fake validation experience.
+  const canConnect = kind === "oauth2_authorization_code" || kind === "oauth2_client_credentials";
 
   return (
     <Modal
@@ -569,16 +573,8 @@ export function ProviderFormModal({
             <Button onClick={() => void submit(false)} loading={busy}>
               Save changes
             </Button>
-          ) : (
+          ) : canConnect ? (
             <>
-              <button
-                type="button"
-                className="px-1 text-xs text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline disabled:pointer-events-none disabled:opacity-50"
-                onClick={() => void submit(false)}
-                disabled={busy}
-              >
-                Skip for now
-              </button>
               <Button
                 onClick={() => void submit(true)}
                 loading={busy && action === "connect"}
@@ -586,7 +582,19 @@ export function ProviderFormModal({
               >
                 Connect
               </Button>
+              <button
+                type="button"
+                className="basis-full text-right text-xs text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline disabled:pointer-events-none disabled:opacity-50"
+                onClick={() => void submit(false)}
+                disabled={busy}
+              >
+                Skip for now
+              </button>
             </>
+          ) : (
+            <Button onClick={() => void submit(false)} loading={busy}>
+              Create provider
+            </Button>
           )}
         </>
       }

@@ -432,11 +432,12 @@ function oauthErrorCode(body: string): string {
   }
 }
 
-// Runs the deepest verification available for the provider kind. Static kinds are fully
-// covered by config validation because they own no endpoint; OAuth kinds are verified
-// against their own allowlisted HTTPS token endpoint. No caller-supplied URL or payload
-// is ever used, DNS resolution is pinned away from private address space, and the
-// response is reduced to a fixed classification so no upstream data or secret can leak.
+// Verifies an OAuth provider against its own allowlisted HTTPS token endpoint. Only OAuth
+// kinds are checkable: the other kinds make no upstream credential request of their own, so
+// no meaningful preflight exists and callers must reject the check instead of faking one.
+// No caller-supplied URL or payload is ever used, DNS resolution is pinned away from private
+// address space, and the response is reduced to a fixed classification so no upstream data
+// or secret can leak.
 async function runProviderCheck(
   kind: ProviderKind,
   config: Record<string, unknown>,
@@ -448,19 +449,6 @@ async function runProviderCheck(
     detail,
     checked_at: new Date().toISOString(),
   })
-
-  if (kind === 'none' || kind === 'caracal_mandate') {
-    return result(
-      'ok',
-      'The configuration is valid. This provider makes no upstream credential request, so there is nothing else to verify.',
-    )
-  }
-  if (kind === 'api_key' || kind === 'bearer_token') {
-    return result(
-      'ok',
-      'The configuration and sealed credential are complete. Static credentials are attached to upstream requests as-is, so the credential itself is exercised once a resource uses it.',
-    )
-  }
 
   const method = stringConfig(config, 'client_auth_method') || 'client_secret_basic'
   const clientId = stringConfig(config, 'client_id')
@@ -594,7 +582,10 @@ export const providersRoutes: FastifyPluginAsync = async (fastify) => {
     }
     let connectivityFailedAt: Date | null = null
     if (body.check) {
-      if (OAUTH_PROVIDER_KINDS.has(body.kind) && !(await providerCheckAllowed(fastify.redis, params.zoneId))) {
+      if (!OAUTH_PROVIDER_KINDS.has(body.kind)) {
+        return reply.code(400).send({ error: 'provider_check_unsupported' })
+      }
+      if (!(await providerCheckAllowed(fastify.redis, params.zoneId))) {
         return reply.code(429).send({ error: 'provider_test_rate_limited' })
       }
       const check = await runProviderCheck(body.kind, config.publicConfig, config.secretConfig, req.log)
@@ -728,8 +719,9 @@ export const providersRoutes: FastifyPluginAsync = async (fastify) => {
     return reply.code(204).send()
   })
 
-  // Runs the provider connectivity check on demand and records the outcome, clearing
-  // the failed marker as soon as the check passes.
+  // Runs the OAuth connectivity check on demand and records the outcome, clearing the
+  // failed marker as soon as the check passes. Kinds without a checkable endpoint are
+  // rejected rather than given a fake pass.
   fastify.post('/zones/:zoneId/providers/:id/test', async (req, reply) => {
     const params = parseParams(ZoneIdParams, req, reply)
     if (!params) return
@@ -740,7 +732,10 @@ export const providersRoutes: FastifyPluginAsync = async (fastify) => {
     )
     if (!rows[0]) return reply.code(404).send({ error: 'provider_not_found' })
     const row = rows[0]
-    if (OAUTH_PROVIDER_KINDS.has(row.kind) && !(await providerCheckAllowed(fastify.redis, params.zoneId))) {
+    if (!OAUTH_PROVIDER_KINDS.has(row.kind)) {
+      return reply.code(400).send({ error: 'provider_check_unsupported' })
+    }
+    if (!(await providerCheckAllowed(fastify.redis, params.zoneId))) {
       return reply.code(429).send({ error: 'provider_test_rate_limited' })
     }
     const secrets = openSecretConfig(row.secret_config_ct, row.secret_config_nonce)
