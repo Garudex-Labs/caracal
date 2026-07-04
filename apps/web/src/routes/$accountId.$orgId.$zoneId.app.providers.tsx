@@ -536,9 +536,9 @@ function formatValue(value: unknown): string {
 
 /* ------------------------------- Connectivity ------------------------------- */
 
-// Runs the provider connectivity check from the control plane: configuration verification
-// for static kinds, and a real probe of the allowlisted token endpoint for OAuth kinds.
-// A passing check clears the provider's Failed badge.
+// Runs the OAuth connectivity check from the control plane: a real probe of the
+// allowlisted token endpoint. A passing check clears the provider's Failed badge.
+// Other kinds have no checkable endpoint, so the section is not shown for them.
 function ProviderConnectivity({ provider, zoneId }: { provider: Provider; zoneId: string }) {
   const test = useTestProvider(zoneId);
   const [result, setResult] = useState<ProviderTestResult | null>(null);
@@ -553,6 +553,7 @@ function ProviderConnectivity({ provider, zoneId }: { provider: Provider; zoneId
 
   const isOAuth =
     provider.kind === "oauth2_authorization_code" || provider.kind === "oauth2_client_credentials";
+  if (!isOAuth) return null;
 
   async function run() {
     setError(null);
@@ -593,9 +594,7 @@ function ProviderConnectivity({ provider, zoneId }: { provider: Provider; zoneId
         <p className="text-xs text-muted-foreground">
           {provider.connectivity_failed_at
             ? "The last connectivity check failed. Connect again after fixing the configuration; a passing check clears the Failed badge."
-            : isOAuth
-              ? "Verifies that the token endpoint is reachable and accepts this provider's client credentials. Runs from the control plane; no tokens are stored."
-              : "Verifies that this provider's configuration and sealed credential are complete. Static credentials are exercised once a resource uses them."}
+            : "Verifies that the token endpoint is reachable and accepts this provider's client credentials. Runs from the control plane; no tokens are stored."}
         </p>
       )}
     </DetailSection>

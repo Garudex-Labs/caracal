@@ -55,6 +55,14 @@ Bearer token providers are for static, pre-issued access tokens that Caracal doe
 
 Provider secrets are sealed at creation time and are not returned by list or detail APIs. Every Gateway resource binds one upstream credential provider, and one provider can be reused by many resources. None providers have no secret and send no credential. Caracal mandate providers have no provider-native secret and no `forward_caracal_identity` setting because the mandate is already the upstream credential. Use Caracal mandate for internal services, partner services, external integrations, or network-level resources that choose to trust Caracal mandates through a verifier.
 
+## Provider connectivity checks
+
+OAuth providers own a token endpoint Caracal can genuinely verify before anything is saved, so creating one in the web console ends with **Connect** instead of a plain create. Client-credentials providers perform a real token request against the allow-listed HTTPS token endpoint, including a signed client assertion when OAuth client authentication is `private_key_jwt`. Authorization-code providers submit a placeholder code that a healthy endpoint rejects with `invalid_grant` after accepting the client credentials. Checks run from the control plane with DNS resolution pinned away from private address space, upstream responses reduced to a fixed classification, and any issued token discarded, never stored or returned.
+
+A failing check blocks creation and reports a precise classification: authentication failed, endpoint unreachable, unexpected endpoint response, or configuration incomplete. **Skip for now** creates the OAuth provider without a passing check; it then carries a red **Failed** badge in the provider list and detail view until a check passes. Open the provider and run **Connect** from its Connectivity section after fixing the configuration - a passing check clears the badge automatically.
+
+The other kinds - none, Caracal mandate, API key, and bearer token - make no upstream credential request of their own, so no meaningful preflight exists before a resource uses them. The console creates them directly with **Create Provider** and shows no Connectivity section; their configuration is validated at creation and their credential is exercised once a resource uses it. Caracal never presents a check that cannot fail. Automation can run the OAuth check through `POST /v1/zones/{zoneId}/providers/{id}/test` or create with a check by setting `"check": true` on the create request; both reject non-OAuth kinds with `provider_check_unsupported`, and checks are rate limited per zone.
+
 ## Operation authority
 
 A resource declares which upstream operations the Gateway may invoke and how strictly that surface is enforced. This authority is native to the platform: the Gateway and STS enforce it directly, so adopters configure data, not policy control flow.
@@ -89,6 +97,7 @@ Do not put provider-specific credential details on a resource. Do not use mutabl
 
 ## Validate the setup
 
+- For OAuth providers, run **Connect** and confirm the connectivity check passes; no provider should show a **Failed** badge.
 - Open the resource in the web console and confirm scopes are present.
 - Author and activate a policy that allows the application and subject to request the scopes.
 - Send a Gateway request and inspect the audit event. For Caracal mandate upstreams, also confirm the resource uses a Caracal verifier or connector.

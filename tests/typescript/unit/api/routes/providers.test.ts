@@ -873,7 +873,7 @@ describe('POST /v1/zones/:zoneId/providers/:id/test', () => {
     vi.clearAllMocks()
   })
 
-  it('verifies static-credential providers from configuration alone without any outbound request', async () => {
+  it('rejects checks for kinds without a checkable endpoint instead of faking a pass', async () => {
     const { app, db, redis } = buildRouteApp(providersRoutes)
     db.query.mockResolvedValueOnce({
       rows: [{ kind: 'api_key', config_json: { header_name: 'X-API-Key' }, secret_config_ct: null, secret_config_nonce: null }],
@@ -882,11 +882,11 @@ describe('POST /v1/zones/:zoneId/providers/:id/test', () => {
     await app.ready()
     const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/providers/provider-1/test', payload: {} })
 
-    expect(res.statusCode).toBe(200)
-    expect(JSON.parse(res.body)).toMatchObject({ status: 'ok' })
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'provider_check_unsupported' })
     expect(httpsRequest).not.toHaveBeenCalled()
     expect(redis.incr).not.toHaveBeenCalled()
-    expect(db.query).toHaveBeenLastCalledWith(expect.stringContaining('SET connectivity_failed_at'), ['provider-1', 'z1', null])
+    expect(db.query).toHaveBeenCalledTimes(1)
   })
 
   it('rate limits OAuth connectivity checks per zone', async () => {
@@ -1125,11 +1125,9 @@ describe('POST /v1/zones/:zoneId/providers with connectivity check', () => {
     expect(values[9]).toBeInstanceOf(Date)
   })
 
-  it('creates checked static providers clean without any outbound request', async () => {
+  it('rejects check requests for kinds without a checkable endpoint', async () => {
     const { app, db, redis } = buildRouteApp(providersRoutes)
-    db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] }).mockResolvedValueOnce({
-      rows: [{ id: 'provider-1', zone_id: 'z1', identifier: 'provider://not-hotdog-api', kind: 'api_key' }],
-    })
+    db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
 
     await app.ready()
     const res = await app.inject({
@@ -1143,10 +1141,10 @@ describe('POST /v1/zones/:zoneId/providers with connectivity check', () => {
       },
     })
 
-    expect(res.statusCode).toBe(201)
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'provider_check_unsupported' })
     expect(httpsRequest).not.toHaveBeenCalled()
     expect(redis.incr).not.toHaveBeenCalled()
-    const values = db.query.mock.calls[1][1] as unknown[]
-    expect(values[9]).toBeNull()
+    expect(db.query).toHaveBeenCalledTimes(1)
   })
 })
