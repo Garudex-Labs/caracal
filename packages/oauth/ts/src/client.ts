@@ -5,8 +5,8 @@
 
 import { createHmac, randomBytes } from 'node:crypto'
 import { InMemoryTokenCache, type TokenCache } from './cache.js'
-import { InteractionRequiredError } from './types.js'
-import type { ExchangeOptions, TokenExchangeResponse } from './types.js'
+import { CaracalError, InteractionRequiredError } from './types.js'
+import type { ExchangeOptions, OAuthEvent, TokenExchangeResponse } from './types.js'
 
 interface STSErrorResponse {
   error?: string
@@ -53,6 +53,8 @@ export class OAuthClient {
   private readonly cache: TokenCache
   private readonly inflight = new Map<string, Promise<TokenExchangeResponse>>()
   private readonly identityKey: string
+  /** Observability sink; each completed exchange and approval wait reports here. Failures inside the sink never reach the caller. */
+  onEvent?: (event: OAuthEvent) => void
 
   constructor(
     private readonly stsUrl: string,
@@ -65,10 +67,21 @@ export class OAuthClient {
     this.identityKey = `${zoneId}::${applicationId}`
   }
 
+  private emit(event: OAuthEvent): void {
+    if (!this.onEvent) return
+    try {
+      this.onEvent(event)
+    } catch {
+      // The observability sink must never break the token path.
+    }
+  }
+
   async exchange(subjectToken: string, resource: string | string[], opts: ExchangeOptions = {}): Promise<TokenExchangeResponse> {
     const timeoutMs = opts.timeoutMs ?? 30_000
     const preflightWindow = timeoutMs / 1000 + 30
 
+    const resources = resourceList(resource)
+    const scopes = [...new Set(opts.scopes ?? [])].sort()
     const cacheSubject = this.cacheSubject(subjectToken, opts)
     const cacheResource = this.cacheResource(resource, opts)
     if (!opts.forceRefresh) {
@@ -78,7 +91,10 @@ export class OAuthClient {
         // tokens are still served from cache instead of re-minted every call.
         const window = Math.min(preflightWindow, cached.expiresIn / 2)
         const remaining = cached.issuedAt + cached.expiresIn - Date.now() / 1000
-        if (remaining > window) return cached
+        if (remaining > window) {
+          this.emit({ type: 'token.exchange', resources, scopes, cached: true, ok: true, durationMs: 0 })
+          return cached
+        }
       }
     }
 
@@ -86,11 +102,24 @@ export class OAuthClient {
     const existing = this.inflight.get(inflightKey)
     if (existing) return existing
 
+    const start = performance.now()
     const pending = (async () => {
       try {
         const token = await this.doExchange(subjectToken, resource, opts, false)
         this.cache.set(cacheSubject, cacheResource, token)
+        this.emit({ type: 'token.exchange', resources, scopes, cached: false, ok: true, durationMs: performance.now() - start })
         return token
+      } catch (err) {
+        this.emit({
+          type: 'token.exchange',
+          resources,
+          scopes,
+          cached: false,
+          ok: false,
+          durationMs: performance.now() - start,
+          ...(err instanceof CaracalError ? { code: err.code, status: err.httpStatus } : {}),
+        })
+        throw err
       } finally {
         this.inflight.delete(inflightKey)
       }
@@ -212,12 +241,17 @@ export class OAuthClient {
           tier: err['tier'],
           binding: err['binding'],
           expiresAt: err['challenge_expires_at'],
+          requestId: err['requestId'],
+          httpStatus: res.status,
         })
       }
       if (res.status === 401 && !isRetry) {
         return this.doExchange(subjectToken, resource, { ...opts, retries: 0 }, true, deadlineMs)
       }
-      throw new Error(formatSTSError(res.status, err))
+      throw new CaracalError(err.error || 'error', formatSTSError(res.status, err), {
+        requestId: err.requestId,
+        httpStatus: res.status,
+      })
     }
 
     if (!isJsonResponse(res)) {
@@ -235,15 +269,23 @@ export class OAuthClient {
    */
   async waitForApproval(challengeId: string, opts: { timeoutMs?: number } = {}): Promise<string> {
     if (!challengeId) throw new Error('waitForApproval requires a challengeId')
-    const deadline = performance.now() + (opts.timeoutMs ?? 300_000)
+    const start = performance.now()
+    const finish = (state: string, ok: boolean): string => {
+      this.emit({ type: 'approval.wait', challengeId, state, ok, durationMs: performance.now() - start })
+      return state
+    }
+    const deadline = start + (opts.timeoutMs ?? 300_000)
     for (;;) {
       const remainingMs = deadline - performance.now()
-      if (remainingMs <= 0) return 'pending'
+      if (remainingMs <= 0) return finish('pending', true)
       const wait = Math.max(1, Math.min(25, Math.floor(remainingMs / 1000)))
       const res = await (this.fetchImpl ?? fetch)(`${this.stsUrl}/step-up/${encodeURIComponent(challengeId)}?wait=${wait}`)
-      if (!res.ok) throw new Error(`step-up status failed: ${res.status}`)
+      if (!res.ok) {
+        finish('', false)
+        throw new Error(`step-up status failed: ${res.status}`)
+      }
       const data = (await res.json()) as { state?: unknown }
-      if (typeof data.state === 'string' && data.state !== 'pending') return data.state
+      if (typeof data.state === 'string' && data.state !== 'pending') return finish(data.state, true)
     }
   }
 }

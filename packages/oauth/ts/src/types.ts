@@ -5,6 +5,8 @@
 
 import { CaracalError } from '@caracalai/core'
 
+export { CaracalError }
+
 export interface TokenExchangeRequest {
   subjectToken: string
   resource: string | string[]
@@ -69,6 +71,8 @@ export interface InteractionRequiredDetails {
   tier?: string
   binding?: string
   expiresAt?: string
+  requestId?: string
+  httpStatus?: number
 }
 
 export class InteractionRequiredError extends CaracalError {
@@ -80,8 +84,11 @@ export class InteractionRequiredError extends CaracalError {
   readonly expiresAt?: string
 
   constructor(message: string, challengeId: string, details: InteractionRequiredDetails = {}) {
+    const { requestId, httpStatus, ...rest } = details
     super('interaction_required', message, {
-      details: { challengeId, ...details },
+      details: { challengeId, ...rest },
+      requestId,
+      httpStatus,
     })
     this.name = 'InteractionRequiredError'
     this.challengeId = challengeId
@@ -92,3 +99,26 @@ export class InteractionRequiredError extends CaracalError {
     this.expiresAt = details.expiresAt
   }
 }
+
+/** One completed token exchange: cache hits and network mints both count, single-flight joiners do not. */
+export interface TokenExchangeEvent {
+  type: 'token.exchange'
+  resources: string[]
+  scopes: string[]
+  cached: boolean
+  ok: boolean
+  durationMs: number
+  status?: number
+  code?: string
+}
+
+/** One completed approval wait and the final challenge state it observed. */
+export interface ApprovalWaitEvent {
+  type: 'approval.wait'
+  challengeId: string
+  state: string
+  ok: boolean
+  durationMs: number
+}
+
+export type OAuthEvent = TokenExchangeEvent | ApprovalWaitEvent

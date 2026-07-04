@@ -7,10 +7,22 @@
 
 import type { JsonObject } from './json.js'
 
+/** One completed coordinator request and its outcome; status 0 means no response arrived. */
+export interface CoordinatorCallEvent {
+  type: 'coordinator.call'
+  method: string
+  path: string
+  status: number
+  ok: boolean
+  durationMs: number
+}
+
 export interface CoordinatorClient {
   baseUrl: string
   fetchImpl?: typeof fetch
   timeoutMs?: number
+  /** Observability sink attached by the Caracal facade; failures inside it never reach the caller. */
+  onEvent?: (event: CoordinatorCallEvent) => void
 }
 
 const DEFAULT_TIMEOUT_MS = 10_000
@@ -107,17 +119,34 @@ async function call<T>(
     authorization: `Bearer ${bearer}`,
     ...(extraHeaders ?? {}),
   }
+  const start = performance.now()
+  const emit = (status: number, ok: boolean): void => {
+    if (!client.onEvent) return
+    try {
+      client.onEvent({ type: 'coordinator.call', method, path, status, ok, durationMs: performance.now() - start })
+    } catch {
+      // The observability sink must never break the coordinator path.
+    }
+  }
   const timeout = AbortSignal.timeout(client.timeoutMs ?? DEFAULT_TIMEOUT_MS)
-  const res = await fetchFn(`${client.baseUrl.replace(/\/+$/, '')}${path}`, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined,
-    signal: signal ? AbortSignal.any([timeout, signal]) : timeout,
-  })
+  let res: Response
+  try {
+    res = await fetchFn(`${client.baseUrl.replace(/\/+$/, '')}${path}`, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+      signal: signal ? AbortSignal.any([timeout, signal]) : timeout,
+    })
+  } catch (err) {
+    emit(0, false)
+    throw err
+  }
   if (!res.ok) {
     const text = await res.text()
+    emit(res.status, false)
     throw new CoordinatorError(method, path, res.status, text)
   }
+  emit(res.status, true)
   if (res.status === 204) return undefined as T
   const text = await res.text()
   return (text ? JSON.parse(text) : undefined) as T
