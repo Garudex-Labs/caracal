@@ -144,6 +144,7 @@ export interface Provider {
   kind: ProviderKind;
   config_json: Record<string, unknown>;
   secret_config_keys: ProviderSecretConfigKey[];
+  connectivity_failed_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -153,6 +154,7 @@ export interface ProviderInput {
   identifier?: string;
   kind: ProviderKind;
   config_json?: Record<string, unknown>;
+  check?: boolean;
 }
 
 export interface ProviderPatchInput {
@@ -163,7 +165,7 @@ export interface ProviderPatchInput {
 }
 
 export interface ProviderTestResult {
-  status: "ok" | "auth_failed" | "unreachable" | "endpoint_error" | "config_error" | "untestable";
+  status: "ok" | "auth_failed" | "unreachable" | "endpoint_error" | "config_error";
   detail: string;
   checked_at: string;
 }

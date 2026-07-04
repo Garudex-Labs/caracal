@@ -703,8 +703,14 @@ export function useUpdateProvider(zoneId: string | null) {
 }
 
 export function useTestProvider(zoneId: string | null) {
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => consoleApi.providers.test(zoneId as string, id),
+    // The check outcome is persisted on the provider row, so refresh it to keep the
+    // failed badge in step with the server.
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: keys.providers(zoneId) });
+    },
   });
 }
 

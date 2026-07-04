@@ -4,7 +4,7 @@
 // Idempotent provisioner for the reserved caracal.sys system zone the Operator self-governs through the control plane.
 
 import { randomBytes } from 'node:crypto'
-import { ensureActivePolicySet, ensureApiKeyProvider, ensureApplication, ensureResource, type AdminClient } from '@caracalai/admin'
+import { ensureApiKeyProvider, ensureApplication, ensureGrants, ensureResource, type AdminClient } from '@caracalai/admin'
 import { ensureControlResource } from '@caracalai/engine'
 import type { OperatorControlCredential } from './config.js'
 
@@ -102,11 +102,10 @@ export interface GovernedUpstream {
 // caracal.sys/ form so a tenant can never author or replace them.
 const OPERATOR_POLICY_NAME = 'caracal.sys/operator-bindings'
 const OPERATOR_POLICY_SET_NAME = 'caracal.sys/operator-policy'
-const OPERATOR_ROLE = 'operator'
-const LLM_SCOPE = 'llm:invoke'
-// The owning application bootstraps its session mandate by requesting this scope on a
-// resource it owns, so every governed resource must declare it alongside its data scope.
-const LIFECYCLE_SCOPE = 'agent:lifecycle'
+// The role label the Operator's governed transports spawn with and its grants authorize,
+// so the sessions minting on governed resources attribute to the Operator by name.
+export const OPERATOR_ROLE = 'operator'
+export const LLM_SCOPE = 'llm:invoke'
 
 function sanitizeSlug(id: string): string {
   return (
@@ -131,26 +130,6 @@ export function llmResourceIdentifier(id: string): string {
 // without touching anything else in the system zone.
 const LLM_PROVIDER_PREFIX = 'provider://caracal-sys-operator-llm-'
 const LLM_RESOURCE_PREFIX = 'caracal-sys://operator-llm-'
-
-// Authors the system zone's data-document policy: the platform decision contract reads
-// app_ids and grants to decide a data-plane exchange, and this document supplies them for
-// the Operator. The content is deterministic - resource identifiers are sorted and the
-// objects are rendered as canonical JSON - so an unchanged grant set produces an identical
-// document and the reconciler adds no new policy version.
-export function authorOperatorPolicy(operatorAppId: string, resourceIdentifiers: string[]): string {
-  const grants: Record<string, unknown> = {}
-  for (const identifier of [...resourceIdentifiers].sort()) {
-    grants[identifier] = { application: OPERATOR_ROLE, roles: { [OPERATOR_ROLE]: [LLM_SCOPE] } }
-  }
-  return [
-    '# caracal:data-document',
-    'package caracal.authz',
-    'import rego.v1',
-    `app_ids := ${JSON.stringify({ [OPERATOR_ROLE]: operatorAppId })}`,
-    `grants := ${JSON.stringify(grants)}`,
-    '',
-  ].join('\n')
-}
 
 // Resolves the id of a zone by its exact slug, or null when no such zone exists. A
 // deterministic lookup the provisioner depends on instead of scanning a page of the zone
@@ -212,11 +191,11 @@ function ensureLlmProvider(admin: AdminClient, zoneId: string, upstream: Governe
 }
 
 // Reconciles the governed LLM resource and its gateway binding. The resource declares the
-// data scope plus agent:lifecycle (so the owner can bootstrap), binds the sealed credential
-// provider, and routes through the gateway as the Operator identity. transport_uniform
-// treats the upstream as one surface, so an arbitrary chat-completions path passes the
-// mint-time scope check rather than a per-path operation match. Patched only on drift, so a
-// steady state never bumps the gateway binding cache.
+// data scope (the reconciler adds the owner's bootstrap scope to every gateway-bound
+// resource), binds the sealed credential provider, and routes through the gateway as the
+// Operator identity. transport_uniform treats the upstream as one surface, so an arbitrary
+// chat-completions path passes the mint-time scope check rather than a per-path operation
+// match. Patched only on drift, so a steady state never bumps the gateway binding cache.
 async function ensureLlmResource(
   admin: AdminClient,
   zoneId: string,
@@ -228,7 +207,7 @@ async function ensureLlmResource(
   await ensureResource(admin, zoneId, {
     name: `Operator LLM ${upstream.id}`,
     identifier,
-    scopes: [LLM_SCOPE, LIFECYCLE_SCOPE],
+    scopes: [LLM_SCOPE],
     upstream_url: upstream.baseUrl,
     credential_provider_id: providerId,
     gateway_application_id: operatorAppId,
@@ -237,20 +216,20 @@ async function ensureLlmResource(
   return identifier
 }
 
-// Reconciles the system zone's single data-document policy and policy-set to carry exactly
-// the Operator's current grants. Policy versions are immutable, so a new version is added
-// only when the authored content changes; the policy-set is re-activated only when the
-// content changed or no version is active, which self-heals a deactivated set without
-// churning a steady state. A zone has exactly one active policy-set, so this reuses the
-// reserved-named set rather than creating a new one each run. When there are no grants and no
-// system policy already exists, it creates nothing - a deployment that never governs an
-// upstream gets no empty artifacts.
-function ensureOperatorPolicySet(admin: AdminClient, zoneId: string, operatorAppId: string, resourceIdentifiers: string[]): Promise<void> {
-  return ensureActivePolicySet(admin, zoneId, {
+// Reconciles the system zone's grant policy to exactly the Operator's current governed
+// resources: the base identity may mint the LLM scope on each, under the operator role its
+// transports spawn with. When there are no grants and no system policy already exists, it
+// creates nothing - a deployment that never governs an upstream gets no empty artifacts.
+function ensureOperatorGrants(admin: AdminClient, zoneId: string, operatorAppId: string, resourceIdentifiers: string[]): Promise<void> {
+  return ensureGrants(admin, zoneId, {
     policyName: OPERATOR_POLICY_NAME,
     setName: OPERATOR_POLICY_SET_NAME,
-    content: authorOperatorPolicy(operatorAppId, resourceIdentifiers),
-    createWhenMissing: resourceIdentifiers.length > 0,
+    grants: resourceIdentifiers.map((resourceIdentifier) => ({
+      applicationId: operatorAppId,
+      resourceIdentifier,
+      scopes: [LLM_SCOPE],
+      role: OPERATOR_ROLE,
+    })),
   })
 }
 
@@ -294,7 +273,7 @@ export async function provisionGovernedUpstreams(
     governed.push({ id: upstream.id, resourceIdentifier })
   }
   await pruneOrphanedProviders(admin, zoneId, new Set(upstreams.map((upstream) => llmProviderIdentifier(upstream.id))))
-  await ensureOperatorPolicySet(
+  await ensureOperatorGrants(
     admin,
     zoneId,
     operatorAppId,
