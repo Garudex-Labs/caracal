@@ -20,13 +20,15 @@ The package is ESM-only and targets Node `>=22`. To consume it from a CommonJS p
 | `new Caracal()` | You want auto-detection from explicit options, `CARACAL_CONFIG`, the default profile, or environment variables. |
 | `Caracal.fromEnv()` | You want environment-only startup. |
 | `Caracal.fromConfig(path)` | You want to load a runtime profile. |
-| `Caracal.fromClientSecret(options)` | You want service-root token refresh through STS client-secret exchange. |
+| `Caracal.fromClientSecret(options)` | You want service-root token refresh through STS client-secret exchange, from a static credential triple or a `credentials` resolver. |
 
 ```ts
 import { Caracal } from "@caracalai/sdk";
 
 const caracal = new Caracal();
 ```
+
+`Caracal.fromClientSecret` accepts either a static `zoneId`/`applicationId`/`clientSecret` triple or a `credentials` resolver: a function returning `{ zoneId, applicationId, clientSecret }`, resolved on every exchange. Use the resolver when the credential is provisioned after startup or rotates while the process runs - the next exchange simply presents whatever the resolver returns, and a resolver that returns `null` fails the call closed with `CredentialsUnavailableError` instead of using a stale secret. When the resolved identity changes, the client rebuilds its exchange state so no cached token or mandate crosses identities. `resources` is optional for a client that only runs governed transports; `spawn` and lifecycle calls require at least one.
 
 ## Core methods
 
@@ -40,7 +42,7 @@ const caracal = new Caracal();
 | `headersAsync(options?)` | Project headers when a root token may require async refresh. |
 | `bindFromHeaders(headers, fn, options?)` | Bind inbound Caracal envelope headers to the current async context. |
 | `transport(options?)` | Return a fetch-compatible function that injects Caracal headers and Gateway routing. Pass `scopes` to authorize gateway calls with a scoped resource mandate instead of the raw subject token. |
-| `governedTransport(resourceId, options)` | Return a fetch pinned to one governed resource on the application's own authority: each mint cycle spawns a session pair, narrows a delegation to `scopes`, and caches the minted mandate until expiry; requires client-secret credentials. |
+| `governedTransport(resourceId, options)` | Return a fetch pinned to one governed resource on the application's own authority: each mint cycle spawns a session pair, narrows a delegation to `scopes`, and caches the minted mandate until expiry; requires client-secret credentials. Session `labels` default to the application id, the same role `ensureGrants` authors, so a grant and its transport align without naming a role on either side. |
 | `mintMandate(resourceId, scopes, options?)` | Mint a cached resource mandate carrying the bound agent session and delegation edge; requires client-secret credentials. |
 | `waitForApproval(challengeId, options?)` | Long-poll an approval challenge raised by an approval-gated mint; returns the final state. |
 | `gatewayRequest(resourceId, path?)` | Build a Gateway URL and `X-Caracal-Resource` header. |
@@ -78,7 +80,7 @@ Header and transport helpers refuse to fall back to the application root token u
 
 ## Errors and Observability
 
-STS denials throw `CaracalError` carrying `code`, `httpStatus`, and `requestId`, so callers branch on the machine-readable code instead of matching message text. Approval-gated exchanges throw `InteractionRequiredError`, a `CaracalError` subclass that adds the challenge fields, and coordinator failures throw `CoordinatorError` with `status`, `method`, and `path`.
+STS denials throw `CaracalError` carrying `code`, `httpStatus`, and `requestId`, so callers branch on the machine-readable code instead of matching message text. Approval-gated exchanges throw `InteractionRequiredError`, a `CaracalError` subclass that adds the challenge fields, and coordinator failures throw `CoordinatorError` with `status`, `method`, and `path`. A client built on a `credentials` resolver throws `CredentialsUnavailableError` while the resolver returns no usable credential, so a not-yet-provisioned or expired identity fails closed rather than reaching the wire.
 
 ```ts
 import { Caracal, CaracalError } from "@caracalai/sdk";

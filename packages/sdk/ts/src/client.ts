@@ -47,6 +47,30 @@ export interface ResourceBinding {
 
 export type TokenSource = () => string | Promise<string>
 
+/** The credential triple a client-secret client acts as. */
+export interface ClientCredentials {
+  zoneId: string
+  applicationId: string
+  clientSecret: string
+}
+
+/**
+ * Resolves the current client credentials at each control-plane operation, so
+ * a secret rotated by a secrets manager or a credential provisioned after the
+ * process started is simply presented on the next exchange - the client is
+ * never rebuilt. Returning null or undefined means no usable credential exists
+ * yet; the operation fails closed with CredentialsUnavailableError.
+ */
+export type CredentialsResolver = () => ClientCredentials | null | undefined | Promise<ClientCredentials | null | undefined>
+
+/** A control-plane operation ran while the credentials resolver had no usable credential; the operation fails closed. */
+export class CredentialsUnavailableError extends Error {
+  constructor() {
+    super('Caracal credentials are unavailable: the credentials resolver returned no usable credential')
+    this.name = 'CredentialsUnavailableError'
+  }
+}
+
 /** A minted resource mandate and the lifetime the STS granted it, in seconds. */
 export interface MintedMandate {
   token: string
@@ -55,25 +79,29 @@ export interface MintedMandate {
 
 /**
  * Client-secret credential surface behind a configured Caracal client:
- * invalidates the cached lifecycle token after a server-side rejection and
- * mints scoped resource mandates for gateway calls.
+ * resolves the acting identity, invalidates the cached lifecycle token after
+ * a server-side rejection, and mints scoped resource mandates for gateway
+ * calls.
  */
 export interface ClientSecretExchanger {
   invalidate(): void
+  /** The zone and application the credentials currently resolve to; fails closed when unresolved. */
+  identity(): Promise<{ zoneId: string; applicationId: string }>
   mintMandate(
     resourceId: string,
     scopes: string[],
     opts?: { agentSessionId?: string; delegationEdgeId?: string; ttlSeconds?: number; approvalId?: string },
   ): Promise<MintedMandate>
   waitForApproval(challengeId: string, opts?: { timeoutMs?: number }): Promise<string>
-  /** Backing OAuth client; the Caracal facade attaches its event sink here. */
-  client?: OAuthClient
+  /** Attaches the observability sink token-exchange events report to. */
+  onEvent(cb: (event: OAuthEvent) => void): void
 }
 
 export interface CaracalConfig {
   coordinator: CoordinatorClient
-  zoneId: string
-  applicationId: string
+  /** Static identity; omitted for a credentials-resolver client, which resolves it through the exchanger per operation. */
+  zoneId?: string
+  applicationId?: string
   subjectToken?: string
   tokenSource?: TokenSource
   exchanger?: ClientSecretExchanger
@@ -153,9 +181,12 @@ export interface MandateOptions {
 
 /**
  * Governed transport behavior. `scopes` is the authority every request
- * presents; `labels` mark the agent sessions each mint cycle spawns so
- * operators can attribute them; `mandateTtlSeconds` bounds each minted
- * mandate (the backing sessions outlive it by a small buffer).
+ * presents; `labels` mark the agent sessions each mint cycle spawns and are
+ * the role labels the zone's grant policy matches - unset, they default to
+ * the application id, the same default role `ensureGrants` authors, so a
+ * grant and its transport align without either naming a role;
+ * `mandateTtlSeconds` bounds each minted mandate (the backing sessions
+ * outlive it by a small buffer).
  */
 export interface GovernedTransportOptions {
   scopes: string[]
@@ -170,10 +201,18 @@ export interface BindOptions extends RootOptions {
 export interface ClientSecretOptions {
   coordinatorUrl: string
   stsUrl: string
-  zoneId: string
-  applicationId: string
-  clientSecret: string
-  resources: Array<string | ResourceBinding>
+  /** Static credential triple; pass `credentials` instead when the credential is rotated or provisioned at runtime. */
+  zoneId?: string
+  applicationId?: string
+  clientSecret?: string
+  /** Dynamic credential source, resolved per operation; exactly one of this or the static triple is required. */
+  credentials?: CredentialsResolver
+  /**
+   * Resources this client mints lifecycle tokens for and routes through the
+   * Gateway. Optional for a client that only runs governed transports, which
+   * mint per resource; spawn and lifecycle paths require at least one.
+   */
+  resources?: Array<string | ResourceBinding>
   gatewayUrl?: string
   scope?: string
   /** Seeds CaracalConfig.defaultTtlSeconds for task spawns. */
@@ -211,12 +250,15 @@ export class Caracal {
     if ((config.subjectToken === undefined) === (config.tokenSource === undefined)) {
       throw new Error('CaracalConfig requires exactly one of subjectToken or tokenSource')
     }
+    if (!config.exchanger && (!config.zoneId || !config.applicationId)) {
+      throw new Error('CaracalConfig requires zoneId and applicationId')
+    }
     this.config = {
       ...config,
       coordinator: { ...config.coordinator, onEvent: (e) => this.emitEvent(e) },
       ...(config.resources && config.resources.length > 1 ? { resources: sortBindingsLongestFirst(config.resources) } : {}),
     }
-    if (this.config.exchanger?.client) this.config.exchanger.client.onEvent = (e) => this.emitEvent(e)
+    this.config.exchanger?.onEvent((e) => this.emitEvent(e))
   }
 
   static fromEnv(env: NodeJS.ProcessEnv = process.env): Caracal {
@@ -233,11 +275,23 @@ export class Caracal {
 
   async close(): Promise<void> {}
 
+  /**
+   * The zone and application this client acts as: the static configuration
+   * when present, otherwise resolved through the credentials source, which
+   * fails closed while no usable credential exists.
+   */
+  private async identity(): Promise<{ zoneId: string; applicationId: string }> {
+    const { zoneId, applicationId, exchanger } = this.config
+    if (zoneId && applicationId) return { zoneId, applicationId }
+    return exchanger!.identity()
+  }
+
   async spawn<T>(fn: () => Promise<T>, opts: SpawnOptions = {}): Promise<T> {
+    const identity = await this.identity()
     const input: SpawnInput = {
       coordinator: this.config.coordinator,
-      zoneId: this.config.zoneId,
-      applicationId: this.config.applicationId,
+      zoneId: identity.zoneId,
+      applicationId: identity.applicationId,
       subjectToken: await this.rootToken(),
       tokenSource: this.config.tokenSource,
       invalidate: this.invalidate(),
@@ -256,10 +310,11 @@ export class Caracal {
   }
 
   async spawnService(opts: ServiceOptions = {}): Promise<ServiceAgent> {
+    const identity = await this.identity()
     return await spawnServicePrimitive({
       coordinator: this.config.coordinator,
-      zoneId: this.config.zoneId,
-      applicationId: this.config.applicationId,
+      zoneId: identity.zoneId,
+      applicationId: identity.applicationId,
       subjectToken: await this.rootToken(),
       tokenSource: this.config.tokenSource,
       invalidate: this.invalidate(),
@@ -435,9 +490,10 @@ export class Caracal {
       if (claims.sessionId !== undefined) env.sessionId = claims.sessionId
       if (claims.hop !== undefined) env.hop = claims.hop
     }
+    const own = claims?.zoneId !== undefined && claims?.applicationId !== undefined ? undefined : await this.identity()
     const ctx = fromEnvelope(env as Envelope, {
-      zoneId: claims?.zoneId ?? this.config.zoneId,
-      applicationId: claims?.applicationId ?? this.config.applicationId,
+      zoneId: claims?.zoneId ?? own!.zoneId,
+      applicationId: claims?.applicationId ?? own!.applicationId,
     })
     return await bind(rootInjected ? { ...ctx, ownToken: true } : ctx, fn)
   }
@@ -591,10 +647,9 @@ export class Caracal {
     if (!resourceId.trim()) throw new Error('Caracal.governedTransport(): resourceId is required')
     if (!opts.scopes.length) throw new Error('Caracal.governedTransport(): scopes are required')
     const scopes = [...new Set(opts.scopes)].sort()
-    const key = `${resourceId}::${scopes.join(' ')}`
     const outer = this
     const fn: typeof fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-      const { mandate } = await outer.governedMandate(key, exchanger, resourceId, scopes, opts)
+      const { mandate } = await outer.governedMandate(exchanger, resourceId, scopes, opts)
       const merged = new Headers(init?.headers ?? {})
       merged.set('Authorization', `Bearer ${mandate}`)
       merged.set('X-Caracal-Resource', resourceId)
@@ -607,19 +662,22 @@ export class Caracal {
   }
 
   private async governedMandate(
-    key: string,
     exchanger: ClientSecretExchanger,
     resourceId: string,
     scopes: string[],
     opts: GovernedTransportOptions,
   ): Promise<{ mandate: string; expiresAt: number }> {
+    // The cache key carries the acting identity, so a credential re-provisioned into a
+    // different zone or application can never be served a mandate minted for the old one.
+    const identity = await exchanger.identity()
+    const key = `${identity.zoneId}::${identity.applicationId}::${resourceId}::${scopes.join(' ')}`
     const cached = this.governedMandates.get(key)
     if (cached && Date.now() / 1000 < cached.expiresAt - GOVERNED_REFRESH_MARGIN_SECONDS) return cached
     const inflight = this.governedInflight.get(key)
     if (inflight) return inflight
     const pending = (async () => {
       try {
-        const fresh = await this.governedCycle(exchanger, resourceId, scopes, opts)
+        const fresh = await this.governedCycle(exchanger, identity, resourceId, scopes, opts)
         this.governedMandates.set(key, fresh)
         return fresh
       } finally {
@@ -632,6 +690,7 @@ export class Caracal {
 
   private async governedCycle(
     exchanger: ClientSecretExchanger,
+    identity: { zoneId: string; applicationId: string },
     resourceId: string,
     scopes: string[],
     opts: GovernedTransportOptions,
@@ -640,9 +699,9 @@ export class Caracal {
     const sessionTtl = mandateTtl + GOVERNED_SESSION_TTL_BUFFER_SECONDS
     const bootstrap = (await exchanger.mintMandate(resourceId, [LIFECYCLE_SCOPE])).token
     const spawnReq = {
-      zoneId: this.config.zoneId,
-      applicationId: this.config.applicationId,
-      labels: opts.labels,
+      zoneId: identity.zoneId,
+      applicationId: identity.applicationId,
+      labels: opts.labels ?? [identity.applicationId],
       ttlSeconds: sessionTtl,
     }
     const spawned: string[] = []
@@ -654,11 +713,11 @@ export class Caracal {
         .agentSessionId
       spawned.push(target)
       const edge = await createDelegation(this.config.coordinator, bootstrap, {
-        zoneId: this.config.zoneId,
-        issuerApplicationId: this.config.applicationId,
+        zoneId: identity.zoneId,
+        issuerApplicationId: identity.applicationId,
         sourceSessionId: source,
         targetSessionId: target,
-        receiverApplicationId: this.config.applicationId,
+        receiverApplicationId: identity.applicationId,
         scopes,
         constraints: { resources: [resourceId] },
         ttlSeconds: sessionTtl,
@@ -670,7 +729,7 @@ export class Caracal {
       })
       return { mandate: minted.token, expiresAt: Date.now() / 1000 + minted.expiresIn }
     } catch (err) {
-      await Promise.allSettled(spawned.map((id) => terminateAgent(this.config.coordinator, bootstrap, this.config.zoneId, id)))
+      await Promise.allSettled(spawned.map((id) => terminateAgent(this.config.coordinator, bootstrap, identity.zoneId, id)))
       throw err
     }
   }
@@ -836,21 +895,7 @@ function existingLocalFile(path: string, env: NodeJS.ProcessEnv): string | undef
 
 function detectConfig(opts: CaracalOptions): CaracalConfig {
   if (opts.clientSecret && Object.keys(opts.clientSecret).length > 0) {
-    const cs = opts.clientSecret
-    const missing = [
-      ['coordinatorUrl', cs.coordinatorUrl],
-      ['stsUrl', cs.stsUrl],
-      ['zoneId', cs.zoneId],
-      ['applicationId', cs.applicationId],
-      ['clientSecret', cs.clientSecret],
-      ['resources', cs.resources?.length ? 'set' : undefined],
-    ]
-      .filter(([, v]) => !v)
-      .map(([k]) => k)
-    if (missing.length) {
-      throw new Error(`Caracal: clientSecret missing ${missing.join(', ')}`)
-    }
-    return configFromClientSecret(cs as ClientSecretOptions)
+    return configFromClientSecret(opts.clientSecret as ClientSecretOptions)
   }
   const env = opts.env ?? process.env
   if (opts.configPath) return configFromProfile(opts.configPath, env)
@@ -920,28 +965,29 @@ function configFromClientSecret(opts: ClientSecretOptions): CaracalConfig {
   const missing = [
     ['coordinatorUrl', opts.coordinatorUrl],
     ['stsUrl', opts.stsUrl],
-    ['zoneId', opts.zoneId],
-    ['applicationId', opts.applicationId],
-    ['clientSecret', opts.clientSecret],
+    ...(opts.credentials
+      ? []
+      : [
+          ['zoneId', opts.zoneId],
+          ['applicationId', opts.applicationId],
+          ['clientSecret', opts.clientSecret],
+        ]),
   ]
     .filter(([, v]) => !v)
     .map(([k]) => k)
   if (missing.length) throw new Error(`Caracal.fromClientSecret missing ${missing.join(', ')}`)
+  if (opts.credentials && (opts.zoneId ?? opts.applicationId ?? opts.clientSecret) !== undefined) {
+    throw new Error('Caracal.fromClientSecret: pass either credentials or the zoneId/applicationId/clientSecret triple, not both')
+  }
   if (opts.defaultTtlSeconds !== undefined && (!Number.isInteger(opts.defaultTtlSeconds) || opts.defaultTtlSeconds <= 0)) {
     throw new Error('Caracal.fromClientSecret: defaultTtlSeconds must be a positive integer')
   }
-  const resourceIds = opts.resources.map((value) => (typeof value === 'string' ? value : value.resourceId))
-  if (!resourceIds.length) throw new Error('Caracal.fromClientSecret requires at least one resource')
-  const bindings = opts.resources.filter((value): value is ResourceBinding => typeof value !== 'string')
-  const tokenSource = createClientSecretTokenSource(
-    opts.stsUrl,
-    opts.zoneId,
-    opts.applicationId,
-    opts.clientSecret,
-    resourceIds,
-    opts.scope,
-    opts.fetchImpl,
-  )
+  const credentials: CredentialsResolver =
+    opts.credentials ?? (() => ({ zoneId: opts.zoneId!, applicationId: opts.applicationId!, clientSecret: opts.clientSecret! }))
+  const resourceValues = opts.resources ?? []
+  const resourceIds = resourceValues.map((value) => (typeof value === 'string' ? value : value.resourceId))
+  const bindings = resourceValues.filter((value): value is ResourceBinding => typeof value !== 'string')
+  const tokenSource = createClientSecretTokenSource(opts.stsUrl, credentials, resourceIds, opts.scope, opts.fetchImpl)
   return {
     coordinator: { baseUrl: opts.coordinatorUrl, fetchImpl: opts.fetchImpl },
     zoneId: opts.zoneId,
@@ -1337,34 +1383,54 @@ function resourceIdsFromEnv(
 /**
  * Client-secret credential surface: a lifecycle token source backed by the
  * OAuth client's cached, single-flighted exchange, plus scoped mandate
- * minting for gateway calls. `invalidate` forces the next lifecycle token to
- * bypass the cache after a server-side rejection.
+ * minting for gateway calls. Credentials resolve per operation, so a rotated
+ * secret is simply presented on the next exchange; a credential that resolves
+ * to a different zone or application rebuilds the backing OAuth client so no
+ * cached state crosses identities. `invalidate` forces the next lifecycle
+ * token to bypass the cache after a server-side rejection.
  */
 function createClientSecretTokenSource(
   stsUrl: string,
-  zoneId: string,
-  applicationId: string,
-  clientSecret: string,
+  credentials: CredentialsResolver,
   resources: string[],
   scope = LIFECYCLE_SCOPE,
   fetchImpl?: typeof fetch,
 ): ClientSecretExchanger & { source: TokenSource } {
-  const client = new OAuthClient(stsUrl, zoneId, applicationId, undefined, fetchImpl)
+  let active: { zoneId: string; applicationId: string; client: OAuthClient } | undefined
+  let events: ((event: OAuthEvent) => void) | undefined
   let force = false
+  const resolve = async (): Promise<{ creds: ClientCredentials; client: OAuthClient }> => {
+    const creds = await credentials()
+    if (!creds?.zoneId || !creds.applicationId || !creds.clientSecret) throw new CredentialsUnavailableError()
+    if (!active || active.zoneId !== creds.zoneId || active.applicationId !== creds.applicationId) {
+      const client = new OAuthClient(stsUrl, creds.zoneId, creds.applicationId, undefined, fetchImpl)
+      client.onEvent = (event) => events?.(event)
+      active = { zoneId: creds.zoneId, applicationId: creds.applicationId, client }
+    }
+    return { creds, client: active.client }
+  }
   return {
-    client,
     source: async () => {
+      if (!resources.length) {
+        throw new Error('Caracal: this client has no resources configured; spawn and lifecycle paths require at least one')
+      }
+      const { creds, client } = await resolve()
       const forceRefresh = force
       force = false
-      const token = await client.exchange('', resources, { clientSecret, scopes: [scope], forceRefresh })
+      const token = await client.exchange('', resources, { clientSecret: creds.clientSecret, scopes: [scope], forceRefresh })
       return token.accessToken
     },
     invalidate: () => {
       force = true
     },
+    identity: async () => {
+      const { creds } = await resolve()
+      return { zoneId: creds.zoneId, applicationId: creds.applicationId }
+    },
     mintMandate: async (resourceId, scopes, opts = {}) => {
+      const { creds, client } = await resolve()
       const token = await client.exchange('', resourceId, {
-        clientSecret,
+        clientSecret: creds.clientSecret,
         scopes: [...new Set(scopes)].sort(),
         agentSessionId: opts.agentSessionId,
         delegationEdgeId: opts.delegationEdgeId,
@@ -1373,7 +1439,10 @@ function createClientSecretTokenSource(
       })
       return { token: token.accessToken, expiresIn: token.expiresIn }
     },
-    waitForApproval: (challengeId, opts = {}) => client.waitForApproval(challengeId, opts),
+    waitForApproval: async (challengeId, opts = {}) => (await resolve()).client.waitForApproval(challengeId, opts),
+    onEvent: (cb) => {
+      events = cb
+    },
   }
 }
 
