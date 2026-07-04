@@ -281,9 +281,7 @@ def _resource_ids_from_env(
     resource. Binding-derived ids always join the audience set so a routed
     resource can never be silently absent from the exchanged token."""
     explicit = env.get("CARACAL_APP_RESOURCES")
-    ids = (
-        [s.strip() for s in explicit.split(",") if s.strip()] if explicit else []
-    )
+    ids = [s.strip() for s in explicit.split(",") if s.strip()] if explicit else []
     return list(dict.fromkeys(ids + [b.resource_id for b in bindings]))
 
 
@@ -922,9 +920,11 @@ class Caracal:
             parent_id=parent_id,
             parent_ctx=parent_ctx,
             grant=grant,
-            ttl_seconds=ttl_seconds
-            if ttl_seconds is not None
-            else self.config.default_ttl_seconds,
+            ttl_seconds=(
+                ttl_seconds
+                if ttl_seconds is not None
+                else self.config.default_ttl_seconds
+            ),
             metadata=metadata,
             labels=labels,
             trace_id=trace_id,
@@ -1357,10 +1357,7 @@ class Caracal:
                     and gateway_bound
                     and (
                         bound is None
-                        or (
-                            bound.own_token
-                            and outer.config._token_source is not None
-                        )
+                        or (bound.own_token and outer.config._token_source is not None)
                     )
                 ):
                     token = outer.config.subject_token
@@ -1381,10 +1378,7 @@ class Caracal:
                     and gateway_bound
                     and (
                         bound is None
-                        or (
-                            bound.own_token
-                            and outer.config._token_source is not None
-                        )
+                        or (bound.own_token and outer.config._token_source is not None)
                     )
                 ):
                     token = await outer.config.asubject_token()
@@ -1451,6 +1445,27 @@ class Caracal:
             delegation_edge_id=bound.delegation_edge_id if bound else None,
             ttl_seconds=ttl_seconds,
             approval_id=approval_id,
+        )
+
+    def wait_for_approval(
+        self, challenge_id: str, *, timeout_seconds: float = 300.0
+    ) -> str:
+        """Long-poll the approval challenge raised by an approval-gated
+        :meth:`mint_mandate` until an approver decides it, it expires, or the
+        timeout elapses. Returns the final lifecycle state: ``approved`` means
+        a retry with ``approval_id`` will mint; ``rejected`` and ``expired``
+        are terminal; ``pending`` means the timeout elapsed with no decision.
+
+        Requires client-secret credentials."""
+        exchanger = self.config.exchanger
+        if exchanger is None:
+            raise RuntimeError(
+                "Caracal.wait_for_approval requires client-secret credentials; "
+                "build the client with from_client_secret, from_config, or "
+                "CARACAL_APP_CLIENT_SECRET."
+            )
+        return exchanger.wait_for_approval(
+            challenge_id, timeout_seconds=timeout_seconds
         )
 
     async def fetch(

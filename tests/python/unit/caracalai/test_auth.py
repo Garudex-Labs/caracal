@@ -243,7 +243,9 @@ class MintMandateTests(unittest.TestCase):
             calls.append(req)
             return httpx.Response(
                 200,
-                json={"access_token": _jwt({"exp": time.time() + 300, "n": len(calls)})},
+                json={
+                    "access_token": _jwt({"exp": time.time() + 300, "n": len(calls)})
+                },
             )
 
         with _patch_client(handler):

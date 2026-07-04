@@ -305,7 +305,10 @@ class ClientSecretExchanger:
             if response is not None:
                 if response.is_success:
                     return self._parse_token(response)
-                if not _transient_status(response.status_code) or attempt >= self._retries:
+                if (
+                    not _transient_status(response.status_code)
+                    or attempt >= self._retries
+                ):
                     raise_for_caracal_error(response)
             remaining = deadline - time.time()
             if remaining <= 0:
