@@ -35,6 +35,8 @@ export const Lifecycle = {
 
 export type Lifecycle = (typeof Lifecycle)[keyof typeof Lifecycle]
 
+export type AgentStatus = 'starting' | 'healthy' | 'degraded' | 'unhealthy'
+
 export interface DelegationConstraints {
   resources?: string[]
   maxDepth?: number
@@ -60,8 +62,9 @@ export interface SpawnRequest {
 }
 
 export interface SpawnResponse {
-  agent_session_id: string
-  delegation_edge_id?: string | null
+  agentSessionId: string
+  delegationEdgeId?: string
+  heartbeatDeadlineAt?: string
 }
 
 export interface DelegationRequest {
@@ -78,7 +81,12 @@ export interface DelegationRequest {
 }
 
 export interface DelegationResponse {
-  delegation_edge_id: string
+  delegationEdgeId: string
+}
+
+export interface HeartbeatResponse {
+  status?: string
+  heartbeatDeadlineAt?: string
 }
 
 async function call<T>(
@@ -88,6 +96,7 @@ async function call<T>(
   bearer: string,
   body?: unknown,
   extraHeaders?: Record<string, string>,
+  signal?: AbortSignal,
 ): Promise<T> {
   const fetchFn = client.fetchImpl ?? fetch
   const headers: Record<string, string> = {
@@ -95,11 +104,12 @@ async function call<T>(
     authorization: `Bearer ${bearer}`,
     ...(extraHeaders ?? {}),
   }
-  const res = await fetchFn(`${client.baseUrl}${path}`, {
+  const timeout = AbortSignal.timeout(client.timeoutMs ?? DEFAULT_TIMEOUT_MS)
+  const res = await fetchFn(`${client.baseUrl.replace(/\/+$/, '')}${path}`, {
     method,
     headers,
     body: body ? JSON.stringify(body) : undefined,
-    signal: AbortSignal.timeout(client.timeoutMs ?? DEFAULT_TIMEOUT_MS),
+    signal: signal ? AbortSignal.any([timeout, signal]) : timeout,
   })
   if (!res.ok) {
     const text = await res.text()
@@ -110,9 +120,14 @@ async function call<T>(
   return (text ? JSON.parse(text) : undefined) as T
 }
 
-export async function spawnAgent(client: CoordinatorClient, bearer: string, req: SpawnRequest): Promise<SpawnResponse> {
+export async function spawnAgent(
+  client: CoordinatorClient,
+  bearer: string,
+  req: SpawnRequest,
+  signal?: AbortSignal,
+): Promise<SpawnResponse> {
   const headers = req.idempotencyKey ? { 'idempotency-key': req.idempotencyKey } : undefined
-  const res = await call<SpawnResponse>(
+  const res = await call<{ agent_session_id?: string; delegation_edge_id?: string | null; heartbeat_deadline_at?: string | null }>(
     client,
     'POST',
     `/zones/${encodeURIComponent(req.zoneId)}/agents`,
@@ -128,20 +143,26 @@ export async function spawnAgent(client: CoordinatorClient, bearer: string, req:
       inherit_parent_edge_id: req.inheritParentEdgeId,
     },
     headers,
+    signal,
   )
-  return res
+  if (!res?.agent_session_id) throw new Error('coordinator spawn response missing agent_session_id')
+  return {
+    agentSessionId: res.agent_session_id,
+    delegationEdgeId: res.delegation_edge_id ?? undefined,
+    heartbeatDeadlineAt: res.heartbeat_deadline_at ?? undefined,
+  }
 }
 
 export async function terminateAgent(client: CoordinatorClient, bearer: string, zoneId: string, agentSessionId: string): Promise<void> {
-  await call<unknown>(
-    client,
-    'DELETE',
-    `/zones/${encodeURIComponent(zoneId)}/agents/${encodeURIComponent(agentSessionId)}`,
-    bearer,
-  )
+  await call<unknown>(client, 'DELETE', `/zones/${encodeURIComponent(zoneId)}/agents/${encodeURIComponent(agentSessionId)}`, bearer)
 }
 
-export async function createDelegation(client: CoordinatorClient, bearer: string, req: DelegationRequest): Promise<DelegationResponse> {
+export async function createDelegation(
+  client: CoordinatorClient,
+  bearer: string,
+  req: DelegationRequest,
+  signal?: AbortSignal,
+): Promise<DelegationResponse> {
   const constraints = req.constraints
     ? {
         resources: req.constraints.resources,
@@ -154,17 +175,27 @@ export async function createDelegation(client: CoordinatorClient, bearer: string
         broad_reason: req.constraints.broadReason,
       }
     : undefined
-  return call<DelegationResponse>(client, 'POST', `/zones/${encodeURIComponent(req.zoneId)}/delegations`, bearer, {
-    issuer_application_id: req.issuerApplicationId,
-    source_session_id: req.sourceSessionId,
-    target_session_id: req.targetSessionId,
-    receiver_application_id: req.receiverApplicationId,
-    parent_edge_id: req.parentEdgeId,
-    resource_id: req.resourceId ?? null,
-    scopes: req.scopes,
-    constraints,
-    ttl_seconds: req.ttlSeconds,
-  })
+  const res = await call<{ delegation_edge_id?: string }>(
+    client,
+    'POST',
+    `/zones/${encodeURIComponent(req.zoneId)}/delegations`,
+    bearer,
+    {
+      issuer_application_id: req.issuerApplicationId,
+      source_session_id: req.sourceSessionId,
+      target_session_id: req.targetSessionId,
+      receiver_application_id: req.receiverApplicationId,
+      parent_edge_id: req.parentEdgeId,
+      resource_id: req.resourceId,
+      scopes: req.scopes,
+      constraints,
+      ttl_seconds: req.ttlSeconds,
+    },
+    undefined,
+    signal,
+  )
+  if (!res?.delegation_edge_id) throw new Error('coordinator delegation response missing delegation_edge_id')
+  return { delegationEdgeId: res.delegation_edge_id }
 }
 
 export async function heartbeatAgent(
@@ -172,13 +203,14 @@ export async function heartbeatAgent(
   bearer: string,
   zoneId: string,
   agentSessionId: string,
-  status: 'starting' | 'healthy' | 'degraded' | 'unhealthy' = 'healthy',
-): Promise<void> {
-  await call<unknown>(
+  status: AgentStatus = 'healthy',
+): Promise<HeartbeatResponse> {
+  const res = await call<{ agent?: { status?: string; heartbeat_deadline_at?: string | null } }>(
     client,
     'POST',
     `/zones/${encodeURIComponent(zoneId)}/agents/${encodeURIComponent(agentSessionId)}/heartbeat`,
     bearer,
     { status },
   )
+  return { status: res?.agent?.status, heartbeatDeadlineAt: res?.agent?.heartbeat_deadline_at ?? undefined }
 }

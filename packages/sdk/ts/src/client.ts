@@ -56,6 +56,7 @@ export interface SpawnOptions {
   metadata?: JsonObject
   labels?: string[]
   traceId?: string
+  signal?: AbortSignal
 }
 
 export interface ServiceOptions {
@@ -66,7 +67,15 @@ export interface ServiceOptions {
   metadata?: JsonObject
   labels?: string[]
   traceId?: string
+  /**
+   * Auto-heartbeat cadence. Leave unset to derive it from the server lease;
+   * a positive value fixes the interval; zero or a negative value disables
+   * the background timer, leaving the lease to manual heartbeat calls.
+   */
   heartbeatIntervalMs?: number
+  /** Called once if the coordinator reports the session permanently gone. */
+  onLeaseLost?: (err: unknown) => void
+  signal?: AbortSignal
 }
 
 export interface DelegateOptions {
@@ -160,6 +169,7 @@ export class Caracal {
       metadata: opts.metadata,
       labels: opts.labels,
       traceId: opts.traceId,
+      signal: opts.signal,
       onAgentStart: this.agentStartHooks.length ? (c) => this.fire(this.agentStartHooks, c) : undefined,
       onAgentEnd: this.agentEndHooks.length ? (c) => this.fire(this.agentEndHooks, c) : undefined,
     }
@@ -182,6 +192,8 @@ export class Caracal {
       labels: opts.labels,
       traceId: opts.traceId,
       heartbeatIntervalMs: opts.heartbeatIntervalMs,
+      onLeaseLost: opts.onLeaseLost,
+      signal: opts.signal,
       onAgentStart: this.agentStartHooks.length ? (c) => this.fire(this.agentStartHooks, c) : undefined,
     })
   }
