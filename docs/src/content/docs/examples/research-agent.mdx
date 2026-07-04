@@ -22,17 +22,17 @@ Use Console to create or select:
 
 | Object | Purpose |
 | --- | --- |
-| Zone | Owns the application, providers, resources, and policies. |
-| Application | Workload identity used by `caracal run` to call STS. |
+| Zone | Owns the workload, providers, resources, and policies. |
+| Workload | Identity used by `caracal run` to call STS; created on the **Launcher** page. |
 | Google Drive provider | Returns a Drive read token. |
 | Google Calendar provider | Returns a Calendar read token. |
 | OpenAI provider | Returns an OpenAI-compatible credential. |
 | Resources | Map `resource://google-drive`, `resource://google-calendar`, and `resource://openai` to providers. |
-| Policy | Allows the run application to request all three resources. |
+| Policy | Allows the workload to request all three resources. |
 
 Enable runtime injection on each provider.
 
-Then open the console's **Run** page, select the application, and add three launch bindings, each with the **Provider token** credential type:
+Then open the console's **Launcher** page, create a workload named `research agent`, and add three launch bindings:
 
 | Environment variable | Resource |
 | --- | --- |
@@ -40,17 +40,17 @@ Then open the console's **Run** page, select the application, and add three laun
 | `GOOGLE_CALENDAR_ACCESS_TOKEN` | `resource://google-calendar` |
 | `OPENAI_API_KEY` | `resource://openai` |
 
-Set the credential TTL to 900 seconds. The Run page then shows the exact launch command and confirms this all-provider-token profile needs no Gateway.
+Select the read-only scopes on the Drive and Calendar bindings so each injected credential carries only what the agent needs. The Launcher page then shows the exact launch commands.
 
-## Store the client secret
+## Store the workload secret
 
-The launcher needs one local file: the application's one-time client secret at the runtime secret path.
+The launcher needs one local file: the workload's one-time secret at the runtime secret path.
 
 ```bash
-export CARACAL_APPLICATION_ID="app_support_research_agent"
-mkdir -p ~/.config/caracal/runtime/$CARACAL_APPLICATION_ID
-printf '%s' '<one-time client secret>' > ~/.config/caracal/runtime/$CARACAL_APPLICATION_ID/client-secret
-chmod 600 ~/.config/caracal/runtime/$CARACAL_APPLICATION_ID/client-secret
+export CARACAL_WORKLOAD_ID="<workload ID from the Launcher page>"
+mkdir -p ~/.config/caracal/runtime/$CARACAL_WORKLOAD_ID
+printf '%s' '<one-time workload secret>' > ~/.config/caracal/runtime/$CARACAL_WORKLOAD_ID/secret
+chmod 600 ~/.config/caracal/runtime/$CARACAL_WORKLOAD_ID/secret
 ```
 
 Do not export `GOOGLE_DRIVE_ACCESS_TOKEN`, `GOOGLE_CALENDAR_ACCESS_TOKEN`, or `OPENAI_API_KEY` yourself. Caracal injects them into the child process after STS authorization.
@@ -59,7 +59,7 @@ Do not export `GOOGLE_DRIVE_ACCESS_TOKEN`, `GOOGLE_CALENDAR_ACCESS_TOKEN`, or `O
 
 ```bash
 cd examples/ResearchAgent
-export CARACAL_APPLICATION_ID="app_support_research_agent"
+export CARACAL_WORKLOAD_ID="<workload ID from the Launcher page>"
 caracal run -- node agent.mjs
 ```
 

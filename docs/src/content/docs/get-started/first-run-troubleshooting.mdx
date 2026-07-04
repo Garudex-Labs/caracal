@@ -39,28 +39,28 @@ caracal status --ready --json
 
 | Symptom | Check |
 | --- | --- |
-| `workload identity is required to run a command` | Export `CARACAL_APPLICATION_ID` and provide a client secret source. |
-| `run manifest not configured` | Define launch bindings on the **Run** page in the web console. |
+| `workload identity not found` | Export `CARACAL_WORKLOAD_ID` and provide a workload secret source. |
+| `no credential bindings configured` | Define launch bindings for the workload on the **Launcher** page in the web console. |
 | Secret file is rejected | Ensure the secret file exists and is readable only by the current user. |
 | SDK cannot load configuration | Set `CARACAL_CONFIG` to your `caracal.toml` path, or pass the profile path using the SDK-supported configuration mechanism. |
 
 Linux and macOS:
 
 ```sh
-export CARACAL_APPLICATION_ID=<application ID>
-export CARACAL_APP_CLIENT_SECRET=<client secret>
+export CARACAL_WORKLOAD_ID=<workload ID>
+export CARACAL_WORKLOAD_SECRET=<workload secret>
 ```
 
 Windows PowerShell:
 
 ```powershell
-$env:CARACAL_APPLICATION_ID = "<application ID>"
-$env:CARACAL_APP_CLIENT_SECRET = "<client secret>"
+$env:CARACAL_WORKLOAD_ID = "<workload ID>"
+$env:CARACAL_WORKLOAD_SECRET = "<workload secret>"
 ```
 
-## Lost App Secret
+## Lost Workload Secret
 
-The app client secret is shown once when the app is created. If you lose it, create a new secret from the web console **Applications** view and update your secret file or environment with the new value.
+The workload secret is shown once when the workload is created. If you lose it, rotate the secret from the web console **Launcher** page and update your secret file or environment with the new value.
 
 ## STS 403
 
@@ -71,7 +71,7 @@ An STS 403 means the workload authenticated but did not receive a mandate.
 | Active policy set | Activate the starter policy set created by guided setup. |
 | Resource ID | Use the resource ID you created in guided setup. |
 | Scopes | Request only scopes covered by the starter policy. |
-| App secret | Regenerate the app secret if the configured secret file no longer matches the app. |
+| Workload secret | Rotate the workload secret if the configured secret file no longer matches the workload. |
 | Audit request ID | Open web console **Audit** or **explain** with the request ID to see the policy diagnostic. |
 
 ## Gateway 403
