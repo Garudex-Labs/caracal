@@ -6,7 +6,7 @@
 import { randomBytes } from 'node:crypto'
 import { CONTROL_CAPABILITIES, type ControlGen } from './operator-control-map.js'
 import { CAPABILITIES, parseStepReference } from './operator-capabilities.js'
-import { ControlClientError, type ControlClient } from './control-client.js'
+import { ControlClientError, type ControlClient } from '@caracalai/admin'
 
 // One applied step: the ledger-safe detail persisted to the turn and any one-time output
 // (such as an issued or rotated client secret) returned to the caller in the response

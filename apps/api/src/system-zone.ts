@@ -3,8 +3,8 @@
 //
 // Idempotent provisioner for the reserved caracal.sys system zone the Operator self-governs through the control plane.
 
-import { createHash, randomBytes } from 'node:crypto'
-import type { AdminClient, Application } from '@caracalai/admin'
+import { randomBytes } from 'node:crypto'
+import { ensureActivePolicySet, ensureApiKeyProvider, ensureApplication, ensureResource, type AdminClient } from '@caracalai/admin'
 import { ensureControlResource } from '@caracalai/engine'
 import type { OperatorControlCredential } from './config.js'
 
@@ -108,10 +108,6 @@ const LLM_SCOPE = 'llm:invoke'
 // resource it owns, so every governed resource must declare it alongside its data scope.
 const LIFECYCLE_SCOPE = 'agent:lifecycle'
 
-function sha256Hex(text: string): string {
-  return createHash('sha256').update(text, 'utf8').digest('hex')
-}
-
 function sanitizeSlug(id: string): string {
   return (
     id
@@ -156,11 +152,6 @@ export function authorOperatorPolicy(operatorAppId: string, resourceIdentifiers:
   ].join('\n')
 }
 
-function sameTraitSet(live: readonly string[] | undefined, desired: readonly string[]): boolean {
-  const have = new Set(live ?? [])
-  return have.size === desired.length && desired.every((trait) => have.has(trait))
-}
-
 // Resolves the id of a zone by its exact slug, or null when no such zone exists. A
 // deterministic lookup the provisioner depends on instead of scanning a page of the zone
 // list: the system zone is created at first boot (the oldest zone), so in a deployment with
@@ -183,32 +174,14 @@ function generateClientSecret(): string {
   return `cs_${randomBytes(32).toString('base64url')}`
 }
 
-async function ensureRoleIdentity(admin: AdminClient, zoneId: string, name: string, traits: string[], secret: string): Promise<string> {
-  const apps = await admin.applications.list(zoneId)
-  const existing = apps.find((app: Application) => app.name === name)
-  if (!existing) {
-    const created = await admin.applications.create(zoneId, { name, registration_method: 'managed', traits })
-    // Seal the freshly generated secret so the one-time secret minted at creation is never
-    // the running credential.
-    await admin.applications.patch(zoneId, created.id, { client_secret: secret })
-    return created.id
-  }
-  // An existing reserved-name identity must be a usable managed credential; a DCR or
-  // app-expiring application with the reserved name cannot serve as the identity, so binding
-  // to it would report governed execution as configured while every execution failed at the
-  // token mint. Fail closed instead, so the misconfiguration surfaces rather than hiding.
-  if (existing.registration_method !== 'managed' || (existing.expires_at !== null && existing.expires_at !== undefined)) {
-    throw new Error(`reserved identity ${name} exists but is not a usable managed credential`)
-  }
-  // Reconcile the live identity to least privilege and seal the fresh secret. The trait set
-  // carries the credential deadline, so a rotation always advances it; the secret patch on
-  // every run is the rotation itself - the previous secret stops working the moment the new
-  // one is sealed, which is also how a compromised credential is revoked.
-  if (!sameTraitSet(existing.traits, traits)) {
-    await admin.applications.patch(zoneId, existing.id, { traits })
-  }
-  await admin.applications.patch(zoneId, existing.id, { client_secret: secret })
-  return existing.id
+// Converges one reserved role identity: created managed with its canonical trait set, or
+// reconciled to least privilege when it already exists. The trait set carries the credential
+// deadline, so a rotation always advances it; the secret seal on every run is the rotation
+// itself - the previous secret stops working the moment the new one is sealed, which is also
+// how a compromised credential is revoked. An unusable reserved-name identity (DCR or
+// app-expiring) fails the provisioning run closed rather than binding a dead credential.
+function ensureRoleIdentity(admin: AdminClient, zoneId: string, name: string, traits: string[], secret: string): Promise<string> {
+  return ensureApplication(admin, zoneId, { name, traits, clientSecret: secret })
 }
 
 // Seals an upstream's api key into a Caracal api_key provider the gateway injects at call
@@ -220,10 +193,7 @@ async function ensureRoleIdentity(admin: AdminClient, zoneId: string, name: stri
 // resupplying the key, so an edit applies and the sealed secret is preserved. A missing provider
 // with no key returns null, marking the upstream unconfigured so no resource binds a dead
 // credential. allow_runtime_injection lets the gateway inject it for a runtime exchange.
-async function ensureApiKeyProvider(admin: AdminClient, zoneId: string, upstream: GovernedUpstream): Promise<string | null> {
-  const identifier = llmProviderIdentifier(upstream.id)
-  const providers = await admin.providers.list(zoneId)
-  const existing = providers.find((provider) => provider.identifier === identifier)
+function ensureLlmProvider(admin: AdminClient, zoneId: string, upstream: GovernedUpstream): Promise<string | null> {
   const auth = upstream.auth ?? { location: 'header', headerName: 'Authorization', authScheme: 'Bearer' }
   const placement =
     auth.location === 'query'
@@ -233,40 +203,12 @@ async function ensureApiKeyProvider(admin: AdminClient, zoneId: string, upstream
           header_name: auth.headerName || 'Authorization',
           ...(auth.authScheme ? { auth_scheme: auth.authScheme } : {}),
         }
-  const publicConfig = { ...placement, allow_runtime_injection: true }
-
-  if (upstream.apiKey === undefined) {
-    // No key to (re)seal: keep the sealed secret and only reconcile placement on an existing
-    // provider; without one there is nothing to configure.
-    if (!existing) return null
-    await admin.providers.patch(zoneId, existing.id, { config_json: publicConfig })
-    return existing.id
-  }
-  const config = { ...publicConfig, api_key: upstream.apiKey }
-  if (!existing) {
-    const created = await admin.providers.create(zoneId, {
-      name: `Operator LLM ${upstream.id}`,
-      identifier,
-      kind: 'api_key',
-      config_json: config,
-    })
-    return created.id
-  }
-  await admin.providers.patch(zoneId, existing.id, { kind: 'api_key', config_json: config })
-  return existing.id
-}
-
-interface ResourceShape {
-  upstream_url?: string | null
-  scopes?: string[]
-  credential_provider_id?: string | null
-  gateway_application_id?: string | null
-  operation_enforcement?: string
-}
-
-function sameScopeSet(live: readonly string[] | undefined, desired: readonly string[]): boolean {
-  const have = new Set(live ?? [])
-  return have.size === desired.length && desired.every((scope) => have.has(scope))
+  return ensureApiKeyProvider(admin, zoneId, {
+    name: `Operator LLM ${upstream.id}`,
+    identifier: llmProviderIdentifier(upstream.id),
+    publicConfig: { ...placement, allow_runtime_injection: true },
+    apiKey: upstream.apiKey,
+  })
 }
 
 // Reconciles the governed LLM resource and its gateway binding. The resource declares the
@@ -283,29 +225,15 @@ async function ensureLlmResource(
   operatorAppId: string,
 ): Promise<string> {
   const identifier = llmResourceIdentifier(upstream.id)
-  const scopes = [LLM_SCOPE, LIFECYCLE_SCOPE]
-  const desired = {
+  await ensureResource(admin, zoneId, {
+    name: `Operator LLM ${upstream.id}`,
+    identifier,
+    scopes: [LLM_SCOPE, LIFECYCLE_SCOPE],
     upstream_url: upstream.baseUrl,
-    scopes,
     credential_provider_id: providerId,
     gateway_application_id: operatorAppId,
-    operation_enforcement: 'transport_uniform' as const,
-  }
-  const resources = (await admin.resources.list(zoneId)) as unknown as (ResourceShape & { id: string; identifier: string })[]
-  const existing = resources.find((resource) => resource.identifier === identifier)
-  if (!existing) {
-    await admin.resources.create(zoneId, { name: `Operator LLM ${upstream.id}`, identifier, ...desired })
-    return identifier
-  }
-  const drifted =
-    existing.upstream_url !== desired.upstream_url ||
-    !sameScopeSet(existing.scopes, scopes) ||
-    existing.credential_provider_id !== providerId ||
-    existing.gateway_application_id !== operatorAppId ||
-    existing.operation_enforcement !== desired.operation_enforcement
-  if (drifted) {
-    await admin.resources.patch(zoneId, existing.id, desired)
-  }
+    operation_enforcement: 'transport_uniform',
+  })
   return identifier
 }
 
@@ -317,46 +245,13 @@ async function ensureLlmResource(
 // reserved-named set rather than creating a new one each run. When there are no grants and no
 // system policy already exists, it creates nothing - a deployment that never governs an
 // upstream gets no empty artifacts.
-async function ensureOperatorPolicySet(
-  admin: AdminClient,
-  zoneId: string,
-  operatorAppId: string,
-  resourceIdentifiers: string[],
-): Promise<void> {
-  const policies = await admin.policies.list(zoneId)
-  const policy = policies.find((entry) => entry.name === OPERATOR_POLICY_NAME)
-  if (!policy && resourceIdentifiers.length === 0) return
-
-  const content = authorOperatorPolicy(operatorAppId, resourceIdentifiers)
-  const desiredSha = sha256Hex(content)
-
-  let policyVersionId: string
-  let policyChanged = false
-  if (!policy) {
-    const created = await admin.policies.create(zoneId, { name: OPERATOR_POLICY_NAME, content })
-    policyVersionId = created.version_id
-    policyChanged = true
-  } else {
-    const detail = await admin.policies.get(zoneId, policy.id)
-    const latest = detail.versions.reduce((best, version) => (version.version > best.version ? version : best))
-    if (latest.content_sha256 === desiredSha) {
-      policyVersionId = latest.id
-    } else {
-      const added = await admin.policies.addVersion(zoneId, policy.id, content)
-      policyVersionId = added.version_id
-      policyChanged = true
-    }
-  }
-
-  const sets = await admin.policySets.list(zoneId)
-  let set = sets.find((entry) => entry.name === OPERATOR_POLICY_SET_NAME)
-  if (!set) {
-    set = await admin.policySets.create(zoneId, OPERATOR_POLICY_SET_NAME)
-  }
-  if (policyChanged || !set.active_version_id) {
-    const version = await admin.policySets.addVersion(zoneId, set.id, [{ policy_version_id: policyVersionId }])
-    await admin.policySets.activate(zoneId, set.id, version.version_id)
-  }
+function ensureOperatorPolicySet(admin: AdminClient, zoneId: string, operatorAppId: string, resourceIdentifiers: string[]): Promise<void> {
+  return ensureActivePolicySet(admin, zoneId, {
+    policyName: OPERATOR_POLICY_NAME,
+    setName: OPERATOR_POLICY_SET_NAME,
+    content: authorOperatorPolicy(operatorAppId, resourceIdentifiers),
+    createWhenMissing: resourceIdentifiers.length > 0,
+  })
 }
 
 // Archives the sealed providers for upstreams no longer configured. Pruning a removed
@@ -393,7 +288,7 @@ export async function provisionGovernedUpstreams(
 ): Promise<{ id: string; resourceIdentifier: string }[]> {
   const governed: { id: string; resourceIdentifier: string }[] = []
   for (const upstream of upstreams) {
-    const providerId = await ensureApiKeyProvider(admin, zoneId, upstream)
+    const providerId = await ensureLlmProvider(admin, zoneId, upstream)
     if (!providerId) continue
     const resourceIdentifier = await ensureLlmResource(admin, zoneId, upstream, providerId, operatorAppId)
     governed.push({ id: upstream.id, resourceIdentifier })
@@ -443,7 +338,13 @@ export async function provisionSystemZone(
     roleIdentityTraits(roles.researcher, expiresAt),
     researcherSecret,
   )
-  const executorId = await ensureRoleIdentity(admin, zone.id, EXECUTOR_APP_NAME, roleIdentityTraits(roles.executor, expiresAt), executorSecret)
+  const executorId = await ensureRoleIdentity(
+    admin,
+    zone.id,
+    EXECUTOR_APP_NAME,
+    roleIdentityTraits(roles.executor, expiresAt),
+    executorSecret,
+  )
   // Always reconcile governed upstreams, even with an empty set, so a previously governed
   // upstream that has been removed from config is pruned and its grant revoked rather than
   // left authorized with a live sealed key.
