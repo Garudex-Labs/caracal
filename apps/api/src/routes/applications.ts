@@ -16,6 +16,7 @@ import { zoneExists } from '../zone-guard.js'
 import { appendKeysetCondition, parseListPagination, setNextLink } from './list-pagination.js'
 import { validateTraits } from '../traits.js'
 import { assertReservedNamespace } from '../reserved-namespace.js'
+import { resolveCreatedBy } from '../attribution.js'
 
 const DCR_DEFAULT_LIFETIME_SECONDS = 3600
 const DCR_MAX_LIFETIME_SECONDS = 3600
@@ -232,11 +233,16 @@ export const applicationsRoutes: FastifyPluginAsync = async (fastify) => {
     const params = parseParams(ZoneIdParams, req, reply)
     if (!params) return
     const { rows } = await fastify.db.query(
-      `SELECT run_manifest FROM applications WHERE id = $1 AND zone_id = $2 AND archived_at IS NULL`,
+      `SELECT run_manifest, run_manifest_updated_by, run_manifest_updated_at
+       FROM applications WHERE id = $1 AND zone_id = $2 AND archived_at IS NULL`,
       [params.id, params.zoneId],
     )
     if (!rows[0]) return reply.code(404).send({ error: 'application_not_found' })
-    return { run_manifest: rows[0].run_manifest ?? null }
+    return {
+      run_manifest: rows[0].run_manifest ?? null,
+      updated_by: rows[0].run_manifest_updated_by ?? null,
+      updated_at: rows[0].run_manifest_updated_at ?? null,
+    }
   })
 
   fastify.put('/zones/:zoneId/applications/:id/run-manifest', async (req, reply) => {
@@ -255,13 +261,23 @@ export const applicationsRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.code(409).send({ error: 'run_manifest_managed_only' })
     }
     const { rows } = await fastify.db.query(
-      `UPDATE applications SET run_manifest = $3
+      `UPDATE applications SET run_manifest = $3, run_manifest_updated_by = $4,
+           run_manifest_updated_at = CASE WHEN $3::jsonb IS NULL THEN NULL ELSE now() END
        WHERE id = $1 AND zone_id = $2 AND archived_at IS NULL
-       RETURNING run_manifest`,
-      [params.id, params.zoneId, normalized.manifest === null ? null : JSON.stringify(normalized.manifest)],
+       RETURNING run_manifest, run_manifest_updated_by, run_manifest_updated_at`,
+      [
+        params.id,
+        params.zoneId,
+        normalized.manifest === null ? null : JSON.stringify(normalized.manifest),
+        normalized.manifest === null ? null : resolveCreatedBy(req),
+      ],
     )
     if (!rows[0]) return reply.code(404).send({ error: 'application_not_found' })
-    return { run_manifest: rows[0].run_manifest ?? null }
+    return {
+      run_manifest: rows[0].run_manifest ?? null,
+      updated_by: rows[0].run_manifest_updated_by ?? null,
+      updated_at: rows[0].run_manifest_updated_at ?? null,
+    }
   })
 
   fastify.patch('/zones/:zoneId/applications/:id', async (req, reply) => {

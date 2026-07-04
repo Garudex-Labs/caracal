@@ -81,6 +81,12 @@ export interface RunManifest {
   credentials: RunManifestCredential[];
 }
 
+export interface RunManifestState {
+  run_manifest: RunManifest | null;
+  updated_by: string | null;
+  updated_at: string | null;
+}
+
 export type ResourceOperationEnforcement = "enforced" | "transport_uniform";
 
 export interface ResourceOperation {

@@ -63,6 +63,7 @@ import type {
   ResourcePatchInput,
   RowList,
   RunManifest,
+  RunManifestState,
   Session,
   SessionQuery,
   SimulateResult,
@@ -499,12 +500,12 @@ export const consoleApi = {
         { method: "POST", body: "{}" },
       ),
     runManifest: (zoneId: string, id: string, signal?: AbortSignal) =>
-      request<{ run_manifest: RunManifest | null }>(
+      request<RunManifestState>(
         `/v1/zones/${encodeURIComponent(zoneId)}/applications/${encodeURIComponent(id)}/run-manifest`,
         { signal },
       ),
     saveRunManifest: (zoneId: string, id: string, input: RunManifest) =>
-      request<{ run_manifest: RunManifest | null }>(
+      request<RunManifestState>(
         `/v1/zones/${encodeURIComponent(zoneId)}/applications/${encodeURIComponent(id)}/run-manifest`,
         { method: "PUT", body: JSON.stringify(input) },
       ),

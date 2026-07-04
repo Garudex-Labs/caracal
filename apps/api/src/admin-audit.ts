@@ -72,12 +72,16 @@ export function registerAdminAuditHook(app: FastifyInstance, opts: AuditPluginOp
 
   const record = (req: FastifyRequest, reply: FastifyReply): Promise<unknown> => {
     const actor: Actor | null = req.actor ?? null
+    const account = req.account ?? null
     const entity = entityFromUrl(req.url)
     const path = pathOnly(req.url)
     const zoneScoped = actor?.scope === 'zone' && actor.zoneId ? actor.zoneId : null
     const rls = zoneScoped
       ? { rls_mode: 'zone_scoped', rls_zone_guc: zoneScoped }
       : { rls_mode: 'control_plane_wildcard', rls_zone_guc: '*' }
+    // The verified console profile behind the shared console credential, so every audit
+    // record names the human who performed the change, not just the credential it rode on.
+    const operator = account ? { operator: account.name ?? account.email ?? account.id } : null
     const change = reply.statusCode < 400 ? changeSummary(req.method, req.body) : null
     return withTransaction(opts.db, (client) =>
       insertAdminAuditRecord(
@@ -94,7 +98,7 @@ export function registerAdminAuditHook(app: FastifyInstance, opts: AuditPluginOp
           entityType: entity.type,
           entityId: entity.id,
           statusCode: reply.statusCode,
-          payloadJson: change ? { ...rls, ...change } : rls,
+          payloadJson: { ...rls, ...operator, ...change },
         },
         opts.hmacKey ?? null,
       ),
