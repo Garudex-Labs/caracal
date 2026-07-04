@@ -37,7 +37,9 @@ if err != nil {
 | `client.AdoptDelegation(ctx, edgeID)` | Present a received delegation edge: derive a context carrying it. |
 | `client.Headers(ctx, opts...)` | Project the bound context to `http.Header`. |
 | `client.BindFromRequest(ctx, req, opts...)` | Bind inbound Caracal envelope headers. |
-| `client.Transport(base, opts...)` | Return an `*http.Client` that injects Caracal headers. |
+| `client.Transport(base, opts...)` | Return an `*http.Client` that injects Caracal headers. Set `RootOptions.Scopes` to authorize gateway calls with a scoped resource mandate instead of the raw subject token. |
+| `client.MintMandate(ctx, resourceID, scopes, opts...)` | Mint a cached resource mandate carrying the bound agent session and delegation edge; requires client-secret credentials. |
+| `client.WaitForApproval(ctx, challengeID, timeout)` | Long-poll an approval challenge raised by an approval-gated mint; returns the final state. |
 | `client.GatewayRequest(resourceID, path)` | Build explicit Gateway routing metadata. |
 | `client.Current(ctx)` | Inspect the current Caracal context. |
 

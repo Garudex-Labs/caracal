@@ -39,7 +39,9 @@ const caracal = new Caracal();
 | `headers(options?)` | Project the current bound context into HTTP headers synchronously. |
 | `headersAsync(options?)` | Project headers when a root token may require async refresh. |
 | `bindFromHeaders(headers, fn, options?)` | Bind inbound Caracal envelope headers to the current async context. |
-| `transport(options?)` | Return a fetch-compatible function that injects Caracal headers and Gateway routing. |
+| `transport(options?)` | Return a fetch-compatible function that injects Caracal headers and Gateway routing. Pass `scopes` to authorize gateway calls with a scoped resource mandate instead of the raw subject token. |
+| `mintMandate(resourceId, scopes, options?)` | Mint a cached resource mandate carrying the bound agent session and delegation edge; requires client-secret credentials. |
+| `waitForApproval(challengeId, options?)` | Long-poll an approval challenge raised by an approval-gated mint; returns the final state. |
 | `gatewayRequest(resourceId, path?)` | Build a Gateway URL and `X-Caracal-Resource` header. |
 | `current()` | Return the currently bound `CaracalContext`, if present. |
 
