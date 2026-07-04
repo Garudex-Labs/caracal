@@ -44,10 +44,13 @@ type exchangeCall struct {
 }
 
 type stsErrorResponse struct {
-	Error            string `json:"error"`
-	ErrorDescription string `json:"error_description"`
-	ChallengeID      string `json:"challenge_id"`
-	ACRValues        string `json:"acr_values"`
+	Error              string `json:"error"`
+	ErrorDescription   string `json:"error_description"`
+	ChallengeID        string `json:"challenge_id"`
+	State              string `json:"state"`
+	Tier               string `json:"tier"`
+	Binding            string `json:"binding"`
+	ChallengeExpiresAt string `json:"challenge_expires_at"`
 }
 
 type stsSuccessResponse struct {
@@ -192,6 +195,7 @@ func (c *Client) doExchange(ctx context.Context, subjectToken string, resources 
 	if opts.TTLSeconds > 0 {
 		form.Set("ttl_seconds", ttlString(opts.TTLSeconds))
 	}
+	setFormValue(form, "challenge_id", opts.ChallengeID)
 
 	var res *http.Response
 	var err error
@@ -241,9 +245,17 @@ func (c *Client) doExchange(ctx context.Context, subjectToken string, resources 
 		if body.Error == "interaction_required" {
 			msg := body.ErrorDescription
 			if msg == "" {
-				msg = "Step-up required"
+				msg = "Approval required"
 			}
-			return TokenExchangeResponse{}, &InteractionRequiredError{Message: msg, ChallengeID: body.ChallengeID, Resource: firstResource(resources), ACRValues: body.ACRValues}
+			return TokenExchangeResponse{}, &InteractionRequiredError{
+				Message:     msg,
+				ChallengeID: body.ChallengeID,
+				Resource:    firstResource(resources),
+				State:       body.State,
+				Tier:        body.Tier,
+				Binding:     body.Binding,
+				ExpiresAt:   body.ChallengeExpiresAt,
+			}
 		}
 		if res.StatusCode == http.StatusUnauthorized && !isRetry {
 			opts.Retries = 0
@@ -275,6 +287,59 @@ func validateSuccess(body stsSuccessResponse) (TokenExchangeResponse, error) {
 		return TokenExchangeResponse{}, fmt.Errorf("STS response invalid: expires_in must be a positive integer")
 	}
 	return TokenExchangeResponse{AccessToken: body.AccessToken, TokenType: "Bearer", ExpiresIn: body.ExpiresIn, IssuedAt: time.Now().Unix()}, nil
+}
+
+// WaitForApproval long-polls an approval challenge until an approver decides it, it
+// expires, or the timeout elapses. Returns the final lifecycle state: "approved"
+// means a retry of Exchange with ChallengeID will mint; "rejected" and "expired" are
+// terminal; "pending" means the timeout elapsed with no decision and waiting again is
+// safe.
+func (c *Client) WaitForApproval(ctx context.Context, challengeID string, timeout time.Duration) (string, error) {
+	if challengeID == "" {
+		return "", errors.New("WaitForApproval requires a challenge id")
+	}
+	deadline := time.Now().Add(timeout)
+	for {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return "pending", nil
+		}
+		wait := int(remaining / time.Second)
+		if wait > 25 {
+			wait = 25
+		}
+		if wait < 1 {
+			wait = 1
+		}
+		reqCtx, cancel := context.WithDeadline(ctx, deadline)
+		req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, fmt.Sprintf("%s/step-up/%s?wait=%d", c.stsURL, url.PathEscape(challengeID), wait), nil)
+		if err != nil {
+			cancel()
+			return "", err
+		}
+		c.mu.Lock()
+		client := c.httpClient
+		c.mu.Unlock()
+		res, err := client.Do(req)
+		cancel()
+		if err != nil {
+			return "", err
+		}
+		var body struct {
+			State string `json:"state"`
+		}
+		decodeErr := json.NewDecoder(io.LimitReader(res.Body, 64*1024)).Decode(&body)
+		res.Body.Close()
+		if res.StatusCode != http.StatusOK {
+			return "", fmt.Errorf("step-up status failed: %d", res.StatusCode)
+		}
+		if decodeErr != nil {
+			return "", decodeErr
+		}
+		if body.State != "" && body.State != "pending" {
+			return body.State, nil
+		}
+	}
 }
 
 func setFormValue(form url.Values, name, value string) {

@@ -20,6 +20,7 @@ type ExchangeOptions struct {
 	TimeoutMillis       int
 	Retries             int
 	TTLSeconds          int
+	ChallengeID         string
 }
 
 // TokenExchangeResponse is a validated STS token exchange result.
@@ -30,12 +31,16 @@ type TokenExchangeResponse struct {
 	IssuedAt    int64
 }
 
-// InteractionRequiredError carries an STS step-up challenge.
+// InteractionRequiredError carries an STS human-approval hold: the challenge to
+// surface to an approver and the binding proving which request it covers.
 type InteractionRequiredError struct {
 	Message     string
 	ChallengeID string
 	Resource    string
-	ACRValues   string
+	State       string
+	Tier        string
+	Binding     string
+	ExpiresAt   string
 }
 
 func (e *InteractionRequiredError) Error() string {

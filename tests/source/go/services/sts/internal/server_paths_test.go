@@ -79,9 +79,12 @@ func TestSTSHealthStepUpAndWriteErrorResponses(t *testing.T) {
 	}
 
 	w = httptest.NewRecorder()
-	writeStepUp(w, "req-1", &challengeState{ID: "challenge-1", ChallengeType: "webauthn", Secret: "secret", ExpiresAt: time.Unix(100, 0).UTC()})
+	writeStepUp(w, "req-1", &challengeState{ID: "challenge-1", ChallengeType: humanApprovalChallengeType, State: ChallengeStatePending, Tier: "money", Binding: []byte{0xaa}, ExpiresAt: time.Unix(100, 0).UTC()})
 	if w.Code != http.StatusUnauthorized || w.Header().Get("WWW-Authenticate") == "" {
 		t.Fatalf("step-up status=%d headers=%v body=%s", w.Code, w.Header(), w.Body.String())
+	}
+	if body := w.Body.String(); !strings.Contains(body, `"interaction_required"`) || !strings.Contains(body, `"binding":"aa"`) || !strings.Contains(body, `"state":"pending"`) {
+		t.Fatalf("step-up body must carry state and binding: %s", body)
 	}
 
 	w = httptest.NewRecorder()
