@@ -25,7 +25,9 @@ pageType: reference
 | STS `MAX_GRANT_TTL_SECONDS` | `3600` |
 | DCR application lifetime default and maximum | 3600 seconds |
 | `caracal run` injected credential TTL | 900 seconds |
-| Runtime step-up polling | every 2 seconds for up to 5 minutes |
+| Runtime approval wait | long-polls the hold for up to 5 minutes |
+| Step-up hold TTL | 1800 seconds default, clamped between 60 seconds and 7 days |
+| Step-up decision reason | 500 characters maximum |
 | Gateway expiring-token preflight window | 35 seconds |
 
 ## Service Limits

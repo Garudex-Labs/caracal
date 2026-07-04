@@ -68,7 +68,7 @@ Web console **Guided setup** is the recommended way to create the first zone, ap
 
 ## Step-Up Challenges
 
-When STS returns `interaction_required`, the runtime writes the challenge notice, polls the step-up endpoint every two seconds, and retries exchange for up to five minutes. If the challenge is not satisfied in time, the subprocess is not spawned.
+When STS returns `interaction_required`, the runtime writes an `approval_required` notice with the challenge id and binding, long-polls the hold for up to five minutes, and retries the exchange once it is approved. If the hold is rejected, expires, or the wait times out, the subprocess is not spawned.
 
 ## Child Environment Contract
 
