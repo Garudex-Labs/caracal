@@ -339,9 +339,7 @@ class ClientSecretExchanger:
     def _exchange(self, data: dict[str, str | list[str]]) -> tuple[str, float]:
         url = f"{self._sts_url}/oauth/2/token"
         resource = data.get("resource", [])
-        resources = (
-            tuple(resource) if isinstance(resource, list) else (str(resource),)
-        )
+        resources = tuple(resource) if isinstance(resource, list) else (str(resource),)
         scopes = tuple(str(data.get("scope", "")).split())
         start = time.monotonic()
         deadline = time.time() + self._timeout
@@ -390,8 +388,8 @@ class ClientSecretExchanger:
                     duration_ms=(time.monotonic() - start) * 1000.0,
                     resources=resources,
                     scopes=scopes,
-                    status=int(getattr(exc, "http_status", 0)),
-                    code=str(getattr(exc, "code", "")),
+                    status=int(getattr(exc, "http_status", 0) or 0),
+                    code=str(getattr(exc, "code", "") or ""),
                 ),
             )
             raise

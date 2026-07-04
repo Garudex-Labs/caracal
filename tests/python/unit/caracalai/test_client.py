@@ -614,6 +614,41 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
         await client.aclose()
         self.assertEqual([r.method for r in requests], ["POST", "POST", "DELETE"])
 
+    async def test_on_event_forwards_coordinator_events(self) -> None:
+        async def handler(request):
+            if request.method == "POST" and str(request.url).endswith("/agents"):
+                return httpx.Response(200, json={"agent_session_id": "agent-1"})
+            return httpx.Response(204)
+
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        c = Caracal(
+            CaracalConfig(
+                coordinator=CoordinatorClient(
+                    base_url="https://coordinator.example.com", http_client=client
+                ),
+                zone_id="z",
+                application_id="app",
+                subject_token="tok",
+            )
+        )
+        events = []
+
+        def failing_sink(event) -> None:
+            raise RuntimeError("sink failure")
+
+        c.on_event(events.append)
+        c.on_event(failing_sink)
+
+        async with c.spawn():
+            pass
+        await client.aclose()
+
+        self.assertEqual([e.type for e in events], ["coordinator.call"] * 2)
+        self.assertEqual(events[0].method, "POST")
+        self.assertEqual(events[0].path, "/zones/z/agents")
+        self.assertTrue(events[0].ok)
+        self.assertEqual(events[1].method, "DELETE")
+
 
 class AsgiMiddlewareTests(unittest.IsolatedAsyncioTestCase):
     async def test_binds_inbound_envelope(self) -> None:

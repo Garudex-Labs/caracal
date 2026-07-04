@@ -37,6 +37,7 @@ from .envelope import (
     to_headers,
 )
 from .errors import MissingTokenError
+from .events import CaracalEvent, EventHook, emit_event
 from .json_types import JsonObject
 from .primitives import (
     Grant,
@@ -800,6 +801,10 @@ class Caracal:
         self.config = config if config is not None else _detect_config(config_path, env)
         self._agent_start_hooks: list[LifecycleHook] = []
         self._agent_end_hooks: list[LifecycleHook] = []
+        self._event_hooks: list[EventHook] = []
+        self.config.coordinator.on_event = self._emit_event
+        if self.config.exchanger is not None:
+            self.config.exchanger.on_event = self._emit_event
         self._fetch_clients: dict[
             tuple[bool, tuple[str, ...] | None], httpx.AsyncClient
         ] = {}
@@ -870,6 +875,18 @@ class Caracal:
 
     def on_agent_end(self, cb: LifecycleHook) -> None:
         self._agent_end_hooks.append(cb)
+
+    def on_event(self, cb: EventHook) -> None:
+        """Subscribe to control-plane operation events: token exchanges (with
+        cache outcome), approval waits, and coordinator calls, each carrying
+        outcome and duration. Bridge them to any metrics or tracing system; a
+        hook that raises is ignored and never disturbs the operation that
+        emitted the event."""
+        self._event_hooks.append(cb)
+
+    def _emit_event(self, event: CaracalEvent) -> None:
+        for h in self._event_hooks:
+            emit_event(h, event)
 
     async def _fire(self, hooks: list[LifecycleHook], ctx: CaracalContext) -> None:
         for h in hooks:
