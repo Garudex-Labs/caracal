@@ -10,7 +10,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs'
 import { homedir, platform } from 'node:os'
 import { join } from 'node:path'
 import { parse } from 'smol-toml'
-import { decodeEnvelope, toHeaders, type Envelope, type HeaderGetter } from './envelope.js'
+import { decodeEnvelope, encodeEnvelope, toHeaders, HeaderAuthorization, type Envelope, type HeaderGetter } from './envelope.js'
 import { type CoordinatorClient } from './coordinator.js'
 import {
   spawn as spawnPrimitive,
@@ -81,6 +81,10 @@ export type LifecycleHook = (ctx: CaracalContext) => void | Promise<void>
 
 export interface RootOptions {
   allowRoot?: boolean
+}
+
+export interface BindOptions extends RootOptions {
+  verify?: (token: string) => void | Promise<void>
 }
 
 export interface ClientSecretOptions {
@@ -216,12 +220,15 @@ export class Caracal {
       if (!opts.allowRoot) {
         throw new Error('Caracal.headers(): no Caracal context is bound. Pass { allowRoot: true } to use the application subject token.')
       }
-      return toHeaders({
-        subjectToken: this.rootTokenSync(),
-        hop: 0,
-      })
+      return {
+        ...toHeaders({ hop: 0 }),
+        [HeaderAuthorization]: `Bearer ${this.rootTokenSync()}`,
+      }
     }
-    return toHeaders(toEnvelope(ctx))
+    return {
+      ...toHeaders(toEnvelope(ctx)),
+      [HeaderAuthorization]: `Bearer ${ctx.subjectToken}`,
+    }
   }
 
   async headersAsync(opts: RootOptions = {}): Promise<Record<string, string>> {
@@ -232,15 +239,21 @@ export class Caracal {
           'Caracal.headersAsync(): no Caracal context is bound. Pass { allowRoot: true } to use the application subject token.',
         )
       }
-      return toHeaders({ subjectToken: await this.rootToken(), hop: 0 })
+      return {
+        ...toHeaders({ hop: 0 }),
+        [HeaderAuthorization]: `Bearer ${await this.rootToken()}`,
+      }
     }
-    return toHeaders(toEnvelope(ctx))
+    return {
+      ...toHeaders(toEnvelope(ctx)),
+      [HeaderAuthorization]: `Bearer ${ctx.subjectToken}`,
+    }
   }
 
   async bindFromHeaders<T>(
     headers: Record<string, string | string[] | undefined> | HeaderGetter,
     fn: () => Promise<T>,
-    opts: RootOptions = {},
+    opts: BindOptions = {},
   ): Promise<T> {
     const env =
       typeof headers === 'function'
@@ -262,6 +275,8 @@ export class Caracal {
         )
       }
       env.subjectToken = await this.rootToken()
+    } else if (opts.verify) {
+      await opts.verify(env.subjectToken)
     }
     const ctx = fromEnvelope(env as Envelope, {
       zoneId: this.config.zoneId,
@@ -271,10 +286,11 @@ export class Caracal {
   }
 
   /**
-   * Returns a fetch-shaped function that injects the Caracal envelope (traceparent
-   * + baggage) onto outbound requests and, for gateway-routed calls, replaces the
-   * `Authorization` header with the current subject token. Pass to any provider
-   * SDK that accepts a custom fetch.
+   * Returns a fetch-shaped function that injects the Caracal context envelope
+   * (traceparent, tracestate, baggage) onto outbound requests, merging with any
+   * headers the caller or an OpenTelemetry SDK already set. The subject token is
+   * attached only to gateway-routed calls, where the Gateway terminates it at the
+   * trust boundary. Pass to any provider SDK that accepts a custom fetch.
    */
   transport(opts: RootOptions = {}): typeof fetch {
     const outer = this
@@ -286,9 +302,11 @@ export class Caracal {
       }
       const env: Envelope = ctx ? toEnvelope(ctx) : { subjectToken: await outer.rootToken(), hop: 0 }
       const merged = new Headers(init?.headers ?? {})
-      for (const [k, v] of Object.entries(toHeaders(env))) {
-        if (!merged.has(k)) merged.set(k, v)
-      }
+      encodeEnvelope(
+        env,
+        (k, v) => merged.set(k, v),
+        (k) => merged.get(k) ?? undefined,
+      )
       const fetchImpl = outer.config.coordinator.fetchImpl ?? fetch
 
       const explicitResource = merged.get('X-Caracal-Resource') ?? undefined
@@ -297,6 +315,9 @@ export class Caracal {
         merged.set('X-Caracal-Resource', rewritten.resourceId)
         merged.set('Authorization', `Bearer ${env.subjectToken}`)
         return fetchImpl(rewritten.url as unknown as URL, { ...init, headers: merged })
+      }
+      if (outer.targetsGateway(input)) {
+        merged.set('Authorization', `Bearer ${env.subjectToken}`)
       }
       return fetchImpl(input as URL, { ...init, headers: merged })
     }) as typeof fetch
@@ -336,7 +357,6 @@ export class Caracal {
       return null
     }
     if (sameOrigin(parsed, gw)) return null
-
     const binding = explicitResource
       ? this.config.resources?.find((b) => b.resourceId === explicitResource)
       : this.config.resources?.find((b) => urlMatchesPrefix(parsed, b.upstreamPrefix))
@@ -356,11 +376,24 @@ export class Caracal {
     return { url: target, resourceId: binding?.resourceId ?? explicitResource! }
   }
 
+  /** Reports whether the request is already addressed to the Gateway origin, where the subject token terminates. */
+  private targetsGateway(input: RequestInfo | URL): boolean {
+    const gw = this.config.gatewayUrl
+    if (!gw) return false
+    const raw = typeof input === 'string' ? input : input instanceof URL ? input.toString() : (input as Request).url
+    try {
+      return sameOrigin(new URL(raw), gw)
+    } catch {
+      return false
+    }
+  }
+
   /**
-   * Binds Caracal context after a verifier boundary. This does not verify JWT
-   * signatures, audience, scopes, token use, or revocation.
+   * Binds Caracal context at the inbound request boundary. Pass `verify` to
+   * enforce the bearer token before binding; without it this middleware only
+   * propagates context and must sit behind a verifier boundary.
    */
-  contextMiddleware(opts: RootOptions = {}) {
+  contextMiddleware(opts: BindOptions = {}) {
     return (req: { headers: Record<string, string | string[] | undefined> }, _res: unknown, next: (err?: unknown) => void): void => {
       this.bindFromHeaders(
         req.headers,

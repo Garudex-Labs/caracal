@@ -17,6 +17,9 @@ export interface CaracalContext {
   parentEdgeId?: string
   sessionId?: string
   traceId?: string
+  traceFlags?: string
+  traceState?: string
+  baggage?: Record<string, string>
   hop: number
 }
 
@@ -61,6 +64,9 @@ export function toEnvelope(ctx: CaracalContext): Envelope {
     parentEdgeId: ctx.parentEdgeId,
     sessionId: ctx.sessionId,
     traceId: ctx.traceId,
+    traceFlags: ctx.traceFlags,
+    traceState: ctx.traceState,
+    baggage: ctx.baggage,
     hop: ctx.hop,
   }
 }
@@ -76,6 +82,9 @@ export function fromEnvelope(env: Envelope, base: { zoneId: string; applicationI
     parentEdgeId: env.parentEdgeId,
     sessionId: env.sessionId,
     traceId: env.traceId,
+    traceFlags: env.traceFlags,
+    traceState: env.traceState,
+    baggage: env.baggage,
     hop: env.hop,
   }
 }

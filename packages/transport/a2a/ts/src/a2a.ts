@@ -4,7 +4,7 @@
 // A2A call helper: exchanges subject authority for a target agent token.
 
 import { OAuthClient } from '@caracalai/oauth'
-import { toHeaders, current, type Envelope } from '@caracalai/sdk/advanced'
+import { toHeaders, current, HeaderAuthorization, type Envelope } from '@caracalai/sdk/advanced'
 import type { A2AOptions, A2ARequest, A2AResponse, FetchLike } from './types.js'
 
 export async function a2aCall(
@@ -45,6 +45,7 @@ export async function a2aCall(
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...toHeaders(envelope),
+    [HeaderAuthorization]: `Bearer ${token.accessToken}`,
     'X-Caracal-Zone-Id': zoneId,
     'X-Caracal-Application-Id': applicationId,
   }
