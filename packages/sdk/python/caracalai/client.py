@@ -12,7 +12,7 @@ import json
 import os
 import sys
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 from collections.abc import AsyncGenerator, Callable, Mapping
 from urllib.parse import urlparse, urlunparse
@@ -250,35 +250,20 @@ def _validate_resource_bindings(data: object, *, source: str) -> list[ResourceBi
 
 
 def _resolve_bindings(
-    cfg_credentials: list[object] | None,
+    credential_bindings: list[ResourceBinding],
     env: Mapping[str, str],
-    *,
-    cfg_source: str,
 ) -> list[ResourceBinding]:
     """Single source of truth for resource binding resolution.
 
-    Unions bindings from three sources: TOML credentials block, JSON file
-    pointed to by ``CARACAL_RESOURCES_FILE``, and the flat
+    Unions bindings from three sources: provisioned credential manifests, the
+    JSON file pointed to by ``CARACAL_RESOURCES_FILE``, and the flat
     ``CARACAL_RESOURCES`` env var: validates each, and returns a
     deduplicated list. Later sources override earlier ones on conflict.
     """
     seen: dict[str, ResourceBinding] = {}
 
-    if cfg_credentials:
-        cred_records: list[dict[str, str]] = []
-        for idx, cred in enumerate(cfg_credentials):
-            if not isinstance(cred, dict):
-                raise ValueError(f"{cfg_source}.credentials[{idx}]: must be a table")
-            rid = cred.get("resource")
-            prefix = cred.get("upstream_prefix")
-            if rid and prefix:
-                cred_records.append(
-                    {"resource_id": str(rid), "upstream_prefix": str(prefix)}
-                )
-        for b in _validate_resource_bindings(
-            cred_records, source=f"{cfg_source}.credentials"
-        ):
-            seen[b.resource_id] = b
+    for b in credential_bindings:
+        seen[b.resource_id] = b
 
     for b in _load_resource_bindings_file(env.get("CARACAL_RESOURCES_FILE")):
         seen[b.resource_id] = b
@@ -292,23 +277,14 @@ def _resolve_bindings(
 def _resource_ids_from_env(
     env: Mapping[str, str], bindings: list[ResourceBinding]
 ) -> list[str]:
+    """Union of explicitly requested STS audiences and every gateway-bound
+    resource. Binding-derived ids always join the audience set so a routed
+    resource can never be silently absent from the exchanged token."""
     explicit = env.get("CARACAL_APP_RESOURCES")
-    if explicit:
-        ids = [s.strip() for s in explicit.split(",") if s.strip()]
-        if ids:
-            return ids
-    if bindings:
-        return [b.resource_id for b in bindings]
-    return []
-
-
-def _default_config_path():
-    from pathlib import Path
-
-    explicit = os.environ.get("CARACAL_CONFIG")
-    if explicit:
-        return Path(explicit)
-    return _default_config_dir(os.environ) / "caracal.toml"
+    ids = (
+        [s.strip() for s in explicit.split(",") if s.strip()] if explicit else []
+    )
+    return list(dict.fromkeys(ids + [b.resource_id for b in bindings]))
 
 
 def _default_config_path_for(env: Mapping[str, str]):
@@ -370,16 +346,38 @@ def _default_run_credentials_path(
 
 
 def _existing_local_file(path, env: Mapping[str, str]):
-    if env.get("NODE_ENV") == "production":
+    if _production_env(env):
         return None
     return path if path.exists() else None
+
+
+def _production_env(env: Mapping[str, str]) -> bool:
+    """CARACAL_ENV is the language-neutral gate every Caracal SDK honors."""
+    return env.get("CARACAL_ENV") == "production"
+
+
+def _default_ttl_from_env(env: Mapping[str, str]) -> int | None:
+    raw = env.get("CARACAL_DEFAULT_TTL_SECONDS")
+    if not raw:
+        return None
+    try:
+        ttl = int(raw)
+    except ValueError:
+        ttl = 0
+    if ttl <= 0:
+        raise RuntimeError(
+            "Caracal: CARACAL_DEFAULT_TTL_SECONDS must be a positive integer"
+        )
+    return ttl
 
 
 def _read_secret_path(path, source: str) -> str:
     if not path.exists():
         raise RuntimeError(f"{source} secret file does not exist: {path}")
-    if os.name != "nt" and path.stat().st_mode & 0o022:
-        raise RuntimeError(f"{source} secret file is group/world writable: {path}")
+    if os.name != "nt" and path.stat().st_mode & 0o077:
+        raise RuntimeError(
+            f"{source} secret file must be readable only by its owner: {path}"
+        )
     secret = path.read_text().strip()
     if not secret:
         raise RuntimeError(f"{source} secret file is empty: {path}")
@@ -397,8 +395,8 @@ def _service_url(env: Mapping[str, str], key: str, default: str) -> str:
     value = env.get(key)
     if value:
         return value
-    if env.get("NODE_ENV") == "production":
-        raise RuntimeError(f"Caracal SDK: {key} is required when NODE_ENV=production")
+    if _production_env(env):
+        raise RuntimeError(f"Caracal SDK: {key} is required in production")
     return default
 
 
@@ -410,7 +408,9 @@ def _sts_url(env: Mapping[str, str]) -> str:
     )
 
 
-def _client_secret_from_config(cfg: dict, zone_id: str, application_id: str) -> str:
+def _client_secret_from_config(
+    cfg: dict, cfg_path, env: Mapping[str, str], zone_id: str, application_id: str
+) -> str:
     from pathlib import Path
 
     value = cfg.get("app_client_secret")
@@ -421,17 +421,22 @@ def _client_secret_from_config(cfg: dict, zone_id: str, application_id: str) -> 
             "'app_client_secret_file'"
         )
     if isinstance(value, str) and value:
+        if os.name != "nt" and cfg_path.stat().st_mode & 0o077:
+            raise RuntimeError(
+                f"{cfg_path} carries an inline app_client_secret and must be "
+                "readable only by its owner"
+            )
         return value
     if isinstance(file_value, str) and file_value:
         return _read_secret_path(Path(file_value), "caracal.toml")
     local_path = _existing_local_file(
-        _default_client_secret_path(os.environ, zone_id, application_id),
-        os.environ,
+        _default_client_secret_path(env, zone_id, application_id),
+        env,
     )
     if local_path is None:
         raise RuntimeError(
             "caracal.toml missing client secret; local dev/stable auto-detects "
-            f"{_default_client_secret_path(os.environ, zone_id, application_id)} when it exists"
+            f"{_default_client_secret_path(env, zone_id, application_id)} when it exists"
         )
     return _read_secret_path(local_path, "caracal.toml")
 
@@ -450,12 +455,14 @@ def _client_secret_from_env(
         )
     if file_value:
         return _read_secret_path(Path(file_value), "Caracal.from_env")
+    if value:
+        return value
     local_path = _existing_local_file(
         _default_client_secret_path(env, zone_id, application_id), env
     )
     if local_path is not None:
         return _read_secret_path(local_path, "Caracal.from_env")
-    return value
+    return None
 
 
 def _credential_entries(value: object, *, source: str) -> list[dict[str, str]]:
@@ -568,19 +575,18 @@ def _config_from_env(env: Mapping[str, str] | None = None) -> CaracalConfig:
     credential_ids, credential_bindings = _resource_bindings_from_credentials(
         _credential_manifest_from_env(e, zone_id, application_id)
     )
-    bindings = sort_bindings_longest_first(
-        credential_bindings + _resolve_bindings(None, e, cfg_source="env")
-    )
+    bindings = sort_bindings_longest_first(_resolve_bindings(credential_bindings, e))
     gateway_url = _service_url(e, "CARACAL_GATEWAY_URL", DEFAULT_GATEWAY_URL)
 
     client_secret = _client_secret_from_env(e, zone_id, application_id)
     sts_url = _sts_url(e)
     subject_token = e.get("CARACAL_SUBJECT_TOKEN")
+    default_ttl = _default_ttl_from_env(e)
 
     if client_secret:
-        resources = _resource_ids_from_env(e, bindings)
-        if credential_ids:
-            resources = list(dict.fromkeys(credential_ids + resources))
+        resources = list(
+            dict.fromkeys(credential_ids + _resource_ids_from_env(e, bindings))
+        )
         if not resources:
             raise RuntimeError(
                 "Caracal.from_env: client-secret mode requires resources via "
@@ -600,6 +606,7 @@ def _config_from_env(env: Mapping[str, str] | None = None) -> CaracalConfig:
             token_source=exchanger.get_token,
             gateway_url=gateway_url,
             resources=bindings,
+            default_ttl_seconds=default_ttl,
             exchanger=exchanger,
         )
 
@@ -615,6 +622,7 @@ def _config_from_env(env: Mapping[str, str] | None = None) -> CaracalConfig:
         subject_token=subject_token,
         gateway_url=gateway_url,
         resources=bindings,
+        default_ttl_seconds=default_ttl,
     )
 
 
@@ -628,8 +636,26 @@ def _config_from_client_secret(
     resources: list[str | ResourceBinding],
     gateway_url: str | None = None,
     scope: str = "agent:lifecycle",
+    default_ttl_seconds: int | None = None,
     http_client: httpx.Client | None = None,
 ) -> CaracalConfig:
+    missing = [
+        name
+        for name, value in (
+            ("coordinator_url", coordinator_url),
+            ("sts_url", sts_url),
+            ("zone_id", zone_id),
+            ("application_id", application_id),
+            ("client_secret", client_secret),
+        )
+        if not value
+    ]
+    if missing:
+        raise ValueError(f"Caracal.from_client_secret missing {', '.join(missing)}")
+    if default_ttl_seconds is not None and default_ttl_seconds <= 0:
+        raise ValueError(
+            "Caracal.from_client_secret: default_ttl_seconds must be a positive integer"
+        )
     bindings: list[ResourceBinding] = []
     resource_ids: list[str] = []
     for r in resources:
@@ -656,15 +682,20 @@ def _config_from_client_secret(
         token_source=exchanger.get_token,
         gateway_url=gateway_url,
         resources=bindings,
+        default_ttl_seconds=default_ttl_seconds,
         exchanger=exchanger,
     )
 
 
-def _config_from_file(path: str | os.PathLike[str] | None = None) -> CaracalConfig:
+def _config_from_file(
+    path: str | os.PathLike[str] | None = None,
+    env: Mapping[str, str] | None = None,
+) -> CaracalConfig:
     import tomllib
     from pathlib import Path
 
-    cfg_path = Path(path) if path is not None else _default_config_path()
+    e = env if env is not None else os.environ
+    cfg_path = Path(path) if path is not None else _default_config_path_for(e)
     if not cfg_path.exists():
         raise RuntimeError(
             f"Caracal config not found at {cfg_path}; provision a zone "
@@ -675,36 +706,41 @@ def _config_from_file(path: str | os.PathLike[str] | None = None) -> CaracalConf
 
     zone_id = _required_str(cfg, "zone_id")
     application_id = _required_str(cfg, "application_id")
-    client_secret = _client_secret_from_config(cfg, zone_id, application_id)
+    client_secret = _client_secret_from_config(
+        cfg, cfg_path, e, zone_id, application_id
+    )
     sts_url = (
         cfg.get("sts_url")
         or cfg.get("zone_url")
-        or os.environ.get("CARACAL_STS_URL")
-        or os.environ.get("CARACAL_ZONE_URL")
-        or _service_url(os.environ, "CARACAL_STS_URL", DEFAULT_STS_URL)
+        or e.get("CARACAL_STS_URL")
+        or e.get("CARACAL_ZONE_URL")
+        or _service_url(e, "CARACAL_STS_URL", DEFAULT_STS_URL)
     )
     coordinator_url = (
         cfg.get("coordinator_url")
-        or os.environ.get("CARACAL_COORDINATOR_URL")
-        or _service_url(os.environ, "CARACAL_COORDINATOR_URL", DEFAULT_COORDINATOR_URL)
+        or e.get("CARACAL_COORDINATOR_URL")
+        or _service_url(e, "CARACAL_COORDINATOR_URL", DEFAULT_COORDINATOR_URL)
     )
     gateway_url = (
         cfg.get("gateway_url")
-        or os.environ.get("CARACAL_GATEWAY_URL")
-        or _service_url(os.environ, "CARACAL_GATEWAY_URL", DEFAULT_GATEWAY_URL)
+        or e.get("CARACAL_GATEWAY_URL")
+        or _service_url(e, "CARACAL_GATEWAY_URL", DEFAULT_GATEWAY_URL)
     )
+    ttl_value = cfg.get("default_ttl_seconds")
+    if ttl_value is not None and (not isinstance(ttl_value, int) or ttl_value <= 0):
+        raise RuntimeError(
+            f"{cfg_path}: default_ttl_seconds must be a positive integer"
+        )
+    default_ttl = ttl_value if ttl_value is not None else _default_ttl_from_env(e)
 
     credential_ids, credential_bindings = _resource_bindings_from_credentials(
         _credential_entries(cfg.get("credentials"), source=f"{cfg_path}.credentials")
         + _credential_entries(
             cfg.get("optional_credentials"), source=f"{cfg_path}.optional_credentials"
         )
-        + _credential_manifest_from_env(os.environ, zone_id, application_id)
+        + _credential_manifest_from_env(e, zone_id, application_id)
     )
-    bindings = sort_bindings_longest_first(
-        credential_bindings
-        + _resolve_bindings([], os.environ, cfg_source=str(cfg_path))
-    )
+    bindings = sort_bindings_longest_first(_resolve_bindings(credential_bindings, e))
     resource_ids = list(
         dict.fromkeys(credential_ids + [b.resource_id for b in bindings])
     )
@@ -727,6 +763,7 @@ def _config_from_file(path: str | os.PathLike[str] | None = None) -> CaracalConf
         client_secret=client_secret,
         resources=resources,
         gateway_url=gateway_url,
+        default_ttl_seconds=default_ttl,
     )
 
 
@@ -735,13 +772,13 @@ def _detect_config(
     env: Mapping[str, str] | None = None,
 ) -> CaracalConfig:
     if config_path is not None:
-        return _config_from_file(config_path)
+        return _config_from_file(config_path, env)
     e = env if env is not None else os.environ
     default = _default_config_path_for(e)
     if e.get("CARACAL_CONFIG") and not default.exists():
         raise RuntimeError(f"Caracal config not found at {default}")
     if default.exists():
-        return _config_from_file(default)
+        return _config_from_file(default, env)
     return _config_from_env(env)
 
 
@@ -765,6 +802,9 @@ class Caracal:
         self.config = config if config is not None else _detect_config(config_path, env)
         self._agent_start_hooks: list[LifecycleHook] = []
         self._agent_end_hooks: list[LifecycleHook] = []
+        self._fetch_clients: dict[
+            tuple[bool, tuple[str, ...] | None], httpx.AsyncClient
+        ] = {}
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> Caracal:
@@ -793,6 +833,7 @@ class Caracal:
         resources: list[str | ResourceBinding],
         gateway_url: str | None = None,
         scope: str = "agent:lifecycle",
+        default_ttl_seconds: int | None = None,
         http_client: httpx.Client | None = None,
     ) -> Caracal:
         """Build a Caracal client that exchanges an application client_secret
@@ -801,7 +842,8 @@ class Caracal:
         `resources` may be either a list of resource IDs (the STS audiences) or
         a list of ResourceBinding objects (when gateway routing is also
         required). When ResourceBinding objects are supplied their
-        `resource_id`s are used as the STS audiences.
+        `resource_id`s are used as the STS audiences. `default_ttl_seconds`
+        bounds task spawns that do not pass an explicit TTL.
         """
         return cls(
             _config_from_client_secret(
@@ -813,6 +855,7 @@ class Caracal:
                 resources=resources,
                 gateway_url=gateway_url,
                 scope=scope,
+                default_ttl_seconds=default_ttl_seconds,
                 http_client=http_client,
             )
         )
@@ -1050,6 +1093,42 @@ class Caracal:
             out[HEADER_AUTHORIZATION] = f"Bearer {self.config.subject_token}"
             return out
         out = to_headers(to_envelope(ctx))
+        token = (
+            self.config.subject_token
+            if ctx.own_token and self.config._token_source is not None
+            else ctx.subject_token
+        )
+        out[HEADER_AUTHORIZATION] = f"Bearer {token}"
+        return out
+
+    async def aheaders(
+        self,
+        *,
+        allow_root: bool = False,
+        ctx: CaracalContext | None = None,
+    ) -> dict[str, str]:
+        """Async counterpart to :meth:`headers`: resolves refreshable tokens on
+        a worker thread so an STS exchange never blocks the event loop."""
+        if ctx is None:
+            ctx = current()
+        if ctx is None or (ctx.own_token and self.config._token_source is not None):
+            token = await self.config.asubject_token()
+            if ctx is None:
+                if not allow_root:
+                    raise RuntimeError(
+                        "Caracal.aheaders(): no CaracalContext is bound to the current "
+                        "task. Refusing to fall back to the bootstrap subject token. "
+                        "Bind a child context with `async with caracal.bind(parent_ctx):` "
+                        "before fan-out, or pass `allow_root=True` to explicitly use "
+                        "the application's service identity."
+                    )
+                out = to_headers(Envelope(hop=0))
+                out[HEADER_AUTHORIZATION] = f"Bearer {token}"
+                return out
+            out = to_headers(to_envelope(ctx))
+            out[HEADER_AUTHORIZATION] = f"Bearer {token}"
+            return out
+        out = to_headers(to_envelope(ctx))
         out[HEADER_AUTHORIZATION] = f"Bearer {ctx.subject_token}"
         return out
 
@@ -1070,6 +1149,7 @@ class Caracal:
 
         env = decode_envelope(get)
         claims: VerifiedClaims | None = None
+        root_injected = False
         if not env.subject_token:
             if not allow_root:
                 raise MissingTokenError(
@@ -1077,6 +1157,7 @@ class Caracal:
                     "Pass allow_root=True only for trusted service-root ingress."
                 )
             env.subject_token = await self.config.asubject_token()
+            root_injected = True
         elif verifier is not None:
             claims = await verifier(env.subject_token)
         if claims is not None:
@@ -1103,6 +1184,8 @@ class Caracal:
                 else self.config.application_id
             ),
         )
+        if root_injected:
+            ctx = replace(ctx, own_token=True)
         token = _ctx_var.set(ctx)
         try:
             yield ctx
@@ -1113,7 +1196,14 @@ class Caracal:
         return current()
 
     async def aclose(self) -> None:
-        """Release the coordinator's HTTP client. Idempotent."""
+        """Release pooled fetch clients, the credential exchanger's HTTP
+        client, and the coordinator's HTTP client. Idempotent."""
+        for client in self._fetch_clients.values():
+            if not client.is_closed:
+                await client.aclose()
+        self._fetch_clients.clear()
+        if self.config.exchanger is not None:
+            self.config.exchanger.close()
         await self.config.coordinator.aclose()
 
     def context_middleware(
@@ -1186,6 +1276,9 @@ class Caracal:
         audienced to the target resource and narrowed to those scopes, carrying the
         context's agent session and delegation edge. Requires client-secret
         credentials.
+
+        The client keeps httpx's default 5-second timeout; pass ``timeout=`` to
+        size it for the upstream being called.
         """
         return httpx.AsyncClient(
             auth=self._gateway_auth(
@@ -1218,7 +1311,7 @@ class Caracal:
                 gateway_bound = False
                 if rewritten is not None:
                     request.url = httpx.URL(rewritten[0])
-                    request.headers["host"] = request.url.host
+                    request.headers["host"] = request.url.netloc.decode("ascii")
                     request.headers["X-Caracal-Resource"] = rewritten[1]
                     resource = rewritten[1]
                     gateway_bound = True
@@ -1259,7 +1352,17 @@ class Caracal:
                     if resource is not None and scopes
                     else None
                 )
-                if token is None and gateway_bound and bound is None:
+                if (
+                    token is None
+                    and gateway_bound
+                    and (
+                        bound is None
+                        or (
+                            bound.own_token
+                            and outer.config._token_source is not None
+                        )
+                    )
+                ):
                     token = outer.config.subject_token
                 self._finish(request, bound, gateway_bound, token)
                 yield request
@@ -1273,7 +1376,17 @@ class Caracal:
                     if resource is not None and scopes
                     else None
                 )
-                if token is None and gateway_bound and bound is None:
+                if (
+                    token is None
+                    and gateway_bound
+                    and (
+                        bound is None
+                        or (
+                            bound.own_token
+                            and outer.config._token_source is not None
+                        )
+                    )
+                ):
                     token = await outer.config.asubject_token()
                 self._finish(request, bound, gateway_bound, token)
                 yield request
@@ -1363,18 +1476,34 @@ class Caracal:
         executors, background tasks) instead of the bound contextvar. Pass ``scopes``
         to authorize with a scoped resource mandate minted for ``resource_id``
         instead of the raw subject token; requires client-secret credentials.
+
+        Requests reuse a pooled client per ``(allow_root, scopes)`` shape, so
+        repeated fetches share connections. ``aclose()`` releases the pool.
+        httpx's default 5-second timeout applies; pass ``timeout=`` per request
+        to size it for the upstream.
         """
         request = self.gateway_request(resource_id, path)
         merged = {**(headers or {}), **request.headers}
-        client_kwargs: dict[str, Any] = (
-            {} if transport is None else {"transport": transport}
+        if transport is not None:
+            async with self.transport(
+                allow_root=allow_root, ctx=ctx, scopes=scopes, transport=transport
+            ) as client:
+                return await client.request(
+                    method, request.url, headers=merged, **request_kwargs
+                )
+        key = (allow_root, tuple(sorted(set(scopes))) if scopes else None)
+        client = self._fetch_clients.get(key)
+        if client is None or client.is_closed:
+            client = self.transport(allow_root=allow_root, scopes=scopes)
+            self._fetch_clients[key] = client
+        if ctx is not None:
+            async with self.bind(ctx):
+                return await client.request(
+                    method, request.url, headers=merged, **request_kwargs
+                )
+        return await client.request(
+            method, request.url, headers=merged, **request_kwargs
         )
-        async with self.transport(
-            allow_root=allow_root, ctx=ctx, scopes=scopes, **client_kwargs
-        ) as client:
-            return await client.request(
-                method, request.url, headers=merged, **request_kwargs
-            )
 
     def sync_transport(
         self,

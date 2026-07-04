@@ -109,8 +109,8 @@ class GetTokenTests(unittest.TestCase):
         self.assertEqual(len(calls), 1)
 
     def test_refreshes_when_token_near_expiry(self):
-        first = _jwt({"exp": time.time() + 10})
-        second = _jwt({"exp": time.time() + 3600})
+        first = _jwt({"exp": time.time() + 3600})
+        second = _jwt({"exp": time.time() + 7200})
         tokens = [first, second]
 
         def handler(req: httpx.Request) -> httpx.Response:
@@ -119,7 +119,22 @@ class GetTokenTests(unittest.TestCase):
         with _patch_client(handler):
             ex = _exchanger()
             ex.get_token()
-            self.assertEqual(ex.get_token(), second)
+            with patch("caracalai.auth.time.time", return_value=time.time() + 3590):
+                self.assertEqual(ex.get_token(), second)
+
+    def test_caches_short_lived_token_within_half_lifetime(self):
+        token = _jwt({"exp": time.time() + 10})
+        calls = []
+
+        def handler(req: httpx.Request) -> httpx.Response:
+            calls.append(req)
+            return httpx.Response(200, json={"access_token": token})
+
+        with _patch_client(handler):
+            ex = _exchanger()
+            ex.get_token()
+            self.assertEqual(ex.get_token(), token)
+        self.assertEqual(len(calls), 1)
 
     def test_sends_repeated_resource_fields_and_grant_type(self):
         captured: list[bytes] = []
@@ -252,8 +267,8 @@ class MintMandateTests(unittest.TestCase):
 
     def test_refreshes_mandate_near_expiry(self):
         tokens = [
-            _jwt({"exp": time.time() + 10}),
-            _jwt({"exp": time.time() + 300}),
+            _jwt({"exp": time.time() + 3600}),
+            _jwt({"exp": time.time() + 7200}),
         ]
 
         def handler(req: httpx.Request) -> httpx.Response:
@@ -262,7 +277,8 @@ class MintMandateTests(unittest.TestCase):
         with _patch_client(handler):
             ex = _exchanger()
             stale = ex.mint_mandate(resource="urn:res:a", scopes=["s.read"])
-            fresh = ex.mint_mandate(resource="urn:res:a", scopes=["s.read"])
+            with patch("caracalai.auth.time.time", return_value=time.time() + 3590):
+                fresh = ex.mint_mandate(resource="urn:res:a", scopes=["s.read"])
         self.assertNotEqual(stale, fresh)
 
     def test_rejects_empty_resource_and_scopes(self):
