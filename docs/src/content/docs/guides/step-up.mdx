@@ -1,68 +1,115 @@
 ---
-title: Step-Up Re-Authentication
-description: Handle interaction_required from the STS, satisfy the challenge, and retry token exchange with proof.
+title: Human Approval
+description: Declare approval tiers in policy data, hold the exchange, and decide it from the Console, the Admin API, or your application's own end user.
 ---
 
-Step-up happens when policy denies an exchange with a diagnostic that asks for fresh proof. The STS returns `interaction_required` and a challenge ID instead of a mandate.
+Human approval pauses a token exchange until a person decides it. A policy data document classifies scopes into risk tiers and declares which tiers need a human decision; when an agent requests a gated scope, the STS parks the exchange on a durable hold and returns `interaction_required` instead of a mandate. The gate is optional: a zone that declares no approval tiers never sees a hold.
 
 ## Flow
 
 ```mermaid
 flowchart LR
-  Exchange["Exchange for sensitive resource"] --> Error["interaction_required"]
-  Error --> Proof["Complete external proof"]
-  Proof --> Satisfy["Satisfy challenge"]
-  Satisfy --> Retry["Retry exchange with challenge proof"]
-  Retry --> Mandate["Mandate issued"]
+  Exchange["Exchange for gated scope"] --> Hold["interaction_required with challenge_id + binding"]
+  Hold --> Wait["Agent waits on the hold"]
+  Decide["Approver decides: Console, Admin API, or end user"] --> Wait
+  Wait --> Retry["Retry exchange with challenge_id"]
+  Retry --> Mandate["Mandate issued, approval consumed"]
 ```
 
-## TypeScript handling
+## Declare the gate in policy data
+
+Approval is declared as data, like every other policy input. `risk` names a tier for each sensitive scope; `approval_tiers` declares which tiers hold a mint for a decision:
+
+```text
+# caracal:data-document
+package caracal.authz
+
+import rego.v1
+
+risk := [
+  {"scope": "pipernet:refund", "tier": "high"},
+]
+
+approval_tiers := [
+  {"tier": "high", "approver": "operator", "ttl_seconds": 1800, "privacy": "identified"},
+]
+```
+
+| Field | Meaning |
+| --- | --- |
+| `tier` | Your tier name; the platform fixes no taxonomy. Required - a declaration without a tier fails the mint closed. |
+| `approver` | Who may decide: `operator` (approve-capable admin credential), `subject` (the application's own end user), or `any`. Defaults to `operator`. |
+| `ttl_seconds` | How long the hold stays decidable, clamped between 60 seconds and 7 days. Defaults to 1800. |
+| `privacy` | How much approver identity the decision record retains: `identified`, `pseudonymous`, or `anonymous`. Defaults to `identified`. |
+
+When one mint matches several tiers, the hold merges them strictly: the most trusted approver class, the shortest window, and the most protective privacy mode win.
+
+## Handle the hold in the agent
+
+The `interaction_required` error carries the challenge id, the tier, the expiry, and a `binding` - a hash of the exact resource and scope set held. `waitForApproval` long-polls the hold and resolves when someone decides:
 
 ```ts
 import { OAuthClient, InteractionRequiredError } from "@caracalai/oauth";
 
-const oauth = new OAuthClient(
-  process.env.CARACAL_STS_URL!,
-  process.env.CARACAL_ZONE_ID!,
-  process.env.CARACAL_APPLICATION_ID!,
-);
+const oauth = new OAuthClient(stsUrl, zoneId, applicationId);
+const request = { scopes: ["pipernet:refund"], sessionId };
 
 try {
-  await oauth.exchange(subjectToken, "resource://pipernet", {
-    scopes: ["pipernet:refund"],
-  });
+  return await oauth.exchange(subjectToken, "resource://pipernet", request);
 } catch (error) {
   if (error instanceof InteractionRequiredError) {
-    console.log(error.challengeId, error.acrValues);
-  } else {
-    throw error;
+    console.log(`approval needed: ${error.challengeId} binding ${error.binding}`);
+    await oauth.waitForApproval(error.challengeId);
+    return oauth.exchange(subjectToken, "resource://pipernet", {
+      ...request,
+      challengeId: error.challengeId,
+    });
   }
+  throw error;
 }
 ```
 
-## Satisfy the challenge
+The Python and Go clients expose the same surface as `wait_for_approval` and `WaitForApproval`. Under `caracal run` none of this is hand-written: the engine prints an `approval_required` notice with the challenge id and binding, waits on the hold, and retries the exchange itself.
 
-Use the Console for human approval or the Admin API when an external proof system has already completed. The Admin API supports challenge inspection and satisfaction under the zone step-up challenge routes.
+## Decide as an operator
+
+Open the zone's **Approvals** page in the Console to review pending holds - each shows the requesting principal, the tier, the binding to cross-check against the agent's notice, and the approval window - and approve or reject with an optional reason. For automation, the Admin API exposes the same decision:
 
 ```bash
 curl -X POST \
-  "$CARACAL_API_URL/v1/zones/$CARACAL_ZONE_ID/step-up-challenges/$CHALLENGE_ID/satisfy" \
-  -H "Authorization: Bearer $CARACAL_ADMIN_TOKEN"
+  "$CARACAL_API_URL/v1/zones/$CARACAL_ZONE_ID/step-up-challenges/$CHALLENGE_ID/approve" \
+  -H "Authorization: Bearer $CARACAL_ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"reason": "PiperNet refund reviewed against baseline v3"}'
 ```
 
-The approver is recorded as the authenticated admin actor (`admin:<token-id>`); it is never supplied in the request body, so approval attribution cannot be forged. The challenge cannot be self-approved by its own session subject.
+Use `/reject` to settle the hold terminally. Deciding requires an admin token minted with the `approve` capability - `write` alone cannot decide a hold, so day-to-day automation credentials never carry approval authority. The approver is recorded from the authenticated actor, never from the request body, and a hold declared `"approver": "subject"` refuses every operator decision with `subject_approval_required`.
 
-## Retry exchange
+## Decide as the application's end user
 
-Retry token exchange only after the challenge is satisfied. The STS validates the challenge proof and returns a mandate when policy and session checks pass.
+A hold declared for `subject` (or `any`) is decided by the application's own authenticated end user through the STS, using the session mandate the application already holds:
+
+```bash
+curl -X POST "$CARACAL_STS_URL/step-up/$CHALLENGE_ID/decision" \
+  -H "Authorization: Bearer $SESSION_MANDATE" \
+  -H "Content-Type: application/json" \
+  -d '{"decision": "approved", "binding": "'$BINDING'", "reason": "refund confirmed"}'
+```
+
+The decision must echo the hold's binding exactly, so an approval prompt that does not know the precise held resource and scope set cannot decide it. The session that raised the hold cannot approve itself, and the tier's privacy mode governs what the decision record keeps of the approver: `identified` stores the subject verbatim, `pseudonymous` a stable zone-scoped pseudonym, `anonymous` a redaction marker. The approver's session id is always retained as the forensic anchor.
+
+## Retry the exchange
+
+Retry with `challenge_id` once the hold is approved. The STS verifies the approval matches the same session, principal, and binding, then consumes it: an approval releases exactly one mandate for exactly the held resource and scope set and can never be replayed. Every issuance, decision, and consumption lands in the zone audit stream.
 
 ## Troubleshooting
 
 | Symptom | Check |
 | --- | --- |
-| No `challenge_id` | Confirm the policy emits a `step_up_required` diagnostic. |
-| Challenge cannot be satisfied | Confirm it has not expired, was not consumed, and is not self-approved. |
-| Retry still denied | Inspect `request trace`; policy may require a different resource, scope, or challenge type. |
-| Too many attempts | Wait for the STS step-up throttle window or investigate repeated proof failures. |
+| Deny without a `challenge_id` | The deny was not an approval gate. Confirm the scope appears in `risk` and its tier in `approval_tiers`. |
+| `subject_approval_required` on approve | The policy reserves this decision for the application's end user; no zone credential overrides it. |
+| `challenge_not_decidable` | The hold was already decided, consumed, or expired; the response names its current state. |
+| `approve_capability_required` | The admin token carries `write`, not `approve`. Mint a token with the `approve` capability. |
+| Retry still denied | The approval may have expired before consumption, or the retry changed the resource or scope set - the binding must match the original request exactly. |
 
 Related pages: [Step-Up Challenges](/concepts/step-up/) and [Author Policy Data](/guides/author-policy/).
