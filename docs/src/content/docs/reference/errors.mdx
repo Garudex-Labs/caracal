@@ -29,7 +29,7 @@ The **Likely source** column names the surface that most often emits the code, a
 | `internal_error` | Service failed unexpectedly. | Any service. | Check service readiness and logs for the `requestId`. |
 | `policy_eval_failed` | Policy evaluation failed. | STS policy engine. | Confirm the active policy set compiles and that required `input` fields are present. |
 | `provider_rate_limited` | Provider or provider coordination rate limit denied work. | Gateway upstream or provider coordination. | Inspect provider limits and retry/backoff; confirm the provider grant is active. |
-| `interaction_required` | Step-up challenge is required. | STS step-up gate. | Complete the step-up flow; see [Step-Up Re-Authentication](/guides/step-up/). |
+| `interaction_required` | Policy holds the mint for human approval. | STS approval gate. | Wait for the hold to be decided, then retry with `challenge_id`; see [Human Approval](/guides/step-up/). |
 | `sts_unavailable` | STS could not satisfy an exchange. | STS, or Gateway's STS circuit. | Run `caracal status --ready`; confirm STS readiness, JWKS, and policy bundle freshness. |
 | `credential_expired_not_renewable` | Credential is too close to expiry or cannot be renewed. | STS provider-token refresh. | Reconnect the provider grant; confirm OAuth refresh configuration. |
 | `payload_too_large` | Request body or token exceeded the configured limit. | Gateway or API preflight. | Reduce payload size or adjust the configured limit. |
