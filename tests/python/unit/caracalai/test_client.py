@@ -75,7 +75,7 @@ class FromEnvTests(unittest.TestCase):
             )
 
         exchanger = getattr(c.config._token_source, "__self__")
-        self.assertEqual(exchanger._client_secret, "secret")
+        self.assertEqual(exchanger._resolve().client_secret, "secret")
         self.assertEqual(exchanger._resources, ["calendar"])
 
     def test_env_manifest_keeps_explicit_resource_ids(self) -> None:
@@ -230,16 +230,16 @@ class ResourceBindingSortTests(unittest.TestCase):
 
 
 class FromClientSecretTests(unittest.TestCase):
-    def test_requires_at_least_one_resource(self) -> None:
-        with self.assertRaises(ValueError):
-            Caracal.from_client_secret(
-                coordinator_url="http://coord",
-                sts_url="http://sts",
-                zone_id="z",
-                application_id="app",
-                client_secret="secret",
-                resources=[],
-            )
+    def test_lifecycle_paths_require_a_resource(self) -> None:
+        c = Caracal.from_client_secret(
+            coordinator_url="http://coord",
+            sts_url="http://sts",
+            zone_id="z",
+            application_id="app",
+            client_secret="secret",
+        )
+        with self.assertRaisesRegex(RuntimeError, "no resources configured"):
+            c.config.subject_token
 
     def test_accepts_resource_bindings_as_gateway_bindings_and_sts_resources(
         self,
