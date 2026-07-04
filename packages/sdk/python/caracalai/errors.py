@@ -107,6 +107,18 @@ class MissingTokenError(RuntimeError):
     trusted service-root ingress."""
 
 
+class CredentialsUnavailableError(RuntimeError):
+    """The credentials resolver returned no usable credential; the client
+    fails closed without contacting the platform. Raised again on every
+    attempt until the resolver recovers."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Caracal credentials are unavailable: the credentials resolver "
+            "returned no usable credential"
+        )
+
+
 class CoordinatorError(RuntimeError):
     """The coordinator rejected a request; carries the HTTP status so callers
     can branch on it."""

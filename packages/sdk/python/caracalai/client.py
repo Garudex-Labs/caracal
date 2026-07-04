@@ -11,7 +11,10 @@ import asyncio
 import json
 import os
 import sys
-from contextlib import asynccontextmanager
+import threading
+import time
+import uuid
+from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 from collections.abc import AsyncGenerator, Callable, Mapping
@@ -27,8 +30,23 @@ from .context import (
     from_envelope,
     to_envelope,
 )
-from .auth import ClientSecretExchanger, TokenSource, _decode_jwt_exp
-from .coordinator import CoordinatorClient, DelegationConstraints, DelegationResponse
+from .auth import (
+    ClientCredentials,
+    ClientSecretExchanger,
+    CredentialsResolver,
+    TokenSource,
+    _decode_jwt_exp,
+)
+from .coordinator import (
+    CoordinatorClient,
+    DelegationConstraints,
+    DelegationRequest,
+    DelegationResponse,
+    SpawnRequest,
+    sync_create_delegation,
+    sync_spawn_agent,
+    sync_terminate_agent,
+)
 from .envelope import (
     HEADER_AUTHORIZATION,
     Envelope,
@@ -52,6 +70,11 @@ from .primitives import (
 DEFAULT_STS_URL = "http://localhost:8080"
 DEFAULT_COORDINATOR_URL = "http://localhost:4000"
 DEFAULT_GATEWAY_URL = "http://localhost:8081"
+
+LIFECYCLE_SCOPE = "agent:lifecycle"
+GOVERNED_MANDATE_TTL_SECONDS = 900
+GOVERNED_REFRESH_MARGIN_SECONDS = 60.0
+GOVERNED_SESSION_TTL_BUFFER_SECONDS = 120
 
 if TYPE_CHECKING:
     from .http import ASGIApp, CaracalASGIMiddleware, TokenVerifier
@@ -82,8 +105,8 @@ class CaracalConfig:
         self,
         *,
         coordinator: CoordinatorClient,
-        zone_id: str,
-        application_id: str,
+        zone_id: str | None = None,
+        application_id: str | None = None,
         subject_token: str | None = None,
         token_source: TokenSource | None = None,
         gateway_url: str | None = None,
@@ -583,30 +606,27 @@ def _config_from_env(env: Mapping[str, str] | None = None) -> CaracalConfig:
     default_ttl = _default_ttl_from_env(e)
 
     if client_secret:
-        resources = list(
+        resource_ids = list(
             dict.fromkeys(credential_ids + _resource_ids_from_env(e, bindings))
         )
-        if not resources:
+        if not resource_ids:
             raise RuntimeError(
                 "Caracal.from_env: client-secret mode requires resources via "
                 "CARACAL_APP_RESOURCES, CARACAL_RESOURCES, or CARACAL_RESOURCES_FILE"
             )
-        exchanger = ClientSecretExchanger(
+        binding_by_resource = {b.resource_id: b for b in bindings}
+        return _config_from_client_secret(
+            coordinator_url=coordinator_url,
             sts_url=sts_url,
             zone_id=zone_id,
             application_id=application_id,
             client_secret=client_secret,
-            resources=resources,
-        )
-        return CaracalConfig(
-            coordinator=CoordinatorClient(base_url=coordinator_url),
-            zone_id=zone_id,
-            application_id=application_id,
-            token_source=exchanger.get_token,
+            resources=[
+                binding_by_resource.get(resource_id, resource_id)
+                for resource_id in resource_ids
+            ],
             gateway_url=gateway_url,
-            resources=bindings,
             default_ttl_seconds=default_ttl,
-            exchanger=exchanger,
         )
 
     if not subject_token:
@@ -629,26 +649,29 @@ def _config_from_client_secret(
     *,
     coordinator_url: str,
     sts_url: str,
-    zone_id: str,
-    application_id: str,
-    client_secret: str,
-    resources: list[str | ResourceBinding],
+    zone_id: str | None = None,
+    application_id: str | None = None,
+    client_secret: str | None = None,
+    credentials: CredentialsResolver | None = None,
+    resources: list[str | ResourceBinding] | None = None,
     gateway_url: str | None = None,
     scope: str = "agent:lifecycle",
     default_ttl_seconds: int | None = None,
     http_client: httpx.Client | None = None,
 ) -> CaracalConfig:
-    missing = [
-        name
-        for name, value in (
-            ("coordinator_url", coordinator_url),
-            ("sts_url", sts_url),
+    if credentials is not None and (zone_id or application_id or client_secret):
+        raise ValueError(
+            "Caracal.from_client_secret: pass either credentials or the "
+            "zone_id/application_id/client_secret triple, not both"
+        )
+    checks = [("coordinator_url", coordinator_url), ("sts_url", sts_url)]
+    if credentials is None:
+        checks += [
             ("zone_id", zone_id),
             ("application_id", application_id),
             ("client_secret", client_secret),
-        )
-        if not value
-    ]
+        ]
+    missing = [name for name, value in checks if not value]
     if missing:
         raise ValueError(f"Caracal.from_client_secret missing {', '.join(missing)}")
     if default_ttl_seconds is not None and default_ttl_seconds <= 0:
@@ -657,19 +680,27 @@ def _config_from_client_secret(
         )
     bindings: list[ResourceBinding] = []
     resource_ids: list[str] = []
-    for r in resources:
+    for r in resources or []:
         if isinstance(r, ResourceBinding):
             bindings.append(r)
             resource_ids.append(r.resource_id)
         else:
             resource_ids.append(str(r))
-    if not resource_ids:
-        raise ValueError("from_client_secret requires at least one resource")
+    if credentials is not None:
+        resolver = credentials
+    else:
+        static = ClientCredentials(
+            zone_id=zone_id or "",
+            application_id=application_id or "",
+            client_secret=client_secret or "",
+        )
+
+        def resolver() -> ClientCredentials:
+            return static
+
     exchanger = ClientSecretExchanger(
         sts_url=sts_url,
-        zone_id=zone_id,
-        application_id=application_id,
-        client_secret=client_secret,
+        credentials=resolver,
         resources=resource_ids,
         scope=scope,
         http_client=http_client,
@@ -808,6 +839,9 @@ class Caracal:
         self._fetch_clients: dict[
             tuple[bool, tuple[str, ...] | None], httpx.AsyncClient
         ] = {}
+        self._governed_mandates: dict[str, tuple[str, float]] = {}
+        self._governed_locks: dict[str, threading.Lock] = {}
+        self._governed_guard = threading.Lock()
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> Caracal:
@@ -830,10 +864,11 @@ class Caracal:
         *,
         coordinator_url: str,
         sts_url: str,
-        zone_id: str,
-        application_id: str,
-        client_secret: str,
-        resources: list[str | ResourceBinding],
+        zone_id: str | None = None,
+        application_id: str | None = None,
+        client_secret: str | None = None,
+        credentials: CredentialsResolver | None = None,
+        resources: list[str | ResourceBinding] | None = None,
         gateway_url: str | None = None,
         scope: str = "agent:lifecycle",
         default_ttl_seconds: int | None = None,
@@ -842,10 +877,21 @@ class Caracal:
         """Build a Caracal client that exchanges an application client_secret
         for an STS access token and refreshes the token automatically.
 
+        Credentials come either from the static
+        ``zone_id``/``application_id``/``client_secret`` triple or from
+        ``credentials``: a callable returning :class:`ClientCredentials` (or
+        ``None``) invoked before every exchange, so secret rotation and
+        identity swaps take effect without rebuilding the client. When the
+        resolver returns no usable credential the client raises
+        :class:`caracalai.CredentialsUnavailableError` without contacting the
+        platform. Pass exactly one of the two shapes.
+
         `resources` may be either a list of resource IDs (the STS audiences) or
         a list of ResourceBinding objects (when gateway routing is also
         required). When ResourceBinding objects are supplied their
-        `resource_id`s are used as the STS audiences. `default_ttl_seconds`
+        `resource_id`s are used as the STS audiences. Mandate-only clients
+        (:meth:`mint_mandate`, :meth:`governed_transport`) may omit resources;
+        spawn and lifecycle paths require at least one. `default_ttl_seconds`
         bounds task spawns that do not pass an explicit TTL.
         """
         return cls(
@@ -855,6 +901,7 @@ class Caracal:
                 zone_id=zone_id,
                 application_id=application_id,
                 client_secret=client_secret,
+                credentials=credentials,
                 resources=resources,
                 gateway_url=gateway_url,
                 scope=scope,
@@ -1558,6 +1605,241 @@ class Caracal:
             ),
             **kwargs,
         )
+
+    def governed_transport(
+        self,
+        resource_id: str,
+        *,
+        scopes: list[str],
+        labels: list[str] | None = None,
+        mandate_ttl_seconds: int | None = None,
+        **kwargs: Any,
+    ) -> httpx.AsyncClient:
+        """Returns an httpx.AsyncClient that authorizes every request with a
+        governed mandate minted under this application's own authority: the SDK
+        spawns a source and target agent session, delegates ``scopes`` between
+        them constrained to ``resource_id``, and mints the mandate against that
+        delegation edge, so every call is attributable to a live, bounded
+        session even with no inbound context. Requests to the resource's bound
+        upstream (or any absolute URL) are rewritten through the configured
+        gateway; requests already addressed to the gateway pass through.
+
+        The mandate is cached per application identity, resource, and scope
+        set, refreshed before expiry with a fresh session cycle; concurrent
+        requests share one in-flight cycle. ``labels`` tag the spawned sessions
+        (default: the application id). ``mandate_ttl_seconds`` bounds each
+        mandate; sessions outlive it by a fixed buffer.
+
+        Requires client-secret credentials."""
+        return httpx.AsyncClient(
+            auth=self._governed_auth(
+                resource_id,
+                scopes=scopes,
+                labels=labels,
+                mandate_ttl_seconds=mandate_ttl_seconds,
+                label="governed_transport",
+            ),
+            **kwargs,
+        )
+
+    def sync_governed_transport(
+        self,
+        resource_id: str,
+        *,
+        scopes: list[str],
+        labels: list[str] | None = None,
+        mandate_ttl_seconds: int | None = None,
+        **kwargs: Any,
+    ) -> httpx.Client:
+        """Sync counterpart to :meth:`governed_transport`: returns an
+        httpx.Client authorizing every request with a governed mandate minted
+        under this application's own authority. See :meth:`governed_transport`
+        for the cycle, caching, and routing semantics."""
+        return httpx.Client(
+            auth=self._governed_auth(
+                resource_id,
+                scopes=scopes,
+                labels=labels,
+                mandate_ttl_seconds=mandate_ttl_seconds,
+                label="sync_governed_transport",
+            ),
+            **kwargs,
+        )
+
+    def _governed_auth(
+        self,
+        resource_id: str,
+        *,
+        scopes: list[str],
+        labels: list[str] | None,
+        mandate_ttl_seconds: int | None,
+        label: str,
+    ) -> httpx.Auth:
+        if self.config.exchanger is None:
+            raise RuntimeError(
+                f"Caracal.{label} requires client-secret credentials; "
+                "build the client with from_client_secret, from_config, or "
+                "CARACAL_APP_CLIENT_SECRET."
+            )
+        if not resource_id.strip():
+            raise ValueError(f"Caracal.{label}: resource_id is required")
+        if not scopes:
+            raise ValueError(f"Caracal.{label}: scopes are required")
+        granted = sorted(set(scopes))
+        mandate_ttl = (
+            mandate_ttl_seconds
+            if mandate_ttl_seconds is not None
+            else GOVERNED_MANDATE_TTL_SECONDS
+        )
+        outer = self
+
+        class _GovernedAuth(httpx.Auth):
+            requires_request_body = False
+
+            def _finish(self, request: httpx.Request, mandate: str) -> None:
+                request.headers["Authorization"] = f"Bearer {mandate}"
+                request.headers["X-Caracal-Resource"] = resource_id
+                rewritten = outer._route_through_gateway(request.url, resource_id)
+                if rewritten is not None:
+                    request.url = httpx.URL(rewritten[0])
+                    request.headers["host"] = request.url.netloc.decode("ascii")
+
+            def sync_auth_flow(self, request: httpx.Request):
+                self._finish(
+                    request,
+                    outer._governed_mandate(resource_id, granted, labels, mandate_ttl),
+                )
+                yield request
+
+            async def async_auth_flow(self, request: httpx.Request):
+                mandate = await asyncio.to_thread(
+                    outer._governed_mandate, resource_id, granted, labels, mandate_ttl
+                )
+                self._finish(request, mandate)
+                yield request
+
+        return _GovernedAuth()
+
+    def _governed_cached(self, key: str) -> str | None:
+        with self._governed_guard:
+            cached = self._governed_mandates.get(key)
+            if (
+                cached is not None
+                and cached[1] - time.time() > GOVERNED_REFRESH_MARGIN_SECONDS
+            ):
+                return cached[0]
+        return None
+
+    def _governed_lock(self, key: str) -> threading.Lock:
+        with self._governed_guard:
+            lock = self._governed_locks.get(key)
+            if lock is None:
+                lock = threading.Lock()
+                self._governed_locks[key] = lock
+            return lock
+
+    def _governed_mandate(
+        self,
+        resource_id: str,
+        scopes: list[str],
+        labels: list[str] | None,
+        mandate_ttl: int,
+    ) -> str:
+        exchanger = self.config.exchanger
+        assert exchanger is not None
+        zone_id, application_id = exchanger.identity()
+        key = f"{zone_id}::{application_id}::{resource_id}::{' '.join(scopes)}"
+        cached = self._governed_cached(key)
+        if cached is not None:
+            return cached
+        with self._governed_lock(key):
+            cached = self._governed_cached(key)
+            if cached is not None:
+                return cached
+            token, exp = self._governed_cycle(
+                zone_id, application_id, resource_id, scopes, labels, mandate_ttl
+            )
+            with self._governed_guard:
+                self._governed_mandates[key] = (token, exp)
+            return token
+
+    def _governed_cycle(
+        self,
+        zone_id: str,
+        application_id: str,
+        resource_id: str,
+        scopes: list[str],
+        labels: list[str] | None,
+        mandate_ttl: int,
+    ) -> tuple[str, float]:
+        exchanger = self.config.exchanger
+        assert exchanger is not None
+        session_ttl = mandate_ttl + GOVERNED_SESSION_TTL_BUFFER_SECONDS
+        bootstrap = exchanger.mint_mandate(
+            resource=resource_id, scopes=[LIFECYCLE_SCOPE]
+        )
+        coordinator = self.config.coordinator
+        http = exchanger._http
+        session_labels = labels if labels else [application_id]
+        spawned: list[str] = []
+        try:
+            source = sync_spawn_agent(
+                coordinator,
+                http,
+                bootstrap,
+                SpawnRequest(
+                    zone_id=zone_id,
+                    application_id=application_id,
+                    ttl_seconds=session_ttl,
+                    labels=session_labels,
+                    idempotency_key=str(uuid.uuid4()),
+                ),
+            )
+            spawned.append(source.agent_session_id)
+            target = sync_spawn_agent(
+                coordinator,
+                http,
+                bootstrap,
+                SpawnRequest(
+                    zone_id=zone_id,
+                    application_id=application_id,
+                    ttl_seconds=session_ttl,
+                    labels=session_labels,
+                    idempotency_key=str(uuid.uuid4()),
+                ),
+            )
+            spawned.append(target.agent_session_id)
+            edge = sync_create_delegation(
+                coordinator,
+                http,
+                bootstrap,
+                DelegationRequest(
+                    zone_id=zone_id,
+                    issuer_application_id=application_id,
+                    source_session_id=source.agent_session_id,
+                    target_session_id=target.agent_session_id,
+                    receiver_application_id=application_id,
+                    scopes=list(scopes),
+                    constraints=DelegationConstraints(resources=[resource_id]),
+                    ttl_seconds=session_ttl,
+                ),
+            )
+            token = exchanger.mint_mandate(
+                resource=resource_id,
+                scopes=list(scopes),
+                agent_session_id=target.agent_session_id,
+                delegation_edge_id=edge.delegation_edge_id,
+                ttl_seconds=mandate_ttl,
+            )
+            exp = _decode_jwt_exp(token) or (time.time() + mandate_ttl)
+            return token, exp
+        except BaseException:
+            for agent_session_id in spawned:
+                with suppress(Exception):
+                    sync_terminate_agent(
+                        coordinator, http, bootstrap, zone_id, agent_session_id
+                    )
+            raise
 
     def _route_through_gateway(
         self,
