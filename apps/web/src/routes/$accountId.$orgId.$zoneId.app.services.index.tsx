@@ -5,9 +5,10 @@ Caracal, a product of Garudex Labs
 This file renders the Services catalog of Caracal platform surfaces beyond the web console and SDK.
 */
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { useState } from "react";
 
-import { NavIcon } from "@/components/console/NavIcon";
 import { ZoneScopedPage } from "@/components/console/ZoneScope";
+import { cx } from "@/lib/cx";
 import { appLink } from "@/platform/nav/appLink";
 
 export const Route = createFileRoute("/$accountId/$orgId/$zoneId/app/services/")({
@@ -31,8 +32,27 @@ interface Service {
   name: string;
   command: string;
   to: string;
+  image: string;
+  imageAlt: string;
   tagline: string;
-  description: string;
+}
+
+type Layout = "grid" | "rows";
+
+function LayoutIcon({ layout }: { layout: Layout }) {
+  return layout === "grid" ? (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect x="4" y="4" width="7" height="7" rx="1.5" stroke="currentColor" strokeWidth="2" />
+      <rect x="13" y="4" width="7" height="7" rx="1.5" stroke="currentColor" strokeWidth="2" />
+      <rect x="4" y="13" width="7" height="7" rx="1.5" stroke="currentColor" strokeWidth="2" />
+      <rect x="13" y="13" width="7" height="7" rx="1.5" stroke="currentColor" strokeWidth="2" />
+    </svg>
+  ) : (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect x="4" y="5" width="16" height="5.5" rx="1.5" stroke="currentColor" strokeWidth="2" />
+      <rect x="4" y="13.5" width="16" height="5.5" rx="1.5" stroke="currentColor" strokeWidth="2" />
+    </svg>
+  );
 }
 
 const SERVICES: Service[] = [
@@ -41,53 +61,140 @@ const SERVICES: Service[] = [
     name: "Launcher",
     command: "caracal run",
     to: "/services/run",
+    image: "/launcher.png",
+    imageAlt: "Launcher workload configuration preview",
     tagline: "Launch workloads with injected credentials.",
-    description:
-      "caracal run starts any command under a workload identity: it authenticates with the workload's ID and client secret, fetches its launch bindings, injects short-lived resource credentials into the environment, and runs the process. No zone IDs, tokens, or config files live on the machine.",
   },
   {
     id: "control",
     name: "Control API",
     command: "HTTP /v1",
     to: "/services/control",
+    image: "/control.png",
+    imageAlt: "Control API keys and automation preview",
     tagline: "Programmatic administration for automation.",
-    description:
-      "Everything the console manages, exposed as an API: zones, applications, resources, policies, and audit. Open the endpoint, mint scoped Control credentials, and drive it from scripts, CI, or the Admin SDK.",
   },
 ];
 
 function ServicesPage() {
+  const [query, setQuery] = useState("");
+  const [layout, setLayout] = useState<Layout>("grid");
+  const normalizedQuery = query.trim().toLowerCase();
+  const services = normalizedQuery
+    ? SERVICES.filter((service) =>
+        [service.name, service.command, service.tagline]
+          .join(" ")
+          .toLowerCase()
+          .includes(normalizedQuery),
+      )
+    : SERVICES;
+
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-      {SERVICES.map((service) => (
-        <Link
-          key={service.id}
-          to={appLink(service.to)}
-          className="group flex flex-col gap-4 rounded-xl border border-border bg-card p-5 transition-colors hover:border-foreground/25"
+    <div className="flex flex-col gap-5">
+      <div className="flex items-center gap-3 border-b border-border pb-3">
+        <label className="flex min-w-0 flex-1 items-center gap-2.5">
+          <svg
+            width="15"
+            height="15"
+            viewBox="0 0 24 24"
+            fill="none"
+            aria-hidden="true"
+            className="shrink-0 text-muted-foreground"
+          >
+            <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="2" />
+            <path d="m20 20-3.5-3.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+          </svg>
+          <span className="sr-only">Search services</span>
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search services…"
+            className="h-8 w-full bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground/70"
+          />
+        </label>
+        <div className="flex shrink-0 gap-0.5">
+          {(["grid", "rows"] as Layout[]).map((mode) => {
+            const selected = layout === mode;
+            return (
+              <button
+                key={mode}
+                type="button"
+                aria-label={mode === "grid" ? "Grid layout" : "Rows layout"}
+                aria-pressed={selected}
+                onClick={() => setLayout(mode)}
+                className={cx(
+                  "grid h-8 w-8 place-items-center rounded-md outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/40",
+                  selected
+                    ? "bg-accent text-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                <LayoutIcon layout={mode} />
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {services.length > 0 ? (
+        <div
+          className={cx(
+            "grid gap-4",
+            layout === "grid" ? "grid-cols-1 sm:grid-cols-2 xl:grid-cols-4" : "grid-cols-1",
+          )}
         >
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <span className="flex h-10 w-10 items-center justify-center rounded-lg border border-border bg-muted/60 text-foreground">
-                <NavIcon name={service.id} className="h-5 w-5" />
-              </span>
-              <div className="min-w-0">
-                <div className="font-medium text-foreground">{service.name}</div>
-                <code className="font-mono text-xs text-muted-foreground">{service.command}</code>
-              </div>
-            </div>
-            <span
-              aria-hidden="true"
-              className="text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-foreground"
-            >
-              →
-            </span>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <p className="text-sm font-medium text-foreground">{service.tagline}</p>
-            <p className="text-xs leading-relaxed text-muted-foreground">{service.description}</p>
-          </div>
-        </Link>
-      ))}
+          {services.map((service) =>
+            layout === "grid" ? (
+              <Link
+                key={service.id}
+                to={appLink(service.to)}
+                className="group overflow-hidden rounded-lg border border-border bg-card transition-all hover:-translate-y-0.5 hover:border-foreground/25 hover:shadow-md"
+              >
+                <img
+                  src={service.image}
+                  alt={service.imageAlt}
+                  className="aspect-16/10 w-full border-b border-border object-cover object-top transition-transform duration-500 group-hover:scale-[1.02]"
+                />
+                <div className="flex flex-col gap-1 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm font-semibold text-foreground">{service.name}</p>
+                    <code className="font-mono text-xs text-muted-foreground">
+                      {service.command}
+                    </code>
+                  </div>
+                  <p className="text-sm text-muted-foreground">{service.tagline}</p>
+                </div>
+              </Link>
+            ) : (
+              <Link
+                key={service.id}
+                to={appLink(service.to)}
+                className="group flex items-center gap-4 overflow-hidden rounded-lg border border-border bg-card p-3 transition-all hover:border-foreground/25 hover:shadow-md"
+              >
+                <img
+                  src={service.image}
+                  alt={service.imageAlt}
+                  className="aspect-16/10 w-40 shrink-0 rounded-md border border-border object-cover object-top"
+                />
+                <div className="flex min-w-0 flex-col gap-1">
+                  <div className="flex items-center gap-3">
+                    <p className="text-sm font-semibold text-foreground">{service.name}</p>
+                    <code className="font-mono text-xs text-muted-foreground">
+                      {service.command}
+                    </code>
+                  </div>
+                  <p className="truncate text-sm text-muted-foreground">{service.tagline}</p>
+                </div>
+              </Link>
+            ),
+          )}
+        </div>
+      ) : (
+        <div className="rounded-lg border border-dashed border-border bg-card p-8 text-center">
+          <p className="text-sm font-medium text-foreground">No services found</p>
+          <p className="mt-1 text-sm text-muted-foreground">Try a different search term.</p>
+        </div>
+      )}
     </div>
   );
 }
