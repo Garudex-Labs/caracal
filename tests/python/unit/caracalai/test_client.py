@@ -524,15 +524,15 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
         async with c.spawn(metadata={"purpose": "test"}) as ctx:
             self.assertEqual(ctx.agent_session_id, "agent-1")
             self.assertEqual(current().agent_session_id, "agent-1")
-            async with c.delegate(
+            res = await c.delegate(
                 to="agent-2",
                 to_application_id="app-2",
                 scopes=["tool:call"],
                 constraints=DelegationConstraints(resources=["calendar"], max_depth=2),
                 ttl_seconds=30,
-            ) as child:
-                self.assertEqual(child.delegation_edge_id, "edge-1")
-                self.assertEqual(child.hop, 1)
+            )
+            self.assertEqual(res.delegation_edge_id, "edge-1")
+            self.assertEqual(current().agent_session_id, "agent-1")
 
         await client.aclose()
         self.assertEqual(events, ["start:agent-1", "end:agent-1"])
@@ -543,6 +543,7 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
                 "application_id": "app",
                 "ttl_seconds": 60,
                 "metadata": {"purpose": "test"},
+                "parent_authority": "inherit",
             },
         )
         self.assertEqual(
@@ -563,10 +564,9 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
         c = _build_caracal()
 
         with self.assertRaises(RuntimeError):
-            async with c.delegate(
+            await c.delegate(
                 to="agent-2", to_application_id="app-2", scopes=["tool:call"]
-            ):
-                pass
+            )
 
     async def test_service_heartbeats_and_does_not_auto_terminate(self) -> None:
         requests: list[httpx.Request] = []
@@ -601,6 +601,7 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
                 "application_id": "app",
                 "lifecycle": "service",
                 "labels": ["billing-worker"],
+                "parent_authority": "inherit",
             },
         )
 

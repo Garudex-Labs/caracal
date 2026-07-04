@@ -2,7 +2,7 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-SDK primitives unit tests: spawn and delegate context manager flows.
+SDK primitives unit tests: spawn, delegation, and service lease flows.
 """
 
 import unittest
@@ -12,7 +12,7 @@ import httpx
 from caracalai.coordinator import CoordinatorClient
 from caracalai.context import current
 from caracalai.errors import CoordinatorError
-from caracalai.primitives import Grant, spawn, delegate
+from caracalai.primitives import Grant, adopt_delegation, spawn, delegate
 
 
 def _coord(handler) -> CoordinatorClient:
@@ -206,42 +206,39 @@ class DelegateTests(unittest.IsolatedAsyncioTestCase):
     async def test_raises_without_active_agent_session(self) -> None:
         coord = _coord(_default_handler)
         with self.assertRaises(RuntimeError):
-            async with delegate(
+            await delegate(
                 coordinator=coord,
                 to_agent_session_id="agent-2",
                 to_application_id="app-2",
                 scopes=["tool:call"],
-            ):
-                pass  # pragma: no cover
+            )
 
-    async def test_yields_child_context_with_delegation_edge(self) -> None:
+    async def test_returns_edge_without_rebinding_issuer_context(self) -> None:
         coord = _coord(_default_handler)
         async with spawn(
             coordinator=coord, zone_id="z", application_id="app", subject_token="tok"
         ) as parent:
-            async with delegate(
+            res = await delegate(
                 coordinator=coord,
                 to_agent_session_id="agent-2",
                 to_application_id="app-2",
                 scopes=["tool:call"],
-            ) as child:
-                self.assertEqual(child.delegation_edge_id, "edge-1")
-                self.assertEqual(child.hop, parent.hop + 1)
-                self.assertEqual(child.parent_edge_id, parent.delegation_edge_id)
-
-    async def test_restores_parent_context_on_exit(self) -> None:
-        coord = _coord(_default_handler)
-        async with spawn(
-            coordinator=coord, zone_id="z", application_id="app", subject_token="tok"
-        ) as parent:
-            async with delegate(
-                coordinator=coord,
-                to_agent_session_id="agent-2",
-                to_application_id="app-2",
-                scopes=["tool:call"],
-            ):
-                pass
+            )
+            self.assertEqual(res.delegation_edge_id, "edge-1")
             self.assertEqual(current().agent_session_id, parent.agent_session_id)
+            self.assertEqual(current().delegation_edge_id, parent.delegation_edge_id)
+            self.assertEqual(current().hop, parent.hop)
+
+    async def test_adopt_delegation_derives_receiver_context(self) -> None:
+        coord = _coord(_default_handler)
+        async with spawn(
+            coordinator=coord, zone_id="z", application_id="app", subject_token="tok"
+        ) as receiver:
+            adopted = adopt_delegation(receiver, "edge-42")
+            self.assertEqual(adopted.delegation_edge_id, "edge-42")
+            self.assertEqual(adopted.parent_edge_id, receiver.delegation_edge_id)
+            self.assertEqual(adopted.hop, receiver.hop + 1)
+            self.assertIsNone(receiver.delegation_edge_id)
 
 
 class SpawnNarrowGrantTests(unittest.IsolatedAsyncioTestCase):
@@ -508,7 +505,8 @@ class SpawnInheritEdgeTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(ctx.delegation_edge_id, "edge-child")
             self.assertEqual(ctx.parent_edge_id, "edge-parent")
             self.assertEqual(ctx.hop, parent.hop + 1)
-        self.assertEqual(captured["body"].get("inherit_parent_edge_id"), "edge-parent")
+        self.assertEqual(captured["body"].get("parent_authority"), "inherit")
+        self.assertNotIn("inherit_parent_edge_id", captured["body"])
 
     async def test_inherit_skips_edge_when_cross_app(self) -> None:
         from caracalai.context import CaracalContext
@@ -541,7 +539,8 @@ class SpawnInheritEdgeTests(unittest.IsolatedAsyncioTestCase):
         ) as ctx:
             self.assertIsNone(ctx.delegation_edge_id)
             self.assertEqual(ctx.hop, parent.hop)
-        self.assertIsNone(captured["body"].get("inherit_parent_edge_id"))
+        self.assertEqual(captured["body"].get("parent_authority"), "inherit")
+        self.assertNotIn("inherit_parent_edge_id", captured["body"])
 
     async def test_inherit_root_parent_creates_no_edge(self) -> None:
         from caracalai.context import CaracalContext
@@ -574,7 +573,42 @@ class SpawnInheritEdgeTests(unittest.IsolatedAsyncioTestCase):
         ) as ctx:
             self.assertIsNone(ctx.delegation_edge_id)
             self.assertEqual(ctx.hop, 0)
-        self.assertIsNone(captured["body"].get("inherit_parent_edge_id"))
+        self.assertEqual(captured["body"].get("parent_authority"), "inherit")
+
+    async def test_narrow_grant_suppresses_server_inheritance(self) -> None:
+        import json
+
+        from caracalai.context import CaracalContext
+
+        captured: dict = {}
+
+        def handler(req: httpx.Request) -> httpx.Response:
+            if req.method == "POST" and str(req.url).endswith("/agents"):
+                captured["body"] = json.loads(req.content.decode())
+                return httpx.Response(200, json={"agent_session_id": "agent-2"})
+            if req.method == "POST" and str(req.url).endswith("/delegations"):
+                return httpx.Response(200, json={"delegation_edge_id": "edge-n"})
+            return httpx.Response(204)
+
+        parent = CaracalContext(
+            subject_token="parent-tok",
+            zone_id="z",
+            application_id="app",
+            agent_session_id="parent-session",
+            delegation_edge_id="edge-parent",
+            hop=1,
+        )
+        coord = _coord(handler)
+        async with spawn(
+            coordinator=coord,
+            zone_id="z",
+            application_id="app",
+            subject_token="tok",
+            parent_ctx=parent,
+            grant=Grant.narrow(["tool:call"]),
+        ) as ctx:
+            self.assertEqual(ctx.delegation_edge_id, "edge-n")
+        self.assertEqual(captured["body"].get("parent_authority"), "none")
 
     async def test_auto_heartbeat_renews_in_background(self) -> None:
         import asyncio
@@ -868,9 +902,79 @@ class SpawnInheritEdgeTests(unittest.IsolatedAsyncioTestCase):
             subject_token="tok",
             parent_ctx=parent,
         )
-        self.assertEqual(captured["body"]["inherit_parent_edge_id"], "edge-parent")
+        self.assertEqual(captured["body"]["parent_authority"], "inherit")
         self.assertEqual(agent.context.delegation_edge_id, "edge-mirror")
         self.assertEqual(agent.context.hop, 2)
+        await agent.aclose()
+
+    async def test_on_agent_end_runs_once_before_terminate(self) -> None:
+        from caracalai.primitives import spawn_service
+
+        order: list[str] = []
+
+        async def handler(req: httpx.Request) -> httpx.Response:
+            if req.method == "POST" and req.url.path.endswith("/agents"):
+                return httpx.Response(200, json={"agent_session_id": "svc-1"})
+            if req.method == "DELETE":
+                order.append("terminate")
+                return httpx.Response(204)
+            return httpx.Response(404)
+
+        async def on_end(ctx) -> None:
+            order.append("end")
+
+        agent = await spawn_service(
+            coordinator=_coord(handler),
+            zone_id="z",
+            application_id="app",
+            subject_token="tok",
+            heartbeat_interval=0,
+            on_agent_end=on_end,
+        )
+        await agent.aclose()
+        await agent.aclose()
+        self.assertEqual(order, ["end", "terminate"])
+
+    async def test_heartbeat_single_flights_token_refresh_on_401(self) -> None:
+        from caracalai.primitives import spawn_service
+
+        tokens = ["tok-stale"]
+        invalidations = 0
+        bearers: list[str] = []
+
+        def token_source() -> str:
+            return tokens[-1]
+
+        def invalidate() -> None:
+            nonlocal invalidations
+            invalidations += 1
+            tokens.append("tok-fresh")
+
+        def handler(req: httpx.Request) -> httpx.Response:
+            if req.method == "POST" and req.url.path.endswith("/agents"):
+                return httpx.Response(200, json={"agent_session_id": "svc-1"})
+            if req.method == "POST" and req.url.path.endswith("/heartbeat"):
+                bearer = req.headers["authorization"].removeprefix("Bearer ")
+                bearers.append(bearer)
+                if bearer == "tok-stale":
+                    return httpx.Response(401, json={"error": "revoked"})
+                return httpx.Response(200, json={"id": "svc-1"})
+            if req.method == "DELETE":
+                return httpx.Response(204)
+            return httpx.Response(404)
+
+        agent = await spawn_service(
+            coordinator=_coord(handler),
+            zone_id="z",
+            application_id="app",
+            subject_token="tok-stale",
+            token_source=token_source,
+            invalidate=invalidate,
+            heartbeat_interval=0,
+        )
+        await agent.heartbeat()
+        self.assertEqual(invalidations, 1)
+        self.assertEqual(bearers, ["tok-stale", "tok-fresh"])
         await agent.aclose()
 
 

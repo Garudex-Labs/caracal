@@ -257,7 +257,14 @@ class TerminateAgentTests(unittest.IsolatedAsyncioTestCase):
 class CreateDelegationTests(unittest.IsolatedAsyncioTestCase):
     async def test_returns_delegation_edge_id(self) -> None:
         async def handler(req: httpx.Request) -> httpx.Response:
-            return httpx.Response(200, json={"delegation_edge_id": "edge-1"})
+            return httpx.Response(
+                200,
+                json={
+                    "delegation_edge_id": "edge-1",
+                    "scopes": ["tool:call"],
+                    "expires_at": "2026-07-04T12:00:00+00:00",
+                },
+            )
 
         res = await create_delegation(
             _client(handler),
@@ -272,6 +279,8 @@ class CreateDelegationTests(unittest.IsolatedAsyncioTestCase):
             ),
         )
         self.assertEqual(res.delegation_edge_id, "edge-1")
+        self.assertEqual(res.scopes, ["tool:call"])
+        self.assertEqual(res.expires_at, "2026-07-04T12:00:00+00:00")
 
     async def test_raises_on_http_error(self) -> None:
         async def handler(req: httpx.Request) -> httpx.Response:
