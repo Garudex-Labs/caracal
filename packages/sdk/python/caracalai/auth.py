@@ -150,6 +150,33 @@ class ClientSecretExchanger:
             self._mandates[key] = (token, exp)
             return token
 
+    def wait_for_approval(
+        self, challenge_id: str, *, timeout_seconds: float = 300.0
+    ) -> str:
+        """Long-poll the approval challenge until an approver decides it, it
+        expires, or the timeout elapses. Returns the final lifecycle state:
+        ``approved`` means a retry of ``mint_mandate`` with ``approval_id`` will
+        mint; ``rejected`` and ``expired`` are terminal; ``pending`` means the
+        timeout elapsed with no decision and waiting again is safe."""
+        if not challenge_id:
+            raise ValueError("wait_for_approval requires a challenge_id")
+        deadline = time.time() + timeout_seconds
+        while True:
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                return "pending"
+            wait = max(1, min(25, int(remaining)))
+            url = f"{self._sts_url}/step-up/{challenge_id}?wait={wait}"
+            if self._http_client is not None:
+                resp = self._http_client.get(url)
+            else:
+                with httpx.Client(timeout=wait + 10.0) as http:
+                    resp = http.get(url)
+            resp.raise_for_status()
+            state = str(resp.json().get("state", ""))
+            if state and state != "pending":
+                return state
+
     def _exchange(self, data: dict[str, str | list[str]]) -> tuple[str, float]:
         if self._http_client is not None:
             resp = self._http_client.post(f"{self._sts_url}/oauth/2/token", data=data)

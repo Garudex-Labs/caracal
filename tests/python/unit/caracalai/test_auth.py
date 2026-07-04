@@ -280,6 +280,9 @@ class MintMandateTests(unittest.TestCase):
                     "error": "interaction_required",
                     "challenge_type": "human_approval",
                     "challenge_id": "chal_1",
+                    "state": "pending",
+                    "tier": "money",
+                    "binding": "ab12",
                     "challenge_expires_at": "2026-01-01T00:00:00Z",
                 },
             )
@@ -291,6 +294,32 @@ class MintMandateTests(unittest.TestCase):
                 )
         self.assertEqual(caught.exception.challenge_id, "chal_1")
         self.assertEqual(caught.exception.expires_at, "2026-01-01T00:00:00Z")
+        self.assertEqual(caught.exception.state, "pending")
+        self.assertEqual(caught.exception.tier, "money")
+        self.assertEqual(caught.exception.binding, "ab12")
+
+    def test_wait_for_approval_long_polls_until_decision(self):
+        states = iter(["pending", "approved"])
+        seen: list[str] = []
+
+        def handler(req: httpx.Request) -> httpx.Response:
+            seen.append(str(req.url))
+            return httpx.Response(200, json={"id": "chal_1", "state": next(states)})
+
+        with _patch_client(handler):
+            state = _exchanger().wait_for_approval("chal_1", timeout_seconds=60.0)
+        self.assertEqual(state, "approved")
+        self.assertEqual(len(seen), 2)
+        self.assertIn("/step-up/chal_1?wait=", seen[0])
+
+    def test_wait_for_approval_returns_pending_on_timeout(self):
+        with _patch_client(lambda req: httpx.Response(200, json={"state": "pending"})):
+            state = _exchanger().wait_for_approval("chal_1", timeout_seconds=0.0)
+        self.assertEqual(state, "pending")
+
+    def test_wait_for_approval_requires_challenge_id(self):
+        with self.assertRaises(ValueError):
+            _exchanger().wait_for_approval("")
 
     def test_sends_challenge_id_when_approval_id_set(self):
         captured: list[bytes] = []

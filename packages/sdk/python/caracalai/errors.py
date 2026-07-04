@@ -103,11 +103,14 @@ class ServiceUnavailable(CaracalError):
 
 class ApprovalRequired(CaracalError):
     """Raised when minting a mandate is gated on human approval. The platform has
-    recorded a durable, single-use approval challenge that an authenticated
-    approver must satisfy out-of-band before the mandate can be minted; an agent
-    can never satisfy its own approval. Retry ``mint_mandate`` with ``approval_id``
-    set to ``challenge_id`` until the approver grants it: the same challenge id is
-    returned while the approval is pending, and the mint succeeds once satisfied."""
+    recorded a durable approval challenge that an authenticated approver must
+    decide out-of-band before the mandate can be minted; an agent can never
+    satisfy its own approval. ``binding`` proves which exact resource and scope
+    set the challenge covers; relay it with the challenge id to the approval
+    surface. Wait for a decision with ``wait_for_approval`` and retry
+    ``mint_mandate`` with ``approval_id`` set to ``challenge_id``: the same
+    challenge is returned while the approval is pending, and the mint succeeds
+    once approved."""
 
     code = "interaction_required"
 
@@ -116,6 +119,9 @@ class ApprovalRequired(CaracalError):
         challenge_id: str,
         expires_at: str = "",
         *,
+        state: str = "",
+        tier: str = "",
+        binding: str = "",
         request_id: str = "",
         http_status: int = 401,
     ) -> None:
@@ -126,6 +132,9 @@ class ApprovalRequired(CaracalError):
         )
         self.challenge_id = challenge_id
         self.expires_at = expires_at
+        self.state = state
+        self.tier = tier
+        self.binding = binding
 
 
 _CODE_MAP: dict[str, type[CaracalError]] = {
@@ -160,6 +169,9 @@ def raise_for_caracal_error(resp: httpx.Response) -> None:
         raise ApprovalRequired(
             challenge_id=str(body.get("challenge_id", "")),
             expires_at=str(body.get("challenge_expires_at", "")),
+            state=str(body.get("state", "")),
+            tier=str(body.get("tier", "")),
+            binding=str(body.get("binding", "")),
             request_id=request_id,
             http_status=resp.status_code,
         )
