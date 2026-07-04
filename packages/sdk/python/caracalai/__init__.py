@@ -5,7 +5,7 @@ Caracal, a product of Garudex Labs
 Public surface of the Caracal Python SDK.
 """
 
-from .auth import ApprovalRequired
+from .auth import ApprovalRequired, ClientCredentials, CredentialsResolver
 from .client import Caracal, CaracalConfig, GatewayRequest, ResourceBinding
 from .context import (
     AuthoritySummary,
@@ -23,6 +23,7 @@ from .errors import (
     AccessDenied,
     CaracalError,
     CoordinatorError,
+    CredentialsUnavailableError,
     DelegationRequired,
     InvalidRequest,
     InvalidToken,
@@ -42,7 +43,10 @@ __all__ = [
     "ApprovalRequired",
     "AccessDenied",
     "CaracalError",
+    "ClientCredentials",
     "CoordinatorError",
+    "CredentialsResolver",
+    "CredentialsUnavailableError",
     "DelegationRequired",
     "InvalidRequest",
     "InvalidToken",

@@ -15,11 +15,16 @@ import threading
 import time
 from collections import OrderedDict
 from collections.abc import Callable
+from dataclasses import dataclass
 from email.utils import parsedate_to_datetime
 
 import httpx
 
-from .errors import ApprovalRequired, raise_for_caracal_error
+from .errors import (
+    ApprovalRequired,
+    CredentialsUnavailableError,
+    raise_for_caracal_error,
+)
 from .events import CaracalEvent, EventHook, emit_event
 
 GRANT_TYPE = "urn:ietf:params:oauth:grant-type:token-exchange"
@@ -33,7 +38,28 @@ BACKOFF_CAP_SECONDS = 5.0
 
 TokenSource = Callable[[], str]
 
-__all__ = ["ApprovalRequired", "ClientSecretExchanger", "TokenSource"]
+
+@dataclass(frozen=True)
+class ClientCredentials:
+    """The application credential triple a resolver returns."""
+
+    zone_id: str
+    application_id: str
+    client_secret: str
+
+
+CredentialsResolver = Callable[[], "ClientCredentials | None"]
+
+_MandateKey = tuple[str, str, str, frozenset[str], str | None, str | None]
+
+__all__ = [
+    "ApprovalRequired",
+    "ClientCredentials",
+    "ClientSecretExchanger",
+    "CredentialsResolver",
+    "CredentialsUnavailableError",
+    "TokenSource",
+]
 
 
 def _decode_jwt_exp(token: str) -> float | None:
@@ -89,29 +115,25 @@ class ClientSecretExchanger:
     """Exchanges an application client_secret for STS tokens via RFC 8693
     token exchange: a lifecycle access token for the application itself, and
     per-agent resource mandates bound to an agent session and delegation edge.
-    Every result is cached and refreshed on demand as it approaches its `exp`
-    claim; transient STS failures are retried with jittered backoff inside a
-    per-exchange deadline."""
+    Credentials come from a resolver invoked per exchange, so rotation and
+    identity swaps take effect without rebuilding the client; every cached
+    result is keyed to the identity that minted it. Results are refreshed on
+    demand as they approach their `exp` claim; transient STS failures are
+    retried with jittered backoff inside a per-exchange deadline."""
 
     def __init__(
         self,
         *,
         sts_url: str,
-        zone_id: str,
-        application_id: str,
-        client_secret: str,
+        credentials: CredentialsResolver,
         resources: list[str],
         scope: str = "agent:lifecycle",
         timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
         retries: int = DEFAULT_RETRIES,
         http_client: httpx.Client | None = None,
     ) -> None:
-        if not resources:
-            raise ValueError("ClientSecretExchanger requires at least one resource")
         self._sts_url = sts_url.rstrip("/")
-        self._zone_id = zone_id
-        self._application_id = application_id
-        self._client_secret = client_secret
+        self._credentials = credentials
         self._resources = list(resources)
         self._scope = scope
         self._timeout = timeout_seconds
@@ -120,14 +142,12 @@ class ClientSecretExchanger:
         self._token_lock = threading.Lock()
         self._token: str | None = None
         self._exp: float | None = None
+        self._token_identity: tuple[str, str] | None = None
         self._token_leeway = MAX_LEEWAY_SECONDS
-        self._mandates: OrderedDict[
-            tuple[str, frozenset[str], str | None, str | None],
-            tuple[str, float, float],
-        ] = OrderedDict()
-        self._mandate_locks: dict[
-            tuple[str, frozenset[str], str | None, str | None], threading.Lock
-        ] = {}
+        self._mandates: OrderedDict[_MandateKey, tuple[str, float, float]] = (
+            OrderedDict()
+        )
+        self._mandate_locks: dict[_MandateKey, threading.Lock] = {}
         self._owns_http = http_client is None
         self._http = (
             http_client
@@ -136,16 +156,34 @@ class ClientSecretExchanger:
         )
         self.on_event: EventHook | None = None
 
+    def _resolve(self) -> ClientCredentials:
+        creds = self._credentials()
+        if creds is None or not (
+            creds.zone_id and creds.application_id and creds.client_secret
+        ):
+            raise CredentialsUnavailableError()
+        return creds
+
+    def identity(self) -> tuple[str, str]:
+        """The (zone_id, application_id) pair the resolver currently yields;
+        fails closed when no usable credential is available."""
+        creds = self._resolve()
+        return (creds.zone_id, creds.application_id)
+
     def close(self) -> None:
         """Release the owned HTTP client. Idempotent; injected clients stay
         the caller's responsibility."""
         if self._owns_http:
             self._http.close()
 
-    def _cached_lifecycle(self) -> str | None:
+    def _cached_lifecycle(self, identity: tuple[str, str]) -> str | None:
         with self._lock:
             token = None
-            if self._token is not None and self._exp is not None:
+            if (
+                self._token is not None
+                and self._exp is not None
+                and self._token_identity == identity
+            ):
                 if self._exp - time.time() > self._token_leeway:
                     token = self._token
         if token is not None:
@@ -162,19 +200,26 @@ class ClientSecretExchanger:
         return token
 
     def get_token(self) -> str:
-        cached = self._cached_lifecycle()
+        creds = self._resolve()
+        if not self._resources:
+            raise RuntimeError(
+                "Caracal: this client has no resources configured; spawn and "
+                "lifecycle paths require at least one"
+            )
+        identity = (creds.zone_id, creds.application_id)
+        cached = self._cached_lifecycle(identity)
         if cached is not None:
             return cached
         with self._token_lock:
-            cached = self._cached_lifecycle()
+            cached = self._cached_lifecycle(identity)
             if cached is not None:
                 return cached
             token, exp = self._exchange(
                 {
                     "grant_type": GRANT_TYPE,
-                    "zone_id": self._zone_id,
-                    "application_id": self._application_id,
-                    "client_secret": self._client_secret,
+                    "zone_id": creds.zone_id,
+                    "application_id": creds.application_id,
+                    "client_secret": creds.client_secret,
                     "scope": self._scope,
                     "resource": self._resources,
                 }
@@ -182,6 +227,7 @@ class ClientSecretExchanger:
             with self._lock:
                 self._token = token
                 self._exp = exp
+                self._token_identity = identity
                 self._token_leeway = _leeway(exp, time.time())
             return token
 
@@ -192,11 +238,10 @@ class ClientSecretExchanger:
         with self._lock:
             self._token = None
             self._exp = None
+            self._token_identity = None
             self._mandates.clear()
 
-    def _mandate_lock(
-        self, key: tuple[str, frozenset[str], str | None, str | None]
-    ) -> threading.Lock:
+    def _mandate_lock(self, key: _MandateKey) -> threading.Lock:
         with self._lock:
             lock = self._mandate_locks.get(key)
             if lock is None:
@@ -204,9 +249,7 @@ class ClientSecretExchanger:
                 self._mandate_locks[key] = lock
             return lock
 
-    def _cached_mandate(
-        self, key: tuple[str, frozenset[str], str | None, str | None]
-    ) -> str | None:
+    def _cached_mandate(self, key: _MandateKey) -> str | None:
         token = None
         with self._lock:
             cached = self._mandates.get(key)
@@ -220,18 +263,13 @@ class ClientSecretExchanger:
                     type="token.exchange",
                     ok=True,
                     cached=True,
-                    resources=(key[0],),
-                    scopes=tuple(sorted(key[1])),
+                    resources=(key[2],),
+                    scopes=tuple(sorted(key[3])),
                 ),
             )
         return token
 
-    def _store_mandate(
-        self,
-        key: tuple[str, frozenset[str], str | None, str | None],
-        token: str,
-        exp: float,
-    ) -> None:
+    def _store_mandate(self, key: _MandateKey, token: str, exp: float) -> None:
         with self._lock:
             self._mandates[key] = (token, exp, _leeway(exp, time.time()))
             self._mandates.move_to_end(key)
@@ -265,8 +303,16 @@ class ClientSecretExchanger:
             raise ValueError("mint_mandate requires a resource")
         if not scopes:
             raise ValueError("mint_mandate requires at least one scope")
+        creds = self._resolve()
         scope_set = frozenset(scopes)
-        key = (resource, scope_set, agent_session_id, delegation_edge_id)
+        key = (
+            creds.zone_id,
+            creds.application_id,
+            resource,
+            scope_set,
+            agent_session_id,
+            delegation_edge_id,
+        )
         cached = self._cached_mandate(key)
         if cached is not None:
             return cached
@@ -276,9 +322,9 @@ class ClientSecretExchanger:
                 return cached
             data: dict[str, str | list[str]] = {
                 "grant_type": GRANT_TYPE,
-                "zone_id": self._zone_id,
-                "application_id": self._application_id,
-                "client_secret": self._client_secret,
+                "zone_id": creds.zone_id,
+                "application_id": creds.application_id,
+                "client_secret": creds.client_secret,
                 "scope": " ".join(sorted(scope_set)),
                 "resource": resource,
             }
@@ -304,6 +350,7 @@ class ClientSecretExchanger:
         timeout elapsed with no decision and waiting again is safe."""
         if not challenge_id:
             raise ValueError("wait_for_approval requires a challenge_id")
+        self._resolve()
         start = time.monotonic()
 
         def finish(state: str, ok: bool) -> str:

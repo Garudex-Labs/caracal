@@ -87,6 +87,50 @@ async def _call(
     return resp
 
 
+def _sync_call(
+    client: CoordinatorClient,
+    http: httpx.Client,
+    method: str,
+    path: str,
+    bearer: str,
+    json_body: dict[str, JsonValue] | None = None,
+    headers: dict[str, str] | None = None,
+) -> httpx.Response:
+    request_headers = {"authorization": f"Bearer {bearer}"}
+    if headers:
+        request_headers.update(headers)
+    start = monotonic()
+
+    def finish(status: int, ok: bool) -> None:
+        emit_event(
+            client.on_event,
+            CaracalEvent(
+                type="coordinator.call",
+                ok=ok,
+                duration_ms=(monotonic() - start) * 1000.0,
+                method=method,
+                path=path,
+                status=status,
+            ),
+        )
+
+    try:
+        resp = http.request(
+            method,
+            client.base_url.rstrip("/") + path,
+            json=json_body,
+            headers=request_headers,
+        )
+    except Exception:
+        finish(0, False)
+        raise
+    if resp.status_code >= 300:
+        finish(resp.status_code, False)
+        raise CoordinatorError(method, path, resp.status_code, resp.text)
+    finish(resp.status_code, True)
+    return resp
+
+
 @dataclass
 class DelegationConstraints:
     resources: list[str] | None = None
@@ -170,9 +214,7 @@ class HeartbeatResponse:
     heartbeat_deadline_at: str | None = None
 
 
-async def spawn_agent(
-    client: CoordinatorClient, bearer: str, req: SpawnRequest
-) -> SpawnResponse:
+def _spawn_body(req: SpawnRequest) -> dict[str, JsonValue]:
     body: dict[str, JsonValue] = {
         "application_id": req.application_id,
     }
@@ -192,7 +234,23 @@ async def spawn_agent(
         body["parent_authority"] = req.parent_authority
     if req.inherit_parent_edge_id:
         body["inherit_parent_edge_id"] = req.inherit_parent_edge_id
+    return body
 
+
+def _parse_spawn(data: dict[str, JsonValue]) -> SpawnResponse:
+    agent_session_id = data.get("agent_session_id")
+    if not agent_session_id:
+        raise ValueError("coordinator spawn response missing agent_session_id")
+    return SpawnResponse(
+        agent_session_id=str(agent_session_id),
+        delegation_edge_id=data.get("delegation_edge_id"),
+        heartbeat_deadline_at=data.get("heartbeat_deadline_at"),
+    )
+
+
+async def spawn_agent(
+    client: CoordinatorClient, bearer: str, req: SpawnRequest
+) -> SpawnResponse:
     headers = {"idempotency-key": req.idempotency_key} if req.idempotency_key else None
 
     resp = await _call(
@@ -200,18 +258,27 @@ async def spawn_agent(
         "POST",
         f"/zones/{quote(req.zone_id, safe='')}/agents",
         bearer,
-        json_body=body,
+        json_body=_spawn_body(req),
         headers=headers,
     )
-    data = resp.json()
-    agent_session_id = data.get("agent_session_id")
-    if not agent_session_id:
-        raise ValueError("coordinator spawn response missing agent_session_id")
-    return SpawnResponse(
-        agent_session_id=agent_session_id,
-        delegation_edge_id=data.get("delegation_edge_id"),
-        heartbeat_deadline_at=data.get("heartbeat_deadline_at"),
+    return _parse_spawn(resp.json())
+
+
+def sync_spawn_agent(
+    client: CoordinatorClient, http: httpx.Client, bearer: str, req: SpawnRequest
+) -> SpawnResponse:
+    headers = {"idempotency-key": req.idempotency_key} if req.idempotency_key else None
+
+    resp = _sync_call(
+        client,
+        http,
+        "POST",
+        f"/zones/{quote(req.zone_id, safe='')}/agents",
+        bearer,
+        json_body=_spawn_body(req),
+        headers=headers,
     )
+    return _parse_spawn(resp.json())
 
 
 async def terminate_agent(
@@ -219,6 +286,22 @@ async def terminate_agent(
 ) -> None:
     await _call(
         client,
+        "DELETE",
+        f"/zones/{quote(zone_id, safe='')}/agents/{quote(agent_session_id, safe='')}",
+        bearer,
+    )
+
+
+def sync_terminate_agent(
+    client: CoordinatorClient,
+    http: httpx.Client,
+    bearer: str,
+    zone_id: str,
+    agent_session_id: str,
+) -> None:
+    _sync_call(
+        client,
+        http,
         "DELETE",
         f"/zones/{quote(zone_id, safe='')}/agents/{quote(agent_session_id, safe='')}",
         bearer,
@@ -251,9 +334,7 @@ async def heartbeat_agent(
     )
 
 
-async def create_delegation(
-    client: CoordinatorClient, bearer: str, req: DelegationRequest
-) -> DelegationResponse:
+def _delegation_body(req: DelegationRequest) -> dict[str, JsonValue]:
     body: dict[str, JsonValue] = {
         "issuer_application_id": req.issuer_application_id,
         "source_session_id": req.source_session_id,
@@ -269,20 +350,42 @@ async def create_delegation(
         body["constraints"] = req.constraints.to_wire()
     if req.ttl_seconds:
         body["ttl_seconds"] = req.ttl_seconds
+    return body
 
+
+def _parse_delegation(data: dict[str, JsonValue]) -> DelegationResponse:
+    delegation_edge_id = data.get("delegation_edge_id")
+    if not delegation_edge_id:
+        raise ValueError("coordinator delegation response missing delegation_edge_id")
+    return DelegationResponse(
+        delegation_edge_id=str(delegation_edge_id),
+        scopes=data.get("scopes") or [],
+        expires_at=data.get("expires_at"),
+    )
+
+
+async def create_delegation(
+    client: CoordinatorClient, bearer: str, req: DelegationRequest
+) -> DelegationResponse:
     resp = await _call(
         client,
         "POST",
         f"/zones/{quote(req.zone_id, safe='')}/delegations",
         bearer,
-        json_body=body,
+        json_body=_delegation_body(req),
     )
-    data = resp.json()
-    delegation_edge_id = data.get("delegation_edge_id")
-    if not delegation_edge_id:
-        raise ValueError("coordinator delegation response missing delegation_edge_id")
-    return DelegationResponse(
-        delegation_edge_id=delegation_edge_id,
-        scopes=data.get("scopes") or [],
-        expires_at=data.get("expires_at"),
+    return _parse_delegation(resp.json())
+
+
+def sync_create_delegation(
+    client: CoordinatorClient, http: httpx.Client, bearer: str, req: DelegationRequest
+) -> DelegationResponse:
+    resp = _sync_call(
+        client,
+        http,
+        "POST",
+        f"/zones/{quote(req.zone_id, safe='')}/delegations",
+        bearer,
+        json_body=_delegation_body(req),
     )
+    return _parse_delegation(resp.json())
