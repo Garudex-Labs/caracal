@@ -52,32 +52,74 @@ func TestDerefStr(t *testing.T) {
 	}
 }
 
-func TestStepUpRequired(t *testing.T) {
+func TestParseTierDeclarations(t *testing.T) {
 	res := &OPAResult{
 		Diagnostics: []map[string]any{
-			{"step_up_required": "mfa"},
+			{"step_up_required": map[string]any{
+				"type": "human_approval",
+				"tiers": []any{
+					map[string]any{"tier": "money", "approver": "operator", "ttl_seconds": float64(600), "privacy": "anonymous"},
+					map[string]any{"tier": "pii"},
+					map[string]any{"approver": "subject"},
+				},
+			}},
 		},
 	}
-	if got := stepUpRequired(res); got != "mfa" {
-		t.Errorf("want mfa, got %s", got)
+	decls := parseTierDeclarations(res)
+	if len(decls) != 2 {
+		t.Fatalf("tierless entries must be skipped, got %+v", decls)
+	}
+	if decls[0].Tier != "money" || decls[0].Approver != "operator" || decls[0].TTLSeconds != 600 || decls[0].Privacy != "anonymous" {
+		t.Fatalf("full declaration mis-parsed: %+v", decls[0])
+	}
+	if decls[1].Tier != "pii" || decls[1].Approver != "" || decls[1].TTLSeconds != 0 {
+		t.Fatalf("minimal declaration mis-parsed: %+v", decls[1])
 	}
 }
 
-func TestStepUpRequiredNone(t *testing.T) {
-	res := &OPAResult{Diagnostics: nil}
-	if got := stepUpRequired(res); got != "" {
-		t.Errorf("want empty, got %s", got)
+func TestParseTierDeclarationsNone(t *testing.T) {
+	if got := parseTierDeclarations(&OPAResult{Diagnostics: nil}); got != nil {
+		t.Errorf("want none, got %+v", got)
+	}
+	if got := parseTierDeclarations(&OPAResult{Diagnostics: []map[string]any{{"other_key": "value"}}}); got != nil {
+		t.Errorf("want none when key absent, got %+v", got)
 	}
 }
 
-func TestStepUpRequiredNoKey(t *testing.T) {
-	res := &OPAResult{
-		Diagnostics: []map[string]any{
-			{"other_key": "value"},
-		},
+func TestResolveApprovalMergesToStrictest(t *testing.T) {
+	got := resolveApproval([]tierDeclaration{
+		{Tier: "money", Approver: "subject", TTLSeconds: 600, Privacy: "identified"},
+		{Tier: "pii", Approver: "operator", TTLSeconds: 7200, Privacy: "anonymous"},
+		{Tier: "money", Approver: "any"},
+	})
+	if got.Tier != "money,pii" {
+		t.Errorf("tiers must join sorted and deduplicated, got %q", got.Tier)
 	}
-	if got := stepUpRequired(res); got != "" {
-		t.Errorf("want empty when key absent, got %s", got)
+	if got.Approver != ApproverClassOperator {
+		t.Errorf("operator demand must win the merge, got %q", got.Approver)
+	}
+	if got.TTL != 600*time.Second {
+		t.Errorf("shortest declared window must win, got %v", got.TTL)
+	}
+	if got.Privacy != PrivacyAnonymous {
+		t.Errorf("most protective privacy must win, got %q", got.Privacy)
+	}
+}
+
+func TestResolveApprovalDefaultsAndClamps(t *testing.T) {
+	got := resolveApproval([]tierDeclaration{{Tier: "money"}})
+	if got.Approver != ApproverClassOperator || got.Privacy != PrivacyIdentified || got.TTL != approvalDefaultTTL {
+		t.Errorf("absent fields must take platform defaults, got %+v", got)
+	}
+	invalid := resolveApproval([]tierDeclaration{{Tier: "money", Approver: "root", Privacy: "secret", TTLSeconds: 1}})
+	if invalid.Approver != ApproverClassOperator || invalid.Privacy != PrivacyIdentified {
+		t.Errorf("invalid enum values must take platform defaults, got %+v", invalid)
+	}
+	if invalid.TTL != approvalMinTTL {
+		t.Errorf("ttl must clamp to the floor, got %v", invalid.TTL)
+	}
+	if ceil := resolveApproval([]tierDeclaration{{Tier: "money", TTLSeconds: int((30 * 24 * time.Hour).Seconds())}}); ceil.TTL != approvalMaxTTL {
+		t.Errorf("ttl must clamp to the ceiling, got %v", ceil.TTL)
 	}
 }
 
@@ -314,16 +356,18 @@ func (s *stubDB) RevokeSession(_ context.Context, _, _, _ string) error { return
 func (s *stubDB) GetStepUpChallenge(_ context.Context, _ string) (*StepUpChallengePG, error) {
 	return nil, errors.New("stub")
 }
-func (s *stubDB) InsertStepUpChallenge(_ context.Context, _ *StepUpChallengePG) error {
-	return nil
+func (s *stubDB) GetOrCreateApprovalChallenge(_ context.Context, c *StepUpChallengePG) (*StepUpChallengePG, bool, error) {
+	return c, true, nil
 }
-func (s *stubDB) SatisfyStepUpChallenge(_ context.Context, _ string) error { return nil }
-func (s *stubDB) ConsumeStepUpChallenge(_ context.Context, _ ConsumeStepUpParams) error {
-	return nil
-}
-func (s *stubDB) ApproveStepUpChallenge(_ context.Context, _, _, _ string) error { return nil }
+func (s *stubDB) DecideStepUpChallenge(_ context.Context, _ DecideStepUpParams) error { return nil }
 func (s *stubDB) ConsumeApprovalChallenge(_ context.Context, _ ConsumeApprovalParams) error {
 	return nil
+}
+func (s *stubDB) SessionsRelated(_ context.Context, _, _, _ string) (bool, error) {
+	return false, nil
+}
+func (s *stubDB) DeleteExpiredStepUpChallenges(_ context.Context, _ time.Time) (int64, error) {
+	return 0, nil
 }
 func (s *stubDB) EnsureZoneSigningKeySecret(_ context.Context, _ string, _, _ []byte) (*SecretRow, error) {
 	return nil, errors.New("stub")

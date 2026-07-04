@@ -110,7 +110,7 @@ import rego.v1
 
 risk := [{"scope": "nucleus:pay", "tier": "money"}]
 
-approval_tiers := ["money"]
+approval_declarations := [{"tier": "money", "approver": "subject", "ttl_seconds": 900, "privacy": "pseudonymous"}]
 `
 	input := OPAInput{
 		Principal:      OPAPrincipal{ID: "app-payments", ZoneID: "z1", Type: "application", Labels: []string{"payment-execution"}},
@@ -127,18 +127,44 @@ approval_tiers := ["money"]
 	if gated.Decision != "allow" {
 		t.Fatalf("an approval-gated mint stays allow pending approval, got %q", gated.Decision)
 	}
-	if stepUpRequired(gated) != "human_approval" {
-		t.Fatalf("an approval-gated mint must mark human_approval step-up, diagnostics %+v", gated.Diagnostics)
+	decls := parseTierDeclarations(gated)
+	if len(decls) != 1 || decls[0].Tier != "money" || decls[0].Approver != "subject" || decls[0].TTLSeconds != 900 || decls[0].Privacy != "pseudonymous" {
+		t.Fatalf("an approval-gated mint must surface the matched declaration, got %+v diagnostics %+v", decls, gated.Diagnostics)
 	}
 	if riskTier(gated, "nucleus:pay") != "money" {
 		t.Fatalf("a gated mint must carry the classified risk tier in diagnostics, got %+v", gated.Diagnostics)
 	}
 	ungated := simulateContract(t, input, dataModules())
-	if ungated.Decision != "allow" || stepUpRequired(ungated) != "" {
+	if ungated.Decision != "allow" || parseTierDeclarations(ungated) != nil {
 		t.Fatalf("a mint with no risk data must allow without a step-up gate, got %q diagnostics %+v", ungated.Decision, ungated.Diagnostics)
 	}
 	if riskTier(ungated, "nucleus:pay") != "" {
 		t.Fatalf("an unclassified scope must carry no risk diagnostic, got %+v", ungated.Diagnostics)
+	}
+}
+
+func TestDecisionContractMalformedDeclarationDenies(t *testing.T) {
+	risk := `package caracal.authz
+
+import rego.v1
+
+risk := [{"scope": "nucleus:pay", "tier": "money"}]
+
+approval_declarations := [{"approver": "operator"}]
+`
+	res := simulateContract(t, OPAInput{
+		Principal:      OPAPrincipal{ID: "app-payments", ZoneID: "z1", Type: "application", Labels: []string{"payment-execution"}},
+		Resource:       OPAResource{Identifier: "resource://nucleus"},
+		Action:         OPAAction{ID: "token_exchange"},
+		DelegationEdge: &OPADelegationEdge{ID: "edge1", Scopes: []string{"nucleus:pay"}},
+		Context: OPAContext{
+			AgentSessionID:  "agent-1",
+			RequestedScopes: []string{"nucleus:pay"},
+			ActorClaims:     map[string]any{},
+		},
+	}, dataModules(OPAPolicyModule{ID: "risk", Content: risk}))
+	if res.Decision != "deny" {
+		t.Fatalf("a tierless approval declaration must fail the mint closed, got %q diagnostics %+v", res.Decision, res.Diagnostics)
 	}
 }
 
@@ -161,7 +187,7 @@ risk := [{"scope": "nucleus:pay", "tier": "sensitive"}]
 		},
 	}
 	res := simulateContract(t, input, dataModules(OPAPolicyModule{ID: "risk", Content: risk}))
-	if res.Decision != "allow" || stepUpRequired(res) != "" {
+	if res.Decision != "allow" || parseTierDeclarations(res) != nil {
 		t.Fatalf("a classified tier the zone does not gate must allow without step-up, got %q diagnostics %+v", res.Decision, res.Diagnostics)
 	}
 	if riskTier(res, "nucleus:pay") != "sensitive" {
