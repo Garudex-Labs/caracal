@@ -230,7 +230,7 @@ describe('contextMiddleware + bindFromHeaders', () => {
             [HeaderBaggage]: `${BaggageAgentSession}=sess1,${BaggageSession}=sid1,${BaggageHop}=2`,
           },
         },
-        {},
+        { statusCode: 200, setHeader: () => undefined, end: () => undefined },
         (err) => {
           if (err) return reject(err)
           try {
@@ -245,6 +245,34 @@ describe('contextMiddleware + bindFromHeaders', () => {
       )
     })
     expect(seen).toBe('inbound|sess1|sid1|2')
+  })
+
+  it('answers boundary failures with 401 instead of invoking next', async () => {
+    const c = new Caracal(baseConfig)
+    const next = vi.fn()
+    let status = 0
+    let body = ''
+    const headers: Array<[string, string]> = []
+    const mw = c.contextMiddleware()
+    mw(
+      { headers: {} },
+      {
+        get statusCode() {
+          return status
+        },
+        set statusCode(value: number) {
+          status = value
+        },
+        setHeader: (name: string, value: string) => void headers.push([name, value]),
+        end: (payload?: string) => void (body = payload ?? ''),
+      },
+      next,
+    )
+    await vi.waitFor(() => expect(body).not.toBe(''))
+    expect(next).not.toHaveBeenCalled()
+    expect(status).toBe(401)
+    expect(headers).toEqual([['content-type', 'application/json']])
+    expect(body).toContain('"error":"unauthorized"')
   })
 
   it('describes authority without exposing the subject token', async () => {
@@ -286,6 +314,31 @@ describe('contextMiddleware + bindFromHeaders', () => {
         },
       }),
     ).rejects.toThrow(/revoked/)
+  })
+
+  it('stamps verified claims over the caller-supplied envelope', async () => {
+    const c = new Caracal(baseConfig)
+    let seen = ''
+    await c.bindFromHeaders(
+      {
+        [HeaderAuthorization]: 'Bearer inbound',
+        [HeaderBaggage]: `${BaggageAgentSession}=forged,${BaggageSession}=forged-sid,${BaggageHop}=9`,
+      },
+      async () => {
+        const ctx = c.current()!
+        seen = `${ctx.zoneId}|${ctx.applicationId}|${ctx.agentSessionId}|${ctx.sessionId}|${ctx.hop}`
+      },
+      {
+        verify: () => ({
+          zoneId: 'zone-proved',
+          applicationId: 'app-proved',
+          agentSessionId: 'agent-proved',
+          sessionId: 'sid-proved',
+          hop: 3,
+        }),
+      },
+    )
+    expect(seen).toBe('zone-proved|app-proved|agent-proved|sid-proved|3')
   })
 })
 

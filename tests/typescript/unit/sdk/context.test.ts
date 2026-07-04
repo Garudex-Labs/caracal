@@ -35,6 +35,18 @@ describe('bind and current', () => {
     expect(seen?.agentSessionId).toBe('agent-1')
     expect(current()).toBeUndefined()
   })
+
+  it('isolates concurrent bind scopes from each other', async () => {
+    const seen = await Promise.all(
+      ['a', 'b', 'c'].map((id) =>
+        bind(ctx({ agentSessionId: `agent-${id}` }), async () => {
+          await new Promise((resolve) => setTimeout(resolve, 1))
+          return current()?.agentSessionId
+        }),
+      ),
+    )
+    expect(seen).toEqual(['agent-a', 'agent-b', 'agent-c'])
+  })
 })
 
 describe('captureContext', () => {
@@ -49,19 +61,37 @@ describe('captureContext', () => {
       expect(snap).not.toBe(current())
     })
   })
+
+  it('clones baggage so the snapshot cannot mutate the bound context', async () => {
+    await bind(ctx({ baggage: { tenant: 'piedpiper' } }), async () => {
+      const snap = captureContext()
+      snap!.baggage!.tenant = 'hooli'
+      expect(current()?.baggage?.tenant).toBe('piedpiper')
+    })
+  })
 })
 
 describe('withOverrides', () => {
   it('throws when no base context exists', () => {
-    expect(() => withOverrides({ hop: 9 }, () => undefined)).toThrow(/requires an existing/)
+    expect(() => withOverrides({ hop: 9 })).toThrow(/requires an existing/)
   })
 
-  it('merges overrides onto the base context', async () => {
+  it('returns a merged copy without mutating the bound context', async () => {
     await bind(ctx(), async () => {
-      const merged = await withOverrides({ hop: 5, applicationId: 'app-2' }, async () => current())
-      expect(merged?.hop).toBe(5)
-      expect(merged?.applicationId).toBe('app-2')
-      expect(merged?.zoneId).toBe('zone-1')
+      const merged = withOverrides({ hop: 5, applicationId: 'app-2' })
+      expect(merged.hop).toBe(5)
+      expect(merged.applicationId).toBe('app-2')
+      expect(merged.zoneId).toBe('zone-1')
+      expect(current()?.hop).toBe(0)
+      expect(current()?.applicationId).toBe('app-1')
+    })
+  })
+
+  it('clones baggage so the copy cannot mutate the base', async () => {
+    await bind(ctx({ baggage: { tenant: 'piedpiper' } }), async () => {
+      const merged = withOverrides({ hop: 1 })
+      merged.baggage!.tenant = 'hooli'
+      expect(current()?.baggage?.tenant).toBe('piedpiper')
     })
   })
 })
