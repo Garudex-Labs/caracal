@@ -1,0 +1,334 @@
+// Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+// Caracal, a product of Garudex Labs
+//
+// Reconciler tests: applications, api-key providers, resources, and policy sets converge idempotently and fail closed on unusable state.
+
+import { describe, it, expect, vi } from 'vitest'
+import { createHash } from 'node:crypto'
+import {
+  ensureActivePolicySet,
+  ensureApiKeyProvider,
+  ensureApplication,
+  ensureResource,
+  type AdminClient,
+} from '../../../../packages/admin/ts/src/index.js'
+
+const ZONE = 'zone-1'
+
+describe('ensureApplication', () => {
+  function admin(existing: Record<string, unknown>[]) {
+    return {
+      applications: {
+        list: vi.fn().mockResolvedValue(existing),
+        create: vi.fn().mockResolvedValue({ id: 'app-created' }),
+        patch: vi.fn().mockResolvedValue({}),
+      },
+    }
+  }
+
+  it('creates a managed application and seals the given secret', async () => {
+    const client = admin([])
+    const id = await ensureApplication(client as unknown as AdminClient, ZONE, {
+      name: 'Fiona',
+      traits: ['system:operator'],
+      clientSecret: 'cs_fresh',
+    })
+
+    expect(id).toBe('app-created')
+    expect(client.applications.create).toHaveBeenCalledWith(ZONE, {
+      name: 'Fiona',
+      registration_method: 'managed',
+      traits: ['system:operator'],
+    })
+    expect(client.applications.patch).toHaveBeenCalledWith(ZONE, 'app-created', { client_secret: 'cs_fresh' })
+  })
+
+  it('fails closed when the named application is not a usable managed credential', async () => {
+    const dcr = admin([{ id: 'app-1', name: 'Fiona', registration_method: 'dcr', expires_at: null, traits: [] }])
+    await expect(ensureApplication(dcr as unknown as AdminClient, ZONE, { name: 'Fiona', traits: [], clientSecret: 'cs' })).rejects.toThrow(
+      /not a usable managed credential/,
+    )
+
+    const expiring = admin([{ id: 'app-1', name: 'Fiona', registration_method: 'managed', expires_at: '2026-01-01T00:00:00Z', traits: [] }])
+    await expect(
+      ensureApplication(expiring as unknown as AdminClient, ZONE, { name: 'Fiona', traits: [], clientSecret: 'cs' }),
+    ).rejects.toThrow(/not a usable managed credential/)
+  })
+
+  it('reconciles drifted traits and always rotates the secret', async () => {
+    const client = admin([{ id: 'app-1', name: 'Fiona', registration_method: 'managed', expires_at: null, traits: ['stale'] }])
+    const id = await ensureApplication(client as unknown as AdminClient, ZONE, {
+      name: 'Fiona',
+      traits: ['system:operator'],
+      clientSecret: 'cs_next',
+    })
+
+    expect(id).toBe('app-1')
+    expect(client.applications.patch).toHaveBeenNthCalledWith(1, ZONE, 'app-1', { traits: ['system:operator'] })
+    expect(client.applications.patch).toHaveBeenNthCalledWith(2, ZONE, 'app-1', { client_secret: 'cs_next' })
+  })
+
+  it('leaves matching traits alone and only rotates the secret', async () => {
+    const client = admin([{ id: 'app-1', name: 'Fiona', registration_method: 'managed', expires_at: null, traits: ['system:operator'] }])
+    await ensureApplication(client as unknown as AdminClient, ZONE, {
+      name: 'Fiona',
+      traits: ['system:operator'],
+      clientSecret: 'cs_next',
+    })
+
+    expect(client.applications.patch).toHaveBeenCalledTimes(1)
+    expect(client.applications.patch).toHaveBeenCalledWith(ZONE, 'app-1', { client_secret: 'cs_next' })
+  })
+})
+
+describe('ensureApiKeyProvider', () => {
+  const placement = { auth_location: 'header' as const, header_name: 'Authorization', auth_scheme: 'Bearer', allow_runtime_injection: true }
+
+  function admin(existing: Record<string, unknown>[]) {
+    return {
+      providers: {
+        list: vi.fn().mockResolvedValue(existing),
+        create: vi.fn().mockResolvedValue({ id: 'prov-created' }),
+        patch: vi.fn().mockResolvedValue({}),
+      },
+    }
+  }
+
+  it('returns null when no provider exists and no key was supplied', async () => {
+    const client = admin([])
+    const id = await ensureApiKeyProvider(client as unknown as AdminClient, ZONE, {
+      name: 'Hooli OIDC',
+      identifier: 'provider://hooli',
+      publicConfig: placement,
+    })
+
+    expect(id).toBeNull()
+    expect(client.providers.create).not.toHaveBeenCalled()
+    expect(client.providers.patch).not.toHaveBeenCalled()
+  })
+
+  it('patches only the public placement when no key was supplied, preserving the sealed secret', async () => {
+    const client = admin([{ id: 'prov-1', identifier: 'provider://hooli' }])
+    const id = await ensureApiKeyProvider(client as unknown as AdminClient, ZONE, {
+      name: 'Hooli OIDC',
+      identifier: 'provider://hooli',
+      publicConfig: placement,
+    })
+
+    expect(id).toBe('prov-1')
+    expect(client.providers.patch).toHaveBeenCalledWith(ZONE, 'prov-1', { config_json: placement })
+  })
+
+  it('creates the provider with the key sealed into the config', async () => {
+    const client = admin([])
+    const id = await ensureApiKeyProvider(client as unknown as AdminClient, ZONE, {
+      name: 'Hooli OIDC',
+      identifier: 'provider://hooli',
+      publicConfig: placement,
+      apiKey: 'sk-sealed',
+    })
+
+    expect(id).toBe('prov-created')
+    expect(client.providers.create).toHaveBeenCalledWith(ZONE, {
+      name: 'Hooli OIDC',
+      identifier: 'provider://hooli',
+      kind: 'api_key',
+      config_json: { ...placement, api_key: 'sk-sealed' },
+    })
+  })
+
+  it('re-seals an existing provider when a key is supplied', async () => {
+    const client = admin([{ id: 'prov-1', identifier: 'provider://hooli' }])
+    await ensureApiKeyProvider(client as unknown as AdminClient, ZONE, {
+      name: 'Hooli OIDC',
+      identifier: 'provider://hooli',
+      publicConfig: placement,
+      apiKey: 'sk-rotated',
+    })
+
+    expect(client.providers.patch).toHaveBeenCalledWith(ZONE, 'prov-1', {
+      kind: 'api_key',
+      config_json: { ...placement, api_key: 'sk-rotated' },
+    })
+  })
+})
+
+describe('ensureResource', () => {
+  function admin(existing: Record<string, unknown>[]) {
+    return {
+      resources: {
+        list: vi.fn().mockResolvedValue(existing),
+        create: vi
+          .fn()
+          .mockImplementation((_zone: string, input: Record<string, unknown>) => Promise.resolve({ id: 'res-created', ...input })),
+        patch: vi.fn().mockImplementation((_zone: string, id: string, input: Record<string, unknown>) => Promise.resolve({ id, ...input })),
+      },
+    }
+  }
+
+  it('creates the resource with the managed fields when absent', async () => {
+    const client = admin([])
+    const resource = await ensureResource(client as unknown as AdminClient, ZONE, {
+      name: 'PiperNet',
+      identifier: 'resource://pipernet',
+      scopes: ['data:read'],
+      upstream_url: 'https://api.pipernet.example',
+      operation_enforcement: 'transport_uniform',
+    })
+
+    expect(resource.id).toBe('res-created')
+    expect(client.resources.create).toHaveBeenCalledWith(ZONE, {
+      name: 'PiperNet',
+      identifier: 'resource://pipernet',
+      scopes: ['data:read'],
+      upstream_url: 'https://api.pipernet.example',
+      operation_enforcement: 'transport_uniform',
+    })
+  })
+
+  it('returns the live resource without patching when nothing drifted', async () => {
+    const existing = {
+      id: 'res-1',
+      identifier: 'resource://pipernet',
+      scopes: ['data:read'],
+      upstream_url: 'https://api.pipernet.example',
+    }
+    const client = admin([existing])
+    const resource = await ensureResource(client as unknown as AdminClient, ZONE, {
+      name: 'PiperNet',
+      identifier: 'resource://pipernet',
+      scopes: ['data:read'],
+      upstream_url: 'https://api.pipernet.example',
+    })
+
+    expect(resource).toBe(existing)
+    expect(client.resources.patch).not.toHaveBeenCalled()
+  })
+
+  it('patches only the managed fields on drift and ignores unmanaged ones', async () => {
+    const client = admin([
+      {
+        id: 'res-1',
+        identifier: 'resource://pipernet',
+        scopes: ['data:read'],
+        upstream_url: 'https://old.pipernet.example',
+        gateway_application_id: 'app-unmanaged',
+      },
+    ])
+    await ensureResource(client as unknown as AdminClient, ZONE, {
+      name: 'PiperNet',
+      identifier: 'resource://pipernet',
+      scopes: ['data:read'],
+      upstream_url: 'https://api.pipernet.example',
+    })
+
+    // gateway_application_id was not part of the desired state, so the patch never touches it.
+    expect(client.resources.patch).toHaveBeenCalledWith(ZONE, 'res-1', {
+      scopes: ['data:read'],
+      upstream_url: 'https://api.pipernet.example',
+    })
+  })
+})
+
+describe('ensureActivePolicySet', () => {
+  const CONTENT = 'package caracal.authz\n'
+  const CONTENT_SHA = createHash('sha256').update(CONTENT, 'utf8').digest('hex')
+
+  function admin(state: { policies?: Record<string, unknown>[]; versions?: Record<string, unknown>[]; sets?: Record<string, unknown>[] }) {
+    return {
+      policies: {
+        list: vi.fn().mockResolvedValue(state.policies ?? []),
+        create: vi.fn().mockResolvedValue({ id: 'pol-created', version_id: 'ver-created' }),
+        get: vi.fn().mockResolvedValue({ id: 'pol-1', versions: state.versions ?? [] }),
+        addVersion: vi.fn().mockResolvedValue({ version_id: 'ver-added' }),
+      },
+      policySets: {
+        list: vi.fn().mockResolvedValue(state.sets ?? []),
+        create: vi.fn().mockResolvedValue({ id: 'set-created', active_version_id: null }),
+        addVersion: vi.fn().mockResolvedValue({ version_id: 'setver-1' }),
+        activate: vi.fn().mockResolvedValue({}),
+      },
+    }
+  }
+
+  it('creates nothing when no policy exists and creation is suppressed', async () => {
+    const client = admin({})
+    await ensureActivePolicySet(client as unknown as AdminClient, ZONE, {
+      policyName: 'PiperNet baseline',
+      setName: 'PiperNet set',
+      content: CONTENT,
+      createWhenMissing: false,
+    })
+
+    expect(client.policies.create).not.toHaveBeenCalled()
+    expect(client.policySets.list).not.toHaveBeenCalled()
+  })
+
+  it('creates the policy and set and activates the first version', async () => {
+    const client = admin({})
+    await ensureActivePolicySet(client as unknown as AdminClient, ZONE, {
+      policyName: 'PiperNet baseline',
+      setName: 'PiperNet set',
+      content: CONTENT,
+    })
+
+    expect(client.policies.create).toHaveBeenCalledWith(ZONE, { name: 'PiperNet baseline', content: CONTENT })
+    expect(client.policySets.create).toHaveBeenCalledWith(ZONE, 'PiperNet set')
+    expect(client.policySets.addVersion).toHaveBeenCalledWith(ZONE, 'set-created', [{ policy_version_id: 'ver-created' }])
+    expect(client.policySets.activate).toHaveBeenCalledWith(ZONE, 'set-created', 'setver-1')
+  })
+
+  it('adds and activates a new version when the content digest changed', async () => {
+    const client = admin({
+      policies: [{ id: 'pol-1', name: 'PiperNet baseline' }],
+      versions: [{ id: 'ver-1', version: 1, content_sha256: 'stale-sha' }],
+      sets: [{ id: 'set-1', name: 'PiperNet set', active_version_id: 'setver-0' }],
+    })
+    await ensureActivePolicySet(client as unknown as AdminClient, ZONE, {
+      policyName: 'PiperNet baseline',
+      setName: 'PiperNet set',
+      content: CONTENT,
+    })
+
+    expect(client.policies.addVersion).toHaveBeenCalledWith(ZONE, 'pol-1', CONTENT)
+    expect(client.policySets.addVersion).toHaveBeenCalledWith(ZONE, 'set-1', [{ policy_version_id: 'ver-added' }])
+    expect(client.policySets.activate).toHaveBeenCalledWith(ZONE, 'set-1', 'setver-1')
+  })
+
+  it('changes nothing when the latest version already carries the content and the set is active', async () => {
+    const client = admin({
+      policies: [{ id: 'pol-1', name: 'PiperNet baseline' }],
+      versions: [
+        { id: 'ver-1', version: 1, content_sha256: 'stale-sha' },
+        { id: 'ver-2', version: 2, content_sha256: CONTENT_SHA },
+      ],
+      sets: [{ id: 'set-1', name: 'PiperNet set', active_version_id: 'setver-0' }],
+    })
+    await ensureActivePolicySet(client as unknown as AdminClient, ZONE, {
+      policyName: 'PiperNet baseline',
+      setName: 'PiperNet set',
+      content: CONTENT,
+    })
+
+    expect(client.policies.addVersion).not.toHaveBeenCalled()
+    expect(client.policySets.addVersion).not.toHaveBeenCalled()
+    expect(client.policySets.activate).not.toHaveBeenCalled()
+  })
+
+  it('self-heals a deactivated set by re-activating the current content', async () => {
+    const client = admin({
+      policies: [{ id: 'pol-1', name: 'PiperNet baseline' }],
+      versions: [{ id: 'ver-2', version: 2, content_sha256: CONTENT_SHA }],
+      sets: [{ id: 'set-1', name: 'PiperNet set', active_version_id: null }],
+    })
+    await ensureActivePolicySet(client as unknown as AdminClient, ZONE, {
+      policyName: 'PiperNet baseline',
+      setName: 'PiperNet set',
+      content: CONTENT,
+    })
+
+    expect(client.policies.addVersion).not.toHaveBeenCalled()
+    expect(client.policySets.addVersion).toHaveBeenCalledWith(ZONE, 'set-1', [{ policy_version_id: 'ver-2' }])
+    expect(client.policySets.activate).toHaveBeenCalledWith(ZONE, 'set-1', 'setver-1')
+  })
+})

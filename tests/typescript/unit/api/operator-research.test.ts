@@ -5,7 +5,7 @@
 
 import { describe, it, expect, vi } from 'vitest'
 import { createStateResearcher, governedReadCapabilities } from '../../../../apps/api/src/operator-research.js'
-import { ControlClientError, type ControlClient } from '../../../../apps/api/src/control-client.js'
+import { ControlClientError, type ControlClient } from '../../../../packages/admin/ts/src/control.js'
 
 // A control client double whose invoke is scripted by the list subcommand, so the researcher's
 // governed reads are exercised without a live control plane.
