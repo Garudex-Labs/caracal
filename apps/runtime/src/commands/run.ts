@@ -14,11 +14,11 @@ const RUN_HELP = `Usage: caracal run [--] <command> [args...]
 
 Launch <command> with short-lived Caracal credentials injected as environment variables.
 
-caracal run is the data-plane launcher. It authenticates with the application id
-and client secret, fetches the run manifest authored for that application in the
-web console, exchanges the identity for scoped credentials (15-minute maximum
-TTL), injects them into the environment variables named in the manifest, spawns
-the command with a scrubbed environment (PATH-like allowlist plus injected
+caracal run is the data-plane launcher. It authenticates with the workload id
+and secret, fetches the credential bindings authored for that launcher in the
+web console, mints each bound provider credential under least-privilege scopes,
+injects them into the environment variables named by the bindings, spawns the
+command with a scrubbed environment (PATH-like allowlist plus injected
 credentials, no other variables), forwards SIGINT/SIGTERM/SIGHUP/SIGQUIT, and
 exits with the command's exit code.
 
@@ -35,12 +35,12 @@ Examples:
   caracal run -- printenv OPENAI_API_KEY
 
 Configuration:
-  The workload carries only its identity. Set CARACAL_APPLICATION_ID and provide
-  the client secret via CARACAL_APP_CLIENT_SECRET, CARACAL_APP_CLIENT_SECRET_FILE,
-  or the owner-only default file under the OS Caracal config directory. Everything
-  else (zone, resources, env names, credential types, TTL) lives in the run
-  manifest on the application's page in the web console. Set CARACAL_STS_URL only
-  when STS is not the local default.
+  The workload carries only its identity. Set CARACAL_WORKLOAD_ID and provide
+  the secret via CARACAL_WORKLOAD_SECRET, CARACAL_WORKLOAD_SECRET_FILE, or the
+  owner-only default file under the OS Caracal config directory. Everything
+  else (zone, resources, scopes, env names) lives in the launcher's bindings on
+  the Launcher page in the web console. Set CARACAL_STS_URL only when STS is
+  not the local default.
 `
 
 function isHelpToken(arg: string | undefined): boolean {

@@ -52,9 +52,6 @@ export interface Application {
   expires_at?: string | null;
   client_secret?: string;
   created_at: string;
-  run_manifest?: RunManifest | null;
-  run_manifest_updated_by?: string | null;
-  run_manifest_updated_at?: string | null;
 }
 
 export interface ApplicationInput {
@@ -68,26 +65,28 @@ export interface ApplicationPatchInput {
   traits?: string[];
 }
 
-export type RunCredentialType = "provider_token" | "caracal_mandate";
-
-export interface RunManifestCredential {
+export interface WorkloadBinding {
   env: string;
   resource: string;
-  credential_type: RunCredentialType;
-  optional: boolean;
+  scopes?: string[];
+  optional?: boolean;
   on_failure?: "warn" | "error";
 }
 
-export interface RunManifest {
-  ttl_seconds?: number;
-  continue_on_failure?: boolean;
-  credentials: RunManifestCredential[];
-}
-
-export interface RunManifestState {
-  run_manifest: RunManifest | null;
+export interface Workload {
+  id: string;
+  zone_id: string;
+  name: string;
+  bindings: WorkloadBinding[];
+  secret?: string;
+  created_at: string;
   updated_by: string | null;
   updated_at: string | null;
+}
+
+export interface WorkloadUpdateInput {
+  name?: string;
+  bindings?: WorkloadBinding[];
 }
 
 export type ResourceOperationEnforcement = "enforced" | "transport_uniform";

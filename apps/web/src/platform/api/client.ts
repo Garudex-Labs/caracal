@@ -62,8 +62,6 @@ import type {
   ResourceInput,
   ResourcePatchInput,
   RowList,
-  RunManifest,
-  RunManifestState,
   Session,
   SessionQuery,
   SimulateResult,
@@ -96,6 +94,8 @@ import type {
   ZoneOverview,
   ZonePatchInput,
   ZoneDcrStatus,
+  Workload,
+  WorkloadUpdateInput,
 } from "./types";
 
 export class ConsoleApiError extends Error {
@@ -499,16 +499,36 @@ export const consoleApi = {
         `/v1/zones/${encodeURIComponent(zoneId)}/applications/${encodeURIComponent(id)}/rotate-secret`,
         { method: "POST", body: "{}" },
       ),
-    saveRunManifest: (zoneId: string, id: string, input: RunManifest) =>
-      request<RunManifestState>(
-        `/v1/zones/${encodeURIComponent(zoneId)}/applications/${encodeURIComponent(id)}/run-manifest`,
-        { method: "PUT", body: JSON.stringify(input) },
-      ),
     delete: (zoneId: string, id: string) =>
       request<void>(
         `/v1/zones/${encodeURIComponent(zoneId)}/applications/${encodeURIComponent(id)}`,
         { method: "DELETE" },
       ),
+  },
+
+  workloads: {
+    list: async (zoneId: string, signal?: AbortSignal) =>
+      (await fetchAllPages<Workload>(`/v1/zones/${encodeURIComponent(zoneId)}/workloads`, signal))
+        .rows,
+    create: (zoneId: string, input: { name: string }) =>
+      request<Workload>(`/v1/zones/${encodeURIComponent(zoneId)}/workloads`, {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    update: (zoneId: string, id: string, input: WorkloadUpdateInput) =>
+      request<Workload>(
+        `/v1/zones/${encodeURIComponent(zoneId)}/workloads/${encodeURIComponent(id)}`,
+        { method: "PUT", body: JSON.stringify(input) },
+      ),
+    rotateSecret: (zoneId: string, id: string) =>
+      request<Workload>(
+        `/v1/zones/${encodeURIComponent(zoneId)}/workloads/${encodeURIComponent(id)}/rotate-secret`,
+        { method: "POST", body: "{}" },
+      ),
+    delete: (zoneId: string, id: string) =>
+      request<void>(`/v1/zones/${encodeURIComponent(zoneId)}/workloads/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      }),
   },
 
   resources: {
