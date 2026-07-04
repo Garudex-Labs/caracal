@@ -25,6 +25,7 @@ import {
   Field,
   IdentityAvatar,
   Modal,
+  Select,
   useCopyToClipboard,
   useToast,
   type Column,
@@ -34,11 +35,18 @@ import {
   useApplications,
   useCreateApplication,
   useDeleteApplication,
+  useResources,
   useRotateApplicationSecret,
+  useRunManifest,
+  useSaveRunManifest,
   useUpdateApplication,
 } from "@/platform/api/hooks";
 import { useCreateDeepLink } from "@/platform/nav/createDeepLink";
-import type { Application } from "@/platform/api/types";
+import type {
+  Application,
+  RunManifest,
+  RunManifestCredential,
+} from "@/platform/api/types";
 
 export const Route = createFileRoute("/$accountId/$orgId/$zoneId/app/applications")({
   component: ApplicationsRoute,
@@ -255,6 +263,7 @@ function ApplicationsPage({ zoneId, zoneName }: { zoneId: string; zoneName: stri
           render: (app) => (
             <ApplicationDetail
               app={app}
+              zoneId={zoneId}
               busy={updateApp.isPending}
               onRename={async (name) => {
                 try {
@@ -366,12 +375,14 @@ function CredentialBadge({ app }: { app: Application }) {
 
 function ApplicationDetail({
   app,
+  zoneId,
   busy,
   onRename,
   onRotate,
   onDelete,
 }: {
   app: Application;
+  zoneId: string;
   busy: boolean;
   onRename: (name: string) => Promise<void>;
   onRotate: () => void;
@@ -403,6 +414,8 @@ function ApplicationDetail({
           secret is issued by the registering system and cannot be rotated here.
         </p>
       )}
+
+      {managed ? <RunSection app={app} zoneId={zoneId} /> : null}
 
       <DangerZone
         description={
@@ -624,13 +637,15 @@ function SecretModal({
             </Button>
           </div>
           <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-            For local <code className="font-mono">caracal run</code> launches, store it owner-only
-            (chmod 600) at{" "}
+            For <code className="font-mono">caracal run</code> workloads, set it as the{" "}
+            <code className="font-mono">CARACAL_APP_CLIENT_SECRET</code> environment variable or
+            store it owner-only (chmod 600) at{" "}
             <code className="break-all font-mono">
-              {`<Caracal config dir>/runtime/${zoneId}/${secret.appId}/client-secret`}
+              {`<Caracal config dir>/runtime/${secret.appId}/client-secret`}
             </code>
-            . For cloud or custom deployments, place it in your secret store and reference it from
-            the runtime profile.
+            , where <code className="font-mono">caracal run</code> finds it automatically. For
+            cloud or custom deployments, keep it in your secret store and point{" "}
+            <code className="font-mono">CARACAL_APP_CLIENT_SECRET_FILE</code> at the mounted file.
           </p>
         </div>
       ) : null}
