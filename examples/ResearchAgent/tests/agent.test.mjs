@@ -19,7 +19,7 @@ const ENV_EXAMPLE = join(EXAMPLE_ROOT, 'env.example')
 const BASE_ENV = Object.fromEntries(
   ['PATH', 'HOME', 'USER', 'LOGNAME', 'TMPDIR', 'TEMP', 'TMP', 'LANG', 'TERM']
     .filter((key) => process.env[key] !== undefined)
-    .map((key) => [key, process.env[key]])
+    .map((key) => [key, process.env[key]]),
 )
 
 function runNode(args, env = {}) {
@@ -30,8 +30,12 @@ function runNode(args, env = {}) {
     })
     let stdout = ''
     let stderr = ''
-    proc.stdout.on('data', (chunk) => { stdout += chunk })
-    proc.stderr.on('data', (chunk) => { stderr += chunk })
+    proc.stdout.on('data', (chunk) => {
+      stdout += chunk
+    })
+    proc.stderr.on('data', (chunk) => {
+      stderr += chunk
+    })
     proc.on('close', (code) => resolve({ code: code ?? 1, stdout, stderr }))
   })
 }
@@ -83,13 +87,16 @@ describe('real-provider example contract', () => {
     assert.match(readme, /resource:\/\/google-calendar/)
     assert.match(readme, /resource:\/\/openai/)
     assert.match(readme, /allow_runtime_injection = true/)
-    assert.match(readme, /CARACAL_CONFIG/)
-    assert.match(readme, /runtime\/<zone_id>\/<application_id>/)
-    assert.match(readme, /CARACAL_RUN_TTL_SECONDS/)
+    assert.match(readme, /runtime\/<application_id>\/client-secret/)
+    assert.match(readme, /Run\*\* section/)
+    assert.match(readme, /CARACAL_APP_CLIENT_SECRET/)
     assert.match(readme, /GPT-5\.4 mini/)
     assert.match(readme, /drive\.readonly/)
     assert.match(readme, /calendar\.readonly/)
-    assert.match(readme, /credential_type = "provider_token"/)
+    assert.match(readme, /Provider token/)
+    assert.doesNotMatch(readme, /credentials\.json/)
+    assert.doesNotMatch(readme, /CARACAL_CONFIG/)
+    assert.doesNotMatch(readme, /CARACAL_ZONE_ID/)
     assert.doesNotMatch(readme, /--google-base-url/)
     assert.doesNotMatch(readme, /--openai-base-url/)
     assert.doesNotMatch(readme, /--model/)
@@ -97,9 +104,9 @@ describe('real-provider example contract', () => {
 
   it('ships a bootstrap-only environment example', async () => {
     const envExample = await readFile(ENV_EXAMPLE, 'utf8')
-    assert.match(envExample, /CARACAL_ZONE_ID/)
     assert.match(envExample, /CARACAL_APPLICATION_ID/)
-    assert.match(envExample, /CARACAL_RUN_TTL_SECONDS="900"/)
+    assert.doesNotMatch(envExample, /CARACAL_ZONE_ID/)
+    assert.doesNotMatch(envExample, /CARACAL_RUN_TTL_SECONDS/)
     assert.doesNotMatch(envExample, /^export CARACAL_.*URL=/m)
     assert.doesNotMatch(envExample, /^export .*SECRET.*FILE=/m)
     assert.doesNotMatch(envExample, /^export .*CREDENTIALS.*FILE=/m)

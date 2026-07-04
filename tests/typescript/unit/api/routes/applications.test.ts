@@ -625,3 +625,177 @@ describe('DELETE /v1/zones/:zoneId/applications/:id', () => {
     expect(JSON.parse(res.body)).toMatchObject({ error: 'application_not_found' })
   })
 })
+
+describe('GET /v1/zones/:zoneId/applications/:id/run-manifest', () => {
+  it('returns null when no manifest is configured', async () => {
+    const { app, db } = buildApp()
+    db.query.mockResolvedValueOnce({ rows: [{ run_manifest: null }] })
+
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/applications/app-1/run-manifest' })
+
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body)).toEqual({ run_manifest: null })
+  })
+
+  it('returns the stored manifest', async () => {
+    const { app, db } = buildApp()
+    const manifest = {
+      ttl_seconds: 300,
+      credentials: [{ env: 'PIPERNET_TOKEN', resource: 'resource://pipernet', credential_type: 'provider_token' }],
+    }
+    db.query.mockResolvedValueOnce({ rows: [{ run_manifest: manifest }] })
+
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/applications/app-1/run-manifest' })
+
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body)).toEqual({ run_manifest: manifest })
+  })
+
+  it('returns 404 for a missing application', async () => {
+    const { app, db } = buildApp()
+    db.query.mockResolvedValueOnce({ rows: [] })
+
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/applications/missing/run-manifest' })
+
+    expect(res.statusCode).toBe(404)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'application_not_found' })
+  })
+})
+
+describe('PUT /v1/zones/:zoneId/applications/:id/run-manifest', () => {
+  it('stores a normalized manifest for a managed application', async () => {
+    const { app, db } = buildApp()
+    db.query.mockResolvedValueOnce({ rows: [{ registration_method: 'managed' }] })
+    const stored = {
+      ttl_seconds: 300,
+      credentials: [
+        { env: 'PIPERNET_TOKEN', resource: 'resource://pipernet', credential_type: 'provider_token' },
+        { env: 'HOOLIBOX_TOKEN', resource: 'resource://hoolibox', credential_type: 'caracal_mandate', optional: true, on_failure: 'warn' },
+      ],
+    }
+    db.query.mockResolvedValueOnce({ rows: [{ run_manifest: stored }] })
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'PUT',
+      url: '/v1/zones/z1/applications/app-1/run-manifest',
+      payload: {
+        ttl_seconds: 300,
+        credentials: [
+          { env: 'PIPERNET_TOKEN', resource: 'resource://pipernet' },
+          {
+            env: 'HOOLIBOX_TOKEN',
+            resource: 'resource://hoolibox',
+            credential_type: 'caracal_mandate',
+            optional: true,
+            on_failure: 'warn',
+          },
+        ],
+      },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body)).toEqual({ run_manifest: stored })
+    expect(JSON.parse(db.query.mock.calls[1][1][2])).toEqual(stored)
+  })
+
+  it('clears the manifest when credentials are empty', async () => {
+    const { app, db } = buildApp()
+    db.query.mockResolvedValueOnce({ rows: [{ registration_method: 'managed' }] })
+    db.query.mockResolvedValueOnce({ rows: [{ run_manifest: null }] })
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'PUT',
+      url: '/v1/zones/z1/applications/app-1/run-manifest',
+      payload: { credentials: [] },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body)).toEqual({ run_manifest: null })
+    expect(db.query.mock.calls[1][1][2]).toBeNull()
+  })
+
+  it('rejects blocked env names', async () => {
+    const { app, db } = buildApp()
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'PUT',
+      url: '/v1/zones/z1/applications/app-1/run-manifest',
+      payload: { credentials: [{ env: 'LD_PRELOAD', resource: 'resource://pipernet' }] },
+    })
+
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'invalid_credential_env', env: 'LD_PRELOAD' })
+    expect(db.query).not.toHaveBeenCalled()
+  })
+
+  it('rejects duplicate env names', async () => {
+    const { app, db } = buildApp()
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'PUT',
+      url: '/v1/zones/z1/applications/app-1/run-manifest',
+      payload: {
+        credentials: [
+          { env: 'PIPERNET_TOKEN', resource: 'resource://pipernet' },
+          { env: 'PIPERNET_TOKEN', resource: 'resource://hoolibox' },
+        ],
+      },
+    })
+
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'duplicate_credential_env', env: 'PIPERNET_TOKEN' })
+    expect(db.query).not.toHaveBeenCalled()
+  })
+
+  it('rejects manifests on DCR applications', async () => {
+    const { app, db } = buildApp()
+    db.query.mockResolvedValueOnce({ rows: [{ registration_method: 'dcr' }] })
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'PUT',
+      url: '/v1/zones/z1/applications/app-1/run-manifest',
+      payload: { credentials: [{ env: 'PIPERNET_TOKEN', resource: 'resource://pipernet' }] },
+    })
+
+    expect(res.statusCode).toBe(409)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'run_manifest_managed_only' })
+  })
+
+  it('rejects an out-of-range ttl', async () => {
+    const { app, db } = buildApp()
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'PUT',
+      url: '/v1/zones/z1/applications/app-1/run-manifest',
+      payload: { ttl_seconds: 3600, credentials: [{ env: 'PIPERNET_TOKEN', resource: 'resource://pipernet' }] },
+    })
+
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'invalid_run_manifest' })
+    expect(db.query).not.toHaveBeenCalled()
+  })
+
+  it('returns 404 for a missing application', async () => {
+    const { app, db } = buildApp()
+    db.query.mockResolvedValueOnce({ rows: [] })
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'PUT',
+      url: '/v1/zones/z1/applications/missing/run-manifest',
+      payload: { credentials: [{ env: 'PIPERNET_TOKEN', resource: 'resource://pipernet' }] },
+    })
+
+    expect(res.statusCode).toBe(404)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'application_not_found' })
+  })
+})

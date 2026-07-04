@@ -87,7 +87,12 @@ describe('coordinator client', () => {
   })
 
   it('omits resource_id from a delegation without one and maps the response', async () => {
-    const { client, calls } = stub(() => new Response(JSON.stringify({ delegation_edge_id: 'edge-9' }), { status: 201 }))
+    const { client, calls } = stub(
+      () =>
+        new Response(JSON.stringify({ delegation_edge_id: 'edge-9', scopes: ['read'], expires_at: '2026-07-04T12:00:00.000Z' }), {
+          status: 201,
+        }),
+    )
     const res = await createDelegation(client, 'tok', {
       zoneId: 'z1',
       issuerApplicationId: 'app-1',
@@ -96,7 +101,7 @@ describe('coordinator client', () => {
       receiverApplicationId: 'app-2',
       scopes: ['read'],
     })
-    expect(res).toEqual({ delegationEdgeId: 'edge-9' })
+    expect(res).toEqual({ delegationEdgeId: 'edge-9', scopes: ['read'], expiresAt: '2026-07-04T12:00:00.000Z' })
     expect(calls[0].body).not.toHaveProperty('resource_id')
   })
 
