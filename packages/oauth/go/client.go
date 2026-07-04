@@ -94,9 +94,11 @@ func (c *Client) ExchangeResources(ctx context.Context, subjectToken string, res
 	preflightWindow := int64(timeout/time.Second) + 30
 	cacheSubject := c.cacheSubject(subjectToken, opts)
 	cacheResource := c.cacheResource(resources, opts)
-	if cached, ok := c.cache.Get(cacheSubject, cacheResource); ok {
-		if cached.IssuedAt+int64(cached.ExpiresIn)-time.Now().Unix() > preflightWindow {
-			return cached, nil
+	if !opts.ForceRefresh {
+		if cached, ok := c.cache.Get(cacheSubject, cacheResource); ok {
+			if cached.IssuedAt+int64(cached.ExpiresIn)-time.Now().Unix() > preflightWindow {
+				return cached, nil
+			}
 		}
 	}
 

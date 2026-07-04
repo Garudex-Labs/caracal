@@ -8,6 +8,7 @@ package sdk
 import (
 	"context"
 	"errors"
+	"maps"
 )
 
 type contextKey struct{}
@@ -42,18 +43,44 @@ type AuthoritySummary struct {
 	Chain            []string
 }
 
-// Bind returns a new context.Context carrying c.
+// VerifiedClaims is attribution a verify hook proved from the token itself.
+// Claims take precedence over the caller-supplied envelope, so a forged or
+// stale envelope cannot override what the token asserts. Empty string fields
+// and a nil Hop leave the envelope value in place.
+type VerifiedClaims struct {
+	ZoneID           string
+	ApplicationID    string
+	AgentSessionID   string
+	DelegationEdgeID string
+	ParentEdgeID     string
+	SessionID        string
+	Hop              *int
+}
+
+func cloneBaggage(baggage map[string]string) map[string]string {
+	if baggage == nil {
+		return nil
+	}
+	return maps.Clone(baggage)
+}
+
+// Bind returns a new context.Context carrying c. The baggage map is cloned so
+// concurrent scopes sharing a parent cannot mutate each other's entries.
 func Bind(parent context.Context, c CaracalContext) context.Context {
+	c.Baggage = cloneBaggage(c.Baggage)
 	return context.WithValue(parent, contextKey{}, c)
 }
 
 // Current returns the CaracalContext bound on ctx and whether one was found.
+// The baggage map is cloned so callers cannot mutate the bound context.
 func Current(ctx context.Context) (CaracalContext, bool) {
 	v := ctx.Value(contextKey{})
 	if v == nil {
 		return CaracalContext{}, false
 	}
-	return v.(CaracalContext), true
+	c := v.(CaracalContext)
+	c.Baggage = cloneBaggage(c.Baggage)
+	return c, true
 }
 
 // Capture returns a copy of the current CaracalContext for explicit task boundaries.
@@ -77,7 +104,7 @@ func FromEnvelope(env Envelope, zoneID, applicationID string) (CaracalContext, e
 		TraceID:          env.TraceID,
 		TraceFlags:       env.TraceFlags,
 		TraceState:       env.TraceState,
-		Baggage:          env.Baggage,
+		Baggage:          cloneBaggage(env.Baggage),
 		Hop:              env.Hop,
 	}, nil
 }

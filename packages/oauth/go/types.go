@@ -21,6 +21,9 @@ type ExchangeOptions struct {
 	Retries             int
 	TTLSeconds          int
 	ChallengeID         string
+	// ForceRefresh skips the cached token and mints a fresh one; the result
+	// still refills the cache.
+	ForceRefresh bool
 }
 
 // TokenExchangeResponse is a validated STS token exchange result.
