@@ -118,6 +118,10 @@ describe('createOperatorLlmTransport', () => {
     expect(delegation.scopes).toEqual(['llm:invoke'])
     expect(delegation.constraints.resources).toEqual([RESOURCE])
 
+    // The sessions carry the operator label so coordinator listings attribute them.
+    const spawnBody = JSON.parse(calls.find((c) => c.url.endsWith('/agents'))!.body!)
+    expect(spawnBody.labels).toEqual(['operator'])
+
     const mint = new URLSearchParams(
       calls.filter((c) => c.url === `${STS}/oauth/2/token`).find((c) => new URLSearchParams(c.body!).get('scope') === 'llm:invoke')!.body!,
     )
@@ -159,6 +163,28 @@ describe('createOperatorLlmTransport', () => {
 
     expect(counters.mint).toBe(1)
     expect(counters.spawn).toBe(2)
+  })
+
+  it('rebuilds the facade and mints fresh when the resolved identity rotates', async () => {
+    const { fetchImpl, counters } = fakeFetch()
+    let current = identity
+    const transport = createOperatorLlmTransport({
+      stsUrl: STS,
+      coordinatorUrl: COORD,
+      gatewayUrl: GATEWAY,
+      resolveIdentity: () => current,
+      fetchImpl,
+    })
+    const fetchFor = transport.governedFetch(RESOURCE)
+    await fetchFor(`${GATEWAY}/a`, { method: 'POST', body: '{}' })
+    current = { ...identity, clientSecret: 'cs_rotated' }
+    await fetchFor(`${GATEWAY}/b`, { method: 'POST', body: '{}' })
+
+    // The rotated credential invalidates the cached facade, so the second call runs a
+    // fresh mint cycle on the new secret instead of presenting a mandate minted by the
+    // retired one.
+    expect(counters.mint).toBe(2)
+    expect(counters.spawn).toBe(4)
   })
 
   it('fails closed when the operator identity is not provisioned', async () => {
@@ -203,7 +229,8 @@ describe('createOperatorLlmTransport', () => {
       fetchImpl,
     })
     await expect(transport.governedFetch(RESOURCE)(`${GATEWAY}/x`, { method: 'POST', body: '{}' })).rejects.toMatchObject({
-      stage: 'delegate',
+      name: 'CoordinatorError',
+      status: 403,
     })
     // Both spawned sessions are terminated so a failed cycle leaks nothing.
     const deletes = calls.filter((c) => c.method === 'DELETE')

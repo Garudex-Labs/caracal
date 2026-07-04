@@ -5,7 +5,7 @@
 
 import { describe, it, expect, vi } from 'vitest'
 import { executeViaControlPlane } from '../../../../apps/api/src/operator-governed-execute.js'
-import { ControlClientError, type ControlClient } from '../../../../apps/api/src/control-client.js'
+import { ControlClientError, type ControlClient } from '../../../../packages/admin/ts/src/control.js'
 
 // A control client whose invoke results are scripted in order, recording each call so the
 // command, scopes, and flags it was driven with can be asserted.
@@ -126,7 +126,12 @@ describe('executeViaControlPlane', () => {
 
   it('fails closed when a step is not governed-executable, before any invoke', async () => {
     const { client, calls } = fakeClient([])
-    const result = await executeViaControlPlane(client, [{ id: 's1', capability: 'explainAccess', args: { application_id: 'app-1' } }], {}, secret)
+    const result = await executeViaControlPlane(
+      client,
+      [{ id: 's1', capability: 'explainAccess', args: { application_id: 'app-1' } }],
+      {},
+      secret,
+    )
     expect(result.applied).toHaveLength(0)
     expect(result.failure).toMatchObject({ stepId: 's1', capability: 'explainAccess' })
     expect(calls).toHaveLength(0)
@@ -238,7 +243,12 @@ describe('executeViaControlPlane', () => {
       new ControlClientError('token', 503, 'sts unavailable', 'unavailable'),
       { id: 'app-1', client_secret: 'cs_issued' },
     ])
-    const retried = await executeViaControlPlane(client, [{ id: 's1', capability: 'registerApplication', args: { name: 'Fiona' } }], {}, secret)
+    const retried = await executeViaControlPlane(
+      client,
+      [{ id: 's1', capability: 'registerApplication', args: { name: 'Fiona' } }],
+      {},
+      secret,
+    )
     expect(retried.failure).toBeNull()
     expect(calls).toHaveLength(2)
 
