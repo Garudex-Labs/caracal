@@ -10,7 +10,7 @@ description: Launch a workload with console-managed credential bindings injected
 1. Run `caracal up`.
 2. Sign in to the web console and use **Guided setup** to create the zone, application, resource, and policy.
 3. Store the application's one-time client secret in the owner-only file at `<Caracal config dir>/runtime/<application_id>/client-secret`, or export `CARACAL_APP_CLIENT_SECRET`.
-4. In the application's **Run** section, bind an environment variable to each resource the workload needs. The section then shows the exact launch command and whether the Gateway is required. See [Configure Workloads](/runtime-console/config-file/).
+4. On the console's **Run** page, select the workload and bind an environment variable to each resource it needs. The page then shows the exact launch command and whether the Gateway is required. See [Configure Workloads](/runtime-console/config-file/).
 
 ## Run a command
 
@@ -35,7 +35,7 @@ The launcher fetches the application's run manifest from STS, exchanges each bin
 | Symptom | Fix |
 | --- | --- |
 | `workload identity is required to run a command` | Set `CARACAL_APPLICATION_ID` and a client secret source. |
-| `run manifest not configured` | Define launch bindings in the application's **Run** section. |
+| `run manifest not configured` | Define launch bindings on the console's **Run** page. |
 | Secret file rejected | Restrict file permissions and avoid setting both inline and file secrets. |
 | Gateway routing misses the resource | Point the workload's base URL for mandate-bound resources at the Gateway. |
 | Request denied | Check policy-set activation, scopes, and audit diagnostics. |
