@@ -65,7 +65,7 @@ constraints = DelegationConstraints(
 
 Without a verifier it only **propagates**: it binds the inbound Caracal envelope into request context but does not check JWT signatures, audience, scopes, token use, or revocation. Use this when a Gateway already enforced the mandate upstream.
 
-Pass `verifier=` to **enforce at the boundary**. The callable receives the bearer token and must raise on failure; back it with `caracalai_identity.verify_token` so the application sees a request only after the mandate is proven. The SDK never inspects token internals itself.
+Pass `verifier=` to **enforce at the boundary**. The callable receives the bearer token and must raise on failure; back it with `caracalai_identity.verify_token` so the application sees a request only after the mandate is proven. Return a `VerifiedClaims` object to stamp token-proven attribution (zone, application, agent session, delegation edge, hop) over the caller-supplied envelope headers. The SDK never inspects token internals itself.
 
 ```python
 from caracalai_identity import verify_token
