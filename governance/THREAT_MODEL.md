@@ -151,8 +151,8 @@ Each threat (T1–T14) states the **problem** an adversary would exploit, **how 
 ### T4 - Lifecycle / delegation state inconsistency
 
 - **Problem.** Agent lifecycle or delegation state could become inconsistent through races, missing transactions, outbox gaps, or relay replay.
-- **How Caracal handles it.** Graph mutations use transactions and advisory locks; lifecycle, delegation, and invalidation events are published through the outbox; and relay dedupe and idle-claim behavior is bounded.
-- **How we verify.** Coordinator and relay tests confirm graph mutations use transactions/locks and that lifecycle events flow through the outbox or relay-safe paths.
+- **How Caracal handles it.** Graph mutations use transactions and advisory locks; lifecycle, delegation, and invalidation events are published through the outbox; and relay dedupe and idle-claim behavior is bounded. Terminating an agent subtree revokes the delegation edges touching it and publishes their invalidations in the same transaction. Application-type subject sessions inside a terminated subtree are deliberately exempt from session revocation - they authenticate a shared application credential rather than a per-agent identity - and their authority dies with the subtree anyway, because STS refuses to mint over a terminated agent session or a revoked edge.
+- **How we verify.** Coordinator and relay tests confirm graph mutations use transactions/locks, that lifecycle events flow through the outbox or relay-safe paths, and that subtree termination revokes and invalidates touching edges.
 - **Area & owner.** `apps/coordinator`, Redis Streams - Coordinator maintainers.
 
 ### T5 - Secret / sensitive-claim exposure

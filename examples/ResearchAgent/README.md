@@ -17,7 +17,7 @@ After the one-time setup below:
 
 ```bash
 cd examples/ResearchAgent
-cp env.example .env          # fill in your zone and application IDs
+cp env.example .env          # fill in your application ID
 . .env
 caracal run -- node agent.mjs
 ```
@@ -51,10 +51,13 @@ files. `caracal run` replaces that:
 - **Least privilege.** Google tokens carry only read-only scopes; each
   resource is exchanged under a policy decision.
 - **Short-lived.** Credentials expire with the run TTL (15 minutes maximum).
-- **Clean environment.** Only PATH-like variables and the mapped credentials
+- **Clean environment.** Only PATH-like variables and the bound credentials
   reach the agent.
 - **Audited.** Every exchange is an authenticated STS call by a named
   application in a zone.
+- **Centrally managed.** The env-var-to-resource bindings live in the web
+  console, so rotating a resource or renaming a variable never touches the
+  machines that run the agent.
 
 The agent needs zero changes: it just reads provider-native env vars, like
 any existing tool. Started directly with `node agent.mjs`, it exits with
@@ -86,6 +89,13 @@ Run `caracal web` and create:
    | `resource://openai` | `https://api.openai.com/v1` |
 
 4. A policy allowing the application to request all three resources.
+5. Launch bindings on the application (its **Run** section): bind
+   `GOOGLE_DRIVE_ACCESS_TOKEN` to `resource://google-drive`,
+   `GOOGLE_CALENDAR_ACCESS_TOKEN` to `resource://google-calendar`, and
+   `OPENAI_API_KEY` to `resource://openai`, each with credential type
+   **Provider token**. Set the credential TTL to 900 seconds. The console
+   then shows the exact launch command and confirms no gateway is needed
+   for this all-provider-token profile.
 
 The read-only scopes are the least-privilege grant: the agent only reads
 Drive (`https://www.googleapis.com`) and Calendar, and a write attempt with
@@ -93,50 +103,27 @@ these tokens is refused upstream. Prefer a service-account or token-broker
 flow for Google; `caracal run` is not an OAuth consent UI, so user-delegated
 grants must already exist.
 
-### 2. Local runtime files
+### 2. Local client secret
 
-The launcher auto-detects the client secret and the credential mapping under
-`~/.config/caracal/runtime/<zone_id>/<application_id>/`:
+The launcher needs exactly one local file: the application's one-time client
+secret, auto-detected at
+`~/.config/caracal/runtime/<application_id>/client-secret`:
 
 ```bash
-export CARACAL_ZONE_ID="zone_prod"
 export CARACAL_APPLICATION_ID="app_support_research_agent"
-CARACAL_RUNTIME_DIR="$HOME/.config/caracal/runtime/$CARACAL_ZONE_ID/$CARACAL_APPLICATION_ID"
+CARACAL_RUNTIME_DIR="$HOME/.config/caracal/runtime/$CARACAL_APPLICATION_ID"
 mkdir -p "$CARACAL_RUNTIME_DIR"
 
 install -m 600 /dev/null "$CARACAL_RUNTIME_DIR/client-secret"
 printf '%s' '<paste-one-time-client-secret-here>' > "$CARACAL_RUNTIME_DIR/client-secret"
-
-cat > "$CARACAL_RUNTIME_DIR/credentials.json" <<'JSON'
-[
-  {
-    "env": "GOOGLE_DRIVE_ACCESS_TOKEN",
-    "resource": "resource://google-drive",
-    "credential_type": "provider_token"
-  },
-  {
-    "env": "GOOGLE_CALENDAR_ACCESS_TOKEN",
-    "resource": "resource://google-calendar",
-    "credential_type": "provider_token"
-  },
-  {
-    "env": "OPENAI_API_KEY",
-    "resource": "resource://openai",
-    "credential_type": "provider_token"
-  }
-]
-JSON
 ```
 
-Use your Console values for the zone and application IDs. The mapping file is
-not secret; it only says which resource fills which env var.
-`credential_type = "provider_token"` injects the provider-native token;
-use `caracal_mandate` only for workloads that consume Caracal mandates.
-
-`env.example` carries the matching bootstrap variables (`CARACAL_ZONE_ID`,
-`CARACAL_APPLICATION_ID`, `CARACAL_RUN_TTL_SECONDS`) - never provider
-secrets. Alternatively, put everything in a TOML runtime profile and point
-`CARACAL_CONFIG` at it.
+Use your Console value for the application ID. In CI or containers, skip the
+file and set `CARACAL_APP_CLIENT_SECRET` (or `CARACAL_APP_CLIENT_SECRET_FILE`
+pointing at a mounted secret) instead. Everything else - the zone, the
+resource bindings, the TTL - comes from the run manifest the console stores
+for this application, so `env.example` carries only
+`CARACAL_APPLICATION_ID` and never provider secrets.
 
 ## Files
 
@@ -150,9 +137,10 @@ secrets. Alternatively, put everything in a TOML runtime profile and point
 
 | Symptom | Fix |
 | --- | --- |
-| `[agent] missing ...` (exit 2) | Launch through `caracal run` with the setup files in place. |
-| `runtime config is required to run a command` | Source `.env` or set `CARACAL_CONFIG`. |
-| Permission error on a profile or secret file | `chmod 600` the file. |
+| `[agent] missing ...` (exit 2) | Launch through `caracal run` with the setup in place. |
+| `workload identity is required to run a command` | Source `.env` or set `CARACAL_APPLICATION_ID` plus a client secret source. |
+| `run manifest not configured` | Define launch bindings in the application's Run section in Console. |
+| Permission error on the secret file | `chmod 600` the file. |
 | `"reason": "step_up_required"` | Approve the challenge in Console; the launcher resumes. |
 | `provider_credential_unavailable:<resource>` | Enable `allow_runtime_injection = true` on the provider. |
 | Google 401/403 during a question | Token expired (relaunch) or provider scopes too narrow. |
