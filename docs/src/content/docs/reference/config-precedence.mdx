@@ -18,9 +18,9 @@ The credential bindings, zone, TTL, and failure behavior come from the applicati
 
 SDK loaders use this order:
 
-1. `CARACAL_CONFIG`, when set and the file exists.
-2. Environment runtime config.
-3. `caracal.toml` in the OS Caracal config directory.
+1. `CARACAL_CONFIG`, when set. A missing file at that path is an error, not a fallthrough.
+2. `caracal.toml` in the OS Caracal config directory, when present.
+3. Environment runtime config.
 
 The OS Caracal config directory is `$XDG_CONFIG_HOME/caracal` (or `~/.config/caracal`) on Linux, `~/Library/Application Support/Caracal` on macOS, and `%APPDATA%\Caracal` on Windows. Set `CARACAL_CONFIG_HOME` to override it on any platform.
 
@@ -29,8 +29,9 @@ SDKs do not read `./caracal.toml` from the current working directory.
 Environment config is considered when workload identity variables are present.
 Local dev and stable SDK loads use `CARACAL_ZONE_ID` and
 `CARACAL_APPLICATION_ID`, then auto-detect credential files from the OS Caracal
-config directory. Cloud and custom deployments can provide explicit
-`CARACAL_APP_CLIENT_SECRET_FILE`, `CARACAL_RUN_CREDENTIALS`,
+config directory. Setting `CARACAL_ENV=production` disables that auto-detection
+and requires explicit service URLs. Cloud and custom deployments can provide
+explicit `CARACAL_APP_CLIENT_SECRET_FILE`, `CARACAL_RUN_CREDENTIALS`,
 `CARACAL_RUN_CREDENTIALS_FILE`, or `CARACAL_RESOURCES_FILE` values when mounted
 secret or config paths differ from the local convention.
 

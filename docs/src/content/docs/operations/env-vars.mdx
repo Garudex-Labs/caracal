@@ -124,6 +124,7 @@ SDK profile loading reads:
 | Variable | Meaning |
 | --- | --- |
 | `CARACAL_CONFIG` | Explicit SDK profile path. |
+| `CARACAL_ENV` | Set to `production` to require explicit service URLs and disable local credential auto-detection. |
 | `CARACAL_STS_URL` or `CARACAL_ZONE_URL` | Cloud/custom STS URL override for token exchange. |
 | `CARACAL_GATEWAY_URL` | Cloud/custom Gateway URL override for SDK transports. |
 | `CARACAL_ZONE_ID` | Zone identifier. |
@@ -134,6 +135,7 @@ SDK profile loading reads:
 | `CARACAL_RUN_CREDENTIALS_FILE` | Cloud/custom JSON credential manifest. |
 | `CARACAL_RESOURCES` | Comma-separated `resource_id=upstream_prefix` bindings for Gateway routing. |
 | `CARACAL_RESOURCES_FILE` | JSON resource binding file for Gateway routing. |
+| `CARACAL_DEFAULT_TTL_SECONDS` | Default TTL for task spawns that do not pass an explicit TTL. Positive integer. |
 
 Local dev and stable SDK loads auto-detect credential files from the OS
 Caracal config directory. Use the explicit file variables only when a deployment

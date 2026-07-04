@@ -45,6 +45,7 @@ caracal = Caracal()
 | `caracal.context_middleware(verifier=None)` | ASGI middleware factory: propagates context, and enforces at the boundary when a `verifier` is passed. |
 | `caracal.gateway_request(resource_id, path="/")` | Build a Gateway URL and `X-Caracal-Resource` header. |
 | `caracal.mint_mandate(resource_id, scopes, ctx=None, ttl_seconds=None)` | Mint a cached resource mandate carrying the bound agent session and delegation edge; requires client-secret credentials. |
+| `caracal.wait_for_approval(challenge_id, timeout_seconds=300.0)` | Long-poll an approval challenge raised by an approval-gated mint; returns the final state. |
 
 ## Context Propagation
 
