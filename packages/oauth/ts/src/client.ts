@@ -44,7 +44,7 @@ async function readSTSErrorResponse(res: Response): Promise<STSErrorResponse> {
     return parseSTSErrorResponse(await res.text())
   }
   if (typeof res.json === 'function') {
-    return await res.json() as STSErrorResponse
+    return (await res.json()) as STSErrorResponse
   }
   return {}
 }
@@ -65,20 +65,18 @@ export class OAuthClient {
     this.identityKey = `${zoneId}::${applicationId}`
   }
 
-  async exchange(
-    subjectToken: string,
-    resource: string | string[],
-    opts: ExchangeOptions = {},
-  ): Promise<TokenExchangeResponse> {
+  async exchange(subjectToken: string, resource: string | string[], opts: ExchangeOptions = {}): Promise<TokenExchangeResponse> {
     const timeoutMs = opts.timeoutMs ?? 30_000
     const preflightWindow = timeoutMs / 1000 + 30
 
     const cacheSubject = this.cacheSubject(subjectToken, opts)
     const cacheResource = this.cacheResource(resource, opts)
-    const cached = this.cache.get(cacheSubject, cacheResource)
-    if (cached) {
-      const remaining = cached.issuedAt + cached.expiresIn - Date.now() / 1000
-      if (remaining > preflightWindow) return cached
+    if (!opts.forceRefresh) {
+      const cached = this.cache.get(cacheSubject, cacheResource)
+      if (cached) {
+        const remaining = cached.issuedAt + cached.expiresIn - Date.now() / 1000
+        if (remaining > preflightWindow) return cached
+      }
     }
 
     const inflightKey = `${cacheSubject}::${cacheResource}`
@@ -205,17 +203,13 @@ export class OAuthClient {
         throw new Error(`STS error ${res.status}: invalid error response`)
       }
       if (err['error'] === 'interaction_required') {
-        throw new InteractionRequiredError(
-          err['error_description'] ?? 'Approval required',
-          err['challenge_id'] ?? '',
-          {
-            resource: resourceList(resource)[0],
-            state: err['state'],
-            tier: err['tier'],
-            binding: err['binding'],
-            expiresAt: err['challenge_expires_at'],
-          },
-        )
+        throw new InteractionRequiredError(err['error_description'] ?? 'Approval required', err['challenge_id'] ?? '', {
+          resource: resourceList(resource)[0],
+          state: err['state'],
+          tier: err['tier'],
+          binding: err['binding'],
+          expiresAt: err['challenge_expires_at'],
+        })
       }
       if (res.status === 401 && !isRetry) {
         return this.doExchange(subjectToken, resource, { ...opts, retries: 0 }, true, deadlineMs)
@@ -243,9 +237,7 @@ export class OAuthClient {
       const remainingMs = deadline - performance.now()
       if (remainingMs <= 0) return 'pending'
       const wait = Math.max(1, Math.min(25, Math.floor(remainingMs / 1000)))
-      const res = await (this.fetchImpl ?? fetch)(
-        `${this.stsUrl}/step-up/${encodeURIComponent(challengeId)}?wait=${wait}`,
-      )
+      const res = await (this.fetchImpl ?? fetch)(`${this.stsUrl}/step-up/${encodeURIComponent(challengeId)}?wait=${wait}`)
       if (!res.ok) throw new Error(`step-up status failed: ${res.status}`)
       const data = (await res.json()) as { state?: unknown }
       if (typeof data.state === 'string' && data.state !== 'pending') return data.state
@@ -353,7 +345,7 @@ function jitteredBackoff(attempt: number): number {
 async function delayWithinDeadline(waitMs: number, deadlineMs: number): Promise<void> {
   const remainingMs = deadlineMs - performance.now()
   if (remainingMs <= 0) throw new Error('STS request timed out')
-  await new Promise(resolve => setTimeout(resolve, Math.min(waitMs, remainingMs)))
+  await new Promise((resolve) => setTimeout(resolve, Math.min(waitMs, remainingMs)))
 }
 
 function isJsonResponse(res: Response): boolean {
@@ -369,5 +361,5 @@ function secretCacheId(value: string | undefined): string {
 }
 
 function resourceList(resource: string | string[]): string[] {
-  return (Array.isArray(resource) ? resource : [resource]).map(value => value.trim()).filter(Boolean)
+  return (Array.isArray(resource) ? resource : [resource]).map((value) => value.trim()).filter(Boolean)
 }

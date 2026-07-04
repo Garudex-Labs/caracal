@@ -680,9 +680,9 @@ func TestBindFromRequestVerifyHook(t *testing.T) {
 
 	var seen string
 	ctx, err := c.BindFromRequest(context.Background(), req, sdk.RootOptions{
-		Verify: func(_ context.Context, token string) error {
+		Verify: func(_ context.Context, token string) (*sdk.VerifiedClaims, error) {
 			seen = token
-			return nil
+			return nil, nil
 		},
 	})
 	if err != nil {
@@ -696,7 +696,7 @@ func TestBindFromRequestVerifyHook(t *testing.T) {
 	}
 
 	if _, err := c.BindFromRequest(context.Background(), req, sdk.RootOptions{
-		Verify: func(_ context.Context, _ string) error { return fmt.Errorf("revoked") },
+		Verify: func(_ context.Context, _ string) (*sdk.VerifiedClaims, error) { return nil, fmt.Errorf("revoked") },
 	}); err == nil {
 		t.Fatal("verify failure must reject the bind")
 	}

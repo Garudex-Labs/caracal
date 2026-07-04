@@ -7,7 +7,9 @@ package sdk_test
 
 import (
 	"context"
+	"runtime"
 	"strings"
+	"sync"
 	"testing"
 
 	sdk "github.com/garudex-labs/caracal/packages/sdk/go"
@@ -63,6 +65,45 @@ func TestBindDoesNotMutateParent(t *testing.T) {
 	_, ok := sdk.Current(parent)
 	if ok {
 		t.Error("Bind must not modify the parent context")
+	}
+}
+
+func TestBindClonesBaggage(t *testing.T) {
+	baggage := map[string]string{"tenant": "piedpiper"}
+	ctx := sdk.Bind(context.Background(), sdk.CaracalContext{SubjectToken: "tok", Baggage: baggage})
+	baggage["tenant"] = "hooli"
+
+	bound, _ := sdk.Current(ctx)
+	if bound.Baggage["tenant"] != "piedpiper" {
+		t.Errorf("bound baggage = %q, want isolation from caller mutation", bound.Baggage["tenant"])
+	}
+
+	bound.Baggage["tenant"] = "endframe"
+	again, _ := sdk.Current(ctx)
+	if again.Baggage["tenant"] != "piedpiper" {
+		t.Errorf("stored baggage = %q, want isolation from reader mutation", again.Baggage["tenant"])
+	}
+}
+
+func TestBindIsolatesConcurrentGoroutines(t *testing.T) {
+	agents := []string{"agent-a", "agent-b", "agent-c"}
+	results := make([]string, len(agents))
+	var wg sync.WaitGroup
+	for i, agent := range agents {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ctx := sdk.Bind(context.Background(), sdk.CaracalContext{SubjectToken: "tok", AgentSessionID: agent})
+			runtime.Gosched()
+			got, _ := sdk.Current(ctx)
+			results[i] = got.AgentSessionID
+		}()
+	}
+	wg.Wait()
+	for i, agent := range agents {
+		if results[i] != agent {
+			t.Errorf("goroutine %d saw %q, want %q", i, results[i], agent)
+		}
 	}
 }
 
