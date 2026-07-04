@@ -9,7 +9,6 @@ package internal
 import (
 	"context"
 	"crypto/ecdsa"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -140,40 +139,6 @@ func TestVerifyClientSecretEmptyInputs(t *testing.T) {
 	}
 }
 
-func TestHashResourceSetIsCanonical(t *testing.T) {
-	a := hashResourceSet([]string{"resource://A", "resource://b"})
-	b := hashResourceSet([]string{"resource://b ", " RESOURCE://a"})
-	if hex.EncodeToString(a) != hex.EncodeToString(b) {
-		t.Fatal("hash must be order/case/whitespace invariant")
-	}
-	c := hashResourceSet([]string{"resource://a"})
-	if hex.EncodeToString(a) == hex.EncodeToString(c) {
-		t.Fatal("different sets must hash differently")
-	}
-}
-
-// stubChallengeDB captures ConsumeStepUpChallenge calls.
-type stubChallengeDB struct {
-	stubDB
-	gotParams  ConsumeStepUpParams
-	consumeErr error
-}
-
-func (s *stubChallengeDB) ConsumeStepUpChallenge(_ context.Context, p ConsumeStepUpParams) error {
-	s.gotParams = p
-	return s.consumeErr
-}
-
-func TestVerifyAndConsumeChallengeRejectsEmpty(t *testing.T) {
-	srv := &Server{db: &stubChallengeDB{}}
-	if err := srv.verifyAndConsumeChallenge(context.Background(), "z", "p", "", "secret", []string{"r"}); err != ErrChallengeInvalid {
-		t.Fatalf("empty id must reject, got %v", err)
-	}
-	if err := srv.verifyAndConsumeChallenge(context.Background(), "z", "p", "id", "", []string{"r"}); err != ErrChallengeInvalid {
-		t.Fatalf("empty secret must reject, got %v", err)
-	}
-}
-
 func TestHashApprovalBindingBindsScopes(t *testing.T) {
 	a := hashApprovalBinding([]string{"resource://nucleus"}, []string{"nucleus:pay"})
 	b := hashApprovalBinding([]string{"resource://nucleus"}, []string{"nucleus:read"})
@@ -198,13 +163,13 @@ func (s *stubApprovalDB) ConsumeApprovalChallenge(_ context.Context, p ConsumeAp
 	return s.consumeErr
 }
 
-func TestVerifyAndConsumeApprovalBindsRequestHash(t *testing.T) {
+func TestConsumeApprovalBindsRequestHash(t *testing.T) {
 	db := &stubApprovalDB{}
 	srv := &Server{db: db}
-	if err := srv.verifyAndConsumeApproval(context.Background(), "z", "p", "", []string{"r"}, []string{"s"}); err != ErrChallengeInvalid {
+	if err := srv.consumeApproval(context.Background(), "z", "p", "", []string{"r"}, []string{"s"}); err != ErrChallengeInvalid {
 		t.Fatalf("empty id must reject, got %v", err)
 	}
-	if err := srv.verifyAndConsumeApproval(context.Background(), "z", "p", "id", []string{"resource://nucleus"}, []string{"nucleus:pay"}); err != nil {
+	if err := srv.consumeApproval(context.Background(), "z", "p", "id", []string{"resource://nucleus"}, []string{"nucleus:pay"}); err != nil {
 		t.Fatalf("consume: %v", err)
 	}
 	want := hashApprovalBinding([]string{"resource://nucleus"}, []string{"nucleus:pay"})
@@ -216,29 +181,10 @@ func TestVerifyAndConsumeApprovalBindsRequestHash(t *testing.T) {
 	}
 }
 
-func TestVerifyAndConsumeChallengePassesBindings(t *testing.T) {
-	db := &stubChallengeDB{}
+func TestConsumeApprovalPropagatesInvalid(t *testing.T) {
+	db := &stubApprovalDB{consumeErr: ErrChallengeInvalid}
 	srv := &Server{db: db}
-	resources := []string{"r1", "r2"}
-	if err := srv.verifyAndConsumeChallenge(context.Background(), "z1", "p1", "c1", "secret", resources); err != nil {
-		t.Fatal(err)
-	}
-	if db.gotParams.ZoneID != "z1" || db.gotParams.PrincipalID != "p1" || db.gotParams.ID != "c1" {
-		t.Fatalf("bindings not propagated: %+v", db.gotParams)
-	}
-	want := sha256.Sum256([]byte("secret"))
-	if hex.EncodeToString(db.gotParams.ChallengeSecretHash) != hex.EncodeToString(want[:]) {
-		t.Fatal("secret hash mismatch")
-	}
-	if hex.EncodeToString(db.gotParams.ResourceSetHash) != hex.EncodeToString(hashResourceSet(resources)) {
-		t.Fatal("resource set hash mismatch")
-	}
-}
-
-func TestVerifyAndConsumeChallengePropagatesInvalid(t *testing.T) {
-	db := &stubChallengeDB{consumeErr: ErrChallengeInvalid}
-	srv := &Server{db: db}
-	if err := srv.verifyAndConsumeChallenge(context.Background(), "z", "p", "c", "s", []string{"r"}); err != ErrChallengeInvalid {
+	if err := srv.consumeApproval(context.Background(), "z", "p", "c", []string{"r"}, nil); err != ErrChallengeInvalid {
 		t.Fatalf("want ErrChallengeInvalid, got %v", err)
 	}
 }

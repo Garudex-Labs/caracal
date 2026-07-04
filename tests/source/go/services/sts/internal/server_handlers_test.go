@@ -22,9 +22,9 @@ import (
 // stepUpDB serves scripted step-up challenges on top of the shared stub.
 type stepUpDB struct {
 	stubDB
-	challenge  *StepUpChallengePG
-	approveErr error
-	approved   []string
+	challenge *StepUpChallengePG
+	decideErr error
+	decided   []DecideStepUpParams
 }
 
 func (d *stepUpDB) GetStepUpChallenge(_ context.Context, _ string) (*StepUpChallengePG, error) {
@@ -34,11 +34,11 @@ func (d *stepUpDB) GetStepUpChallenge(_ context.Context, _ string) (*StepUpChall
 	return d.challenge, nil
 }
 
-func (d *stepUpDB) ApproveStepUpChallenge(_ context.Context, id, zoneID, approver string) error {
-	if d.approveErr != nil {
-		return d.approveErr
+func (d *stepUpDB) DecideStepUpChallenge(_ context.Context, p DecideStepUpParams) error {
+	if d.decideErr != nil {
+		return d.decideErr
 	}
-	d.approved = append(d.approved, id+"|"+zoneID+"|"+approver)
+	d.decided = append(d.decided, p)
 	return nil
 }
 
@@ -55,12 +55,13 @@ func pathValueRequest(method, target, body, id string) *http.Request {
 
 func TestStepUpStatusReportsChallengeState(t *testing.T) {
 	server := testSTSServer(t)
-	approver := "user:monica.hall@piedpiper.example"
+	approver := "subject:pseudonym:deadbeef"
 	satisfied := time.Now().UTC()
+	expires := time.Now().Add(time.Minute).UTC()
 	server.db = &stepUpDB{challenge: &StepUpChallengePG{
 		ID:                "b3b8f7ce-0000-4000-8000-000000000001",
-		ChallengeType:     "human_approval",
-		ExpiresAt:         time.Now().Add(time.Minute).UTC(),
+		ChallengeType:     humanApprovalChallengeType,
+		ExpiresAt:         expires,
 		SatisfiedAt:       &satisfied,
 		ApproverSubjectID: &approver,
 	}}
@@ -71,11 +72,17 @@ func TestStepUpStatusReportsChallengeState(t *testing.T) {
 		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
 	}
 	body := w.Body.String()
-	if !strings.Contains(body, `"satisfied":true`) || !strings.Contains(body, `"consumed":false`) {
-		t.Fatalf("state flags wrong: %s", body)
+	if !strings.Contains(body, `"state":"approved"`) || !strings.Contains(body, `"expires_at"`) {
+		t.Fatalf("state wrong: %s", body)
 	}
-	if !strings.Contains(body, `"metadata":{}`) {
-		t.Fatalf("empty metadata must default to an object: %s", body)
+	if strings.Contains(body, approver) || strings.Contains(body, "metadata") {
+		t.Fatalf("status must disclose lifecycle state only: %s", body)
+	}
+
+	w = httptest.NewRecorder()
+	server.handleStepUpStatus(w, pathValueRequest(http.MethodGet, "/step-up/x?wait=oops", "", "b3b8f7ce-0000-4000-8000-000000000001"))
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("invalid wait status = %d", w.Code)
 	}
 
 	server.db = &stepUpDB{}
@@ -86,91 +93,106 @@ func TestStepUpStatusReportsChallengeState(t *testing.T) {
 	}
 }
 
-func TestApproveStepUpAuthorizationAndValidation(t *testing.T) {
+func TestStepUpDecisionAuthorizationAndValidation(t *testing.T) {
 	id := "b3b8f7ce-0000-4000-8000-000000000001"
-	validBody := `{"zone_id":"zone-1","approver_subject_id":"user:monica.hall@piedpiper.example"}`
+	validBody := `{"decision":"approved","binding":"aa"}`
 
 	authorize := func(req *http.Request) *http.Request {
-		req.Header.Set("Authorization", "Bearer admin-token")
+		req.Header.Set("Authorization", "Bearer session-mandate")
 		return req
 	}
 
-	t.Run("hidden without admin token config", func(t *testing.T) {
+	t.Run("malformed challenge id", func(t *testing.T) {
 		server := testSTSServer(t)
 		w := httptest.NewRecorder()
-		server.handleApproveStepUp(w, pathValueRequest(http.MethodPost, "/approve", validBody, id))
+		server.handleStepUpDecision(w, authorize(pathValueRequest(http.MethodPost, "/decision", validBody, "not-a-uuid")))
 		if w.Code != http.StatusNotFound {
 			t.Fatalf("status = %d", w.Code)
 		}
 	})
 
-	t.Run("wrong bearer is challenged", func(t *testing.T) {
+	t.Run("missing bearer is challenged", func(t *testing.T) {
 		server := testSTSServer(t)
-		server.cfg.AdminToken = "admin-token"
-		req := pathValueRequest(http.MethodPost, "/approve", validBody, id)
-		req.Header.Set("Authorization", "Bearer wrong")
 		w := httptest.NewRecorder()
-		server.handleApproveStepUp(w, req)
+		server.handleStepUpDecision(w, pathValueRequest(http.MethodPost, "/decision", validBody, id))
 		if w.Code != http.StatusUnauthorized || w.Header().Get("WWW-Authenticate") == "" {
 			t.Fatalf("status=%d headers=%v", w.Code, w.Header())
 		}
 	})
 
-	t.Run("malformed challenge id", func(t *testing.T) {
-		server := testSTSServer(t)
-		server.cfg.AdminToken = "admin-token"
-		w := httptest.NewRecorder()
-		server.handleApproveStepUp(w, authorize(pathValueRequest(http.MethodPost, "/approve", validBody, "not-a-uuid")))
-		if w.Code != http.StatusNotFound {
-			t.Fatalf("status = %d", w.Code)
-		}
-	})
-
 	t.Run("malformed body", func(t *testing.T) {
 		server := testSTSServer(t)
-		server.cfg.AdminToken = "admin-token"
 		w := httptest.NewRecorder()
-		server.handleApproveStepUp(w, authorize(pathValueRequest(http.MethodPost, "/approve", "{not json", id)))
+		server.handleStepUpDecision(w, authorize(pathValueRequest(http.MethodPost, "/decision", "{not json", id)))
 		if w.Code != http.StatusBadRequest {
 			t.Fatalf("status = %d", w.Code)
 		}
 	})
 
-	t.Run("missing required fields", func(t *testing.T) {
+	t.Run("unknown decision verb", func(t *testing.T) {
 		server := testSTSServer(t)
-		server.cfg.AdminToken = "admin-token"
 		w := httptest.NewRecorder()
-		server.handleApproveStepUp(w, authorize(pathValueRequest(http.MethodPost, "/approve", `{"zone_id":"zone-1"}`, id)))
+		server.handleStepUpDecision(w, authorize(pathValueRequest(http.MethodPost, "/decision", `{"decision":"maybe","binding":"aa"}`, id)))
 		if w.Code != http.StatusBadRequest {
 			t.Fatalf("status = %d", w.Code)
 		}
 	})
 
-	t.Run("no pending challenge", func(t *testing.T) {
+	t.Run("oversized reason", func(t *testing.T) {
 		server := testSTSServer(t)
-		server.cfg.AdminToken = "admin-token"
-		server.db = &stepUpDB{approveErr: errors.New("no rows")}
+		body := `{"decision":"rejected","binding":"aa","reason":"` + strings.Repeat("x", stepUpReasonMaxLength+1) + `"}`
 		w := httptest.NewRecorder()
-		server.handleApproveStepUp(w, authorize(pathValueRequest(http.MethodPost, "/approve", validBody, id)))
+		server.handleStepUpDecision(w, authorize(pathValueRequest(http.MethodPost, "/decision", body, id)))
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d", w.Code)
+		}
+	})
+
+	t.Run("no live challenge", func(t *testing.T) {
+		server := testSTSServer(t)
+		server.db = &stepUpDB{}
+		w := httptest.NewRecorder()
+		server.handleStepUpDecision(w, authorize(pathValueRequest(http.MethodPost, "/decision", validBody, id)))
 		if w.Code != http.StatusNotFound {
 			t.Fatalf("status = %d", w.Code)
 		}
 	})
 
-	t.Run("approval recorded", func(t *testing.T) {
+	t.Run("invalid session mandate", func(t *testing.T) {
 		server := testSTSServer(t)
-		server.cfg.AdminToken = "admin-token"
-		db := &stepUpDB{}
-		server.db = db
+		server.keys = newKeyCache(&stubDB{}, testKEK(1))
+		server.db = &stepUpDB{challenge: &StepUpChallengePG{
+			ID:            id,
+			ZoneID:        "zone-1",
+			ChallengeType: humanApprovalChallengeType,
+			ApproverClass: ApproverClassSubject,
+			ExpiresAt:     time.Now().Add(time.Minute),
+		}}
 		w := httptest.NewRecorder()
-		server.handleApproveStepUp(w, authorize(pathValueRequest(http.MethodPost, "/approve", validBody, id)))
-		if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"approved":true`) {
-			t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
-		}
-		if len(db.approved) != 1 || !strings.Contains(db.approved[0], "zone-1") {
-			t.Fatalf("approval not persisted: %v", db.approved)
+		server.handleStepUpDecision(w, authorize(pathValueRequest(http.MethodPost, "/decision", validBody, id)))
+		if w.Code != http.StatusUnauthorized {
+			t.Fatalf("a garbage bearer must fail mandate validation, got %d body=%s", w.Code, w.Body.String())
 		}
 	})
+}
+
+func TestApproverRecordIDAppliesPrivacyMode(t *testing.T) {
+	if got := approverRecordID(PrivacyIdentified, "z1", "user-1"); got != "subject:user-1" {
+		t.Errorf("identified must store the subject verbatim, got %q", got)
+	}
+	if got := approverRecordID(PrivacyAnonymous, "z1", "user-1"); got != "subject:redacted" {
+		t.Errorf("anonymous must store only a redaction marker, got %q", got)
+	}
+	pseudo := approverRecordID(PrivacyPseudonymous, "z1", "user-1")
+	if !strings.HasPrefix(pseudo, "subject:pseudonym:") || strings.Contains(pseudo, "user-1") {
+		t.Errorf("pseudonymous must not carry the subject, got %q", pseudo)
+	}
+	if pseudo != approverRecordID(PrivacyPseudonymous, "z1", "user-1") {
+		t.Error("pseudonym must be stable for one subject in one zone")
+	}
+	if pseudo == approverRecordID(PrivacyPseudonymous, "z2", "user-1") {
+		t.Error("pseudonym must not correlate across zones")
+	}
 }
 
 // jwksDB serves scripted signing key secrets on top of the shared stub.
