@@ -34,7 +34,8 @@ const caracal = new Caracal();
 | --- | --- |
 | `spawn(fn, options?)` | Create an agent session and bind context while `fn` runs; pass `grant: Grant.narrow(...)` to bound the child's authority. |
 | `spawnService(options?)` | Start a long-lived service agent; auto-renews its lease and returns a handle with `heartbeat()` and `close()`. Pass `grant: Grant.narrow(...)` to bound the handle's authority. |
-| `delegate(options, fn)` | Create a delegation edge to an existing agent session. |
+| `delegate(options)` | Create a delegation edge to an existing agent session; returns the edge for the receiver to adopt. |
+| `adoptDelegation(edgeId, fn)` | Present a received delegation edge: bind a derived context carrying it while `fn` runs. |
 | `headers(options?)` | Project the current bound context into HTTP headers synchronously. |
 | `headersAsync(options?)` | Project headers when a root token may require async refresh. |
 | `bindFromHeaders(headers, fn, options?)` | Bind inbound Caracal envelope headers to the current async context. |

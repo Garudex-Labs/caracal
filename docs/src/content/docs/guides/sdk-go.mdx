@@ -99,7 +99,7 @@ err := client.Spawn(context.Background(), func(ctx context.Context) error {
 })
 ```
 
-A plain `client.Spawn` runs the child under the application's authority. Set `SpawnOptions.Grant` to `caracal.GrantNarrow(...)` only when the child should hold a least-privilege subset, or `caracal.GrantNone()` for a child with no inherited authority. Use `Current(ctx)` to inspect the bound Caracal context and `Headers(ctx)` to project it to outbound HTTP headers.
+A plain `client.Spawn` runs the child under its parent's effective authority - the application's authority for a root parent, or the parent's narrowed slice when the parent was itself narrowed (transitive least-privilege). Set `SpawnOptions.Grant` to `caracal.GrantNarrow([]string{...})` only when the child should hold a least-privilege subset, or `caracal.GrantNone()` for a child with no inherited authority. Use `client.Delegate` to grant authority to an agent session that already exists, typically in another application: it returns the edge, and the receiving session presents it with `client.AdoptDelegation(ctx, edgeID)`. Use `Current(ctx)` to inspect the bound Caracal context and `Headers(ctx)` to project it to outbound HTTP headers.
 
 ## Troubleshooting
 

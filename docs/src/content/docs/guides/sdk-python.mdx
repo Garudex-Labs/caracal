@@ -100,7 +100,7 @@ async with caracal.spawn() as parent:
         headers = caracal.headers()
 ```
 
-A plain `caracal.spawn()` runs the child under its parent's effective authority - the application's authority for a root parent, or the parent's narrowed slice when the parent was itself narrowed (transitive least-privilege). Pass `grant=Grant.narrow(...)` only when the child should hold a smaller subset, or `grant=Grant.none()` for a child with no inherited authority.
+A plain `caracal.spawn()` runs the child under its parent's effective authority - the application's authority for a root parent, or the parent's narrowed slice when the parent was itself narrowed (transitive least-privilege). Pass `grant=Grant.narrow(...)` only when the child should hold a smaller subset, or `grant=Grant.none()` for a child with no inherited authority. Use `await caracal.delegate(...)` when you need to grant authority to an agent session that already exists, typically in another application: it returns the edge, and the receiving session presents it with `async with caracal.adopt_delegation(edge_id)`.
 
 Use `async with caracal.bind(ctx)` before handing a captured context to a background task.
 
