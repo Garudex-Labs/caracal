@@ -675,6 +675,9 @@ func buildProviderTokenRequest(ctx context.Context, endpoint *url.URL, form url.
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	// Accept pins the response to JSON: endpoints that predate RFC 6749 defaults, such as
+	// GitHub's, answer form-encoded without it.
+	req.Header.Set("Accept", "application/json")
 	if method == "client_secret_basic" {
 		req.SetBasicAuth(clientID, clientSecret)
 	}

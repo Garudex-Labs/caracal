@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -30,6 +31,11 @@ const defaultSTSURL = "http://localhost:8080"
 const defaultCoordinatorURL = "http://localhost:4000"
 const defaultGatewayURL = "http://localhost:8081"
 
+const lifecycleScope = "agent:lifecycle"
+const governedMandateTTLSeconds = 900
+const governedRefreshMargin = 60 * time.Second
+const governedSessionTTLBuffer = 120
+
 // Caracal binds the four config values needed to integrate with Caracal.
 // DefaultTTLSeconds applies to task spawns only; a service session lives by
 // its heartbeat lease instead.
@@ -47,10 +53,32 @@ type Caracal struct {
 	agentEndHooks   []LifecycleHook
 	eventHooks      []func(oauth.Event)
 	exchanger       *clientSecretExchanger
+
+	governedMu       sync.Mutex
+	governedMandates map[string]governedEntry
+	governedInflight map[string]*governedCall
 }
 
 // TokenSource returns an application subject token for root SDK operations.
 type TokenSource func(context.Context) (string, error)
+
+// ClientCredentials is one resolved application credential: the zone,
+// application, and client secret the next STS exchange authenticates with.
+type ClientCredentials struct {
+	ZoneID        string
+	ApplicationID string
+	ClientSecret  string
+}
+
+// CredentialsResolver yields the current application credential before each
+// STS exchange, so rotated or re-provisioned secrets take effect without
+// rebuilding the client. Return nil to fail closed while no usable credential
+// exists.
+type CredentialsResolver func(context.Context) (*ClientCredentials, error)
+
+// ErrCredentialsUnavailable reports that the credentials resolver returned no
+// usable credential; operations fail closed until the resolver recovers.
+var ErrCredentialsUnavailable = errors.New("caracal: credentials are unavailable: the credentials resolver returned no usable credential")
 
 // ResourceBinding maps a registered Caracal resource id to the upstream URL
 // prefix it serves. The prefix is matched against outbound request URLs so the
@@ -169,12 +197,15 @@ func FromEnv() (*Caracal, error) {
 
 // ClientSecretOptions configures an SDK client backed by STS client-secret exchange.
 // DefaultTTLSeconds seeds Caracal.DefaultTTLSeconds for task spawns.
+// Credentials replaces the static ZoneID/ApplicationID/ClientSecret triple
+// with a resolver consulted before each exchange.
 type ClientSecretOptions struct {
 	CoordinatorURL    string
 	STSURL            string
 	ZoneID            string
 	ApplicationID     string
 	ClientSecret      string
+	Credentials       CredentialsResolver
 	Resources         []string
 	ResourceBindings  []ResourceBinding
 	GatewayURL        string
@@ -185,14 +216,20 @@ type ClientSecretOptions struct {
 
 // FromClientSecret returns a Caracal client that refreshes its application subject token through STS.
 func FromClientSecret(opts ClientSecretOptions) (*Caracal, error) {
-	missing := []string{}
-	for name, value := range map[string]string{
+	if opts.Credentials != nil && (opts.ZoneID != "" || opts.ApplicationID != "" || opts.ClientSecret != "") {
+		return nil, fmt.Errorf("caracal: FromClientSecret: pass either Credentials or the ZoneID/ApplicationID/ClientSecret triple, not both")
+	}
+	required := map[string]string{
 		"CoordinatorURL": opts.CoordinatorURL,
 		"STSURL":         opts.STSURL,
-		"ZoneID":         opts.ZoneID,
-		"ApplicationID":  opts.ApplicationID,
-		"ClientSecret":   opts.ClientSecret,
-	} {
+	}
+	if opts.Credentials == nil {
+		required["ZoneID"] = opts.ZoneID
+		required["ApplicationID"] = opts.ApplicationID
+		required["ClientSecret"] = opts.ClientSecret
+	}
+	missing := []string{}
+	for name, value := range required {
 		if value == "" {
 			missing = append(missing, name)
 		}
@@ -200,9 +237,6 @@ func FromClientSecret(opts ClientSecretOptions) (*Caracal, error) {
 	if len(missing) > 0 {
 		sort.Strings(missing)
 		return nil, fmt.Errorf("caracal: FromClientSecret missing %v", missing)
-	}
-	if len(opts.Resources) == 0 {
-		return nil, fmt.Errorf("caracal: FromClientSecret requires at least one resource")
 	}
 	if opts.DefaultTTLSeconds < 0 {
 		return nil, fmt.Errorf("caracal: FromClientSecret DefaultTTLSeconds must be a positive integer")
@@ -331,36 +365,94 @@ func stsURLFromEnv() (string, error) {
 }
 
 // clientSecretExchanger owns the caching STS exchange client for a
-// client-secret configuration: it resolves the application lifecycle token
-// and mints scoped resource mandates for the current agent identity.
+// client-secret configuration: it resolves the application credential and
+// lifecycle token and mints scoped resource mandates for the current agent
+// identity. The oauth client is rebuilt (dropping its token cache) whenever
+// the resolver yields a different zone or application.
 type clientSecretExchanger struct {
-	client       *oauth.Client
-	clientSecret string
-	resources    []string
-	scope        string
-	mu           sync.Mutex
-	force        bool
+	stsURL      string
+	httpClient  *http.Client
+	credentials CredentialsResolver
+	resources   []string
+	scope       string
+	mu          sync.Mutex
+	force       bool
+	client      *oauth.Client
+	activeZone  string
+	activeApp   string
+	onEvent     func(oauth.Event)
 }
 
 func newClientSecretExchanger(opts ClientSecretOptions) *clientSecretExchanger {
-	client := oauth.NewClient(opts.STSURL, opts.ZoneID, opts.ApplicationID, nil)
-	if opts.HTTPClient != nil {
-		client.SetHTTPClient(opts.HTTPClient)
-	}
 	scope := opts.Scope
 	if scope == "" {
-		scope = "agent:lifecycle"
+		scope = lifecycleScope
 	}
-	return &clientSecretExchanger{client: client, clientSecret: opts.ClientSecret, resources: opts.Resources, scope: scope}
+	credentials := opts.Credentials
+	if credentials == nil {
+		static := ClientCredentials{ZoneID: opts.ZoneID, ApplicationID: opts.ApplicationID, ClientSecret: opts.ClientSecret}
+		credentials = func(context.Context) (*ClientCredentials, error) { return &static, nil }
+	}
+	return &clientSecretExchanger{stsURL: opts.STSURL, httpClient: opts.HTTPClient, credentials: credentials, resources: opts.Resources, scope: scope}
+}
+
+// resolve returns the current credential and the oauth client bound to its
+// identity, failing closed with ErrCredentialsUnavailable when the resolver
+// yields no usable credential.
+func (e *clientSecretExchanger) resolve(ctx context.Context) (ClientCredentials, *oauth.Client, error) {
+	creds, err := e.credentials(ctx)
+	if err != nil {
+		return ClientCredentials{}, nil, err
+	}
+	if creds == nil || creds.ZoneID == "" || creds.ApplicationID == "" || creds.ClientSecret == "" {
+		return ClientCredentials{}, nil, ErrCredentialsUnavailable
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.client == nil || e.activeZone != creds.ZoneID || e.activeApp != creds.ApplicationID {
+		client := oauth.NewClient(e.stsURL, creds.ZoneID, creds.ApplicationID, nil)
+		if e.httpClient != nil {
+			client.SetHTTPClient(e.httpClient)
+		}
+		client.OnEvent = e.onEvent
+		e.client = client
+		e.activeZone = creds.ZoneID
+		e.activeApp = creds.ApplicationID
+	}
+	return *creds, e.client, nil
+}
+
+func (e *clientSecretExchanger) setOnEvent(h func(oauth.Event)) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.onEvent = h
+	if e.client != nil {
+		e.client.OnEvent = h
+	}
+}
+
+func (e *clientSecretExchanger) identity(ctx context.Context) (string, string, error) {
+	creds, _, err := e.resolve(ctx)
+	if err != nil {
+		return "", "", err
+	}
+	return creds.ZoneID, creds.ApplicationID, nil
 }
 
 func (e *clientSecretExchanger) source(ctx context.Context) (string, error) {
+	if len(e.resources) == 0 {
+		return "", fmt.Errorf("caracal: this client has no resources configured; spawn and lifecycle paths require at least one")
+	}
+	creds, client, err := e.resolve(ctx)
+	if err != nil {
+		return "", err
+	}
 	e.mu.Lock()
 	refresh := e.force
 	e.force = false
 	e.mu.Unlock()
-	token, err := e.client.ExchangeResources(ctx, "", e.resources, oauth.ExchangeOptions{
-		ClientSecret: e.clientSecret,
+	token, err := client.ExchangeResources(ctx, "", e.resources, oauth.ExchangeOptions{
+		ClientSecret: creds.ClientSecret,
 		Scopes:       []string{e.scope},
 		ForceRefresh: refresh,
 	})
@@ -368,6 +460,14 @@ func (e *clientSecretExchanger) source(ctx context.Context) (string, error) {
 		return "", err
 	}
 	return token.AccessToken, nil
+}
+
+func (e *clientSecretExchanger) waitForApproval(ctx context.Context, challengeID string, timeout time.Duration) (string, error) {
+	_, client, err := e.resolve(ctx)
+	if err != nil {
+		return "", err
+	}
+	return client.WaitForApproval(ctx, challengeID, timeout)
 }
 
 // invalidate forces the next lifecycle token resolution to mint fresh (a
@@ -379,19 +479,19 @@ func (e *clientSecretExchanger) invalidate() {
 	e.mu.Unlock()
 }
 
-func (e *clientSecretExchanger) mintMandate(ctx context.Context, resourceID string, scopes []string, agentSessionID, delegationEdgeID string, opts MandateOptions) (string, error) {
-	token, err := e.client.Exchange(ctx, "", resourceID, oauth.ExchangeOptions{
-		ClientSecret:     e.clientSecret,
+func (e *clientSecretExchanger) mintMandate(ctx context.Context, resourceID string, scopes []string, agentSessionID, delegationEdgeID string, opts MandateOptions) (oauth.TokenExchangeResponse, error) {
+	creds, client, err := e.resolve(ctx)
+	if err != nil {
+		return oauth.TokenExchangeResponse{}, err
+	}
+	return client.Exchange(ctx, "", resourceID, oauth.ExchangeOptions{
+		ClientSecret:     creds.ClientSecret,
 		Scopes:           scopes,
 		AgentSessionID:   agentSessionID,
 		DelegationEdgeID: delegationEdgeID,
 		TTLSeconds:       opts.TTLSeconds,
 		ChallengeID:      opts.ApprovalID,
 	})
-	if err != nil {
-		return "", err
-	}
-	return token.AccessToken, nil
 }
 
 func (c *Caracal) invalidateHook() func() {
@@ -914,7 +1014,7 @@ func (c *Caracal) OnEvent(h func(oauth.Event)) {
 		c.Coordinator.OnEvent = c.emitEvent
 	}
 	if c.exchanger != nil {
-		c.exchanger.client.OnEvent = c.emitEvent
+		c.exchanger.setOnEvent(c.emitEvent)
 	}
 }
 
@@ -1106,7 +1206,11 @@ func (c *Caracal) MintMandate(ctx context.Context, resourceID string, scopes []s
 		o = opts[0]
 	}
 	cur, _ := Current(ctx)
-	return c.exchanger.mintMandate(ctx, resourceID, scopes, cur.AgentSessionID, cur.DelegationEdgeID, o)
+	token, err := c.exchanger.mintMandate(ctx, resourceID, scopes, cur.AgentSessionID, cur.DelegationEdgeID, o)
+	if err != nil {
+		return "", err
+	}
+	return token.AccessToken, nil
 }
 
 // WaitForApproval long-polls an approval challenge until an approver decides
@@ -1118,7 +1222,7 @@ func (c *Caracal) WaitForApproval(ctx context.Context, challengeID string, timeo
 	if c.exchanger == nil {
 		return "", fmt.Errorf("caracal: WaitForApproval requires a client-secret configuration")
 	}
-	return c.exchanger.client.WaitForApproval(ctx, challengeID, timeout)
+	return c.exchanger.waitForApproval(ctx, challengeID, timeout)
 }
 
 // RootOptions controls explicit use of the application subject token when no
@@ -1265,6 +1369,52 @@ func (c *Caracal) Transport(base *http.Client, opts ...RootOptions) *http.Client
 	return &out
 }
 
+// GovernedTransportOptions configures GovernedTransport: the scopes each
+// mandate carries, the session labels stamped on the provisioning cycle's
+// agent sessions, and an optional mandate TTL override.
+type GovernedTransportOptions struct {
+	Scopes            []string
+	Labels            []string
+	MandateTTLSeconds int
+}
+
+// GovernedTransport returns an *http.Client that authorizes every request
+// with a scoped mandate minted under this application's own authority: it
+// spawns a source and target agent session, delegates the requested scopes
+// across them bounded to resourceID, and mints the mandate from that edge, so
+// each call is policy-checked, delegation-bounded, and fully audited without
+// a caller-supplied CaracalContext. Mandates are cached per resolved
+// identity, resource, and scope set and re-provisioned before expiry.
+// Requests are rewritten through the gateway. Requires a client-secret
+// configuration.
+func (c *Caracal) GovernedTransport(base *http.Client, resourceID string, opts GovernedTransportOptions) (*http.Client, error) {
+	if c.exchanger == nil {
+		return nil, fmt.Errorf("caracal: GovernedTransport requires a client-secret configuration")
+	}
+	if strings.TrimSpace(resourceID) == "" {
+		return nil, fmt.Errorf("caracal: GovernedTransport requires resourceID")
+	}
+	if len(opts.Scopes) == 0 {
+		return nil, fmt.Errorf("caracal: GovernedTransport requires at least one scope")
+	}
+	scopes := compactStrings(append([]string(nil), opts.Scopes...))
+	sort.Strings(scopes)
+	mandateTTL := opts.MandateTTLSeconds
+	if mandateTTL <= 0 {
+		mandateTTL = governedMandateTTLSeconds
+	}
+	if base == nil {
+		base = &http.Client{}
+	}
+	rt := base.Transport
+	if rt == nil {
+		rt = http.DefaultTransport
+	}
+	out := *base
+	out.Transport = &governedTransport{base: rt, client: c, resourceID: resourceID, scopes: scopes, labels: opts.Labels, mandateTTL: mandateTTL}
+	return &out, nil
+}
+
 // GatewayRequest builds a Gateway URL and X-Caracal-Resource header for explicit resource routing.
 func (c *Caracal) GatewayRequest(resourceID, path string) (GatewayRequest, error) {
 	if c.GatewayURL == "" {
@@ -1368,7 +1518,11 @@ func (t *caracalTransport) gatewayToken(ctx context.Context, resourceID string, 
 		if t.client.exchanger == nil {
 			return "", fmt.Errorf("caracal: Transport scopes require a client-secret configuration")
 		}
-		return t.client.exchanger.mintMandate(ctx, resourceID, t.scopes, cur.AgentSessionID, cur.DelegationEdgeID, MandateOptions{})
+		token, err := t.client.exchanger.mintMandate(ctx, resourceID, t.scopes, cur.AgentSessionID, cur.DelegationEdgeID, MandateOptions{})
+		if err != nil {
+			return "", err
+		}
+		return token.AccessToken, nil
 	}
 	if !ok {
 		return t.client.rootToken(ctx)
@@ -1390,6 +1544,161 @@ func (c *Caracal) targetsGateway(target *url.URL) bool {
 		return false
 	}
 	return sameOrigin(target, gw)
+}
+
+type governedTransport struct {
+	base       http.RoundTripper
+	client     *Caracal
+	resourceID string
+	scopes     []string
+	labels     []string
+	mandateTTL int
+}
+
+func (t *governedTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	token, err := t.client.governedMandate(req.Context(), t.resourceID, t.scopes, t.labels, t.mandateTTL)
+	if err != nil {
+		return nil, err
+	}
+	clone := req.Clone(req.Context())
+	clone.Header.Set("Authorization", "Bearer "+token)
+	clone.Header.Set("X-Caracal-Resource", t.resourceID)
+	if rewritten := t.client.routeThroughGateway(clone.URL, t.resourceID); rewritten != nil {
+		clone.URL = rewritten.url
+		clone.Host = rewritten.url.Host
+		clone.RequestURI = ""
+	}
+	return t.base.RoundTrip(clone)
+}
+
+type governedEntry struct {
+	token     string
+	expiresAt time.Time
+}
+
+type governedCall struct {
+	done  chan struct{}
+	token string
+	err   error
+}
+
+// governedMandate returns a cached or freshly provisioned governed mandate
+// for the resource and scope set under the current resolved identity.
+// Concurrent requests for the same key share one provisioning cycle.
+func (c *Caracal) governedMandate(ctx context.Context, resourceID string, scopes, labels []string, mandateTTL int) (string, error) {
+	zoneID, applicationID, err := c.exchanger.identity(ctx)
+	if err != nil {
+		return "", err
+	}
+	key := zoneID + "::" + applicationID + "::" + resourceID + "::" + strings.Join(scopes, " ")
+	c.governedMu.Lock()
+	if cached, ok := c.governedMandates[key]; ok && time.Until(cached.expiresAt) > governedRefreshMargin {
+		c.governedMu.Unlock()
+		return cached.token, nil
+	}
+	if inflight, ok := c.governedInflight[key]; ok {
+		c.governedMu.Unlock()
+		select {
+		case <-inflight.done:
+			return inflight.token, inflight.err
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+	}
+	call := &governedCall{done: make(chan struct{})}
+	if c.governedInflight == nil {
+		c.governedInflight = map[string]*governedCall{}
+	}
+	c.governedInflight[key] = call
+	c.governedMu.Unlock()
+
+	token, expiresAt, err := c.governedCycle(ctx, zoneID, applicationID, resourceID, scopes, labels, mandateTTL)
+	call.token, call.err = token, err
+	c.governedMu.Lock()
+	delete(c.governedInflight, key)
+	if err == nil {
+		if c.governedMandates == nil {
+			c.governedMandates = map[string]governedEntry{}
+		}
+		c.governedMandates[key] = governedEntry{token: token, expiresAt: expiresAt}
+	}
+	c.governedMu.Unlock()
+	close(call.done)
+	return token, err
+}
+
+// governedCycle provisions one governed mandate under the application's own
+// authority: a lifecycle-scoped bootstrap mandate, a source and target agent
+// session, a delegation edge narrowing the requested scopes to the resource,
+// and the final mandate minted from that edge. Spawned sessions are
+// terminated on any failure.
+func (c *Caracal) governedCycle(ctx context.Context, zoneID, applicationID, resourceID string, scopes, labels []string, mandateTTL int) (string, time.Time, error) {
+	sessionTTL := mandateTTL + governedSessionTTLBuffer
+	boot, err := c.exchanger.mintMandate(ctx, resourceID, []string{lifecycleScope}, "", "", MandateOptions{})
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	bootstrap := boot.AccessToken
+	sessionLabels := labels
+	if len(sessionLabels) == 0 {
+		sessionLabels = []string{applicationID}
+	}
+	spawned := []string{}
+	cleanup := func() {
+		cleanupCtx := context.WithoutCancel(ctx)
+		for _, id := range spawned {
+			_ = TerminateAgent(cleanupCtx, c.Coordinator, bootstrap, zoneID, id)
+		}
+	}
+	spawn := func() (string, error) {
+		res, err := SpawnAgent(ctx, c.Coordinator, bootstrap, SpawnRequest{
+			ZoneID:         zoneID,
+			ApplicationID:  applicationID,
+			Lifecycle:      LifecycleTask,
+			TTLSeconds:     sessionTTL,
+			Labels:         sessionLabels,
+			IdempotencyKey: newRandomHex(16),
+		})
+		if err != nil {
+			return "", err
+		}
+		spawned = append(spawned, res.AgentSessionID)
+		return res.AgentSessionID, nil
+	}
+	source, err := spawn()
+	if err != nil {
+		cleanup()
+		return "", time.Time{}, err
+	}
+	target, err := spawn()
+	if err != nil {
+		cleanup()
+		return "", time.Time{}, err
+	}
+	edge, err := CreateDelegation(ctx, c.Coordinator, bootstrap, DelegationRequest{
+		ZoneID:                zoneID,
+		IssuerApplicationID:   applicationID,
+		SourceSessionID:       source,
+		TargetSessionID:       target,
+		ReceiverApplicationID: applicationID,
+		Scopes:                scopes,
+		Constraints:           &DelegationConstraints{Resources: []string{resourceID}},
+		TTLSeconds:            sessionTTL,
+	})
+	if err != nil {
+		cleanup()
+		return "", time.Time{}, err
+	}
+	mandate, err := c.exchanger.mintMandate(ctx, resourceID, scopes, target, edge.DelegationEdgeID, MandateOptions{TTLSeconds: mandateTTL})
+	if err != nil {
+		cleanup()
+		return "", time.Time{}, err
+	}
+	ttl := mandate.ExpiresIn
+	if ttl <= 0 {
+		ttl = mandateTTL
+	}
+	return mandate.AccessToken, time.Now().Add(time.Duration(ttl) * time.Second), nil
 }
 
 func (c *Caracal) rootToken(ctx context.Context) (string, error) {
