@@ -854,7 +854,7 @@ export function buildTroubleshooterMessages(message: string, context: AgentConte
           'binding the application, user, resource, and scopes; a scope requested that the grant or',
           'resource does not include; an application, resource, or provider that does not exist yet or is',
           'mislabeled; a policy set that was authored but never activated for the zone; a revoked or',
-          'expired session, mandate, or delegation edge; a step-up the exchange has not satisfied; or a',
+          'expired session, mandate, or delegation edge; a step-up hold awaiting a human decision; or a',
           'request aimed at the wrong zone or a resource identifier that does not match. Name the cause',
           'you judge most likely, say how to confirm it (the explain trace or audit event for that',
           'request is the fastest check), and give one concrete next action.',

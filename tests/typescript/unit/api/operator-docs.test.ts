@@ -30,9 +30,9 @@ describe('retrieveDocs', () => {
   })
 
   it('surfaces the step-up endpoint from the densest passage of a long API page', () => {
-    const results = retrieveDocs('exact API endpoint to satisfy a step-up challenge')
+    const results = retrieveDocs('exact API endpoint to approve a step-up challenge')
     const joined = results.map((r) => r.snippet).join('\n')
-    // The satisfy route lives deep in the control-plane API reference; the densest-window snippet
+    // The approve route lives deep in the control-plane API reference; the densest-window snippet
     // must reach it rather than stopping at the page's opening lines.
     expect(joined).toContain('step-up-challenges')
     expect(results.some((r) => r.id.includes('step-up'))).toBe(true)
