@@ -47,6 +47,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { id: "agents", label: "Agents", to: "/app/agents", zoneScoped: true },
       { id: "sessions", label: "Sessions", to: "/app/sessions", zoneScoped: true },
+      { id: "approvals", label: "Approvals", to: "/app/approvals", zoneScoped: true },
     ],
   },
   {

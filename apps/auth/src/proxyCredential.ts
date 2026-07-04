@@ -10,21 +10,33 @@ export interface ProxyCredential {
   fallbackToken?: string
 }
 
+// Whether a proxied request decides a human-approval hold - the exact surface the API grants
+// an approve-capability token beyond reads, matched with the same one-resource, two-verb
+// precision so the BFF and the API always agree on which credential a request needs.
+function isApprovalDecision(method: string, path: string): boolean {
+  if (method !== 'POST') return false
+  return /^\/v1\/zones\/[^/]+\/step-up-challenges\/[^/]+\/(approve|reject)$/.test(path.split('?')[0])
+}
+
 // Decides the credential for one proxied console request. A read (GET or HEAD) presents the
-// read-only token; a write presents the write token. Either may fall back to the deployment
-// admin token if its own token is not recognized, so a not-yet-provisioned or rotated derived
-// token never makes a request fail closed - the admin token is the break-glass fallback rather
-// than the everyday credential. When a derived token is absent or equal to the admin token there
-// is nothing weaker to prefer and no distinct fallback, so the admin token is presented directly.
+// read-only token; a step-up decision presents the approve token, since the API deliberately
+// denies the write token that authority; any other write presents the write token. Each may
+// fall back to the deployment admin token if its own token is rejected as unrecognized, so a
+// not-yet-provisioned or rotated derived token never makes a request fail closed - the admin
+// token is the break-glass fallback rather than the everyday credential. When a derived token
+// is absent or equal to the admin token there is nothing weaker to prefer and no distinct
+// fallback, so the admin token is presented directly.
 export function selectProxyCredential(
   method: string,
+  path: string,
   adminToken: string,
   readToken: string | undefined,
   writeToken: string | undefined,
+  approveToken: string | undefined,
 ): ProxyCredential {
   const verb = method.toUpperCase()
   const isRead = verb === 'GET' || verb === 'HEAD'
-  const preferred = isRead ? readToken : writeToken
+  const preferred = isRead ? readToken : isApprovalDecision(verb, path) ? approveToken : writeToken
   if (preferred && preferred !== adminToken) {
     return { token: preferred, fallbackToken: adminToken }
   }

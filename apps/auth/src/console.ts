@@ -9,6 +9,7 @@ import {
   discoverCoordinatorToken,
   deriveConsoleReadToken,
   deriveConsoleWriteToken,
+  deriveConsoleApproveToken,
   pathOnly,
   signAccountAssertion,
   signOperatorAssertion,
@@ -81,6 +82,15 @@ function consoleReadToken(): string | undefined {
 function consoleWriteToken(): string | undefined {
   const admin = adminToken()
   return admin ? deriveConsoleWriteToken(admin) : undefined
+}
+
+// The approve admin token the BFF presents on step-up decision traffic, derived from the
+// deployment admin token so it matches the approve-capability row the API provisions. The API
+// denies the write token the decision endpoints, so this dedicated credential is what lets a
+// console operator decide a hold while the everyday write path stays free of approval authority.
+function consoleApproveToken(): string | undefined {
+  const admin = adminToken()
+  return admin ? deriveConsoleApproveToken(admin) : undefined
 }
 
 function coordinatorToken(): string | undefined {
@@ -509,12 +519,13 @@ async function handleProxy(
     sendJson(res, 404, { error: 'not_found' })
     return
   }
-  // Reads present the read-only token and writes present the write token; either falls back to
-  // the deployment admin token only if its own token is unrecognized. This keeps the bootstrap
-  // admin token off the BFF's normal path entirely - reserved as a break-glass fallback - while
-  // a request can never fail closed for want of a credential.
+  // Reads present the read-only token, step-up decisions the approve token, and other writes
+  // the write token; each falls back to the deployment admin token only if its own token is
+  // unrecognized. This keeps the bootstrap admin token off the BFF's normal path entirely -
+  // reserved as a break-glass fallback - while a request can never fail closed for want of a
+  // credential.
   const method = (req.method ?? 'GET').toUpperCase()
-  const credential = selectProxyCredential(method, token, consoleReadToken(), consoleWriteToken())
+  const credential = selectProxyCredential(method, new URL(target).pathname, token, consoleReadToken(), consoleWriteToken(), consoleApproveToken())
   await forwardProxy(req, res, target, credential.token, id, credential.fallbackToken, account, operator)
   // A successful write to the control plane can change what diagnostics reports (zone
   // inventory, resources, policy enforcement, …); drop cached reports so the next read
@@ -612,7 +623,7 @@ async function handleControlToken(req: IncomingMessage, res: ServerResponse, id:
     // credential policy the proxy uses, so this read never carries the god token on its normal
     // path.
     const url = `${apiUrl()}/v1/zones/${encodeURIComponent(zoneId)}/applications/${encodeURIComponent(keyId)}`
-    const credential = selectProxyCredential('GET', token, consoleReadToken(), consoleWriteToken())
+    const credential = selectProxyCredential('GET', new URL(url).pathname, token, consoleReadToken(), consoleWriteToken(), consoleApproveToken())
     const readHeaders: Record<string, string> = downstreamHeaders(id)
     if (account) readHeaders[ACCOUNT_ASSERTION_HEADER] = account
     const readWith = (bearer: string): Promise<Response> => fetch(url, { headers: { Authorization: `Bearer ${bearer}`, ...readHeaders } })
@@ -725,7 +736,7 @@ async function probeZone(zoneId: string, account: string | undefined, id: string
   const url = `${apiUrl()}/v1/zones/${encodeURIComponent(zoneId)}`
   const headers: Record<string, string> = downstreamHeaders(id)
   if (account) headers[ACCOUNT_ASSERTION_HEADER] = account
-  const credential = selectProxyCredential('GET', admin, consoleReadToken(), consoleWriteToken())
+  const credential = selectProxyCredential('GET', new URL(url).pathname, admin, consoleReadToken(), consoleWriteToken(), consoleApproveToken())
   try {
     const readWith = (bearer: string): Promise<Response> =>
       fetch(url, { headers: { ...headers, Authorization: `Bearer ${bearer}` }, signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) })
