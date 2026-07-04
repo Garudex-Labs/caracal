@@ -562,6 +562,8 @@ function RunSection({ app, zoneId }: { app: Application; zoneId: string }) {
   const resourcesQuery = useResources(zoneId);
 
   const saved = manifestQuery.data?.run_manifest ?? null;
+  const savedBy = manifestQuery.data?.updated_by ?? null;
+  const savedAt = manifestQuery.data?.updated_at ?? null;
   const [editing, setEditing] = useState(false);
   const [rows, setRows] = useState<RunManifestCredential[]>([]);
   const [ttl, setTtl] = useState("");
@@ -797,6 +799,12 @@ function RunSection({ app, zoneId }: { app: Application; zoneId: string }) {
           ))}
           {saved.ttl_seconds !== undefined ? (
             <DetailField label="Credential TTL">{saved.ttl_seconds}s</DetailField>
+          ) : null}
+          {savedBy ? (
+            <DetailField label="Configured by">
+              {savedBy}
+              {savedAt ? ` · ${new Date(savedAt).toLocaleString()}` : ""}
+            </DetailField>
           ) : null}
         </dl>
 

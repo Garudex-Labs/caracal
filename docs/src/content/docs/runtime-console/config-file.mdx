@@ -41,6 +41,8 @@ The default path is read only in local dev and stable modes; production launches
 
 Which environment variables `caracal run` injects, which resources fill them, the credential type, the TTL, and optional-credential behavior are all part of the application's run manifest, authored in the application's **Run** section in the web console. STS serves the manifest to the workload after it proves possession of the client secret, so the zone, resource identifiers, and variable names never live on the machine that launches the workload.
 
+Every manifest is scoped to its application's zone, and each save is attributed: the Run section shows which console operator configured the bindings and when, and the change appears in the zone's admin audit feed under that operator's profile.
+
 The Run section also renders the exact launch command for the application and states whether the binding profile requires the Gateway: `caracal_mandate` bindings need workload traffic pointed at the Gateway, while an all-`provider_token` profile calls providers directly. See [Run Workloads](/runtime-console/runtime/) for the launch flow.
 
 ## SDK Profile

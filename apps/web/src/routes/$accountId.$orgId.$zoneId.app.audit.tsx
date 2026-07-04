@@ -1218,6 +1218,11 @@ function changedFields(payload: Record<string, unknown> | null): string[] {
   return Array.isArray(fields) ? fields.filter((f): f is string => typeof f === "string") : [];
 }
 
+function operatorOf(payload: Record<string, unknown> | null): string | null {
+  const operator = payload?.operator;
+  return typeof operator === "string" && operator.length > 0 ? operator : null;
+}
+
 function AdminAuditPage({
   zoneId,
   mode,
@@ -1270,12 +1275,19 @@ function AdminAuditPage({
     {
       id: "actor",
       header: "Actor",
-      cell: (e) => (
-        <div className="min-w-0">
-          <div className="truncate text-sm text-foreground">{e.actor_name ?? "-"}</div>
-          <div className="truncate text-[11px] text-muted-foreground">{e.actor_scope ?? ""}</div>
-        </div>
-      ),
+      cell: (e) => {
+        const operator = operatorOf(e.payload_json);
+        return (
+          <div className="min-w-0">
+            <div className="truncate text-sm text-foreground">
+              {operator ?? e.actor_name ?? "-"}
+            </div>
+            <div className="truncate text-[11px] text-muted-foreground">
+              {operator ? (e.actor_name ?? e.actor_scope ?? "") : (e.actor_scope ?? "")}
+            </div>
+          </div>
+        );
+      },
     },
     {
       id: "fields",
@@ -1372,6 +1384,7 @@ function AdminAuditPage({
         match: (e, q) =>
           e.path.toLowerCase().includes(q) ||
           (e.actor_name ?? "").toLowerCase().includes(q) ||
+          (operatorOf(e.payload_json) ?? "").toLowerCase().includes(q) ||
           (e.entity_type ?? "").toLowerCase().includes(q) ||
           (e.entity_id ?? "").toLowerCase().includes(q),
       }}
@@ -1421,6 +1434,9 @@ function AdminAuditDetailView({ event }: { event: AdminAuditEvent }) {
       </DetailGroup>
 
       <DetailGroup title="Actor">
+        {operatorOf(event.payload_json) ? (
+          <DetailField label="Operator">{operatorOf(event.payload_json)}</DetailField>
+        ) : null}
         <DetailField label="Name">{event.actor_name ?? "-"}</DetailField>
         <DetailField label="Scope">{event.actor_scope ?? "-"}</DetailField>
         {event.actor_id ? (
