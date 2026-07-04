@@ -300,11 +300,9 @@ describe('contextMiddleware + bindFromHeaders', () => {
   it('runs the verify hook against the inbound token before binding', async () => {
     const c = new Caracal(baseConfig)
     const seen: string[] = []
-    await c.bindFromHeaders(
-      { [HeaderAuthorization]: 'Bearer inbound' },
-      async () => undefined,
-      { verify: (token) => void seen.push(token) },
-    )
+    await c.bindFromHeaders({ [HeaderAuthorization]: 'Bearer inbound' }, async () => undefined, {
+      verify: (token) => void seen.push(token),
+    })
     expect(seen).toEqual(['inbound'])
 
     await expect(
@@ -681,7 +679,7 @@ describe('agent lifecycle and delegation', () => {
     ])
   })
 
-  it('sends no Idempotency-Key on spawn unless explicitly supplied', async () => {
+  it('sends a distinct Idempotency-Key per spawn so retries cannot mint duplicates', async () => {
     const calls: { url: string; init: RequestInit }[] = []
     const fakeFetch = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
       calls.push({ url: String(input), init })
@@ -708,9 +706,11 @@ describe('agent lifecycle and delegation', () => {
     )
     const agentPosts = calls.filter((call) => call.init.method === 'POST' && call.url.endsWith('/agents'))
     expect(agentPosts.length).toBeGreaterThanOrEqual(2)
-    for (const post of agentPosts) {
-      expect(new Headers(post.init.headers as HeadersInit).get('idempotency-key')).toBeNull()
+    const keys = agentPosts.map((post) => new Headers(post.init.headers as HeadersInit).get('idempotency-key'))
+    for (const key of keys) {
+      expect(key).toMatch(/[0-9a-f-]{32,}/)
     }
+    expect(new Set(keys).size).toBe(keys.length)
   })
 })
 

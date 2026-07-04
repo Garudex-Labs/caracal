@@ -330,3 +330,182 @@ describe('spawn with narrow grant', () => {
     await expect(terminateAgent(client, 'tok', 'zone-1', 'agent-9')).rejects.toThrow(/coordinator DELETE .* failed: 404 not found/)
   })
 })
+
+describe('spawn reliability', () => {
+  it('retries a transient 5xx spawn with the same idempotency key', async () => {
+    vi.useFakeTimers()
+    try {
+      const keys: (string | null)[] = []
+      let spawnCalls = 0
+      const fetchImpl = (async (url: string, init: RequestInit = {}) => {
+        const path = new URL(url).pathname
+        if (init.method === 'DELETE') return new Response(null, { status: 204 })
+        if (path.endsWith('/agents')) {
+          spawnCalls += 1
+          keys.push(new Headers(init.headers as HeadersInit).get('idempotency-key'))
+          if (spawnCalls === 1) return new Response('upstream unavailable', { status: 503 })
+          return new Response(JSON.stringify({ agent_session_id: 'agent-1' }), { status: 200 })
+        }
+        return new Response(JSON.stringify({}), { status: 200 })
+      }) as unknown as typeof fetch
+      const client: CoordinatorClient = { baseUrl: 'http://coord', fetchImpl }
+      const result = spawn({ coordinator: client, zoneId: 'zone-1', applicationId: 'app-1', subjectToken: 'tok' }, async () => 'ok')
+      await vi.advanceTimersByTimeAsync(2_000)
+      await expect(result).resolves.toBe('ok')
+      expect(spawnCalls).toBe(2)
+      expect(keys[0]).toBeTruthy()
+      expect(keys[1]).toBe(keys[0])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not retry a 4xx spawn rejection', async () => {
+    let spawnCalls = 0
+    const fetchImpl = (async () => {
+      spawnCalls += 1
+      return new Response('bad request', { status: 400 })
+    }) as unknown as typeof fetch
+    const client: CoordinatorClient = { baseUrl: 'http://coord', fetchImpl }
+    await expect(
+      spawn({ coordinator: client, zoneId: 'zone-1', applicationId: 'app-1', subjectToken: 'tok' }, async () => 'ok'),
+    ).rejects.toThrow(/400/)
+    expect(spawnCalls).toBe(1)
+  })
+
+  it('keeps the fn result when cleanup finds the session already gone', async () => {
+    const fetchImpl = (async (url: string, init: RequestInit = {}) => {
+      if (init.method === 'DELETE') return new Response('{"error":"agent_not_found"}', { status: 404 })
+      if (new URL(url).pathname.endsWith('/agents')) {
+        return new Response(JSON.stringify({ agent_session_id: 'agent-1' }), { status: 200 })
+      }
+      return new Response(JSON.stringify({}), { status: 200 })
+    }) as unknown as typeof fetch
+    const client: CoordinatorClient = { baseUrl: 'http://coord', fetchImpl }
+    await expect(
+      spawn({ coordinator: client, zoneId: 'zone-1', applicationId: 'app-1', subjectToken: 'tok' }, async () => 'result'),
+    ).resolves.toBe('result')
+  })
+
+  it('keeps the fn error when the cleanup terminate itself fails', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const fetchImpl = (async (url: string, init: RequestInit = {}) => {
+        if (init.method === 'DELETE') return new Response('db down', { status: 500 })
+        if (new URL(url).pathname.endsWith('/agents')) {
+          return new Response(JSON.stringify({ agent_session_id: 'agent-1' }), { status: 200 })
+        }
+        return new Response(JSON.stringify({}), { status: 200 })
+      }) as unknown as typeof fetch
+      const client: CoordinatorClient = { baseUrl: 'http://coord', fetchImpl }
+      await expect(
+        spawn({ coordinator: client, zoneId: 'zone-1', applicationId: 'app-1', subjectToken: 'tok' }, async () => {
+          throw new Error('primary failure')
+        }),
+      ).rejects.toThrow('primary failure')
+      expect(warn).toHaveBeenCalled()
+    } finally {
+      warn.mockRestore()
+    }
+  })
+})
+
+describe('service auto-heartbeat', () => {
+  function serviceRecorder(opts: { heartbeat?: (n: number) => Response } = {}) {
+    const heartbeats: Record<string, unknown>[] = []
+    let beats = 0
+    const fetchImpl = (async (url: string, init: RequestInit = {}) => {
+      const path = new URL(url).pathname
+      if (init.method === 'DELETE') return new Response(null, { status: 204 })
+      if (path.endsWith('/heartbeat')) {
+        beats += 1
+        heartbeats.push(JSON.parse(String(init.body)))
+        if (opts.heartbeat) return opts.heartbeat(beats)
+        return new Response(
+          JSON.stringify({ agent: { status: 'active', heartbeat_deadline_at: new Date(Date.now() + 3_000).toISOString() } }),
+          { status: 200 },
+        )
+      }
+      return new Response(
+        JSON.stringify({ agent_session_id: 'svc-1', heartbeat_deadline_at: new Date(Date.now() + 3_000).toISOString() }),
+        { status: 200 },
+      )
+    }) as unknown as typeof fetch
+    return { client: { baseUrl: 'http://coord', fetchImpl } as CoordinatorClient, heartbeats }
+  }
+
+  it('renews the lease by default on a cadence derived from the server deadline', async () => {
+    vi.useFakeTimers()
+    try {
+      const { client, heartbeats } = serviceRecorder()
+      const svc = await spawnService({ coordinator: client, zoneId: 'zone-1', applicationId: 'app-1', subjectToken: 'tok' })
+      await vi.advanceTimersByTimeAsync(1_500)
+      expect(heartbeats.length).toBeGreaterThanOrEqual(1)
+      expect(heartbeats[0]).toEqual({ status: 'healthy' })
+      await svc.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('stops the timer and reports onLeaseLost when the session is permanently gone', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    vi.useFakeTimers()
+    try {
+      const { client, heartbeats } = serviceRecorder({
+        heartbeat: () => new Response('{"error":"agent_not_found"}', { status: 404 }),
+      })
+      const onLeaseLost = vi.fn()
+      const svc = await spawnService({ coordinator: client, zoneId: 'zone-1', applicationId: 'app-1', subjectToken: 'tok', onLeaseLost })
+      await vi.advanceTimersByTimeAsync(1_500)
+      expect(onLeaseLost).toHaveBeenCalledOnce()
+      const beatsAfterLoss = heartbeats.length
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(heartbeats.length).toBe(beatsAfterLoss)
+      await svc.close()
+    } finally {
+      vi.useRealTimers()
+      warn.mockRestore()
+    }
+  })
+
+  it('disables the background timer when heartbeatIntervalMs is zero', async () => {
+    vi.useFakeTimers()
+    try {
+      const { client, heartbeats } = serviceRecorder()
+      const svc = await spawnService({
+        coordinator: client,
+        zoneId: 'zone-1',
+        applicationId: 'app-1',
+        subjectToken: 'tok',
+        heartbeatIntervalMs: 0,
+      })
+      await vi.advanceTimersByTimeAsync(120_000)
+      expect(heartbeats.length).toBe(0)
+      await svc.heartbeat('degraded')
+      expect(heartbeats).toEqual([{ status: 'degraded' }])
+      await svc.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('treats closing an already-retired session as success', async () => {
+    const fetchImpl = (async (url: string, init: RequestInit = {}) => {
+      if (init.method === 'DELETE') return new Response('{"error":"agent_not_found"}', { status: 404 })
+      if (new URL(url).pathname.endsWith('/agents')) {
+        return new Response(JSON.stringify({ agent_session_id: 'svc-1' }), { status: 200 })
+      }
+      return new Response(JSON.stringify({}), { status: 200 })
+    }) as unknown as typeof fetch
+    const client: CoordinatorClient = { baseUrl: 'http://coord', fetchImpl }
+    const svc = await spawnService({
+      coordinator: client,
+      zoneId: 'zone-1',
+      applicationId: 'app-1',
+      subjectToken: 'tok',
+      heartbeatIntervalMs: 0,
+    })
+    await expect(svc.close()).resolves.toBeUndefined()
+  })
+})
