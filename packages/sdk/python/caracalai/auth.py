@@ -20,6 +20,7 @@ from email.utils import parsedate_to_datetime
 import httpx
 
 from .errors import ApprovalRequired, raise_for_caracal_error
+from .events import CaracalEvent, EventHook, emit_event
 
 GRANT_TYPE = "urn:ietf:params:oauth:grant-type:token-exchange"
 MAX_LEEWAY_SECONDS = 60.0
@@ -133,6 +134,7 @@ class ClientSecretExchanger:
             if http_client is not None
             else httpx.Client(timeout=httpx.Timeout(10.0))
         )
+        self.on_event: EventHook | None = None
 
     def close(self) -> None:
         """Release the owned HTTP client. Idempotent; injected clients stay
@@ -142,10 +144,22 @@ class ClientSecretExchanger:
 
     def _cached_lifecycle(self) -> str | None:
         with self._lock:
+            token = None
             if self._token is not None and self._exp is not None:
                 if self._exp - time.time() > self._token_leeway:
-                    return self._token
-        return None
+                    token = self._token
+        if token is not None:
+            emit_event(
+                self.on_event,
+                CaracalEvent(
+                    type="token.exchange",
+                    ok=True,
+                    cached=True,
+                    resources=tuple(self._resources),
+                    scopes=(self._scope,),
+                ),
+            )
+        return token
 
     def get_token(self) -> str:
         cached = self._cached_lifecycle()
@@ -193,12 +207,24 @@ class ClientSecretExchanger:
     def _cached_mandate(
         self, key: tuple[str, frozenset[str], str | None, str | None]
     ) -> str | None:
+        token = None
         with self._lock:
             cached = self._mandates.get(key)
             if cached is not None and cached[1] - time.time() > cached[2]:
                 self._mandates.move_to_end(key)
-                return cached[0]
-        return None
+                token = cached[0]
+        if token is not None:
+            emit_event(
+                self.on_event,
+                CaracalEvent(
+                    type="token.exchange",
+                    ok=True,
+                    cached=True,
+                    resources=(key[0],),
+                    scopes=tuple(sorted(key[1])),
+                ),
+            )
+        return token
 
     def _store_mandate(
         self,
@@ -278,45 +304,97 @@ class ClientSecretExchanger:
         timeout elapsed with no decision and waiting again is safe."""
         if not challenge_id:
             raise ValueError("wait_for_approval requires a challenge_id")
+        start = time.monotonic()
+
+        def finish(state: str, ok: bool) -> str:
+            emit_event(
+                self.on_event,
+                CaracalEvent(
+                    type="approval.wait",
+                    ok=ok,
+                    duration_ms=(time.monotonic() - start) * 1000.0,
+                    challenge_id=challenge_id,
+                    state=state,
+                ),
+            )
+            return state
+
         deadline = time.time() + timeout_seconds
         while True:
             remaining = deadline - time.time()
             if remaining <= 0:
-                return "pending"
+                return finish("pending", True)
             wait = max(1, min(25, int(remaining)))
             url = f"{self._sts_url}/step-up/{challenge_id}?wait={wait}"
             resp = self._http.get(url, timeout=wait + 10.0)
-            resp.raise_for_status()
+            try:
+                resp.raise_for_status()
+            except httpx.HTTPStatusError:
+                finish("", False)
+                raise
             state = str(resp.json().get("state", ""))
             if state and state != "pending":
-                return state
+                return finish(state, True)
 
     def _exchange(self, data: dict[str, str | list[str]]) -> tuple[str, float]:
         url = f"{self._sts_url}/oauth/2/token"
+        resource = data.get("resource", [])
+        resources = (
+            tuple(resource) if isinstance(resource, list) else (str(resource),)
+        )
+        scopes = tuple(str(data.get("scope", "")).split())
+        start = time.monotonic()
         deadline = time.time() + self._timeout
         attempt = 0
-        while True:
-            response: httpx.Response | None = None
-            try:
-                response = self._http.post(url, data=data)
-            except httpx.TransportError:
-                if attempt >= self._retries or time.time() >= deadline:
-                    raise
-            if response is not None:
-                if response.is_success:
-                    return self._parse_token(response)
-                if (
-                    not _transient_status(response.status_code)
-                    or attempt >= self._retries
-                ):
-                    raise_for_caracal_error(response)
-            remaining = deadline - time.time()
-            if remaining <= 0:
+        try:
+            while True:
+                response: httpx.Response | None = None
+                try:
+                    response = self._http.post(url, data=data)
+                except httpx.TransportError:
+                    if attempt >= self._retries or time.time() >= deadline:
+                        raise
                 if response is not None:
-                    raise_for_caracal_error(response)
-                raise TimeoutError("STS token exchange timed out")
-            time.sleep(min(_retry_delay(response, attempt), remaining))
-            attempt += 1
+                    if response.is_success:
+                        token = self._parse_token(response)
+                        emit_event(
+                            self.on_event,
+                            CaracalEvent(
+                                type="token.exchange",
+                                ok=True,
+                                duration_ms=(time.monotonic() - start) * 1000.0,
+                                resources=resources,
+                                scopes=scopes,
+                                status=response.status_code,
+                            ),
+                        )
+                        return token
+                    if (
+                        not _transient_status(response.status_code)
+                        or attempt >= self._retries
+                    ):
+                        raise_for_caracal_error(response)
+                remaining = deadline - time.time()
+                if remaining <= 0:
+                    if response is not None:
+                        raise_for_caracal_error(response)
+                    raise TimeoutError("STS token exchange timed out")
+                time.sleep(min(_retry_delay(response, attempt), remaining))
+                attempt += 1
+        except Exception as exc:
+            emit_event(
+                self.on_event,
+                CaracalEvent(
+                    type="token.exchange",
+                    ok=False,
+                    duration_ms=(time.monotonic() - start) * 1000.0,
+                    resources=resources,
+                    scopes=scopes,
+                    status=int(getattr(exc, "http_status", 0)),
+                    code=str(getattr(exc, "code", "")),
+                ),
+            )
+            raise
 
     def _parse_token(self, response: httpx.Response) -> tuple[str, float]:
         body = response.json()

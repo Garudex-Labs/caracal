@@ -9,11 +9,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
+from time import monotonic
 from urllib.parse import quote
 
 import httpx
 
 from .errors import CoordinatorError
+from .events import CaracalEvent, EventHook, emit_event
 from .json_types import JsonObject, JsonValue
 
 
@@ -27,6 +29,7 @@ class CoordinatorClient:
     base_url: str
     timeout: float = 10.0
     http_client: httpx.AsyncClient | None = field(default=None, repr=False)
+    on_event: EventHook | None = field(default=None, repr=False)
 
     def _http(self) -> httpx.AsyncClient:
         if self.http_client is None:
@@ -52,14 +55,35 @@ async def _call(
     request_headers = {"authorization": f"Bearer {bearer}"}
     if headers:
         request_headers.update(headers)
-    resp = await client._http().request(
-        method,
-        client.base_url.rstrip("/") + path,
-        json=json_body,
-        headers=request_headers,
-    )
+    start = monotonic()
+
+    def finish(status: int, ok: bool) -> None:
+        emit_event(
+            client.on_event,
+            CaracalEvent(
+                type="coordinator.call",
+                ok=ok,
+                duration_ms=(monotonic() - start) * 1000.0,
+                method=method,
+                path=path,
+                status=status,
+            ),
+        )
+
+    try:
+        resp = await client._http().request(
+            method,
+            client.base_url.rstrip("/") + path,
+            json=json_body,
+            headers=request_headers,
+        )
+    except Exception:
+        finish(0, False)
+        raise
     if resp.status_code >= 300:
+        finish(resp.status_code, False)
         raise CoordinatorError(method, path, resp.status_code, resp.text)
+    finish(resp.status_code, True)
     return resp
 
 
