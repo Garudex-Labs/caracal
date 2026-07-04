@@ -502,7 +502,7 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
         c = Caracal(
             CaracalConfig(
                 coordinator=CoordinatorClient(
-                    base_url="https://coordinator.example.com", _client=client
+                    base_url="https://coordinator.example.com", http_client=client
                 ),
                 zone_id="z",
                 application_id="app",
@@ -585,7 +585,7 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
         c = Caracal(
             CaracalConfig(
                 coordinator=CoordinatorClient(
-                    base_url="https://coordinator.example.com", _client=client
+                    base_url="https://coordinator.example.com", http_client=client
                 ),
                 zone_id="z",
                 application_id="app",

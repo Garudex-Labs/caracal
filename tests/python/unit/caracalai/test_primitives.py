@@ -11,13 +11,14 @@ import httpx
 
 from caracalai.coordinator import CoordinatorClient
 from caracalai.context import current
+from caracalai.errors import CoordinatorError
 from caracalai.primitives import Grant, spawn, delegate
 
 
 def _coord(handler) -> CoordinatorClient:
     return CoordinatorClient(
         base_url="http://coord.test",
-        _client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
     )
 
 
@@ -143,10 +144,10 @@ class SpawnTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_propagates_coordinator_error(self) -> None:
         async def handler(req: httpx.Request) -> httpx.Response:
-            return httpx.Response(500)
+            return httpx.Response(403)
 
         coord = _coord(handler)
-        with self.assertRaises(httpx.HTTPStatusError):
+        with self.assertRaises(CoordinatorError):
             async with spawn(
                 coordinator=coord,
                 zone_id="z",
@@ -154,6 +155,51 @@ class SpawnTests(unittest.IsolatedAsyncioTestCase):
                 subject_token="tok",
             ):
                 pass  # pragma: no cover
+
+    async def test_retries_transient_spawn_failure_with_same_idempotency_key(
+        self,
+    ) -> None:
+        keys: list[str | None] = []
+
+        async def handler(req: httpx.Request) -> httpx.Response:
+            if req.method == "POST" and str(req.url).endswith("/agents"):
+                keys.append(req.headers.get("idempotency-key"))
+                if len(keys) == 1:
+                    return httpx.Response(503, json={"error": "unavailable"})
+                return httpx.Response(200, json={"agent_session_id": "agent-1"})
+            return httpx.Response(204)
+
+        coord = _coord(handler)
+        async with spawn(
+            coordinator=coord,
+            zone_id="z",
+            application_id="app",
+            subject_token="tok",
+        ) as ctx:
+            self.assertEqual(ctx.agent_session_id, "agent-1")
+
+        self.assertEqual(len(keys), 2)
+        self.assertIsNotNone(keys[0])
+        self.assertEqual(keys[0], keys[1])
+
+    async def test_does_not_retry_client_errors(self) -> None:
+        attempts = 0
+
+        async def handler(req: httpx.Request) -> httpx.Response:
+            nonlocal attempts
+            attempts += 1
+            return httpx.Response(400, json={"error": "bad request"})
+
+        coord = _coord(handler)
+        with self.assertRaises(CoordinatorError):
+            async with spawn(
+                coordinator=coord,
+                zone_id="z",
+                application_id="app",
+                subject_token="tok",
+            ):
+                pass  # pragma: no cover
+        self.assertEqual(attempts, 1)
 
 
 class DelegateTests(unittest.IsolatedAsyncioTestCase):
@@ -264,7 +310,7 @@ class SpawnNarrowGrantTests(unittest.IsolatedAsyncioTestCase):
         async with spawn(
             coordinator=coord, zone_id="z", application_id="app", subject_token="tok"
         ):
-            with self.assertRaises(httpx.HTTPStatusError):
+            with self.assertRaises(CoordinatorError):
                 async with spawn(
                     coordinator=coord,
                     zone_id="z",
@@ -589,7 +635,7 @@ class SpawnInheritEdgeTests(unittest.IsolatedAsyncioTestCase):
         await agent.aclose()
         self.assertGreaterEqual(calls, 2)
 
-    async def test_no_auto_heartbeat_without_interval(self) -> None:
+    async def test_auto_heartbeat_disabled_with_nonpositive_interval(self) -> None:
         import asyncio
         from caracalai.primitives import spawn_service
 
@@ -610,10 +656,97 @@ class SpawnInheritEdgeTests(unittest.IsolatedAsyncioTestCase):
             zone_id="z",
             application_id="app",
             subject_token="tok",
+            heartbeat_interval=0,
         )
+        self.assertIsNone(agent._auto_task)
         await asyncio.sleep(0.03)
-        await agent.aclose()
         self.assertEqual(heartbeats, 0)
+        await agent.heartbeat("degraded")
+        self.assertEqual(heartbeats, 1)
+        await agent.aclose()
+
+    async def test_auto_heartbeat_defaults_to_lease_derived_cadence(self) -> None:
+        from caracalai.primitives import spawn_service
+
+        def handler(req: httpx.Request) -> httpx.Response:
+            if req.method == "POST" and str(req.url).endswith("/agents"):
+                return httpx.Response(200, json={"agent_session_id": "agent-1"})
+            return httpx.Response(204)
+
+        coord = _coord(handler)
+        agent = await spawn_service(
+            coordinator=coord,
+            zone_id="z",
+            application_id="app",
+            subject_token="tok",
+        )
+        self.assertIsNotNone(agent._auto_task)
+        delay = agent._next_delay()
+        self.assertGreaterEqual(delay, 27.0)
+        self.assertLessEqual(delay, 33.0)
+        await agent.aclose()
+        self.assertIsNone(agent._auto_task)
+
+    async def test_next_delay_derives_from_lease_deadline(self) -> None:
+        import time
+        from datetime import datetime, timezone
+        from caracalai.primitives import spawn_service
+
+        deadline = datetime.fromtimestamp(time.time() + 30, tz=timezone.utc)
+
+        def handler(req: httpx.Request) -> httpx.Response:
+            if req.method == "POST" and str(req.url).endswith("/agents"):
+                return httpx.Response(
+                    200,
+                    json={
+                        "agent_session_id": "agent-1",
+                        "heartbeat_deadline_at": deadline.isoformat(),
+                    },
+                )
+            return httpx.Response(204)
+
+        coord = _coord(handler)
+        agent = await spawn_service(
+            coordinator=coord,
+            zone_id="z",
+            application_id="app",
+            subject_token="tok",
+        )
+        delay = agent._next_delay()
+        self.assertGreaterEqual(delay, 8.0)
+        self.assertLessEqual(delay, 12.0)
+        await agent.aclose()
+
+    async def test_lease_lost_stops_auto_heartbeat_and_notifies_once(self) -> None:
+        import asyncio
+        from caracalai.primitives import spawn_service
+
+        heartbeats = 0
+        lost: list[BaseException] = []
+
+        def handler(req: httpx.Request) -> httpx.Response:
+            nonlocal heartbeats
+            if req.method == "POST" and str(req.url).endswith("/agents"):
+                return httpx.Response(200, json={"agent_session_id": "agent-1"})
+            if req.method == "POST" and str(req.url).endswith("/heartbeat"):
+                heartbeats += 1
+                return httpx.Response(404, json={"error": "not found"})
+            return httpx.Response(204)
+
+        coord = _coord(handler)
+        agent = await spawn_service(
+            coordinator=coord,
+            zone_id="z",
+            application_id="app",
+            subject_token="tok",
+            heartbeat_interval=0.01,
+            on_lease_lost=lost.append,
+        )
+        await asyncio.sleep(0.08)
+        self.assertEqual(heartbeats, 1)
+        self.assertEqual(len(lost), 1)
+        self.assertIsInstance(lost[0], CoordinatorError)
+        await agent.aclose()
 
     async def test_narrow_grant_issues_delegation_edge(self) -> None:
         from caracalai.primitives import spawn_service
@@ -648,7 +781,9 @@ class SpawnInheritEdgeTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(agent.context.delegation_edge_id, "edge-svc")
             self.assertEqual(agent.context.parent_edge_id, parent.delegation_edge_id)
             self.assertEqual(agent.context.hop, parent.hop + 1)
-            self.assertEqual(captured["body"]["source_session_id"], parent.agent_session_id)
+            self.assertEqual(
+                captured["body"]["source_session_id"], parent.agent_session_id
+            )
             self.assertEqual(captured["body"]["target_session_id"], "svc-1")
             self.assertEqual(captured["body"]["scopes"], ["ledger:read"])
             await agent.aclose()
@@ -672,7 +807,7 @@ class SpawnInheritEdgeTests(unittest.IsolatedAsyncioTestCase):
         async with spawn(
             coordinator=coord, zone_id="z", application_id="app", subject_token="tok"
         ):
-            with self.assertRaises(httpx.HTTPStatusError):
+            with self.assertRaises(CoordinatorError):
                 await spawn_service(
                     coordinator=coord,
                     zone_id="z",
@@ -709,7 +844,10 @@ class SpawnInheritEdgeTests(unittest.IsolatedAsyncioTestCase):
                 captured["body"] = json.loads(req.content)
                 return httpx.Response(
                     200,
-                    json={"agent_session_id": "svc-1", "delegation_edge_id": "edge-mirror"},
+                    json={
+                        "agent_session_id": "svc-1",
+                        "delegation_edge_id": "edge-mirror",
+                    },
                 )
             if req.method == "DELETE":
                 return httpx.Response(204)
