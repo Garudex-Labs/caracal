@@ -43,8 +43,9 @@ import type {
   Resource,
   ResourceInput,
   ResourcePatchInput,
-  RunManifest,
   SessionQuery,
+  Workload,
+  WorkloadUpdateInput,
   Zone,
   ZoneInput,
   ZonePatchInput,
@@ -78,6 +79,7 @@ const keys = {
   zones: ["console", "zones"] as const,
   overview: (zoneId: string | null) => ["console", "overview", zoneId] as const,
   applications: (zoneId: string | null) => ["console", "applications", zoneId] as const,
+  workloads: (zoneId: string | null) => ["console", "workloads", zoneId] as const,
   resources: (zoneId: string | null) => ["console", "resources", zoneId] as const,
   providers: (zoneId: string | null) => ["console", "providers", zoneId] as const,
   policies: (zoneId: string | null) => ["console", "policies", zoneId] as const,
@@ -603,6 +605,8 @@ export function useSaveRunManifest(zoneId: string | null) {
     onSuccess: () => qc.invalidateQueries({ queryKey: keys.applications(zoneId) }),
   });
 }
+
+PLACEHOLDER_WORKLOAD_HOOKS
 
 export function useDeleteApplication(zoneId: string | null) {
   const qc = useQueryClient();

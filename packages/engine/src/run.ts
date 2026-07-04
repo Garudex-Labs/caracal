@@ -6,15 +6,10 @@
 import { spawn, type ChildProcess, type StdioOptions } from 'node:child_process'
 import { createInterface } from 'node:readline'
 import { scrubTokens } from './crash.js'
-import { InteractionRequiredError, OAuthClient, fetchRunManifest } from '@caracalai/oauth'
-import {
-  DEFAULT_RUN_TTL_SECONDS,
-  MAX_RUN_TTL_SECONDS,
-  RuntimeConfigValidationError,
-  assertCredentialEnvName,
-} from './runtimeConfig.js'
-import type { RuntimeConfig, RuntimeIdentity, Credential, OptionalCredential, RunCredentialType } from './runtimeConfig.js'
-import type { TokenExchangeResponse } from '@caracalai/oauth'
+import { InteractionRequiredError, fetchRunCredential, fetchRunManifest, pollStepUpState } from '@caracalai/oauth'
+import type { RunBinding } from '@caracalai/oauth'
+import { RuntimeConfigValidationError, assertCredentialEnvName } from './runtimeConfig.js'
+import type { RuntimeIdentity } from './runtimeConfig.js'
 
 const SIGNAL_EXIT_MAP: Record<string, number> = {
   SIGINT: 2,
@@ -93,40 +88,25 @@ export interface BuildRunEnvOptions {
   readonly onLine?: RunLineSink
 }
 
-function runTTLSeconds(cfg: RuntimeConfig): number {
-  return cfg.ttl_seconds ?? DEFAULT_RUN_TTL_SECONDS
+// RunProfile is the fully resolved launch profile a run executes with: the local
+// workload identity plus the console-authored bindings served by STS.
+export interface RunProfile {
+  identity: RuntimeIdentity
+  zoneId: string
+  bindings: RunBinding[]
 }
 
-function credentialType(cred: Credential): RunCredentialType {
-  return cred.credential_type ?? 'provider_token'
-}
-
-function injectedCredential(resource: string, type: RunCredentialType, token: TokenExchangeResponse): string {
-  if (type === 'caracal_mandate') return token.accessToken
-  const exact = token.upstreams?.[resource]
-  const directives = Object.values(token.upstreams ?? {})
-  const directive = exact ?? (directives.length === 1 ? directives[0] : undefined)
-  if (!directive?.providerToken) throw new Error(`provider_credential_unavailable:${resource}`)
-  return directive.providerToken
-}
-
-async function exchangeWithStepUp(client: OAuthClient, cfg: RuntimeConfig, cred: Credential, onLine?: RunLineSink): Promise<string> {
-  const type = credentialType(cred)
-  const exchangeOptions = {
-    clientSecret: cfg.app_client_secret,
-    ttlSeconds: runTTLSeconds(cfg),
-    runtimeCredentialInjection: type === 'provider_token',
-  }
+async function mintWithStepUp(identity: RuntimeIdentity, binding: RunBinding, onLine?: RunLineSink): Promise<string> {
   try {
-    const token = await client.exchange('', cred.resource, exchangeOptions)
-    return injectedCredential(cred.resource, type, token)
+    const minted = await fetchRunCredential(identity.sts_url, identity.workload_id, identity.workload_secret, binding.env)
+    return minted.credential
   } catch (err) {
     if (!(err instanceof InteractionRequiredError) || !err.challengeId) throw err
     // The hold's id and binding go to stderr so whatever surface supervises this
     // runtime can relay them to an approver; the runtime itself just waits.
     onLine?.(
       JSON.stringify({
-        resource: cred.resource,
+        resource: binding.resource,
         challenge_id: err.challengeId,
         binding: err.binding,
         expires_at: err.expiresAt,
@@ -134,100 +114,60 @@ async function exchangeWithStepUp(client: OAuthClient, cfg: RuntimeConfig, cred:
       }),
       'stderr',
     )
-    const state = await client.waitForApproval(err.challengeId, { timeoutMs: STEP_UP_TIMEOUT_MS })
+    const state = await pollStepUpState(identity.sts_url, err.challengeId, { timeoutMs: STEP_UP_TIMEOUT_MS })
     if (state !== 'approved') throw new Error(`approval_${state}`)
-    const token = await client.exchange('', cred.resource, { ...exchangeOptions, challengeId: err.challengeId })
-    return injectedCredential(cred.resource, type, token)
+    const minted = await fetchRunCredential(identity.sts_url, identity.workload_id, identity.workload_secret, binding.env, {
+      challengeId: err.challengeId,
+    })
+    return minted.credential
   }
 }
 
-function credentialFailureLine(cred: Credential, err: unknown): string {
+function credentialFailureLine(binding: RunBinding, err: unknown): string {
   const reason = scrubTokens(err instanceof Error ? err.message : String(err))
   const requestId = err instanceof InteractionRequiredError ? err.challengeId : undefined
-  return JSON.stringify({ resource: cred.resource, reason, requestId })
+  return JSON.stringify({ resource: binding.resource, reason, requestId })
 }
 
-function validateCredentialEnv(cred: Credential, used: Set<string>): void {
-  if (!ENV_NAME.test(cred.env)) throw new Error(`invalid_credential_env:${cred.env}`)
-  if (BLOCKED_CREDENTIAL_ENV.has(cred.env)) throw new Error(`blocked_credential_env:${cred.env}`)
-  if (used.has(cred.env)) throw new Error(`duplicate_credential_env:${cred.env}`)
-  used.add(cred.env)
+function validateCredentialEnv(binding: RunBinding, used: Set<string>): void {
+  if (!ENV_NAME.test(binding.env)) throw new Error(`invalid_credential_env:${binding.env}`)
+  if (BLOCKED_CREDENTIAL_ENV.has(binding.env)) throw new Error(`blocked_credential_env:${binding.env}`)
+  if (used.has(binding.env)) throw new Error(`duplicate_credential_env:${binding.env}`)
+  used.add(binding.env)
 }
 
 // Resolves the full launch profile for a workload: authenticates against STS with the
-// local identity, fetches the console-authored run manifest, and revalidates it locally
-// so a compromised control plane still cannot inject blocked env names or oversized TTLs.
-export async function resolveRunConfig(identity: RuntimeIdentity, env: NodeJS.ProcessEnv = process.env): Promise<RuntimeConfig> {
-  const manifest = await fetchRunManifest(identity.sts_url, identity.application_id, identity.app_client_secret)
-  const required: Credential[] = []
-  const optional: OptionalCredential[] = []
+// local identity, fetches the console-authored bindings, and revalidates them locally
+// so a compromised control plane still cannot inject blocked env names.
+export async function resolveRunConfig(identity: RuntimeIdentity): Promise<RunProfile> {
+  const manifest = await fetchRunManifest(identity.sts_url, identity.workload_id, identity.workload_secret)
   const used = new Set<string>()
-  for (const cred of manifest.credentials) {
-    assertCredentialEnvName(cred.env)
-    if (used.has(cred.env)) throw new RuntimeConfigValidationError('run manifest', `duplicate credential env '${cred.env}'`)
-    used.add(cred.env)
-    const entry: Credential = { env: cred.env, resource: cred.resource, credential_type: cred.credentialType }
-    if (cred.optional) optional.push({ ...entry, on_failure: cred.onFailure })
-    else required.push(entry)
+  for (const binding of manifest.bindings) {
+    assertCredentialEnvName(binding.env)
+    if (used.has(binding.env)) throw new RuntimeConfigValidationError('run manifest', `duplicate credential env '${binding.env}'`)
+    used.add(binding.env)
   }
-  const cfg: RuntimeConfig = {
-    zone_url: identity.sts_url,
-    zone_id: manifest.zoneId,
-    application_id: identity.application_id,
-    app_client_secret: identity.app_client_secret,
-  }
-  if (manifest.ttlSeconds !== undefined) {
-    if (manifest.ttlSeconds > MAX_RUN_TTL_SECONDS) {
-      throw new RuntimeConfigValidationError('run manifest', `ttl_seconds must be between 1 and ${MAX_RUN_TTL_SECONDS}`)
-    }
-    cfg.ttl_seconds = manifest.ttlSeconds
-  }
-  if (manifest.continueOnFailure !== undefined) {
-    if (
-      manifest.continueOnFailure &&
-      (env.NODE_ENV ?? 'development') !== 'development' &&
-      env.CARACAL_ALLOW_REQUIRED_CREDENTIAL_FAILURE !== 'true'
-    ) {
-      throw new RuntimeConfigValidationError('run manifest', 'continue_on_failure=true is not allowed outside development')
-    }
-    cfg.continue_on_failure = manifest.continueOnFailure
-  }
-  if (required.length > 0) cfg.credentials = required
-  if (optional.length > 0) cfg.optional_credentials = optional
-  return cfg
+  return { identity, zoneId: manifest.zoneId, bindings: manifest.bindings }
 }
 
-export async function buildRunEnv(cfg: RuntimeConfig, opts: BuildRunEnvOptions = {}): Promise<Record<string, string>> {
-  const client = new OAuthClient(cfg.zone_url, cfg.zone_id, cfg.application_id)
+export async function buildRunEnv(profile: RunProfile, opts: BuildRunEnvOptions = {}): Promise<Record<string, string>> {
   const env: Record<string, string> = {}
   const usedEnv = new Set<string>()
 
-  for (const cred of cfg.credentials ?? []) {
-    validateCredentialEnv(cred, usedEnv)
-  }
-  for (const cred of cfg.optional_credentials ?? []) {
-    validateCredentialEnv(cred, usedEnv)
+  for (const binding of profile.bindings) {
+    validateCredentialEnv(binding, usedEnv)
   }
 
-  for (const cred of cfg.credentials ?? []) {
+  for (const binding of profile.bindings) {
     try {
-      env[cred.env] = await exchangeWithStepUp(client, cfg, cred, opts.onLine)
+      env[binding.env] = await mintWithStepUp(profile.identity, binding, opts.onLine)
     } catch (err) {
-      opts.onLine?.(credentialFailureLine(cred, err), 'stderr')
-      if (!cfg.continue_on_failure) throw err
-    }
-  }
-
-  for (const cred of cfg.optional_credentials ?? []) {
-    try {
-      env[cred.env] = await exchangeWithStepUp(client, cfg, cred, opts.onLine)
-    } catch (err) {
-      if (cred.on_failure === 'error') {
-        opts.onLine?.(credentialFailureLine(cred, err), 'stderr')
+      if (!binding.optional || binding.onFailure === 'error') {
+        opts.onLine?.(credentialFailureLine(binding, err), 'stderr')
         throw err
       }
       const reason = scrubTokens(err instanceof Error ? err.message : String(err))
-      opts.onLine?.(`optional credential skipped resource=${cred.resource} reason=${reason}`, 'stdout')
+      opts.onLine?.(`optional credential skipped resource=${binding.resource} reason=${reason}`, 'stdout')
     }
   }
 
