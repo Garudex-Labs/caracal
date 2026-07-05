@@ -13,6 +13,10 @@ export interface Zone {
   dcr_enabled: boolean;
   operator_coauthor_badge: boolean;
   operator_governed: boolean;
+  created_by: string | null;
+  created_via_operator: boolean;
+  updated_by: string | null;
+  updated_via_operator: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -51,7 +55,12 @@ export interface Application {
   traits?: string[];
   expires_at?: string | null;
   client_secret?: string;
+  created_by: string | null;
+  created_via_operator: boolean;
+  updated_by: string | null;
+  updated_via_operator: boolean;
   created_at: string;
+  updated_at: string | null;
 }
 
 export interface ApplicationInput {
@@ -79,8 +88,11 @@ export interface Workload {
   name: string;
   bindings: WorkloadBinding[];
   secret?: string;
+  created_by: string | null;
+  created_via_operator: boolean;
   created_at: string;
   updated_by: string | null;
+  updated_via_operator: boolean;
   updated_at: string | null;
 }
 
@@ -108,6 +120,10 @@ export interface Resource {
   credential_provider_id: string | null;
   operations: ResourceOperation[];
   operation_enforcement: ResourceOperationEnforcement;
+  created_by: string | null;
+  created_via_operator: boolean;
+  updated_by: string | null;
+  updated_via_operator: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -144,6 +160,10 @@ export interface Provider {
   config_json: Record<string, unknown>;
   secret_config_keys: ProviderSecretConfigKey[];
   connectivity_failed_at: string | null;
+  created_by: string | null;
+  created_via_operator: boolean;
+  updated_by: string | null;
+  updated_via_operator: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -176,8 +196,11 @@ export interface Policy {
   description: string | null;
   owner_type: string;
   created_by: string;
-  co_authored_by_operator: boolean;
+  created_via_operator: boolean;
+  updated_by: string | null;
+  updated_via_operator: boolean;
   created_at: string;
+  updated_at: string | null;
 }
 
 export interface PolicyVersion {
@@ -188,6 +211,7 @@ export interface PolicyVersion {
   content_sha256: string;
   schema_version: string;
   created_by?: string;
+  created_via_operator?: boolean;
   created_at: string;
 }
 
@@ -237,8 +261,11 @@ export interface PolicySet {
   description: string | null;
   active_version_id: string | null;
   created_by?: string;
-  co_authored_by_operator?: boolean;
+  created_via_operator?: boolean;
+  updated_by?: string | null;
+  updated_via_operator?: boolean;
   created_at: string;
+  updated_at?: string | null;
 }
 
 export interface PolicyManifestEntry {
@@ -321,6 +348,7 @@ export interface AuditDetail extends AuditEvent {
 export interface AuditRetention {
   retention_days: number;
   max_days: number;
+  updated_by: string | null;
   updated_at: string | null;
 }
 

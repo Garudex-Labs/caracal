@@ -7,7 +7,8 @@ import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from 'fastif
 import type { PoolClient } from 'pg'
 import { z } from 'zod'
 import { v7 as uuidv7 } from 'uuid'
-import { buildPatchUpdate, patchColumn, patchExpression } from './patch.js'
+import { buildPatchUpdate, patchColumn, patchExpression, appendAttribution } from './patch.js'
+import { resolveAttribution } from '../attribution.js'
 import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
 import { zoneExists } from '../zone-guard.js'
 import { withTransaction, TxAbort } from '../db.js'
@@ -27,6 +28,9 @@ const ResourceOperation = z.object({
   path: z.string().min(1).max(512),
   scope: z.string().min(1).max(200),
 })
+
+const RESOURCE_SELECT = `id, zone_id, name, identifier, upstream_url, scopes, credential_provider_id, operations, operation_enforcement,
+           created_by, created_via_operator, updated_by, updated_via_operator, created_at, updated_at`
 
 const ResourceBodyBase = z.object({
   name: z.string().min(1).max(200).optional(),
@@ -262,6 +266,7 @@ export const resourcesRoutes: FastifyPluginAsync = async (fastify) => {
       `SELECT r.id, r.zone_id, r.name, r.identifier, r.upstream_url, r.scopes,
               r.credential_provider_id, b.application_id AS gateway_application_id,
               r.operations, r.operation_enforcement,
+              r.created_by, r.created_via_operator, r.updated_by, r.updated_via_operator,
               r.created_at, r.updated_at
        FROM resources r
        LEFT JOIN gateway_resource_bindings b
@@ -281,6 +286,7 @@ export const resourcesRoutes: FastifyPluginAsync = async (fastify) => {
       `SELECT r.id, r.zone_id, r.name, r.identifier, r.upstream_url, r.scopes,
               r.credential_provider_id, b.application_id AS gateway_application_id,
               r.operations, r.operation_enforcement,
+              r.created_by, r.created_via_operator, r.updated_by, r.updated_via_operator,
               r.created_at, r.updated_at
        FROM resources r
        LEFT JOIN gateway_resource_bindings b
@@ -333,12 +339,13 @@ export const resourcesRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.code(409).send({ error: 'resource_quota_exceeded' })
     }
     const id = uuidv7()
+    const attribution = await resolveAttribution(req, fastify.db, params.zoneId)
     if (!body.gateway_application_id) {
       try {
         const { rows } = await fastify.db.query(
-          `INSERT INTO resources (id, zone_id, name, identifier, upstream_url, scopes, credential_provider_id, operations, operation_enforcement)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9)
-           RETURNING id, zone_id, name, identifier, upstream_url, scopes, credential_provider_id, operations, operation_enforcement, created_at, updated_at`,
+          `INSERT INTO resources (id, zone_id, name, identifier, upstream_url, scopes, credential_provider_id, operations, operation_enforcement, created_by, created_via_operator)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11)
+           RETURNING ${RESOURCE_SELECT}`,
           [
             id,
             params.zoneId,
@@ -349,6 +356,8 @@ export const resourcesRoutes: FastifyPluginAsync = async (fastify) => {
             credentialProviderID,
             JSON.stringify(operationCheck.value),
             operationEnforcement,
+            attribution.actor,
+            attribution.viaOperator,
           ],
         )
         return reply.code(201).send({ ...rows[0], gateway_application_id: null })
@@ -361,9 +370,9 @@ export const resourcesRoutes: FastifyPluginAsync = async (fastify) => {
     try {
       return await withTransaction(fastify.db, async (client) => {
         const { rows } = await client.query(
-          `INSERT INTO resources (id, zone_id, name, identifier, upstream_url, scopes, credential_provider_id, operations, operation_enforcement)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9)
-           RETURNING id, zone_id, name, identifier, upstream_url, scopes, credential_provider_id, operations, operation_enforcement, created_at, updated_at`,
+          `INSERT INTO resources (id, zone_id, name, identifier, upstream_url, scopes, credential_provider_id, operations, operation_enforcement, created_by, created_via_operator)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11)
+           RETURNING ${RESOURCE_SELECT}`,
           [
             id,
             params.zoneId,
@@ -374,6 +383,8 @@ export const resourcesRoutes: FastifyPluginAsync = async (fastify) => {
             credentialProviderID,
             JSON.stringify(operationCheck.value),
             operationEnforcement,
+            attribution.actor,
+            attribution.viaOperator,
           ],
         )
         await syncGatewayBinding(client, params.zoneId, identifier, gatewayApplicationId)
@@ -472,16 +483,17 @@ export const resourcesRoutes: FastifyPluginAsync = async (fastify) => {
         }
         let row: unknown
         if (update) {
+          appendAttribution(update, await resolveAttribution(req, client, params.zoneId))
           const { rows } = await client.query(
             `UPDATE resources SET ${update.sets.join(', ')}, updated_at = now()
              WHERE id = $1 AND zone_id = $2 AND archived_at IS NULL
-             RETURNING id, zone_id, name, identifier, upstream_url, scopes, credential_provider_id, operations, operation_enforcement, created_at, updated_at`,
+             RETURNING ${RESOURCE_SELECT}`,
             update.values,
           )
           row = rows[0]
         } else {
           const { rows } = await client.query(
-            `SELECT id, zone_id, name, identifier, upstream_url, scopes, credential_provider_id, operations, operation_enforcement, created_at, updated_at
+            `SELECT ${RESOURCE_SELECT}
              FROM resources WHERE id = $1 AND zone_id = $2 AND archived_at IS NULL`,
             [params.id, params.zoneId],
           )
@@ -505,6 +517,7 @@ export const resourcesRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.delete('/zones/:zoneId/resources/:id', async (req, reply) => {
     const params = parseParams(ZoneIdParams, req, reply)
     if (!params) return
+    const attribution = await resolveAttribution(req, fastify.db, params.zoneId)
     return withTransaction(fastify.db, async (client) => {
       const { rows: currentRows } = await client.query<{ identifier: string }>(
         `SELECT identifier FROM resources
@@ -518,9 +531,9 @@ export const resourcesRoutes: FastifyPluginAsync = async (fastify) => {
         throw new TxAbort(reply.code(409).send({ error: 'protected_resource', detail: 'control API resource cannot be deleted' }))
       }
       await client.query(
-        `UPDATE resources SET archived_at = now(), updated_at = now()
+        `UPDATE resources SET archived_at = now(), updated_at = now(), updated_by = $3, updated_via_operator = $4
          WHERE id = $1 AND zone_id = $2 AND archived_at IS NULL`,
-        [params.id, params.zoneId],
+        [params.id, params.zoneId, attribution.actor, attribution.viaOperator],
       )
       await syncGatewayBinding(client, params.zoneId, current.identifier, null)
       return reply.code(204).send()

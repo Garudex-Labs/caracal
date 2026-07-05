@@ -46,7 +46,7 @@ function entityFromUrl(url: string): { type: string | null; id: string | null } 
     if (
       candidate &&
       next &&
-      /^(zones|applications|resources|providers|provider-grants|policies|policy-sets|policy-templates|grants|step-up-challenges|admin-tokens|operator-conversations)$/.test(
+      /^(zones|applications|workloads|resources|providers|provider-grants|policies|policy-sets|policy-templates|grants|step-up-challenges|admin-tokens|operator-conversations)$/.test(
         candidate,
       )
     ) {

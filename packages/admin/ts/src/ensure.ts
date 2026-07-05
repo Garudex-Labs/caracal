@@ -258,3 +258,66 @@ export async function ensureGrants(client: AdminClient, zoneId: string, input: E
     createWhenMissing: input.grants.length > 0,
   })
 }
+
+// One upstream in a governed set: the sealed credential the gateway injects, the
+// gateway-bound resource that proxies it, and the applications granted to mint on it. The
+// resource's credential provider binding is threaded by the reconciler, and the first
+// grant names the resource's owning application - the identity whose governed transport
+// may bootstrap on it.
+export interface GovernedUpstream {
+  provider: EnsureApiKeyProviderInput
+  resource: {
+    name: string
+    identifier: string
+    scopes: string[]
+    upstream_url: string
+    gateway_application_id: string
+    operation_enforcement?: ResourceOperationEnforcement
+  }
+  grants: Omit<ResourceGrant, 'resourceIdentifier'>[]
+}
+
+export interface EnsureGovernedUpstreamsInput {
+  upstreams: GovernedUpstream[]
+  // The named policy and policy set carrying the zone's grant document. Defaults match
+  // ensureGrants.
+  policyName?: string
+  setName?: string
+}
+
+export interface GovernedUpstreamResult {
+  providerId: string
+  resource: Resource
+}
+
+// Converges a set of governed upstreams - sealed credential provider, gateway-bound
+// resource, and the zone's grant document - in dependency order, so one call declares
+// everything the platform needs to govern the set. Rego permits one definition of the
+// grant document per zone, so the set converges as a whole: an upstream absent from it
+// loses its grants on the next run, which is the revocation. Every step is idempotent, so
+// a partial failure converges on rerun, and grants land last so nothing is authorized
+// before its resource exists. An upstream whose provider resolves to no sealed key fails
+// closed before any resource binds a dead credential.
+export async function ensureGovernedUpstreams(
+  client: AdminClient,
+  zoneId: string,
+  input: EnsureGovernedUpstreamsInput,
+): Promise<GovernedUpstreamResult[]> {
+  const results: GovernedUpstreamResult[] = []
+  const grants: ResourceGrant[] = []
+  for (const upstream of input.upstreams) {
+    const providerId = await ensureApiKeyProvider(client, zoneId, upstream.provider)
+    if (providerId === null) {
+      throw new Error(
+        `provider ${upstream.provider.identifier} has no sealed api key: supply apiKey before governing ${upstream.resource.identifier}`,
+      )
+    }
+    const resource = await ensureResource(client, zoneId, { ...upstream.resource, credential_provider_id: providerId })
+    results.push({ providerId, resource })
+    for (const grant of upstream.grants) {
+      grants.push({ ...grant, resourceIdentifier: upstream.resource.identifier })
+    }
+  }
+  await ensureGrants(client, zoneId, { grants, policyName: input.policyName, setName: input.setName })
+  return results
+}
