@@ -13,7 +13,7 @@ export const OPERATOR_ALLOWLIST_FILE = 'operatorAllowlist.json'
 const ALLOWLIST_FILE_MODE = 0o600
 const ALLOWLIST_DIR_MODE = 0o700
 
-export type AllowlistStatus = 'active' | 'locked'
+export type AllowlistStatus = 'active' | 'locked' | 'removed'
 
 export interface OperatorAllowlist {
   emails: Record<string, AllowlistStatus>
@@ -66,7 +66,7 @@ export function readOperatorAllowlist(secretsDir: string): OperatorAllowlist {
   if (typeof emails !== 'object' || emails === null || Array.isArray(emails)) throw corruptError(path)
   const entries: Record<string, AllowlistStatus> = {}
   for (const [email, status] of Object.entries(emails)) {
-    if (status !== 'active' && status !== 'locked') throw corruptError(path)
+    if (status !== 'active' && status !== 'locked' && status !== 'removed') throw corruptError(path)
     entries[email] = status
   }
   return { emails: entries }
@@ -86,33 +86,38 @@ function writeOperatorAllowlist(secretsDir: string, list: OperatorAllowlist): st
 }
 
 // Adding never reactivates a locked entry implicitly: a lock is a deliberate suspension that
-// only an explicit unlock reverses.
+// only an explicit unlock reverses. Re-adding a removed entry starts a fresh admission: the
+// prior account's records were erased, so the person registers anew.
 export function allowlistAdd(secretsDir: string, raw: string): AllowlistChange {
   const entry = normalizeAllowlistEntry(raw)
   const list = readOperatorAllowlist(secretsDir)
   const current = list.emails[entry]
-  if (current === undefined) {
+  if (current === undefined || current === 'removed') {
     list.emails[entry] = 'active'
     return { entry, outcome: 'added', path: writeOperatorAllowlist(secretsDir, list) }
   }
   return { entry, outcome: current === 'locked' ? 'locked' : 'unchanged', path: operatorAllowlistPath(secretsDir) }
 }
 
+// Removal writes an explicit `removed` tombstone rather than deleting the entry, so the auth
+// backend can distinguish a deliberate removal (erase the account on next contact) from mere
+// absence (deny only). Deletion is therefore never triggerable by an empty or missing file.
 export function allowlistRemove(secretsDir: string, raw: string): AllowlistChange {
-  const entry = normalizeAllowlistEntry(raw)
-  const list = readOperatorAllowlist(secretsDir)
-  if (list.emails[entry] === undefined) {
-    return { entry, outcome: 'missing', path: operatorAllowlistPath(secretsDir) }
-  }
-  delete list.emails[entry]
-  return { entry, outcome: 'removed', path: writeOperatorAllowlist(secretsDir, list) }
-}
-
-export function allowlistSetStatus(secretsDir: string, raw: string, status: AllowlistStatus): AllowlistChange {
   const entry = normalizeAllowlistEntry(raw)
   const list = readOperatorAllowlist(secretsDir)
   const current = list.emails[entry]
   if (current === undefined) return { entry, outcome: 'missing', path: operatorAllowlistPath(secretsDir) }
+  if (current === 'removed') return { entry, outcome: 'unchanged', path: operatorAllowlistPath(secretsDir) }
+  list.emails[entry] = 'removed'
+  return { entry, outcome: 'removed', path: writeOperatorAllowlist(secretsDir, list) }
+}
+
+export function allowlistSetStatus(secretsDir: string, raw: string, status: 'active' | 'locked'): AllowlistChange {
+  const entry = normalizeAllowlistEntry(raw)
+  const list = readOperatorAllowlist(secretsDir)
+  const current = list.emails[entry]
+  if (current === undefined) return { entry, outcome: 'missing', path: operatorAllowlistPath(secretsDir) }
+  if (current === 'removed') return { entry, outcome: 'removed', path: operatorAllowlistPath(secretsDir) }
   if (current === status) return { entry, outcome: 'unchanged', path: operatorAllowlistPath(secretsDir) }
   list.emails[entry] = status
   return { entry, outcome: status === 'locked' ? 'locked' : 'unlocked', path: writeOperatorAllowlist(secretsDir, list) }

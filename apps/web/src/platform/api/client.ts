@@ -139,6 +139,18 @@ function abortError(caller: AbortSignal | undefined): ConsoleApiError {
   return new ConsoleApiError(0, "timeout");
 }
 
+// A deployment-level denial means this identity may not use the Console at all: the server has
+// already revoked the session before responding, so no in-app state is worth preserving. Every
+// console request funnels through this module, making it the one interception point that also
+// covers background polling and mutations, whose errors never reach a router boundary. The
+// hard navigation lands on the uniform access-denied page; the guard keeps concurrent in-flight
+// denials from re-navigating.
+function interceptDeploymentDenial(status: number, code: string): void {
+  if (status === 403 && code === "access_denied" && window.location.pathname !== "/access-denied") {
+    window.location.assign("/access-denied");
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit & { signal?: AbortSignal }): Promise<T> {
   const caller = init?.signal;
   // The read-only system-zone viewer tab may never mutate. Every mutating call funnels through
@@ -180,6 +192,7 @@ async function request<T>(path: string, init?: RequestInit & { signal?: AbortSig
       parsed && typeof parsed === "object" && parsed !== null && "error" in parsed
         ? String((parsed as { error: unknown }).error)
         : res.statusText || "request_failed";
+    interceptDeploymentDenial(res.status, code);
     throw new ConsoleApiError(res.status, code, parsed);
   }
 
@@ -239,6 +252,7 @@ async function streamOperatorMessage(
         parsed && typeof parsed === "object" && parsed !== null && "error" in parsed
           ? String((parsed as { error: unknown }).error)
           : res.statusText || "request_failed";
+      interceptDeploymentDenial(res.status, code);
       throw new ConsoleApiError(res.status, code, parsed);
     }
     return parsed as OperatorMessageResult;
