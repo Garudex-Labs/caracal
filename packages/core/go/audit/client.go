@@ -65,15 +65,16 @@ type ClientConfig struct {
 // Client buffers audit events, signs and emits them to a Redis stream, and
 // persists unflushed batches to disk so events survive process restarts.
 type Client struct {
-	cfg        ClientConfig
-	stream     Streamer
-	ch         chan Event
-	dropped    atomic.Uint64
-	emitted    atomic.Uint64
-	persisted  atomic.Uint64
-	drained    atomic.Uint64
-	sinkErrors atomic.Uint64
-	done       chan struct{}
+	cfg           ClientConfig
+	stream        Streamer
+	ch            chan Event
+	syncReplayDir func(string) error
+	dropped       atomic.Uint64
+	emitted       atomic.Uint64
+	persisted     atomic.Uint64
+	drained       atomic.Uint64
+	sinkErrors    atomic.Uint64
+	done          chan struct{}
 }
 
 // Metrics captures a stable snapshot of audit client counters.
@@ -177,9 +178,10 @@ func NewClient(s Streamer, cfg ClientConfig) (*Client, error) {
 		return nil, fmt.Errorf("audit: replay dir: %w", err)
 	}
 	return &Client{
-		cfg:    cfg,
-		stream: s,
-		ch:     make(chan Event, cfg.BufferCap),
+		cfg:           cfg,
+		stream:        s,
+		ch:            make(chan Event, cfg.BufferCap),
+		syncReplayDir: syncReplayDir,
 	}, nil
 }
 
@@ -313,7 +315,7 @@ func (c *Client) recordLoss(count uint64, err error) {
 }
 
 // persistBatch appends events to a per-process ndjson file for later replay. Returns
-// an error when the batch could not be durably persisted.
+// an error when a recoverable replay file could not be written.
 func (c *Client) persistBatch(batch []Event) error {
 	if len(batch) == 0 {
 		return nil
@@ -359,9 +361,8 @@ func (c *Client) persistBatch(batch []Event) error {
 		return err
 	}
 	closed = true
-	if err := syncReplayDir(c.cfg.ReplayDir); err != nil {
+	if err := c.syncReplayDir(c.cfg.ReplayDir); err != nil {
 		c.cfg.Logger.Error().Err(err).Str("dir", c.cfg.ReplayDir).Msg("audit replay dir sync")
-		return err
 	}
 	if c.cfg.Metrics.OnReplayPersisted != nil {
 		c.cfg.Metrics.OnReplayPersisted(uint64(len(batch)))
