@@ -363,15 +363,22 @@ func TestClaimReaderEdgeCases(t *testing.T) {
 	if (&ChainMismatchError{ApplicationID: "app-1"}).Error() != "delegation chain missing application: app-1" {
 		t.Fatal("unexpected chain error")
 	}
-	if readChain(nil) != nil || readChain("bad") != nil {
-		t.Fatal("invalid chain shapes should return nil")
+	if chain, ok := readChain(nil); chain != nil || !ok {
+		t.Fatal("absent chain should be nil and valid")
 	}
-	chain := readChain([]any{
-		"skip",
-		map[string]any{"application_id": ""},
+	if _, ok := readChain("bad"); ok {
+		t.Fatal("non-array chain should be invalid")
+	}
+	if _, ok := readChain([]any{"skip"}); ok {
+		t.Fatal("non-object hop should be invalid")
+	}
+	if _, ok := readChain([]any{map[string]any{"application_id": ""}}); ok {
+		t.Fatal("empty application_id hop should be invalid")
+	}
+	chain, ok := readChain([]any{
 		map[string]any{"application_id": "app-1", "agent_session_id": "agent-1", "delegation_edge_id": "edge-1"},
 	})
-	if len(chain) != 1 || chain[0].ApplicationID != "app-1" {
+	if !ok || len(chain) != 1 || chain[0].ApplicationID != "app-1" {
 		t.Fatalf("unexpected chain: %#v", chain)
 	}
 	if readStringSlice(nil) != nil || readStringSlice("bad") != nil {

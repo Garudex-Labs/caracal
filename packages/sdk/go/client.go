@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -184,6 +185,12 @@ func FromEnv() (*Caracal, error) {
 	if err := validateSubjectToken(tok); err != nil {
 		return nil, err
 	}
+	if err := assertProductionTransport("CARACAL_COORDINATOR_URL", coordinatorURL); err != nil {
+		return nil, err
+	}
+	if err := assertProductionTransport("CARACAL_GATEWAY_URL", gatewayURL); err != nil {
+		return nil, err
+	}
 	return &Caracal{
 		Coordinator:       &CoordinatorClient{BaseURL: coordinatorURL},
 		ZoneID:            zone,
@@ -240,6 +247,15 @@ func FromClientSecret(opts ClientSecretOptions) (*Caracal, error) {
 	}
 	if opts.DefaultTTLSeconds < 0 {
 		return nil, fmt.Errorf("caracal: FromClientSecret DefaultTTLSeconds must be a positive integer")
+	}
+	if err := assertProductionTransport("CoordinatorURL", opts.CoordinatorURL); err != nil {
+		return nil, err
+	}
+	if err := assertProductionTransport("STSURL", opts.STSURL); err != nil {
+		return nil, err
+	}
+	if err := assertProductionTransport("GatewayURL", opts.GatewayURL); err != nil {
+		return nil, err
 	}
 	exchanger := newClientSecretExchanger(opts)
 	return &Caracal{
@@ -340,6 +356,34 @@ func serviceURL(key string, fallback string) (string, error) {
 // through CARACAL_ENV, the language-neutral gate every Caracal SDK honors.
 func productionEnv() bool {
 	return os.Getenv("CARACAL_ENV") == "production"
+}
+
+func isLoopbackHost(host string) bool {
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+func assertProductionTransport(name string, value string) error {
+	if value == "" || !productionEnv() {
+		return nil
+	}
+	if os.Getenv("CARACAL_ALLOW_INSECURE_CONFIG_URLS") == "true" {
+		return nil
+	}
+	parsed, err := url.Parse(value)
+	if err != nil {
+		return fmt.Errorf("caracal: %s is not a valid URL: %s", name, value)
+	}
+	if parsed.Scheme == "https" {
+		return nil
+	}
+	if parsed.Scheme == "http" && isLoopbackHost(parsed.Hostname()) {
+		return nil
+	}
+	return fmt.Errorf("caracal: %s must use https when CARACAL_ENV=production; http is limited to loopback hosts unless CARACAL_ALLOW_INSECURE_CONFIG_URLS=true", name)
 }
 
 func defaultTTLFromEnv() (int, error) {

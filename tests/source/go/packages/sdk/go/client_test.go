@@ -48,6 +48,45 @@ func TestFromEnvOK(t *testing.T) {
 	}
 }
 
+func TestFromEnvProductionRestrictsHTTPToLoopbackOrOverride(t *testing.T) {
+	t.Setenv("CARACAL_ENV", "production")
+	t.Setenv("CARACAL_ZONE_ID", "z1")
+	t.Setenv("CARACAL_APPLICATION_ID", "app1")
+	t.Setenv("CARACAL_SUBJECT_TOKEN", "tok1")
+	t.Setenv("CARACAL_STS_URL", "https://sts.internal")
+	t.Setenv("CARACAL_GATEWAY_URL", "https://gateway.internal")
+	t.Setenv("CARACAL_COORDINATOR_URL", "http://coordinator.internal:4000")
+
+	if _, err := sdk.FromEnv(); err == nil || !strings.Contains(err.Error(), "must use https") {
+		t.Fatalf("expected https enforcement error, got %v", err)
+	}
+
+	t.Setenv("CARACAL_COORDINATOR_URL", "http://127.0.0.1:4000")
+	if _, err := sdk.FromEnv(); err != nil {
+		t.Fatalf("loopback http should pass: %v", err)
+	}
+
+	t.Setenv("CARACAL_COORDINATOR_URL", "http://coordinator.internal:4000")
+	t.Setenv("CARACAL_ALLOW_INSECURE_CONFIG_URLS", "true")
+	if _, err := sdk.FromEnv(); err != nil {
+		t.Fatalf("override should pass: %v", err)
+	}
+}
+
+func TestFromClientSecretProductionRequiresHTTPSSTS(t *testing.T) {
+	t.Setenv("CARACAL_ENV", "production")
+	_, err := sdk.FromClientSecret(sdk.ClientSecretOptions{
+		CoordinatorURL: "https://coordinator.internal",
+		STSURL:         "http://sts.internal:8080",
+		ZoneID:         "z",
+		ApplicationID:  "app",
+		ClientSecret:   "secret",
+	})
+	if err == nil || !strings.Contains(err.Error(), "STSURL must use https") {
+		t.Fatalf("expected STSURL https enforcement error, got %v", err)
+	}
+}
+
 func TestFromEnvClientSecretTokenSource(t *testing.T) {
 	var gotResources []string
 	var gotSecret string
