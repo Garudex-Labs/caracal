@@ -1,11 +1,11 @@
 ---
-description: "Use when adding, changing, or reviewing code in the multi-language client packages (sdk, admin, core, identity, oauth, revocation, transport, connectors). Enforces functional capability parity across TypeScript, Python, and Go."
-applyTo: "{packages/sdk/**,packages/admin/**,packages/core/**,packages/identity/**,packages/oauth/**,packages/revocation/**,packages/transport/**,packages/connectors/**}"
+description: "Use when adding, changing, or reviewing code in the multi-language client packages (sdk, admin, core, identity, oauth, revocation, verify, adapters, backends). Enforces functional capability parity across TypeScript, Python, and Go."
+applyTo: "{packages/sdk/**,packages/admin/**,packages/core/**,packages/identity/**,packages/oauth/**,packages/revocation/**,packages/verify/**,packages/adapters/**,packages/backends/**}"
 ---
 
 # SDK Language Parity
 
-- Applies to the multi-language client packages: `packages/sdk`, `packages/admin`, `packages/core`, `packages/identity`, `packages/oauth`, `packages/revocation`, `packages/transport`, and `packages/connectors`. TypeScript, Python, and Go are equal first-class SDK languages.
+- Applies to the multi-language client packages: `packages/sdk`, `packages/admin`, `packages/core`, `packages/identity`, `packages/oauth`, `packages/revocation`, `packages/verify`, `packages/adapters`, and `packages/backends`. TypeScript, Python, and Go are equal first-class SDK languages.
 
 ## Required
 
@@ -16,7 +16,7 @@ applyTo: "{packages/sdk/**,packages/admin/**,packages/core/**,packages/identity/
 - When adding or changing a capability in one language, must port it to the other two languages in the same change.
 - Must add equivalent tests in every language that receives a capability.
 - Must keep SDK surfaces thin, framework-agnostic, and designed to minimize customer-written glue code.
-- Framework connectors must stay thin per-ecosystem adapters that delegate governance logic to the shared verification layer.
+- Framework adapters must stay thin per-ecosystem layers that delegate governance logic to the shared verification engine.
 
 ## Forbidden
 
