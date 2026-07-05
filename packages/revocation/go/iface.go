@@ -12,3 +12,9 @@ type Store interface {
 	IsRevoked(sid string) bool
 	MarkRevoked(sid string, ttl time.Duration) error
 }
+
+// DelegationEpochStore is implemented by stores that track the delegation graph epoch per zone.
+type DelegationEpochStore interface {
+	CurrentDelegationEpoch(zoneID string) int64
+	MarkDelegationEpoch(zoneID string, epoch int64, ttl time.Duration) error
+}

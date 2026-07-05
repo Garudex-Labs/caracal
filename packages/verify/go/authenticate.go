@@ -39,6 +39,7 @@ const (
 	ErrInvalidZone        ErrorCode = "invalid_zone"
 	ErrInsufficientScope  ErrorCode = "insufficient_scope"
 	ErrSessionRevoked     ErrorCode = "session_revoked"
+	ErrDelegationStale    ErrorCode = "delegation_stale"
 	ErrAgentRequired      ErrorCode = "agent_required"
 	ErrDelegationRequired ErrorCode = "delegation_required"
 	ErrChainMismatch      ErrorCode = "chain_mismatch"
@@ -205,6 +206,20 @@ func CheckActiveAuthority(claims identity.Claims, revocations revocation.Store, 
 			return authError(ErrSessionRevoked, "")
 		}
 	}
+	return graphEpochError(claims, revocations)
+}
+
+func graphEpochError(claims identity.Claims, revocations revocation.Store) *AuthError {
+	if claims.GraphEpoch <= 0 {
+		return nil
+	}
+	epochs, ok := revocations.(revocation.DelegationEpochStore)
+	if !ok {
+		return nil
+	}
+	if epochs.CurrentDelegationEpoch(claims.ZoneID) > claims.GraphEpoch {
+		return authError(ErrDelegationStale, "")
+	}
 	return nil
 }
 
@@ -275,6 +290,8 @@ func defaultDescription(code ErrorCode) string {
 		return "Required scope is missing"
 	case ErrSessionRevoked:
 		return "Session revoked"
+	case ErrDelegationStale:
+		return "Delegation graph changed"
 	case ErrAgentRequired:
 		return "Agent identity required"
 	case ErrDelegationRequired:
@@ -298,6 +315,8 @@ func defaultHint(code ErrorCode) string {
 		return "Request a mandate that includes every required scope for this route."
 	case ErrSessionRevoked:
 		return "Refresh the mandate or start a new authorized session."
+	case ErrDelegationStale:
+		return "Refresh the mandate so delegated authority is evaluated against the latest graph."
 	case ErrAgentRequired:
 		return "Use an agent-issued resource mandate for this endpoint."
 	case ErrDelegationRequired:
