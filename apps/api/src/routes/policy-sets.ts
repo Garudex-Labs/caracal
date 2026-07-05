@@ -18,7 +18,7 @@ import { enqueueOutbox } from '../outbox.js'
 import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
 import { zoneExists } from '../zone-guard.js'
 import { OPA_INPUT_SCHEMA_VERSION, validateAuthzPolicy, validatePolicySchemaVersion } from '../rego.js'
-import { appendKeysetCondition, parseListPagination, setNextLink } from './list-pagination.js'
+import { appendKeysetCondition, listPage, parseListPagination } from './list-pagination.js'
 import type { Queryable } from '../db.js'
 import { withTransaction, TxAbort } from '../db.js'
 import { resolveAttribution } from '../attribution.js'
@@ -79,8 +79,7 @@ export const policySetsRoutes: FastifyPluginAsync = async (fastify) => {
        ORDER BY ps.created_at DESC, ps.id DESC LIMIT ${keyset.limitPlaceholder}`,
       keyset.values,
     )
-    setNextLink(req, reply, rows, page.limit)
-    return rows
+    return listPage(rows, page.limit)
   })
 
   fastify.get('/zones/:zoneId/policy-sets/:id', async (req, reply) => {
@@ -130,7 +129,7 @@ export const policySetsRoutes: FastifyPluginAsync = async (fastify) => {
     if (!params) return
     const body = PolicySetVersionBody.parse(req.body)
     const schemaErr = validatePolicySchemaVersion(body.schema_version)
-    if (schemaErr) return reply.code(422).send({ error: 'invalid_schema_version', detail: schemaErr })
+    if (schemaErr) return reply.code(422).send({ error: 'invalid_schema_version', error_description: schemaErr })
 
     const { rows: psRows } = await fastify.db.query(`SELECT id FROM policy_sets WHERE id = $1 AND zone_id = $2 AND archived_at IS NULL`, [
       params.id,
@@ -139,7 +138,7 @@ export const policySetsRoutes: FastifyPluginAsync = async (fastify) => {
     if (!psRows[0]) return reply.code(404).send({ error: 'policy_set_not_found' })
 
     const contractErr = await policySetContractError(fastify.db, params.zoneId, body.manifest, body.schema_version)
-    if (contractErr) return reply.code(422).send({ error: 'invalid_policy_contract', detail: contractErr })
+    if (contractErr) return reply.code(422).send({ error: 'invalid_policy_contract', error_description: contractErr })
 
     const attribution = await resolveAttribution(req, fastify.db, params.zoneId)
     return withTransaction(fastify.db, async (client) => {
@@ -184,8 +183,7 @@ export const policySetsRoutes: FastifyPluginAsync = async (fastify) => {
        ORDER BY psv.created_at DESC, psv.id DESC LIMIT ${keyset.limitPlaceholder}`,
       keyset.values,
     )
-    setNextLink(req, reply, rows, page.limit)
-    return rows
+    return listPage(rows, page.limit)
   })
 
   fastify.get('/zones/:zoneId/policy-sets/:id/versions/:versionId', async (req, reply) => {
@@ -219,7 +217,7 @@ export const policySetsRoutes: FastifyPluginAsync = async (fastify) => {
     )
     if (!vRows[0]) return reply.code(404).send({ error: 'version_not_found' })
     const contractErr = await policySetContractError(fastify.db, params.zoneId, vRows[0].manifest_json, vRows[0].schema_version)
-    if (contractErr) return reply.code(422).send({ error: 'invalid_policy_contract', detail: contractErr })
+    if (contractErr) return reply.code(422).send({ error: 'invalid_policy_contract', error_description: contractErr })
 
     if (body.shadow_version_id) {
       const { rows: shadowRows } = await fastify.db.query<{ id: string; manifest_json: PolicyManifest; schema_version: string }>(
@@ -231,7 +229,7 @@ export const policySetsRoutes: FastifyPluginAsync = async (fastify) => {
       )
       if (!shadowRows[0]) return reply.code(404).send({ error: 'shadow_version_not_found' })
       const shadowErr = await policySetContractError(fastify.db, params.zoneId, shadowRows[0].manifest_json, shadowRows[0].schema_version)
-      if (shadowErr) return reply.code(422).send({ error: 'invalid_shadow_policy_contract', detail: shadowErr })
+      if (shadowErr) return reply.code(422).send({ error: 'invalid_shadow_policy_contract', error_description: shadowErr })
     }
 
     const attribution = await resolveAttribution(req, fastify.db, params.zoneId)
@@ -346,7 +344,7 @@ export const policySetsRoutes: FastifyPluginAsync = async (fastify) => {
     )
     if (!rows[0]) return reply.code(404).send({ error: 'version_not_found' })
     const contract = await policySetContract(fastify.db, params.zoneId, rows[0].manifest_json, rows[0].schema_version)
-    if (contract.error) return reply.code(422).send({ error: 'invalid_policy_contract', detail: contract.error })
+    if (contract.error) return reply.code(422).send({ error: 'invalid_policy_contract', error_description: contract.error })
     const inputWarnings = validateSimulationInput(body.input, params.zoneId)
     const execution = body.input
       ? await executePolicySimulation(fastify, {

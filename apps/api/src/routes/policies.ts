@@ -11,7 +11,7 @@ import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
 import { zoneExists } from '../zone-guard.js'
 import { withTransaction, TxAbort } from '../db.js'
 import { OPA_INPUT_SCHEMA_VERSION, previewAuthzPolicy, validateAuthzPolicy, validatePolicySchemaVersion } from '../rego.js'
-import { appendKeysetCondition, parseListPagination, setNextLink } from './list-pagination.js'
+import { appendKeysetCondition, listPage, parseListPagination } from './list-pagination.js'
 import { assertReservedNamespace } from '../reserved-namespace.js'
 import { resolveAttribution } from '../attribution.js'
 
@@ -41,9 +41,9 @@ export const policiesRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post('/policies/validate', async (req, reply) => {
     const body = ValidateBody.parse(req.body)
     const schemaErr = validatePolicySchemaVersion(body.schema_version)
-    if (schemaErr) return reply.code(422).send({ valid: false, error: 'invalid_schema_version', detail: schemaErr })
+    if (schemaErr) return reply.code(422).send({ valid: false, error: 'invalid_schema_version', error_description: schemaErr })
     const regoErr = validateRego(body.content)
-    if (regoErr) return reply.code(422).send({ valid: false, error: 'invalid_rego', detail: regoErr })
+    if (regoErr) return reply.code(422).send({ valid: false, error: 'invalid_rego', error_description: regoErr })
     return {
       valid: true,
       schema_version: body.schema_version,
@@ -70,8 +70,7 @@ export const policiesRoutes: FastifyPluginAsync = async (fastify) => {
        ORDER BY created_at DESC, id DESC LIMIT ${keyset.limitPlaceholder}`,
       keyset.values,
     )
-    setNextLink(req, reply, rows, page.limit)
-    return rows
+    return listPage(rows, page.limit)
   })
 
   fastify.get('/zones/:zoneId/policies/:id', async (req, reply) => {
@@ -101,9 +100,9 @@ export const policiesRoutes: FastifyPluginAsync = async (fastify) => {
     const reservedErr = assertReservedNamespace('policyName', body.name, req.actor)
     if (reservedErr) return reply.code(409).send(reservedErr)
     const schemaErr = validatePolicySchemaVersion(body.schema_version)
-    if (schemaErr) return reply.code(422).send({ error: 'invalid_schema_version', detail: schemaErr })
+    if (schemaErr) return reply.code(422).send({ error: 'invalid_schema_version', error_description: schemaErr })
     const regoErr = validateRego(body.content)
-    if (regoErr) return reply.code(422).send({ error: 'invalid_rego', detail: regoErr })
+    if (regoErr) return reply.code(422).send({ error: 'invalid_rego', error_description: regoErr })
     const policyId = uuidv7()
     const versionId = uuidv7()
     const contentSHA = sha256Hex(body.content)
@@ -145,9 +144,9 @@ export const policiesRoutes: FastifyPluginAsync = async (fastify) => {
     if (!params) return
     const body = VersionBody.parse(req.body)
     const schemaErr = validatePolicySchemaVersion(body.schema_version)
-    if (schemaErr) return reply.code(422).send({ error: 'invalid_schema_version', detail: schemaErr })
+    if (schemaErr) return reply.code(422).send({ error: 'invalid_schema_version', error_description: schemaErr })
     const regoErr = validateRego(body.content)
-    if (regoErr) return reply.code(422).send({ error: 'invalid_rego', detail: regoErr })
+    if (regoErr) return reply.code(422).send({ error: 'invalid_rego', error_description: regoErr })
 
     const versionId = uuidv7()
     const contentSHA = sha256Hex(body.content)

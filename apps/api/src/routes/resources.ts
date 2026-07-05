@@ -12,7 +12,7 @@ import { resolveAttribution } from '../attribution.js'
 import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
 import { zoneExists } from '../zone-guard.js'
 import { withTransaction, TxAbort } from '../db.js'
-import { appendKeysetCondition, parseListPagination, setNextLink } from './list-pagination.js'
+import { appendKeysetCondition, listPage, parseListPagination } from './list-pagination.js'
 import { assertReservedNamespace } from '../reserved-namespace.js'
 
 const HttpURL = z
@@ -275,8 +275,7 @@ export const resourcesRoutes: FastifyPluginAsync = async (fastify) => {
        ORDER BY r.created_at DESC, r.id DESC LIMIT ${keyset.limitPlaceholder}`,
       keyset.values,
     )
-    setNextLink(req, reply, rows, page.limit)
-    return rows
+    return listPage(rows, page.limit)
   })
 
   fastify.get('/zones/:zoneId/resources/:id', async (req, reply) => {
@@ -312,13 +311,13 @@ export const resourcesRoutes: FastifyPluginAsync = async (fastify) => {
     const body = parsed.data
     const identifier = body.identifier ?? (await nextResourceIdentifier(fastify.db, params.zoneId, body.name ?? 'resource'))
     const identifierError = validateResourceIdentifier(identifier)
-    if (identifierError) return reply.code(400).send({ error: 'invalid_resource_identifier', message: identifierError })
+    if (identifierError) return reply.code(400).send({ error: 'invalid_resource_identifier', error_description: identifierError })
     const reservedErr = assertReservedNamespace('resourceIdentifier', identifier, req.actor)
     if (reservedErr) return reply.code(409).send(reservedErr)
     if (isControlResource(identifier) && !isControlResourceOperation(req)) {
       return reply
         .code(409)
-        .send({ error: 'protected_resource', detail: 'control API resource is managed only through the Control console path' })
+        .send({ error: 'protected_resource', error_description: 'control API resource is managed only through the Control console path' })
     }
     const credentialProviderID =
       body.credential_provider_id ??
@@ -435,7 +434,7 @@ export const resourcesRoutes: FastifyPluginAsync = async (fastify) => {
         const nextIdentifier = body.identifier ?? current.identifier
         const identifierError = validateResourceIdentifier(nextIdentifier)
         if (identifierError) {
-          throw new TxAbort(reply.code(400).send({ error: 'invalid_resource_identifier', message: identifierError }))
+          throw new TxAbort(reply.code(400).send({ error: 'invalid_resource_identifier', error_description: identifierError }))
         }
         const reservedErr = assertReservedNamespace('resourceIdentifier', nextIdentifier, req.actor)
         if (reservedErr) {
@@ -445,7 +444,10 @@ export const resourcesRoutes: FastifyPluginAsync = async (fastify) => {
           throw new TxAbort(
             reply
               .code(409)
-              .send({ error: 'protected_resource', detail: 'control API resource is managed only through the Control console path' }),
+              .send({
+                error: 'protected_resource',
+                error_description: 'control API resource is managed only through the Control console path',
+              }),
           )
         }
         const nextUpstreamURL = body.upstream_url !== undefined ? body.upstream_url : current.upstream_url
@@ -528,7 +530,9 @@ export const resourcesRoutes: FastifyPluginAsync = async (fastify) => {
       const current = currentRows[0]
       if (!current) throw new TxAbort(reply.code(404).send({ error: 'resource_not_found' }))
       if (isControlResource(current.identifier)) {
-        throw new TxAbort(reply.code(409).send({ error: 'protected_resource', detail: 'control API resource cannot be deleted' }))
+        throw new TxAbort(
+          reply.code(409).send({ error: 'protected_resource', error_description: 'control API resource cannot be deleted' }),
+        )
       }
       await client.query(
         `UPDATE resources SET archived_at = now(), updated_at = now(), updated_by = $3, updated_via_operator = $4
