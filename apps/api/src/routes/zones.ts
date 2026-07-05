@@ -319,7 +319,12 @@ async function auditDcrShutdown(
   })
 }
 
-async function patchZone(client: Queryable, id: string, body: ZoneUpdateBody, attribution: Attribution): Promise<ZoneRow | null | undefined> {
+async function patchZone(
+  client: Queryable,
+  id: string,
+  body: ZoneUpdateBody,
+  attribution: Attribution,
+): Promise<ZoneRow | null | undefined> {
   const update = buildPatchUpdate(
     [id],
     [

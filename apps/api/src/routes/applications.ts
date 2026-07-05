@@ -85,7 +85,17 @@ async function createManagedApplication(
     `INSERT INTO applications (id, zone_id, name, registration_method, credential_type, client_secret_hash, traits, created_by, created_via_operator)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
      RETURNING id, zone_id, name, registration_method, expires_at, ${APP_ATTRIBUTION}`,
-    [uuidv7(), zoneId, input.name, 'managed', 'token', secretHash, input.traits ?? [], input.attribution.actor, input.attribution.viaOperator],
+    [
+      uuidv7(),
+      zoneId,
+      input.name,
+      'managed',
+      'token',
+      secretHash,
+      input.traits ?? [],
+      input.attribution.actor,
+      input.attribution.viaOperator,
+    ],
   )
   return { row: rows[0], clientSecret }
 }

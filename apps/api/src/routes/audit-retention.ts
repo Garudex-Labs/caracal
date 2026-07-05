@@ -21,7 +21,9 @@ interface RetentionRow {
 export const auditRetentionRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get('/audit-retention', async () => {
     const max = fastify.cfg?.auditRetentionMaxDays ?? 365
-    const { rows } = await fastify.db.query<RetentionRow>('SELECT retention_days, updated_by, updated_at FROM audit_retention WHERE singleton')
+    const { rows } = await fastify.db.query<RetentionRow>(
+      'SELECT retention_days, updated_by, updated_at FROM audit_retention WHERE singleton',
+    )
     const configured = rows[0]?.retention_days
     return {
       retention_days: configured === undefined ? max : Math.min(configured, max),
