@@ -5,7 +5,7 @@
 
 ## Architecture Design
 - Revocation packages define storage-neutral lookup interfaces and in-memory defaults.
-- Storage-backed implementations live under `packages/connectors/`.
+- Storage-backed implementations live under `packages/backends/`.
 
 ## Required
 - Must keep each language implementation in its own child directory.

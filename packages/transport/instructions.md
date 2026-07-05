@@ -5,7 +5,6 @@
 
 ## Architecture Design
 - `mcp/` owns Model Context Protocol authentication primitives.
-- `a2a/` owns agent-to-agent transport primitives.
 - Framework adapters live under `packages/connectors/`, not here.
 
 ## Required
