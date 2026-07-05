@@ -18,8 +18,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/garudex-labs/caracal/packages/identity/go"
-	"github.com/garudex-labs/caracal/packages/revocation/go"
 	verify "github.com/garudex-labs/caracal/packages/verify/go"
 	"github.com/golang-jwt/jwt/v5"
 )

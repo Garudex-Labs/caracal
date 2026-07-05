@@ -8,17 +8,20 @@ package revocationredis
 import (
 	"context"
 	"fmt"
+	"math"
+	"strconv"
 	"strings"
 	"time"
 
 	sharedcrypto "github.com/garudex-labs/caracal/packages/core/go/crypto"
-	"github.com/garudex-labs/caracal/packages/revocation/go"
 	"github.com/redis/go-redis/v9"
 )
 
 const (
 	// RevocationStream is the Redis stream carrying session revocation events.
 	RevocationStream = "caracal.sessions.revoke"
+	// DelegationInvalidationStream is the Redis stream carrying delegation graph epoch bumps.
+	DelegationInvalidationStream = "caracal.delegations.invalidate"
 	// DefaultRevocationTTL is the default duration for cached revoked sessions.
 	DefaultRevocationTTL = 24 * time.Hour
 )
@@ -39,6 +42,8 @@ type Store struct {
 }
 
 var _ revocation.Store = (*Store)(nil)
+
+var _ revocation.DelegationEpochStore = (*Store)(nil)
 
 // Option configures Store.
 type Option func(*Store)
@@ -114,8 +119,49 @@ func (s *Store) MarkRevoked(sid string, ttl time.Duration) error {
 	return s.redis.Set(ctx, s.key(sid), "1", ttl).Err()
 }
 
+// CurrentDelegationEpoch returns the recorded delegation graph epoch for zoneID.
+func (s *Store) CurrentDelegationEpoch(zoneID string) int64 {
+	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
+	defer cancel()
+	value, err := s.redis.Get(ctx, s.delegationEpochKey(zoneID)).Result()
+	if err == redis.Nil {
+		return 0
+	}
+	if err != nil {
+		if s.failClosed {
+			return math.MaxInt64
+		}
+		return 0
+	}
+	epoch, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || epoch <= 0 {
+		return 0
+	}
+	return epoch
+}
+
+// MarkDelegationEpoch records epoch for zoneID when it advances past the current value.
+func (s *Store) MarkDelegationEpoch(zoneID string, epoch int64, ttl time.Duration) error {
+	if zoneID == "" || epoch < 0 {
+		return nil
+	}
+	if epoch <= s.CurrentDelegationEpoch(zoneID) {
+		return nil
+	}
+	if ttl <= 0 {
+		ttl = s.defaultTTL
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
+	defer cancel()
+	return s.redis.Set(ctx, s.delegationEpochKey(zoneID), strconv.FormatInt(epoch, 10), ttl).Err()
+}
+
 func (s *Store) key(sid string) string {
 	return s.keyPrefix + sid
+}
+
+func (s *Store) delegationEpochKey(zoneID string) string {
+	return s.keyPrefix + "delegation-epoch:" + zoneID
 }
 
 // StreamClient is the Redis stream operation subset needed by Consumer.
@@ -127,7 +173,7 @@ type StreamClient interface {
 	XReadGroup(ctx context.Context, a *redis.XReadGroupArgs) *redis.XStreamSliceCmd
 }
 
-// Consumer reads signed revocation stream messages and populates a Store.
+// Consumer reads signed stream messages and applies them to a Store.
 type Consumer struct {
 	redis            StreamClient
 	store            *Store
@@ -139,6 +185,7 @@ type Consumer struct {
 	pendingIdle      time.Duration
 	streamHMACKey    []byte
 	requireSignature bool
+	apply            func(values map[string]any) error
 }
 
 // ConsumerOption configures Consumer.
@@ -206,6 +253,18 @@ func NewConsumer(redis StreamClient, store *Store, consumer string, opts ...Cons
 	if c.requireSignature && len(c.streamHMACKey) == 0 {
 		return nil, fmt.Errorf("stream hmac key is required when signatures are required")
 	}
+	c.apply = c.applyRevocations
+	return c, nil
+}
+
+// NewDelegationInvalidationConsumer returns a Redis stream consumer that records delegation graph epochs on store.
+func NewDelegationInvalidationConsumer(redis StreamClient, store *Store, consumer string, opts ...ConsumerOption) (*Consumer, error) {
+	defaults := []ConsumerOption{WithStream(DelegationInvalidationStream), WithGroup("resource-delegation-invalidation")}
+	c, err := NewConsumer(redis, store, consumer, append(defaults, opts...)...)
+	if err != nil {
+		return nil, err
+	}
+	c.apply = c.applyDelegationEpoch
 	return c, nil
 }
 
@@ -286,12 +345,29 @@ func (c *Consumer) processMessage(ctx context.Context, msg redis.XMessage) error
 	if !c.verify(msg.Values) {
 		return c.redis.XAck(ctx, c.stream, c.group, msg.ID).Err()
 	}
-	for _, anchor := range revocationAnchors(msg.Values) {
+	if err := c.apply(msg.Values); err != nil {
+		return err
+	}
+	return c.redis.XAck(ctx, c.stream, c.group, msg.ID).Err()
+}
+
+func (c *Consumer) applyRevocations(values map[string]any) error {
+	for _, anchor := range revocationAnchors(values) {
 		if err := c.store.MarkRevoked(anchor, 0); err != nil {
 			return err
 		}
 	}
-	return c.redis.XAck(ctx, c.stream, c.group, msg.ID).Err()
+	return nil
+}
+
+func (c *Consumer) applyDelegationEpoch(values map[string]any) error {
+	zoneID, _ := values["zone_id"].(string)
+	raw, _ := values["epoch"].(string)
+	epoch, err := strconv.ParseInt(raw, 10, 64)
+	if zoneID == "" || err != nil || epoch < 0 {
+		return nil
+	}
+	return c.store.MarkDelegationEpoch(zoneID, epoch, 0)
 }
 
 func revocationAnchors(values map[string]any) []string {

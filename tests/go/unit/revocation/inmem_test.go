@@ -8,8 +8,6 @@ package revocation_test
 import (
 	"testing"
 	"time"
-
-	"github.com/garudex-labs/caracal/packages/revocation/go"
 )
 
 func TestInMemoryStoreRevokesUntilTTLExpiry(t *testing.T) {
