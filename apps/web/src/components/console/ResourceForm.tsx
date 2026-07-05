@@ -244,10 +244,10 @@ function ResourceFormBody({
         {missingPrereqs ? (
           <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
             {managedApps.length === 0 && providers.length === 0
-              ? "This zone has no managed application or credential provider yet. Create both before binding a resource."
+              ? "This zone has no application and provider yet."
               : managedApps.length === 0
-                ? "This zone has no managed application yet. Create one so the Gateway can front this resource."
-                : "This zone has no credential provider yet. Create one so the Gateway can call the upstream."}
+                ? "This zone has no application yet."
+                : "This zone has no provider yet."}
           </div>
         ) : null}
 

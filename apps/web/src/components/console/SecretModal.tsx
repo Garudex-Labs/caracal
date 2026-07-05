@@ -49,26 +49,6 @@ export function SecretModal({
               Copy
             </Button>
           </div>
-          {secret.kind === "workload" ? (
-            <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-              Set it as the <code className="font-mono">CARACAL_WORKLOAD_SECRET</code> environment
-              variable or store it owner-only (chmod 600) at{" "}
-              <code className="break-all font-mono">
-                {`<Caracal config dir>/runtime/${secret.id}/secret`}
-              </code>
-              , where <code className="font-mono">caracal run</code> finds it automatically. For
-              cloud or custom deployments, keep it in your secret store and point{" "}
-              <code className="font-mono">CARACAL_WORKLOAD_SECRET_FILE</code> at the mounted file.
-            </p>
-          ) : (
-            <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-              Provide it to your service as{" "}
-              <code className="font-mono">CARACAL_APP_CLIENT_SECRET</code> alongside{" "}
-              <code className="font-mono">CARACAL_APPLICATION_ID</code> so the Caracal SDK can
-              authenticate as this application. Keep it in your secret store; only a hash is
-              retained server-side.
-            </p>
-          )}
         </div>
       ) : null}
     </Modal>

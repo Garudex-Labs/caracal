@@ -27,6 +27,7 @@ import {
   Field,
   IdentityAvatar,
   Modal,
+  SearchInput,
   Select,
   useToast,
   type Column,
@@ -35,6 +36,7 @@ import { ConsoleApiError } from "@/platform/api/client";
 import {
   useCreateWorkload,
   useDeleteWorkload,
+  useProviders,
   useResources,
   useRotateWorkloadSecret,
   useUpdateWorkload,
@@ -75,6 +77,10 @@ function errorMessage(error: unknown): string {
     if (error.unreachable) return "Control plane unreachable.";
     if (error.code === "workload_name_taken")
       return "A workload with this name already exists in this zone.";
+    if (error.code === "invalid_credential_env")
+      return "That environment variable name is reserved or invalid.";
+    if (error.code === "duplicate_credential_env")
+      return "Each binding must use a unique environment variable name.";
     return error.code;
   }
   return "Unexpected error.";
@@ -401,211 +407,130 @@ function applyBehavior(binding: WorkloadBinding, behavior: BindingBehavior): Wor
   };
 }
 
-const EMPTY_BINDING: WorkloadBinding = { env: "", resource: "", scopes: [] };
+const BINDINGS_MAX = 64;
+const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+function scopeSummary(binding: WorkloadBinding): string {
+  const count = binding.scopes?.length ?? 0;
+  if (count === 0) return "All scopes";
+  return count === 1 ? "1 scope" : `${count} scopes`;
+}
+
+function suggestEnv(identifier: string): string {
+  const slug = identifier
+    .replace(/^resource:\/\//, "")
+    .replace(/[^A-Za-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .toUpperCase();
+  return slug ? `CARACAL_RESOURCE_${slug}_TOKEN` : "";
+}
 
 function BindingsSection({ workload, zoneId }: { workload: Workload; zoneId: string }) {
   const toast = useToast();
   const updateWorkload = useUpdateWorkload(zoneId);
-  const resourcesQuery = useResources(zoneId);
 
   const saved = workload.bindings;
-  const [editing, setEditing] = useState(false);
-  const [rows, setRows] = useState<WorkloadBinding[]>([]);
+  const [dialogIndex, setDialogIndex] = useState<number | "add" | null>(null);
 
   useEffect(() => {
-    setEditing(false);
+    setDialogIndex(null);
   }, [workload.id]);
 
-  function openEditor() {
-    setRows(saved.length > 0 ? saved.map((binding) => ({ ...binding })) : [{ ...EMPTY_BINDING }]);
-    setEditing(true);
-  }
-
-  function setRow(index: number, row: WorkloadBinding) {
-    setRows((current) => current.map((existing, i) => (i === index ? row : existing)));
-  }
-
-  const incomplete = rows.some((row) => !row.env.trim() || !row.resource);
-  const duplicateEnv = new Set(rows.map((row) => row.env.trim())).size !== rows.length;
-
-  async function submit(bindings: WorkloadBinding[]) {
+  async function submit(bindings: WorkloadBinding[], title: string): Promise<boolean> {
     try {
-      await updateWorkload.mutateAsync({
-        id: workload.id,
-        input: { bindings: bindings.map((binding) => ({ ...binding, env: binding.env.trim() })) },
-      });
-      setEditing(false);
-      toast({
-        tone: "success",
-        title: bindings.length > 0 ? "Bindings saved" : "Bindings cleared",
-        description: workload.name,
-      });
+      await updateWorkload.mutateAsync({ id: workload.id, input: { bindings } });
+      toast({ tone: "success", title, description: workload.name });
+      return true;
     } catch (err) {
       toast({ tone: "error", title: "Save failed", description: errorMessage(err) });
+      return false;
     }
   }
 
-  if (editing) {
-    return (
+  return (
+    <>
       <DetailSection
         title="Bindings"
         action={
-          <div className="flex items-center gap-2">
-            {saved.length > 0 ? (
-              <Button
-                variant="ghost"
-                size="sm"
-                mutating
-                loading={updateWorkload.isPending}
-                onClick={() => void submit([])}
-              >
-                Clear
-              </Button>
-            ) : null}
-            <Button variant="ghost" size="sm" onClick={() => setEditing(false)}>
-              Cancel
-            </Button>
-            <Button
-              size="sm"
-              mutating
-              loading={updateWorkload.isPending}
-              disabled={rows.length === 0 || incomplete || duplicateEnv}
-              onClick={() => void submit(rows)}
-            >
-              Save
-            </Button>
-          </div>
-        }
-      >
-        <div className="flex flex-col gap-3">
-          {rows.map((row, index) => (
-            <div
-              key={index}
-              className="flex flex-col gap-3 rounded-lg border border-border bg-card px-3 py-3"
-            >
-              <div className="flex items-end gap-2">
-                <Field
-                  label="Environment variable"
-                  info="The variable name the workload reads its credential from. caracal run injects the minted credential under this exact name at launch."
-                  placeholder="CARACAL_RESOURCE_PIPERNET_TOKEN"
-                  className="font-mono text-xs"
-                  value={row.env}
-                  onChange={(e) => setRow(index, { ...row, env: e.target.value })}
-                />
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  aria-label="Remove binding"
-                  onClick={() => setRows((current) => current.filter((_, i) => i !== index))}
-                >
-                  Remove
-                </Button>
-              </div>
-              <Select
-                label="Resource"
-                info="The protected resource this credential grants access to. Policy decides whether this workload may reach it."
-                value={row.resource}
-                onChange={(e) => setRow(index, { ...row, resource: e.target.value, scopes: [] })}
-              >
-                <option value="" disabled>
-                  Select a resource…
-                </option>
-                {(resourcesQuery.data ?? []).map((resource) => (
-                  <option key={resource.id} value={resource.identifier}>
-                    {resource.name} ({resource.identifier})
-                  </option>
-                ))}
-              </Select>
-              <ScopePicker
-                resource={(resourcesQuery.data ?? []).find((r) => r.identifier === row.resource)}
-                selected={row.scopes ?? []}
-                onChange={(scopes) => setRow(index, { ...row, scopes })}
-              />
-              <Select
-                label="If unavailable"
-                info="What happens at launch when this credential cannot be minted, for example when policy denies it or the provider is down."
-                value={bindingBehavior(row)}
-                onChange={(e) =>
-                  setRow(index, applyBehavior(row, e.target.value as BindingBehavior))
-                }
-              >
-                <option value="required">Fail the launch</option>
-                <option value="optional_warn">Warn and launch without it</option>
-                <option value="optional_error">Optional, but fail the launch</option>
-              </Select>
-            </div>
-          ))}
-          <div>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => setRows((current) => [...current, { ...EMPTY_BINDING }])}
-            >
-              Add binding
-            </Button>
-          </div>
-          {duplicateEnv ? (
-            <p className="text-xs text-destructive">
-              Each binding must use a unique environment variable name.
-            </p>
-          ) : null}
-        </div>
-      </DetailSection>
-    );
-  }
-
-  if (saved.length === 0) {
-    return (
-      <DetailSection
-        title="Bindings"
-        action={
-          <Button variant="secondary" size="sm" mutating onClick={openEditor}>
-            Configure launch
+          <Button
+            variant="secondary"
+            size="sm"
+            mutating
+            disabled={saved.length >= BINDINGS_MAX}
+            onClick={() => setDialogIndex("add")}
+          >
+            Add binding
           </Button>
         }
       >
-        <p className="rounded-lg border border-border bg-card px-3 py-3 text-xs text-muted-foreground">
-          Define which credentials <code className="font-mono">caracal run</code> injects into this
-          workload's environment. Once configured, the workload launches with only its ID and
-          secret; the resources, scopes, and variable names all live here.
-        </p>
-      </DetailSection>
-    );
-  }
-
-  return (
-    <DetailSection
-      title="Bindings"
-      action={
-        <Button variant="secondary" size="sm" mutating onClick={openEditor}>
-          Edit bindings
-        </Button>
-      }
-    >
-      <dl className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-card">
-        {saved.map((binding) => (
-          <div
-            key={binding.env}
-            className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5"
-          >
-            <div className="min-w-0">
-              <div className="truncate font-mono text-xs text-foreground">{binding.env}</div>
-              <div className="truncate font-mono text-[11px] text-muted-foreground">
-                {binding.resource}
+        {saved.length === 0 ? (
+          <p className="rounded-lg border border-border bg-card px-3 py-3 text-xs text-muted-foreground">
+            No credentials are injected yet. Add a binding to pick a resource and name the
+            environment variable <code className="font-mono">caracal run</code> delivers its
+            credential under.
+          </p>
+        ) : (
+          <div className="scrollbar-thin max-h-72 divide-y divide-border overflow-y-auto rounded-lg border border-border bg-card">
+            {saved.map((binding, index) => (
+              <div key={binding.env} className="flex items-center gap-3 px-3 py-2.5">
+                <div className="min-w-0 flex-1">
+                  <div className="truncate font-mono text-xs text-foreground">{binding.env}</div>
+                  <div className="truncate font-mono text-[11px] text-muted-foreground">
+                    {binding.resource}
+                  </div>
+                </div>
+                <div className="flex flex-shrink-0 items-center gap-1.5">
+                  <Badge tone="neutral">{scopeSummary(binding)}</Badge>
+                  {binding.optional ? <Badge tone="muted">Optional</Badge> : null}
+                </div>
+                <div className="flex flex-shrink-0 items-center">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    mutating
+                    disabled={updateWorkload.isPending}
+                    onClick={() => setDialogIndex(index)}
+                  >
+                    Edit
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    mutating
+                    disabled={updateWorkload.isPending}
+                    onClick={() =>
+                      void submit(
+                        saved.filter((_, i) => i !== index),
+                        "Binding removed",
+                      )
+                    }
+                  >
+                    Remove
+                  </Button>
+                </div>
               </div>
-            </div>
-            <div className="flex flex-shrink-0 items-center gap-1.5">
-              {(binding.scopes ?? []).map((scope) => (
-                <Badge key={scope} tone="neutral">
-                  {scope}
-                </Badge>
-              ))}
-              {binding.optional ? <Badge tone="muted">Optional</Badge> : null}
-            </div>
+            ))}
           </div>
-        ))}
-      </dl>
-    </DetailSection>
+        )}
+      </DetailSection>
+
+      <BindingDialog
+        open={dialogIndex !== null}
+        zoneId={zoneId}
+        bindings={saved}
+        editIndex={typeof dialogIndex === "number" ? dialogIndex : null}
+        busy={updateWorkload.isPending}
+        onClose={() => setDialogIndex(null)}
+        onSubmit={async (binding, editIndex) => {
+          const next =
+            editIndex === null
+              ? [...saved, binding]
+              : saved.map((existing, i) => (i === editIndex ? binding : existing));
+          const ok = await submit(next, editIndex === null ? "Binding added" : "Binding saved");
+          if (ok) setDialogIndex(null);
+        }}
+      />
+    </>
   );
 }
 
@@ -655,21 +580,270 @@ function ScopePicker({
   );
 }
 
+function BindingDialog({
+  open,
+  zoneId,
+  bindings,
+  editIndex,
+  busy,
+  onClose,
+  onSubmit,
+}: {
+  open: boolean;
+  zoneId: string;
+  bindings: WorkloadBinding[];
+  editIndex: number | null;
+  busy: boolean;
+  onClose: () => void;
+  onSubmit: (binding: WorkloadBinding, editIndex: number | null) => void;
+}) {
+  const resourcesQuery = useResources(zoneId);
+  const providersQuery = useProviders(zoneId);
+  const resources = useMemo(() => resourcesQuery.data ?? [], [resourcesQuery.data]);
+  const providers = useMemo(() => providersQuery.data ?? [], [providersQuery.data]);
+
+  const [step, setStep] = useState<"select" | "configure">("select");
+  const [search, setSearch] = useState("");
+  const [providerFilter, setProviderFilter] = useState("all");
+  const [resource, setResource] = useState("");
+  const [env, setEnv] = useState("");
+  const [envTouched, setEnvTouched] = useState(false);
+  const [scopes, setScopes] = useState<string[]>([]);
+  const [behavior, setBehavior] = useState<BindingBehavior>("required");
+
+  useEffect(() => {
+    if (!open) return;
+    setSearch("");
+    setProviderFilter("all");
+    const editing = editIndex !== null ? bindings[editIndex] : undefined;
+    if (editing) {
+      setStep("configure");
+      setResource(editing.resource);
+      setEnv(editing.env);
+      setEnvTouched(true);
+      setScopes(editing.scopes ?? []);
+      setBehavior(bindingBehavior(editing));
+    } else {
+      setStep("select");
+      setResource("");
+      setEnv("");
+      setEnvTouched(false);
+      setScopes([]);
+      setBehavior("required");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  const providersById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const provider of providers) map.set(provider.id, provider.name);
+    return map;
+  }, [providers]);
+
+  const groups = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const byProvider = new Map<string, { name: string; items: Resource[] }>();
+    for (const item of resources) {
+      if (providerFilter !== "all" && item.credential_provider_id !== providerFilter) continue;
+      const providerName = item.credential_provider_id
+        ? (providersById.get(item.credential_provider_id) ?? "Unknown provider")
+        : "No credential provider";
+      if (
+        q &&
+        !item.name.toLowerCase().includes(q) &&
+        !item.identifier.toLowerCase().includes(q) &&
+        !providerName.toLowerCase().includes(q)
+      )
+        continue;
+      const key = item.credential_provider_id ?? "";
+      const group = byProvider.get(key) ?? { name: providerName, items: [] };
+      group.items.push(item);
+      byProvider.set(key, group);
+    }
+    return [...byProvider.values()]
+      .map((group) => ({
+        ...group,
+        items: [...group.items].sort((a, b) => a.name.localeCompare(b.name)),
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [resources, providersById, providerFilter, search]);
+
+  const selectedResource = resources.find((item) => item.identifier === resource);
+
+  function choose(item: Resource) {
+    if (item.identifier !== resource) setScopes([]);
+    setResource(item.identifier);
+    if (!envTouched) setEnv(suggestEnv(item.identifier));
+    setStep("configure");
+  }
+
+  const trimmedEnv = env.trim();
+  const duplicate = bindings.some((binding, i) => i !== editIndex && binding.env === trimmedEnv);
+  const envError = !trimmedEnv
+    ? undefined
+    : !ENV_NAME.test(trimmedEnv)
+      ? "Use letters, digits, and underscores; the name cannot start with a digit."
+      : duplicate
+        ? "Another binding already uses this variable name."
+        : undefined;
+  const valid = Boolean(trimmedEnv) && !envError && Boolean(resource);
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={editIndex !== null ? "Edit binding" : "Add binding"}
+      description={
+        step === "select"
+          ? "Choose the resource this workload needs a credential for."
+          : "Name the environment variable and narrow the credential's scope."
+      }
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose} disabled={busy}>
+            Cancel
+          </Button>
+          {step === "configure" ? (
+            <Button
+              mutating
+              loading={busy}
+              disabled={!valid}
+              onClick={() =>
+                onSubmit(applyBehavior({ env: trimmedEnv, resource, scopes }, behavior), editIndex)
+              }
+            >
+              {editIndex !== null ? "Save binding" : "Add binding"}
+            </Button>
+          ) : null}
+        </>
+      }
+    >
+      {step === "select" ? (
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center gap-2">
+            <SearchInput
+              autoFocus
+              placeholder="Search resources…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="min-w-0 flex-1"
+            />
+            {providers.length > 1 ? (
+              <Select
+                aria-label="Filter by provider"
+                value={providerFilter}
+                onChange={(e) => setProviderFilter(e.target.value)}
+                className="w-44 flex-shrink-0"
+              >
+                <option value="all">All providers</option>
+                {[...providers]
+                  .sort((a, b) => a.name.localeCompare(b.name))
+                  .map((provider) => (
+                    <option key={provider.id} value={provider.id}>
+                      {provider.name}
+                    </option>
+                  ))}
+              </Select>
+            ) : null}
+          </div>
+          <div className="scrollbar-thin h-80 overflow-y-auto rounded-lg border border-border">
+            {resourcesQuery.isLoading ? (
+              <p className="px-3 py-8 text-center text-xs text-muted-foreground">
+                Loading resources…
+              </p>
+            ) : groups.length === 0 ? (
+              <p className="px-3 py-8 text-center text-xs text-muted-foreground">
+                {resources.length === 0
+                  ? "No resources in this zone yet. Create the resource first, then bind it here."
+                  : "No resources match your search."}
+              </p>
+            ) : (
+              groups.map((group) => (
+                <div key={group.name}>
+                  <div className="sticky top-0 z-10 border-b border-border bg-muted px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                    {group.name}
+                  </div>
+                  {group.items.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => choose(item)}
+                      className="flex w-full items-center gap-3 border-b border-border px-3 py-2.5 text-left outline-none transition-colors last:border-b-0 hover:bg-accent/40 focus-visible:bg-accent/40"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-medium text-foreground">
+                          {item.name}
+                        </div>
+                        <div className="truncate font-mono text-[11px] text-muted-foreground">
+                          {item.identifier}
+                        </div>
+                      </div>
+                      <span className="flex-shrink-0 text-[11px] text-muted-foreground">
+                        {item.scopes.length > 0
+                          ? `${item.scopes.length} ${item.scopes.length === 1 ? "scope" : "scopes"}`
+                          : "No scopes"}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-4">
+          <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/40 px-3 py-2.5">
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-sm font-medium text-foreground">
+                {selectedResource?.name ?? resource}
+              </div>
+              <div className="truncate font-mono text-[11px] text-muted-foreground">{resource}</div>
+            </div>
+            <Button variant="ghost" size="sm" onClick={() => setStep("select")}>
+              Change
+            </Button>
+          </div>
+          <Field
+            label="Environment variable"
+            info="The variable name the workload reads its credential from. caracal run injects the minted credential under this exact name at launch."
+            placeholder="CARACAL_RESOURCE_PIPERNET_TOKEN"
+            className="font-mono text-xs"
+            value={env}
+            error={envError}
+            onChange={(e) => {
+              setEnv(e.target.value);
+              setEnvTouched(true);
+            }}
+          />
+          <ScopePicker resource={selectedResource} selected={scopes} onChange={setScopes} />
+          <Select
+            label="If unavailable"
+            info="What happens at launch when this credential cannot be minted, for example when policy denies it or the provider is down."
+            value={behavior}
+            onChange={(e) => setBehavior(e.target.value as BindingBehavior)}
+          >
+            <option value="required">Fail the launch</option>
+            <option value="optional_warn">Warn and launch without it</option>
+            <option value="optional_error">Optional, but fail the launch</option>
+          </Select>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
 /* -------------------------------- launch -------------------------------- */
 
 function LaunchSection({ workload }: { workload: Workload }) {
   return (
     <DetailSection title="Launch">
       <div className="flex flex-col gap-2 rounded-lg border border-border bg-card px-3 py-3">
-        <p className="text-xs font-medium text-foreground">Launch this workload</p>
         <CopyValue value={`export CARACAL_WORKLOAD_ID=${workload.id}`} />
         <CopyValue value="caracal run -- <your command>" />
         <p className="text-xs text-muted-foreground">
-          Provide the workload secret via <code className="font-mono">CARACAL_WORKLOAD_SECRET</code>
-          , <code className="font-mono">CARACAL_WORKLOAD_SECRET_FILE</code>, or the owner-only file
-          at{" "}
-          <code className="break-all font-mono">{`<Caracal config dir>/runtime/${workload.id}/secret`}</code>
-          .
+          <code className="font-mono">caracal run</code> authenticates with the workload secret from{" "}
+          <code className="font-mono">CARACAL_WORKLOAD_SECRET</code> and injects each bound
+          credential before your command starts.
         </p>
       </div>
     </DetailSection>
@@ -731,10 +905,6 @@ function CreateWorkloadModal({
           }}
           autoFocus
         />
-        <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-          Creates the workload's identity and reveals its secret once. Bind the credentials it needs
-          next, then launch it anywhere with <code className="font-mono">caracal run</code>.
-        </p>
       </div>
     </Modal>
   );
