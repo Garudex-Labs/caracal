@@ -32,12 +32,9 @@ function assertSecureIssuer(issuer: string): void {
   const parsed = new URL(issuer)
   if (parsed.protocol === 'https:') return
   if (parsed.protocol === 'http:') {
-    const insecureAllowed =
-      isLoopbackHost(parsed.hostname) ||
-      (process.env.NODE_ENV ?? 'development') === 'development' ||
-      process.env.CARACAL_ALLOW_INSECURE_CONFIG_URLS === 'true'
+    const insecureAllowed = isLoopbackHost(parsed.hostname) || process.env.CARACAL_ALLOW_INSECURE_CONFIG_URLS === 'true'
     if (insecureAllowed) return
-    throw new Error('insecure issuer scheme: http requires a loopback host or development mode')
+    throw new Error('insecure issuer scheme: http requires a loopback host or CARACAL_ALLOW_INSECURE_CONFIG_URLS=true')
   }
   throw new Error(`unsupported issuer scheme: ${parsed.protocol}`)
 }

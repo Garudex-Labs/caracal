@@ -833,6 +833,28 @@ function productionEnv(env: NodeJS.ProcessEnv): boolean {
   return env.NODE_ENV === 'production'
 }
 
+function isLoopbackHost(host: string): boolean {
+  if (host === 'localhost') return true
+  if (host === '::1' || host === '[::1]') return true
+  return /^127(?:\.\d{1,3}){3}$/.test(host)
+}
+
+function assertProductionTransport(name: string, value: string | undefined, env: NodeJS.ProcessEnv): void {
+  if (!value || !productionEnv(env)) return
+  if (env.CARACAL_ALLOW_INSECURE_CONFIG_URLS === 'true') return
+  let parsed: URL
+  try {
+    parsed = new URL(value)
+  } catch {
+    throw new Error(`Caracal SDK: ${name} is not a valid URL: ${value}`)
+  }
+  if (parsed.protocol === 'https:') return
+  if (parsed.protocol === 'http:' && isLoopbackHost(parsed.hostname)) return
+  throw new Error(
+    `Caracal SDK: ${name} must use https in production; http is limited to loopback hosts unless CARACAL_ALLOW_INSECURE_CONFIG_URLS=true`,
+  )
+}
+
 function serviceUrl(env: NodeJS.ProcessEnv, key: string, fallback: string): string {
   const value = env[key]
   if (value) return value
@@ -925,21 +947,26 @@ function configFromEnv(env: NodeJS.ProcessEnv): CaracalConfig {
   const resources = profileResources.bindings
   const defaultTtlSeconds = defaultTtlFromEnv(env)
   if (clientSecret) {
-    return configFromClientSecret({
-      coordinatorUrl: url,
-      stsUrl,
-      zoneId: zoneId!,
-      applicationId: applicationId!,
-      clientSecret,
-      resources: resourceIdsFromEnv(env.CARACAL_APP_RESOURCES, profileResources.credentialResources ?? [], profileResources.resources),
-      gatewayUrl,
-      defaultTtlSeconds,
-    })
+    return configFromClientSecret(
+      {
+        coordinatorUrl: url,
+        stsUrl,
+        zoneId: zoneId!,
+        applicationId: applicationId!,
+        clientSecret,
+        resources: resourceIdsFromEnv(env.CARACAL_APP_RESOURCES, profileResources.credentialResources ?? [], profileResources.resources),
+        gatewayUrl,
+        defaultTtlSeconds,
+      },
+      env,
+    )
   }
   if (!subjectToken) {
     throw new Error('Caracal.fromEnv: provide CARACAL_APP_CLIENT_SECRET or CARACAL_SUBJECT_TOKEN')
   }
   validateSubjectToken(subjectToken!)
+  assertProductionTransport('CARACAL_COORDINATOR_URL', url, env)
+  assertProductionTransport('CARACAL_GATEWAY_URL', gatewayUrl, env)
   return {
     coordinator: { baseUrl: url },
     zoneId: zoneId!,
@@ -961,7 +988,7 @@ function defaultTtlFromEnv(env: NodeJS.ProcessEnv): number | undefined {
   return value
 }
 
-function configFromClientSecret(opts: ClientSecretOptions): CaracalConfig {
+function configFromClientSecret(opts: ClientSecretOptions, env: NodeJS.ProcessEnv = process.env): CaracalConfig {
   const missing = [
     ['coordinatorUrl', opts.coordinatorUrl],
     ['stsUrl', opts.stsUrl],
@@ -982,6 +1009,9 @@ function configFromClientSecret(opts: ClientSecretOptions): CaracalConfig {
   if (opts.defaultTtlSeconds !== undefined && (!Number.isInteger(opts.defaultTtlSeconds) || opts.defaultTtlSeconds <= 0)) {
     throw new Error('Caracal.fromClientSecret: defaultTtlSeconds must be a positive integer')
   }
+  assertProductionTransport('coordinatorUrl', opts.coordinatorUrl, env)
+  assertProductionTransport('stsUrl', opts.stsUrl, env)
+  assertProductionTransport('gatewayUrl', opts.gatewayUrl, env)
   const credentials: CredentialsResolver =
     opts.credentials ?? (() => ({ zoneId: opts.zoneId!, applicationId: opts.applicationId!, clientSecret: opts.clientSecret! }))
   const resourceValues = opts.resources ?? []
@@ -1020,16 +1050,19 @@ function configFromProfile(path: string, env: NodeJS.ProcessEnv): CaracalConfig 
       `Caracal.fromConfig: ${path} requires at least one resource via credentials, CARACAL_RESOURCES, or CARACAL_RESOURCES_FILE`,
     )
   }
-  return configFromClientSecret({
-    coordinatorUrl,
-    stsUrl,
-    zoneId,
-    applicationId,
-    clientSecret: clientSecretFromProfile(value, path, env, zoneId, applicationId),
-    resources: resources.resources,
-    gatewayUrl: stringValue(value, 'gateway_url') ?? serviceUrl(env, 'CARACAL_GATEWAY_URL', DEFAULT_GATEWAY_URL),
-    defaultTtlSeconds: profileTtlSeconds(value, path) ?? defaultTtlFromEnv(env),
-  })
+  return configFromClientSecret(
+    {
+      coordinatorUrl,
+      stsUrl,
+      zoneId,
+      applicationId,
+      clientSecret: clientSecretFromProfile(value, path, env, zoneId, applicationId),
+      resources: resources.resources,
+      gatewayUrl: stringValue(value, 'gateway_url') ?? serviceUrl(env, 'CARACAL_GATEWAY_URL', DEFAULT_GATEWAY_URL),
+      defaultTtlSeconds: profileTtlSeconds(value, path) ?? defaultTtlFromEnv(env),
+    },
+    env,
+  )
 }
 
 function profileTtlSeconds(record: Record<string, unknown>, source: string): number | undefined {
