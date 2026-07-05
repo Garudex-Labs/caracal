@@ -6,11 +6,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { Request, Response, NextFunction } from 'express'
 import { InMemoryRevocationStore } from '../../../../../packages/revocation/ts/src/inmem.js'
-import { caracalAuth } from '../../../../../packages/connectors/express/ts/src/middleware.js'
-import type { MandateVerifier } from '../../../../../packages/transport/mcp/ts/src/authenticate.js'
-import { authenticate } from '@caracalai/transport-mcp'
+import { caracalAuth } from '../../../../../packages/adapters/express/ts/src/middleware.js'
+import type { MandateVerifier } from '../../../../../packages/verify/ts/src/authenticate.js'
+import { authenticate } from '@caracalai/verify'
 
-vi.mock('@caracalai/transport-mcp', async () => ({
+vi.mock('@caracalai/verify', async () => ({
   authenticate: vi.fn().mockResolvedValue({ ok: false, error: { code: 'invalid_token', description: 'Token validation failed' } }),
   httpStatusForAuthError: (code: string) =>
     ['insufficient_scope', 'agent_required', 'delegation_required', 'chain_mismatch', 'hop_count_exceeded'].includes(code) ? 403 : 401,

@@ -4,7 +4,7 @@
 // Transport MCP authentication unit tests.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { authenticate, checkActiveAuthority, createMandateVerifier, extractBearer } from '../../../../packages/transport/mcp/ts/src/authenticate.js'
+import { authenticate, checkActiveAuthority, createMandateVerifier, extractBearer } from '../../../../packages/verify/ts/src/authenticate.js'
 
 const revocations = {
   isRevoked: vi.fn(),
@@ -82,7 +82,7 @@ function base64url(value: string | Uint8Array): string {
   return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '')
 }
 
-describe('transport-mcp authentication', () => {
+describe('verify authentication', () => {
   afterEach(() => {
     revocations.isRevoked.mockReset()
     revocations.markRevoked.mockReset()

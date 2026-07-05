@@ -12,7 +12,7 @@ import {
   RedisRevocationStore,
   REVOCATION_STREAM,
   type RedisStreamResult,
-} from '../../../../../packages/connectors/redis/ts/src/revocation.js'
+} from '../../../../../packages/backends/redis/ts/src/revocation.js'
 
 class FakeRedis {
   readonly values = new Map<string, string>()

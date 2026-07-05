@@ -4,8 +4,8 @@
 // FastMCP authentication adapter unit tests.
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { FastMcpAuthError, verifyFastMcpToken } from '../../../../../packages/connectors/fastmcp/ts/src/middleware.js'
-import type { MandateVerifier } from '../../../../../packages/transport/mcp/ts/src/authenticate.js'
+import { FastMcpAuthError, verifyFastMcpToken } from '../../../../../packages/adapters/fastmcp/ts/src/middleware.js'
+import type { MandateVerifier } from '../../../../../packages/verify/ts/src/authenticate.js'
 
 const revocations = {
   isRevoked: vi.fn(),

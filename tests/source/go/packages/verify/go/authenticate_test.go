@@ -3,7 +3,7 @@
 //
 // MCP transport authentication tests for bearer parsing, JWT verification, and revocation checks.
 
-package transportmcp
+package verify
 
 import (
 	"crypto/ecdsa"
