@@ -16,6 +16,7 @@ license-files = ["LICENSE"]
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+  "caracalai-oauth==0.1.6rc3",
   "httpx>=0.28.0",
   "idna>=3.15",
 ]

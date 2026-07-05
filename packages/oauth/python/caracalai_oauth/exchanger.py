@@ -59,10 +59,14 @@ __all__ = [
     "CredentialsResolver",
     "CredentialsUnavailableError",
     "TokenSource",
+    "decode_jwt_exp",
 ]
 
 
-def _decode_jwt_exp(token: str) -> float | None:
+def decode_jwt_exp(token: str) -> float | None:
+    """The ``exp`` claim of a JWT-shaped token, or ``None`` when the token is
+    opaque or the claim is absent or malformed. Signature verification is the
+    verifier's responsibility."""
     parts = token.split(".")
     if len(parts) != 3:
         return None
@@ -447,7 +451,7 @@ class ClientSecretExchanger:
         token = body.get("access_token")
         if not isinstance(token, str) or not token:
             raise RuntimeError("STS response did not contain access_token")
-        exp = _decode_jwt_exp(token)
+        exp = decode_jwt_exp(token)
         if exp is None:
             expires_in = body.get("expires_in")
             if isinstance(expires_in, (int, float)):
