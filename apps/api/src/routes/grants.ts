@@ -305,12 +305,10 @@ export const grantsRoutes: FastifyPluginAsync = async (fastify) => {
     const refsRow = refs[0]
     if (!refsRow?.provider_kind) return reply.code(404).send({ error: 'provider_not_found' })
     if (refsRow.provider_kind !== 'oauth2_authorization_code') {
-      return reply
-        .code(400)
-        .send({
-          error: 'provider_grant_unsupported',
-          error_description: 'only oauth2_authorization_code providers use delegated provider grants',
-        })
+      return reply.code(400).send({
+        error: 'provider_grant_unsupported',
+        error_description: 'only oauth2_authorization_code providers use delegated provider grants',
+      })
     }
     if (!refsRow.resource_scopes) return reply.code(404).send({ error: 'resource_not_found' })
     if (refsRow.resource_provider_id !== body.provider_id) {
@@ -371,12 +369,10 @@ export const grantsRoutes: FastifyPluginAsync = async (fastify) => {
     const row = rows[0]
     if (!row) return reply.code(404).send({ error: 'provider_not_found' })
     if (row.provider_kind !== 'oauth2_authorization_code') {
-      return reply
-        .code(400)
-        .send({
-          error: 'provider_grant_unsupported',
-          error_description: 'only oauth2_authorization_code providers use browser authorization',
-        })
+      return reply.code(400).send({
+        error: 'provider_grant_unsupported',
+        error_description: 'only oauth2_authorization_code providers use browser authorization',
+      })
     }
     if (!row.resource_scopes) return reply.code(404).send({ error: 'resource_not_found' })
     if (row.resource_provider_id !== body.provider_id) {

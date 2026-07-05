@@ -442,12 +442,10 @@ export const resourcesRoutes: FastifyPluginAsync = async (fastify) => {
         }
         if ((isControlResource(current.identifier) || isControlResource(nextIdentifier)) && !isControlResourceOperation(req)) {
           throw new TxAbort(
-            reply
-              .code(409)
-              .send({
-                error: 'protected_resource',
-                error_description: 'control API resource is managed only through the Control console path',
-              }),
+            reply.code(409).send({
+              error: 'protected_resource',
+              error_description: 'control API resource is managed only through the Control console path',
+            }),
           )
         }
         const nextUpstreamURL = body.upstream_url !== undefined ? body.upstream_url : current.upstream_url
