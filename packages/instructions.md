@@ -21,6 +21,7 @@
 - Must not contain runnable app or service entrypoints.
 - Must not contain infrastructure orchestration.
 - Must not import from sibling implementation internals when a public package surface exists.
+- Must not add a framework or protocol adapter package when the target exposes an injectable HTTP client, an environment-variable credential path, a composable middleware or interceptor standard, or fetch-standard request handling; serve those targets with documentation recipes over `verify`.
 - Must not import from `caracalEnterprise/`.
 
 ## Validation
