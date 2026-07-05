@@ -50,22 +50,22 @@ Use `http://caracalDemoUpstream:80` as the resource upstream URL in guided setup
 
 Open the packaged web console at [http://localhost:3001](http://localhost:3001). The Compose stack maps that localhost port to the web BFF container and serves the SPA same-origin with the console API.
 
-The packaged console runs the fail-closed production posture: operator registration is closed by default. For a self-hosted install, the quickest path is a one-time bootstrap invite. On the runtime host, run:
+The packaged console runs the fail-closed production posture: operator registration is closed by default. Admission is controlled from the runtime host. Allow your email:
 
 ```sh
-caracal invite <your email>
+caracal allowlist add <your email>
 ```
 
-The command prints a one-time bootstrap code bound to that email. Open the console sign-in page, choose **First operator of this install? Use your bootstrap code**, and enter your name, email, password, and the code. The code expires in one hour, authorizes only the invited email, and only one invite is live at a time; the account it creates signs in with email and password from then on.
+The allowlist is read live by the console, so the change applies immediately. Entries are exact emails or `@domain` suffixes, and the same command manages access later: `caracal allowlist remove <email>` withdraws access while the account's data stays, `lock`/`unlock` suspend and restore sign-in, and `list` shows every entry. A removed or locked entry is cut off on its next console request, not just at its next sign-in.
 
-For ongoing sign-in and for teams, configure a sign-in method. Add one of the following to `$CARACAL_HOME/caracal.env` (Linux default `~/.local/share/caracal/caracal.env`, macOS `~/Library/Application Support/caracal/caracal.env`, Windows `%LOCALAPPDATA%\caracal\caracal.env`), then rerun `caracal up`:
+An allowlisted email still needs a sign-in method. Add one of the following to `$CARACAL_HOME/caracal.env` (Linux default `~/.local/share/caracal/caracal.env`, macOS `~/Library/Application Support/caracal/caracal.env`, Windows `%LOCALAPPDATA%\caracal\caracal.env`), then rerun `caracal up`:
 
 | Sign-in method | Required variables |
 | --- | --- |
-| Google or GitHub | `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` or `GITHUB_CLIENT_ID` + `GITHUB_CLIENT_SECRET`, plus `CARACAL_OPERATOR_EMAILS=<your email>`. OAuth callback URL: `http://localhost:3001/api/auth/callback/google` or `.../github`. |
-| Email and password | `CARACAL_OPEN_REGISTRATION=true` and `CARACAL_PASSWORD_SIGNUP=true`, plus `CARACAL_SMTP_URL` and `CARACAL_SMTP_FROM` so the required verification email can be delivered; the console fails closed without a mail transport. |
+| Google or GitHub | `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` or `GITHUB_CLIENT_ID` + `GITHUB_CLIENT_SECRET`. OAuth callback URL: `http://localhost:3001/api/auth/callback/google` or `.../github`. |
+| Email and password | `CARACAL_PASSWORD_SIGNUP=true`, plus `CARACAL_SMTP_URL` and `CARACAL_SMTP_FROM` so the required verification email can be delivered; the console fails closed without a mail transport. |
 
-For OAuth, create an OAuth app in the [Google Cloud console](https://console.cloud.google.com/apis/credentials) or [GitHub developer settings](https://github.com/settings/developers), set its callback URL to the value above, and paste the client ID and secret into `caracal.env`. Open email/password sign-up needs a reachable SMTP server for verification emails.
+For OAuth, create an OAuth app in the [Google Cloud console](https://console.cloud.google.com/apis/credentials) or [GitHub developer settings](https://github.com/settings/developers), set its callback URL to the value above, and paste the client ID and secret into `caracal.env`. With email/password sign-up, registration sends a verification link over SMTP and the account signs in after the link is confirmed.
 
 See [Environment Variables](/operations/env-vars/#web-console-bff) for the full sign-in reference. Sign in, then complete the short onboarding flow:
 
