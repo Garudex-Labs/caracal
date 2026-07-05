@@ -11,7 +11,7 @@ description: Express 5 middleware for Caracal mandate verification.
 npm install @caracalai/express @caracalai/verify @caracalai/revocation-redis
 ```
 
-The connector has an Express `^5.0.0` peer dependency and targets Node `>=22`.
+The adapter has an Express `^5.0.0` peer dependency and targets Node `>=22`.
 
 ## Middleware
 
@@ -51,7 +51,7 @@ app.post("/mcp/tools/search", (req: CaracalRequest, res) => {
 
 ## Failure behavior
 
-Failed verification returns an MCP transport error code such as `missing_token`, `invalid_token`, `insufficient_scope`, or `session_revoked`, plus a safe `error_hint` field. Pair the connector with a shared revocation store when multiple resource-server instances serve the same resource.
+Failed verification returns a verify-engine error code such as `missing_token`, `invalid_token`, `insufficient_scope`, or `session_revoked`, plus a safe `error_hint` field. Pair the adapter with a shared revocation store when multiple resource-server instances serve the same resource.
 
 ## Related pages
 

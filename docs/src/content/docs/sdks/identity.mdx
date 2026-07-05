@@ -3,7 +3,7 @@ title: Identity Package
 description: JWT verification packages for mandate claims, scopes, targets, agents, delegation, and hop count.
 ---
 
-The identity packages verify Caracal mandate JWTs. Use them when you are building a connector, transport, or custom resource-server boundary that accepts mandates directly.
+The identity packages verify Caracal mandate JWTs. Use them when you are building an adapter or custom resource-server boundary that accepts mandates directly.
 
 ## Install
 
@@ -78,4 +78,4 @@ Go and Python identity packages also cache issuer JWKS metadata in memory. Pytho
 
 ## When to Use Verify Package
 
-Use [Verify Package](/sdks/verify/) when you also need revocation checks, reusable verifier defaults, bearer-header parsing, and safe debugging hints. Use the identity package directly when you are composing your own verifier or connector boundary.
+Use [Verify Package](/sdks/verify/) when you also need revocation checks, reusable verifier defaults, bearer-header parsing, and safe debugging hints. Use the identity package directly when you are composing your own verifier or adapter boundary.

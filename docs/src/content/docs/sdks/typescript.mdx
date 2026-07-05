@@ -74,7 +74,7 @@ await caracal.spawn(async () => {
 
 ## Protect Inbound Requests
 
-Use `bindFromHeaders()` to propagate a Caracal context after an upstream Gateway, connector, or transport verifier has accepted the inbound mandate. Pass `{ verify }` to enforce the bearer token at the boundary itself; the callback receives the inbound token and must throw on failure. Return a `VerifiedClaims` object from the callback to stamp token-proven attribution (zone, application, agent session, delegation edge, hop) over the caller-supplied envelope headers. Use [Verification Layer Overview](/sdks/verification-layer/) when the TypeScript service must enforce mandate signatures, scopes, targets, agent identity, delegation, or revocation at its own boundary.
+Use `bindFromHeaders()` to propagate a Caracal context after an upstream Gateway, adapter, or verify-engine verifier has accepted the inbound mandate. Pass `{ verify }` to enforce the bearer token at the boundary itself; the callback receives the inbound token and must throw on failure. Return a `VerifiedClaims` object from the callback to stamp token-proven attribution (zone, application, agent session, delegation edge, hop) over the caller-supplied envelope headers. Use [Verification Layer Overview](/sdks/verification-layer/) when the TypeScript service must enforce mandate signatures, scopes, targets, agent identity, delegation, or revocation at its own boundary.
 
 Header and transport helpers refuse to fall back to the application root token unless you pass `{ allowRoot: true }`. Use that option only for trusted service-root ingress or setup calls. Normal agent work should run inside `spawn()`, `delegate()`, or `bindFromHeaders()`.
 
