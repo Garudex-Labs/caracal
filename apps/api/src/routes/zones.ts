@@ -7,7 +7,8 @@ import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { v7 as uuidv7 } from 'uuid'
 import { insertAdminAuditRecord } from '@caracalai/admin-audit'
-import { buildPatchUpdate, patchColumn } from './patch.js'
+import { appendAttribution, buildPatchUpdate, patchColumn } from './patch.js'
+import { resolveAttribution, type Attribution } from '../attribution.js'
 import { withTransaction, TxAbort } from '../db.js'
 import { IdParams, parseParams } from './params.js'
 import { appendKeysetCondition, parseListPagination, setNextLink } from './list-pagination.js'
@@ -56,11 +57,18 @@ interface ZoneRow {
   dcr_enabled: boolean
   operator_coauthor_badge: boolean
   operator_governed: boolean
+  created_by: string | null
+  created_via_operator: boolean
+  updated_by: string | null
+  updated_via_operator: boolean
   created_at: string
   updated_at: string
 }
 
 const ZONE_SLUG_UNIQUE_CONSTRAINT = 'zones_slug_key'
+
+const ZONE_SELECT = `id, name, slug, dcr_enabled, operator_coauthor_badge, operator_governed,
+         created_by, created_via_operator, updated_by, updated_via_operator, created_at, updated_at`
 
 interface LiveDcrApplication {
   id: string
@@ -113,20 +121,22 @@ async function nextZoneSlug(client: Queryable, name: string): Promise<string> {
 // the zones route and the Operator executor so both create zones identically.
 export async function createZoneRecord(
   db: Queryable,
-  input: { name: string; slug?: string; dcrEnabled?: boolean; ownerAccountId?: string | null },
+  input: { name: string; slug?: string; dcrEnabled?: boolean; ownerAccountId?: string | null; attribution: Attribution },
 ): Promise<ZoneRow> {
   for (let attempt = 0; ; attempt++) {
     try {
       const { rows } = await db.query<ZoneRow>(
-        `INSERT INTO zones (id, name, slug, dek_ciphertext, dcr_enabled, owner_account_id)
-         VALUES ($1, $2, $3, gen_random_bytes(32), $4, $5)
-         RETURNING id, name, slug, dcr_enabled, operator_coauthor_badge, operator_governed, created_at, updated_at`,
+        `INSERT INTO zones (id, name, slug, dek_ciphertext, dcr_enabled, owner_account_id, created_by, created_via_operator)
+         VALUES ($1, $2, $3, gen_random_bytes(32), $4, $5, $6, $7)
+         RETURNING ${ZONE_SELECT}`,
         [
           mintZoneId(uuidv7),
           input.name,
           input.slug ?? (await nextZoneSlug(db, input.name)),
           input.dcrEnabled ?? false,
           input.ownerAccountId ?? null,
+          input.attribution.actor,
+          input.attribution.viaOperator,
         ],
       )
       return rows[0]
@@ -308,7 +318,7 @@ async function auditDcrShutdown(
   })
 }
 
-async function patchZone(client: Queryable, id: string, body: ZoneUpdateBody): Promise<ZoneRow | null | undefined> {
+async function patchZone(client: Queryable, id: string, body: ZoneUpdateBody, attribution: Attribution): Promise<ZoneRow | null | undefined> {
   const update = buildPatchUpdate(
     [id],
     [
@@ -320,10 +330,11 @@ async function patchZone(client: Queryable, id: string, body: ZoneUpdateBody): P
     ],
   )
   if (!update) return undefined
+  appendAttribution(update, attribution)
   const { rows } = await client.query<ZoneRow>(
     `UPDATE zones SET ${update.sets.join(', ')}, updated_at = now()
      WHERE id = $1 AND archived_at IS NULL
-     RETURNING id, name, slug, dcr_enabled, operator_coauthor_badge, operator_governed, created_at, updated_at`,
+     RETURNING ${ZONE_SELECT}`,
     update.values,
   )
   return rows[0] ?? null
@@ -346,7 +357,7 @@ export const zonesRoutes: FastifyPluginAsync = async (fastify) => {
     }
     const keyset = appendKeysetCondition({ conds, values }, page)
     const { rows } = await fastify.db.query(
-      `SELECT id, name, slug, dcr_enabled, operator_coauthor_badge, operator_governed, created_at, updated_at
+      `SELECT ${ZONE_SELECT}
        FROM zones WHERE ${keyset.conds.join(' AND ')}
        ORDER BY created_at DESC, id DESC LIMIT ${keyset.limitPlaceholder}`,
       keyset.values,
@@ -367,6 +378,7 @@ export const zonesRoutes: FastifyPluginAsync = async (fastify) => {
         slug: body.slug,
         dcrEnabled: body.dcr_enabled,
         ownerAccountId: req.account?.id ?? null,
+        attribution: await resolveAttribution(req, fastify.db, null),
       })
       return reply.code(201).send(row)
     } catch (err) {
@@ -379,7 +391,7 @@ export const zonesRoutes: FastifyPluginAsync = async (fastify) => {
     const params = parseParams(IdParams, req, reply)
     if (!params) return
     const { rows } = await fastify.db.query(
-      `SELECT id, name, slug, dcr_enabled, operator_coauthor_badge, operator_governed, created_at, updated_at
+      `SELECT ${ZONE_SELECT}
        FROM zones WHERE id = $1 AND archived_at IS NULL`,
       [params.id],
     )
