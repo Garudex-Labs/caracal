@@ -178,7 +178,7 @@ export const policySetsRoutes: FastifyPluginAsync = async (fastify) => {
     if (!psRows[0]) return reply.code(404).send({ error: 'policy_set_not_found' })
     const keyset = appendKeysetCondition({ conds: ['psv.policy_set_id = $1'], values: [params.id] }, page, 'psv.created_at', 'psv.id')
     const { rows } = await fastify.db.query(
-      `SELECT psv.id, psv.policy_set_id, psv.version, psv.manifest_sha256, psv.schema_version, psv.created_by, psv.created_at
+      `SELECT psv.id, psv.policy_set_id, psv.version, psv.manifest_sha256, psv.schema_version, psv.created_by, psv.created_via_operator, psv.created_at
        FROM policy_set_versions psv
        WHERE ${keyset.conds.join(' AND ')}
        ORDER BY psv.created_at DESC, psv.id DESC LIMIT ${keyset.limitPlaceholder}`,
@@ -193,7 +193,7 @@ export const policySetsRoutes: FastifyPluginAsync = async (fastify) => {
     if (!params) return
     const { rows } = await fastify.db.query(
       `SELECT psv.id, psv.policy_set_id, psv.version, psv.manifest_json, psv.manifest_sha256,
-              psv.schema_version, psv.created_at,
+              psv.schema_version, psv.created_by, psv.created_via_operator, psv.created_at,
               (SELECT json_agg(entry->>'policy_version_id')
                FROM jsonb_array_elements(psv.manifest_json) AS entry) AS policies
        FROM policy_set_versions psv

@@ -280,6 +280,8 @@ export interface PolicySetVersion {
   manifest_sha256: string;
   schema_version: string;
   policies?: string[];
+  created_by?: string | null;
+  created_via_operator?: boolean;
   created_at: string;
 }
 
@@ -553,6 +555,10 @@ export interface ProviderGrant {
   provider_id: string;
   scopes: string[];
   status: string;
+  created_by?: string | null;
+  created_via_operator?: boolean;
+  updated_by?: string | null;
+  updated_via_operator?: boolean;
   expires_at: string | null;
   created_at: string;
   updated_at: string;
@@ -603,6 +609,10 @@ export interface ControlKey {
   maxTtlSeconds?: number;
   expiresAt?: string;
   createdAt: string;
+  createdBy?: string | null;
+  createdViaOperator?: boolean;
+  updatedBy?: string | null;
+  updatedViaOperator?: boolean;
 }
 
 export interface ControlKeyCreateInput {

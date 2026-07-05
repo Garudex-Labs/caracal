@@ -446,6 +446,10 @@ function controlKeyFromApplication(app: Application): ControlKey {
     maxTtlSeconds: ttl !== undefined && Number.isFinite(ttl) ? ttl : undefined,
     expiresAt: expiresTrait ? expiresTrait.slice(CONTROL_EXPIRES_PREFIX.length) : undefined,
     createdAt: app.created_at,
+    createdBy: app.created_by,
+    createdViaOperator: app.created_via_operator,
+    updatedBy: app.updated_by,
+    updatedViaOperator: app.updated_via_operator,
   };
 }
 
