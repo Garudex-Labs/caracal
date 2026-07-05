@@ -137,3 +137,20 @@ describe('LifecycleRelay', () => {
     expect(redis.xack).toHaveBeenCalledWith(LIFECYCLE_STREAM, LIFECYCLE_GROUP, '5-0')
   })
 })
+
+describe('startLifecycleRelay', () => {
+  it('consumes on a dedicated duplicated connection and closes it on stop', async () => {
+    const { startLifecycleRelay } = await import('../../../../../../apps/coordinator/src/jobs/lifecycle-relay.js')
+    const consumer = { ...mockRedis(), quit: vi.fn().mockResolvedValue('OK'), disconnect: vi.fn() }
+    const base = { ...mockRedis(), duplicate: vi.fn(() => consumer) }
+
+    const job = startLifecycleRelay(base as never)
+    expect(base.duplicate).toHaveBeenCalledOnce()
+    await job.stop()
+
+    // Blocking reads must park only the duplicated connection: the shared client is never
+    // read from, and the duplicate is released with the job.
+    expect(base.xreadgroup).not.toHaveBeenCalled()
+    expect(consumer.quit).toHaveBeenCalledOnce()
+  })
+})

@@ -91,10 +91,15 @@ describe('formatRelative', () => {
 
 describe('groupConversations', () => {
   it('buckets by last activity and drops empty buckets, preserving order', () => {
-    const now = Date.now()
-    const today = new Date(now - 60_000).toISOString()
-    const yesterday = new Date(now - 30 * 3_600_000).toISOString()
-    const older = new Date(now - 60 * 86_400_000).toISOString()
+    // Calendar-based fixtures: fixed-hour offsets straddle day boundaries around midnight and
+    // make the buckets flake, so today is now and yesterday is the same clock time one
+    // calendar day back.
+    const now = new Date()
+    const today = now.toISOString()
+    const yesterdayDate = new Date(now)
+    yesterdayDate.setDate(yesterdayDate.getDate() - 1)
+    const yesterday = yesterdayDate.toISOString()
+    const older = new Date(now.getTime() - 60 * 86_400_000).toISOString()
     const groups = groupConversations([
       conversation('a', today),
       conversation('b', today),

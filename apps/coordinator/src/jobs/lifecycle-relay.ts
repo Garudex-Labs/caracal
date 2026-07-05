@@ -8,6 +8,7 @@ import type { Redis } from 'ioredis'
 import { STREAM_SIG_FIELD, type StreamValue, signStream } from '@caracalai/core'
 import { isPublished, loadStreamsHmacKey } from '@caracalai/server-core'
 import { type JobHandle, makeIntervalJob } from './job.js'
+import { closeRedis } from '../redis.js'
 import { cfg } from '../config.js'
 
 export const LIFECYCLE_STREAM = 'caracal.agents.lifecycle'
@@ -185,7 +186,13 @@ export function startLifecycleRelay(redis: Redis, options: { log?: RelayLogger }
   if (!streamHmacKey) {
     options.log?.warn({}, 'STREAMS_HMAC_KEY not set; lifecycle events will not be origin-verified')
   }
-  const relay = new LifecycleRelay(redis, {
+  // The relay parks its connection in XREADGROUP BLOCK for up to blockMs, and ioredis
+  // serializes commands per connection, so the relay must never share the app's client: a
+  // parked read would queue every readiness probe and rate-limit INCR behind it for up to a
+  // full block. The relay therefore consumes on its own duplicated connection, closed with
+  // the job on stop.
+  const consumer = redis.duplicate()
+  const relay = new LifecycleRelay(consumer, {
     consumer: cfg.relayConsumerName,
     streamHmacKey,
     requireSignature,
@@ -193,7 +200,7 @@ export function startLifecycleRelay(redis: Redis, options: { log?: RelayLogger }
     claimIdleMs: cfg.relayClaimIdleMs,
     log: options.log,
   })
-  return makeIntervalJob(
+  const job = makeIntervalJob(
     () => relay.pollOnce(),
     cfg.relayIntervalMs,
     (err) => {
@@ -201,4 +208,10 @@ export function startLifecycleRelay(redis: Redis, options: { log?: RelayLogger }
       options.log?.error({ err }, 'lifecycle_relay_failed')
     },
   )
+  return {
+    stop: async () => {
+      await job.stop()
+      await closeRedis(consumer)
+    },
+  }
 }
