@@ -4,6 +4,7 @@
 // Unit tests for the web console launcher's stack-readiness preflight.
 
 import { dirname, resolve } from 'node:path'
+import { PassThrough } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -154,5 +155,172 @@ describe('webCommand stack preflight', () => {
     expect(exit).not.toHaveBeenCalled()
     expect(fetchMock).not.toHaveBeenCalled()
     expect(spawnMock).toHaveBeenCalled()
+  })
+
+  it('prints usage and exits for help and for unknown options', async () => {
+    await expect(webCommand(['--help'])).rejects.toThrow('exit:0')
+    expect(output()).toContain('Usage:')
+    expect(output()).toContain('--allow-offline')
+
+    stdout.mockClear()
+    stderr.mockClear()
+    await expect(webCommand(['--frobnicate'])).rejects.toThrow('exit:0')
+    expect(output()).toContain("unknown option '--frobnicate'")
+  })
+
+  it('rejects non-positive or non-numeric ports', async () => {
+    await expect(webCommand(['--web-port', '0'])).rejects.toThrow('exit:0')
+    expect(output()).toContain('--web-port must be a positive integer')
+
+    stdout.mockClear()
+    stderr.mockClear()
+    await expect(webCommand(['--auth-port=console'])).rejects.toThrow('exit:0')
+    expect(output()).toContain('--auth-port must be a positive integer')
+  })
+
+  it('wires custom ports through the vite args and backend env without touching the packaged container', async () => {
+    fetchMock.mockResolvedValue({ ok: true } as Response)
+
+    await webCommand(['--web-port=4101', '--auth-port', '4102'])
+
+    const viteSpawn = spawnMock.mock.calls.find((call) => (call[1] as string[]).includes('vite'))
+    expect(viteSpawn).toBeDefined()
+    expect(viteSpawn![1]).toContain('4101')
+    const backendSpawn = spawnMock.mock.calls.find((call) => (call[1] as string[]).includes('apps/auth'))
+    expect(backendSpawn).toBeDefined()
+    expect((backendSpawn![2] as { env: NodeJS.ProcessEnv }).env.CARACAL_AUTH_PORT).toBe('4102')
+    expect((backendSpawn![2] as { env: NodeJS.ProcessEnv }).env.CARACAL_WEB_ORIGIN).toBe('http://localhost:4101')
+    // A custom web port leaves the packaged console container alone.
+    const stopped = spawnSyncMock.mock.calls.find((call) => call[0] === 'docker' && (call[1] as string[])[0] === 'stop')
+    expect(stopped).toBeUndefined()
+    expect(output()).toContain('http://localhost:4101')
+  })
+
+  it('builds both apps first and serves the production build with --build', async () => {
+    fetchMock.mockResolvedValue({ ok: true } as Response)
+
+    await webCommand(['--build'])
+
+    const builds = spawnSyncMock.mock.calls.filter((call) => Array.isArray(call[1]) && (call[1] as string[]).includes('build'))
+    expect(builds.some((call) => (call[1] as string[]).includes('apps/web'))).toBe(true)
+    expect(builds.some((call) => (call[1] as string[]).includes('apps/auth'))).toBe(true)
+    const viteSpawn = spawnMock.mock.calls.find((call) => (call[1] as string[]).includes('vite'))
+    expect(viteSpawn![1]).toContain('preview')
+    expect(output()).toContain('production build')
+  })
+
+  it('stops with the build exit code when the web UI build fails', async () => {
+    fetchMock.mockResolvedValue({ ok: true } as Response)
+    spawnSyncMock.mockImplementation((cmd: string, args: string[]) => {
+      if (Array.isArray(args) && args.includes('build') && args.includes('apps/web')) {
+        return { status: 2, stdout: '' }
+      }
+      if (cmd === 'docker' && Array.isArray(args) && args.includes('ps')) {
+        return { status: 0, stdout: '\n' }
+      }
+      return { status: 0, stdout: '/usr/bin/pnpm\n' }
+    })
+
+    await expect(webCommand(['--build'])).rejects.toThrow('exit:2')
+    expect(output()).toContain('production build failed')
+    expect(spawnMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('webCommand log aggregation', () => {
+  let stdout: ReturnType<typeof vi.spyOn>
+  let stderr: ReturnType<typeof vi.spyOn>
+  let children: Array<{ tagStreams: PassThrough[]; args: string[] }>
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    process.env = { ...ORIG_ENV, CARACAL_REPO_ROOT: REPO_ROOT, npm_execpath: 'pnpm.cjs' }
+    stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+    stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      throw new Error(`exit:${code}`)
+    }) as never)
+    children = []
+    spawnMock.mockImplementation((_cmd: string, args: string[]) => {
+      const out = new PassThrough()
+      const err = new PassThrough()
+      children.push({ tagStreams: [out, err], args })
+      return { on: vi.fn(), once: vi.fn(), kill: vi.fn(), stdout: out, stderr: err, exitCode: null, signalCode: null }
+    })
+    spawnSyncMock.mockImplementation((cmd: string, args: string[]) => {
+      if (cmd === 'docker' && Array.isArray(args) && args.includes('ps')) return { status: 0, stdout: '\n' }
+      return { status: 0, stdout: '/usr/bin/pnpm\n' }
+    })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true } as Response))
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+    process.env = { ...ORIG_ENV }
+  })
+
+  function output(): string {
+    return [...stdout.mock.calls, ...stderr.mock.calls].map((c) => String(c[0])).join('')
+  }
+
+  async function writeToBackend(chunks: string[]): Promise<void> {
+    await webCommand([])
+    const backend = children.find((child) => child.args.includes('apps/auth'))
+    expect(backend).toBeDefined()
+    for (const chunk of chunks) backend!.tagStreams[0]!.write(chunk)
+    await new Promise((resolve) => setImmediate(resolve))
+  }
+
+  it('renders structured records as source-tagged compact lines, dropping identity noise', async () => {
+    const record = {
+      level: 'info',
+      time: '2026-07-05T10:00:00.000Z',
+      msg: 'listening',
+      service: 'auth',
+      pid: 1234,
+      port: 3002,
+    }
+    await writeToBackend([JSON.stringify(record) + '\n'])
+    const out = output()
+    expect(out).toContain('listening')
+    expect(out).toContain('port=3002')
+    expect(out).toContain('10:00:00')
+    expect(out).not.toContain('pid=1234')
+    expect(out).toContain('bff')
+  })
+
+  it('scrubs connection-string credentials from every rendered line', async () => {
+    await writeToBackend(['connected to postgres://caracal:supersecret@localhost:5432/caracal\n'])
+    const out = output()
+    expect(out).toContain('postgres://caracal:***@localhost')
+    expect(out).not.toContain('supersecret')
+  })
+
+  it('reassembles records split across stream chunks and passes plain text through verbatim', async () => {
+    const record = JSON.stringify({ level: 'warn', time: '2026-07-05T10:00:01.000Z', msg: 'slow query', durationMs: 1913 })
+    const half = Math.floor(record.length / 2)
+    await writeToBackend([record.slice(0, half), record.slice(half) + '\nplain vite banner\n'])
+    const out = output()
+    expect(out).toContain('slow query')
+    expect(out).toContain('durationMs=1913')
+    expect(out).toContain('plain vite banner')
+  })
+
+  it('renders long field values truncated so one record cannot flood the terminal', async () => {
+    const record = JSON.stringify({ level: 'info', time: '2026-07-05T10:00:02.000Z', msg: 'payload', blob: 'x'.repeat(400) })
+    await writeToBackend([record + '\n'])
+    const out = output()
+    expect(out).toContain('…')
+    expect(out).not.toContain('x'.repeat(400))
+  })
+
+  it('flushes a trailing unterminated line when the stream ends', async () => {
+    await webCommand([])
+    const backend = children.find((child) => child.args.includes('apps/auth'))!
+    backend.tagStreams[0]!.write('final line without newline')
+    backend.tagStreams[0]!.end()
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(output()).toContain('final line without newline')
   })
 })
