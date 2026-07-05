@@ -11,7 +11,7 @@ import { appendAttribution, buildPatchUpdate, patchColumn } from './patch.js'
 import { resolveAttribution, type Attribution } from '../attribution.js'
 import { withTransaction, TxAbort } from '../db.js'
 import { IdParams, parseParams } from './params.js'
-import { appendKeysetCondition, parseListPagination, setNextLink } from './list-pagination.js'
+import { appendKeysetCondition, listPage, parseListPagination } from './list-pagination.js'
 import { assertReservedNamespace, RESERVED_ZONE_SQL, mintZoneId } from '../reserved-namespace.js'
 import { enqueueOutboxBatch, type EnqueueArgs } from '../outbox.js'
 import { STREAM_AGENTS_LIFECYCLE, STREAM_SESSIONS_REVOKE } from '../redis.js'
@@ -368,8 +368,7 @@ export const zonesRoutes: FastifyPluginAsync = async (fastify) => {
        ORDER BY created_at DESC, id DESC LIMIT ${keyset.limitPlaceholder}`,
       keyset.values,
     )
-    setNextLink(req, reply, rows, page.limit)
-    return rows
+    return listPage(rows, page.limit)
   })
 
   fastify.post('/zones', async (req, reply) => {
@@ -460,7 +459,7 @@ export const zonesRoutes: FastifyPluginAsync = async (fastify) => {
 
         const apps = zones[0].dcr_enabled || body.dcr_shutdown ? await liveDcrApplications(client, params.id, true) : []
         if (apps.length > 0 && !body.dcr_shutdown) {
-          throw new TxAbort(reply.code(409).send({ error: 'dcr_shutdown_required', live_dcr_applications: apps.length }))
+          throw new TxAbort(reply.code(409).send({ error: 'dcr_shutdown_required', details: { live_dcr_applications: apps.length } }))
         }
 
         const { rows } = await client.query<ZoneRow>(

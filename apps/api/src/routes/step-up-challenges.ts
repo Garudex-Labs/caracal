@@ -9,7 +9,7 @@ import { z } from 'zod'
 import { v7 as uuidv7 } from 'uuid'
 import { AUDIT_STREAM } from '@caracalai/core'
 import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
-import { appendKeysetCondition, parseListPagination, setNextLink } from './list-pagination.js'
+import { appendKeysetCondition, listPage, parseListPagination } from './list-pagination.js'
 import { withTransaction, TxAbort } from '../db.js'
 import { enqueueOutbox, type ClientLike } from '../outbox.js'
 
@@ -118,8 +118,7 @@ export const stepUpChallengesRoutes: FastifyPluginAsync = async (fastify) => {
        ORDER BY created_at DESC, id DESC LIMIT ${keyset.limitPlaceholder}`,
       keyset.values,
     )
-    setNextLink(req, reply, rows, page.limit)
-    return rows
+    return listPage(rows, page.limit)
   })
 
   fastify.get('/zones/:zoneId/step-up-challenges/:id', async (req, reply) => {
