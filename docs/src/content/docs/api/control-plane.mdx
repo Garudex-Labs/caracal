@@ -21,6 +21,20 @@ Authorization: Bearer <admin token>
 | `403` | `admin_token_zone_mismatch`, `zone_forbidden` | Token is scoped to a different zone. |
 | `403` | `system_zone_read_only` | Write attempted against the reserved system zone. |
 
+## Error Shape
+
+Every non-2xx `/v1` response carries a single JSON envelope:
+
+```json
+{
+  "error": "invalid_body",
+  "error_description": "Request body failed validation",
+  "details": { "issues": [{ "path": ["name"], "message": "Required" }] }
+}
+```
+
+`error` is the stable machine code to branch on. `error_description`, when present, is a human-readable summary of the failure. `details`, when present, carries structured context: for example, the validation issues on `invalid_body`, the failed connectivity check on `provider_check_failed`, or the live dynamic-client count on `dcr_shutdown_required`. See [Error Codes](/reference/errors/) for the shared code catalog.
+
 ## Health and Diagnostics
 
 | Method | Path | Purpose |
@@ -78,7 +92,7 @@ Use `POST /v1/admin-tokens` to mint read-only or zone-scoped tokens for automati
 
 ## Listing and Filters
 
-- List endpoints accept `limit` (default `200`, max `500`) and an opaque `cursor`. Responses include `next_cursor` when more rows exist.
+- List endpoints accept `limit` (default `200`, max `500`) and an opaque `cursor`. Every list response is an envelope of `items` and `next_cursor`; pass `next_cursor` as the next request's `cursor` and stop when it is `null`.
 - `GET /v1/zones/:zoneId/audit` accepts `since`, `until`, `request_id`, `decision`, `event_type`, `application_id`, `agent_session_id`, `session_id`, and `label`.
 - Add `format=csv` to audit and admin-audit lists for exports; use `fields` to select columns.
 
