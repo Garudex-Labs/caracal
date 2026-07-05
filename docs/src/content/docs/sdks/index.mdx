@@ -9,7 +9,7 @@ Use SDKs when you need package-level details after a guide. The [Guides](/guides
 
 | I am building... | Start here | Then read |
 | --- | --- | --- |
-| TypeScript app or agent workflow | [TypeScript SDK](./typescript/) | [OAuth Package](./oauth/), [A2A Transport](./transport-a2a/) |
+| TypeScript app or agent workflow | [TypeScript SDK](./typescript/) | [OAuth Package](./oauth/), [MCP Auth Transport](./transport-mcp/) |
 | Python app, agent, or ASGI service | [Python SDK](./python/) | [ASGI Connector](./connectors/asgi/), [FastMCP Connector](./connectors/fastmcp/), [MCP Auth Transport](./transport-mcp/) |
 | Go service or agent workflow | [Go SDK](./go/) | [Go net/http Connector](./connectors/nethttp/) |
 | Express resource server | [Express Connector](./connectors/express/) | [MCP Auth Transport](./transport-mcp/), [Redis Revocation Store](./connectors/redis/) |
@@ -17,7 +17,7 @@ Use SDKs when you need package-level details after a guide. The [Guides](/guides
 | FastMCP server | [FastMCP Connector](./connectors/fastmcp/) | [MCP Auth Transport](./transport-mcp/) |
 | Custom verification boundary | [Verification Layer Overview](./verification-layer/) | [Identity Package](./identity/), [Revocation Package](./revocation/) |
 | Admin or provisioning automation | [Admin Package](./admin/) | [Use Management API](/api/control-plane/) |
-| Durable token-state storage | [Postgres Token State Backend](./connectors/postgres/) | [Redis Revocation Store](./connectors/redis/) |
+| Shared revocation storage | [Redis Revocation Store](./connectors/redis/) | [Revocation Package](./revocation/) |
 
 ## Package Map
 
@@ -27,14 +27,12 @@ Use SDKs when you need package-level details after a guide. The [Guides](/guides
 | Identity verification | `@caracalai/identity` | `caracalai-identity` | `github.com/garudex-labs/caracal/packages/identity/go` |
 | OAuth token exchange | `@caracalai/oauth` | `caracalai-oauth` | `github.com/garudex-labs/caracal/packages/oauth/go` |
 | Revocation store | `@caracalai/revocation` | `caracalai-revocation` | `github.com/garudex-labs/caracal/packages/revocation/go` |
-| MCP auth transport | `@caracalai/transport-mcp` | `caracalai-transport-mcp` | `github.com/garudex-labs/caracal/packages/transport/mcp/go` |
-| A2A transport | `@caracalai/transport-a2a` | Not published in this repository | Not published in this repository |
-| Express connector | `@caracalai/mcp-express` | Not applicable | Not applicable |
-| FastMCP connector | `@caracalai/mcp-fastmcp` | `caracalai-mcp-fastmcp` | Not applicable |
+| MCP auth transport | `@caracalai/verify` | `caracalai-verify` | `github.com/garudex-labs/caracal/packages/verify/go` |
+| Express connector | `@caracalai/express` | Not applicable | Not applicable |
+| FastMCP connector | `@caracalai/fastmcp` | `caracalai-fastmcp` | Not applicable |
 | ASGI connector | Not applicable | `caracalai-asgi` | Not applicable |
-| net/http connector | Not applicable | Not applicable | `github.com/garudex-labs/caracal/packages/connectors/nethttp/go` |
-| Redis revocation store | `@caracalai/revocation-redis` | `caracalai-revocation-redis` | `github.com/garudex-labs/caracal/packages/connectors/redis/go` |
-| Postgres token state backend | `@caracalai/tokenstate-postgres` | Not published in this repository | Not published in this repository |
+| net/http connector | Not applicable | Not applicable | `github.com/garudex-labs/caracal/packages/adapters/nethttp/go` |
+| Redis revocation store | `@caracalai/revocation-redis` | `caracalai-revocation-redis` | `github.com/garudex-labs/caracal/packages/backends/redis/go` |
 
 ## Runtime Requirements
 

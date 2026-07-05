@@ -8,7 +8,7 @@ Use the Go net/http connector when a Go service should verify Caracal mandates a
 ## Install
 
 ```bash
-go get github.com/garudex-labs/caracal/packages/connectors/nethttp/go
+go get github.com/garudex-labs/caracal/packages/adapters/nethttp/go
 go get github.com/garudex-labs/caracal/packages/revocation/go
 ```
 
@@ -22,9 +22,9 @@ import (
 	"net/http"
 	"time"
 
-	mcpnethttp "github.com/garudex-labs/caracal/packages/connectors/nethttp/go"
+	mcpnethttp "github.com/garudex-labs/caracal/packages/adapters/nethttp/go"
 	revocation "github.com/garudex-labs/caracal/packages/revocation/go"
-	transportmcp "github.com/garudex-labs/caracal/packages/transport/mcp/go"
+	transportmcp "github.com/garudex-labs/caracal/packages/verify/go"
 )
 
 func main() {
