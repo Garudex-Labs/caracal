@@ -9,6 +9,7 @@ import { v7 as uuidv7 } from 'uuid'
 import { withTransaction, TxAbort, type TxClient, type DB } from '../db.js'
 import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
 import { zoneExists } from '../zone-guard.js'
+import { resolveCreatedBy } from '../attribution.js'
 import { appendKeysetCondition, listPage, parseListPagination } from './list-pagination.js'
 import { parseTurnContent, deriveConversationState, type TurnKind, type TurnRecord } from '../operator-state.js'
 import {
@@ -1105,7 +1106,7 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
        INSERT INTO operator_conversations (id, zone_id, number, title, mode, autopilot, created_by)
        VALUES ($1, $2, (SELECT next_number FROM allocated), $3, $4, $5, $6)
        RETURNING ${CONVERSATION_SELECT}`,
-      [id, params.zoneId, parsed.data.title, parsed.data.mode ?? 'agent', parsed.data.autopilot ?? false, req.actor.id],
+      [id, params.zoneId, parsed.data.title, parsed.data.mode ?? 'agent', parsed.data.autopilot ?? false, resolveCreatedBy(req)],
     )
     return reply.code(201).send(rows[0])
   })
@@ -1633,9 +1634,9 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
     // handler executes each command in that zone for the reserved Operator subject. A deployment
     // without a governed identity or control plane has no execution path, so it refuses rather
     // than applying changes as any other authority. There is no admin-actor fallback. The
-    // executing actor rides as the audit attribution so every governed mutation in the
-    // tamper-evident control audit names the human who applied the plan.
-    const governed = resolveControlClient(params.zoneId, req.account?.name ?? req.account?.email ?? req.actor.id, true, req.id)
+    // executing actor's stable identity rides as the audit attribution so every governed mutation
+    // in the tamper-evident control audit carries the profile id of the human who applied the plan.
+    const governed = resolveControlClient(params.zoneId, req.account?.id ?? `admin:${req.actor.id}`, true, req.id)
     if (!governed) {
       return reply.code(409).send({ error: 'governed_execution_unconfigured' })
     }

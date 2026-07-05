@@ -79,9 +79,10 @@ export function registerAdminAuditHook(app: FastifyInstance, opts: AuditPluginOp
     const rls = zoneScoped
       ? { rls_mode: 'zone_scoped', rls_zone_guc: zoneScoped }
       : { rls_mode: 'control_plane_wildcard', rls_zone_guc: '*' }
-    // The verified console profile behind the shared console credential, so every audit
-    // record names the human who performed the change, not just the credential it rode on.
-    const operator = account ? { operator: account.name ?? account.email ?? account.id } : null
+    // The verified console profile behind the shared console credential, recorded by its stable
+    // id so every audit record identifies the human who performed the change even across renames;
+    // the console resolves the id to the profile's current name at render time.
+    const operator = account ? { operator: account.id } : null
     const change = reply.statusCode < 400 ? changeSummary(req.method, req.body) : null
     return withTransaction(opts.db, (client) =>
       insertAdminAuditRecord(
