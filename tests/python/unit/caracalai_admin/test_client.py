@@ -266,5 +266,239 @@ class AdminClientTests(unittest.TestCase):
         )
 
 
+class AdminOperationsTests(unittest.TestCase):
+    def test_grant_list_query_maps_scopes_and_subject_id(self):
+        requests: list[httpx.Request] = []
+        client = make_client([httpx.Response(200, json=[])] * 2, requests)
+
+        client.grants.list(
+            "z1", {"subject_id": "user:richard", "scopes": ["read", "write"]}
+        )
+        client.grants.list("z1", {"user_id": "user:monica", "subject_id": "ignored"})
+
+        self.assertEqual(
+            str(requests[0].url),
+            "http://api/v1/zones/z1/grants?user_id=user%3Arichard&scopes=read%2Cwrite",
+        )
+        self.assertEqual(
+            str(requests[1].url), "http://api/v1/zones/z1/grants?user_id=user%3Amonica"
+        )
+
+    def test_policy_template_get_finds_and_raises_not_found(self):
+        requests: list[httpx.Request] = []
+        templates = [{"id": "tpl-1", "name": "PiperNet baseline"}]
+        client = make_client(
+            [
+                httpx.Response(200, json=templates),
+                httpx.Response(200, json=templates),
+            ],
+            requests,
+        )
+
+        self.assertEqual(client.policy_templates.get("tpl-1"), templates[0])
+        with self.assertRaises(AdminApiError) as caught:
+            client.policy_templates.get("tpl-missing")
+        self.assertEqual(caught.exception.status, 404)
+        self.assertEqual(caught.exception.code, "policy_template_not_found")
+        self.assertEqual(
+            caught.exception.body,
+            {"error": "policy_template_not_found", "id": "tpl-missing"},
+        )
+        self.assertEqual(str(requests[0].url), "http://api/v1/policy-templates")
+
+    def test_row_listing_unwraps_and_validates_rows(self):
+        requests: list[httpx.Request] = []
+        client = make_client(
+            [
+                httpx.Response(200, json={"rows": [{"id": "s1"}], "next_cursor": None}),
+                httpx.Response(200, json={"next_cursor": None}),
+            ],
+            requests,
+        )
+
+        self.assertEqual(
+            client.sessions.list("z1", {"status": "active"}), [{"id": "s1"}]
+        )
+        self.assertEqual(
+            str(requests[0].url), "http://api/v1/zones/z1/sessions?status=active"
+        )
+        with self.assertRaises(RuntimeError) as caught:
+            client.agent_sessions.list("z1")
+        self.assertEqual(str(caught.exception), "agent-sessions response missing rows")
+
+    def test_audit_surface_paths(self):
+        requests: list[httpx.Request] = []
+        client = make_client(
+            [
+                httpx.Response(200, json={"rows": []}),
+                httpx.Response(200, json={"rows": []}),
+                httpx.Response(200, json=[]),
+                httpx.Response(200, json={"request_id": "req-1"}),
+            ],
+            requests,
+        )
+
+        client.audit.list("z1", {"decision": "deny"})
+        client.admin_audit.list("z1")
+        client.audit.by_request("z1", "req-1")
+        client.audit.explain("z1", "req-1")
+
+        self.assertEqual(
+            str(requests[0].url), "http://api/v1/zones/z1/audit?decision=deny"
+        )
+        self.assertEqual(str(requests[1].url), "http://api/v1/zones/z1/admin-audit")
+        self.assertEqual(
+            str(requests[2].url), "http://api/v1/zones/z1/audit/by-request/req-1"
+        )
+        self.assertEqual(
+            str(requests[3].url),
+            "http://api/v1/zones/z1/audit/by-request/req-1/explain",
+        )
+
+    def test_step_up_decisions_send_reason_only_when_present(self):
+        requests: list[httpx.Request] = []
+        client = make_client([httpx.Response(200, json={})] * 2, requests)
+
+        client.step_up_challenges.approve("z1", "ch-1")
+        client.step_up_challenges.reject("z1", "ch-1", reason="policy violation")
+
+        self.assertEqual(
+            str(requests[0].url),
+            "http://api/v1/zones/z1/step-up-challenges/ch-1/approve",
+        )
+        self.assertEqual(json.loads(requests[0].content), {})
+        self.assertEqual(
+            str(requests[1].url),
+            "http://api/v1/zones/z1/step-up-challenges/ch-1/reject",
+        )
+        self.assertEqual(
+            json.loads(requests[1].content), {"reason": "policy violation"}
+        )
+
+    def test_provider_grants_paths(self):
+        requests: list[httpx.Request] = []
+        client = make_client([httpx.Response(200, json={})] * 3, requests)
+
+        client.provider_grants.create("z1", {"user_id": "user:richard"})
+        client.provider_grants.authorize_oauth("z1", {"user_id": "user:richard"})
+        client.provider_grants.revoke("z1", {"user_id": "user:richard"})
+
+        self.assertEqual(str(requests[0].url), "http://api/v1/zones/z1/provider-grants")
+        self.assertEqual(
+            str(requests[1].url),
+            "http://api/v1/zones/z1/provider-grants/oauth/authorize",
+        )
+        self.assertEqual(
+            str(requests[2].url), "http://api/v1/zones/z1/provider-grants/revoke"
+        )
+        self.assertTrue(all(req.method == "POST" for req in requests))
+
+    def test_coordinator_surfaces_use_coordinator_base_and_token(self):
+        requests: list[httpx.Request] = []
+        client = make_client(
+            [
+                httpx.Response(200, json={"items": [{"agent_session_id": "a1"}]}),
+                httpx.Response(200, json={"items": []}),
+                httpx.Response(200, json={"suspended": True}),
+                httpx.Response(204),
+                httpx.Response(200, json={"agent_session_id": "a1"}),
+                httpx.Response(200, json={"items": [], "next_cursor": None}),
+                httpx.Response(200, json={"revoked_edges": 1}),
+            ],
+            requests,
+            coordinator_url="http://coord/",
+            coordinator_token="ct",
+        )
+
+        agents = client.agents.list("z1", {"status": "active"})
+        client.agents.children("z1", "a1")
+        client.agents.suspend("z1", "a1")
+        client.agents.terminate("z1", "a1")
+        client.agents.effective_authority("z1", "a1")
+        client.delegations.active("z1")
+        client.delegations.revoke("z1", "edge-1")
+
+        self.assertEqual(agents, [{"agent_session_id": "a1"}])
+        self.assertEqual(
+            str(requests[0].url), "http://coord/zones/z1/agents?status=active"
+        )
+        self.assertEqual(requests[0].headers["authorization"], "Bearer ct")
+        self.assertEqual(
+            str(requests[1].url), "http://coord/zones/z1/agents/a1/children"
+        )
+        self.assertEqual(
+            (str(requests[2].url), requests[2].method),
+            ("http://coord/zones/z1/agents/a1/suspend", "PATCH"),
+        )
+        self.assertEqual(
+            (str(requests[3].url), requests[3].method),
+            ("http://coord/zones/z1/agents/a1", "DELETE"),
+        )
+        self.assertEqual(
+            str(requests[4].url),
+            "http://coord/zones/z1/agents/a1/effective-authority",
+        )
+        self.assertEqual(
+            str(requests[5].url), "http://coord/zones/z1/delegations/active"
+        )
+        self.assertEqual(
+            (str(requests[6].url), requests[6].method),
+            ("http://coord/zones/z1/delegations/edge-1/revoke", "PATCH"),
+        )
+
+    def test_coordinator_surfaces_require_configuration(self):
+        client = make_client([], [])
+
+        with self.assertRaises(RuntimeError) as caught:
+            client.agents.list("z1")
+        self.assertEqual(str(caught.exception), "coordinator_url_not_configured")
+
+        client = make_client([], [], coordinator_url="http://coord")
+        with self.assertRaises(RuntimeError) as caught:
+            client.delegations.active("z1")
+        self.assertEqual(str(caught.exception), "coordinator_token_not_configured")
+
+    def test_agents_list_validates_items(self):
+        client = make_client(
+            [httpx.Response(200, json={"next_cursor": None})],
+            [],
+            coordinator_url="http://coord",
+            coordinator_token="ct",
+        )
+
+        with self.assertRaises(RuntimeError) as caught:
+            client.agents.list("z1")
+        self.assertEqual(str(caught.exception), "agents response missing items")
+
+    def test_coordinator_errors_carry_target(self):
+        client = make_client(
+            [httpx.Response(404, json={"error": "agent_not_found"})],
+            [],
+            retries=0,
+            coordinator_url="http://coord",
+            coordinator_token="ct",
+        )
+
+        with self.assertRaises(AdminApiError) as caught:
+            client.agents.get("z1", "a1")
+        self.assertEqual(caught.exception.target, "coordinator")
+        self.assertEqual(caught.exception.code, "agent_not_found")
+
+    def test_with_default_headers_merges_over_defaults(self):
+        requests: list[httpx.Request] = []
+        client = make_client(
+            [httpx.Response(200, json=[])],
+            requests,
+            headers={"x-request-id": "base", "x-tenant": "piedpiper"},
+        )
+
+        derived = client.with_default_headers({"x-request-id": "override"})
+        derived.zones.list()
+
+        self.assertEqual(requests[0].headers["x-request-id"], "override")
+        self.assertEqual(requests[0].headers["x-tenant"], "piedpiper")
+        self.assertEqual(requests[0].headers["authorization"], "Bearer t")
+
+
 if __name__ == "__main__":
     unittest.main()

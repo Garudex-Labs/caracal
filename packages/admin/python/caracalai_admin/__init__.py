@@ -21,6 +21,12 @@ from .ensure import (
     ensure_resource,
 )
 from .errors import AdminApiError
+from .identifiers import (
+    is_provider_identifier,
+    is_resource_identifier,
+    provider_identifier,
+    resource_identifier,
+)
 
 __all__ = [
     "GRANT_POLICY_NAME",
@@ -36,4 +42,8 @@ __all__ = [
     "ensure_application",
     "ensure_grants",
     "ensure_resource",
+    "is_provider_identifier",
+    "is_resource_identifier",
+    "provider_identifier",
+    "resource_identifier",
 ]
