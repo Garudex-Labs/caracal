@@ -56,7 +56,7 @@ The packaged console runs the fail-closed production posture: operator registrat
 caracal allowlist add <your email>
 ```
 
-The allowlist is read live by the console, so the change applies immediately. Entries are exact emails or `@domain` suffixes, and the same command manages access later: `caracal allowlist remove <email>` withdraws access while the account's data stays, `lock`/`unlock` suspend and restore sign-in, and `list` shows every entry. A removed or locked entry is cut off on its next console request, not just at its next sign-in.
+The allowlist is read live by the console, so the change applies immediately. Entries are exact emails or `@domain` suffixes, and the same command manages access later: `lock`/`unlock` suspend and restore sign-in with the account kept intact, `remove` ends access and erases the account's sign-in records, and `list` shows every entry. See [Control Console Access](/runtime-console/console-access/) for the full lifecycle and the uniform access-denied page.
 
 An allowlisted email still needs a sign-in method. Add one of the following to `$CARACAL_HOME/caracal.env` (Linux default `~/.local/share/caracal/caracal.env`, macOS `~/Library/Application Support/caracal/caracal.env`, Windows `%LOCALAPPDATA%\caracal\caracal.env`), then rerun `caracal up`:
 

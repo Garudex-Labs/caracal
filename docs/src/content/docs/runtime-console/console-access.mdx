@@ -1,0 +1,56 @@
+---
+title: Control Console Access
+description: Manage who can sign in to the web console with caracal allowlist, and understand when the access-denied page appears.
+pageType: workflow
+---
+
+Console access on a self-hosted deployment is decided on the runtime host with `caracal allowlist`. The console's auth backend reads the allowlist file live, so every change applies on the next request with no restart. This page explains each command, what it does to existing accounts and sessions, and when a person sees the access-denied page.
+
+## Manage the Allowlist
+
+```sh
+caracal allowlist add richard.hendricks@piedpiper.example
+caracal allowlist add @piedpiper.example
+caracal allowlist lock monica.hall@piedpiper.example
+caracal allowlist unlock monica.hall@piedpiper.example
+caracal allowlist remove gavin.belson@hooli.example
+caracal allowlist list
+```
+
+Entries are exact emails or `@domain` suffixes; an exact entry always wins over a domain entry. While the list has active or locked entries, it is the sole authority over who may register and sign in. While it is empty, registration follows the deployment default: open in development, closed in production.
+
+| Command | Effect on access | Effect on the account |
+| --- | --- | --- |
+| `add` | The email may register and sign in. Re-adding a removed email starts a fresh admission. | None; a new person registers through a configured sign-in method. |
+| `lock` | Sign-in and console use are blocked until unlocked. | Sessions are revoked immediately; the account and its data stay intact. |
+| `unlock` | Restores sign-in for a locked entry. | None. |
+| `remove` | Access ends permanently unless re-added. | Sessions are revoked and the account's sign-in records are erased on its next contact. Zone data and audit history remain in the control plane. |
+
+Removal is recorded as an explicit `removed` marker in the allowlist file rather than by deleting the line. Erasure only ever follows that deliberate marker: a missing, empty, or unreadable allowlist file can deny access but can never delete an account.
+
+## When the Access-Denied Page Appears
+
+The console shows one uniform access-denied page for every denial. It appears when:
+
+- An email that has no active allowlist entry attempts to sign in or register, with a password or through Google/GitHub.
+- A signed-in person's entry is locked. The next request from their browser revokes their sessions and lands them on the page, typically within seconds.
+- A signed-in person's entry is removed. The next request revokes their sessions, erases their sign-in records, and lands them on the page.
+
+The page is deliberately identical in all three cases, and the browser receives the same `access_denied` response for each. Whether an email was never admitted, suspended, or removed is visible only to you: the auth service log records the concrete reason (`sign-in denied by allowlist`, `console access denied by allowlist`) with the decision that triggered it.
+
+## Resolve a Denial
+
+1. Run `caracal allowlist list` on the runtime host to see every entry and its status.
+2. For a locked entry, run `caracal allowlist unlock <email>`.
+3. For a missing or removed email you want to admit, run `caracal allowlist add <email>`. A previously removed person registers again from scratch.
+4. If the list is empty and you expected the deployment default to admit sign-ins, check `CARACAL_OPEN_REGISTRATION` and the deployment's `NODE_ENV` posture in [Environment Variables](/operations/env-vars/#web-console-bff).
+
+## Next Step
+
+Configure a sign-in method for admitted emails in [Sign In and Create Your First Zone](/get-started/first-protected-call/#sign-in-and-create-your-first-zone).
+
+## Related Pages
+
+- [Choose the Right Surface](/runtime-console/cli-and-console/)
+- [First-Run Troubleshooting](/get-started/first-run-troubleshooting/)
+- [CLI Exit Codes](/reference/runtime-exit-codes/)
