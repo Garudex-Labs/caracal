@@ -652,6 +652,13 @@ function SetVersionHistory({
                 >
                   {version.manifest_sha256.slice(0, 12)}…
                 </span>
+                {version.created_by ? (
+                  <CreatedBy
+                    name={version.created_by}
+                    coAuthored={version.created_via_operator}
+                    className="text-xs text-muted-foreground"
+                  />
+                ) : null}
                 <span className="text-xs text-muted-foreground">
                   {new Date(version.created_at).toLocaleDateString()}
                 </span>
@@ -1327,6 +1334,13 @@ function VersionRow({
         <span className="flex-1 truncate font-mono text-xs text-muted-foreground">
           {version.content_sha256.slice(0, 16)}…
         </span>
+        {version.created_by ? (
+          <CreatedBy
+            name={version.created_by}
+            coAuthored={version.created_via_operator}
+            className="flex-shrink-0 text-xs text-muted-foreground"
+          />
+        ) : null}
         <span className="flex-shrink-0 text-xs text-muted-foreground">
           {new Date(version.created_at).toLocaleDateString()}
         </span>

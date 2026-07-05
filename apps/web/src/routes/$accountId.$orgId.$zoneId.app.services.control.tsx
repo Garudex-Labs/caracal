@@ -8,6 +8,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { ModulePage } from "@/components/console/ModulePage";
+import { CreatedBy } from "@/components/console/CreatedBy";
 import {
   DetailField,
   DetailGroup,
@@ -625,6 +626,16 @@ function ControlKeyInspector({
           </DetailField>
         ) : null}
         <DetailField label="Created">{new Date(keyRecord.createdAt).toLocaleString()}</DetailField>
+        {keyRecord.createdBy ? (
+          <DetailField label="Created by">
+            <CreatedBy name={keyRecord.createdBy} coAuthored={keyRecord.createdViaOperator} />
+          </DetailField>
+        ) : null}
+        {keyRecord.updatedBy ? (
+          <DetailField label="Updated by">
+            <CreatedBy name={keyRecord.updatedBy} coAuthored={keyRecord.updatedViaOperator} />
+          </DetailField>
+        ) : null}
       </DetailGroup>
 
       <section className="border-t border-border pt-4">

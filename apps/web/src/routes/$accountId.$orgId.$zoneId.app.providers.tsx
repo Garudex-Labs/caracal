@@ -677,6 +677,15 @@ function ProviderConnections({ provider, zoneId }: { provider: Provider; zoneId:
                         {grant.scopes.join(" · ") || "no scopes"}
                       </span>
                     </div>
+                    {grant.created_by ? (
+                      <div className="mt-0.5 text-[11px] text-muted-foreground">
+                        Created by{" "}
+                        <CreatedBy
+                          name={grant.created_by}
+                          coAuthored={grant.created_via_operator}
+                        />
+                      </div>
+                    ) : null}
                   </td>
                   <td className="px-3 py-2 align-top text-right">
                     <Badge tone={grant.status === "active" ? "success" : "muted"}>
