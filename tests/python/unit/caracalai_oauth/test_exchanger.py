@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 # Caracal, a product of Garudex Labs
 #
-# Tests for caracalai.auth client_secret token exchange and caching.
+# Tests for the caracalai_oauth client_secret exchanger and its caching.
 
 import base64
 import json
@@ -11,18 +11,16 @@ from unittest.mock import patch
 
 import httpx
 
-from caracalai.auth import (
-    GRANT_TYPE,
+from caracalai_oauth import (
+    AccessDenied,
     ApprovalRequired,
+    CaracalError,
     ClientCredentials,
     ClientSecretExchanger,
-    _decode_jwt_exp,
-)
-from caracalai.errors import (
-    AccessDenied,
-    CaracalError,
     ZoneMismatch,
+    decode_jwt_exp,
 )
+from caracalai_oauth.exchanger import GRANT_TYPE
 
 
 def _jwt(payload: dict) -> str:
@@ -54,24 +52,24 @@ def _patch_client(handler):
     def factory(*args, **kwargs):
         return _RealClient(transport=httpx.MockTransport(handler))
 
-    return patch("caracalai.auth.httpx.Client", factory)
+    return patch("caracalai_oauth.exchanger.httpx.Client", factory)
 
 
 class DecodeJwtExpTests(unittest.TestCase):
     def test_returns_exp_for_valid_token(self):
-        self.assertEqual(_decode_jwt_exp(_jwt({"exp": 1234})), 1234.0)
+        self.assertEqual(decode_jwt_exp(_jwt({"exp": 1234})), 1234.0)
 
     def test_returns_none_for_wrong_segment_count(self):
-        self.assertIsNone(_decode_jwt_exp("a.b"))
+        self.assertIsNone(decode_jwt_exp("a.b"))
 
     def test_returns_none_for_bad_base64(self):
-        self.assertIsNone(_decode_jwt_exp("h.!!!!.s"))
+        self.assertIsNone(decode_jwt_exp("h.!!!!.s"))
 
     def test_returns_none_when_exp_missing(self):
-        self.assertIsNone(_decode_jwt_exp(_jwt({"sub": "x"})))
+        self.assertIsNone(decode_jwt_exp(_jwt({"sub": "x"})))
 
     def test_returns_none_when_exp_not_numeric(self):
-        self.assertIsNone(_decode_jwt_exp(_jwt({"exp": "soon"})))
+        self.assertIsNone(decode_jwt_exp(_jwt({"exp": "soon"})))
 
 
 class ConstructorTests(unittest.TestCase):
@@ -121,7 +119,7 @@ class GetTokenTests(unittest.TestCase):
         with _patch_client(handler):
             ex = _exchanger()
             ex.get_token()
-            with patch("caracalai.auth.time.time", return_value=time.time() + 3590):
+            with patch("caracalai_oauth.exchanger.time.time", return_value=time.time() + 3590):
                 self.assertEqual(ex.get_token(), second)
 
     def test_caches_short_lived_token_within_half_lifetime(self):
@@ -304,7 +302,7 @@ class MintMandateTests(unittest.TestCase):
         with _patch_client(handler):
             ex = _exchanger()
             stale = ex.mint_mandate(resource="urn:res:a", scopes=["s.read"])
-            with patch("caracalai.auth.time.time", return_value=time.time() + 3590):
+            with patch("caracalai_oauth.exchanger.time.time", return_value=time.time() + 3590):
                 fresh = ex.mint_mandate(resource="urn:res:a", scopes=["s.read"])
         self.assertNotEqual(stale, fresh)
 

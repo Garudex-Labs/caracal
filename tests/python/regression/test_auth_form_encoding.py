@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 import httpx
 
-from caracalai.auth import ClientCredentials, ClientSecretExchanger
+from caracalai_oauth import ClientCredentials, ClientSecretExchanger
 
 _RealClient = httpx.Client
 
@@ -41,7 +41,7 @@ class MultiResourceBodyRegression(unittest.TestCase):
         def factory(*args, **kwargs):
             return _RealClient(transport=httpx.MockTransport(handler))
 
-        with patch("caracalai.auth.httpx.Client", factory):
+        with patch("caracalai_oauth.exchanger.httpx.Client", factory):
             exchanger = ClientSecretExchanger(
                 sts_url="https://sts.example.com",
                 credentials=lambda: ClientCredentials(
