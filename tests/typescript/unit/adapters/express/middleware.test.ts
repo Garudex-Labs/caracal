@@ -14,6 +14,11 @@ vi.mock('@caracalai/verify', async () => ({
   authenticate: vi.fn().mockResolvedValue({ ok: false, error: { code: 'invalid_token', description: 'Token validation failed' } }),
   httpStatusForAuthError: (code: string) =>
     ['insufficient_scope', 'agent_required', 'delegation_required', 'chain_mismatch', 'hop_count_exceeded'].includes(code) ? 403 : 401,
+  authErrorBody: (err: { code: string; description: string; hint?: string }) => ({
+    error: err.code,
+    error_description: err.description,
+    ...(err.hint ? { error_hint: err.hint } : {}),
+  }),
   extractBearer: (h: string | undefined) => {
     if (h === undefined || h.slice(0, 6).toLowerCase() !== 'bearer') return null
     const value = h.slice(6)

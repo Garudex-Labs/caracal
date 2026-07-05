@@ -13,6 +13,7 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..')
 const pyProjects = [
   'packages/core/python',
   'packages/identity/python',
+  'packages/oauth/python',
   'packages/revocation/python',
   'packages/sdk/python',
   'packages/verify/python',
