@@ -199,6 +199,27 @@ func TestVerifyRejectsMissingRootSessionID(t *testing.T) {
 	}
 }
 
+func TestVerifyRejectsMalformedDelegationChains(t *testing.T) {
+	cases := map[string]any{
+		"non-array chain":    "not-a-chain",
+		"non-object hop":     []any{"not-a-hop"},
+		"missing app id":     []map[string]any{{"agent_session_id": "s1"}},
+		"empty app id":       []map[string]any{{"application_id": ""}},
+		"non-string session": []map[string]any{{"application_id": "app-parent", "agent_session_id": 7}},
+	}
+	for name, chain := range cases {
+		t.Run(name, func(t *testing.T) {
+			token, issuer, closeServer := mintToken(t, jwt.MapClaims{"delegation_chain": chain})
+			defer closeServer()
+
+			_, err := identity.Verify(token, identity.Config{Issuer: issuer, Audience: "resource://api"})
+			if err != identity.ErrTokenInvalid {
+				t.Fatalf("expected ErrTokenInvalid, got %v", err)
+			}
+		})
+	}
+}
+
 func TestVerifyRejectsMissingSubjectType(t *testing.T) {
 	token, issuer, closeServer := mintToken(t, jwt.MapClaims{"sub_type": ""})
 	defer closeServer()
@@ -348,11 +369,8 @@ func TestVerifyRejectsCompactChainKeys(t *testing.T) {
 		Audience:             "resource://api",
 		RequireChainContains: []string{"app-parent"},
 	})
-	if err == nil {
-		t.Fatal("expected ChainMismatchError: only full-form chain hop keys are supported")
-	}
-	if _, ok := err.(*identity.ChainMismatchError); !ok {
-		t.Fatalf("expected *ChainMismatchError, got %T: %v", err, err)
+	if err != identity.ErrTokenInvalid {
+		t.Fatalf("expected ErrTokenInvalid: only full-form chain hop keys are supported, got %v", err)
 	}
 }
 
