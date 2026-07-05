@@ -335,6 +335,9 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	traceID := traceIDFromTraceparent(upstreamReq.Header.Get("Traceparent"))
+	logger = logger.With().Str("trace_id", traceID).Logger()
+
 	start := time.Now()
 	resp, err := p.client.Do(upstreamReq)
 	latency := time.Since(start)
@@ -345,6 +348,7 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		logger.Error().Err(err).Int("status", status).Msg("upstream request failed")
 		p.emitActionAudit(gatewayAuditInput{
 			RequestID:          requestID,
+			TraceID:            traceID,
 			ZoneID:             bind.ZoneID,
 			ApplicationID:      bind.ApplicationID,
 			Resource:           resource,
@@ -371,6 +375,7 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	p.metrics.RequestsAllowed.Add(1)
 	p.emitActionAudit(gatewayAuditInput{
 		RequestID:          requestID,
+		TraceID:            traceID,
 		ZoneID:             bind.ZoneID,
 		ApplicationID:      bind.ApplicationID,
 		Resource:           resource,
@@ -509,8 +514,11 @@ func buildUpstreamRequest(r *http.Request, upstreamURL *url.URL, caracalToken st
 		req.Header.Set(authHeader, scheme+" "+caracalToken)
 	}
 	req.Header.Set("X-Request-Id", requestID)
-	if req.Header.Get("Traceparent") == "" {
-		req.Header.Set("Traceparent", traceparentFromRequestID(requestID))
+	// The gateway is a trust boundary: a caller-supplied Traceparent is forwarded only
+	// when it is a parseable W3C value, otherwise it is replaced so malformed tracing
+	// context never propagates upstream.
+	if !validTraceparent(req.Header.Get("Traceparent")) {
+		req.Header.Set("Traceparent", newTraceparent())
 	}
 
 	// Replace, never append: the gateway is a trust boundary and any caller-supplied
@@ -736,16 +744,4 @@ func writeErr(w http.ResponseWriter, requestID string, status int, code shareder
 	w.Header().Set("X-Request-Id", requestID)
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(e)
-}
-
-// traceparentFromRequestID builds a W3C traceparent value seeded from the request id
-// so a single trace identifier flows from the gateway through to upstream provider hops.
-func traceparentFromRequestID(requestID string) string {
-	hex := strings.ReplaceAll(requestID, "-", "")
-	for len(hex) < 32 {
-		hex += "0"
-	}
-	traceID := hex[:32]
-	spanID := hex[:16]
-	return "00-" + traceID + "-" + spanID + "-01"
 }
