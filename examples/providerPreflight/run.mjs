@@ -95,7 +95,7 @@ function policyInput(zoneId, applicationId, resource, requestedScopes) {
 
 async function loadSimulation(apiUrl, token, zoneId, resource, applicationId, requestedScopes) {
   const sets = await adminGet(apiUrl, token, `/v1/zones/${zoneId}/policy-sets`)
-  const active = (sets ?? []).find((s) => s.active_version_id)
+  const active = (sets?.items ?? []).find((s) => s.active_version_id)
   if (!active) return undefined
   return adminPost(apiUrl, token, `/v1/zones/${zoneId}/policy-sets/${active.id}/simulate`, {
     version_id: active.active_version_id,

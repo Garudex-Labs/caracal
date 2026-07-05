@@ -122,6 +122,11 @@ spec:
                 secretKeyRef:
                   name: {{ $secretName | quote }}
                   key: caracalCoordinatorToken
+            # First-operator bootstrap invite. The projected volume below is optional, so the
+            # path simply reads as "no invite" until an operator adds the operatorInvite.json
+            # key (minted by `caracal invite`) to the runtime secret.
+            - name: CARACAL_OPERATOR_INVITE_FILE
+              value: /run/caracalBootstrap/operatorInvite.json
             {{- with $service.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -151,10 +156,23 @@ spec:
           {{- end }}
           resources:
             {{- toYaml $service.resources | nindent 12 }}
+          volumeMounts:
+            - name: bootstrap-invite
+              mountPath: /run/caracalBootstrap
+              readOnly: true
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             capabilities:
               drop:
                 - ALL
+      volumes:
+        # Projects only the invite key, so no other runtime secret material reaches this pod.
+        - name: bootstrap-invite
+          secret:
+            secretName: {{ $secretName | quote }}
+            optional: true
+            items:
+              - key: operatorInvite.json
+                path: operatorInvite.json
 {{- end }}

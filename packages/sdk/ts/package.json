@@ -46,7 +46,7 @@
   "scripts": {
     "build": "pnpm --dir ../../oauth/ts build && tsc",
     "typecheck": "pnpm --dir ../../oauth/ts build && tsc --noEmit",
-    "test": "vitest run --root ../../.. tests/typescript/unit/sdk/client.test.ts tests/typescript/unit/sdk/http.test.ts tests/typescript/unit/sdk/context.test.ts tests/typescript/unit/sdk/primitives.test.ts",
+    "test": "vitest run --root ../../.. tests/typescript/unit/sdk",
     "prepublishOnly": "pnpm --dir ../../oauth/ts build && tsc"
   },
   "devDependencies": {
