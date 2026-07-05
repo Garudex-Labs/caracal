@@ -55,15 +55,15 @@ func TestActiveAgentSessionLifecycles(t *testing.T) {
 		session *AgentSession
 		want    bool
 	}{
-		"nil session":             {nil, false},
-		"wrong zone":              {&AgentSession{ZoneID: "other", Status: "active"}, false},
-		"inactive status":         {&AgentSession{ZoneID: "zone1", Status: "revoked"}, false},
-		"service without beat":    {&AgentSession{ZoneID: "zone1", Status: "active", Lifecycle: "service"}, false},
-		"service stale beat":      {&AgentSession{ZoneID: "zone1", Status: "active", Lifecycle: "service", HeartbeatDeadlineAt: &stale}, false},
-		"service live beat":       {&AgentSession{ZoneID: "zone1", Status: "active", Lifecycle: "service", HeartbeatDeadlineAt: &heartbeat}, true},
-		"task without ttl":        {&AgentSession{ZoneID: "zone1", Status: "active", Lifecycle: "task"}, false},
-		"task expired ttl":        {&AgentSession{ZoneID: "zone1", Status: "active", Lifecycle: "task", SpawnedAt: now.Add(-time.Hour), TTLSeconds: 60}, false},
-		"task live ttl":           {&AgentSession{ZoneID: "zone1", Status: "active", Lifecycle: "task", SpawnedAt: now, TTLSeconds: 600}, true},
+		"nil session":          {nil, false},
+		"wrong zone":           {&AgentSession{ZoneID: "other", Status: "active"}, false},
+		"inactive status":      {&AgentSession{ZoneID: "zone1", Status: "revoked"}, false},
+		"service without beat": {&AgentSession{ZoneID: "zone1", Status: "active", Lifecycle: "service"}, false},
+		"service stale beat":   {&AgentSession{ZoneID: "zone1", Status: "active", Lifecycle: "service", HeartbeatDeadlineAt: &stale}, false},
+		"service live beat":    {&AgentSession{ZoneID: "zone1", Status: "active", Lifecycle: "service", HeartbeatDeadlineAt: &heartbeat}, true},
+		"task without ttl":     {&AgentSession{ZoneID: "zone1", Status: "active", Lifecycle: "task"}, false},
+		"task expired ttl":     {&AgentSession{ZoneID: "zone1", Status: "active", Lifecycle: "task", SpawnedAt: now.Add(-time.Hour), TTLSeconds: 60}, false},
+		"task live ttl":        {&AgentSession{ZoneID: "zone1", Status: "active", Lifecycle: "task", SpawnedAt: now, TTLSeconds: 600}, true},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

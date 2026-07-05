@@ -91,12 +91,12 @@ func sessionMandate(t *testing.T, srv *Server, sub, sid, scopes string) string {
 func activeUserSession(sid string) *Session {
 	subject := "user-1"
 	return &Session{
-		ID:        sid,
-		ZoneID:    "zone1",
+		ID:          sid,
+		ZoneID:      "zone1",
 		SessionType: "user",
-		SubjectID: &subject,
-		Status:    "active",
-		ExpiresAt: time.Now().Add(time.Hour),
+		SubjectID:   &subject,
+		Status:      "active",
+		ExpiresAt:   time.Now().Add(time.Hour),
 	}
 }
 

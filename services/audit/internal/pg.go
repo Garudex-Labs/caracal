@@ -55,8 +55,18 @@ func newPool(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 	return pool, nil
 }
 
+// auditPool is the pool surface PGWriter uses; *pgxpool.Pool satisfies it.
+type auditPool interface {
+	BeginTx(ctx context.Context, txOptions pgx.TxOptions) (pgx.Tx, error)
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+	Acquire(ctx context.Context) (*pgxpool.Conn, error)
+	Ping(ctx context.Context) error
+}
+
 type PGWriter struct {
-	db           *pgxpool.Pool
+	db           auditPool
 	auditHMACKey []byte
 	onInsert     func()
 }
