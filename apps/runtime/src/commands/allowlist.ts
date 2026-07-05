@@ -22,63 +22,61 @@ export function allowlistCommand(argv: string[] = []): void {
     printError('no secrets directory is configured for this stack')
     process.exit(1)
   }
+  let code: number
   try {
-    if (sub === 'list') {
-      if (argv.length > 1) {
-        printError('list takes no arguments')
-        process.exit(1)
-      }
-      listEntries(paths.secretsDir)
-      process.exit(0)
-    }
-    const raw = argv[1]
-    if (raw === undefined || argv.length > 2) {
-      printError(`${sub} takes exactly one email address or @domain suffix`)
-      process.exit(1)
-    }
-    mutateEntry(paths.secretsDir, sub, raw)
+    code = sub === 'list' ? listEntries(paths.secretsDir, argv) : mutateEntry(paths.secretsDir, sub, argv)
   } catch (err) {
     printError(err instanceof Error ? err.message : String(err))
-    process.exit(1)
+    code = 1
   }
-  process.exit(0)
+  process.exit(code)
 }
 
-function listEntries(secretsDir: string): void {
+function listEntries(secretsDir: string, argv: string[]): number {
+  if (argv.length > 1) {
+    printError('list takes no arguments')
+    return 1
+  }
   const list = readOperatorAllowlist(secretsDir)
   const rows = Object.entries(list.emails).map(([email, status]) => ({ email, status }))
   if (rows.length === 0) {
     printInfo('the allowlist is empty')
     process.stdout.write(`${style.label('Registration follows the deployment default: open in development, closed in production.')}\n`)
-    return
+    return 0
   }
   printTable(rows, ['email', 'status'])
+  return 0
 }
 
-function mutateEntry(secretsDir: string, sub: string, raw: string): void {
+function mutateEntry(secretsDir: string, sub: string, argv: string[]): number {
+  const raw = argv[1]
+  if (raw === undefined || argv.length > 2) {
+    printError(`${sub} takes exactly one email address or @domain suffix`)
+    return 1
+  }
   if (sub === 'add') {
     const change = allowlistAdd(secretsDir, raw)
     if (change.outcome === 'locked') {
       printError(`'${change.entry}' is on the allowlist but locked: run 'caracal allowlist unlock ${change.entry}' to restore access`)
-      process.exit(1)
+      return 1
     }
     if (change.outcome === 'unchanged') printInfo(`'${change.entry}' is already on the allowlist`)
     else printSuccess(`'${change.entry}' may now register and sign in on the web console`)
-    return
+    return 0
   }
   if (sub === 'remove') {
     const change = allowlistRemove(secretsDir, raw)
     if (change.outcome === 'missing') {
       printError(`'${change.entry}' is not on the allowlist`)
-      process.exit(1)
+      return 1
     }
     printSuccess(`'${change.entry}' removed: registration and sign-in are no longer permitted`)
-    return
+    return 0
   }
   const change = allowlistSetStatus(secretsDir, raw, sub === 'lock' ? 'locked' : 'active')
   if (change.outcome === 'missing') {
     printError(`'${change.entry}' is not on the allowlist`)
-    process.exit(1)
+    return 1
   }
   if (sub === 'lock') {
     if (change.outcome === 'unchanged') printInfo(`'${change.entry}' is already locked`)
@@ -87,14 +85,15 @@ function mutateEntry(secretsDir: string, sub: string, raw: string): void {
     if (change.outcome === 'unchanged') printInfo(`'${change.entry}' is not locked`)
     else printSuccess(`'${change.entry}' unlocked: sign-in is permitted again`)
   }
+  return 0
 }
 
 function allowlistHelp(): never {
   return showHelp([
     'Usage: caracal allowlist <subcommand> [email]',
     '',
-    'Controls which emails may register and sign in on this install\'s web console.',
-    'The console\'s auth backend reads the list live: changes apply on the next',
+    "Controls which emails may register and sign in on this install's web console.",
+    "The console's auth backend reads the list live: changes apply on the next",
     'request, with no restart. Entries are exact emails or @domain suffixes.',
     'While the list is empty, registration follows the deployment default:',
     'open in development, closed in production.',

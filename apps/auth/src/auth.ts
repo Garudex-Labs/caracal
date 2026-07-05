@@ -57,10 +57,9 @@ export const auth = betterAuth({
   emailAndPassword: {
     enabled: true,
     minPasswordLength: 8,
-    // Password sign-up is gated in front of this handler: the BFF's sign-up interceptor either
-    // passes the request through (password sign-up configured on) or demands a valid one-time
-    // invite code before forwarding. Better Auth therefore keeps the endpoint enabled, and the
-    // user-creation hook below stays the email authority for every registration path.
+    // Password sign-up is gated in front of this handler: the BFF closes the sign-up endpoint
+    // outright when password sign-up is configured off. Better Auth therefore keeps the endpoint
+    // enabled, and the user-creation hook below stays the email authority for every registration path.
     disableSignUp: false,
     requireEmailVerification: cfg.requireEmailVerification,
     // A password reset proves control of the mailbox, not possession of every signed-in device.
