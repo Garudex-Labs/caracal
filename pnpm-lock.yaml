@@ -379,6 +379,53 @@ importers:
         specifier: ^19.2.3
         version: 19.2.3(@types/react@19.2.17)
 
+  packages/adapters/express/ts:
+    dependencies:
+      '@caracalai/identity':
+        specifier: 0.1.6-rc.3
+        version: link:../../../identity/ts
+      '@caracalai/sdk':
+        specifier: 0.1.6-rc.3
+        version: link:../../../sdk/ts
+      '@caracalai/verify':
+        specifier: 0.1.6-rc.3
+        version: link:../../../verify/ts
+      express:
+        specifier: ^5.0.0
+        version: 5.2.1
+    devDependencies:
+      '@types/express':
+        specifier: ^5.0.0
+        version: 5.0.6
+      '@types/node':
+        specifier: ^26.0.1
+        version: 26.0.1
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: ^4.1.9
+        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@26.0.1)(@vitest/coverage-v8@4.1.9)(vite@8.0.16(@types/node@26.0.1)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
+
+  packages/adapters/fastmcp/ts:
+    dependencies:
+      '@caracalai/core':
+        specifier: 0.1.6-rc.3
+        version: link:../../../core/ts
+      '@caracalai/verify':
+        specifier: 0.1.6-rc.3
+        version: link:../../../verify/ts
+    devDependencies:
+      '@types/node':
+        specifier: ^26.0.1
+        version: 26.0.1
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: ^4.1.9
+        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@26.0.1)(@vitest/coverage-v8@4.1.9)(vite@8.0.16(@types/node@26.0.1)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
+
   packages/admin/ts:
     dependencies:
       '@caracalai/core':
@@ -408,54 +455,7 @@ importers:
         specifier: ^6.0.3
         version: 6.0.3
 
-  packages/connectors/express/ts:
-    dependencies:
-      '@caracalai/identity':
-        specifier: 0.1.6-rc.3
-        version: link:../../../identity/ts
-      '@caracalai/sdk':
-        specifier: 0.1.6-rc.3
-        version: link:../../../sdk/ts
-      '@caracalai/transport-mcp':
-        specifier: 0.1.6-rc.3
-        version: link:../../../transport/mcp/ts
-      express:
-        specifier: ^5.0.0
-        version: 5.2.1
-    devDependencies:
-      '@types/express':
-        specifier: ^5.0.0
-        version: 5.0.6
-      '@types/node':
-        specifier: ^26.0.1
-        version: 26.0.1
-      typescript:
-        specifier: ^6.0.3
-        version: 6.0.3
-      vitest:
-        specifier: ^4.1.9
-        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@26.0.1)(@vitest/coverage-v8@4.1.9)(vite@8.0.16(@types/node@26.0.1)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
-
-  packages/connectors/fastmcp/ts:
-    dependencies:
-      '@caracalai/core':
-        specifier: 0.1.6-rc.3
-        version: link:../../../core/ts
-      '@caracalai/transport-mcp':
-        specifier: 0.1.6-rc.3
-        version: link:../../../transport/mcp/ts
-    devDependencies:
-      '@types/node':
-        specifier: ^26.0.1
-        version: 26.0.1
-      typescript:
-        specifier: ^6.0.3
-        version: 6.0.3
-      vitest:
-        specifier: ^4.1.9
-        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@26.0.1)(@vitest/coverage-v8@4.1.9)(vite@8.0.16(@types/node@26.0.1)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
-
-  packages/connectors/redis/ts:
+  packages/backends/redis/ts:
     dependencies:
       '@caracalai/core':
         specifier: 0.1.6-rc.3
@@ -590,14 +590,14 @@ importers:
         specifier: ^4.1.9
         version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@26.0.1)(@vitest/coverage-v8@4.1.9)(vite@8.0.16(@types/node@26.0.1)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
 
-  packages/transport/mcp/ts:
+  packages/verify/ts:
     dependencies:
       '@caracalai/identity':
         specifier: 0.1.6-rc.3
-        version: link:../../../identity/ts
+        version: link:../../identity/ts
       '@caracalai/revocation':
         specifier: 0.1.6-rc.3
-        version: link:../../../revocation/ts
+        version: link:../../revocation/ts
     devDependencies:
       '@types/node':
         specifier: ^26.0.1

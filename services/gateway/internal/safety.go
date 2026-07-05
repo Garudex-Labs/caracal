@@ -272,10 +272,7 @@ func nat64Embedded(ip net.IP) net.IP {
 // newRequestID returns a UUIDv4 string used to correlate access logs and STS audits.
 func newRequestID() string {
 	var b [16]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		// rand.Read failures are unrecoverable; fall back to deterministic marker.
-		return "00000000-0000-4000-8000-000000000000"
-	}
+	_, _ = rand.Read(b[:])
 	b[6] = (b[6] & 0x0f) | 0x40
 	b[8] = (b[8] & 0x3f) | 0x80
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:])
@@ -286,12 +283,7 @@ func newRequestID() string {
 // allowed to be human-friendly opaque strings rather than lowercase hex.
 func newTraceparent() string {
 	var ids [24]byte
-	if _, err := rand.Read(ids[:]); err != nil {
-		// Fall back to hash-derived bytes so trace propagation stays valid even if
-		// randomness is temporarily unavailable.
-		sum := sha256.Sum256([]byte(newRequestID()))
-		copy(ids[:], sum[:24])
-	}
+	_, _ = rand.Read(ids[:])
 	if zeroBytes(ids[:16]) {
 		ids[0] = 1
 	}
