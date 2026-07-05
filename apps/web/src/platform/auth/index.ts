@@ -38,7 +38,6 @@ export interface EnabledProviders {
   google: boolean;
   github: boolean;
   passwordReset: boolean;
-  bootstrapInvite?: boolean;
 }
 
 export class AuthApiError extends Error {
@@ -61,35 +60,6 @@ export async function fetchEnabledProviders(): Promise<EnabledProviders> {
   } catch {
     return { email: true, google: false, github: false, passwordReset: false };
   }
-}
-
-export async function signUpFirstOperator(input: {
-  name: string;
-  email: string;
-  password: string;
-  inviteCode: string;
-}): Promise<void> {
-  const response = await fetch(`${config.authBaseUrl}/api/auth/sign-up/email`, {
-    method: "POST",
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      name: input.name,
-      email: input.email,
-      password: input.password,
-      invite_code: input.inviteCode,
-    }),
-  });
-  if (response.ok) return;
-  let code = response.statusText || "request_failed";
-  try {
-    const body = (await response.json()) as { error?: unknown; message?: unknown };
-    if (typeof body.error === "string") code = body.error;
-    else if (typeof body.message === "string") code = body.message;
-  } catch {
-    code = response.statusText || "request_failed";
-  }
-  throw new AuthApiError(response.status, code);
 }
 
 export async function deleteAccount(confirmEmail: string): Promise<void> {

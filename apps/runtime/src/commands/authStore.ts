@@ -7,6 +7,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { randomBytes } from 'node:crypto'
 import { join } from 'node:path'
 import { devSecretsHome } from '@caracalai/server-core'
+import { OPERATOR_ALLOWLIST_DIR, OPERATOR_ALLOWLIST_FILE } from '@caracalai/engine'
 
 // The auth service keeps operator identity in its own dedicated database, isolated from the
 // control-plane schema so neither side's migrations or table names can collide.
@@ -44,6 +45,12 @@ function devUrl(dbName: string): string | undefined {
 // The auth service database URL for a local `caracal web` session.
 export function devAuthDatabaseUrl(): string | undefined {
   return devUrl(AUTH_DATABASE_NAME)
+}
+
+// The Console sign-in allowlist a local `caracal web` session enforces, defaulting to the
+// same file `caracal allowlist` writes so host-side admission changes apply without wiring.
+export function devAllowlistFile(): string {
+  return join(devSecretsHome(), OPERATOR_ALLOWLIST_DIR, OPERATOR_ALLOWLIST_FILE)
 }
 
 // Returns the auth database name, derived from an explicitly configured URL when present so
