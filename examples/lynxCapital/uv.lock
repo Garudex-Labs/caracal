@@ -101,16 +101,16 @@ wheels = [
 ]
 
 [[package]]
-name = "caracalai-mcp-fastmcp"
+name = "caracalai-fastmcp"
 version = "0.1.6rc2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "caracalai-revocation" },
-    { name = "caracalai-transport-mcp" },
+    { name = "caracalai-verify" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/15/f0/2bf4df42739205ea2ccbe86a110af250bddd6a9d7a57725c1932f1b13392/caracalai_mcp_fastmcp-0.1.6rc2.tar.gz", hash = "sha256:a040fa84de3d15f48a839a0e51884317e41baffad06e5332b77e675e2e7c5474", size = 6527, upload-time = "2026-06-25T17:07:42.307Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/15/f0/2bf4df42739205ea2ccbe86a110af250bddd6a9d7a57725c1932f1b13392/caracalai_fastmcp-0.1.6rc2.tar.gz", hash = "sha256:a040fa84de3d15f48a839a0e51884317e41baffad06e5332b77e675e2e7c5474", size = 6527, upload-time = "2026-06-25T17:07:42.307Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/8b/90/214cd0144e7649fb72edd1d1eb87ff36b485bfb428273f8d491d9ad16a8a/caracalai_mcp_fastmcp-0.1.6rc2-py3-none-any.whl", hash = "sha256:cb658f20579b13c431f85450312fb9edfa0928dfad4d59b234be66776584b9ab", size = 6677, upload-time = "2026-06-25T17:07:41.6Z" },
+    { url = "https://files.pythonhosted.org/packages/8b/90/214cd0144e7649fb72edd1d1eb87ff36b485bfb428273f8d491d9ad16a8a/caracalai_fastmcp-0.1.6rc2-py3-none-any.whl", hash = "sha256:cb658f20579b13c431f85450312fb9edfa0928dfad4d59b234be66776584b9ab", size = 6677, upload-time = "2026-06-25T17:07:41.6Z" },
 ]
 
 [[package]]
@@ -163,16 +163,16 @@ wheels = [
 ]
 
 [[package]]
-name = "caracalai-transport-mcp"
+name = "caracalai-verify"
 version = "0.1.6rc2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "caracalai-identity" },
     { name = "caracalai-revocation" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/53/6d/b712e7f669a9c9f896154730487c6a106baa32dee878f60e4ad01961b258/caracalai_transport_mcp-0.1.6rc2.tar.gz", hash = "sha256:0950fafba80e933e676e56e128fccac7f25675e4617d99e5817e0bbafd0c7a2f", size = 8541, upload-time = "2026-06-25T17:07:41.613Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/53/6d/b712e7f669a9c9f896154730487c6a106baa32dee878f60e4ad01961b258/caracalai_verify-0.1.6rc2.tar.gz", hash = "sha256:0950fafba80e933e676e56e128fccac7f25675e4617d99e5817e0bbafd0c7a2f", size = 8541, upload-time = "2026-06-25T17:07:41.613Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/76/17/44eabc8926699bc3d11cb5689d8824fc78a746c07a6863e2523d273025e4/caracalai_transport_mcp-0.1.6rc2-py3-none-any.whl", hash = "sha256:5d8dba91c7b0cc93ff28b8311a7fc4f8dedb76504f97603d7c48a892312bc9f0", size = 9387, upload-time = "2026-06-25T17:07:40.913Z" },
+    { url = "https://files.pythonhosted.org/packages/76/17/44eabc8926699bc3d11cb5689d8824fc78a746c07a6863e2523d273025e4/caracalai_verify-0.1.6rc2-py3-none-any.whl", hash = "sha256:5d8dba91c7b0cc93ff28b8311a7fc4f8dedb76504f97603d7c48a892312bc9f0", size = 9387, upload-time = "2026-06-25T17:07:40.913Z" },
 ]
 
 [[package]]
@@ -933,12 +933,12 @@ source = { editable = "." }
 dependencies = [
     { name = "caracalai-core" },
     { name = "caracalai-identity" },
-    { name = "caracalai-mcp-fastmcp" },
+    { name = "caracalai-fastmcp" },
     { name = "caracalai-oauth" },
     { name = "caracalai-revocation" },
     { name = "caracalai-revocation-redis" },
     { name = "caracalai-sdk" },
-    { name = "caracalai-transport-mcp" },
+    { name = "caracalai-verify" },
     { name = "deepagents" },
     { name = "fastapi" },
     { name = "grpcio" },
@@ -970,12 +970,12 @@ dev = [
 requires-dist = [
     { name = "caracalai-core", specifier = "==0.1.6rc2" },
     { name = "caracalai-identity", specifier = "==0.1.6rc2" },
-    { name = "caracalai-mcp-fastmcp", specifier = "==0.1.6rc2" },
+    { name = "caracalai-fastmcp", specifier = "==0.1.6rc2" },
     { name = "caracalai-oauth", specifier = "==0.1.6rc2" },
     { name = "caracalai-revocation", specifier = "==0.1.6rc2" },
     { name = "caracalai-revocation-redis", specifier = "==0.1.6rc2" },
     { name = "caracalai-sdk", specifier = "==0.1.6rc2" },
-    { name = "caracalai-transport-mcp", specifier = "==0.1.6rc2" },
+    { name = "caracalai-verify", specifier = "==0.1.6rc2" },
     { name = "deepagents", specifier = ">=0.6" },
     { name = "fastapi", specifier = ">=0.136" },
     { name = "grpcio", specifier = ">=1.80" },
