@@ -28,6 +28,8 @@ import { resolveStsUrl } from '@caracalai/engine/runtime-config'
 import { downstreamHeaders, safeTarget } from './security.ts'
 import { selectProxyCredential, shouldRetryWithFallback } from './proxyCredential.ts'
 import { coordZoneId, resolveZoneAccess, type ZoneProbeResult } from './zoneAccess.ts'
+import { resolveAccess } from './allowlist.ts'
+import { loadConfig } from './config.ts'
 import { logger } from './logger.ts'
 
 export interface ConsoleContext {
@@ -35,6 +37,8 @@ export interface ConsoleContext {
 }
 
 import { auth } from './auth.ts'
+
+const cfg = loadConfig()
 
 const API_PREFIX = '/api/console'
 const COORD_PREFIX = '/api/console/coord'
@@ -817,6 +821,15 @@ export async function handleConsole(req: IncomingMessage, res: ServerResponse, c
   const session = await validateSession(req)
   if (!session) {
     sendJson(res, 401, { error: 'unauthenticated' })
+    return true
+  }
+
+  // The allowlist is re-checked on every proxied request, not just at sign-in, so a lock or
+  // removal on the host cuts a live session off from the control plane within one request
+  // instead of waiting out the session's lifetime.
+  const access = resolveAccess(session.user.email, cfg)
+  if (access !== 'allowed') {
+    sendJson(res, 403, { error: access === 'locked' ? 'account_locked' : 'sign_in_not_permitted' })
     return true
   }
 

@@ -5,7 +5,6 @@
 
 import { resolveFileSecrets } from '@caracalai/server-core'
 
-import { readInvite } from './bootstrapInvite.ts'
 import type { AuthConfig } from './config.ts'
 
 export interface SocialProviderCredentials {
@@ -18,7 +17,6 @@ export interface EnabledProviders {
   google: boolean
   github: boolean
   passwordReset: boolean
-  bootstrapInvite: boolean
 }
 
 // Provider client secrets follow the `_FILE` secret convention like every other credential, so
@@ -47,8 +45,5 @@ export function enabledProviders(cfg: AuthConfig): EnabledProviders {
     // Reset links travel by email, so the capability only exists when a mail transport is
     // configured; the web console hides its reset entry points when this is false.
     passwordReset: cfg.smtpUrl !== null,
-    // True while an unexpired first-operator invite exists on disk, so the sign-in page can
-    // surface the invite-code registration form exactly as long as it can succeed.
-    bootstrapInvite: readInvite(cfg.operatorInviteFile) !== null,
   }
 }
