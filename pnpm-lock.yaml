@@ -455,25 +455,6 @@ importers:
         specifier: ^4.1.9
         version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@26.0.1)(@vitest/coverage-v8@4.1.9)(vite@8.0.16(@types/node@26.0.1)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
 
-  packages/connectors/postgres/ts:
-    dependencies:
-      pg:
-        specifier: ^8.22.0
-        version: 8.22.0
-    devDependencies:
-      '@types/node':
-        specifier: ^26.0.1
-        version: 26.0.1
-      '@types/pg':
-        specifier: ^8.11.10
-        version: 8.20.0
-      typescript:
-        specifier: ^6.0.3
-        version: 6.0.3
-      vitest:
-        specifier: ^4.1.9
-        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@26.0.1)(@vitest/coverage-v8@4.1.9)(vite@8.0.16(@types/node@26.0.1)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
-
   packages/connectors/redis/ts:
     dependencies:
       '@caracalai/core':
@@ -601,25 +582,6 @@ importers:
     devDependencies:
       '@types/node':
         specifier: ^26.0.1
-        version: 26.0.1
-      typescript:
-        specifier: ^6.0.3
-        version: 6.0.3
-      vitest:
-        specifier: ^4.1.9
-        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@26.0.1)(@vitest/coverage-v8@4.1.9)(vite@8.0.16(@types/node@26.0.1)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
-
-  packages/transport/a2a/ts:
-    dependencies:
-      '@caracalai/oauth':
-        specifier: 0.1.6-rc.3
-        version: link:../../../oauth/ts
-      '@caracalai/sdk':
-        specifier: 0.1.6-rc.3
-        version: link:../../../sdk/ts
-    devDependencies:
-      '@types/node':
-        specifier: 26.0.1
         version: 26.0.1
       typescript:
         specifier: ^6.0.3

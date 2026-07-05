@@ -33,7 +33,7 @@ A Gateway-routed protected call usually produces:
 | Authorization event | STS evaluated policy for the app, resource, scopes, agent session state, and delegation context. |
 | Action-result event | Gateway verified and routed the request, then recorded the upstream result. |
 
-If you see authorization events without matching action-result events, check whether the call reached the Gateway. For connector-verified services, confirm the service writes its own result audit after mandate verification.
+If you see authorization events without matching action-result events, check whether the call reached the Gateway. For adapter-verified services, confirm the service writes its own result audit after mandate verification.
 
 ## 3. Trace the Decision
 
