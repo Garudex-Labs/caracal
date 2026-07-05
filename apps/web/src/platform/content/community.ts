@@ -35,14 +35,9 @@ export const communityContent = {
     toSignUp: "New to Caracal? Create an account",
     toSignIn: "Already have an account? Sign in",
     forgot: "Forgot your password?",
-    firstOperatorTitle: "Set up the first operator",
-    firstOperatorSubtitle: "Create the operator account for this self-hosted install.",
-    firstOperatorHint:
-      "Use the bootstrap code printed by `caracal invite <email>` on the runtime host. The code expires in one hour and authorizes only the invited email.",
-    inviteCodeLabel: "Bootstrap code",
-    firstOperatorCta: "Create operator account",
-    toFirstOperator: "First operator of this install? Use your bootstrap code",
-    backToSignIn: "Back to sign in",
-    inviteInvalid: "The bootstrap code is invalid, expired, or does not match this email.",
+    accountLocked:
+      "This account is locked on this install. Ask the install owner to unlock it with `caracal allowlist unlock`.",
+    signInNotPermitted:
+      "This email is not permitted to sign in on this install. Ask the install owner to add it with `caracal allowlist add`.",
   },
 } as const;

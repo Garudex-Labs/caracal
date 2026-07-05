@@ -8,8 +8,8 @@ import type { BetterAuthOptions } from 'better-auth'
 import { APIError } from 'better-auth/api'
 
 import { authDatabase } from './database.ts'
-import { loadConfig, isOperatorAllowed } from './config.ts'
-import { inviteAuthorizes } from './bootstrapInvite.ts'
+import { loadConfig } from './config.ts'
+import { resolveAccess } from './allowlist.ts'
 import { createMailer } from './mailer.ts'
 import { githubCredentials, googleCredentials } from './providers.ts'
 import { logger } from './logger.ts'
@@ -118,11 +118,11 @@ export const auth = betterAuth({
     user: {
       create: {
         before: async (user) => {
-          // A live invite naming this email is an authority grant equal to the allowlist: it was
-          // minted by someone with shell access to the stack host's secrets directory, which
-          // outranks a self-asserted email address. It also admits a provider-verified sign-in
-          // for the invited address, so the first operator may bootstrap through OAuth instead.
-          if (isOperatorAllowed(user.email, cfg) || inviteAuthorizes(user.email, cfg)) return
+          // The allowlist file written by `caracal allowlist` on the stack host is the admission
+          // authority: shell access to the host's secrets directory outranks a self-asserted
+          // email address. A listed address may also register through a provider-verified
+          // Google/GitHub sign-in.
+          if (resolveAccess(user.email, cfg) === 'allowed') return
           logger.warn('registration denied for unlisted operator', { email: user.email })
           throw new APIError('FORBIDDEN', { message: 'registration_not_permitted' })
         },
@@ -133,6 +133,20 @@ export const auth = betterAuth({
           if (guides !== undefined && !isValidGuides(guides)) {
             throw new APIError('BAD_REQUEST', { message: 'invalid_guides' })
           }
+        },
+      },
+    },
+    session: {
+      create: {
+        before: async (session, ctx) => {
+          // Every sign-in method funnels through session creation, including OAuth callbacks, so
+          // re-checking the allowlist here cuts off new sessions for removed or locked entries
+          // the moment the host changes the file. Fails closed when the user cannot be resolved.
+          const user = ctx ? await ctx.context.internalAdapter.findUserById(session.userId) : null
+          const access = user ? resolveAccess(user.email, cfg) : 'denied'
+          if (access === 'allowed') return
+          logger.warn('sign-in denied by allowlist', { userId: session.userId })
+          throw new APIError('FORBIDDEN', { message: access === 'locked' ? 'account_locked' : 'sign_in_not_permitted' })
         },
       },
     },
