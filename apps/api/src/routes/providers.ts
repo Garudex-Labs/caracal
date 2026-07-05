@@ -11,7 +11,7 @@ import { buildPatchUpdate, patchColumn, patchExpression, appendAttribution } fro
 import { resolveAttribution } from '../attribution.js'
 import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
 import { zoneExists } from '../zone-guard.js'
-import { appendKeysetCondition, parseListPagination, setNextLink } from './list-pagination.js'
+import { appendKeysetCondition, listPage, parseListPagination } from './list-pagination.js'
 import { assertReservedNamespace } from '../reserved-namespace.js'
 import { PROVIDER_KINDS, PUBLIC_PROVIDER_CONFIG_KEYS, SECRET_PROVIDER_CONFIG_KEYS } from '../provider-config.js'
 import {
@@ -567,8 +567,7 @@ export const providersRoutes: FastifyPluginAsync = async (fastify) => {
        ORDER BY created_at DESC, id DESC LIMIT ${keyset.limitPlaceholder}`,
       keyset.values,
     )
-    setNextLink(req, reply, rows, page.limit)
-    return rows
+    return listPage(rows, page.limit)
   })
 
   fastify.get('/zones/:zoneId/providers/:id', async (req, reply) => {
@@ -593,12 +592,12 @@ export const providersRoutes: FastifyPluginAsync = async (fastify) => {
     if (!parsed.success) return reply.code(400).send({ error: 'invalid_provider' })
     const body = parsed.data
     const identifierError = providerIdentifierError(body.identifier)
-    if (identifierError) return reply.code(400).send({ error: 'invalid_provider_identifier', message: identifierError })
+    if (identifierError) return reply.code(400).send({ error: 'invalid_provider_identifier', error_description: identifierError })
     let config: ReturnType<typeof splitProviderConfig>
     try {
       config = splitProviderConfig(body.kind, body.config_json, true)
     } catch (err) {
-      return reply.code(400).send({ error: 'invalid_provider_config', message: err instanceof Error ? err.message : String(err) })
+      return reply.code(400).send({ error: 'invalid_provider_config', error_description: err instanceof Error ? err.message : String(err) })
     }
     let connectivityFailedAt: Date | null = null
     if (body.check) {
@@ -610,7 +609,7 @@ export const providersRoutes: FastifyPluginAsync = async (fastify) => {
       }
       const check = await runProviderCheck(body.kind, config.publicConfig, config.secretConfig, req.log)
       if (check.status !== 'ok') {
-        return reply.code(422).send({ error: 'provider_check_failed', check })
+        return reply.code(422).send({ error: 'provider_check_failed', details: { check } })
       }
     } else if (OAUTH_PROVIDER_KINDS.has(body.kind)) {
       connectivityFailedAt = new Date()
@@ -667,7 +666,7 @@ export const providersRoutes: FastifyPluginAsync = async (fastify) => {
     if (!parsed.success) return reply.code(400).send({ error: 'invalid_provider' })
     const body = parsed.data
     const identifierError = providerIdentifierError(body.identifier)
-    if (identifierError) return reply.code(400).send({ error: 'invalid_provider_identifier', message: identifierError })
+    if (identifierError) return reply.code(400).send({ error: 'invalid_provider_identifier', error_description: identifierError })
     const reservedErr = assertReservedNamespace('providerIdentifier', body.identifier, req.actor)
     if (reservedErr) return reply.code(409).send(reservedErr)
 
@@ -695,7 +694,9 @@ export const providersRoutes: FastifyPluginAsync = async (fastify) => {
         }
         sealed = sealSecretConfig(config.secretConfig)
       } catch (err) {
-        return reply.code(400).send({ error: 'invalid_provider_config', message: err instanceof Error ? err.message : String(err) })
+        return reply
+          .code(400)
+          .send({ error: 'invalid_provider_config', error_description: err instanceof Error ? err.message : String(err) })
       }
     }
 

@@ -12,7 +12,7 @@ import { hashClientSecret } from '../hash-secret.js'
 import { buildPatchUpdate, patchColumn } from './patch.js'
 import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
 import { zoneExists } from '../zone-guard.js'
-import { appendKeysetCondition, parseListPagination, setNextLink } from './list-pagination.js'
+import { appendKeysetCondition, listPage, parseListPagination } from './list-pagination.js'
 import { resolveAttribution } from '../attribution.js'
 
 const NAME_MAX_LENGTH = 200
@@ -49,15 +49,15 @@ const UpdateBody = z
 // are kept only where they apply.
 function normalizeBindings(
   bindings: z.infer<typeof WorkloadBinding>[],
-): { bindings: Record<string, unknown>[] } | { error: Record<string, string> } {
+): { bindings: Record<string, unknown>[] } | { error: { error: string; details: { env: string } } } {
   const seen = new Set<string>()
   for (const binding of bindings) {
     try {
       assertCredentialEnvName(binding.env)
     } catch {
-      return { error: { error: 'invalid_credential_env', env: binding.env } }
+      return { error: { error: 'invalid_credential_env', details: { env: binding.env } } }
     }
-    if (seen.has(binding.env)) return { error: { error: 'duplicate_credential_env', env: binding.env } }
+    if (seen.has(binding.env)) return { error: { error: 'duplicate_credential_env', details: { env: binding.env } } }
     seen.add(binding.env)
   }
   return {
@@ -108,8 +108,7 @@ export const workloadsRoutes: FastifyPluginAsync = async (fastify) => {
        ORDER BY created_at DESC, id DESC LIMIT ${keyset.limitPlaceholder}`,
       keyset.values,
     )
-    setNextLink(req, reply, rows, page.limit)
-    return rows
+    return listPage(rows, page.limit)
   })
 
   fastify.get('/zones/:zoneId/workloads/:id', async (req, reply) => {

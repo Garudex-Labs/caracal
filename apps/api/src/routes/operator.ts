@@ -9,7 +9,7 @@ import { v7 as uuidv7 } from 'uuid'
 import { withTransaction, TxAbort, type TxClient, type DB } from '../db.js'
 import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
 import { zoneExists } from '../zone-guard.js'
-import { appendKeysetCondition, parseListPagination, setNextLink } from './list-pagination.js'
+import { appendKeysetCondition, listPage, parseListPagination } from './list-pagination.js'
 import { parseTurnContent, deriveConversationState, type TurnKind, type TurnRecord } from '../operator-state.js'
 import {
   CAPABILITIES,
@@ -1137,8 +1137,7 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
        ORDER BY created_at DESC, id DESC LIMIT ${keyset.limitPlaceholder}`,
       keyset.values,
     )
-    setNextLink(req, reply, rows, page.limit)
-    return rows
+    return listPage(rows, page.limit)
   })
 
   fastify.get('/zones/:zoneId/operator-conversations/:id', async (req, reply) => {
@@ -1256,14 +1255,8 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
        ORDER BY seq ASC LIMIT $4`,
       [params.id, params.zoneId, afterSeq, limit],
     )
-    if (rows.length === limit) {
-      const last = rows[rows.length - 1]
-      const url = new URL(req.url, 'http://internal')
-      url.searchParams.set('after_seq', String(last.seq))
-      url.searchParams.set('limit', String(limit))
-      reply.header('link', `<${url.pathname}${url.search}>; rel="next"`)
-    }
-    return rows
+    const lastTurn = rows[rows.length - 1]
+    return { items: rows, next_cursor: rows.length === limit && lastTurn ? String(lastTurn.seq) : null }
   })
 
   fastify.get('/zones/:zoneId/operator-conversations/:id/context', async (req, reply) => {
