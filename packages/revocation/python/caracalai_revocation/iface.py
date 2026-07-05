@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 
 class RevocationStore(Protocol):
@@ -13,4 +13,15 @@ class RevocationStore(Protocol):
         pass
 
     def mark_revoked(self, sid: str, ttl_ms: int | None = None) -> None:
+        pass
+
+
+@runtime_checkable
+class DelegationEpochStore(Protocol):
+    def current_delegation_epoch(self, zone_id: str) -> int:
+        pass
+
+    def mark_delegation_epoch(
+        self, zone_id: str, epoch: int, ttl_ms: int | None = None
+    ) -> None:
         pass

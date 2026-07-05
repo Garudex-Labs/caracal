@@ -174,6 +174,18 @@ def check_active_authority(
     for anchor in _revocation_anchors(claims):
         if revocations.is_revoked(anchor):
             return auth_error("session_revoked")
+    return _graph_epoch_error(claims, revocations)
+
+
+def _graph_epoch_error(
+    claims: object, revocations: RevocationStore
+) -> AuthError | None:
+    graph_epoch = getattr(claims, "graph_epoch", None)
+    current_epoch = getattr(revocations, "current_delegation_epoch", None)
+    if graph_epoch is None or not callable(current_epoch):
+        return None
+    if current_epoch(getattr(claims, "zone_id", "")) > graph_epoch:
+        return auth_error("delegation_stale")
     return None
 
 
@@ -216,6 +228,8 @@ def default_description(code: ErrorCode) -> str:
         return "Required scope is missing"
     if code == "session_revoked":
         return "Session revoked"
+    if code == "delegation_stale":
+        return "Delegation graph changed"
     if code == "agent_required":
         return "Agent identity required"
     if code == "delegation_required":
@@ -236,6 +250,11 @@ def default_hint(code: ErrorCode) -> str:
         return "Request a mandate that includes every required scope for this route."
     if code == "session_revoked":
         return "Refresh the mandate or start a new authorized session."
+    if code == "delegation_stale":
+        return (
+            "Refresh the mandate so delegated authority is evaluated against "
+            "the latest graph."
+        )
     if code == "agent_required":
         return "Use an agent-issued resource mandate for this endpoint."
     if code == "delegation_required":
