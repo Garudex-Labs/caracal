@@ -34,12 +34,11 @@ export function buildRouteApp(route: FastifyPluginAsync, options: RouteOptions =
   app.decorate('db', db as never)
   app.decorate('redis', redis as never)
   app.decorateRequest('account', null)
-  if (extras.actor !== undefined || extras.account !== undefined) {
-    app.addHook('preHandler', async (req) => {
-      if (extras.actor !== undefined) (req as unknown as { actor: unknown }).actor = extras.actor
-      if (extras.account !== undefined) (req as unknown as { account: unknown }).account = extras.account
-    })
-  }
+  const actor = extras.actor === undefined ? { name: 'test-admin' } : extras.actor
+  app.addHook('preHandler', async (req) => {
+    ;(req as unknown as { actor: unknown }).actor = actor
+    if (extras.account !== undefined) (req as unknown as { account: unknown }).account = extras.account
+  })
   app.register(route, options)
   return { app, db, redis }
 }

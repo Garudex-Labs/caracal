@@ -10,6 +10,7 @@ import {
   ensureActivePolicySet,
   ensureApiKeyProvider,
   ensureApplication,
+  ensureGovernedUpstreams,
   ensureGrants,
   ensureResource,
   type AdminClient,
@@ -495,5 +496,113 @@ describe('ensureGrants', () => {
 
     expect(client.policies.create).toHaveBeenCalledWith(ZONE, expect.objectContaining({ name: 'caracal.sys/operator-bindings' }))
     expect(client.policySets.create).toHaveBeenCalledWith(ZONE, 'caracal.sys/operator-policy')
+  })
+})
+
+describe('ensureGovernedUpstreams', () => {
+  function admin() {
+    return {
+      providers: {
+        list: vi.fn().mockResolvedValue([]),
+        create: vi.fn().mockResolvedValue({ id: 'prov-created' }),
+        patch: vi.fn().mockResolvedValue({}),
+      },
+      resources: {
+        list: vi.fn().mockResolvedValue([]),
+        create: vi.fn().mockImplementation((_zone: string, body: Record<string, unknown>) => Promise.resolve({ id: 'res-created', ...body })),
+        patch: vi.fn().mockResolvedValue({}),
+      },
+      policies: {
+        list: vi.fn().mockResolvedValue([]),
+        create: vi.fn().mockResolvedValue({ id: 'pol-created', version_id: 'ver-created' }),
+        get: vi.fn(),
+        addVersion: vi.fn(),
+      },
+      policySets: {
+        list: vi.fn().mockResolvedValue([]),
+        create: vi.fn().mockResolvedValue({ id: 'set-created', active_version_id: null }),
+        addVersion: vi.fn().mockResolvedValue({ version_id: 'setver-1' }),
+        activate: vi.fn().mockResolvedValue({}),
+      },
+    }
+  }
+
+  const upstream = {
+    provider: {
+      name: 'Hooli PiperNet OIDC',
+      identifier: 'provider://pipernet',
+      publicConfig: { auth_location: 'header' as const, header_name: 'Authorization', auth_scheme: 'Bearer' },
+      apiKey: 'sk-pipernet',
+    },
+    resource: {
+      name: 'PiperNet',
+      identifier: 'resource://pipernet',
+      scopes: ['data:read'],
+      upstream_url: 'https://api.pipernet.example',
+      gateway_application_id: 'app-son-of-anton',
+    },
+    grants: [{ applicationId: 'app-son-of-anton', scopes: ['data:read'] }],
+  }
+
+  it('converges provider, resource, and grants in dependency order', async () => {
+    const client = admin()
+    const results = await ensureGovernedUpstreams(client as unknown as AdminClient, ZONE, { upstreams: [upstream] })
+
+    expect(client.providers.create).toHaveBeenCalledWith(ZONE, {
+      name: 'Hooli PiperNet OIDC',
+      identifier: 'provider://pipernet',
+      kind: 'api_key',
+      config_json: { auth_location: 'header', header_name: 'Authorization', auth_scheme: 'Bearer', api_key: 'sk-pipernet' },
+    })
+    expect(client.resources.create).toHaveBeenCalledWith(ZONE, {
+      name: 'PiperNet',
+      identifier: 'resource://pipernet',
+      scopes: ['data:read', 'agent:lifecycle'],
+      upstream_url: 'https://api.pipernet.example',
+      credential_provider_id: 'prov-created',
+      gateway_application_id: 'app-son-of-anton',
+    })
+    expect(client.policies.create).toHaveBeenCalledWith(ZONE, {
+      name: 'application-grants',
+      content: authorGrantsDocument([
+        { applicationId: 'app-son-of-anton', resourceIdentifier: 'resource://pipernet', scopes: ['data:read'] },
+      ]),
+    })
+    expect(results).toHaveLength(1)
+    expect(results[0].providerId).toBe('prov-created')
+    expect(results[0].resource.identifier).toBe('resource://pipernet')
+  })
+
+  it('fails closed before binding a resource when the provider has no sealed key', async () => {
+    const client = admin()
+    const keyless = { ...upstream, provider: { ...upstream.provider, apiKey: undefined } }
+    await expect(ensureGovernedUpstreams(client as unknown as AdminClient, ZONE, { upstreams: [keyless] })).rejects.toThrow(
+      /no sealed api key/,
+    )
+
+    expect(client.resources.create).not.toHaveBeenCalled()
+    expect(client.policies.create).not.toHaveBeenCalled()
+  })
+
+  it('converges an empty set without materializing artifacts', async () => {
+    const client = admin()
+    const results = await ensureGovernedUpstreams(client as unknown as AdminClient, ZONE, { upstreams: [] })
+
+    expect(results).toEqual([])
+    expect(client.providers.create).not.toHaveBeenCalled()
+    expect(client.resources.create).not.toHaveBeenCalled()
+    expect(client.policies.create).not.toHaveBeenCalled()
+  })
+
+  it('threads caller policy and set names into the grant document', async () => {
+    const client = admin()
+    await ensureGovernedUpstreams(client as unknown as AdminClient, ZONE, {
+      upstreams: [upstream],
+      policyName: 'pied-piper-grants',
+      setName: 'pied-piper-grant-policy',
+    })
+
+    expect(client.policies.create).toHaveBeenCalledWith(ZONE, expect.objectContaining({ name: 'pied-piper-grants' }))
+    expect(client.policySets.create).toHaveBeenCalledWith(ZONE, 'pied-piper-grant-policy')
   })
 })
