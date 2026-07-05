@@ -15,7 +15,7 @@
 - Must keep Go modules listed in `go.work`.
 - Must keep Python packages defined by their own `pyproject.toml`.
 - Must preserve language boundaries and publishable package surfaces.
-- Must route shared primitives through `core`, not ad hoc shared folders.
+- Must route shared SDK primitives through `core` and TypeScript server primitives through `serverCore`, not ad hoc shared folders.
 
 ## Forbidden
 - Must not contain runnable app or service entrypoints.

@@ -119,7 +119,9 @@ class GetTokenTests(unittest.TestCase):
         with _patch_client(handler):
             ex = _exchanger()
             ex.get_token()
-            with patch("caracalai_oauth.exchanger.time.time", return_value=time.time() + 3590):
+            with patch(
+                "caracalai_oauth.exchanger.time.time", return_value=time.time() + 3590
+            ):
                 self.assertEqual(ex.get_token(), second)
 
     def test_caches_short_lived_token_within_half_lifetime(self):
@@ -302,7 +304,9 @@ class MintMandateTests(unittest.TestCase):
         with _patch_client(handler):
             ex = _exchanger()
             stale = ex.mint_mandate(resource="urn:res:a", scopes=["s.read"])
-            with patch("caracalai_oauth.exchanger.time.time", return_value=time.time() + 3590):
+            with patch(
+                "caracalai_oauth.exchanger.time.time", return_value=time.time() + 3590
+            ):
                 fresh = ex.mint_mandate(resource="urn:res:a", scopes=["s.read"])
         self.assertNotEqual(stale, fresh)
 
