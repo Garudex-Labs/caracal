@@ -103,7 +103,7 @@ func assertJSONEqual(t *testing.T, raw string, expected map[string]any) {
 }
 
 func TestSendsBearerTokenAndParsesJSON(t *testing.T) {
-	transport := &scripted{steps: []any{ok(`[{"id":"z1","slug":"demo"}]`)}}
+	transport := &scripted{steps: []any{ok(`{"items":[{"id":"z1","slug":"demo"}],"next_cursor":null}`)}}
 	client := newAdmin(transport, -1)
 
 	zones, err := client.Zones.List(context.Background())
@@ -173,7 +173,7 @@ func TestDeleteExpectsEmptyBody(t *testing.T) {
 }
 
 func TestAdminAPIErrorCarriesParsedBodyAndCode(t *testing.T) {
-	transport := &scripted{steps: []any{respond(http.StatusBadRequest, `{"error":"invalid_input","detail":"bad slug"}`, nil)}}
+	transport := &scripted{steps: []any{respond(http.StatusBadRequest, `{"error":"invalid_input","error_description":"bad slug"}`, nil)}}
 	client := newAdmin(transport, -1)
 
 	_, err := client.Zones.Create(context.Background(), map[string]any{"slug": "!!"})
@@ -185,7 +185,7 @@ func TestAdminAPIErrorCarriesParsedBodyAndCode(t *testing.T) {
 		t.Fatalf("unexpected error %+v", apiErr)
 	}
 	body, ok := apiErr.Body.(map[string]any)
-	if !ok || body["detail"] != "bad slug" {
+	if !ok || body["error_description"] != "bad slug" {
 		t.Fatalf("unexpected body %+v", apiErr.Body)
 	}
 }
@@ -207,7 +207,7 @@ func TestFallsBackToStatusTextWhenNotJSON(t *testing.T) {
 func TestRetriesTransientGETFailures(t *testing.T) {
 	transport := &scripted{steps: []any{
 		respond(http.StatusServiceUnavailable, `{"error":"unavailable"}`, map[string]string{"Retry-After": "0"}),
-		ok(`[{"id":"z1"}]`),
+		ok(`{"items":[{"id":"z1"}],"next_cursor":null}`),
 	}}
 	client := newAdmin(transport, 1)
 
@@ -223,7 +223,7 @@ func TestRetriesTransientGETFailures(t *testing.T) {
 func TestRetriesThrownGETNetworkFailure(t *testing.T) {
 	transport := &scripted{steps: []any{
 		errors.New("connection reset"),
-		ok(`[]`),
+		ok(`{"items":[],"next_cursor":null}`),
 	}}
 	client := newAdmin(transport, 1)
 
@@ -253,7 +253,7 @@ func TestHonoursDateBasedRetryAfter(t *testing.T) {
 	when := time.Now().Add(10 * time.Millisecond).UTC().Format(http.TimeFormat)
 	transport := &scripted{steps: []any{
 		respond(http.StatusTooManyRequests, `{}`, map[string]string{"Retry-After": when}),
-		ok(`[]`),
+		ok(`{"items":[],"next_cursor":null}`),
 	}}
 	client := newAdmin(transport, 1)
 
@@ -268,7 +268,7 @@ func TestHonoursDateBasedRetryAfter(t *testing.T) {
 func TestProvisioningSurfacePathsAndMethods(t *testing.T) {
 	steps := make([]any, 0, 14)
 	for range 14 {
-		steps = append(steps, ok(`{}`))
+		steps = append(steps, ok(`{"items":[],"next_cursor":null}`))
 	}
 	transport := &scripted{steps: steps}
 	client := newAdmin(transport, -1)

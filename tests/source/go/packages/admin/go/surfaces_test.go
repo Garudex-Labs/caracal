@@ -225,7 +225,7 @@ func TestGrantsCRUDPaths(t *testing.T) {
 
 func TestStepUpChallengesListAndGet(t *testing.T) {
 	transport := &scripted{steps: []any{
-		ok(`[{"id":"ch-1","state":"pending"}]`),
+		ok(`{"items":[{"id":"ch-1","state":"pending"}],"next_cursor":null}`),
 		ok(`{"id":"ch-1","state":"pending"}`),
 	}}
 	client := newAdmin(transport, -1)
@@ -296,7 +296,7 @@ func TestCoordinatorGraphSurfacePaths(t *testing.T) {
 }
 
 func TestQueryValuesEncodeAllFilters(t *testing.T) {
-	transport := &scripted{steps: []any{ok(`{"rows":[]}`), ok(`{"items":[]}`), ok(`[]`), ok(`{"rows":[]}`), ok(`{"rows":[]}`)}}
+	transport := &scripted{steps: []any{ok(`{"items":[]}`), ok(`{"items":[]}`), ok(`{"items":[]}`), ok(`{"items":[]}`), ok(`{"items":[]}`)}}
 	client := newCoordinatorAdmin(transport, -1)
 	ctx := context.Background()
 
@@ -361,18 +361,18 @@ func TestQueryValuesEncodeAllFilters(t *testing.T) {
 	}
 }
 
-func TestRowListingsRejectMissingRowsAndItems(t *testing.T) {
+func TestListingsRejectMissingItems(t *testing.T) {
 	transport := &scripted{steps: []any{ok(`{}`), ok(`{}`), ok(`{}`), ok(`{}`)}}
 	client := newCoordinatorAdmin(transport, -1)
 	ctx := context.Background()
 
-	if _, err := client.Sessions.List(ctx, "z1", nil); err == nil || !strings.Contains(err.Error(), "missing rows") {
+	if _, err := client.Sessions.List(ctx, "z1", nil); err == nil || !strings.Contains(err.Error(), "missing items") {
 		t.Fatalf("sessions: %v", err)
 	}
-	if _, err := client.Audit.List(ctx, "z1", nil); err == nil || !strings.Contains(err.Error(), "missing rows") {
+	if _, err := client.Audit.List(ctx, "z1", nil); err == nil || !strings.Contains(err.Error(), "missing items") {
 		t.Fatalf("audit: %v", err)
 	}
-	if _, err := client.AdminAudit.List(ctx, "z1", nil); err == nil || !strings.Contains(err.Error(), "missing rows") {
+	if _, err := client.AdminAudit.List(ctx, "z1", nil); err == nil || !strings.Contains(err.Error(), "missing items") {
 		t.Fatalf("admin audit: %v", err)
 	}
 	if _, err := client.Agents.Children(ctx, "z1", "a1", nil); err == nil || !strings.Contains(err.Error(), "missing items") {
@@ -383,7 +383,7 @@ func TestRowListingsRejectMissingRowsAndItems(t *testing.T) {
 func TestInvalidRetryAfterFallsBackToBackoff(t *testing.T) {
 	transport := &scripted{steps: []any{
 		respond(http.StatusServiceUnavailable, `{"error":"unavailable"}`, map[string]string{"Retry-After": "soon"}),
-		ok(`[]`),
+		ok(`{"items":[],"next_cursor":null}`),
 	}}
 	client := newAdmin(transport, 1)
 	if _, err := client.Zones.List(context.Background()); err != nil {

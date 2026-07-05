@@ -36,7 +36,7 @@ func requestSummary(transport *scripted) []string {
 
 func TestEnsureApplicationCreatesManagedIdentity(t *testing.T) {
 	transport := &scripted{steps: []any{
-		ok(`[]`),
+		ok(`{"items":[],"next_cursor":null}`),
 		ok(`{"id":"app-created","name":"Son of Anton","registration_method":"managed"}`),
 		ok(`{"id":"app-created"}`),
 	}}
@@ -62,7 +62,7 @@ func TestEnsureApplicationCreatesManagedIdentity(t *testing.T) {
 
 func TestEnsureApplicationRejectsDCRIdentity(t *testing.T) {
 	transport := &scripted{steps: []any{
-		ok(`[{"id":"app-1","name":"Son of Anton","registration_method":"dcr"}]`),
+		ok(`{"items":[{"id":"app-1","name":"Son of Anton","registration_method":"dcr"}],"next_cursor":null}`),
 	}}
 	client := newAdmin(transport, -1)
 
@@ -79,7 +79,7 @@ func TestEnsureApplicationRejectsDCRIdentity(t *testing.T) {
 
 func TestEnsureApplicationRejectsExpiringIdentity(t *testing.T) {
 	transport := &scripted{steps: []any{
-		ok(`[{"id":"app-1","name":"Son of Anton","registration_method":"managed","expires_at":"2026-07-01T00:00:00Z"}]`),
+		ok(`{"items":[{"id":"app-1","name":"Son of Anton","registration_method":"managed","expires_at":"2026-07-01T00:00:00Z"}],"next_cursor":null}`),
 	}}
 	client := newAdmin(transport, -1)
 
@@ -93,7 +93,7 @@ func TestEnsureApplicationRejectsExpiringIdentity(t *testing.T) {
 
 func TestEnsureApplicationPatchesDriftedTraitsThenRotates(t *testing.T) {
 	transport := &scripted{steps: []any{
-		ok(`[{"id":"app-1","name":"Son of Anton","registration_method":"managed","traits":["stale"]}]`),
+		ok(`{"items":[{"id":"app-1","name":"Son of Anton","registration_method":"managed","traits":["stale"]}],"next_cursor":null}`),
 		ok(`{"id":"app-1"}`),
 		ok(`{"id":"app-1"}`),
 	}}
@@ -111,7 +111,7 @@ func TestEnsureApplicationPatchesDriftedTraitsThenRotates(t *testing.T) {
 
 func TestEnsureApplicationSkipsTraitPatchWhenConverged(t *testing.T) {
 	transport := &scripted{steps: []any{
-		ok(`[{"id":"app-1","name":"Son of Anton","registration_method":"managed","traits":["ops"]}]`),
+		ok(`{"items":[{"id":"app-1","name":"Son of Anton","registration_method":"managed","traits":["ops"]}],"next_cursor":null}`),
 		ok(`{"id":"app-1"}`),
 	}}
 	client := newAdmin(transport, -1)
@@ -128,7 +128,7 @@ func TestEnsureApplicationSkipsTraitPatchWhenConverged(t *testing.T) {
 }
 
 func TestEnsureAPIKeyProviderAbsentWithoutKeyReturnsEmpty(t *testing.T) {
-	transport := &scripted{steps: []any{ok(`[]`)}}
+	transport := &scripted{steps: []any{ok(`{"items":[],"next_cursor":null}`)}}
 	client := newAdmin(transport, -1)
 
 	id, err := admin.EnsureAPIKeyProvider(context.Background(), client, "z1", admin.APIKeyProviderEnsure{
@@ -144,7 +144,7 @@ func TestEnsureAPIKeyProviderAbsentWithoutKeyReturnsEmpty(t *testing.T) {
 
 func TestEnsureAPIKeyProviderPatchesPlacementWithoutKey(t *testing.T) {
 	transport := &scripted{steps: []any{
-		ok(`[{"id":"prov-1","name":"Hooli OIDC","identifier":"hooli-api-key","kind":"api_key"}]`),
+		ok(`{"items":[{"id":"prov-1","name":"Hooli OIDC","identifier":"hooli-api-key","kind":"api_key"}],"next_cursor":null}`),
 		ok(`{"id":"prov-1"}`),
 	}}
 	client := newAdmin(transport, -1)
@@ -160,7 +160,7 @@ func TestEnsureAPIKeyProviderPatchesPlacementWithoutKey(t *testing.T) {
 
 func TestEnsureAPIKeyProviderCreatesSealedProvider(t *testing.T) {
 	transport := &scripted{steps: []any{
-		ok(`[]`),
+		ok(`{"items":[],"next_cursor":null}`),
 		ok(`{"id":"prov-created"}`),
 	}}
 	client := newAdmin(transport, -1)
@@ -180,7 +180,7 @@ func TestEnsureAPIKeyProviderCreatesSealedProvider(t *testing.T) {
 
 func TestEnsureAPIKeyProviderReSealsExistingProvider(t *testing.T) {
 	transport := &scripted{steps: []any{
-		ok(`[{"id":"prov-1","name":"Hooli OIDC","identifier":"hooli-api-key","kind":"api_key"}]`),
+		ok(`{"items":[{"id":"prov-1","name":"Hooli OIDC","identifier":"hooli-api-key","kind":"api_key"}],"next_cursor":null}`),
 		ok(`{"id":"prov-1"}`),
 	}}
 	client := newAdmin(transport, -1)
@@ -199,7 +199,7 @@ func TestEnsureAPIKeyProviderReSealsExistingProvider(t *testing.T) {
 
 func TestEnsureResourceCreatesWithManagedFields(t *testing.T) {
 	transport := &scripted{steps: []any{
-		ok(`[]`),
+		ok(`{"items":[],"next_cursor":null}`),
 		ok(`{"id":"res-created","identifier":"resource://pipernet"}`),
 	}}
 	client := newAdmin(transport, -1)
@@ -219,7 +219,7 @@ func TestEnsureResourceCreatesWithManagedFields(t *testing.T) {
 
 func TestEnsureResourceLeavesConvergedResourceAlone(t *testing.T) {
 	transport := &scripted{steps: []any{
-		ok(`[{"id":"res-1","identifier":"resource://pipernet","scopes":["data:read"],"upstream_url":"https://api.pipernet.example"}]`),
+		ok(`{"items":[{"id":"res-1","identifier":"resource://pipernet","scopes":["data:read"],"upstream_url":"https://api.pipernet.example"}],"next_cursor":null}`),
 	}}
 	client := newAdmin(transport, -1)
 
@@ -237,7 +237,7 @@ func TestEnsureResourceLeavesConvergedResourceAlone(t *testing.T) {
 
 func TestEnsureResourcePatchesOnlyManagedFieldsOnDrift(t *testing.T) {
 	transport := &scripted{steps: []any{
-		ok(`[{"id":"res-1","identifier":"resource://pipernet","scopes":["data:read"],"upstream_url":"https://stale.pipernet.example","gateway_application_id":"app-unmanaged"}]`),
+		ok(`{"items":[{"id":"res-1","identifier":"resource://pipernet","scopes":["data:read"],"upstream_url":"https://stale.pipernet.example","gateway_application_id":"app-unmanaged"}],"next_cursor":null}`),
 		ok(`{"id":"res-1"}`),
 	}}
 	client := newAdmin(transport, -1)
@@ -255,7 +255,7 @@ func TestEnsureResourcePatchesOnlyManagedFieldsOnDrift(t *testing.T) {
 
 func TestEnsureResourceAddsLifecycleScopeWhenGatewayBound(t *testing.T) {
 	transport := &scripted{steps: []any{
-		ok(`[]`),
+		ok(`{"items":[],"next_cursor":null}`),
 		ok(`{"id":"res-created"}`),
 	}}
 	client := newAdmin(transport, -1)
@@ -275,7 +275,7 @@ func TestEnsureResourceAddsLifecycleScopeWhenGatewayBound(t *testing.T) {
 
 func TestEnsureResourceDoesNotDuplicateDeclaredLifecycleScope(t *testing.T) {
 	transport := &scripted{steps: []any{
-		ok(`[]`),
+		ok(`{"items":[],"next_cursor":null}`),
 		ok(`{"id":"res-created"}`),
 	}}
 	client := newAdmin(transport, -1)
@@ -296,7 +296,7 @@ func TestEnsureResourceDoesNotDuplicateDeclaredLifecycleScope(t *testing.T) {
 
 func TestEnsureResourceGatewayBoundConvergedNeedsNoPatch(t *testing.T) {
 	transport := &scripted{steps: []any{
-		ok(`[{"id":"res-1","identifier":"resource://pipernet","scopes":["data:read","agent:lifecycle"],"gateway_application_id":"app-1"}]`),
+		ok(`{"items":[{"id":"res-1","identifier":"resource://pipernet","scopes":["data:read","agent:lifecycle"],"gateway_application_id":"app-1"}],"next_cursor":null}`),
 	}}
 	client := newAdmin(transport, -1)
 
@@ -313,7 +313,7 @@ func TestEnsureResourceGatewayBoundConvergedNeedsNoPatch(t *testing.T) {
 
 func TestEnsureResourceWithoutGatewayAddsNoLifecycleScope(t *testing.T) {
 	transport := &scripted{steps: []any{
-		ok(`[]`),
+		ok(`{"items":[],"next_cursor":null}`),
 		ok(`{"id":"res-created"}`),
 	}}
 	client := newAdmin(transport, -1)
@@ -331,7 +331,7 @@ func TestEnsureResourceWithoutGatewayAddsNoLifecycleScope(t *testing.T) {
 }
 
 func TestEnsureActivePolicySetSuppressedCreationDoesNothing(t *testing.T) {
-	transport := &scripted{steps: []any{ok(`[]`)}}
+	transport := &scripted{steps: []any{ok(`{"items":[],"next_cursor":null}`)}}
 	client := newAdmin(transport, -1)
 
 	if err := admin.EnsureActivePolicySet(context.Background(), client, "z1", admin.ActivePolicySetEnsure{
@@ -346,9 +346,9 @@ func TestEnsureActivePolicySetSuppressedCreationDoesNothing(t *testing.T) {
 
 func TestEnsureActivePolicySetMaterializesFirstVersion(t *testing.T) {
 	transport := &scripted{steps: []any{
-		ok(`[]`),
+		ok(`{"items":[],"next_cursor":null}`),
 		ok(`{"id":"pol-created","version_id":"ver-created"}`),
-		ok(`[]`),
+		ok(`{"items":[],"next_cursor":null}`),
 		ok(`{"id":"set-created","name":"PiperNet set"}`),
 		ok(`{"version_id":"setver-1"}`),
 		ok(`{}`),
@@ -371,10 +371,10 @@ func TestEnsureActivePolicySetMaterializesFirstVersion(t *testing.T) {
 
 func TestEnsureActivePolicySetAddsVersionOnDigestChange(t *testing.T) {
 	transport := &scripted{steps: []any{
-		ok(`[{"id":"pol-1","name":"application-grants"}]`),
+		ok(`{"items":[{"id":"pol-1","name":"application-grants"}],"next_cursor":null}`),
 		ok(`{"id":"pol-1","name":"application-grants","versions":[{"id":"ver-1","version":1,"content_sha256":"stale"}]}`),
 		ok(`{"version_id":"ver-added"}`),
-		ok(`[{"id":"set-1","name":"PiperNet set","active_version_id":"setver-0"}]`),
+		ok(`{"items":[{"id":"set-1","name":"PiperNet set","active_version_id":"setver-0"}],"next_cursor":null}`),
 		ok(`{"version_id":"setver-1"}`),
 		ok(`{}`),
 	}}
@@ -392,9 +392,9 @@ func TestEnsureActivePolicySetAddsVersionOnDigestChange(t *testing.T) {
 
 func TestEnsureActivePolicySetSteadyStateDoesNothing(t *testing.T) {
 	transport := &scripted{steps: []any{
-		ok(`[{"id":"pol-1","name":"application-grants"}]`),
+		ok(`{"items":[{"id":"pol-1","name":"application-grants"}],"next_cursor":null}`),
 		ok(`{"id":"pol-1","name":"application-grants","versions":[{"id":"ver-2","version":2,"content_sha256":"` + contentSHA(policyContent) + `"}]}`),
-		ok(`[{"id":"set-1","name":"PiperNet set","active_version_id":"setver-1"}]`),
+		ok(`{"items":[{"id":"set-1","name":"PiperNet set","active_version_id":"setver-1"}],"next_cursor":null}`),
 	}}
 	client := newAdmin(transport, -1)
 
@@ -410,9 +410,9 @@ func TestEnsureActivePolicySetSteadyStateDoesNothing(t *testing.T) {
 
 func TestEnsureActivePolicySetSelfHealsInactiveSet(t *testing.T) {
 	transport := &scripted{steps: []any{
-		ok(`[{"id":"pol-1","name":"application-grants"}]`),
+		ok(`{"items":[{"id":"pol-1","name":"application-grants"}],"next_cursor":null}`),
 		ok(`{"id":"pol-1","name":"application-grants","versions":[{"id":"ver-2","version":2,"content_sha256":"` + contentSHA(policyContent) + `"}]}`),
-		ok(`[{"id":"set-1","name":"PiperNet set","active_version_id":null}]`),
+		ok(`{"items":[{"id":"set-1","name":"PiperNet set","active_version_id":null}],"next_cursor":null}`),
 		ok(`{"version_id":"setver-1"}`),
 		ok(`{}`),
 	}}
@@ -505,9 +505,9 @@ func TestAuthorGrantsDocumentRejectsRoleClaimedByTwoApplications(t *testing.T) {
 
 func TestEnsureGrantsConvergesDefaultPolicyAndSet(t *testing.T) {
 	transport := &scripted{steps: []any{
-		ok(`[]`),
+		ok(`{"items":[],"next_cursor":null}`),
 		ok(`{"id":"pol-created","version_id":"ver-created"}`),
-		ok(`[]`),
+		ok(`{"items":[],"next_cursor":null}`),
 		ok(`{"id":"set-created","name":"application-grant-policy"}`),
 		ok(`{"version_id":"setver-1"}`),
 		ok(`{}`),
@@ -532,7 +532,7 @@ func TestEnsureGrantsConvergesDefaultPolicyAndSet(t *testing.T) {
 }
 
 func TestEnsureGrantsWithEmptySetCreatesNothing(t *testing.T) {
-	transport := &scripted{steps: []any{ok(`[]`)}}
+	transport := &scripted{steps: []any{ok(`{"items":[],"next_cursor":null}`)}}
 	client := newAdmin(transport, -1)
 
 	if err := admin.EnsureGrants(context.Background(), client, "z1", admin.GrantsEnsure{}); err != nil {
@@ -545,9 +545,9 @@ func TestEnsureGrantsWithEmptySetCreatesNothing(t *testing.T) {
 
 func TestEnsureGrantsHonoursCallerNames(t *testing.T) {
 	transport := &scripted{steps: []any{
-		ok(`[]`),
+		ok(`{"items":[],"next_cursor":null}`),
 		ok(`{"id":"pol-created","version_id":"ver-created"}`),
-		ok(`[]`),
+		ok(`{"items":[],"next_cursor":null}`),
 		ok(`{"id":"set-created","name":"custom-set"}`),
 		ok(`{"version_id":"setver-1"}`),
 		ok(`{}`),
@@ -599,13 +599,13 @@ func pipernetUpstream(apiKey string) admin.GovernedUpstream {
 
 func TestEnsureGovernedUpstreamsConvergesInDependencyOrder(t *testing.T) {
 	transport := &scripted{steps: []any{
-		ok(`[]`),
+		ok(`{"items":[],"next_cursor":null}`),
 		ok(`{"id":"prov-created"}`),
-		ok(`[]`),
+		ok(`{"items":[],"next_cursor":null}`),
 		ok(`{"id":"res-created","identifier":"resource://pipernet"}`),
-		ok(`[]`),
+		ok(`{"items":[],"next_cursor":null}`),
 		ok(`{"id":"pol-created","version_id":"ver-created"}`),
-		ok(`[]`),
+		ok(`{"items":[],"next_cursor":null}`),
 		ok(`{"id":"set-created","name":"application-grant-policy"}`),
 		ok(`{"version_id":"setver-1"}`),
 		ok(`{}`),
@@ -644,7 +644,7 @@ func TestEnsureGovernedUpstreamsConvergesInDependencyOrder(t *testing.T) {
 }
 
 func TestEnsureGovernedUpstreamsFailsClosedWithoutSealedKey(t *testing.T) {
-	transport := &scripted{steps: []any{ok(`[]`)}}
+	transport := &scripted{steps: []any{ok(`{"items":[],"next_cursor":null}`)}}
 	client := newAdmin(transport, -1)
 
 	_, err := admin.EnsureGovernedUpstreams(context.Background(), client, "z1", admin.GovernedUpstreamsEnsure{
@@ -659,7 +659,7 @@ func TestEnsureGovernedUpstreamsFailsClosedWithoutSealedKey(t *testing.T) {
 }
 
 func TestEnsureGovernedUpstreamsEmptySetCreatesNothing(t *testing.T) {
-	transport := &scripted{steps: []any{ok(`[]`)}}
+	transport := &scripted{steps: []any{ok(`{"items":[],"next_cursor":null}`)}}
 	client := newAdmin(transport, -1)
 
 	results, err := admin.EnsureGovernedUpstreams(context.Background(), client, "z1", admin.GovernedUpstreamsEnsure{})
@@ -676,13 +676,13 @@ func TestEnsureGovernedUpstreamsEmptySetCreatesNothing(t *testing.T) {
 
 func TestEnsureGovernedUpstreamsThreadsCallerNames(t *testing.T) {
 	transport := &scripted{steps: []any{
-		ok(`[]`),
+		ok(`{"items":[],"next_cursor":null}`),
 		ok(`{"id":"prov-created"}`),
-		ok(`[]`),
+		ok(`{"items":[],"next_cursor":null}`),
 		ok(`{"id":"res-created","identifier":"resource://pipernet"}`),
-		ok(`[]`),
+		ok(`{"items":[],"next_cursor":null}`),
 		ok(`{"id":"pol-created","version_id":"ver-created"}`),
-		ok(`[]`),
+		ok(`{"items":[],"next_cursor":null}`),
 		ok(`{"id":"set-created","name":"pied-piper-grant-policy"}`),
 		ok(`{"version_id":"setver-1"}`),
 		ok(`{}`),
