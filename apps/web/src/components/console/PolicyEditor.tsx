@@ -2,14 +2,14 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-This file provides the Rego data-document policy editor with templates, inline validation, and contract preview.
+This file provides the Rego data-document policy editor with templates and inline validation.
 */
 import { useEffect, useRef, useState } from "react";
 
 import { Button, Field, Modal } from "@/components/ui";
 import { cx } from "@/lib/cx";
 import { consoleApi } from "@/platform/api/client";
-import type { PolicyPreview, PolicyTemplate, PolicyValidateResult } from "@/platform/api/types";
+import type { PolicyTemplate } from "@/platform/api/types";
 
 // A valid adopter policy is a Rego DATA document: it supplies data the signed platform
 // decision contract reads, and must never define `result`. This starter mirrors the
@@ -37,10 +37,7 @@ grants := {
 `;
 
 type ValidationState =
-  | { status: "idle" }
-  | { status: "validating" }
-  | { status: "valid"; result: PolicyValidateResult }
-  | { status: "invalid"; message: string };
+  { status: "idle" } | { status: "validating" } | { status: "invalid"; message: string };
 
 export function PolicyEditorModal({
   open,
@@ -113,7 +110,7 @@ export function PolicyEditorModal({
     try {
       const result = await consoleApi.policies.validate(content);
       if (result.valid) {
-        setValidation({ status: "valid", result });
+        setValidation({ status: "idle" });
         return true;
       }
       setValidation({
@@ -163,11 +160,12 @@ export function PolicyEditorModal({
           <Button variant="secondary" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button variant="secondary" onClick={() => void validate()} disabled={busy}>
-            Validate
-          </Button>
-          <Button onClick={() => void submit()} loading={busy} disabled={isCreate && !name.trim()}>
-            {isCreate ? "Validate & create" : "Validate & add version"}
+          <Button
+            onClick={() => void submit()}
+            loading={busy || validation.status === "validating"}
+            disabled={(isCreate && !name.trim()) || validation.status === "invalid"}
+          >
+            {isCreate ? "Create" : "Add version"}
           </Button>
         </>
       }
@@ -248,7 +246,17 @@ export function PolicyEditorModal({
           </p>
         </div>
 
-        <ValidationBanner state={validation} />
+        {validation.status === "invalid" ? (
+          <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+            <Dot className="mt-1 bg-destructive" />
+            <div>
+              <div className="font-medium">Validation failed</div>
+              <div className="mt-0.5 whitespace-pre-wrap break-words text-destructive/80">
+                {validation.message}
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
     </Modal>
   );
@@ -285,73 +293,6 @@ function humanizeRegoError(code: string | undefined): string {
       }
       return code ?? "Invalid Rego.";
   }
-}
-
-function ValidationBanner({ state }: { state: ValidationState }) {
-  if (state.status === "idle") {
-    return (
-      <p className="text-xs text-muted-foreground">
-        Validation checks Rego syntax and the data-document contract before saving.
-      </p>
-    );
-  }
-  if (state.status === "validating") {
-    return <p className="text-xs text-muted-foreground">Validating…</p>;
-  }
-  if (state.status === "valid") {
-    return <ValidPreview result={state.result} />;
-  }
-  return (
-    <div className="flex items-start gap-2 border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-      <Dot className="mt-1 bg-destructive" />
-      <div>
-        <div className="font-medium">Validation failed</div>
-        <div className="mt-0.5 whitespace-pre-wrap break-words text-destructive/80">
-          {state.message}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ValidPreview({ result }: { result: PolicyValidateResult }) {
-  const preview: PolicyPreview | null = result.preview ?? null;
-  return (
-    <div className="flex flex-col gap-2 border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-400">
-      <div className="flex items-start gap-2">
-        <Dot className="mt-1 bg-emerald-500" />
-        <div>
-          <div className="font-medium">Valid data document</div>
-          <div className="mt-0.5 text-emerald-700/80 dark:text-emerald-400/80">
-            Schema {result.schema_version ?? "current"} · package{" "}
-            {preview?.package ?? "caracal.authz"}
-          </div>
-        </div>
-      </div>
-      {preview ? (
-        <dl className="grid grid-cols-[auto,1fr] gap-x-3 gap-y-1 pl-4 text-emerald-700/80 dark:text-emerald-400/80">
-          {preview.rules.length > 0 ? (
-            <>
-              <dt className="font-medium">Data</dt>
-              <dd className="break-words font-mono">{preview.rules.join(", ")}</dd>
-            </>
-          ) : null}
-          {preview.data_referenced.length > 0 ? (
-            <>
-              <dt className="font-medium">Reads</dt>
-              <dd className="break-words font-mono">{preview.data_referenced.join(", ")}</dd>
-            </>
-          ) : null}
-          {preview.inputs_referenced.length > 0 ? (
-            <>
-              <dt className="font-medium">Input</dt>
-              <dd className="break-words font-mono">{preview.inputs_referenced.join(", ")}</dd>
-            </>
-          ) : null}
-        </dl>
-      ) : null}
-    </div>
-  );
 }
 
 function Dot({ className }: { className: string }) {

@@ -51,18 +51,6 @@ const KIND_OPTIONS: { value: ProviderKind; label: string }[] = [
   { value: "none", label: "None" },
 ];
 
-const KIND_SUMMARY: Record<ProviderKind, string> = {
-  caracal_mandate:
-    "Forwards the Caracal mandate directly to the upstream. No upstream credentials.",
-  oauth2_authorization_code:
-    "User-delegated OAuth. Users approve access; tokens are exchanged per user.",
-  oauth2_client_credentials:
-    "Service-to-service OAuth. Caracal exchanges client credentials for tokens.",
-  api_key: "Attaches a static API key in a header or query parameter.",
-  bearer_token: "Forwards a static bearer token to allow-listed upstream hosts.",
-  none: "Placeholder provider. No credential routing.",
-};
-
 type FieldKind = "text" | "secret" | "secret-multiline" | "list" | "params" | "bool" | "select";
 
 interface ProviderField {
@@ -625,10 +613,6 @@ export function ProviderFormModal({
             ))}
           </Select>
         </div>
-
-        <p className="border-l-2 border-border pl-3 text-xs text-muted-foreground">
-          {KIND_SUMMARY[kind]}
-        </p>
 
         {basicFields.map((field) => (
           <ProviderFieldInput

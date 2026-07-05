@@ -519,8 +519,7 @@ function CredentialsSection({ onRotate }: { onRotate: () => void }) {
     <DetailSection title="Credentials">
       <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-3 py-3">
         <p className="min-w-0 text-xs text-muted-foreground">
-          The client secret is shown only once. Rotate to issue a new secret and invalidate the old
-          one immediately.
+          Rotate to issue a new secret and invalidate the old one immediately.
         </p>
         <Button variant="secondary" size="sm" mutating onClick={onRotate} className="flex-shrink-0">
           Rotate secret
@@ -585,10 +584,6 @@ function CreateApplicationModal({
           }}
           autoFocus
         />
-        <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-          Creates a managed identity and reveals its client secret once. The application gains
-          authority only when a policy grants it scopes on a resource.
-        </p>
       </div>
     </Modal>
   );
