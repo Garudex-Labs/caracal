@@ -557,14 +557,14 @@ export async function dispatch(req: DispatchRequest, principal: Principal, ctx: 
   }
 }
 
-// The control-plane detail carried on an AdminApiError body, such as the Rego compile error a
-// policy create is rejected with. It is a validation message, never a secret, so it is safe to
+// The control-plane description carried on an AdminApiError body, such as the Rego compile error
+// a policy create is rejected with. It is a validation message, never a secret, so it is safe to
 // surface to the caller who authored the rejected input.
-function adminErrorDetail(err: AdminApiError): string | undefined {
+function adminErrorDescription(err: AdminApiError): string | undefined {
   const body = err.body
   if (body && typeof body === 'object' && !Array.isArray(body)) {
-    const detail = (body as { detail?: unknown }).detail
-    if (typeof detail === 'string' && detail.length > 0) return detail
+    const description = (body as { error_description?: unknown }).error_description
+    if (typeof description === 'string' && description.length > 0) return description
   }
   return undefined
 }
@@ -575,8 +575,8 @@ function adminErrorDetail(err: AdminApiError): string | undefined {
 // generic upstream error. A 5xx or unknown status stays 'upstream' because the mutation may have
 // applied, so the plan must not be retried.
 function fromAdminError(err: AdminApiError): DispatchError {
-  const detail = adminErrorDetail(err)
-  const message = detail ? `${err.code}: ${detail}` : err.code
+  const description = adminErrorDescription(err)
+  const message = description ? `${err.code}: ${description}` : err.code
   switch (err.status) {
     case 400:
     case 422:
