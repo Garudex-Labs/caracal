@@ -509,7 +509,9 @@ describe('ensureGovernedUpstreams', () => {
       },
       resources: {
         list: vi.fn().mockResolvedValue([]),
-        create: vi.fn().mockImplementation((_zone: string, body: Record<string, unknown>) => Promise.resolve({ id: 'res-created', ...body })),
+        create: vi
+          .fn()
+          .mockImplementation((_zone: string, body: Record<string, unknown>) => Promise.resolve({ id: 'res-created', ...body })),
         patch: vi.fn().mockResolvedValue({}),
       },
       policies: {

@@ -16,13 +16,13 @@ describe('GET /v1/audit-retention', () => {
     const res = await app.inject({ method: 'GET', url: '/v1/audit-retention' })
 
     expect(res.statusCode).toBe(200)
-    expect(JSON.parse(res.body)).toEqual({ retention_days: 365, max_days: 365, updated_at: null })
+    expect(JSON.parse(res.body)).toEqual({ retention_days: 365, max_days: 365, updated_by: null, updated_at: null })
   })
 
   it('returns the stored override clamped to the ceiling', async () => {
     const { app, db } = buildRouteApp(auditRetentionRoutes)
     db.query.mockResolvedValueOnce({
-      rows: [{ retention_days: 90, updated_at: '2026-05-05T00:00:00.000Z' }],
+      rows: [{ retention_days: 90, updated_by: 'Monica Hall', updated_at: '2026-05-05T00:00:00.000Z' }],
     })
 
     await app.ready()
@@ -32,6 +32,7 @@ describe('GET /v1/audit-retention', () => {
     expect(JSON.parse(res.body)).toEqual({
       retention_days: 90,
       max_days: 365,
+      updated_by: 'Monica Hall',
       updated_at: '2026-05-05T00:00:00.000Z',
     })
   })
@@ -41,7 +42,7 @@ describe('PUT /v1/audit-retention', () => {
   it('stores a window within the ceiling', async () => {
     const { app, db } = buildRouteApp(auditRetentionRoutes)
     db.query.mockResolvedValueOnce({
-      rows: [{ retention_days: 30, updated_at: '2026-05-05T00:00:00.000Z' }],
+      rows: [{ retention_days: 30, updated_by: 'test-admin', updated_at: '2026-05-05T00:00:00.000Z' }],
     })
 
     await app.ready()
@@ -55,9 +56,10 @@ describe('PUT /v1/audit-retention', () => {
     expect(JSON.parse(res.body)).toEqual({
       retention_days: 30,
       max_days: 365,
+      updated_by: 'test-admin',
       updated_at: '2026-05-05T00:00:00.000Z',
     })
-    expect(db.query.mock.calls[0][1]).toEqual([30])
+    expect(db.query.mock.calls[0][1]).toEqual([30, 'test-admin'])
   })
 
   it('rejects a window above the ceiling', async () => {
