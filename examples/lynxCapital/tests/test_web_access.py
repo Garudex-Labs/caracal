@@ -372,16 +372,12 @@ def test_provision_scripts_exist_and_build_plan():
     import pytest
 
     with pytest.raises(control_client.ControlError):
-        control_client.config_from_env({})
-    config = control_client.config_from_env(
-        {
-            "CONTROL_CLIENT_ID": "<control-key-client-id>",
-            "CONTROL_CLIENT_SECRET": "<one-time-control-key-secret>",
-        }
-    )
-    assert config.scopes == control_client.SCOPES
-    assert "control:resource:write" in control_client.SCOPES
-    assert "control:policy-set:write" in control_client.SCOPES
+        control_client.client_from_env({})
+    assert control_client.scopes_for("resource", "list") == ["control:resource:read"]
+    assert control_client.scopes_for("policy-set", "activate") == [
+        "control:policy-set:write"
+    ]
+    assert control_client.scopes_for("app", "delete") == ["control:app:delete"]
 
     import base64
 

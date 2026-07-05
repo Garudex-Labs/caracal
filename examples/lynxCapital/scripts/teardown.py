@@ -15,14 +15,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app import tenancy
 from control_client import (
-    ControlClient,
-    config_from_env,
+    LynxControl,
+    client_from_env,
     find_by_identifier,
     find_by_name,
 )
 
 
-def remove(client: ControlClient, command: str, item: dict | None, label: str) -> None:
+def remove(client: LynxControl, command: str, item: dict | None, label: str) -> None:
     if not item or not item.get("id"):
         return
     client.invoke(command, "delete", {"id": item["id"]})
@@ -31,7 +31,7 @@ def remove(client: ControlClient, command: str, item: dict | None, label: str) -
 
 def main() -> None:
     model = tenancy.load_model()
-    client = ControlClient(config_from_env())
+    client = client_from_env()
 
     remove(
         client,

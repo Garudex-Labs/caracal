@@ -17,9 +17,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app import tenancy
 from control_client import (
-    ControlClient,
     ControlError,
-    config_from_env,
+    LynxControl,
+    client_from_env,
     find_by_identifier,
     find_by_name,
 )
@@ -107,7 +107,7 @@ def _guard_secret_rotation(
 
 
 def ensure_applications(
-    client: ControlClient, model: tenancy.TenancyModel, zone: str
+    client: LynxControl, model: tenancy.TenancyModel, zone: str
 ) -> dict[str, str]:
     """Create each managed application boundary and persist a working client secret for the
     local workload environment file. New applications capture their one-time secret; existing
@@ -167,7 +167,7 @@ def ensure_applications(
 
 
 def ensure_providers(
-    client: ControlClient, provider_cmds: list[dict]
+    client: LynxControl, provider_cmds: list[dict]
 ) -> dict[str, str]:
     """Register each upstream credential provider, returning a map of provider identifier to
     the control-plane id so resources can bind to it. Existing providers are patched so
@@ -197,7 +197,7 @@ def ensure_providers(
 
 
 def ensure_resources(
-    client: ControlClient,
+    client: LynxControl,
     model: tenancy.TenancyModel,
     provider_ids: dict[str, str],
     application_ids: dict[str, str],
@@ -233,7 +233,7 @@ def ensure_resources(
 
 
 def ensure_policy_set(
-    client: ControlClient, model: tenancy.TenancyModel, application_ids: dict[str, str]
+    client: LynxControl, model: tenancy.TenancyModel, application_ids: dict[str, str]
 ) -> None:
     """Author the policy library with the bindings and grants documents rendered from the
     live application ids and tenancy plan, then version and activate the policy set."""
@@ -320,7 +320,7 @@ def write_outputs(
     print(f"wrote {OUTPUTS_PATH.relative_to(ROOT)}")
 
 
-def _resolve_zone(client: ControlClient) -> str:
+def _resolve_zone(client: LynxControl) -> str:
     """The authoritative zone is the one the Control key is bound to, read from its issued
     token. When the workload environment already declares CARACAL_ZONE_ID, it must match:
     provisioning into one zone while the workload runs against another emits credentials that
@@ -339,7 +339,7 @@ def _resolve_zone(client: ControlClient) -> str:
 
 def main() -> None:
     model = tenancy.load_model()
-    client = ControlClient(config_from_env())
+    client = client_from_env()
     zone = _resolve_zone(client)
     # Render every environment-dependent command before mutating any state. A missing partner
     # configuration raises here, so the run aborts cleanly instead of leaving applications
