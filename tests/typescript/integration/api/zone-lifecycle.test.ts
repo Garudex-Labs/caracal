@@ -66,7 +66,8 @@ describe('Zone lifecycle: create → list includes zone', () => {
     const listRes = await app.inject({ method: 'GET', url: '/v1/zones' })
     expect(listRes.statusCode).toBe(200)
     const zones = JSON.parse(listRes.body)
-    expect(zones.some((z: { id: string }) => z.id === 'z-lifecycle-1')).toBe(true)
+    expect(zones.next_cursor).toBeNull()
+    expect(zones.items.some((z: { id: string }) => z.id === 'z-lifecycle-1')).toBe(true)
   })
 })
 
@@ -125,7 +126,7 @@ describe('Zone list is ordered by creation date', () => {
 
     const res = await app.inject({ method: 'GET', url: '/v1/zones' })
     expect(res.statusCode).toBe(200)
-    const zones = JSON.parse(res.body)
+    const zones = JSON.parse(res.body).items
     expect(zones[0].id).toBe('z-newer')
     expect(zones[1].id).toBe('z-older')
   })

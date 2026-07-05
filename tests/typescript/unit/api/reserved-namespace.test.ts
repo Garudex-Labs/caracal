@@ -90,10 +90,10 @@ describe('assertReservedNamespace', () => {
     expect(assertReservedNamespace('zoneName', '  CARACAL.SYS/x ', zoneActor)).toMatchObject({ error: 'reserved_namespace' })
   })
 
-  it('does not reveal which internal objects exist in the refusal detail', () => {
+  it('does not reveal which internal objects exist in the refusal description', () => {
     const result = assertReservedNamespace('applicationName', 'caracal.sys/operator', zoneActor)
-    expect(result?.detail).not.toContain('operator')
-    expect(result?.detail).toContain('reserved')
+    expect(result?.error_description).not.toContain('operator')
+    expect(result?.error_description).toContain('reserved')
   })
 
   it('does not match unrelated or look-alike values for a tenant', () => {

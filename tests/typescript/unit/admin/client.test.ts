@@ -30,7 +30,7 @@ function fetchErr(status: number, body: unknown): typeof fetch {
 
 describe('AdminClient', () => {
   it('sends Bearer token and parses JSON', async () => {
-    const f = fetchOk([{ id: 'z1', slug: 'demo' }])
+    const f = fetchOk({ items: [{ id: 'z1', slug: 'demo' }], next_cursor: null })
     const c = new AdminClient({ apiUrl: 'http://api', adminToken: 't', fetchImpl: f })
     const out = await c.zones.list()
     expect(out).toEqual([{ id: 'z1', slug: 'demo' }])
@@ -40,7 +40,7 @@ describe('AdminClient', () => {
   })
 
   it('encodes query parameters and skips empty values', async () => {
-    const f = fetchOk({ rows: [], next_cursor: null })
+    const f = fetchOk({ items: [], next_cursor: null })
     const c = new AdminClient({ apiUrl: 'http://api/', adminToken: 't', fetchImpl: f })
     await c.audit.list('z1', { decision: 'deny', limit: 50, since: undefined })
     const [url] = (f as unknown as { mock: { calls: [string][] } }).mock.calls[0]
@@ -48,18 +48,18 @@ describe('AdminClient', () => {
   })
 
   it('unwraps paged audit and session responses', async () => {
-    const f = fetchOk({ rows: [{ id: 'ev1' }], next_cursor: null })
+    const f = fetchOk({ items: [{ id: 'ev1' }], next_cursor: null })
     const c = new AdminClient({ apiUrl: 'http://api', adminToken: 't', fetchImpl: f })
 
     await expect(c.audit.list('z1')).resolves.toEqual([{ id: 'ev1' }])
     await expect(c.sessions.list('z1')).resolves.toEqual([{ id: 'ev1' }])
   })
 
-  it('rejects paged audit and session responses without rows', async () => {
+  it('rejects paged audit and session responses without items', async () => {
     const c = new AdminClient({ apiUrl: 'http://api', adminToken: 't', fetchImpl: fetchOk({ next_cursor: null }) })
 
-    await expect(c.audit.list('z1')).rejects.toThrow(/audit response missing rows/)
-    await expect(c.sessions.list('z1')).rejects.toThrow(/sessions response missing rows/)
+    await expect(c.audit.list('z1')).rejects.toThrow(/audit response missing items/)
+    await expect(c.sessions.list('z1')).rejects.toThrow(/sessions response missing items/)
   })
 
   it('serializes JSON body with Content-Type', async () => {
@@ -100,7 +100,7 @@ describe('AdminClient', () => {
   })
 
   it('throws AdminApiError with parsed body and code', async () => {
-    const f = fetchErr(400, { error: 'invalid_input', detail: 'bad slug' })
+    const f = fetchErr(400, { error: 'invalid_input', error_description: 'bad slug' })
     const c = new AdminClient({ apiUrl: 'http://api', adminToken: 't', fetchImpl: f })
     await expect(c.zones.create({ slug: '!!', display_name: 'x' })).rejects.toMatchObject({
       name: 'AdminApiError',
@@ -111,7 +111,7 @@ describe('AdminClient', () => {
       await c.zones.create({ slug: '!!', display_name: 'x' })
     } catch (e) {
       expect(e).toBeInstanceOf(AdminApiError)
-      expect((e as AdminApiError).body).toEqual({ error: 'invalid_input', detail: 'bad slug' })
+      expect((e as AdminApiError).body).toEqual({ error: 'invalid_input', error_description: 'bad slug' })
     }
   })
 
@@ -284,8 +284,8 @@ describe('AdminClient', () => {
         status: 200,
         statusText: 'OK',
         headers: new Headers(),
-        text: async () => JSON.stringify([{ id: 'z1' }]),
-        json: async () => [{ id: 'z1' }],
+        text: async () => JSON.stringify({ items: [{ id: 'z1' }], next_cursor: null }),
+        json: async () => ({ items: [{ id: 'z1' }], next_cursor: null }),
       }) as unknown as typeof fetch
     const c = new AdminClient({ apiUrl: 'http://api', adminToken: 't', fetchImpl: f, retries: 1 })
 
@@ -318,8 +318,8 @@ describe('AdminClient', () => {
         status: 200,
         statusText: 'OK',
         headers: new Headers(),
-        text: async () => '[]',
-        json: async () => [],
+        text: async () => JSON.stringify({ items: [], next_cursor: null }),
+        json: async () => ({ items: [], next_cursor: null }),
       }) as unknown as typeof fetch
     const c = new AdminClient({ apiUrl: 'http://api', adminToken: 't', fetchImpl: f, retries: 1 })
     await expect(c.zones.list()).resolves.toEqual([])
@@ -359,12 +359,7 @@ describe('AdminClient', () => {
     const calls: Array<{ url: string; method: string; body?: string }> = []
     const f = vi.fn().mockImplementation((url: string, init: RequestInit) => {
       calls.push({ url, method: init.method ?? 'GET', body: init.body as string | undefined })
-      const body =
-        url.includes('/audit') || url.includes('/sessions')
-          ? { rows: [], next_cursor: null }
-          : url.includes('/children')
-            ? { items: [], next_cursor: null }
-            : {}
+      const body = { items: [], next_cursor: null }
       return Promise.resolve({
         ok: true,
         status: 200,
@@ -452,5 +447,138 @@ describe('AdminClient', () => {
     expect(calls.some((x) => x.url === 'http://coord/zones/z1/agents/ag1/suspend' && x.method === 'PATCH')).toBe(true)
     expect(calls.some((x) => x.url === 'http://coord/zones/z1/delegations/d1/revoke' && x.method === 'PATCH')).toBe(true)
     expect(calls.some((x) => x.url === 'http://api/v1/zones/z1/sessions?status=active')).toBe(true)
+  })
+
+  it('unwraps every list namespace and rejects envelopes without items', async () => {
+    const listCalls: Array<(c: AdminClient) => Promise<unknown>> = [
+      (c) => c.zones.list(),
+      (c) => c.applications.list('z1'),
+      (c) => c.resources.list('z1'),
+      (c) => c.providers.list('z1'),
+      (c) => c.policies.list('z1'),
+      (c) => c.policySets.list('z1'),
+      (c) => c.grants.list('z1'),
+      (c) => c.sessions.list('z1'),
+      (c) => c.agentSessions.list('z1'),
+      (c) => c.audit.list('z1'),
+      (c) => c.adminAudit.list('z1'),
+      (c) => c.stepUpChallenges.list('z1'),
+      (c) => c.agents.list('z1'),
+      (c) => c.agents.children('z1', 'ag1'),
+    ]
+    const good = new AdminClient({
+      apiUrl: 'http://api',
+      coordinatorUrl: 'http://coord',
+      adminToken: 'a',
+      coordinatorToken: 'c',
+      fetchImpl: fetchOk({ items: [{ id: 'row-1' }], next_cursor: null }),
+    })
+    for (const call of listCalls) {
+      expect(await call(good)).toEqual([{ id: 'row-1' }])
+    }
+    const malformed = new AdminClient({
+      apiUrl: 'http://api',
+      coordinatorUrl: 'http://coord',
+      adminToken: 'a',
+      coordinatorToken: 'c',
+      fetchImpl: fetchOk({ next_cursor: null }),
+      retries: 0,
+    })
+    for (const call of listCalls) {
+      await expect(call(malformed)).rejects.toThrow(/missing items/)
+    }
+  })
+
+  it('covers zone creation, patching, and the remaining coordinator reads', async () => {
+    const calls: Array<{ url: string; method: string }> = []
+    const f = vi.fn().mockImplementation((url: string, init: RequestInit) => {
+      calls.push({ url, method: init.method ?? 'GET' })
+      const body = { items: [], next_cursor: null }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        headers: new Headers(),
+        text: async () => JSON.stringify(body),
+        json: async () => body,
+      })
+    }) as unknown as typeof fetch
+    const c = new AdminClient({
+      apiUrl: 'http://api',
+      coordinatorUrl: 'http://coord',
+      adminToken: 'a',
+      coordinatorToken: 'c',
+      fetchImpl: f,
+    })
+    await c.zones.create({ name: 'Pied Piper Production' } as never)
+    await c.zones.patch('z1', { name: 'Hooli Staging' } as never)
+    await c.agents.effectiveAuthority('z1', 'ag1')
+    await c.adminAudit.list('z1', { actor_id: 'monica' } as never)
+    await c.agentSessions.list('z1', { status: 'active' } as never)
+    expect(calls.some((x) => x.url === 'http://api/v1/zones' && x.method === 'POST')).toBe(true)
+    expect(calls.some((x) => x.url === 'http://api/v1/zones/z1' && x.method === 'PATCH')).toBe(true)
+    expect(calls.some((x) => x.url === 'http://coord/zones/z1/agents/ag1/effective-authority')).toBe(true)
+    expect(calls.some((x) => x.url === 'http://api/v1/zones/z1/admin-audit?actor_id=monica')).toBe(true)
+    expect(calls.some((x) => x.url === 'http://api/v1/zones/z1/agent-sessions?status=active')).toBe(true)
+  })
+
+  it('merges derived default headers under per-call headers', async () => {
+    const f = fetchOk({ items: [], next_cursor: null })
+    const base = new AdminClient({
+      apiUrl: 'http://api',
+      adminToken: 't',
+      fetchImpl: f,
+      headers: { 'X-Actor': 'richard.hendricks@piedpiper.example', 'X-Keep': 'base' },
+    })
+    const derived = base.withDefaultHeaders({ 'X-Actor': 'monica.hall@piedpiper.example' })
+    await derived.zones.list()
+    const [, init] = (f as unknown as { mock: { calls: [string, RequestInit][] } }).mock.calls[0]
+    const headers = init.headers as Record<string, string>
+    expect(headers['X-Actor']).toBe('monica.hall@piedpiper.example')
+    expect(headers['X-Keep']).toBe('base')
+    expect(headers.Authorization).toBe('Bearer t')
+  })
+
+  it('honours a seconds-based retry-after header before retrying', async () => {
+    vi.useFakeTimers()
+    try {
+      const bodies = [
+        {
+          ok: false,
+          status: 429,
+          statusText: 'Too Many',
+          headers: new Headers({ 'retry-after': '1' }),
+          text: async () => '{}',
+          json: async () => ({}),
+        },
+        {
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          headers: new Headers(),
+          text: async () => '{"items":[],"next_cursor":null}',
+          json: async () => ({ items: [], next_cursor: null }),
+        },
+      ]
+      const f = vi.fn().mockImplementation(() => Promise.resolve(bodies.shift())) as unknown as typeof fetch
+      const c = new AdminClient({ apiUrl: 'http://api', adminToken: 't', fetchImpl: f, retries: 1 })
+      const pending = c.zones.list()
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(await pending).toEqual([])
+      expect(f).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('surfaces the timeout abort when the server never responds', async () => {
+    const f = vi.fn().mockImplementation(
+      (_url: string, init: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          init.signal?.addEventListener('abort', () => reject((init.signal as AbortSignal).reason), { once: true })
+        }),
+    ) as unknown as typeof fetch
+    const c = new AdminClient({ apiUrl: 'http://api', adminToken: 't', fetchImpl: f, timeoutMs: 5, retries: 0 })
+    await expect(c.zones.get('z1')).rejects.toThrow('admin_request_timeout')
   })
 })
