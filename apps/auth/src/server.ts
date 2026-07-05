@@ -11,6 +11,7 @@ import { ShutdownRegistry, pathOnly } from '@caracalai/server-core'
 
 import { auth } from './auth.ts'
 import { handleAccount } from './account.ts'
+import { consumeInvite, verifyInviteCode } from './bootstrapInvite.ts'
 import { loadConfig } from './config.ts'
 import { closeAuthDatabase, pingAuthDatabase } from './database.ts'
 import { handleConsole } from './console.ts'
@@ -62,6 +63,96 @@ function fail(res: ServerResponse, code: string): void {
   res.statusCode = 500
   res.setHeader('Content-Type', 'application/json')
   res.end(JSON.stringify({ error: code }))
+}
+
+const MAX_SIGNUP_BODY_BYTES = 8192
+
+function readBody(req: IncomingMessage): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = []
+    let size = 0
+    req.on('data', (chunk: Buffer) => {
+      size += chunk.length
+      if (size > MAX_SIGNUP_BODY_BYTES) {
+        reject(new Error('request_body_too_large'))
+        req.destroy()
+        return
+      }
+      chunks.push(chunk)
+    })
+    req.on('end', () => resolve(Buffer.concat(chunks)))
+    req.on('error', reject)
+  })
+}
+
+function rejectSignup(res: ServerResponse, status: number, code: string): void {
+  res.statusCode = status
+  res.setHeader('Content-Type', 'application/json')
+  res.end(JSON.stringify({ error: code }))
+}
+
+// Password sign-up when it is not configured on: the single admission path is a one-time
+// invite code minted by `caracal invite` on the stack host. The code is verified against the
+// invite file's hash, stripped from the body, and the request is forwarded to Better Auth.
+// A successful registration marks the email verified - the invite already proves an authority
+// stronger than mailbox control - and consumes the invite so it can never admit a second account.
+async function handleBootstrapSignup(req: IncomingMessage, res: ServerResponse, id: string): Promise<void> {
+  let body: Record<string, unknown>
+  try {
+    const parsed = JSON.parse((await readBody(req)).toString('utf8')) as unknown
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) throw new Error('invalid_request')
+    body = parsed as Record<string, unknown>
+  } catch {
+    rejectSignup(res, 400, 'invalid_request')
+    return
+  }
+  const { invite_code: inviteCode, ...forwarded } = body
+  const email = typeof forwarded.email === 'string' ? forwarded.email : ''
+  if (typeof inviteCode !== 'string' || !verifyInviteCode(inviteCode, email, cfg)) {
+    logger.warn('bootstrap sign-up rejected', { id, email })
+    rejectSignup(res, 403, 'registration_not_permitted')
+    return
+  }
+
+  const headers = new Headers()
+  for (const [key, value] of Object.entries(req.headers)) {
+    if (value === undefined || key === 'content-length') continue
+    if (Array.isArray(value)) for (const item of value) headers.append(key, item)
+    else headers.set(key, value)
+  }
+  const response = await auth.handler(
+    new Request(new URL(req.url ?? '/', cfg.baseURL), {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(forwarded),
+    }),
+  )
+  const text = await response.text()
+
+  if (response.ok) {
+    // The registration is complete before the browser hears about it: mark the email verified
+    // (through Better Auth's own adapter so schema mapping stays authoritative) and consume the
+    // invite, so the operator's immediate follow-up sign-in never races either write.
+    try {
+      const userId = (JSON.parse(text) as { user?: { id?: string } }).user?.id
+      if (userId) {
+        const ctx = await auth.$context
+        await ctx.internalAdapter.updateUser(userId, { emailVerified: true })
+      }
+      consumeInvite(cfg)
+      logger.info('bootstrap operator registered', { id, email })
+    } catch (err) {
+      logger.error('bootstrap post-registration finalization failed', { id, email, err })
+    }
+  }
+
+  res.statusCode = response.status
+  for (const [key, value] of response.headers) {
+    if (key !== 'set-cookie') res.setHeader(key, value)
+  }
+  const cookies = response.headers.getSetCookie()
+  if (cookies.length > 0) res.setHeader('set-cookie', cookies)
+  res.end(text)
 }
 
 async function route(req: IncomingMessage, res: ServerResponse, id: string): Promise<void> {
@@ -135,6 +226,12 @@ async function route(req: IncomingMessage, res: ServerResponse, id: string): Pro
   }
 
   if (url.startsWith('/api/auth')) {
+    // With password sign-up off, the sign-up endpoint answers only invite-code bootstrap
+    // registrations; every other auth route flows to Better Auth untouched.
+    if (!cfg.passwordSignup && method(req) === 'POST' && pathOnly(url) === '/api/auth/sign-up/email') {
+      await handleBootstrapSignup(req, res, id)
+      return
+    }
     await handler(req, res)
     return
   }
