@@ -14,12 +14,16 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 process.chdir(root)
 
 let checkAll = false
+let staged = false
 let fix = false
 
 for (const arg of process.argv.slice(2)) {
   switch (arg) {
     case '--all':
       checkAll = true
+      break
+    case '--staged':
+      staged = true
       break
     case '--fix':
       fix = true
@@ -28,9 +32,10 @@ for (const arg of process.argv.slice(2)) {
     case '--help':
       process.stdout.write(
         [
-          'Usage: node scripts/checkStyle.mjs [--all] [--fix]',
+          'Usage: node scripts/checkStyle.mjs [--all] [--staged] [--fix]',
           '  no flags : check files changed from STYLE_BASE_REF or HEAD',
           '  --all    : check all tracked primary-language source files',
+          '  --staged : check files staged for commit',
           '  --fix    : rewrite checked files with their language formatter',
           '',
         ].join('\n'),
@@ -51,6 +56,7 @@ function git(args) {
 
 function listCandidateFiles() {
   if (checkAll) return git(['ls-files'])
+  if (staged) return git(['diff', '--name-only', '--diff-filter=ACMRT', '--cached'])
   const baseRef = process.env.STYLE_BASE_REF
   if (baseRef) return git(['diff', '--name-only', '--diff-filter=ACMRT', `${baseRef}...HEAD`])
   const combined = [
