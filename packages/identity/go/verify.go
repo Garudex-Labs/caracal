@@ -48,29 +48,35 @@ func (e *ChainMismatchError) Error() string {
 	return fmt.Sprintf("delegation chain missing application: %s", e.ApplicationID)
 }
 
-func readChain(raw any) []ChainHop {
+func readChain(raw any) ([]ChainHop, bool) {
 	if raw == nil {
-		return nil
+		return nil, true
 	}
 	list, ok := raw.([]any)
 	if !ok {
-		return nil
+		return nil, false
 	}
 	out := make([]ChainHop, 0, len(list))
 	for _, item := range list {
 		m, ok := item.(map[string]any)
 		if !ok {
-			continue
+			return nil, false
 		}
-		appID, _ := m["application_id"].(string)
-		if appID == "" {
-			continue
+		appID, ok := m["application_id"].(string)
+		if !ok || appID == "" {
+			return nil, false
 		}
-		session, _ := m["agent_session_id"].(string)
-		edge, _ := m["delegation_edge_id"].(string)
+		session, ok := optionalString(m, "agent_session_id")
+		if !ok {
+			return nil, false
+		}
+		edge, ok := optionalString(m, "delegation_edge_id")
+		if !ok {
+			return nil, false
+		}
 		out = append(out, ChainHop{ApplicationID: appID, AgentSessionID: session, DelegationEdgeID: edge})
 	}
-	return out
+	return out, true
 }
 
 func readStringSlice(raw any) []string {
@@ -288,7 +294,10 @@ func VerifyContext(ctx context.Context, tokenStr string, cfg Config) (Claims, er
 	if !ok {
 		return Claims{}, ErrTokenInvalid
 	}
-	chain := readChain(mapClaims["delegation_chain"])
+	chain, ok := readChain(mapClaims["delegation_chain"])
+	if !ok {
+		return Claims{}, ErrTokenInvalid
+	}
 	path := readStringSlice(mapClaims["delegation_path"])
 
 	graphEpochValue, ok := optionalInt(mapClaims, "delegation_graph_epoch")
