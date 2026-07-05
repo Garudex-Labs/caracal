@@ -35,9 +35,11 @@ export const communityContent = {
     toSignUp: "New to Caracal? Create an account",
     toSignIn: "Already have an account? Sign in",
     forgot: "Forgot your password?",
-    accountLocked:
-      "This account is locked on this install. Ask the install owner to unlock it with `caracal allowlist unlock`.",
-    signInNotPermitted:
-      "This email is not permitted to sign in on this install. Ask the install owner to add it with `caracal allowlist add`.",
+    accessDeniedTitle: "You don't have access to this deployment",
+    accessDeniedBody:
+      "This Caracal deployment is private. Your account is not currently allowed to sign in or use the console here.",
+    accessDeniedHint:
+      "If you believe this is a mistake, contact the owner of this deployment and ask them to review your access.",
+    accessDeniedCta: "Back to sign in",
   },
 } as const;

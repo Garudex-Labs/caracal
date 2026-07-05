@@ -70,12 +70,17 @@ function mutateEntry(secretsDir: string, sub: string, argv: string[]): number {
       printError(`'${change.entry}' is not on the allowlist`)
       return 1
     }
-    printSuccess(`'${change.entry}' removed: registration and sign-in are no longer permitted`)
+    if (change.outcome === 'unchanged') printInfo(`'${change.entry}' is already removed`)
+    else printSuccess(`'${change.entry}' removed: sign-in ends and the account's console records are erased on next contact`)
     return 0
   }
   const change = allowlistSetStatus(secretsDir, raw, sub === 'lock' ? 'locked' : 'active')
   if (change.outcome === 'missing') {
     printError(`'${change.entry}' is not on the allowlist`)
+    return 1
+  }
+  if (change.outcome === 'removed') {
+    printError(`'${change.entry}' was removed: run 'caracal allowlist add ${change.entry}' to re-admit it`)
     return 1
   }
   if (sub === 'lock') {
@@ -100,7 +105,7 @@ function allowlistHelp(): never {
     '',
     'Subcommands:',
     '  add <email>       Allow an email (or @domain) to register and sign in',
-    '  remove <email>    Delete the entry; sign-in stops, the account and its data stay',
+    "  remove <email>    End access and erase the account's console records on next contact",
     '  lock <email>      Temporarily block sign-in; the entry and account data stay',
     '  unlock <email>    Restore sign-in for a locked entry',
     '  list              Show every entry and its status',

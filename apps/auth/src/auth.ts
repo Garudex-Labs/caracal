@@ -9,7 +9,7 @@ import { APIError } from 'better-auth/api'
 
 import { authDatabase } from './database.ts'
 import { loadConfig } from './config.ts'
-import { resolveAccess } from './allowlist.ts'
+import { enforceDenial, resolveAccess } from './allowlist.ts'
 import { createMailer } from './mailer.ts'
 import { githubCredentials, googleCredentials } from './providers.ts'
 import { logger } from './logger.ts'
@@ -139,13 +139,18 @@ export const auth = betterAuth({
       create: {
         before: async (session, ctx) => {
           // Every sign-in method funnels through session creation, including OAuth callbacks, so
-          // re-checking the allowlist here cuts off new sessions for removed or locked entries
-          // the moment the host changes the file. Fails closed when the user cannot be resolved.
+          // re-checking the allowlist here cuts off new sessions the moment the host changes the
+          // file. A `removed` tombstone erases the account's auth records; a lock revokes any
+          // residual sessions. The rejection code is identical for every denial so the browser
+          // learns nothing about which case applied; the reason stays in the server log.
           const user = ctx ? await ctx.context.internalAdapter.findUserById(session.userId) : null
           const access = user ? resolveAccess(user.email, cfg) : 'denied'
           if (access === 'allowed') return
-          logger.warn('sign-in denied by allowlist', { userId: session.userId })
-          throw new APIError('FORBIDDEN', { message: access === 'locked' ? 'account_locked' : 'sign_in_not_permitted' })
+          logger.warn('sign-in denied by allowlist', { userId: session.userId, access })
+          if (ctx && user) {
+            await enforceDenial(ctx.context, access, { id: user.id, email: user.email })
+          }
+          throw new APIError('FORBIDDEN', { message: 'access_denied', code: 'access_denied' })
         },
       },
     },
