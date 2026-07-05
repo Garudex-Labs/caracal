@@ -364,6 +364,9 @@ services:
       STS_URL: http://sts:8080
       CARACAL_GATEWAY_URL: http://gateway:8081
       CARACAL_COORDINATOR_URL: http://coordinator:4000
+      # Service-to-service traffic stays on the compose-internal bridge network and is
+      # authenticated with HMAC keys and tokens, so plain http between containers is safe.
+      CARACAL_ALLOW_INSECURE_CONFIG_URLS: "true"
       ZONE_KEK_FILE: /run/secrets/zoneKek
       STREAMS_HMAC_KEY_FILE: /run/secrets/streamsHmacKey
       GATEWAY_STS_HMAC_KEY_FILE: /run/secrets/gatewayStsHmacKey
