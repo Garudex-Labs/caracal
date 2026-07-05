@@ -1,147 +1,45 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Brokered grant refresh and provider service token path tests.
+// Provider service token tests: kind handling, caching, and TTL bounds.
 
 package internal
 
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 	"time"
 
 	sharederr "github.com/garudex-labs/caracal/packages/core/go/errors"
 )
 
-func expiredGrant(t *testing.T, providerID string) *ProviderGrant {
-	t.Helper()
-	refreshCt, err := sealZEK(exchangeFlowZEK(), []byte("refresh-token"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	past := time.Now().Add(-time.Minute)
-	return &ProviderGrant{
-		ID:             "grant-1",
-		ZoneID:         "z1",
-		UserID:         "user-1",
-		ResourceID:     "res1",
-		ProviderID:     &providerID,
-		AccessTokenCt:  []byte("stale"),
-		RefreshTokenCt: refreshCt,
-		ExpiresAt:      &past,
-	}
-}
+func TestRefreshExpiredBrokeredGrantShortCircuits(t *testing.T) {
+	providerID := "provider-1"
 
-func oauthProvider(config string, secret []byte, nonce []byte) *ProviderConfig {
-	return &ProviderConfig{
-		ID:                "provider1",
-		ProviderKind:      strPtr("oauth2_authorization_code"),
-		ConfigJSON:        []byte(config),
-		SecretConfigCt:    secret,
-		SecretConfigNonce: nonce,
-	}
-}
-
-func TestTryRefreshBrokeredGrantShortCircuits(t *testing.T) {
-	providerID := "provider1"
-	srv := refreshTestServer(&stubDB{grantErr: errors.New("no grant")}, newMemSTSRedis())
-	if got := srv.tryRefreshBrokeredGrant(context.Background(), "z1", "", "res1", &providerID); got != nil {
-		t.Fatalf("empty user must skip refresh, got %#v", got)
-	}
-	if got := srv.tryRefreshBrokeredGrant(context.Background(), "z1", "user-1", "res1", &providerID); got != nil {
-		t.Fatalf("missing grant must not block the exchange, got %#v", got)
+	missing := refreshTestServer(&grantDB{grantErr: errors.New("no grant")}, nil)
+	if got := missing.refreshExpiredBrokeredGrant(context.Background(), "z", "user-1", "r", &providerID); got != nil {
+		t.Fatalf("missing grant must be silent, got %#v", got)
 	}
 
 	future := time.Now().Add(time.Hour)
-	fresh := expiredGrant(t, providerID)
-	fresh.ExpiresAt = &future
-	srv = refreshTestServer(&stubDB{grant: fresh}, newMemSTSRedis())
-	if got := srv.tryRefreshBrokeredGrant(context.Background(), "z1", "user-1", "res1", &providerID); got != nil {
-		t.Fatalf("unexpired grant must skip refresh, got %#v", got)
+	fresh := refreshTestServer(&grantDB{grant: &ProviderGrant{ID: "grant-1", ExpiresAt: &future}}, nil)
+	if got := fresh.refreshExpiredBrokeredGrant(context.Background(), "z", "user-1", "r", &providerID); got != nil {
+		t.Fatalf("peer-refreshed grant must be silent, got %#v", got)
 	}
 
-	dead := expiredGrant(t, providerID)
-	dead.RefreshTokenCt = nil
-	srv = refreshTestServer(&stubDB{grant: dead}, newMemSTSRedis())
-	got := srv.tryRefreshBrokeredGrant(context.Background(), "z1", "user-1", "res1", &providerID)
+	dead := refreshTestServer(&grantDB{grant: expiredGrant(nil, &providerID)}, nil)
+	got := dead.refreshExpiredBrokeredGrant(context.Background(), "z", "user-1", "r", &providerID)
 	if got == nil || got.Code != sharederr.CredentialExpired {
 		t.Fatalf("non-renewable grant must expire, got %#v", got)
 	}
 }
 
-func TestRefreshExpiredBrokeredGrantTaxonomy(t *testing.T) {
-	providerID := "provider1"
-	zek := exchangeFlowZEK()
-	goodSecretCt, goodSecretNonce := testProviderSecret(t, zek, `{"client_secret":"hooli-secret"}`)
-
-	run := func(t *testing.T, db *stubDB) *sharederr.CaracalError {
-		t.Helper()
-		srv := refreshTestServer(db, newMemSTSRedis())
-		return srv.refreshExpiredBrokeredGrant(context.Background(), "z1", "user-1", "res1", &providerID)
-	}
-
-	t.Run("grant lookup failure is silent", func(t *testing.T) {
-		if got := run(t, &stubDB{grantErr: errors.New("no grant")}); got != nil {
-			t.Fatalf("got %#v", got)
-		}
-	})
-	t.Run("provider missing", func(t *testing.T) {
-		got := run(t, &stubDB{grant: expiredGrant(t, providerID)})
-		if got == nil || got.Code != sharederr.CredentialExpired {
-			t.Fatalf("got %#v", got)
-		}
-	})
-	t.Run("provider kind not refreshable", func(t *testing.T) {
-		db := &stubDB{grant: expiredGrant(t, providerID), provider: &ProviderConfig{ID: providerID, ProviderKind: strPtr("api_key")}}
-		got := run(t, db)
-		if got == nil || got.Code != sharederr.CredentialExpired {
-			t.Fatalf("got %#v", got)
-		}
-	})
-	t.Run("provider config malformed", func(t *testing.T) {
-		db := &stubDB{grant: expiredGrant(t, providerID), provider: oauthProvider(`{broken`, goodSecretCt, goodSecretNonce)}
-		got := run(t, db)
-		if got == nil || got.Code != sharederr.CredentialExpired {
-			t.Fatalf("got %#v", got)
-		}
-	})
-	t.Run("provider config incomplete", func(t *testing.T) {
-		db := &stubDB{grant: expiredGrant(t, providerID), provider: oauthProvider(`{"token_endpoint":"https://login.hooli.example/token"}`, goodSecretCt, goodSecretNonce)}
-		got := run(t, db)
-		if got == nil || got.Code != sharederr.CredentialExpired {
-			t.Fatalf("got %#v", got)
-		}
-	})
-	t.Run("secret decrypt failure", func(t *testing.T) {
-		provider := oauthProvider(`{"token_endpoint":"https://login.hooli.example/token","client_id":"cid"}`, []byte("garbage"), make([]byte, 12))
-		db := &stubDB{grant: expiredGrant(t, providerID), provider: provider}
-		got := run(t, db)
-		if got == nil || got.Code != sharederr.CredentialExpired {
-			t.Fatalf("got %#v", got)
-		}
-	})
-	t.Run("endpoint scheme rejected", func(t *testing.T) {
-		provider := oauthProvider(`{"token_endpoint":"http://login.hooli.example/token","client_id":"cid"}`, goodSecretCt, goodSecretNonce)
-		db := &stubDB{grant: expiredGrant(t, providerID), provider: provider}
-		got := run(t, db)
-		if got == nil || !strings.Contains(got.Description, "endpoint not allowed") {
-			t.Fatalf("got %#v", got)
-		}
-	})
-	t.Run("endpoint without allowlist rejected", func(t *testing.T) {
-		provider := oauthProvider(`{"token_endpoint":"https://login.hooli.example/token","client_id":"cid"}`, goodSecretCt, goodSecretNonce)
-		db := &stubDB{grant: expiredGrant(t, providerID), provider: provider}
-		got := run(t, db)
-		if got == nil || !strings.Contains(got.Description, "endpoint not allowed") {
-			t.Fatalf("got %#v", got)
-		}
-	})
-}
-
 func TestProviderServiceTokenKinds(t *testing.T) {
-	zek := exchangeFlowZEK()
+	zek := make([]byte, 32)
+	for i := range zek {
+		zek[i] = byte(i + 1)
+	}
 	sealed := func(config string) ([]byte, []byte) {
 		return testProviderSecret(t, zek, config)
 	}
