@@ -225,8 +225,6 @@ export interface PolicyInput {
 
 export interface PolicyValidateResult {
   valid: boolean;
-  error?: string;
-  detail?: string;
   schema_version?: string;
   input_schema_version?: string;
   output_contract?: {
@@ -428,8 +426,8 @@ export interface ZoneOverview {
   recent_events: OverviewEvent[];
 }
 
-export interface RowList<T> {
-  rows: T[];
+export interface ListEnvelope<T> {
+  items: T[];
   next_cursor: string | null;
 }
 

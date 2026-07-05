@@ -61,7 +61,7 @@ import type {
   Resource,
   ResourceInput,
   ResourcePatchInput,
-  RowList,
+  ListEnvelope,
   Session,
   SessionQuery,
   SimulateResult,
@@ -314,24 +314,8 @@ async function streamOperatorMessage(
   throw new ConsoleApiError(0, "request_failed");
 }
 
-// Parses RFC 5988 Link headers to recover the keyset cursor for the next page.
-function parseNextCursor(linkHeader: string | null): string | null {
-  if (!linkHeader) return null;
-  for (const part of linkHeader.split(",")) {
-    const match = /<([^>]+)>\s*;\s*rel="?next"?/.exec(part.trim());
-    if (match) {
-      try {
-        return new URL(match[1], config.consoleBaseUrl).searchParams.get("cursor");
-      } catch {
-        return null;
-      }
-    }
-  }
-  return null;
-}
-
-// Issues a list request and returns both the parsed rows and the next cursor
-// advertised by the control plane through the (proxied) Link header.
+// Issues a list request against the uniform list envelope and returns the parsed
+// rows plus the opaque keyset cursor for the next page.
 async function requestList<T>(
   path: string,
   signal?: AbortSignal,
@@ -360,8 +344,9 @@ async function requestList<T>(
         : res.statusText || "request_failed";
     throw new ConsoleApiError(res.status, code, parsed);
   }
-  const rows = Array.isArray(parsed) ? (parsed as T[]) : [];
-  return { rows, nextCursor: parseNextCursor(res.headers.get("link")) };
+  const envelope = (parsed ?? {}) as { items?: T[]; next_cursor?: string | null };
+  const rows = Array.isArray(envelope.items) ? envelope.items : [];
+  return { rows, nextCursor: envelope.next_cursor ?? null };
 }
 
 // Maximum number of pages auto-followed for "show everything" admin lists. At the
@@ -683,7 +668,7 @@ export const consoleApi = {
 
   sessions: {
     list: async (zoneId: string, query: SessionQuery = {}): Promise<Paged<Session>> => {
-      const res = await request<RowList<Session>>(
+      const res = await request<ListEnvelope<Session>>(
         `/v1/zones/${encodeURIComponent(zoneId)}/sessions${queryString({
           limit: query.limit ?? 100,
           cursor: query.cursor,
@@ -691,7 +676,7 @@ export const consoleApi = {
           subject_id: query.subject_id,
         })}`,
       );
-      return { rows: res.rows, nextCursor: res.next_cursor };
+      return { rows: res.items, nextCursor: res.next_cursor };
     },
   },
 
@@ -887,24 +872,24 @@ export const consoleApi = {
       conversationId: string,
       signal?: AbortSignal,
     ): Promise<OperatorTurn[]> => {
-      // The turns endpoint returns up to `limit` rows ordered by sequence and
-      // signals more by returning a full page, so follow `after_seq` until a short
-      // page arrives. The cap bounds a single conversation's fan-out.
+      // The turns endpoint pages by sequence: next_cursor carries the last seq of
+      // a full page and null on the final page. The cap bounds a single
+      // conversation's fan-out.
       const pageSize = 200;
       const maxPages = 50;
       const base = `/v1/zones/${encodeURIComponent(zoneId)}/operator-conversations/${encodeURIComponent(
         conversationId,
       )}/turns`;
       const turns: OperatorTurn[] = [];
-      let afterSeq = 0;
+      let afterSeq = "0";
       for (let page = 0; page < maxPages; page++) {
-        const rows = await request<OperatorTurn[]>(
-          `${base}?after_seq=${afterSeq}&limit=${pageSize}`,
+        const res = await request<ListEnvelope<OperatorTurn>>(
+          `${base}?after_seq=${encodeURIComponent(afterSeq)}&limit=${pageSize}`,
           { signal },
         );
-        turns.push(...rows);
-        if (rows.length < pageSize) break;
-        afterSeq = rows[rows.length - 1]!.seq;
+        turns.push(...res.items);
+        if (!res.next_cursor) break;
+        afterSeq = res.next_cursor;
       }
       return turns;
     },
@@ -1085,7 +1070,7 @@ export const consoleApi = {
 
   audit: {
     list: async (zoneId: string, query: AuditQuery = {}): Promise<Paged<AuditEvent>> => {
-      const res = await request<RowList<AuditEvent>>(
+      const res = await request<ListEnvelope<AuditEvent>>(
         `/v1/zones/${encodeURIComponent(zoneId)}/audit${queryString({
           limit: query.limit ?? 100,
           cursor: query.cursor,
@@ -1100,7 +1085,7 @@ export const consoleApi = {
           until: query.until,
         })}`,
       );
-      return { rows: res.rows, nextCursor: res.next_cursor };
+      return { rows: res.items, nextCursor: res.next_cursor };
     },
     byRequest: (zoneId: string, requestId: string) =>
       request<AuditDetail[]>(
@@ -1123,7 +1108,7 @@ export const consoleApi = {
 
   adminAudit: {
     list: async (zoneId: string, query: AdminAuditQuery = {}): Promise<Paged<AdminAuditEvent>> => {
-      const res = await request<RowList<AdminAuditEvent>>(
+      const res = await request<ListEnvelope<AdminAuditEvent>>(
         `/v1/zones/${encodeURIComponent(zoneId)}/admin-audit${queryString({
           limit: query.limit ?? 100,
           cursor: query.cursor,
@@ -1135,20 +1120,22 @@ export const consoleApi = {
           until: query.until,
         })}`,
       );
-      return { rows: res.rows, nextCursor: res.next_cursor };
+      return { rows: res.items, nextCursor: res.next_cursor };
     },
   },
 
   providerGrants: {
-    list: (zoneId: string, query: ProviderGrantListQuery = {}) =>
-      request<ProviderGrant[]>(
-        `/v1/zones/${encodeURIComponent(zoneId)}/grants${queryString({
-          provider_id: query.provider_id,
-          resource_id: query.resource_id,
-          user_id: query.user_id,
-          status: query.status,
-        })}`,
-      ),
+    list: async (zoneId: string, query: ProviderGrantListQuery = {}) =>
+      (
+        await fetchAllPages<ProviderGrant>(
+          `/v1/zones/${encodeURIComponent(zoneId)}/grants${queryString({
+            provider_id: query.provider_id,
+            resource_id: query.resource_id,
+            user_id: query.user_id,
+            status: query.status,
+          })}`,
+        )
+      ).rows,
     authorize: (zoneId: string, input: ProviderGrantAuthorizeInput) =>
       request<ProviderGrantAuthorizeResult>(
         `/v1/zones/${encodeURIComponent(zoneId)}/provider-grants/oauth/authorize`,
