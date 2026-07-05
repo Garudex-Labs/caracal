@@ -98,8 +98,9 @@ describe('GET /v1/zones/:zoneId/workloads', () => {
 
     expect(res.statusCode).toBe(200)
     const body = JSON.parse(res.body)
-    expect(body).toHaveLength(1)
-    expect(body[0]).not.toHaveProperty('secret_hash')
+    expect(body.items).toHaveLength(1)
+    expect(body.next_cursor).toBeNull()
+    expect(body.items[0]).not.toHaveProperty('secret_hash')
     expect(db.query.mock.calls[0][0]).not.toContain('secret_hash')
   })
 })
@@ -167,7 +168,7 @@ describe('PUT /v1/zones/:zoneId/workloads/:id', () => {
     })
 
     expect(res.statusCode).toBe(400)
-    expect(JSON.parse(res.body)).toMatchObject({ error: 'invalid_credential_env', env: 'LD_PRELOAD' })
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'invalid_credential_env', details: { env: 'LD_PRELOAD' } })
     expect(db.query).not.toHaveBeenCalled()
   })
 
@@ -187,7 +188,7 @@ describe('PUT /v1/zones/:zoneId/workloads/:id', () => {
     })
 
     expect(res.statusCode).toBe(400)
-    expect(JSON.parse(res.body)).toMatchObject({ error: 'duplicate_credential_env', env: 'PIPERNET_TOKEN' })
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'duplicate_credential_env', details: { env: 'PIPERNET_TOKEN' } })
     expect(db.query).not.toHaveBeenCalled()
   })
 

@@ -43,8 +43,9 @@ describe('GET /v1/zones/:zoneId/step-up-challenges', () => {
     const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/step-up-challenges?limit=1' })
 
     expect(res.statusCode).toBe(200)
-    expect(JSON.parse(res.body)).toHaveLength(2)
-    expect(res.headers.link).toContain('cursor=')
+    const body = JSON.parse(res.body)
+    expect(body.items).toHaveLength(2)
+    expect(body.next_cursor).toEqual(expect.any(String))
     expect(String(db.query.mock.calls[0][0])).toContain('END AS state')
     expect(db.query.mock.calls[0][1]).toEqual(['z1', 1])
   })

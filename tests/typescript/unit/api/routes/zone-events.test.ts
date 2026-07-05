@@ -31,8 +31,8 @@ describe('GET /v1/zones/:zoneId/audit', () => {
 
     expect(res.statusCode).toBe(200)
     const body = JSON.parse(res.body)
-    expect(body.rows[0].metadata_json.token).toBe('[redacted]')
-    expect(body.rows[0].metadata_json.user).toBe('a')
+    expect(body.items[0].metadata_json.token).toBe('[redacted]')
+    expect(body.items[0].metadata_json.user).toBe('a')
     expect(body.next_cursor).toBeNull()
     expect(db.query).toHaveBeenCalledWith(expect.stringContaining('zone_id = $1'), ['z1', 100])
   })
@@ -88,7 +88,7 @@ describe('GET /v1/zones/:zoneId/audit', () => {
 
     expect(res.statusCode).toBe(200)
     const body = JSON.parse(res.body)
-    expect(body.rows[0]).toEqual({
+    expect(body.items[0]).toEqual({
       occurred_at: '2026-05-01T00:00:00.000Z',
       event_type: 'token_exchange',
       application_name: 'Son of Anton',
@@ -373,7 +373,7 @@ describe('GET /v1/zones/:zoneId/sessions', () => {
 
     expect(res.statusCode).toBe(200)
     const body = JSON.parse(res.body)
-    expect(body.rows[0].id).toBe('session-1')
+    expect(body.items[0].id).toBe('session-1')
     expect(body.next_cursor).toBeNull()
     expect(db.query).toHaveBeenCalledWith(expect.stringContaining('zone_id = $1'), ['z1', 100])
   })
@@ -463,7 +463,7 @@ describe('GET /v1/zones/:zoneId/agent-sessions', () => {
 
     expect(res.statusCode).toBe(200)
     const body = JSON.parse(res.body)
-    expect(body.rows).toHaveLength(2)
+    expect(body.items).toHaveLength(2)
     expect(body.next_cursor).toBe(cursor('2026-05-01T00:00:00.000Z', 'as-1'))
     expect(db.query).toHaveBeenCalledWith(expect.stringContaining('FROM agent_sessions'), [
       'z1',
@@ -558,9 +558,9 @@ describe('GET /v1/zones/:zoneId/admin-audit', () => {
 
     expect(res.statusCode).toBe(200)
     const body = JSON.parse(res.body)
-    expect(body.rows[0].signed).toBe(true)
-    expect(body.rows[0].payload_json.changed_fields).toEqual(['name'])
-    expect(body.rows[0].payload_json.secret).toBe('[redacted]')
+    expect(body.items[0].signed).toBe(true)
+    expect(body.items[0].payload_json.changed_fields).toEqual(['name'])
+    expect(body.items[0].payload_json.secret).toBe('[redacted]')
     expect(body.next_cursor).toBeNull()
     expect(db.query).toHaveBeenCalledWith(expect.stringContaining('FROM admin_audit_events'), ['z1', 'applications', 'PATCH', 50])
   })
