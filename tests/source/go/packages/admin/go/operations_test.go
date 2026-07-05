@@ -26,7 +26,7 @@ func newCoordinatorAdmin(rt http.RoundTripper, retries int) *admin.AdminClient {
 }
 
 func TestGrantListQueryMapsScopesAndSubjectID(t *testing.T) {
-	transport := &scripted{steps: []any{ok(`[]`), ok(`[]`)}}
+	transport := &scripted{steps: []any{ok(`{"items":[],"next_cursor":null}`), ok(`{"items":[],"next_cursor":null}`)}}
 	client := newAdmin(transport, -1)
 
 	if _, err := client.Grants.List(context.Background(), "z1", &admin.GrantQuery{
@@ -73,9 +73,9 @@ func TestPolicyTemplateGetFindsAndRaisesNotFound(t *testing.T) {
 	}
 }
 
-func TestRowListingUnwrapsAndValidatesRows(t *testing.T) {
+func TestListingUnwrapsAndValidatesItems(t *testing.T) {
 	transport := &scripted{steps: []any{
-		ok(`{"rows":[{"id":"s1","subject_id":"user:richard"}],"next_cursor":null}`),
+		ok(`{"items":[{"id":"s1","subject_id":"user:richard"}],"next_cursor":null}`),
 		ok(`{"next_cursor":null}`),
 	}}
 	client := newAdmin(transport, -1)
@@ -92,15 +92,15 @@ func TestRowListingUnwrapsAndValidatesRows(t *testing.T) {
 	}
 
 	_, err = client.AgentSessions.List(context.Background(), "z1", nil)
-	if err == nil || err.Error() != "agent-sessions response missing rows" {
+	if err == nil || err.Error() != "agent-sessions response missing items" {
 		t.Fatalf("error: %v", err)
 	}
 }
 
 func TestAuditSurfacePaths(t *testing.T) {
 	transport := &scripted{steps: []any{
-		ok(`{"rows":[]}`),
-		ok(`{"rows":[]}`),
+		ok(`{"items":[]}`),
+		ok(`{"items":[]}`),
 		ok(`[]`),
 		ok(`{"request_id":"req-1","zone_id":"z1","final_decision":"deny","denied":[],"events":[]}`),
 	}}
@@ -297,7 +297,7 @@ func TestCoordinatorErrorsCarryTarget(t *testing.T) {
 }
 
 func TestWithDefaultHeadersMergesOverDefaults(t *testing.T) {
-	transport := &scripted{steps: []any{ok(`[]`)}}
+	transport := &scripted{steps: []any{ok(`{"items":[],"next_cursor":null}`)}}
 	client := admin.NewAdminClient(admin.AdminClientOptions{
 		APIURL:     "http://api",
 		AdminToken: "t",

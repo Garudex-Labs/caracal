@@ -31,10 +31,10 @@ func TestEnsureApplicationSurfacesEachStepFailure(t *testing.T) {
 	input := admin.ApplicationEnsure{Name: "Son of Anton", Traits: []string{"agent"}, ClientSecret: "secret"}
 	steps := map[string][]any{
 		"list":              {failStep()},
-		"create":            {ok(`[]`), failStep()},
-		"seal after create": {ok(`[]`), ok(`{"id":"app-1"}`), failStep()},
-		"trait patch":       {ok(`[{"id":"app-1","name":"Son of Anton","registration_method":"managed","traits":[]}]`), failStep()},
-		"rotate existing":   {ok(`[{"id":"app-1","name":"Son of Anton","registration_method":"managed","traits":["agent"]}]`), failStep()},
+		"create":            {ok(`{"items":[],"next_cursor":null}`), failStep()},
+		"seal after create": {ok(`{"items":[],"next_cursor":null}`), ok(`{"id":"app-1"}`), failStep()},
+		"trait patch":       {ok(`{"items":[{"id":"app-1","name":"Son of Anton","registration_method":"managed","traits":[]}],"next_cursor":null}`), failStep()},
+		"rotate existing":   {ok(`{"items":[{"id":"app-1","name":"Son of Anton","registration_method":"managed","traits":["agent"]}],"next_cursor":null}`), failStep()},
 	}
 	for label, script := range steps {
 		client := newAdmin(&scripted{steps: script}, -1)
@@ -52,8 +52,8 @@ func TestEnsureAPIKeyProviderSurfacesEachStepFailure(t *testing.T) {
 	}
 	steps := map[string][]any{
 		"list":   {failStep()},
-		"create": {ok(`[]`), failStep()},
-		"reseal": {ok(`[{"id":"prov-1","identifier":"provider://hooli"}]`), failStep()},
+		"create": {ok(`{"items":[],"next_cursor":null}`), failStep()},
+		"reseal": {ok(`{"items":[{"id":"prov-1","identifier":"provider://hooli"}],"next_cursor":null}`), failStep()},
 	}
 	for label, script := range steps {
 		client := newAdmin(&scripted{steps: script}, -1)
@@ -64,7 +64,7 @@ func TestEnsureAPIKeyProviderSurfacesEachStepFailure(t *testing.T) {
 	keyless := input
 	keyless.APIKey = ""
 	client := newAdmin(&scripted{steps: []any{
-		ok(`[{"id":"prov-1","identifier":"provider://hooli"}]`), failStep(),
+		ok(`{"items":[{"id":"prov-1","identifier":"provider://hooli"}],"next_cursor":null}`), failStep(),
 	}}, -1)
 	_, err := admin.EnsureAPIKeyProvider(context.Background(), client, "z1", keyless)
 	expectBoom(t, err, "placement patch")
@@ -86,17 +86,17 @@ func TestEnsureActivePolicySetSurfacesEachStepFailure(t *testing.T) {
 		SetName:    "pipernet-set",
 		Content:    "package caracal.authz\n",
 	}
-	policyRow := `[{"id":"pol-1","name":"pipernet-baseline"}]`
+	policyRow := `{"items":[{"id":"pol-1","name":"pipernet-baseline"}],"next_cursor":null}`
 	staleDetail := `{"id":"pol-1","name":"pipernet-baseline","versions":[{"id":"ver-1","version":1,"content_sha256":"stale"}]}`
 	steps := map[string][]any{
 		"policies list": {failStep()},
-		"policy create": {ok(`[]`), failStep()},
+		"policy create": {ok(`{"items":[],"next_cursor":null}`), failStep()},
 		"policy get":    {ok(policyRow), failStep()},
 		"add version":   {ok(policyRow), ok(staleDetail), failStep()},
 		"sets list":     {ok(policyRow), ok(staleDetail), ok(`{"version_id":"ver-2"}`), failStep()},
-		"set create":    {ok(policyRow), ok(staleDetail), ok(`{"version_id":"ver-2"}`), ok(`[]`), failStep()},
-		"set version":   {ok(policyRow), ok(staleDetail), ok(`{"version_id":"ver-2"}`), ok(`[]`), ok(`{"id":"set-1","name":"pipernet-set"}`), failStep()},
-		"activate":      {ok(policyRow), ok(staleDetail), ok(`{"version_id":"ver-2"}`), ok(`[]`), ok(`{"id":"set-1","name":"pipernet-set"}`), ok(`{"version_id":"sv-1"}`), failStep()},
+		"set create":    {ok(policyRow), ok(staleDetail), ok(`{"version_id":"ver-2"}`), ok(`{"items":[],"next_cursor":null}`), failStep()},
+		"set version":   {ok(policyRow), ok(staleDetail), ok(`{"version_id":"ver-2"}`), ok(`{"items":[],"next_cursor":null}`), ok(`{"id":"set-1","name":"pipernet-set"}`), failStep()},
+		"activate":      {ok(policyRow), ok(staleDetail), ok(`{"version_id":"ver-2"}`), ok(`{"items":[],"next_cursor":null}`), ok(`{"id":"set-1","name":"pipernet-set"}`), ok(`{"version_id":"sv-1"}`), failStep()},
 	}
 	for label, script := range steps {
 		client := newAdmin(&scripted{steps: script}, -1)
@@ -107,7 +107,7 @@ func TestEnsureActivePolicySetSurfacesEachStepFailure(t *testing.T) {
 
 func TestEnsureActivePolicySetRejectsVersionlessPolicy(t *testing.T) {
 	client := newAdmin(&scripted{steps: []any{
-		ok(`[{"id":"pol-1","name":"pipernet-baseline"}]`),
+		ok(`{"items":[{"id":"pol-1","name":"pipernet-baseline"}],"next_cursor":null}`),
 		ok(`{"id":"pol-1","name":"pipernet-baseline","versions":[]}`),
 	}}, -1)
 	err := admin.EnsureActivePolicySet(context.Background(), client, "z1", admin.ActivePolicySetEnsure{
@@ -128,9 +128,9 @@ func TestEnsureActivePolicySetPicksHighestVersion(t *testing.T) {
 		{"id":"ver-2","version":2,"content_sha256":"other"}
 	]}`
 	transport := &scripted{steps: []any{
-		ok(`[{"id":"pol-1","name":"pipernet-baseline"}]`),
+		ok(`{"items":[{"id":"pol-1","name":"pipernet-baseline"}],"next_cursor":null}`),
 		ok(detail),
-		ok(`[{"id":"set-1","name":"pipernet-set","active_version_id":"sv-live"}]`),
+		ok(`{"items":[{"id":"set-1","name":"pipernet-set","active_version_id":"sv-live"}],"next_cursor":null}`),
 	}}
 	client := newAdmin(transport, -1)
 	if err := admin.EnsureActivePolicySet(context.Background(), client, "z1", admin.ActivePolicySetEnsure{
@@ -168,7 +168,7 @@ func TestEnsureGovernedUpstreamsSurfacesStepFailures(t *testing.T) {
 	expectBoom(t, err, "provider")
 
 	resourceFail := newAdmin(&scripted{steps: []any{
-		ok(`[]`),
+		ok(`{"items":[],"next_cursor":null}`),
 		ok(`{"id":"prov-1","identifier":"provider://hooli"}`),
 		failStep(),
 	}}, -1)

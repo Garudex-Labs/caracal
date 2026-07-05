@@ -138,7 +138,9 @@ result := {"decision": "deny", "evaluation_status": "partial", "determining_poli
 `
 		srv := runCredentialFlowServer(t, &db, partial)
 		w := runCredentialRequest(t, srv, runCredentialForm(nil))
-		if w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), "evaluation incomplete") {
+		// The engine rejects any non-complete evaluation status, so the mint fails
+		// closed as a policy evaluation error rather than a usable decision.
+		if w.Code != http.StatusServiceUnavailable || !strings.Contains(w.Body.String(), "policy evaluation unavailable") {
 			t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
 		}
 	})
