@@ -67,12 +67,12 @@ export function scopeName(desc: CommandDescriptor, sub: string): string {
 }
 
 export const SHELL_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
-  { name: 'up', group: 'stack', summary: 'Build and start the local stack' },
-  { name: 'down', group: 'stack', summary: 'Stop the stack; use -v to remove volumes' },
+  { name: 'up', group: 'stack', summary: 'Build and start the Caracal platform' },
+  { name: 'down', group: 'stack', summary: 'Stop the platform (-v removes volumes)' },
   {
     name: 'status',
     group: 'stack',
-    summary: 'Check service health',
+    summary: 'Show platform health',
     flags: {
       '': [
         { name: '--ready', summary: 'Probe dependency readiness instead of liveness' },
@@ -83,13 +83,13 @@ export const SHELL_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
   {
     name: 'purge',
     group: 'stack',
-    summary: 'Clean stack artifacts and local state',
+    summary: 'Remove platform state',
     subcommands: ['stack', 'volumes', 'logs', 'config', 'runtime', 'secrets', 'cache', 'all'],
   },
   {
     name: 'upgrade',
     group: 'stack',
-    summary: 'Migrate and roll the stack onto this version with no maintenance window',
+    summary: 'Upgrade the platform in place',
     flags: {
       '': [{ name: '--no-pull', summary: 'Reuse local images instead of pulling the pinned release' }],
     },
@@ -97,20 +97,20 @@ export const SHELL_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
   {
     name: 'invite',
     group: 'stack',
-    summary: 'Mint a one-time invite code for the first operator account',
+    summary: 'Generate a one-time operator invite',
     requiresArgs: true,
   },
   {
     name: 'run',
     group: 'runtime',
-    summary: 'Run a command with just-in-time injected credentials',
+    summary: 'Execute a workload with scoped runtime credentials',
     requiresConfig: true,
     requiresArgs: true,
   },
   {
     name: 'web',
     group: 'runtime',
-    summary: 'Launch the Caracal web console (UI + backend-for-frontend)',
+    summary: 'Open the Caracal Console',
     flags: {
       '': [
         { name: '--web-port', summary: 'Port for the web UI (default 3001)' },
