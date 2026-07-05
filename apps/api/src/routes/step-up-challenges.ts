@@ -51,14 +51,14 @@ interface DecidedRow {
   approver_subject_id: string
 }
 
-// The identity recorded as the deciding approver. A console operator is attributed by the
-// verified account behind the BFF assertion; a direct admin or automation call is attributed to
-// the credential itself. Operator identities are recorded verbatim regardless of the hold's
-// privacy mode: privacy modes shield an application's end users on the subject plane, while
-// zone operators act under full admin accountability.
+// The identity recorded as the deciding approver, always a stable id: a console decision is
+// attributed by the verified account's profile id behind the BFF assertion; a direct admin or
+// automation call is attributed to the credential itself. Approver identities are recorded
+// verbatim regardless of the hold's privacy mode: privacy modes shield an application's end
+// users on the subject plane, while zone operators act under full admin accountability.
 function approverId(req: FastifyRequest): string {
   const account = req.account
-  if (account) return `console:${account.email ?? account.id}`
+  if (account) return `console:${account.id}`
   return `admin:${req.actor.id}`
 }
 
