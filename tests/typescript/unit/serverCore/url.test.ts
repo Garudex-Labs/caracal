@@ -2,7 +2,7 @@
 // Caracal, a product of Garudex Labs
 
 import { describe, expect, it } from 'vitest'
-import { pathOnly } from '../../../../packages/core/ts/src/url.js'
+import { pathOnly } from '../../../../packages/serverCore/ts/src/url.js'
 
 describe('pathOnly', () => {
   it('returns the path unchanged when there is no query', () => {

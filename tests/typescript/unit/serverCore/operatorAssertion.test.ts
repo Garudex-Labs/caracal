@@ -4,7 +4,7 @@
 // Tests for the Console BFF operator-identity assertion: deterministic signing, verification, expiry, and tamper resistance.
 
 import { describe, expect, it } from 'vitest'
-import { signOperatorAssertion, verifyOperatorAssertion } from '../../../../packages/core/ts/src/operatorAssertion.js'
+import { signOperatorAssertion, verifyOperatorAssertion } from '../../../../packages/serverCore/ts/src/operatorAssertion.js'
 
 const ADMIN = 'deployment-admin-token-xyz'
 const NOW = 1_900_000_000

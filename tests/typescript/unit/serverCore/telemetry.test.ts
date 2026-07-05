@@ -4,7 +4,7 @@
 // Tests for the OpenTelemetry bootstrap helpers for Node.js services.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { initNodeTelemetry, instrumentFastifyApp } from '../../../../packages/core/ts/src/telemetry.js'
+import { initNodeTelemetry, instrumentFastifyApp } from '../../../../packages/serverCore/ts/src/telemetry.js'
 
 const SAVED = { ...process.env }
 

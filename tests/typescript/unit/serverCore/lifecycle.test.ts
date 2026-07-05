@@ -4,7 +4,7 @@
 // Tests for the shared graceful shutdown registry.
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ShutdownRegistry } from '../../../../packages/core/ts/src/lifecycle.js'
+import { ShutdownRegistry } from '../../../../packages/serverCore/ts/src/lifecycle.js'
 
 type LogCall = { level: string; msg: string; meta?: Record<string, unknown> }
 

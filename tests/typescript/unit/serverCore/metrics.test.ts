@@ -4,7 +4,7 @@
 // Tests for the Prometheus text-format renderer for observability counters.
 
 import { describe, expect, it } from 'vitest'
-import { renderObservabilityMetrics } from '../../../../packages/core/ts/src/metrics.js'
+import { renderObservabilityMetrics } from '../../../../packages/serverCore/ts/src/metrics.js'
 import type { AuditClient, AuditMetrics } from '../../../../packages/core/ts/src/audit.js'
 
 function fakeAudit(metrics: AuditMetrics): AuditClient {
