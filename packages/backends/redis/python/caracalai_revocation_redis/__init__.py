@@ -5,14 +5,20 @@
 
 from .revocation import (
     DEFAULT_REVOCATION_TTL_MS,
+    DELEGATION_INVALIDATION_STREAM,
+    FAIL_CLOSED_EPOCH,
     REVOCATION_STREAM,
+    RedisDelegationInvalidationConsumer,
     RedisRevocationConsumer,
     RedisRevocationStore,
 )
 
 __all__ = [
     "DEFAULT_REVOCATION_TTL_MS",
+    "DELEGATION_INVALIDATION_STREAM",
+    "FAIL_CLOSED_EPOCH",
     "REVOCATION_STREAM",
+    "RedisDelegationInvalidationConsumer",
     "RedisRevocationConsumer",
     "RedisRevocationStore",
 ]

@@ -13,7 +13,9 @@ from typing import Protocol
 from redis.exceptions import RedisError, ResponseError
 
 REVOCATION_STREAM = "caracal.sessions.revoke"
+DELEGATION_INVALIDATION_STREAM = "caracal.delegations.invalidate"
 DEFAULT_REVOCATION_TTL_MS = 24 * 60 * 60 * 1000
+FAIL_CLOSED_EPOCH = 2**63 - 1
 STREAM_SIG_FIELD = "_sig"
 
 
@@ -72,8 +74,37 @@ class RedisRevocationStore:
             return
         self._redis.set(self._key(sid), "1", px=ttl_ms or self._default_ttl_ms)
 
+    def current_delegation_epoch(self, zone_id: str) -> int:
+        try:
+            value = self._redis.get(self._delegation_epoch_key(zone_id))
+        except RedisError:
+            if self._fail_closed:
+                return FAIL_CLOSED_EPOCH
+            raise
+        try:
+            epoch = int(_to_text(value)) if value is not None else 0
+        except ValueError:
+            return 0
+        return epoch if epoch > 0 else 0
+
+    def mark_delegation_epoch(
+        self, zone_id: str, epoch: int, ttl_ms: int | None = None
+    ) -> None:
+        if zone_id == "" or epoch < 0:
+            return
+        if epoch <= self.current_delegation_epoch(zone_id):
+            return
+        self._redis.set(
+            self._delegation_epoch_key(zone_id),
+            str(epoch),
+            px=ttl_ms or self._default_ttl_ms,
+        )
+
     def _key(self, sid: str) -> str:
         return f"{self._key_prefix}{sid}"
+
+    def _delegation_epoch_key(self, zone_id: str) -> str:
+        return f"{self._key_prefix}delegation-epoch:{zone_id}"
 
 
 class RedisRevocationConsumer:
@@ -165,6 +196,47 @@ class RedisRevocationConsumer:
             return False
         want = _sign_stream(self._stream_hmac_key, self._stream, values)
         return hmac.compare_digest(sig, want)
+
+
+class RedisDelegationInvalidationConsumer(RedisRevocationConsumer):
+    def __init__(
+        self,
+        redis: RedisStreamClient,
+        store: RedisRevocationStore,
+        consumer: str,
+        stream: str = DELEGATION_INVALIDATION_STREAM,
+        group: str = "resource-delegation-invalidation",
+        batch_size: int = 50,
+        block_ms: int = 0,
+        pending_idle_ms: int = 30_000,
+        stream_hmac_key: bytes | None = None,
+        require_signature: bool | None = None,
+    ) -> None:
+        super().__init__(
+            redis,
+            store,
+            consumer,
+            stream=stream,
+            group=group,
+            batch_size=batch_size,
+            block_ms=block_ms,
+            pending_idle_ms=pending_idle_ms,
+            stream_hmac_key=stream_hmac_key,
+            require_signature=require_signature,
+        )
+
+    def _process_message(self, message_id: str, values: dict[str, str]) -> None:
+        if not self._verify(values):
+            self._redis.xack(self._stream, self._group, message_id)
+            return
+        zone_id = values.get("zone_id", "")
+        try:
+            epoch = int(values.get("epoch", ""))
+        except ValueError:
+            epoch = -1
+        if zone_id and epoch >= 0:
+            self._store.mark_delegation_epoch(zone_id, epoch)
+        self._redis.xack(self._stream, self._group, message_id)
 
 
 def _normalize_values(values: StreamValues) -> dict[str, str]:

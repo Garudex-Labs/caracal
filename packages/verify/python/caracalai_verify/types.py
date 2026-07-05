@@ -19,6 +19,7 @@ ErrorCode = Literal[
     "invalid_zone",
     "insufficient_scope",
     "session_revoked",
+    "delegation_stale",
     "agent_required",
     "delegation_required",
     "chain_mismatch",

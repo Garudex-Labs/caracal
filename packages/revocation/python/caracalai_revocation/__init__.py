@@ -3,7 +3,7 @@
 #
 # caracalai_revocation: RevocationStore protocol and in-memory default.
 
-from .iface import RevocationStore
+from .iface import DelegationEpochStore, RevocationStore
 from .inmem import InMemoryRevocationStore
 
-__all__ = ["InMemoryRevocationStore", "RevocationStore"]
+__all__ = ["DelegationEpochStore", "InMemoryRevocationStore", "RevocationStore"]
