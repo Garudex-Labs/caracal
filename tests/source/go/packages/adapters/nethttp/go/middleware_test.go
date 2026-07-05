@@ -3,7 +3,7 @@
 //
 // net/http MCP middleware unit tests for JWT validation and JWKS caching.
 
-package mcpnethttp
+package nethttp
 
 import (
 	"context"
@@ -21,7 +21,7 @@ import (
 
 	"github.com/garudex-labs/caracal/packages/identity/go"
 	"github.com/garudex-labs/caracal/packages/revocation/go"
-	transportmcp "github.com/garudex-labs/caracal/packages/transport/mcp/go"
+	verify "github.com/garudex-labs/caracal/packages/verify/go"
 	"github.com/golang-jwt/jwt/v5"
 )
 
@@ -122,23 +122,23 @@ func TestMiddlewareRejectsMissingRequiredScope(t *testing.T) {
 
 func TestHTTPStatusCoversTransportCodes(t *testing.T) {
 	tests := []struct {
-		code      transportmcp.ErrorCode
+		code      verify.ErrorCode
 		status    int
 		bodyError string
 	}{
-		{transportmcp.ErrInsufficientScope, http.StatusForbidden, "insufficient_scope"},
-		{transportmcp.ErrAgentRequired, http.StatusForbidden, "agent_required"},
-		{transportmcp.ErrDelegationRequired, http.StatusForbidden, "delegation_required"},
-		{transportmcp.ErrChainMismatch, http.StatusForbidden, "chain_mismatch"},
-		{transportmcp.ErrHopCountExceeded, http.StatusForbidden, "hop_count_exceeded"},
-		{transportmcp.ErrSessionRevoked, http.StatusUnauthorized, "session_revoked"},
-		{transportmcp.ErrInvalidZone, http.StatusUnauthorized, "invalid_zone"},
-		{transportmcp.ErrMissingToken, http.StatusUnauthorized, "missing_token"},
-		{transportmcp.ErrInvalidToken, http.StatusUnauthorized, "invalid_token"},
+		{verify.ErrInsufficientScope, http.StatusForbidden, "insufficient_scope"},
+		{verify.ErrAgentRequired, http.StatusForbidden, "agent_required"},
+		{verify.ErrDelegationRequired, http.StatusForbidden, "delegation_required"},
+		{verify.ErrChainMismatch, http.StatusForbidden, "chain_mismatch"},
+		{verify.ErrHopCountExceeded, http.StatusForbidden, "hop_count_exceeded"},
+		{verify.ErrSessionRevoked, http.StatusUnauthorized, "session_revoked"},
+		{verify.ErrInvalidZone, http.StatusUnauthorized, "invalid_zone"},
+		{verify.ErrMissingToken, http.StatusUnauthorized, "missing_token"},
+		{verify.ErrInvalidToken, http.StatusUnauthorized, "invalid_token"},
 	}
 	for _, tt := range tests {
 		t.Run(string(tt.code), func(t *testing.T) {
-			status := transportmcp.HTTPStatus(tt.code)
+			status := verify.HTTPStatus(tt.code)
 			if status != tt.status || string(tt.code) != tt.bodyError {
 				t.Fatalf("want %d %q, got %d %q", tt.status, tt.bodyError, status, string(tt.code))
 			}

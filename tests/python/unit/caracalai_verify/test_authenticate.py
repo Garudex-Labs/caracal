@@ -16,7 +16,7 @@ sys.path.append(str(Path(__file__).parents[3] / "shared" / "test-utils" / "pytho
 from caracal_test_tokens import mint_es256_token
 from caracalai_identity import verify
 from caracalai_revocation import InMemoryRevocationStore
-from caracalai_transport_mcp import AuthOptions, authenticate, check_active_authority, create_mandate_verifier, extract_bearer
+from caracalai_verify import AuthOptions, authenticate, check_active_authority, create_mandate_verifier, extract_bearer
 
 
 class StubCache:
