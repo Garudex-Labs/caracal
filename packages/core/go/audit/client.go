@@ -315,7 +315,8 @@ func (c *Client) recordLoss(count uint64, err error) {
 }
 
 // persistBatch appends events to a per-process ndjson file for later replay. Returns
-// an error when a recoverable replay file could not be written.
+// an error when the replay file could not be written; a replay directory sync
+// failure is logged but does not fail the batch, since the file itself is durable.
 func (c *Client) persistBatch(batch []Event) error {
 	if len(batch) == 0 {
 		return nil

@@ -21,7 +21,6 @@ ALTER ROLE caracalsts WITH NOSUPERUSER INHERIT NOCREATEROLE NOCREATEDB NOLOGIN N
 --
 
 
-
 SET statement_timeout = 0;
 SET lock_timeout = 0;
 SET idle_in_transaction_session_timeout = 0;
@@ -35,23 +34,10 @@ SET client_min_messages = warning;
 SET row_security = off;
 
 --
--- Name: public; Type: SCHEMA; Schema: -; Owner: -
---
-
-
-
---
--- Name: SCHEMA public; Type: COMMENT; Schema: -; Owner: -
---
-
-
-
---
--- Name: pgcrypto; Type: EXTENSION; Schema: public; Owner: -
+-- Name: pgcrypto; Type: EXTENSION; Schema: -; Owner: -
 --
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public;
-
 
 
 --
@@ -111,7 +97,9 @@ CREATE TABLE public.admin_tokens (
     last_used_at timestamp with time zone,
     revoked_at timestamp with time zone,
     token_hash text,
+    capability text DEFAULT 'write'::text NOT NULL,
     CONSTRAINT admin_token_scope_zone_pair CHECK ((((scope = 'global'::text) AND (zone_id IS NULL)) OR ((scope = 'zone'::text) AND (zone_id IS NOT NULL)))),
+    CONSTRAINT admin_tokens_capability_check CHECK ((capability = ANY (ARRAY['read'::text, 'write'::text, 'approve'::text]))),
     CONSTRAINT admin_tokens_scope_check CHECK ((scope = ANY (ARRAY['global'::text, 'zone'::text])))
 );
 
@@ -195,6 +183,7 @@ CREATE TABLE public.agent_sessions (
     last_heartbeat_at timestamp with time zone,
     heartbeat_deadline_at timestamp with time zone,
     idempotency_key text,
+    termination_reason text,
     CONSTRAINT agent_sessions_lifecycle_check CHECK ((lifecycle = ANY (ARRAY['task'::text, 'service'::text]))),
     CONSTRAINT agent_sessions_status_check CHECK ((status = ANY (ARRAY['active'::text, 'suspended'::text, 'terminated'::text, 'expired'::text])))
 );
@@ -225,6 +214,11 @@ CREATE TABLE public.applications (
     expires_at timestamp with time zone,
     archived_at timestamp with time zone,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
+    created_by text,
+    created_via_operator boolean DEFAULT false NOT NULL,
+    updated_by text,
+    updated_via_operator boolean DEFAULT false NOT NULL,
+    updated_at timestamp with time zone,
     CONSTRAINT applications_credential_type_check CHECK ((credential_type = 'token'::text)),
     CONSTRAINT applications_dcr_expires_at_required CHECK (((registration_method <> 'dcr'::text) OR (expires_at IS NOT NULL))),
     CONSTRAINT applications_registration_method_check CHECK ((registration_method = ANY (ARRAY['managed'::text, 'dcr'::text])))
@@ -298,114 +292,6 @@ CREATE TABLE public.audit_events_default (
 
 
 --
--- Name: audit_events_y2026m06; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.audit_events_y2026m06 (
-    id text CONSTRAINT audit_events_id_not_null NOT NULL,
-    zone_id text CONSTRAINT audit_events_zone_id_not_null NOT NULL,
-    event_type text CONSTRAINT audit_events_event_type_not_null NOT NULL,
-    request_id text,
-    decision text,
-    policy_set_id text,
-    policy_set_version_id text,
-    manifest_sha text,
-    evaluation_status text,
-    determining_policies_json jsonb,
-    diagnostics_json jsonb,
-    metadata_json jsonb,
-    occurred_at timestamp with time zone CONSTRAINT audit_events_occurred_at_not_null NOT NULL,
-    ingested_at timestamp with time zone DEFAULT now() CONSTRAINT audit_events_ingested_at_not_null NOT NULL,
-    content_sha256 text,
-    prev_content_sha256 text,
-    chain_hmac text,
-    chain_seq bigint,
-    ingest_signature text
-);
-
-
---
--- Name: audit_events_y2026m07; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.audit_events_y2026m07 (
-    id text CONSTRAINT audit_events_id_not_null NOT NULL,
-    zone_id text CONSTRAINT audit_events_zone_id_not_null NOT NULL,
-    event_type text CONSTRAINT audit_events_event_type_not_null NOT NULL,
-    request_id text,
-    decision text,
-    policy_set_id text,
-    policy_set_version_id text,
-    manifest_sha text,
-    evaluation_status text,
-    determining_policies_json jsonb,
-    diagnostics_json jsonb,
-    metadata_json jsonb,
-    occurred_at timestamp with time zone CONSTRAINT audit_events_occurred_at_not_null NOT NULL,
-    ingested_at timestamp with time zone DEFAULT now() CONSTRAINT audit_events_ingested_at_not_null NOT NULL,
-    content_sha256 text,
-    prev_content_sha256 text,
-    chain_hmac text,
-    chain_seq bigint,
-    ingest_signature text
-);
-
-
---
--- Name: audit_events_y2026m08; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.audit_events_y2026m08 (
-    id text CONSTRAINT audit_events_id_not_null NOT NULL,
-    zone_id text CONSTRAINT audit_events_zone_id_not_null NOT NULL,
-    event_type text CONSTRAINT audit_events_event_type_not_null NOT NULL,
-    request_id text,
-    decision text,
-    policy_set_id text,
-    policy_set_version_id text,
-    manifest_sha text,
-    evaluation_status text,
-    determining_policies_json jsonb,
-    diagnostics_json jsonb,
-    metadata_json jsonb,
-    occurred_at timestamp with time zone CONSTRAINT audit_events_occurred_at_not_null NOT NULL,
-    ingested_at timestamp with time zone DEFAULT now() CONSTRAINT audit_events_ingested_at_not_null NOT NULL,
-    content_sha256 text,
-    prev_content_sha256 text,
-    chain_hmac text,
-    chain_seq bigint,
-    ingest_signature text
-);
-
-
---
--- Name: audit_events_y2026m09; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.audit_events_y2026m09 (
-    id text CONSTRAINT audit_events_id_not_null NOT NULL,
-    zone_id text CONSTRAINT audit_events_zone_id_not_null NOT NULL,
-    event_type text CONSTRAINT audit_events_event_type_not_null NOT NULL,
-    request_id text,
-    decision text,
-    policy_set_id text,
-    policy_set_version_id text,
-    manifest_sha text,
-    evaluation_status text,
-    determining_policies_json jsonb,
-    diagnostics_json jsonb,
-    metadata_json jsonb,
-    occurred_at timestamp with time zone CONSTRAINT audit_events_occurred_at_not_null NOT NULL,
-    ingested_at timestamp with time zone DEFAULT now() CONSTRAINT audit_events_ingested_at_not_null NOT NULL,
-    content_sha256 text,
-    prev_content_sha256 text,
-    chain_hmac text,
-    chain_seq bigint,
-    ingest_signature text
-);
-
-
---
 -- Name: audit_export_watermark; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -450,6 +336,20 @@ ALTER SEQUENCE public.audit_ingest_alerts_id_seq OWNED BY public.audit_ingest_al
 
 
 --
+-- Name: audit_retention; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.audit_retention (
+    singleton boolean DEFAULT true NOT NULL,
+    retention_days integer NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_by text,
+    CONSTRAINT audit_retention_retention_days_check CHECK ((retention_days >= 1)),
+    CONSTRAINT audit_retention_singleton_check CHECK (singleton)
+);
+
+
+--
 -- Name: caracal_outbox; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -484,6 +384,10 @@ CREATE TABLE public.delegated_grants (
     status text DEFAULT 'active'::text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    created_by text,
+    created_via_operator boolean DEFAULT false NOT NULL,
+    updated_by text,
+    updated_via_operator boolean DEFAULT false NOT NULL,
     CONSTRAINT delegated_grants_status_check CHECK ((status = ANY (ARRAY['active'::text, 'revoked'::text, 'expired'::text])))
 );
 
@@ -570,6 +474,162 @@ CREATE TABLE public.gateway_resource_bindings (
 
 
 --
+-- Name: operator_ai_providers; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.operator_ai_providers (
+    slug text NOT NULL,
+    label text NOT NULL,
+    base_url text NOT NULL,
+    models jsonb DEFAULT '[]'::jsonb NOT NULL,
+    context_window integer DEFAULT 0 NOT NULL,
+    enabled boolean DEFAULT true NOT NULL,
+    sort_order integer DEFAULT 0 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    auth_config jsonb DEFAULT '{}'::jsonb NOT NULL,
+    CONSTRAINT operator_ai_providers_context_window_check CHECK ((context_window >= 0)),
+    CONSTRAINT operator_ai_providers_slug_check CHECK ((slug ~ '^[a-z0-9_]{1,32}$'::text))
+);
+
+
+--
+-- Name: operator_conversation_counters; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.operator_conversation_counters (
+    zone_id text NOT NULL,
+    next_number bigint NOT NULL
+);
+
+
+--
+-- Name: operator_conversations; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.operator_conversations (
+    id text NOT NULL,
+    zone_id text NOT NULL,
+    title text NOT NULL,
+    status text DEFAULT 'active'::text NOT NULL,
+    created_by text NOT NULL,
+    next_seq bigint DEFAULT 1 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    last_activity_at timestamp with time zone DEFAULT now() NOT NULL,
+    archived_at timestamp with time zone,
+    mode text DEFAULT 'agent'::text NOT NULL,
+    autopilot boolean DEFAULT false NOT NULL,
+    number bigint,
+    CONSTRAINT operator_conversations_mode_check CHECK ((mode = ANY (ARRAY['ask'::text, 'agent'::text]))),
+    CONSTRAINT operator_conversations_next_seq_check CHECK ((next_seq >= 1)),
+    CONSTRAINT operator_conversations_status_check CHECK ((status = ANY (ARRAY['active'::text, 'archived'::text])))
+);
+
+
+--
+-- Name: operator_message_run_events; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.operator_message_run_events (
+    id text NOT NULL,
+    run_id text NOT NULL,
+    zone_id text NOT NULL,
+    conversation_id text NOT NULL,
+    event_seq bigint NOT NULL,
+    state text NOT NULL,
+    reason text,
+    error_code text,
+    error_detail text,
+    payload jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT operator_message_run_events_event_seq_check CHECK ((event_seq >= 1)),
+    CONSTRAINT operator_message_run_events_state_check CHECK ((state = ANY (ARRAY['queued'::text, 'sending'::text, 'waiting_for_model'::text, 'reasoning'::text, 'waiting_for_tool'::text, 'waiting_for_user_approval'::text, 'executing'::text, 'streaming'::text, 'completed'::text, 'cancelled'::text, 'failed'::text, 'timeout'::text])))
+);
+
+
+--
+-- Name: operator_message_runs; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.operator_message_runs (
+    id text NOT NULL,
+    zone_id text NOT NULL,
+    conversation_id text NOT NULL,
+    client_message_id text NOT NULL,
+    server_message_turn_id text,
+    correlation_id text NOT NULL,
+    state text NOT NULL,
+    actor_id text,
+    provider_id text,
+    reason text,
+    error_code text,
+    error_detail text,
+    deadline_at timestamp with time zone,
+    started_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    completed_at timestamp with time zone,
+    last_event_seq bigint DEFAULT 0 NOT NULL,
+    CONSTRAINT operator_message_runs_completion_check CHECK (((state = ANY (ARRAY['completed'::text, 'cancelled'::text, 'failed'::text, 'timeout'::text])) OR (completed_at IS NULL))),
+    CONSTRAINT operator_message_runs_last_event_seq_check CHECK ((last_event_seq >= 0)),
+    CONSTRAINT operator_message_runs_state_check CHECK ((state = ANY (ARRAY['queued'::text, 'sending'::text, 'waiting_for_model'::text, 'reasoning'::text, 'waiting_for_tool'::text, 'waiting_for_user_approval'::text, 'executing'::text, 'streaming'::text, 'completed'::text, 'cancelled'::text, 'failed'::text, 'timeout'::text])))
+);
+
+
+--
+-- Name: operator_plan_secrets; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.operator_plan_secrets (
+    conversation_id text NOT NULL,
+    zone_id text NOT NULL,
+    plan_seq bigint NOT NULL,
+    step_id text NOT NULL,
+    ciphertext bytea NOT NULL,
+    nonce bytea NOT NULL,
+    secret_keys text[] NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    expires_at timestamp with time zone NOT NULL,
+    CONSTRAINT operator_plan_secrets_plan_seq_check CHECK ((plan_seq >= 1))
+);
+
+
+--
+-- Name: operator_turns; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.operator_turns (
+    id text NOT NULL,
+    conversation_id text NOT NULL,
+    zone_id text NOT NULL,
+    seq bigint NOT NULL,
+    role text NOT NULL,
+    kind text NOT NULL,
+    content jsonb DEFAULT '{}'::jsonb NOT NULL,
+    actor_id text,
+    client_token text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT operator_turns_kind_check CHECK ((kind = ANY (ARRAY['message'::text, 'plan'::text, 'approval'::text, 'rejection'::text, 'execution'::text, 'error'::text, 'note'::text]))),
+    CONSTRAINT operator_turns_role_check CHECK ((role = ANY (ARRAY['user'::text, 'operator'::text, 'system'::text]))),
+    CONSTRAINT operator_turns_seq_check CHECK ((seq >= 1))
+);
+
+
+--
+-- Name: operator_zone_memory; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.operator_zone_memory (
+    id text NOT NULL,
+    zone_id text NOT NULL,
+    conversation_id text,
+    text text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT operator_zone_memory_text_check CHECK (((char_length(text) >= 1) AND (char_length(text) <= 2000)))
+);
+
+
+--
 -- Name: policies; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -582,7 +642,10 @@ CREATE TABLE public.policies (
     archived_at timestamp with time zone,
     created_by text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    created_via_operator boolean DEFAULT false CONSTRAINT policies_co_authored_by_operator_not_null NOT NULL,
+    updated_by text,
+    updated_via_operator boolean DEFAULT false NOT NULL
 );
 
 
@@ -612,7 +675,8 @@ CREATE TABLE public.policy_set_versions (
     schema_version text NOT NULL,
     created_by text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    archived_at timestamp with time zone
+    archived_at timestamp with time zone,
+    created_via_operator boolean DEFAULT false NOT NULL
 );
 
 
@@ -630,7 +694,10 @@ CREATE TABLE public.policy_sets (
     archived_at timestamp with time zone,
     created_by text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    created_via_operator boolean DEFAULT false CONSTRAINT policy_sets_co_authored_by_operator_not_null NOT NULL,
+    updated_by text,
+    updated_via_operator boolean DEFAULT false NOT NULL
 );
 
 
@@ -647,7 +714,8 @@ CREATE TABLE public.policy_versions (
     schema_version text NOT NULL,
     created_by text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    archived_at timestamp with time zone
+    archived_at timestamp with time zone,
+    created_via_operator boolean DEFAULT false NOT NULL
 );
 
 
@@ -691,6 +759,11 @@ CREATE TABLE public.providers (
     secret_config_nonce bytea,
     secret_config_keys text[] DEFAULT '{}'::text[] NOT NULL,
     provider_kind text NOT NULL,
+    connectivity_failed_at timestamp with time zone,
+    created_by text,
+    created_via_operator boolean DEFAULT false NOT NULL,
+    updated_by text,
+    updated_via_operator boolean DEFAULT false NOT NULL,
     CONSTRAINT providers_provider_kind_check CHECK ((provider_kind = ANY (ARRAY['none'::text, 'caracal_mandate'::text, 'oauth2_authorization_code'::text, 'oauth2_client_credentials'::text, 'api_key'::text, 'bearer_token'::text])))
 );
 
@@ -709,7 +782,14 @@ CREATE TABLE public.resources (
     scopes text[] DEFAULT '{}'::text[] NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    archived_at timestamp with time zone
+    archived_at timestamp with time zone,
+    operations jsonb DEFAULT '[]'::jsonb NOT NULL,
+    operation_enforcement text DEFAULT 'transport_uniform'::text NOT NULL,
+    created_by text,
+    created_via_operator boolean DEFAULT false NOT NULL,
+    updated_by text,
+    updated_via_operator boolean DEFAULT false NOT NULL,
+    CONSTRAINT resources_operation_enforcement_check CHECK ((operation_enforcement = ANY (ARRAY['enforced'::text, 'transport_uniform'::text])))
 );
 
 
@@ -748,6 +828,8 @@ CREATE TABLE public.sessions (
     authenticated_at timestamp with time zone NOT NULL,
     claims_json jsonb,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
+    revoked_at timestamp with time zone,
+    revoked_reason text,
     CONSTRAINT sessions_session_type_check CHECK ((session_type = ANY (ARRAY['user'::text, 'application'::text]))),
     CONSTRAINT sessions_status_check CHECK ((status = ANY (ARRAY['active'::text, 'revoked'::text, 'expired'::text])))
 );
@@ -766,12 +848,39 @@ CREATE TABLE public.step_up_challenges (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     expires_at timestamp with time zone NOT NULL,
     satisfied_at timestamp with time zone,
-    challenge_secret_hash bytea,
     principal_id text,
     resource_set_hash bytea,
     consumed_at timestamp with time zone,
     approver_subject_id text,
-    CONSTRAINT step_up_challenges_challenge_type_check CHECK ((challenge_type = ANY (ARRAY['human_approval'::text, 'mfa'::text, 'software_attestation'::text])))
+    application_id text,
+    tier text,
+    approver_class text DEFAULT 'operator'::text NOT NULL,
+    privacy_mode text DEFAULT 'identified'::text NOT NULL,
+    rejected_at timestamp with time zone,
+    decision_reason text,
+    approver_session_id text,
+    CONSTRAINT step_up_challenges_approver_class_check CHECK ((approver_class = ANY (ARRAY['operator'::text, 'subject'::text, 'any'::text]))),
+    CONSTRAINT step_up_challenges_challenge_type_check CHECK ((challenge_type = 'human_approval'::text)),
+    CONSTRAINT step_up_challenges_privacy_mode_check CHECK ((privacy_mode = ANY (ARRAY['identified'::text, 'pseudonymous'::text, 'anonymous'::text])))
+);
+
+
+--
+-- Name: workloads; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.workloads (
+    id text NOT NULL,
+    zone_id text NOT NULL,
+    name text NOT NULL,
+    secret_hash text NOT NULL,
+    bindings jsonb DEFAULT '[]'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_by text,
+    updated_at timestamp with time zone,
+    created_by text,
+    created_via_operator boolean DEFAULT false NOT NULL,
+    updated_via_operator boolean DEFAULT false NOT NULL
 );
 
 
@@ -788,7 +897,14 @@ CREATE TABLE public.zones (
     dcr_enabled boolean DEFAULT false NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    archived_at timestamp with time zone
+    archived_at timestamp with time zone,
+    owner_account_id text,
+    operator_coauthor_badge boolean DEFAULT true NOT NULL,
+    operator_governed boolean DEFAULT false NOT NULL,
+    created_by text,
+    created_via_operator boolean DEFAULT false NOT NULL,
+    updated_by text,
+    updated_via_operator boolean DEFAULT false NOT NULL
 );
 
 
@@ -797,34 +913,6 @@ CREATE TABLE public.zones (
 --
 
 ALTER TABLE ONLY public.audit_events ATTACH PARTITION public.audit_events_default DEFAULT;
-
-
---
--- Name: audit_events_y2026m06; Type: TABLE ATTACH; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.audit_events ATTACH PARTITION public.audit_events_y2026m06 FOR VALUES FROM ('2026-06-01 00:00:00+00') TO ('2026-07-01 00:00:00+00');
-
-
---
--- Name: audit_events_y2026m07; Type: TABLE ATTACH; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.audit_events ATTACH PARTITION public.audit_events_y2026m07 FOR VALUES FROM ('2026-07-01 00:00:00+00') TO ('2026-08-01 00:00:00+00');
-
-
---
--- Name: audit_events_y2026m08; Type: TABLE ATTACH; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.audit_events ATTACH PARTITION public.audit_events_y2026m08 FOR VALUES FROM ('2026-08-01 00:00:00+00') TO ('2026-09-01 00:00:00+00');
-
-
---
--- Name: audit_events_y2026m09; Type: TABLE ATTACH; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.audit_events ATTACH PARTITION public.audit_events_y2026m09 FOR VALUES FROM ('2026-09-01 00:00:00+00') TO ('2026-10-01 00:00:00+00');
 
 
 --
@@ -963,38 +1051,6 @@ ALTER TABLE ONLY public.audit_events_default
 
 
 --
--- Name: audit_events_y2026m06 audit_events_y2026m06_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.audit_events_y2026m06
-    ADD CONSTRAINT audit_events_y2026m06_pkey PRIMARY KEY (id, occurred_at);
-
-
---
--- Name: audit_events_y2026m07 audit_events_y2026m07_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.audit_events_y2026m07
-    ADD CONSTRAINT audit_events_y2026m07_pkey PRIMARY KEY (id, occurred_at);
-
-
---
--- Name: audit_events_y2026m08 audit_events_y2026m08_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.audit_events_y2026m08
-    ADD CONSTRAINT audit_events_y2026m08_pkey PRIMARY KEY (id, occurred_at);
-
-
---
--- Name: audit_events_y2026m09 audit_events_y2026m09_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.audit_events_y2026m09
-    ADD CONSTRAINT audit_events_y2026m09_pkey PRIMARY KEY (id, occurred_at);
-
-
---
 -- Name: audit_export_watermark audit_export_watermark_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1008,6 +1064,14 @@ ALTER TABLE ONLY public.audit_export_watermark
 
 ALTER TABLE ONLY public.audit_ingest_alerts
     ADD CONSTRAINT audit_ingest_alerts_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: audit_retention audit_retention_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_retention
+    ADD CONSTRAINT audit_retention_pkey PRIMARY KEY (singleton);
 
 
 --
@@ -1072,6 +1136,86 @@ ALTER TABLE ONLY public.gateway_binding_revision
 
 ALTER TABLE ONLY public.gateway_resource_bindings
     ADD CONSTRAINT gateway_resource_bindings_pkey PRIMARY KEY (zone_id, resource_identifier);
+
+
+--
+-- Name: operator_ai_providers operator_ai_providers_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.operator_ai_providers
+    ADD CONSTRAINT operator_ai_providers_pkey PRIMARY KEY (slug);
+
+
+--
+-- Name: operator_conversation_counters operator_conversation_counters_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.operator_conversation_counters
+    ADD CONSTRAINT operator_conversation_counters_pkey PRIMARY KEY (zone_id);
+
+
+--
+-- Name: operator_conversations operator_conversations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.operator_conversations
+    ADD CONSTRAINT operator_conversations_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: operator_message_run_events operator_message_run_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.operator_message_run_events
+    ADD CONSTRAINT operator_message_run_events_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: operator_message_run_events operator_message_run_events_run_seq_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.operator_message_run_events
+    ADD CONSTRAINT operator_message_run_events_run_seq_key UNIQUE (run_id, event_seq);
+
+
+--
+-- Name: operator_message_runs operator_message_runs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.operator_message_runs
+    ADD CONSTRAINT operator_message_runs_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: operator_plan_secrets operator_plan_secrets_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.operator_plan_secrets
+    ADD CONSTRAINT operator_plan_secrets_pkey PRIMARY KEY (conversation_id, plan_seq, step_id);
+
+
+--
+-- Name: operator_turns operator_turns_conversation_seq_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.operator_turns
+    ADD CONSTRAINT operator_turns_conversation_seq_key UNIQUE (conversation_id, seq);
+
+
+--
+-- Name: operator_turns operator_turns_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.operator_turns
+    ADD CONSTRAINT operator_turns_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: operator_zone_memory operator_zone_memory_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.operator_zone_memory
+    ADD CONSTRAINT operator_zone_memory_pkey PRIMARY KEY (id);
 
 
 --
@@ -1227,6 +1371,14 @@ ALTER TABLE ONLY public.step_up_challenges
 
 
 --
+-- Name: workloads workloads_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.workloads
+    ADD CONSTRAINT workloads_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: zones zones_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1369,6 +1521,13 @@ CREATE INDEX agent_sessions_zone_id_parent_id_status_idx ON public.agent_session
 
 
 --
+-- Name: agent_topology_child_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX agent_topology_child_id_idx ON public.agent_topology USING btree (child_id);
+
+
+--
 -- Name: applications_zone_id_expires_at_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1380,6 +1539,13 @@ CREATE INDEX applications_zone_id_expires_at_idx ON public.applications USING bt
 --
 
 CREATE INDEX applications_zone_id_idx ON public.applications USING btree (zone_id);
+
+
+--
+-- Name: applications_zone_keyset_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX applications_zone_keyset_idx ON public.applications USING btree (zone_id, created_at DESC, id DESC) WHERE (archived_at IS NULL);
 
 
 --
@@ -1408,6 +1574,20 @@ CREATE INDEX audit_events_default_expr_idx ON public.audit_events_default USING 
 --
 
 CREATE INDEX audit_events_default_expr_idx1 ON public.audit_events_default USING gin (((metadata_json -> 'agent_labels'::text)));
+
+
+--
+-- Name: audit_events_session_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_session_idx ON ONLY public.audit_events USING btree (((metadata_json ->> 'session_id'::text))) WHERE (metadata_json ? 'session_id'::text);
+
+
+--
+-- Name: audit_events_default_expr_idx2; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_default_expr_idx2 ON public.audit_events_default USING btree (((metadata_json ->> 'session_id'::text))) WHERE (metadata_json ? 'session_id'::text);
 
 
 --
@@ -1453,146 +1633,6 @@ CREATE INDEX audit_events_default_zone_id_occurred_at_idx ON public.audit_events
 
 
 --
--- Name: audit_events_y2026m06_expr_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_events_y2026m06_expr_idx ON public.audit_events_y2026m06 USING btree (((metadata_json ->> 'agent_session_id'::text))) WHERE (metadata_json ? 'agent_session_id'::text);
-
-
---
--- Name: audit_events_y2026m06_expr_idx1; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_events_y2026m06_expr_idx1 ON public.audit_events_y2026m06 USING gin (((metadata_json -> 'agent_labels'::text)));
-
-
---
--- Name: audit_events_y2026m06_request_id_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_events_y2026m06_request_id_idx ON public.audit_events_y2026m06 USING btree (request_id) WHERE (request_id IS NOT NULL);
-
-
---
--- Name: audit_events_y2026m06_zone_id_chain_seq_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_events_y2026m06_zone_id_chain_seq_idx ON public.audit_events_y2026m06 USING btree (zone_id, chain_seq DESC);
-
-
---
--- Name: audit_events_y2026m06_zone_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_events_y2026m06_zone_id_occurred_at_idx ON public.audit_events_y2026m06 USING btree (zone_id, occurred_at DESC);
-
-
---
--- Name: audit_events_y2026m07_expr_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_events_y2026m07_expr_idx ON public.audit_events_y2026m07 USING btree (((metadata_json ->> 'agent_session_id'::text))) WHERE (metadata_json ? 'agent_session_id'::text);
-
-
---
--- Name: audit_events_y2026m07_expr_idx1; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_events_y2026m07_expr_idx1 ON public.audit_events_y2026m07 USING gin (((metadata_json -> 'agent_labels'::text)));
-
-
---
--- Name: audit_events_y2026m07_request_id_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_events_y2026m07_request_id_idx ON public.audit_events_y2026m07 USING btree (request_id) WHERE (request_id IS NOT NULL);
-
-
---
--- Name: audit_events_y2026m07_zone_id_chain_seq_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_events_y2026m07_zone_id_chain_seq_idx ON public.audit_events_y2026m07 USING btree (zone_id, chain_seq DESC);
-
-
---
--- Name: audit_events_y2026m07_zone_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_events_y2026m07_zone_id_occurred_at_idx ON public.audit_events_y2026m07 USING btree (zone_id, occurred_at DESC);
-
-
---
--- Name: audit_events_y2026m08_expr_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_events_y2026m08_expr_idx ON public.audit_events_y2026m08 USING btree (((metadata_json ->> 'agent_session_id'::text))) WHERE (metadata_json ? 'agent_session_id'::text);
-
-
---
--- Name: audit_events_y2026m08_expr_idx1; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_events_y2026m08_expr_idx1 ON public.audit_events_y2026m08 USING gin (((metadata_json -> 'agent_labels'::text)));
-
-
---
--- Name: audit_events_y2026m08_request_id_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_events_y2026m08_request_id_idx ON public.audit_events_y2026m08 USING btree (request_id) WHERE (request_id IS NOT NULL);
-
-
---
--- Name: audit_events_y2026m08_zone_id_chain_seq_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_events_y2026m08_zone_id_chain_seq_idx ON public.audit_events_y2026m08 USING btree (zone_id, chain_seq DESC);
-
-
---
--- Name: audit_events_y2026m08_zone_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_events_y2026m08_zone_id_occurred_at_idx ON public.audit_events_y2026m08 USING btree (zone_id, occurred_at DESC);
-
-
---
--- Name: audit_events_y2026m09_expr_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_events_y2026m09_expr_idx ON public.audit_events_y2026m09 USING btree (((metadata_json ->> 'agent_session_id'::text))) WHERE (metadata_json ? 'agent_session_id'::text);
-
-
---
--- Name: audit_events_y2026m09_expr_idx1; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_events_y2026m09_expr_idx1 ON public.audit_events_y2026m09 USING gin (((metadata_json -> 'agent_labels'::text)));
-
-
---
--- Name: audit_events_y2026m09_request_id_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_events_y2026m09_request_id_idx ON public.audit_events_y2026m09 USING btree (request_id) WHERE (request_id IS NOT NULL);
-
-
---
--- Name: audit_events_y2026m09_zone_id_chain_seq_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_events_y2026m09_zone_id_chain_seq_idx ON public.audit_events_y2026m09 USING btree (zone_id, chain_seq DESC);
-
-
---
--- Name: audit_events_y2026m09_zone_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_events_y2026m09_zone_id_occurred_at_idx ON public.audit_events_y2026m09 USING btree (zone_id, occurred_at DESC);
-
-
---
 -- Name: audit_ingest_alerts_zone_time; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1625,6 +1665,13 @@ CREATE INDEX delegated_grants_zone_id_user_id_idx ON public.delegated_grants USI
 --
 
 CREATE INDEX delegated_grants_zone_id_user_id_resource_id_status_idx ON public.delegated_grants USING btree (zone_id, user_id, resource_id, status);
+
+
+--
+-- Name: delegated_grants_zone_keyset_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX delegated_grants_zone_keyset_idx ON public.delegated_grants USING btree (zone_id, created_at DESC, id DESC);
 
 
 --
@@ -1684,6 +1731,97 @@ CREATE INDEX gateway_resource_bindings_zone_id_idx ON public.gateway_resource_bi
 
 
 --
+-- Name: operator_ai_providers_order_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX operator_ai_providers_order_idx ON public.operator_ai_providers USING btree (sort_order, slug);
+
+
+--
+-- Name: operator_conversations_zone_keyset_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX operator_conversations_zone_keyset_idx ON public.operator_conversations USING btree (zone_id, created_at DESC, id DESC) WHERE (archived_at IS NULL);
+
+
+--
+-- Name: operator_conversations_zone_number_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX operator_conversations_zone_number_idx ON public.operator_conversations USING btree (zone_id, number);
+
+
+--
+-- Name: operator_message_run_events_conversation_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX operator_message_run_events_conversation_idx ON public.operator_message_run_events USING btree (conversation_id, event_seq);
+
+
+--
+-- Name: operator_message_runs_active_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX operator_message_runs_active_idx ON public.operator_message_runs USING btree (zone_id, conversation_id, updated_at DESC) WHERE (state <> ALL (ARRAY['completed'::text, 'cancelled'::text, 'failed'::text, 'timeout'::text]));
+
+
+--
+-- Name: operator_message_runs_client_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX operator_message_runs_client_id_idx ON public.operator_message_runs USING btree (conversation_id, client_message_id);
+
+
+--
+-- Name: operator_message_runs_conversation_state_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX operator_message_runs_conversation_state_idx ON public.operator_message_runs USING btree (conversation_id, state, started_at DESC);
+
+
+--
+-- Name: operator_message_runs_correlation_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX operator_message_runs_correlation_idx ON public.operator_message_runs USING btree (correlation_id);
+
+
+--
+-- Name: operator_turns_conversation_seq_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX operator_turns_conversation_seq_idx ON public.operator_turns USING btree (conversation_id, seq);
+
+
+--
+-- Name: operator_turns_idempotency_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX operator_turns_idempotency_idx ON public.operator_turns USING btree (conversation_id, client_token) WHERE (client_token IS NOT NULL);
+
+
+--
+-- Name: operator_zone_memory_recall_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX operator_zone_memory_recall_idx ON public.operator_zone_memory USING btree (zone_id, created_at DESC, id DESC);
+
+
+--
+-- Name: policies_zone_keyset_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX policies_zone_keyset_idx ON public.policies USING btree (zone_id, created_at DESC, id DESC) WHERE (archived_at IS NULL);
+
+
+--
+-- Name: policy_sets_zone_keyset_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX policy_sets_zone_keyset_idx ON public.policy_sets USING btree (zone_id, created_at DESC, id DESC) WHERE (archived_at IS NULL);
+
+
+--
 -- Name: policy_versions_policy_id_created_at_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1726,6 +1864,13 @@ CREATE UNIQUE INDEX providers_zone_identifier_active_uidx ON public.providers US
 
 
 --
+-- Name: providers_zone_keyset_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX providers_zone_keyset_idx ON public.providers USING btree (zone_id, created_at DESC, id DESC) WHERE (archived_at IS NULL);
+
+
+--
 -- Name: resources_active_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1737,6 +1882,13 @@ CREATE INDEX resources_active_idx ON public.resources USING btree (id) WHERE (ar
 --
 
 CREATE INDEX resources_credential_provider_id_idx ON public.resources USING btree (credential_provider_id);
+
+
+--
+-- Name: resources_zone_keyset_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX resources_zone_keyset_idx ON public.resources USING btree (zone_id, created_at DESC, id DESC) WHERE (archived_at IS NULL);
 
 
 --
@@ -1754,10 +1906,38 @@ CREATE INDEX sessions_expires_at_idx ON public.sessions USING btree (expires_at)
 
 
 --
+-- Name: sessions_zone_active_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX sessions_zone_active_idx ON public.sessions USING btree (zone_id, expires_at) WHERE (status = 'active'::text);
+
+
+--
+-- Name: sessions_zone_created_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX sessions_zone_created_idx ON public.sessions USING btree (zone_id, created_at DESC, id DESC);
+
+
+--
 -- Name: sessions_zone_id_subject_id_status_idx; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX sessions_zone_id_subject_id_status_idx ON public.sessions USING btree (zone_id, subject_id, status);
+
+
+--
+-- Name: sessions_zone_subject_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX sessions_zone_subject_idx ON public.sessions USING btree (zone_id, subject_id);
+
+
+--
+-- Name: step_up_challenges_application_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX step_up_challenges_application_idx ON public.step_up_challenges USING btree (application_id) WHERE (application_id IS NOT NULL);
 
 
 --
@@ -1775,10 +1955,31 @@ CREATE UNIQUE INDEX step_up_challenges_consume_uniq ON public.step_up_challenges
 
 
 --
+-- Name: step_up_challenges_expires_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX step_up_challenges_expires_idx ON public.step_up_challenges USING btree (expires_at);
+
+
+--
+-- Name: step_up_challenges_live_binding_uniq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX step_up_challenges_live_binding_uniq ON public.step_up_challenges USING btree (zone_id, principal_id, session_id, resource_set_hash) NULLS NOT DISTINCT WHERE (consumed_at IS NULL);
+
+
+--
 -- Name: step_up_challenges_session_id_idx; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX step_up_challenges_session_id_idx ON public.step_up_challenges USING btree (session_id);
+
+
+--
+-- Name: step_up_challenges_zone_keyset_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX step_up_challenges_zone_keyset_idx ON public.step_up_challenges USING btree (zone_id, created_at DESC, id DESC);
 
 
 --
@@ -1789,10 +1990,24 @@ CREATE INDEX step_up_challenges_zone_principal ON public.step_up_challenges USIN
 
 
 --
+-- Name: workloads_zone_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX workloads_zone_idx ON public.workloads USING btree (zone_id, created_at DESC, id DESC);
+
+
+--
 -- Name: zones_active_idx; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX zones_active_idx ON public.zones USING btree (id) WHERE (archived_at IS NULL);
+
+
+--
+-- Name: zones_owner_account_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX zones_owner_account_id_idx ON public.zones USING btree (owner_account_id) WHERE (owner_account_id IS NOT NULL);
 
 
 --
@@ -1807,6 +2022,13 @@ ALTER INDEX public.audit_events_agent_session_idx ATTACH PARTITION public.audit_
 --
 
 ALTER INDEX public.audit_events_agent_labels_idx ATTACH PARTITION public.audit_events_default_expr_idx1;
+
+
+--
+-- Name: audit_events_default_expr_idx2; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_events_session_idx ATTACH PARTITION public.audit_events_default_expr_idx2;
 
 
 --
@@ -1835,174 +2057,6 @@ ALTER INDEX public.audit_events_zone_chain ATTACH PARTITION public.audit_events_
 --
 
 ALTER INDEX public.audit_events_zone_id_occurred_at_idx ATTACH PARTITION public.audit_events_default_zone_id_occurred_at_idx;
-
-
---
--- Name: audit_events_y2026m06_expr_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_events_agent_session_idx ATTACH PARTITION public.audit_events_y2026m06_expr_idx;
-
-
---
--- Name: audit_events_y2026m06_expr_idx1; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_events_agent_labels_idx ATTACH PARTITION public.audit_events_y2026m06_expr_idx1;
-
-
---
--- Name: audit_events_y2026m06_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_events_pkey ATTACH PARTITION public.audit_events_y2026m06_pkey;
-
-
---
--- Name: audit_events_y2026m06_request_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_events_request_id_idx ATTACH PARTITION public.audit_events_y2026m06_request_id_idx;
-
-
---
--- Name: audit_events_y2026m06_zone_id_chain_seq_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_events_zone_chain ATTACH PARTITION public.audit_events_y2026m06_zone_id_chain_seq_idx;
-
-
---
--- Name: audit_events_y2026m06_zone_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_events_zone_id_occurred_at_idx ATTACH PARTITION public.audit_events_y2026m06_zone_id_occurred_at_idx;
-
-
---
--- Name: audit_events_y2026m07_expr_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_events_agent_session_idx ATTACH PARTITION public.audit_events_y2026m07_expr_idx;
-
-
---
--- Name: audit_events_y2026m07_expr_idx1; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_events_agent_labels_idx ATTACH PARTITION public.audit_events_y2026m07_expr_idx1;
-
-
---
--- Name: audit_events_y2026m07_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_events_pkey ATTACH PARTITION public.audit_events_y2026m07_pkey;
-
-
---
--- Name: audit_events_y2026m07_request_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_events_request_id_idx ATTACH PARTITION public.audit_events_y2026m07_request_id_idx;
-
-
---
--- Name: audit_events_y2026m07_zone_id_chain_seq_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_events_zone_chain ATTACH PARTITION public.audit_events_y2026m07_zone_id_chain_seq_idx;
-
-
---
--- Name: audit_events_y2026m07_zone_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_events_zone_id_occurred_at_idx ATTACH PARTITION public.audit_events_y2026m07_zone_id_occurred_at_idx;
-
-
---
--- Name: audit_events_y2026m08_expr_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_events_agent_session_idx ATTACH PARTITION public.audit_events_y2026m08_expr_idx;
-
-
---
--- Name: audit_events_y2026m08_expr_idx1; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_events_agent_labels_idx ATTACH PARTITION public.audit_events_y2026m08_expr_idx1;
-
-
---
--- Name: audit_events_y2026m08_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_events_pkey ATTACH PARTITION public.audit_events_y2026m08_pkey;
-
-
---
--- Name: audit_events_y2026m08_request_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_events_request_id_idx ATTACH PARTITION public.audit_events_y2026m08_request_id_idx;
-
-
---
--- Name: audit_events_y2026m08_zone_id_chain_seq_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_events_zone_chain ATTACH PARTITION public.audit_events_y2026m08_zone_id_chain_seq_idx;
-
-
---
--- Name: audit_events_y2026m08_zone_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_events_zone_id_occurred_at_idx ATTACH PARTITION public.audit_events_y2026m08_zone_id_occurred_at_idx;
-
-
---
--- Name: audit_events_y2026m09_expr_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_events_agent_session_idx ATTACH PARTITION public.audit_events_y2026m09_expr_idx;
-
-
---
--- Name: audit_events_y2026m09_expr_idx1; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_events_agent_labels_idx ATTACH PARTITION public.audit_events_y2026m09_expr_idx1;
-
-
---
--- Name: audit_events_y2026m09_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_events_pkey ATTACH PARTITION public.audit_events_y2026m09_pkey;
-
-
---
--- Name: audit_events_y2026m09_request_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_events_request_id_idx ATTACH PARTITION public.audit_events_y2026m09_request_id_idx;
-
-
---
--- Name: audit_events_y2026m09_zone_id_chain_seq_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_events_zone_chain ATTACH PARTITION public.audit_events_y2026m09_zone_id_chain_seq_idx;
-
-
---
--- Name: audit_events_y2026m09_zone_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_events_zone_id_occurred_at_idx ATTACH PARTITION public.audit_events_y2026m09_zone_id_occurred_at_idx;
 
 
 --
@@ -2277,6 +2331,54 @@ ALTER TABLE ONLY public.delegation_graph_epochs
 
 
 --
+-- Name: operator_message_run_events operator_message_run_events_conversation_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.operator_message_run_events
+    ADD CONSTRAINT operator_message_run_events_conversation_fkey FOREIGN KEY (conversation_id) REFERENCES public.operator_conversations(id) ON DELETE CASCADE;
+
+
+--
+-- Name: operator_message_run_events operator_message_run_events_run_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.operator_message_run_events
+    ADD CONSTRAINT operator_message_run_events_run_fkey FOREIGN KEY (run_id) REFERENCES public.operator_message_runs(id) ON DELETE CASCADE;
+
+
+--
+-- Name: operator_message_runs operator_message_runs_conversation_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.operator_message_runs
+    ADD CONSTRAINT operator_message_runs_conversation_fkey FOREIGN KEY (conversation_id) REFERENCES public.operator_conversations(id) ON DELETE CASCADE;
+
+
+--
+-- Name: operator_message_runs operator_message_runs_message_turn_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.operator_message_runs
+    ADD CONSTRAINT operator_message_runs_message_turn_fkey FOREIGN KEY (server_message_turn_id) REFERENCES public.operator_turns(id) ON DELETE SET NULL;
+
+
+--
+-- Name: operator_plan_secrets operator_plan_secrets_conversation_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.operator_plan_secrets
+    ADD CONSTRAINT operator_plan_secrets_conversation_fkey FOREIGN KEY (conversation_id) REFERENCES public.operator_conversations(id) ON DELETE CASCADE;
+
+
+--
+-- Name: operator_turns operator_turns_conversation_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.operator_turns
+    ADD CONSTRAINT operator_turns_conversation_fkey FOREIGN KEY (conversation_id) REFERENCES public.operator_conversations(id) ON DELETE CASCADE;
+
+
+--
 -- Name: policies policies_zone_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2413,11 +2515,27 @@ ALTER TABLE ONLY public.sessions
 
 
 --
+-- Name: step_up_challenges step_up_challenges_application_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.step_up_challenges
+    ADD CONSTRAINT step_up_challenges_application_id_fkey FOREIGN KEY (application_id) REFERENCES public.applications(id) ON DELETE CASCADE;
+
+
+--
 -- Name: step_up_challenges step_up_challenges_zone_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.step_up_challenges
     ADD CONSTRAINT step_up_challenges_zone_id_fkey FOREIGN KEY (zone_id) REFERENCES public.zones(id) ON DELETE CASCADE;
+
+
+--
+-- Name: workloads workloads_zone_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.workloads
+    ADD CONSTRAINT workloads_zone_id_fkey FOREIGN KEY (zone_id) REFERENCES public.zones(id) ON DELETE CASCADE;
 
 
 --
@@ -2485,6 +2603,42 @@ ALTER TABLE public.delegation_graph_epochs ENABLE ROW LEVEL SECURITY;
 --
 
 ALTER TABLE public.gateway_resource_bindings ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: operator_conversations; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.operator_conversations ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: operator_message_run_events; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.operator_message_run_events ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: operator_message_runs; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.operator_message_runs ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: operator_plan_secrets; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.operator_plan_secrets ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: operator_turns; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.operator_turns ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: operator_zone_memory; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.operator_zone_memory ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: policies; Type: ROW SECURITY; Schema: public; Owner: -
@@ -2615,6 +2769,48 @@ CREATE POLICY zone_isolation ON public.delegation_graph_epochs USING (((current_
 --
 
 CREATE POLICY zone_isolation ON public.gateway_resource_bindings USING (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true)))) WITH CHECK (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true))));
+
+
+--
+-- Name: operator_conversations zone_isolation; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY zone_isolation ON public.operator_conversations USING (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true)))) WITH CHECK (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true))));
+
+
+--
+-- Name: operator_message_run_events zone_isolation; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY zone_isolation ON public.operator_message_run_events USING (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true)))) WITH CHECK (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true))));
+
+
+--
+-- Name: operator_message_runs zone_isolation; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY zone_isolation ON public.operator_message_runs USING (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true)))) WITH CHECK (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true))));
+
+
+--
+-- Name: operator_plan_secrets zone_isolation; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY zone_isolation ON public.operator_plan_secrets USING (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true)))) WITH CHECK (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true))));
+
+
+--
+-- Name: operator_turns zone_isolation; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY zone_isolation ON public.operator_turns USING (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true)))) WITH CHECK (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true))));
+
+
+--
+-- Name: operator_zone_memory zone_isolation; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY zone_isolation ON public.operator_zone_memory USING (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true)))) WITH CHECK (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true))));
 
 
 --
@@ -2803,6 +2999,48 @@ GRANT SELECT ON TABLE public.gateway_resource_bindings TO caracalcoordinator;
 
 
 --
+-- Name: TABLE operator_conversations; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE public.operator_conversations TO caracalapi;
+
+
+--
+-- Name: TABLE operator_message_run_events; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT ON TABLE public.operator_message_run_events TO caracalapi;
+
+
+--
+-- Name: TABLE operator_message_runs; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE public.operator_message_runs TO caracalapi;
+
+
+--
+-- Name: TABLE operator_plan_secrets; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.operator_plan_secrets TO caracalapi;
+
+
+--
+-- Name: TABLE operator_turns; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT ON TABLE public.operator_turns TO caracalapi;
+
+
+--
+-- Name: TABLE operator_zone_memory; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT ON TABLE public.operator_zone_memory TO caracalapi;
+
+
+--
 -- Name: TABLE policies; Type: ACL; Schema: public; Owner: -
 --
 
@@ -2904,6 +3142,36 @@ GRANT SELECT ON TABLE public.zones TO caracalgateway;
 
 
 --
+-- Name: audit_events partition window; Type: PARTITIONS; Schema: public; Owner: -
+--
+
+-- Provision the current rolling window of monthly audit_events partitions
+-- (current month plus the next three) at apply time so a fresh database
+-- satisfies the partition window immediately, matching the audit retention
+-- worker instead of a static list that rots as the calendar advances.
+DO $$
+DECLARE
+    base_month date := date_trunc('month', now())::date;
+    start_month date;
+    end_month date;
+    part_name text;
+    m int;
+BEGIN
+    FOR m IN 0..3 LOOP
+        start_month := base_month + make_interval(months => m);
+        end_month := start_month + make_interval(months => 1);
+        part_name := format('audit_events_y%sm%s',
+                            to_char(start_month, 'YYYY'),
+                            to_char(start_month, 'MM'));
+        EXECUTE format(
+            'CREATE TABLE IF NOT EXISTS public.%I PARTITION OF public.audit_events FOR VALUES FROM (%L) TO (%L)',
+            part_name, start_month, end_month);
+    END LOOP;
+END
+$$;
+
+
+--
 -- Data for Name: gateway_binding_revision; Type: TABLE DATA; Schema: public; Owner: -
 --
 
@@ -2913,5 +3181,3 @@ INSERT INTO public.gateway_binding_revision (id, version) VALUES (true, 0) ON CO
 --
 -- PostgreSQL database dump complete
 --
-
-

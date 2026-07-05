@@ -36,10 +36,8 @@ echo ""
 echo "=== Migration: version prefixes are unique ==="
 # migrate.sh applies files in lexicographic filename order and records the full
 # filename as the version, so duplicate numeric prefixes make ordering depend on
-# the suffix and confuse audits of what ran. 0009 shipped twice before this
-# guard existed and cannot be renamed (applied versions are immutable); every
-# later prefix must be unique.
-duplicate_prefixes="$(find "${MIGRATIONS_DIR}" -name '*.up.sql' -exec basename {} \; | cut -c1-4 | sort | uniq -d | grep -v '^0009$' || true)"
+# the suffix and confuse audits of what ran.
+duplicate_prefixes="$(find "${MIGRATIONS_DIR}" -name '*.up.sql' -exec basename {} \; | cut -c1-4 | sort | uniq -d)"
 if [ -n "${duplicate_prefixes}" ]; then
     echo "FAIL: duplicate migration prefixes: ${duplicate_prefixes}" >&2
     exit 1
