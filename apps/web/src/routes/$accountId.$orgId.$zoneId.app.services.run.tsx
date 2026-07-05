@@ -341,13 +341,13 @@ function WorkloadDetail({
         </DetailField>
         {workload.created_by ? (
           <DetailField label="Created by">
-            <CreatedBy name={workload.created_by} coAuthored={workload.created_via_operator} />
+            <CreatedBy id={workload.created_by} coAuthored={workload.created_via_operator} />
           </DetailField>
         ) : null}
         <DetailField label="Created">{new Date(workload.created_at).toLocaleString()}</DetailField>
         {workload.updated_by ? (
           <DetailField label="Configured by">
-            <CreatedBy name={workload.updated_by} coAuthored={workload.updated_via_operator} />
+            <CreatedBy id={workload.updated_by} coAuthored={workload.updated_via_operator} />
             {workload.updated_at ? (
               <span className="text-muted-foreground">
                 {" "}

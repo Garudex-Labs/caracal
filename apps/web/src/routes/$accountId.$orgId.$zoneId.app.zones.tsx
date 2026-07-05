@@ -720,13 +720,13 @@ function ZoneDetailDrawer({
             <DetailField label="Owner">{owner}</DetailField>
             {zone.created_by ? (
               <DetailField label="Created by">
-                <CreatedBy name={zone.created_by} coAuthored={zone.created_via_operator} />
+                <CreatedBy id={zone.created_by} coAuthored={zone.created_via_operator} />
               </DetailField>
             ) : null}
             <DetailField label="Created">{new Date(zone.created_at).toLocaleString()}</DetailField>
             {zone.updated_by ? (
               <DetailField label="Updated by">
-                <CreatedBy name={zone.updated_by} coAuthored={zone.updated_via_operator} />
+                <CreatedBy id={zone.updated_by} coAuthored={zone.updated_via_operator} />
               </DetailField>
             ) : null}
             {zone.updated_at && zone.updated_at !== zone.created_at ? (

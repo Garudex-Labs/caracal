@@ -483,12 +483,12 @@ function PolicySetInspector({
         <DetailField label="Name">{policySet.name}</DetailField>
         <DetailField label="Description">{policySet.description ?? "-"}</DetailField>
         <DetailField label="Created by">
-          <CreatedBy name={policySet.created_by} coAuthored={policySet.created_via_operator} />
+          <CreatedBy id={policySet.created_by} coAuthored={policySet.created_via_operator} />
         </DetailField>
         <DetailField label="Created">{new Date(policySet.created_at).toLocaleString()}</DetailField>
         {policySet.updated_by ? (
           <DetailField label="Updated by">
-            <CreatedBy name={policySet.updated_by} coAuthored={policySet.updated_via_operator} />
+            <CreatedBy id={policySet.updated_by} coAuthored={policySet.updated_via_operator} />
           </DetailField>
         ) : null}
       </DetailGroup>
@@ -654,7 +654,7 @@ function SetVersionHistory({
                 </span>
                 {version.created_by ? (
                   <CreatedBy
-                    name={version.created_by}
+                    id={version.created_by}
                     coAuthored={version.created_via_operator}
                     className="text-xs text-muted-foreground"
                   />
@@ -1244,12 +1244,12 @@ function PolicyInspector({
         <DetailField label="Name">{policy.name}</DetailField>
         <DetailField label="Description">{policy.description ?? "-"}</DetailField>
         <DetailField label="Created by">
-          <CreatedBy name={policy.created_by} coAuthored={policy.created_via_operator} />
+          <CreatedBy id={policy.created_by} coAuthored={policy.created_via_operator} />
         </DetailField>
         <DetailField label="Created">{new Date(policy.created_at).toLocaleString()}</DetailField>
         {policy.updated_by ? (
           <DetailField label="Updated by">
-            <CreatedBy name={policy.updated_by} coAuthored={policy.updated_via_operator} />
+            <CreatedBy id={policy.updated_by} coAuthored={policy.updated_via_operator} />
           </DetailField>
         ) : null}
       </DetailGroup>
@@ -1336,7 +1336,7 @@ function VersionRow({
         </span>
         {version.created_by ? (
           <CreatedBy
-            name={version.created_by}
+            id={version.created_by}
             coAuthored={version.created_via_operator}
             className="flex-shrink-0 text-xs text-muted-foreground"
           />

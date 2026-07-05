@@ -2,9 +2,12 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-This file renders a creator label with an optional Caracal operator co-author badge.
+This file renders an attribution identity as its current profile name with an optional Caracal operator co-author badge.
 */
+import { useQuery } from "@tanstack/react-query";
+
 import { Tooltip } from "@/components/ui/Tooltip";
+import { resolveProfileName } from "@/platform/api/profiles";
 import { cx } from "@/lib/cx";
 
 const OperatorStarGlyph = ({ className }: { className?: string }) => (
@@ -13,19 +16,41 @@ const OperatorStarGlyph = ({ className }: { className?: string }) => (
   </svg>
 );
 
+// Attribution stores an immutable identity, never a display name. This component resolves it to
+// the profile's current name at render time - so a rename updates every historical record on
+// screen - and keeps the stored identity one hover away for audit work. Identities the install
+// cannot resolve (admin credentials, erased profiles) render verbatim.
 export function CreatedBy({
-  name,
+  id,
   coAuthored,
   className,
 }: {
-  name: string | null | undefined;
+  id: string | null | undefined;
   coAuthored?: boolean;
   className?: string;
 }) {
-  const label = name && name.trim().length > 0 ? name : "-";
+  const identity = id && id.trim().length > 0 ? id : null;
+  const profile = useQuery({
+    queryKey: ["profile", identity],
+    queryFn: () => resolveProfileName(identity!),
+    enabled: identity !== null,
+    staleTime: 60_000,
+  });
+  const name = profile.data ?? null;
   return (
     <span className={cx("inline-flex items-center gap-1.5", className)}>
-      <span className="min-w-0 break-words">{label}</span>
+      {identity ? (
+        <Tooltip
+          label={name ? `Profile ID: ${identity}` : `Recorded identity: ${identity}`}
+          side="top"
+        >
+          <span className="min-w-0 break-words" tabIndex={0}>
+            {name ?? identity}
+          </span>
+        </Tooltip>
+      ) : (
+        <span className="min-w-0 break-words">-</span>
+      )}
       {coAuthored ? (
         <Tooltip label="Co-authored by Caracal Operator" side="top">
           <span
