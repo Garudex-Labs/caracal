@@ -15,6 +15,7 @@
     "@caracalai/docs",
     "@caracalai/engine",
     "@caracalai/runtime",
+    "@caracalai/server-core",
     "@caracalai/web"
   ]
 }
