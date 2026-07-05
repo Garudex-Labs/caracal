@@ -4,7 +4,7 @@
 // TypeScript shared environment classification tests for production safety.
 
 import { afterEach, describe, expect, it } from 'vitest'
-import { assertPublishedSafe, caracalMode, isPublished } from '../../../../packages/core/ts/src/env.js'
+import { assertPublishedSafe, caracalMode, isPublished } from '../../../../packages/serverCore/ts/src/env.js'
 
 const KEYS = ['CARACAL_MODE', 'INSECURE_STS', 'INSECURE_HTTP']
 

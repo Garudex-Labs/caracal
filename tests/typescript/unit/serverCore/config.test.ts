@@ -7,7 +7,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { boolEnv, getenv, intEnv, mustGetenv, resolveFileSecrets } from '../../../../packages/core/ts/src/config.js'
+import { boolEnv, getenv, intEnv, mustGetenv, resolveFileSecrets } from '../../../../packages/serverCore/ts/src/config.js'
 
 describe('shared config', () => {
   let dir: string

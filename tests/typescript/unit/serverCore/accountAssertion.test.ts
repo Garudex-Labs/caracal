@@ -4,7 +4,7 @@
 // Tests for the Console BFF per-account assertion: deterministic signing, verification, expiry, and tamper resistance.
 
 import { describe, expect, it } from 'vitest'
-import { signAccountAssertion, verifyAccountAssertion } from '../../../../packages/core/ts/src/accountAssertion.js'
+import { signAccountAssertion, verifyAccountAssertion } from '../../../../packages/serverCore/ts/src/accountAssertion.js'
 
 const ADMIN = 'deployment-admin-token-xyz'
 const NOW = 1_900_000_000

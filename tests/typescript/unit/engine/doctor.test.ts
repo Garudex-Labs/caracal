@@ -24,7 +24,7 @@ vi.mock('@caracalai/core', async (orig) => {
 
 import { runDoctorDiagnostics, doctorShouldFail } from '../../../../packages/engine/src/doctor.js'
 import { buildAdminClient } from '../../../../packages/engine/src/shared.js'
-import { discoverCoordinatorToken, discoverMetricsBearer } from '@caracalai/core'
+import { discoverCoordinatorToken, discoverMetricsBearer } from '@caracalai/server-core'
 
 const SAVED = { ...process.env }
 
