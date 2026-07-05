@@ -468,9 +468,16 @@ func (s *PolicyTemplatesService) Get(ctx context.Context, templateID string) (*P
 type GrantsService struct{ client *AdminClient }
 
 func (s *GrantsService) List(ctx context.Context, zoneID string, query *GrantQuery) ([]Grant, error) {
-	var out []Grant
-	err := s.client.request(ctx, baseAPI, http.MethodGet, "/v1/zones/"+zoneID+"/grants", query.values(), nil, &out, false)
-	return out, err
+	var out struct {
+		Items []Grant `json:"items"`
+	}
+	if err := s.client.request(ctx, baseAPI, http.MethodGet, "/v1/zones/"+zoneID+"/grants", query.values(), nil, &out, false); err != nil {
+		return nil, err
+	}
+	if out.Items == nil {
+		return nil, errors.New("grants response missing items")
+	}
+	return out.Items, nil
 }
 
 func (s *GrantsService) Get(ctx context.Context, zoneID, grantID string) (*Grant, error) {
@@ -526,15 +533,15 @@ type SessionsService struct{ client *AdminClient }
 
 func (s *SessionsService) List(ctx context.Context, zoneID string, query *SessionQuery) ([]Session, error) {
 	var out struct {
-		Rows []Session `json:"rows"`
+		Items []Session `json:"items"`
 	}
 	if err := s.client.request(ctx, baseAPI, http.MethodGet, "/v1/zones/"+zoneID+"/sessions", query.values(), nil, &out, false); err != nil {
 		return nil, err
 	}
-	if out.Rows == nil {
-		return nil, errors.New("sessions response missing rows")
+	if out.Items == nil {
+		return nil, errors.New("sessions response missing items")
 	}
-	return out.Rows, nil
+	return out.Items, nil
 }
 
 // AgentSessionsService covers /v1/zones/{zone}/agent-sessions reads; CSV
@@ -543,15 +550,15 @@ type AgentSessionsService struct{ client *AdminClient }
 
 func (s *AgentSessionsService) List(ctx context.Context, zoneID string, query *AgentSessionQuery) ([]AgentSessionRow, error) {
 	var out struct {
-		Rows []AgentSessionRow `json:"rows"`
+		Items []AgentSessionRow `json:"items"`
 	}
 	if err := s.client.request(ctx, baseAPI, http.MethodGet, "/v1/zones/"+zoneID+"/agent-sessions", query.values(), nil, &out, false); err != nil {
 		return nil, err
 	}
-	if out.Rows == nil {
-		return nil, errors.New("agent-sessions response missing rows")
+	if out.Items == nil {
+		return nil, errors.New("agent-sessions response missing items")
 	}
-	return out.Rows, nil
+	return out.Items, nil
 }
 
 // AuditService covers /v1/zones/{zone}/audit.
@@ -559,15 +566,15 @@ type AuditService struct{ client *AdminClient }
 
 func (s *AuditService) List(ctx context.Context, zoneID string, query *AuditQuery) ([]AuditEvent, error) {
 	var out struct {
-		Rows []AuditEvent `json:"rows"`
+		Items []AuditEvent `json:"items"`
 	}
 	if err := s.client.request(ctx, baseAPI, http.MethodGet, "/v1/zones/"+zoneID+"/audit", query.values(), nil, &out, false); err != nil {
 		return nil, err
 	}
-	if out.Rows == nil {
-		return nil, errors.New("audit response missing rows")
+	if out.Items == nil {
+		return nil, errors.New("audit response missing items")
 	}
-	return out.Rows, nil
+	return out.Items, nil
 }
 
 func (s *AuditService) ByRequest(ctx context.Context, zoneID, requestID string) ([]AuditDetail, error) {
@@ -589,24 +596,31 @@ type AdminAuditService struct{ client *AdminClient }
 
 func (s *AdminAuditService) List(ctx context.Context, zoneID string, query *AdminAuditQuery) ([]AdminAuditEvent, error) {
 	var out struct {
-		Rows []AdminAuditEvent `json:"rows"`
+		Items []AdminAuditEvent `json:"items"`
 	}
 	if err := s.client.request(ctx, baseAPI, http.MethodGet, "/v1/zones/"+zoneID+"/admin-audit", query.values(), nil, &out, false); err != nil {
 		return nil, err
 	}
-	if out.Rows == nil {
-		return nil, errors.New("admin audit response missing rows")
+	if out.Items == nil {
+		return nil, errors.New("admin audit response missing items")
 	}
-	return out.Rows, nil
+	return out.Items, nil
 }
 
 // StepUpChallengesService covers /v1/zones/{zone}/step-up-challenges.
 type StepUpChallengesService struct{ client *AdminClient }
 
 func (s *StepUpChallengesService) List(ctx context.Context, zoneID string) ([]StepUpChallenge, error) {
-	var out []StepUpChallenge
-	err := s.client.do(ctx, http.MethodGet, "/v1/zones/"+zoneID+"/step-up-challenges", nil, &out, false)
-	return out, err
+	var out struct {
+		Items []StepUpChallenge `json:"items"`
+	}
+	if err := s.client.do(ctx, http.MethodGet, "/v1/zones/"+zoneID+"/step-up-challenges", nil, &out, false); err != nil {
+		return nil, err
+	}
+	if out.Items == nil {
+		return nil, errors.New("step-up challenges response missing items")
+	}
+	return out.Items, nil
 }
 
 func (s *StepUpChallengesService) Get(ctx context.Context, zoneID, challengeID string) (*StepUpChallenge, error) {

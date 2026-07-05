@@ -402,9 +402,16 @@ type PolicySetVersion struct {
 type ZonesService struct{ client *AdminClient }
 
 func (s *ZonesService) List(ctx context.Context) ([]Zone, error) {
-	var out []Zone
-	err := s.client.do(ctx, http.MethodGet, "/v1/zones", nil, &out, false)
-	return out, err
+	var out struct {
+		Items []Zone `json:"items"`
+	}
+	if err := s.client.do(ctx, http.MethodGet, "/v1/zones", nil, &out, false); err != nil {
+		return nil, err
+	}
+	if out.Items == nil {
+		return nil, errors.New("zones response missing items")
+	}
+	return out.Items, nil
 }
 
 func (s *ZonesService) Get(ctx context.Context, zoneID string) (*Zone, error) {
@@ -445,9 +452,16 @@ func (s *ZonesService) Delete(ctx context.Context, zoneID string) error {
 type ApplicationsService struct{ client *AdminClient }
 
 func (s *ApplicationsService) List(ctx context.Context, zoneID string) ([]Application, error) {
-	var out []Application
-	err := s.client.do(ctx, http.MethodGet, "/v1/zones/"+zoneID+"/applications", nil, &out, false)
-	return out, err
+	var out struct {
+		Items []Application `json:"items"`
+	}
+	if err := s.client.do(ctx, http.MethodGet, "/v1/zones/"+zoneID+"/applications", nil, &out, false); err != nil {
+		return nil, err
+	}
+	if out.Items == nil {
+		return nil, errors.New("applications response missing items")
+	}
+	return out.Items, nil
 }
 
 func (s *ApplicationsService) Get(ctx context.Context, zoneID, applicationID string) (*Application, error) {
@@ -501,9 +515,16 @@ func (s *ApplicationsService) DCR(ctx context.Context, zoneID string, body map[s
 type ResourcesService struct{ client *AdminClient }
 
 func (s *ResourcesService) List(ctx context.Context, zoneID string) ([]Resource, error) {
-	var out []Resource
-	err := s.client.do(ctx, http.MethodGet, "/v1/zones/"+zoneID+"/resources", nil, &out, false)
-	return out, err
+	var out struct {
+		Items []Resource `json:"items"`
+	}
+	if err := s.client.do(ctx, http.MethodGet, "/v1/zones/"+zoneID+"/resources", nil, &out, false); err != nil {
+		return nil, err
+	}
+	if out.Items == nil {
+		return nil, errors.New("resources response missing items")
+	}
+	return out.Items, nil
 }
 
 func (s *ResourcesService) Get(ctx context.Context, zoneID, resourceID string) (*Resource, error) {
@@ -538,9 +559,16 @@ func (s *ResourcesService) Delete(ctx context.Context, zoneID, resourceID string
 type ProvidersService struct{ client *AdminClient }
 
 func (s *ProvidersService) List(ctx context.Context, zoneID string) ([]Provider, error) {
-	var out []Provider
-	err := s.client.do(ctx, http.MethodGet, "/v1/zones/"+zoneID+"/providers", nil, &out, false)
-	return out, err
+	var out struct {
+		Items []Provider `json:"items"`
+	}
+	if err := s.client.do(ctx, http.MethodGet, "/v1/zones/"+zoneID+"/providers", nil, &out, false); err != nil {
+		return nil, err
+	}
+	if out.Items == nil {
+		return nil, errors.New("providers response missing items")
+	}
+	return out.Items, nil
 }
 
 func (s *ProvidersService) Get(ctx context.Context, zoneID, providerID string) (*Provider, error) {
@@ -575,9 +603,16 @@ func (s *ProvidersService) Delete(ctx context.Context, zoneID, providerID string
 type PoliciesService struct{ client *AdminClient }
 
 func (s *PoliciesService) List(ctx context.Context, zoneID string) ([]Policy, error) {
-	var out []Policy
-	err := s.client.do(ctx, http.MethodGet, "/v1/zones/"+zoneID+"/policies", nil, &out, false)
-	return out, err
+	var out struct {
+		Items []Policy `json:"items"`
+	}
+	if err := s.client.do(ctx, http.MethodGet, "/v1/zones/"+zoneID+"/policies", nil, &out, false); err != nil {
+		return nil, err
+	}
+	if out.Items == nil {
+		return nil, errors.New("policies response missing items")
+	}
+	return out.Items, nil
 }
 
 func (s *PoliciesService) Get(ctx context.Context, zoneID, policyID string) (*PolicyDetail, error) {
@@ -630,9 +665,16 @@ func (s *PoliciesService) Delete(ctx context.Context, zoneID, policyID string) e
 type PolicySetsService struct{ client *AdminClient }
 
 func (s *PolicySetsService) List(ctx context.Context, zoneID string) ([]PolicySet, error) {
-	var out []PolicySet
-	err := s.client.do(ctx, http.MethodGet, "/v1/zones/"+zoneID+"/policy-sets", nil, &out, false)
-	return out, err
+	var out struct {
+		Items []PolicySet `json:"items"`
+	}
+	if err := s.client.do(ctx, http.MethodGet, "/v1/zones/"+zoneID+"/policy-sets", nil, &out, false); err != nil {
+		return nil, err
+	}
+	if out.Items == nil {
+		return nil, errors.New("policy sets response missing items")
+	}
+	return out.Items, nil
 }
 
 func (s *PolicySetsService) Get(ctx context.Context, zoneID, setID string) (*PolicySet, error) {
