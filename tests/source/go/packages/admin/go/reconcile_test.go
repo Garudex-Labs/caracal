@@ -30,11 +30,11 @@ func expectBoom(t *testing.T, err error, label string) {
 func TestEnsureApplicationSurfacesEachStepFailure(t *testing.T) {
 	input := admin.ApplicationEnsure{Name: "Son of Anton", Traits: []string{"agent"}, ClientSecret: "secret"}
 	steps := map[string][]any{
-		"list":                {failStep()},
-		"create":              {ok(`[]`), failStep()},
-		"seal after create":   {ok(`[]`), ok(`{"id":"app-1"}`), failStep()},
-		"trait patch":         {ok(`[{"id":"app-1","name":"Son of Anton","registration_method":"managed","traits":[]}]`), failStep()},
-		"rotate existing":     {ok(`[{"id":"app-1","name":"Son of Anton","registration_method":"managed","traits":["agent"]}]`), failStep()},
+		"list":              {failStep()},
+		"create":            {ok(`[]`), failStep()},
+		"seal after create": {ok(`[]`), ok(`{"id":"app-1"}`), failStep()},
+		"trait patch":       {ok(`[{"id":"app-1","name":"Son of Anton","registration_method":"managed","traits":[]}]`), failStep()},
+		"rotate existing":   {ok(`[{"id":"app-1","name":"Son of Anton","registration_method":"managed","traits":["agent"]}]`), failStep()},
 	}
 	for label, script := range steps {
 		client := newAdmin(&scripted{steps: script}, -1)
