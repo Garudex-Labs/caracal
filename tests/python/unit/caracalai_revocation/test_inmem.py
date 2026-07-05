@@ -30,6 +30,18 @@ class InMemoryRevocationStoreTests(unittest.TestCase):
         time.sleep(0.01)
         self.assertFalse(store.is_revoked("sid-1"))
 
+    def test_tracks_monotonic_delegation_epochs_until_expiry(self) -> None:
+        store = InMemoryRevocationStore(default_ttl_ms=60_000)
+
+        self.assertEqual(store.current_delegation_epoch("zone-1"), 0)
+        store.mark_delegation_epoch("zone-1", 5)
+        store.mark_delegation_epoch("zone-1", 4)
+        self.assertEqual(store.current_delegation_epoch("zone-1"), 5)
+        store.mark_delegation_epoch("zone-1", 6, ttl_ms=1)
+        self.assertEqual(store.current_delegation_epoch("zone-1"), 6)
+        time.sleep(0.01)
+        self.assertEqual(store.current_delegation_epoch("zone-1"), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

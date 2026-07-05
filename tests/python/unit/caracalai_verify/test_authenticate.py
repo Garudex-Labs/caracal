@@ -130,6 +130,89 @@ class TransportMcpAuthenticateTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result.error.code if result.error else None, "session_revoked")
 
+    async def test_rejects_delegated_tokens_from_stale_graph_epochs(self) -> None:
+        token, jwk = mint_es256_token(
+            claims={"delegation_edge_id": "edge-1", "delegation_graph_epoch": 7}
+        )
+        self.cache.keys = [jwk]
+        revocations = InMemoryRevocationStore()
+        revocations.mark_delegation_epoch("zone1", 8)
+
+        result = await authenticate(
+            token,
+            "https://sts.example.com",
+            "resource://api",
+            [],
+            "zone1",
+            revocations,
+        )
+
+        self.assertEqual(
+            result.error.code if result.error else None, "delegation_stale"
+        )
+        self.assertEqual(
+            result.error.description if result.error else None,
+            "Delegation graph changed",
+        )
+
+    async def test_accepts_tokens_at_the_current_graph_epoch(self) -> None:
+        token, jwk = mint_es256_token(
+            claims={"delegation_edge_id": "edge-1", "delegation_graph_epoch": 8}
+        )
+        self.cache.keys = [jwk]
+        revocations = InMemoryRevocationStore()
+        revocations.mark_delegation_epoch("zone1", 8)
+
+        result = await authenticate(
+            token,
+            "https://sts.example.com",
+            "resource://api",
+            [],
+            "zone1",
+            revocations,
+        )
+
+        self.assertTrue(result.ok)
+
+    async def test_skips_graph_epoch_check_without_claim_or_capability(self) -> None:
+        token, jwk = mint_es256_token(claims={"sid": "sid-1"})
+        self.cache.keys = [jwk]
+        revocations = InMemoryRevocationStore()
+        revocations.mark_delegation_epoch("zone1", 8)
+
+        result = await authenticate(
+            token,
+            "https://sts.example.com",
+            "resource://api",
+            [],
+            "zone1",
+            revocations,
+        )
+
+        self.assertTrue(result.ok)
+
+        class PlainStore:
+            def is_revoked(self, sid: str) -> bool:
+                return False
+
+            def mark_revoked(self, sid: str, ttl_ms: int | None = None) -> None:
+                return None
+
+        epoch_token, epoch_jwk = mint_es256_token(
+            claims={"delegation_edge_id": "edge-1", "delegation_graph_epoch": 7}
+        )
+        self.cache.keys = [epoch_jwk]
+        plain_result = await authenticate(
+            epoch_token,
+            "https://sts.example.com",
+            "resource://api",
+            [],
+            "zone1",
+            PlainStore(),
+        )
+
+        self.assertTrue(plain_result.ok)
+
     async def test_active_execution_check_rejects_expired_claims(self) -> None:
         token, jwk = mint_es256_token(claims={"sid": "sid-1"})
         self.cache.keys = [jwk]

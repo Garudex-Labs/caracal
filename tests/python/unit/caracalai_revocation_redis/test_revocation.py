@@ -11,9 +11,12 @@ from hashlib import sha256
 
 from caracalai_revocation_redis import RedisRevocationConsumer, RedisRevocationStore
 from caracalai_revocation_redis.revocation import (
+    DELEGATION_INVALIDATION_STREAM,
+    FAIL_CLOSED_EPOCH,
     REVOCATION_STREAM,
     STREAM_SIG_FIELD,
     RedisClient,
+    RedisDelegationInvalidationConsumer,
     RedisStreamClient,
     _normalize_autoclaim,
     _normalize_values,
@@ -99,6 +102,40 @@ class RedisRevocationStoreTests(unittest.TestCase):
 
         with self.assertRaises(RedisConnectionError):
             store.is_revoked("sid-1")
+
+    def test_tracks_the_latest_delegation_graph_epoch(self) -> None:
+        redis = FakeRedis()
+        store = RedisRevocationStore(redis, key_prefix="test:")
+
+        self.assertEqual(store.current_delegation_epoch("zone1"), 0)
+        store.mark_delegation_epoch("zone1", 7)
+        store.mark_delegation_epoch("zone1", 6)
+
+        self.assertEqual(store.current_delegation_epoch("zone1"), 7)
+        self.assertEqual(redis.values["test:delegation-epoch:zone1"], "7")
+
+    def test_normalizes_invalid_delegation_epochs_and_fail_modes(self) -> None:
+        redis = FakeRedis()
+        store = RedisRevocationStore(redis, key_prefix="test:")
+        redis.values["test:delegation-epoch:zone1"] = "nan"
+
+        self.assertEqual(store.current_delegation_epoch("zone1"), 0)
+
+        redis.fail_get = True
+        self.assertEqual(store.current_delegation_epoch("zone1"), FAIL_CLOSED_EPOCH)
+        with self.assertRaises(RedisConnectionError):
+            RedisRevocationStore(redis, fail_closed=False).current_delegation_epoch(
+                "zone1"
+            )
+
+    def test_ignores_invalid_delegation_epoch_writes(self) -> None:
+        redis = FakeRedis()
+        store = RedisRevocationStore(redis)
+
+        store.mark_delegation_epoch("", 7)
+        store.mark_delegation_epoch("zone1", -1)
+
+        self.assertEqual(redis.set_calls, [])
 
 
 class RedisRevocationConsumerTests(unittest.TestCase):
@@ -274,6 +311,75 @@ class RedisRevocationConsumerTests(unittest.TestCase):
         self.assertIsNone(RedisStreamClient.xautoclaim(object()))
         self.assertIsNone(RedisStreamClient.xreadgroup(object()))
         self.assertIsNone(RedisStreamClient.xack(object(), "stream", "group", "1-0"))
+
+
+class RedisDelegationInvalidationConsumerTests(unittest.TestCase):
+    def test_marks_signed_delegation_graph_epochs(self) -> None:
+        redis = FakeRedis()
+        store = RedisRevocationStore(redis)
+        key = bytes([7]) * 32
+        values = {
+            "event": "edge_revoke",
+            "zone_id": "zone1",
+            "edge_id": "edge-1",
+            "epoch": "9",
+        }
+        sig = sign_stream(key, DELEGATION_INVALIDATION_STREAM, values)
+        redis.stream = [
+            (
+                DELEGATION_INVALIDATION_STREAM,
+                [("1-0", {**values, STREAM_SIG_FIELD: sig})],
+            )
+        ]
+
+        consumer = RedisDelegationInvalidationConsumer(
+            redis, store, "resource-1", stream_hmac_key=key, require_signature=True
+        )
+
+        self.assertEqual(consumer.poll_once(), 1)
+        self.assertEqual(store.current_delegation_epoch("zone1"), 9)
+        self.assertEqual(redis.acked, ["1-0"])
+
+    def test_acks_invalid_signatures_without_marking_epochs(self) -> None:
+        redis = FakeRedis()
+        store = RedisRevocationStore(redis)
+        redis.stream = [
+            (
+                DELEGATION_INVALIDATION_STREAM,
+                [("1-1", {"zone_id": "zone1", "epoch": "11", STREAM_SIG_FIELD: "00"})],
+            )
+        ]
+
+        consumer = RedisDelegationInvalidationConsumer(
+            redis,
+            store,
+            "resource-1",
+            stream_hmac_key=bytes([7]) * 32,
+            require_signature=True,
+        )
+
+        self.assertEqual(consumer.poll_once(), 1)
+        self.assertEqual(store.current_delegation_epoch("zone1"), 0)
+        self.assertEqual(redis.acked, ["1-1"])
+
+    def test_acks_malformed_epoch_messages_without_marking(self) -> None:
+        redis = FakeRedis()
+        store = RedisRevocationStore(redis)
+        redis.stream = [
+            (
+                DELEGATION_INVALIDATION_STREAM,
+                [
+                    ("2-0", {"zone_id": "zone1", "epoch": "nan"}),
+                    ("2-1", {"epoch": "3"}),
+                ],
+            )
+        ]
+
+        consumer = RedisDelegationInvalidationConsumer(redis, store, "resource-1")
+
+        self.assertEqual(consumer.poll_once(), 2)
+        self.assertEqual(store.current_delegation_epoch("zone1"), 0)
+        self.assertEqual(redis.acked, ["2-0", "2-1"])
 
 
 def sign_stream(key: bytes, stream: str, values: dict[str, str]) -> str:
