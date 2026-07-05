@@ -9,26 +9,6 @@ on:
   push:
     branches:
       - main
-    paths:
-      - '.github/workflows/test.yml'
-      - '.prettierrc.json'
-      - 'scripts/checkStyle.mjs'
-      - 'scripts/pythonStyleRequirements.in'
-      - 'scripts/pythonStyleRequirements.lock'
-      - 'scripts/pythonTestRequirements.in'
-      - 'scripts/pythonTestRequirements.lock'
-      - 'scripts/setupDev.mjs'
-      - 'apps/**'
-      - 'docs/**'
-      - 'infra/**'
-      - 'packages/**'
-      - 'services/**'
-      - 'tests/**'
-      - 'go.work'
-      - 'go.work.sum'
-      - 'package.json'
-      - 'pnpm-lock.yaml'
-      - 'pnpm-workspace.yaml'
   pull_request:
     paths:
       - '.github/workflows/test.yml'
@@ -73,7 +53,7 @@ env:
 
 jobs:
   smoke:
-    name: Post-merge smoke
+    name: Workspace build
     if: github.repository == 'Garudex-Labs/caracal' && github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -100,27 +80,15 @@ jobs:
         with:
           bun-version: ${{ env.BUN_VERSION }}
 
-      - name: Setup Go
-        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
-        with:
-          go-version: ${{ env.GO_VERSION }}
-          cache-dependency-path: |
-            go.work
-            go.work.sum
-            **/go.mod
-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --prefer-offline
 
       - name: TypeScript build (topological)
         run: pnpm -r build
 
-      - name: Go vet
-        run: node scripts/runGoTests.mjs --vet
-
   changes:
     name: Detect changes
-    if: github.repository == 'Garudex-Labs/caracal' && github.event_name != 'push'
+    if: github.repository == 'Garudex-Labs/caracal'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -357,6 +325,9 @@ jobs:
             go.work.sum
             **/go.mod
 
+      - name: Go vet
+        run: node scripts/runGoTests.mjs --vet
+
       - name: Run Go tests with coverage
         run: node scripts/runGoTests.mjs --coverage
 
@@ -540,6 +511,80 @@ jobs:
       - name: Validate OpenTofu configuration
         run: bash infra/tofu/scripts/validate.sh
 
+  e2e:
+    name: Stack end-to-end
+    needs: changes
+    if: github.event_name != 'pull_request' && needs.changes.outputs.go == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Setup Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: |
+            go.work
+            go.work.sum
+            **/go.mod
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --prefer-offline
+
+      - name: Start the stack from source
+        run: pnpm caracal up --quiet-pull
+
+      - name: Wait for stack readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+          for _ in $(seq 1 60); do
+            if pnpm caracal status --ready --json > /dev/null 2>&1; then
+              pnpm caracal status --ready
+              exit 0
+            fi
+            sleep 5
+          done
+          echo '::error::Stack did not become ready in time.'
+          pnpm caracal status --ready || true
+          exit 1
+
+      - name: Run stack end-to-end tests
+        working-directory: tests/go
+        env:
+          CARACAL_STS_URL: http://127.0.0.1:8080
+        run: go test -count=1 ./e2e/... ./smoke/...
+
+      - name: Dump service logs on failure
+        if: failure()
+        shell: bash
+        run: |
+          docker ps --all --format '{{.Names}}	{{.Status}}'
+          for name in $(docker ps --all --format '{{.Names}}' | grep caracal || true); do
+            echo "=== ${name} ==="
+            docker logs --tail 150 "$name" 2>&1 || true
+          done
+
+      - name: Stop the stack
+        if: always()
+        run: pnpm caracal down -v || true
+
   releaseConfig:
     name: Release config drift
     if: github.repository == 'Garudex-Labs/caracal'
@@ -628,6 +673,8 @@ jobs:
       - docs
       - postgres
       - helm
+      - infra
+      - e2e
       - releaseConfig
       - coverage
     if: always() && github.repository == 'Garudex-Labs/caracal'
@@ -638,7 +685,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for result in '${{ needs.smoke.result }}' '${{ needs.changes.result }}' '${{ needs.style.result }}' '${{ needs.typescript.result }}' '${{ needs.go.result }}' '${{ needs.python.result }}' '${{ needs.docs.result }}' '${{ needs.postgres.result }}' '${{ needs.helm.result }}' '${{ needs.releaseConfig.result }}' '${{ needs.coverage.result }}'; do
+          for result in '${{ needs.smoke.result }}' '${{ needs.changes.result }}' '${{ needs.style.result }}' '${{ needs.typescript.result }}' '${{ needs.go.result }}' '${{ needs.python.result }}' '${{ needs.docs.result }}' '${{ needs.postgres.result }}' '${{ needs.helm.result }}' '${{ needs.infra.result }}' '${{ needs.e2e.result }}' '${{ needs.releaseConfig.result }}' '${{ needs.coverage.result }}'; do
             if [[ "$result" == 'failure' || "$result" == 'cancelled' ]]; then
               echo "A required test workflow job ended with $result."
               exit 1

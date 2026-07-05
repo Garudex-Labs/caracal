@@ -51,7 +51,7 @@ jobs:
     name: Release context
     if: github.repository == 'Garudex-Labs/caracal'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 75
     outputs:
       checkoutRef: ${{ steps.resolve.outputs.checkoutRef }}
       releaseTag: ${{ steps.resolve.outputs.releaseTag }}
@@ -102,11 +102,34 @@ jobs:
         run: |
           set -euo pipefail
           sha="$(git rev-parse HEAD)"
-          count="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/test.yml/runs?head_sha=${sha}&status=success&per_page=1" --jq '.total_count')"
-          if [ "$count" -eq 0 ]; then
-            echo "::error::Commit ${sha} has no successful test workflow run. Wait for CI to pass on this commit before releasing."
-            exit 1
-          fi
+          runs_api="repos/${GITHUB_REPOSITORY}/actions/workflows/test.yml/runs"
+          deadline=$(( $(date +%s) + 3600 ))
+          grace=$(( $(date +%s) + 600 ))
+          while :; do
+            success="$(gh api "${runs_api}?head_sha=${sha}&status=success&per_page=1" --jq '.total_count')"
+            if [ "$success" -gt 0 ]; then
+              echo "Test workflow is green for ${sha}."
+              break
+            fi
+            total="$(gh api "${runs_api}?head_sha=${sha}&per_page=1" --jq '.total_count')"
+            pending="$(gh api "${runs_api}?head_sha=${sha}&per_page=30" --jq '[.workflow_runs[] | select(.status != "completed")] | length')"
+            now="$(date +%s)"
+            if [ "$total" -eq 0 ]; then
+              if [ "$now" -ge "$grace" ]; then
+                echo "::error::No test workflow run exists for ${sha}. Push the release commit to main and let CI start before releasing."
+                exit 1
+              fi
+            elif [ "$pending" -eq 0 ]; then
+              echo "::error::The test workflow completed without success for ${sha}. Fix CI before releasing."
+              exit 1
+            fi
+            if [ "$now" -ge "$deadline" ]; then
+              echo "::error::Timed out waiting for a green test workflow run for ${sha}."
+              exit 1
+            fi
+            echo "Waiting for the test workflow on ${sha} (pending runs: ${pending})..."
+            sleep 30
+          done
 
       - name: Resolve container set
         id: containers
