@@ -82,7 +82,17 @@ describe('entry lifecycle', () => {
     expect(allowlistSetStatus(dir, 'richard.hendricks@piedpiper.example', 'locked').outcome).toBe('unchanged')
     expect(allowlistSetStatus(dir, 'richard.hendricks@piedpiper.example', 'active').outcome).toBe('unlocked')
     expect(allowlistRemove(dir, 'richard.hendricks@piedpiper.example').outcome).toBe('removed')
-    expect(readOperatorAllowlist(dir).emails).toEqual({})
+    expect(readOperatorAllowlist(dir).emails['richard.hendricks@piedpiper.example']).toBe('removed')
+  })
+
+  it('keeps removal as an explicit tombstone that only add clears', () => {
+    allowlistAdd(dir, 'richard.hendricks@piedpiper.example')
+    allowlistRemove(dir, 'richard.hendricks@piedpiper.example')
+    expect(allowlistRemove(dir, 'richard.hendricks@piedpiper.example').outcome).toBe('unchanged')
+    expect(allowlistSetStatus(dir, 'richard.hendricks@piedpiper.example', 'locked').outcome).toBe('removed')
+    expect(allowlistSetStatus(dir, 'richard.hendricks@piedpiper.example', 'active').outcome).toBe('removed')
+    expect(allowlistAdd(dir, 'richard.hendricks@piedpiper.example').outcome).toBe('added')
+    expect(readOperatorAllowlist(dir).emails['richard.hendricks@piedpiper.example']).toBe('active')
   })
 
   it('does not reactivate a locked entry through add', () => {
@@ -132,10 +142,14 @@ describe('allowlistCommand', () => {
   it('lists entries with their status', () => {
     run(['add', 'richard.hendricks@piedpiper.example'])
     run(['lock', 'richard.hendricks@piedpiper.example'])
+    run(['add', 'gavin.belson@hooli.example'])
+    run(['remove', 'gavin.belson@hooli.example'])
     const { code, out } = run(['list'])
     expect(code).toBe(0)
     expect(out).toContain('richard.hendricks@piedpiper.example')
     expect(out).toContain('locked')
+    expect(out).toContain('gavin.belson@hooli.example')
+    expect(out).toContain('removed')
   })
 
   it('explains the posture when the allowlist is empty', () => {
@@ -150,6 +164,14 @@ describe('allowlistCommand', () => {
     const { code } = run(['add', 'richard.hendricks@piedpiper.example'])
     expect(code).toBe(1)
     expect(readOperatorAllowlist(dir).emails['richard.hendricks@piedpiper.example']).toBe('locked')
+  })
+
+  it('directs lock and unlock on a removed entry to add and exits 1', () => {
+    run(['add', 'richard.hendricks@piedpiper.example'])
+    run(['remove', 'richard.hendricks@piedpiper.example'])
+    expect(run(['lock', 'richard.hendricks@piedpiper.example']).code).toBe(1)
+    expect(run(['unlock', 'richard.hendricks@piedpiper.example']).code).toBe(1)
+    expect(readOperatorAllowlist(dir).emails['richard.hendricks@piedpiper.example']).toBe('removed')
   })
 
   it('rejects unknown subcommands and malformed entries', () => {

@@ -1,14 +1,14 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Unit tests for the Console access decision: allowlist file contract, lock semantics, and posture fallback.
+// Unit tests for Console access decisions and denial enforcement: file contract, tombstones, and posture fallback.
 
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { resolveAccess } from '../../../../apps/auth/src/allowlist.ts'
+import { enforceDenial, resolveAccess } from '../../../../apps/auth/src/allowlist.ts'
 
 let dir: string
 let allowlistPath: string
@@ -49,6 +49,22 @@ describe('posture fallback', () => {
     expect(resolveAccess('richard.hendricks@piedpiper.example', cfg())).toBe('denied')
   })
 
+  it('never resolves removed from absence, so a wiped file can only deny', () => {
+    writeAllowlist({ 'richard.hendricks@piedpiper.example': 'active' })
+    expect(resolveAccess('richard.hendricks@piedpiper.example', cfg())).toBe('allowed')
+    rmSync(allowlistPath)
+    expect(resolveAccess('richard.hendricks@piedpiper.example', cfg())).toBe('denied')
+    writeFileSync(allowlistPath, 'corrupted')
+    expect(resolveAccess('richard.hendricks@piedpiper.example', cfg())).toBe('denied')
+  })
+
+  it('leaves posture to non-tombstone entries only', () => {
+    writeAllowlist({ 'gavin.belson@hooli.example': 'removed' })
+    expect(resolveAccess('monica.hall@piedpiper.example', cfg({ openRegistration: true }))).toBe('allowed')
+    writeAllowlist({ 'gavin.belson@hooli.example': 'removed', 'monica.hall@piedpiper.example': 'active' })
+    expect(resolveAccess('richard.hendricks@piedpiper.example', cfg({ openRegistration: true }))).toBe('denied')
+  })
+
   it('denies empty emails outright', () => {
     expect(resolveAccess('   ', cfg({ openRegistration: true }))).toBe('denied')
   })
@@ -85,18 +101,22 @@ describe('entry matching', () => {
   })
 })
 
-describe('lock semantics', () => {
-  it('reports a locked exact entry', () => {
-    writeAllowlist({ 'richard.hendricks@piedpiper.example': 'locked' })
+describe('lock and removal semantics', () => {
+  it('reports locked and removed matches distinctly for enforcement', () => {
+    writeAllowlist({
+      'richard.hendricks@piedpiper.example': 'locked',
+      'gavin.belson@hooli.example': 'removed',
+    })
     expect(resolveAccess('richard.hendricks@piedpiper.example', cfg())).toBe('locked')
+    expect(resolveAccess('gavin.belson@hooli.example', cfg())).toBe('removed')
   })
 
-  it('lets an exact entry override a locked domain entry and vice versa', () => {
+  it('lets an exact entry override a domain entry in either direction', () => {
     writeAllowlist({ '@piedpiper.example': 'locked', 'monica.hall@piedpiper.example': 'active' })
     expect(resolveAccess('monica.hall@piedpiper.example', cfg())).toBe('allowed')
     expect(resolveAccess('richard.hendricks@piedpiper.example', cfg())).toBe('locked')
-    writeAllowlist({ '@piedpiper.example': 'active', 'monica.hall@piedpiper.example': 'locked' })
-    expect(resolveAccess('monica.hall@piedpiper.example', cfg())).toBe('locked')
+    writeAllowlist({ '@piedpiper.example': 'active', 'monica.hall@piedpiper.example': 'removed' })
+    expect(resolveAccess('monica.hall@piedpiper.example', cfg())).toBe('removed')
     expect(resolveAccess('richard.hendricks@piedpiper.example', cfg())).toBe('allowed')
   })
 
@@ -105,7 +125,44 @@ describe('lock semantics', () => {
     expect(resolveAccess('richard.hendricks@piedpiper.example', cfg())).toBe('allowed')
     writeAllowlist({ 'richard.hendricks@piedpiper.example': 'locked' })
     expect(resolveAccess('richard.hendricks@piedpiper.example', cfg())).toBe('locked')
-    writeAllowlist({})
-    expect(resolveAccess('richard.hendricks@piedpiper.example', cfg())).toBe('denied')
+    writeAllowlist({ 'richard.hendricks@piedpiper.example': 'removed' })
+    expect(resolveAccess('richard.hendricks@piedpiper.example', cfg())).toBe('removed')
+  })
+})
+
+describe('enforceDenial', () => {
+  function enforcementCtx() {
+    return {
+      internalAdapter: {
+        deleteUser: vi.fn(async () => undefined),
+        deleteUserSessions: vi.fn(async () => undefined),
+      },
+      adapter: {
+        deleteMany: vi.fn(async () => undefined),
+      },
+    }
+  }
+
+  const user = { id: 'u1', email: 'richard.hendricks@piedpiper.example' }
+
+  it('revokes sessions but keeps the account for locked and denied', async () => {
+    for (const access of ['locked', 'denied'] as const) {
+      const ctx = enforcementCtx()
+      await enforceDenial(ctx, access, user)
+      expect(ctx.internalAdapter.deleteUserSessions).toHaveBeenCalledWith('u1')
+      expect(ctx.internalAdapter.deleteUser).not.toHaveBeenCalled()
+      expect(ctx.adapter.deleteMany).not.toHaveBeenCalled()
+    }
+  })
+
+  it('erases the account records and pending verifications for removed', async () => {
+    const ctx = enforcementCtx()
+    await enforceDenial(ctx, 'removed', user)
+    expect(ctx.internalAdapter.deleteUser).toHaveBeenCalledWith('u1')
+    expect(ctx.adapter.deleteMany).toHaveBeenCalledWith({
+      model: 'verification',
+      where: [{ field: 'identifier', value: user.email }],
+    })
+    expect(ctx.internalAdapter.deleteUserSessions).not.toHaveBeenCalled()
   })
 })

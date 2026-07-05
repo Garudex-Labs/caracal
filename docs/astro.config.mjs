@@ -258,6 +258,7 @@ export default defineConfig({
             { label: 'Operate Runtime and the Web Console', link: '/runtime-console/' },
             { label: 'Choose the Right Surface', link: '/runtime-console/cli-and-console/' },
             { label: 'Start and Check the Stack', link: '/runtime-console/stack/' },
+            { label: 'Control Console Access', link: '/runtime-console/console-access/' },
             { label: 'Use the Web Console', link: '/runtime-console/console/' },
             { label: 'Configure Workloads', link: '/runtime-console/config-file/' },
             { label: 'Run Workloads', link: '/runtime-console/runtime/' },
