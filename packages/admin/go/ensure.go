@@ -461,3 +461,100 @@ func EnsureGrants(ctx context.Context, client *AdminClient, zoneID string, input
 		SkipCreate: len(input.Grants) == 0,
 	})
 }
+
+// GovernedUpstreamGrant is one application granted to mint scopes on a
+// governed upstream's resource. Role semantics match ResourceGrant.
+type GovernedUpstreamGrant struct {
+	ApplicationID string
+	Scopes        []string
+	Role          string
+}
+
+// GovernedUpstreamResource is the gateway-bound resource fields of a governed
+// upstream. The credential provider binding is threaded by the reconciler,
+// and an empty OperationEnforcement is left unmanaged.
+type GovernedUpstreamResource struct {
+	Name                 string
+	Identifier           string
+	Scopes               []string
+	UpstreamURL          string
+	GatewayApplicationID string
+	OperationEnforcement string
+}
+
+// GovernedUpstream is one upstream in a governed set: the sealed credential
+// the gateway injects, the gateway-bound resource that proxies it, and the
+// applications granted to mint on it. The first grant names the resource's
+// owning application - the identity whose governed transport may bootstrap
+// on it.
+type GovernedUpstream struct {
+	Provider APIKeyProviderEnsure
+	Resource GovernedUpstreamResource
+	Grants   []GovernedUpstreamGrant
+}
+
+// GovernedUpstreamsEnsure is the desired state for EnsureGovernedUpstreams.
+// Empty PolicyName and SetName default to GrantPolicyName and
+// GrantPolicySetName.
+type GovernedUpstreamsEnsure struct {
+	Upstreams  []GovernedUpstream
+	PolicyName string
+	SetName    string
+}
+
+// GovernedUpstreamResult is the converged state of one governed upstream.
+type GovernedUpstreamResult struct {
+	ProviderID string
+	Resource   *Resource
+}
+
+// EnsureGovernedUpstreams converges a set of governed upstreams - sealed
+// credential provider, gateway-bound resource, and the zone's grant document
+// - in dependency order, so one call declares everything the platform needs
+// to govern the set. Rego permits one definition of the grant document per
+// zone, so the set converges as a whole: an upstream absent from it loses its
+// grants on the next run, which is the revocation. Every step is idempotent,
+// so a partial failure converges on rerun, and grants land last so nothing is
+// authorized before its resource exists. An upstream whose provider resolves
+// to no sealed key fails closed before any resource binds a dead credential.
+func EnsureGovernedUpstreams(ctx context.Context, client *AdminClient, zoneID string, input GovernedUpstreamsEnsure) ([]GovernedUpstreamResult, error) {
+	results := make([]GovernedUpstreamResult, 0, len(input.Upstreams))
+	grants := make([]ResourceGrant, 0)
+	for _, upstream := range input.Upstreams {
+		providerID, err := EnsureAPIKeyProvider(ctx, client, zoneID, upstream.Provider)
+		if err != nil {
+			return nil, err
+		}
+		if providerID == "" {
+			return nil, fmt.Errorf("provider %s has no sealed api key: supply APIKey before governing %s", upstream.Provider.Identifier, upstream.Resource.Identifier)
+		}
+		resourceInput := ResourceEnsure{
+			Name:                 upstream.Resource.Name,
+			Identifier:           upstream.Resource.Identifier,
+			Scopes:               upstream.Resource.Scopes,
+			UpstreamURL:          &upstream.Resource.UpstreamURL,
+			CredentialProviderID: &providerID,
+			GatewayApplicationID: &upstream.Resource.GatewayApplicationID,
+		}
+		if upstream.Resource.OperationEnforcement != "" {
+			resourceInput.OperationEnforcement = &upstream.Resource.OperationEnforcement
+		}
+		resource, err := EnsureResource(ctx, client, zoneID, resourceInput)
+		if err != nil {
+			return nil, err
+		}
+		results = append(results, GovernedUpstreamResult{ProviderID: providerID, Resource: resource})
+		for _, grant := range upstream.Grants {
+			grants = append(grants, ResourceGrant{
+				ApplicationID:      grant.ApplicationID,
+				ResourceIdentifier: upstream.Resource.Identifier,
+				Scopes:             grant.Scopes,
+				Role:               grant.Role,
+			})
+		}
+	}
+	if err := EnsureGrants(ctx, client, zoneID, GrantsEnsure{Grants: grants, PolicyName: input.PolicyName, SetName: input.SetName}); err != nil {
+		return nil, err
+	}
+	return results, nil
+}

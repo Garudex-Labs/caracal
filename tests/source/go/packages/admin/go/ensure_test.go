@@ -571,3 +571,138 @@ func TestEnsureGrantsHonoursCallerNames(t *testing.T) {
 		t.Fatalf("unexpected set name %v", setBody["name"])
 	}
 }
+
+func pipernetUpstream(apiKey string) admin.GovernedUpstream {
+	return admin.GovernedUpstream{
+		Provider: admin.APIKeyProviderEnsure{
+			Name:       "Hooli PiperNet OIDC",
+			Identifier: "provider://pipernet",
+			PublicConfig: map[string]any{
+				"auth_location": "header",
+				"header_name":   "Authorization",
+				"auth_scheme":   "Bearer",
+			},
+			APIKey: apiKey,
+		},
+		Resource: admin.GovernedUpstreamResource{
+			Name:                 "PiperNet",
+			Identifier:           "resource://pipernet",
+			Scopes:               []string{"data:read"},
+			UpstreamURL:          "https://api.pipernet.example",
+			GatewayApplicationID: "app-son-of-anton",
+		},
+		Grants: []admin.GovernedUpstreamGrant{
+			{ApplicationID: "app-son-of-anton", Scopes: []string{"data:read"}},
+		},
+	}
+}
+
+func TestEnsureGovernedUpstreamsConvergesInDependencyOrder(t *testing.T) {
+	transport := &scripted{steps: []any{
+		ok(`[]`),
+		ok(`{"id":"prov-created"}`),
+		ok(`[]`),
+		ok(`{"id":"res-created","identifier":"resource://pipernet"}`),
+		ok(`[]`),
+		ok(`{"id":"pol-created","version_id":"ver-created"}`),
+		ok(`[]`),
+		ok(`{"id":"set-created","name":"application-grant-policy"}`),
+		ok(`{"version_id":"setver-1"}`),
+		ok(`{}`),
+	}}
+	client := newAdmin(transport, -1)
+
+	results, err := admin.EnsureGovernedUpstreams(context.Background(), client, "z1", admin.GovernedUpstreamsEnsure{
+		Upstreams: []admin.GovernedUpstream{pipernetUpstream("sk-pipernet")},
+	})
+	if err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	assertJSONEqual(t, transport.requests[1].body, map[string]any{
+		"name": "Hooli PiperNet OIDC", "identifier": "provider://pipernet", "kind": "api_key",
+		"config_json": map[string]any{
+			"auth_location": "header", "header_name": "Authorization", "auth_scheme": "Bearer", "api_key": "sk-pipernet",
+		},
+	})
+	assertJSONEqual(t, transport.requests[3].body, map[string]any{
+		"name": "PiperNet", "identifier": "resource://pipernet",
+		"scopes":                 []any{"data:read", "agent:lifecycle"},
+		"upstream_url":           "https://api.pipernet.example",
+		"credential_provider_id": "prov-created",
+		"gateway_application_id": "app-son-of-anton",
+	})
+	document, err := admin.AuthorGrantsDocument([]admin.ResourceGrant{
+		{ApplicationID: "app-son-of-anton", ResourceIdentifier: "resource://pipernet", Scopes: []string{"data:read"}},
+	})
+	if err != nil {
+		t.Fatalf("author: %v", err)
+	}
+	assertJSONEqual(t, transport.requests[5].body, map[string]any{"name": "application-grants", "content": document})
+	if len(results) != 1 || results[0].ProviderID != "prov-created" || results[0].Resource.Identifier != "resource://pipernet" {
+		t.Fatalf("unexpected results %+v", results)
+	}
+}
+
+func TestEnsureGovernedUpstreamsFailsClosedWithoutSealedKey(t *testing.T) {
+	transport := &scripted{steps: []any{ok(`[]`)}}
+	client := newAdmin(transport, -1)
+
+	_, err := admin.EnsureGovernedUpstreams(context.Background(), client, "z1", admin.GovernedUpstreamsEnsure{
+		Upstreams: []admin.GovernedUpstream{pipernetUpstream("")},
+	})
+	if err == nil || !strings.Contains(err.Error(), "no sealed api key") {
+		t.Fatalf("expected fail-closed error, got %v", err)
+	}
+	if len(transport.requests) != 1 {
+		t.Fatalf("expected provider list only, got %v", requestSummary(transport))
+	}
+}
+
+func TestEnsureGovernedUpstreamsEmptySetCreatesNothing(t *testing.T) {
+	transport := &scripted{steps: []any{ok(`[]`)}}
+	client := newAdmin(transport, -1)
+
+	results, err := admin.EnsureGovernedUpstreams(context.Background(), client, "z1", admin.GovernedUpstreamsEnsure{})
+	if err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	if len(results) != 0 {
+		t.Fatalf("unexpected results %+v", results)
+	}
+	if len(transport.requests) != 1 {
+		t.Fatalf("expected policy list only, got %v", requestSummary(transport))
+	}
+}
+
+func TestEnsureGovernedUpstreamsThreadsCallerNames(t *testing.T) {
+	transport := &scripted{steps: []any{
+		ok(`[]`),
+		ok(`{"id":"prov-created"}`),
+		ok(`[]`),
+		ok(`{"id":"res-created","identifier":"resource://pipernet"}`),
+		ok(`[]`),
+		ok(`{"id":"pol-created","version_id":"ver-created"}`),
+		ok(`[]`),
+		ok(`{"id":"set-created","name":"pied-piper-grant-policy"}`),
+		ok(`{"version_id":"setver-1"}`),
+		ok(`{}`),
+	}}
+	client := newAdmin(transport, -1)
+
+	_, err := admin.EnsureGovernedUpstreams(context.Background(), client, "z1", admin.GovernedUpstreamsEnsure{
+		Upstreams:  []admin.GovernedUpstream{pipernetUpstream("sk-pipernet")},
+		PolicyName: "pied-piper-grants",
+		SetName:    "pied-piper-grant-policy",
+	})
+	if err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	body := decodeBody(t, transport.requests[5].body)
+	if body["name"] != "pied-piper-grants" {
+		t.Fatalf("unexpected policy name %v", body["name"])
+	}
+	setBody := decodeBody(t, transport.requests[7].body)
+	if setBody["name"] != "pied-piper-grant-policy" {
+		t.Fatalf("unexpected set name %v", setBody["name"])
+	}
+}
