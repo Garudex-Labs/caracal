@@ -129,9 +129,13 @@ async function call<T>(
     }
   }
   const timeout = AbortSignal.timeout(client.timeoutMs ?? DEFAULT_TIMEOUT_MS)
+  // Trailing slashes are trimmed with a linear scan: a quantified-regex trim backtracks
+  // quadratically on long slash runs (js/polynomial-redos), and the URL is library input.
+  let baseEnd = client.baseUrl.length
+  while (baseEnd > 0 && client.baseUrl[baseEnd - 1] === '/') baseEnd--
   let res: Response
   try {
-    res = await fetchFn(`${client.baseUrl.replace(/\/+$/, '')}${path}`, {
+    res = await fetchFn(`${client.baseUrl.slice(0, baseEnd)}${path}`, {
       method,
       headers,
       body: body ? JSON.stringify(body) : undefined,

@@ -88,6 +88,14 @@ async function readJson(res: Response): Promise<unknown> {
   }
 }
 
+// Trims trailing slashes with a linear scan: a quantified-regex trim backtracks
+// quadratically on long slash runs (js/polynomial-redos), and the URL is library input.
+function trimTrailingSlashes(url: string): string {
+  let end = url.length
+  while (end > 0 && url[end - 1] === '/') end--
+  return url.slice(0, end)
+}
+
 // A control-plane client bound to one identity. Each invoke mints a fresh token scoped to
 // exactly the scopes that call requires, so an action carries the least authority that
 // satisfies it and a leaked token grants nothing beyond that one operation. The caller
@@ -99,8 +107,8 @@ export class ControlClient {
   private readonly fetchImpl: typeof fetch
 
   constructor(private readonly options: ControlClientOptions) {
-    this.stsUrl = options.stsUrl.replace(/\/+$/, '')
-    this.controlUrl = options.controlUrl.replace(/\/+$/, '')
+    this.stsUrl = trimTrailingSlashes(options.stsUrl)
+    this.controlUrl = trimTrailingSlashes(options.controlUrl)
     this.fetchImpl = options.fetchImpl ?? fetch
   }
 
