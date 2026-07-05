@@ -95,9 +95,10 @@ export const SHELL_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
     },
   },
   {
-    name: 'invite',
+    name: 'allowlist',
     group: 'stack',
-    summary: 'Generate a one-time operator invite',
+    summary: 'Manage Console sign-in access',
+    subcommands: ['add', 'remove', 'lock', 'unlock', 'list'],
     requiresArgs: true,
   },
   {

@@ -9,7 +9,7 @@ import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFile
 import { userInfo } from 'node:os'
 import { resolve } from 'node:path'
 import { devSecretsHome } from '@caracalai/server-core'
-import { ensureOperatorInviteDir } from './operatorInvite.js'
+import { ensureOperatorAllowlistDir } from './operatorAllowlist.js'
 
 const isPosix = process.platform !== 'win32'
 const SECRET_FILE_MODE = 0o444
@@ -121,9 +121,10 @@ function readOrCreateSecretFile(path: string, bytes: number): { value: string; c
 export function bootstrapSecrets(paths: BootstrapPaths): BootstrapReport {
   mkdirSync(paths.secretsDir, { recursive: true })
   secureDir(paths.secretsDir)
-  // The invites subdirectory is the bind-mount source for the web container's first-operator
-  // invite; creating it here keeps ownership with the invoking user instead of the Docker daemon.
-  ensureOperatorInviteDir(paths.secretsDir)
+  // The allowlist subdirectory is the bind-mount source for the web container's Console
+  // sign-in allowlist; creating it here keeps ownership with the invoking user instead of the
+  // Docker daemon.
+  ensureOperatorAllowlistDir(paths.secretsDir)
 
   const filesCreated: string[] = []
   const values: Record<string, string> = {
