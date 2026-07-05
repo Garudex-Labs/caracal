@@ -7,7 +7,7 @@ import { afterEach, describe, it, expect, vi } from 'vitest'
 import { EventEmitter } from 'node:events'
 import { lookup } from 'node:dns/promises'
 import { request as httpsRequest } from 'node:https'
-import { loadZoneKek, seal } from '@caracalai/core'
+import { loadZoneKek, seal } from '@caracalai/server-core'
 import { grantsRoutes } from '../../../../../apps/api/src/routes/grants.js'
 import { buildRouteApp } from '../../../../shared/test-utils/typescript/fastify.js'
 

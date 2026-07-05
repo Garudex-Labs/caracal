@@ -4,7 +4,7 @@
 // Unit tests for the shared ordered ShutdownRegistry teardown.
 
 import { describe, it, expect, vi } from 'vitest'
-import { ShutdownRegistry } from '../../../../packages/core/ts/src/lifecycle.js'
+import { ShutdownRegistry } from '../../../../packages/serverCore/ts/src/lifecycle.js'
 
 function makeRegistry(timeoutMs = 1000) {
   const exit = vi.fn()
