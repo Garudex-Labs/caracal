@@ -131,7 +131,13 @@ export function registerAdminAuditHook(app: FastifyInstance, opts: AuditPluginOp
         gated.add(req)
         req.log.error({ err, requestId: req.id }, 'admin audit record could not be persisted; refusing to report success')
         reply.code(500)
-        done(null, JSON.stringify({ error: 'audit_unavailable', message: 'operation applied but its audit record could not be persisted' }))
+        done(
+          null,
+          JSON.stringify({
+            error: 'audit_unavailable',
+            error_description: 'operation applied but its audit record could not be persisted',
+          }),
+        )
       },
     )
   })

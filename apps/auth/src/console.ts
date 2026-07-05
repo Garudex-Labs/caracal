@@ -467,11 +467,6 @@ async function forwardProxy(
       res.setHeader('Content-Encoding', encoding)
       res.setHeader('Vary', 'Accept-Encoding')
     }
-    // Surface keyset pagination to the browser. The control plane advertises the next
-    // page through a same-origin Link header; without forwarding it the web client
-    // silently truncates large lists at the server default page size.
-    const link = upstream.headers.get('link')
-    if (link) res.setHeader('Link', link)
     res.end(payload)
   } catch (err) {
     if (res.writableEnded) return
@@ -673,12 +668,12 @@ async function handleControlToken(req: IncomingMessage, res: ServerResponse, id:
   const allowed = new Set(record.allowed_scopes)
   for (const scope of scopes) {
     if (!allowed.has(scope)) {
-      sendJson(res, 400, { error: 'scope_not_granted', detail: scope })
+      sendJson(res, 400, { error: 'scope_not_granted', error_description: scope })
       return
     }
   }
   if (record.max_ttl_seconds !== undefined && ttlSeconds > record.max_ttl_seconds) {
-    sendJson(res, 400, { error: 'ttl_exceeds_key_maximum', detail: String(record.max_ttl_seconds) })
+    sendJson(res, 400, { error: 'ttl_exceeds_key_maximum', error_description: String(record.max_ttl_seconds) })
     return
   }
 

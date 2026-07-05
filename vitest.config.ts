@@ -35,6 +35,13 @@ export default defineConfig({
         'packages/identity/ts/src/scope.ts',
         'packages/revocation/ts/src/iface.ts',
         'apps/*/src/main.ts',
+        // React-DOM runtime modules: query-hook wiring, element-anchored portals, and
+        // canvas animation require a browser renderer, which the node-environment
+        // web tests (SSR string renders) cannot provide.
+        'apps/web/src/platform/api/hooks.ts',
+        'apps/web/src/components/ui/OnboardingChecklist.tsx',
+        'apps/web/src/components/ui/Overlay.tsx',
+        'apps/web/src/components/ui/neon-dither.tsx',
       ],
     },
   },
