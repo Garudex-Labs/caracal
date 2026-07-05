@@ -1,6 +1,6 @@
 ---
 title: Choose an SDK or Package
-description: Choose the Caracal SDK, verification package, transport, connector, admin client, or state backend for your integration.
+description: Choose the Caracal SDK, verification engine, framework adapter, admin client, or state backend for your integration.
 ---
 
 Use SDKs when you need package-level details after a guide. The [Guides](/guides/) section shows task workflows; this section explains package names, install commands, public APIs, runtime requirements, and where each package fits.
@@ -9,15 +9,15 @@ Use SDKs when you need package-level details after a guide. The [Guides](/guides
 
 | I am building... | Start here | Then read |
 | --- | --- | --- |
-| TypeScript app or agent workflow | [TypeScript SDK](./typescript/) | [OAuth Package](./oauth/), [MCP Auth Transport](./transport-mcp/) |
-| Python app, agent, or ASGI service | [Python SDK](./python/) | [ASGI Connector](./connectors/asgi/), [FastMCP Connector](./connectors/fastmcp/), [MCP Auth Transport](./transport-mcp/) |
-| Go service or agent workflow | [Go SDK](./go/) | [Go net/http Connector](./connectors/nethttp/) |
-| Express resource server | [Express Connector](./connectors/express/) | [MCP Auth Transport](./transport-mcp/), [Redis Revocation Store](./connectors/redis/) |
-| FastAPI or Starlette resource server | [ASGI Connector](./connectors/asgi/) | [MCP Auth Transport](./transport-mcp/), [Redis Revocation Store](./connectors/redis/) |
-| FastMCP server | [FastMCP Connector](./connectors/fastmcp/) | [MCP Auth Transport](./transport-mcp/) |
+| TypeScript app or agent workflow | [TypeScript SDK](./typescript/) | [OAuth Package](./oauth/), [Verify Package](./verify/) |
+| Python app, agent, or ASGI service | [Python SDK](./python/) | [ASGI Adapter](./adapters/asgi/), [FastMCP Adapter](./adapters/fastmcp/), [Verify Package](./verify/) |
+| Go service or agent workflow | [Go SDK](./go/) | [Go net/http Adapter](./adapters/nethttp/) |
+| Express resource server | [Express Adapter](./adapters/express/) | [Verify Package](./verify/), [Redis Revocation Store](./backends/redis/) |
+| FastAPI or Starlette resource server | [ASGI Adapter](./adapters/asgi/) | [Verify Package](./verify/), [Redis Revocation Store](./backends/redis/) |
+| FastMCP server | [FastMCP Adapter](./adapters/fastmcp/) | [Verify Package](./verify/) |
 | Custom verification boundary | [Verification Layer Overview](./verification-layer/) | [Identity Package](./identity/), [Revocation Package](./revocation/) |
 | Admin or provisioning automation | [Admin Package](./admin/) | [Use Management API](/api/control-plane/) |
-| Shared revocation storage | [Redis Revocation Store](./connectors/redis/) | [Revocation Package](./revocation/) |
+| Shared revocation storage | [Redis Revocation Store](./backends/redis/) | [Revocation Package](./revocation/) |
 
 ## Package Map
 
@@ -27,11 +27,11 @@ Use SDKs when you need package-level details after a guide. The [Guides](/guides
 | Identity verification | `@caracalai/identity` | `caracalai-identity` | `github.com/garudex-labs/caracal/packages/identity/go` |
 | OAuth token exchange | `@caracalai/oauth` | `caracalai-oauth` | `github.com/garudex-labs/caracal/packages/oauth/go` |
 | Revocation store | `@caracalai/revocation` | `caracalai-revocation` | `github.com/garudex-labs/caracal/packages/revocation/go` |
-| MCP auth transport | `@caracalai/verify` | `caracalai-verify` | `github.com/garudex-labs/caracal/packages/verify/go` |
-| Express connector | `@caracalai/express` | Not applicable | Not applicable |
-| FastMCP connector | `@caracalai/fastmcp` | `caracalai-fastmcp` | Not applicable |
-| ASGI connector | Not applicable | `caracalai-asgi` | Not applicable |
-| net/http connector | Not applicable | Not applicable | `github.com/garudex-labs/caracal/packages/adapters/nethttp/go` |
+| Verification engine | `@caracalai/verify` | `caracalai-verify` | `github.com/garudex-labs/caracal/packages/verify/go` |
+| Express adapter | `@caracalai/express` | Not applicable | Not applicable |
+| FastMCP adapter | `@caracalai/fastmcp` | `caracalai-fastmcp` | Not applicable |
+| ASGI adapter | Not applicable | `caracalai-asgi` | Not applicable |
+| net/http adapter | Not applicable | Not applicable | `github.com/garudex-labs/caracal/packages/adapters/nethttp/go` |
 | Redis revocation store | `@caracalai/revocation-redis` | `caracalai-revocation-redis` | `github.com/garudex-labs/caracal/packages/backends/redis/go` |
 
 ## Runtime Requirements

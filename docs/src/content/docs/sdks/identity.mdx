@@ -76,6 +76,6 @@ Go and Python identity packages also cache issuer JWKS metadata in memory. Pytho
 | `ChainMismatchError` | The delegation chain is missing a required application. |
 | `HopCountExceededError` | The mandate exceeds the configured hop limit. |
 
-## When to Use MCP Auth Transport
+## When to Use Verify Package
 
-Use [MCP Auth Transport](/sdks/verify/) when you also need revocation checks, reusable verifier defaults, bearer-header parsing, and safe debugging hints. Use the identity package directly when you are composing your own verifier or connector boundary.
+Use [Verify Package](/sdks/verify/) when you also need revocation checks, reusable verifier defaults, bearer-header parsing, and safe debugging hints. Use the identity package directly when you are composing your own verifier or connector boundary.
