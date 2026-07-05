@@ -3,7 +3,7 @@
 //
 // Transport MCP authentication tests for bearer parsing, JWT claims, and revocation.
 
-package transportmcp_test
+package verify_test
 
 import (
 	"context"
@@ -20,28 +20,28 @@ import (
 
 	"github.com/garudex-labs/caracal/packages/identity/go"
 	"github.com/garudex-labs/caracal/packages/revocation/go"
-	transportmcp "github.com/garudex-labs/caracal/packages/transport/mcp/go"
+	verify "github.com/garudex-labs/caracal/packages/verify/go"
 	"github.com/golang-jwt/jwt/v5"
 )
 
 func TestExtractBearer(t *testing.T) {
-	if got, ok := transportmcp.ExtractBearer("Bearer token-1"); !ok || got != "token-1" {
+	if got, ok := verify.ExtractBearer("Bearer token-1"); !ok || got != "token-1" {
 		t.Fatalf("expected bearer token, got %q ok=%v", got, ok)
 	}
-	if got, ok := transportmcp.ExtractBearer("bearer token-1"); !ok || got != "token-1" {
+	if got, ok := verify.ExtractBearer("bearer token-1"); !ok || got != "token-1" {
 		t.Fatalf("expected lowercase bearer token, got %q ok=%v", got, ok)
 	}
-	if got, ok := transportmcp.ExtractBearer("BEARER token-1"); !ok || got != "token-1" {
+	if got, ok := verify.ExtractBearer("BEARER token-1"); !ok || got != "token-1" {
 		t.Fatalf("expected uppercase bearer token, got %q ok=%v", got, ok)
 	}
-	if _, ok := transportmcp.ExtractBearer("Bearer   "); ok {
+	if _, ok := verify.ExtractBearer("Bearer   "); ok {
 		t.Fatal("expected blank bearer token to be rejected")
 	}
 }
 
 func TestAuthenticateRejectsMissingToken(t *testing.T) {
-	_, authErr := transportmcp.Authenticate("", transportmcp.Options{})
-	if authErr == nil || authErr.Code != transportmcp.ErrMissingToken {
+	_, authErr := verify.Authenticate("", verify.Options{})
+	if authErr == nil || authErr.Code != verify.ErrMissingToken {
 		t.Fatalf("expected missing token error, got %#v", authErr)
 	}
 }
@@ -65,7 +65,7 @@ func TestAuthenticateAcceptsVerifiedTokenAndChecksRevocation(t *testing.T) {
 	defer closeServer()
 	store := revocation.NewInMemoryStore(time.Hour)
 
-	claims, authErr := transportmcp.Authenticate(token, transportmcp.Options{
+	claims, authErr := verify.Authenticate(token, verify.Options{
 		Issuer:               issuer,
 		Audience:             "resource://api",
 		ZoneID:               "zone-1",
@@ -93,12 +93,12 @@ func TestAuthenticateRejectsRevokedSession(t *testing.T) {
 		t.Fatalf("mark revoked: %v", err)
 	}
 
-	_, authErr := transportmcp.Authenticate(token, transportmcp.Options{
+	_, authErr := verify.Authenticate(token, verify.Options{
 		Issuer:      issuer,
 		Audience:    "resource://api",
 		Revocations: store,
 	})
-	if authErr == nil || authErr.Code != transportmcp.ErrSessionRevoked {
+	if authErr == nil || authErr.Code != verify.ErrSessionRevoked {
 		t.Fatalf("expected session_revoked, got %#v", authErr)
 	}
 }
@@ -121,12 +121,12 @@ func TestAuthenticateRejectsRevokedAuthorityAnchors(t *testing.T) {
 			if err := store.MarkRevoked(tt.revoked, time.Hour); err != nil {
 				t.Fatalf("mark revoked: %v", err)
 			}
-			_, authErr := transportmcp.Authenticate(token, transportmcp.Options{
+			_, authErr := verify.Authenticate(token, verify.Options{
 				Issuer:      issuer,
 				Audience:    "resource://api",
 				Revocations: store,
 			})
-			if authErr == nil || authErr.Code != transportmcp.ErrSessionRevoked {
+			if authErr == nil || authErr.Code != verify.ErrSessionRevoked {
 				t.Fatalf("expected session_revoked, got %#v", authErr)
 			}
 		})
@@ -135,11 +135,11 @@ func TestAuthenticateRejectsRevokedAuthorityAnchors(t *testing.T) {
 
 func TestCheckActiveAuthorityRejectsExpiredExecution(t *testing.T) {
 	store := revocation.NewInMemoryStore(time.Hour)
-	authErr := transportmcp.CheckActiveAuthority(identity.Claims{
+	authErr := verify.CheckActiveAuthority(identity.Claims{
 		Sid:       "sid-1",
 		ExpiresAt: time.Now().Add(-time.Second).Unix(),
 	}, store, time.Now())
-	if authErr == nil || authErr.Code != transportmcp.ErrInvalidToken {
+	if authErr == nil || authErr.Code != verify.ErrInvalidToken {
 		t.Fatalf("expected invalid_token, got %#v", authErr)
 	}
 }
@@ -147,18 +147,18 @@ func TestCheckActiveAuthorityRejectsExpiredExecution(t *testing.T) {
 func TestAuthenticateMapsIdentityErrors(t *testing.T) {
 	tests := []struct {
 		name   string
-		opts   transportmcp.Options
+		opts   verify.Options
 		claims jwt.MapClaims
-		code   transportmcp.ErrorCode
+		code   verify.ErrorCode
 	}{
-		{name: "scope", opts: transportmcp.Options{RequiredScopes: []string{"admin:call"}}, claims: jwt.MapClaims{"scope": "mcp:call"}, code: transportmcp.ErrInsufficientScope},
-		{name: "target", opts: transportmcp.Options{RequiredTargets: []string{"resource://tools/calendar"}}, claims: jwt.MapClaims{"scope": "mcp:call", "target": []string{"resource://tools/files"}}, code: transportmcp.ErrInvalidToken},
-		{name: "session mandate", opts: transportmcp.Options{}, claims: jwt.MapClaims{"scope": "mcp:call", "use": "session"}, code: transportmcp.ErrInvalidToken},
-		{name: "zone", opts: transportmcp.Options{ZoneID: "zone-2"}, claims: jwt.MapClaims{"scope": "mcp:call"}, code: transportmcp.ErrInvalidZone},
-		{name: "agent", opts: transportmcp.Options{RequireAgent: true}, claims: jwt.MapClaims{"scope": "mcp:call"}, code: transportmcp.ErrAgentRequired},
-		{name: "delegation", opts: transportmcp.Options{RequireDelegation: true}, claims: jwt.MapClaims{"scope": "mcp:call"}, code: transportmcp.ErrDelegationRequired},
-		{name: "chain", opts: transportmcp.Options{RequireChainContains: []string{"app-parent"}}, claims: jwt.MapClaims{"scope": "mcp:call", "delegation_chain": []map[string]any{{"application_id": "app-child"}}}, code: transportmcp.ErrChainMismatch},
-		{name: "hop", opts: transportmcp.Options{MaxHopCount: 1}, claims: jwt.MapClaims{"scope": "mcp:call", "hop_count": 2}, code: transportmcp.ErrHopCountExceeded},
+		{name: "scope", opts: verify.Options{RequiredScopes: []string{"admin:call"}}, claims: jwt.MapClaims{"scope": "mcp:call"}, code: verify.ErrInsufficientScope},
+		{name: "target", opts: verify.Options{RequiredTargets: []string{"resource://tools/calendar"}}, claims: jwt.MapClaims{"scope": "mcp:call", "target": []string{"resource://tools/files"}}, code: verify.ErrInvalidToken},
+		{name: "session mandate", opts: verify.Options{}, claims: jwt.MapClaims{"scope": "mcp:call", "use": "session"}, code: verify.ErrInvalidToken},
+		{name: "zone", opts: verify.Options{ZoneID: "zone-2"}, claims: jwt.MapClaims{"scope": "mcp:call"}, code: verify.ErrInvalidZone},
+		{name: "agent", opts: verify.Options{RequireAgent: true}, claims: jwt.MapClaims{"scope": "mcp:call"}, code: verify.ErrAgentRequired},
+		{name: "delegation", opts: verify.Options{RequireDelegation: true}, claims: jwt.MapClaims{"scope": "mcp:call"}, code: verify.ErrDelegationRequired},
+		{name: "chain", opts: verify.Options{RequireChainContains: []string{"app-parent"}}, claims: jwt.MapClaims{"scope": "mcp:call", "delegation_chain": []map[string]any{{"application_id": "app-child"}}}, code: verify.ErrChainMismatch},
+		{name: "hop", opts: verify.Options{MaxHopCount: 1}, claims: jwt.MapClaims{"scope": "mcp:call", "hop_count": 2}, code: verify.ErrHopCountExceeded},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -166,7 +166,7 @@ func TestAuthenticateMapsIdentityErrors(t *testing.T) {
 			defer closeServer()
 			tt.opts.Issuer = issuer
 			tt.opts.Audience = "resource://api"
-			_, authErr := transportmcp.Authenticate(token, tt.opts)
+			_, authErr := verify.Authenticate(token, tt.opts)
 			if authErr == nil || authErr.Code != tt.code {
 				t.Fatalf("expected %s, got %#v", tt.code, authErr)
 			}
@@ -175,8 +175,8 @@ func TestAuthenticateMapsIdentityErrors(t *testing.T) {
 }
 
 func TestAuthenticateMapsInvalidToken(t *testing.T) {
-	_, authErr := transportmcp.Authenticate("not-a-jwt", transportmcp.Options{Issuer: "https://issuer.example.com", Audience: "resource://api"})
-	if authErr == nil || authErr.Code != transportmcp.ErrInvalidToken {
+	_, authErr := verify.Authenticate("not-a-jwt", verify.Options{Issuer: "https://issuer.example.com", Audience: "resource://api"})
+	if authErr == nil || authErr.Code != verify.ErrInvalidToken {
 		t.Fatalf("expected invalid_token, got %#v", authErr)
 	}
 }
@@ -195,12 +195,12 @@ func TestAuthenticateContextHonorsCallerDeadline(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 	start := time.Now()
-	_, authErr := transportmcp.AuthenticateContext(ctx, token, transportmcp.Options{
+	_, authErr := verify.AuthenticateContext(ctx, token, verify.Options{
 		Issuer:      slow.URL,
 		Audience:    "resource://api",
 		Revocations: store,
 	})
-	if authErr == nil || authErr.Code != transportmcp.ErrInvalidToken {
+	if authErr == nil || authErr.Code != verify.ErrInvalidToken {
 		t.Fatalf("expected invalid_token, got %#v", authErr)
 	}
 	if elapsed := time.Since(start); elapsed > 5*time.Second {

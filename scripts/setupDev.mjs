@@ -21,9 +21,9 @@ const editablePackages = [
   'packages/identity/python',
   'packages/revocation/python',
   'packages/sdk/python',
-  'packages/transport/mcp/python',
-  'packages/connectors/fastmcp/python',
-  'packages/connectors/redis/python',
+  'packages/verify/python',
+  'packages/adapters/fastmcp/python',
+  'packages/backends/redis/python',
 ]
 
 function run(command, args, options = {}) {

@@ -3,7 +3,7 @@
 //
 // net/http middleware tests for claims propagation and request context deadlines.
 
-package mcpnethttp_test
+package nethttp_test
 
 import (
 	"context"
@@ -18,7 +18,7 @@ import (
 	"testing"
 	"time"
 
-	mcpnethttp "github.com/garudex-labs/caracal/packages/connectors/nethttp/go"
+	nethttp "github.com/garudex-labs/caracal/packages/adapters/nethttp/go"
 	"github.com/garudex-labs/caracal/packages/identity/go"
 	"github.com/garudex-labs/caracal/packages/revocation/go"
 	"github.com/golang-jwt/jwt/v5"
@@ -30,12 +30,12 @@ func TestMiddlewareAttachesClaimsToRequestContext(t *testing.T) {
 	store := revocation.NewInMemoryStore(time.Hour)
 	var claims identity.Claims
 	var ok bool
-	handler := mcpnethttp.Middleware(mcpnethttp.Options{
+	handler := nethttp.Middleware(nethttp.Options{
 		Issuer:      issuer,
 		Audience:    "resource://api",
 		Revocations: store,
 	})(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		claims, ok = mcpnethttp.ClaimsFromContext(r.Context())
+		claims, ok = nethttp.ClaimsFromContext(r.Context())
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -61,7 +61,7 @@ func TestMiddlewareHonorsRequestContextDeadline(t *testing.T) {
 	defer slow.Close()
 	defer close(release)
 	store := revocation.NewInMemoryStore(time.Hour)
-	handler := mcpnethttp.Middleware(mcpnethttp.Options{
+	handler := nethttp.Middleware(nethttp.Options{
 		Issuer:      slow.URL,
 		Audience:    "resource://api",
 		Revocations: store,

@@ -18,9 +18,9 @@ const GO_PKGS = [
   './services/sts/...',
   './services/audit/...',
   './services/gateway/...',
-  './packages/transport/mcp/go/...',
-  './packages/connectors/nethttp/go/...',
-  './packages/connectors/redis/go/...',
+  './packages/verify/go/...',
+  './packages/adapters/nethttp/go/...',
+  './packages/backends/redis/go/...',
   './packages/identity/go/...',
   './packages/oauth/go/...',
   './packages/revocation/go/...',
@@ -29,18 +29,18 @@ const GO_PKGS = [
 
 const TEST_DIRS = [
   './tests/go/unit/revocation',
-  './tests/go/unit/transport/mcp',
+  './tests/go/unit/verify',
   './tests/go/unit/identity',
-  './tests/go/unit/connectors/nethttp',
+  './tests/go/unit/adapters/nethttp',
   './tests/go/contract/interoperability',
   './tests/go/property',
 ]
 
 const COVERPKG = [
-  'github.com/garudex-labs/caracal/packages/transport/mcp/go',
+  'github.com/garudex-labs/caracal/packages/verify/go',
   'github.com/garudex-labs/caracal/packages/revocation/go',
   'github.com/garudex-labs/caracal/packages/identity/go',
-  'github.com/garudex-labs/caracal/packages/connectors/nethttp/go',
+  'github.com/garudex-labs/caracal/packages/adapters/nethttp/go',
 ].join(',')
 
 function runStatus(command, args) {
