@@ -295,7 +295,7 @@ async function failureReason(res: Response): Promise<string> {
     const parsed = JSON.parse(value) as unknown
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return ''
     const record = parsed as Record<string, unknown>
-    for (const key of ['reason', 'error', 'detail']) {
+    for (const key of ['reason', 'error', 'error_description']) {
       const field = record[key]
       if (typeof field === 'string' && field !== '') return ` ${sanitize(field)}`
     }
