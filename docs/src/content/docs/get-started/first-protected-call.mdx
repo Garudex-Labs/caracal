@@ -57,6 +57,8 @@ The packaged console runs the fail-closed production posture: operator registrat
 | Google or GitHub | `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` or `GITHUB_CLIENT_ID` + `GITHUB_CLIENT_SECRET`, plus `CARACAL_OPERATOR_EMAILS=<your email>`. OAuth callback URL: `http://localhost:3001/api/auth/callback/google` or `.../github`. |
 | Email and password | `CARACAL_OPEN_REGISTRATION=true` and `CARACAL_PASSWORD_SIGNUP=true`, plus `CARACAL_SMTP_URL` and `CARACAL_SMTP_FROM` so the required verification email can be delivered; the console fails closed without a mail transport. |
 
+OAuth is the fastest local path. Create an OAuth app in the [Google Cloud console](https://console.cloud.google.com/apis/credentials) or [GitHub developer settings](https://github.com/settings/developers), set its callback URL to the value above, and paste the client ID and secret into `caracal.env`. Email and password needs a reachable SMTP server, so skip it for a first local run.
+
 See [Environment Variables](/operations/env-vars/#web-console-bff) for the full sign-in reference. Sign up (or sign in), then complete the short onboarding flow:
 
 1. **Profile** - your operator name and avatar.
@@ -123,6 +125,22 @@ For a Gateway-routed HTTP resource, send the request to the Gateway URL (`http:/
 | `X-Caracal-Resource` | The resource identifier you created in guided setup. |
 
 `caracal run` injects the scoped token into the environment variable named by your launch binding, so the workload reads that variable and presents the token. The SDK helpers `gatewayRequest()` / `GatewayRequest()` build this URL and header for you.
+
+With a binding named `EXAMPLE_API_TOKEN`, you can prove the whole chain from the shell:
+
+```sh
+caracal run -- sh -c 'curl -sS http://localhost:8081/ \
+  -H "Authorization: Bearer $EXAMPLE_API_TOKEN" \
+  -H "X-Caracal-Resource: <resource identifier>"'
+```
+
+On Windows PowerShell:
+
+```powershell
+caracal run -- powershell -Command "curl.exe -sS http://localhost:8081/ -H ('Authorization: Bearer ' + `$env:EXAMPLE_API_TOKEN) -H 'X-Caracal-Resource: <resource identifier>'"
+```
+
+A `200` response from the demo upstream confirms workload identity, policy decision, token injection, Gateway enforcement, and upstream forwarding all work.
 
 ## Inspect Audit
 
