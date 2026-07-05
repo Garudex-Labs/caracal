@@ -113,7 +113,15 @@ export const policiesRoutes: FastifyPluginAsync = async (fastify) => {
       await client.query(
         `INSERT INTO policies (id, zone_id, name, description, owner_type, created_by, created_via_operator)
          VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [policyId, params.zoneId, body.name, body.description ?? null, body.owner_type ?? 'customer', attribution.actor, attribution.viaOperator],
+        [
+          policyId,
+          params.zoneId,
+          body.name,
+          body.description ?? null,
+          body.owner_type ?? 'customer',
+          attribution.actor,
+          attribution.viaOperator,
+        ],
       )
       const { rows } = await client.query(
         `INSERT INTO policy_versions (id, policy_id, version, content, content_sha256, schema_version, created_by, created_via_operator)
@@ -161,12 +169,10 @@ export const policiesRoutes: FastifyPluginAsync = async (fastify) => {
          RETURNING id, policy_id, version, content_sha256, schema_version, created_at`,
         [versionId, params.id, body.content, contentSHA, body.schema_version, attribution.actor, attribution.viaOperator],
       )
-      await client.query(`UPDATE policies SET updated_by = $3, updated_via_operator = $4, updated_at = now() WHERE id = $1 AND zone_id = $2`, [
-        params.id,
-        params.zoneId,
-        attribution.actor,
-        attribution.viaOperator,
-      ])
+      await client.query(
+        `UPDATE policies SET updated_by = $3, updated_via_operator = $4, updated_at = now() WHERE id = $1 AND zone_id = $2`,
+        [params.id, params.zoneId, attribution.actor, attribution.viaOperator],
+      )
       return reply.code(201).send({ version_id: rows[0].id, ...rows[0] })
     })
   })

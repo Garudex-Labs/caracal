@@ -14,6 +14,7 @@ import (
 	"time"
 
 	sharedcrypto "github.com/garudex-labs/caracal/packages/core/go/crypto"
+	revocation "github.com/garudex-labs/caracal/packages/revocation/go"
 	"github.com/redis/go-redis/v9"
 )
 
