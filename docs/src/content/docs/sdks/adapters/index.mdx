@@ -3,11 +3,11 @@ title: Framework Adapters
 description: Framework adapters for Caracal-protected resource servers.
 ---
 
-Framework connectors adapt the lower-level identity and MCP auth transport packages to common server frameworks. Use them before reaching for lower-level verification APIs.
+Framework adapters bind the lower-level identity and verify packages to common server frameworks. Use them before reaching for lower-level verification APIs.
 
-## Connector Map
+## Adapter Map
 
-| Connector | Package | Use it for |
+| Adapter | Package | Use it for |
 | --- | --- | --- |
 | [Express](/sdks/adapters/express/) | `@caracalai/express` | Protecting Express 5 routes with Caracal mandate verification. |
 | [ASGI](/sdks/adapters/asgi/) | `caracalai-asgi` | Protecting FastAPI, Starlette, and other Python ASGI apps with Caracal mandate verification. |
@@ -27,12 +27,12 @@ Framework connectors adapt the lower-level identity and MCP auth transport packa
 
 ## Boundary Semantics
 
-Every HTTP connector maps verification failures through one canonical status function in `@caracalai/verify` (`httpStatusForAuthError` in TypeScript, `transportmcp.HTTPStatus` in Go), so the boundary behaves identically across frameworks and languages:
+Every HTTP adapter maps verification failures through one canonical status function in `@caracalai/verify` (`httpStatusForAuthError` in TypeScript, `verify.HTTPStatus` in Go), so the boundary behaves identically across frameworks and languages:
 
 - **401** - the credential itself was not accepted: `missing_token`, `invalid_token`, `invalid_zone`, `session_revoked`, `delegation_stale`.
 - **403** - the mandate verified but its authority is insufficient for the route: `insufficient_scope`, `agent_required`, `delegation_required`, `chain_mismatch`, `hop_count_exceeded`.
 
-Connectors never re-derive these status codes; they consume the shared mapping.
+Adapters never re-derive these status codes; they consume the shared mapping.
 
 ## Related State Backends
 

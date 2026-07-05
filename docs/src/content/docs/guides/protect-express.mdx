@@ -3,12 +3,12 @@ title: Protect an Express App
 description: Add the caracalAuth middleware to Express routes to verify mandates and enforce scope requirements.
 ---
 
-Use `@caracalai/mcp-express` when an Express app should verify Caracal mandates before route handlers run.
+Use `@caracalai/express` when an Express app should verify Caracal mandates before route handlers run.
 
 ## Install
 
 ```bash
-npm install express @caracalai/mcp-express @caracalai/transport-mcp @caracalai/revocation
+npm install express @caracalai/express @caracalai/verify @caracalai/revocation
 ```
 
 Use a Redis-backed revocation store in production. The in-memory store is only suitable for local development and tests.
@@ -17,8 +17,8 @@ Use a Redis-backed revocation store in production. The in-memory store is only s
 
 ```ts
 import express from "express";
-import { caracalAuth, type CaracalRequest } from "@caracalai/mcp-express";
-import { createMandateVerifier } from "@caracalai/transport-mcp";
+import { caracalAuth, type CaracalRequest } from "@caracalai/express";
+import { createMandateVerifier } from "@caracalai/verify";
 import { InMemoryRevocationStore } from "@caracalai/revocation";
 
 const app = express();

@@ -1,9 +1,9 @@
 ---
 title: Verify Package
-description: Framework-neutral MCP authentication primitives for bearer parsing, mandate verification, and revocation checks.
+description: Framework-neutral verification engine for bearer parsing, mandate verification, and revocation checks.
 ---
 
-The MCP auth transport packages verify Caracal mandates without tying the check to Express, FastMCP, or Go net/http. Framework connectors build on this layer.
+The verify packages authenticate Caracal mandates without tying the check to Express, FastMCP, or Go net/http. Framework adapters build on this engine.
 
 ## Install
 
@@ -78,7 +78,7 @@ if not result.ok:
 
 ## Error codes
 
-`authenticate` and reusable verifiers normalize failures into transport error codes: `missing_token`, `invalid_token`, `invalid_zone`, `insufficient_scope`, `session_revoked`, `agent_required`, `delegation_required`, `chain_mismatch`, and `hop_count_exceeded`. TypeScript, Python, and Go reusable verifiers include a safe debugging hint for operator logs and API error bodies.
+`authenticate` and reusable verifiers normalize failures into typed error codes: `missing_token`, `invalid_token`, `invalid_zone`, `insufficient_scope`, `session_revoked`, `agent_required`, `delegation_required`, `chain_mismatch`, and `hop_count_exceeded`. TypeScript, Python, and Go reusable verifiers include a safe debugging hint for operator logs and API error bodies.
 
 ## Related pages
 
