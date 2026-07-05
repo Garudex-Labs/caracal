@@ -31,7 +31,7 @@ caracal status --ready --json
 
 | Symptom | Check |
 | --- | --- |
-| Sign-up is rejected with `registration_not_permitted` | The packaged console closes registration by default. Configure a sign-in method in `$CARACAL_HOME/caracal.env` - see [Sign In and Create Your First Zone](/get-started/first-protected-call/#sign-in-and-create-your-first-zone). |
+| Sign-up is rejected with `registration_not_permitted` | The packaged console closes registration by default. Run `caracal invite <email>` on the runtime host for a one-time bootstrap code, or configure a sign-in method in `$CARACAL_HOME/caracal.env` - see [Sign In and Create Your First Zone](/get-started/first-protected-call/#sign-in-and-create-your-first-zone). |
 | Google or GitHub buttons are missing | Set both the client ID and client secret for the provider, then rerun `caracal up`. |
 | Password sign-in is blocked pending verification | The packaged console requires a verified email. Confirm `CARACAL_SMTP_URL` and `CARACAL_SMTP_FROM` are set and the verification message was delivered. |
 
