@@ -124,13 +124,35 @@ export function clearOnboardingDraft(): void {
   remove(ONBOARDING_DRAFT_KEY);
 }
 
-/** Generate a stable, unique internal account identifier, formatted CRC-XXXX-XXXX-XXXX. */
+// The Account ID's display alphabet: Crockford-style base32 without the ambiguous I, L, O, U.
+const ACCOUNT_ID_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+
+/**
+ * Render a profile id as its Account ID, formatted CRC-XXXX-XXXX-XXXX. Deterministic (FNV-1a
+ * over the immutable profile id), so every browser, the Settings page, and every attribution
+ * tooltip show the same Account ID for the same profile. It is a display encoding of the
+ * profile id, not a secret or a security boundary.
+ */
+export function accountIdFor(profileId: string): string {
+  let hash = 0xcbf29ce484222325n;
+  for (let i = 0; i < profileId.length; i++) {
+    hash ^= BigInt(profileId.charCodeAt(i));
+    hash = (hash * 0x100000001b3n) & 0xffffffffffffffffn;
+  }
+  let chars = "";
+  for (let i = 0; i < 12; i++) {
+    chars += ACCOUNT_ID_ALPHABET[Number(hash & 31n)];
+    hash >>= 5n;
+  }
+  return `CRC-${chars.slice(0, 4)}-${chars.slice(4, 8)}-${chars.slice(8, 12)}`;
+}
+
+/** Generate a placeholder account identifier for a browser with no bound account yet. */
 function generateAccountId(): string {
-  const alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
   const pick = () =>
     Array.from(
       crypto.getRandomValues(new Uint8Array(4)),
-      (byte) => alphabet[byte % alphabet.length],
+      (byte) => ACCOUNT_ID_ALPHABET[byte % ACCOUNT_ID_ALPHABET.length],
     ).join("");
   return `CRC-${pick()}-${pick()}-${pick()}`;
 }
@@ -138,8 +160,13 @@ function generateAccountId(): string {
 export function getProfile(): ProfileRecord {
   if (profileSnapshot) return profileSnapshot;
   const stored = read<Partial<ProfileRecord>>(PROFILE_KEY, {});
-  const accountId =
-    stored.accountId && stored.accountId.startsWith("CRC-")
+  const owner = read<string | null>(OWNER_KEY, null);
+  // Once an account is bound, the Account ID is derived from its profile id so it matches
+  // everywhere the profile appears, including attribution rendered in other browsers. A
+  // placeholder is kept only while no account is bound (pre-sign-in previews).
+  const accountId = owner
+    ? accountIdFor(owner)
+    : stored.accountId && stored.accountId.startsWith("CRC-")
       ? stored.accountId
       : generateAccountId();
   const profile: ProfileRecord = {

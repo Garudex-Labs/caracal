@@ -94,6 +94,33 @@ describe('reconcileLocalIdentity', () => {
   })
 })
 
+describe('accountIdFor', () => {
+  it('derives a stable CRC-formatted Account ID from a profile id', () => {
+    const derived = mod.accountIdFor('GMqxyubN7A8lYBKNoTSR8rtzHdbTUqYM')
+    expect(derived).toMatch(/^CRC-[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}$/)
+    expect(mod.accountIdFor('GMqxyubN7A8lYBKNoTSR8rtzHdbTUqYM')).toBe(derived)
+    expect(mod.accountIdFor('another-profile')).not.toBe(derived)
+  })
+
+  it('binds getProfile to the account-derived Account ID once an owner is bound', () => {
+    mod.reconcileLocalIdentity('user-1')
+    const profile = mod.getProfile()
+    expect(profile.accountId).toBe(mod.accountIdFor('user-1'))
+    expect(JSON.parse(localStorage.getItem(PROFILE_KEY) as string).accountId).toBe(mod.accountIdFor('user-1'))
+  })
+
+  it('replaces a stored placeholder with the derived Account ID', () => {
+    mod.reconcileLocalIdentity('user-1')
+    localStorage.setItem(
+      PROFILE_KEY,
+      JSON.stringify({ accountId: 'CRC-OLDX-OLDX-OLDX', fullName: 'Neil Shah', displayName: '', avatar: '' }),
+    )
+    mod.setProfile({ accountId: 'CRC-OLDX-OLDX-OLDX', fullName: 'Neil Shah', displayName: '', avatar: '' })
+    mod.reconcileLocalIdentity('user-2')
+    expect(mod.getProfile().accountId).toBe(mod.accountIdFor('user-2'))
+  })
+})
+
 describe('sanitizeHandle', () => {
   it('drops spaces and disallowed characters', () => {
     expect(mod.sanitizeHandle('Ada Lovelace')).toBe('AdaLovelace')
