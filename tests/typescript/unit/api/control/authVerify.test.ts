@@ -14,39 +14,30 @@ interface Minted {
   jwk: Record<string, unknown>
 }
 
-async function mint(
-  payloadOverrides: Record<string, unknown> = {},
-  opts: { kid?: string; alg?: string } = {},
-): Promise<Minted> {
+async function mint(payloadOverrides: Record<string, unknown> = {}, opts: { kid?: string; alg?: string } = {}): Promise<Minted> {
   const kid = opts.kid ?? 'kid-1'
-  const key = await crypto.subtle.generateKey(
-    { name: 'ECDSA', namedCurve: 'P-256' },
-    true,
-    ['sign', 'verify'],
-  )
+  const key = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify'])
   const jwk = (await crypto.subtle.exportKey('jwk', key.publicKey)) as Record<string, unknown>
   Object.assign(jwk, { kid, alg: opts.alg ?? 'ES256', use: 'sig' })
 
   const now = Math.floor(Date.now() / 1000)
   const header = b64url(JSON.stringify({ alg: 'ES256', kid, typ: 'JWT' }))
-  const payload = b64url(JSON.stringify({
-    iss: ISSUER,
-    aud: AUDIENCE,
-    sub: 'user-1',
-    jti: 'jti-1',
-    zone_id: 'zone-1',
-    client_id: 'app-1',
-    scope: 'agent:lifecycle',
-    iat: now,
-    exp: now + 300,
-    ...payloadOverrides,
-  }))
-  const body = `${header}.${payload}`
-  const sig = await crypto.subtle.sign(
-    { name: 'ECDSA', hash: 'SHA-256' },
-    key.privateKey,
-    new TextEncoder().encode(body),
+  const payload = b64url(
+    JSON.stringify({
+      iss: ISSUER,
+      aud: AUDIENCE,
+      sub: 'user-1',
+      jti: 'jti-1',
+      zone_id: 'zone-1',
+      client_id: 'app-1',
+      scope: 'agent:lifecycle',
+      iat: now,
+      exp: now + 300,
+      ...payloadOverrides,
+    }),
   )
+  const body = `${header}.${payload}`
+  const sig = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key.privateKey, new TextEncoder().encode(body))
   return { token: `${body}.${b64url(new Uint8Array(sig))}`, jwk }
 }
 
@@ -58,10 +49,11 @@ function b64url(value: string | Uint8Array): string {
 }
 
 function jwksResponse(keys: object[]): () => Promise<Response> {
-  return async () => new Response(JSON.stringify({ keys }), {
-    status: 200,
-    headers: { 'content-type': 'application/json' },
-  })
+  return async () =>
+    new Response(JSON.stringify({ keys }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    })
 }
 
 function authWith(fetchImpl: typeof fetch, overrides: Record<string, unknown> = {}): Authenticator {
@@ -175,10 +167,8 @@ describe('Authenticator.verify signature and JWKS handling', () => {
 
   it('rejects when even the refreshed key set cannot verify the token', async () => {
     const { token, jwk } = await mint({}, { kid: 'kid-2' })
-    const fetchImpl = (async () => new Response(
-      JSON.stringify({ keys: [{ ...jwk, kid: 'stale' }] }),
-      { status: 200 },
-    )) as unknown as typeof fetch
+    const fetchImpl = (async () =>
+      new Response(JSON.stringify({ keys: [{ ...jwk, kid: 'stale' }] }), { status: 200 })) as unknown as typeof fetch
     const auth = authWith(fetchImpl)
     await expect(auth.verify(`Bearer ${token}`)).rejects.toThrow(/invalid token/)
   })

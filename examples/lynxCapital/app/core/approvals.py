@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 Opt-in human-in-the-loop approval gate that pauses irreversible operations until a reviewer decides.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -62,9 +63,14 @@ class ApprovalGate:
             await self._discard(run_id, request_id)
             return Decision(False, "approval timed out")
         await self._discard(run_id, request_id)
-        return Decision(pending.approved, pending.note or ("approved" if pending.approved else "denied"))
+        return Decision(
+            pending.approved,
+            pending.note or ("approved" if pending.approved else "denied"),
+        )
 
-    def resolve(self, run_id: str, request_id: str, approved: bool, note: str = "") -> bool:
+    def resolve(
+        self, run_id: str, request_id: str, approved: bool, note: str = ""
+    ) -> bool:
         pending = self._pending.get(run_id, {}).get(request_id)
         if pending is None:
             return False
@@ -74,8 +80,10 @@ class ApprovalGate:
         return True
 
     def list_pending(self, run_id: str) -> list[dict[str, str]]:
-        return [{"requestId": rid, "action": p.action}
-                for rid, p in self._pending.get(run_id, {}).items()]
+        return [
+            {"requestId": rid, "action": p.action}
+            for rid, p in self._pending.get(run_id, {}).items()
+        ]
 
     async def _discard(self, run_id: str, request_id: str) -> None:
         async with self._lock:

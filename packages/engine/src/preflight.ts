@@ -7,7 +7,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { connect } from 'node:net'
 import { X509Certificate } from 'node:crypto'
 import { join } from 'node:path'
-import { discoverRepoRoot, managedSecretDirs } from '@caracalai/core'
+import { discoverRepoRoot, managedSecretDirs } from '@caracalai/server-core'
 
 export interface PreflightCheck {
   check: string

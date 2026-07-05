@@ -6,7 +6,8 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { getMigrations } from 'better-auth/db/migration'
 import { toNodeHandler } from 'better-auth/node'
-import { ShutdownRegistry, bindTrace, pathOnly } from '@caracalai/core'
+import { bindTrace } from '@caracalai/core'
+import { ShutdownRegistry, pathOnly } from '@caracalai/server-core'
 
 import { auth } from './auth.ts'
 import { handleAccount } from './account.ts'

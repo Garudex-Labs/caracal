@@ -124,12 +124,9 @@ export async function checkActiveAuthority(claims: Principal, revocations: Revoc
 }
 
 function revocationAnchors(claims: Principal): string[] {
-  const anchors = [
-    claims.sid,
-    claims.rootSid,
-    claims.agentSessionId,
-    claims.delegationEdgeId,
-  ].filter((value): value is string => typeof value === 'string' && value !== '')
+  const anchors = [claims.sid, claims.rootSid, claims.agentSessionId, claims.delegationEdgeId].filter(
+    (value): value is string => typeof value === 'string' && value !== '',
+  )
   return [...new Set(anchors)]
 }
 

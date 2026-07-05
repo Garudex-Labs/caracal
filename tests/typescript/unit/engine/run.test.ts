@@ -110,9 +110,7 @@ describe('buildRunEnv', () => {
 
   it('throws when an optional credential with on_failure error fails', async () => {
     fetchRunCredentialMock.mockRejectedValue(new Error('nope'))
-    await expect(buildRunEnv(profile([binding({ env: 'OPT', resource: 'r', optional: true, onFailure: 'error' })]))).rejects.toThrow(
-      'nope',
-    )
+    await expect(buildRunEnv(profile([binding({ env: 'OPT', resource: 'r', optional: true, onFailure: 'error' })]))).rejects.toThrow('nope')
   })
 
   it('waits for an approval and retries the mint with the challenge id', async () => {

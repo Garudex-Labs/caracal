@@ -6,9 +6,6 @@
 import type { DB } from './db.js'
 
 export async function zoneExists(db: DB, zoneId: string): Promise<boolean> {
-  const { rows } = await db.query(
-    `SELECT 1 FROM zones WHERE id = $1 AND archived_at IS NULL LIMIT 1`,
-    [zoneId],
-  )
+  const { rows } = await db.query(`SELECT 1 FROM zones WHERE id = $1 AND archived_at IS NULL LIMIT 1`, [zoneId])
   return rows.length > 0
 }

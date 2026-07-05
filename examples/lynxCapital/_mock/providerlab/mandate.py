@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 Mock Caracal mandate signer and verifier mirroring the verifier SDK boundary semantics for partnership providers.
 """
+
 from __future__ import annotations
 
 import os
@@ -50,7 +51,11 @@ class VerifyError(Exception):
 
 
 async def _verify_caracal(
-    token: str, claims: dict, provider_id: str, revoked: set[str], require_delegation: bool
+    token: str,
+    claims: dict,
+    provider_id: str,
+    revoked: set[str],
+    require_delegation: bool,
 ) -> dict:
     """Verify a Caracal STS-issued resource mandate with the verifier kit, pinned to
     the provider's partnered resource-view audiences, then apply the local
@@ -65,7 +70,9 @@ async def _verify_caracal(
     candidates = [raw_aud] if isinstance(raw_aud, str) else list(raw_aud or [])
     audience = next((a for a in candidates if a in terms.audiences), None)
     if audience is None:
-        raise VerifyError("invalid_token", "mandate audience is not a partnered resource view")
+        raise VerifyError(
+            "invalid_token", "mandate audience is not a partnered resource view"
+        )
     issuer = os.environ.get("CARACAL_STS_ISSUER", "http://localhost:8080").rstrip("/")
     expected_zone = os.environ.get("CARACAL_ZONE_ID", "").strip() or None
     config = identity.JwtConfig(
@@ -78,11 +85,15 @@ async def _verify_caracal(
     try:
         verified = await identity.verify_config(token, config)
     except identity.DelegationRequiredError as exc:
-        raise VerifyError("delegation_required", "resource requires a delegated mandate") from exc
+        raise VerifyError(
+            "delegation_required", "resource requires a delegated mandate"
+        ) from exc
     except identity.ZoneInvalidError as exc:
         raise VerifyError("invalid_zone", "mandate zone mismatch") from exc
     except identity.ScopeInsufficientError as exc:
-        raise VerifyError("insufficient_scope", "mandate missing required scopes") from exc
+        raise VerifyError(
+            "insufficient_scope", "mandate missing required scopes"
+        ) from exc
     except identity.TokenInvalidError as exc:
         raise VerifyError("invalid_token", "mandate failed verification") from exc
     except (httpx.HTTPError, OSError) as exc:
@@ -164,7 +175,9 @@ async def verify(
     except jwtmini.JwtError as exc:
         raise VerifyError("invalid_token", "mandate malformed") from exc
     if header.get("alg") == "ES256":
-        return await _verify_caracal(token, payload, resource, revoked, require_delegation)
+        return await _verify_caracal(
+            token, payload, resource, revoked, require_delegation
+        )
     try:
         claims = jwtmini.decode(token, signing_key)
     except jwtmini.JwtError as exc:
@@ -192,5 +205,7 @@ async def verify(
         if value and value in revoked:
             raise VerifyError("session_revoked", f"mandate anchor revoked: {anchor}")
     if require_delegation and not claims.get("delegation_edge_id"):
-        raise VerifyError("delegation_required", "resource requires a delegated mandate")
+        raise VerifyError(
+            "delegation_required", "resource requires a delegated mandate"
+        )
     return claims

@@ -37,7 +37,10 @@ export function npmPackages(config = readReleaseConfig()) {
       publish: entry.publish !== false,
       private: Boolean(pkg.private),
       publishConfig: pkg.publishConfig,
-      dependencies: packageDependencies(pkg, config.packages.npm.map((candidate) => candidate.name)),
+      dependencies: packageDependencies(
+        pkg,
+        config.packages.npm.map((candidate) => candidate.name),
+      ),
     }
   })
 }
@@ -60,7 +63,10 @@ export function pypiPackages(config = readReleaseConfig()) {
       configVersion: entry.version,
       tier: entry.tier,
       publish: entry.publish !== false,
-      dependencies: pythonDependencies(text, config.packages.pypi.map((candidate) => candidate.name)),
+      dependencies: pythonDependencies(
+        text,
+        config.packages.pypi.map((candidate) => candidate.name),
+      ),
     }
   })
 }

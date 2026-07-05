@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 System health and model switcher endpoints.
 """
+
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException

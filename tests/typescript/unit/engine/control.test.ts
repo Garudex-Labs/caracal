@@ -73,15 +73,19 @@ describe('control metadata helpers', () => {
       command: 'agent',
       action: 'delete',
     })
-    expect(controlKeyRecord(app({
-      traits: [
-        CONTROL_INVOKE_TRAIT,
-        `${CONTROL_SCOPE_TRAIT_PREFIX}control:agent:read`,
-        `${CONTROL_SCOPE_TRAIT_PREFIX}not-real`,
-        `${CONTROL_MAX_TTL_TRAIT_PREFIX}120`,
-        `${CONTROL_EXPIRES_TRAIT_PREFIX}2027-01-01T00:00:00.000Z`,
-      ],
-    }))).toMatchObject({
+    expect(
+      controlKeyRecord(
+        app({
+          traits: [
+            CONTROL_INVOKE_TRAIT,
+            `${CONTROL_SCOPE_TRAIT_PREFIX}control:agent:read`,
+            `${CONTROL_SCOPE_TRAIT_PREFIX}not-real`,
+            `${CONTROL_MAX_TTL_TRAIT_PREFIX}120`,
+            `${CONTROL_EXPIRES_TRAIT_PREFIX}2027-01-01T00:00:00.000Z`,
+          ],
+        }),
+      ),
+    ).toMatchObject({
       allowed_scopes: ['control:agent:read'],
       max_ttl_seconds: 120,
       expires_at: '2027-01-01T00:00:00.000Z',
@@ -94,16 +98,23 @@ describe('ensureControlResource', () => {
   it('creates the control resource when absent and patches missing scopes when present', async () => {
     const admin = client()
     await expect(ensureControlResource(admin, 'z1')).resolves.toMatchObject({ id: 'res-created' })
-    expect(admin.resources.create).toHaveBeenCalledWith('z1', expect.objectContaining({
-      identifier: 'caracal-control',
-      scopes: expect.arrayContaining(['control:agent:read']),
-    }))
+    expect(admin.resources.create).toHaveBeenCalledWith(
+      'z1',
+      expect.objectContaining({
+        identifier: 'caracal-control',
+        scopes: expect.arrayContaining(['control:agent:read']),
+      }),
+    )
 
     admin.resources.list = vi.fn(async () => [resource({ scopes: [] })])
     await ensureControlResource(admin, 'z1')
-    expect(admin.resources.patch).toHaveBeenCalledWith('z1', 'res-1', expect.objectContaining({
-      scopes: expect.arrayContaining(['control:agent:read']),
-    }))
+    expect(admin.resources.patch).toHaveBeenCalledWith(
+      'z1',
+      'res-1',
+      expect.objectContaining({
+        scopes: expect.arrayContaining(['control:agent:read']),
+      }),
+    )
 
     admin.resources.list = vi.fn(async () => [resource({ scopes: ['control:zone:read'] })])
     await ensureControlResource(admin, 'z1')
@@ -122,10 +133,7 @@ describe('ensureControlResource', () => {
 describe('control key lifecycle', () => {
   it('lists, reads, creates, rotates, and revokes control key applications', async () => {
     const admin = client()
-    admin.applications.list = vi.fn(async () => [
-      app({ id: 'control-app' }),
-      app({ id: 'normal-app', traits: [] }),
-    ])
+    admin.applications.list = vi.fn(async () => [app({ id: 'control-app' }), app({ id: 'normal-app', traits: [] })])
     await expect(controlKeyList(admin, 'z1')).resolves.toHaveLength(1)
 
     await expect(controlKeyGet(admin, 'z1', 'control-app')).resolves.toMatchObject({ client_id: 'app-1' })
@@ -158,16 +166,17 @@ describe('control key lifecycle', () => {
     admin.applications.get = vi.fn(async () => app({ traits: [] }))
     await expect(controlKeyGet(admin, 'z1', 'normal-app')).rejects.toThrow('not a control API key')
 
-    await expect(controlKeyCreate(client(), 'z1', { name: 'No Permissions' }))
-      .rejects.toThrow('permissions are required')
-    await expect(controlKeyCreate(client(), 'z1', { name: 'Bad Scope', scopes: ['not-real'] }))
-      .rejects.toThrow('unsupported control scope')
-    await expect(controlKeyCreate(client(), 'z1', { name: 'Bad TTL', scopes: ['control:agent:read'], maxTtlSeconds: 59 }))
-      .rejects.toThrow('between 60 and 900')
-    await expect(controlKeyCreate(client(), 'z1', { name: 'Bad Expiry', scopes: ['control:agent:read'], expiresAt: 'bad' }))
-      .rejects.toThrow('ISO timestamp')
-    await expect(controlKeyCreate(client(), 'z1', { name: 'Global Zone', scopes: ['control:zone:read'] }))
-      .rejects.toThrow('unsupported control scope')
+    await expect(controlKeyCreate(client(), 'z1', { name: 'No Permissions' })).rejects.toThrow('permissions are required')
+    await expect(controlKeyCreate(client(), 'z1', { name: 'Bad Scope', scopes: ['not-real'] })).rejects.toThrow('unsupported control scope')
+    await expect(controlKeyCreate(client(), 'z1', { name: 'Bad TTL', scopes: ['control:agent:read'], maxTtlSeconds: 59 })).rejects.toThrow(
+      'between 60 and 900',
+    )
+    await expect(
+      controlKeyCreate(client(), 'z1', { name: 'Bad Expiry', scopes: ['control:agent:read'], expiresAt: 'bad' }),
+    ).rejects.toThrow('ISO timestamp')
+    await expect(controlKeyCreate(client(), 'z1', { name: 'Global Zone', scopes: ['control:zone:read'] })).rejects.toThrow(
+      'unsupported control scope',
+    )
   })
 
   it('can derive permissions from actions and resources', async () => {

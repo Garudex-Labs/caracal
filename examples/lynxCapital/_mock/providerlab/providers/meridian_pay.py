@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 Meridian Pay domain: card and wallet charge acceptance with refunds, disputes, settlements, payouts, balances, and the event stream.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -24,8 +25,15 @@ _CAPTURE_WINDOW = 7 * 86_400
 # Fields that define a charge request. Two calls that carry the same idempotency
 # key but differ on any of these are a client bug, and the platform rejects the
 # replay rather than silently returning the first result.
-_IDEMPOTENT_FIELDS = ("amount", "currency", "source", "capture", "customer",
-                      "description", "metadata")
+_IDEMPOTENT_FIELDS = (
+    "amount",
+    "currency",
+    "source",
+    "capture",
+    "customer",
+    "description",
+    "metadata",
+)
 
 # Canonical decline tokens, shaped after the test-card scheme real card platforms
 # publish. Each maps to the gateway decline code and HTTP status a live charge
@@ -33,15 +41,33 @@ _IDEMPOTENT_FIELDS = ("amount", "currency", "source", "capture", "customer",
 _DECLINE_TOKENS: dict[str, tuple[str, str]] = {
     "tok_chargedeclined": ("card_declined", "Your card was declined."),
     "tok_declined": ("card_declined", "Your card was declined."),
-    "tok_chargedeclinedinsufficientfunds": ("insufficient_funds", "Your card has insufficient funds."),
-    "tok_insufficientfunds": ("insufficient_funds", "Your card has insufficient funds."),
+    "tok_chargedeclinedinsufficientfunds": (
+        "insufficient_funds",
+        "Your card has insufficient funds.",
+    ),
+    "tok_insufficientfunds": (
+        "insufficient_funds",
+        "Your card has insufficient funds.",
+    ),
     "tok_chargedeclinedexpiredcard": ("expired_card", "Your card has expired."),
     "tok_expiredcard": ("expired_card", "Your card has expired."),
-    "tok_chargedeclinedincorrectcvc": ("incorrect_cvc", "Your card's security code is incorrect."),
-    "tok_chargedeclinedprocessingerror": ("processing_error", "An error occurred while processing your card."),
-    "tok_chargedeclinedfraudulent": ("card_declined", "The payment was declined for suspected fraud."),
+    "tok_chargedeclinedincorrectcvc": (
+        "incorrect_cvc",
+        "Your card's security code is incorrect.",
+    ),
+    "tok_chargedeclinedprocessingerror": (
+        "processing_error",
+        "An error occurred while processing your card.",
+    ),
+    "tok_chargedeclinedfraudulent": (
+        "card_declined",
+        "The payment was declined for suspected fraud.",
+    ),
     "tok_radarblock": ("card_declined", "The payment was blocked by the risk engine."),
-    "tok_chargecustomerfail": ("processing_error", "An error occurred while processing your card."),
+    "tok_chargecustomerfail": (
+        "processing_error",
+        "An error occurred while processing your card.",
+    ),
 }
 _3DS_TOKENS = {"tok_threedsecurerequired", "tok_authenticationrequired"}
 
@@ -74,7 +100,8 @@ def _fingerprint(payload: dict) -> str:
     """Stable hash of the request fields an idempotency key is bound to."""
     relevant = {k: payload.get(k) for k in _IDEMPOTENT_FIELDS}
     return hashlib.sha256(
-        json.dumps(relevant, sort_keys=True, default=str).encode()).hexdigest()
+        json.dumps(relevant, sort_keys=True, default=str).encode()
+    ).hexdigest()
 
 
 def _card_for(source: str) -> dict:
@@ -92,8 +119,11 @@ def _card_for(source: str) -> dict:
             "fingerprint": f"fp_{hashlib.sha1(f'{brand}{last4}'.encode()).hexdigest()[:16]}",
             "threeDSecure": "not_required",
             "wallet": None,
-            "checks": {"cvcCheck": "pass", "addressLine1Check": "pass",
-                       "addressPostalCodeCheck": "pass"},
+            "checks": {
+                "cvcCheck": "pass",
+                "addressLine1Check": "pass",
+                "addressPostalCodeCheck": "pass",
+            },
         },
     }
 
@@ -132,9 +162,11 @@ def create_charge(ctx: Ctx) -> dict:
         record = keys[idem]
         if record["fingerprint"] != fingerprint:
             raise DomainError(
-                400, "idempotency_error",
+                400,
+                "idempotency_error",
                 "Keys for idempotent requests can only be used with the same parameters "
-                "they were first used with.")
+                "they were first used with.",
+            )
         return charges[record["chargeId"]]
 
     source = ctx.payload["source"]
@@ -151,11 +183,29 @@ def create_charge(ctx: Ctx) -> dict:
     created = base.now()
 
     if needs_action:
-        status, captured, paid, captured_amount, net = "requires_action", False, False, 0.0, 0.0
+        status, captured, paid, captured_amount, net = (
+            "requires_action",
+            False,
+            False,
+            0.0,
+            0.0,
+        )
     elif not capture:
-        status, captured, paid, captured_amount, net = "requires_capture", False, False, 0.0, 0.0
+        status, captured, paid, captured_amount, net = (
+            "requires_capture",
+            False,
+            False,
+            0.0,
+            0.0,
+        )
     else:
-        status, captured, paid, captured_amount, net = "succeeded", True, True, amount, round(amount - fee, 2)
+        status, captured, paid, captured_amount, net = (
+            "succeeded",
+            True,
+            True,
+            amount,
+            round(amount - fee, 2),
+        )
 
     descriptor = ctx.get("statementDescriptor", "MERIDIAN* LYNXCAPITAL")
     suffix = ctx.get("statementDescriptorSuffix")
@@ -175,19 +225,26 @@ def create_charge(ctx: Ctx) -> dict:
         "description": ctx.get("description", ""),
         "statementDescriptor": descriptor,
         "statementDescriptorSuffix": suffix,
-        "calculatedStatementDescriptor": f"{descriptor} {suffix}".strip() if suffix else descriptor,
+        "calculatedStatementDescriptor": f"{descriptor} {suffix}".strip()
+        if suffix
+        else descriptor,
         "source": source,
         "paymentIntent": base.new_id("pi"),
         "paymentMethod": base.new_id("pm"),
         "paymentMethodDetails": pm,
         "authorizationCode": None if needs_action else _auth_code(charge_id),
-        "billingDetails": ctx.get("billingDetails", {"name": None, "email": None, "phone": None, "address": {}}),
+        "billingDetails": ctx.get(
+            "billingDetails",
+            {"name": None, "email": None, "phone": None, "address": {}},
+        ),
         "outcome": {
             "networkStatus": "approved_by_network",
             "reason": None,
             "riskLevel": "highest" if amount > _REQUIRES_ACTION_THRESHOLD else "normal",
             "riskScore": 78 if amount > _REQUIRES_ACTION_THRESHOLD else 24,
-            "sellerMessage": "Payment requires authentication." if needs_action else "Payment complete.",
+            "sellerMessage": "Payment requires authentication."
+            if needs_action
+            else "Payment complete.",
             "type": "manual" if status == "requires_capture" else "authorized",
             "networkDeclineCode": None,
         },
@@ -203,16 +260,22 @@ def create_charge(ctx: Ctx) -> dict:
         "receiptUrl": f"https://pay.meridianpay.test/receipts/{charge_id}",
         "customer": ctx.get("customer"),
         "metadata": ctx.get("metadata", {}),
-        "captureBefore": created + _CAPTURE_WINDOW if status == "requires_capture" else None,
+        "captureBefore": created + _CAPTURE_WINDOW
+        if status == "requires_capture"
+        else None,
         "settlementId": None,
         "payoutId": None,
         "created": created,
         "livemode": False,
     }
     if needs_action:
-        charge["nextAction"] = {"type": "redirect_to_url", "redirectToUrl":
-                                {"url": f"https://pay.meridianpay.test/3ds/{charge_id}",
-                                 "returnUrl": None}}
+        charge["nextAction"] = {
+            "type": "redirect_to_url",
+            "redirectToUrl": {
+                "url": f"https://pay.meridianpay.test/3ds/{charge_id}",
+                "returnUrl": None,
+            },
+        }
     charges[charge_id] = charge
     if idem:
         keys[idem] = {"chargeId": charge_id, "fingerprint": fingerprint}
@@ -224,7 +287,9 @@ def get_charge(ctx: Ctx) -> dict:
     ctx.require("chargeId")
     charge = ctx.state.table("charges").get(ctx.payload["chargeId"])
     if charge is None:
-        raise DomainError(404, "resource_missing", f"No such charge: {ctx.payload['chargeId']}")
+        raise DomainError(
+            404, "resource_missing", f"No such charge: {ctx.payload['chargeId']}"
+        )
     return charge
 
 
@@ -233,17 +298,31 @@ def capture_charge(ctx: Ctx) -> dict:
     ctx.require("chargeId")
     charge = ctx.state.table("charges").get(ctx.payload["chargeId"])
     if charge is None:
-        raise DomainError(404, "resource_missing", f"No such charge: {ctx.payload['chargeId']}")
+        raise DomainError(
+            404, "resource_missing", f"No such charge: {ctx.payload['chargeId']}"
+        )
     if charge["status"] != "requires_capture":
-        raise DomainError(409, "charge_already_captured", "charge is not awaiting capture")
+        raise DomainError(
+            409, "charge_already_captured", "charge is not awaiting capture"
+        )
     amount = round(float(ctx.get("amountToCapture", charge["amount"])), 2)
     if amount <= 0 or amount > charge["amount"] + 1e-6:
-        raise DomainError(422, "invalid_amount", "capture amount exceeds the authorized amount")
+        raise DomainError(
+            422, "invalid_amount", "capture amount exceeds the authorized amount"
+        )
     fee = gen._processing_fee(amount, charge["currency"])
     released = round(charge["amount"] - amount, 2)
-    charge.update(status="succeeded", captured=True, paid=True, amountCaptured=amount,
-                  amountRefunded=released, processingFee=fee, net=round(amount - fee, 2),
-                  balanceTransaction=base.new_id("txn"), captureBefore=None)
+    charge.update(
+        status="succeeded",
+        captured=True,
+        paid=True,
+        amountCaptured=amount,
+        amountRefunded=released,
+        processingFee=fee,
+        net=round(amount - fee, 2),
+        balanceTransaction=base.new_id("txn"),
+        captureBefore=None,
+    )
     charge["outcome"]["type"] = "authorized"
     return charge
 
@@ -266,13 +345,19 @@ def refund_charge(ctx: Ctx) -> dict:
     ctx.require("chargeId")
     charge = ctx.state.table("charges").get(ctx.payload["chargeId"])
     if charge is None:
-        raise DomainError(404, "resource_missing", f"No such charge: {ctx.payload['chargeId']}")
+        raise DomainError(
+            404, "resource_missing", f"No such charge: {ctx.payload['chargeId']}"
+        )
     if charge["status"] not in ("succeeded", "refunded"):
-        raise DomainError(400, "charge_not_refundable", "only captured charges can be refunded")
+        raise DomainError(
+            400, "charge_not_refundable", "only captured charges can be refunded"
+        )
     remaining = round(charge["amount"] - charge["amountRefunded"], 2)
     amount = round(float(ctx.get("amount", remaining)), 2)
     if amount <= 0 or amount > remaining + 1e-6:
-        raise DomainError(422, "refund_exceeds_charge", "refund amount exceeds the remaining balance")
+        raise DomainError(
+            422, "refund_exceeds_charge", "refund amount exceeds the remaining balance"
+        )
 
     charge["amountRefunded"] = round(charge["amountRefunded"] + amount, 2)
     if charge["amountRefunded"] >= charge["amount"] - 1e-6:
@@ -291,8 +376,10 @@ def refund_charge(ctx: Ctx) -> dict:
         "reason": ctx.get("reason", "requested_by_customer"),
         "receiptNumber": None,
         "balanceTransaction": base.new_id("txn"),
-        "destinationDetails": {"card": {"type": "refund", "referenceStatus": "pending"},
-                               "type": "card"},
+        "destinationDetails": {
+            "card": {"type": "refund", "referenceStatus": "pending"},
+            "type": "card",
+        },
         "failureReason": None,
         "created": base.now(),
         "metadata": ctx.get("metadata", {}),
@@ -348,7 +435,9 @@ def get_payout(ctx: Ctx) -> dict:
     ctx.require("payoutId")
     payout = ctx.state.table("payouts").get(ctx.payload["payoutId"])
     if payout is None:
-        raise DomainError(404, "resource_missing", f"No such payout: {ctx.payload['payoutId']}")
+        raise DomainError(
+            404, "resource_missing", f"No such payout: {ctx.payload['payoutId']}"
+        )
     if payout["status"] == "in_transit":
         payout["status"] = "paid"
     return payout
@@ -364,8 +453,13 @@ def get_balance(ctx: Ctx) -> dict:
         out = []
         for currency in sorted(currencies):
             amount = round(buckets.get(currency, 0.0) + floor.get(currency, 0.0), 2)
-            out.append({"currency": currency, "amount": amount,
-                        "sourceTypes": {"card": amount}})
+            out.append(
+                {
+                    "currency": currency,
+                    "amount": amount,
+                    "sourceTypes": {"card": amount},
+                }
+            )
         return out
 
     return {
@@ -393,7 +487,9 @@ def get_dispute(ctx: Ctx) -> dict:
     ctx.require("disputeId")
     dispute = ctx.state.table("disputes").get(ctx.payload["disputeId"])
     if dispute is None:
-        raise DomainError(404, "resource_missing", f"No such dispute: {ctx.payload['disputeId']}")
+        raise DomainError(
+            404, "resource_missing", f"No such dispute: {ctx.payload['disputeId']}"
+        )
     return dispute
 
 
@@ -402,17 +498,25 @@ def submit_dispute_evidence(ctx: Ctx) -> dict:
     ctx.require("disputeId")
     dispute = ctx.state.table("disputes").get(ctx.payload["disputeId"])
     if dispute is None:
-        raise DomainError(404, "resource_missing", f"No such dispute: {ctx.payload['disputeId']}")
+        raise DomainError(
+            404, "resource_missing", f"No such dispute: {ctx.payload['disputeId']}"
+        )
     if dispute["status"] not in ("warning_needs_response", "needs_response"):
-        raise DomainError(409, "dispute_not_open", "evidence can only be submitted while a response is required")
+        raise DomainError(
+            409,
+            "dispute_not_open",
+            "evidence can only be submitted while a response is required",
+        )
     evidence = ctx.get("evidence", {})
     if not isinstance(evidence, dict) or not evidence:
         raise DomainError(422, "invalid_request", "evidence object is required")
     dispute["evidence"] = evidence
     dispute["status"] = "under_review"
     dispute["isChargeRefundable"] = False
-    dispute["evidenceDetails"].update(hasEvidence=True,
-                                      submissionCount=dispute["evidenceDetails"]["submissionCount"] + 1)
+    dispute["evidenceDetails"].update(
+        hasEvidence=True,
+        submissionCount=dispute["evidenceDetails"]["submissionCount"] + 1,
+    )
     return dispute
 
 
@@ -431,7 +535,11 @@ def get_settlement(ctx: Ctx) -> dict:
     ctx.require("settlementId")
     settlement = ctx.state.table("settlements").get(ctx.payload["settlementId"])
     if settlement is None:
-        raise DomainError(404, "resource_missing", f"No such settlement: {ctx.payload['settlementId']}")
+        raise DomainError(
+            404,
+            "resource_missing",
+            f"No such settlement: {ctx.payload['settlementId']}",
+        )
     return settlement
 
 

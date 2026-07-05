@@ -65,7 +65,8 @@ describe('POST /v1/zones/:zoneId/agent-services', () => {
   it('registers an agent service', async () => {
     const { app, db } = buildApp()
     const client = {
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [{ exists: 1 }] })
         .mockResolvedValueOnce({ rows: [{ id: 'svc-1', zone_id: 'z1', application_id: 'app-1' }] })
@@ -93,10 +94,7 @@ describe('POST /v1/zones/:zoneId/agent-services', () => {
   it('rejects applications outside the zone', async () => {
     const { app, db } = buildApp()
     const client = {
-      query: vi.fn()
-        .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValue({ rows: [] }),
+      query: vi.fn().mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [] }).mockResolvedValue({ rows: [] }),
       release: vi.fn(),
     }
     db.connect.mockResolvedValueOnce(client)
@@ -117,7 +115,8 @@ describe('POST /v1/zones/:zoneId/agent-services', () => {
   it('rolls back registration when the insert fails', async () => {
     const { app, db } = buildApp()
     const client = {
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [{ exists: 1 }] })
         .mockRejectedValueOnce(new Error('insert failed')),
@@ -145,7 +144,8 @@ describe('POST /v1/zones/:zoneId/agents/:id/heartbeat', () => {
   it('rejects heartbeats without application ownership or elevated scope', async () => {
     const { app, db } = buildApp([], 'other-app')
     const client = {
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [{ application_id: 'app-1', status: 'active', lifecycle: 'task' }] })
         .mockResolvedValue({ rows: [] }),
@@ -168,10 +168,7 @@ describe('POST /v1/zones/:zoneId/agents/:id/heartbeat', () => {
   it('returns 404 when the agent session is inactive in the zone', async () => {
     const { app, db } = buildApp()
     const client = {
-      query: vi.fn()
-        .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValue({ rows: [] }),
+      query: vi.fn().mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [] }).mockResolvedValue({ rows: [] }),
       release: vi.fn(),
     }
     db.connect.mockResolvedValueOnce(client)
@@ -189,7 +186,8 @@ describe('POST /v1/zones/:zoneId/agents/:id/heartbeat', () => {
   it('updates agent and service state in a single transaction', async () => {
     const { app, db } = buildApp()
     const client = {
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [{ application_id: 'app-1', status: 'active' }] })
         .mockResolvedValueOnce({ rows: [{ id: 'agent-1', zone_id: 'z1', application_id: 'app-1', last_active_at: new Date() }] })
@@ -206,7 +204,9 @@ describe('POST /v1/zones/:zoneId/agents/:id/heartbeat', () => {
     })
     expect(res.statusCode).toBe(200)
     expect(JSON.parse(res.body)).toMatchObject({
-      agent: { id: 'agent-1' }, service: { id: 'svc-1' }, active_invocations: 2,
+      agent: { id: 'agent-1' },
+      service: { id: 'svc-1' },
+      active_invocations: 2,
     })
     expect(client.query).toHaveBeenCalledWith('COMMIT')
   })
@@ -214,7 +214,8 @@ describe('POST /v1/zones/:zoneId/agents/:id/heartbeat', () => {
   it('rolls back heartbeat updates when the database write fails', async () => {
     const { app, db } = buildApp()
     const client = {
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [{ application_id: 'app-1', status: 'active', lifecycle: 'task' }] })
         .mockRejectedValueOnce(new Error('update failed')),
@@ -255,9 +256,7 @@ describe('GET /v1/zones/:zoneId/agent-services: list', () => {
 
   it('returns services with a next cursor when the page is full', async () => {
     const { app, db } = buildApp()
-    db.query
-      .mockResolvedValueOnce({ rows: [{ x: 1 }] })
-      .mockResolvedValueOnce({ rows: [{ id: 's1' }, { id: 's2' }] })
+    db.query.mockResolvedValueOnce({ rows: [{ x: 1 }] }).mockResolvedValueOnce({ rows: [{ id: 's1' }, { id: 's2' }] })
     await app.ready()
     const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/agent-services?cursor=s0&limit=2' })
     expect(res.statusCode).toBe(200)
@@ -278,7 +277,8 @@ describe('POST /v1/zones/:zoneId/agents/:id/heartbeat: lifecycle guards', () => 
   it('returns 409 when the agent is not live', async () => {
     const { app, db } = buildApp()
     const client = {
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [{ application_id: 'app-1', status: 'terminated', lifecycle: 'task' }] })
         .mockResolvedValue({ rows: [] }),
@@ -287,7 +287,8 @@ describe('POST /v1/zones/:zoneId/agents/:id/heartbeat: lifecycle guards', () => 
     db.connect.mockResolvedValueOnce(client)
     await app.ready()
     const res = await app.inject({
-      method: 'POST', url: '/v1/zones/z1/agents/agent-1/heartbeat',
+      method: 'POST',
+      url: '/v1/zones/z1/agents/agent-1/heartbeat',
       payload: { status: 'healthy' },
     })
     expect(res.statusCode).toBe(409)
@@ -298,11 +299,19 @@ describe('POST /v1/zones/:zoneId/agents/:id/heartbeat: lifecycle guards', () => 
   it('suspends and returns 409 when a service lease has expired', async () => {
     const { app, db } = buildApp()
     const client = {
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [{
-          application_id: 'app-1', status: 'active', lifecycle: 'service', lease_expired: true,
-        }] })
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              application_id: 'app-1',
+              status: 'active',
+              lifecycle: 'service',
+              lease_expired: true,
+            },
+          ],
+        })
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValue({ rows: [] }),
       release: vi.fn(),
@@ -310,7 +319,8 @@ describe('POST /v1/zones/:zoneId/agents/:id/heartbeat: lifecycle guards', () => 
     db.connect.mockResolvedValueOnce(client)
     await app.ready()
     const res = await app.inject({
-      method: 'POST', url: '/v1/zones/z1/agents/agent-1/heartbeat',
+      method: 'POST',
+      url: '/v1/zones/z1/agents/agent-1/heartbeat',
       payload: { status: 'healthy' },
     })
     expect(res.statusCode).toBe(409)
@@ -321,7 +331,8 @@ describe('POST /v1/zones/:zoneId/agents/:id/heartbeat: lifecycle guards', () => 
   it('returns 404 when the referenced service is missing', async () => {
     const { app, db } = buildApp()
     const client = {
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [{ application_id: 'app-1', status: 'active', lifecycle: 'task' }] })
         .mockResolvedValueOnce({ rows: [{ id: 'agent-1', application_id: 'app-1' }] })
@@ -332,7 +343,8 @@ describe('POST /v1/zones/:zoneId/agents/:id/heartbeat: lifecycle guards', () => 
     db.connect.mockResolvedValueOnce(client)
     await app.ready()
     const res = await app.inject({
-      method: 'POST', url: '/v1/zones/z1/agents/agent-1/heartbeat',
+      method: 'POST',
+      url: '/v1/zones/z1/agents/agent-1/heartbeat',
       payload: { service_id: 'svc-missing', status: 'healthy' },
     })
     expect(res.statusCode).toBe(404)

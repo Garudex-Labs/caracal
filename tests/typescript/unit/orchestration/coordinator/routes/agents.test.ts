@@ -777,9 +777,7 @@ describe('DELETE /v1/zones/:zoneId/agents/:id: cascade terminate', () => {
     const dedupeKeys = params.filter((_, i) => i % 4 === 2)
     expect(dedupeKeys).toEqual(expect.arrayContaining(['edge_revoke:edge-1', 'edge_revoke:edge-2']))
     const payloads = params.filter((_, i) => i % 4 === 3)
-    expect(payloads).toEqual(
-      expect.arrayContaining([expect.objectContaining({ event: 'edge_revoke', edge_id: 'edge-1', epoch: 7 })]),
-    )
+    expect(payloads).toEqual(expect.arrayContaining([expect.objectContaining({ event: 'edge_revoke', edge_id: 'edge-1', epoch: 7 })]))
   })
 })
 

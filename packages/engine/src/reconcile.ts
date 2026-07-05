@@ -122,7 +122,9 @@ function operationKeys(value: unknown): string[] {
   if (!Array.isArray(value)) return []
   return value.map((entry) => {
     const op = entry as { method?: unknown; path?: unknown; scope?: unknown }
-    const method = String(op.method ?? '').trim().toUpperCase()
+    const method = String(op.method ?? '')
+      .trim()
+      .toUpperCase()
     const path = String(op.path ?? '').trim()
     const scope = String(op.scope ?? '')
     return `${method} ${path} ${scope}`
@@ -245,8 +247,7 @@ const RESOURCE_ADAPTER: Adapter = {
     if ('credential_provider_id' in spec && live.credential_provider_id !== (spec.credential_provider_id ?? null))
       drift.push('credential_provider_id')
     if ('operations' in spec && !sameOperations(live.operations, spec.operations)) drift.push('operations')
-    if ('operation_enforcement' in spec && live.operation_enforcement !== spec.operation_enforcement)
-      drift.push('operation_enforcement')
+    if ('operation_enforcement' in spec && live.operation_enforcement !== spec.operation_enforcement) drift.push('operation_enforcement')
     return drift
   },
   create: (admin, zone, spec) =>

@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 In-process event bus keyed by run ID with full per-run history.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -62,7 +63,9 @@ class EventBus:
         if not self._log_dir:
             return
         try:
-            with (self._log_dir / f"{event.run_id}.jsonl").open("a", encoding="utf-8") as fh:
+            with (self._log_dir / f"{event.run_id}.jsonl").open(
+                "a", encoding="utf-8"
+            ) as fh:
                 fh.write(event.model_dump_json() + "\n")
         except OSError as exc:
             log.warning("event log write failed for %s: %s", event.run_id, exc)

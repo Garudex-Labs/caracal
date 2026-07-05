@@ -22,10 +22,9 @@ export async function runDeadlineSweep(db: Pool): Promise<number> {
   const client = await db.connect()
   try {
     await client.query('BEGIN')
-    const { rows: lock } = await client.query<{ acquired: boolean }>(
-      `SELECT pg_try_advisory_xact_lock(hashtext($1)) AS acquired`,
-      [SWEEP_LOCK],
-    )
+    const { rows: lock } = await client.query<{ acquired: boolean }>(`SELECT pg_try_advisory_xact_lock(hashtext($1)) AS acquired`, [
+      SWEEP_LOCK,
+    ])
     if (!lock[0]?.acquired) {
       await client.query('ROLLBACK')
       return 0
@@ -72,10 +71,7 @@ export async function runDeadlineSweep(db: Pool): Promise<number> {
   }
 }
 
-export function startDeadlineEnforcer(
-  db: Pool,
-  options: { intervalMs?: number; log?: JobLogger } = {},
-): JobHandle {
+export function startDeadlineEnforcer(db: Pool, options: { intervalMs?: number; log?: JobLogger } = {}): JobHandle {
   const intervalMs = options.intervalMs ?? cfg.deadlineSweepIntervalMs
   return makeIntervalJob(
     () => runDeadlineSweep(db),

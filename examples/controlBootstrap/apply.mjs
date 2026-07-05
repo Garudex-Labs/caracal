@@ -4,8 +4,17 @@
 // Reconciles the live zone with the planned agent environment: creates missing objects and patches drifted ones.
 
 import {
-  clientFromEnv, SCOPES, AGENT, PROVIDER, RESOURCE, POLICY,
-  byIdentifier, byName, providerDrift, resourceDrift, policyDrift,
+  clientFromEnv,
+  SCOPES,
+  AGENT,
+  PROVIDER,
+  RESOURCE,
+  POLICY,
+  byIdentifier,
+  byName,
+  providerDrift,
+  resourceDrift,
+  policyDrift,
 } from './plan.mjs'
 
 export async function apply(client, log = console.log) {

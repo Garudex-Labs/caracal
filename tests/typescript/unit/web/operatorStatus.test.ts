@@ -4,11 +4,7 @@
 // Unit tests for the Operator status vocabulary: exact plan lifecycle labels and the seeded, rotating working and applying indicators.
 
 import { describe, it, expect } from 'vitest'
-import {
-  PLAN_STATUS,
-  applyingLine,
-  workingLine,
-} from '../../../../apps/web/src/platform/operator/status'
+import { PLAN_STATUS, applyingLine, workingLine } from '../../../../apps/web/src/platform/operator/status'
 
 describe('PLAN_STATUS', () => {
   it('pins one authoritative wording for each lifecycle state', () => {

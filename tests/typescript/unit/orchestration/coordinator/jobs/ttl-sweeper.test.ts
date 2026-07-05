@@ -30,12 +30,12 @@ function clientFromSteps(steps: Step[]) {
 }
 
 describe('runTTLSweep', () => {
-  afterEach(() => { vi.useRealTimers() })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
 
   it('skips work when the advisory lock is held by another node', async () => {
-    const client = clientFromSteps([
-      { match: /pg_try_advisory_xact_lock/, rows: [{ acquired: false }] },
-    ])
+    const client = clientFromSteps([{ match: /pg_try_advisory_xact_lock/, rows: [{ acquired: false }] }])
     const db = { connect: vi.fn().mockResolvedValueOnce(client) }
     await expect(runTTLSweep(db as never)).resolves.toBe(0)
     expect(client.query).toHaveBeenCalledWith('ROLLBACK')
@@ -51,9 +51,7 @@ describe('runTTLSweep', () => {
       { id: 'agent-1', subject_session_id: 'sid-1', parent_id: null },
       { id: 'agent-2', subject_session_id: 'sid-2', parent_id: 'agent-1' },
     ]
-    const terminatedZ2 = [
-      { id: 'agent-3', subject_session_id: 'sid-3', parent_id: null },
-    ]
+    const terminatedZ2 = [{ id: 'agent-3', subject_session_id: 'sid-3', parent_id: null }]
     let subtreeCall = 0
     const client = clientFromSteps([
       { match: /pg_try_advisory_xact_lock/, rows: [{ acquired: true }] },
@@ -77,17 +75,21 @@ describe('runTTLSweep', () => {
     const outboxInserts = client.calls.filter(([sql]) => sql.includes('INSERT INTO caracal_outbox'))
     expect(outboxInserts.length).toBe(2)
     const allDedupes = outboxInserts.flatMap(([, params]) => (params ?? []) as unknown[])
-    expect(allDedupes).toEqual(expect.arrayContaining([
-      'terminate:agent-1', 'terminate:agent-2', 'terminate:agent-3',
-      'agent_terminate:agent-1', 'agent_terminate:agent-2', 'agent_terminate:agent-3',
-    ]))
+    expect(allDedupes).toEqual(
+      expect.arrayContaining([
+        'terminate:agent-1',
+        'terminate:agent-2',
+        'terminate:agent-3',
+        'agent_terminate:agent-1',
+        'agent_terminate:agent-2',
+        'agent_terminate:agent-3',
+      ]),
+    )
     expect(client.query).toHaveBeenCalledWith('COMMIT')
   })
 
   it('excludes service-lifecycle agents from TTL termination', async () => {
-    const client = clientFromSteps([
-      { match: /pg_try_advisory_xact_lock/, rows: [{ acquired: true }] },
-    ])
+    const client = clientFromSteps([{ match: /pg_try_advisory_xact_lock/, rows: [{ acquired: true }] }])
     const db = { connect: vi.fn().mockResolvedValueOnce(client) }
     await runTTLSweep(db as never)
     const select = client.calls.find(([sql]) => /FROM agent_sessions[\s\S]*FOR UPDATE SKIP LOCKED/.test(sql))
@@ -96,9 +98,7 @@ describe('runTTLSweep', () => {
   })
 
   it('commits with no work when nothing expired', async () => {
-    const client = clientFromSteps([
-      { match: /pg_try_advisory_xact_lock/, rows: [{ acquired: true }] },
-    ])
+    const client = clientFromSteps([{ match: /pg_try_advisory_xact_lock/, rows: [{ acquired: true }] }])
     const db = { connect: vi.fn().mockResolvedValueOnce(client) }
     await expect(runTTLSweep(db as never)).resolves.toBe(0)
     const outboxInserts = client.calls.filter(([sql]) => sql.includes('caracal_outbox'))

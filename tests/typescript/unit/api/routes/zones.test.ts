@@ -180,9 +180,7 @@ describe('POST /v1/zones', () => {
     const created = { id: 'z2', name: 'My Zone', slug: 'my-zone-2', dcr_enabled: false }
     db.query
       .mockResolvedValueOnce({ rows: [] })
-      .mockRejectedValueOnce(
-        Object.assign(new Error('duplicate zone slug'), { code: '23505', constraint: 'zones_slug_key' }),
-      )
+      .mockRejectedValueOnce(Object.assign(new Error('duplicate zone slug'), { code: '23505', constraint: 'zones_slug_key' }))
       .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [created] })

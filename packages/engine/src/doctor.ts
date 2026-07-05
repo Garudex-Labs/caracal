@@ -4,7 +4,7 @@
 // Shared doctor diagnostics for operator health checks.
 
 import type { Zone } from '@caracalai/admin'
-import { discoverCoordinatorToken, discoverMetricsBearer } from '@caracalai/core'
+import { discoverCoordinatorToken, discoverMetricsBearer } from '@caracalai/server-core'
 import { DEFAULT_API_URL, DEFAULT_COORDINATOR_URL, DEFAULT_GATEWAY_URL, DEFAULT_ZONE_URL, resolveServiceUrl } from './runtimeConfig.js'
 import { scrubTokens } from './crash.js'
 import { adminTokenProvisionCommand, buildAdminClient as buildAdminClientCore, type AdminContext } from './shared.js'

@@ -89,7 +89,10 @@ describe('operator message run transitions', () => {
   })
 
   it('keeps the PostgreSQL state constraint aligned with the TypeScript vocabulary', () => {
-    const migration = readFileSync(new URL('../../../../infra/postgres/migrations/0014_operator_message_runs.up.sql', import.meta.url), 'utf8')
+    const migration = readFileSync(
+      new URL('../../../../infra/postgres/migrations/0014_operator_message_runs.up.sql', import.meta.url),
+      'utf8',
+    )
     for (const state of MESSAGE_RUN_STATES) {
       expect(migration).toContain(`'${state}'::text`)
     }

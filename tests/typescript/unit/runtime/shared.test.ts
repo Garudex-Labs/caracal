@@ -79,7 +79,10 @@ describe('shared printers and exits', () => {
     try {
       printJSON({ ok: true })
       printTable([], ['name'])
-      printTable([{ name: 'Pied Piper', scopes: ['read', 'write'], meta: { zone: 'prod' }, empty: null }], ['name', 'scopes', 'meta', 'empty'])
+      printTable(
+        [{ name: 'Pied Piper', scopes: ['read', 'write'], meta: { zone: 'prod' }, empty: null }],
+        ['name', 'scopes', 'meta', 'empty'],
+      )
 
       expect(stdout).toContain('"ok": true')
       expect(stdout).toContain('(no rows)')
@@ -124,7 +127,11 @@ describe('shared printers and exits', () => {
       expect(stdout).toContain('hello\nworld')
       expect(() => usage('up [services...]')).toThrow('exit:1')
       expect(stderr).toContain('Usage:')
-      expect(() => unknownVerb('runtime', 'bogus', () => { stdout += 'help text' })).toThrow('exit:1')
+      expect(() =>
+        unknownVerb('runtime', 'bogus', () => {
+          stdout += 'help text'
+        }),
+      ).toThrow('exit:1')
       expect(stderr).toContain("unknown runtime verb 'bogus'")
       expect(stdout).toContain('help text')
     } finally {

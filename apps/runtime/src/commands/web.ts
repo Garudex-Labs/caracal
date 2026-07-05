@@ -507,7 +507,9 @@ export async function webCommand(argv: string[]): Promise<void> {
       if (stopContainer(running)) {
         stoppedPackagedWeb = true
       } else {
-        printWarn(`Could not stop the packaged web console; port ${parsed.webPort} may be in use. Stop it with \`caracal up\` controls or pass --web-port.`)
+        printWarn(
+          `Could not stop the packaged web console; port ${parsed.webPort} may be in use. Stop it with \`caracal up\` controls or pass --web-port.`,
+        )
       }
     }
   }
@@ -523,7 +525,9 @@ export async function webCommand(argv: string[]): Promise<void> {
       `  ${style.label('Backend')}   ${authUrl}  (session-guarded; proxies the admin API)`,
       `  ${style.label('Mode')}      ${parsed.build ? 'production build' : 'development'}`,
       ...(stoppedPackagedWeb
-        ? [`  ${style.label('Note')}      Packaged web console stopped to free port ${parsed.webPort}; run \`caracal up\` to restore it later.`]
+        ? [
+            `  ${style.label('Note')}      Packaged web console stopped to free port ${parsed.webPort}; run \`caracal up\` to restore it later.`,
+          ]
         : []),
       '',
       `  ${style.label('r')} restart both   ${style.label('f')} restart frontend   ${style.label('b')} restart backend`,

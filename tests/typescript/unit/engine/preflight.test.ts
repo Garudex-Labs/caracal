@@ -50,17 +50,23 @@ describe('runPreflightChecks', () => {
     writeFileSync(join(repoRoot, 'pnpm-workspace.yaml'), 'packages: []\n')
     writeFileSync(join(repoRoot, 'package.json'), '{"private":true}\n')
 
-    const postgresPort = await listen(createServer((socket) => {
-      socket.end()
-    }))
-    const redisPort = await listen(createServer((socket) => {
-      socket.on('data', (chunk) => {
-        const command = chunk.toString('utf8')
-        socket.end(command.includes('dev-pass') && command.includes('PING')
-          ? '+OK\r\n+PONG\r\n'
-          : '-WRONGPASS invalid username-password pair or user is disabled.\r\n')
-      })
-    }))
+    const postgresPort = await listen(
+      createServer((socket) => {
+        socket.end()
+      }),
+    )
+    const redisPort = await listen(
+      createServer((socket) => {
+        socket.on('data', (chunk) => {
+          const command = chunk.toString('utf8')
+          socket.end(
+            command.includes('dev-pass') && command.includes('PING')
+              ? '+OK\r\n+PONG\r\n'
+              : '-WRONGPASS invalid username-password pair or user is disabled.\r\n',
+          )
+        })
+      }),
+    )
 
     writeSecrets(join(home, 'dev-secrets'), redisPort, 'dev-pass', postgresPort)
     writeSecrets(join(home, 'secrets'), redisPort, 'stale-pass', postgresPort)

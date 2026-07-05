@@ -16,12 +16,27 @@ import {
 function makeReply() {
   const headers: Record<string, string> = {}
   const sent: { code?: number; body?: unknown } = {}
-  const reply: { code: (c: number) => typeof reply; send: (b: unknown) => typeof reply; header: (k: string, v: string) => typeof reply; sent: typeof sent; headers: typeof headers } = {
+  const reply: {
+    code: (c: number) => typeof reply
+    send: (b: unknown) => typeof reply
+    header: (k: string, v: string) => typeof reply
+    sent: typeof sent
+    headers: typeof headers
+  } = {
     sent,
     headers,
-    code(c) { sent.code = c; return reply },
-    send(b) { sent.body = b; return reply },
-    header(k, v) { headers[k.toLowerCase()] = v; return reply },
+    code(c) {
+      sent.code = c
+      return reply
+    },
+    send(b) {
+      sent.body = b
+      return reply
+    },
+    header(k, v) {
+      headers[k.toLowerCase()] = v
+      return reply
+    },
   }
   return reply
 }
@@ -59,10 +74,7 @@ describe('parseListPagination', () => {
 
 describe('appendKeysetCondition', () => {
   it('appends only the limit when no cursor present', () => {
-    const out = appendKeysetCondition(
-      { conds: ['zone_id = $1'], values: ['z1'] },
-      { limit: 50, cursor: null },
-    )
+    const out = appendKeysetCondition({ conds: ['zone_id = $1'], values: ['z1'] }, { limit: 50, cursor: null })
     expect(out.conds).toEqual(['zone_id = $1'])
     expect(out.values).toEqual(['z1', 50])
     expect(out.limitPlaceholder).toBe('$2')
@@ -73,10 +85,7 @@ describe('appendKeysetCondition', () => {
       { conds: ['zone_id = $1'], values: ['z1'] },
       { limit: 25, cursor: { ts: '2026-01-01T00:00:00Z', id: 'r1' } },
     )
-    expect(out.conds).toEqual([
-      'zone_id = $1',
-      '(created_at, id) < ($2, $3)',
-    ])
+    expect(out.conds).toEqual(['zone_id = $1', '(created_at, id) < ($2, $3)'])
     expect(out.values).toEqual(['z1', '2026-01-01T00:00:00Z', 'r1', 25])
     expect(out.limitPlaceholder).toBe('$4')
   })

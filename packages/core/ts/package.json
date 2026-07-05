@@ -1,7 +1,7 @@
 {
   "name": "@caracalai/core",
   "version": "0.1.6-rc.3",
-  "description": "Caracal SDK foundation: logging, config, errors.",
+  "description": "Caracal SDK kernel: errors, scope, logging, audit, and stream signing.",
   "license": "Apache-2.0",
   "homepage": "https://github.com/Garudex-Labs/caracal",
   "repository": {
@@ -44,12 +44,5 @@
     "@types/node": "^26.0.1",
     "typescript": "^6.0.3",
     "vitest": "^4.1.9"
-  },
-  "dependencies": {
-    "@opentelemetry/api": "^1.9.1",
-    "@opentelemetry/exporter-trace-otlp-http": "^0.219.0",
-    "@opentelemetry/resources": "^2.8.0",
-    "@opentelemetry/sdk-trace-base": "^2.8.0",
-    "@opentelemetry/sdk-trace-node": "^2.8.0"
   }
 }

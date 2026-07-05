@@ -17,16 +17,18 @@ import { ZoneIdParams, ZoneParams, ZoneSessionParams, parseParams } from './para
 const LIST_DEFAULT_LIMIT = 100
 const LIST_MAX_LIMIT = 500
 
-const ConstraintBody = z.object({
-  resources: z.array(z.string().min(1)).max(64).optional(),
-  max_depth: z.number().int().min(1).max(MAX_DEPTH).optional(),
-  max_hops: z.number().int().min(1).max(MAX_DEPTH).optional(),
-  ttl_seconds: z.number().int().min(1).max(86400).optional(),
-  budget: z.number().int().min(1).max(1024).optional(),
-  policy_approved: z.boolean().optional(),
-  expires_at: z.string().datetime().optional(),
-  broad_reason: z.string().min(1).max(256).optional(),
-}).strict()
+const ConstraintBody = z
+  .object({
+    resources: z.array(z.string().min(1)).max(64).optional(),
+    max_depth: z.number().int().min(1).max(MAX_DEPTH).optional(),
+    max_hops: z.number().int().min(1).max(MAX_DEPTH).optional(),
+    ttl_seconds: z.number().int().min(1).max(86400).optional(),
+    budget: z.number().int().min(1).max(1024).optional(),
+    policy_approved: z.boolean().optional(),
+    expires_at: z.string().datetime().optional(),
+    broad_reason: z.string().min(1).max(256).optional(),
+  })
+  .strict()
 
 type DelegationConstraints = z.infer<typeof ConstraintBody>
 
@@ -74,33 +76,36 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
     const constraintsResult = normalizedConstraints(body.constraints_json, body.constraints, body.ttl_seconds)
     if (!constraintsResult.ok) return reply.code(400).send({ error: constraintsResult.error })
     const constraints = constraintsResult.constraints
-    const requestedExpiresAt = body.expires_at
-      ?? (typeof constraints.expires_at === 'string' ? constraints.expires_at : undefined)
-    const ttlSeconds = requestedExpiresAt ? null : constraints.ttl_seconds ?? null
+    const requestedExpiresAt = body.expires_at ?? (typeof constraints.expires_at === 'string' ? constraints.expires_at : undefined)
+    const ttlSeconds = requestedExpiresAt ? null : (constraints.ttl_seconds ?? null)
     if (!requestedExpiresAt && ttlSeconds === null) {
       return reply.code(400).send({ error: 'delegation_expiry_required' })
     }
-    if (!ownsApplication(req, body.issuer_application_id)
-      && !requireScope(req, `coordinator.delegate_from:${body.issuer_application_id}`)) {
+    if (
+      !ownsApplication(req, body.issuer_application_id) &&
+      !requireScope(req, `coordinator.delegate_from:${body.issuer_application_id}`)
+    ) {
       return reply.code(403).send({ error: 'issuer_ownership_required' })
     }
-    if (body.receiver_application_id !== body.issuer_application_id
-      && !ownsApplication(req, body.receiver_application_id)
-      && !requireScope(req, `coordinator.delegate_to:${body.receiver_application_id}`)
-      && !requireScope(req, 'coordinator.admin')) {
+    if (
+      body.receiver_application_id !== body.issuer_application_id &&
+      !ownsApplication(req, body.receiver_application_id) &&
+      !requireScope(req, `coordinator.delegate_to:${body.receiver_application_id}`) &&
+      !requireScope(req, 'coordinator.admin')
+    ) {
       return reply.code(403).send({ error: 'receiver_consent_required' })
     }
     if (body.source_session_id === body.target_session_id) {
       return reply.code(400).send({ error: 'self_delegation_denied' })
     }
     const resourceScoped = body.resource_id !== null || (constraints.resources?.length ?? 0) > 0
-    const warnings = resourceScoped
-      ? []
-      : ['resource_null_delegation_broadens_resource_matching']
-    if (!resourceScoped
-      && !requireScope(req, 'coordinator.admin')
-      && !requireScope(req, 'coordinator.delegate_broad')
-      && !requireScope(req, `coordinator.delegate_broad:${body.issuer_application_id}`)) {
+    const warnings = resourceScoped ? [] : ['resource_null_delegation_broadens_resource_matching']
+    if (
+      !resourceScoped &&
+      !requireScope(req, 'coordinator.admin') &&
+      !requireScope(req, 'coordinator.delegate_broad') &&
+      !requireScope(req, `coordinator.delegate_broad:${body.issuer_application_id}`)
+    ) {
       return reply.code(403).send({ error: 'broad_delegation_permission_required' })
     }
     if (!resourceScoped) {
@@ -111,15 +116,15 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
     try {
       await client.query('BEGIN')
       await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`delegation:${zoneId}`])
-      const endpoints = await activeAgentEndpoints(
-        client, zoneId, body.source_session_id, body.target_session_id,
-      )
+      const endpoints = await activeAgentEndpoints(client, zoneId, body.source_session_id, body.target_session_id)
       if (!endpoints.source || !endpoints.target) {
         await client.query('ROLLBACK')
         return reply.code(404).send({ error: 'delegation_endpoint_not_found' })
       }
-      if (endpoints.source.application_id !== body.issuer_application_id
-        || endpoints.target.application_id !== body.receiver_application_id) {
+      if (
+        endpoints.source.application_id !== body.issuer_application_id ||
+        endpoints.target.application_id !== body.receiver_application_id
+      ) {
         await client.query('ROLLBACK')
         return reply.code(409).send({ error: 'delegation_application_mismatch' })
       }
@@ -148,7 +153,9 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
       if (parents.length > 0) {
         const parent = body.parent_edge_id
           ? parents.find((item) => item.id === body.parent_edge_id)
-          : parents.length === 1 ? parents[0] : undefined
+          : parents.length === 1
+            ? parents[0]
+            : undefined
         if (!parent) {
           await client.query('ROLLBACK')
           return reply.code(body.parent_edge_id ? 403 : 409).send({
@@ -206,9 +213,7 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
           error: parentEdgeId ? 'delegation_exceeds_parent_authority' : 'delegation_expired',
         })
       }
-      const insertedExpiresAt = rows[0].expires_at instanceof Date
-        ? rows[0].expires_at.toISOString()
-        : String(rows[0].expires_at)
+      const insertedExpiresAt = rows[0].expires_at instanceof Date ? rows[0].expires_at.toISOString() : String(rows[0].expires_at)
       const epoch = await bumpDelegationEpoch(client, zoneId)
       await enqueue(client, Topics.DelegationsInvalidate, `edge_create:${edgeId}`, {
         event: 'edge_create',
@@ -255,10 +260,7 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
     const values: unknown[] = [zoneId, limit]
     let cursorClause = ''
     if (cursor) {
-      const { rows: probe } = await fastify.db.query(
-        `SELECT 1 FROM delegation_edges WHERE id = $1 AND zone_id = $2`,
-        [cursor, zoneId],
-      )
+      const { rows: probe } = await fastify.db.query(`SELECT 1 FROM delegation_edges WHERE id = $1 AND zone_id = $2`, [cursor, zoneId])
       if (!probe[0]) return reply.code(400).send({ error: 'invalid_cursor' })
       values.push(cursor)
       cursorClause = `AND id < $3`
@@ -435,9 +437,11 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
         await client.query('ROLLBACK')
         return reply.code(404).send({ error: 'delegation_not_found' })
       }
-      if (!ownsApplication(req, edge[0].issuer_application_id)
-        && !requireScope(req, `coordinator.delegate_from:${edge[0].issuer_application_id}`)
-        && !requireScope(req, 'coordinator.admin')) {
+      if (
+        !ownsApplication(req, edge[0].issuer_application_id) &&
+        !requireScope(req, `coordinator.delegate_from:${edge[0].issuer_application_id}`) &&
+        !requireScope(req, 'coordinator.admin')
+      ) {
         await client.query('ROLLBACK')
         return reply.code(403).send({ error: 'issuer_ownership_required' })
       }
@@ -469,19 +473,28 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
       }
       const targetIds = [...new Set(revoked.map((row) => row.target_session_id))]
       const { rows: targets } = await client.query<{
-        id: string; subject_session_id: string; parent_id: string | null
+        id: string
+        subject_session_id: string
+        parent_id: string | null
       }>(
         `SELECT id, subject_session_id, parent_id FROM agent_sessions
          WHERE id = ANY($1::text[]) AND zone_id = $2
            AND status IN ('active','suspended')`,
         [targetIds, zoneId],
       )
-      const terminated = await terminateSubtree(client, zoneId,
-        targets.map((row) => row.id), 'delegation_revoked')
+      const terminated = await terminateSubtree(
+        client,
+        zoneId,
+        targets.map((row) => row.id),
+        'delegation_revoked',
+      )
       const epoch = await bumpDelegationEpoch(client, zoneId)
       await enqueue(client, Topics.DelegationsInvalidate, `edge_revoke:${id}`, {
-        event: 'edge_revoke', zone_id: zoneId, edge_id: id,
-        affected_edges: revoked.length, epoch,
+        event: 'edge_revoke',
+        zone_id: zoneId,
+        edge_id: id,
+        affected_edges: revoked.length,
+        epoch,
       })
       const sessionItems: OutboxItem[] = []
       const seenSubjectSessionIds = new Set<string>()
@@ -492,8 +505,11 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
           topic: Topics.SessionsRevoke,
           dedupeKey: `delegation:${id}:subject:${row.subject_session_id}`,
           payload: {
-            zone_id: zoneId, session_id: row.subject_session_id,
-            agent_session_id: row.id, delegation_edge_id: id, reason: 'delegation_revoked',
+            zone_id: zoneId,
+            session_id: row.subject_session_id,
+            agent_session_id: row.id,
+            delegation_edge_id: id,
+            reason: 'delegation_revoked',
           },
         })
       }
@@ -518,8 +534,7 @@ function normalizedConstraints(
   constraints: unknown,
   ttlSeconds: number | undefined,
 ): { ok: true; constraints: DelegationConstraints } | { ok: false; error: string } {
-  if ((constraintsJson !== undefined && !plainObject(constraintsJson))
-    || (constraints !== undefined && !plainObject(constraints))) {
+  if ((constraintsJson !== undefined && !plainObject(constraintsJson)) || (constraints !== undefined && !plainObject(constraints))) {
     return { ok: false, error: 'invalid_delegation_constraint' }
   }
   const out = { ...(constraintsJson ?? {}), ...(constraints ?? {}) } as Record<string, unknown>
@@ -534,8 +549,7 @@ function normalizedConstraints(
     const path = parsed.error.issues[0]?.path[0]
     return { ok: false, error: typeof path === 'string' ? `invalid_${path}` : 'invalid_delegation_constraint' }
   }
-  if (parsed.data.max_depth !== undefined && parsed.data.max_hops !== undefined
-    && parsed.data.max_depth !== parsed.data.max_hops) {
+  if (parsed.data.max_depth !== undefined && parsed.data.max_hops !== undefined && parsed.data.max_depth !== parsed.data.max_hops) {
     return { ok: false, error: 'invalid_max_hops' }
   }
   return { ok: true, constraints: parsed.data }
@@ -563,10 +577,7 @@ async function listEdges(
   const column = EDGE_LIST_FIELDS[field]
   const { limit, cursor } = parsed.data
   if (cursor) {
-    const { rows: probe } = await db.query(
-      `SELECT 1 FROM delegation_edges WHERE id = $1 AND zone_id = $2`,
-      [cursor, zoneId],
-    )
+    const { rows: probe } = await db.query(`SELECT 1 FROM delegation_edges WHERE id = $1 AND zone_id = $2`, [cursor, zoneId])
     if (!probe[0]) return reply.code(400).send({ error: 'invalid_cursor' })
   }
   const params: unknown[] = [zoneId, sessionId, limit]
@@ -576,7 +587,7 @@ async function listEdges(
     cursorClause = `AND id < $4`
   }
   const { rows } = await db.query(
-      `SELECT id, zone_id, source_session_id, target_session_id, issuer_application_id, receiver_application_id,
+    `SELECT id, zone_id, source_session_id, target_session_id, issuer_application_id, receiver_application_id,
             parent_edge_id, resource_id, scopes, constraints_json, status, expires_at, edge_version, revoked_at, created_at
      FROM delegation_edges
      WHERE zone_id = $1 AND ${column} = $2 ${cursorClause}
@@ -620,9 +631,7 @@ async function activeAgentEndpoints(
   return endpoints
 }
 
-async function getResource(
-  db: Queryable, zoneId: string, resourceId: string,
-): Promise<ResourceAuthority | null> {
+async function getResource(db: Queryable, zoneId: string, resourceId: string): Promise<ResourceAuthority | null> {
   const { rows } = await db.query(
     `SELECT r.id, r.identifier, b.application_id, r.scopes
      FROM resources r
@@ -669,11 +678,7 @@ async function resolveResourceAuthority(
   return { items: [...resources.values()], status: 200 }
 }
 
-async function activeParentDelegations(
-  db: Queryable,
-  zoneId: string,
-  targetSessionId: string,
-): Promise<ParentDelegationEdge[]> {
+async function activeParentDelegations(db: Queryable, zoneId: string, targetSessionId: string): Promise<ParentDelegationEdge[]> {
   const { rows } = await db.query<ParentDelegationEdge>(
     `SELECT e.id, e.resource_id, r.identifier AS resource_identifier,
             e.scopes, e.constraints_json, e.expires_at
@@ -724,12 +729,10 @@ function resourcesNarrowParent(
   const parentIdentifiers = new Set(parentConstraints.resources ?? [])
   if (parent.resource_id) {
     if (childResourceId === parent.resource_id) return true
-    return childResources.length > 0
-      && childResources.every((resource) => resource.id === parent.resource_id)
+    return childResources.length > 0 && childResources.every((resource) => resource.id === parent.resource_id)
   }
   if (parentIdentifiers.size > 0) {
-    return childResources.length > 0
-      && childResources.every((resource) => parentIdentifiers.has(resource.identifier))
+    return childResources.length > 0 && childResources.every((resource) => parentIdentifiers.has(resource.identifier))
   }
   return true
 }
@@ -757,9 +760,7 @@ function effectiveAuthority(
   }
 }
 
-async function wouldCreateCycle(
-  db: Queryable, zoneId: string, sourceId: string, targetId: string,
-): Promise<boolean> {
+async function wouldCreateCycle(db: Queryable, zoneId: string, sourceId: string, targetId: string): Promise<boolean> {
   const { rows } = await db.query(
     `WITH RECURSIVE path AS (
        SELECT target_session_id, ARRAY[id] AS visited

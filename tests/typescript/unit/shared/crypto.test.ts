@@ -61,7 +61,9 @@ describe('sha256 / sha256Hex', () => {
 
 describe('loadZoneKek', () => {
   let orig: string | undefined
-  beforeEach(() => { orig = process.env.ZONE_KEK })
+  beforeEach(() => {
+    orig = process.env.ZONE_KEK
+  })
   afterEach(() => {
     if (orig === undefined) delete process.env.ZONE_KEK
     else process.env.ZONE_KEK = orig
@@ -90,7 +92,9 @@ describe('loadZoneKek', () => {
 
 describe('loadStreamsHmacKey', () => {
   let orig: string | undefined
-  beforeEach(() => { orig = process.env.STREAMS_HMAC_KEY })
+  beforeEach(() => {
+    orig = process.env.STREAMS_HMAC_KEY
+  })
   afterEach(() => {
     if (orig === undefined) delete process.env.STREAMS_HMAC_KEY
     else process.env.STREAMS_HMAC_KEY = orig

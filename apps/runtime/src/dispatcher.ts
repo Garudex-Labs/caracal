@@ -4,11 +4,7 @@
 // Shared dispatcher kernel: builds usage text and routes argv through the runtime CLI registry.
 
 import { COMMAND_NAME_PATTERN, type CommandGroup } from '@caracalai/engine/commands'
-import {
-  RuntimeConfigMissingError,
-  RuntimeConfigValidationError,
-  loadRuntimeIdentity,
-} from '@caracalai/engine/runtime-config'
+import { RuntimeConfigMissingError, RuntimeConfigValidationError, loadRuntimeIdentity } from '@caracalai/engine/runtime-config'
 import { formatVersionOutput } from '@caracalai/engine'
 import { style, printError } from './style.ts'
 import type { CommandRegistry } from './registry.ts'

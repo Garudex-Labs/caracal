@@ -67,5 +67,4 @@ export class InMemoryRevocationStore implements RevocationStore {
       if (entry.expiresAtMonoMs <= now) this.entries.delete(sid)
     }
   }
-
 }

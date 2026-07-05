@@ -106,7 +106,9 @@ class JwksCacheTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(r, [{"kid": "kid1"}])
         self.assertEqual(len(FakeAsyncClient.urls), 1)
 
-    async def test_concurrent_callers_for_distinct_issuers_each_fetch_once(self) -> None:
+    async def test_concurrent_callers_for_distinct_issuers_each_fetch_once(
+        self,
+    ) -> None:
         FakeAsyncClient.fetch_delay = 0.02
         cache = jwks.JwksCache()
 

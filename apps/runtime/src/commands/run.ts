@@ -5,7 +5,7 @@
 
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { discoverRepoRoot } from '@caracalai/core'
+import { discoverRepoRoot } from '@caracalai/server-core'
 import { buildRunEnv, resolveRunConfig, runExec } from '@caracalai/engine'
 import type { RuntimeIdentity } from '../config.ts'
 import { printError } from '../style.ts'

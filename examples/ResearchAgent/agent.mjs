@@ -124,7 +124,7 @@ async function answer(question, drive, calendar) {
   const res = await fetch(`${OPENAI_API}/chat/completions`, {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${OPENAI_API_KEY}`,
+      Authorization: `Bearer ${OPENAI_API_KEY}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
@@ -132,7 +132,8 @@ async function answer(question, drive, calendar) {
       messages: [
         {
           role: 'system',
-          content: 'You are a concise operations assistant. Answer using only the supplied Google Drive and Calendar context. If context is missing, say what is missing.',
+          content:
+            'You are a concise operations assistant. Answer using only the supplied Google Drive and Calendar context. If context is missing, say what is missing.',
         },
         {
           role: 'user',
@@ -151,10 +152,7 @@ async function answer(question, drive, calendar) {
 }
 
 async function respond(question) {
-  const [drive, calendar] = await Promise.all([
-    driveContext(question),
-    calendarContext(question),
-  ])
+  const [drive, calendar] = await Promise.all([driveContext(question), calendarContext(question)])
   return await answer(question, drive, calendar)
 }
 

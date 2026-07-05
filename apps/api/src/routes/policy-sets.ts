@@ -5,7 +5,7 @@
 
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
-import { GATEWAY_REQUEST_HEADER, GATEWAY_SIGNATURE_HEADER, GATEWAY_TIMESTAMP_HEADER, sha256Hex, signGatewayExchange } from '@caracalai/core'
+import { GATEWAY_REQUEST_HEADER, GATEWAY_SIGNATURE_HEADER, GATEWAY_TIMESTAMP_HEADER, sha256Hex, signGatewayExchange } from '@caracalai/server-core'
 import { v7 as uuidv7 } from 'uuid'
 import { STREAM_POLICY_INVALIDATE } from '../redis.js'
 import { enqueueOutbox } from '../outbox.js'

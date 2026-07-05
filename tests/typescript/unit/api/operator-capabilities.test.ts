@@ -97,7 +97,11 @@ describe('validateProposedPlan', () => {
     const result = parse({
       summary: 'Create PiperNet baseline',
       steps: [
-        { id: 's1', capability: 'createPolicy', args: { name: 'PiperNet baseline', content: 'package caracal.authz\n\ndefault allow := false' } },
+        {
+          id: 's1',
+          capability: 'createPolicy',
+          args: { name: 'PiperNet baseline', content: 'package caracal.authz\n\ndefault allow := false' },
+        },
       ],
     })
     expect(result.ok).toBe(true)
@@ -296,9 +300,7 @@ describe('validateProposedPlan', () => {
   it('flags a step that references its own output as a cycle', () => {
     const result = parse({
       summary: 'An application that rotates itself into existence',
-      steps: [
-        { id: 's1', capability: 'rotateApplicationSecret', args: { application_id: '{{steps.s1.outputs.application_id}}' } },
-      ],
+      steps: [{ id: 's1', capability: 'rotateApplicationSecret', args: { application_id: '{{steps.s1.outputs.application_id}}' } }],
     })
     expect(result.ok).toBe(false)
     expect(result.diagnostics).toEqual([{ step_id: 's1', code: 'dependency_cycle', message: expect.stringContaining('s1') }])

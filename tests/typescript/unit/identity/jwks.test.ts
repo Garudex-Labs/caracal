@@ -89,7 +89,8 @@ describe('getKeySet', () => {
   it('resets revalidating flag when background refresh fails', async () => {
     vi.useFakeTimers()
     const issuer = 'https://issuer-stale-fail.example'
-    const fetchMock = vi.fn()
+    const fetchMock = vi
+      .fn()
       .mockResolvedValueOnce({ ok: true, json: async () => ({ keys: [] }) })
       .mockResolvedValueOnce({ ok: false, status: 500 })
       .mockResolvedValueOnce({ ok: true, json: async () => ({ keys: [] }) })

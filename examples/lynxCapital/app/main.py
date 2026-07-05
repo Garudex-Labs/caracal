@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 FastAPI application entry point.
 """
+
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
@@ -27,10 +28,12 @@ load_dotenv(_ROOT / "config" / "provisioned.env", override=True)
 async def lifespan(app: FastAPI):
     load_config()
     from app import caracal
+
     # Build the per-application Caracal runtimes at startup so token exchange and
     # resource views are ready before the first run; no-op when unconfigured.
     caracal.startup()
     from app.services.streams import start_streams, stop_streams
+
     start_streams()
     try:
         yield
@@ -46,10 +49,13 @@ if _static.exists():
     app.mount("/static", StaticFiles(directory=str(_static)), name="static")
 
 from app.api import router as api_router
+
 app.include_router(api_router, prefix="/api")
 
 from app.api.hooks import router as hooks_router
+
 app.include_router(hooks_router)
 
 from app.web.router import router as web_router
+
 app.include_router(web_router)

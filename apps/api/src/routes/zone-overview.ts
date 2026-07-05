@@ -20,60 +20,59 @@ export const zoneOverviewRoutes: FastifyPluginAsync = async (fastify) => {
     if (!params) return
     const zone = [params.zoneId]
 
-    const [apps, resources, providers, policySets, sessions, decisions, recent] =
-      await Promise.all([
-        fastify.db.query(
-          `SELECT count(*)::int AS total,
+    const [apps, resources, providers, policySets, sessions, decisions, recent] = await Promise.all([
+      fastify.db.query(
+        `SELECT count(*)::int AS total,
                   count(*) FILTER (WHERE expires_at IS NOT NULL AND expires_at < now())::int AS expired,
                   count(*) FILTER (WHERE expires_at >= now() AND expires_at < now() + interval '${EXPIRING_WINDOW}')::int AS expiring_soon
            FROM applications
            WHERE zone_id = $1 AND archived_at IS NULL`,
-          zone,
-        ),
-        fastify.db.query(
-          `SELECT count(*)::int AS total,
+        zone,
+      ),
+      fastify.db.query(
+        `SELECT count(*)::int AS total,
                   count(*) FILTER (WHERE operation_enforcement <> 'enforced')::int AS unenforced
            FROM resources
            WHERE zone_id = $1 AND archived_at IS NULL`,
-          zone,
-        ),
-        fastify.db.query(
-          `SELECT count(*)::int AS total
+        zone,
+      ),
+      fastify.db.query(
+        `SELECT count(*)::int AS total
            FROM providers
            WHERE zone_id = $1 AND archived_at IS NULL`,
-          zone,
-        ),
-        fastify.db.query(
-          `SELECT count(*)::int AS total,
+        zone,
+      ),
+      fastify.db.query(
+        `SELECT count(*)::int AS total,
                   count(psb.active_version_id)::int AS enforcing,
                   min(ps.name) FILTER (WHERE psb.active_version_id IS NOT NULL) AS active_name
            FROM policy_sets ps
            LEFT JOIN policy_set_bindings psb ON psb.policy_set_id = ps.id AND psb.zone_id = ps.zone_id
            WHERE ps.zone_id = $1 AND ps.archived_at IS NULL`,
-          zone,
-        ),
-        fastify.db.query(
-          `SELECT count(*)::int AS active
+        zone,
+      ),
+      fastify.db.query(
+        `SELECT count(*)::int AS active
            FROM sessions
            WHERE zone_id = $1 AND status = 'active' AND expires_at > now()`,
-          zone,
-        ),
-        fastify.db.query(
-          `SELECT count(*) FILTER (WHERE decision = 'allow')::int AS allowed,
+        zone,
+      ),
+      fastify.db.query(
+        `SELECT count(*) FILTER (WHERE decision = 'allow')::int AS allowed,
                   count(*) FILTER (WHERE decision = 'deny')::int AS denied
            FROM audit_events
            WHERE zone_id = $1 AND occurred_at >= now() - interval '${DECISION_WINDOW}'`,
-          zone,
-        ),
-        fastify.db.query(
-          `SELECT id, event_type, request_id, decision, metadata_json, occurred_at
+        zone,
+      ),
+      fastify.db.query(
+        `SELECT id, event_type, request_id, decision, metadata_json, occurred_at
            FROM audit_events
            WHERE zone_id = $1
            ORDER BY occurred_at DESC, id DESC
            LIMIT ${RECENT_EVENTS_LIMIT}`,
-          zone,
-        ),
-      ])
+        zone,
+      ),
+    ])
 
     return {
       zone_id: params.zoneId,

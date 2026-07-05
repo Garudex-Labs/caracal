@@ -3,7 +3,7 @@
 //
 // Shared error codes and types for TypeScript services.
 
-import type { JsonObject } from './json.js';
+import type { JsonObject } from './json.js'
 
 export type WellKnownErrorCode =
   | 'access_denied'
@@ -25,33 +25,33 @@ export type WellKnownErrorCode =
   | 'chain_mismatch'
   | 'hop_count_exceeded'
   | 'http_request_failed'
-  | 'config_missing';
+  | 'config_missing'
 
 // Permits server-supplied or upstream-defined codes alongside well-known ones,
 // while still autocompleting WellKnownErrorCode literals.
-export type ErrorCode = WellKnownErrorCode | (string & {});
+export type ErrorCode = WellKnownErrorCode | (string & {})
 
 export interface CaracalErrorOptions {
-  requestId?: string;
-  details?: JsonObject;
-  cause?: unknown;
-  httpStatus?: number;
+  requestId?: string
+  details?: JsonObject
+  cause?: unknown
+  httpStatus?: number
 }
 
 export class CaracalError extends Error {
-  readonly code: ErrorCode;
-  readonly requestId?: string;
-  readonly details?: JsonObject;
-  readonly httpStatus?: number;
+  readonly code: ErrorCode
+  readonly requestId?: string
+  readonly details?: JsonObject
+  readonly httpStatus?: number
 
   constructor(code: ErrorCode, message: string, opts: CaracalErrorOptions | string = {}) {
-    const options: CaracalErrorOptions = typeof opts === 'string' ? { requestId: opts } : opts;
-    super(message, options.cause !== undefined ? { cause: options.cause } : undefined);
-    this.name = 'CaracalError';
-    this.code = code;
-    if (options.requestId) this.requestId = options.requestId;
-    if (options.details) this.details = options.details;
-    if (options.httpStatus) this.httpStatus = options.httpStatus;
+    const options: CaracalErrorOptions = typeof opts === 'string' ? { requestId: opts } : opts
+    super(message, options.cause !== undefined ? { cause: options.cause } : undefined)
+    this.name = 'CaracalError'
+    this.code = code
+    if (options.requestId) this.requestId = options.requestId
+    if (options.details) this.details = options.details
+    if (options.httpStatus) this.httpStatus = options.httpStatus
   }
 
   toJSON() {
@@ -60,6 +60,6 @@ export class CaracalError extends Error {
       error_description: this.message,
       ...(this.requestId ? { requestId: this.requestId } : {}),
       ...(this.details ? { details: this.details } : {}),
-    };
+    }
   }
 }

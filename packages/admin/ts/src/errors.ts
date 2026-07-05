@@ -48,7 +48,13 @@ export class AdminApiError extends CaracalError {
   readonly body: JsonValue
   readonly target: 'api' | 'coordinator'
 
-  constructor(status: number, code: AdminApiErrorCode | (string & {}), body: JsonValue, message?: string, target: 'api' | 'coordinator' = 'api') {
+  constructor(
+    status: number,
+    code: AdminApiErrorCode | (string & {}),
+    body: JsonValue,
+    message?: string,
+    target: 'api' | 'coordinator' = 'api',
+  ) {
     const safeBody = redact(body) as JsonValue
     super(code, message ?? `${code} (HTTP ${status})`, { details: { status, body: safeBody, target } })
     this.name = 'AdminApiError'

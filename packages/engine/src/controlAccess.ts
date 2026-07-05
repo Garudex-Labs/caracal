@@ -6,7 +6,7 @@
 import { timingSafeEqual } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { installedHome, managedSecretDirs } from '@caracalai/core'
+import { installedHome, managedSecretDirs } from '@caracalai/server-core'
 
 export interface ControlManagementAccessOptions {
   env?: NodeJS.ProcessEnv

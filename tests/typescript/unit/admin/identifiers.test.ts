@@ -4,15 +4,18 @@
 // Admin SDK identifier helper tests for provider and resource audience strings.
 
 import { describe, expect, it } from 'vitest'
-import { isProviderIdentifier, isResourceIdentifier, providerIdentifier, resourceIdentifier } from '../../../../packages/admin/ts/src/index.js'
+import {
+  isProviderIdentifier,
+  isResourceIdentifier,
+  providerIdentifier,
+  resourceIdentifier,
+} from '../../../../packages/admin/ts/src/index.js'
 
 describe('admin identifier helpers', () => {
   it('normalizes provider identifiers into the provider namespace', () => {
     expect(providerIdentifier('Hooli OIDC')).toBe('provider://hooli-oidc')
     expect(providerIdentifier('provider://Hooli OIDC')).toBe('provider://hooli-oidc')
-    expect(providerIdentifier(`---${'---'.repeat(2000)}Hooli---OIDC${'---'.repeat(2000)}---`)).toBe(
-      'provider://hooli-oidc',
-    )
+    expect(providerIdentifier(`---${'---'.repeat(2000)}Hooli---OIDC${'---'.repeat(2000)}---`)).toBe('provider://hooli-oidc')
     expect(isProviderIdentifier('provider://hooli-oidc')).toBe(true)
     expect(isProviderIdentifier('resource://hooli-oidc')).toBe(false)
   })

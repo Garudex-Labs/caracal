@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 Typed event models and factory functions for every lifecycle event kind.
 """
+
 from __future__ import annotations
 
 import time
@@ -51,9 +52,15 @@ def agent_spawn(
     customer_id: str | None = None,
 ) -> Event:
     return _mk(
-        run_id, "agent", "agent_spawn",
-        agent_id=agent_id, role=role, scope=scope,
-        parent_id=parent_id, layer=layer, region=region,
+        run_id,
+        "agent",
+        "agent_spawn",
+        agent_id=agent_id,
+        role=role,
+        scope=scope,
+        parent_id=parent_id,
+        layer=layer,
+        region=region,
         customer_id=customer_id,
     )
 
@@ -71,28 +78,58 @@ def agent_terminate(run_id: str, agent_id: str, status: str) -> Event:
 
 
 def delegation(run_id: str, parent_id: str, child_id: str, scope: str) -> Event:
-    return _mk(run_id, "delegation", "delegation", parent_id=parent_id, child_id=child_id, scope=scope)
-
-
-def tool_call(run_id: str, agent_id: str, tool_name: str, args: dict) -> Event:
-    return _mk(run_id, "tool", "tool_call", agent_id=agent_id, tool_name=tool_name, args=args)
-
-
-def tool_result(run_id: str, agent_id: str, tool_name: str, result: dict) -> Event:
-    return _mk(run_id, "tool", "tool_result", agent_id=agent_id, tool_name=tool_name, result=result)
-
-
-def service_call(run_id: str, agent_id: str, service_id: str, action: str, payload: dict) -> Event:
     return _mk(
-        run_id, "service", "service_call",
-        agent_id=agent_id, service_id=service_id, action=action, payload=payload,
+        run_id,
+        "delegation",
+        "delegation",
+        parent_id=parent_id,
+        child_id=child_id,
+        scope=scope,
     )
 
 
-def service_result(run_id: str, agent_id: str, service_id: str, action: str, result: dict) -> Event:
+def tool_call(run_id: str, agent_id: str, tool_name: str, args: dict) -> Event:
     return _mk(
-        run_id, "service", "service_result",
-        agent_id=agent_id, service_id=service_id, action=action, result=result,
+        run_id, "tool", "tool_call", agent_id=agent_id, tool_name=tool_name, args=args
+    )
+
+
+def tool_result(run_id: str, agent_id: str, tool_name: str, result: dict) -> Event:
+    return _mk(
+        run_id,
+        "tool",
+        "tool_result",
+        agent_id=agent_id,
+        tool_name=tool_name,
+        result=result,
+    )
+
+
+def service_call(
+    run_id: str, agent_id: str, service_id: str, action: str, payload: dict
+) -> Event:
+    return _mk(
+        run_id,
+        "service",
+        "service_call",
+        agent_id=agent_id,
+        service_id=service_id,
+        action=action,
+        payload=payload,
+    )
+
+
+def service_result(
+    run_id: str, agent_id: str, service_id: str, action: str, result: dict
+) -> Event:
+    return _mk(
+        run_id,
+        "service",
+        "service_result",
+        agent_id=agent_id,
+        service_id=service_id,
+        action=action,
+        result=result,
     )
 
 
@@ -113,10 +150,19 @@ def caracal_decision(
     role, session), the scope and resource view exercised, the provider operation, and whether
     Caracal allowed or denied it. Surfaces enforcement that is otherwise invisible in the UI."""
     return _mk(
-        run_id, "service", "caracal_decision",
-        agent_id=agent_id, decision=decision, application=application, role=role,
-        session_id=session_id, provider_id=provider_id, operation=operation,
-        scope=scope, view=view, status=status,
+        run_id,
+        "service",
+        "caracal_decision",
+        agent_id=agent_id,
+        decision=decision,
+        application=application,
+        role=role,
+        session_id=session_id,
+        provider_id=provider_id,
+        operation=operation,
+        scope=scope,
+        view=view,
+        status=status,
     )
 
 
@@ -129,11 +175,25 @@ def chat_user(run_id: str, text: str) -> Event:
 
 
 def chat_token(run_id: str, agent_id: str, message_id: str, token: str) -> Event:
-    return _mk(run_id, "chat", "chat_token", agent_id=agent_id, message_id=message_id, token=token)
+    return _mk(
+        run_id,
+        "chat",
+        "chat_token",
+        agent_id=agent_id,
+        message_id=message_id,
+        token=token,
+    )
 
 
 def chat_message(run_id: str, agent_id: str, message_id: str, text: str) -> Event:
-    return _mk(run_id, "chat", "chat_message", agent_id=agent_id, message_id=message_id, text=text)
+    return _mk(
+        run_id,
+        "chat",
+        "chat_message",
+        agent_id=agent_id,
+        message_id=message_id,
+        text=text,
+    )
 
 
 def llm_call(
@@ -147,10 +207,16 @@ def llm_call(
     streamed_chars: int,
 ) -> Event:
     return _mk(
-        run_id, "system", "llm_call",
-        agent_id=agent_id, model=model, latency_ms=latency_ms,
-        input_tokens=input_tokens, output_tokens=output_tokens,
-        tool_calls=tool_calls, streamed_chars=streamed_chars,
+        run_id,
+        "system",
+        "llm_call",
+        agent_id=agent_id,
+        model=model,
+        latency_ms=latency_ms,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        tool_calls=tool_calls,
+        streamed_chars=streamed_chars,
     )
 
 
@@ -163,7 +229,9 @@ def memory_update(
     compactions: int,
 ) -> Event:
     return _mk(
-        run_id, "system", "memory_update",
+        run_id,
+        "system",
+        "memory_update",
         agent_id=agent_id,
         tokens_used=tokens_used,
         tokens_limit=tokens_limit,
@@ -180,7 +248,9 @@ def memory_compaction(
     tokens_after: int,
 ) -> Event:
     return _mk(
-        run_id, "system", "memory_compaction",
+        run_id,
+        "system",
+        "memory_compaction",
         agent_id=agent_id,
         summary=summary,
         tokens_before=tokens_before,
@@ -193,7 +263,14 @@ def model_change(run_id: str, model: str, prior: str) -> Event:
 
 
 def plan_update(run_id: str, agent_id: str, todos: list[dict], revision: int) -> Event:
-    return _mk(run_id, "system", "plan_update", agent_id=agent_id, todos=todos, revision=revision)
+    return _mk(
+        run_id,
+        "system",
+        "plan_update",
+        agent_id=agent_id,
+        todos=todos,
+        revision=revision,
+    )
 
 
 def file_write(run_id: str, agent_id: str, path: str, size: int) -> Event:
@@ -204,17 +281,31 @@ def file_read(run_id: str, agent_id: str, path: str, size: int) -> Event:
     return _mk(run_id, "system", "file_read", agent_id=agent_id, path=path, size=size)
 
 
-def blackboard_post(run_id: str, agent_id: str, region: str | None, tag: str, content: str) -> Event:
+def blackboard_post(
+    run_id: str, agent_id: str, region: str | None, tag: str, content: str
+) -> Event:
     return _mk(
-        run_id, "system", "blackboard_post",
-        agent_id=agent_id, region=region, tag=tag, content=content,
+        run_id,
+        "system",
+        "blackboard_post",
+        agent_id=agent_id,
+        region=region,
+        tag=tag,
+        content=content,
     )
 
 
-def tool_retry(run_id: str, agent_id: str, tool_name: str, attempt: int, error: str) -> Event:
+def tool_retry(
+    run_id: str, agent_id: str, tool_name: str, attempt: int, error: str
+) -> Event:
     return _mk(
-        run_id, "system", "tool_retry",
-        agent_id=agent_id, tool_name=tool_name, attempt=attempt, error=error,
+        run_id,
+        "system",
+        "tool_retry",
+        agent_id=agent_id,
+        tool_name=tool_name,
+        attempt=attempt,
+        error=error,
     )
 
 
@@ -223,56 +314,107 @@ def run_cancelled(run_id: str) -> Event:
 
 
 def stage_start(run_id: str, agent_id: str, stage: str, intent: str) -> Event:
-    return _mk(run_id, "system", "stage_start", agent_id=agent_id, stage=stage, intent=intent)
+    return _mk(
+        run_id, "system", "stage_start", agent_id=agent_id, stage=stage, intent=intent
+    )
 
 
 def stage_end(run_id: str, agent_id: str, stage: str, summary: str) -> Event:
-    return _mk(run_id, "system", "stage_end", agent_id=agent_id, stage=stage, summary=summary)
+    return _mk(
+        run_id, "system", "stage_end", agent_id=agent_id, stage=stage, summary=summary
+    )
 
 
 def replan(run_id: str, agent_id: str, reason: str, revision: int) -> Event:
-    return _mk(run_id, "system", "replan", agent_id=agent_id, reason=reason, revision=revision)
-
-
-def worker_acquire(run_id: str, agent_id: str, worker_id: str, role: str, scope: str) -> Event:
     return _mk(
-        run_id, "system", "worker_acquire",
-        agent_id=agent_id, worker_id=worker_id, role=role, scope=scope,
+        run_id, "system", "replan", agent_id=agent_id, reason=reason, revision=revision
+    )
+
+
+def worker_acquire(
+    run_id: str, agent_id: str, worker_id: str, role: str, scope: str
+) -> Event:
+    return _mk(
+        run_id,
+        "system",
+        "worker_acquire",
+        agent_id=agent_id,
+        worker_id=worker_id,
+        role=role,
+        scope=scope,
     )
 
 
 def worker_release(run_id: str, agent_id: str, worker_id: str, result: dict) -> Event:
     return _mk(
-        run_id, "system", "worker_release",
-        agent_id=agent_id, worker_id=worker_id, result=result,
+        run_id,
+        "system",
+        "worker_release",
+        agent_id=agent_id,
+        worker_id=worker_id,
+        result=result,
     )
 
 
-def job_started(run_id: str, agent_id: str, job_id: str, kind: str, target: str) -> Event:
+def job_started(
+    run_id: str, agent_id: str, job_id: str, kind: str, target: str
+) -> Event:
     return _mk(
-        run_id, "system", "job_started",
-        agent_id=agent_id, job_id=job_id, job_kind=kind, target=target,
+        run_id,
+        "system",
+        "job_started",
+        agent_id=agent_id,
+        job_id=job_id,
+        job_kind=kind,
+        target=target,
     )
 
 
-def job_completed(run_id: str, agent_id: str, job_id: str, status: str, result: dict,
-                  kind: str = "", target: str = "") -> Event:
+def job_completed(
+    run_id: str,
+    agent_id: str,
+    job_id: str,
+    status: str,
+    result: dict,
+    kind: str = "",
+    target: str = "",
+) -> Event:
     return _mk(
-        run_id, "system", "job_completed",
-        agent_id=agent_id, job_id=job_id, status=status, result=result,
-        job_kind=kind, target=target,
+        run_id,
+        "system",
+        "job_completed",
+        agent_id=agent_id,
+        job_id=job_id,
+        status=status,
+        result=result,
+        job_kind=kind,
+        target=target,
     )
 
 
-def approval_required(run_id: str, agent_id: str, request_id: str, action: str, detail: dict) -> Event:
+def approval_required(
+    run_id: str, agent_id: str, request_id: str, action: str, detail: dict
+) -> Event:
     return _mk(
-        run_id, "system", "approval_required",
-        agent_id=agent_id, request_id=request_id, action=action, detail=detail,
+        run_id,
+        "system",
+        "approval_required",
+        agent_id=agent_id,
+        request_id=request_id,
+        action=action,
+        detail=detail,
     )
 
 
-def approval_resolved(run_id: str, agent_id: str, request_id: str, approved: bool, reason: str) -> Event:
+def approval_resolved(
+    run_id: str, agent_id: str, request_id: str, approved: bool, reason: str
+) -> Event:
     return _mk(
-        run_id, "system", "approval_resolved",
-        agent_id=agent_id, request_id=request_id, approved=approved, reason=reason,
+        run_id,
+        "system",
+        "approval_resolved",
+        agent_id=agent_id,
+        request_id=request_id,
+        approved=approved,
+        reason=reason,
     )

@@ -258,7 +258,9 @@ async function handle(req: FastifyRequest, reply: FastifyReply, deps: InvokeDeps
       })
     } catch (err) {
       req.log.error({ err, command, requestId }, 'control allow audit could not be recorded; refusing to report success')
-      return reply.code(500).send({ ok: false, error: errorBody('audit_unavailable', 'operation applied but its audit record could not be durably recorded') })
+      return reply
+        .code(500)
+        .send({ ok: false, error: errorBody('audit_unavailable', 'operation applied but its audit record could not be durably recorded') })
     }
     return reply.code(200).send({ ok: true, result })
   } catch (err) {

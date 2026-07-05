@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 Validates the Tallyhall Books provider: QuickBooks Online-style OAuth2 authorization code with offline refresh-token rotation, scoped accounting and payment operations, and the bookkeeping, A/P, A/R, and reporting domain flows.
 """
+
 from __future__ import annotations
 
 import os
@@ -29,20 +30,32 @@ def _seed() -> dict:
 
 
 def _authorize_code(c: TestClient, s: dict, scope: str) -> str:
-    r = c.post("/oauth/authorize", data={
-        "client_id": s["clientId"], "redirect_uri": REDIRECT, "scope": scope,
-        "state": "xyz",
-    }, follow_redirects=False)
+    r = c.post(
+        "/oauth/authorize",
+        data={
+            "client_id": s["clientId"],
+            "redirect_uri": REDIRECT,
+            "scope": scope,
+            "state": "xyz",
+        },
+        follow_redirects=False,
+    )
     return r.headers["location"].split("code=")[1].split("&")[0]
 
 
 def _token_bundle(c: TestClient, scope: str = f"{ACCOUNTING} {PAYMENT}") -> dict:
     s = _seed()
     code = _authorize_code(c, s, scope)
-    return c.post("/oauth/token", data={
-        "grant_type": "authorization_code", "code": code, "client_id": s["clientId"],
-        "client_secret": s["clientSecret"], "redirect_uri": REDIRECT,
-    }).json()
+    return c.post(
+        "/oauth/token",
+        data={
+            "grant_type": "authorization_code",
+            "code": code,
+            "client_id": s["clientId"],
+            "client_secret": s["clientSecret"],
+            "redirect_uri": REDIRECT,
+        },
+    ).json()
 
 
 def _token(c: TestClient, scope: str = f"{ACCOUNTING} {PAYMENT}") -> str:
@@ -50,7 +63,9 @@ def _token(c: TestClient, scope: str = f"{ACCOUNTING} {PAYMENT}") -> str:
 
 
 def _api(c: TestClient, token: str, op: str, body: dict | None = None):
-    return c.post(f"/api/{op}", json=body or {}, headers={"Authorization": f"Bearer {token}"})
+    return c.post(
+        f"/api/{op}", json=body or {}, headers={"Authorization": f"Bearer {token}"}
+    )
 
 
 def _open_bill(c: TestClient, token: str) -> dict:
@@ -60,7 +75,9 @@ def _open_bill(c: TestClient, token: str) -> dict:
 
 def _open_invoice(c: TestClient, token: str) -> dict:
     body = _api(c, token, "list_invoices", {"pageSize": 50}).json()
-    return next(i for i in body["data"]["items"] if i["Balance"] > 0 and i["status"] != "Voided")
+    return next(
+        i for i in body["data"]["items"] if i["Balance"] > 0 and i["status"] != "Voided"
+    )
 
 
 def _active_vendor(c: TestClient, token: str) -> dict:
@@ -87,14 +104,20 @@ def test_authorization_code_grants_offline_refresh_token():
 def test_refresh_token_is_single_use_and_rotates():
     c = _client()
     bundle = _token_bundle(c)
-    first = c.post("/oauth/token", data={
-        "grant_type": "refresh_token", "refresh_token": bundle["refresh_token"]}).json()
+    first = c.post(
+        "/oauth/token",
+        data={"grant_type": "refresh_token", "refresh_token": bundle["refresh_token"]},
+    ).json()
     assert "access_token" in first and first["refresh_token"] != bundle["refresh_token"]
-    replay = c.post("/oauth/token", data={
-        "grant_type": "refresh_token", "refresh_token": bundle["refresh_token"]})
+    replay = c.post(
+        "/oauth/token",
+        data={"grant_type": "refresh_token", "refresh_token": bundle["refresh_token"]},
+    )
     assert replay.status_code == 400
-    chained = c.post("/oauth/token", data={
-        "grant_type": "refresh_token", "refresh_token": first["refresh_token"]})
+    chained = c.post(
+        "/oauth/token",
+        data={"grant_type": "refresh_token", "refresh_token": first["refresh_token"]},
+    )
     assert chained.status_code == 200
 
 
@@ -139,7 +162,9 @@ def test_wrong_realm_is_rejected():
 
 def test_chart_of_accounts_has_ap_and_ar_controls():
     c = _client()
-    accounts = _api(c, _token(c), "list_accounts", {"pageSize": 50}).json()["data"]["items"]
+    accounts = _api(c, _token(c), "list_accounts", {"pageSize": 50}).json()["data"][
+        "items"
+    ]
     subtypes = {a["AccountSubType"] for a in accounts}
     assert {"AccountsPayable", "AccountsReceivable", "UndepositedFunds"} <= subtypes
 
@@ -157,21 +182,42 @@ def test_create_bill_increases_ap_and_vendor_balance():
     c = _client()
     token = _token(c)
     vendor = _active_vendor(c, token)
-    ap_before = _api(c, token, "get_account", {"accountId": "2000"}).json()["data"]["CurrentBalance"]
-    bill = _api(c, token, "create_bill", {
-        "vendorId": vendor["Id"], "amount": 1000, "currency": vendor["CurrencyRef"]["value"],
-    }).json()["data"]
+    ap_before = _api(c, token, "get_account", {"accountId": "2000"}).json()["data"][
+        "CurrentBalance"
+    ]
+    bill = _api(
+        c,
+        token,
+        "create_bill",
+        {
+            "vendorId": vendor["Id"],
+            "amount": 1000,
+            "currency": vendor["CurrencyRef"]["value"],
+        },
+    ).json()["data"]
     assert bill["Balance"] == bill["TotalAmt"] and bill["status"] == "Open"
-    ap_after = _api(c, token, "get_account", {"accountId": "2000"}).json()["data"]["CurrentBalance"]
+    ap_after = _api(c, token, "get_account", {"accountId": "2000"}).json()["data"][
+        "CurrentBalance"
+    ]
     assert round(ap_after - ap_before, 2) == bill["TotalAmt"]
 
 
 def test_bill_currency_must_match_vendor():
     c = _client()
     token = _token(c)
-    vendor = next(v for v in _api(c, token, "list_vendors", {"pageSize": 60}).json()["data"]["items"]
-                  if v["CurrencyRef"]["value"] != "USD")
-    res = _api(c, token, "create_bill", {"vendorId": vendor["Id"], "amount": 10, "currency": "USD"})
+    vendor = next(
+        v
+        for v in _api(c, token, "list_vendors", {"pageSize": 60}).json()["data"][
+            "items"
+        ]
+        if v["CurrencyRef"]["value"] != "USD"
+    )
+    res = _api(
+        c,
+        token,
+        "create_bill",
+        {"vendorId": vendor["Id"], "amount": 10, "currency": "USD"},
+    )
     assert res.status_code == 400 and res.json()["error"] == "CurrencyMismatch"
 
 
@@ -180,8 +226,18 @@ def test_duplicate_doc_number_is_rejected():
     token = _token(c)
     vendor = _active_vendor(c, token)
     ccy = vendor["CurrencyRef"]["value"]
-    _api(c, token, "create_bill", {"vendorId": vendor["Id"], "amount": 50, "currency": ccy, "docNumber": "DUP-1"})
-    res = _api(c, token, "create_bill", {"vendorId": vendor["Id"], "amount": 50, "currency": ccy, "docNumber": "DUP-1"})
+    _api(
+        c,
+        token,
+        "create_bill",
+        {"vendorId": vendor["Id"], "amount": 50, "currency": ccy, "docNumber": "DUP-1"},
+    )
+    res = _api(
+        c,
+        token,
+        "create_bill",
+        {"vendorId": vendor["Id"], "amount": 50, "currency": ccy, "docNumber": "DUP-1"},
+    )
     assert res.status_code == 400 and res.json()["error"] == "DuplicateDocNum"
 
 
@@ -190,8 +246,15 @@ def test_match_then_pay_bill_clears_balance():
     token = _token(c)
     vendor = _active_vendor(c, token)
     ccy = vendor["CurrencyRef"]["value"]
-    bill = _api(c, token, "create_bill", {"vendorId": vendor["Id"], "amount": 800, "currency": ccy}).json()["data"]
-    matched = _api(c, token, "match_bill", {"billId": bill["Id"], "poRef": "PO-99"}).json()["data"]
+    bill = _api(
+        c,
+        token,
+        "create_bill",
+        {"vendorId": vendor["Id"], "amount": 800, "currency": ccy},
+    ).json()["data"]
+    matched = _api(
+        c, token, "match_bill", {"billId": bill["Id"], "poRef": "PO-99"}
+    ).json()["data"]
     assert any(t["TxnType"] == "PurchaseOrder" for t in matched["LinkedTxn"])
     payment = _api(c, token, "pay_bill", {"billId": bill["Id"]}).json()["data"]
     assert payment["TotalAmt"] == bill["TotalAmt"]
@@ -203,7 +266,9 @@ def test_overpaying_bill_is_rejected():
     c = _client()
     token = _token(c)
     bill = _open_bill(c, token)
-    res = _api(c, token, "pay_bill", {"billId": bill["Id"], "amount": bill["Balance"] + 10_000})
+    res = _api(
+        c, token, "pay_bill", {"billId": bill["Id"], "amount": bill["Balance"] + 10_000}
+    )
     assert res.status_code == 400 and res.json()["error"] == "AmountExceedsBalance"
 
 
@@ -213,11 +278,20 @@ def test_overpaying_bill_is_rejected():
 def test_create_send_and_collect_invoice():
     c = _client()
     token = _token(c)
-    customers = _api(c, token, "list_customers", {"active": True, "pageSize": 1}).json()["data"]["items"]
+    customers = _api(
+        c, token, "list_customers", {"active": True, "pageSize": 1}
+    ).json()["data"]["items"]
     customer = customers[0]
-    invoice = _api(c, token, "create_invoice", {
-        "customerId": customer["Id"], "amount": 2400, "currency": customer["CurrencyRef"]["value"],
-    }).json()["data"]
+    invoice = _api(
+        c,
+        token,
+        "create_invoice",
+        {
+            "customerId": customer["Id"],
+            "amount": 2400,
+            "currency": customer["CurrencyRef"]["value"],
+        },
+    ).json()["data"]
     assert invoice["EmailStatus"] == "NeedToSend"
     sent = _api(c, token, "send_invoice", {"invoiceId": invoice["Id"]}).json()["data"]
     assert sent["EmailStatus"] == "EmailSent"
@@ -253,10 +327,18 @@ def test_create_expense_posts_to_account():
     c = _client()
     token = _token(c)
     vendor = _active_vendor(c, token)
-    expense = _api(c, token, "create_expense", {
-        "vendorId": vendor["Id"], "amount": 320, "currency": vendor["CurrencyRef"]["value"],
-        "account": "6200", "paymentType": "CreditCard",
-    }).json()["data"]
+    expense = _api(
+        c,
+        token,
+        "create_expense",
+        {
+            "vendorId": vendor["Id"],
+            "amount": 320,
+            "currency": vendor["CurrencyRef"]["value"],
+            "account": "6200",
+            "paymentType": "CreditCard",
+        },
+    ).json()["data"]
     assert expense["PaymentType"] == "CreditCard"
     assert expense["Line"][0]["AccountBasedExpenseLineDetail"]["AccountRef"]["name"]
 
@@ -264,19 +346,39 @@ def test_create_expense_posts_to_account():
 def test_unbalanced_journal_entry_is_rejected():
     c = _client()
     token = _token(c)
-    res = _api(c, token, "post_journal_entry", {"lines": [
-        {"account": "6300", "debit": 500}, {"account": "1000", "credit": 400}]})
+    res = _api(
+        c,
+        token,
+        "post_journal_entry",
+        {
+            "lines": [
+                {"account": "6300", "debit": 500},
+                {"account": "1000", "credit": 400},
+            ]
+        },
+    )
     assert res.status_code == 400 and res.json()["error"] == "UnbalancedTransaction"
 
 
 def test_balanced_journal_entry_posts():
     c = _client()
     token = _token(c)
-    entry = _api(c, token, "post_journal_entry", {"lines": [
-        {"account": "6300", "debit": 500, "memo": "legal"},
-        {"account": "1000", "credit": 500}]}).json()["data"]
+    entry = _api(
+        c,
+        token,
+        "post_journal_entry",
+        {
+            "lines": [
+                {"account": "6300", "debit": 500, "memo": "legal"},
+                {"account": "1000", "credit": 500},
+            ]
+        },
+    ).json()["data"]
     assert entry["TotalAmt"] == 500.0
-    assert {ln["JournalEntryLineDetail"]["PostingType"] for ln in entry["Line"]} == {"Debit", "Credit"}
+    assert {ln["JournalEntryLineDetail"]["PostingType"] for ln in entry["Line"]} == {
+        "Debit",
+        "Credit",
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -284,7 +386,9 @@ def test_balanced_journal_entry_posts():
 # --------------------------------------------------------------------------- #
 def test_profit_and_loss_report_shape():
     c = _client()
-    report = _api(c, _token(c), "get_report", {"reportType": "ProfitAndLoss"}).json()["data"]
+    report = _api(c, _token(c), "get_report", {"reportType": "ProfitAndLoss"}).json()[
+        "data"
+    ]
     assert report["Header"]["ReportName"] == "ProfitAndLoss"
     groups = {r.get("group") for r in report["Rows"]["Row"]}
     assert "NetIncome" in groups
@@ -292,8 +396,16 @@ def test_profit_and_loss_report_shape():
 
 def test_aged_payables_report_buckets():
     c = _client()
-    report = _api(c, _token(c), "get_report", {"reportType": "AgedPayables"}).json()["data"]
-    assert set(report["Summary"]["Buckets"]) == {"Current", "1-30", "31-60", "61-90", "91+"}
+    report = _api(c, _token(c), "get_report", {"reportType": "AgedPayables"}).json()[
+        "data"
+    ]
+    assert set(report["Summary"]["Buckets"]) == {
+        "Current",
+        "1-30",
+        "31-60",
+        "61-90",
+        "91+",
+    }
     assert report["Summary"]["Total"] >= 0
 
 
@@ -310,13 +422,18 @@ def test_lynxcapital_quickbooks_tools_reach_tallyhall(providerlab):
     from app.agents import tools as tool_fns
 
     vendor = __import__("app.services.partners", fromlist=["call"]).call(
-        "tallyhall-books", "list_vendors", {"active": True, "pageSize": 1})["data"]["items"][0]
+        "tallyhall-books", "list_vendors", {"active": True, "pageSize": 1}
+    )["data"]["items"][0]
     report = tool_fns.quickbooks_run_report("r", "a", "BalanceSheet")
     assert report["provider"] == "tallyhall-books"
     assert report["data"]["Header"]["ReportName"] == "BalanceSheet"
-    expense = tool_fns.quickbooks_record_expense("r", "a", vendor["Id"], 150.0,
-                                                 vendor["CurrencyRef"]["value"])
-    assert expense["provider"] == "tallyhall-books" and expense["operation"] == "create_expense"
+    expense = tool_fns.quickbooks_record_expense(
+        "r", "a", vendor["Id"], 150.0, vendor["CurrencyRef"]["value"]
+    )
+    assert (
+        expense["provider"] == "tallyhall-books"
+        and expense["operation"] == "create_expense"
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -325,10 +442,16 @@ def test_lynxcapital_quickbooks_tools_reach_tallyhall(providerlab):
 def test_authorization_callback_carries_realm():
     c = _client()
     s = _seed()
-    r = c.post("/oauth/authorize", data={
-        "client_id": s["clientId"], "redirect_uri": REDIRECT,
-        "scope": ACCOUNTING, "state": "xyz",
-    }, follow_redirects=False)
+    r = c.post(
+        "/oauth/authorize",
+        data={
+            "client_id": s["clientId"],
+            "redirect_uri": REDIRECT,
+            "scope": ACCOUNTING,
+            "state": "xyz",
+        },
+        follow_redirects=False,
+    )
     location = r.headers["location"]
     realm = location.split("realmId=")[1].split("&")[0]
     assert realm == catalog.get("tallyhall-books").realm_id
@@ -345,11 +468,16 @@ def test_expired_refresh_token_is_rejected():
     c = _client()
     bundle = _token_bundle(c)
     store = credentials.load("tallyhall-books")
-    token = next(t for t in store.data["tokens"]
-                 if t.get("refreshToken") == bundle["refresh_token"])
+    token = next(
+        t
+        for t in store.data["tokens"]
+        if t.get("refreshToken") == bundle["refresh_token"]
+    )
     token["refreshExpiresAt"] = credentials._now() - 1
-    res = c.post("/oauth/token", data={
-        "grant_type": "refresh_token", "refresh_token": bundle["refresh_token"]})
+    res = c.post(
+        "/oauth/token",
+        data={"grant_type": "refresh_token", "refresh_token": bundle["refresh_token"]},
+    )
     assert res.status_code == 400
 
 
@@ -384,7 +512,9 @@ def test_invoice_carries_qbo_presentation_fields():
 def test_taxable_customer_has_default_tax_code():
     c = _client()
     token = _token(c)
-    customers = _api(c, token, "list_customers", {"pageSize": 40}).json()["data"]["items"]
+    customers = _api(c, token, "list_customers", {"pageSize": 40}).json()["data"][
+        "items"
+    ]
     taxable = next(cu for cu in customers if cu["Taxable"])
     assert taxable["DefaultTaxCodeRef"]["value"] == "3"
 
@@ -392,10 +522,19 @@ def test_taxable_customer_has_default_tax_code():
 def test_created_invoice_mirrors_seeded_tax_detail():
     c = _client()
     token = _token(c)
-    customer = _api(c, token, "list_customers", {"active": True, "pageSize": 1}).json()["data"]["items"][0]
-    invoice = _api(c, token, "create_invoice", {
-        "customerId": customer["Id"], "amount": 1000, "currency": customer["CurrencyRef"]["value"],
-    }).json()["data"]
+    customer = _api(c, token, "list_customers", {"active": True, "pageSize": 1}).json()[
+        "data"
+    ]["items"][0]
+    invoice = _api(
+        c,
+        token,
+        "create_invoice",
+        {
+            "customerId": customer["Id"],
+            "amount": 1000,
+            "currency": customer["CurrencyRef"]["value"],
+        },
+    ).json()["data"]
     assert "TxnTaxCodeRef" in invoice["TxnTaxDetail"]
     assert invoice["PrintStatus"] == "NeedToPrint"
 
@@ -406,18 +545,26 @@ def test_created_invoice_mirrors_seeded_tax_detail():
 def test_customer_balance_report_ties_to_receivables():
     c = _client()
     token = _token(c)
-    report = _api(c, token, "get_report", {"reportType": "CustomerBalance"}).json()["data"]
+    report = _api(c, token, "get_report", {"reportType": "CustomerBalance"}).json()[
+        "data"
+    ]
     assert report["Header"]["ReportName"] == "CustomerBalance"
     total = float(report["Summary"]["ColData"][1]["value"])
-    ar = _api(c, token, "get_account", {"accountId": "1200"}).json()["data"]["CurrentBalance"]
+    ar = _api(c, token, "get_account", {"accountId": "1200"}).json()["data"][
+        "CurrentBalance"
+    ]
     assert round(total, 2) == round(ar, 2)
 
 
 def test_vendor_balance_report_ties_to_payables():
     c = _client()
     token = _token(c)
-    report = _api(c, token, "get_report", {"reportType": "VendorBalance"}).json()["data"]
+    report = _api(c, token, "get_report", {"reportType": "VendorBalance"}).json()[
+        "data"
+    ]
     assert report["Header"]["ReportName"] == "VendorBalance"
     total = float(report["Summary"]["ColData"][1]["value"])
-    ap = _api(c, token, "get_account", {"accountId": "2000"}).json()["data"]["CurrentBalance"]
+    ap = _api(c, token, "get_account", {"accountId": "2000"}).json()["data"][
+        "CurrentBalance"
+    ]
     assert round(total, 2) == round(ap, 2)

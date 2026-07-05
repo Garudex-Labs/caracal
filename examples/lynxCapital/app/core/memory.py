@@ -4,12 +4,19 @@ Caracal, a product of Garudex Labs
 
 Short-term working memory per agent with token accounting and LLM-driven compaction.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import (
+    AIMessage,
+    BaseMessage,
+    HumanMessage,
+    SystemMessage,
+    ToolMessage,
+)
 
 if TYPE_CHECKING:
     from langchain_openai import ChatOpenAI
@@ -18,7 +25,7 @@ if TYPE_CHECKING:
 MODEL_CONTEXT_LIMITS: dict[str, int] = {
     "gpt-5.4-nano": 128_000,
     "gpt-5.4-mini": 128_000,
-    "gpt-5-mini":   128_000,
+    "gpt-5-mini": 128_000,
 }
 
 DEFAULT_LIMIT = 128_000
@@ -72,7 +79,11 @@ class AgentMemory:
     def as_prompt(self) -> list[BaseMessage]:
         out: list[BaseMessage] = [self.system]
         if self.seed_summary:
-            out.append(SystemMessage(content=f"Context from parent agent:\n{self.seed_summary}"))
+            out.append(
+                SystemMessage(
+                    content=f"Context from parent agent:\n{self.seed_summary}"
+                )
+            )
         out.extend(self.messages)
         return out
 
@@ -106,7 +117,9 @@ class AgentMemory:
         for m in head:
             role = m.__class__.__name__.replace("Message", "")
             if isinstance(m, AIMessage) and m.tool_calls:
-                calls = ", ".join(f"{tc['name']}({tc.get('args', {})})" for tc in m.tool_calls)
+                calls = ", ".join(
+                    f"{tc['name']}({tc.get('args', {})})" for tc in m.tool_calls
+                )
                 transcript_lines.append(f"{role}: {m.content or ''}  [tools: {calls}]")
             elif isinstance(m, ToolMessage):
                 snippet = str(m.content)[:200]
@@ -116,17 +129,22 @@ class AgentMemory:
 
         prior_summary = self.seed_summary
         summarize_prompt = [
-            SystemMessage(content=(
-                "You are compacting an agent's working memory to stay within its "
-                "context window. Produce a concise summary (<= 200 words) of the "
-                "prior conversation and tool results. Focus on: decisions made, "
-                "entities processed, outstanding work, and any errors. Use bullet "
-                "points. Do not invent facts."
-            )),
-            HumanMessage(content=(
-                (f"Previous summary:\n{prior_summary}\n\n" if prior_summary else "")
-                + "Transcript to compact:\n" + "\n".join(transcript_lines)
-            )),
+            SystemMessage(
+                content=(
+                    "You are compacting an agent's working memory to stay within its "
+                    "context window. Produce a concise summary (<= 200 words) of the "
+                    "prior conversation and tool results. Focus on: decisions made, "
+                    "entities processed, outstanding work, and any errors. Use bullet "
+                    "points. Do not invent facts."
+                )
+            ),
+            HumanMessage(
+                content=(
+                    (f"Previous summary:\n{prior_summary}\n\n" if prior_summary else "")
+                    + "Transcript to compact:\n"
+                    + "\n".join(transcript_lines)
+                )
+            ),
         ]
         ai = await llm.ainvoke(summarize_prompt)
         summary = ai.content if isinstance(ai.content, str) else str(ai.content)

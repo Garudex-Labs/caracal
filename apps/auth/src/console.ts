@@ -13,7 +13,7 @@ import {
   pathOnly,
   signAccountAssertion,
   signOperatorAssertion,
-} from '@caracalai/core'
+} from '@caracalai/server-core'
 import {
   applyControlLifecycleAction,
   controlKeyRecord,
@@ -525,7 +525,14 @@ async function handleProxy(
   // reserved as a break-glass fallback - while a request can never fail closed for want of a
   // credential.
   const method = (req.method ?? 'GET').toUpperCase()
-  const credential = selectProxyCredential(method, new URL(target).pathname, token, consoleReadToken(), consoleWriteToken(), consoleApproveToken())
+  const credential = selectProxyCredential(
+    method,
+    new URL(target).pathname,
+    token,
+    consoleReadToken(),
+    consoleWriteToken(),
+    consoleApproveToken(),
+  )
   await forwardProxy(req, res, target, credential.token, id, credential.fallbackToken, account, operator)
   // A successful write to the control plane can change what diagnostics reports (zone
   // inventory, resources, policy enforcement, …); drop cached reports so the next read
@@ -623,7 +630,14 @@ async function handleControlToken(req: IncomingMessage, res: ServerResponse, id:
     // credential policy the proxy uses, so this read never carries the god token on its normal
     // path.
     const url = `${apiUrl()}/v1/zones/${encodeURIComponent(zoneId)}/applications/${encodeURIComponent(keyId)}`
-    const credential = selectProxyCredential('GET', new URL(url).pathname, token, consoleReadToken(), consoleWriteToken(), consoleApproveToken())
+    const credential = selectProxyCredential(
+      'GET',
+      new URL(url).pathname,
+      token,
+      consoleReadToken(),
+      consoleWriteToken(),
+      consoleApproveToken(),
+    )
     const readHeaders: Record<string, string> = downstreamHeaders(id)
     if (account) readHeaders[ACCOUNT_ASSERTION_HEADER] = account
     const readWith = (bearer: string): Promise<Response> => fetch(url, { headers: { Authorization: `Bearer ${bearer}`, ...readHeaders } })
@@ -736,7 +750,14 @@ async function probeZone(zoneId: string, account: string | undefined, id: string
   const url = `${apiUrl()}/v1/zones/${encodeURIComponent(zoneId)}`
   const headers: Record<string, string> = downstreamHeaders(id)
   if (account) headers[ACCOUNT_ASSERTION_HEADER] = account
-  const credential = selectProxyCredential('GET', new URL(url).pathname, admin, consoleReadToken(), consoleWriteToken(), consoleApproveToken())
+  const credential = selectProxyCredential(
+    'GET',
+    new URL(url).pathname,
+    admin,
+    consoleReadToken(),
+    consoleWriteToken(),
+    consoleApproveToken(),
+  )
   try {
     const readWith = (bearer: string): Promise<Response> =>
       fetch(url, { headers: { ...headers, Authorization: `Bearer ${bearer}` }, signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) })

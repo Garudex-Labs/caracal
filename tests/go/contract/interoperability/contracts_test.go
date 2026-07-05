@@ -149,4 +149,3 @@ func TestStreamSigCanonicalizeVectors(t *testing.T) {
 		})
 	}
 }
-

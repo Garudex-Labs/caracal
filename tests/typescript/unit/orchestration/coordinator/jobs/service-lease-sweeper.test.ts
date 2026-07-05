@@ -5,7 +5,11 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import '../../../../../shared/test-utils/typescript/coordinatorEnv.js'
-import { runServiceLeaseSweep, serviceLeaseSweeperStats, startServiceLeaseSweeper } from '../../../../../../apps/coordinator/src/jobs/service-lease-sweeper.js'
+import {
+  runServiceLeaseSweep,
+  serviceLeaseSweeperStats,
+  startServiceLeaseSweeper,
+} from '../../../../../../apps/coordinator/src/jobs/service-lease-sweeper.js'
 
 interface Step {
   match?: RegExp
@@ -30,12 +34,12 @@ function clientFromSteps(steps: Step[]) {
 }
 
 describe('runServiceLeaseSweep', () => {
-  afterEach(() => { vi.useRealTimers() })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
 
   it('skips work when the advisory lock is held by another node', async () => {
-    const client = clientFromSteps([
-      { match: /pg_try_advisory_xact_lock/, rows: [{ acquired: false }] },
-    ])
+    const client = clientFromSteps([{ match: /pg_try_advisory_xact_lock/, rows: [{ acquired: false }] }])
     const db = { connect: vi.fn().mockResolvedValueOnce(client) }
     await expect(runServiceLeaseSweep(db as never)).resolves.toBe(0)
     expect(client.query).toHaveBeenCalledWith('ROLLBACK')
@@ -69,12 +73,9 @@ describe('runServiceLeaseSweep', () => {
 
     const outboxInserts = client.calls.filter(([sql]) => sql.includes('INSERT INTO caracal_outbox'))
     const allDedupes = outboxInserts.flatMap(([, params]) => (params ?? []) as unknown[])
-    expect(allDedupes).toEqual(expect.arrayContaining([
-      'suspend:agent-1',
-      'suspend:agent-2',
-      'agent_suspend:agent-1',
-      'agent_suspend:agent-2',
-    ]))
+    expect(allDedupes).toEqual(
+      expect.arrayContaining(['suspend:agent-1', 'suspend:agent-2', 'agent_suspend:agent-1', 'agent_suspend:agent-2']),
+    )
     expect(client.query).toHaveBeenCalledWith('COMMIT')
   })
 

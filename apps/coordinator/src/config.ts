@@ -3,7 +3,7 @@
 //
 // Coordinator configuration loaded strictly from environment.
 
-import { getenv, mustGetenv, intEnv, boolEnv, resolveFileSecrets } from '@caracalai/core'
+import { getenv, mustGetenv, intEnv, boolEnv, resolveFileSecrets } from '@caracalai/server-core'
 
 resolveFileSecrets(['DATABASE_URL', 'REDIS_URL', 'STREAMS_HMAC_KEY', 'AUDIT_HMAC_KEY', 'CARACAL_COORDINATOR_TOKEN', 'METRICS_BEARER'])
 

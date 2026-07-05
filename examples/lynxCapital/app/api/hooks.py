@@ -5,6 +5,7 @@ Caracal, a product of Garudex Labs
 Webhook intake: receives signed callbacks from external providers, verifies
 HMAC signatures, deduplicates events, and republishes them on the bus.
 """
+
 from __future__ import annotations
 
 import hmac
@@ -24,11 +25,11 @@ router = APIRouter(prefix="/hooks", tags=["webhooks"])
 
 
 _SECRET_ENV = {
-    "halcyon-bank":     "LYNX_HALCYON_HOOK_SECRET",
-    "meridian-pay":     "LYNX_MERIDIAN_HOOK_SECRET",
-    "quetzal-payouts":  "LYNX_QUETZAL_HOOK_SECRET",
-    "inkwell-ocr":      "LYNX_INKWELL_HOOK_SECRET",
-    "beacon-crm":       "LYNX_BEACON_HOOK_SECRET",
+    "halcyon-bank": "LYNX_HALCYON_HOOK_SECRET",
+    "meridian-pay": "LYNX_MERIDIAN_HOOK_SECRET",
+    "quetzal-payouts": "LYNX_QUETZAL_HOOK_SECRET",
+    "inkwell-ocr": "LYNX_INKWELL_HOOK_SECRET",
+    "beacon-crm": "LYNX_BEACON_HOOK_SECRET",
 }
 
 
@@ -48,6 +49,7 @@ class _Dedup:
         url = os.getenv("LYNX_REDIS_URL")
         if url:
             import redis
+
             self._redis = redis.Redis.from_url(url, decode_responses=True)
 
     def seen(self, event_id: str) -> bool:
@@ -60,7 +62,10 @@ class _Dedup:
                 return True
             self._seen.append(event_id)
             self._set.add(event_id)
-            if len(self._seen) == self._seen.maxlen and len(self._set) > self._seen.maxlen:
+            if (
+                len(self._seen) == self._seen.maxlen
+                and len(self._set) > self._seen.maxlen
+            ):
                 self._set.intersection_update(self._seen)
             return False
 
@@ -71,10 +76,14 @@ _dedup = _Dedup()
 def _secret(provider: str) -> str:
     env = _SECRET_ENV.get(provider)
     if env is None:
-        raise HTTPException(status_code=404, detail={"error": f"unknown provider: {provider}"})
+        raise HTTPException(
+            status_code=404, detail={"error": f"unknown provider: {provider}"}
+        )
     val = os.getenv(env)
     if not val:
-        raise HTTPException(status_code=503, detail={"error": f"webhook secret missing: {env}"})
+        raise HTTPException(
+            status_code=503, detail={"error": f"webhook secret missing: {env}"}
+        )
     return val
 
 
@@ -92,7 +101,9 @@ def _verify(provider: str, body: bytes, header: str) -> None:
             raise HTTPException(status_code=400, detail={"error": "stale signature"})
     except ValueError as exc:
         raise HTTPException(status_code=400, detail={"error": "bad timestamp"}) from exc
-    expected = hmac.new(_secret(provider).encode(), f"{ts}.".encode() + body, sha256).hexdigest()
+    expected = hmac.new(
+        _secret(provider).encode(), f"{ts}.".encode() + body, sha256
+    ).hexdigest()
     if not hmac.compare_digest(expected, mac):
         raise HTTPException(status_code=401, detail={"error": "signature mismatch"})
 
@@ -113,12 +124,14 @@ async def receive(
         payload = await request.json()
     except Exception:
         payload = {"raw": body.decode("utf-8", errors="replace")}
-    bus.publish(Event(
-        run_id="webhook",
-        category="service",
-        kind="webhook.received",
-        payload={"provider": provider, "event_id": event_id, "body": payload},
-    ))
+    bus.publish(
+        Event(
+            run_id="webhook",
+            category="service",
+            kind="webhook.received",
+            payload={"provider": provider, "event_id": event_id, "body": payload},
+        )
+    )
     return {"ack": True}
 
 

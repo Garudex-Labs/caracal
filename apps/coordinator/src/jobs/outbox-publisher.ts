@@ -5,7 +5,8 @@
 
 import type { Pool } from 'pg'
 import type { Redis } from 'ioredis'
-import { STREAM_SIG_FIELD, isPublished, loadStreamsHmacKey, signStream } from '@caracalai/core'
+import { STREAM_SIG_FIELD, signStream } from '@caracalai/core'
+import { isPublished, loadStreamsHmacKey } from '@caracalai/server-core'
 import { type JobHandle, type JobLogger, makeIntervalJob } from './job.js'
 import { cfg } from '../config.js'
 
@@ -29,11 +30,7 @@ export interface OutboxPublisherOptions {
   log?: JobLogger
 }
 
-export function startOutboxPublisher(
-  db: Pool,
-  redis: Redis,
-  options: OutboxPublisherOptions = {},
-): JobHandle {
+export function startOutboxPublisher(db: Pool, redis: Redis, options: OutboxPublisherOptions = {}): JobHandle {
   const intervalMs = options.intervalMs ?? cfg.outboxIntervalMs
   const batchSize = options.batchSize ?? cfg.outboxBatchSize
   const maxAttempts = options.maxAttempts ?? cfg.outboxMaxAttempts
@@ -45,13 +42,7 @@ export function startOutboxPublisher(
   )
 }
 
-export async function publishBatch(
-  db: Pool,
-  redis: Redis,
-  batchSize: number,
-  maxAttempts: number,
-  log?: JobLogger,
-): Promise<void> {
+export async function publishBatch(db: Pool, redis: Redis, batchSize: number, maxAttempts: number, log?: JobLogger): Promise<void> {
   const client = await db.connect()
   try {
     await client.query('BEGIN')

@@ -142,9 +142,15 @@ function selectPackages(packages, options, files) {
   const publishable = packages.filter((pkg) => pkg.publish !== false)
   if (options.allPackages) return publishable
   if (options.packages.size) {
-    return withDependents(publishable, publishable.filter((pkg) => packageMatches(pkg, options.packages)))
+    return withDependents(
+      publishable,
+      publishable.filter((pkg) => packageMatches(pkg, options.packages)),
+    )
   }
-  return withDependents(publishable, publishable.filter((pkg) => packageTouched(pkg, files)))
+  return withDependents(
+    publishable,
+    publishable.filter((pkg) => packageTouched(pkg, files)),
+  )
 }
 
 function packageSets(packages, selected) {
@@ -163,23 +169,26 @@ function matrixPackage(pkg) {
 function main() {
   const options = parseArgs(process.argv.slice(2))
   const inventory = releaseInventory()
-  const base = options.allPackages ? '' : (options.base || defaultBase(options.head))
+  const base = options.allPackages ? '' : options.base || defaultBase(options.head)
   if (!options.allPackages && !base && !options.packages.size) die('no base tag; pass --since, --package, or --all-packages')
   if (options.base) explicitBase(options.base)
   const head = headCommit(options.head)
   const files = options.allPackages ? [] : diffFiles(base, head)
   const ecosystems = options.ecosystem === 'all' ? ['npm', 'pypi'] : [options.ecosystem]
-  const selected = Object.fromEntries(ecosystems.map((ecosystem) => [
-    ecosystem,
-    selectPackages(inventory.packages[ecosystem], options, files),
-  ]))
+  const selected = Object.fromEntries(
+    ecosystems.map((ecosystem) => [ecosystem, selectPackages(inventory.packages[ecosystem], options, files)]),
+  )
   const plan = {
     base: base || null,
     head,
     changedFiles: files,
     packages: {
-      published: Object.fromEntries(ecosystems.map((ecosystem) => [ecosystem, packageSets(inventory.packages[ecosystem], selected[ecosystem]).published])),
-      unchanged: Object.fromEntries(ecosystems.map((ecosystem) => [ecosystem, packageSets(inventory.packages[ecosystem], selected[ecosystem]).unchanged])),
+      published: Object.fromEntries(
+        ecosystems.map((ecosystem) => [ecosystem, packageSets(inventory.packages[ecosystem], selected[ecosystem]).published]),
+      ),
+      unchanged: Object.fromEntries(
+        ecosystems.map((ecosystem) => [ecosystem, packageSets(inventory.packages[ecosystem], selected[ecosystem]).unchanged]),
+      ),
     },
     matrix: {
       include: ecosystems.flatMap((ecosystem) => selected[ecosystem].map(matrixPackage)),

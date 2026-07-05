@@ -3,7 +3,7 @@
 //
 // The plan credential vault: derives which credential fields a plan step needs and holds pasted values sealed at rest until the step applies them.
 
-import { loadZoneKek, open, seal } from '@caracalai/core'
+import { loadZoneKek, open, seal } from '@caracalai/server-core'
 import { PROVIDER_KINDS, PUBLIC_PROVIDER_CONFIG_KEYS, type ProviderKind } from './provider-config.js'
 
 // The longest single credential value accepted: bounded to hold a PEM private key while

@@ -31,6 +31,7 @@ class AuditEvent:
 
     JSON field names are the on-the-wire contract; do not rename.
     """
+
     id: str
     zone_id: str
     event_type: str
@@ -110,7 +111,9 @@ class AuditClient:
         self._replay_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.replay_pending()
         if self._thread is None:
-            self._thread = threading.Thread(target=self._run, name="caracal-audit-flush", daemon=True)
+            self._thread = threading.Thread(
+                target=self._run, name="caracal-audit-flush", daemon=True
+            )
             self._thread.start()
 
     def emit(self, event: AuditEvent) -> None:
@@ -191,7 +194,9 @@ class AuditClient:
     def _sign(self, data: str) -> str | None:
         if not self._audit_hmac_key:
             return None
-        return hmac.new(self._audit_hmac_key, data.encode("utf-8"), hashlib.sha256).hexdigest()
+        return hmac.new(
+            self._audit_hmac_key, data.encode("utf-8"), hashlib.sha256
+        ).hexdigest()
 
     def _xadd(self, ev: AuditEvent) -> None:
         data = json.dumps(ev.to_wire(), separators=(",", ":"), sort_keys=True)
@@ -206,10 +211,19 @@ class AuditClient:
         if not items:
             return
         nonce = secrets.token_hex(4)
-        path = self._replay_dir / f"pending-{os.getpid()}-{int(time.time()*1000)}-{nonce}.ndjson"
+        path = (
+            self._replay_dir
+            / f"pending-{os.getpid()}-{int(time.time() * 1000)}-{nonce}.ndjson"
+        )
         try:
             tmp = path.with_suffix(".ndjson.tmp")
-            body = "\n".join(json.dumps(ev.to_wire(), separators=(",", ":"), sort_keys=True) for ev in items) + "\n"
+            body = (
+                "\n".join(
+                    json.dumps(ev.to_wire(), separators=(",", ":"), sort_keys=True)
+                    for ev in items
+                )
+                + "\n"
+            )
             with open(tmp, "w", encoding="utf-8") as fh:
                 fh.write(body)
             os.chmod(tmp, 0o600)
@@ -217,7 +231,11 @@ class AuditClient:
             self._persisted += len(items)
             if self._on_replay_persisted:
                 self._on_replay_persisted(len(items))
-            self._logger.warn("audit batch persisted to disk for later replay", path=str(path), count=len(items))
+            self._logger.warn(
+                "audit batch persisted to disk for later replay",
+                path=str(path),
+                count=len(items),
+            )
         except OSError as exc:
             self._logger.error("audit replay file write", path=str(path), err=str(exc))
 
@@ -240,7 +258,9 @@ class AuditClient:
                             request_id=raw["request_id"],
                             decision=raw["decision"],
                             evaluation_status=raw["evaluation_status"],
-                            determining_policies_json=raw.get("determining_policies_json", []),
+                            determining_policies_json=raw.get(
+                                "determining_policies_json", []
+                            ),
                             diagnostics_json=raw.get("diagnostics_json", {}),
                             occurred_at=raw.get("occurred_at", ""),
                             policy_set_id=raw.get("policy_set_id"),
@@ -254,9 +274,15 @@ class AuditClient:
                 self._drained += replayed
                 if self._on_replay_drained and replayed > 0:
                     self._on_replay_drained(replayed)
-                self._logger.info("audit replay file drained", path=str(path), count=replayed)
+                self._logger.info(
+                    "audit replay file drained", path=str(path), count=replayed
+                )
             except Exception as exc:  # noqa: BLE001
-                self._logger.error("audit replay file failed; will retry on next start", path=str(path), err=str(exc))
+                self._logger.error(
+                    "audit replay file failed; will retry on next start",
+                    path=str(path),
+                    err=str(exc),
+                )
 
 
 def default_replay_dir(service: str) -> str:

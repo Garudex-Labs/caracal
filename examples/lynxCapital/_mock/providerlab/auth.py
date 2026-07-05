@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 Per-category request authenticators that reject calls exactly as the matching real provider would.
 """
+
 from __future__ import annotations
 
 from starlette.requests import Request
@@ -12,7 +13,9 @@ from _mock.providerlab import catalog, credentials, mandate
 
 
 class AuthError(Exception):
-    def __init__(self, status: int, code: str, message: str, details: dict | None = None):
+    def __init__(
+        self, status: int, code: str, message: str, details: dict | None = None
+    ):
         super().__init__(message)
         self.status = status
         self.code = code
@@ -25,7 +28,7 @@ def _bearer_from(request: Request, header: str, scheme: str) -> str:
     if not raw:
         return ""
     if scheme and raw.lower().startswith(scheme.lower() + " "):
-        return raw[len(scheme) + 1:].strip()
+        return raw[len(scheme) + 1 :].strip()
     return raw.strip()
 
 
@@ -44,12 +47,20 @@ async def authenticate(provider: catalog.Provider, request: Request) -> dict:
             presented = request.headers.get(provider.apikey_field, "")
         # A gRPC service authenticates the metadata token at the protocol level and
         # rejects with UNAUTHENTICATED in its trailers when it is absent or invalid.
-        grpc_md = {"grpcStatus": "UNAUTHENTICATED", "grpcCode": 16} if provider.protocol == "grpc" else None
+        grpc_md = (
+            {"grpcStatus": "UNAUTHENTICATED", "grpcCode": 16}
+            if provider.protocol == "grpc"
+            else None
+        )
         if not presented:
-            raise AuthError(401, "missing_api_key", f"provide {provider.apikey_field}", grpc_md)
+            raise AuthError(
+                401, "missing_api_key", f"provide {provider.apikey_field}", grpc_md
+            )
         rec = store.find_api_key(presented)
         if rec is None:
-            raise AuthError(401, "invalid_api_key", "unknown or revoked API key", grpc_md)
+            raise AuthError(
+                401, "invalid_api_key", "unknown or revoked API key", grpc_md
+            )
         store.touch("apiKey", presented)
         return {"principal": rec["keyId"], "auth": "api_key"}
 
@@ -70,15 +81,26 @@ async def authenticate(provider: catalog.Provider, request: Request) -> dict:
         rec = store.find_bearer(presented)
         if rec is not None:
             store.touch("bearer", presented)
-            return {"principal": rec["tokenId"], "auth": "pat", "scope": list(provider.scopes)}
+            return {
+                "principal": rec["tokenId"],
+                "auth": "pat",
+                "scope": list(provider.scopes),
+            }
         token = store.valid_access_token(presented)
         if token is None:
             raise AuthError(401, "invalid_token", "missing or expired access token")
         if provider.audience and token.get("audience") != provider.audience:
-            raise AuthError(403, "invalid_audience",
-                            f"access token is not authorized for resource {provider.audience}")
+            raise AuthError(
+                403,
+                "invalid_audience",
+                f"access token is not authorized for resource {provider.audience}",
+            )
         store.touch_client(token["clientId"])
-        return {"principal": token["clientId"], "auth": "oauth", "scope": token["scope"]}
+        return {
+            "principal": token["clientId"],
+            "auth": "oauth",
+            "scope": token["scope"],
+        }
 
     if cat == "caracal_mandate" or (cat == "mcp" and provider.mcp_auth == "mandate"):
         presented = _bearer_from(request, provider.auth_header, provider.auth_scheme)
@@ -95,7 +117,12 @@ async def authenticate(provider: catalog.Provider, request: Request) -> dict:
         except mandate.VerifyError as exc:
             if exc.code in ("verifier_unavailable", "partnership_unconfigured"):
                 status = 503
-            elif exc.code in ("insufficient_scope", "delegation_required", "session_revoked", "invalid_zone"):
+            elif exc.code in (
+                "insufficient_scope",
+                "delegation_required",
+                "session_revoked",
+                "invalid_zone",
+            ):
                 status = 403
             else:
                 status = 401

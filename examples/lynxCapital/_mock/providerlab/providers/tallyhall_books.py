@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 Tallyhall Books domain: a QuickBooks Online-style SMB company file with a chart of accounts, vendors, customers, bills, invoices, expenses, payments, journal entries, and financial reports.
 """
+
 from __future__ import annotations
 
 import time
@@ -17,9 +18,15 @@ ID = "tallyhall-books"
 ACCOUNTING = "com.intuit.quickbooks.accounting"
 PAYMENT = "com.intuit.quickbooks.payment"
 
-_REPORTS = ("ProfitAndLoss", "BalanceSheet", "AgedPayables",
-            "AgedReceivables", "TrialBalance",
-            "CustomerBalance", "VendorBalance")
+_REPORTS = (
+    "ProfitAndLoss",
+    "BalanceSheet",
+    "AgedPayables",
+    "AgedReceivables",
+    "TrialBalance",
+    "CustomerBalance",
+    "VendorBalance",
+)
 
 
 def _iso(epoch: int) -> str:
@@ -60,8 +67,11 @@ def _check_realm(ctx: Ctx) -> None:
     rejected with 401 the way Intuit's gateway rejects a mismatched realm."""
     requested = ctx.get("realmId")
     if requested and str(requested) != _company(ctx)["realmId"]:
-        raise DomainError(401, "AuthenticationFailed",
-                          f"token is not authorized for realm {requested}")
+        raise DomainError(
+            401,
+            "AuthenticationFailed",
+            f"token is not authorized for realm {requested}",
+        )
 
 
 def _guard(ctx: Ctx, scope: str) -> None:
@@ -124,10 +134,14 @@ def get_account(ctx: Ctx) -> dict:
     accounts = ctx.state.table("accounts")
     account_id = ctx.payload.get("accountId")
     if account_id is None:
-        raise DomainError(400, "ValidationFault", "missing required field(s): accountId")
+        raise DomainError(
+            400, "ValidationFault", "missing required field(s): accountId"
+        )
     acct = accounts.get(str(account_id))
     if acct is None:
-        acct = next((a for a in accounts.values() if a["AcctNum"] == str(account_id)), None)
+        acct = next(
+            (a for a in accounts.values() if a["AcctNum"] == str(account_id)), None
+        )
     if acct is None:
         raise DomainError(404, "account_not_found", str(account_id))
     return acct
@@ -163,8 +177,9 @@ def create_vendor(ctx: Ctx) -> dict:
     name = str(ctx.payload["displayName"])
     for existing in ctx.state.table("vendors").values():
         if existing["DisplayName"].lower() == name.lower():
-            raise DomainError(400, "DuplicateName",
-                              f"another vendor already uses the name {name!r}")
+            raise DomainError(
+                400, "DuplicateName", f"another vendor already uses the name {name!r}"
+            )
     now = base.now()
     currency = ctx.get("currency", "USD")
     vendor = {
@@ -218,8 +233,9 @@ def create_customer(ctx: Ctx) -> dict:
     name = str(ctx.payload["displayName"])
     for existing in ctx.state.table("customers").values():
         if existing["DisplayName"].lower() == name.lower():
-            raise DomainError(400, "DuplicateName",
-                              f"another customer already uses the name {name!r}")
+            raise DomainError(
+                400, "DuplicateName", f"another customer already uses the name {name!r}"
+            )
     now = base.now()
     currency = ctx.get("currency", "USD")
     taxable = bool(ctx.get("taxable", currency == "USD"))
@@ -299,22 +315,33 @@ def create_bill(ctx: Ctx) -> dict:
     _guard(ctx, ACCOUNTING)
     vendor = _lookup(ctx, "vendors", "vendorId", "vendor_not_found")
     if not vendor["Active"]:
-        raise DomainError(400, "ObjectInactive",
-                          f"vendor {vendor['Id']} is inactive and cannot be billed")
+        raise DomainError(
+            400,
+            "ObjectInactive",
+            f"vendor {vendor['Id']} is inactive and cannot be billed",
+        )
     currency = ctx.get("currency", vendor["CurrencyRef"]["value"])
     if currency != vendor["CurrencyRef"]["value"]:
-        raise DomainError(400, "CurrencyMismatch",
-                          f"vendor transacts in {vendor['CurrencyRef']['value']}, not {currency}")
+        raise DomainError(
+            400,
+            "CurrencyMismatch",
+            f"vendor transacts in {vendor['CurrencyRef']['value']}, not {currency}",
+        )
     accounts = ctx.state.table("accounts")
     ap = next(a for a in accounts.values() if a["AccountSubType"] == "AccountsPayable")
 
     doc_number = ctx.get("docNumber")
     if doc_number:
         for existing in ctx.state.table("bills").values():
-            if (existing["VendorRef"]["value"] == vendor["Id"]
-                    and existing.get("DocNumber") == doc_number):
-                raise DomainError(400, "DuplicateDocNum",
-                                  f"bill {doc_number} already recorded as {existing['Id']}")
+            if (
+                existing["VendorRef"]["value"] == vendor["Id"]
+                and existing.get("DocNumber") == doc_number
+            ):
+                raise DomainError(
+                    400,
+                    "DuplicateDocNum",
+                    f"bill {doc_number} already recorded as {existing['Id']}",
+                )
 
     lines = _expense_lines(ctx, accounts, currency)
     total = gen._qbo_round(sum(line["Amount"] for line in lines), currency)
@@ -373,8 +400,11 @@ def pay_bill(ctx: Ctx) -> dict:
     if amount <= 0:
         raise DomainError(400, "ValidationFault", "payment amount must be positive")
     if amount > bill["Balance"] + 1e-6:
-        raise DomainError(400, "AmountExceedsBalance",
-                          f"amount {amount} exceeds bill balance {bill['Balance']}")
+        raise DomainError(
+            400,
+            "AmountExceedsBalance",
+            f"amount {amount} exceeds bill balance {bill['Balance']}",
+        )
     accounts = ctx.state.table("accounts")
     pay_type = ctx.get("payType", "Check")
     funding = _funding_account(accounts, pay_type)
@@ -386,16 +416,22 @@ def pay_bill(ctx: Ctx) -> dict:
         "TxnDate": ctx.get("txnDate", _today()),
         "CurrencyRef": gen._ccy_ref(currency),
         "TotalAmt": amount,
-        "Line": [{"Amount": amount, "LinkedTxn": [{"TxnId": bill["Id"], "TxnType": "Bill"}]}],
+        "Line": [
+            {"Amount": amount, "LinkedTxn": [{"TxnId": bill["Id"], "TxnType": "Bill"}]}
+        ],
         "domain": "QBO",
         "sparse": False,
         "SyncToken": "0",
         "MetaData": _meta(now),
     }
     if pay_type == "Check":
-        payment["CheckPayment"] = {"BankAccountRef": {"value": funding["Id"], "name": funding["Name"]}}
+        payment["CheckPayment"] = {
+            "BankAccountRef": {"value": funding["Id"], "name": funding["Name"]}
+        }
     else:
-        payment["CreditCardPayment"] = {"CCAccountRef": {"value": funding["Id"], "name": funding["Name"]}}
+        payment["CreditCardPayment"] = {
+            "CCAccountRef": {"value": funding["Id"], "name": funding["Name"]}
+        }
     ctx.state.table("bill_payments")[payment["Id"]] = payment
 
     bill["Balance"] = round(bill["Balance"] - amount, 2)
@@ -457,7 +493,9 @@ def create_invoice(ctx: Ctx) -> dict:
     customer = _resolve_customer(ctx)
     currency = ctx.get("currency", customer["CurrencyRef"]["value"])
     accounts = ctx.state.table("accounts")
-    ar = next(a for a in accounts.values() if a["AccountSubType"] == "AccountsReceivable")
+    ar = next(
+        a for a in accounts.values() if a["AccountSubType"] == "AccountsReceivable"
+    )
     income = next(a for a in accounts.values() if a["AcctNum"] == "4000")
     lines = _sales_lines(ctx, currency)
     subtotal = gen._qbo_round(sum(line["Amount"] for line in lines), currency)
@@ -472,8 +510,14 @@ def create_invoice(ctx: Ctx) -> dict:
         "TxnDate": ctx.get("txnDate", _today()),
         "DueDate": ctx.get("dueDate", _date_plus(int(ctx.get("dueInDays", 30)))),
         "CurrencyRef": gen._ccy_ref(currency),
-        "Line": lines + [{"Amount": subtotal, "DetailType": "SubTotalLineDetail",
-                          "SubTotalLineDetail": {}}],
+        "Line": lines
+        + [
+            {
+                "Amount": subtotal,
+                "DetailType": "SubTotalLineDetail",
+                "SubTotalLineDetail": {},
+            }
+        ],
         "TxnTaxDetail": gen._qbo_tax_detail(tax, currency, customer["Taxable"]),
         "TotalAmt": total,
         "Balance": total,
@@ -483,7 +527,9 @@ def create_invoice(ctx: Ctx) -> dict:
         "BillAddr": customer.get("BillAddr"),
         "ShipAddr": customer.get("ShipAddr"),
         "BillEmail": customer.get("PrimaryEmailAddr", {"Address": ""}),
-        "CustomerMemo": {"value": ctx.get("customerMemo", "Thank you for your business.")},
+        "CustomerMemo": {
+            "value": ctx.get("customerMemo", "Thank you for your business.")
+        },
         "AllowOnlineCreditCardPayment": True,
         "AllowOnlineACHPayment": currency == gen._QBO_HOME_CCY,
         "PrivateNote": ctx.get("memo", ""),
@@ -509,9 +555,14 @@ def send_invoice(ctx: Ctx) -> dict:
     invoice = _lookup(ctx, "invoices", "invoiceId", "invoice_not_found")
     email = ctx.get("email") or invoice.get("BillEmail", {}).get("Address")
     if not email:
-        raise DomainError(400, "ValidationFault", "no billing email on file; provide email")
+        raise DomainError(
+            400, "ValidationFault", "no billing email on file; provide email"
+        )
     invoice["EmailStatus"] = "EmailSent"
-    invoice["DeliveryInfo"] = {"DeliveryType": "Email", "DeliveryTime": _iso(base.now())}
+    invoice["DeliveryInfo"] = {
+        "DeliveryType": "Email",
+        "DeliveryTime": _iso(base.now()),
+    }
     invoice["BillEmail"] = {"Address": email}
     return _invoice_view(_bump(invoice))
 
@@ -521,10 +572,15 @@ def void_invoice(ctx: Ctx) -> dict:
     _guard(ctx, ACCOUNTING)
     invoice = _lookup(ctx, "invoices", "invoiceId", "invoice_not_found")
     if invoice.get("LinkedTxn"):
-        raise DomainError(400, "VoidNotAllowed",
-                          "invoice has applied payments; unapply them before voiding")
+        raise DomainError(
+            400,
+            "VoidNotAllowed",
+            "invoice has applied payments; unapply them before voiding",
+        )
     accounts = ctx.state.table("accounts")
-    ar = next(a for a in accounts.values() if a["AccountSubType"] == "AccountsReceivable")
+    ar = next(
+        a for a in accounts.values() if a["AccountSubType"] == "AccountsReceivable"
+    )
     customer = ctx.state.table("customers").get(invoice["CustomerRef"]["value"])
     if customer and invoice["Balance"]:
         customer["Balance"] = round(customer["Balance"] - invoice["Balance"], 2)
@@ -552,11 +608,18 @@ def record_payment(ctx: Ctx) -> dict:
     if amount <= 0:
         raise DomainError(400, "ValidationFault", "payment amount must be positive")
     if amount > invoice["Balance"] + 1e-6:
-        raise DomainError(400, "AmountExceedsBalance",
-                          f"amount {amount} exceeds invoice balance {invoice['Balance']}")
+        raise DomainError(
+            400,
+            "AmountExceedsBalance",
+            f"amount {amount} exceeds invoice balance {invoice['Balance']}",
+        )
     accounts = ctx.state.table("accounts")
-    deposit = next(a for a in accounts.values() if a["AccountSubType"] == "UndepositedFunds")
-    ar = next(a for a in accounts.values() if a["AccountSubType"] == "AccountsReceivable")
+    deposit = next(
+        a for a in accounts.values() if a["AccountSubType"] == "UndepositedFunds"
+    )
+    ar = next(
+        a for a in accounts.values() if a["AccountSubType"] == "AccountsReceivable"
+    )
     now = base.now()
     payment = {
         "Id": _qid(ctx),
@@ -567,7 +630,12 @@ def record_payment(ctx: Ctx) -> dict:
         "UnappliedAmt": 0.0,
         "PaymentMethodRef": {"value": ctx.get("paymentMethod", "Check")},
         "DepositToAccountRef": {"value": deposit["Id"], "name": deposit["Name"]},
-        "Line": [{"Amount": amount, "LinkedTxn": [{"TxnId": invoice["Id"], "TxnType": "Invoice"}]}],
+        "Line": [
+            {
+                "Amount": amount,
+                "LinkedTxn": [{"TxnId": invoice["Id"], "TxnType": "Invoice"}],
+            }
+        ],
         "domain": "QBO",
         "sparse": False,
         "SyncToken": "0",
@@ -622,7 +690,11 @@ def create_expense(ctx: Ctx) -> dict:
         "PaymentType": pay_type,
         "DocNumber": ctx.get("docNumber"),
         "AccountRef": {"value": funding["Id"], "name": funding["Name"]},
-        "EntityRef": {"value": vendor["Id"], "name": vendor["DisplayName"], "type": "Vendor"},
+        "EntityRef": {
+            "value": vendor["Id"],
+            "name": vendor["DisplayName"],
+            "type": "Vendor",
+        },
         "TxnDate": ctx.get("txnDate", _today()),
         "CurrencyRef": gen._ccy_ref(currency),
         "TotalAmt": total,
@@ -637,7 +709,9 @@ def create_expense(ctx: Ctx) -> dict:
     funding["CurrentBalance"] = round(funding["CurrentBalance"] - total, 2)
     for line in lines:
         acct_id = line["AccountBasedExpenseLineDetail"]["AccountRef"]["value"]
-        accounts[acct_id]["CurrentBalance"] = round(accounts[acct_id]["CurrentBalance"] + line["Amount"], 2)
+        accounts[acct_id]["CurrentBalance"] = round(
+            accounts[acct_id]["CurrentBalance"] + line["Amount"], 2
+        )
     return expense
 
 
@@ -647,8 +721,11 @@ def create_expense(ctx: Ctx) -> dict:
 @base.op(ID, "list_journal_entries")
 def list_journal_entries(ctx: Ctx) -> dict:
     _guard(ctx, ACCOUNTING)
-    items = sorted(ctx.state.table("journal_entries").values(),
-                   key=lambda e: e["TxnDate"], reverse=True)
+    items = sorted(
+        ctx.state.table("journal_entries").values(),
+        key=lambda e: e["TxnDate"],
+        reverse=True,
+    )
     return ctx.paginate(items, size_default=20)
 
 
@@ -663,32 +740,41 @@ def post_journal_entry(ctx: Ctx) -> dict:
     _guard(ctx, ACCOUNTING)
     raw_lines = ctx.get("lines") or []
     if len(raw_lines) < 2:
-        raise DomainError(400, "ValidationFault", "a journal entry needs at least two lines")
+        raise DomainError(
+            400, "ValidationFault", "a journal entry needs at least two lines"
+        )
     accounts = ctx.state.table("accounts")
     debit = credit = 0.0
     lines = []
     for n, line in enumerate(raw_lines):
         acct = _resolve_account(accounts, str(line.get("account", "")))
         if acct is None:
-            raise DomainError(400, "InvalidAccountRef",
-                              f"account {line.get('account')} is not in the chart")
+            raise DomainError(
+                400,
+                "InvalidAccountRef",
+                f"account {line.get('account')} is not in the chart",
+            )
         d = float(line.get("debit", 0) or 0)
         c = float(line.get("credit", 0) or 0)
         posting = "Debit" if d else "Credit"
         debit += d
         credit += c
-        lines.append({
-            "Id": str(n),
-            "Description": line.get("memo", ""),
-            "Amount": d or c,
-            "DetailType": "JournalEntryLineDetail",
-            "JournalEntryLineDetail": {
-                "PostingType": posting,
-                "AccountRef": {"value": acct["Id"], "name": acct["Name"]},
-            },
-        })
+        lines.append(
+            {
+                "Id": str(n),
+                "Description": line.get("memo", ""),
+                "Amount": d or c,
+                "DetailType": "JournalEntryLineDetail",
+                "JournalEntryLineDetail": {
+                    "PostingType": posting,
+                    "AccountRef": {"value": acct["Id"], "name": acct["Name"]},
+                },
+            }
+        )
     if round(debit - credit, 2) != 0:
-        raise DomainError(400, "UnbalancedTransaction", f"debits {debit} != credits {credit}")
+        raise DomainError(
+            400, "UnbalancedTransaction", f"debits {debit} != credits {credit}"
+        )
     now = base.now()
     entry = {
         "Id": _qid(ctx),
@@ -707,8 +793,14 @@ def post_journal_entry(ctx: Ctx) -> dict:
     ctx.state.table("journal_entries")[entry["Id"]] = entry
     for line in lines:
         acct_id = line["JournalEntryLineDetail"]["AccountRef"]["value"]
-        delta = line["Amount"] if line["JournalEntryLineDetail"]["PostingType"] == "Debit" else -line["Amount"]
-        accounts[acct_id]["CurrentBalance"] = round(accounts[acct_id]["CurrentBalance"] + delta, 2)
+        delta = (
+            line["Amount"]
+            if line["JournalEntryLineDetail"]["PostingType"] == "Debit"
+            else -line["Amount"]
+        )
+        accounts[acct_id]["CurrentBalance"] = round(
+            accounts[acct_id]["CurrentBalance"] + delta, 2
+        )
     return entry
 
 
@@ -720,8 +812,11 @@ def get_report(ctx: Ctx) -> dict:
     _guard(ctx, ACCOUNTING)
     name = ctx.get("reportType", "ProfitAndLoss")
     if name not in _REPORTS:
-        raise DomainError(400, "InvalidReport",
-                          f"unknown report {name!r}; supported: {', '.join(_REPORTS)}")
+        raise DomainError(
+            400,
+            "InvalidReport",
+            f"unknown report {name!r}; supported: {', '.join(_REPORTS)}",
+        )
     builder = {
         "ProfitAndLoss": _report_pl,
         "BalanceSheet": _report_balance_sheet,
@@ -764,20 +859,45 @@ def _report_pl(ctx: Ctx) -> dict:
     net = round(income_total - expense_total, 2)
     return {
         "Header": _report_header("ProfitAndLoss"),
-        "Columns": {"Column": [{"ColTitle": "", "ColType": "Account"},
-                               {"ColTitle": "Total", "ColType": "Money"}]},
-        "Rows": {"Row": [
-            {"Header": {"ColData": [{"value": "Income"}]},
-             "Rows": {"Row": income_rows},
-             "Summary": {"ColData": [{"value": "Total Income"}, {"value": f"{income_total:.2f}"}]},
-             "type": "Section"},
-            {"Header": {"ColData": [{"value": "Expenses"}]},
-             "Rows": {"Row": expense_rows},
-             "Summary": {"ColData": [{"value": "Total Expenses"}, {"value": f"{expense_total:.2f}"}]},
-             "type": "Section"},
-            {"Summary": {"ColData": [{"value": "Net Income"}, {"value": f"{net:.2f}"}]},
-             "type": "Section", "group": "NetIncome"},
-        ]},
+        "Columns": {
+            "Column": [
+                {"ColTitle": "", "ColType": "Account"},
+                {"ColTitle": "Total", "ColType": "Money"},
+            ]
+        },
+        "Rows": {
+            "Row": [
+                {
+                    "Header": {"ColData": [{"value": "Income"}]},
+                    "Rows": {"Row": income_rows},
+                    "Summary": {
+                        "ColData": [
+                            {"value": "Total Income"},
+                            {"value": f"{income_total:.2f}"},
+                        ]
+                    },
+                    "type": "Section",
+                },
+                {
+                    "Header": {"ColData": [{"value": "Expenses"}]},
+                    "Rows": {"Row": expense_rows},
+                    "Summary": {
+                        "ColData": [
+                            {"value": "Total Expenses"},
+                            {"value": f"{expense_total:.2f}"},
+                        ]
+                    },
+                    "type": "Section",
+                },
+                {
+                    "Summary": {
+                        "ColData": [{"value": "Net Income"}, {"value": f"{net:.2f}"}]
+                    },
+                    "type": "Section",
+                    "group": "NetIncome",
+                },
+            ]
+        },
     }
 
 
@@ -792,23 +912,38 @@ def _report_balance_sheet(ctx: Ctx) -> dict:
             totals[cls] += acct["CurrentBalance"]
     rows = []
     for cls in ("Asset", "Liability", "Equity"):
-        rows.append({
-            "Header": {"ColData": [{"value": cls}]},
-            "Rows": {"Row": sections[cls]},
-            "Summary": {"ColData": [{"value": f"Total {cls}"}, {"value": f"{totals[cls]:.2f}"}]},
-            "type": "Section",
-        })
+        rows.append(
+            {
+                "Header": {"ColData": [{"value": cls}]},
+                "Rows": {"Row": sections[cls]},
+                "Summary": {
+                    "ColData": [
+                        {"value": f"Total {cls}"},
+                        {"value": f"{totals[cls]:.2f}"},
+                    ]
+                },
+                "type": "Section",
+            }
+        )
     return {
         "Header": _report_header("BalanceSheet"),
-        "Columns": {"Column": [{"ColTitle": "", "ColType": "Account"},
-                               {"ColTitle": "Total", "ColType": "Money"}]},
+        "Columns": {
+            "Column": [
+                {"ColTitle": "", "ColType": "Account"},
+                {"ColTitle": "Total", "ColType": "Money"},
+            ]
+        },
         "Rows": {"Row": rows},
-        "Reconciled": round(totals["Asset"] - totals["Liability"] - totals["Equity"], 2),
+        "Reconciled": round(
+            totals["Asset"] - totals["Liability"] - totals["Equity"], 2
+        ),
     }
 
 
 def _aging_bucket(due_date: str) -> str:
-    days = (gen.date.fromisoformat(_today()) - gen.date.fromisoformat(due_date[:10])).days
+    days = (
+        gen.date.fromisoformat(_today()) - gen.date.fromisoformat(due_date[:10])
+    ).days
     if days <= 0:
         return "Current"
     if days <= 30:
@@ -828,13 +963,18 @@ def _aging(records, ref_key: str) -> dict:
             continue
         bucket = _aging_bucket(rec["DueDate"])
         buckets[bucket] = round(buckets[bucket] + rec["Balance"], 2)
-        rows.append({"type": "Data", "ColData": [
-            {"value": rec[ref_key]["name"]},
-            {"value": rec.get("DocNumber", rec["Id"])},
-            {"value": rec["DueDate"]},
-            {"value": bucket},
-            {"value": f"{rec['Balance']:.2f}"},
-        ]})
+        rows.append(
+            {
+                "type": "Data",
+                "ColData": [
+                    {"value": rec[ref_key]["name"]},
+                    {"value": rec.get("DocNumber", rec["Id"])},
+                    {"value": rec["DueDate"]},
+                    {"value": bucket},
+                    {"value": f"{rec['Balance']:.2f}"},
+                ],
+            }
+        )
     return {"rows": rows, "buckets": buckets, "total": round(sum(buckets.values()), 2)}
 
 
@@ -842,8 +982,12 @@ def _report_aged_payables(ctx: Ctx) -> dict:
     aged = _aging(ctx.state.table("bills").values(), "VendorRef")
     return {
         "Header": _report_header("AgedPayables"),
-        "Columns": {"Column": [{"ColTitle": c} for c in
-                               ("Vendor", "Num", "Due Date", "Aging", "Open Balance")]},
+        "Columns": {
+            "Column": [
+                {"ColTitle": c}
+                for c in ("Vendor", "Num", "Due Date", "Aging", "Open Balance")
+            ]
+        },
         "Rows": {"Row": aged["rows"]},
         "Summary": {"Buckets": aged["buckets"], "Total": aged["total"]},
     }
@@ -853,8 +997,12 @@ def _report_aged_receivables(ctx: Ctx) -> dict:
     aged = _aging(ctx.state.table("invoices").values(), "CustomerRef")
     return {
         "Header": _report_header("AgedReceivables"),
-        "Columns": {"Column": [{"ColTitle": c} for c in
-                               ("Customer", "Num", "Due Date", "Aging", "Open Balance")]},
+        "Columns": {
+            "Column": [
+                {"ColTitle": c}
+                for c in ("Customer", "Num", "Due Date", "Aging", "Open Balance")
+            ]
+        },
         "Rows": {"Row": aged["rows"]},
         "Summary": {"Buckets": aged["buckets"], "Total": aged["total"]},
     }
@@ -867,21 +1015,34 @@ def _report_trial_balance(ctx: Ctx) -> dict:
         balance = acct["CurrentBalance"]
         if not balance:
             continue
-        debit_normal = (acct["Classification"] in ("Asset",)
-                        or acct["AccountType"] in ("Expense", "Cost of Goods Sold"))
+        debit_normal = acct["Classification"] in ("Asset",) or acct["AccountType"] in (
+            "Expense",
+            "Cost of Goods Sold",
+        )
         on_debit = (debit_normal and balance > 0) or (not debit_normal and balance < 0)
         debit = abs(balance) if on_debit else 0.0
         credit = abs(balance) if not on_debit else 0.0
         debit_total += debit
         credit_total += credit
-        rows.append({"type": "Data", "ColData": [
-            {"value": acct["Name"]},
-            {"value": f"{debit:.2f}" if debit else ""},
-            {"value": f"{credit:.2f}" if credit else ""},
-        ]})
+        rows.append(
+            {
+                "type": "Data",
+                "ColData": [
+                    {"value": acct["Name"]},
+                    {"value": f"{debit:.2f}" if debit else ""},
+                    {"value": f"{credit:.2f}" if credit else ""},
+                ],
+            }
+        )
     return {
         "Header": _report_header("TrialBalance"),
-        "Columns": {"Column": [{"ColTitle": "Account"}, {"ColTitle": "Debit"}, {"ColTitle": "Credit"}]},
+        "Columns": {
+            "Column": [
+                {"ColTitle": "Account"},
+                {"ColTitle": "Debit"},
+                {"ColTitle": "Credit"},
+            ]
+        },
         "Rows": {"Row": rows},
         "Summary": {"Debit": round(debit_total, 2), "Credit": round(credit_total, 2)},
     }
@@ -896,25 +1057,40 @@ def _entity_balance(records, name: str, ref_label: str) -> dict:
         if balance == 0.0:
             continue
         total += balance
-        rows.append({"type": "Data", "ColData": [
-            {"value": rec["DisplayName"], "id": rec["Id"]},
-            {"value": f"{balance:.2f}"},
-        ]})
+        rows.append(
+            {
+                "type": "Data",
+                "ColData": [
+                    {"value": rec["DisplayName"], "id": rec["Id"]},
+                    {"value": f"{balance:.2f}"},
+                ],
+            }
+        )
     return {
         "Header": _report_header(name),
-        "Columns": {"Column": [{"ColTitle": ref_label, "ColType": "String"},
-                               {"ColTitle": "Total", "ColType": "Money"}]},
+        "Columns": {
+            "Column": [
+                {"ColTitle": ref_label, "ColType": "String"},
+                {"ColTitle": "Total", "ColType": "Money"},
+            ]
+        },
         "Rows": {"Row": rows},
-        "Summary": {"ColData": [{"value": "TOTAL"}, {"value": f"{round(total, 2):.2f}"}]},
+        "Summary": {
+            "ColData": [{"value": "TOTAL"}, {"value": f"{round(total, 2):.2f}"}]
+        },
     }
 
 
 def _report_customer_balance(ctx: Ctx) -> dict:
-    return _entity_balance(ctx.state.table("customers").values(), "CustomerBalance", "Customer")
+    return _entity_balance(
+        ctx.state.table("customers").values(), "CustomerBalance", "Customer"
+    )
 
 
 def _report_vendor_balance(ctx: Ctx) -> dict:
-    return _entity_balance(ctx.state.table("vendors").values(), "VendorBalance", "Vendor")
+    return _entity_balance(
+        ctx.state.table("vendors").values(), "VendorBalance", "Vendor"
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -952,11 +1128,25 @@ def _resolve_customer(ctx: Ctx) -> dict:
     name = ctx.get("customer")
     if not name:
         raise DomainError(400, "ValidationFault", "provide customerId or customer")
-    match = next((c for c in customers.values() if c["DisplayName"].lower() == str(name).lower()), None)
+    match = next(
+        (
+            c
+            for c in customers.values()
+            if c["DisplayName"].lower() == str(name).lower()
+        ),
+        None,
+    )
     if match is not None:
         return match
-    return create_customer(Ctx(ctx.provider, ctx.state, "create_customer",
-                               {"displayName": str(name)}, ctx.principal))
+    return create_customer(
+        Ctx(
+            ctx.provider,
+            ctx.state,
+            "create_customer",
+            {"displayName": str(name)},
+            ctx.principal,
+        )
+    )
 
 
 def _expense_lines(ctx: Ctx, accounts: dict, currency: str) -> list[dict]:
@@ -966,15 +1156,27 @@ def _expense_lines(ctx: Ctx, accounts: dict, currency: str) -> list[dict]:
         for n, line in enumerate(raw, start=1):
             acct = _resolve_account(accounts, str(line.get("account", "6200")))
             if acct is None:
-                raise DomainError(400, "InvalidAccountRef", f"account {line.get('account')} not in chart")
+                raise DomainError(
+                    400,
+                    "InvalidAccountRef",
+                    f"account {line.get('account')} not in chart",
+                )
             amount = gen._qbo_round(float(line.get("amount", 0)), currency)
             if amount <= 0:
-                raise DomainError(400, "ValidationFault", "each line needs a positive amount")
-            lines.append(_expense_line(n, amount, acct, line.get("description", acct["Name"])))
+                raise DomainError(
+                    400, "ValidationFault", "each line needs a positive amount"
+                )
+            lines.append(
+                _expense_line(n, amount, acct, line.get("description", acct["Name"]))
+            )
         return lines
     amount = _amount(ctx, "amount")
     acct = _resolve_account(accounts, str(ctx.get("account", "6200"))) or accounts["1"]
-    lines.append(_expense_line(1, gen._qbo_round(amount, currency), acct, ctx.get("memo", acct["Name"])))
+    lines.append(
+        _expense_line(
+            1, gen._qbo_round(amount, currency), acct, ctx.get("memo", acct["Name"])
+        )
+    )
     return lines
 
 
@@ -999,12 +1201,20 @@ def _sales_lines(ctx: Ctx, currency: str) -> list[dict]:
     if isinstance(raw, list) and raw:
         for n, line in enumerate(raw, start=1):
             qty = int(line.get("quantity", 1))
-            rate = gen._qbo_round(float(line.get("rate", line.get("amount", 0))), currency)
+            rate = gen._qbo_round(
+                float(line.get("rate", line.get("amount", 0))), currency
+            )
             amount = gen._qbo_round(float(line.get("amount", qty * rate)), currency)
             if amount <= 0:
-                raise DomainError(400, "ValidationFault", "each line needs a positive amount")
+                raise DomainError(
+                    400, "ValidationFault", "each line needs a positive amount"
+                )
             item = items.get(str(line.get("itemId"))) if line.get("itemId") else None
-            lines.append(_sales_line(n, amount, qty, rate, item, line.get("description", "Sales")))
+            lines.append(
+                _sales_line(
+                    n, amount, qty, rate, item, line.get("description", "Sales")
+                )
+            )
         return lines
     amount = _amount(ctx, "amount")
     rounded = gen._qbo_round(amount, currency)
@@ -1012,7 +1222,9 @@ def _sales_lines(ctx: Ctx, currency: str) -> list[dict]:
     return lines
 
 
-def _sales_line(n: int, amount: float, qty: int, rate: float, item, description: str) -> dict:
+def _sales_line(
+    n: int, amount: float, qty: int, rate: float, item, description: str
+) -> dict:
     detail = {"Qty": qty, "UnitPrice": rate, "TaxCodeRef": {"value": "TAX"}}
     if item is not None:
         detail["ItemRef"] = {"value": item["Id"], "name": item["Name"]}

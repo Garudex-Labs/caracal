@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 Sabre Tax domain: transaction tax determination, jurisdiction resolution, tax-identifier validation, exemption certificates, and cross-border withholding.
 """
+
 from __future__ import annotations
 
 import re
@@ -17,8 +18,15 @@ from _mock.providerlab.providers.base import Ctx, DomainError
 ID = "sabre-tax"
 
 _DEFAULT_TAX_CODE = "P0000000"
-_INCOME_TYPES = ("interest", "dividends", "royalties", "royalties_industrial",
-                 "rents", "services", "independent_services")
+_INCOME_TYPES = (
+    "interest",
+    "dividends",
+    "royalties",
+    "royalties_industrial",
+    "rents",
+    "services",
+    "independent_services",
+)
 _W8_FORMS = ("W-8BEN", "W-8BEN-E", "W-8ECI", "W-8EXP", "W-8IMY")
 _WHT_RATES = gen.sabre_withholding_rates()
 
@@ -76,19 +84,32 @@ def _address(ctx: Ctx, *keys: str) -> dict | None:
 def _ship_to(ctx: Ctx) -> dict:
     address = _address(ctx, "shipTo", "singleLocation") or ctx.get("address")
     if not isinstance(address, dict) or not address.get("country"):
-        raise DomainError(422, "MissingAddress",
-                          "a shipTo address with a country is required to determine tax")
+        raise DomainError(
+            422,
+            "MissingAddress",
+            "a shipTo address with a country is required to determine tax",
+        )
     return address
 
 
-def _jurisdiction_component(kind: str, name: str, code: str, rate: float,
-                            country: str, region: str, tax_type: str,
-                            tax_sub_type: str, rate_type: str) -> dict:
+def _jurisdiction_component(
+    kind: str,
+    name: str,
+    code: str,
+    rate: float,
+    country: str,
+    region: str,
+    tax_type: str,
+    tax_sub_type: str,
+    rate_type: str,
+) -> dict:
     return {
         "jurisType": kind,
         "jurisName": name,
         "jurisCode": code,
-        "signatureCode": gen.sabre_signature_code(country, region if kind != "Country" else None),
+        "signatureCode": gen.sabre_signature_code(
+            country, region if kind != "Country" else None
+        ),
         "taxName": f"{name} {kind.upper()} TAX" if kind != "Country" else name,
         "taxType": tax_type,
         "taxSubType": tax_sub_type,
@@ -104,8 +125,11 @@ def _resolve(country: str, region: str | None) -> dict:
     if country == "US":
         juris = gen.sabre_us_jurisdiction(region or "")
         if juris is None:
-            raise DomainError(404, "JurisdictionNotFoundError",
-                              f"no US tax jurisdiction configured for region {region!r}")
+            raise DomainError(
+                404,
+                "JurisdictionNotFoundError",
+                f"no US tax jurisdiction configured for region {region!r}",
+            )
         region = str(region).upper()
         components = []
         for kind, name, rate in (
@@ -116,25 +140,57 @@ def _resolve(country: str, region: str | None) -> dict:
         ):
             if kind != "State" and (not name or rate == 0.0):
                 continue
-            components.append(_jurisdiction_component(
-                kind, name, f"{region}-{kind[:3].upper()}", rate,
-                "US", region, "Sales", "S", "General"))
+            components.append(
+                _jurisdiction_component(
+                    kind,
+                    name,
+                    f"{region}-{kind[:3].upper()}",
+                    rate,
+                    "US",
+                    region,
+                    "Sales",
+                    "S",
+                    "General",
+                )
+            )
         combined = round(sum(c["rate"] for c in components), 5)
-        return {"country": "US", "region": region, "taxType": "Sales",
-                "stateFIPS": gen.sabre_state_fips(region),
-                "jurisdictions": components, "combinedRate": combined,
-                "resolutionQuality": "Intersection"}
+        return {
+            "country": "US",
+            "region": region,
+            "taxType": "Sales",
+            "stateFIPS": gen.sabre_state_fips(region),
+            "jurisdictions": components,
+            "combinedRate": combined,
+            "resolutionQuality": "Intersection",
+        }
     country_tax = gen.sabre_country_tax(country)
     if country_tax is None:
-        raise DomainError(404, "JurisdictionNotFoundError",
-                          f"no tax jurisdiction configured for country {country!r}")
+        raise DomainError(
+            404,
+            "JurisdictionNotFoundError",
+            f"no tax jurisdiction configured for country {country!r}",
+        )
     component = _jurisdiction_component(
-        "Country", country_tax["taxName"], country, country_tax["standardRate"],
-        country, "", country_tax["taxType"], country_tax["taxType"][:1], "Standard")
-    return {"country": country, "region": "", "taxType": country_tax["taxType"],
-            "stateFIPS": "", "jurisdictions": [component],
-            "combinedRate": country_tax["standardRate"],
-            "currency": country_tax["currency"], "resolutionQuality": "CountryLevel"}
+        "Country",
+        country_tax["taxName"],
+        country,
+        country_tax["standardRate"],
+        country,
+        "",
+        country_tax["taxType"],
+        country_tax["taxType"][:1],
+        "Standard",
+    )
+    return {
+        "country": country,
+        "region": "",
+        "taxType": country_tax["taxType"],
+        "stateFIPS": "",
+        "jurisdictions": [component],
+        "combinedRate": country_tax["standardRate"],
+        "currency": country_tax["currency"],
+        "resolutionQuality": "CountryLevel",
+    }
 
 
 def _line_exempt(ctx: Ctx, line: dict, doc_exempt: bool) -> tuple[bool, str, object]:
@@ -187,7 +243,9 @@ def calculate_tax(ctx: Ctx) -> dict:
     doc_type = str(ctx.get("type", "SalesInvoice"))
     lines = ctx.get("lines")
     if not isinstance(lines, list) or not lines:
-        raise DomainError(422, "MissingLine", "a transaction requires at least one line")
+        raise DomainError(
+            422, "MissingLine", "a transaction requires at least one line"
+        )
     ship_to = _ship_to(ctx)
     ship_from = _address(ctx, "shipFrom")
     resolved = _resolve(ship_to["country"], ship_to.get("region"))
@@ -199,7 +257,9 @@ def calculate_tax(ctx: Ctx) -> dict:
     total_amount = total_taxable = total_exempt = total_tax = 0.0
     for index, line in enumerate(lines, start=1):
         if not isinstance(line, dict):
-            raise DomainError(422, "InvalidParameterValue", f"line {index} must be an object")
+            raise DomainError(
+                422, "InvalidParameterValue", f"line {index} must be an object"
+            )
         amount = _amount(line.get("amount"), f"line {index} amount")
         number = str(line.get("number") or index)
         tax_code = str(line.get("taxCode") or _DEFAULT_TAX_CODE).upper()
@@ -214,43 +274,75 @@ def calculate_tax(ctx: Ctx) -> dict:
             for juris in resolved["jurisdictions"]:
                 tax = round(amount * juris["rate"], 2)
                 line_tax += tax
-                details.append({
-                    "country": resolved["country"], "region": resolved["region"],
-                    "stateFIPS": resolved["stateFIPS"],
-                    "jurisType": juris["jurisType"], "jurisName": juris["jurisName"],
-                    "jurisCode": juris["jurisCode"], "signatureCode": juris["signatureCode"],
-                    "taxName": juris["taxName"], "taxType": juris["taxType"],
-                    "taxSubType": juris["taxSubType"], "taxAuthorityType": juris["taxAuthorityType"],
-                    "rateType": juris["rateType"], "rate": juris["rate"],
-                    "sourcing": "Destination", "taxableAmount": round(amount, 2),
-                    "nonTaxableAmount": 0.0, "exemptAmount": 0.0,
-                    "tax": tax, "taxCalculated": tax,
-                })
+                details.append(
+                    {
+                        "country": resolved["country"],
+                        "region": resolved["region"],
+                        "stateFIPS": resolved["stateFIPS"],
+                        "jurisType": juris["jurisType"],
+                        "jurisName": juris["jurisName"],
+                        "jurisCode": juris["jurisCode"],
+                        "signatureCode": juris["signatureCode"],
+                        "taxName": juris["taxName"],
+                        "taxType": juris["taxType"],
+                        "taxSubType": juris["taxSubType"],
+                        "taxAuthorityType": juris["taxAuthorityType"],
+                        "rateType": juris["rateType"],
+                        "rate": juris["rate"],
+                        "sourcing": "Destination",
+                        "taxableAmount": round(amount, 2),
+                        "nonTaxableAmount": 0.0,
+                        "exemptAmount": 0.0,
+                        "tax": tax,
+                        "taxCalculated": tax,
+                    }
+                )
                 key = juris["jurisCode"]
-                bucket = summary.setdefault(key, {
-                    "country": resolved["country"], "region": resolved["region"],
-                    "jurisType": juris["jurisType"], "jurisName": juris["jurisName"],
-                    "jurisCode": juris["jurisCode"], "taxAuthorityType": juris["taxAuthorityType"],
-                    "taxType": juris["taxType"], "taxSubType": juris["taxSubType"],
-                    "taxName": juris["taxName"], "rateType": juris["rateType"],
-                    "rate": juris["rate"], "taxable": 0.0, "tax": 0.0,
-                    "taxCalculated": 0.0, "nonTaxable": 0.0, "exemption": 0.0,
-                })
+                bucket = summary.setdefault(
+                    key,
+                    {
+                        "country": resolved["country"],
+                        "region": resolved["region"],
+                        "jurisType": juris["jurisType"],
+                        "jurisName": juris["jurisName"],
+                        "jurisCode": juris["jurisCode"],
+                        "taxAuthorityType": juris["taxAuthorityType"],
+                        "taxType": juris["taxType"],
+                        "taxSubType": juris["taxSubType"],
+                        "taxName": juris["taxName"],
+                        "rateType": juris["rateType"],
+                        "rate": juris["rate"],
+                        "taxable": 0.0,
+                        "tax": 0.0,
+                        "taxCalculated": 0.0,
+                        "nonTaxable": 0.0,
+                        "exemption": 0.0,
+                    },
+                )
                 bucket["taxable"] = round(bucket["taxable"] + amount, 2)
                 bucket["tax"] = round(bucket["tax"] + tax, 2)
                 bucket["taxCalculated"] = bucket["tax"]
         line_tax = round(line_tax, 2)
         total_tax += line_tax
-        out_lines.append({
-            "lineNumber": number, "itemCode": line.get("itemCode"),
-            "description": line.get("description", ""), "quantity": line.get("quantity", 1),
-            "taxCode": tax_code, "lineAmount": round(amount, 2),
-            "taxableAmount": 0.0 if exempt else round(amount, 2),
-            "exemptAmount": round(amount, 2) if exempt else 0.0,
-            "exemptReason": reason, "exemptCertId": cert_id,
-            "isItemTaxable": not exempt, "sourcing": "Destination",
-            "tax": line_tax, "taxCalculated": line_tax, "details": details,
-        })
+        out_lines.append(
+            {
+                "lineNumber": number,
+                "itemCode": line.get("itemCode"),
+                "description": line.get("description", ""),
+                "quantity": line.get("quantity", 1),
+                "taxCode": tax_code,
+                "lineAmount": round(amount, 2),
+                "taxableAmount": 0.0 if exempt else round(amount, 2),
+                "exemptAmount": round(amount, 2) if exempt else 0.0,
+                "exemptReason": reason,
+                "exemptCertId": cert_id,
+                "isItemTaxable": not exempt,
+                "sourcing": "Destination",
+                "tax": line_tax,
+                "taxCalculated": line_tax,
+                "details": details,
+            }
+        )
 
     if doc_type.endswith("Order"):
         status = "Temporary"
@@ -267,13 +359,16 @@ def calculate_tax(ctx: Ctx) -> dict:
         "id": _doc_id(),
         "code": str(ctx.get("code") or _transaction_code()),
         "companyCode": str(ctx.get("companyCode", "LYNX")),
-        "type": doc_type, "status": status,
+        "type": doc_type,
+        "status": status,
         "customerCode": ctx.get("customerCode"),
         "date": str(ctx.get("date") or _today()),
         "taxDate": str(ctx.get("date") or _today()),
-        "currencyCode": currency, "exchangeRateCurrencyCode": "USD",
+        "currencyCode": currency,
+        "exchangeRateCurrencyCode": "USD",
         "exchangeRate": float(ctx.get("exchangeRate", 1.0)),
-        "country": resolved["country"], "region": resolved["region"],
+        "country": resolved["country"],
+        "region": resolved["region"],
         "description": ctx.get("description"),
         "purchaseOrderNo": ctx.get("purchaseOrderNo"),
         "referenceCode": ctx.get("referenceCode"),
@@ -281,12 +376,20 @@ def calculate_tax(ctx: Ctx) -> dict:
         "entityUseCode": ctx.get("entityUseCode"),
         "exemptNo": ctx.get("exemptionNo"),
         "businessIdentificationNo": ctx.get("businessIdentificationNo"),
-        "reconciled": False, "locked": False, "version": 1,
-        "totalAmount": round(total_amount, 2), "totalDiscount": 0.0,
-        "totalTaxable": round(total_taxable, 2), "totalExempt": round(total_exempt, 2),
-        "totalTax": round(total_tax, 2), "totalTaxCalculated": round(total_tax, 2),
-        "addresses": addresses, "summary": list(summary.values()), "lines": out_lines,
-        "createdDate": _iso(now), "modifiedDate": _iso(now),
+        "reconciled": False,
+        "locked": False,
+        "version": 1,
+        "totalAmount": round(total_amount, 2),
+        "totalDiscount": 0.0,
+        "totalTaxable": round(total_taxable, 2),
+        "totalExempt": round(total_exempt, 2),
+        "totalTax": round(total_tax, 2),
+        "totalTaxCalculated": round(total_tax, 2),
+        "addresses": addresses,
+        "summary": list(summary.values()),
+        "lines": out_lines,
+        "createdDate": _iso(now),
+        "modifiedDate": _iso(now),
     }
     if status != "Temporary":
         ctx.state.table("transactions")[transaction["code"]] = transaction
@@ -309,8 +412,11 @@ def commit_transaction(ctx: Ctx) -> dict:
     if transaction is None:
         raise DomainError(404, "EntityNotFoundError", str(ctx.payload["code"]))
     if transaction["status"] == "Cancelled":
-        raise DomainError(409, "TransactionAlreadyCancelled",
-                          "a cancelled transaction cannot be committed")
+        raise DomainError(
+            409,
+            "TransactionAlreadyCancelled",
+            "a cancelled transaction cannot be committed",
+        )
     transaction["status"] = "Committed"
     transaction["modifiedDate"] = _iso(_now())
     return transaction
@@ -342,24 +448,40 @@ def resolve_jurisdiction(ctx: Ctx) -> dict:
     coords = gen.sabre_coordinates(country, region)
     validated = {
         "addressType": "StreetOrResidential",
-        "line1": address.get("line1"), "city": address.get("city"),
-        "region": region, "country": country, "postalCode": address.get("postalCode"),
+        "line1": address.get("line1"),
+        "city": address.get("city"),
+        "region": region,
+        "country": country,
+        "postalCode": address.get("postalCode"),
         "latitude": coords[0] if coords else None,
         "longitude": coords[1] if coords else None,
     }
     tax_authorities = [
-        {"avalaraId": j["signatureCode"], "jurisdictionName": j["jurisName"],
-         "jurisdictionType": j["jurisType"], "signatureCode": j["signatureCode"]}
+        {
+            "avalaraId": j["signatureCode"],
+            "jurisdictionName": j["jurisName"],
+            "jurisdictionType": j["jurisType"],
+            "signatureCode": j["signatureCode"],
+        }
         for j in resolved["jurisdictions"]
     ]
     return {
-        "address": {"country": country, "region": region,
-                    "city": address.get("city"), "postalCode": address.get("postalCode")},
+        "address": {
+            "country": country,
+            "region": region,
+            "city": address.get("city"),
+            "postalCode": address.get("postalCode"),
+        },
         "validatedAddresses": [validated],
-        "coordinates": {"latitude": coords[0], "longitude": coords[1]} if coords else None,
-        "taxType": resolved["taxType"], "combinedRate": resolved["combinedRate"],
-        "jurisdictions": resolved["jurisdictions"], "taxAuthorities": tax_authorities,
-        "resolutionQuality": resolved["resolutionQuality"], "messages": [],
+        "coordinates": {"latitude": coords[0], "longitude": coords[1]}
+        if coords
+        else None,
+        "taxType": resolved["taxType"],
+        "combinedRate": resolved["combinedRate"],
+        "jurisdictions": resolved["jurisdictions"],
+        "taxAuthorities": tax_authorities,
+        "resolutionQuality": resolved["resolutionQuality"],
+        "messages": [],
     }
 
 
@@ -371,17 +493,25 @@ def validate_tax_id(ctx: Ctx) -> dict:
     country = str(ctx.payload["country"]).upper()
     rule = gen.sabre_taxid_rule(country)
     if rule is None:
-        raise DomainError(422, "InvalidCountry",
-                          f"tax-id validation is not supported for country {country!r}")
+        raise DomainError(
+            422,
+            "InvalidCountry",
+            f"tax-id validation is not supported for country {country!r}",
+        )
     normalized = raw.upper().replace(" ", "")
     is_valid = bool(re.match(rule["pattern"], normalized))
     registry_match = is_valid and rule["taxType"] in ("VAT", "GST", "GSTIN")
     result = {
         "requestId": _uuid(),
-        "taxId": raw, "normalizedTaxId": normalized, "countryCode": country,
-        "taxType": rule["taxType"], "format": rule["format"],
+        "taxId": raw,
+        "normalizedTaxId": normalized,
+        "countryCode": country,
+        "taxType": rule["taxType"],
+        "format": rule["format"],
         "isValid": is_valid,
-        "matchStatus": "Match" if registry_match else ("Valid" if is_valid else "FormatMismatch"),
+        "matchStatus": "Match"
+        if registry_match
+        else ("Valid" if is_valid else "FormatMismatch"),
         "name": gen.sabre_business_name(normalized) if registry_match else None,
         "address": f"Registered office, {country}" if registry_match else None,
         "validatedWith": rule["source"],
@@ -395,18 +525,28 @@ def validate_tax_id(ctx: Ctx) -> dict:
 @base.op(ID, "determine_withholding")
 def determine_withholding(ctx: Ctx) -> dict:
     """Determine cross-border withholding tax on a payment to a vendor or contractor."""
-    income_type = str(ctx.get("paymentType") or ctx.get("incomeType") or "services").lower()
+    income_type = str(
+        ctx.get("paymentType") or ctx.get("incomeType") or "services"
+    ).lower()
     if income_type not in _INCOME_TYPES:
-        raise DomainError(422, "InvalidParameterValue",
-                          f"paymentType must be one of {', '.join(_INCOME_TYPES)}")
+        raise DomainError(
+            422,
+            "InvalidParameterValue",
+            f"paymentType must be one of {', '.join(_INCOME_TYPES)}",
+        )
     payee = ctx.get("payee") or {}
     payee_country = str(payee.get("country") or "").upper()
     if not payee_country:
-        raise DomainError(422, "ValueRequiredError",
-                          "payee.country is required to determine withholding")
+        raise DomainError(
+            422,
+            "ValueRequiredError",
+            "payee.country is required to determine withholding",
+        )
     payer_country = str((ctx.get("payer") or {}).get("country", "US")).upper()
     currency = str(ctx.get("currencyCode", "USD")).upper()
-    documentation = str(payee.get("documentationType") or payee.get("withholdingFormType") or "none")
+    documentation = str(
+        payee.get("documentationType") or payee.get("withholdingFormType") or "none"
+    )
     entity_type = str(payee.get("entityType", "individual")).lower()
     treaty_claim = payee.get("treatyClaim", documentation.startswith("W-8"))
     tax_id = payee.get("taxId")
@@ -451,26 +591,36 @@ def determine_withholding(ctx: Ctx) -> dict:
 
     income_code = gen.sabre_income_code(income_type)
     recipient_code, recipient_desc = _RECIPIENT_CODES.get(
-        entity_type, _RECIPIENT_CODES["individual"])
+        entity_type, _RECIPIENT_CODES["individual"]
+    )
     response = {
         "determinationId": _uuid(),
         "transactionId": ctx.get("transactionId"),
         "formType": "1099-NEC" if us_person else "1042-S",
-        "paymentType": income_type, "incomeCode": income_code,
+        "paymentType": income_type,
+        "incomeCode": income_code,
         "incomeCodeDescription": gen.sabre_income_code_description(income_code),
-        "recipientCode": recipient_code, "recipientType": recipient_desc,
-        "currencyCode": currency, "payeeCountry": payee_country, "payerCountry": payer_country,
+        "recipientCode": recipient_code,
+        "recipientType": recipient_desc,
+        "currencyCode": currency,
+        "payeeCountry": payee_country,
+        "payerCountry": payer_country,
         "statutoryRate": statutory_rate if not us_person else 0.0,
         "withholdingRate": round(withholding_rate, 4),
-        "treatyRate": treaty_rate, "treatyArticle": treaty_article,
+        "treatyRate": treaty_rate,
+        "treatyArticle": treaty_article,
         "treatyCountry": payee_country if is_treaty_applicable else None,
-        "treatyName": treaty_name, "isTreatyApplicable": is_treaty_applicable,
+        "treatyName": treaty_name,
+        "isTreatyApplicable": is_treaty_applicable,
         "backupWithholdingApplicable": backup_applicable,
         "backupWithholdingRate": _WHT_RATES["backup"],
         "fatcaApplicable": fatca_applicable,
-        "documentationType": documentation, "documentationStatus": doc_status,
-        "chapter3StatusCode": chapter3_code, "chapter3ExemptionCode": chapter3_code,
-        "chapter4StatusCode": chapter4_code, "chapter4ExemptionCode": chapter4_code,
+        "documentationType": documentation,
+        "documentationStatus": doc_status,
+        "chapter3StatusCode": chapter3_code,
+        "chapter3ExemptionCode": chapter3_code,
+        "chapter4StatusCode": chapter4_code,
+        "chapter4ExemptionCode": chapter4_code,
         "calculatedAt": _iso(_now()),
     }
 
@@ -511,8 +661,11 @@ def list_tax_codes(ctx: Ctx) -> dict:
     query = ctx.get("query")
     if query:
         needle = str(query).lower()
-        items = [c for c in items
-                 if needle in c["taxCode"].lower() or needle in c["description"].lower()]
+        items = [
+            c
+            for c in items
+            if needle in c["taxCode"].lower() or needle in c["description"].lower()
+        ]
     items.sort(key=lambda c: c["taxCode"])
     return ctx.paginate(items, size_default=25)
 

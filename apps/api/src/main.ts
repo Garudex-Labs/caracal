@@ -13,7 +13,8 @@ import { startMessageRunsReaper } from './jobs/message-runs-reaper.js'
 import { startPlanSecretsReaper } from './jobs/plan-secrets-reaper.js'
 import { OutboxDispatcher } from './outbox.js'
 import { seedBootstrapAdminToken, seedConsoleReadToken, seedConsoleWriteToken, seedConsoleApproveToken } from './auth.js'
-import { assertPublishedSafe, createLogger, initNodeTelemetry, ShutdownRegistry, withTimeout } from '@caracalai/core'
+import { createLogger } from '@caracalai/core'
+import { assertPublishedSafe, initNodeTelemetry, ShutdownRegistry, withTimeout } from '@caracalai/server-core'
 
 assertPublishedSafe()
 

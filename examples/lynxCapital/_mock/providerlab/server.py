@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 Single-provider entry point that serves one lab provider on its catalog port.
 """
+
 from __future__ import annotations
 
 import os

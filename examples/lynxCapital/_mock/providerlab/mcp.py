@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 JSON-RPC 2.0 MCP handler exposing each MCP provider's operations as typed tools and read-only resources.
 """
+
 from __future__ import annotations
 
 import json
@@ -49,11 +50,13 @@ def _tools(provider: catalog.Provider) -> list[dict]:
     for op in provider.operations:
         spec = specs.get(op)
         if spec is None:
-            tools.append({
-                "name": op,
-                "description": f"{provider.brand} operation {op}",
-                "inputSchema": {"type": "object", "properties": {}},
-            })
+            tools.append(
+                {
+                    "name": op,
+                    "description": f"{provider.brand} operation {op}",
+                    "inputSchema": {"type": "object", "properties": {}},
+                }
+            )
         else:
             tools.append(dict(spec))
     return tools
@@ -67,7 +70,9 @@ def _resource_templates(provider: catalog.Provider) -> list[dict]:
     return [dict(t) for t in base.RESOURCE_TEMPLATES.get(provider.id, [])]
 
 
-def _match_template(uri: str, provider: catalog.Provider) -> tuple[str, dict, dict] | None:
+def _match_template(
+    uri: str, provider: catalog.Provider
+) -> tuple[str, dict, dict] | None:
     """Resolve a concrete resource URI against the provider's templates.
 
     Returns the template key, the extracted path variables, and the template
@@ -95,8 +100,12 @@ def _tool_error(message: str) -> dict:
     return {"content": [{"type": "text", "text": message}], "isError": True}
 
 
-def handle(provider: catalog.Provider, message: dict, principal: dict,
-           tool_runner: Callable[[str, dict], dict]) -> dict | None:
+def handle(
+    provider: catalog.Provider,
+    message: dict,
+    principal: dict,
+    tool_runner: Callable[[str, dict], dict],
+) -> dict | None:
     """Dispatch a single JSON-RPC message and return the response envelope.
 
     Returns None for notifications, which carry no response under JSON-RPC."""
@@ -116,7 +125,11 @@ def handle(provider: catalog.Provider, message: dict, principal: dict,
             capabilities["resources"] = {"listChanged": False, "subscribe": False}
         result = {
             "protocolVersion": PROTOCOL_VERSION,
-            "serverInfo": {"name": provider.id, "title": provider.brand, "version": "1.4.0"},
+            "serverInfo": {
+                "name": provider.id,
+                "title": provider.brand,
+                "version": "1.4.0",
+            },
             "capabilities": capabilities,
         }
         instructions = _SERVER_INSTRUCTIONS.get(provider.id)
@@ -158,9 +171,17 @@ def handle(provider: catalog.Provider, message: dict, principal: dict,
                 data = tool_runner(uri, {})
             except base.DomainError as exc:
                 return err(exc.status, f"{exc.code}: {exc.message}")
-            return ok({"contents": [{
-                "uri": uri, "mimeType": known[uri]["mimeType"],
-                "text": json.dumps(data, default=str)}]})
+            return ok(
+                {
+                    "contents": [
+                        {
+                            "uri": uri,
+                            "mimeType": known[uri]["mimeType"],
+                            "text": json.dumps(data, default=str),
+                        }
+                    ]
+                }
+            )
         matched = _match_template(uri, provider)
         if matched is None:
             return err(-32602, f"unknown resource: {uri}")
@@ -169,8 +190,16 @@ def handle(provider: catalog.Provider, message: dict, principal: dict,
             data = tool_runner(key, variables)
         except base.DomainError as exc:
             return err(exc.status, f"{exc.code}: {exc.message}")
-        return ok({"contents": [{
-            "uri": uri, "mimeType": tmpl["mimeType"],
-            "text": json.dumps(data, default=str)}]})
+        return ok(
+            {
+                "contents": [
+                    {
+                        "uri": uri,
+                        "mimeType": tmpl["mimeType"],
+                        "text": json.dumps(data, default=str),
+                    }
+                ]
+            }
+        )
 
     return err(-32601, f"unknown method: {method}")

@@ -224,7 +224,9 @@ jobs:
   style:
     name: Style checks
     needs: changes
-    if: github.event_name == 'pull_request' && needs.changes.outputs.style == 'true'
+    if: |
+      always() && github.repository == 'Garudex-Labs/caracal' &&
+      ((github.event_name == 'pull_request' && needs.changes.outputs.style == 'true') || github.event_name == 'push')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -268,9 +270,14 @@ jobs:
           python -m pip install --require-hashes --requirement scripts/pythonStyleRequirements.lock
 
       - name: Check changed source style
+        if: github.event_name == 'pull_request'
         env:
           STYLE_BASE_REF: ${{ github.event.pull_request.base.sha }}
         run: pnpm run style
+
+      - name: Check full source style
+        if: github.event_name == 'push'
+        run: pnpm run style --all
 
   typescript:
     name: TypeScript lint, types, tests, build
@@ -614,6 +621,7 @@ jobs:
     needs:
       - smoke
       - changes
+      - style
       - typescript
       - go
       - python
@@ -630,7 +638,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for result in '${{ needs.smoke.result }}' '${{ needs.changes.result }}' '${{ needs.typescript.result }}' '${{ needs.go.result }}' '${{ needs.python.result }}' '${{ needs.docs.result }}' '${{ needs.postgres.result }}' '${{ needs.helm.result }}' '${{ needs.releaseConfig.result }}' '${{ needs.coverage.result }}'; do
+          for result in '${{ needs.smoke.result }}' '${{ needs.changes.result }}' '${{ needs.style.result }}' '${{ needs.typescript.result }}' '${{ needs.go.result }}' '${{ needs.python.result }}' '${{ needs.docs.result }}' '${{ needs.postgres.result }}' '${{ needs.helm.result }}' '${{ needs.releaseConfig.result }}' '${{ needs.coverage.result }}'; do
             if [[ "$result" == 'failure' || "$result" == 'cancelled' ]]; then
               echo "A required test workflow job ended with $result."
               exit 1

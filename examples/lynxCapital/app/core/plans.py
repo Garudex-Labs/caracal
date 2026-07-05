@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 Per-agent todo plan store for DeepAgents-style write_todos planning.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field

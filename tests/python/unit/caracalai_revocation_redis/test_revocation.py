@@ -52,7 +52,9 @@ class FakeRedis:
     def xreadgroup(self, *_args: object, **_kwargs: object) -> StreamRows | None:
         return self.stream
 
-    def xautoclaim(self, *_args: object, **_kwargs: object) -> tuple[str, list[tuple[str, dict[str, str]]]]:
+    def xautoclaim(
+        self, *_args: object, **_kwargs: object
+    ) -> tuple[str, list[tuple[str, dict[str, str]]]]:
         if self.pending_pages:
             return self.pending_pages.pop(0)
         pending = self.pending
@@ -102,7 +104,12 @@ class RedisRevocationStoreTests(unittest.TestCase):
 class RedisRevocationConsumerTests(unittest.TestCase):
     def test_requires_hmac_key_when_signatures_are_mandatory(self) -> None:
         with self.assertRaisesRegex(ValueError, "stream_hmac_key is required"):
-            RedisRevocationConsumer(FakeRedis(), RedisRevocationStore(FakeRedis()), "resource-1", require_signature=True)
+            RedisRevocationConsumer(
+                FakeRedis(),
+                RedisRevocationStore(FakeRedis()),
+                "resource-1",
+                require_signature=True,
+            )
 
     def test_ensure_group_allows_existing_group_and_reraises_other_errors(self) -> None:
         redis = FakeRedis()
@@ -110,7 +117,9 @@ class RedisRevocationConsumerTests(unittest.TestCase):
         consumer = RedisRevocationConsumer(redis, store, "resource-1")
 
         consumer.ensure_group()
-        redis.group_error = ResponseError("BUSYGROUP Consumer Group name already exists")
+        redis.group_error = ResponseError(
+            "BUSYGROUP Consumer Group name already exists"
+        )
         consumer.ensure_group()
         redis.group_error = ResponseError("NOGROUP missing stream")
         with self.assertRaises(ResponseError):
@@ -127,12 +136,16 @@ class RedisRevocationConsumerTests(unittest.TestCase):
         self.assertTrue(store.is_revoked("sid-unsigned"))
         self.assertEqual(redis.acked, ["1-0"])
 
-    def test_missing_signature_is_acked_without_revocation_when_key_is_configured(self) -> None:
+    def test_missing_signature_is_acked_without_revocation_when_key_is_configured(
+        self,
+    ) -> None:
         redis = FakeRedis()
         store = RedisRevocationStore(redis)
         redis.stream = [(REVOCATION_STREAM, [("1-0", {"session_id": "sid-missing"})])]
 
-        consumer = RedisRevocationConsumer(redis, store, "resource-1", stream_hmac_key=bytes([7]) * 32)
+        consumer = RedisRevocationConsumer(
+            redis, store, "resource-1", stream_hmac_key=bytes([7]) * 32
+        )
 
         self.assertEqual(consumer.poll_once(), 1)
         self.assertFalse(store.is_revoked("sid-missing"))
@@ -171,7 +184,9 @@ class RedisRevocationConsumerTests(unittest.TestCase):
             )
         ]
 
-        consumer = RedisRevocationConsumer(redis, store, "resource-1", stream_hmac_key=key, require_signature=True)
+        consumer = RedisRevocationConsumer(
+            redis, store, "resource-1", stream_hmac_key=key, require_signature=True
+        )
 
         self.assertEqual(consumer.poll_once(), 1)
         self.assertTrue(store.is_revoked("sid-1"))
@@ -183,7 +198,12 @@ class RedisRevocationConsumerTests(unittest.TestCase):
     def test_acks_invalid_signature_without_marking_session(self) -> None:
         redis = FakeRedis()
         store = RedisRevocationStore(redis)
-        redis.stream = [(REVOCATION_STREAM, [("1-1", {"session_id": "sid-2", STREAM_SIG_FIELD: "00"})])]
+        redis.stream = [
+            (
+                REVOCATION_STREAM,
+                [("1-1", {"session_id": "sid-2", STREAM_SIG_FIELD: "00"})],
+            )
+        ]
 
         consumer = RedisRevocationConsumer(
             redis,
@@ -203,9 +223,20 @@ class RedisRevocationConsumerTests(unittest.TestCase):
         key = bytes([7]) * 32
         values = {"zone_id": "zone1", "session_id": "sid-pending"}
         sig = sign_stream(key, REVOCATION_STREAM, values)
-        redis.pending = [("0-1", {"zone_id": "zone1", "session_id": "sid-pending", STREAM_SIG_FIELD: sig})]
+        redis.pending = [
+            (
+                "0-1",
+                {
+                    "zone_id": "zone1",
+                    "session_id": "sid-pending",
+                    STREAM_SIG_FIELD: sig,
+                },
+            )
+        ]
 
-        consumer = RedisRevocationConsumer(redis, store, "resource-1", stream_hmac_key=key, require_signature=True)
+        consumer = RedisRevocationConsumer(
+            redis, store, "resource-1", stream_hmac_key=key, require_signature=True
+        )
 
         self.assertEqual(consumer.poll_once(), 1)
         self.assertTrue(store.is_revoked("sid-pending"))
@@ -215,7 +246,10 @@ class RedisRevocationConsumerTests(unittest.TestCase):
         redis = FakeRedis()
         store = RedisRevocationStore(redis)
         redis.pending_pages = [
-            ("1-0", [(b"0-1", [b"session_id", b"sid-1", b"sid", b"sid-1", b"root_sid"])]),
+            (
+                "1-0",
+                [(b"0-1", [b"session_id", b"sid-1", b"sid", b"sid-1", b"root_sid"])],
+            ),
             ("0-0", [("0-2", ["session_id", "sid-2"])]),
         ]
 
@@ -227,7 +261,10 @@ class RedisRevocationConsumerTests(unittest.TestCase):
         self.assertEqual(redis.acked, ["0-1", "0-2"])
 
     def test_normalizers_tolerate_malformed_stream_shapes(self) -> None:
-        self.assertEqual(_normalize_values(["session_id", b"sid-1", "dangling"]), {"session_id": "sid-1", "dangling": ""})
+        self.assertEqual(
+            _normalize_values(["session_id", b"sid-1", "dangling"]),
+            {"session_id": "sid-1", "dangling": ""},
+        )
         self.assertEqual(_normalize_autoclaim(object()), ("0-0", []))
         self.assertEqual(_normalize_autoclaim(["1-0", "bad"]), ("1-0", []))
         self.assertEqual(_to_text(b"sid-1"), "sid-1")

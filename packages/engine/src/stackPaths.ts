@@ -9,7 +9,7 @@ import { dirname, join } from 'node:path'
 import { bootstrapSecrets, prepareDevSecrets } from './secrets.js'
 import { installRuntimeAssets, runtimePaths } from './runtime.js'
 import type { StackPaths } from './stack.js'
-import type { CaracalMode } from '@caracalai/core'
+import type { CaracalMode } from '@caracalai/server-core'
 
 export type StackMode = CaracalMode
 
@@ -63,9 +63,7 @@ function defaultMode(): StackMode {
 function devPaths(opts: ResolveStackPathsOptions): StackPaths {
   const repoRoot = opts.repoRoot ?? process.env.CARACAL_REPO_ROOT
   if (!repoRoot) {
-    throw new Error(
-      "CARACAL_MODE=dev requires CARACAL_REPO_ROOT; invoke via 'pnpm caracal' from inside the repo.",
-    )
+    throw new Error("CARACAL_MODE=dev requires CARACAL_REPO_ROOT; invoke via 'pnpm caracal' from inside the repo.")
   }
   const composeFile = process.env.CARACAL_COMPOSE_FILE ?? join(repoRoot, ...DEV_COMPOSE_DIR, DEV_COMPOSE_FILENAME)
   const defaultsEnvFile = join(repoRoot, ...DEV_COMPOSE_DIR, 'dev.env')
@@ -111,7 +109,7 @@ function inspectContainers(ids: string[]): DockerInspectContainer[] {
   const text = dockerOutput(['inspect', ...ids])
   if (!text) return []
   const parsed = JSON.parse(text) as unknown
-  return Array.isArray(parsed) ? parsed as DockerInspectContainer[] : []
+  return Array.isArray(parsed) ? (parsed as DockerInspectContainer[]) : []
 }
 
 function envValue(env: string[] | undefined, key: string): string | undefined {
@@ -150,15 +148,10 @@ function devRepoRoot(workingDir: string | undefined): string | undefined {
 }
 
 export function detectActiveLocalStackRuntime(): ActiveLocalStackRuntime | undefined {
-  const ids = dockerOutput([
-    'ps',
-    '--filter',
-    'label=com.docker.compose.service=api',
-    '--filter',
-    'status=running',
-    '--format',
-    '{{.ID}}',
-  ])?.split(/\s+/).filter(Boolean) ?? []
+  const ids =
+    dockerOutput(['ps', '--filter', 'label=com.docker.compose.service=api', '--filter', 'status=running', '--format', '{{.ID}}'])
+      ?.split(/\s+/)
+      .filter(Boolean) ?? []
   const containers = inspectContainers(ids)
   const container = containers.find(publishesApiPort) ?? containers[0]
   if (!container) return undefined

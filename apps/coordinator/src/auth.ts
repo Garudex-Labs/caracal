@@ -3,7 +3,7 @@
 //
 // JWT bearer verification against STS JWKS endpoint.
 
-import { pathOnly } from '@caracalai/core'
+import { pathOnly } from '@caracalai/server-core'
 import { timingSafeEqual } from 'node:crypto'
 import { createRemoteJWKSet, decodeJwt, jwtVerify } from 'jose'
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
@@ -81,13 +81,20 @@ const OPERATOR_SUBJECT = 'caracal-operator'
 function classifyError(err: unknown): string {
   const code = err && typeof err === 'object' && 'code' in err ? err.code : undefined
   switch (code) {
-    case 'ERR_JWT_EXPIRED': return 'token_expired'
-    case 'ERR_JWT_CLAIM_VALIDATION_FAILED': return 'claim_invalid'
-    case 'ERR_JWS_SIGNATURE_VERIFICATION_FAILED': return 'signature_invalid'
-    case 'ERR_JOSE_ALG_NOT_ALLOWED': return 'algorithm_not_allowed'
-    case 'ERR_JWKS_NO_MATCHING_KEY': return 'jwks_no_matching_key'
-    case 'ERR_JWKS_TIMEOUT': return 'jwks_timeout'
-    default: return typeof code === 'string' && code.startsWith('ERR_JOSE_') ? 'jose_error' : 'unknown_error'
+    case 'ERR_JWT_EXPIRED':
+      return 'token_expired'
+    case 'ERR_JWT_CLAIM_VALIDATION_FAILED':
+      return 'claim_invalid'
+    case 'ERR_JWS_SIGNATURE_VERIFICATION_FAILED':
+      return 'signature_invalid'
+    case 'ERR_JOSE_ALG_NOT_ALLOWED':
+      return 'algorithm_not_allowed'
+    case 'ERR_JWKS_NO_MATCHING_KEY':
+      return 'jwks_no_matching_key'
+    case 'ERR_JWKS_TIMEOUT':
+      return 'jwks_timeout'
+    default:
+      return typeof code === 'string' && code.startsWith('ERR_JOSE_') ? 'jose_error' : 'unknown_error'
   }
 }
 

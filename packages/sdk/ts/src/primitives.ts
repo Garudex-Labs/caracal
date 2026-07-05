@@ -37,10 +37,13 @@ function backoff(attempt: number, signal?: AbortSignal): Promise<void> {
       reject(signal.reason instanceof Error ? signal.reason : new Error('aborted'))
       return
     }
-    const timer = setTimeout(() => {
-      signal?.removeEventListener('abort', onAbort)
-      resolve()
-    }, 250 * (attempt + 1) + Math.random() * 100)
+    const timer = setTimeout(
+      () => {
+        signal?.removeEventListener('abort', onAbort)
+        resolve()
+      },
+      250 * (attempt + 1) + Math.random() * 100,
+    )
     timer.unref?.()
     const onAbort = () => {
       clearTimeout(timer)

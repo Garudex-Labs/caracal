@@ -142,11 +142,7 @@ export class OAuthClient {
   }
 
   private cacheResource(resource: string | string[], opts: ExchangeOptions): string {
-    return [
-      resourceList(resource).join(' '),
-      this.normalizedScopes(opts.scopes),
-      opts.ttlSeconds?.toString() ?? '',
-    ].join('::')
+    return [resourceList(resource).join(' '), this.normalizedScopes(opts.scopes), opts.ttlSeconds?.toString() ?? ''].join('::')
   }
 
   private normalizedScopes(scopes?: string[]): string {

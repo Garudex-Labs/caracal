@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 Loopback TCP relay that exposes the Caracal STS on the issuer's localhost address inside the lab container.
 """
+
 from __future__ import annotations
 
 import socket
@@ -67,5 +68,7 @@ def start(issuer: str, sts_url: str) -> bool:
         return False
     listener.listen(32)
     upstream = (sts.hostname, sts.port or (443 if sts.scheme == "https" else 80))
-    threading.Thread(target=_serve, args=(listener, upstream), daemon=True, name="sts-bridge").start()
+    threading.Thread(
+        target=_serve, args=(listener, upstream), daemon=True, name="sts-bridge"
+    ).start()
     return True

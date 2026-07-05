@@ -208,10 +208,7 @@ export const v1Routes: FastifyPluginAsync = async (fastify) => {
       }
     }
     const body = VerifyBody.parse(req.body ?? {})
-    const raw = body.token
-      ?? (body.authorization?.startsWith('Bearer ')
-        ? body.authorization.slice(7).trim()
-        : body.authorization)
+    const raw = body.token ?? (body.authorization?.startsWith('Bearer ') ? body.authorization.slice(7).trim() : body.authorization)
     if (!raw) return reply.code(400).send({ valid: false, error: 'missing_token' })
     const config: JwtConfig = {
       issuer: cfg.issuerUrl,

@@ -60,9 +60,7 @@ const ExecutionContent = z
 
 const ErrorContent = z.object({ message: z.string().min(1).max(SUMMARY_MAX) }).strict()
 
-const NoteContent = z
-  .object({ text: z.string().min(1).max(TEXT_MAX), reasoning: z.string().min(1).max(TEXT_MAX).optional() })
-  .strict()
+const NoteContent = z.object({ text: z.string().min(1).max(TEXT_MAX), reasoning: z.string().min(1).max(TEXT_MAX).optional() }).strict()
 
 const CONTENT_SCHEMAS: Record<TurnKind, z.ZodType<Record<string, unknown>>> = {
   message: MessageContent,

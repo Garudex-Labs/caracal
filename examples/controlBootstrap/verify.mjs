@@ -4,8 +4,17 @@
 // Read-only drift check that compares the live zone to the plan and fails when the agent environment has drifted.
 
 import {
-  clientFromEnv, SCOPES, AGENT, PROVIDER, RESOURCE, POLICY,
-  byIdentifier, byName, providerDrift, resourceDrift, policyDrift,
+  clientFromEnv,
+  SCOPES,
+  AGENT,
+  PROVIDER,
+  RESOURCE,
+  POLICY,
+  byIdentifier,
+  byName,
+  providerDrift,
+  resourceDrift,
+  policyDrift,
 } from './plan.mjs'
 
 export async function verify(client, log = console.log) {

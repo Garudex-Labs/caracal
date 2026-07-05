@@ -16,32 +16,29 @@ import {
 
 let issuerId = 0
 
-async function mintToken(
-  claims: Record<string, unknown> = {},
-  scopes = 'read write',
-): Promise<{ token: string; issuer: string }> {
+async function mintToken(claims: Record<string, unknown> = {}, scopes = 'read write'): Promise<{ token: string; issuer: string }> {
   const issuer = `https://issuer-${++issuerId}.example.com`
-  const key = await crypto.subtle.generateKey(
-    { name: 'ECDSA', namedCurve: 'P-256' },
-    true,
-    ['sign', 'verify'],
-  )
+  const key = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify'])
   const jwk = await crypto.subtle.exportKey('jwk', key.publicKey)
   Object.assign(jwk, { kid: 'kid-1', alg: 'ES256', use: 'sig' })
   vi.stubGlobal(
     'fetch',
-    vi.fn(async () => new Response(JSON.stringify({ keys: [jwk] }), {
-      status: 200,
-      headers: { 'content-type': 'application/json' },
-    })),
+    vi.fn(
+      async () =>
+        new Response(JSON.stringify({ keys: [jwk] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+    ),
   )
   const header = b64url(JSON.stringify({ alg: 'ES256', kid: 'kid-1', typ: 'JWT' }))
   const now = Math.floor(Date.now() / 1000)
-  const payload = b64url(JSON.stringify({
-    iss: issuer,
-    aud: 'resource://api',
-    sub: 'user-1',
-    zone_id: 'zone-1',
+  const payload = b64url(
+    JSON.stringify({
+      iss: issuer,
+      aud: 'resource://api',
+      sub: 'user-1',
+      zone_id: 'zone-1',
       client_id: 'app-1',
       sid: 'sid-1',
       root_sid: 'root-1',
@@ -51,15 +48,12 @@ async function mintToken(
       scope: scopes,
       target: ['resource://api'],
       iat: now,
-    exp: now + 300,
-    ...claims,
-  }))
-  const body = `${header}.${payload}`
-  const sig = await crypto.subtle.sign(
-    { name: 'ECDSA', hash: 'SHA-256' },
-    key.privateKey,
-    new TextEncoder().encode(body),
+      exp: now + 300,
+      ...claims,
+    }),
   )
+  const body = `${header}.${payload}`
+  const sig = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key.privateKey, new TextEncoder().encode(body))
   return { token: `${body}.${b64url(new Uint8Array(sig))}`, issuer }
 }
 
@@ -106,9 +100,9 @@ describe('verify', () => {
 
   it('throws TokenInvalidError for a malformed token', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ keys: [] }) }))
-    await expect(
-      verify('not.a.jwt', { issuer: 'https://issuer.example.com', audience: 'resource://api' }),
-    ).rejects.toBeInstanceOf(TokenInvalidError)
+    await expect(verify('not.a.jwt', { issuer: 'https://issuer.example.com', audience: 'resource://api' })).rejects.toBeInstanceOf(
+      TokenInvalidError,
+    )
   })
 
   it('throws ZoneInvalidError when zone_id is absent', async () => {
@@ -138,23 +132,20 @@ describe('verify', () => {
 
   it('throws TokenInvalidError when required use does not match', async () => {
     const { token, issuer } = await mintToken({ use: 'session' })
-    await expect(
-      verify(token, { issuer, audience: 'resource://api', requiredUse: 'resource' }),
-    ).rejects.toBeInstanceOf(TokenInvalidError)
+    await expect(verify(token, { issuer, audience: 'resource://api', requiredUse: 'resource' })).rejects.toBeInstanceOf(TokenInvalidError)
   })
 
   it('throws ZoneInvalidError when zone_id does not match config', async () => {
     const { token, issuer } = await mintToken()
-    await expect(
-      verify(token, { issuer, audience: 'resource://api', zoneId: 'zone-99' }),
-    ).rejects.toBeInstanceOf(ZoneInvalidError)
+    await expect(verify(token, { issuer, audience: 'resource://api', zoneId: 'zone-99' })).rejects.toBeInstanceOf(ZoneInvalidError)
   })
 
   it('throws ScopeInsufficientError for a missing required scope', async () => {
     const { token, issuer } = await mintToken({}, 'read')
-    await expect(
-      verify(token, { issuer, audience: 'resource://api', requiredScopes: ['admin'] }),
-    ).rejects.toMatchObject({ name: 'ScopeInsufficientError', missingScope: 'admin' })
+    await expect(verify(token, { issuer, audience: 'resource://api', requiredScopes: ['admin'] })).rejects.toMatchObject({
+      name: 'ScopeInsufficientError',
+      missingScope: 'admin',
+    })
   })
 
   it('throws TokenInvalidError for a missing required target resource', async () => {
@@ -166,30 +157,29 @@ describe('verify', () => {
 
   it('throws AgentIdentityRequiredError when agent is required but absent', async () => {
     const { token, issuer } = await mintToken()
-    await expect(
-      verify(token, { issuer, audience: 'resource://api', requireAgent: true }),
-    ).rejects.toBeInstanceOf(AgentIdentityRequiredError)
+    await expect(verify(token, { issuer, audience: 'resource://api', requireAgent: true })).rejects.toBeInstanceOf(
+      AgentIdentityRequiredError,
+    )
   })
 
   it('throws DelegationRequiredError when delegation is required but absent', async () => {
     const { token, issuer } = await mintToken()
-    await expect(
-      verify(token, { issuer, audience: 'resource://api', requireDelegation: true }),
-    ).rejects.toBeInstanceOf(DelegationRequiredError)
+    await expect(verify(token, { issuer, audience: 'resource://api', requireDelegation: true })).rejects.toBeInstanceOf(
+      DelegationRequiredError,
+    )
   })
 
   it('throws HopCountExceededError when hop_count exceeds the limit', async () => {
     const { token, issuer } = await mintToken({ hop_count: 5 })
-    await expect(
-      verify(token, { issuer, audience: 'resource://api', maxHopCount: 3 }),
-    ).rejects.toBeInstanceOf(HopCountExceededError)
+    await expect(verify(token, { issuer, audience: 'resource://api', maxHopCount: 3 })).rejects.toBeInstanceOf(HopCountExceededError)
   })
 
   it('throws ChainMismatchError when required application is absent from the chain', async () => {
     const { token, issuer } = await mintToken({ delegation_chain: [{ application_id: 'app-child' }] })
-    await expect(
-      verify(token, { issuer, audience: 'resource://api', requireChainContains: ['app-parent'] }),
-    ).rejects.toMatchObject({ name: 'ChainMismatchError', missingApplicationId: 'app-parent' })
+    await expect(verify(token, { issuer, audience: 'resource://api', requireChainContains: ['app-parent'] })).rejects.toMatchObject({
+      name: 'ChainMismatchError',
+      missingApplicationId: 'app-parent',
+    })
   })
 
   it('rejects malformed delegation chain keys', async () => {
@@ -225,23 +215,51 @@ describe('verify', () => {
 
 describe('verifyChainContains', () => {
   it('matches by clientId', () => {
-    expect(verifyChainContains(
-      { sub: '', zoneId: '', clientId: 'app-1', sid: '', rootSid: 'root-1', use: 'resource', subType: 'user', jti: 'jti-1', scope: '' },
-      'app-1',
-    )).toBe(true)
+    expect(
+      verifyChainContains(
+        { sub: '', zoneId: '', clientId: 'app-1', sid: '', rootSid: 'root-1', use: 'resource', subType: 'user', jti: 'jti-1', scope: '' },
+        'app-1',
+      ),
+    ).toBe(true)
   })
 
   it('matches by delegation chain hop', () => {
-    expect(verifyChainContains(
-      { sub: '', zoneId: '', clientId: 'other', sid: '', rootSid: 'root-1', use: 'resource', subType: 'user', jti: 'jti-1', scope: '', delegationChain: [{ applicationId: 'app-parent' }] },
-      'app-parent',
-    )).toBe(true)
+    expect(
+      verifyChainContains(
+        {
+          sub: '',
+          zoneId: '',
+          clientId: 'other',
+          sid: '',
+          rootSid: 'root-1',
+          use: 'resource',
+          subType: 'user',
+          jti: 'jti-1',
+          scope: '',
+          delegationChain: [{ applicationId: 'app-parent' }],
+        },
+        'app-parent',
+      ),
+    ).toBe(true)
   })
 
   it('returns false when the application is absent', () => {
-    expect(verifyChainContains(
-      { sub: '', zoneId: '', clientId: 'app-1', sid: '', rootSid: 'root-1', use: 'resource', subType: 'user', jti: 'jti-1', scope: '', delegationChain: [{ applicationId: 'app-parent' }] },
-      'app-unknown',
-    )).toBe(false)
+    expect(
+      verifyChainContains(
+        {
+          sub: '',
+          zoneId: '',
+          clientId: 'app-1',
+          sid: '',
+          rootSid: 'root-1',
+          use: 'resource',
+          subType: 'user',
+          jti: 'jti-1',
+          scope: '',
+          delegationChain: [{ applicationId: 'app-parent' }],
+        },
+        'app-unknown',
+      ),
+    ).toBe(false)
   })
 })

@@ -54,20 +54,21 @@ describe('OutboxDispatcher', () => {
   }
 
   it('dispatches a claimed row to redis and marks it dispatched', async () => {
-    const { db, redis, dbCalls } = makeDeps([
-      { id: 'r1', stream_name: 'stream.x', payload_json: { a: '1' }, attempts: 1 },
-    ])
+    const { db, redis, dbCalls } = makeDeps([{ id: 'r1', stream_name: 'stream.x', payload_json: { a: '1' }, attempts: 1 }])
     redis.xadd.mockResolvedValue('0-1')
-    const dispatcher = new OutboxDispatcher({ db: db as unknown as DB, redis: redis as unknown as RedisClient, workerId: 'w', log: makeLogger() })
+    const dispatcher = new OutboxDispatcher({
+      db: db as unknown as DB,
+      redis: redis as unknown as RedisClient,
+      workerId: 'w',
+      log: makeLogger(),
+    })
     await dispatcher.tick()
     expect(redis.xadd).toHaveBeenCalledWith('stream.x', '*', 'outbox_id', 'r1', 'a', '1')
     expect(dbCalls.some((c) => c.sql.includes('SET dispatched_at = now()'))).toBe(true)
   })
 
   it('uses approximate stream trimming and skips null payload fields', async () => {
-    const { db, redis } = makeDeps([
-      { id: 'r1', stream_name: 'stream.x', payload_json: { a: '1', empty: null }, attempts: 1 },
-    ])
+    const { db, redis } = makeDeps([{ id: 'r1', stream_name: 'stream.x', payload_json: { a: '1', empty: null }, attempts: 1 }])
     redis.xadd.mockResolvedValue('0-1')
     const dispatcher = new OutboxDispatcher({
       db: db as unknown as DB,
@@ -83,22 +84,30 @@ describe('OutboxDispatcher', () => {
   })
 
   it('reschedules with backoff on dispatch failure below max attempts', async () => {
-    const { db, redis, dbCalls } = makeDeps([
-      { id: 'r1', stream_name: 'stream.x', payload_json: { a: '1' }, attempts: 2 },
-    ])
+    const { db, redis, dbCalls } = makeDeps([{ id: 'r1', stream_name: 'stream.x', payload_json: { a: '1' }, attempts: 2 }])
     redis.xadd.mockRejectedValueOnce(new Error('boom'))
-    const dispatcher = new OutboxDispatcher({ db: db as unknown as DB, redis: redis as unknown as RedisClient, workerId: 'w', maxAttempts: 5, log: makeLogger() })
+    const dispatcher = new OutboxDispatcher({
+      db: db as unknown as DB,
+      redis: redis as unknown as RedisClient,
+      workerId: 'w',
+      maxAttempts: 5,
+      log: makeLogger(),
+    })
     await dispatcher.tick()
     const reschedule = dbCalls.find((c) => c.sql.includes("available_at = now() + ($2 || ' seconds')::interval"))
     expect(reschedule).toBeDefined()
   })
 
   it('parks the row past the deadline after max attempts exceeded', async () => {
-    const { db, redis, dbCalls } = makeDeps([
-      { id: 'r1', stream_name: 'stream.x', payload_json: { a: '1' }, attempts: 5 },
-    ])
+    const { db, redis, dbCalls } = makeDeps([{ id: 'r1', stream_name: 'stream.x', payload_json: { a: '1' }, attempts: 5 }])
     redis.xadd.mockRejectedValueOnce(new Error('boom'))
-    const dispatcher = new OutboxDispatcher({ db: db as unknown as DB, redis: redis as unknown as RedisClient, workerId: 'w', maxAttempts: 5, log: makeLogger() })
+    const dispatcher = new OutboxDispatcher({
+      db: db as unknown as DB,
+      redis: redis as unknown as RedisClient,
+      workerId: 'w',
+      maxAttempts: 5,
+      log: makeLogger(),
+    })
     await dispatcher.tick()
     const park = dbCalls.find((c) => c.sql.includes("available_at = 'infinity'::timestamptz"))
     expect(park).toBeDefined()

@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 Background job registry that lets orchestrators dispatch work non-blocking and join later.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -38,7 +39,9 @@ class JobRegistry:
             raise RuntimeError(f"job depth limit reached at {depth}")
         job_id = f"job-{uuid4().hex[:10]}"
         task = asyncio.create_task(coro, name=f"{kind}:{target}:{job_id}")
-        self._jobs[job_id] = JobInfo(job_id=job_id, kind=kind, target=target, depth=depth, task=task)
+        self._jobs[job_id] = JobInfo(
+            job_id=job_id, kind=kind, target=target, depth=depth, task=task
+        )
         return job_id
 
     def info(self, job_id: str) -> JobInfo | None:
@@ -49,27 +52,43 @@ class JobRegistry:
         if not wanted:
             return []
         done, pending = await asyncio.wait(
-            [w.task for w in wanted], timeout=timeout_s, return_when=asyncio.ALL_COMPLETED,
+            [w.task for w in wanted],
+            timeout=timeout_s,
+            return_when=asyncio.ALL_COMPLETED,
         )
         results: list[dict] = []
         for w in wanted:
             if w.task in done:
                 try:
                     res = w.task.result()
-                    results.append({
-                        "job_id": w.job_id, "kind": w.kind, "target": w.target,
-                        "status": "completed", "result": res,
-                    })
+                    results.append(
+                        {
+                            "job_id": w.job_id,
+                            "kind": w.kind,
+                            "target": w.target,
+                            "status": "completed",
+                            "result": res,
+                        }
+                    )
                 except Exception as exc:
-                    results.append({
-                        "job_id": w.job_id, "kind": w.kind, "target": w.target,
-                        "status": "failed", "error": str(exc),
-                    })
+                    results.append(
+                        {
+                            "job_id": w.job_id,
+                            "kind": w.kind,
+                            "target": w.target,
+                            "status": "failed",
+                            "error": str(exc),
+                        }
+                    )
             else:
-                results.append({
-                    "job_id": w.job_id, "kind": w.kind, "target": w.target,
-                    "status": "pending",
-                })
+                results.append(
+                    {
+                        "job_id": w.job_id,
+                        "kind": w.kind,
+                        "target": w.target,
+                        "status": "pending",
+                    }
+                )
         return results
 
     async def drain(self, timeout_s: float) -> list[dict]:

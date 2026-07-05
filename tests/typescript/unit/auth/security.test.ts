@@ -167,9 +167,7 @@ describe('safeTarget', () => {
   })
 
   it('confines the coordinator surface to its own prefix', () => {
-    expect(safeTarget('http://localhost:4000', '/zones/abc/agents', '/zones/')).toBe(
-      'http://localhost:4000/zones/abc/agents',
-    )
+    expect(safeTarget('http://localhost:4000', '/zones/abc/agents', '/zones/')).toBe('http://localhost:4000/zones/abc/agents')
     expect(safeTarget('http://localhost:4000', '/metrics', '/zones/')).toBeUndefined()
   })
 })

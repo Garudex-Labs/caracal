@@ -3,7 +3,14 @@
 #
 # caracalai_core: generic primitives shared across Caracal Python packages.
 
-from .audit import AUDIT_STREAM, AuditClient, AuditEvent, AuditStreamer, create_event_id, default_replay_dir
+from .audit import (
+    AUDIT_STREAM,
+    AuditClient,
+    AuditEvent,
+    AuditStreamer,
+    create_event_id,
+    default_replay_dir,
+)
 from .errors import CaracalError, ErrorCode
 from .json_types import JsonObject, JsonPrimitive, JsonValue
 from .logging import (

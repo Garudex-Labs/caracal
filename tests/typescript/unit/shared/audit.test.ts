@@ -37,27 +37,47 @@ const baseEvent: AuditEvent = {
 let dir: string
 const logger = createLogger('test', 'fatal')
 
-beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'caracal-audit-test-')) })
-afterEach(() => { rmSync(dir, { recursive: true, force: true }) })
+beforeEach(() => {
+  dir = mkdtempSync(join(tmpdir(), 'caracal-audit-test-'))
+})
+afterEach(() => {
+  rmSync(dir, { recursive: true, force: true })
+})
 
 describe('AuditClient', () => {
   it('rejects construction without HMAC key in production', () => {
-    expect(() => new AuditClient({
-      streamer: new FakeStreamer(), logger, replayDir: dir, production: true,
-    })).toThrow(/hmacKey is required/)
+    expect(
+      () =>
+        new AuditClient({
+          streamer: new FakeStreamer(),
+          logger,
+          replayDir: dir,
+          production: true,
+        }),
+    ).toThrow(/hmacKey is required/)
   })
 
   it('rejects construction with a too-short HMAC key', () => {
-    expect(() => new AuditClient({
-      streamer: new FakeStreamer(), logger, replayDir: dir, hmacKey: Buffer.from('short'),
-    })).toThrow(/at least 32 bytes/)
+    expect(
+      () =>
+        new AuditClient({
+          streamer: new FakeStreamer(),
+          logger,
+          replayDir: dir,
+          hmacKey: Buffer.from('short'),
+        }),
+    ).toThrow(/at least 32 bytes/)
   })
 
   it('signs events when HMAC key is present', async () => {
     const s = new FakeStreamer()
     const c = new AuditClient({
-      streamer: s, logger, replayDir: dir,
-      hmacKey: Buffer.alloc(32, 1), flushTtlMs: 5, flushBatch: 10,
+      streamer: s,
+      logger,
+      replayDir: dir,
+      hmacKey: Buffer.alloc(32, 1),
+      flushTtlMs: 5,
+      flushBatch: 10,
     })
     await c.start()
     c.emit(baseEvent)
@@ -73,12 +93,15 @@ describe('AuditClient', () => {
     const s = new FakeStreamer()
     s.failNext = 100
     const c = new AuditClient({
-      streamer: s, logger, replayDir: dir, flushTtlMs: 5,
+      streamer: s,
+      logger,
+      replayDir: dir,
+      flushTtlMs: 5,
     })
     await c.start()
     c.emit(baseEvent)
     await c.close()
-    const files = readdirSync(dir).filter(f => f.endsWith('.ndjson'))
+    const files = readdirSync(dir).filter((f) => f.endsWith('.ndjson'))
     expect(files.length).toBeGreaterThan(0)
   })
 
@@ -86,8 +109,12 @@ describe('AuditClient', () => {
     const s = new FakeStreamer()
     s.failNext = 1_000_000
     const c = new AuditClient({
-      streamer: s, logger, replayDir: dir,
-      bufferCap: 2, flushBatch: 1_000_000, flushTtlMs: 1_000_000,
+      streamer: s,
+      logger,
+      replayDir: dir,
+      bufferCap: 2,
+      flushBatch: 1_000_000,
+      flushTtlMs: 1_000_000,
     })
     await c.start()
     for (let i = 0; i < 10; i++) c.emit(baseEvent)
@@ -102,13 +129,13 @@ describe('AuditClient', () => {
     await c1.start()
     c1.emit(baseEvent)
     await c1.close()
-    expect(readdirSync(dir).filter(f => f.endsWith('.ndjson')).length).toBe(1)
+    expect(readdirSync(dir).filter((f) => f.endsWith('.ndjson')).length).toBe(1)
 
     const s2 = new FakeStreamer()
     const c2 = new AuditClient({ streamer: s2, logger, replayDir: dir, flushTtlMs: 5 })
     await c2.start()
     await c2.close()
     expect(s2.calls.length).toBe(1)
-    expect(readdirSync(dir).filter(f => f.endsWith('.ndjson')).length).toBe(0)
+    expect(readdirSync(dir).filter((f) => f.endsWith('.ndjson')).length).toBe(0)
   })
 })

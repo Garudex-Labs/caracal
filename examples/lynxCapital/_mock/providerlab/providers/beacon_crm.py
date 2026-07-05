@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 Beacon CRM domain: accounts, contacts, a sales deal pipeline, portal owners, and the engagement history of activities, notes, and contact relationships.
 """
+
 from __future__ import annotations
 
 import time
@@ -53,10 +54,13 @@ def list_contacts(ctx: Ctx) -> dict:
         items = [c for c in items if c["accountId"] == account_id]
     query = str(ctx.get("query", "")).lower()
     if query:
-        items = [c for c in items
-                 if query in f"{c['firstName']} {c['lastName']}".lower()
-                 or query in c["email"].lower()
-                 or query in c["company"].lower()]
+        items = [
+            c
+            for c in items
+            if query in f"{c['firstName']} {c['lastName']}".lower()
+            or query in c["email"].lower()
+            or query in c["company"].lower()
+        ]
     items.sort(key=lambda c: c["id"])
     return ctx.paginate(items, size_default=25)
 
@@ -80,15 +84,20 @@ def create_contact(ctx: Ctx) -> dict:
         raise DomainError(422, "invalid_email", "email is not a valid address")
     contacts = ctx.state.table("contacts")
     if any(c["email"].lower() == email.lower() for c in contacts.values()):
-        raise DomainError(409, "duplicate_contact", f"a contact with email {email} already exists")
+        raise DomainError(
+            409, "duplicate_contact", f"a contact with email {email} already exists"
+        )
     account_id = ctx.get("accountId")
     account = ctx.state.table("accounts").get(account_id) if account_id else None
     if account_id and account is None:
         raise DomainError(404, "account_not_found", account_id)
     marketing_status = ctx.get("marketingStatus", "subscribed")
     if marketing_status not in _MARKETING_STATUS:
-        raise DomainError(422, "invalid_marketing_status",
-                          f"marketingStatus must be one of {', '.join(_MARKETING_STATUS)}")
+        raise DomainError(
+            422,
+            "invalid_marketing_status",
+            f"marketingStatus must be one of {', '.join(_MARKETING_STATUS)}",
+        )
     now = base.now()
     contact = {
         "id": ctx.state.next_id("CONT"),
@@ -109,7 +118,9 @@ def create_contact(ctx: Ctx) -> dict:
         "marketingStatus": marketing_status,
         "optedOut": marketing_status == "unsubscribed",
         "city": ctx.get("city", account["billingAddress"]["city"] if account else ""),
-        "state": ctx.get("state", account["billingAddress"]["state"] if account else ""),
+        "state": ctx.get(
+            "state", account["billingAddress"]["state"] if account else ""
+        ),
         "country": account["country"] if account else ctx.get("country", ""),
         "linkedinUrl": ctx.get("linkedinUrl", ""),
         "isPrimary": False,
@@ -134,21 +145,39 @@ def update_contact(ctx: Ctx) -> dict:
         email = str(ctx.payload["email"])
         if "@" not in email:
             raise DomainError(422, "invalid_email", "email is not a valid address")
-        if any(c["id"] != contact["id"] and c["email"].lower() == email.lower()
-               for c in contacts.values()):
-            raise DomainError(409, "duplicate_contact",
-                              f"a contact with email {email} already exists")
+        if any(
+            c["id"] != contact["id"] and c["email"].lower() == email.lower()
+            for c in contacts.values()
+        ):
+            raise DomainError(
+                409, "duplicate_contact", f"a contact with email {email} already exists"
+            )
         contact["email"] = email
     if ctx.get("marketingStatus") is not None:
         status = ctx.payload["marketingStatus"]
         if status not in _MARKETING_STATUS:
-            raise DomainError(422, "invalid_marketing_status",
-                              f"marketingStatus must be one of {', '.join(_MARKETING_STATUS)}")
+            raise DomainError(
+                422,
+                "invalid_marketing_status",
+                f"marketingStatus must be one of {', '.join(_MARKETING_STATUS)}",
+            )
         contact["marketingStatus"] = status
         contact["optedOut"] = status == "unsubscribed"
-    for field in ("firstName", "lastName", "jobTitle", "seniority", "phone",
-                  "mobilePhone", "lifecycleStage", "leadStatus", "ownerId",
-                  "tags", "city", "state", "linkedinUrl"):
+    for field in (
+        "firstName",
+        "lastName",
+        "jobTitle",
+        "seniority",
+        "phone",
+        "mobilePhone",
+        "lifecycleStage",
+        "leadStatus",
+        "ownerId",
+        "tags",
+        "city",
+        "state",
+        "linkedinUrl",
+    ):
         if ctx.get(field) is not None:
             contact[field] = ctx.payload[field]
     contact["updatedAt"] = _iso(base.now())
@@ -170,8 +199,11 @@ def list_accounts(ctx: Ctx) -> dict:
         items = [a for a in items if a["tier"] == tier]
     query = str(ctx.get("query", "")).lower()
     if query:
-        items = [a for a in items
-                 if query in a["name"].lower() or query in a["domain"].lower()]
+        items = [
+            a
+            for a in items
+            if query in a["name"].lower() or query in a["domain"].lower()
+        ]
     items.sort(key=lambda a: a["id"])
     return ctx.paginate(items, size_default=25)
 
@@ -229,12 +261,16 @@ def create_deal(ctx: Ctx) -> dict:
         raise DomainError(422, "invalid_amount", "amount must be a number")
     stage = ctx.get("stage", "prospect")
     if stage not in _OPEN_STAGES:
-        raise DomainError(422, "invalid_stage",
-                          f"a new deal opens in an open stage, not {stage!r}")
+        raise DomainError(
+            422, "invalid_stage", f"a new deal opens in an open stage, not {stage!r}"
+        )
     deal_type = ctx.get("dealType", "new_business")
     if deal_type not in _DEAL_TYPES:
-        raise DomainError(422, "invalid_deal_type",
-                          f"dealType must be one of {', '.join(_DEAL_TYPES)}")
+        raise DomainError(
+            422,
+            "invalid_deal_type",
+            f"dealType must be one of {', '.join(_DEAL_TYPES)}",
+        )
     contact_id = ctx.get("contactId")
     if contact_id and contact_id not in ctx.state.table("contacts"):
         raise DomainError(404, "contact_not_found", contact_id)
@@ -283,8 +319,11 @@ def update_deal(ctx: Ctx) -> dict:
         if stage not in _STAGES:
             raise DomainError(422, "invalid_stage", f"unknown deal stage {stage!r}")
         if stage == "lost" and not ctx.get("lostReason"):
-            raise DomainError(422, "lost_reason_required",
-                              "moving a deal to 'lost' requires lostReason")
+            raise DomainError(
+                422,
+                "lost_reason_required",
+                "moving a deal to 'lost' requires lostReason",
+            )
         if deal["stage"] in _OPEN_STAGES and stage in ("won", "lost") and account:
             account["openDealCount"] = max(0, account["openDealCount"] - 1)
         deal["stage"] = stage
@@ -307,8 +346,11 @@ def update_deal(ctx: Ctx) -> dict:
             raise DomainError(422, "invalid_amount", "amount must be a number")
     if ctx.get("priority") is not None:
         if ctx.payload["priority"] not in _PRIORITIES:
-            raise DomainError(422, "invalid_priority",
-                              f"priority must be one of {', '.join(_PRIORITIES)}")
+            raise DomainError(
+                422,
+                "invalid_priority",
+                f"priority must be one of {', '.join(_PRIORITIES)}",
+            )
         deal["priority"] = ctx.payload["priority"]
     if ctx.get("nextStep") is not None:
         deal["nextStep"] = ctx.payload["nextStep"]
@@ -359,15 +401,19 @@ def log_activity(ctx: Ctx) -> dict:
         raise DomainError(404, "contact_not_found", ctx.payload["contactId"])
     kind = ctx.payload["type"]
     if kind not in _ACTIVITY_TYPES:
-        raise DomainError(422, "invalid_activity_type",
-                          f"type must be one of {', '.join(_ACTIVITY_TYPES)}")
+        raise DomainError(
+            422,
+            "invalid_activity_type",
+            f"type must be one of {', '.join(_ACTIVITY_TYPES)}",
+        )
     deal_id = ctx.get("dealId")
     if deal_id and deal_id not in ctx.state.table("deals"):
         raise DomainError(404, "deal_not_found", deal_id)
     priority = ctx.get("priority", "medium")
     if priority not in _PRIORITIES:
-        raise DomainError(422, "invalid_priority",
-                          f"priority must be one of {', '.join(_PRIORITIES)}")
+        raise DomainError(
+            422, "invalid_priority", f"priority must be one of {', '.join(_PRIORITIES)}"
+        )
     note = ctx.get("note", "")
     now = base.now()
     status = ctx.get("status", "scheduled" if kind == "task" else "completed")
@@ -377,11 +423,15 @@ def log_activity(ctx: Ctx) -> dict:
         "contactId": contact["id"],
         "accountId": contact["accountId"],
         "dealId": deal_id,
-        "subject": ctx.get("subject", f"{kind.title()} with {contact['firstName']} {contact['lastName']}"),
+        "subject": ctx.get(
+            "subject",
+            f"{kind.title()} with {contact['firstName']} {contact['lastName']}",
+        ),
         "summary": intelligence.narrative(
             "You are a CRM assistant. Summarize this activity in one short sentence.",
             note or f"{kind} logged.",
-            note or f"{kind.title()} recorded for contact {contact['id']}."),
+            note or f"{kind.title()} recorded for contact {contact['id']}.",
+        ),
         "direction": ctx.get("direction", "outbound"),
         "outcome": ctx.get("outcome", "completed"),
         "status": status,
@@ -407,8 +457,11 @@ def add_note(ctx: Ctx) -> dict:
     account_id = ctx.get("accountId")
     deal_id = ctx.get("dealId")
     if not (contact_id or account_id or deal_id):
-        raise DomainError(422, "missing_association",
-                          "a note must reference a contactId, accountId, or dealId")
+        raise DomainError(
+            422,
+            "missing_association",
+            "a note must reference a contactId, accountId, or dealId",
+        )
     if contact_id and contact_id not in ctx.state.table("contacts"):
         raise DomainError(404, "contact_not_found", contact_id)
     if account_id and account_id not in ctx.state.table("accounts"):
@@ -450,8 +503,11 @@ def list_relationships(ctx: Ctx) -> dict:
     items = list(ctx.state.table("relationships").values())
     contact_id = ctx.get("contactId")
     if contact_id:
-        items = [r for r in items
-                 if r["fromContactId"] == contact_id or r["toContactId"] == contact_id]
+        items = [
+            r
+            for r in items
+            if r["fromContactId"] == contact_id or r["toContactId"] == contact_id
+        ]
     account_id = ctx.get("accountId")
     if account_id:
         items = [r for r in items if r["accountId"] == account_id]

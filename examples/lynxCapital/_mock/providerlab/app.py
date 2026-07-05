@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 FastAPI application factory that builds one external-style provider, its OAuth and MCP surfaces, and its control UI.
 """
+
 from __future__ import annotations
 
 import base64
@@ -31,11 +32,20 @@ class _Activity:
         self._lock = threading.Lock()
         self._seen: dict[str, dict] = {}
 
-    def record(self, principal: str, auth_type: str, operation: str, status: int) -> None:
+    def record(
+        self, principal: str, auth_type: str, operation: str, status: int
+    ) -> None:
         key = f"{principal}:{auth_type}"
         with self._lock:
             entry = self._seen.setdefault(
-                key, {"principal": principal, "auth": auth_type, "calls": 0, "last_op": "", "last_status": 0}
+                key,
+                {
+                    "principal": principal,
+                    "auth": auth_type,
+                    "calls": 0,
+                    "last_op": "",
+                    "last_status": 0,
+                },
             )
             entry["calls"] += 1
             entry["last_op"] = operation
@@ -46,11 +56,16 @@ class _Activity:
             return list(self._seen.values())
 
 
-def _auth_error_response(exc: auth.AuthError, provider: catalog.Provider) -> JSONResponse:
+def _auth_error_response(
+    exc: auth.AuthError, provider: catalog.Provider
+) -> JSONResponse:
     headers = {}
-    if (provider.auth_header == "Authorization"
-            and provider.category in ("bearer_token", "oauth2_client_credentials",
-                                      "oauth2_authorization_code", "caracal_mandate")):
+    if provider.auth_header == "Authorization" and provider.category in (
+        "bearer_token",
+        "oauth2_client_credentials",
+        "oauth2_authorization_code",
+        "caracal_mandate",
+    ):
         headers["WWW-Authenticate"] = f'{provider.auth_scheme} error="{exc.code}"'
     body = {"error": exc.code, "message": exc.message}
     if getattr(exc, "details", None):
@@ -105,14 +120,18 @@ def build_app(provider: catalog.Provider) -> FastAPI:
     async def revoke_credential(request: Request):
         form = await _form(request)
         credentials.load(provider.id).revoke(form.get("kind"), form.get("id"))
-        back = "/__lab/clients" if form.get("kind") == "client" else "/__lab/credentials"
+        back = (
+            "/__lab/clients" if form.get("kind") == "client" else "/__lab/credentials"
+        )
         return RedirectResponse(back, status_code=303)
 
     @app.post("/__lab/api/rotate")
     async def rotate_credential(request: Request):
         form = await _form(request)
         credentials.load(provider.id).rotate(form.get("kind"), form.get("id"))
-        back = "/__lab/clients" if form.get("kind") == "client" else "/__lab/credentials"
+        back = (
+            "/__lab/clients" if form.get("kind") == "client" else "/__lab/credentials"
+        )
         return RedirectResponse(back, status_code=303)
 
     @app.post("/__lab/api/validate")
@@ -133,7 +152,9 @@ def build_app(provider: catalog.Provider) -> FastAPI:
     async def register_client(request: Request):
         form = await _form(request)
         store = credentials.load(provider.id)
-        redirect_uris = [u.strip() for u in form.get("redirect_uris", "").split(",") if u.strip()]
+        redirect_uris = [
+            u.strip() for u in form.get("redirect_uris", "").split(",") if u.strip()
+        ]
         scopes = [s for s in form.get("scopes", "").split() if s]
         store.create_client(form.get("name", "client"), redirect_uris, scopes)
         return RedirectResponse("/__lab/clients", status_code=303)
@@ -150,6 +171,7 @@ def build_app(provider: catalog.Provider) -> FastAPI:
 
     # ---------- MCP surface ----------
     if provider.category == "mcp":
+
         @app.post("/mcp")
         async def mcp_endpoint(request: Request):
             try:
@@ -163,8 +185,12 @@ def build_app(provider: catalog.Provider) -> FastAPI:
                 return domain.dispatch(provider, state, name, arguments, principal)
 
             response = mcp.handle(provider, message, principal, run_tool)
-            activity.record(str(principal.get("principal")), principal.get("auth"),
-                           message.get("method", "mcp"), 200)
+            activity.record(
+                str(principal.get("principal")),
+                principal.get("auth"),
+                message.get("method", "mcp"),
+                200,
+            )
             if response is None:
                 return Response(status_code=202)
             return JSONResponse(response)
@@ -177,7 +203,10 @@ def build_app(provider: catalog.Provider) -> FastAPI:
     @app.api_route("/api/{operation}", methods=["GET", "POST"])
     async def domain_operation(operation: str, request: Request):
         if operation not in provider.operations:
-            return JSONResponse(status_code=404, content={"error": "unknown_operation", "message": operation})
+            return JSONResponse(
+                status_code=404,
+                content={"error": "unknown_operation", "message": operation},
+            )
         try:
             principal = await auth.authenticate(provider, request)
         except auth.AuthError as exc:
@@ -194,13 +223,22 @@ def build_app(provider: catalog.Provider) -> FastAPI:
         try:
             data = domain.dispatch(provider, state, operation, payload, principal)
         except domain.DomainError as exc:
-            activity.record(str(principal.get("principal")), principal.get("auth"), operation, exc.status)
+            activity.record(
+                str(principal.get("principal")),
+                principal.get("auth"),
+                operation,
+                exc.status,
+            )
             body = {"error": exc.code, "message": exc.message}
             if exc.details:
                 body.update(exc.details)
             return JSONResponse(status_code=exc.status, content=body)
-        activity.record(str(principal.get("principal")), principal.get("auth"), operation, 200)
-        return JSONResponse({"provider": provider.id, "operation": operation, "data": data})
+        activity.record(
+            str(principal.get("principal")), principal.get("auth"), operation, 200
+        )
+        return JSONResponse(
+            {"provider": provider.id, "operation": operation, "data": data}
+        )
 
     return app
 
@@ -223,28 +261,56 @@ def _install_sse(app: FastAPI, provider: catalog.Provider, state) -> None:
 
         async def publisher():
             try:
-                window = domain.dispatch(provider, state, "stream_rates",
-                                         {"symbol": symbol, "channel": channel,
-                                          "ticks": count}, principal)
+                window = domain.dispatch(
+                    provider,
+                    state,
+                    "stream_rates",
+                    {"symbol": symbol, "channel": channel, "ticks": count},
+                    principal,
+                )
             except domain.DomainError as exc:
-                yield {"event": "error",
-                       "data": json_dumps({"error": exc.code, "message": exc.message})}
+                yield {
+                    "event": "error",
+                    "data": json_dumps({"error": exc.code, "message": exc.message}),
+                }
                 return
-            yield {"event": "subscribed",
-                   "data": json_dumps({"symbol": window["symbol"], "channel": window["channel"],
-                                       "count": window["count"],
-                                       "heartbeatIntervalMs": window["heartbeatIntervalMs"]})}
+            yield {
+                "event": "subscribed",
+                "data": json_dumps(
+                    {
+                        "symbol": window["symbol"],
+                        "channel": window["channel"],
+                        "count": window["count"],
+                        "heartbeatIntervalMs": window["heartbeatIntervalMs"],
+                    }
+                ),
+            }
             for i, tick in enumerate(window["ticks"]):
                 if await request.is_disconnected():
                     break
-                yield {"event": "tick", "id": str(tick["seq"]), "data": json_dumps(tick)}
+                yield {
+                    "event": "tick",
+                    "id": str(tick["seq"]),
+                    "data": json_dumps(tick),
+                }
                 if (i + 1) % 5 == 0:
-                    yield {"event": "heartbeat",
-                           "data": json_dumps({"ts": tick["timestamp"], "seq": tick["seq"]})}
+                    yield {
+                        "event": "heartbeat",
+                        "data": json_dumps(
+                            {"ts": tick["timestamp"], "seq": tick["seq"]}
+                        ),
+                    }
                 await asyncio.sleep(0.05)
-            yield {"event": "complete",
-                   "data": json_dumps({"symbol": window["symbol"], "channel": window["channel"],
-                                       "delivered": window["count"]})}
+            yield {
+                "event": "complete",
+                "data": json_dumps(
+                    {
+                        "symbol": window["symbol"],
+                        "channel": window["channel"],
+                        "delivered": window["count"],
+                    }
+                ),
+            }
 
         return EventSourceResponse(publisher())
 
@@ -259,9 +325,14 @@ def _install_oauth(app: FastAPI, provider: catalog.Provider) -> None:
             "revocation_endpoint": f"{base}/oauth/revoke",
             "introspection_endpoint": f"{base}/oauth/introspect",
             "scopes_supported": list(provider.scopes),
-            "response_types_supported": ["code"] if provider.category == "oauth2_authorization_code" else [],
+            "response_types_supported": ["code"]
+            if provider.category == "oauth2_authorization_code"
+            else [],
             "response_modes_supported": ["query"],
-            "token_endpoint_auth_methods_supported": ["client_secret_basic", "client_secret_post"],
+            "token_endpoint_auth_methods_supported": [
+                "client_secret_basic",
+                "client_secret_post",
+            ],
             "grant_types_supported": [],
         }
         if provider.category == "oauth2_client_credentials":
@@ -272,10 +343,13 @@ def _install_oauth(app: FastAPI, provider: catalog.Provider) -> None:
         else:
             doc["authorization_endpoint"] = f"{base}/oauth/authorize"
             doc["grant_types_supported"] = ["authorization_code", "refresh_token"]
-            doc["code_challenge_methods_supported"] = ["S256"] if provider.use_pkce else []
+            doc["code_challenge_methods_supported"] = (
+                ["S256"] if provider.use_pkce else []
+            )
         return JSONResponse(doc)
 
     if provider.category == "oauth2_authorization_code":
+
         @app.get("/oauth/authorize", response_class=HTMLResponse)
         async def authorize(request: Request):
             store = credentials.load(provider.id)
@@ -284,9 +358,14 @@ def _install_oauth(app: FastAPI, provider: catalog.Provider) -> None:
             if error is not None:
                 return error
             client = store.find_client(q.get("client_id", ""))
-            redirect_uri = q.get("redirect_uri", client["redirectUris"][0] if client["redirectUris"] else "")
-            params = {key: q.get(key, "") for key in
-                      ("client_id", "scope", "state", "code_challenge")}
+            redirect_uri = q.get(
+                "redirect_uri",
+                client["redirectUris"][0] if client["redirectUris"] else "",
+            )
+            params = {
+                key: q.get(key, "")
+                for key in ("client_id", "scope", "state", "code_challenge")
+            }
             params["redirect_uri"] = redirect_uri
             params["code_challenge_method"] = q.get("code_challenge_method", "S256")
             return HTMLResponse(ui.consent_page(provider, params))
@@ -299,11 +378,14 @@ def _install_oauth(app: FastAPI, provider: catalog.Provider) -> None:
             if error is not None:
                 return error
             code = store.create_auth_code(
-                form.get("client_id"), form.get("redirect_uri"), form.get("scope", ""),
-                form.get("code_challenge") or None, subject="resource-owner",
+                form.get("client_id"),
+                form.get("redirect_uri"),
+                form.get("scope", ""),
+                form.get("code_challenge") or None,
+                subject="resource-owner",
             )
             sep = "&" if "?" in form.get("redirect_uri", "") else "?"
-            target = f"{form.get('redirect_uri')}{sep}code={code}&state={form.get('state','')}"
+            target = f"{form.get('redirect_uri')}{sep}code={code}&state={form.get('state', '')}"
             if provider.realm_id:
                 target = f"{target}&realmId={provider.realm_id}"
             return RedirectResponse(target, status_code=303)
@@ -322,14 +404,22 @@ def _install_oauth(app: FastAPI, provider: catalog.Provider) -> None:
             scope = form.get("scope", " ".join(provider.scopes))
             granted = set(client.get("scopes") or provider.scopes)
             if not set(scope.split()).issubset(granted):
-                return _oauth_error(400, "invalid_scope",
-                                    "requested scope exceeds the grant for this client")
+                return _oauth_error(
+                    400,
+                    "invalid_scope",
+                    "requested scope exceeds the grant for this client",
+                )
             audience = None
             if provider.audience:
-                requested = form.get("resource") or form.get("audience") or provider.audience
+                requested = (
+                    form.get("resource") or form.get("audience") or provider.audience
+                )
                 if requested != provider.audience:
-                    return _oauth_error(400, "invalid_target",
-                                        f"unknown or unauthorized resource indicator {requested!r}")
+                    return _oauth_error(
+                        400,
+                        "invalid_target",
+                        f"unknown or unauthorized resource indicator {requested!r}",
+                    )
                 audience = provider.audience
             issued = store.issue_token(client_id, scope, audience=audience)
             return _token_response(issued)
@@ -341,14 +431,24 @@ def _install_oauth(app: FastAPI, provider: catalog.Provider) -> None:
             if client is None or client["clientSecret"] != client_secret:
                 return _oauth_error(401, "invalid_client")
             if record["clientId"] != client_id:
-                return _oauth_error(400, "invalid_grant", "code was issued to another client")
+                return _oauth_error(
+                    400, "invalid_grant", "code was issued to another client"
+                )
             if form.get("redirect_uri", record["redirectUri"]) != record["redirectUri"]:
                 return _oauth_error(400, "invalid_grant", "redirect_uri mismatch")
             if provider.use_pkce or record.get("codeChallenge"):
-                if not _pkce_ok(form.get("code_verifier", ""), record.get("codeChallenge") or ""):
-                    return _oauth_error(400, "invalid_grant", "PKCE verification failed")
-            issued = store.issue_token(client_id, record["scope"], subject=record["subject"],
-                                       refresh=provider.offline_access)
+                if not _pkce_ok(
+                    form.get("code_verifier", ""), record.get("codeChallenge") or ""
+                ):
+                    return _oauth_error(
+                        400, "invalid_grant", "PKCE verification failed"
+                    )
+            issued = store.issue_token(
+                client_id,
+                record["scope"],
+                subject=record["subject"],
+                refresh=provider.offline_access,
+            )
             return _token_response(issued)
 
         if grant == "refresh_token":
@@ -381,35 +481,51 @@ def _install_oauth(app: FastAPI, provider: catalog.Provider) -> None:
         token = store.valid_access_token(form.get("token", ""))
         if token is None:
             return JSONResponse({"active": False})
-        return JSONResponse({
-            "active": True,
-            "client_id": token["clientId"],
-            "scope": token["scope"],
-            "sub": token.get("subject"),
-            "aud": token.get("audience"),
-            "token_type": "Bearer",
-            "exp": token["expiresAt"],
-            "iat": token["createdAt"],
-        })
+        return JSONResponse(
+            {
+                "active": True,
+                "client_id": token["clientId"],
+                "scope": token["scope"],
+                "sub": token.get("subject"),
+                "aud": token.get("audience"),
+                "token_type": "Bearer",
+                "exp": token["expiresAt"],
+                "iat": token["createdAt"],
+            }
+        )
 
 
-def _authorize_error(provider: catalog.Provider, store, params: dict) -> JSONResponse | None:
+def _authorize_error(
+    provider: catalog.Provider, store, params: dict
+) -> JSONResponse | None:
     """Validate an authorization request the way a real provider would, before consent."""
     client = store.find_client(params.get("client_id", ""))
     if client is None:
         return JSONResponse(status_code=400, content={"error": "invalid_client"})
     if params.get("response_type", "code") != "code":
-        return JSONResponse(status_code=400, content={"error": "unsupported_response_type"})
+        return JSONResponse(
+            status_code=400, content={"error": "unsupported_response_type"}
+        )
     redirect_uri = params.get("redirect_uri")
     if redirect_uri and redirect_uri not in client["redirectUris"]:
         return JSONResponse(status_code=400, content={"error": "invalid_redirect_uri"})
     if provider.use_pkce:
         if not params.get("code_challenge"):
-            return JSONResponse(status_code=400,
-                                content={"error": "invalid_request", "error_description": "code_challenge required"})
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "error": "invalid_request",
+                    "error_description": "code_challenge required",
+                },
+            )
         if params.get("code_challenge_method", "S256") != "S256":
-            return JSONResponse(status_code=400,
-                                content={"error": "invalid_request", "error_description": "code_challenge_method must be S256"})
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "error": "invalid_request",
+                    "error_description": "code_challenge_method must be S256",
+                },
+            )
     return None
 
 
@@ -441,11 +557,15 @@ def _token_response(issued: dict) -> JSONResponse:
     if "refreshToken" in issued:
         body["refresh_token"] = issued["refreshToken"]
         if "refreshExpiresAt" in issued:
-            body["x_refresh_token_expires_in"] = max(0, issued["refreshExpiresAt"] - credentials._now())
+            body["x_refresh_token_expires_in"] = max(
+                0, issued["refreshExpiresAt"] - credentials._now()
+            )
     return JSONResponse(body)
 
 
-def _oauth_error(status: int, code: str, description: str | None = None) -> JSONResponse:
+def _oauth_error(
+    status: int, code: str, description: str | None = None
+) -> JSONResponse:
     body = {"error": code}
     if description:
         body["error_description"] = description

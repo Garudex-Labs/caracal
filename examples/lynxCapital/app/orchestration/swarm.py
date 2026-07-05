@@ -129,18 +129,45 @@ async def _require_approval(
 
 
 _PARTNER_READ_PREFIXES = (
-    "get", "list", "search", "lookup", "fetch", "read", "view",
-    "describe", "quote", "preview", "validate", "check", "status",
-    "find", "show", "resolve",
+    "get",
+    "list",
+    "search",
+    "lookup",
+    "fetch",
+    "read",
+    "view",
+    "describe",
+    "quote",
+    "preview",
+    "validate",
+    "check",
+    "status",
+    "find",
+    "show",
+    "resolve",
 )
 _PARTNER_MONEY_PREFIXES = (
-    "pay", "payout", "transfer", "settle", "disburse", "disbursal",
-    "remit", "remittance", "refund", "withdraw", "wire", "capture",
-    "chargeback", "debit", "topup",
+    "pay",
+    "payout",
+    "transfer",
+    "settle",
+    "disburse",
+    "disbursal",
+    "remit",
+    "remittance",
+    "refund",
+    "withdraw",
+    "wire",
+    "capture",
+    "chargeback",
+    "debit",
+    "topup",
 )
-_PARTNER_SENSITIVE_OPS = frozenset({
-    "inter_account_transfer_usd",
-})
+_PARTNER_SENSITIVE_OPS = frozenset(
+    {
+        "inter_account_transfer_usd",
+    }
+)
 
 
 def _partner_requires_approval(operation: str) -> bool:
@@ -155,7 +182,9 @@ def _partner_requires_approval(operation: str) -> bool:
         return True
     if tokens and tokens[0] in _PARTNER_READ_PREFIXES:
         return False
-    return any(tok.startswith(prefix) for tok in tokens for prefix in _PARTNER_MONEY_PREFIXES)
+    return any(
+        tok.startswith(prefix) for tok in tokens for prefix in _PARTNER_MONEY_PREFIXES
+    )
 
 
 _approvalMemo: dict[str, dict[tuple[str, str], dict | None]] = {}
@@ -532,7 +561,9 @@ def _build_regional_domain_tools(run_id, runner, parent, region, board):
         w = _worker("route-optimization", f"fx:{from_currency}:{to_currency}")
         try:
             return json.dumps(
-                tool_fns.convert_market_amount(run_id, w.id, from_currency, to_currency, amount)
+                tool_fns.convert_market_amount(
+                    run_id, w.id, from_currency, to_currency, amount
+                )
             )
         finally:
             _finish(w, {"from": from_currency, "to": to_currency})
@@ -596,7 +627,9 @@ def _build_regional_domain_tools(run_id, runner, parent, region, board):
             _finish(w, record)
 
     @tool
-    async def call_partner(provider_id: str, operation: str, payload_json: str = "{}") -> str:
+    async def call_partner(
+        provider_id: str, operation: str, payload_json: str = "{}"
+    ) -> str:
         """Call an external partner provider over its real auth surface.
 
         Use for third-party services beyond the core flow: meridian-pay/quetzal-payouts/halcyon-bank
@@ -630,7 +663,11 @@ def _build_regional_domain_tools(run_id, runner, parent, region, board):
                 run_id,
                 parent.id,
                 f"partner:{operation}",
-                {"provider_id": provider_id, "operation": operation, "payload": payload},
+                {
+                    "provider_id": provider_id,
+                    "operation": operation,
+                    "payload": payload,
+                },
             )
             if denied:
                 return json.dumps(denied)
@@ -638,7 +675,12 @@ def _build_regional_domain_tools(run_id, runner, parent, region, board):
         try:
             return json.dumps(
                 await asyncio.to_thread(
-                    tool_fns.partner_operation, run_id, w.id, provider_id, operation, payload
+                    tool_fns.partner_operation,
+                    run_id,
+                    w.id,
+                    provider_id,
+                    operation,
+                    payload,
                 )
             )
         finally:
@@ -692,7 +734,11 @@ async def _turn_loop(
         _emit_memory_snapshot(run_id, mem)
         state["total_used"] += 1
         if not ai_msg.tool_calls:
-            text = ai_msg.content if isinstance(ai_msg.content, str) else str(ai_msg.content)
+            text = (
+                ai_msg.content
+                if isinstance(ai_msg.content, str)
+                else str(ai_msg.content)
+            )
             if (
                 ANNOUNCED_INTENT.search(text)
                 and state.get("intent_nudges", 0) < INTENT_NUDGES
@@ -833,7 +879,8 @@ def _orchestrator_summary(mem, board, agent_id) -> str:
     if text:
         return text
     findings = [
-        f.content for f in board.all()
+        f.content
+        for f in board.all()
         if f.agent_id == agent_id and f.kind in ("stage", "audit")
     ]
     return " | ".join(findings[-5:])
@@ -956,7 +1003,9 @@ def _build_workflow_domain_tools(run_id, runner, parent, workflow_id, board):
         w.start()
         return w
 
-    async def _aworker(role: str, scope: str, customer_id: str | None = None) -> AgentHandle:
+    async def _aworker(
+        role: str, scope: str, customer_id: str | None = None
+    ) -> AgentHandle:
         w = await runner.aspawn(
             role=role,
             scope=scope,
@@ -1512,14 +1561,16 @@ def _build_workflow_domain_tools(run_id, runner, parent, workflow_id, board):
             _finish(w, {"customer_id": customer_id})
 
     @tool
-    def capture_receivable(customer_id: str, amount: float, currency: str,
-                           source: str = "tok_visa") -> str:
+    def capture_receivable(
+        customer_id: str, amount: float, currency: str, source: str = "tok_visa"
+    ) -> str:
         """Accept an inbound customer card payment on the Meridian Pay acceptance rail."""
         w = _worker("receivables", f"accept:{customer_id}", customer_id=customer_id)
         try:
             return json.dumps(
-                tool_fns.capture_receivable(run_id, w.id, customer_id, float(amount),
-                                            currency, source)
+                tool_fns.capture_receivable(
+                    run_id, w.id, customer_id, float(amount), currency, source
+                )
             )
         finally:
             _finish(w, {"customer_id": customer_id})
@@ -1530,8 +1581,9 @@ def _build_workflow_domain_tools(run_id, runner, parent, workflow_id, board):
         w = _worker("receivables", f"refund:{charge_id}")
         try:
             return json.dumps(
-                tool_fns.refund_receivable(run_id, w.id, charge_id,
-                                           float(amount) if amount else None)
+                tool_fns.refund_receivable(
+                    run_id, w.id, charge_id, float(amount) if amount else None
+                )
             )
         finally:
             _finish(w, {"charge_id": charge_id})
@@ -1555,14 +1607,19 @@ def _build_workflow_domain_tools(run_id, runner, parent, workflow_id, board):
             _finish(w, {"dispute_id": dispute_id})
 
     @tool
-    def respond_to_payment_dispute(dispute_id: str, product_description: str = "",
-                                   customer_communication: str = "") -> str:
+    def respond_to_payment_dispute(
+        dispute_id: str, product_description: str = "", customer_communication: str = ""
+    ) -> str:
         """Contest a chargeback by submitting evidence before the dispute response deadline."""
         w = _worker("receivables", f"dispute-evidence:{dispute_id}")
-        evidence = {k: v for k, v in (
-            ("productDescription", product_description),
-            ("customerCommunication", customer_communication),
-        ) if v}
+        evidence = {
+            k: v
+            for k, v in (
+                ("productDescription", product_description),
+                ("customerCommunication", customer_communication),
+            )
+            if v
+        }
         try:
             return json.dumps(
                 tool_fns.respond_to_payment_dispute(run_id, w.id, dispute_id, evidence)
@@ -1584,7 +1641,9 @@ def _build_workflow_domain_tools(run_id, runner, parent, workflow_id, board):
         """List Meridian Pay settlement batches to reconcile net card deposits against the ledger."""
         w = _worker("receivables", f"settlements:{status or 'all'}")
         try:
-            return json.dumps(tool_fns.reconcile_acceptance_settlements(run_id, w.id, status))
+            return json.dumps(
+                tool_fns.reconcile_acceptance_settlements(run_id, w.id, status)
+            )
         finally:
             _finish(w, {"status": status})
 
@@ -1737,13 +1796,16 @@ def _build_workflow_domain_tools(run_id, runner, parent, workflow_id, board):
             _finish(w, {"deal_id": deal_id})
 
     @tool
-    def create_supplier_deal(account_id: str, title: str, amount: float,
-                             deal_type: str = "renewal") -> str:
+    def create_supplier_deal(
+        account_id: str, title: str, amount: float, deal_type: str = "renewal"
+    ) -> str:
         """Open a new CRM deal on a supplier account (deal_type: new_business, renewal, upsell, expansion)."""
         w = _worker("vendor-lifecycle", f"crm-deal-new:{account_id}")
         try:
             return json.dumps(
-                tool_fns.create_supplier_deal(run_id, w.id, account_id, title, amount, deal_type)
+                tool_fns.create_supplier_deal(
+                    run_id, w.id, account_id, title, amount, deal_type
+                )
             )
         finally:
             _finish(w, {"account_id": account_id})
@@ -1842,7 +1904,9 @@ def _build_workflow_domain_tools(run_id, runner, parent, workflow_id, board):
         """
         w = _worker("compliance", f"identity:sod:{user_id}")
         try:
-            return json.dumps(tool_fns.check_segregation_of_duties(run_id, w.id, user_id))
+            return json.dumps(
+                tool_fns.check_segregation_of_duties(run_id, w.id, user_id)
+            )
         finally:
             _finish(w, {"user_id": user_id})
 
@@ -1868,7 +1932,9 @@ def _build_workflow_domain_tools(run_id, runner, parent, workflow_id, board):
             _finish(w, record)
 
     @tool
-    async def call_partner(provider_id: str, operation: str, payload_json: str = "{}") -> str:
+    async def call_partner(
+        provider_id: str, operation: str, payload_json: str = "{}"
+    ) -> str:
         """Call an external partner provider over its real auth surface.
 
         Use for partner operations beyond the dedicated tools: cordoba-fx (fx quotes/
@@ -1903,7 +1969,11 @@ def _build_workflow_domain_tools(run_id, runner, parent, workflow_id, board):
                 run_id,
                 parent.id,
                 f"partner:{operation}",
-                {"provider_id": provider_id, "operation": operation, "payload": payload},
+                {
+                    "provider_id": provider_id,
+                    "operation": operation,
+                    "payload": payload,
+                },
             )
             if denied:
                 return json.dumps(denied)
@@ -1911,7 +1981,12 @@ def _build_workflow_domain_tools(run_id, runner, parent, workflow_id, board):
         try:
             return json.dumps(
                 await asyncio.to_thread(
-                    tool_fns.partner_operation, run_id, w.id, provider_id, operation, payload
+                    tool_fns.partner_operation,
+                    run_id,
+                    w.id,
+                    provider_id,
+                    operation,
+                    payload,
                 )
             )
         finally:

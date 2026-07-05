@@ -513,13 +513,11 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
       }
       await enqueueMany(
         client,
-        changed.map(
-          (row): OutboxItem => ({
-            topic: Topics.AgentsLifecycle,
-            dedupeKey: `resume:${row.id}`,
-            payload: { event: 'resume', zone_id: zoneId, agent_session_id: row.id, parent_id: row.parent_id },
-          }),
-        ),
+        changed.map((row): OutboxItem => ({
+          topic: Topics.AgentsLifecycle,
+          dedupeKey: `resume:${row.id}`,
+          payload: { event: 'resume', zone_id: zoneId, agent_session_id: row.id, parent_id: row.parent_id },
+        })),
       )
       await client.query('COMMIT')
       return { resumed: changed.length }

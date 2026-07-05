@@ -83,7 +83,9 @@ async def authenticate(
         return AuthResult(None, auth_error("invalid_token"))
 
     if revocations is None:
-        return AuthResult(None, auth_error("invalid_token", "Revocation store required"))
+        return AuthResult(
+            None, auth_error("invalid_token", "Revocation store required")
+        )
     active_error = check_active_authority(claims, revocations)
     if active_error is not None:
         return AuthResult(None, active_error)
@@ -113,9 +115,13 @@ class MandateVerifier:
         self.defaults = defaults
 
     async def authenticate(self, token: str, **overrides: Any) -> AuthResult:
-        return await authenticate_options(token, merge_options(self.defaults, overrides))
+        return await authenticate_options(
+            token, merge_options(self.defaults, overrides)
+        )
 
-    async def authorization(self, auth_header: str | None, **overrides: Any) -> AuthResult:
+    async def authorization(
+        self, auth_header: str | None, **overrides: Any
+    ) -> AuthResult:
         return await self.authenticate(extract_bearer(auth_header) or "", **overrides)
 
     def require(self, **overrides: Any) -> "MandateVerifier":
@@ -152,14 +158,18 @@ def merge_options(defaults: AuthOptions, overrides: dict[str, Any]) -> AuthOptio
     return AuthOptions(**values)
 
 
-def check_active_authority(claims: object, revocations: RevocationStore, now_seconds: int | None = None) -> AuthError | None:
+def check_active_authority(
+    claims: object, revocations: RevocationStore, now_seconds: int | None = None
+) -> AuthError | None:
     import time
 
     sid = getattr(claims, "sid", "")
     if not sid:
         return auth_error("invalid_token")
     expires_at = getattr(claims, "expires_at", 0)
-    if expires_at and expires_at <= (now_seconds if now_seconds is not None else int(time.time())):
+    if expires_at and expires_at <= (
+        now_seconds if now_seconds is not None else int(time.time())
+    ):
         return auth_error("invalid_token", "Token expired during execution")
     for anchor in _revocation_anchors(claims):
         if revocations.is_revoked(anchor):

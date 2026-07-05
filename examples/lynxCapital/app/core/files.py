@@ -6,6 +6,7 @@ Per-run in-memory file store for DeepAgents-style externalized memory
 (write_file / read_file / ls) so agents can offload large tool results and
 keep prompt context small.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -32,8 +33,11 @@ class RunFileStore:
         clean = _normalize(path)
         with self._lock:
             f = StoredFile(
-                path=clean, content=content, size=len(content),
-                written_at=time(), written_by=agent_id,
+                path=clean,
+                content=content,
+                size=len(content),
+                written_at=time(),
+                written_by=agent_id,
             )
             self._files[clean] = f
             return f

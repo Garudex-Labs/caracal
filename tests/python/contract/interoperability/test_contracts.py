@@ -32,7 +32,9 @@ class InteroperabilityContractTests(unittest.TestCase):
     def test_trace_context_fixture_uses_w3c_headers(self) -> None:
         headers = read_fixture("trace-context.headers.valid.json")
 
-        self.assertRegex(str(headers["traceparent"]), r"^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$")
+        self.assertRegex(
+            str(headers["traceparent"]), r"^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$"
+        )
         self.assertIn("tracestate", headers)
         self.assertIn("caracal.agent_session=", str(headers["baggage"]))
         self.assertIn("caracal.hop=1", str(headers["baggage"]))

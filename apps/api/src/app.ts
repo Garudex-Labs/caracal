@@ -37,18 +37,20 @@ import { createOperatorAiManager, buildStoreProviderConfigs, type OperatorAiMana
 import { listAiProviders } from './operator-ai-store.js'
 import type { OperatorControlIdentity } from './config.js'
 import {
-  isPublished,
   getTraceContext,
   parseTraceparent,
   bindTrace,
-  renderObservabilityMetrics,
   buildPinoRedactPaths,
-  instrumentFastifyApp,
-  withTimeout,
   CaracalError,
-  pathOnly,
   createLogger,
 } from '@caracalai/core'
+import {
+  isPublished,
+  renderObservabilityMetrics,
+  instrumentFastifyApp,
+  withTimeout,
+  pathOnly,
+} from '@caracalai/server-core'
 import { zonesRoutes } from './routes/zones.js'
 import { applicationsRoutes } from './routes/applications.js'
 import { workloadsRoutes } from './routes/workloads.js'

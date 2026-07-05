@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 Validates that agent tool wrappers reach their intended providers, including rail-based payment routing and multi-ERP selection.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -27,18 +28,24 @@ def _provider_of(result: dict) -> str:
 # Rail-based payment routing reaches three distinct providers
 # --------------------------------------------------------------------------- #
 def test_rail_routes_card_to_meridian(providerlab):
-    res = tool_fns.submit_payment("r", "a", "us-axiom-cloud", 100.0, "USD", "CARD", "ref-1")
+    res = tool_fns.submit_payment(
+        "r", "a", "us-axiom-cloud", 100.0, "USD", "CARD", "ref-1"
+    )
     assert _provider_of(res) == "meridian-pay"
 
 
 def test_rail_routes_ach_to_halcyon(providerlab):
-    res = tool_fns.submit_payment("r", "a", "us-axiom-cloud", 100.0, "USD", "ACH", "ref-2")
+    res = tool_fns.submit_payment(
+        "r", "a", "us-axiom-cloud", 100.0, "USD", "ACH", "ref-2"
+    )
     assert _provider_of(res) == "halcyon-bank"
     assert res["operation"] == "initiate_payment"
 
 
 def test_rail_routes_wire_to_quetzal(providerlab):
-    res = tool_fns.submit_payment("r", "a", "us-axiom-cloud", 100.0, "USD", "WIRE", "ref-3")
+    res = tool_fns.submit_payment(
+        "r", "a", "us-axiom-cloud", 100.0, "USD", "WIRE", "ref-3"
+    )
     assert _provider_of(res) == "quetzal-payouts"
 
 
@@ -46,9 +53,13 @@ def test_rail_routes_wire_to_quetzal(providerlab):
 # ERP selection reaches both accounting back ends
 # --------------------------------------------------------------------------- #
 def test_erp_selector_routes_to_both(providerlab):
-    ironbark = tool_fns.match_invoice("r", "a", "v1", "INV-1", 100.0, "USD", erp="ironbark")
+    ironbark = tool_fns.match_invoice(
+        "r", "a", "v1", "INV-1", 100.0, "USD", erp="ironbark"
+    )
     assert _provider_of(ironbark) == "ironbark-erp"
-    tallyhall = tool_fns.match_invoice("r", "a", "v1", "INV-1", 100.0, "USD", erp="tallyhall")
+    tallyhall = tool_fns.match_invoice(
+        "r", "a", "v1", "INV-1", 100.0, "USD", erp="tallyhall"
+    )
     assert _provider_of(tallyhall) == "tallyhall-books"
 
 
@@ -158,8 +169,11 @@ def test_quickbooks_match_creates_then_matches(providerlab):
 
 
 def test_payment_status_reads_charge(providerlab):
-    created = partners.call("meridian-pay", "create_charge",
-                            {"amount": 500, "currency": "USD", "source": "tok_visa"})
+    created = partners.call(
+        "meridian-pay",
+        "create_charge",
+        {"amount": 500, "currency": "USD", "source": "tok_visa"},
+    )
     charge_id = created["data"]["chargeId"]
     res = tool_fns.get_payment_status("r", "a", charge_id)
     assert res["operation"] == "get_charge"
@@ -192,7 +206,9 @@ def test_acceptance_balance_reaches_meridian(providerlab):
 
 def test_settlement_reconciliation_reaches_meridian(providerlab):
     res = tool_fns.reconcile_acceptance_settlements("r", "a")
-    assert _provider_of(res) == "meridian-pay" and res["operation"] == "list_settlements"
+    assert (
+        _provider_of(res) == "meridian-pay" and res["operation"] == "list_settlements"
+    )
     assert "items" in res["data"]
 
 
@@ -203,7 +219,8 @@ def test_dispute_evidence_response_reaches_meridian(providerlab):
         pytest.skip("no open dispute in the seeded dataset")
     dispute_id = items[0]["disputeId"]
     res = tool_fns.respond_to_payment_dispute(
-        "r", "a", dispute_id, {"productDescription": "Delivered SaaS subscription"})
+        "r", "a", dispute_id, {"productDescription": "Delivered SaaS subscription"}
+    )
     assert _provider_of(res) == "meridian-pay"
     assert res["operation"] == "submit_dispute_evidence"
     assert res["data"]["status"] == "under_review"
@@ -217,14 +234,24 @@ def test_fx_rate_and_convert_reach_cordoba(providerlab):
     assert _provider_of(rate) == "cordoba-fx" and rate["operation"] == "get_quote"
     assert rate["data"]["currency_pair"] == "EURUSD"
     conv = tool_fns.convert_currency("r", "a", "USD", "EUR", 10000.0)
-    assert _provider_of(conv) == "cordoba-fx" and conv["operation"] == "create_conversion"
+    assert (
+        _provider_of(conv) == "cordoba-fx" and conv["operation"] == "create_conversion"
+    )
     assert conv["data"]["status"] == "awaiting_funds"
 
 
 def test_settle_vendor_fx_payment_chains_conversion_beneficiary_payment(providerlab):
     res = tool_fns.settle_vendor_fx_payment(
-        "r", "a", "Granite Industries", 7500.0, "EUR", sell_currency="USD",
-        bank_country="DE", iban="DE89370400440532013000", reference="INV-7500")
+        "r",
+        "a",
+        "Granite Industries",
+        7500.0,
+        "EUR",
+        sell_currency="USD",
+        bank_country="DE",
+        iban="DE89370400440532013000",
+        reference="INV-7500",
+    )
     assert _provider_of(res) == "cordoba-fx" and res["operation"] == "create_payment"
     payment = res["data"]
     assert payment["status"] == "ready_to_send"
@@ -233,13 +260,14 @@ def test_settle_vendor_fx_payment_chains_conversion_beneficiary_payment(provider
     assert settled["data"]["status"] in ("submitted", "completed")
 
 
-
 # --------------------------------------------------------------------------- #
 # Treasury tools reach Keystone over its gRPC-style surface
 # --------------------------------------------------------------------------- #
 def test_cash_position_and_summary_reach_keystone(providerlab):
     pos = tool_fns.get_cash_position("r", "a", "US")
-    assert _provider_of(pos) == "keystone-treasury" and pos["operation"] == "get_position"
+    assert (
+        _provider_of(pos) == "keystone-treasury" and pos["operation"] == "get_position"
+    )
     assert pos["data"]["currency"] == "USD" and pos["data"]["accountCount"] >= 1
 
     summary = tool_fns.get_treasury_summary("r", "a")
@@ -250,18 +278,27 @@ def test_cash_position_and_summary_reach_keystone(providerlab):
 
 def test_forecast_and_exposure_reach_keystone(providerlab):
     fc = tool_fns.forecast_liquidity("r", "a", 30, "stress")
-    assert _provider_of(fc) == "keystone-treasury" and fc["data"]["scenario"] == "stress"
+    assert (
+        _provider_of(fc) == "keystone-treasury" and fc["data"]["scenario"] == "stress"
+    )
     assert fc["data"]["points"]
 
     exp = tool_fns.get_fx_exposure("r", "a", "EUR")
-    assert _provider_of(exp) == "keystone-treasury" and exp["operation"] == "get_exposure"
+    assert (
+        _provider_of(exp) == "keystone-treasury" and exp["operation"] == "get_exposure"
+    )
     assert "unhedgedAmount" in exp["data"]
 
 
 def test_hedge_and_transfer_reach_keystone(providerlab):
     hedge = tool_fns.place_fx_hedge("r", "a", "EUR", "USD", 1_000_000.0, 90)
-    assert _provider_of(hedge) == "keystone-treasury" and hedge["operation"] == "place_hedge"
-    assert hedge["data"]["status"] == "booked" and hedge["data"]["instrument"] == "forward"
+    assert (
+        _provider_of(hedge) == "keystone-treasury"
+        and hedge["operation"] == "place_hedge"
+    )
+    assert (
+        hedge["data"]["status"] == "booked" and hedge["data"]["instrument"] == "forward"
+    )
 
     transfer = tool_fns.transfer_funds("r", "a", "US", "DE", 25_000.0)
     assert _provider_of(transfer) == "keystone-treasury"

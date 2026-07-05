@@ -41,9 +41,10 @@ function colorEnabled(stream: NodeJS.WriteStream): boolean {
   return Boolean(stream.isTTY)
 }
 
-const utf8 = (process.env.LANG ?? process.env.LC_ALL ?? '').toLowerCase().includes('utf')
-  || process.platform === 'darwin'
-  || process.platform === 'linux'
+const utf8 =
+  (process.env.LANG ?? process.env.LC_ALL ?? '').toLowerCase().includes('utf') ||
+  process.platform === 'darwin' ||
+  process.platform === 'linux'
 
 export const SYMBOL = {
   ok: utf8 ? '✓' : '+',

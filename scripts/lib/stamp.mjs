@@ -30,10 +30,12 @@ function npmVersionMap(config) {
 
 function pypiVersionMap(config) {
   const byGroup = Object.fromEntries(config.packages.npm.map((entry) => [entry.group, entry.version]))
-  return Object.fromEntries(config.packages.pypi.map((entry) => {
-    const npmVersion = byGroup[entry.group]
-    return [entry.name, npmVersion ? pypiFromNpm(npmVersion) : entry.version]
-  }))
+  return Object.fromEntries(
+    config.packages.pypi.map((entry) => {
+      const npmVersion = byGroup[entry.group]
+      return [entry.name, npmVersion ? pypiFromNpm(npmVersion) : entry.version]
+    }),
+  )
 }
 
 function stampPackageJson(entry, npmVersions, diff) {

@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 Relay Automation domain: mandate-guarded MCP workflow platform with DAG executions, queue concurrency, signals, retries, and a hash-chained execution audit trail.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -25,7 +26,12 @@ _PAUSABLE = ("queued", "running", "waiting_signal", "retrying")
 
 # Per-execution outcome bands drawn from a deterministic RNG. Most runs succeed;
 # the rest model the failure modes a real automation platform surfaces.
-_OUTCOME_BANDS = (("success", 0.60), ("transient", 0.78), ("failure", 0.90), ("timeout", 1.0))
+_OUTCOME_BANDS = (
+    ("success", 0.60),
+    ("transient", 0.78),
+    ("failure", 0.90),
+    ("timeout", 1.0),
+)
 
 # Workflow definitions model finance-operations automations as step DAGs. Each
 # step is a typed task; `approval` steps pause the run for a human signal.
@@ -41,23 +47,62 @@ _WORKFLOWS: tuple[dict, ...] = (
         "concurrencyLimit": 2,
         "priority": "normal",
         "timeoutSeconds": 3600,
-        "retryPolicy": {"maxAttempts": 3, "backoff": "exponential",
-                        "retryableErrors": ["ledger_unavailable", "match_timeout"]},
+        "retryPolicy": {
+            "maxAttempts": 3,
+            "backoff": "exponential",
+            "retryableErrors": ["ledger_unavailable", "match_timeout"],
+        },
         "tags": ["accounts-payable", "ledger", "batch"],
         "owner": "ap-automation@lynx.example",
         "steps": [
-            {"id": "fetch_invoices", "name": "Fetch pending invoices", "type": "task",
-             "action": "ironbark-erp.list_bills", "retryable": True, "timeoutSeconds": 120},
-            {"id": "three_way_match", "name": "Three-way match", "type": "task",
-             "action": "ironbark-erp.match_invoice", "retryable": True, "timeoutSeconds": 300},
-            {"id": "tax_determination", "name": "Determine tax", "type": "task",
-             "action": "sabre-tax.calculate_tax", "retryable": True, "timeoutSeconds": 120},
-            {"id": "controller_approval", "name": "Controller approval", "type": "approval",
-             "action": "human.approve", "retryable": False, "timeoutSeconds": 86400},
-            {"id": "post_to_ledger", "name": "Post to ledger", "type": "task",
-             "action": "slate-ledger.post_entry", "retryable": True, "timeoutSeconds": 180},
-            {"id": "notify_team", "name": "Notify AP team", "type": "notification",
-             "action": "vela-notify.send_message", "retryable": False, "timeoutSeconds": 60},
+            {
+                "id": "fetch_invoices",
+                "name": "Fetch pending invoices",
+                "type": "task",
+                "action": "ironbark-erp.list_bills",
+                "retryable": True,
+                "timeoutSeconds": 120,
+            },
+            {
+                "id": "three_way_match",
+                "name": "Three-way match",
+                "type": "task",
+                "action": "ironbark-erp.match_invoice",
+                "retryable": True,
+                "timeoutSeconds": 300,
+            },
+            {
+                "id": "tax_determination",
+                "name": "Determine tax",
+                "type": "task",
+                "action": "sabre-tax.calculate_tax",
+                "retryable": True,
+                "timeoutSeconds": 120,
+            },
+            {
+                "id": "controller_approval",
+                "name": "Controller approval",
+                "type": "approval",
+                "action": "human.approve",
+                "retryable": False,
+                "timeoutSeconds": 86400,
+            },
+            {
+                "id": "post_to_ledger",
+                "name": "Post to ledger",
+                "type": "task",
+                "action": "slate-ledger.post_entry",
+                "retryable": True,
+                "timeoutSeconds": 180,
+            },
+            {
+                "id": "notify_team",
+                "name": "Notify AP team",
+                "type": "notification",
+                "action": "vela-notify.send_message",
+                "retryable": False,
+                "timeoutSeconds": 60,
+            },
         ],
     },
     {
@@ -71,23 +116,62 @@ _WORKFLOWS: tuple[dict, ...] = (
         "concurrencyLimit": 4,
         "priority": "normal",
         "timeoutSeconds": 7200,
-        "retryPolicy": {"maxAttempts": 2, "backoff": "fixed",
-                        "retryableErrors": ["screening_timeout"]},
+        "retryPolicy": {
+            "maxAttempts": 2,
+            "backoff": "fixed",
+            "retryableErrors": ["screening_timeout"],
+        },
         "tags": ["vendor", "kyb", "onboarding"],
         "owner": "vendor-ops@lynx.example",
         "steps": [
-            {"id": "create_record", "name": "Create vendor record", "type": "task",
-             "action": "atlas-vendor.register_vendor", "retryable": True, "timeoutSeconds": 60},
-            {"id": "kyb_screening", "name": "KYB / sanctions screening", "type": "task",
-             "action": "aegis-screening.verify_business", "retryable": True, "timeoutSeconds": 300},
-            {"id": "banking_verification", "name": "Verify banking", "type": "task",
-             "action": "atlas-vendor.verify_vendor_banking", "retryable": True, "timeoutSeconds": 180},
-            {"id": "document_collection", "name": "Collect documents", "type": "task",
-             "action": "atlas-vendor.submit_vendor_document", "retryable": True, "timeoutSeconds": 120},
-            {"id": "onboarding_approval", "name": "Procurement approval", "type": "approval",
-             "action": "human.approve", "retryable": False, "timeoutSeconds": 86400},
-            {"id": "activation", "name": "Activate vendor", "type": "task",
-             "action": "atlas-vendor.set_vendor_status", "retryable": True, "timeoutSeconds": 60},
+            {
+                "id": "create_record",
+                "name": "Create vendor record",
+                "type": "task",
+                "action": "atlas-vendor.register_vendor",
+                "retryable": True,
+                "timeoutSeconds": 60,
+            },
+            {
+                "id": "kyb_screening",
+                "name": "KYB / sanctions screening",
+                "type": "task",
+                "action": "aegis-screening.verify_business",
+                "retryable": True,
+                "timeoutSeconds": 300,
+            },
+            {
+                "id": "banking_verification",
+                "name": "Verify banking",
+                "type": "task",
+                "action": "atlas-vendor.verify_vendor_banking",
+                "retryable": True,
+                "timeoutSeconds": 180,
+            },
+            {
+                "id": "document_collection",
+                "name": "Collect documents",
+                "type": "task",
+                "action": "atlas-vendor.submit_vendor_document",
+                "retryable": True,
+                "timeoutSeconds": 120,
+            },
+            {
+                "id": "onboarding_approval",
+                "name": "Procurement approval",
+                "type": "approval",
+                "action": "human.approve",
+                "retryable": False,
+                "timeoutSeconds": 86400,
+            },
+            {
+                "id": "activation",
+                "name": "Activate vendor",
+                "type": "task",
+                "action": "atlas-vendor.set_vendor_status",
+                "retryable": True,
+                "timeoutSeconds": 60,
+            },
         ],
     },
     {
@@ -101,19 +185,46 @@ _WORKFLOWS: tuple[dict, ...] = (
         "concurrencyLimit": 3,
         "priority": "high",
         "timeoutSeconds": 1800,
-        "retryPolicy": {"maxAttempts": 4, "backoff": "exponential",
-                        "retryableErrors": ["match_timeout", "ledger_unavailable"]},
+        "retryPolicy": {
+            "maxAttempts": 4,
+            "backoff": "exponential",
+            "retryableErrors": ["match_timeout", "ledger_unavailable"],
+        },
         "tags": ["reconciliation", "treasury", "scheduled"],
         "owner": "treasury-ops@lynx.example",
         "steps": [
-            {"id": "import_statement", "name": "Import statement", "type": "task",
-             "action": "halcyon-bank.get_statement", "retryable": True, "timeoutSeconds": 120},
-            {"id": "normalize_lines", "name": "Normalize lines", "type": "task",
-             "action": "relay.transform", "retryable": True, "timeoutSeconds": 90},
-            {"id": "match_transactions", "name": "Match transactions", "type": "task",
-             "action": "slate-ledger.reconcile_account", "retryable": True, "timeoutSeconds": 600},
-            {"id": "exception_report", "name": "Build exception report", "type": "task",
-             "action": "relay.report", "retryable": False, "timeoutSeconds": 120},
+            {
+                "id": "import_statement",
+                "name": "Import statement",
+                "type": "task",
+                "action": "halcyon-bank.get_statement",
+                "retryable": True,
+                "timeoutSeconds": 120,
+            },
+            {
+                "id": "normalize_lines",
+                "name": "Normalize lines",
+                "type": "task",
+                "action": "relay.transform",
+                "retryable": True,
+                "timeoutSeconds": 90,
+            },
+            {
+                "id": "match_transactions",
+                "name": "Match transactions",
+                "type": "task",
+                "action": "slate-ledger.reconcile_account",
+                "retryable": True,
+                "timeoutSeconds": 600,
+            },
+            {
+                "id": "exception_report",
+                "name": "Build exception report",
+                "type": "task",
+                "action": "relay.report",
+                "retryable": False,
+                "timeoutSeconds": 120,
+            },
         ],
     },
     {
@@ -127,21 +238,54 @@ _WORKFLOWS: tuple[dict, ...] = (
         "concurrencyLimit": 1,
         "priority": "critical",
         "timeoutSeconds": 5400,
-        "retryPolicy": {"maxAttempts": 3, "backoff": "exponential",
-                        "retryableErrors": ["settlement_pending", "rail_unavailable"]},
+        "retryPolicy": {
+            "maxAttempts": 3,
+            "backoff": "exponential",
+            "retryableErrors": ["settlement_pending", "rail_unavailable"],
+        },
         "tags": ["payments", "payout", "treasury"],
         "owner": "payments-ops@lynx.example",
         "steps": [
-            {"id": "validate_batch", "name": "Validate batch", "type": "task",
-             "action": "quetzal-payouts.create_batch", "retryable": True, "timeoutSeconds": 120},
-            {"id": "fx_lock", "name": "Lock FX rate", "type": "task",
-             "action": "cordoba-fx.create_conversion", "retryable": True, "timeoutSeconds": 90},
-            {"id": "compliance_hold", "name": "Compliance release approval", "type": "approval",
-             "action": "human.approve", "retryable": False, "timeoutSeconds": 172800},
-            {"id": "release_funds", "name": "Release funds", "type": "task",
-             "action": "quetzal-payouts.create_payout", "retryable": True, "timeoutSeconds": 300},
-            {"id": "settlement_callback", "name": "Confirm settlement", "type": "task",
-             "action": "quetzal-payouts.get_payout", "retryable": True, "timeoutSeconds": 600},
+            {
+                "id": "validate_batch",
+                "name": "Validate batch",
+                "type": "task",
+                "action": "quetzal-payouts.create_batch",
+                "retryable": True,
+                "timeoutSeconds": 120,
+            },
+            {
+                "id": "fx_lock",
+                "name": "Lock FX rate",
+                "type": "task",
+                "action": "cordoba-fx.create_conversion",
+                "retryable": True,
+                "timeoutSeconds": 90,
+            },
+            {
+                "id": "compliance_hold",
+                "name": "Compliance release approval",
+                "type": "approval",
+                "action": "human.approve",
+                "retryable": False,
+                "timeoutSeconds": 172800,
+            },
+            {
+                "id": "release_funds",
+                "name": "Release funds",
+                "type": "task",
+                "action": "quetzal-payouts.create_payout",
+                "retryable": True,
+                "timeoutSeconds": 300,
+            },
+            {
+                "id": "settlement_callback",
+                "name": "Confirm settlement",
+                "type": "task",
+                "action": "quetzal-payouts.get_payout",
+                "retryable": True,
+                "timeoutSeconds": 600,
+            },
         ],
     },
     {
@@ -155,21 +299,54 @@ _WORKFLOWS: tuple[dict, ...] = (
         "concurrencyLimit": 1,
         "priority": "high",
         "timeoutSeconds": 10800,
-        "retryPolicy": {"maxAttempts": 2, "backoff": "fixed",
-                        "retryableErrors": ["ledger_unavailable"]},
+        "retryPolicy": {
+            "maxAttempts": 2,
+            "backoff": "fixed",
+            "retryableErrors": ["ledger_unavailable"],
+        },
         "tags": ["close", "ledger", "accounting"],
         "owner": "controller@lynx.example",
         "steps": [
-            {"id": "post_accruals", "name": "Post accruals", "type": "task",
-             "action": "slate-ledger.create_accrual", "retryable": True, "timeoutSeconds": 300},
-            {"id": "intercompany", "name": "Intercompany entries", "type": "task",
-             "action": "slate-ledger.post_entry", "retryable": True, "timeoutSeconds": 300},
-            {"id": "fx_revaluation", "name": "FX revaluation", "type": "task",
-             "action": "cordoba-fx.get_quote", "retryable": True, "timeoutSeconds": 240},
-            {"id": "trial_balance", "name": "Trial balance", "type": "task",
-             "action": "slate-ledger.trial_balance", "retryable": True, "timeoutSeconds": 600},
-            {"id": "lock_period", "name": "Lock period", "type": "task",
-             "action": "slate-ledger.close_period", "retryable": False, "timeoutSeconds": 120},
+            {
+                "id": "post_accruals",
+                "name": "Post accruals",
+                "type": "task",
+                "action": "slate-ledger.create_accrual",
+                "retryable": True,
+                "timeoutSeconds": 300,
+            },
+            {
+                "id": "intercompany",
+                "name": "Intercompany entries",
+                "type": "task",
+                "action": "slate-ledger.post_entry",
+                "retryable": True,
+                "timeoutSeconds": 300,
+            },
+            {
+                "id": "fx_revaluation",
+                "name": "FX revaluation",
+                "type": "task",
+                "action": "cordoba-fx.get_quote",
+                "retryable": True,
+                "timeoutSeconds": 240,
+            },
+            {
+                "id": "trial_balance",
+                "name": "Trial balance",
+                "type": "task",
+                "action": "slate-ledger.trial_balance",
+                "retryable": True,
+                "timeoutSeconds": 600,
+            },
+            {
+                "id": "lock_period",
+                "name": "Lock period",
+                "type": "task",
+                "action": "slate-ledger.close_period",
+                "retryable": False,
+                "timeoutSeconds": 120,
+            },
         ],
     },
     {
@@ -183,19 +360,46 @@ _WORKFLOWS: tuple[dict, ...] = (
         "concurrencyLimit": 5,
         "priority": "low",
         "timeoutSeconds": 1200,
-        "retryPolicy": {"maxAttempts": 3, "backoff": "exponential",
-                        "retryableErrors": ["notify_throttled"]},
+        "retryPolicy": {
+            "maxAttempts": 3,
+            "backoff": "exponential",
+            "retryableErrors": ["notify_throttled"],
+        },
         "tags": ["collections", "receivables", "scheduled"],
         "owner": "ar-ops@lynx.example",
         "steps": [
-            {"id": "select_overdue", "name": "Select overdue invoices", "type": "task",
-             "action": "core-billing.get_ar_aging", "retryable": True, "timeoutSeconds": 120},
-            {"id": "segment", "name": "Segment by aging", "type": "decision",
-             "action": "relay.branch", "retryable": False, "timeoutSeconds": 30},
-            {"id": "send_notices", "name": "Send dunning notices", "type": "notification",
-             "action": "vela-notify.send_batch", "retryable": True, "timeoutSeconds": 180},
-            {"id": "schedule_followups", "name": "Schedule follow-ups", "type": "task",
-             "action": "core-billing.run_dunning_cycle", "retryable": True, "timeoutSeconds": 90},
+            {
+                "id": "select_overdue",
+                "name": "Select overdue invoices",
+                "type": "task",
+                "action": "core-billing.get_ar_aging",
+                "retryable": True,
+                "timeoutSeconds": 120,
+            },
+            {
+                "id": "segment",
+                "name": "Segment by aging",
+                "type": "decision",
+                "action": "relay.branch",
+                "retryable": False,
+                "timeoutSeconds": 30,
+            },
+            {
+                "id": "send_notices",
+                "name": "Send dunning notices",
+                "type": "notification",
+                "action": "vela-notify.send_batch",
+                "retryable": True,
+                "timeoutSeconds": 180,
+            },
+            {
+                "id": "schedule_followups",
+                "name": "Schedule follow-ups",
+                "type": "task",
+                "action": "core-billing.run_dunning_cycle",
+                "retryable": True,
+                "timeoutSeconds": 90,
+            },
         ],
     },
 )
@@ -236,12 +440,17 @@ def _next_run(schedule: str | None, after: datetime | None = None) -> str | None
     if not schedule:
         return None
     minute, hour, dom, month, dow = schedule.split()
-    cursor = (after or datetime.now(timezone.utc)).replace(second=0, microsecond=0) \
-        + timedelta(minutes=1)
+    cursor = (after or datetime.now(timezone.utc)).replace(
+        second=0, microsecond=0
+    ) + timedelta(minutes=1)
     for _ in range(366 * 24 * 60):
-        if (_cron_field(minute, cursor.minute) and _cron_field(hour, cursor.hour)
-                and _cron_field(dom, cursor.day) and _cron_field(month, cursor.month)
-                and _cron_field(dow, cursor.isoweekday() % 7)):
+        if (
+            _cron_field(minute, cursor.minute)
+            and _cron_field(hour, cursor.hour)
+            and _cron_field(dom, cursor.day)
+            and _cron_field(month, cursor.month)
+            and _cron_field(dow, cursor.isoweekday() % 7)
+        ):
             return cursor.isoformat().replace("+00:00", "Z")
         cursor += timedelta(minutes=1)
     return None
@@ -265,23 +474,45 @@ def _trigger(ctx: Ctx) -> dict:
 
 
 def _system_trigger(subject: str, kind: str) -> dict:
-    return {"type": kind, "subject": subject, "subjectType": "application", "zone": "lynx-zone",
-            "sessionId": None, "rootSessionId": None, "agentSessionId": None,
-            "delegationEdgeId": None, "mandateId": None}
+    return {
+        "type": kind,
+        "subject": subject,
+        "subjectType": "application",
+        "zone": "lynx-zone",
+        "sessionId": None,
+        "rootSessionId": None,
+        "agentSessionId": None,
+        "delegationEdgeId": None,
+        "mandateId": None,
+    }
 
 
 # --------------------------------------------------------------------------- #
 # audit (hash-chained, per execution)
 # --------------------------------------------------------------------------- #
-def _audit(state: base.State, execution: dict, kind: str, actor: str, details: dict,
-           at: str | None = None) -> dict:
+def _audit(
+    state: base.State,
+    execution: dict,
+    kind: str,
+    actor: str,
+    details: dict,
+    at: str | None = None,
+) -> dict:
     prev = execution["auditTrail"][-1]["hash"] if execution["auditTrail"] else "genesis"
     when = at or _ts()
     digest = hashlib.sha256(
-        f"{execution['executionId']}|{kind}|{actor}|{when}|{prev}".encode()).hexdigest()[:16]
-    event = {"eventId": base.new_id("evt"), "executionId": execution["executionId"],
-             "type": kind, "actor": actor, "at": when, "details": details,
-             "prevHash": prev, "hash": digest}
+        f"{execution['executionId']}|{kind}|{actor}|{when}|{prev}".encode()
+    ).hexdigest()[:16]
+    event = {
+        "eventId": base.new_id("evt"),
+        "executionId": execution["executionId"],
+        "type": kind,
+        "actor": actor,
+        "at": when,
+        "details": details,
+        "prevHash": prev,
+        "hash": digest,
+    }
     execution["auditTrail"].append(event)
     state.table("audit_events")[event["eventId"]] = event
     return event
@@ -291,8 +522,8 @@ def _chain_intact(execution: dict) -> bool:
     prev = "genesis"
     for event in execution["auditTrail"]:
         digest = hashlib.sha256(
-            f"{execution['executionId']}|{event['type']}|{event['actor']}|{event['at']}|{prev}"
-            .encode()).hexdigest()[:16]
+            f"{execution['executionId']}|{event['type']}|{event['actor']}|{event['at']}|{prev}".encode()
+        ).hexdigest()[:16]
         if digest != event["hash"]:
             return False
         prev = event["hash"]
@@ -302,14 +533,16 @@ def _chain_intact(execution: dict) -> bool:
 def _record_attempt(execution: dict, status: str, step_id: str | None, at: str) -> None:
     """Append a per-attempt outcome to the execution's attempt history, the run-level
     trail an automation platform keeps alongside its step log."""
-    execution["attemptHistory"].append({
-        "attempt": execution["attempt"],
-        "status": status,
-        "step": step_id,
-        "error": dict(execution["error"]) if execution["error"] else None,
-        "startedAt": execution["startedAt"],
-        "finishedAt": at,
-    })
+    execution["attemptHistory"].append(
+        {
+            "attempt": execution["attempt"],
+            "status": status,
+            "step": step_id,
+            "error": dict(execution["error"]) if execution["error"] else None,
+            "startedAt": execution["startedAt"],
+            "finishedAt": at,
+        }
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -321,8 +554,9 @@ def seed(state: base.State) -> None:
     state.tables["executions"] = {}
     state.tables["audit_events"] = {}
     state.tables["idempotency"] = {}
-    state.tables["queues"] = {q: {"queue": q, "concurrencyLimit": limit}
-                              for q, limit in _QUEUES.items()}
+    state.tables["queues"] = {
+        q: {"queue": q, "concurrencyLimit": limit} for q, limit in _QUEUES.items()
+    }
     _seed_history(state)
 
 
@@ -330,8 +564,12 @@ def _seed_history(state: base.State) -> None:
     """Replay a realistic backlog of executions across every terminal and active
     state. Tight queues are drained to terminal states so live dispatch can run;
     roomy queues keep a few in-flight and parked-on-approval executions."""
-    actors = ("scheduler@relay", "ap-automation@lynx.example", "treasury-ops@lynx.example",
-              "payments-ops@lynx.example")
+    actors = (
+        "scheduler@relay",
+        "ap-automation@lynx.example",
+        "treasury-ops@lynx.example",
+        "payments-ops@lynx.example",
+    )
     for wf in _WORKFLOWS:
         roomy = wf["concurrencyLimit"] >= 3
         for n in range(1, 9):
@@ -340,25 +578,34 @@ def _seed_history(state: base.State) -> None:
             kind = "schedule" if wf["schedule"] and rng.random() < 0.7 else "api"
             age = rng.randint(1, 45) * 3600
             ex = _new_execution(
-                state, wf, input_payload={"period": "2026-05", "batchSize": rng.randint(8, 240)},
-                trigger=_system_trigger(actor, kind), idempotency_key=None,
-                priority=wf["priority"], created_offset=-age,
+                state,
+                wf,
+                input_payload={"period": "2026-05", "batchSize": rng.randint(8, 240)},
+                trigger=_system_trigger(actor, kind),
+                idempotency_key=None,
+                priority=wf["priority"],
+                created_offset=-age,
                 plan_key=f"history:{wf['id']}:{n}",
             )
             stop = rng.random()
             if not roomy or stop < 0.78:
                 _run_to_completion(state, ex, auto_signal=True, rng=rng)
             elif stop < 0.90:
-                _run_to_completion(state, ex, auto_signal=False, rng=rng)  # may park on approval
+                _run_to_completion(
+                    state, ex, auto_signal=False, rng=rng
+                )  # may park on approval
             else:
                 _advance(state, ex)  # leave mid-flight
 
     # Guarantee one execution parked on a human-approval signal for the active surface.
     showcase = _new_execution(
-        state, _WORKFLOW_INDEX["vendor_onboarding"],
+        state,
+        _WORKFLOW_INDEX["vendor_onboarding"],
         input_payload={"vendor": "Northwind Robotics", "country": "US"},
         trigger=_system_trigger("vendor-ops@lynx.example", "api"),
-        idempotency_key=None, priority="normal", created_offset=-5400,
+        idempotency_key=None,
+        priority="normal",
+        created_offset=-5400,
     )
     showcase["_outcome"] = "success"
     showcase["_faultStep"] = None
@@ -369,17 +616,24 @@ def _seed_history(state: base.State) -> None:
 
     # Guarantee one execution held in a paused state for the active surface.
     held = _new_execution(
-        state, _WORKFLOW_INDEX["statement_reconciliation"],
+        state,
+        _WORKFLOW_INDEX["statement_reconciliation"],
         input_payload={"statement": "2026-05", "lines": 412},
         trigger=_system_trigger("treasury-ops@lynx.example", "schedule"),
-        idempotency_key=None, priority="high", created_offset=-3600,
+        idempotency_key=None,
+        priority="high",
+        created_offset=-3600,
     )
     held["_outcome"] = "success"
     held["_faultStep"] = None
     _advance(state, held)
     if held["status"] in _PAUSABLE:
-        _apply_pause(state, held, "treasury-ops@lynx.example",
-                     "Held pending bank file re-export.")
+        _apply_pause(
+            state,
+            held,
+            "treasury-ops@lynx.example",
+            "Held pending bank file re-export.",
+        )
 
 
 def _run_to_completion(state: base.State, ex: dict, *, auto_signal: bool, rng) -> None:
@@ -389,11 +643,19 @@ def _run_to_completion(state: base.State, ex: dict, *, auto_signal: bool, rng) -
         if ex["status"] == "waiting_signal":
             if not auto_signal:
                 return
-            _apply_signal(state, ex, "approve",
-                          rng.choice(("controller@lynx.example", "cfo@lynx.example")),
-                          "Approved per delegated authority.")
+            _apply_signal(
+                state,
+                ex,
+                "approve",
+                rng.choice(("controller@lynx.example", "cfo@lynx.example")),
+                "Approved per delegated authority.",
+            )
             continue
-        if ex["status"] == "failed" and ex["attempt"] < ex["maxAttempts"] and rng.random() < 0.6:
+        if (
+            ex["status"] == "failed"
+            and ex["attempt"] < ex["maxAttempts"]
+            and rng.random() < 0.6
+        ):
             _apply_retry(state, ex, "scheduler@relay")
             continue
         _advance(state, ex)
@@ -411,27 +673,58 @@ def _plan_outcome(execution_id: str) -> str:
 
 
 def _queue_running(state: base.State, queue: str) -> int:
-    return sum(1 for e in state.table("executions").values()
-               if e["queue"] == queue and e["status"] in ("running", "waiting_signal", "retrying"))
+    return sum(
+        1
+        for e in state.table("executions").values()
+        if e["queue"] == queue
+        and e["status"] in ("running", "waiting_signal", "retrying")
+    )
 
 
-def _new_execution(state: base.State, wf: dict, *, input_payload: dict, trigger: dict,
-                   idempotency_key: str | None, priority: str, created_offset: int = 0,
-                   plan_key: str | None = None) -> dict:
+def _new_execution(
+    state: base.State,
+    wf: dict,
+    *,
+    input_payload: dict,
+    trigger: dict,
+    idempotency_key: str | None,
+    priority: str,
+    created_offset: int = 0,
+    plan_key: str | None = None,
+) -> dict:
     exec_id = base.new_id("exec")
     plan_key = plan_key or exec_id
     outcome = _plan_outcome(plan_key)
-    steps = [{"stepId": s["id"], "name": s["name"], "type": s["type"], "action": s["action"],
-              "status": "pending", "attempt": 0, "startedAt": None, "finishedAt": None,
-              "durationMs": None, "output": None, "error": None}
-             for s in wf["steps"]]
+    steps = [
+        {
+            "stepId": s["id"],
+            "name": s["name"],
+            "type": s["type"],
+            "action": s["action"],
+            "status": "pending",
+            "attempt": 0,
+            "startedAt": None,
+            "finishedAt": None,
+            "durationMs": None,
+            "output": None,
+            "error": None,
+        }
+        for s in wf["steps"]
+    ]
     retryable_idx = [i for i, s in enumerate(wf["steps"]) if s["retryable"]]
-    long_idx = max(range(len(wf["steps"])),
-                   key=lambda i: wf["steps"][i].get("timeoutSeconds", 0))
+    long_idx = max(
+        range(len(wf["steps"])), key=lambda i: wf["steps"][i].get("timeoutSeconds", 0)
+    )
     rng = gen._rng(ID, "plan", plan_key)
-    fault_step = (rng.choice(retryable_idx) if outcome == "transient" and retryable_idx
-                  else len(wf["steps"]) - 1 if outcome == "failure"
-                  else long_idx if outcome == "timeout" else None)
+    fault_step = (
+        rng.choice(retryable_idx)
+        if outcome == "transient" and retryable_idx
+        else len(wf["steps"]) - 1
+        if outcome == "failure"
+        else long_idx
+        if outcome == "timeout"
+        else None
+    )
     created = _ts(created_offset)
     limit = wf["concurrencyLimit"]
     queued = _queue_running(state, wf["queue"]) >= limit
@@ -454,7 +747,12 @@ def _new_execution(state: base.State, wf: dict, *, input_payload: dict, trigger:
         "correlationId": base.new_id("corr"),
         "idempotencyKey": idempotency_key,
         "trigger": trigger,
-        "metrics": {"totalSteps": len(steps), "completedSteps": 0, "retries": 0, "durationMs": 0},
+        "metrics": {
+            "totalSteps": len(steps),
+            "completedSteps": 0,
+            "retries": 0,
+            "durationMs": 0,
+        },
         "attemptHistory": [],
         "_outcome": outcome,
         "_faultStep": fault_step,
@@ -472,11 +770,23 @@ def _new_execution(state: base.State, wf: dict, *, input_payload: dict, trigger:
         "auditTrail": [],
     }
     state.table("executions")[exec_id] = execution
-    _audit(state, execution, "execution_queued", trigger["subject"],
-           {"workflowId": wf["id"], "queue": wf["queue"], "priority": priority}, at=created)
+    _audit(
+        state,
+        execution,
+        "execution_queued",
+        trigger["subject"],
+        {"workflowId": wf["id"], "queue": wf["queue"], "priority": priority},
+        at=created,
+    )
     if not queued:
-        _audit(state, execution, "execution_started", trigger["subject"],
-               {"attempt": 1, "outcome": outcome}, at=created)
+        _audit(
+            state,
+            execution,
+            "execution_started",
+            trigger["subject"],
+            {"attempt": 1, "outcome": outcome},
+            at=created,
+        )
     if idempotency_key:
         state.table("idempotency")[f"{wf['id']}:{idempotency_key}"] = exec_id
     return execution
@@ -495,13 +805,20 @@ def _advance(state: base.State, execution: dict) -> dict:
         execution["status"] = "running"
         execution["startedAt"] = _ts(execution["_clock"])
         execution["updatedAt"] = execution["startedAt"]
-        _audit(state, execution, "execution_started", execution["trigger"]["subject"],
-               {"attempt": execution["attempt"], "outcome": execution["_outcome"]})
+        _audit(
+            state,
+            execution,
+            "execution_started",
+            execution["trigger"]["subject"],
+            {"attempt": execution["attempt"], "outcome": execution["_outcome"]},
+        )
     if execution["status"] != "running":
         return execution
 
     steps = execution["steps"]
-    idx = next((i for i, s in enumerate(steps) if s["status"] in ("pending", "retrying")), None)
+    idx = next(
+        (i for i, s in enumerate(steps) if s["status"] in ("pending", "retrying")), None
+    )
     if idx is None:
         return _finish_success(state, execution)
 
@@ -520,8 +837,14 @@ def _advance(state: base.State, execution: dict) -> dict:
     if spec["type"] == "approval":
         execution["status"] = "waiting_signal"
         execution["updatedAt"] = at
-        _audit(state, execution, "approval_requested", "relay",
-               {"step": step["stepId"], "approver": "controller"}, at=at)
+        _audit(
+            state,
+            execution,
+            "approval_requested",
+            "relay",
+            {"step": step["stepId"], "approver": "controller"},
+            at=at,
+        )
         return execution
 
     if idx == execution["_faultStep"]:
@@ -533,8 +856,14 @@ def _advance(state: base.State, execution: dict) -> dict:
     step["output"] = {"ref": base.new_id(step["stepId"][:6] or "step")}
     execution["metrics"]["completedSteps"] += 1
     execution["updatedAt"] = at
-    _audit(state, execution, "step_completed", "relay",
-           {"step": step["stepId"], "durationMs": duration}, at=at)
+    _audit(
+        state,
+        execution,
+        "step_completed",
+        "relay",
+        {"step": step["stepId"], "durationMs": duration},
+        at=at,
+    )
 
     if all(s["status"] == "completed" for s in steps):
         return _finish_success(state, execution)
@@ -548,25 +877,49 @@ def _fail_step(state: base.State, execution: dict, idx: int, at: str) -> dict:
     if outcome == "timeout":
         step["status"] = "timed_out"
         step["finishedAt"] = at
-        step["error"] = {"code": "step_timeout",
-                         "message": f"step exceeded {spec['timeoutSeconds']}s budget"}
+        step["error"] = {
+            "code": "step_timeout",
+            "message": f"step exceeded {spec['timeoutSeconds']}s budget",
+        }
         execution["status"] = "timed_out"
-        execution["error"] = {"code": "execution_timeout", "step": step["stepId"],
-                              "message": "workflow exceeded its timeout budget"}
-        _audit(state, execution, "execution_timed_out", "relay",
-               {"step": step["stepId"], "timeoutSeconds": spec["timeoutSeconds"]}, at=at)
+        execution["error"] = {
+            "code": "execution_timeout",
+            "step": step["stepId"],
+            "message": "workflow exceeded its timeout budget",
+        }
+        _audit(
+            state,
+            execution,
+            "execution_timed_out",
+            "relay",
+            {"step": step["stepId"], "timeoutSeconds": spec["timeoutSeconds"]},
+            at=at,
+        )
     else:
         code = "ledger_unavailable" if outcome == "transient" else "validation_failed"
         retryable = outcome == "transient"
         step["status"] = "failed"
         step["finishedAt"] = at
-        step["error"] = {"code": code, "retryable": retryable,
-                         "message": f"{step['name']} failed: {code}"}
+        step["error"] = {
+            "code": code,
+            "retryable": retryable,
+            "message": f"{step['name']} failed: {code}",
+        }
         execution["status"] = "failed"
-        execution["error"] = {"code": code, "step": step["stepId"], "retryable": retryable,
-                              "message": step["error"]["message"]}
-        _audit(state, execution, "step_failed", "relay",
-               {"step": step["stepId"], "code": code, "retryable": retryable}, at=at)
+        execution["error"] = {
+            "code": code,
+            "step": step["stepId"],
+            "retryable": retryable,
+            "message": step["error"]["message"],
+        }
+        _audit(
+            state,
+            execution,
+            "step_failed",
+            "relay",
+            {"step": step["stepId"], "code": code, "retryable": retryable},
+            at=at,
+        )
     execution["finishedAt"] = at
     execution["updatedAt"] = at
     _record_attempt(execution, execution["status"], step["stepId"], at)
@@ -581,18 +934,31 @@ def _finish_success(state: base.State, execution: dict) -> dict:
     execution["updatedAt"] = at
     execution["output"] = {
         "result": "completed",
-        "artifacts": [{"stepId": s["stepId"], "ref": (s["output"] or {}).get("ref")}
-                      for s in execution["steps"] if s.get("output")],
+        "artifacts": [
+            {"stepId": s["stepId"], "ref": (s["output"] or {}).get("ref")}
+            for s in execution["steps"]
+            if s.get("output")
+        ],
         "completedSteps": execution["metrics"]["completedSteps"],
     }
-    execution["metrics"]["durationMs"] = max(0, execution["_clock"] - execution["_startClock"]) * 1000
-    _audit(state, execution, "execution_succeeded", "relay",
-           {"completedSteps": execution["metrics"]["completedSteps"]}, at=at)
+    execution["metrics"]["durationMs"] = (
+        max(0, execution["_clock"] - execution["_startClock"]) * 1000
+    )
+    _audit(
+        state,
+        execution,
+        "execution_succeeded",
+        "relay",
+        {"completedSteps": execution["metrics"]["completedSteps"]},
+        at=at,
+    )
     _record_attempt(execution, "succeeded", None, at)
     return execution
 
 
-def _apply_signal(state: base.State, execution: dict, decision: str, actor: str, note: str | None) -> dict:
+def _apply_signal(
+    state: base.State, execution: dict, decision: str, actor: str, note: str | None
+) -> dict:
     if execution["status"] != "waiting_signal":
         raise DomainError(409, "not_waiting", "execution is not waiting for a signal")
     idx = next(i for i, s in enumerate(execution["steps"]) if s["status"] == "pending")
@@ -605,7 +971,14 @@ def _apply_signal(state: base.State, execution: dict, decision: str, actor: str,
         execution["metrics"]["completedSteps"] += 1
         execution["status"] = "running"
         execution["updatedAt"] = at
-        _audit(state, execution, "approval_granted", actor, {"step": step["stepId"], "note": note}, at=at)
+        _audit(
+            state,
+            execution,
+            "approval_granted",
+            actor,
+            {"step": step["stepId"], "note": note},
+            at=at,
+        )
         if all(s["status"] == "completed" for s in execution["steps"]):
             _finish_success(state, execution)
     else:
@@ -615,18 +988,34 @@ def _apply_signal(state: base.State, execution: dict, decision: str, actor: str,
         execution["status"] = "cancelled"
         execution["finishedAt"] = at
         execution["updatedAt"] = at
-        execution["error"] = {"code": "approval_rejected", "step": step["stepId"], "message": note}
-        _audit(state, execution, "approval_rejected", actor, {"step": step["stepId"], "note": note}, at=at)
+        execution["error"] = {
+            "code": "approval_rejected",
+            "step": step["stepId"],
+            "message": note,
+        }
+        _audit(
+            state,
+            execution,
+            "approval_rejected",
+            actor,
+            {"step": step["stepId"], "note": note},
+            at=at,
+        )
         _record_attempt(execution, "cancelled", step["stepId"], at)
     return execution
 
 
 def _apply_retry(state: base.State, execution: dict, actor: str) -> dict:
     if execution["status"] not in ("failed", "timed_out"):
-        raise DomainError(409, "not_retryable", "only failed or timed-out executions can be retried")
+        raise DomainError(
+            409, "not_retryable", "only failed or timed-out executions can be retried"
+        )
     if execution["attempt"] >= execution["maxAttempts"]:
-        raise DomainError(409, "retries_exhausted",
-                          f"execution reached its {execution['maxAttempts']}-attempt limit")
+        raise DomainError(
+            409,
+            "retries_exhausted",
+            f"execution reached its {execution['maxAttempts']}-attempt limit",
+        )
     execution["attempt"] += 1
     execution["metrics"]["retries"] += 1
     execution["error"] = None
@@ -643,20 +1032,37 @@ def _apply_retry(state: base.State, execution: dict, actor: str) -> dict:
     execution["startedAt"] = execution["startedAt"] or at
     execution["finishedAt"] = None
     execution["updatedAt"] = at
-    _audit(state, execution, "execution_retried", actor, {"attempt": execution["attempt"]}, at=at)
+    _audit(
+        state,
+        execution,
+        "execution_retried",
+        actor,
+        {"attempt": execution["attempt"]},
+        at=at,
+    )
     return execution
 
 
-def _apply_pause(state: base.State, execution: dict, actor: str, reason: str | None) -> dict:
+def _apply_pause(
+    state: base.State, execution: dict, actor: str, reason: str | None
+) -> dict:
     if execution["status"] not in _PAUSABLE:
-        raise DomainError(409, "not_pausable", f"cannot pause a {execution['status']} execution")
+        raise DomainError(
+            409, "not_pausable", f"cannot pause a {execution['status']} execution"
+        )
     execution["_resumeStatus"] = execution["status"]
     execution["status"] = "paused"
     at = _ts(execution["_clock"])
     execution["pausedAt"] = at
     execution["updatedAt"] = at
-    _audit(state, execution, "execution_paused", actor,
-           {"from": execution["_resumeStatus"], "reason": reason}, at=at)
+    _audit(
+        state,
+        execution,
+        "execution_paused",
+        actor,
+        {"from": execution["_resumeStatus"], "reason": reason},
+        at=at,
+    )
     return execution
 
 
@@ -677,42 +1083,69 @@ def _apply_resume(state: base.State, execution: dict, actor: str) -> dict:
 # projections
 # --------------------------------------------------------------------------- #
 def _workflow_summary(state: base.State, wf: dict) -> dict:
-    runs = [e for e in state.table("executions").values() if e["workflowId"] == wf["id"]]
+    runs = [
+        e for e in state.table("executions").values() if e["workflowId"] == wf["id"]
+    ]
     finished = [e for e in runs if e["status"] in _TERMINAL]
     succeeded = sum(1 for e in finished if e["status"] == "succeeded")
     failed = [e for e in finished if e["status"] in ("failed", "timed_out")]
-    durations = [e["metrics"]["durationMs"] for e in finished
-                 if e["status"] == "succeeded" and e["metrics"]["durationMs"]]
+    durations = [
+        e["metrics"]["durationMs"]
+        for e in finished
+        if e["status"] == "succeeded" and e["metrics"]["durationMs"]
+    ]
     last = max((e["updatedAt"] for e in runs), default=None)
     return {
-        "id": wf["id"], "name": wf["name"], "description": wf["description"],
-        "version": wf["version"], "status": "enabled", "queue": wf["queue"],
-        "priority": wf["priority"], "triggerTypes": wf["triggerTypes"],
-        "schedule": wf["schedule"], "nextRunAt": _next_run(wf["schedule"]),
-        "stepCount": len(wf["steps"]), "tags": wf["tags"], "owner": wf["owner"],
-        "stats": {"totalRuns": len(runs),
-                  "successRate": round(succeeded / len(finished), 3) if finished else None,
-                  "failureRate": round(len(failed) / len(finished), 3) if finished else None,
-                  "avgDurationMs": round(sum(durations) / len(durations)) if durations else None,
-                  "activeRuns": sum(1 for e in runs if e["status"] in _ACTIVE),
-                  "lastRunAt": last,
-                  "lastFailureAt": max((e["finishedAt"] for e in failed if e["finishedAt"]),
-                                       default=None)},
+        "id": wf["id"],
+        "name": wf["name"],
+        "description": wf["description"],
+        "version": wf["version"],
+        "status": "enabled",
+        "queue": wf["queue"],
+        "priority": wf["priority"],
+        "triggerTypes": wf["triggerTypes"],
+        "schedule": wf["schedule"],
+        "nextRunAt": _next_run(wf["schedule"]),
+        "stepCount": len(wf["steps"]),
+        "tags": wf["tags"],
+        "owner": wf["owner"],
+        "stats": {
+            "totalRuns": len(runs),
+            "successRate": round(succeeded / len(finished), 3) if finished else None,
+            "failureRate": round(len(failed) / len(finished), 3) if finished else None,
+            "avgDurationMs": round(sum(durations) / len(durations))
+            if durations
+            else None,
+            "activeRuns": sum(1 for e in runs if e["status"] in _ACTIVE),
+            "lastRunAt": last,
+            "lastFailureAt": max(
+                (e["finishedAt"] for e in failed if e["finishedAt"]), default=None
+            ),
+        },
     }
 
 
 def _execution_summary(ex: dict) -> dict:
     return {
-        "executionId": ex["executionId"], "workflowId": ex["workflowId"],
-        "workflowName": ex["workflowName"], "status": ex["status"],
-        "priority": ex["priority"], "queue": ex["queue"], "attempt": ex["attempt"],
-        "currentStep": ex["currentStep"], "correlationId": ex["correlationId"],
-        "subject": ex["trigger"]["subject"], "tags": ex["tags"],
+        "executionId": ex["executionId"],
+        "workflowId": ex["workflowId"],
+        "workflowName": ex["workflowName"],
+        "status": ex["status"],
+        "priority": ex["priority"],
+        "queue": ex["queue"],
+        "attempt": ex["attempt"],
+        "currentStep": ex["currentStep"],
+        "correlationId": ex["correlationId"],
+        "subject": ex["trigger"]["subject"],
+        "tags": ex["tags"],
         "createdAt": ex["scheduledAt"],
-        "startedAt": ex["startedAt"], "finishedAt": ex["finishedAt"],
+        "startedAt": ex["startedAt"],
+        "finishedAt": ex["finishedAt"],
         "updatedAt": ex["updatedAt"],
-        "progress": {"completed": ex["metrics"]["completedSteps"],
-                     "total": ex["metrics"]["totalSteps"]},
+        "progress": {
+            "completed": ex["metrics"]["completedSteps"],
+            "total": ex["metrics"]["totalSteps"],
+        },
     }
 
 
@@ -742,31 +1175,52 @@ def _get_workflow(ctx: Ctx) -> dict:
 # --------------------------------------------------------------------------- #
 _PAGE_PROPS = {
     "page": {"type": "integer", "minimum": 1, "default": 1},
-    "pageSize": {"type": "integer", "minimum": 1, "maximum": 100, "default": 25}}
-_EXEC_REF = {"type": "object", "properties": {
-    "executionId": {"type": "string", "description": "Execution identifier, e.g. exec_3f2a1b9c4d5e"}},
-    "required": ["executionId"]}
-_EXEC_OUTPUT = {"type": "object", "properties": {
-    "executionId": {"type": "string"}, "workflowId": {"type": "string"},
-    "status": {"type": "string", "enum": list(_TERMINAL + _ACTIVE)},
-    "attempt": {"type": "integer"}, "currentStep": {"type": ["string", "null"]}},
-    "required": ["executionId", "status"]}
+    "pageSize": {"type": "integer", "minimum": 1, "maximum": 100, "default": 25},
+}
+_EXEC_REF = {
+    "type": "object",
+    "properties": {
+        "executionId": {
+            "type": "string",
+            "description": "Execution identifier, e.g. exec_3f2a1b9c4d5e",
+        }
+    },
+    "required": ["executionId"],
+}
+_EXEC_OUTPUT = {
+    "type": "object",
+    "properties": {
+        "executionId": {"type": "string"},
+        "workflowId": {"type": "string"},
+        "status": {"type": "string", "enum": list(_TERMINAL + _ACTIVE)},
+        "attempt": {"type": "integer"},
+        "currentStep": {"type": ["string", "null"]},
+    },
+    "required": ["executionId", "status"],
+}
 
 
 # --------------------------------------------------------------------------- #
 # tools: workflow catalog
 # --------------------------------------------------------------------------- #
 @base.op(
-    ID, "list_workflows",
+    ID,
+    "list_workflows",
     title="List workflows",
     description="List automation workflow definitions with run statistics, optionally "
-                "filtered by queue, tag, or trigger type.",
-    input_schema={"type": "object", "properties": {
-        "queue": {"type": "string"},
-        "tag": {"type": "string"},
-        "triggerType": {"type": "string", "enum": ["api", "schedule", "event"]},
-        "page": _PAGE_PROPS["page"], "pageSize": _PAGE_PROPS["pageSize"]}},
-    annotations={"readOnlyHint": True, "idempotentHint": True})
+    "filtered by queue, tag, or trigger type.",
+    input_schema={
+        "type": "object",
+        "properties": {
+            "queue": {"type": "string"},
+            "tag": {"type": "string"},
+            "triggerType": {"type": "string", "enum": ["api", "schedule", "event"]},
+            "page": _PAGE_PROPS["page"],
+            "pageSize": _PAGE_PROPS["pageSize"],
+        },
+    },
+    annotations={"readOnlyHint": True, "idempotentHint": True},
+)
 def list_workflows(ctx: Ctx) -> dict:
     ctx.require_scope(WORKFLOWS_READ)
     queue, tag, trigger = ctx.get("queue"), ctx.get("tag"), ctx.get("triggerType")
@@ -783,14 +1237,23 @@ def list_workflows(ctx: Ctx) -> dict:
 
 
 @base.op(
-    ID, "get_workflow",
+    ID,
+    "get_workflow",
     title="Get workflow definition",
     description="Retrieve a workflow's full definition: step DAG, schedule, queue, "
-                "concurrency, retry policy, and run statistics.",
-    input_schema={"type": "object", "properties": {
-        "workflowId": {"type": "string", "description": "Workflow identifier, e.g. ap_invoice_close"}},
-        "required": ["workflowId"]},
-    annotations={"readOnlyHint": True, "idempotentHint": True})
+    "concurrency, retry policy, and run statistics.",
+    input_schema={
+        "type": "object",
+        "properties": {
+            "workflowId": {
+                "type": "string",
+                "description": "Workflow identifier, e.g. ap_invoice_close",
+            }
+        },
+        "required": ["workflowId"],
+    },
+    annotations={"readOnlyHint": True, "idempotentHint": True},
+)
 def get_workflow(ctx: Ctx) -> dict:
     ctx.require_scope(WORKFLOWS_READ)
     wf = _get_workflow(ctx)
@@ -803,20 +1266,32 @@ def get_workflow(ctx: Ctx) -> dict:
 # tools: execution lifecycle
 # --------------------------------------------------------------------------- #
 @base.op(
-    ID, "start_execution",
+    ID,
+    "start_execution",
     title="Start workflow execution",
     description="Dispatch a workflow as an asynchronous execution. Returns immediately "
-                "with a queued or running execution; poll get_execution for progress. "
-                "Reusing an idempotencyKey returns the original execution.",
-    input_schema={"type": "object", "properties": {
-        "workflowId": {"type": "string"},
-        "input": {"type": "object", "description": "Workflow input payload"},
-        "idempotencyKey": {"type": "string", "description": "De-duplicates retried dispatches"},
-        "priority": {"type": "string", "enum": ["low", "normal", "high", "critical"]},
-        "correlationId": {"type": "string"}},
-        "required": ["workflowId"]},
+    "with a queued or running execution; poll get_execution for progress. "
+    "Reusing an idempotencyKey returns the original execution.",
+    input_schema={
+        "type": "object",
+        "properties": {
+            "workflowId": {"type": "string"},
+            "input": {"type": "object", "description": "Workflow input payload"},
+            "idempotencyKey": {
+                "type": "string",
+                "description": "De-duplicates retried dispatches",
+            },
+            "priority": {
+                "type": "string",
+                "enum": ["low", "normal", "high", "critical"],
+            },
+            "correlationId": {"type": "string"},
+        },
+        "required": ["workflowId"],
+    },
     output_schema=_EXEC_OUTPUT,
-    annotations={"readOnlyHint": False, "idempotentHint": True})
+    annotations={"readOnlyHint": False, "idempotentHint": True},
+)
 def start_execution(ctx: Ctx) -> dict:
     ctx.require_scope(EXECUTIONS_WRITE)
     wf = _get_workflow(ctx)
@@ -829,20 +1304,29 @@ def start_execution(ctx: Ctx) -> dict:
     payload = ctx.get("input") or {}
     if not isinstance(payload, dict):
         raise DomainError(422, "invalid_request", "input must be an object")
-    ex = _new_execution(ctx.state, wf, input_payload=payload, trigger=_trigger(ctx),
-                        idempotency_key=key, priority=ctx.get("priority", wf["priority"]))
+    ex = _new_execution(
+        ctx.state,
+        wf,
+        input_payload=payload,
+        trigger=_trigger(ctx),
+        idempotency_key=key,
+        priority=ctx.get("priority", wf["priority"]),
+    )
     if ctx.get("correlationId"):
         ex["correlationId"] = ctx.payload["correlationId"]
     return _public(ex)
 
 
 @base.op(
-    ID, "get_execution",
+    ID,
+    "get_execution",
     title="Get execution status",
     description="Fetch an execution's current state. Each call advances a running "
-                "execution by one step, modeling a long-running asynchronous job.",
-    input_schema=_EXEC_REF, output_schema=_EXEC_OUTPUT,
-    annotations={"readOnlyHint": False, "idempotentHint": False})
+    "execution by one step, modeling a long-running asynchronous job.",
+    input_schema=_EXEC_REF,
+    output_schema=_EXEC_OUTPUT,
+    annotations={"readOnlyHint": False, "idempotentHint": False},
+)
 def get_execution(ctx: Ctx) -> dict:
     ctx.require_scope(EXECUTIONS_READ)
     ex = _get_execution(ctx)
@@ -852,15 +1336,22 @@ def get_execution(ctx: Ctx) -> dict:
 
 
 @base.op(
-    ID, "list_executions",
+    ID,
+    "list_executions",
     title="List executions",
     description="List workflow executions, optionally filtered by workflow, status, or queue.",
-    input_schema={"type": "object", "properties": {
-        "workflowId": {"type": "string"},
-        "status": {"type": "string", "enum": list(_TERMINAL + _ACTIVE)},
-        "queue": {"type": "string"},
-        "page": _PAGE_PROPS["page"], "pageSize": _PAGE_PROPS["pageSize"]}},
-    annotations={"readOnlyHint": True, "idempotentHint": True})
+    input_schema={
+        "type": "object",
+        "properties": {
+            "workflowId": {"type": "string"},
+            "status": {"type": "string", "enum": list(_TERMINAL + _ACTIVE)},
+            "queue": {"type": "string"},
+            "page": _PAGE_PROPS["page"],
+            "pageSize": _PAGE_PROPS["pageSize"],
+        },
+    },
+    annotations={"readOnlyHint": True, "idempotentHint": True},
+)
 def list_executions(ctx: Ctx) -> dict:
     ctx.require_scope(EXECUTIONS_READ)
     wf_id, status, queue = ctx.get("workflowId"), ctx.get("status"), ctx.get("queue")
@@ -878,58 +1369,94 @@ def list_executions(ctx: Ctx) -> dict:
 
 
 @base.op(
-    ID, "get_execution_logs",
+    ID,
+    "get_execution_logs",
     title="Get execution logs",
     description="Return the per-step execution log: status, attempts, durations, and errors.",
     input_schema=_EXEC_REF,
-    annotations={"readOnlyHint": True, "idempotentHint": True})
+    annotations={"readOnlyHint": True, "idempotentHint": True},
+)
 def get_execution_logs(ctx: Ctx) -> dict:
     ctx.require_scope(EXECUTIONS_READ)
     ex = _get_execution(ctx)
     lines = []
     for s in ex["steps"]:
-        lines.append({"stepId": s["stepId"], "name": s["name"], "type": s["type"],
-                      "status": s["status"], "attempt": s["attempt"],
-                      "startedAt": s["startedAt"], "finishedAt": s["finishedAt"],
-                      "durationMs": s["durationMs"], "error": s["error"]})
-    return {"executionId": ex["executionId"], "workflowId": ex["workflowId"],
-            "status": ex["status"], "steps": lines}
+        lines.append(
+            {
+                "stepId": s["stepId"],
+                "name": s["name"],
+                "type": s["type"],
+                "status": s["status"],
+                "attempt": s["attempt"],
+                "startedAt": s["startedAt"],
+                "finishedAt": s["finishedAt"],
+                "durationMs": s["durationMs"],
+                "error": s["error"],
+            }
+        )
+    return {
+        "executionId": ex["executionId"],
+        "workflowId": ex["workflowId"],
+        "status": ex["status"],
+        "steps": lines,
+    }
 
 
 @base.op(
-    ID, "get_execution_result",
+    ID,
+    "get_execution_result",
     title="Get execution result",
     description="Return the output and artifacts of a finished execution, or its current "
-                "disposition if it has not completed.",
+    "disposition if it has not completed.",
     input_schema=_EXEC_REF,
-    output_schema={"type": "object", "properties": {
-        "executionId": {"type": "string"},
-        "status": {"type": "string", "enum": list(_TERMINAL + _ACTIVE)},
-        "output": {"type": ["object", "null"]}, "error": {"type": ["object", "null"]},
-        "attempts": {"type": "integer"}, "metrics": {"type": "object"}},
-        "required": ["executionId", "status"]},
-    annotations={"readOnlyHint": True, "idempotentHint": True})
+    output_schema={
+        "type": "object",
+        "properties": {
+            "executionId": {"type": "string"},
+            "status": {"type": "string", "enum": list(_TERMINAL + _ACTIVE)},
+            "output": {"type": ["object", "null"]},
+            "error": {"type": ["object", "null"]},
+            "attempts": {"type": "integer"},
+            "metrics": {"type": "object"},
+        },
+        "required": ["executionId", "status"],
+    },
+    annotations={"readOnlyHint": True, "idempotentHint": True},
+)
 def get_execution_result(ctx: Ctx) -> dict:
     ctx.require_scope(EXECUTIONS_READ)
     ex = _get_execution(ctx)
-    return {"executionId": ex["executionId"], "workflowId": ex["workflowId"],
-            "status": ex["status"], "output": ex["output"], "error": ex["error"],
-            "finishedAt": ex["finishedAt"], "attempts": ex["attempt"],
-            "attemptHistory": ex["attemptHistory"], "metrics": ex["metrics"]}
+    return {
+        "executionId": ex["executionId"],
+        "workflowId": ex["workflowId"],
+        "status": ex["status"],
+        "output": ex["output"],
+        "error": ex["error"],
+        "finishedAt": ex["finishedAt"],
+        "attempts": ex["attempt"],
+        "attemptHistory": ex["attemptHistory"],
+        "metrics": ex["metrics"],
+    }
 
 
 @base.op(
-    ID, "signal_execution",
+    ID,
+    "signal_execution",
     title="Signal execution",
     description="Send a signal to an execution paused on an approval step. Approve to "
-                "resume the run; reject to cancel it.",
-    input_schema={"type": "object", "properties": {
-        "executionId": {"type": "string"},
-        "signal": {"type": "string", "enum": ["approve", "reject"]},
-        "note": {"type": "string"}},
-        "required": ["executionId", "signal"]},
+    "resume the run; reject to cancel it.",
+    input_schema={
+        "type": "object",
+        "properties": {
+            "executionId": {"type": "string"},
+            "signal": {"type": "string", "enum": ["approve", "reject"]},
+            "note": {"type": "string"},
+        },
+        "required": ["executionId", "signal"],
+    },
     output_schema=_EXEC_OUTPUT,
-    annotations={"readOnlyHint": False, "idempotentHint": False})
+    annotations={"readOnlyHint": False, "idempotentHint": False},
+)
 def signal_execution(ctx: Ctx) -> dict:
     ctx.require_scope(EXECUTIONS_WRITE)
     ctx.require("signal")
@@ -937,18 +1464,26 @@ def signal_execution(ctx: Ctx) -> dict:
     if decision not in ("approve", "reject"):
         raise DomainError(422, "invalid_signal", "signal must be 'approve' or 'reject'")
     ex = _get_execution(ctx)
-    _apply_signal(ctx.state, ex, decision, str(ctx.principal.get("principal") or "operator"),
-                  ctx.get("note"))
+    _apply_signal(
+        ctx.state,
+        ex,
+        decision,
+        str(ctx.principal.get("principal") or "operator"),
+        ctx.get("note"),
+    )
     return _public(ex)
 
 
 @base.op(
-    ID, "retry_execution",
+    ID,
+    "retry_execution",
     title="Retry execution",
     description="Retry a failed or timed-out execution from its failed step under the "
-                "workflow's retry policy.",
-    input_schema=_EXEC_REF, output_schema=_EXEC_OUTPUT,
-    annotations={"readOnlyHint": False, "idempotentHint": False})
+    "workflow's retry policy.",
+    input_schema=_EXEC_REF,
+    output_schema=_EXEC_OUTPUT,
+    annotations={"readOnlyHint": False, "idempotentHint": False},
+)
 def retry_execution(ctx: Ctx) -> dict:
     ctx.require_scope(EXECUTIONS_WRITE)
     ex = _get_execution(ctx)
@@ -957,29 +1492,41 @@ def retry_execution(ctx: Ctx) -> dict:
 
 
 @base.op(
-    ID, "pause_execution",
+    ID,
+    "pause_execution",
     title="Pause execution",
     description="Pause an active execution so it stops advancing while it is held. "
-                "Resume it later with resume_execution. Terminal executions cannot be paused.",
-    input_schema={"type": "object", "properties": {
-        "executionId": {"type": "string"}, "reason": {"type": "string"}},
-        "required": ["executionId"]},
+    "Resume it later with resume_execution. Terminal executions cannot be paused.",
+    input_schema={
+        "type": "object",
+        "properties": {"executionId": {"type": "string"}, "reason": {"type": "string"}},
+        "required": ["executionId"],
+    },
     output_schema=_EXEC_OUTPUT,
-    annotations={"readOnlyHint": False, "idempotentHint": False})
+    annotations={"readOnlyHint": False, "idempotentHint": False},
+)
 def pause_execution(ctx: Ctx) -> dict:
     ctx.require_scope(EXECUTIONS_WRITE)
     ex = _get_execution(ctx)
-    _apply_pause(ctx.state, ex, str(ctx.principal.get("principal") or "operator"), ctx.get("reason"))
+    _apply_pause(
+        ctx.state,
+        ex,
+        str(ctx.principal.get("principal") or "operator"),
+        ctx.get("reason"),
+    )
     return _public(ex)
 
 
 @base.op(
-    ID, "resume_execution",
+    ID,
+    "resume_execution",
     title="Resume execution",
     description="Resume a paused execution, returning it to the state it held before "
-                "it was paused so it continues from where it stopped.",
-    input_schema=_EXEC_REF, output_schema=_EXEC_OUTPUT,
-    annotations={"readOnlyHint": False, "idempotentHint": False})
+    "it was paused so it continues from where it stopped.",
+    input_schema=_EXEC_REF,
+    output_schema=_EXEC_OUTPUT,
+    annotations={"readOnlyHint": False, "idempotentHint": False},
+)
 def resume_execution(ctx: Ctx) -> dict:
     ctx.require_scope(EXECUTIONS_WRITE)
     ex = _get_execution(ctx)
@@ -988,73 +1535,111 @@ def resume_execution(ctx: Ctx) -> dict:
 
 
 @base.op(
-    ID, "cancel_execution",
+    ID,
+    "cancel_execution",
     title="Cancel execution",
     description="Cancel an active execution. Terminal executions cannot be cancelled.",
-    input_schema={"type": "object", "properties": {
-        "executionId": {"type": "string"}, "reason": {"type": "string"}},
-        "required": ["executionId"]},
+    input_schema={
+        "type": "object",
+        "properties": {"executionId": {"type": "string"}, "reason": {"type": "string"}},
+        "required": ["executionId"],
+    },
     output_schema=_EXEC_OUTPUT,
-    annotations={"readOnlyHint": False, "idempotentHint": True, "destructiveHint": True})
+    annotations={
+        "readOnlyHint": False,
+        "idempotentHint": True,
+        "destructiveHint": True,
+    },
+)
 def cancel_execution(ctx: Ctx) -> dict:
     ctx.require_scope(EXECUTIONS_WRITE)
     ex = _get_execution(ctx)
     if ex["status"] in _TERMINAL:
-        raise DomainError(409, "execution_terminal", f"execution already {ex['status']}")
+        raise DomainError(
+            409, "execution_terminal", f"execution already {ex['status']}"
+        )
     at = _ts(ex["_clock"])
     ex["status"] = "cancelled"
     ex["finishedAt"] = at
     ex["updatedAt"] = at
-    ex["error"] = {"code": "cancelled", "message": ctx.get("reason", "cancelled by operator")}
+    ex["error"] = {
+        "code": "cancelled",
+        "message": ctx.get("reason", "cancelled by operator"),
+    }
     for s in ex["steps"]:
         if s["status"] in ("pending", "retrying"):
             s["status"] = "skipped"
-    _audit(ctx.state, ex, "execution_cancelled", str(ctx.principal.get("principal") or "operator"),
-           {"reason": ctx.get("reason")}, at=at)
+    _audit(
+        ctx.state,
+        ex,
+        "execution_cancelled",
+        str(ctx.principal.get("principal") or "operator"),
+        {"reason": ctx.get("reason")},
+        at=at,
+    )
     _record_attempt(ex, "cancelled", ex["currentStep"], at)
     return _public(ex)
 
 
 @base.op(
-    ID, "get_execution_audit",
+    ID,
+    "get_execution_audit",
     title="Get execution audit trail",
     description="Return the hash-chained audit trail for an execution, including the "
-                "mandate subject and delegation lineage that triggered it.",
+    "mandate subject and delegation lineage that triggered it.",
     input_schema=_EXEC_REF,
-    annotations={"readOnlyHint": True, "idempotentHint": True})
+    annotations={"readOnlyHint": True, "idempotentHint": True},
+)
 def get_execution_audit(ctx: Ctx) -> dict:
     ctx.require_scope(EXECUTIONS_READ)
     ex = _get_execution(ctx)
-    return {"executionId": ex["executionId"], "workflowId": ex["workflowId"],
-            "trigger": ex["trigger"], "events": ex["auditTrail"],
-            "chainIntact": _chain_intact(ex)}
+    return {
+        "executionId": ex["executionId"],
+        "workflowId": ex["workflowId"],
+        "trigger": ex["trigger"],
+        "events": ex["auditTrail"],
+        "chainIntact": _chain_intact(ex),
+    }
 
 
 # --------------------------------------------------------------------------- #
 # tools: queues
 # --------------------------------------------------------------------------- #
 @base.op(
-    ID, "list_queues",
+    ID,
+    "list_queues",
     title="List queues",
     description="List execution queues with their depth, in-flight count, and concurrency limit.",
     input_schema={"type": "object", "properties": {}},
-    annotations={"readOnlyHint": True, "idempotentHint": True})
+    annotations={"readOnlyHint": True, "idempotentHint": True},
+)
 def list_queues(ctx: Ctx) -> dict:
     return {"items": [_queue_state(ctx.state, q) for q in _QUEUES]}
 
 
 @base.op(
-    ID, "get_queue",
+    ID,
+    "get_queue",
     title="Get queue status",
     description="Return depth, in-flight executions, and concurrency utilization for one queue.",
-    input_schema={"type": "object", "properties": {
-        "queue": {"type": "string"}}, "required": ["queue"]},
-    output_schema={"type": "object", "properties": {
-        "queue": {"type": "string"}, "concurrencyLimit": {"type": "integer"},
-        "running": {"type": "integer"}, "depth": {"type": "integer"},
-        "utilization": {"type": ["number", "null"]}},
-        "required": ["queue", "concurrencyLimit"]},
-    annotations={"readOnlyHint": True, "idempotentHint": True})
+    input_schema={
+        "type": "object",
+        "properties": {"queue": {"type": "string"}},
+        "required": ["queue"],
+    },
+    output_schema={
+        "type": "object",
+        "properties": {
+            "queue": {"type": "string"},
+            "concurrencyLimit": {"type": "integer"},
+            "running": {"type": "integer"},
+            "depth": {"type": "integer"},
+            "utilization": {"type": ["number", "null"]},
+        },
+        "required": ["queue", "concurrencyLimit"],
+    },
+    annotations={"readOnlyHint": True, "idempotentHint": True},
+)
 def get_queue(ctx: Ctx) -> dict:
     ctx.require("queue")
     q = ctx.payload["queue"]
@@ -1085,23 +1670,40 @@ def _queue_state(state: base.State, queue: str) -> dict:
 # --------------------------------------------------------------------------- #
 # MCP resources (discovery surface)
 # --------------------------------------------------------------------------- #
-@base.resource(ID, uri="relay://workflows/catalog", name="Workflow catalog",
-               description="Every workflow definition with queue, schedule, and run counts.")
+@base.resource(
+    ID,
+    uri="relay://workflows/catalog",
+    name="Workflow catalog",
+    description="Every workflow definition with queue, schedule, and run counts.",
+)
 def _res_catalog(ctx: Ctx) -> dict:
-    return {"total": len(_WORKFLOWS),
-            "items": [_workflow_summary(ctx.state, w) for w in _WORKFLOWS]}
+    return {
+        "total": len(_WORKFLOWS),
+        "items": [_workflow_summary(ctx.state, w) for w in _WORKFLOWS],
+    }
 
 
-@base.resource(ID, uri="relay://executions/active", name="Active executions",
-               description="Executions that are queued, running, paused, or waiting on a signal.")
+@base.resource(
+    ID,
+    uri="relay://executions/active",
+    name="Active executions",
+    description="Executions that are queued, running, paused, or waiting on a signal.",
+)
 def _res_active(ctx: Ctx) -> dict:
-    active = [_execution_summary(e) for e in ctx.state.table("executions").values()
-              if e["status"] in _ACTIVE]
+    active = [
+        _execution_summary(e)
+        for e in ctx.state.table("executions").values()
+        if e["status"] in _ACTIVE
+    ]
     active.sort(key=lambda e: e["updatedAt"], reverse=True)
     return {"total": len(active), "items": active[:50]}
 
 
-@base.resource(ID, uri="relay://queues/status", name="Queue status",
-               description="Depth and concurrency utilization across every execution queue.")
+@base.resource(
+    ID,
+    uri="relay://queues/status",
+    name="Queue status",
+    description="Depth and concurrency utilization across every execution queue.",
+)
 def _res_queues(ctx: Ctx) -> dict:
     return {"items": [_queue_state(ctx.state, q) for q in _QUEUES]}

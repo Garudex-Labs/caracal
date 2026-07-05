@@ -25,6 +25,4 @@ export interface AuthError {
   hint?: string
 }
 
-export type AuthResult =
-  | { ok: true; principal: Principal }
-  | { ok: false; error: AuthError }
+export type AuthResult = { ok: true; principal: Principal } | { ok: false; error: AuthError }

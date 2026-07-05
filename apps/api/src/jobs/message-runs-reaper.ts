@@ -16,10 +16,7 @@ const REAP_BATCH_SIZE = 500
 export async function runMessageRunsReap(db: DB): Promise<number> {
   const client = await db.connect()
   try {
-    const { rows } = await client.query<{ acquired: boolean }>(
-      `SELECT pg_try_advisory_lock($1::bigint) AS acquired`,
-      [REAP_LOCK_KEY],
-    )
+    const { rows } = await client.query<{ acquired: boolean }>(`SELECT pg_try_advisory_lock($1::bigint) AS acquired`, [REAP_LOCK_KEY])
     if (!rows[0]?.acquired) return 0
     try {
       const { rowCount } = await client.query(
@@ -60,11 +57,7 @@ export async function runMessageRunsReap(db: DB): Promise<number> {
   }
 }
 
-export function startMessageRunsReaper(
-  db: DB,
-  log: FastifyBaseLogger,
-  intervalMs = 30_000,
-): NodeJS.Timeout {
+export function startMessageRunsReaper(db: DB, log: FastifyBaseLogger, intervalMs = 30_000): NodeJS.Timeout {
   return setInterval(() => {
     runWithTrace(newTraceContext(), () => runMessageRunsReap(db)).catch((err) => {
       log.error({ err }, 'message runs reaper failed')

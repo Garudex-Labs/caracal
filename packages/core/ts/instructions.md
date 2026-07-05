@@ -4,8 +4,8 @@
 - Covers the `@caracalai/core` TypeScript package under `packages/core/ts/`.
 
 ## Architecture Design
-- The package provides TypeScript config, errors, logging, audit, crypto, env, JSON, metrics, scope, URL, and command-catalog primitives.
-- It is the shared foundation for TypeScript apps and packages.
+- The package provides the TypeScript SDK kernel: errors, scope, JSON types, logging, redaction, trace context, the audit client, and HMAC stream signing.
+- It is the zero-dependency foundation for published TypeScript packages; server-only primitives live in `packages/serverCore/ts`.
 
 ## Required
 - Must use TypeScript strict mode and NodeNext module resolution.
@@ -15,7 +15,7 @@
 
 ## Forbidden
 - Must not add service-specific or app-specific logic.
-- Must not introduce runtime dependencies without updating package metadata and this instruction file.
+- Must not add runtime npm dependencies; the kernel ships with none.
 - Must not log raw secrets or tokens.
 
 ## Validation

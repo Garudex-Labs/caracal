@@ -106,14 +106,17 @@ function validate(schema: Schema, value: Json, root: Schema, path = '$'): void {
   if (schema.enum) expect(schema.enum, `${path} enum`).toContainEqual(value)
   if (schema.type) {
     const types = Array.isArray(schema.type) ? schema.type : [schema.type]
-    expect(types.some((type) => {
-      try {
-        validateType(type, value, path)
-        return true
-      } catch {
-        return false
-      }
-    }), `${path} type`).toBe(true)
+    expect(
+      types.some((type) => {
+        try {
+          validateType(type, value, path)
+          return true
+        } catch {
+          return false
+        }
+      }),
+      `${path} type`,
+    ).toBe(true)
   }
   if (typeof value === 'string') {
     if (schema.minLength !== undefined) expect(value.length, `${path} minLength`).toBeGreaterThanOrEqual(schema.minLength)
@@ -185,16 +188,11 @@ describe('stream-sig canonicalization vectors', () => {
     expected_sig_hex: string
   }
 
-  const vectors = JSON.parse(
-    readFileSync(resolve(fixtureDir, 'stream-sig-canonicalize.vectors.json'), 'utf8'),
-  ) as Vector[]
+  const vectors = JSON.parse(readFileSync(resolve(fixtureDir, 'stream-sig-canonicalize.vectors.json'), 'utf8')) as Vector[]
 
-  it.each(vectors.map((v) => [v.description, v] as const))(
-    '%s',
-    (_desc, vector) => {
-      const key = Buffer.from(vector.hmac_key_hex, 'hex')
-      const sig = signStream(key, vector.stream, vector.values)
-      expect(sig).toBe(vector.expected_sig_hex)
-    },
-  )
+  it.each(vectors.map((v) => [v.description, v] as const))('%s', (_desc, vector) => {
+    const key = Buffer.from(vector.hmac_key_hex, 'hex')
+    const sig = signStream(key, vector.stream, vector.values)
+    expect(sig).toBe(vector.expected_sig_hex)
+  })
 })

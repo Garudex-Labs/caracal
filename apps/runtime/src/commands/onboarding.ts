@@ -3,11 +3,7 @@
 //
 // Runtime onboarding verifies the local stack reaches dependency-ready state.
 
-import {
-  defaultServiceProbes,
-  stackStatus,
-  type ProbeResult,
-} from '@caracalai/engine'
+import { defaultServiceProbes, stackStatus, type ProbeResult } from '@caracalai/engine'
 import { printInfo, printStep, printSuccess } from '../style.ts'
 
 const POLL_MS = 1000

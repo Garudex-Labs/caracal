@@ -145,21 +145,24 @@ describe('purgeCommand', () => {
   it('refreshes selected runtime assets before compose cleanup', async () => {
     await purgeCommand(['all', '--yes'])
 
-    expect(engineMocks.installRuntimeAssets).toHaveBeenCalledWith({
-      home: runtimeHome,
-      composeFile: join(runtimeHome, 'compose.yml'),
-      secretsDir: join(runtimeHome, 'secrets'),
-      overrideEnvFile: join(runtimeHome, 'caracal.env'),
-    }, 'stable')
-    expect(engineMocks.installRuntimeAssets.mock.invocationCallOrder[0]).toBeLessThan(
-      engineMocks.composeRun.mock.invocationCallOrder[0],
-    )
-    expect(engineMocks.composeRun).toHaveBeenCalledWith(expect.objectContaining({
-      paths: expect.objectContaining({
+    expect(engineMocks.installRuntimeAssets).toHaveBeenCalledWith(
+      {
+        home: runtimeHome,
         composeFile: join(runtimeHome, 'compose.yml'),
-        cwd: runtimeHome,
+        secretsDir: join(runtimeHome, 'secrets'),
+        overrideEnvFile: join(runtimeHome, 'caracal.env'),
+      },
+      'stable',
+    )
+    expect(engineMocks.installRuntimeAssets.mock.invocationCallOrder[0]).toBeLessThan(engineMocks.composeRun.mock.invocationCallOrder[0])
+    expect(engineMocks.composeRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        paths: expect.objectContaining({
+          composeFile: join(runtimeHome, 'compose.yml'),
+          cwd: runtimeHome,
+        }),
       }),
-    }))
+    )
     expect(stdout.mock.calls.map((c) => c[0]).join('')).toContain('Purge complete.')
     expect(stderr).not.toHaveBeenCalled()
     expect(exit).not.toHaveBeenCalled()
@@ -196,20 +199,24 @@ describe('purgeCommand', () => {
   it('removes example compose projects and example-built images', async () => {
     mkdirSync(join(repoRoot, 'examples', 'echoUpstream'), { recursive: true })
     mkdirSync(join(repoRoot, 'examples', 'lynxCapital', '_mock'), { recursive: true })
-    writeFileSync(join(repoRoot, 'examples', 'echoUpstream', 'compose.yml'), 'services:\n  echo:\n    build:\n      context: .\n    image: caracal-echo-upstream:latest\n')
-    writeFileSync(join(repoRoot, 'examples', 'lynxCapital', '_mock', 'docker-compose.yml'), 'services:\n  mock:\n    build:\n      context: ..\n    image: lynx-mock:latest\n')
-    writeFileSync(join(repoRoot, 'examples', 'lynxCapital', 'compose.yaml'), 'services:\n  lynx:\n    build:\n      context: .\n    image: lynx-app:latest\n  db:\n    image: postgres:17-alpine\n')
+    writeFileSync(
+      join(repoRoot, 'examples', 'echoUpstream', 'compose.yml'),
+      'services:\n  echo:\n    build:\n      context: .\n    image: caracal-echo-upstream:latest\n',
+    )
+    writeFileSync(
+      join(repoRoot, 'examples', 'lynxCapital', '_mock', 'docker-compose.yml'),
+      'services:\n  mock:\n    build:\n      context: ..\n    image: lynx-mock:latest\n',
+    )
+    writeFileSync(
+      join(repoRoot, 'examples', 'lynxCapital', 'compose.yaml'),
+      'services:\n  lynx:\n    build:\n      context: .\n    image: lynx-app:latest\n  db:\n    image: postgres:17-alpine\n',
+    )
     spawnSyncMock.mockImplementation((cmd: string, args: string[]) => {
       if (cmd === 'docker' && args[0] === 'compose') return { status: 0 }
       if (cmd === 'docker' && args[0] === 'images') {
         return {
           status: 0,
-          stdout: [
-            'caracal-echo-upstream:latest',
-            'lynx-app:latest',
-            'lynx-mock:latest',
-            'postgres:17-alpine',
-          ].join('\n'),
+          stdout: ['caracal-echo-upstream:latest', 'lynx-app:latest', 'lynx-mock:latest', 'postgres:17-alpine'].join('\n'),
         }
       }
       if (cmd === 'pnpm') return { status: 0, stdout: '' }
@@ -219,30 +226,32 @@ describe('purgeCommand', () => {
     await purgeCommand(['examples', '--yes'])
 
     expect(engineMocks.composeRun).toHaveBeenCalledTimes(3)
-    expect(engineMocks.composeRun).toHaveBeenCalledWith(expect.objectContaining({
-      args: ['down', '-v', '--remove-orphans'],
-      paths: expect.objectContaining({
-        composeFile: join(repoRoot, 'examples', 'echoUpstream', 'compose.yml'),
-        cwd: join(repoRoot, 'examples', 'echoUpstream'),
+    expect(engineMocks.composeRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        args: ['down', '-v', '--remove-orphans'],
+        paths: expect.objectContaining({
+          composeFile: join(repoRoot, 'examples', 'echoUpstream', 'compose.yml'),
+          cwd: join(repoRoot, 'examples', 'echoUpstream'),
+        }),
       }),
-    }))
-    expect(engineMocks.composeRun).toHaveBeenCalledWith(expect.objectContaining({
-      paths: expect.objectContaining({
-        composeFile: join(repoRoot, 'examples', 'lynxCapital', '_mock', 'docker-compose.yml'),
-        cwd: join(repoRoot, 'examples', 'lynxCapital', '_mock'),
+    )
+    expect(engineMocks.composeRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        paths: expect.objectContaining({
+          composeFile: join(repoRoot, 'examples', 'lynxCapital', '_mock', 'docker-compose.yml'),
+          cwd: join(repoRoot, 'examples', 'lynxCapital', '_mock'),
+        }),
       }),
-    }))
-    expect(engineMocks.composeRun).toHaveBeenCalledWith(expect.objectContaining({
-      paths: expect.objectContaining({
-        composeFile: join(repoRoot, 'examples', 'lynxCapital', 'compose.yaml'),
-        cwd: join(repoRoot, 'examples', 'lynxCapital'),
+    )
+    expect(engineMocks.composeRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        paths: expect.objectContaining({
+          composeFile: join(repoRoot, 'examples', 'lynxCapital', 'compose.yaml'),
+          cwd: join(repoRoot, 'examples', 'lynxCapital'),
+        }),
       }),
-    }))
-    expect(engineMocks.removeImages).toHaveBeenCalledWith([
-      'caracal-echo-upstream:latest',
-      'lynx-app:latest',
-      'lynx-mock:latest',
-    ])
+    )
+    expect(engineMocks.removeImages).toHaveBeenCalledWith(['caracal-echo-upstream:latest', 'lynx-app:latest', 'lynx-mock:latest'])
   })
 
   it('fails explicit compose targets when Docker Compose is unavailable', async () => {

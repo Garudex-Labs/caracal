@@ -53,6 +53,7 @@ export default defineConfig({
       { find: /^@caracalai\/admin$/, replacement: src('./packages/admin/ts/src/index.ts') },
       { find: /^@caracalai\/admin-audit$/, replacement: src('./packages/adminAudit/ts/src/index.ts') },
       { find: /^@caracalai\/core$/, replacement: src('./packages/core/ts/src/index.ts') },
+      { find: /^@caracalai\/server-core$/, replacement: src('./packages/serverCore/ts/src/index.ts') },
       { find: /^@caracalai\/engine$/, replacement: src('./packages/engine/src/index.ts') },
       { find: /^@caracalai\/identity$/, replacement: src('./packages/identity/ts/src/index.ts') },
       { find: /^@caracalai\/express$/, replacement: src('./packages/adapters/express/ts/src/index.ts') },

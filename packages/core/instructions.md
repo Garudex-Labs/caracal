@@ -5,7 +5,8 @@
 
 ## Architecture Design
 - `ts/`, `go/`, and `python/` own language-specific implementations of shared primitives.
-- Core owns config, logging, errors, scope, audit, JSON, crypto, metrics, and command-catalog primitives where present.
+- Core owns the SDK kernel: errors, scope, JSON, logging, audit, and stream signing.
+- `go/` additionally retains server primitives consumed by Go services; the TypeScript server primitives live in `packages/serverCore/ts`.
 
 ## Required
 - Must keep implementation code inside language subdirectories.

@@ -6,7 +6,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { randomBytes } from 'node:crypto'
 import { join } from 'node:path'
-import { devSecretsHome } from '@caracalai/core'
+import { devSecretsHome } from '@caracalai/server-core'
 
 // The auth service keeps operator identity in its own dedicated database, isolated from the
 // control-plane schema so neither side's migrations or table names can collide.

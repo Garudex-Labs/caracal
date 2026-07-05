@@ -45,4 +45,3 @@ class InteractionRequiredError(Exception):
         self.challenge_id = challenge_id
         self.resource = resource
         self.acr_values = acr_values
-

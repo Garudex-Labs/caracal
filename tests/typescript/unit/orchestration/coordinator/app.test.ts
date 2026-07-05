@@ -15,7 +15,8 @@ const { buildApp } = await import('../../../../../apps/coordinator/src/app.js')
 describe('buildApp operational endpoints', () => {
   it('reuses runtime aggregate stats across metrics and stats requests', async () => {
     const db = {
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce({ rows: [{ status: 'running', n: '2' }] })
         .mockResolvedValueOnce({ rows: [{ status: 'published', n: '3' }] }),
     }
@@ -45,8 +46,12 @@ describe('buildApp operational endpoints', () => {
   })
 
   describe('/ready endpoint', () => {
-    beforeEach(() => { vi.useFakeTimers() })
-    afterEach(() => { vi.useRealTimers() })
+    beforeEach(() => {
+      vi.useFakeTimers()
+    })
+    afterEach(() => {
+      vi.useRealTimers()
+    })
 
     it('returns 503 instead of hanging when a dependency check times out', async () => {
       const db = { query: vi.fn(() => new Promise(() => {})) }

@@ -15,7 +15,7 @@ export function buildRedis(config: Cfg = cfg): Redis {
 }
 
 export async function redisMinuteBucket(redis: Redis): Promise<number> {
-  return Math.floor(await redisTimeMs(redis) / 60_000)
+  return Math.floor((await redisTimeMs(redis)) / 60_000)
 }
 
 export async function redisTimeMs(redis: Redis): Promise<number> {

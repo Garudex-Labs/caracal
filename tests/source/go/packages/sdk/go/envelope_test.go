@@ -52,8 +52,8 @@ func TestParseTraceparentInvalidFormats(t *testing.T) {
 	cases := []string{
 		"invalid",
 		"00-short-aabbccddeeff0011-01",
-		"00-0123456789abcdef0123456789ABCDEF-aabbccddeeff0011-01", // uppercase
-		"ff-0123456789abcdef0123456789abcdef-aabbccddeeff0011-01", // forbidden version
+		"00-0123456789abcdef0123456789ABCDEF-aabbccddeeff0011-01",       // uppercase
+		"ff-0123456789abcdef0123456789abcdef-aabbccddeeff0011-01",       // forbidden version
 		"00-0123456789abcdef0123456789abcdef-aabbccddeeff0011-01-extra", // version 00 with extra field
 		"noteven",
 	}
@@ -109,7 +109,7 @@ func TestParseBaggageEmpty(t *testing.T) {
 }
 
 func TestParseBaggageOversizeDiscarded(t *testing.T) {
-	if len(sdk.ParseBaggage("k=" + strings.Repeat("a", 9000))) != 0 {
+	if len(sdk.ParseBaggage("k="+strings.Repeat("a", 9000))) != 0 {
 		t.Error("headers above the W3C size limit must be discarded")
 	}
 	members := make([]string, 65)

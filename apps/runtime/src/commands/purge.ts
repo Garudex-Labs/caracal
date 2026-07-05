@@ -9,7 +9,7 @@ import { spawnSync } from 'node:child_process'
 import { createInterface } from 'node:readline'
 import { dirname, join, relative } from 'node:path'
 import pg from 'pg'
-import { devSecretsHome } from '@caracalai/core'
+import { devSecretsHome } from '@caracalai/server-core'
 import { authMaintenanceUrl, configuredAuthDatabaseName } from './authStore.ts'
 import { defaultCaracalConfigDir } from '@caracalai/engine/runtime-config'
 import {

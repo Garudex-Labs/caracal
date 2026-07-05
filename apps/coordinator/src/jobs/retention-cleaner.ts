@@ -42,10 +42,9 @@ export async function runRetentionCleanup(db: Pool): Promise<RetentionCleanupRes
   const client = await db.connect()
   try {
     await client.query('BEGIN')
-    const { rows: lock } = await client.query<{ acquired: boolean }>(
-      `SELECT pg_try_advisory_xact_lock(hashtext($1)) AS acquired`,
-      [CLEANUP_LOCK],
-    )
+    const { rows: lock } = await client.query<{ acquired: boolean }>(`SELECT pg_try_advisory_xact_lock(hashtext($1)) AS acquired`, [
+      CLEANUP_LOCK,
+    ])
     if (!lock[0]?.acquired) {
       await client.query('ROLLBACK')
       return emptyResult()
@@ -138,10 +137,7 @@ export async function runRetentionCleanup(db: Pool): Promise<RetentionCleanupRes
   }
 }
 
-export function startRetentionCleaner(
-  db: Pool,
-  options: { intervalMs?: number; log?: JobLogger } = {},
-): JobHandle {
+export function startRetentionCleaner(db: Pool, options: { intervalMs?: number; log?: JobLogger } = {}): JobHandle {
   const intervalMs = options.intervalMs ?? cfg.retentionCleanupIntervalMs
   return makeIntervalJob(
     () => {

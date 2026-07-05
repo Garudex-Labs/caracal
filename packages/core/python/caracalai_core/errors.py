@@ -53,7 +53,10 @@ class CaracalError(Exception):
         return f"{self.code}: {self.description}"
 
     def to_json(self) -> dict[str, JsonValue]:
-        out: dict[str, JsonValue] = {"error": self.code, "error_description": self.description}
+        out: dict[str, JsonValue] = {
+            "error": self.code,
+            "error_description": self.description,
+        }
         if self.request_id:
             out["requestId"] = self.request_id
         if self.details:

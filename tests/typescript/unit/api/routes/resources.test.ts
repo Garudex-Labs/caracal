@@ -22,10 +22,7 @@ describe('GET /v1/zones/:zoneId/resources', () => {
 
     expect(res.statusCode).toBe(200)
     expect(JSON.parse(res.body)).toEqual([{ id: 'res-demo', identifier: 'demo-api', created_at: '2026-05-25T00:00:00.000Z' }])
-    expect(db.query).toHaveBeenCalledWith(
-      expect.stringContaining('r.identifier <> $2'),
-      ['z1', 'caracal-control', 200],
-    )
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining('r.identifier <> $2'), ['z1', 'caracal-control', 200])
   })
 
   it('lets the Control path include the Control API resource', async () => {
@@ -42,10 +39,7 @@ describe('GET /v1/zones/:zoneId/resources', () => {
 
     expect(res.statusCode).toBe(200)
     expect(JSON.parse(res.body)).toEqual([{ id: 'res-control', identifier: 'caracal-control', created_at: '2026-05-25T00:00:00.000Z' }])
-    expect(db.query).not.toHaveBeenCalledWith(
-      expect.stringContaining('r.identifier <> $2'),
-      expect.anything(),
-    )
+    expect(db.query).not.toHaveBeenCalledWith(expect.stringContaining('r.identifier <> $2'), expect.anything())
   })
 })
 
@@ -126,9 +120,7 @@ describe('POST /v1/zones/:zoneId/resources', () => {
 
   it('rejects provider references outside the zone', async () => {
     const { app, db } = buildRouteApp(resourcesRoutes)
-    db.query
-      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
-      .mockResolvedValueOnce({ rows: [] })
+    db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] }).mockResolvedValueOnce({ rows: [] })
 
     await app.ready()
     const res = await app.inject({
@@ -148,9 +140,7 @@ describe('POST /v1/zones/:zoneId/resources', () => {
 
   it('rejects relative or provider-shaped resource identifiers', async () => {
     const { app, db } = buildRouteApp(resourcesRoutes)
-    db.query
-      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
-      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
+    db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] }).mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
 
     await app.ready()
     for (const identifier of ['pipernet', 'provider://pipernet']) {
@@ -174,9 +164,7 @@ describe('POST /v1/zones/:zoneId/resources', () => {
 
   it('rejects resources without Gateway routing', async () => {
     const { app, db } = buildRouteApp(resourcesRoutes)
-    db.query
-      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
-      .mockResolvedValueOnce({ rows: [{ exists: 1 }] })
+    db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] }).mockResolvedValueOnce({ rows: [{ exists: 1 }] })
 
     await app.ready()
     const res = await app.inject({
@@ -217,9 +205,7 @@ describe('POST /v1/zones/:zoneId/resources', () => {
 
   it('requires a gateway application for gateway-routed resources', async () => {
     const { app, db } = buildRouteApp(resourcesRoutes)
-    db.query
-      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
-      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
+    db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] }).mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
 
     await app.ready()
     const res = await app.inject({
@@ -241,16 +227,19 @@ describe('POST /v1/zones/:zoneId/resources', () => {
   it('creates a gateway binding atomically with upstream resources', async () => {
     const { app, db } = buildRouteApp(resourcesRoutes)
     const client = {
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({
-          rows: [{
-            id: 'res-1',
-            zone_id: 'z1',
-            identifier: 'resource://api',
-            upstream_url: 'https://api.example.com',
-            scopes: ['read'],
-          }],
+          rows: [
+            {
+              id: 'res-1',
+              zone_id: 'z1',
+              identifier: 'resource://api',
+              upstream_url: 'https://api.example.com',
+              scopes: ['read'],
+            },
+          ],
         })
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [] })
@@ -278,22 +267,19 @@ describe('POST /v1/zones/:zoneId/resources', () => {
 
     expect(res.statusCode).toBe(201)
     expect(JSON.parse(res.body)).toMatchObject({ id: 'res-1', gateway_application_id: 'app-1' })
-    expect(client.query).toHaveBeenCalledWith(
-      expect.stringContaining('INSERT INTO gateway_resource_bindings'),
-      ['resource://api', 'z1', 'app-1'],
-    )
-    expect(client.query).toHaveBeenCalledWith(
-      expect.stringContaining('UPDATE gateway_binding_revision'),
-    )
+    expect(client.query).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO gateway_resource_bindings'), [
+      'resource://api',
+      'z1',
+      'app-1',
+    ])
+    expect(client.query).toHaveBeenCalledWith(expect.stringContaining('UPDATE gateway_binding_revision'))
     expect(client.query).toHaveBeenCalledWith('COMMIT')
     expect(client.release).toHaveBeenCalled()
   })
 
   it('rejects operations whose scope is not declared on the resource', async () => {
     const { app, db } = buildRouteApp(resourcesRoutes)
-    db.query
-      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
-      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
+    db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] }).mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
 
     await app.ready()
     const res = await app.inject({
@@ -317,18 +303,21 @@ describe('POST /v1/zones/:zoneId/resources', () => {
   it('defaults new gateway resources to enforced operation authority', async () => {
     const { app, db } = buildRouteApp(resourcesRoutes)
     const client = {
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({
-          rows: [{
-            id: 'res-1',
-            zone_id: 'z1',
-            identifier: 'resource://nucleus',
-            upstream_url: 'https://api.pipernet.example',
-            scopes: ['read'],
-            operations: [{ method: 'GET', path: '/api/get_payment', scope: 'read' }],
-            operation_enforcement: 'enforced',
-          }],
+          rows: [
+            {
+              id: 'res-1',
+              zone_id: 'z1',
+              identifier: 'resource://nucleus',
+              upstream_url: 'https://api.pipernet.example',
+              scopes: ['read'],
+              operations: [{ method: 'GET', path: '/api/get_payment', scope: 'read' }],
+              operation_enforcement: 'enforced',
+            },
+          ],
         })
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [] })
@@ -364,16 +353,19 @@ describe('POST /v1/zones/:zoneId/resources', () => {
   it('suffixes generated resource identifiers when the resource name already exists in the zone', async () => {
     const { app, db } = buildRouteApp(resourcesRoutes)
     const client = {
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({
-          rows: [{
-            id: 'res-2',
-            zone_id: 'z1',
-            identifier: 'resource://api-2',
-            upstream_url: 'https://api.example.com',
-            scopes: ['read'],
-          }],
+          rows: [
+            {
+              id: 'res-2',
+              zone_id: 'z1',
+              identifier: 'resource://api-2',
+              upstream_url: 'https://api.example.com',
+              scopes: ['read'],
+            },
+          ],
         })
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [] })
@@ -404,10 +396,11 @@ describe('POST /v1/zones/:zoneId/resources', () => {
     const insertValues = client.query.mock.calls[1]![1] as unknown[]
     expect(res.statusCode).toBe(201)
     expect(insertValues[3]).toBe('resource://api-2')
-    expect(client.query).toHaveBeenCalledWith(
-      expect.stringContaining('INSERT INTO gateway_resource_bindings'),
-      ['resource://api-2', 'z1', 'app-1'],
-    )
+    expect(client.query).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO gateway_resource_bindings'), [
+      'resource://api-2',
+      'z1',
+      'app-1',
+    ])
   })
 
   it('returns conflict for explicit duplicate resource identifiers', async () => {
@@ -417,10 +410,7 @@ describe('POST /v1/zones/:zoneId/resources', () => {
       constraint: 'resources_zone_id_identifier_key',
     })
     const client = {
-      query: vi.fn()
-        .mockResolvedValueOnce({ rows: [] })
-        .mockRejectedValueOnce(conflict)
-        .mockResolvedValueOnce({ rows: [] }),
+      query: vi.fn().mockResolvedValueOnce({ rows: [] }).mockRejectedValueOnce(conflict).mockResolvedValueOnce({ rows: [] }),
       release: vi.fn(),
     }
     db.query
@@ -562,10 +552,7 @@ describe('PATCH /v1/zones/:zoneId/resources/:id', () => {
   it('returns 404 when the resource is missing during patch', async () => {
     const { app, db } = buildRouteApp(resourcesRoutes)
     const client = {
-      query: vi.fn()
-        .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [] }),
+      query: vi.fn().mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [] }),
       release: vi.fn(),
     }
     db.connect.mockResolvedValueOnce(client)
@@ -585,15 +572,18 @@ describe('PATCH /v1/zones/:zoneId/resources/:id', () => {
   it('returns no_fields when patch does not change resource data or gateway binding', async () => {
     const { app, db } = buildRouteApp(resourcesRoutes)
     const client = {
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({
-          rows: [{
-            identifier: 'resource://api',
-            upstream_url: 'https://api.example.com',
-            credential_provider_id: 'provider-1',
-            gateway_application_id: 'app-1',
-          }],
+          rows: [
+            {
+              identifier: 'resource://api',
+              upstream_url: 'https://api.example.com',
+              credential_provider_id: 'provider-1',
+              gateway_application_id: 'app-1',
+            },
+          ],
         })
         .mockResolvedValueOnce({ rows: [] }),
       release: vi.fn(),
@@ -631,24 +621,29 @@ describe('PATCH /v1/zones/:zoneId/resources/:id', () => {
   it('moves the gateway binding when the resource identifier changes', async () => {
     const { app, db } = buildRouteApp(resourcesRoutes)
     const client = {
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({
-          rows: [{
-            identifier: 'resource://api',
-            upstream_url: 'https://api.example.com',
-            credential_provider_id: 'provider-1',
-            gateway_application_id: 'app-1',
-          }],
+          rows: [
+            {
+              identifier: 'resource://api',
+              upstream_url: 'https://api.example.com',
+              credential_provider_id: 'provider-1',
+              gateway_application_id: 'app-1',
+            },
+          ],
         })
         .mockResolvedValueOnce({
-          rows: [{
-            id: 'res-1',
-            zone_id: 'z1',
-            identifier: 'resource://api/v2',
-            upstream_url: 'https://api.example.com',
-            scopes: ['read'],
-          }],
+          rows: [
+            {
+              id: 'res-1',
+              zone_id: 'z1',
+              identifier: 'resource://api/v2',
+              upstream_url: 'https://api.example.com',
+              scopes: ['read'],
+            },
+          ],
         })
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [] })
@@ -671,31 +666,30 @@ describe('PATCH /v1/zones/:zoneId/resources/:id', () => {
       identifier: 'resource://api/v2',
       gateway_application_id: 'app-1',
     })
-    expect(client.query).toHaveBeenCalledWith(
-      expect.stringContaining('DELETE FROM gateway_resource_bindings'),
-      ['resource://api', 'z1'],
-    )
-    expect(client.query).toHaveBeenCalledWith(
-      expect.stringContaining('INSERT INTO gateway_resource_bindings'),
-      ['resource://api/v2', 'z1', 'app-1'],
-    )
-    expect(client.query).toHaveBeenCalledWith(
-      expect.stringContaining('UPDATE gateway_binding_revision'),
-    )
+    expect(client.query).toHaveBeenCalledWith(expect.stringContaining('DELETE FROM gateway_resource_bindings'), ['resource://api', 'z1'])
+    expect(client.query).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO gateway_resource_bindings'), [
+      'resource://api/v2',
+      'z1',
+      'app-1',
+    ])
+    expect(client.query).toHaveBeenCalledWith(expect.stringContaining('UPDATE gateway_binding_revision'))
   })
 
   it('rejects resource identifier patches that use the provider namespace', async () => {
     const { app, db } = buildRouteApp(resourcesRoutes)
     const client = {
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({
-          rows: [{
-            identifier: 'resource://api',
-            upstream_url: 'https://api.example.com',
-            credential_provider_id: 'provider-1',
-            gateway_application_id: 'app-1',
-          }],
+          rows: [
+            {
+              identifier: 'resource://api',
+              upstream_url: 'https://api.example.com',
+              credential_provider_id: 'provider-1',
+              gateway_application_id: 'app-1',
+            },
+          ],
         })
         .mockResolvedValueOnce({ rows: [] }),
       release: vi.fn(),
@@ -718,15 +712,18 @@ describe('PATCH /v1/zones/:zoneId/resources/:id', () => {
   it('blocks generic edits to the Control API resource', async () => {
     const { app, db } = buildRouteApp(resourcesRoutes)
     const client = {
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({
-          rows: [{
-            identifier: 'caracal-control',
-            upstream_url: null,
-            credential_provider_id: null,
-            gateway_application_id: null,
-          }],
+          rows: [
+            {
+              identifier: 'caracal-control',
+              upstream_url: null,
+              credential_provider_id: null,
+              gateway_application_id: null,
+            },
+          ],
         })
         .mockResolvedValueOnce({ rows: [] }),
       release: vi.fn(),
@@ -750,10 +747,7 @@ describe('DELETE /v1/zones/:zoneId/resources/:id', () => {
   it('returns 404 when deleting a missing resource', async () => {
     const { app, db } = buildRouteApp(resourcesRoutes)
     const client = {
-      query: vi.fn()
-        .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [] }),
+      query: vi.fn().mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [] }),
       release: vi.fn(),
     }
     db.connect.mockResolvedValueOnce(client)
@@ -772,7 +766,8 @@ describe('DELETE /v1/zones/:zoneId/resources/:id', () => {
   it('archives the resource and removes its gateway binding atomically', async () => {
     const { app, db } = buildRouteApp(resourcesRoutes)
     const client = {
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [{ identifier: 'resource://api' }] })
         .mockResolvedValueOnce({ rows: [] })
@@ -790,13 +785,8 @@ describe('DELETE /v1/zones/:zoneId/resources/:id', () => {
     })
 
     expect(res.statusCode).toBe(204)
-    expect(client.query).toHaveBeenCalledWith(
-      expect.stringContaining('DELETE FROM gateway_resource_bindings'),
-      ['resource://api', 'z1'],
-    )
-    expect(client.query).toHaveBeenCalledWith(
-      expect.stringContaining('UPDATE gateway_binding_revision'),
-    )
+    expect(client.query).toHaveBeenCalledWith(expect.stringContaining('DELETE FROM gateway_resource_bindings'), ['resource://api', 'z1'])
+    expect(client.query).toHaveBeenCalledWith(expect.stringContaining('UPDATE gateway_binding_revision'))
     expect(client.query).toHaveBeenCalledWith('COMMIT')
     expect(client.release).toHaveBeenCalled()
   })
@@ -804,7 +794,8 @@ describe('DELETE /v1/zones/:zoneId/resources/:id', () => {
   it('blocks deletion of the Control API resource', async () => {
     const { app, db } = buildRouteApp(resourcesRoutes)
     const client = {
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [{ identifier: 'caracal-control' }] })
         .mockResolvedValueOnce({ rows: [] }),

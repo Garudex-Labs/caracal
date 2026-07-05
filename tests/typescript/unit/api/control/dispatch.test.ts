@@ -42,54 +42,38 @@ describe('validateFlags', () => {
 
 describe('dispatch', () => {
   it('denies unknown commands', async () => {
-    await expect(
-      dispatch({ command: 'nope', subcommand: '' }, principal([]), ctx),
-    ).rejects.toMatchObject({ code: 'denied' })
+    await expect(dispatch({ command: 'nope', subcommand: '' }, principal([]), ctx)).rejects.toMatchObject({ code: 'denied' })
   })
 
   it('blocks local-only Control management for remote principals', async () => {
-    await expect(
-      dispatch({ command: 'control', subcommand: 'key' }, principal(['control:control:read']), ctx),
-    ).rejects.toMatchObject({ code: 'denied' })
+    await expect(dispatch({ command: 'control', subcommand: 'key' }, principal(['control:control:read']), ctx)).rejects.toMatchObject({
+      code: 'denied',
+    })
   })
 
   it('denies missing scope', async () => {
-    await expect(
-      dispatch({ command: 'resource', subcommand: 'list' }, principal([]), ctx),
-    ).rejects.toMatchObject({ code: 'denied' })
+    await expect(dispatch({ command: 'resource', subcommand: 'list' }, principal([]), ctx)).rejects.toMatchObject({ code: 'denied' })
   })
 
   it('blocks global zone administration for remote principals', async () => {
-    await expect(
-      dispatch({ command: 'zone', subcommand: 'list' }, principal(['control:zone:read']), ctx),
-    ).rejects.toMatchObject({ code: 'denied' })
+    await expect(dispatch({ command: 'zone', subcommand: 'list' }, principal(['control:zone:read']), ctx)).rejects.toMatchObject({
+      code: 'denied',
+    })
   })
 
   it('accepts a matching per-resource scope', async () => {
-    const result = await dispatch(
-      { command: 'resource', subcommand: 'list' },
-      principal(['control:resource:read']),
-      ctx,
-    )
+    const result = await dispatch({ command: 'resource', subcommand: 'list' }, principal(['control:resource:read']), ctx)
     expect(result).toEqual(['z1'])
   })
 
   it('skips scope checks for local principals', async () => {
-    const result = await dispatch(
-      { command: 'zone', subcommand: 'list' },
-      { kind: 'local', subject: 'console', scopes: [] },
-      ctx,
-    )
+    const result = await dispatch({ command: 'zone', subcommand: 'list' }, { kind: 'local', subject: 'console', scopes: [] }, ctx)
     expect(result).toEqual([])
   })
 
   it('blocks hidden diagnostics commands for remote principals', async () => {
     await expect(
-      dispatch(
-        { command: 'debug', subcommand: 'request', flags: { 'request-id': 'req-1' } },
-        principal(['control:debug:read']),
-        ctx,
-      ),
+      dispatch({ command: 'debug', subcommand: 'request', flags: { 'request-id': 'req-1' } }, principal(['control:debug:read']), ctx),
     ).rejects.toMatchObject({ code: 'denied' })
   })
 

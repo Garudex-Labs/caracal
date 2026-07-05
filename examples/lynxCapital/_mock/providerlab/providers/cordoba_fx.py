@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 Cordoba FX domain: cross-border FX quotes, rate-locked conversions, settlement beneficiaries, and the multi-currency vendor payments those conversions fund.
 """
+
 from __future__ import annotations
 
 import secrets
@@ -34,14 +35,18 @@ def _iso(dt: datetime) -> str:
 
 
 def _short_ref(when: datetime) -> str:
-    token = "".join(secrets.choice("ABCDEFGHJKLMNPQRSTUVWXYZ0123456789") for _ in range(6))
+    token = "".join(
+        secrets.choice("ABCDEFGHJKLMNPQRSTUVWXYZ0123456789") for _ in range(6)
+    )
     return f"{when:%Y%m%d}-{token}"
 
 
 def _currency(ctx: Ctx, field: str) -> str:
     value = str(ctx.payload[field]).upper()
     if not gen.fx_supported(value):
-        raise DomainError(422, "currency_pair_not_supported", f"{field} {value!r} is not tradeable")
+        raise DomainError(
+            422, "currency_pair_not_supported", f"{field} {value!r} is not tradeable"
+        )
     return value
 
 
@@ -64,8 +69,10 @@ def _sides(sell: str, buy: str, amount: float, fixed_side: str) -> dict:
     else:
         buy_amount, sell_amount = amount, amount / client_rate
     return {
-        "buy_amount": buy_amount, "sell_amount": sell_amount,
-        "client_rate": client_rate, "mid_rate": mid_rate,
+        "buy_amount": buy_amount,
+        "sell_amount": sell_amount,
+        "client_rate": client_rate,
+        "mid_rate": mid_rate,
     }
 
 
@@ -85,10 +92,14 @@ def get_quote(ctx: Ctx) -> dict:
     buy = _currency(ctx, "buy_currency")
     sell = _currency(ctx, "sell_currency")
     if buy == sell:
-        raise DomainError(422, "same_currency_conversion", "buy and sell currency must differ")
+        raise DomainError(
+            422, "same_currency_conversion", "buy and sell currency must differ"
+        )
     fixed_side = str(ctx.get("fixed_side", "buy")).lower()
     if fixed_side not in ("buy", "sell"):
-        raise DomainError(422, "invalid_fixed_side", "fixed_side must be 'buy' or 'sell'")
+        raise DomainError(
+            422, "invalid_fixed_side", "fixed_side must be 'buy' or 'sell'"
+        )
     sides = _sides(sell, buy, _amount(ctx), fixed_side)
     now = _now()
     quote = {
@@ -106,8 +117,9 @@ def get_quote(ctx: Ctx) -> dict:
         "fee_currency": sell,
         "settlement_cut_off_time": _iso(now + timedelta(days=_SETTLEMENT_DAYS)),
         "quote_expiry_time": _iso(now + timedelta(seconds=_QUOTE_TTL_SECONDS)),
-        "conversion_date": _iso((now + timedelta(days=_SETTLEMENT_DAYS)).replace(
-            hour=0, minute=0, second=0)),
+        "conversion_date": _iso(
+            (now + timedelta(days=_SETTLEMENT_DAYS)).replace(hour=0, minute=0, second=0)
+        ),
         "deposit_required": False,
     }
     ctx.state.table("quotes")[quote["quote_id"]] = quote
@@ -120,18 +132,26 @@ def create_conversion(ctx: Ctx) -> dict:
     ctx.require_scope("fx.convert")
     ctx.require("buy_currency", "sell_currency", "amount")
     if str(ctx.get("term_agreement", "")).lower() not in ("true", "1", "yes"):
-        raise DomainError(422, "term_agreement_required",
-                          "term_agreement must be accepted to book a conversion")
+        raise DomainError(
+            422,
+            "term_agreement_required",
+            "term_agreement must be accepted to book a conversion",
+        )
     buy = _currency(ctx, "buy_currency")
     sell = _currency(ctx, "sell_currency")
     if buy == sell:
-        raise DomainError(422, "same_currency_conversion", "buy and sell currency must differ")
+        raise DomainError(
+            422, "same_currency_conversion", "buy and sell currency must differ"
+        )
     fixed_side = str(ctx.get("fixed_side", "buy")).lower()
     sides = _sides(sell, buy, _amount(ctx), fixed_side)
     minimum = gen.fx_min_conversion(sell)
     if sides["sell_amount"] < minimum:
-        raise DomainError(422, "amount_below_minimum",
-                          f"conversion is below the {gen.fx_money(minimum, sell)} {sell} minimum")
+        raise DomainError(
+            422,
+            "amount_below_minimum",
+            f"conversion is below the {gen.fx_money(minimum, sell)} {sell} minimum",
+        )
 
     idem = ctx.get("unique_request_id")
     keys = ctx.state.table("idempotency")
@@ -191,12 +211,16 @@ def create_beneficiary(ctx: Ctx) -> dict:
     ctx.require("bank_account_holder_name", "bank_country", "currency")
     currency = _currency(ctx, "currency")
     if not ctx.get("account_number") and not ctx.get("iban"):
-        raise DomainError(422, "missing_routing_details",
-                          "an account_number or iban is required")
+        raise DomainError(
+            422, "missing_routing_details", "an account_number or iban is required"
+        )
     entity_type = str(ctx.get("beneficiary_entity_type", "individual")).lower()
     if entity_type not in ("individual", "company"):
-        raise DomainError(422, "invalid_entity_type",
-                          "beneficiary_entity_type must be 'individual' or 'company'")
+        raise DomainError(
+            422,
+            "invalid_entity_type",
+            "beneficiary_entity_type must be 'individual' or 'company'",
+        )
     holder = str(ctx.payload["bank_account_holder_name"])
     country = str(ctx.payload["bank_country"]).upper()
     now = _now()
@@ -261,15 +285,23 @@ def create_payment(ctx: Ctx) -> dict:
     if beneficiary is None:
         raise DomainError(404, "beneficiary_not_found", ctx.payload["beneficiary_id"])
     if beneficiary["currency"] != currency:
-        raise DomainError(422, "beneficiary_currency_mismatch",
-                          f"beneficiary settles in {beneficiary['currency']}, not {currency}")
+        raise DomainError(
+            422,
+            "beneficiary_currency_mismatch",
+            f"beneficiary settles in {beneficiary['currency']}, not {currency}",
+        )
 
     payment_type = str(ctx.get("payment_type", "regular")).lower()
     if payment_type not in ("regular", "priority"):
-        raise DomainError(422, "invalid_payment_type", "payment_type must be 'regular' or 'priority'")
+        raise DomainError(
+            422, "invalid_payment_type", "payment_type must be 'regular' or 'priority'"
+        )
     if payment_type not in beneficiary.get("payment_types", ["regular"]):
-        raise DomainError(422, "payment_type_unavailable",
-                          f"beneficiary does not support {payment_type} payments")
+        raise DomainError(
+            422,
+            "payment_type_unavailable",
+            f"beneficiary does not support {payment_type} payments",
+        )
 
     conversion = None
     conversion_id = ctx.get("conversion_id")
@@ -278,8 +310,11 @@ def create_payment(ctx: Ctx) -> dict:
         if conversion is None:
             raise DomainError(404, "conversion_not_found", conversion_id)
         if conversion["buy_currency"] != currency:
-            raise DomainError(422, "conversion_currency_mismatch",
-                              f"conversion delivers {conversion['buy_currency']}, not {currency}")
+            raise DomainError(
+                422,
+                "conversion_currency_mismatch",
+                f"conversion delivers {conversion['buy_currency']}, not {currency}",
+            )
 
     idem = ctx.get("unique_request_id")
     keys = ctx.state.table("idempotency")

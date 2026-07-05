@@ -132,7 +132,7 @@ def parse_baggage(value: str | None) -> dict[str, str]:
         if not k:
             continue
         semi = piece.find(";", eq + 1)
-        raw = (piece[eq + 1:] if semi == -1 else piece[eq + 1:semi]).strip()
+        raw = (piece[eq + 1 :] if semi == -1 else piece[eq + 1 : semi]).strip()
         try:
             out[k] = unquote(raw)
         except UnicodeDecodeError:
@@ -203,7 +203,12 @@ def encode_envelope(
     if env.session_id:
         merged[BAGGAGE_SESSION] = env.session_id
     if env.hop > 0 or any(
-        (env.agent_session_id, env.delegation_edge_id, env.parent_edge_id, env.session_id)
+        (
+            env.agent_session_id,
+            env.delegation_edge_id,
+            env.parent_edge_id,
+            env.session_id,
+        )
     ):
         merged[BAGGAGE_HOP] = str(env.hop)
     baggage = encode_baggage(merged)

@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 Quetzal Payouts domain: global recipient onboarding with KYC, FX-aware payout quotes, single and batch disbursement, settlement funding, balances, and sandbox payout-outcome simulation.
 """
+
 from __future__ import annotations
 
 from _mock.providerlab.data import generators as gen
@@ -15,8 +16,16 @@ ID = "quetzal-payouts"
 # Mid-market units of each currency per one USD. Cross rates are derived from
 # this table the way a payout platform prices a corridor off a single base.
 _MID = {
-    "USD": 1.0, "EUR": 0.92, "GBP": 0.79, "JPY": 156.4, "BRL": 5.08,
-    "SGD": 1.35, "CAD": 1.36, "AUD": 1.52, "MXN": 17.1, "INR": 83.2,
+    "USD": 1.0,
+    "EUR": 0.92,
+    "GBP": 0.79,
+    "JPY": 156.4,
+    "BRL": 5.08,
+    "SGD": 1.35,
+    "CAD": 1.36,
+    "AUD": 1.52,
+    "MXN": 17.1,
+    "INR": 83.2,
 }
 _ZERO_DECIMAL = {"JPY"}
 
@@ -28,16 +37,27 @@ _MIN_PAYOUT_USD = 1.0
 _MAX_PAYOUT_USD = 2_000_000.0
 
 _METHODS = ("bank_transfer", "wallet", "card", "cash_pickup")
-_METHOD_ALIASES = {"bank": "bank_transfer", "bank_account": "bank_transfer",
-                   "ach": "bank_transfer", "wire": "bank_transfer", "swift": "bank_transfer"}
+_METHOD_ALIASES = {
+    "bank": "bank_transfer",
+    "bank_account": "bank_transfer",
+    "ach": "bank_transfer",
+    "wire": "bank_transfer",
+    "swift": "bank_transfer",
+}
 
 # Delivery service-level by method, in hours, as corridor SLAs are published.
 _DELIVERY_HOURS = {"bank_transfer": 48, "wallet": 0, "card": 24, "cash_pickup": 1}
 
 # ISO-20022-style purpose codes mapped from the business reason.
 _PURPOSE_CODES = {
-    "supplier": "SUPP", "vendor": "SUPP", "invoice": "SUPP", "goods": "GDDS",
-    "services": "SCVE", "salary": "SALA", "payroll": "SALA", "refund": "RFND",
+    "supplier": "SUPP",
+    "vendor": "SUPP",
+    "invoice": "SUPP",
+    "goods": "GDDS",
+    "services": "SCVE",
+    "salary": "SALA",
+    "payroll": "SALA",
+    "refund": "RFND",
 }
 
 _PAYOUT_FLOW = ("processing", "in_transit", "paid")
@@ -64,7 +84,10 @@ _FAILURE_MESSAGES = {
 # Sandbox triggers that force a deterministic disposition, the way payout
 # platforms publish test values so integrators can exercise non-happy paths.
 _SIMULATE_OUTCOMES = ("processing", "in_transit", "paid", "failed", "returned")
-_SIMULATE_FAILURE = {"failed": "invalid_bank_details", "returned": "bank_returned_funds"}
+_SIMULATE_FAILURE = {
+    "failed": "invalid_bank_details",
+    "returned": "bank_returned_funds",
+}
 
 
 def _scheme(method: str, source: str, target: str) -> str:
@@ -84,8 +107,12 @@ def _tracking_reference(payout_id: str) -> str:
 
 
 def _failure(code: str) -> dict:
-    return {"failureCode": code,
-            "failureMessage": _FAILURE_MESSAGES.get(code, "The payout could not be completed.")}
+    return {
+        "failureCode": code,
+        "failureMessage": _FAILURE_MESSAGES.get(
+            code, "The payout could not be completed."
+        ),
+    }
 
 
 def _norm_method(value: str) -> str:
@@ -99,7 +126,9 @@ def _norm_method(value: str) -> str:
 def _supported(currency: str) -> str:
     code = str(currency or "").upper()
     if code not in _MID:
-        raise DomainError(422, "unsupported_currency", f"currency {currency!r} is not supported")
+        raise DomainError(
+            422, "unsupported_currency", f"currency {currency!r} is not supported"
+        )
     return code
 
 
@@ -136,8 +165,13 @@ def _fee(amount: float, currency: str, method: str) -> dict:
         {"type": "fixed", "amount": _money(fixed, currency), "currency": currency},
     ]
     if method == "bank_transfer" and currency != "USD":
-        breakdown.append({"type": "correspondent", "amount": _money(3.0, currency),
-                          "currency": currency})
+        breakdown.append(
+            {
+                "type": "correspondent",
+                "amount": _money(3.0, currency),
+                "currency": currency,
+            }
+        )
     total = _money(sum(line["amount"] for line in breakdown), currency)
     return {"total": total, "breakdown": breakdown}
 
@@ -155,16 +189,29 @@ def _kyc_block(status: str, created: int, rng) -> dict:
     diligence level reached, when it was confirmed, and the check that ran."""
     if status == "verified":
         level = rng.choices(("standard", "enhanced"), weights=(78, 22))[0]
-        return {"status": "approved", "level": level,
-                "verifiedAt": created + rng.randint(1, 5) * 86_400,
-                "method": rng.choice(("document", "bank_account", "registry"))}
+        return {
+            "status": "approved",
+            "level": level,
+            "verifiedAt": created + rng.randint(1, 5) * 86_400,
+            "method": rng.choice(("document", "bank_account", "registry")),
+        }
     if status == "pending":
-        return {"status": "in_review", "level": "standard",
-                "verifiedAt": None, "method": "document"}
+        return {
+            "status": "in_review",
+            "level": "standard",
+            "verifiedAt": None,
+            "method": "document",
+        }
     if status == "rejected":
-        return {"status": "rejected", "level": "standard", "verifiedAt": None,
-                "method": "document", "reason": rng.choice(
-                    ("document_unreadable", "sanctions_match", "details_mismatch"))}
+        return {
+            "status": "rejected",
+            "level": "standard",
+            "verifiedAt": None,
+            "method": "document",
+            "reason": rng.choice(
+                ("document_unreadable", "sanctions_match", "details_mismatch")
+            ),
+        }
     return {"status": "not_started", "level": None, "verifiedAt": None, "method": None}
 
 
@@ -176,8 +223,9 @@ def _recipient(seed: str, i: int) -> dict:
     method = rng.choice(_METHODS)
     routing = gen._fx_routing(rng, country)
     created = base.now() - rng.randint(5, 540) * 86_400
-    status = rng.choices(("verified", "pending", "unverified", "rejected"),
-                         weights=(74, 12, 9, 5))[0]
+    status = rng.choices(
+        ("verified", "pending", "unverified", "rejected"), weights=(74, 12, 9, 5)
+    )[0]
     slug = gen._slug(name).split("-")[0] or "recipient"
     record = {
         "id": f"rcp_{rng.getrandbits(48):012x}",
@@ -220,14 +268,20 @@ def _recipient(seed: str, i: int) -> dict:
             "routingCodeValue": routing["routing_code_value_1"],
         }
     elif method == "wallet":
-        record["wallet"] = {"provider": rng.choice(("quetzal_wallet", "alipay", "paytm")),
-                            "handle": f"{slug}@wallet"}
+        record["wallet"] = {
+            "provider": rng.choice(("quetzal_wallet", "alipay", "paytm")),
+            "handle": f"{slug}@wallet",
+        }
     elif method == "card":
-        record["card"] = {"network": rng.choice(("Visa", "Mastercard")),
-                          "last4": f"{rng.randint(0, 9999):04d}"}
+        record["card"] = {
+            "network": rng.choice(("Visa", "Mastercard")),
+            "last4": f"{rng.randint(0, 9999):04d}",
+        }
     else:
-        record["cashPickup"] = {"network": rng.choice(("RIA", "MoneyGram")),
-                                "location": gen._CITY_BY_COUNTRY.get(country, "Metropolis")}
+        record["cashPickup"] = {
+            "network": rng.choice(("RIA", "MoneyGram")),
+            "location": gen._CITY_BY_COUNTRY.get(country, "Metropolis"),
+        }
     return record
 
 
@@ -241,8 +295,10 @@ def _seed_payout(seed: str, i: int, recipients: list[dict]) -> dict:
     method = rec["payoutMethod"]
     fee = _fee(src_amount, source, method)
     created = base.now() - rng.randint(0, 120) * 86_400
-    status = rng.choices(("paid", "in_transit", "processing", "failed", "returned"),
-                         weights=(64, 12, 10, 8, 6))[0]
+    status = rng.choices(
+        ("paid", "in_transit", "processing", "failed", "returned"),
+        weights=(64, 12, 10, 8, 6),
+    )[0]
     purpose = rng.choice(("supplier invoice", "services", "goods", "payroll"))
     delivery = _delivery(method, created)
     payout_id = f"po_{rng.getrandbits(48):012x}"
@@ -276,8 +332,17 @@ def _seed_payout(seed: str, i: int, recipients: list[dict]) -> dict:
         "batchId": None,
     }
     if status == "failed":
-        payout.update(_failure(rng.choice(
-            ("recipient_account_closed", "invalid_bank_details", "compliance_hold"))))
+        payout.update(
+            _failure(
+                rng.choice(
+                    (
+                        "recipient_account_closed",
+                        "invalid_bank_details",
+                        "compliance_hold",
+                    )
+                )
+            )
+        )
     elif status == "returned":
         payout.update(_failure("bank_returned_funds"))
     return payout
@@ -321,10 +386,19 @@ def seed(state: base.State) -> None:
     settlements = [_seed_settlement(ID, i) for i in range(0, 12)]
     state.tables["settlements"] = gen.index_by(settlements, key="id")
     state.tables["balances"] = {
-        cur: {"currency": cur, "available": amt, "reserved": 0.0, "pending": 0.0,
-              "object": "balance"}
-        for cur, amt in (("USD", 5_000_000.0), ("EUR", 1_400_000.0),
-                         ("GBP", 820_000.0), ("SGD", 600_000.0))
+        cur: {
+            "currency": cur,
+            "available": amt,
+            "reserved": 0.0,
+            "pending": 0.0,
+            "object": "balance",
+        }
+        for cur, amt in (
+            ("USD", 5_000_000.0),
+            ("EUR", 1_400_000.0),
+            ("GBP", 820_000.0),
+            ("SGD", 600_000.0),
+        )
     }
     state.tables["idempotency"] = {}
 
@@ -337,7 +411,9 @@ def create_recipient(ctx: Ctx) -> dict:
     """Onboard a payout recipient; new recipients start unverified pending KYC."""
     ctx.require("name", "currency")
     currency = _supported(ctx.payload["currency"])
-    method = _norm_method(ctx.get("payoutMethod") or ctx.get("method") or "bank_transfer")
+    method = _norm_method(
+        ctx.get("payoutMethod") or ctx.get("method") or "bank_transfer"
+    )
 
     idem = ctx.get("idempotencyKey")
     keys = ctx.state.table("idempotency")
@@ -360,11 +436,17 @@ def create_recipient(ctx: Ctx) -> dict:
         "payoutMethod": method,
         "supportedPayoutMethods": [method],
         "defaultPurposeCode": _purpose_code(ctx.get("purpose") or "")
-        if ctx.get("purpose") else ("SUPP" if rtype == "business" else "SALA"),
+        if ctx.get("purpose")
+        else ("SUPP" if rtype == "business" else "SALA"),
         "riskRating": "low",
         "status": "unverified",
         "verified": False,
-        "kyc": {"status": "not_started", "level": None, "verifiedAt": None, "method": None},
+        "kyc": {
+            "status": "not_started",
+            "level": None,
+            "verifiedAt": None,
+            "method": None,
+        },
         "address": ctx.get("address"),
         "createdAt": now,
         "updatedAt": now,
@@ -411,12 +493,20 @@ def verify_recipient(ctx: Ctx) -> dict:
     if rec is None:
         raise DomainError(404, "recipient_not_found", ctx.payload["recipientId"])
     if rec["status"] == "rejected":
-        raise DomainError(422, "recipient_rejected", "recipient failed verification and cannot be reinstated")
+        raise DomainError(
+            422,
+            "recipient_rejected",
+            "recipient failed verification and cannot be reinstated",
+        )
     now = base.now()
     rec["status"] = "verified"
     rec["verified"] = True
-    rec["kyc"] = {"status": "approved", "level": "standard",
-                  "verifiedAt": now, "method": "bank_account"}
+    rec["kyc"] = {
+        "status": "approved",
+        "level": "standard",
+        "verifiedAt": now,
+        "method": "bank_account",
+    }
     rec["updatedAt"] = now
     return rec
 
@@ -505,7 +595,9 @@ def create_payout(ctx: Ctx) -> dict:
     if rec is None:
         raise DomainError(404, "recipient_not_found", ctx.payload["recipientId"])
     if not rec["verified"]:
-        raise DomainError(403, "recipient_unverified", "recipient must be verified before payout")
+        raise DomainError(
+            403, "recipient_unverified", "recipient must be verified before payout"
+        )
 
     idem = ctx.get("idempotencyKey")
     keys = ctx.state.table("idempotency")
@@ -522,18 +614,26 @@ def create_payout(ctx: Ctx) -> dict:
     if usd_value < _MIN_PAYOUT_USD:
         raise DomainError(422, "amount_too_small", "payout is below the minimum size")
     if usd_value > _MAX_PAYOUT_USD:
-        raise DomainError(422, "amount_exceeds_limit", "payout exceeds the per-transaction limit")
+        raise DomainError(
+            422, "amount_exceeds_limit", "payout exceeds the per-transaction limit"
+        )
 
     simulate = str(ctx.get("simulate") or "").lower()
     if simulate and simulate not in _SIMULATE_OUTCOMES:
-        raise DomainError(422, "invalid_simulate",
-                          f"simulate must be one of {', '.join(_SIMULATE_OUTCOMES)}")
+        raise DomainError(
+            422,
+            "invalid_simulate",
+            f"simulate must be one of {', '.join(_SIMULATE_OUTCOMES)}",
+        )
 
     balances = ctx.state.table("balances")
     balance = balances.get(source)
     if balance is not None and source_amount > balance["available"]:
-        raise DomainError(402, "insufficient_funds",
-                          f"insufficient {source} balance to fund this payout")
+        raise DomainError(
+            402,
+            "insufficient_funds",
+            f"insufficient {source} balance to fund this payout",
+        )
 
     target = rec["currency"]
     method = rec["payoutMethod"]
@@ -544,7 +644,8 @@ def create_payout(ctx: Ctx) -> dict:
     delivery = _delivery(method, now)
     payout_id = base.new_id("po")
     held = simulate in ("", "processing") and (
-        usd_value >= _SCREENING_THRESHOLD_USD or rec.get("riskRating") == "high")
+        usd_value >= _SCREENING_THRESHOLD_USD or rec.get("riskRating") == "high"
+    )
     status = simulate or "processing"
     failed = status in ("failed", "returned")
     payout = {
@@ -622,8 +723,11 @@ def cancel_payout(ctx: Ctx) -> dict:
     if payout is None:
         raise DomainError(404, "payout_not_found", ctx.payload["payoutId"])
     if payout["status"] != "processing":
-        raise DomainError(409, "payout_not_cancelable",
-                          f"payout in status {payout['status']!r} can no longer be canceled")
+        raise DomainError(
+            409,
+            "payout_not_cancelable",
+            f"payout in status {payout['status']!r} can no longer be canceled",
+        )
     now = base.now()
     payout["status"] = "canceled"
     payout["updatedAt"] = now
@@ -631,8 +735,12 @@ def cancel_payout(ctx: Ctx) -> dict:
     balance = ctx.state.table("balances").get(payout["sourceCurrency"])
     if balance is not None:
         amount = payout["sourceAmount"]
-        balance["reserved"] = _money(balance["reserved"] - amount, payout["sourceCurrency"])
-        balance["available"] = _money(balance["available"] + amount, payout["sourceCurrency"])
+        balance["reserved"] = _money(
+            balance["reserved"] - amount, payout["sourceCurrency"]
+        )
+        balance["available"] = _money(
+            balance["available"] + amount, payout["sourceCurrency"]
+        )
     return payout
 
 
@@ -657,7 +765,9 @@ def create_batch(ctx: Ctx) -> dict:
     now = base.now()
     batch_id = base.new_id("bat")
     source = _supported(ctx.get("sourceCurrency", "USD"))
-    batch_ref = ctx.get("reference") or ("BATCH-" + batch_id.split("_")[-1].upper()[:10])
+    batch_ref = ctx.get("reference") or (
+        "BATCH-" + batch_id.split("_")[-1].upper()[:10]
+    )
     line_items: list[dict] = []
     accepted = rejected = 0
     total = 0.0
@@ -665,9 +775,15 @@ def create_batch(ctx: Ctx) -> dict:
     for index, item in enumerate(items):
         amount = item.get("amount")
         rec = recipients.get(item.get("recipientId"))
-        line = {"index": index, "recipientId": item.get("recipientId"), "amount": amount,
-                "currency": item.get("currency", source), "status": "rejected",
-                "payoutId": None, "failureCode": None}
+        line = {
+            "index": index,
+            "recipientId": item.get("recipientId"),
+            "amount": amount,
+            "currency": item.get("currency", source),
+            "status": "rejected",
+            "payoutId": None,
+            "failureCode": None,
+        }
         try:
             numeric = float(amount)
         except (TypeError, ValueError):
@@ -686,12 +802,17 @@ def create_batch(ctx: Ctx) -> dict:
             method = rec["payoutMethod"]
             payout_id = base.new_id("po")
             payouts[payout_id] = {
-                "id": payout_id, "payoutId": payout_id, "object": "payout",
-                "recipientId": rec["id"], "recipientName": rec["name"],
-                "sourceCurrency": source, "sourceAmount": _money(numeric, source),
+                "id": payout_id,
+                "payoutId": payout_id,
+                "object": "payout",
+                "recipientId": rec["id"],
+                "recipientName": rec["name"],
+                "sourceCurrency": source,
+                "sourceAmount": _money(numeric, source),
                 "targetCurrency": rec["currency"],
                 "targetAmount": _money(numeric * rate, rec["currency"]),
-                "rate": rate, "method": method,
+                "rate": rate,
+                "method": method,
                 "scheme": _scheme(method, source, rec["currency"]),
                 "reference": item.get("reference", payout_id),
                 "trackingReference": _tracking_reference(payout_id),
@@ -699,8 +820,11 @@ def create_batch(ctx: Ctx) -> dict:
                 "purpose": item.get("purpose", "supplier invoice"),
                 "purposeCode": _purpose_code(item.get("purpose") or ""),
                 "complianceStatus": "cleared",
-                "status": "processing", "failureCode": None, "failureMessage": None,
-                "createdAt": now, "updatedAt": now,
+                "status": "processing",
+                "failureCode": None,
+                "failureMessage": None,
+                "createdAt": now,
+                "updatedAt": now,
                 "statusHistory": [{"status": "processing", "at": now}],
                 "batchId": batch_id,
             }
@@ -721,9 +845,13 @@ def create_batch(ctx: Ctx) -> dict:
         "acceptedCount": accepted,
         "rejectedCount": rejected,
         "totalAmount": _money(total, source),
-        "summary": {"requested": len(items), "accepted": accepted,
-                    "rejected": rejected, "totalAmount": _money(total, source),
-                    "currency": source},
+        "summary": {
+            "requested": len(items),
+            "accepted": accepted,
+            "rejected": rejected,
+            "totalAmount": _money(total, source),
+            "currency": source,
+        },
         "items": line_items,
         "createdAt": now,
         "completedAt": None,
@@ -785,8 +913,15 @@ def get_balance(ctx: Ctx) -> dict:
         code = _supported(currency)
         row = balances.get(code)
         if row is None:
-            return {"object": "balance", "currency": code, "available": 0.0,
-                    "reserved": 0.0, "pending": 0.0}
+            return {
+                "object": "balance",
+                "currency": code,
+                "available": 0.0,
+                "reserved": 0.0,
+                "pending": 0.0,
+            }
         return row
-    return {"object": "balance_list",
-            "balances": [balances[c] for c in sorted(balances)]}
+    return {
+        "object": "balance_list",
+        "balances": [balances[c] for c in sorted(balances)],
+    }

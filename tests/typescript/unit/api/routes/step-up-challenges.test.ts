@@ -45,7 +45,7 @@ describe('GET /v1/zones/:zoneId/step-up-challenges', () => {
     expect(res.statusCode).toBe(200)
     expect(JSON.parse(res.body)).toHaveLength(2)
     expect(res.headers.link).toContain('cursor=')
-    expect(String(db.query.mock.calls[0][0])).toContain("END AS state")
+    expect(String(db.query.mock.calls[0][0])).toContain('END AS state')
     expect(db.query.mock.calls[0][1]).toEqual(['z1', 1])
   })
 })
@@ -134,10 +134,14 @@ describe('POST /v1/zones/:zoneId/step-up-challenges/:id decisions', () => {
   })
 
   it('attributes a console operator through the bound account', async () => {
-    const { app, db } = buildRouteApp(stepUpChallengesRoutes, { prefix: '/v1' }, {
-      ...OPERATOR,
-      account: { id: 'acct-1', email: 'richard.hendricks@piedpiper.example' },
-    })
+    const { app, db } = buildRouteApp(
+      stepUpChallengesRoutes,
+      { prefix: '/v1' },
+      {
+        ...OPERATOR,
+        account: { id: 'acct-1', email: 'richard.hendricks@piedpiper.example' },
+      },
+    )
     const client = txClient((sql) => {
       if (sql.includes('UPDATE step_up_challenges')) {
         return { rows: [{ ...DECIDED_ROW, approver_subject_id: 'console:richard.hendricks@piedpiper.example' }] }

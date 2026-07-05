@@ -14,11 +14,7 @@ export const ZoneParams = z.object({ zoneId: CoordinatorId })
 export const ZoneIdParams = z.object({ zoneId: CoordinatorId, id: CoordinatorId })
 export const ZoneSessionParams = z.object({ zoneId: CoordinatorId, sessionId: CoordinatorId })
 
-export function parseParams<T extends z.ZodTypeAny>(
-  schema: T,
-  req: FastifyRequest,
-  reply: FastifyReply,
-): z.infer<T> | null {
+export function parseParams<T extends z.ZodTypeAny>(schema: T, req: FastifyRequest, reply: FastifyReply): z.infer<T> | null {
   const parsed = schema.safeParse(req.params)
   if (!parsed.success) {
     reply.code(400).send({ error: 'invalid_params' })

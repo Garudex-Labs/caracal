@@ -4,12 +4,7 @@
 // Unit tests for the syntactic Rego validator.
 
 import { describe, it, expect } from 'vitest'
-import {
-  parseRego,
-  previewAuthzPolicy,
-  validatePolicySource,
-  validateAuthzPolicy,
-} from '../../../../apps/api/src/rego.js'
+import { parseRego, previewAuthzPolicy, validatePolicySource, validateAuthzPolicy } from '../../../../apps/api/src/rego.js'
 
 describe('parseRego', () => {
   it('extracts package and rule names', () => {

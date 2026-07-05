@@ -3,7 +3,7 @@
 //
 // `caracal`: thin top-level runtime CLI that owns stack lifecycle commands and optional interface launchers.
 //
-// Surface invariant: SHELL_COMMANDS in @caracalai/core/commands is the single source of truth for runtime commands and optional interface launchers. buildRegistry enforces a 1:1 mapping with the executors below after unavailable interfaces are filtered out.
+// Surface invariant: SHELL_COMMANDS in @caracalai/engine/commands is the single source of truth for runtime commands and optional interface launchers. buildRegistry enforces a 1:1 mapping with the executors below after unavailable interfaces are filtered out.
 
 import '@caracalai/engine/scrubCwdEnv'
 import { installCrashHandlers } from './crash.ts'

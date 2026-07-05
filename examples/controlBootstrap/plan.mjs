@@ -59,9 +59,7 @@ export const SCOPES = {
 }
 
 export function loadConfig(scopes, env = process.env) {
-  const requested = env.CONTROL_SCOPES && env.CONTROL_SCOPES.trim() !== ''
-    ? env.CONTROL_SCOPES
-    : scopes
+  const requested = env.CONTROL_SCOPES && env.CONTROL_SCOPES.trim() !== '' ? env.CONTROL_SCOPES : scopes
   return {
     stsUrl: env.STS_URL ?? 'http://127.0.0.1:8080',
     controlUrl: env.CONTROL_URL ?? 'http://127.0.0.1:3000',

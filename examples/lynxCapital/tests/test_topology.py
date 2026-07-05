@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 Topology structure tests: layer presence, per-region groupings, and node count bounds.
 """
+
 from __future__ import annotations
 
 import os
@@ -91,7 +92,9 @@ def test_ephemeral_layers_are_batch_nodes(topology):
     for layer_id in ephemeral_layers:
         nodes = graph.by_layer(layer_id)
         for n in nodes:
-            assert n.ephemeral, f"Node {n.id!r} in ephemeral layer {layer_id!r} is not marked ephemeral"
+            assert n.ephemeral, (
+                f"Node {n.id!r} in ephemeral layer {layer_id!r} is not marked ephemeral"
+            )
 
 
 def test_every_non_root_has_valid_parent(topology):
@@ -112,7 +115,8 @@ def test_worker_layers_parented_to_regional_orchestrators(topology):
     graph, _ = topology
     ro_ids = {n.id for n in graph.by_layer("regional-orchestrator")}
     non_root_non_ro_layers = [
-        n for n in graph.nodes
+        n
+        for n in graph.nodes
         if n.layer not in ("finance-control", "regional-orchestrator")
     ]
     for n in non_root_non_ro_layers:

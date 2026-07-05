@@ -27,17 +27,18 @@ function readPyProject(dir: string): { name: string; version: string; dependenci
   if (!name || !version) throw new Error(`missing package name or version in ${dir}`)
   const depsBlock = text.match(/dependencies = \[(?<deps>[\s\S]*?)\]/m)?.groups?.deps ?? ''
   const inlineDeps = text.match(/dependencies = \[(?<deps>[^\n]*)\]/m)?.groups?.deps ?? ''
-  const dependencies = [...depsBlock.matchAll(/"([^"]+)"/g), ...inlineDeps.matchAll(/"([^"]+)"/g)]
-    .map((match) => match[1])
+  const dependencies = [...depsBlock.matchAll(/"([^"]+)"/g), ...inlineDeps.matchAll(/"([^"]+)"/g)].map((match) => match[1])
   return { name, version, dependencies }
 }
 
 describe('package metadata', () => {
   it('pins Python internal package dependencies to the published package version', () => {
-    const versions = new Map(pyProjects.map((dir) => {
-      const project = readPyProject(dir)
-      return [project.name, project.version]
-    }))
+    const versions = new Map(
+      pyProjects.map((dir) => {
+        const project = readPyProject(dir)
+        return [project.name, project.version]
+      }),
+    )
 
     for (const dir of pyProjects) {
       for (const dep of readPyProject(dir).dependencies) {

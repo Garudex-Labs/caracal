@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 Pulse Market Data domain: FX instrument reference, real-time quotes, OHLC bars, conversions, movers, end-of-day fixings, usage, and streamable rate subscriptions.
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
@@ -46,7 +47,8 @@ def _instrument(ctx: Ctx, symbol: str) -> dict:
     if inst is None:
         sample = ", ".join(sorted(table)[:8])
         raise DomainError(
-            404, "instrument_not_found",
+            404,
+            "instrument_not_found",
             f"unknown instrument {symbol!r}; symbols use BASE/QUOTE format (e.g. {sample})",
         )
     return inst
@@ -70,7 +72,9 @@ def _symbols(ctx: Ctx, field: str = "symbols") -> list[str]:
     else:
         items = []
     if not items:
-        raise DomainError(422, "invalid_request", f"{field} must list one or more instruments")
+        raise DomainError(
+            422, "invalid_request", f"{field} must list one or more instruments"
+        )
     return items
 
 
@@ -93,8 +97,12 @@ def _quote(inst: dict, seq: int = 0) -> dict:
     prev = inst["prevClose"]
     change = round(mid - prev, decimals)
     change_pct = round((mid - prev) / prev * 100, 4) if prev else 0.0
-    day_high = round(max(inst["dayOpen"], mid) * (1 + abs(rng.uniform(0, 0.0011))), decimals)
-    day_low = round(min(inst["dayOpen"], mid) * (1 - abs(rng.uniform(0, 0.0011))), decimals)
+    day_high = round(
+        max(inst["dayOpen"], mid) * (1 + abs(rng.uniform(0, 0.0011))), decimals
+    )
+    day_low = round(
+        min(inst["dayOpen"], mid) * (1 - abs(rng.uniform(0, 0.0011))), decimals
+    )
     last = round(mid + rng.uniform(-half, half), decimals)
     vwap = round((day_high + day_low + mid + inst["dayOpen"]) / 4, decimals)
     # Closeout prices a position would actually trade out at, a touch beyond the inside market.
@@ -159,7 +167,9 @@ def _bar_event(inst: dict, seq: int) -> dict:
     return bar
 
 
-def _build_bars(inst: dict, resolution: str, count: int, *, end_offset: int = 0) -> list[dict]:
+def _build_bars(
+    inst: dict, resolution: str, count: int, *, end_offset: int = 0
+) -> list[dict]:
     decimals = inst["priceDecimals"]
     step = _RESOLUTIONS[resolution]
     bars = []
@@ -173,17 +183,19 @@ def _build_bars(inst: dict, resolution: str, count: int, *, end_offset: int = 0)
         low = round(min(open_, close) * (1 - abs(rng.uniform(0, 0.0015))), decimals)
         vwap = round((open_ + high + low + close) / 4, decimals)
         ts = _EPOCH - timedelta(seconds=step * (count - i))
-        bars.append({
-            "t": _iso(ts),
-            "open": open_,
-            "high": high,
-            "low": low,
-            "close": close,
-            "vwap": vwap,
-            "volume": rng.randint(500_000, 25_000_000),
-            "tradeCount": rng.randint(40, 4_000),
-            "complete": True,
-        })
+        bars.append(
+            {
+                "t": _iso(ts),
+                "open": open_,
+                "high": high,
+                "low": low,
+                "close": close,
+                "vwap": vwap,
+                "volume": rng.randint(500_000, 25_000_000),
+                "tradeCount": rng.randint(40, 4_000),
+                "complete": True,
+            }
+        )
     return bars
 
 
@@ -217,10 +229,18 @@ def get_quotes(ctx: Ctx) -> dict:
     """A batched quote request across multiple instruments."""
     symbols = _symbols(ctx)
     if len(symbols) > _MAX_BATCH:
-        raise DomainError(422, "too_many_symbols",
-                          f"a batch request accepts at most {_MAX_BATCH} instruments")
+        raise DomainError(
+            422,
+            "too_many_symbols",
+            f"a batch request accepts at most {_MAX_BATCH} instruments",
+        )
     quotes = [_quote(_instrument(ctx, symbol), 0) for symbol in symbols]
-    return {"status": "ok", "count": len(quotes), "quotes": quotes, "asOf": _iso(_EPOCH)}
+    return {
+        "status": "ok",
+        "count": len(quotes),
+        "quotes": quotes,
+        "asOf": _iso(_EPOCH),
+    }
 
 
 @base.op(ID, "convert")
@@ -232,8 +252,11 @@ def convert(ctx: Ctx) -> dict:
     supported = _currencies(ctx)
     unknown = [c for c in (sell, buy) if c not in supported]
     if unknown:
-        raise DomainError(422, "unsupported_currency",
-                          f"currency not priced by this venue: {', '.join(unknown)}")
+        raise DomainError(
+            422,
+            "unsupported_currency",
+            f"currency not priced by this venue: {', '.join(unknown)}",
+        )
     try:
         amount = float(ctx.payload["amount"])
     except (TypeError, ValueError):
@@ -267,15 +290,23 @@ def get_bars(ctx: Ctx) -> dict:
     inst = _instrument(ctx, ctx.payload["symbol"])
     resolution = str(ctx.get("resolution", "1h"))
     if resolution not in _RESOLUTIONS:
-        raise DomainError(422, "invalid_resolution",
-                          f"resolution must be one of {', '.join(_RESOLUTIONS)}")
+        raise DomainError(
+            422,
+            "invalid_resolution",
+            f"resolution must be one of {', '.join(_RESOLUTIONS)}",
+        )
     count = int(ctx.get("count", 50))
     if count < 1 or count > _MAX_BARS:
-        raise DomainError(422, "range_too_large",
-                          f"count must be between 1 and {_MAX_BARS}")
+        raise DomainError(
+            422, "range_too_large", f"count must be between 1 and {_MAX_BARS}"
+        )
     bars = _build_bars(inst, resolution, count)
-    return {"symbol": inst["symbol"], "resolution": resolution,
-            "count": len(bars), "bars": bars}
+    return {
+        "symbol": inst["symbol"],
+        "resolution": resolution,
+        "count": len(bars),
+        "bars": bars,
+    }
 
 
 @base.op(ID, "list_movers")
@@ -284,12 +315,21 @@ def list_movers(ctx: Ctx) -> dict:
     limit = max(1, min(int(ctx.get("limit", 5)), 25))
     quotes = [_quote(inst, 0) for inst in ctx.state.table("instruments").values()]
     ranked = sorted(quotes, key=lambda q: q["changePct"], reverse=True)
-    movers = [{"symbol": q["symbol"], "mid": q["mid"], "change": q["change"],
-               "changePct": q["changePct"], "tickDirection": q["tickDirection"]}
-              for q in ranked]
-    return {"gainers": movers[:limit],
-            "losers": list(reversed(movers[-limit:])),
-            "asOf": _iso(_EPOCH)}
+    movers = [
+        {
+            "symbol": q["symbol"],
+            "mid": q["mid"],
+            "change": q["change"],
+            "changePct": q["changePct"],
+            "tickDirection": q["tickDirection"],
+        }
+        for q in ranked
+    ]
+    return {
+        "gainers": movers[:limit],
+        "losers": list(reversed(movers[-limit:])),
+        "asOf": _iso(_EPOCH),
+    }
 
 
 @base.op(ID, "get_market_status")
@@ -307,28 +347,41 @@ def get_market_status(ctx: Ctx) -> dict:
         {"name": "london", "status": "open", "openUtc": "08:00", "closeUtc": "17:00"},
         {"name": "newyork", "status": "open", "openUtc": "13:00", "closeUtc": "22:00"},
     ]
-    return {"market": "fx", "status": "open", "session": "london_newyork_overlap",
-            "serverTime": _iso(_EPOCH), "venues": venues, "sessions": sessions,
-            "currencies": sorted(_currencies(ctx)),
-            "nextClose": _iso(_EPOCH + timedelta(hours=8)),
-            "nextOpen": _iso(_EPOCH + timedelta(hours=56)),
-            "earlyClose": False}
+    return {
+        "market": "fx",
+        "status": "open",
+        "session": "london_newyork_overlap",
+        "serverTime": _iso(_EPOCH),
+        "venues": venues,
+        "sessions": sessions,
+        "currencies": sorted(_currencies(ctx)),
+        "nextClose": _iso(_EPOCH + timedelta(hours=8)),
+        "nextOpen": _iso(_EPOCH + timedelta(hours=56)),
+        "earlyClose": False,
+    }
 
 
 @base.op(ID, "get_usage")
 def get_usage(ctx: Ctx) -> dict:
     """API plan entitlements, rate-limit window, and quota consumption for the key."""
-    active = sum(1 for s in ctx.state.table("subscriptions").values()
-                 if s["status"] == "active")
+    active = sum(
+        1 for s in ctx.state.table("subscriptions").values() if s["status"] == "active"
+    )
     used = len(ctx.state.table("reference_rates")) + active
     return {
         "plan": _PLAN,
         "entitlements": list(_ENTITLEMENTS),
-        "rateLimit": {"limit": _RATE_LIMIT_PER_MIN, "intervalSec": 60,
-                      "remaining": _RATE_LIMIT_PER_MIN - 1},
-        "dailyQuota": {"limit": _DAILY_QUOTA, "used": used,
-                       "remaining": _DAILY_QUOTA - used,
-                       "resetAt": _iso(_EPOCH + timedelta(days=1))},
+        "rateLimit": {
+            "limit": _RATE_LIMIT_PER_MIN,
+            "intervalSec": 60,
+            "remaining": _RATE_LIMIT_PER_MIN - 1,
+        },
+        "dailyQuota": {
+            "limit": _DAILY_QUOTA,
+            "used": used,
+            "remaining": _DAILY_QUOTA - used,
+            "resetAt": _iso(_EPOCH + timedelta(days=1)),
+        },
         "subscriptions": {"limit": _MAX_ACTIVE_SUBS, "active": active},
         "asOf": _iso(_EPOCH),
     }
@@ -354,13 +407,18 @@ def get_reference_rate(ctx: Ctx) -> dict:
     ctx.require("symbol")
     symbol = ctx.payload["symbol"]
     _instrument(ctx, symbol)
-    rows = [r for r in ctx.state.table("reference_rates").values() if r["symbol"] == symbol]
+    rows = [
+        r for r in ctx.state.table("reference_rates").values() if r["symbol"] == symbol
+    ]
     fixing_date = ctx.get("fixingDate")
     if fixing_date:
         rows = [r for r in rows if r["fixingDate"] == fixing_date]
     if not rows:
-        raise DomainError(404, "reference_rate_not_found",
-                          f"no fixing for {symbol} on {fixing_date or 'any recent date'}")
+        raise DomainError(
+            404,
+            "reference_rate_not_found",
+            f"no fixing for {symbol} on {fixing_date or 'any recent date'}",
+        )
     return max(rows, key=lambda r: r["fixingDate"])
 
 
@@ -369,19 +427,26 @@ def create_subscription(ctx: Ctx) -> dict:
     """Open a streaming subscription to one or more instruments on a channel."""
     symbols = _symbols(ctx)
     if len(symbols) > _MAX_BATCH:
-        raise DomainError(422, "too_many_symbols",
-                          f"a subscription accepts at most {_MAX_BATCH} instruments")
+        raise DomainError(
+            422,
+            "too_many_symbols",
+            f"a subscription accepts at most {_MAX_BATCH} instruments",
+        )
     channel = str(ctx.get("channel", "quotes"))
     if channel not in _CHANNELS:
-        raise DomainError(422, "invalid_channel",
-                          f"channel must be one of {', '.join(_CHANNELS)}")
+        raise DomainError(
+            422, "invalid_channel", f"channel must be one of {', '.join(_CHANNELS)}"
+        )
     for symbol in symbols:
         _instrument(ctx, symbol)
     table = ctx.state.table("subscriptions")
     active = sum(1 for s in table.values() if s["status"] == "active")
     if active >= _MAX_ACTIVE_SUBS:
-        raise DomainError(429, "subscription_limit_reached",
-                          f"plan allows at most {_MAX_ACTIVE_SUBS} concurrent subscriptions")
+        raise DomainError(
+            429,
+            "subscription_limit_reached",
+            f"plan allows at most {_MAX_ACTIVE_SUBS} concurrent subscriptions",
+        )
     snapshot_on_subscribe = bool(ctx.get("snapshotOnSubscribe", True))
     conflate_ms = max(0, int(ctx.get("conflateMs", 0)))
     sub_id = base.new_id("sub")
@@ -410,13 +475,19 @@ def update_subscription(ctx: Ctx) -> dict:
     ctx.require("subscriptionId")
     sub = ctx.state.table("subscriptions").get(ctx.payload["subscriptionId"])
     if sub is None:
-        raise DomainError(404, "subscription_not_found",
-                          f"no such subscription: {ctx.payload['subscriptionId']}")
+        raise DomainError(
+            404,
+            "subscription_not_found",
+            f"no such subscription: {ctx.payload['subscriptionId']}",
+        )
     if sub["status"] != "active":
-        raise DomainError(409, "subscription_closed",
-                          "a cancelled subscription can no longer be modified")
+        raise DomainError(
+            409,
+            "subscription_closed",
+            "a cancelled subscription can no longer be modified",
+        )
     symbols = list(sub["symbols"])
-    for symbol in (ctx.get("add") or []):
+    for symbol in ctx.get("add") or []:
         symbol = str(symbol).strip()
         _instrument(ctx, symbol)
         if symbol not in symbols:
@@ -424,11 +495,15 @@ def update_subscription(ctx: Ctx) -> dict:
     remove = {str(s).strip() for s in (ctx.get("remove") or [])}
     symbols = [s for s in symbols if s not in remove]
     if not symbols:
-        raise DomainError(422, "invalid_request",
-                          "a subscription must retain at least one instrument")
+        raise DomainError(
+            422, "invalid_request", "a subscription must retain at least one instrument"
+        )
     if len(symbols) > _MAX_BATCH:
-        raise DomainError(422, "too_many_symbols",
-                          f"a subscription accepts at most {_MAX_BATCH} instruments")
+        raise DomainError(
+            422,
+            "too_many_symbols",
+            f"a subscription accepts at most {_MAX_BATCH} instruments",
+        )
     sub["symbols"] = symbols
     sub["updatedAt"] = _iso(_EPOCH)
     return sub
@@ -451,8 +526,11 @@ def get_subscription(ctx: Ctx) -> dict:
     ctx.require("subscriptionId")
     sub = ctx.state.table("subscriptions").get(ctx.payload["subscriptionId"])
     if sub is None:
-        raise DomainError(404, "subscription_not_found",
-                          f"no such subscription: {ctx.payload['subscriptionId']}")
+        raise DomainError(
+            404,
+            "subscription_not_found",
+            f"no such subscription: {ctx.payload['subscriptionId']}",
+        )
     return sub
 
 
@@ -462,8 +540,11 @@ def cancel_subscription(ctx: Ctx) -> dict:
     ctx.require("subscriptionId")
     sub = ctx.state.table("subscriptions").get(ctx.payload["subscriptionId"])
     if sub is None:
-        raise DomainError(404, "subscription_not_found",
-                          f"no such subscription: {ctx.payload['subscriptionId']}")
+        raise DomainError(
+            404,
+            "subscription_not_found",
+            f"no such subscription: {ctx.payload['subscriptionId']}",
+        )
     if sub["status"] == "active":
         sub["status"] = "cancelled"
         sub["cancelledAt"] = _iso(_EPOCH)
@@ -478,8 +559,9 @@ def stream_rates(ctx: Ctx) -> dict:
     inst = _instrument(ctx, ctx.payload["symbol"])
     channel = str(ctx.get("channel", "quotes"))
     if channel not in _CHANNELS:
-        raise DomainError(422, "invalid_channel",
-                          f"channel must be one of {', '.join(_CHANNELS)}")
+        raise DomainError(
+            422, "invalid_channel", f"channel must be one of {', '.join(_CHANNELS)}"
+        )
     count = max(1, min(int(ctx.get("ticks", 10)), _MAX_STREAM_TICKS))
     if channel == "trades":
         ticks = [_trade(inst, n) for n in range(count)]
@@ -487,5 +569,10 @@ def stream_rates(ctx: Ctx) -> dict:
         ticks = [_bar_event(inst, n) for n in range(count)]
     else:
         ticks = [_quote(inst, n) for n in range(count)]
-    return {"symbol": inst["symbol"], "channel": channel, "count": count,
-            "heartbeatIntervalMs": _HEARTBEAT_MS, "ticks": ticks}
+    return {
+        "symbol": inst["symbol"],
+        "channel": channel,
+        "count": count,
+        "heartbeatIntervalMs": _HEARTBEAT_MS,
+        "ticks": ticks,
+    }

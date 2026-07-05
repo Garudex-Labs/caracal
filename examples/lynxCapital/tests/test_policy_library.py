@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 Runs the Lynx Capital authorization data against the platform decision contract through OPA when the binary is available.
 """
+
 from __future__ import annotations
 
 import json
@@ -15,7 +16,9 @@ import pytest
 
 POLICIES_DIR = Path(__file__).resolve().parent.parent / "policies"
 REPO_ROOT = Path(__file__).resolve().parents[3]
-DECISION_CONTRACT = REPO_ROOT / "services" / "sts" / "internal" / "decision_contract.rego"
+DECISION_CONTRACT = (
+    REPO_ROOT / "services" / "sts" / "internal" / "decision_contract.rego"
+)
 
 
 def _opa() -> str | None:
@@ -59,7 +62,9 @@ def test_policy_library_matches_the_manifest():
 
 
 def test_every_policy_is_a_data_document():
-    contents = {p.stem: p.read_text(encoding="utf-8") for p in POLICIES_DIR.glob("*.rego")}
+    contents = {
+        p.stem: p.read_text(encoding="utf-8") for p in POLICIES_DIR.glob("*.rego")
+    }
     for name, content in contents.items():
         assert "package caracal.authz" in content, name
         assert "# caracal:data-document" in content, name

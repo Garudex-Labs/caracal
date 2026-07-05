@@ -78,7 +78,9 @@ class _SessionRegistry:
         with self._lock:
             self._open.append(svc)
 
-    def retire(self, svc: caracal.ServiceAgent, loop: asyncio.AbstractEventLoop) -> None:
+    def retire(
+        self, svc: caracal.ServiceAgent, loop: asyncio.AbstractEventLoop
+    ) -> None:
         with self._lock:
             if svc not in self._open:
                 return

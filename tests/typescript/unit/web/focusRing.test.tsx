@@ -23,8 +23,7 @@ vi.mock('@/components/ui', async (importOriginal) => {
   }
 })
 
-const buttonRing =
-  'focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-1 focus-visible:ring-offset-background'
+const buttonRing = 'focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-1 focus-visible:ring-offset-background'
 
 function tagOf(html: string, pattern: RegExp): string {
   const match = html.match(pattern)

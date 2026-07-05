@@ -141,16 +141,17 @@ def _match(state: base.State, subject: dict) -> list[dict]:
                 match_type = "fuzzy"
         if match_type == "exact" or best >= 0.5:
             name_score = round(best if match_type == "exact" else 0.74 + best * 0.2, 2)
-            hits.append(_hit(record, match_type or "fuzzy", min(name_score, 0.99), subject))
+            hits.append(
+                _hit(record, match_type or "fuzzy", min(name_score, 0.99), subject)
+            )
 
     if not hits:
         rng = gen._rng(ID, "noise", target_norm)
         if rng.random() < 0.12:
             record = rng.choice(_watchlist_subjects(state))
             programs = record.get("programs", [])
-            if (
-                record["entityId"] not in whitelisted
-                and ("ADVERSE_MEDIA" in programs or "PEP" in programs)
+            if record["entityId"] not in whitelisted and (
+                "ADVERSE_MEDIA" in programs or "PEP" in programs
             ):
                 hits.append(
                     _hit(record, "fuzzy", round(rng.uniform(0.74, 0.84), 2), subject)
@@ -381,9 +382,7 @@ def _open_case(state: base.State, screening: dict, hits: list[dict], ctx) -> dic
         ),
     }
     state.table("cases")[case["caseId"]] = case
-    _audit(
-        state, case, "case_opened", ctx, {"riskBand": band, "matchCount": len(hits)}
-    )
+    _audit(state, case, "case_opened", ctx, {"riskBand": band, "matchCount": len(hits)})
     return case
 
 
@@ -565,7 +564,9 @@ def _resolve(state: base.State, case: dict, disposition: str, reason: str, ctx) 
     case["resolvedBy"] = _actor(ctx)
     case["updatedAt"] = _ts()
     hit_disposition = (
-        "false_positive" if disposition in ("false_positive", "no_match") else "true_match"
+        "false_positive"
+        if disposition in ("false_positive", "no_match")
+        else "true_match"
     )
     for hit_ref in case["hits"]:
         hit_ref["disposition"] = hit_disposition
@@ -674,7 +675,11 @@ def screen_party(ctx: Ctx) -> dict:
     if ctx.get("identifiers"):
         subject["identifiers"] = ctx.get("identifiers")
     return _persist_screen(
-        ctx.state, subject, "sanctions", ctx, client_reference=ctx.get("clientReference")
+        ctx.state,
+        subject,
+        "sanctions",
+        ctx,
+        client_reference=ctx.get("clientReference"),
     )
 
 
@@ -994,7 +999,9 @@ def whitelist_match(ctx: Ctx) -> dict:
             "whitelistId": base.new_id("wl"),
             "subjectName": name,
             "matchedEntityIds": [],
-            "reason": ctx.get("reason", "Confirmed false positive on secondary identifiers."),
+            "reason": ctx.get(
+                "reason", "Confirmed false positive on secondary identifiers."
+            ),
             "createdBy": _actor(ctx),
             "delegation": _delegation(ctx),
             "createdAt": _ts(),
@@ -1043,7 +1050,11 @@ def run_monitor(ctx: Ctx) -> dict:
         screening = _verify_entity(ctx.state, entity, ctx)
     else:
         screening = _persist_screen(
-            ctx.state, _subject_of(entity), "monitoring", ctx, entity_id=entity["entityId"]
+            ctx.state,
+            _subject_of(entity),
+            "monitoring",
+            ctx,
+            entity_id=entity["entityId"],
         )
         entity["lastDecision"] = screening["decision"]
     interval = _MONITOR_INTERVALS.get(monitor["frequency"], 86_400)
@@ -1104,7 +1115,9 @@ def _entity_type(value) -> str:
     normalized = alias.get(str(value).lower(), str(value).lower())
     if normalized not in _ENTITY_TYPES:
         raise DomainError(
-            422, "invalid_request", f"entityType must be one of {', '.join(_ENTITY_TYPES)}"
+            422,
+            "invalid_request",
+            f"entityType must be one of {', '.join(_ENTITY_TYPES)}",
         )
     return normalized
 

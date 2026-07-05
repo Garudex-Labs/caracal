@@ -6,6 +6,7 @@ Cooperative cancellation registry: maps run_id to an asyncio.Event that the
 swarm checks between turns so a user-initiated stop terminates the run
 without corrupting in-flight LLM/tool calls.
 """
+
 from __future__ import annotations
 
 import asyncio

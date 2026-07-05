@@ -3,7 +3,7 @@
 //
 // Runtime configuration for the Community Edition authentication service.
 
-import { resolveFileSecrets } from '@caracalai/core'
+import { resolveFileSecrets } from '@caracalai/server-core'
 
 // Postgres TLS posture. "disable" relies on the connection string (default for the local
 // stack), "require" enforces a verified certificate, and "no-verify" enables TLS without

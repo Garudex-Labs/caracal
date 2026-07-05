@@ -52,7 +52,9 @@ class CaracalAuth:
     async def __call__(self, token: str) -> Claims:
         result = await self.verifier.authenticate(token)
         if result.error is not None:
-            raise CaracalAuthError(result.error.code, result.error.description, result.error.hint)
+            raise CaracalAuthError(
+                result.error.code, result.error.description, result.error.hint
+            )
         assert result.principal is not None
         return result.principal
 

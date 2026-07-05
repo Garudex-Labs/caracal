@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 API package - mounts system, run, logs, session, and setup routers.
 """
+
 from fastapi import APIRouter
 
 from app.api.system import router as system_router

@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 Static topology graph for the Lynx Capital swarm, with grouping metadata per node.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -56,15 +57,17 @@ def build_topology(regions: list[str], layer_cfg: list[dict]) -> TopologyGraph:
     # for their region.
 
     FC_ID = "fc-0"
-    graph.add(NodeDef(
-        id=FC_ID,
-        role="finance-control",
-        layer="finance-control",
-        region=None,
-        parent_id=None,
-        ephemeral=False,
-        count=1,
-    ))
+    graph.add(
+        NodeDef(
+            id=FC_ID,
+            role="finance-control",
+            layer="finance-control",
+            region=None,
+            parent_id=None,
+            ephemeral=False,
+            count=1,
+        )
+    )
 
     # Build a lookup for layer config
     layer_map = {lc["id"]: lc for lc in layer_cfg}
@@ -74,15 +77,17 @@ def build_topology(regions: list[str], layer_cfg: list[dict]) -> TopologyGraph:
     for region in regions:
         ro_id = f"ro-{region.lower()}"
         ro_ids[region] = ro_id
-        graph.add(NodeDef(
-            id=ro_id,
-            role="regional-orchestrator",
-            layer="regional-orchestrator",
-            region=region,
-            parent_id=FC_ID,
-            ephemeral=False,
-            count=1,
-        ))
+        graph.add(
+            NodeDef(
+                id=ro_id,
+                role="regional-orchestrator",
+                layer="regional-orchestrator",
+                region=region,
+                parent_id=FC_ID,
+                ephemeral=False,
+                count=1,
+            )
+        )
 
     # Spawn remaining layers per region under their regional orchestrator
     WORKER_LAYERS = [
@@ -107,26 +112,30 @@ def build_topology(regions: list[str], layer_cfg: list[dict]) -> TopologyGraph:
             if ephemeral:
                 # Represent the entire ephemeral batch as a single group node
                 node_id = f"{layer_id}-{region.lower()}-batch"
-                graph.add(NodeDef(
-                    id=node_id,
-                    role=layer_id,
-                    layer=layer_id,
-                    region=region,
-                    parent_id=parent_id,
-                    ephemeral=True,
-                    count=per_region,
-                ))
-            else:
-                for i in range(per_region):
-                    node_id = f"{layer_id}-{region.lower()}-{i}"
-                    graph.add(NodeDef(
+                graph.add(
+                    NodeDef(
                         id=node_id,
                         role=layer_id,
                         layer=layer_id,
                         region=region,
                         parent_id=parent_id,
-                        ephemeral=False,
-                        count=1,
-                    ))
+                        ephemeral=True,
+                        count=per_region,
+                    )
+                )
+            else:
+                for i in range(per_region):
+                    node_id = f"{layer_id}-{region.lower()}-{i}"
+                    graph.add(
+                        NodeDef(
+                            id=node_id,
+                            role=layer_id,
+                            layer=layer_id,
+                            region=region,
+                            parent_id=parent_id,
+                            ephemeral=False,
+                            count=1,
+                        )
+                    )
 
     return graph

@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 Junction Procurement domain: procure-to-pay suppliers, commodity catalog, cost-center budgets, tiered requisition approvals, purchase orders, and goods receipts.
 """
+
 from __future__ import annotations
 
 import time
@@ -65,7 +66,8 @@ def _purchase_order(ctx: Ctx, po_id: str) -> dict:
 
 def _recompute_budget(cc: dict) -> None:
     cc["availableAmount"] = round(
-        cc["budgetAmount"] - cc["committedAmount"] - cc["spentAmount"], 2)
+        cc["budgetAmount"] - cc["committedAmount"] - cc["spentAmount"], 2
+    )
 
 
 def _apply_sla(chain: list[dict], now: int) -> None:
@@ -78,8 +80,12 @@ def _apply_sla(chain: list[dict], now: int) -> None:
 def _budget_view(cc: dict) -> dict:
     soft = round(cc["budgetAmount"] * cc["softLimitPct"], 2)
     consumed = round(cc["committedAmount"] + cc["spentAmount"], 2)
-    return {**cc, "consumedAmount": consumed, "softLimitAmount": soft,
-            "softLimitBreached": consumed > soft}
+    return {
+        **cc,
+        "consumedAmount": consumed,
+        "softLimitAmount": soft,
+        "softLimitBreached": consumed > soft,
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -117,7 +123,9 @@ def get_supplier(ctx: Ctx) -> dict:
 def list_commodities(ctx: Ctx) -> dict:
     """List the UNSPSC commodity catalog requisition lines are classified against."""
     ctx.require_scope("procure.read")
-    items = sorted(ctx.state.table("commodities").values(), key=lambda c: c["commodityCode"])
+    items = sorted(
+        ctx.state.table("commodities").values(), key=lambda c: c["commodityCode"]
+    )
     return {"items": items, "total": len(items)}
 
 
@@ -133,30 +141,40 @@ def _build_lines(ctx: Ctx, raw_lines: list, currency: str) -> tuple[list[dict], 
         except (KeyError, TypeError, ValueError):
             line_total = line.get("lineTotal", line.get("amount"))
             if line_total is None:
-                raise DomainError(422, "invalid_line",
-                                  "each line needs quantity and unitPrice, or a lineTotal")
+                raise DomainError(
+                    422,
+                    "invalid_line",
+                    "each line needs quantity and unitPrice, or a lineTotal",
+                )
             quantity, unit_price = 1.0, float(line_total)
         if quantity <= 0 or unit_price < 0:
-            raise DomainError(422, "invalid_line",
-                              "quantity must be positive and unitPrice non-negative")
+            raise DomainError(
+                422,
+                "invalid_line",
+                "quantity must be positive and unitPrice non-negative",
+            )
         line_total = round(quantity * unit_price, 2)
         subtotal += line_total
-        lines.append({
-            "lineNumber": n,
-            "description": line.get("description", "Goods or services"),
-            "commodityCode": str(line.get("commodityCode", "81111800")),
-            "commodityName": line.get("commodityName", line.get("description", "Goods or services")),
-            "quantity": quantity,
-            "unitOfMeasure": line.get("unitOfMeasure", "each"),
-            "unitPrice": unit_price,
-            "lineTotal": line_total,
-            "currency": currency,
-            "supplierId": line.get("supplierId"),
-            "costCenter": line.get("costCenter"),
-            "glAccount": str(line.get("glAccount", "6300")),
-            "projectCode": line.get("projectCode"),
-            "quantityReceived": 0,
-        })
+        lines.append(
+            {
+                "lineNumber": n,
+                "description": line.get("description", "Goods or services"),
+                "commodityCode": str(line.get("commodityCode", "81111800")),
+                "commodityName": line.get(
+                    "commodityName", line.get("description", "Goods or services")
+                ),
+                "quantity": quantity,
+                "unitOfMeasure": line.get("unitOfMeasure", "each"),
+                "unitPrice": unit_price,
+                "lineTotal": line_total,
+                "currency": currency,
+                "supplierId": line.get("supplierId"),
+                "costCenter": line.get("costCenter"),
+                "glAccount": str(line.get("glAccount", "6300")),
+                "projectCode": line.get("projectCode"),
+                "quantityReceived": 0,
+            }
+        )
     return lines, round(subtotal, 2)
 
 
@@ -164,8 +182,11 @@ def _finalize_approval(req: dict, cc: dict) -> None:
     """Mark a requisition approved and place the open commitment against its budget."""
     consumed = cc["committedAmount"] + cc["spentAmount"]
     if consumed + req["total"] > cc["budgetAmount"] * cc["hardLimitPct"]:
-        raise DomainError(409, "budget_exceeded",
-                          f"approval would exceed the {cc['costCenter']} budget hard limit")
+        raise DomainError(
+            409,
+            "budget_exceeded",
+            f"approval would exceed the {cc['costCenter']} budget hard limit",
+        )
     cc["committedAmount"] = round(cc["committedAmount"] + req["total"], 2)
     _recompute_budget(cc)
     req["status"] = "approved"
@@ -191,17 +212,24 @@ def create_requisition(ctx: Ctx) -> dict:
             raise DomainError(422, "invalid_request", "provide line items or an amount")
         if amount <= 0:
             raise DomainError(422, "invalid_amount", "amount must be positive")
-        lines = [{
-            "lineNumber": 1, "description": ctx.payload["description"],
-            "commodityCode": str(ctx.get("commodityCode", "81111800")),
-            "commodityName": ctx.get("commodityName", ctx.payload["description"]),
-            "quantity": 1.0, "unitOfMeasure": "each", "unitPrice": amount,
-            "lineTotal": amount, "currency": currency,
-            "supplierId": ctx.get("supplierId"), "costCenter": cc["costCenter"],
-            "glAccount": str(ctx.get("glAccount", "6300")),
-            "projectCode": ctx.get("projectCode"),
-            "quantityReceived": 0,
-        }]
+        lines = [
+            {
+                "lineNumber": 1,
+                "description": ctx.payload["description"],
+                "commodityCode": str(ctx.get("commodityCode", "81111800")),
+                "commodityName": ctx.get("commodityName", ctx.payload["description"]),
+                "quantity": 1.0,
+                "unitOfMeasure": "each",
+                "unitPrice": amount,
+                "lineTotal": amount,
+                "currency": currency,
+                "supplierId": ctx.get("supplierId"),
+                "costCenter": cc["costCenter"],
+                "glAccount": str(ctx.get("glAccount", "6300")),
+                "projectCode": ctx.get("projectCode"),
+                "quantityReceived": 0,
+            }
+        ]
         subtotal = amount
 
     total = subtotal
@@ -234,9 +262,14 @@ def create_requisition(ctx: Ctx) -> dict:
         "estimatedTax": 0.0,
         "total": total,
         "amount": total,
-        "approval": {"required": steps > 0,
-                     "status": ("not_started" if draft else ("pending" if steps else "not_required")),
-                     "policyTier": steps, "chain": chain},
+        "approval": {
+            "required": steps > 0,
+            "status": (
+                "not_started" if draft else ("pending" if steps else "not_required")
+            ),
+            "policyTier": steps,
+            "chain": chain,
+        },
         "purchaseOrderId": None,
         "createdAt": _iso(now),
         "updatedAt": _iso(now),
@@ -262,8 +295,11 @@ def submit_requisition(ctx: Ctx) -> dict:
     ctx.require("requisitionId")
     req = _requisition(ctx, ctx.payload["requisitionId"])
     if req["status"] != "draft":
-        raise DomainError(409, "requisition_not_draft",
-                          f"requisition is {req['status']} and cannot be submitted")
+        raise DomainError(
+            409,
+            "requisition_not_draft",
+            f"requisition is {req['status']} and cannot be submitted",
+        )
     cc = _cost_center(ctx, req["department"])
     now = base.now()
     req["submittedAt"] = _iso(now)
@@ -287,11 +323,15 @@ def approve_requisition(ctx: Ctx) -> dict:
     if req["status"] == "approved":
         raise DomainError(409, "already_approved", "requisition already approved")
     if req["status"] in ("ordered", "closed"):
-        raise DomainError(409, "already_ordered", "requisition already converted to a purchase order")
+        raise DomainError(
+            409, "already_ordered", "requisition already converted to a purchase order"
+        )
     if req["status"] == "rejected":
         raise DomainError(409, "requisition_rejected", "requisition was rejected")
     if req["status"] == "draft":
-        raise DomainError(409, "requisition_not_submitted", "submit the requisition before approving")
+        raise DomainError(
+            409, "requisition_not_submitted", "submit the requisition before approving"
+        )
 
     pending = [s for s in req["approval"]["chain"] if s["status"] == "pending"]
     if not pending:
@@ -302,15 +342,21 @@ def approve_requisition(ctx: Ctx) -> dict:
     if step.get("delegatedTo"):
         authorized.add(step["delegatedTo"])
     if approver and approver not in authorized:
-        raise DomainError(403, "not_authorized_approver",
-                          f"step {step['step']} is assigned to {step['approverId']}")
+        raise DomainError(
+            403,
+            "not_authorized_approver",
+            f"step {step['step']} is assigned to {step['approverId']}",
+        )
 
     cc = _cost_center(ctx, req["department"])
     if len(pending) == 1:
         consumed = cc["committedAmount"] + cc["spentAmount"]
         if consumed + req["total"] > cc["budgetAmount"] * cc["hardLimitPct"]:
-            raise DomainError(409, "budget_exceeded",
-                              f"approval would exceed the {cc['costCenter']} budget hard limit")
+            raise DomainError(
+                409,
+                "budget_exceeded",
+                f"approval would exceed the {cc['costCenter']} budget hard limit",
+            )
 
     now = base.now()
     step["status"] = "approved"
@@ -330,8 +376,11 @@ def reject_requisition(ctx: Ctx) -> dict:
     ctx.require("requisitionId")
     req = _requisition(ctx, ctx.payload["requisitionId"])
     if req["status"] not in ("pending_approval", "draft"):
-        raise DomainError(409, "requisition_not_pending",
-                          f"requisition is {req['status']} and cannot be rejected")
+        raise DomainError(
+            409,
+            "requisition_not_pending",
+            f"requisition is {req['status']} and cannot be rejected",
+        )
     now = base.now()
     pending = [s for s in req["approval"]["chain"] if s["status"] == "pending"]
     if pending:
@@ -397,38 +446,56 @@ def create_purchase_order(ctx: Ctx) -> dict:
     if req["status"] == "approved":
         pass
     elif req["status"] in ("ordered", "closed"):
-        raise DomainError(409, "already_ordered", "requisition already has a purchase order")
+        raise DomainError(
+            409, "already_ordered", "requisition already has a purchase order"
+        )
     else:
-        raise DomainError(409, "requisition_not_approved", "requisition must be approved first")
+        raise DomainError(
+            409, "requisition_not_approved", "requisition must be approved first"
+        )
 
     supplier_id = ctx.get("supplierId") or ctx.get("vendorId")
     if not supplier_id:
-        raise DomainError(422, "invalid_request", "missing required field(s): supplierId")
+        raise DomainError(
+            422, "invalid_request", "missing required field(s): supplierId"
+        )
     supplier = _supplier(ctx, supplier_id)
     if supplier["status"] != "active":
-        raise DomainError(409, "supplier_inactive",
-                          f"supplier {supplier['supplierId']} is {supplier['status']}")
-    expired = [d["documentName"] for d in supplier.get("complianceDocuments", [])
-               if d.get("status") == "expired"]
+        raise DomainError(
+            409,
+            "supplier_inactive",
+            f"supplier {supplier['supplierId']} is {supplier['status']}",
+        )
+    expired = [
+        d["documentName"]
+        for d in supplier.get("complianceDocuments", [])
+        if d.get("status") == "expired"
+    ]
     if expired:
-        raise DomainError(409, "supplier_compliance_hold",
-                          f"supplier {supplier['supplierId']} has expired {', '.join(expired)}")
+        raise DomainError(
+            409,
+            "supplier_compliance_hold",
+            f"supplier {supplier['supplierId']} has expired {', '.join(expired)}",
+        )
 
     now = base.now()
     shipping = float(ctx.get("shippingAmount", 0.0) or 0.0)
     po_type = "services" if req.get("purchaseType") == "services" else "standard"
-    lines = [{
-        "lineNumber": l["lineNumber"],
-        "description": l["description"],
-        "commodityCode": l["commodityCode"],
-        "quantity": l["quantity"],
-        "quantityReceived": 0,
-        "unitOfMeasure": l["unitOfMeasure"],
-        "unitPrice": l["unitPrice"],
-        "lineTotal": l["lineTotal"],
-        "costCenter": l.get("costCenter", req["costCenter"]),
-        "glAccount": l["glAccount"],
-    } for l in req["lines"]]
+    lines = [
+        {
+            "lineNumber": l["lineNumber"],
+            "description": l["description"],
+            "commodityCode": l["commodityCode"],
+            "quantity": l["quantity"],
+            "quantityReceived": 0,
+            "unitOfMeasure": l["unitOfMeasure"],
+            "unitPrice": l["unitPrice"],
+            "lineTotal": l["lineTotal"],
+            "costCenter": l.get("costCenter", req["costCenter"]),
+            "glAccount": l["glAccount"],
+        }
+        for l in req["lines"]
+    ]
     po = {
         "poId": base.new_id("po"),
         "poNumber": f"PO-2026-{now}",
@@ -493,22 +560,43 @@ def receive_order(ctx: Ctx) -> dict:
         for entry in raw:
             line = by_number.get(int(entry.get("lineNumber", 0)))
             if line is None:
-                raise DomainError(422, "invalid_line", f"line {entry.get('lineNumber')} not on this order")
-            qty = float(entry.get("quantityReceived", line["quantity"] - line["quantityReceived"]))
+                raise DomainError(
+                    422,
+                    "invalid_line",
+                    f"line {entry.get('lineNumber')} not on this order",
+                )
+            qty = float(
+                entry.get(
+                    "quantityReceived", line["quantity"] - line["quantityReceived"]
+                )
+            )
             remaining = line["quantity"] - line["quantityReceived"]
             if qty <= 0 or qty > remaining:
-                raise DomainError(422, "invalid_quantity",
-                                  f"line {line['lineNumber']} can receive up to {remaining}")
+                raise DomainError(
+                    422,
+                    "invalid_quantity",
+                    f"line {line['lineNumber']} can receive up to {remaining}",
+                )
             line["quantityReceived"] = round(line["quantityReceived"] + qty, 4)
-            receipt_lines.append({"lineNumber": line["lineNumber"], "quantityReceived": qty,
-                                  "condition": entry.get("condition", "good")})
+            receipt_lines.append(
+                {
+                    "lineNumber": line["lineNumber"],
+                    "quantityReceived": qty,
+                    "condition": entry.get("condition", "good"),
+                }
+            )
     else:
         for line in po["lines"]:
             remaining = line["quantity"] - line["quantityReceived"]
             if remaining > 0:
                 line["quantityReceived"] = line["quantity"]
-                receipt_lines.append({"lineNumber": line["lineNumber"], "quantityReceived": remaining,
-                                      "condition": "good"})
+                receipt_lines.append(
+                    {
+                        "lineNumber": line["lineNumber"],
+                        "quantityReceived": remaining,
+                        "condition": "good",
+                    }
+                )
 
     now = base.now()
     receipt = {
@@ -516,7 +604,9 @@ def receive_order(ctx: Ctx) -> dict:
         "receiptNumber": f"GRN-2026-{now}",
         "poId": po["poId"],
         "deliveryNote": ctx.get("deliveryNote"),
-        "receivedBy": ctx.get("receivedBy", {"id": "EMP-2400", "name": "Hassan Haddad"}),
+        "receivedBy": ctx.get(
+            "receivedBy", {"id": "EMP-2400", "name": "Hassan Haddad"}
+        ),
         "receivedAt": _iso(now),
         "lines": receipt_lines,
         "status": "received",
@@ -530,7 +620,9 @@ def receive_order(ctx: Ctx) -> dict:
         req = ctx.state.table("requisitions").get(po["requisitionId"])
         if req is not None and req["status"] == "ordered":
             cc = _cost_center(ctx, req["department"])
-            cc["committedAmount"] = round(max(0.0, cc["committedAmount"] - req["total"]), 2)
+            cc["committedAmount"] = round(
+                max(0.0, cc["committedAmount"] - req["total"]), 2
+            )
             cc["spentAmount"] = round(cc["spentAmount"] + req["total"], 2)
             _recompute_budget(cc)
             req["status"] = "closed"

@@ -10,7 +10,8 @@ import { runDCRGC } from '../../../../../apps/api/src/jobs/dcr-gc.js'
 describe('runDCRGC', () => {
   function makeClient(acquired: boolean, gcResult: Record<string, unknown> = {}) {
     return {
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce({ rows: [{ acquired }] })
         .mockResolvedValueOnce(gcResult)
         .mockResolvedValueOnce({ rows: [] }),

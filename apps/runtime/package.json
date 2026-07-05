@@ -39,7 +39,7 @@
     "test": "vitest run --root ../.. tests/typescript/unit/runtime"
   },
   "dependencies": {
-    "@caracalai/core": "workspace:*",
+    "@caracalai/server-core": "workspace:*",
     "@caracalai/engine": "workspace:*",
     "pg": "^8.22.0"
   },

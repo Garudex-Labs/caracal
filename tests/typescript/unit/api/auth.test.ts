@@ -278,7 +278,11 @@ describe('adminAuthPlugin', () => {
 
   it('denies a write-capability token the decision surface: write never implies approve', async () => {
     const app = await buildPluginApp(makeDb({ token: 'secret', capability: 'write', createdBy: 'env-derived-write' }))
-    const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/step-up-challenges/c1/approve', headers: { authorization: 'Bearer secret' } })
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/step-up-challenges/c1/approve',
+      headers: { authorization: 'Bearer secret' },
+    })
     expect(res.statusCode).toBe(403)
     expect(res.json()).toEqual({ error: 'approve_capability_required' })
     await app.close()
@@ -286,7 +290,11 @@ describe('adminAuthPlugin', () => {
 
   it('denies a read-capability token the decision surface', async () => {
     const app = await buildPluginApp(makeDb({ token: 'secret', capability: 'read' }))
-    const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/step-up-challenges/c1/reject', headers: { authorization: 'Bearer secret' } })
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/step-up-challenges/c1/reject',
+      headers: { authorization: 'Bearer secret' },
+    })
     expect(res.statusCode).toBe(403)
     expect(res.json()).toEqual({ error: 'admin_token_read_only' })
     await app.close()
@@ -294,7 +302,11 @@ describe('adminAuthPlugin', () => {
 
   it('lets the bootstrap deployment token decide holds as the break-glass credential', async () => {
     const app = await buildPluginApp(makeDb({ token: 'secret', capability: 'write', createdBy: 'env-bootstrap' }))
-    const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/step-up-challenges/c1/approve', headers: { authorization: 'Bearer secret' } })
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/step-up-challenges/c1/approve',
+      headers: { authorization: 'Bearer secret' },
+    })
     expect(res.statusCode).toBe(200)
     await app.close()
   })

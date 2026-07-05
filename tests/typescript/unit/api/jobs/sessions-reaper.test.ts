@@ -9,7 +9,8 @@ import { runSessionsReap } from '../../../../../apps/api/src/jobs/sessions-reape
 
 function makeClient(acquired: boolean, rowCount = 0) {
   return {
-    query: vi.fn()
+    query: vi
+      .fn()
       .mockResolvedValueOnce({ rows: [{ acquired }] })
       .mockResolvedValueOnce({ rowCount })
       .mockResolvedValueOnce({ rows: [] }),
@@ -36,9 +37,6 @@ describe('runSessionsReap', () => {
 
     expect(client.query.mock.calls[1][0]).toContain('LIMIT $1')
     expect(client.query.mock.calls[1][1]).toEqual([500])
-    expect(client.query).toHaveBeenCalledWith(
-      expect.stringContaining('pg_advisory_unlock'),
-      ['7163920485318481'],
-    )
+    expect(client.query).toHaveBeenCalledWith(expect.stringContaining('pg_advisory_unlock'), ['7163920485318481'])
   })
 })

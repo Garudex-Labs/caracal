@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 Test fixtures that boot the twenty external-style providers on free ports and wire the partner integration env.
 """
+
 from __future__ import annotations
 
 import os
@@ -32,7 +33,13 @@ def _isolate_caracal_env():
     saved = {
         key: os.environ.pop(key)
         for key in list(os.environ)
-        if key in ("CARACAL_ZONE_ID", "CARACAL_STS_URL", "CARACAL_COORDINATOR_URL", "CARACAL_GATEWAY_URL")
+        if key
+        in (
+            "CARACAL_ZONE_ID",
+            "CARACAL_STS_URL",
+            "CARACAL_COORDINATOR_URL",
+            "CARACAL_GATEWAY_URL",
+        )
         or key.startswith("LYNX_CARACAL_")
     }
     yield
@@ -47,7 +54,9 @@ def _free_port() -> int:
 
 class _UvicornInThread:
     def __init__(self, app, port: int):
-        cfg = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning", loop="asyncio")
+        cfg = uvicorn.Config(
+            app, host="127.0.0.1", port=port, log_level="warning", loop="asyncio"
+        )
         self.server = uvicorn.Server(cfg)
         self.thread = threading.Thread(target=self.server.run, daemon=True)
 
@@ -88,17 +97,25 @@ def providerlab() -> dict[str, str]:
         seed = credentials.load(provider.id).data["seed"]
         if catalog.apikey_auth(provider):
             os.environ[f"LYNX_PARTNER_{eid}_API_KEY"] = seed["apiKey"]
-        elif catalog.bearer_auth(provider) or (provider.category == "mcp" and provider.mcp_auth == "bearer"):
+        elif catalog.bearer_auth(provider) or (
+            provider.category == "mcp" and provider.mcp_auth == "bearer"
+        ):
             os.environ[f"LYNX_PARTNER_{eid}_TOKEN"] = seed["bearerToken"]
-        elif provider.category in ("oauth2_client_credentials", "oauth2_authorization_code"):
+        elif provider.category in (
+            "oauth2_client_credentials",
+            "oauth2_authorization_code",
+        ):
             os.environ[f"LYNX_PARTNER_{eid}_CLIENT_ID"] = seed["clientId"]
             os.environ[f"LYNX_PARTNER_{eid}_CLIENT_SECRET"] = seed["clientSecret"]
-        elif provider.category == "caracal_mandate" or (provider.category == "mcp" and provider.mcp_auth == "mandate"):
+        elif provider.category == "caracal_mandate" or (
+            provider.category == "mcp" and provider.mcp_auth == "mandate"
+        ):
             os.environ[f"LYNX_PARTNER_{eid}_MANDATE"] = seed["mandate"]
 
     yield urls
 
     from app.services import partners
+
     partners.reset()
     for server in servers:
         server.stop()

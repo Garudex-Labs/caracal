@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 Domain types for the Lynx Capital financial execution system.
 """
+
 from __future__ import annotations
 
 from datetime import date, datetime

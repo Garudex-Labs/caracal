@@ -3,7 +3,7 @@
 //
 // Coordinator admin audit hook: records authenticated mutating calls to admin_audit_events, refusing to report an unaudited success.
 
-import { pathOnly } from '@caracalai/core'
+import { pathOnly } from '@caracalai/server-core'
 import { MUTATING_METHODS, insertAdminAuditRecord } from '@caracalai/admin-audit'
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import type { Pool } from 'pg'

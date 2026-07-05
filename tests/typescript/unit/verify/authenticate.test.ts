@@ -4,7 +4,12 @@
 // Transport MCP authentication unit tests.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { authenticate, checkActiveAuthority, createMandateVerifier, extractBearer } from '../../../../packages/verify/ts/src/authenticate.js'
+import {
+  authenticate,
+  checkActiveAuthority,
+  createMandateVerifier,
+  extractBearer,
+} from '../../../../packages/verify/ts/src/authenticate.js'
 
 const revocations = {
   isRevoked: vi.fn(),
@@ -17,21 +22,24 @@ let issuerId = 0
 const jwksByIssuer = new Map<string, JsonWebKey>()
 
 beforeEach(() => {
-  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
-    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
-    const issuer = url.replace(/\/\.well-known\/jwks\.json(\?.*)?$/, '')
-    const jwk = jwksByIssuer.get(issuer)
-    if (!jwk) {
-      return new Response(JSON.stringify({ keys: [] }), {
-        status: 404,
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+      const issuer = url.replace(/\/\.well-known\/jwks\.json(\?.*)?$/, '')
+      const jwk = jwksByIssuer.get(issuer)
+      if (!jwk) {
+        return new Response(JSON.stringify({ keys: [] }), {
+          status: 404,
+          headers: { 'content-type': 'application/json' },
+        })
+      }
+      return new Response(JSON.stringify({ keys: [jwk] }), {
+        status: 200,
         headers: { 'content-type': 'application/json' },
       })
-    }
-    return new Response(JSON.stringify({ keys: [jwk] }), {
-      status: 200,
-      headers: { 'content-type': 'application/json' },
-    })
-  }))
+    }),
+  )
 })
 
 async function mintToken(
@@ -40,37 +48,31 @@ async function mintToken(
 ): Promise<{ token: string; issuer: string; audience: string }> {
   const issuer = `https://issuer-${++issuerId}.example.com`
   const audience = 'resource://api'
-  const key = await crypto.subtle.generateKey(
-    { name: 'ECDSA', namedCurve: 'P-256' },
-    true,
-    ['sign', 'verify'],
-  )
+  const key = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify'])
   const jwk = await crypto.subtle.exportKey('jwk', key.publicKey)
   Object.assign(jwk, { kid: 'kid-1', alg: 'ES256', use: 'sig' })
   jwksByIssuer.set(issuer, jwk)
   const header = base64url(JSON.stringify({ alg: 'ES256', kid: 'kid-1', typ: 'JWT' }))
-  const payload = base64url(JSON.stringify({
-    iss: issuer,
-    aud: audience,
-    sub: 'user-1',
-    zone_id: 'zone-1',
-    client_id: 'app-1',
-    sid: 'sid-1',
-    root_sid: 'root-1',
-    use: 'resource',
-    sub_type: 'user',
-    jti: 'jti-1',
-    scope: scopes,
-    iat: Math.floor(Date.now() / 1000),
-    exp: Math.floor(Date.now() / 1000) + 300,
-    ...claims,
-  }))
-  const body = `${header}.${payload}`
-  const signature = await crypto.subtle.sign(
-    { name: 'ECDSA', hash: 'SHA-256' },
-    key.privateKey,
-    new TextEncoder().encode(body),
+  const payload = base64url(
+    JSON.stringify({
+      iss: issuer,
+      aud: audience,
+      sub: 'user-1',
+      zone_id: 'zone-1',
+      client_id: 'app-1',
+      sid: 'sid-1',
+      root_sid: 'root-1',
+      use: 'resource',
+      sub_type: 'user',
+      jti: 'jti-1',
+      scope: scopes,
+      iat: Math.floor(Date.now() / 1000),
+      exp: Math.floor(Date.now() / 1000) + 300,
+      ...claims,
+    }),
   )
+  const body = `${header}.${payload}`
+  const signature = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key.privateKey, new TextEncoder().encode(body))
   const token = `${body}.${base64url(new Uint8Array(signature))}`
   return { token, issuer, audience }
 }
@@ -122,11 +124,13 @@ describe('verify authentication', () => {
   it('rejects successful verification when no revocation store is supplied', async () => {
     const { token, issuer, audience } = await mintToken()
 
-    await expect(authenticate(token, {
-      issuer,
-      audience,
-      revocations: undefined as never,
-    })).resolves.toMatchObject({
+    await expect(
+      authenticate(token, {
+        issuer,
+        audience,
+        revocations: undefined as never,
+      }),
+    ).resolves.toMatchObject({
       ok: false,
       error: { code: 'invalid_token', description: 'Revocation store required' },
     })
@@ -163,8 +167,8 @@ describe('verify authentication', () => {
         zoneId: 'zone-1',
         clientId: 'app-1',
         sid: 'sid-1',
-      rootSid: 'root-1',
-      subType: 'user',
+        rootSid: 'root-1',
+        subType: 'user',
         scope: 'mcp:call',
         agentSessionId: 'agent-1',
         delegationEdgeId: 'edge-1',
@@ -182,27 +186,33 @@ describe('verify authentication', () => {
     const second = await mintToken({ sid: 'sid-2' })
     revocations.isRevoked.mockResolvedValue(false)
 
-    await expect(authenticate(first.token, {
-      issuer: first.issuer,
-      audience: first.audience,
-      revocations,
-    })).resolves.toMatchObject({ ok: true, principal: { sid: 'sid-1' } })
-    await expect(authenticate(second.token, {
-      issuer: second.issuer,
-      audience: second.audience,
-      revocations,
-    })).resolves.toMatchObject({ ok: true, principal: { sid: 'sid-2' } })
+    await expect(
+      authenticate(first.token, {
+        issuer: first.issuer,
+        audience: first.audience,
+        revocations,
+      }),
+    ).resolves.toMatchObject({ ok: true, principal: { sid: 'sid-1' } })
+    await expect(
+      authenticate(second.token, {
+        issuer: second.issuer,
+        audience: second.audience,
+        revocations,
+      }),
+    ).resolves.toMatchObject({ ok: true, principal: { sid: 'sid-2' } })
   })
 
   it('rejects revoked sessions after successful verification', async () => {
     const { token, issuer, audience } = await mintToken()
     revocations.isRevoked.mockResolvedValue(true)
 
-    await expect(authenticate(token, {
-      issuer,
-      audience,
-      revocations,
-    })).resolves.toMatchObject({
+    await expect(
+      authenticate(token, {
+        issuer,
+        audience,
+        revocations,
+      }),
+    ).resolves.toMatchObject({
       ok: false,
       error: { code: 'session_revoked', description: 'Session revoked' },
     })
@@ -216,11 +226,13 @@ describe('verify authentication', () => {
     revocations.isRevoked.mockResolvedValue(false)
     revocations.currentDelegationEpoch.mockResolvedValue(8)
 
-    await expect(authenticate(token, {
-      issuer,
-      audience,
-      revocations,
-    })).resolves.toMatchObject({
+    await expect(
+      authenticate(token, {
+        issuer,
+        audience,
+        revocations,
+      }),
+    ).resolves.toMatchObject({
       ok: false,
       error: { code: 'delegation_stale', description: 'Delegation graph changed' },
     })
@@ -235,11 +247,13 @@ describe('verify authentication', () => {
     const { token, issuer, audience } = await mintToken(claims)
     revocations.isRevoked.mockImplementation(async (anchor: string) => anchor === revoked)
 
-    await expect(authenticate(token, {
-      issuer,
-      audience,
-      revocations,
-    })).resolves.toMatchObject({
+    await expect(
+      authenticate(token, {
+        issuer,
+        audience,
+        revocations,
+      }),
+    ).resolves.toMatchObject({
       ok: false,
       error: { code: 'session_revoked', description: 'Session revoked' },
     })
@@ -247,19 +261,25 @@ describe('verify authentication', () => {
 
   it('supports active-execution checks after initial authentication', async () => {
     revocations.isRevoked.mockResolvedValue(false)
-    await expect(checkActiveAuthority({
-      sub: 'user-1',
-      zoneId: 'zone-1',
-      clientId: 'app-1',
-      sid: 'sid-1',
-      rootSid: 'root-1',
-      use: 'resource',
-      subType: 'user',
-      jti: 'jti-1',
-      issuedAt: 10,
-      expiresAt: 20,
-      scope: 'mcp:call',
-    }, revocations, 21_000)).resolves.toMatchObject({
+    await expect(
+      checkActiveAuthority(
+        {
+          sub: 'user-1',
+          zoneId: 'zone-1',
+          clientId: 'app-1',
+          sid: 'sid-1',
+          rootSid: 'root-1',
+          use: 'resource',
+          subType: 'user',
+          jti: 'jti-1',
+          issuedAt: 10,
+          expiresAt: 20,
+          scope: 'mcp:call',
+        },
+        revocations,
+        21_000,
+      ),
+    ).resolves.toMatchObject({
       code: 'invalid_token',
       description: 'Token expired during execution',
     })
@@ -268,19 +288,25 @@ describe('verify authentication', () => {
   it('rejects active-execution checks with missing sid', async () => {
     revocations.isRevoked.mockResolvedValue(false)
 
-    await expect(checkActiveAuthority({
-      sub: 'user-1',
-      zoneId: 'zone-1',
-      clientId: 'app-1',
-      sid: '',
-      rootSid: '',
-      use: 'resource',
-      subType: 'user',
-      jti: 'jti-1',
-      issuedAt: 10,
-      expiresAt: 20,
-      scope: 'mcp:call',
-    }, revocations, 10_000)).resolves.toMatchObject({
+    await expect(
+      checkActiveAuthority(
+        {
+          sub: 'user-1',
+          zoneId: 'zone-1',
+          clientId: 'app-1',
+          sid: '',
+          rootSid: '',
+          use: 'resource',
+          subType: 'user',
+          jti: 'jti-1',
+          issuedAt: 10,
+          expiresAt: 20,
+          scope: 'mcp:call',
+        },
+        revocations,
+        10_000,
+      ),
+    ).resolves.toMatchObject({
       code: 'invalid_token',
       description: 'Token validation failed',
     })
@@ -288,33 +314,49 @@ describe('verify authentication', () => {
 
   it.each([
     ['missing required scope', { requiredScopes: ['admin:call'] }, {}, 'insufficient_scope', 'Missing scope: admin:call'],
-    ['missing required target', { requiredTargets: ['resource://tools/calendar'] }, { target: ['resource://tools/files'] }, 'invalid_token', 'Token validation failed'],
+    [
+      'missing required target',
+      { requiredTargets: ['resource://tools/calendar'] },
+      { target: ['resource://tools/files'] },
+      'invalid_token',
+      'Token validation failed',
+    ],
     ['session mandate use', {}, { use: 'session' }, 'invalid_token', 'Token validation failed'],
     ['agent identity required', { requireAgent: true }, {}, 'agent_required', 'Agent identity required'],
     ['delegation required', { requireDelegation: true }, {}, 'delegation_required', 'Delegation required'],
-    ['delegation chain mismatch', { requireChainContains: ['app-parent'] }, { delegation_chain: [{ application_id: 'app-child' }] }, 'chain_mismatch', 'Delegation chain missing application: app-parent'],
+    [
+      'delegation chain mismatch',
+      { requireChainContains: ['app-parent'] },
+      { delegation_chain: [{ application_id: 'app-child' }] },
+      'chain_mismatch',
+      'Delegation chain missing application: app-parent',
+    ],
     ['hop count exceeded', { maxHopCount: 1 }, { hop_count: 2 }, 'hop_count_exceeded', 'Hop count exceeded'],
     ['invalid zone', { zoneId: 'zone-2' }, {}, 'invalid_zone', 'Token zone validation failed'],
   ])('maps identity verification failure: %s', async (_label, deps, claims, code, description) => {
     const { token, issuer, audience } = await mintToken(claims)
 
-    await expect(authenticate(token, {
-      issuer,
-      audience,
-      revocations,
-      ...deps,
-    })).resolves.toMatchObject({
+    await expect(
+      authenticate(token, {
+        issuer,
+        audience,
+        revocations,
+        ...deps,
+      }),
+    ).resolves.toMatchObject({
       ok: false,
       error: { code, description },
     })
   })
 
   it('maps malformed tokens to invalid_token', async () => {
-    await expect(authenticate('invalid.jwt.token', {
-      issuer: 'https://issuer.example.com',
-      audience: 'resource://api',
-      revocations,
-    })).resolves.toMatchObject({
+    await expect(
+      authenticate('invalid.jwt.token', {
+        issuer: 'https://issuer.example.com',
+        audience: 'resource://api',
+        revocations,
+      }),
+    ).resolves.toMatchObject({
       ok: false,
       error: { code: 'invalid_token', description: 'Token validation failed' },
     })
@@ -325,10 +367,12 @@ describe('verify authentication', () => {
     revocations.isRevoked.mockResolvedValue(false)
     const verifier = createMandateVerifier({ issuer, audience, revocations })
 
-    await expect(verifier.authorization(`Bearer ${token}`, {
-      requiredScopes: ['mcp:call'],
-      requiredTargets: ['resource://api'],
-    })).resolves.toMatchObject({ ok: true, principal: { sid: 'sid-1' } })
+    await expect(
+      verifier.authorization(`Bearer ${token}`, {
+        requiredScopes: ['mcp:call'],
+        requiredTargets: ['resource://api'],
+      }),
+    ).resolves.toMatchObject({ ok: true, principal: { sid: 'sid-1' } })
 
     await expect(verifier.require({ requiredScopes: ['admin:call'] }).authenticate(token)).resolves.toMatchObject({
       ok: false,

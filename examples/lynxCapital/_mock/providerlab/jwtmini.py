@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 Dependency-free HS256 JWT encode and decode used by the mandate mocks.
 """
+
 from __future__ import annotations
 
 import base64

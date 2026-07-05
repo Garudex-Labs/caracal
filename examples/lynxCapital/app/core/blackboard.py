@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 Run-scoped shared blackboard for cross-agent findings and coordination.
 """
+
 from __future__ import annotations
 
 import time
@@ -38,20 +39,24 @@ class RunBlackboard:
         self._items: list[Finding] = []
         self._lock = Lock()
 
-    def post(self, agent_id: str, region: str | None, kind: str, content: str) -> Finding:
+    def post(
+        self, agent_id: str, region: str | None, kind: str, content: str
+    ) -> Finding:
         f = Finding(agent_id=agent_id, region=region, kind=kind, content=content)
         with self._lock:
             self._items.append(f)
         return f
 
-    def read(self, kind: str | None = None, region: str | None = None, limit: int = 20) -> list[Finding]:
+    def read(
+        self, kind: str | None = None, region: str | None = None, limit: int = 20
+    ) -> list[Finding]:
         with self._lock:
             items = list(self._items)
         if kind:
             items = [f for f in items if f.kind == kind]
         if region:
             items = [f for f in items if f.region == region]
-        return items[-max(1, limit):]
+        return items[-max(1, limit) :]
 
     def all(self) -> list[Finding]:
         with self._lock:

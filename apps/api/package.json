@@ -15,6 +15,7 @@
     "@caracalai/admin": "workspace:*",
     "@caracalai/admin-audit": "workspace:*",
     "@caracalai/core": "workspace:*",
+    "@caracalai/server-core": "workspace:*",
     "@caracalai/engine": "workspace:*",
     "@caracalai/sdk": "workspace:*",
     "@fastify/swagger": "^9.4.0",

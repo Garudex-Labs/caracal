@@ -49,13 +49,17 @@ export function instrumentFastifyApp(app: FastifyLike, serviceName: string): voi
     const method = request.method ?? 'GET'
     const path = String(request.url ?? '/').split('?')[0] || '/'
     const parent = propagation.extract(context.active(), normalizeHeaders(request.headers ?? {}))
-    request[spanKey] = tracer.startSpan(`${method} ${path}`, {
-      kind: SpanKind.SERVER,
-      attributes: {
-        'http.request.method': method,
-        'url.path': path,
+    request[spanKey] = tracer.startSpan(
+      `${method} ${path}`,
+      {
+        kind: SpanKind.SERVER,
+        attributes: {
+          'http.request.method': method,
+          'url.path': path,
+        },
       },
-    }, parent)
+      parent,
+    )
   })
   app.addHook('onResponse', async (req: unknown, reply: unknown) => {
     const request = req as { [spanKey]?: Span }

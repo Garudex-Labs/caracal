@@ -33,10 +33,7 @@ describe('POST /v1/zones/:zoneId/invocations', () => {
   it('returns 404 when the target service is missing', async () => {
     const { app, db } = buildApp()
     const client = {
-      query: vi.fn()
-        .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValue({ rows: [] }),
+      query: vi.fn().mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [] }).mockResolvedValue({ rows: [] }),
       release: vi.fn(),
     }
     db.connect.mockResolvedValueOnce(client)
@@ -56,7 +53,8 @@ describe('POST /v1/zones/:zoneId/invocations', () => {
   it('returns 403 when the caller cannot invoke from the source application', async () => {
     const { app, db } = buildApp([], 'other-app')
     const client = {
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [{ application_id: 'app-1' }] })
         .mockResolvedValueOnce({ rows: [] })
@@ -80,7 +78,8 @@ describe('POST /v1/zones/:zoneId/invocations', () => {
   it('creates a pending invocation and enqueues an outbox event', async () => {
     const { app, db } = buildApp()
     const client = {
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [{ id: 'svc-1' }] })
         .mockResolvedValueOnce({ rows: [{ id: 'inv-1', zone_id: 'z1', service_id: 'svc-1', status: 'pending' }] })
@@ -112,7 +111,8 @@ describe('POST /v1/zones/:zoneId/invocations', () => {
   it('returns an existing invocation for the same idempotency key', async () => {
     const { app, db } = buildApp()
     const client = {
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [{ id: 'svc-1' }] })
         .mockResolvedValueOnce({ rows: [] })
@@ -140,7 +140,8 @@ describe('POST /v1/zones/:zoneId/invocations', () => {
   it('rejects invocation sessions outside the zone', async () => {
     const { app, db } = buildApp()
     const client = {
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [{ id: 'svc-1' }] })
         .mockResolvedValueOnce({ rows: [] })
@@ -170,10 +171,7 @@ describe('PATCH /v1/zones/:zoneId/invocations/:id/cancel', () => {
   it('returns 404 when the invocation to cancel is unknown', async () => {
     const { app, db } = buildApp()
     const client = {
-      query: vi.fn()
-        .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValue({ rows: [] }),
+      query: vi.fn().mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [] }).mockResolvedValue({ rows: [] }),
       release: vi.fn(),
     }
     db.connect.mockResolvedValueOnce(client)
@@ -186,7 +184,8 @@ describe('PATCH /v1/zones/:zoneId/invocations/:id/cancel', () => {
   it('returns 403 when the caller cannot cancel the invocation', async () => {
     const { app, db } = buildApp([], 'other-app')
     const client = {
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [{ application_id: 'app-1' }] })
         .mockResolvedValue({ rows: [] }),
@@ -202,7 +201,8 @@ describe('PATCH /v1/zones/:zoneId/invocations/:id/cancel', () => {
   it('returns 409 when the invocation cannot be canceled', async () => {
     const { app, db } = buildApp()
     const client = {
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [{ application_id: 'app-1' }] })
         .mockResolvedValueOnce({ rows: [] })
@@ -219,7 +219,8 @@ describe('PATCH /v1/zones/:zoneId/invocations/:id/cancel', () => {
   it('records cancellation and emits an invocation event', async () => {
     const { app, db } = buildApp()
     const client = {
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [{ application_id: 'app-1' }] })
         .mockResolvedValueOnce({ rows: [{ id: 'inv-1', status: 'cancel_requested' }] })
@@ -256,7 +257,10 @@ describe('rate limiting', () => {
     } as never)
     app.addHook('preHandler', async (req) => {
       ;(req as unknown as { caracalAuth: unknown }).caracalAuth = {
-        zoneId: 'z1', scopes: ['coordinator.admin'], subject: 'test', clientId: 'app-1',
+        zoneId: 'z1',
+        scopes: ['coordinator.admin'],
+        subject: 'test',
+        clientId: 'app-1',
       }
     })
     app.register(invocationsRoutes, { prefix: '/v1' })
@@ -295,10 +299,7 @@ describe('PATCH /v1/zones/:zoneId/invocations/:id/start', () => {
   it('returns 404 when the invocation is unknown', async () => {
     const { app, db } = buildApp()
     const client = {
-      query: vi.fn()
-        .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValue({ rows: [] }),
+      query: vi.fn().mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [] }).mockResolvedValue({ rows: [] }),
       release: vi.fn(),
     }
     db.connect.mockResolvedValueOnce(client)
@@ -311,7 +312,8 @@ describe('PATCH /v1/zones/:zoneId/invocations/:id/start', () => {
   it('returns 409 when the invocation is not startable', async () => {
     const { app, db } = buildApp()
     const client = {
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [{ application_id: 'app-1' }] })
         .mockResolvedValueOnce({ rows: [] })
@@ -328,7 +330,8 @@ describe('PATCH /v1/zones/:zoneId/invocations/:id/start', () => {
   it('returns 403 when the caller cannot start the invocation', async () => {
     const { app, db } = buildApp([], 'other-app')
     const client = {
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [{ application_id: 'app-1' }] })
         .mockResolvedValue({ rows: [] }),
@@ -344,7 +347,8 @@ describe('PATCH /v1/zones/:zoneId/invocations/:id/start', () => {
   it('marks the invocation running and commits', async () => {
     const { app, db } = buildApp()
     const client = {
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [{ application_id: 'app-1' }] })
         .mockResolvedValueOnce({ rows: [{ id: 'inv-1', service_id: 'svc-1', status: 'running' }] })
@@ -366,7 +370,8 @@ describe('PATCH /v1/zones/:zoneId/invocations/:id/complete', () => {
     const { app } = buildApp()
     await app.ready()
     const res = await app.inject({
-      method: 'PATCH', url: '/v1/zones/z1/invocations/inv-1/complete',
+      method: 'PATCH',
+      url: '/v1/zones/z1/invocations/inv-1/complete',
       payload: { status: 'bogus' },
     })
     expect(res.statusCode).toBe(500)
@@ -375,7 +380,8 @@ describe('PATCH /v1/zones/:zoneId/invocations/:id/complete', () => {
   it('returns 409 when the invocation is not completable', async () => {
     const { app, db } = buildApp()
     const client = {
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [{ application_id: 'app-1' }] })
         .mockResolvedValueOnce({ rows: [] })
@@ -385,7 +391,8 @@ describe('PATCH /v1/zones/:zoneId/invocations/:id/complete', () => {
     db.connect.mockResolvedValueOnce(client)
     await app.ready()
     const res = await app.inject({
-      method: 'PATCH', url: '/v1/zones/z1/invocations/inv-1/complete',
+      method: 'PATCH',
+      url: '/v1/zones/z1/invocations/inv-1/complete',
       payload: { status: 'succeeded' },
     })
     expect(res.statusCode).toBe(409)
@@ -395,16 +402,14 @@ describe('PATCH /v1/zones/:zoneId/invocations/:id/complete', () => {
   it('returns 404 when the invocation to complete is unknown', async () => {
     const { app, db } = buildApp()
     const client = {
-      query: vi.fn()
-        .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValue({ rows: [] }),
+      query: vi.fn().mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [] }).mockResolvedValue({ rows: [] }),
       release: vi.fn(),
     }
     db.connect.mockResolvedValueOnce(client)
     await app.ready()
     const res = await app.inject({
-      method: 'PATCH', url: '/v1/zones/z1/invocations/missing/complete',
+      method: 'PATCH',
+      url: '/v1/zones/z1/invocations/missing/complete',
       payload: { status: 'succeeded' },
     })
     expect(res.statusCode).toBe(404)
@@ -414,7 +419,8 @@ describe('PATCH /v1/zones/:zoneId/invocations/:id/complete', () => {
   it('returns 403 when the caller cannot complete the invocation', async () => {
     const { app, db } = buildApp([], 'other-app')
     const client = {
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [{ application_id: 'app-1' }] })
         .mockResolvedValue({ rows: [] }),
@@ -423,7 +429,8 @@ describe('PATCH /v1/zones/:zoneId/invocations/:id/complete', () => {
     db.connect.mockResolvedValueOnce(client)
     await app.ready()
     const res = await app.inject({
-      method: 'PATCH', url: '/v1/zones/z1/invocations/inv-1/complete',
+      method: 'PATCH',
+      url: '/v1/zones/z1/invocations/inv-1/complete',
       payload: { status: 'succeeded' },
     })
     expect(res.statusCode).toBe(403)
@@ -433,7 +440,8 @@ describe('PATCH /v1/zones/:zoneId/invocations/:id/complete', () => {
   it('completes a running invocation', async () => {
     const { app, db } = buildApp()
     const client = {
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [{ application_id: 'app-1' }] })
         .mockResolvedValueOnce({ rows: [{ id: 'inv-1', service_id: 'svc-1', status: 'succeeded' }] })
@@ -444,7 +452,8 @@ describe('PATCH /v1/zones/:zoneId/invocations/:id/complete', () => {
     db.connect.mockResolvedValueOnce(client)
     await app.ready()
     const res = await app.inject({
-      method: 'PATCH', url: '/v1/zones/z1/invocations/inv-1/complete',
+      method: 'PATCH',
+      url: '/v1/zones/z1/invocations/inv-1/complete',
       payload: { status: 'succeeded', metadata: { ok: true } },
     })
     expect(res.statusCode).toBe(200)

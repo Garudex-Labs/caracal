@@ -72,7 +72,10 @@ export function appendKeysetCondition(
   return { conds, values, limitPlaceholder: `$${values.length}` }
 }
 
-interface RowWithKey { id: string; created_at: string | Date }
+interface RowWithKey {
+  id: string
+  created_at: string | Date
+}
 
 export function setNextLink(
   req: FastifyRequest,

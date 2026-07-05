@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 Log query and SSE stream endpoints for categorized event logs.
 """
+
 from __future__ import annotations
 
 from fastapi import APIRouter
@@ -16,7 +17,9 @@ router = APIRouter()
 
 
 @router.get("/recent")
-def recent(runId: str | None = None, category: str | None = None, customerId: str | None = None) -> dict:
+def recent(
+    runId: str | None = None, category: str | None = None, customerId: str | None = None
+) -> dict:
     if runId:
         events = bus.history(runId)
     else:

@@ -103,6 +103,6 @@ describe('instrumentFastifyApp', () => {
     const hooks = captureHooks()
     await expect(hooks.onResponse({}, { statusCode: 200 })).resolves.toBeUndefined()
     await expect(hooks.onError({}, {}, new Error('boom'))).resolves.toBeUndefined()
-    await expect(hooks.onError({ /* no span */ }, {}, 'not-an-error')).resolves.toBeUndefined()
+    await expect(hooks.onError({/* no span */}, {}, 'not-an-error')).resolves.toBeUndefined()
   })
 })

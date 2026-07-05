@@ -101,8 +101,7 @@ describe('RedisRevocationStore', () => {
     expect(await store.currentDelegationEpoch('zone1')).toBe(0)
 
     redis.failGet = true
-    await expect(new RedisRevocationStore(redis, { failClosed: false }).currentDelegationEpoch('zone1'))
-      .rejects.toThrow('redis down')
+    await expect(new RedisRevocationStore(redis, { failClosed: false }).currentDelegationEpoch('zone1')).rejects.toThrow('redis down')
   })
 
   it('ignores invalid delegation epoch writes', async () => {
@@ -122,27 +121,42 @@ describe('RedisRevocationConsumer', () => {
     const redis = new FakeRedis()
     const store = new RedisRevocationStore(redis)
 
-    expect(() => new RedisRevocationConsumer(redis, store, {
-      consumer: 'resource-1',
-      requireSignature: true,
-    })).toThrow('streamHmacKey is required')
+    expect(
+      () =>
+        new RedisRevocationConsumer(redis, store, {
+          consumer: 'resource-1',
+          requireSignature: true,
+        }),
+    ).toThrow('streamHmacKey is required')
 
-    await expect(new RedisRevocationConsumer({
-      get: redis.get.bind(redis),
-      set: redis.set.bind(redis),
-      xautoclaim: redis.xautoclaim.bind(redis),
-      xack: redis.xack.bind(redis),
-    }, store, {
-      consumer: 'resource-1',
-    }).pollOnce()).rejects.toThrow('xreadgroup')
-    await expect(new RedisRevocationConsumer({
-      get: redis.get.bind(redis),
-      set: redis.set.bind(redis),
-      xreadgroup: redis.xreadgroup.bind(redis),
-      xack: redis.xack.bind(redis),
-    }, store, {
-      consumer: 'resource-1',
-    }).pollOnce()).rejects.toThrow('xautoclaim')
+    await expect(
+      new RedisRevocationConsumer(
+        {
+          get: redis.get.bind(redis),
+          set: redis.set.bind(redis),
+          xautoclaim: redis.xautoclaim.bind(redis),
+          xack: redis.xack.bind(redis),
+        },
+        store,
+        {
+          consumer: 'resource-1',
+        },
+      ).pollOnce(),
+    ).rejects.toThrow('xreadgroup')
+    await expect(
+      new RedisRevocationConsumer(
+        {
+          get: redis.get.bind(redis),
+          set: redis.set.bind(redis),
+          xreadgroup: redis.xreadgroup.bind(redis),
+          xack: redis.xack.bind(redis),
+        },
+        store,
+        {
+          consumer: 'resource-1',
+        },
+      ).pollOnce(),
+    ).rejects.toThrow('xautoclaim')
   })
 
   it('creates consumer groups idempotently and surfaces unexpected group errors', async () => {
@@ -172,15 +186,32 @@ describe('RedisRevocationConsumer', () => {
       reason: 'grant_revoked',
     }
     const sig = signStream(key, REVOCATION_STREAM, values)
-    redis.stream = [[REVOCATION_STREAM, [['1-0', [
-      'zone_id', 'zone1',
-      'session_id', 'sid-1',
-      'root_sid', 'root-1',
-      'agent_session_id', 'agent-1',
-      'delegation_edge_id', 'edge-1',
-      'reason', 'grant_revoked',
-      STREAM_SIG_FIELD, sig,
-    ]]]]]
+    redis.stream = [
+      [
+        REVOCATION_STREAM,
+        [
+          [
+            '1-0',
+            [
+              'zone_id',
+              'zone1',
+              'session_id',
+              'sid-1',
+              'root_sid',
+              'root-1',
+              'agent_session_id',
+              'agent-1',
+              'delegation_edge_id',
+              'edge-1',
+              'reason',
+              'grant_revoked',
+              STREAM_SIG_FIELD,
+              sig,
+            ],
+          ],
+        ],
+      ],
+    ]
 
     const consumer = new RedisRevocationConsumer(redis, store, {
       consumer: 'resource-1',
@@ -253,20 +284,17 @@ describe('RedisDelegationInvalidationConsumer', () => {
   it('requires stream signatures when configured and manages groups', async () => {
     const redis = new FakeRedis()
     const store = new RedisRevocationStore(redis)
-    expect(() => new RedisDelegationInvalidationConsumer(redis, store, {
-      consumer: 'resource-1',
-      requireSignature: true,
-    })).toThrow('streamHmacKey is required')
+    expect(
+      () =>
+        new RedisDelegationInvalidationConsumer(redis, store, {
+          consumer: 'resource-1',
+          requireSignature: true,
+        }),
+    ).toThrow('streamHmacKey is required')
 
     const consumer = new RedisDelegationInvalidationConsumer(redis, store, { consumer: 'resource-1' })
     await consumer.ensureGroup()
-    expect(redis.groups[0]).toEqual([
-      'CREATE',
-      DELEGATION_INVALIDATION_STREAM,
-      'resource-delegation-invalidation',
-      '0',
-      'MKSTREAM',
-    ])
+    expect(redis.groups[0]).toEqual(['CREATE', DELEGATION_INVALIDATION_STREAM, 'resource-delegation-invalidation', '0', 'MKSTREAM'])
     redis.groupError = new Error('NOAUTH')
     await expect(consumer.ensureGroup()).rejects.toThrow('NOAUTH')
   })
@@ -282,13 +310,12 @@ describe('RedisDelegationInvalidationConsumer', () => {
       epoch: '9',
     }
     const sig = signStream(key, DELEGATION_INVALIDATION_STREAM, values)
-    redis.stream = [[DELEGATION_INVALIDATION_STREAM, [['1-0', [
-      'event', 'edge_revoke',
-      'zone_id', 'zone1',
-      'edge_id', 'edge-1',
-      'epoch', '9',
-      STREAM_SIG_FIELD, sig,
-    ]]]]]
+    redis.stream = [
+      [
+        DELEGATION_INVALIDATION_STREAM,
+        [['1-0', ['event', 'edge_revoke', 'zone_id', 'zone1', 'edge_id', 'edge-1', 'epoch', '9', STREAM_SIG_FIELD, sig]]],
+      ],
+    ]
 
     const consumer = new RedisDelegationInvalidationConsumer(redis, store, {
       consumer: 'resource-1',
@@ -304,10 +331,15 @@ describe('RedisDelegationInvalidationConsumer', () => {
   it('acks invalid signatures and ignores malformed epoch messages', async () => {
     const redis = new FakeRedis()
     const store = new RedisRevocationStore(redis)
-    redis.stream = [[DELEGATION_INVALIDATION_STREAM, [
-      ['1-1', ['zone_id', 'zone1', 'epoch', '11', STREAM_SIG_FIELD, '00']],
-      ['1-2', ['zone_id', 'zone1', 'epoch', 'not-a-number']],
-    ]]]
+    redis.stream = [
+      [
+        DELEGATION_INVALIDATION_STREAM,
+        [
+          ['1-1', ['zone_id', 'zone1', 'epoch', '11', STREAM_SIG_FIELD, '00']],
+          ['1-2', ['zone_id', 'zone1', 'epoch', 'not-a-number']],
+        ],
+      ],
+    ]
 
     const signed = new RedisDelegationInvalidationConsumer(redis, store, {
       consumer: 'resource-1',

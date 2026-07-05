@@ -3,7 +3,7 @@
 //
 // Admin audit log: structured per-action records of every authenticated mutation, recorded before the response is reported as success.
 
-import { pathOnly } from '@caracalai/core'
+import { pathOnly } from '@caracalai/server-core'
 import { MUTATING_METHODS, insertAdminAuditRecord } from '@caracalai/admin-audit'
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { withTransaction } from './db.js'

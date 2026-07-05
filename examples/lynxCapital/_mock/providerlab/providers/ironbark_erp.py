@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 Ironbark ERP domain: enterprise vendor master, purchase orders, item receipts, vendor bills, three-way invoice match, vendor payments, journal entries, and the general ledger.
 """
+
 from __future__ import annotations
 
 import time
@@ -63,8 +64,11 @@ def list_vendors(ctx: Ctx) -> dict:
     items = list(ctx.state.table("vendors").values())
     query = str(ctx.get("query", "")).lower()
     if query:
-        items = [v for v in items
-                 if query in v["companyName"].lower() or query in v["entityId"].lower()]
+        items = [
+            v
+            for v in items
+            if query in v["companyName"].lower() or query in v["entityId"].lower()
+        ]
     status = ctx.get("status")
     if status:
         items = [v for v in items if v["status"] == status]
@@ -117,7 +121,9 @@ def get_purchase_order(ctx: Ctx) -> dict:
     ctx.require("purchaseOrderId")
     po = ctx.state.table("purchase_orders").get(ctx.payload["purchaseOrderId"])
     if po is None:
-        raise DomainError(404, "purchase_order_not_found", ctx.payload["purchaseOrderId"])
+        raise DomainError(
+            404, "purchase_order_not_found", ctx.payload["purchaseOrderId"]
+        )
     return po
 
 
@@ -128,8 +134,11 @@ def create_purchase_order(ctx: Ctx) -> dict:
     ctx.require("vendorId", "lines")
     vendor = _vendor(ctx, ctx.payload["vendorId"])
     if vendor["status"] != "active":
-        raise DomainError(409, "vendor_inactive",
-                          f"vendor {vendor['id']} is {vendor['status']} and cannot transact")
+        raise DomainError(
+            409,
+            "vendor_inactive",
+            f"vendor {vendor['id']} is {vendor['status']} and cannot transact",
+        )
     raw_lines = ctx.payload["lines"]
     if not isinstance(raw_lines, list) or not raw_lines:
         raise DomainError(422, "invalid_request", "at least one line is required")
@@ -139,22 +148,28 @@ def create_purchase_order(ctx: Ctx) -> dict:
             quantity = int(line["quantity"])
             rate = float(line["rate"])
         except (KeyError, TypeError, ValueError):
-            raise DomainError(422, "invalid_line", "each line needs numeric quantity and rate")
+            raise DomainError(
+                422, "invalid_line", "each line needs numeric quantity and rate"
+            )
         if quantity <= 0 or rate < 0:
-            raise DomainError(422, "invalid_line", "quantity must be positive and rate non-negative")
+            raise DomainError(
+                422, "invalid_line", "quantity must be positive and rate non-negative"
+            )
         amount = _round(quantity * rate, vendor["currency"])
         subtotal += amount
-        lines.append({
-            "lineId": n,
-            "item": line.get("item", "Goods or services"),
-            "description": line.get("description", ""),
-            "account": line.get("account", "6300"),
-            "quantity": quantity,
-            "quantityReceived": 0,
-            "quantityBilled": 0,
-            "rate": rate,
-            "amount": amount,
-        })
+        lines.append(
+            {
+                "lineId": n,
+                "item": line.get("item", "Goods or services"),
+                "description": line.get("description", ""),
+                "account": line.get("account", "6300"),
+                "quantity": quantity,
+                "quantityReceived": 0,
+                "quantityBilled": 0,
+                "rate": rate,
+                "amount": amount,
+            }
+        )
     currency = vendor["currency"]
     tax_rate = gen._TAX_RATE_BY_COUNTRY.get(vendor["addressBook"][0]["country"], 0.0)
     tax_total = _round(subtotal * tax_rate, currency)
@@ -190,7 +205,8 @@ def create_purchase_order(ctx: Ctx) -> dict:
     }
     ctx.state.table("purchase_orders")[po["id"]] = po
     vendor["unbilledOrdersPrimary"] = _round(
-        vendor["unbilledOrdersPrimary"] + po["total"], currency)
+        vendor["unbilledOrdersPrimary"] + po["total"], currency
+    )
     return po
 
 
@@ -202,9 +218,13 @@ def receive_purchase_order(ctx: Ctx) -> dict:
     ctx.require("purchaseOrderId")
     po = ctx.state.table("purchase_orders").get(ctx.payload["purchaseOrderId"])
     if po is None:
-        raise DomainError(404, "purchase_order_not_found", ctx.payload["purchaseOrderId"])
+        raise DomainError(
+            404, "purchase_order_not_found", ctx.payload["purchaseOrderId"]
+        )
     if po["status"] in ("fullyBilled", "closed"):
-        raise DomainError(409, "po_not_receivable", f"purchase order {po['id']} is {po['status']}")
+        raise DomainError(
+            409, "po_not_receivable", f"purchase order {po['id']} is {po['status']}"
+        )
 
     by_line = {l["lineId"]: l for l in po["lines"]}
     raw = ctx.get("lines")
@@ -213,24 +233,43 @@ def receive_purchase_order(ctx: Ctx) -> dict:
         for entry in raw:
             line = by_line.get(int(entry.get("lineId", 0)))
             if line is None:
-                raise DomainError(422, "invalid_line", f"line {entry.get('lineId')} not on this order")
+                raise DomainError(
+                    422, "invalid_line", f"line {entry.get('lineId')} not on this order"
+                )
             remaining = line["quantity"] - line["quantityReceived"]
             qty = int(entry.get("quantity", remaining))
             if qty <= 0 or qty > remaining:
-                raise DomainError(422, "invalid_quantity",
-                                  f"line {line['lineId']} can receive up to {remaining}")
+                raise DomainError(
+                    422,
+                    "invalid_quantity",
+                    f"line {line['lineId']} can receive up to {remaining}",
+                )
             line["quantityReceived"] += qty
-            receipt_lines.append({"lineId": line["lineId"], "item": line["item"],
-                                  "quantity": qty, "quantityOrdered": line["quantity"]})
+            receipt_lines.append(
+                {
+                    "lineId": line["lineId"],
+                    "item": line["item"],
+                    "quantity": qty,
+                    "quantityOrdered": line["quantity"],
+                }
+            )
     else:
         for line in po["lines"]:
             remaining = line["quantity"] - line["quantityReceived"]
             if remaining > 0:
                 line["quantityReceived"] = line["quantity"]
-                receipt_lines.append({"lineId": line["lineId"], "item": line["item"],
-                                      "quantity": remaining, "quantityOrdered": line["quantity"]})
+                receipt_lines.append(
+                    {
+                        "lineId": line["lineId"],
+                        "item": line["item"],
+                        "quantity": remaining,
+                        "quantityOrdered": line["quantity"],
+                    }
+                )
     if not receipt_lines:
-        raise DomainError(409, "nothing_to_receive", "every line is already fully received")
+        raise DomainError(
+            409, "nothing_to_receive", "every line is already fully received"
+        )
 
     fully = all(l["quantityReceived"] >= l["quantity"] for l in po["lines"])
     po["status"] = "pendingBilling" if fully else "partiallyReceived"
@@ -295,8 +334,12 @@ def list_bills(ctx: Ctx) -> dict:
     if ctx.get("overdue") is not None:
         today = _iso(base.now())[:10]
         wanted = bool(ctx.get("overdue"))
-        items = [b for b in items
-                 if (b["status"] in _OPEN_BILL_STATES and b["dueDate"][:10] < today) == wanted]
+        items = [
+            b
+            for b in items
+            if (b["status"] in _OPEN_BILL_STATES and b["dueDate"][:10] < today)
+            == wanted
+        ]
     items.sort(key=lambda b: b["createdDate"], reverse=True)
     return ctx.paginate(items, size_default=20)
 
@@ -320,15 +363,21 @@ def create_bill(ctx: Ctx) -> dict:
     ctx.require("vendorId")
     vendor = _vendor(ctx, ctx.payload["vendorId"])
     if vendor["status"] == "onHold":
-        raise DomainError(409, "vendor_on_hold",
-                          f"vendor {vendor['id']} is on hold; release before billing")
+        raise DomainError(
+            409,
+            "vendor_on_hold",
+            f"vendor {vendor['id']} is on hold; release before billing",
+        )
     if vendor["status"] == "inactive":
         raise DomainError(409, "vendor_inactive", f"vendor {vendor['id']} is inactive")
 
     currency = ctx.get("currency", vendor["currency"])
     if currency != vendor["currency"]:
-        raise DomainError(422, "currency_mismatch",
-                          f"vendor transacts in {vendor['currency']}, not {currency}")
+        raise DomainError(
+            422,
+            "currency_mismatch",
+            f"vendor transacts in {vendor['currency']}, not {currency}",
+        )
 
     lines = ctx.get("lines")
     if isinstance(lines, list) and lines:
@@ -342,10 +391,19 @@ def create_bill(ctx: Ctx) -> dict:
         try:
             subtotal = float(ctx.payload["amount"])
         except (KeyError, TypeError, ValueError):
-            raise DomainError(422, "invalid_request", "provide line items or a bill amount")
-        lines = [{"lineId": 1, "item": ctx.get("memo", "Vendor charge"),
-                  "account": vendor["defaultPayablesAccount"], "quantity": 1,
-                  "rate": subtotal, "amount": subtotal}]
+            raise DomainError(
+                422, "invalid_request", "provide line items or a bill amount"
+            )
+        lines = [
+            {
+                "lineId": 1,
+                "item": ctx.get("memo", "Vendor charge"),
+                "account": vendor["defaultPayablesAccount"],
+                "quantity": 1,
+                "rate": subtotal,
+                "amount": subtotal,
+            }
+        ]
     subtotal = _round(subtotal, currency)
     if subtotal <= 0:
         raise DomainError(422, "invalid_amount", "bill amount must be positive")
@@ -353,9 +411,15 @@ def create_bill(ctx: Ctx) -> dict:
     reference = ctx.get("referenceNumber")
     if reference:
         for existing in ctx.state.table("bills").values():
-            if existing["vendorId"] == vendor["id"] and existing.get("referenceNumber") == reference:
-                raise DomainError(409, "duplicate_bill",
-                                  f"reference {reference} already recorded as {existing['id']}")
+            if (
+                existing["vendorId"] == vendor["id"]
+                and existing.get("referenceNumber") == reference
+            ):
+                raise DomainError(
+                    409,
+                    "duplicate_bill",
+                    f"reference {reference} already recorded as {existing['id']}",
+                )
 
     po_id = ctx.get("purchaseOrderId")
     po = None
@@ -364,9 +428,13 @@ def create_bill(ctx: Ctx) -> dict:
         if po is None:
             raise DomainError(404, "purchase_order_not_found", po_id)
         if po["vendorId"] != vendor["id"]:
-            raise DomainError(422, "po_vendor_mismatch", "purchase order belongs to another vendor")
+            raise DomainError(
+                422, "po_vendor_mismatch", "purchase order belongs to another vendor"
+            )
         if po["status"] in ("fullyBilled", "closed"):
-            raise DomainError(409, "po_already_billed", f"purchase order {po_id} is {po['status']}")
+            raise DomainError(
+                409, "po_already_billed", f"purchase order {po_id} is {po['status']}"
+            )
 
     country = vendor["addressBook"][0]["country"]
     tax_total = _round(subtotal * gen._TAX_RATE_BY_COUNTRY.get(country, 0.0), currency)
@@ -396,14 +464,18 @@ def create_bill(ctx: Ctx) -> dict:
         "exchangeRate": gen._fx_rate(currency),
         "terms": vendor["terms"],
         "discountDate": _iso(now + 10 * 86_400)[:10] if discount_pct else None,
-        "discountAmount": _round(subtotal * discount_pct, currency) if discount_pct else 0.0,
+        "discountAmount": _round(subtotal * discount_pct, currency)
+        if discount_pct
+        else 0.0,
         "lines": lines,
         "subtotal": subtotal,
         "taxTotal": tax_total,
         "total": total,
         "amountPaid": 0.0,
         "amountRemaining": total,
-        "postingPeriod": ctx.get("postingPeriod", time.strftime("%b %Y", time.gmtime(now))),
+        "postingPeriod": ctx.get(
+            "postingPeriod", time.strftime("%b %Y", time.gmtime(now))
+        ),
         "createdDate": _iso(now),
         "dueDate": _iso(due),
     }
@@ -414,7 +486,8 @@ def create_bill(ctx: Ctx) -> dict:
         po["billingStatus"] = "fullyBilled"
         po["status"] = "fullyBilled"
         vendor["unbilledOrdersPrimary"] = _round(
-            max(0.0, vendor["unbilledOrdersPrimary"] - po["total"]), currency)
+            max(0.0, vendor["unbilledOrdersPrimary"] - po["total"]), currency
+        )
     _adjust_account(ctx, "ACCT-2000", total)
     return bill
 
@@ -428,8 +501,11 @@ def approve_bill(ctx: Ctx) -> dict:
     if bill is None:
         raise DomainError(404, "bill_not_found", ctx.payload["billId"])
     if bill["status"] != "pendingApproval":
-        raise DomainError(409, "bill_not_pending",
-                          f"bill {bill['id']} is {bill['status']} and not awaiting approval")
+        raise DomainError(
+            409,
+            "bill_not_pending",
+            f"bill {bill['id']} is {bill['status']} and not awaiting approval",
+        )
     bill["status"] = "open"
     bill["approvalStatus"] = "approved"
     return bill
@@ -445,13 +521,21 @@ def pay_bill(ctx: Ctx) -> dict:
     if bill is None:
         raise DomainError(404, "bill_not_found", ctx.payload["billId"])
     if bill["status"] == "pendingApproval":
-        raise DomainError(409, "bill_not_approved",
-                          f"bill {bill['id']} is awaiting approval and cannot be paid")
+        raise DomainError(
+            409,
+            "bill_not_approved",
+            f"bill {bill['id']} is awaiting approval and cannot be paid",
+        )
     if bill["status"] not in _OPEN_BILL_STATES:
-        raise DomainError(409, "bill_not_payable", f"bill {bill['id']} is {bill['status']}")
+        raise DomainError(
+            409, "bill_not_payable", f"bill {bill['id']} is {bill['status']}"
+        )
     if bill["paymentHold"]:
-        raise DomainError(409, "payment_hold",
-                          f"bill {bill['id']} is on payment hold; release it before paying")
+        raise DomainError(
+            409,
+            "payment_hold",
+            f"bill {bill['id']} is on payment hold; release it before paying",
+        )
 
     currency = bill["currency"]
     remaining = bill["amountRemaining"]
@@ -460,8 +544,11 @@ def pay_bill(ctx: Ctx) -> dict:
     if amount <= 0:
         raise DomainError(422, "invalid_amount", "payment amount must be positive")
     if amount > remaining:
-        raise DomainError(422, "overpayment",
-                          f"payment {amount} exceeds the {remaining} remaining on the bill")
+        raise DomainError(
+            422,
+            "overpayment",
+            f"payment {amount} exceeds the {remaining} remaining on the bill",
+        )
 
     vendor = _vendor(ctx, bill["vendorId"])
     now = base.now()
@@ -473,7 +560,9 @@ def pay_bill(ctx: Ctx) -> dict:
     fully = bill["amountRemaining"] <= 0
     bill["status"] = "paidInFull" if fully else "partiallyPaid"
 
-    vendor["balancePrimary"] = _round(max(0.0, vendor["balancePrimary"] - amount), currency)
+    vendor["balancePrimary"] = _round(
+        max(0.0, vendor["balancePrimary"] - amount), currency
+    )
     if fully:
         vendor["openBillCount"] = max(0, vendor["openBillCount"] - 1)
     _adjust_account(ctx, "ACCT-2000", -amount)
@@ -493,7 +582,9 @@ def pay_bill(ctx: Ctx) -> dict:
         "currency": currency,
         "exchangeRate": gen._fx_rate(currency),
         "paymentMethod": ctx.get("paymentMethod", vendor["paymentMethod"]),
-        "memo": ctx.get("memo", f"Payment to {vendor['companyName']} for {bill['tranId']}"),
+        "memo": ctx.get(
+            "memo", f"Payment to {vendor['companyName']} for {bill['tranId']}"
+        ),
         "applied": [{"billId": bill["id"], "tranId": bill["tranId"], "amount": amount}],
         "total": amount,
         "postingPeriod": time.strftime("%b %Y", time.gmtime(now)),
@@ -563,7 +654,9 @@ def match_invoice(ctx: Ctx) -> dict:
 
     po = ctx.state.table("purchase_orders").get(rec.get("purchaseOrderId") or "")
     if po is not None:
-        variance = abs(po["total"] - rec["amount"]) / po["total"] if po["total"] else 0.0
+        variance = (
+            abs(po["total"] - rec["amount"]) / po["total"] if po["total"] else 0.0
+        )
         if variance > _PRICE_VARIANCE_TOLERANCE:
             rec["status"] = "exception"
             rec["reason"] = "price_variance"
@@ -589,7 +682,9 @@ def post_journal_entry(ctx: Ctx) -> dict:
     ctx.require_scope("erp.write")
     lines = ctx.get("lines") or []
     if len(lines) < 2:
-        raise DomainError(422, "unbalanced_entry", "a journal entry needs at least two lines")
+        raise DomainError(
+            422, "unbalanced_entry", "a journal entry needs at least two lines"
+        )
     period = ctx.get("postingPeriod", time.strftime("%b %Y", time.gmtime(base.now())))
     if period in _CLOSED_PERIODS:
         raise DomainError(422, "period_closed", f"posting period {period} is closed")
@@ -599,18 +694,29 @@ def post_journal_entry(ctx: Ctx) -> dict:
     for n, line in enumerate(lines, start=1):
         account = str(line.get("account", ""))
         if account and f"ACCT-{account}" not in accounts and account not in accounts:
-            raise DomainError(422, "invalid_account", f"account {account} is not in the chart")
+            raise DomainError(
+                422, "invalid_account", f"account {account} is not in the chart"
+            )
         d = float(line.get("debit", 0) or 0)
         c = float(line.get("credit", 0) or 0)
         debit += d
         credit += c
-        normalized.append({"line": n, "account": account, "debit": d, "credit": c,
-                           "memo": line.get("memo", ""),
-                           "department": line.get("department", ""),
-                           "location": line.get("location", ""),
-                           "class": line.get("class", "")})
+        normalized.append(
+            {
+                "line": n,
+                "account": account,
+                "debit": d,
+                "credit": c,
+                "memo": line.get("memo", ""),
+                "department": line.get("department", ""),
+                "location": line.get("location", ""),
+                "class": line.get("class", ""),
+            }
+        )
     if round(debit - credit, 2) != 0:
-        raise DomainError(422, "unbalanced_entry", f"debits {debit} != credits {credit}")
+        raise DomainError(
+            422, "unbalanced_entry", f"debits {debit} != credits {credit}"
+        )
     now = base.now()
     entry = {
         "id": base.new_id("je"),
@@ -720,9 +826,14 @@ def get_ap_aging(ctx: Ctx) -> dict:
         buckets[bucket] = round(buckets[bucket] + remaining, 2)
         slot = by_vendor.setdefault(
             bill["vendorId"],
-            {"vendorId": bill["vendorId"], "vendorName": bill["vendorName"],
-             "currency": bill["currency"], "openBills": 0,
-             "buckets": {b: 0.0 for b in _AGING_BUCKETS}, "total": 0.0},
+            {
+                "vendorId": bill["vendorId"],
+                "vendorName": bill["vendorName"],
+                "currency": bill["currency"],
+                "openBills": 0,
+                "buckets": {b: 0.0 for b in _AGING_BUCKETS},
+                "total": 0.0,
+            },
         )
         slot["openBills"] += 1
         slot["buckets"][bucket] = round(slot["buckets"][bucket] + remaining, 2)

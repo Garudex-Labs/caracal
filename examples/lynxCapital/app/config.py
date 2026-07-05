@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 Configuration loader for company.yaml.
 """
+
 from __future__ import annotations
 
 import os

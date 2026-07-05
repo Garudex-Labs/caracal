@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 Vela Notify domain: transactional email and SMS notifications with templates, delivery tracking, suppression lists, and webhooks.
 """
+
 from __future__ import annotations
 
 import re
@@ -18,8 +19,17 @@ ID = "vela-notify"
 _CHANNELS = ("email", "sms")
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _PHONE_RE = re.compile(r"^\+?[0-9][0-9 \-]{5,}$")
-_VALID_EVENTS = ("Delivery", "Bounce", "SpamComplaint", "Open", "Click",
-                 "sent", "delivered", "undelivered", "failed")
+_VALID_EVENTS = (
+    "Delivery",
+    "Bounce",
+    "SpamComplaint",
+    "Open",
+    "Click",
+    "sent",
+    "delivered",
+    "undelivered",
+    "failed",
+)
 
 
 @base.seeder(ID)
@@ -32,7 +42,12 @@ def seed(state: base.State) -> None:
 # helpers
 # --------------------------------------------------------------------------- #
 def _iso(ts: int) -> str:
-    return datetime.fromtimestamp(ts, tz=timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return (
+        datetime.fromtimestamp(ts, tz=timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
 
 
 def _suppression_key(channel: str, recipient: str) -> str:
@@ -78,12 +93,16 @@ def _sms_region(recipient: str) -> str:
 
 
 def _events_for(ctx: Ctx, message_id: str) -> list[dict]:
-    events = [e for e in ctx.state.table("events").values() if e["messageId"] == message_id]
+    events = [
+        e for e in ctx.state.table("events").values() if e["messageId"] == message_id
+    ]
     events.sort(key=lambda e: e["occurredAt"])
     return events
 
 
-def _record_event(ctx: Ctx, message: dict, etype: str, detail: dict | None = None) -> dict:
+def _record_event(
+    ctx: Ctx, message: dict, etype: str, detail: dict | None = None
+) -> dict:
     event = {
         "eventId": base.new_id("evt"),
         "messageId": message["messageId"],
@@ -99,13 +118,16 @@ def _record_event(ctx: Ctx, message: dict, etype: str, detail: dict | None = Non
 
 def _suppress(ctx: Ctx, message: dict, reason: str) -> None:
     key = _suppression_key(message["channel"], message["to"])
-    ctx.state.table("suppressions").setdefault(key, {
-        "recipient": message["to"],
-        "channel": message["channel"],
-        "reason": reason,
-        "origin": "Recipient",
-        "createdAt": _iso(base.now()),
-    })
+    ctx.state.table("suppressions").setdefault(
+        key,
+        {
+            "recipient": message["to"],
+            "channel": message["channel"],
+            "reason": reason,
+            "origin": "Recipient",
+            "createdAt": _iso(base.now()),
+        },
+    )
 
 
 def _advance(ctx: Ctx, message: dict) -> None:
@@ -122,8 +144,11 @@ def _advance(ctx: Ctx, message: dict) -> None:
             _record_event(ctx, message, "Sent")
         elif status == "sent":
             if outcome in ("bounced", "softbounce"):
-                detail = dict(gen._VELA_SOFTBOUNCE_DETAIL if outcome == "softbounce"
-                              else gen._VELA_BOUNCE_DETAIL)
+                detail = dict(
+                    gen._VELA_SOFTBOUNCE_DETAIL
+                    if outcome == "softbounce"
+                    else gen._VELA_BOUNCE_DETAIL
+                )
                 message["status"] = "bounced"
                 message["bounce"] = detail
                 message["errorCode"] = detail["code"]
@@ -133,12 +158,16 @@ def _advance(ctx: Ctx, message: dict) -> None:
                     _suppress(ctx, message, "HardBounce")
             elif outcome == "spam":
                 message["status"] = "delivered"
-                _record_event(ctx, message, "Delivery", {"smtpResponse": "250 2.0.0 OK"})
+                _record_event(
+                    ctx, message, "Delivery", {"smtpResponse": "250 2.0.0 OK"}
+                )
                 _record_event(ctx, message, "SpamComplaint", {"origin": "Recipient"})
                 _suppress(ctx, message, "SpamComplaint")
             else:
                 message["status"] = "delivered"
-                _record_event(ctx, message, "Delivery", {"smtpResponse": "250 2.0.0 OK"})
+                _record_event(
+                    ctx, message, "Delivery", {"smtpResponse": "250 2.0.0 OK"}
+                )
     else:
         if status == "queued":
             message["status"] = "sending"
@@ -149,16 +178,29 @@ def _advance(ctx: Ctx, message: dict) -> None:
                 message["status"] = outcome
                 message["errorCode"] = code
                 message["error"] = reason
-                _record_event(ctx, message, outcome,
-                              {"errorCode": code, "reason": reason,
-                               "carrier": message.get("carrier")})
+                _record_event(
+                    ctx,
+                    message,
+                    outcome,
+                    {
+                        "errorCode": code,
+                        "reason": reason,
+                        "carrier": message.get("carrier"),
+                    },
+                )
             else:
                 message["status"] = "delivered"
                 _record_event(ctx, message, "sent")
-                _record_event(ctx, message, "delivered",
-                              {"carrier": message.get("carrier"),
-                               "segments": message.get("segments"),
-                               "price": message.get("price")})
+                _record_event(
+                    ctx,
+                    message,
+                    "delivered",
+                    {
+                        "carrier": message.get("carrier"),
+                        "segments": message.get("segments"),
+                        "price": message.get("price"),
+                    },
+                )
     message["updatedAt"] = _iso(base.now())
 
 
@@ -169,8 +211,11 @@ def _with_events(ctx: Ctx, message: dict) -> dict:
 def _render(template: dict, variables: dict, channel: str) -> dict:
     missing = [v for v in template["variables"] if v not in variables]
     if missing:
-        raise DomainError(422, "missing_variables",
-                          f"template requires variable(s): {', '.join(missing)}")
+        raise DomainError(
+            422,
+            "missing_variables",
+            f"template requires variable(s): {', '.join(missing)}",
+        )
 
     def fill(text: str | None) -> str | None:
         if text is None:
@@ -181,14 +226,21 @@ def _render(template: dict, variables: dict, channel: str) -> dict:
 
     if channel == "sms":
         return {"channel": "sms", "body": fill(template["smsBody"])}
-    return {"channel": "email", "subject": fill(template["subject"]),
-            "textBody": fill(template["textBody"]), "htmlBody": fill(template["htmlBody"])}
+    return {
+        "channel": "email",
+        "subject": fill(template["subject"]),
+        "textBody": fill(template["textBody"]),
+        "htmlBody": fill(template["htmlBody"]),
+    }
 
 
 def _build_message(ctx: Ctx, channel: str, recipient: str, template: dict) -> dict:
     message_id = base.new_id("msg")
-    sender = ctx.get("from") or (gen._VELA_SMS_SENDER if channel == "sms"
-                                 else f"no-reply@{gen._VELA_EMAIL_DOMAIN}")
+    sender = ctx.get("from") or (
+        gen._VELA_SMS_SENDER
+        if channel == "sms"
+        else f"no-reply@{gen._VELA_EMAIL_DOMAIN}"
+    )
     message = {
         "messageId": message_id,
         "providerMessageId": base.new_id("carrier" if channel == "sms" else "esp"),
@@ -210,23 +262,29 @@ def _build_message(ctx: Ctx, channel: str, recipient: str, template: dict) -> di
     }
     if channel == "email":
         track_links = ctx.get("trackLinks", "HtmlAndText")
-        message.update({
-            "cc": list(ctx.get("cc", [])),
-            "bcc": list(ctx.get("bcc", [])),
-            "replyTo": ctx.get("replyTo") or f"ap@{gen._VELA_EMAIL_DOMAIN}",
-            "trackOpens": bool(ctx.get("trackOpens", True)),
-            "trackLinks": track_links,
-            "openCount": 0,
-            "clickCount": 0,
-        })
+        message.update(
+            {
+                "cc": list(ctx.get("cc", [])),
+                "bcc": list(ctx.get("bcc", [])),
+                "replyTo": ctx.get("replyTo") or f"ap@{gen._VELA_EMAIL_DOMAIN}",
+                "trackOpens": bool(ctx.get("trackOpens", True)),
+                "trackLinks": track_links,
+                "openCount": 0,
+                "clickCount": 0,
+            }
+        )
     else:
         region = _sms_region(recipient)
-        message.update({
-            "segments": gen._vela_segments(template.get("smsBody")),
-            "price": {"amount": gen._VELA_SMS_PRICE.get(region, 0.05),
-                      "currency": "USD"},
-            "carrier": gen._VELA_SMS_CARRIERS[0],
-        })
+        message.update(
+            {
+                "segments": gen._vela_segments(template.get("smsBody")),
+                "price": {
+                    "amount": gen._VELA_SMS_PRICE.get(region, 0.05),
+                    "currency": "USD",
+                },
+                "carrier": gen._VELA_SMS_CARRIERS[0],
+            }
+        )
     return message
 
 
@@ -244,13 +302,22 @@ def send_message(ctx: Ctx) -> dict:
     if template is None:
         raise DomainError(404, "template_not_found", ctx.payload["template"])
     if channel not in template["channels"]:
-        raise DomainError(422, "channel_unsupported", "template does not support this channel")
+        raise DomainError(
+            422, "channel_unsupported", "template does not support this channel"
+        )
     recipient = str(ctx.payload["to"])
     if not _valid_recipient(channel, recipient):
-        raise DomainError(422, "invalid_recipient", f"{recipient!r} is not a valid {channel} recipient")
+        raise DomainError(
+            422,
+            "invalid_recipient",
+            f"{recipient!r} is not a valid {channel} recipient",
+        )
     if _suppression_key(channel, recipient) in ctx.state.table("suppressions"):
-        raise DomainError(406, "inactive_recipient",
-                          "recipient is on the suppression list and cannot be messaged")
+        raise DomainError(
+            406,
+            "inactive_recipient",
+            "recipient is on the suppression list and cannot be messaged",
+        )
     message = _build_message(ctx, channel, recipient, template)
     ctx.state.table("messages")[message["messageId"]] = message
     return message
@@ -271,28 +338,48 @@ def send_batch(ctx: Ctx) -> dict:
         recipient = str(item.get("to", ""))
         template = templates.get(item.get("template"))
         if channel not in _CHANNELS:
-            results.append({"to": recipient, "errorCode": 422, "message": "invalid_channel"})
+            results.append(
+                {"to": recipient, "errorCode": 422, "message": "invalid_channel"}
+            )
             continue
         if template is None:
-            results.append({"to": recipient, "errorCode": 404, "message": "template_not_found"})
+            results.append(
+                {"to": recipient, "errorCode": 404, "message": "template_not_found"}
+            )
             continue
         if channel not in template["channels"]:
-            results.append({"to": recipient, "errorCode": 422, "message": "channel_unsupported"})
+            results.append(
+                {"to": recipient, "errorCode": 422, "message": "channel_unsupported"}
+            )
             continue
         if not _valid_recipient(channel, recipient):
-            results.append({"to": recipient, "errorCode": 422, "message": "invalid_recipient"})
+            results.append(
+                {"to": recipient, "errorCode": 422, "message": "invalid_recipient"}
+            )
             continue
         if _suppression_key(channel, recipient) in suppressions:
-            results.append({"to": recipient, "errorCode": 406, "message": "inactive_recipient"})
+            results.append(
+                {"to": recipient, "errorCode": 406, "message": "inactive_recipient"}
+            )
             continue
         sub = Ctx(ctx.provider, ctx.state, ctx.op, item, ctx.principal)
         message = _build_message(sub, channel, recipient, template)
         ctx.state.table("messages")[message["messageId"]] = message
-        results.append({"to": recipient, "errorCode": 0, "messageId": message["messageId"],
-                        "status": message["status"]})
+        results.append(
+            {
+                "to": recipient,
+                "errorCode": 0,
+                "messageId": message["messageId"],
+                "status": message["status"],
+            }
+        )
     accepted = sum(1 for r in results if r["errorCode"] == 0)
-    return {"submitted": len(results), "accepted": accepted,
-            "rejected": len(results) - accepted, "results": results}
+    return {
+        "submitted": len(results),
+        "accepted": accepted,
+        "rejected": len(results) - accepted,
+        "results": results,
+    }
 
 
 @base.op(ID, "get_message")
@@ -310,8 +397,12 @@ def get_message(ctx: Ctx) -> dict:
 def list_messages(ctx: Ctx) -> dict:
     """List submitted messages, filterable by status, channel, tag, stream, or recipient."""
     items = list(ctx.state.table("messages").values())
-    for field, key in (("status", "status"), ("channel", "channel"),
-                       ("tag", "tag"), ("messageStream", "messageStream")):
+    for field, key in (
+        ("status", "status"),
+        ("channel", "channel"),
+        ("tag", "tag"),
+        ("messageStream", "messageStream"),
+    ):
         value = ctx.get(field)
         if value:
             items = [m for m in items if m[key] == value]
@@ -331,8 +422,12 @@ def get_message_events(ctx: Ctx) -> dict:
     if message is None:
         raise DomainError(404, "message_not_found", ctx.payload["messageId"])
     _advance(ctx, message)
-    return {"messageId": message["messageId"], "channel": message["channel"],
-            "status": message["status"], "events": _events_for(ctx, message["messageId"])}
+    return {
+        "messageId": message["messageId"],
+        "channel": message["channel"],
+        "status": message["status"],
+        "events": _events_for(ctx, message["messageId"]),
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -364,7 +459,9 @@ def create_template(ctx: Ctx) -> dict:
         raise DomainError(409, "template_exists", f"template {alias!r} already exists")
     channels = ctx.payload["channels"]
     if not isinstance(channels, list) or not set(channels).issubset(_CHANNELS):
-        raise DomainError(422, "invalid_channels", "channels must be a subset of [email, sms]")
+        raise DomainError(
+            422, "invalid_channels", "channels must be a subset of [email, sms]"
+        )
     now = _iso(base.now())
     template = {
         "templateId": base.new_id("tmpl"),
@@ -398,8 +495,16 @@ def update_template(ctx: Ctx) -> dict:
     template = templates.get(ctx.payload["template"])
     if template is None:
         raise DomainError(404, "template_not_found", ctx.payload["template"])
-    editable = ("name", "subject", "htmlBody", "textBody", "smsBody",
-                "category", "messageStream", "layoutTemplate")
+    editable = (
+        "name",
+        "subject",
+        "htmlBody",
+        "textBody",
+        "smsBody",
+        "category",
+        "messageStream",
+        "layoutTemplate",
+    )
     changed = False
     for field in editable:
         if field in ctx.payload:
@@ -411,7 +516,9 @@ def update_template(ctx: Ctx) -> dict:
     if "channels" in ctx.payload:
         channels = ctx.payload["channels"]
         if not isinstance(channels, list) or not set(channels).issubset(_CHANNELS):
-            raise DomainError(422, "invalid_channels", "channels must be a subset of [email, sms]")
+            raise DomainError(
+                422, "invalid_channels", "channels must be a subset of [email, sms]"
+            )
         template["channels"] = list(channels)
         changed = True
     if "variables" in ctx.payload:
@@ -433,7 +540,9 @@ def render_template(ctx: Ctx) -> dict:
         raise DomainError(404, "template_not_found", ctx.payload["template"])
     channel = ctx.get("channel") or template["channels"][0]
     if channel not in template["channels"]:
-        raise DomainError(422, "channel_unsupported", "template does not support this channel")
+        raise DomainError(
+            422, "channel_unsupported", "template does not support this channel"
+        )
     variables = ctx.get("variables") or ctx.get("model") or {}
     if not isinstance(variables, dict):
         raise DomainError(422, "invalid_request", "variables must be an object")
@@ -485,7 +594,11 @@ def delete_suppression(ctx: Ctx) -> dict:
     removed = ctx.state.table("suppressions").pop(key, None)
     if removed is None:
         raise DomainError(404, "suppression_not_found", ctx.payload["recipient"])
-    return {"recipient": removed["recipient"], "channel": removed["channel"], "reactivated": True}
+    return {
+        "recipient": removed["recipient"],
+        "channel": removed["channel"],
+        "reactivated": True,
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -514,9 +627,11 @@ def create_webhook(ctx: Ctx) -> dict:
     ctx.require("url", "events")
     events = ctx.payload["events"]
     if not isinstance(events, list) or not set(events).issubset(_VALID_EVENTS):
-        raise DomainError(422, "invalid_events",
-                          f"events must be a subset of {list(_VALID_EVENTS)}")
+        raise DomainError(
+            422, "invalid_events", f"events must be a subset of {list(_VALID_EVENTS)}"
+        )
     import secrets
+
     webhook = {
         "webhookId": base.new_id("hook"),
         "url": ctx.payload["url"],
@@ -544,10 +659,15 @@ def update_webhook(ctx: Ctx) -> dict:
     if "events" in ctx.payload:
         events = ctx.payload["events"]
         if not isinstance(events, list) or not set(events).issubset(_VALID_EVENTS):
-            raise DomainError(422, "invalid_events",
-                              f"events must be a subset of {list(_VALID_EVENTS)}")
+            raise DomainError(
+                422,
+                "invalid_events",
+                f"events must be a subset of {list(_VALID_EVENTS)}",
+            )
         webhook["events"] = list(events)
-        webhook["triggers"] = ctx.get("triggers") or {e: {"enabled": True} for e in events}
+        webhook["triggers"] = ctx.get("triggers") or {
+            e: {"enabled": True} for e in events
+        }
     for field in ("url", "messageStream", "httpAuth", "httpHeaders", "triggers"):
         if field in ctx.payload:
             webhook[field] = ctx.payload[field]
@@ -598,8 +718,16 @@ def get_delivery_stats(ctx: Ctx) -> dict:
     ESP/carrier outbound overview (delivery, bounce, complaint, open, and click rates)."""
     channel = ctx.get("channel")
     counts: dict[str, dict[str, int]] = {}
-    totals = {"submitted": 0, "sent": 0, "delivered": 0, "bounced": 0,
-              "undelivered": 0, "failed": 0, "queued": 0, "sending": 0}
+    totals = {
+        "submitted": 0,
+        "sent": 0,
+        "delivered": 0,
+        "bounced": 0,
+        "undelivered": 0,
+        "failed": 0,
+        "queued": 0,
+        "sending": 0,
+    }
     events = list(ctx.state.table("events").values())
 
     opens, unique_openers = 0, set()
@@ -644,4 +772,9 @@ def get_delivery_stats(ctx: Ctx) -> dict:
         "spamComplaints": complaints,
     }
     totals["opened"] = opens
-    return {"byChannel": counts, "totals": totals, "engagement": engagement, "rates": rates}
+    return {
+        "byChannel": counts,
+        "totals": totals,
+        "engagement": engagement,
+        "rates": rates,
+    }

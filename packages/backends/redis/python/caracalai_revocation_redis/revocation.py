@@ -99,9 +99,13 @@ class RedisRevocationConsumer:
         self._block_ms = block_ms
         self._pending_idle_ms = pending_idle_ms
         self._stream_hmac_key = stream_hmac_key
-        self._require_signature = bool(stream_hmac_key) if require_signature is None else require_signature
+        self._require_signature = (
+            bool(stream_hmac_key) if require_signature is None else require_signature
+        )
         if self._require_signature and not self._stream_hmac_key:
-            raise ValueError("stream_hmac_key is required when require_signature is true")
+            raise ValueError(
+                "stream_hmac_key is required when require_signature is true"
+            )
 
     def ensure_group(self) -> None:
         try:
@@ -168,7 +172,9 @@ def _normalize_values(values: StreamValues) -> dict[str, str]:
         return {_to_text(k): _to_text(v) for k, v in values.items()}
     out: dict[str, str] = {}
     for i in range(0, len(values), 2):
-        out[_to_text(values[i])] = _to_text(values[i + 1]) if i + 1 < len(values) else ""
+        out[_to_text(values[i])] = (
+            _to_text(values[i + 1]) if i + 1 < len(values) else ""
+        )
     return out
 
 
@@ -196,7 +202,11 @@ def _normalize_autoclaim(raw: object) -> tuple[str, list[StreamMessage]]:
         return next_id, []
     out: list[StreamMessage] = []
     for item in messages:
-        if isinstance(item, Sequence) and not isinstance(item, (str, bytes)) and len(item) >= 2:
+        if (
+            isinstance(item, Sequence)
+            and not isinstance(item, (str, bytes))
+            and len(item) >= 2
+        ):
             out.append((item[0], item[1]))
     return next_id, out
 

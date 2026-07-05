@@ -4,7 +4,7 @@
 // Provider CRUD routes for upstream credential and mandate forwarding sources.
 
 import type { FastifyBaseLogger, FastifyInstance, FastifyPluginAsync } from 'fastify'
-import { loadZoneKek, seal } from '@caracalai/core'
+import { loadZoneKek, seal } from '@caracalai/server-core'
 import { z } from 'zod'
 import { v7 as uuidv7 } from 'uuid'
 import { buildPatchUpdate, patchColumn, patchExpression } from './patch.js'

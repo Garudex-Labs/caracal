@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 Per-provider credential store with create, validate, and revoke lifecycle persisted separately for verification flows.
 """
+
 from __future__ import annotations
 
 import json
@@ -18,7 +19,7 @@ from _mock.providerlab import catalog, jwtmini, mandate
 STORE_DIR = Path(__file__).resolve().parent / "_store"
 SEED_INDEX = STORE_DIR / "_seed_index.json"
 ZONE = "lynx-zone"
-REFRESH_TOKEN_TTL = 100 * 24 * 3600          # rolling 100-day refresh-token validity
+REFRESH_TOKEN_TTL = 100 * 24 * 3600  # rolling 100-day refresh-token validity
 
 _locks: dict[str, threading.Lock] = {}
 _cache: dict[str, "ProviderStore"] = {}
@@ -87,7 +88,9 @@ class ProviderStore:
             seed["location"] = p.apikey_location
             seed["field"] = p.apikey_field
         elif catalog.bearer_auth(p):
-            rec = self._new_bearer("seed-token", prefix="sk_live_" if p.category == "sdk" else "bt_")
+            rec = self._new_bearer(
+                "seed-token", prefix="sk_live_" if p.category == "sdk" else "bt_"
+            )
             seed["bearerToken"] = rec["accessToken"]
             seed["header"] = p.auth_header
             seed["scheme"] = p.auth_scheme
@@ -106,7 +109,9 @@ class ProviderStore:
                 seed["audience"] = p.audience
             if p.category == "oauth2_authorization_code":
                 seed["authorizationEndpoint"] = "/oauth/authorize"
-        elif p.category == "caracal_mandate" or (p.category == "mcp" and p.mcp_auth == "mandate"):
+        elif p.category == "caracal_mandate" or (
+            p.category == "mcp" and p.mcp_auth == "mandate"
+        ):
             seed["mandate"] = self._mint_seed_mandate()
             seed["zone"] = ZONE
         elif p.category == "mcp" and p.mcp_auth == "bearer":
@@ -126,8 +131,12 @@ class ProviderStore:
             subject="lynx-bootstrap",
             session_id=f"sid_{uuid.uuid4().hex[:12]}",
             root_session_id=f"root_{uuid.uuid4().hex[:12]}",
-            agent_session_id=f"agent_{uuid.uuid4().hex[:12]}" if p.require_delegation else None,
-            delegation_edge_id=f"edge_{uuid.uuid4().hex[:12]}" if p.require_delegation else None,
+            agent_session_id=f"agent_{uuid.uuid4().hex[:12]}"
+            if p.require_delegation
+            else None,
+            delegation_edge_id=f"edge_{uuid.uuid4().hex[:12]}"
+            if p.require_delegation
+            else None,
             ttl_seconds=86400,
         )
         return mandate.sign(claims, self.data["signing_key"])
@@ -154,7 +163,10 @@ class ProviderStore:
     def _ensure_seed_pat(self) -> None:
         """OAuth-capable partners also issue one long-lived personal access token so
         gateways that hold server credentials can call without a token exchange."""
-        if self.provider.category not in ("oauth2_client_credentials", "oauth2_authorization_code"):
+        if self.provider.category not in (
+            "oauth2_client_credentials",
+            "oauth2_authorization_code",
+        ):
             return
         seed = self.data.get("seed", {})
         if seed.get("patToken"):
@@ -201,7 +213,9 @@ class ProviderStore:
         self.data["bearerTokens"].append(rec)
         return rec
 
-    def _new_client(self, name: str, redirect_uris: list[str], scopes: list[str]) -> dict:
+    def _new_client(
+        self, name: str, redirect_uris: list[str], scopes: list[str]
+    ) -> dict:
         rec = {
             "clientId": f"cid_{uuid.uuid4().hex[:16]}",
             "clientSecret": f"cs_{secrets.token_urlsafe(28)}",
@@ -225,7 +239,9 @@ class ProviderStore:
         self._save()
         return rec
 
-    def create_client(self, name: str, redirect_uris: list[str], scopes: list[str]) -> dict:
+    def create_client(
+        self, name: str, redirect_uris: list[str], scopes: list[str]
+    ) -> dict:
         rec = self._new_client(name, redirect_uris, scopes)
         self._save()
         return rec
@@ -303,18 +319,22 @@ class ProviderStore:
     def revoked_history(self) -> list[dict]:
         """Flatten every revoked credential across kinds for an audit history view."""
         history: list[dict] = []
-        for kind, field, id_key in (("apiKey", "apiKeys", "keyId"),
-                                     ("bearer", "bearerTokens", "tokenId"),
-                                     ("client", "clients", "clientId")):
+        for kind, field, id_key in (
+            ("apiKey", "apiKeys", "keyId"),
+            ("bearer", "bearerTokens", "tokenId"),
+            ("client", "clients", "clientId"),
+        ):
             for rec in self.data[field]:
                 if rec.get("revoked"):
-                    history.append({
-                        "kind": kind,
-                        "id": rec[id_key],
-                        "label": rec.get("label") or rec.get("name", ""),
-                        "revokedAt": rec.get("revokedAt"),
-                        "rotatedTo": rec.get("rotatedTo"),
-                    })
+                    history.append(
+                        {
+                            "kind": kind,
+                            "id": rec[id_key],
+                            "label": rec.get("label") or rec.get("name", ""),
+                            "revokedAt": rec.get("revokedAt"),
+                            "rotatedTo": rec.get("rotatedTo"),
+                        }
+                    )
         history.sort(key=lambda r: r.get("revokedAt") or 0, reverse=True)
         return history
 
@@ -349,14 +369,25 @@ class ProviderStore:
         return None
 
     # ---- oauth issuance ----
-    def issue_token(self, client_id: str, scope: str, *, subject: str = "service",
-                    refresh: bool = False, audience: str | None = None) -> dict:
+    def issue_token(
+        self,
+        client_id: str,
+        scope: str,
+        *,
+        subject: str = "service",
+        refresh: bool = False,
+        audience: str | None = None,
+    ) -> dict:
         cutoff = _now() - 86400
         self.data["tokens"] = [
-            t for t in self.data["tokens"]
+            t
+            for t in self.data["tokens"]
             if t["expiresAt"] >= cutoff
-            or (t.get("refreshToken") and not t.get("refreshConsumed")
-                and t.get("refreshExpiresAt", 0) >= _now())
+            or (
+                t.get("refreshToken")
+                and not t.get("refreshConsumed")
+                and t.get("refreshExpiresAt", 0) >= _now()
+            )
         ]
         token = {
             "accessToken": f"at_{secrets.token_urlsafe(28)}",
@@ -377,7 +408,11 @@ class ProviderStore:
 
     def valid_access_token(self, presented: str) -> dict | None:
         for t in self.data["tokens"]:
-            if t["accessToken"] == presented and t["expiresAt"] >= _now() and not t.get("revoked"):
+            if (
+                t["accessToken"] == presented
+                and t["expiresAt"] >= _now()
+                and not t.get("revoked")
+            ):
                 return t
         return None
 
@@ -403,12 +438,23 @@ class ProviderStore:
                     return None
                 t["refreshConsumed"] = True
                 t["refreshConsumedAt"] = _now()
-                return self.issue_token(t["clientId"], t["scope"], subject=t["subject"],
-                                        refresh=True, audience=t.get("audience"))
+                return self.issue_token(
+                    t["clientId"],
+                    t["scope"],
+                    subject=t["subject"],
+                    refresh=True,
+                    audience=t.get("audience"),
+                )
         return None
 
-    def create_auth_code(self, client_id: str, redirect_uri: str, scope: str,
-                         code_challenge: str | None, subject: str) -> str:
+    def create_auth_code(
+        self,
+        client_id: str,
+        redirect_uri: str,
+        scope: str,
+        code_challenge: str | None,
+        subject: str,
+    ) -> str:
         code = f"ac_{secrets.token_urlsafe(20)}"
         self.data["authCodes"][code] = {
             "clientId": client_id,

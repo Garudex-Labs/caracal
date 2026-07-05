@@ -6,7 +6,14 @@
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify'
 import fp from 'fastify-plugin'
 import { timingSafeEqual } from 'node:crypto'
-import { sha256, deriveConsoleReadToken, deriveConsoleWriteToken, deriveConsoleApproveToken, verifyAccountAssertion, verifyOperatorAssertion } from '@caracalai/core'
+import {
+  sha256,
+  deriveConsoleReadToken,
+  deriveConsoleWriteToken,
+  deriveConsoleApproveToken,
+  verifyAccountAssertion,
+  verifyOperatorAssertion,
+} from '@caracalai/server-core'
 import { v7 as uuidv7 } from 'uuid'
 import type { DB } from './db.js'
 import type { RedisClient } from './redis.js'

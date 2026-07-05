@@ -159,10 +159,11 @@ describe('runCommand', () => {
   })
 
   it('warns for optional credential failures and still runs child command', async () => {
-    stubRunFetch(
-      manifestResponse([{ env: 'OPTIONAL_TOKEN', resource: 'resource://optional', optional: true, on_failure: 'warn' }]),
-      { ok: false, status: 403, body: { error_description: 'optional denied' } },
-    )
+    stubRunFetch(manifestResponse([{ env: 'OPTIONAL_TOKEN', resource: 'resource://optional', optional: true, on_failure: 'warn' }]), {
+      ok: false,
+      status: 403,
+      body: { error_description: 'optional denied' },
+    })
 
     await expect(runCommand(['node', 'tool.js'], cfg)).rejects.toThrow('exit:0')
 
@@ -171,10 +172,11 @@ describe('runCommand', () => {
   })
 
   it('fails when optional credential policy requires success', async () => {
-    stubRunFetch(
-      manifestResponse([{ env: 'OPTIONAL_TOKEN', resource: 'resource://optional', optional: true, on_failure: 'error' }]),
-      { ok: false, status: 403, body: { error_description: 'optional denied' } },
-    )
+    stubRunFetch(manifestResponse([{ env: 'OPTIONAL_TOKEN', resource: 'resource://optional', optional: true, on_failure: 'error' }]), {
+      ok: false,
+      status: 403,
+      body: { error_description: 'optional denied' },
+    })
 
     await expect(runCommand(['node', 'tool.js'], cfg)).rejects.toThrow('exit:1')
 

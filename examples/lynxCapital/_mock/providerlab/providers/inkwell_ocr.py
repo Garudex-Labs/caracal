@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 Inkwell OCR domain: asynchronous document capture with classification, field-level extraction, line items, confidence scoring, human-in-the-loop corrections, and batch submission.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -23,36 +24,60 @@ _TERMINAL_STATUSES = frozenset({"extracted", "needs_review", "failed", "cancelle
 
 
 def _iso_now() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return (
+        datetime.now(timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
 
 
 def _self_url(document_id: str) -> str:
     return f"https://{_HOST}/v1/documents/{document_id}"
 
 
-def _new_doc(ctx: Ctx, file_name: str, model: str, *,
-             reference: str | None = None, callback_url: str | None = None,
-             tags: dict | None = None, size_bytes: int | None = None,
-             page_count: int | None = None,
-             idempotency_key: str | None = None) -> dict:
+def _new_doc(
+    ctx: Ctx,
+    file_name: str,
+    model: str,
+    *,
+    reference: str | None = None,
+    callback_url: str | None = None,
+    tags: dict | None = None,
+    size_bytes: int | None = None,
+    page_count: int | None = None,
+    idempotency_key: str | None = None,
+) -> dict:
     """Build a fresh document record after validating the submission against
     Inkwell's synchronous gates (media size, page count, quota)."""
     mime = gen.inkwell_mime(file_name)
     if mime is None:
-        raise DomainError(415, "unsupported_media_type",
-                          f"cannot process {file_name!r}; supported types are PDF, PNG, JPEG, TIFF, WEBP, and HEIC")
+        raise DomainError(
+            415,
+            "unsupported_media_type",
+            f"cannot process {file_name!r}; supported types are PDF, PNG, JPEG, TIFF, WEBP, and HEIC",
+        )
     models = ctx.state.table("models")
     if model not in models:
-        raise DomainError(422, "unknown_model", f"model {model!r} is not available; see list_models")
+        raise DomainError(
+            422, "unknown_model", f"model {model!r} is not available; see list_models"
+        )
 
     documents = ctx.state.table("documents")
     if len(documents) >= _QUOTA_CAP:
-        raise DomainError(429, "quota_exceeded",
-                          f"document quota of {_QUOTA_CAP} reached; archive or delete documents before retrying")
+        raise DomainError(
+            429,
+            "quota_exceeded",
+            f"document quota of {_QUOTA_CAP} reached; archive or delete documents before retrying",
+        )
 
     rng = gen._rng(ID, "submit", file_name, reference or "")
-    resolved_size = int(size_bytes) if size_bytes is not None else rng.randint(48_000, 5_200_000)
-    resolved_pages = int(page_count) if page_count is not None else rng.choice((1, 1, 1, 2, 3, 5))
+    resolved_size = (
+        int(size_bytes) if size_bytes is not None else rng.randint(48_000, 5_200_000)
+    )
+    resolved_pages = (
+        int(page_count) if page_count is not None else rng.choice((1, 1, 1, 2, 3, 5))
+    )
 
     rejection = gen.inkwell_submit_check(file_name, resolved_size, resolved_pages)
     if rejection is not None:
@@ -114,13 +139,17 @@ def submit_document(ctx: Ctx) -> dict:
         if prior is not None:
             return prior
 
-    doc = _new_doc(ctx, file_name, model,
-                   reference=ctx.get("reference"),
-                   callback_url=ctx.get("callbackUrl"),
-                   tags=ctx.get("tags"),
-                   size_bytes=ctx.get("sizeBytes"),
-                   page_count=ctx.get("pages"),
-                   idempotency_key=idem)
+    doc = _new_doc(
+        ctx,
+        file_name,
+        model,
+        reference=ctx.get("reference"),
+        callback_url=ctx.get("callbackUrl"),
+        tags=ctx.get("tags"),
+        size_bytes=ctx.get("sizeBytes"),
+        page_count=ctx.get("pages"),
+        idempotency_key=idem,
+    )
     if scoped:
         keys[scoped] = doc["documentId"]
     return doc
@@ -133,8 +162,9 @@ def submit_documents_batch(ctx: Ctx) -> dict:
     if not items:
         raise DomainError(422, "empty_batch", "batch requires at least one document")
     if len(items) > _BATCH_CAP:
-        raise DomainError(422, "batch_too_large",
-                          f"batch may contain at most {_BATCH_CAP} documents")
+        raise DomainError(
+            422, "batch_too_large", f"batch may contain at most {_BATCH_CAP} documents"
+        )
 
     idem = ctx.get("idempotencyKey")
     keys = ctx.state.table("idempotency")
@@ -152,15 +182,23 @@ def submit_documents_batch(ctx: Ctx) -> dict:
     for item in items:
         file_name = str(item.get("fileName") or "").strip()
         if not file_name:
-            results.append({"fileName": item.get("fileName"),
-                            "status": "rejected",
-                            "error": {"code": "invalid_request",
-                                      "message": "fileName is required"}})
+            results.append(
+                {
+                    "fileName": item.get("fileName"),
+                    "status": "rejected",
+                    "error": {
+                        "code": "invalid_request",
+                        "message": "fileName is required",
+                    },
+                }
+            )
             rejected += 1
             continue
         try:
             doc = _new_doc(
-                ctx, file_name, str(item.get("model", "invoice")),
+                ctx,
+                file_name,
+                str(item.get("model", "invoice")),
                 reference=item.get("reference"),
                 callback_url=item.get("callbackUrl"),
                 tags=item.get("tags"),
@@ -169,14 +207,22 @@ def submit_documents_batch(ctx: Ctx) -> dict:
                 idempotency_key=None,
             )
         except DomainError as exc:
-            results.append({"fileName": file_name,
-                            "status": "rejected",
-                            "error": {"code": exc.code, "message": exc.message}})
+            results.append(
+                {
+                    "fileName": file_name,
+                    "status": "rejected",
+                    "error": {"code": exc.code, "message": exc.message},
+                }
+            )
             rejected += 1
         else:
-            results.append({"fileName": file_name,
-                            "documentId": doc["documentId"],
-                            "status": "accepted"})
+            results.append(
+                {
+                    "fileName": file_name,
+                    "documentId": doc["documentId"],
+                    "status": "accepted",
+                }
+            )
             accepted += 1
 
     batch = {
@@ -215,8 +261,11 @@ def cancel_document(ctx: Ctx) -> dict:
     if doc is None:
         raise DomainError(404, "document_not_found", document_id)
     if doc["status"] in _TERMINAL_STATUSES:
-        raise DomainError(409, "cancel_not_allowed",
-                          f"document in status {doc['status']!r} can no longer be cancelled")
+        raise DomainError(
+            409,
+            "cancel_not_allowed",
+            f"document in status {doc['status']!r} can no longer be cancelled",
+        )
     now = _iso_now()
     doc["status"] = "cancelled"
     doc["cancelledAt"] = now
@@ -234,8 +283,11 @@ def get_extraction(ctx: Ctx) -> dict:
     if doc is None:
         raise DomainError(404, "document_not_found", ctx.payload["documentId"])
     if doc["status"] == "cancelled":
-        raise DomainError(404, "extraction_not_found",
-                          "document was cancelled before extraction completed")
+        raise DomainError(
+            404,
+            "extraction_not_found",
+            "document was cancelled before extraction completed",
+        )
     extractions = ctx.state.table("extractions")
     existing = extractions.get(doc["documentId"])
     if existing is not None:
@@ -293,7 +345,9 @@ def delete_document(ctx: Ctx) -> dict:
     documents.pop(document_id)
     ctx.state.table("extractions").pop(document_id, None)
     corrections = ctx.state.table("corrections")
-    for cid in [cid for cid, rec in corrections.items() if rec["documentId"] == document_id]:
+    for cid in [
+        cid for cid, rec in corrections.items() if rec["documentId"] == document_id
+    ]:
         corrections.pop(cid, None)
     return {"documentId": document_id, "object": "document", "deleted": True}
 
@@ -308,13 +362,19 @@ def submit_correction(ctx: Ctx) -> dict:
         raise DomainError(404, "document_not_found", document_id)
     extraction = ctx.state.table("extractions").get(document_id)
     if extraction is None:
-        raise DomainError(409, "extraction_not_ready",
-                          "load the extraction with get_extraction before submitting corrections")
+        raise DomainError(
+            409,
+            "extraction_not_ready",
+            "load the extraction with get_extraction before submitting corrections",
+        )
     field_path = str(ctx.payload["fieldPath"])
     field = extraction["fields"].get(field_path)
     if field is None:
-        raise DomainError(422, "unknown_field",
-                          f"field {field_path!r} is not present on this extraction")
+        raise DomainError(
+            422,
+            "unknown_field",
+            f"field {field_path!r} is not present on this extraction",
+        )
 
     correction_id = base.new_id("corr")
     record = {

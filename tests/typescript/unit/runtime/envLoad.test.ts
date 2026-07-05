@@ -77,8 +77,18 @@ describe('loadEnv precedence', () => {
   it('resolves every mode with its mode-specific defaults', () => {
     const cases = [
       ['dev', {}, 'dev', 'http://sts:8080'],
-      ['rc', { CARACAL_MODE: 'rc', CARACAL_VERSION: '1.0.0-rc.1', CARACAL_REGISTRY: 'ghcr.io/garudex-labs/' }, 'rc', 'http://localhost:8080'],
-      ['stable', { CARACAL_MODE: 'stable', CARACAL_VERSION: '1.0.0', CARACAL_REGISTRY: 'ghcr.io/garudex-labs/' }, 'stable', 'http://localhost:8080'],
+      [
+        'rc',
+        { CARACAL_MODE: 'rc', CARACAL_VERSION: '1.0.0-rc.1', CARACAL_REGISTRY: 'ghcr.io/garudex-labs/' },
+        'rc',
+        'http://localhost:8080',
+      ],
+      [
+        'stable',
+        { CARACAL_MODE: 'stable', CARACAL_VERSION: '1.0.0', CARACAL_REGISTRY: 'ghcr.io/garudex-labs/' },
+        'stable',
+        'http://localhost:8080',
+      ],
     ] as const
 
     for (const [mode, pins, expectedMode, issuer] of cases) {

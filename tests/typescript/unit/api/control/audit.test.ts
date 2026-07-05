@@ -5,7 +5,13 @@
 
 import { createHmac } from 'node:crypto'
 import { describe, it, expect, vi } from 'vitest'
-import { buildAuditPayload, newRequestId, AuditUnavailableError, RedisSink, type AuditEvent } from '../../../../../apps/api/src/control/audit.js'
+import {
+  buildAuditPayload,
+  newRequestId,
+  AuditUnavailableError,
+  RedisSink,
+  type AuditEvent,
+} from '../../../../../apps/api/src/control/audit.js'
 
 function event(overrides: Partial<AuditEvent> = {}): AuditEvent {
   return {

@@ -12,10 +12,12 @@ import { cfg } from '../config.js'
 import { redisMinuteBucket } from '../redis.js'
 import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
 
-const RetryPolicy = z.object({
-  max_attempts: z.number().int().min(1).max(10).default(3),
-  backoff_ms: z.number().int().min(0).max(300_000).default(1000),
-}).default({ max_attempts: 3, backoff_ms: 1000 })
+const RetryPolicy = z
+  .object({
+    max_attempts: z.number().int().min(1).max(10).default(3),
+    backoff_ms: z.number().int().min(0).max(300_000).default(1000),
+  })
+  .default({ max_attempts: 3, backoff_ms: 1000 })
 
 const InvocationBody = z.object({
   service_id: z.string().min(1),
@@ -77,17 +79,17 @@ export const invocationsRoutes: FastifyPluginAsync = async (fastify) => {
         await client.query('ROLLBACK')
         return reply.code(404).send({ error: 'agent_service_not_found' })
       }
-      const sessions = await loadInvocationSessions(
-        client, zoneId, body.source_session_id, body.target_session_id,
-      )
+      const sessions = await loadInvocationSessions(client, zoneId, body.source_session_id, body.target_session_id)
       if (sessions === null) {
         await client.query('ROLLBACK')
         return reply.code(404).send({ error: 'agent_session_not_found' })
       }
       const sourceApp = sessions.source?.application_id ?? services[0].application_id
-      if (!ownsApplication(req, sourceApp)
-        && !requireScope(req, `coordinator.invoke_from:${sourceApp}`)
-        && !requireScope(req, 'coordinator.admin')) {
+      if (
+        !ownsApplication(req, sourceApp) &&
+        !requireScope(req, `coordinator.invoke_from:${sourceApp}`) &&
+        !requireScope(req, 'coordinator.admin')
+      ) {
         await client.query('ROLLBACK')
         return reply.code(403).send({ error: 'invoker_ownership_required' })
       }
@@ -136,10 +138,7 @@ export const invocationsRoutes: FastifyPluginAsync = async (fastify) => {
     const params = parseParams(ZoneIdParams, req, reply)
     if (!params) return
     const { zoneId, id } = params
-    const { rows } = await fastify.db.query(
-      `${INVOCATION_SELECT} WHERE zone_id = $1 AND id = $2`,
-      [zoneId, id],
-    )
+    const { rows } = await fastify.db.query(`${INVOCATION_SELECT} WHERE zone_id = $1 AND id = $2`, [zoneId, id])
     if (!rows[0]) return reply.code(404).send({ error: 'invocation_not_found' })
     return rows[0]
   })
@@ -155,21 +154,27 @@ export const invocationsRoutes: FastifyPluginAsync = async (fastify) => {
     if (!query.success) return reply.code(400).send({ error: 'invalid_query' })
     const { limit, cursor, status, service_id, session_id } = query.data
     if (cursor) {
-      const { rows: probe } = await fastify.db.query(
-        `SELECT 1 FROM agent_invocations WHERE id = $1 AND zone_id = $2`,
-        [cursor, zoneId],
-      )
+      const { rows: probe } = await fastify.db.query(`SELECT 1 FROM agent_invocations WHERE id = $1 AND zone_id = $2`, [cursor, zoneId])
       if (!probe[0]) return reply.code(400).send({ error: 'invalid_cursor' })
     }
     const conds = ['zone_id = $1']
     const values: unknown[] = [zoneId]
-    if (status) { values.push(status); conds.push(`status = $${values.length}`) }
-    if (service_id) { values.push(service_id); conds.push(`service_id = $${values.length}`) }
+    if (status) {
+      values.push(status)
+      conds.push(`status = $${values.length}`)
+    }
+    if (service_id) {
+      values.push(service_id)
+      conds.push(`service_id = $${values.length}`)
+    }
     if (session_id) {
       values.push(session_id)
       conds.push(`(source_session_id = $${values.length} OR target_session_id = $${values.length})`)
     }
-    if (cursor) { values.push(cursor); conds.push(`id < $${values.length}`) }
+    if (cursor) {
+      values.push(cursor)
+      conds.push(`id < $${values.length}`)
+    }
     values.push(limit)
     const { rows } = await fastify.db.query(
       `SELECT id, zone_id, service_id, source_session_id, target_session_id, method,
@@ -316,9 +321,7 @@ export const invocationsRoutes: FastifyPluginAsync = async (fastify) => {
   })
 }
 
-async function loadInvocationOwner(
-  db: Queryable, zoneId: string, id: string,
-): Promise<{ application_id: string } | null> {
+async function loadInvocationOwner(db: Queryable, zoneId: string, id: string): Promise<{ application_id: string } | null> {
   const { rows } = await db.query<{ application_id: string }>(
     `SELECT s.application_id
      FROM agent_invocations i
@@ -331,18 +334,15 @@ async function loadInvocationOwner(
 }
 
 function authorizeInvocationCaller(req: FastifyRequest, appId: string): boolean {
-  return ownsApplication(req, appId)
-    || requireScope(req, `coordinator.invoke_from:${appId}`)
-    || requireScope(req, 'coordinator.admin')
+  return ownsApplication(req, appId) || requireScope(req, `coordinator.invoke_from:${appId}`) || requireScope(req, 'coordinator.admin')
 }
 
-async function getInvocationByKey(
-  db: Queryable, zoneId: string, serviceId: string, idempotencyKey: string,
-): Promise<unknown> {
-  const { rows } = await db.query(
-    `${INVOCATION_SELECT} WHERE zone_id = $1 AND service_id = $2 AND idempotency_key = $3 FOR SHARE`,
-    [zoneId, serviceId, idempotencyKey],
-  )
+async function getInvocationByKey(db: Queryable, zoneId: string, serviceId: string, idempotencyKey: string): Promise<unknown> {
+  const { rows } = await db.query(`${INVOCATION_SELECT} WHERE zone_id = $1 AND service_id = $2 AND idempotency_key = $3 FOR SHARE`, [
+    zoneId,
+    serviceId,
+    idempotencyKey,
+  ])
   return rows[0]
 }
 

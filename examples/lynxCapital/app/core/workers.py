@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 Long-lived worker pool that lets an orchestrator keep some agents alive across multiple tool calls.
 """
+
 from __future__ import annotations
 
 from app.agents.roles import ROLES
@@ -23,12 +24,20 @@ class WorkerPool:
         self._parent = parent
         self._active: dict[str, AgentHandle] = {}
 
-    def acquire(self, role: str, scope: str, customer_id: str | None = None) -> AgentHandle:
+    def acquire(
+        self, role: str, scope: str, customer_id: str | None = None
+    ) -> AgentHandle:
         if role not in ROLES:
-            raise ValueError(f"unknown role {role!r}; valid roles: {', '.join(sorted(ROLES))}")
+            raise ValueError(
+                f"unknown role {role!r}; valid roles: {', '.join(sorted(ROLES))}"
+            )
         w = self._runner.spawn(
-            role=role, scope=scope, parent=self._parent,
-            layer=role, region=self._parent.region, customer_id=customer_id,
+            role=role,
+            scope=scope,
+            parent=self._parent,
+            layer=role,
+            region=self._parent.region,
+            customer_id=customer_id,
         )
         w.start()
         self._active[w.id] = w
@@ -52,7 +61,12 @@ class WorkerPool:
             if not w._terminated:
                 w.end({"drained": True})
                 w.terminate(status)
-                bus.publish(ev.worker_release(
-                    self.run_id, self._parent.id, worker_id, {"drained": True, "status": status},
-                ))
+                bus.publish(
+                    ev.worker_release(
+                        self.run_id,
+                        self._parent.id,
+                        worker_id,
+                        {"drained": True, "status": status},
+                    )
+                )
             self._active.pop(worker_id, None)

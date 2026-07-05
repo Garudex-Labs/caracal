@@ -18,10 +18,7 @@ function buildApp(scopes = ['coordinator.admin'], clientIdOverride?: string) {
   app.decorate('redis', { xadd: vi.fn() } as never)
   app.addHook('preHandler', async (req) => {
     const body = (req.body ?? {}) as Record<string, unknown>
-    const clientId = clientIdOverride
-      ?? (body.issuer_application_id as string)
-      ?? (body.application_id as string)
-      ?? 'test-client'
+    const clientId = clientIdOverride ?? (body.issuer_application_id as string) ?? (body.application_id as string) ?? 'test-client'
     ;(req as unknown as { caracalAuth: unknown }).caracalAuth = {
       zoneId: (req.params as Record<string, string>)?.zoneId ?? 'z1',
       scopes,
@@ -93,13 +90,16 @@ describe('POST /v1/zones/:zoneId/delegations', () => {
   it('rejects expired delegation edges', async () => {
     const { app, db } = buildApp()
     const client = {
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [
-          { id: 'src-1', application_id: 'issuer-1' },
-          { id: 'dst-1', application_id: 'receiver-1' },
-        ] })
+        .mockResolvedValueOnce({
+          rows: [
+            { id: 'src-1', application_id: 'issuer-1' },
+            { id: 'dst-1', application_id: 'receiver-1' },
+          ],
+        })
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [] }),
@@ -196,13 +196,16 @@ describe('POST /v1/zones/:zoneId/delegations', () => {
   it('rejects unconstrained cycles', async () => {
     const { app, db } = buildApp()
     const client = {
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [
-          { id: 'src-1', application_id: 'issuer-1' },
-          { id: 'dst-1', application_id: 'receiver-1' },
-        ] })
+        .mockResolvedValueOnce({
+          rows: [
+            { id: 'src-1', application_id: 'issuer-1' },
+            { id: 'dst-1', application_id: 'receiver-1' },
+          ],
+        })
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [{ exists: 1 }] })
         .mockResolvedValueOnce({ rows: [] }),
@@ -224,13 +227,16 @@ describe('POST /v1/zones/:zoneId/delegations', () => {
   it('rejects application mismatches on graph endpoints', async () => {
     const { app, db } = buildApp()
     const client = {
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [
-          { id: 'src-1', application_id: 'other-issuer' },
-          { id: 'dst-1', application_id: 'receiver-1' },
-        ] })
+        .mockResolvedValueOnce({
+          rows: [
+            { id: 'src-1', application_id: 'other-issuer' },
+            { id: 'dst-1', application_id: 'receiver-1' },
+          ],
+        })
         .mockResolvedValueOnce({ rows: [] }),
       release: vi.fn(),
     }
@@ -250,7 +256,8 @@ describe('POST /v1/zones/:zoneId/delegations', () => {
   it('rejects missing active endpoint sessions', async () => {
     const { app, db } = buildApp()
     const client = {
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [{ id: 'src-1', application_id: 'issuer-1' }] })
@@ -274,13 +281,16 @@ describe('POST /v1/zones/:zoneId/delegations', () => {
   it('rejects resource references outside the zone', async () => {
     const { app, db } = buildApp()
     const client = {
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [
-          { id: 'src-1', application_id: 'issuer-1' },
-          { id: 'dst-1', application_id: 'receiver-1' },
-        ] })
+        .mockResolvedValueOnce({
+          rows: [
+            { id: 'src-1', application_id: 'issuer-1' },
+            { id: 'dst-1', application_id: 'receiver-1' },
+          ],
+        })
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [] }),
       release: vi.fn(),
@@ -301,13 +311,16 @@ describe('POST /v1/zones/:zoneId/delegations', () => {
   it('rejects resources owned by another application', async () => {
     const { app, db } = buildApp()
     const client = {
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [
-          { id: 'src-1', application_id: 'issuer-1' },
-          { id: 'dst-1', application_id: 'receiver-1' },
-        ] })
+        .mockResolvedValueOnce({
+          rows: [
+            { id: 'src-1', application_id: 'issuer-1' },
+            { id: 'dst-1', application_id: 'receiver-1' },
+          ],
+        })
         .mockResolvedValueOnce({ rows: [{ id: 'res-1', identifier: 'calendar', application_id: 'other-app', scopes: ['read'] }] })
         .mockResolvedValue({ rows: [] }),
       release: vi.fn(),
@@ -329,13 +342,16 @@ describe('POST /v1/zones/:zoneId/delegations', () => {
   it('rejects delegation scopes outside the resource scope set', async () => {
     const { app, db } = buildApp()
     const client = {
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [
-          { id: 'src-1', application_id: 'issuer-1' },
-          { id: 'dst-1', application_id: 'receiver-1' },
-        ] })
+        .mockResolvedValueOnce({
+          rows: [
+            { id: 'src-1', application_id: 'issuer-1' },
+            { id: 'dst-1', application_id: 'receiver-1' },
+          ],
+        })
         .mockResolvedValueOnce({ rows: [{ application_id: 'issuer-1', scopes: ['read'] }] })
         .mockResolvedValueOnce({ rows: [] }),
       release: vi.fn(),
@@ -356,17 +372,22 @@ describe('POST /v1/zones/:zoneId/delegations', () => {
   it('allows scopes drawn from the union of multiple constrained resources', async () => {
     const { app, db } = buildApp()
     const client = {
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [
-          { id: 'src-1', application_id: 'issuer-1' },
-          { id: 'dst-1', application_id: 'receiver-1' },
-        ] })
-        .mockResolvedValueOnce({ rows: [
-          { id: 'res-1', identifier: 'calendar', application_id: 'issuer-1', scopes: ['read'] },
-          { id: 'res-2', identifier: 'ledger', application_id: 'issuer-1', scopes: ['write'] },
-        ] })
+        .mockResolvedValueOnce({
+          rows: [
+            { id: 'src-1', application_id: 'issuer-1' },
+            { id: 'dst-1', application_id: 'receiver-1' },
+          ],
+        })
+        .mockResolvedValueOnce({
+          rows: [
+            { id: 'res-1', identifier: 'calendar', application_id: 'issuer-1', scopes: ['read'] },
+            { id: 'res-2', identifier: 'ledger', application_id: 'issuer-1', scopes: ['write'] },
+          ],
+        })
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [{ id: 'edge-union' }] })
@@ -395,16 +416,17 @@ describe('POST /v1/zones/:zoneId/delegations', () => {
   it('accepts the SDK wire shape and returns the edge row with id', async () => {
     const { app, db } = buildApp()
     const client = {
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [
-          { id: 'src-1', application_id: 'issuer-1' },
-          { id: 'dst-1', application_id: 'receiver-1' },
-        ] })
-        .mockResolvedValueOnce({ rows: [
-          { id: 'res-1', identifier: 'calendar', application_id: 'issuer-1', scopes: ['read', 'write'] },
-        ] })
+        .mockResolvedValueOnce({
+          rows: [
+            { id: 'src-1', application_id: 'issuer-1' },
+            { id: 'dst-1', application_id: 'receiver-1' },
+          ],
+        })
+        .mockResolvedValueOnce({ rows: [{ id: 'res-1', identifier: 'calendar', application_id: 'issuer-1', scopes: ['read', 'write'] }] })
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [{ id: 'edge-sdk' }] })
@@ -443,13 +465,16 @@ describe('POST /v1/zones/:zoneId/delegations', () => {
   it('accepts broad delegation for admins and returns warnings plus effective authority', async () => {
     const { app, db } = buildApp()
     const client = {
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [
-          { id: 'src-1', application_id: 'issuer-1' },
-          { id: 'dst-1', application_id: 'receiver-1' },
-        ] })
+        .mockResolvedValueOnce({
+          rows: [
+            { id: 'src-1', application_id: 'issuer-1' },
+            { id: 'dst-1', application_id: 'receiver-1' },
+          ],
+        })
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [{ delegation_edge_id: 'edge-broad', status: 'active' }] })
@@ -484,26 +509,29 @@ describe('POST /v1/zones/:zoneId/delegations', () => {
   it('rejects child delegation that widens parent authority', async () => {
     const { app, db } = buildApp()
     const client = {
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [
-          { id: 'src-1', application_id: 'issuer-1' },
-          { id: 'dst-1', application_id: 'receiver-1' },
-        ] })
-        .mockResolvedValueOnce({ rows: [
-          { id: 'res-2', identifier: 'files', application_id: 'issuer-1', scopes: ['read'] },
-        ] })
-        .mockResolvedValueOnce({ rows: [
-          {
-            id: 'parent-edge',
-            resource_id: null,
-            resource_identifier: null,
-            scopes: ['read'],
-            constraints_json: { resources: ['calendar'], max_hops: 2 },
-            expires_at: '2027-03-16T00:00:00.000Z',
-          },
-        ] })
+        .mockResolvedValueOnce({
+          rows: [
+            { id: 'src-1', application_id: 'issuer-1' },
+            { id: 'dst-1', application_id: 'receiver-1' },
+          ],
+        })
+        .mockResolvedValueOnce({ rows: [{ id: 'res-2', identifier: 'files', application_id: 'issuer-1', scopes: ['read'] }] })
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: 'parent-edge',
+              resource_id: null,
+              resource_identifier: null,
+              scopes: ['read'],
+              constraints_json: { resources: ['calendar'], max_hops: 2 },
+              expires_at: '2027-03-16T00:00:00.000Z',
+            },
+          ],
+        })
         .mockResolvedValueOnce({ rows: [] }),
       release: vi.fn(),
     }
@@ -526,34 +554,37 @@ describe('POST /v1/zones/:zoneId/delegations', () => {
   it('rejects ambiguous downstream delegation when multiple parent edges could authorize it', async () => {
     const { app, db } = buildApp()
     const client = {
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [
-          { id: 'src-1', application_id: 'issuer-1' },
-          { id: 'dst-1', application_id: 'receiver-1' },
-        ] })
-        .mockResolvedValueOnce({ rows: [
-          { id: 'res-1', identifier: 'calendar', application_id: 'issuer-1', scopes: ['read'] },
-        ] })
-        .mockResolvedValueOnce({ rows: [
-          {
-            id: 'parent-edge-a',
-            resource_id: 'res-1',
-            resource_identifier: 'calendar',
-            scopes: ['read'],
-            constraints_json: { max_hops: 2 },
-            expires_at: '2027-03-16T00:00:00.000Z',
-          },
-          {
-            id: 'parent-edge-b',
-            resource_id: 'res-1',
-            resource_identifier: 'calendar',
-            scopes: ['read'],
-            constraints_json: { max_hops: 2 },
-            expires_at: '2027-03-16T00:00:00.000Z',
-          },
-        ] })
+        .mockResolvedValueOnce({
+          rows: [
+            { id: 'src-1', application_id: 'issuer-1' },
+            { id: 'dst-1', application_id: 'receiver-1' },
+          ],
+        })
+        .mockResolvedValueOnce({ rows: [{ id: 'res-1', identifier: 'calendar', application_id: 'issuer-1', scopes: ['read'] }] })
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: 'parent-edge-a',
+              resource_id: 'res-1',
+              resource_identifier: 'calendar',
+              scopes: ['read'],
+              constraints_json: { max_hops: 2 },
+              expires_at: '2027-03-16T00:00:00.000Z',
+            },
+            {
+              id: 'parent-edge-b',
+              resource_id: 'res-1',
+              resource_identifier: 'calendar',
+              scopes: ['read'],
+              constraints_json: { max_hops: 2 },
+              expires_at: '2027-03-16T00:00:00.000Z',
+            },
+          ],
+        })
         .mockResolvedValueOnce({ rows: [] }),
       release: vi.fn(),
     }
@@ -577,26 +608,29 @@ describe('POST /v1/zones/:zoneId/delegations', () => {
   it('rejects an explicit parent edge that is not active for the source session', async () => {
     const { app, db } = buildApp()
     const client = {
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [
-          { id: 'src-1', application_id: 'issuer-1' },
-          { id: 'dst-1', application_id: 'receiver-1' },
-        ] })
-        .mockResolvedValueOnce({ rows: [
-          { id: 'res-1', identifier: 'calendar', application_id: 'issuer-1', scopes: ['read'] },
-        ] })
-        .mockResolvedValueOnce({ rows: [
-          {
-            id: 'parent-edge-a',
-            resource_id: 'res-1',
-            resource_identifier: 'calendar',
-            scopes: ['read'],
-            constraints_json: { max_hops: 2 },
-            expires_at: '2027-03-16T00:00:00.000Z',
-          },
-        ] })
+        .mockResolvedValueOnce({
+          rows: [
+            { id: 'src-1', application_id: 'issuer-1' },
+            { id: 'dst-1', application_id: 'receiver-1' },
+          ],
+        })
+        .mockResolvedValueOnce({ rows: [{ id: 'res-1', identifier: 'calendar', application_id: 'issuer-1', scopes: ['read'] }] })
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: 'parent-edge-a',
+              resource_id: 'res-1',
+              resource_identifier: 'calendar',
+              scopes: ['read'],
+              constraints_json: { max_hops: 2 },
+              expires_at: '2027-03-16T00:00:00.000Z',
+            },
+          ],
+        })
         .mockResolvedValue({ rows: [] }),
       release: vi.fn(),
     }
@@ -621,34 +655,37 @@ describe('POST /v1/zones/:zoneId/delegations', () => {
   it('records the selected parent edge for downstream delegation', async () => {
     const { app, db } = buildApp()
     const client = {
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [
-          { id: 'src-1', application_id: 'issuer-1' },
-          { id: 'dst-1', application_id: 'receiver-1' },
-        ] })
-        .mockResolvedValueOnce({ rows: [
-          { id: 'res-1', identifier: 'calendar', application_id: 'issuer-1', scopes: ['read'] },
-        ] })
-        .mockResolvedValueOnce({ rows: [
-          {
-            id: 'parent-edge-a',
-            resource_id: 'res-1',
-            resource_identifier: 'calendar',
-            scopes: ['read'],
-            constraints_json: { max_hops: 2 },
-            expires_at: '2027-03-16T00:00:00.000Z',
-          },
-          {
-            id: 'parent-edge-b',
-            resource_id: 'res-1',
-            resource_identifier: 'calendar',
-            scopes: ['read'],
-            constraints_json: { max_hops: 2 },
-            expires_at: '2027-03-16T00:00:00.000Z',
-          },
-        ] })
+        .mockResolvedValueOnce({
+          rows: [
+            { id: 'src-1', application_id: 'issuer-1' },
+            { id: 'dst-1', application_id: 'receiver-1' },
+          ],
+        })
+        .mockResolvedValueOnce({ rows: [{ id: 'res-1', identifier: 'calendar', application_id: 'issuer-1', scopes: ['read'] }] })
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: 'parent-edge-a',
+              resource_id: 'res-1',
+              resource_identifier: 'calendar',
+              scopes: ['read'],
+              constraints_json: { max_hops: 2 },
+              expires_at: '2027-03-16T00:00:00.000Z',
+            },
+            {
+              id: 'parent-edge-b',
+              resource_id: 'res-1',
+              resource_identifier: 'calendar',
+              scopes: ['read'],
+              constraints_json: { max_hops: 2 },
+              expires_at: '2027-03-16T00:00:00.000Z',
+            },
+          ],
+        })
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [{ id: 'edge-child', parent_edge_id: 'parent-edge-b' }] })
         .mockResolvedValueOnce({ rows: [{ epoch: '1' }] })
@@ -779,9 +816,7 @@ describe('GET /v1/zones/:zoneId/delegations/active', () => {
 
   it('returns active edges after validating the cursor', async () => {
     const { app, db } = buildApp()
-    db.query
-      .mockResolvedValueOnce({ rows: [{ x: 1 }] })
-      .mockResolvedValueOnce({ rows: [{ id: 'e1' }] })
+    db.query.mockResolvedValueOnce({ rows: [{ x: 1 }] }).mockResolvedValueOnce({ rows: [{ id: 'e1' }] })
     await app.ready()
     const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/delegations/active?cursor=e0&limit=1' })
     expect(res.statusCode).toBe(200)
@@ -823,12 +858,18 @@ describe('GET /v1/zones/:zoneId/agents/:sessionId/effective-authority', () => {
     db.query.mockResolvedValueOnce({
       rows: [
         {
-          id: 'p1', scopes: ['read', 'write'], resource_id: 'res-1', resource_identifier: 'urn:a',
+          id: 'p1',
+          scopes: ['read', 'write'],
+          resource_id: 'res-1',
+          resource_identifier: 'urn:a',
           constraints_json: { max_hops: 3, ttl_seconds: 600, resources: ['urn:x'] },
           expires_at: '2027-01-01T00:00:00.000Z',
         },
         {
-          id: 'p2', scopes: ['read'], resource_id: null, resource_identifier: null,
+          id: 'p2',
+          scopes: ['read'],
+          resource_id: null,
+          resource_identifier: null,
           constraints_json: { max_hops: 2, ttl_seconds: 300 },
           expires_at: '2026-06-01T00:00:00.000Z',
         },
@@ -853,7 +894,8 @@ describe('PATCH /v1/zones/:zoneId/delegations/:id/revoke', () => {
   it('returns 404 when the edge is unknown', async () => {
     const { app, db } = buildApp()
     const client = {
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [] })
@@ -871,7 +913,8 @@ describe('PATCH /v1/zones/:zoneId/delegations/:id/revoke', () => {
   it('returns 403 when the caller lacks issuer ownership', async () => {
     const { app, db } = buildApp(['coordinator.read'])
     const client = {
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [{ issuer_application_id: 'other-app' }] })
@@ -888,22 +931,29 @@ describe('PATCH /v1/zones/:zoneId/delegations/:id/revoke', () => {
   it('revokes downstream edges, terminates affected agents, and deduplicates subject revocations', async () => {
     const { app, db } = buildApp()
     const client = {
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [{ issuer_application_id: 'issuer-1' }] })
-        .mockResolvedValueOnce({ rows: [
-          { id: 'edge-1', target_session_id: 'agent-2' },
-          { id: 'edge-2', target_session_id: 'agent-3' },
-        ] })
-        .mockResolvedValueOnce({ rows: [
-          { id: 'agent-2', subject_session_id: 'sid-shared', parent_id: null },
-          { id: 'agent-3', subject_session_id: 'sid-shared', parent_id: 'agent-2' },
-        ] })
-        .mockResolvedValueOnce({ rows: [
-          { id: 'agent-2', subject_session_id: 'sid-shared', parent_id: null },
-          { id: 'agent-3', subject_session_id: 'sid-shared', parent_id: 'agent-2' },
-        ] })
+        .mockResolvedValueOnce({
+          rows: [
+            { id: 'edge-1', target_session_id: 'agent-2' },
+            { id: 'edge-2', target_session_id: 'agent-3' },
+          ],
+        })
+        .mockResolvedValueOnce({
+          rows: [
+            { id: 'agent-2', subject_session_id: 'sid-shared', parent_id: null },
+            { id: 'agent-3', subject_session_id: 'sid-shared', parent_id: 'agent-2' },
+          ],
+        })
+        .mockResolvedValueOnce({
+          rows: [
+            { id: 'agent-2', subject_session_id: 'sid-shared', parent_id: null },
+            { id: 'agent-3', subject_session_id: 'sid-shared', parent_id: 'agent-2' },
+          ],
+        })
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [] })

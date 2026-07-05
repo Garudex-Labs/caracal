@@ -89,7 +89,9 @@ describe('ShutdownRegistry', () => {
   it('wires signal handlers that fire the registry', async () => {
     const { reg, exits } = makeRegistry()
     let ran = false
-    reg.register('cleanup', () => { ran = true })
+    reg.register('cleanup', () => {
+      ran = true
+    })
     reg.install(['SIGUSR2'])
     process.emit('SIGUSR2')
     await new Promise<void>((resolve) => setImmediate(resolve))

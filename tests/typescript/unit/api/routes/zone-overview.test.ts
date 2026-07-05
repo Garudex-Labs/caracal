@@ -28,14 +28,16 @@ function mockOverviewQueries(db: { query: ReturnType<typeof import('vitest').vi.
       return { rows: [{ allowed: 40, denied: 3 }] }
     }
     return {
-      rows: [{
-        id: 'audit-1',
-        event_type: 'token_exchange',
-        request_id: 'req-1',
-        decision: 'allow',
-        occurred_at: '2026-07-01T00:00:00.000Z',
-        metadata_json: { resource: 'resource://pipernet', token: 'leak-me' },
-      }],
+      rows: [
+        {
+          id: 'audit-1',
+          event_type: 'token_exchange',
+          request_id: 'req-1',
+          decision: 'allow',
+          occurred_at: '2026-07-01T00:00:00.000Z',
+          metadata_json: { resource: 'resource://pipernet', token: 'leak-me' },
+        },
+      ],
     }
   })
 }
@@ -101,9 +103,7 @@ describe('GET /v1/zones/:zoneId/overview', () => {
     await app.inject({ method: 'GET', url: '/v1/zones/z1/overview' })
 
     const sqls = db.query.mock.calls.map((call) => call[0] as string)
-    expect(sqls.find((sql) => sql.includes('FROM sessions'))).toContain(
-      "status = 'active' AND expires_at > now()",
-    )
+    expect(sqls.find((sql) => sql.includes('FROM sessions'))).toContain("status = 'active' AND expires_at > now()")
     const decisions = sqls.find((sql) => sql.includes("decision = 'deny'"))
     expect(decisions).toContain("occurred_at >= now() - interval '24 hours'")
   })

@@ -5,7 +5,11 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import '../../../../../shared/test-utils/typescript/coordinatorEnv.js'
-import { retentionCleanerStats, runRetentionCleanup, startRetentionCleaner } from '../../../../../../apps/coordinator/src/jobs/retention-cleaner.js'
+import {
+  retentionCleanerStats,
+  runRetentionCleanup,
+  startRetentionCleaner,
+} from '../../../../../../apps/coordinator/src/jobs/retention-cleaner.js'
 
 function clientWithRows(rows: Array<{ rowCount?: number; rows?: unknown[] }>) {
   return {
@@ -15,14 +19,12 @@ function clientWithRows(rows: Array<{ rowCount?: number; rows?: unknown[] }>) {
 }
 
 describe('runRetentionCleanup', () => {
-  afterEach(() => { vi.useRealTimers() })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
 
   it('skips cleanup when another replica holds the lock', async () => {
-    const client = clientWithRows([
-      { rows: [] },
-      { rows: [{ acquired: false }] },
-      { rows: [] },
-    ])
+    const client = clientWithRows([{ rows: [] }, { rows: [{ acquired: false }] }, { rows: [] }])
     const db = { connect: vi.fn().mockResolvedValueOnce(client) }
     await expect(runRetentionCleanup(db as never)).resolves.toEqual({
       expiredEdges: 0,
@@ -79,7 +81,8 @@ describe('runRetentionCleanup', () => {
   it('rolls back and releases when expiration fails', async () => {
     const err = new Error('expire failed')
     const client = {
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [{ acquired: true }] })
         .mockRejectedValueOnce(err)

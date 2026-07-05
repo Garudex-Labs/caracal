@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 Operator helper that prints shell export lines mapping each lab provider's seed credential to its LYNX_PARTNER_* variable.
 """
+
 from __future__ import annotations
 
 from _mock.providerlab import catalog, credentials
@@ -18,16 +19,27 @@ def lines() -> list[str]:
     for provider in catalog.CATALOG:
         seed = credentials.load(provider.id).data["seed"]
         eid = _eid(provider.id)
-        out.append(f"export LYNX_PARTNER_{eid}_URL=http://{provider.id}.mock:{provider.port}")
+        out.append(
+            f"export LYNX_PARTNER_{eid}_URL=http://{provider.id}.mock:{provider.port}"
+        )
         if catalog.apikey_auth(provider):
             out.append(f"export LYNX_PARTNER_{eid}_API_KEY={seed['apiKey']}")
-        elif catalog.bearer_auth(provider) or (provider.category == "mcp" and provider.mcp_auth == "bearer"):
+        elif catalog.bearer_auth(provider) or (
+            provider.category == "mcp" and provider.mcp_auth == "bearer"
+        ):
             out.append(f"export LYNX_PARTNER_{eid}_TOKEN={seed['bearerToken']}")
-        elif provider.category in ("oauth2_client_credentials", "oauth2_authorization_code"):
+        elif provider.category in (
+            "oauth2_client_credentials",
+            "oauth2_authorization_code",
+        ):
             out.append(f"export LYNX_PARTNER_{eid}_CLIENT_ID={seed['clientId']}")
-            out.append(f"export LYNX_PARTNER_{eid}_CLIENT_SECRET={seed['clientSecret']}")
+            out.append(
+                f"export LYNX_PARTNER_{eid}_CLIENT_SECRET={seed['clientSecret']}"
+            )
             out.append(f"export LYNX_PARTNER_{eid}_TOKEN={seed['patToken']}")
-        elif provider.category == "caracal_mandate" or (provider.category == "mcp" and provider.mcp_auth == "mandate"):
+        elif provider.category == "caracal_mandate" or (
+            provider.category == "mcp" and provider.mcp_auth == "mandate"
+        ):
             out.append(f"export LYNX_PARTNER_{eid}_MANDATE={seed['mandate']}")
     return out
 

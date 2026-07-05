@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 Keystone Treasury domain: multi-entity cash positioning, liquidity forecasting, FX hedging, intercompany transfers, currency exposure, and short-term treasury operations over a versioned gRPC service surface.
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
@@ -58,72 +59,173 @@ _GRPC_HTTP = {
 def _fail(status: str, code: str, message: str) -> DomainError:
     """Build a domain error carrying the canonical gRPC status a treasury gRPC
     service would return in its trailers alongside the HTTP-mapped code."""
-    return DomainError(_GRPC_HTTP[status], code, message,
-                       details={"grpcStatus": status, "grpcCode": _GRPC_CODE[status]})
+    return DomainError(
+        _GRPC_HTTP[status],
+        code,
+        message,
+        details={"grpcStatus": status, "grpcCode": _GRPC_CODE[status]},
+    )
 
 
 def _require(ctx: Ctx, *names: str) -> None:
     missing = [n for n in names if ctx.payload.get(n) in (None, "")]
     if missing:
-        raise _fail("INVALID_ARGUMENT", "invalid_argument",
-                    f"missing required field(s): {', '.join(missing)}")
+        raise _fail(
+            "INVALID_ARGUMENT",
+            "invalid_argument",
+            f"missing required field(s): {', '.join(missing)}",
+        )
 
 
 base.grpc_service(
     ID,
     package="keystone.treasury.v1",
     services=[
-        {"name": "CashPositionService", "rpcs": [
-            {"name": "ListPositions", "operation": "list_positions",
-             "request": "ListPositionsRequest", "response": "ListPositionsResponse"},
-            {"name": "GetPosition", "operation": "get_position",
-             "request": "GetPositionRequest", "response": "CurrencyPosition"},
-            {"name": "GetAccount", "operation": "get_account",
-             "request": "GetAccountRequest", "response": "AccountPosition"},
-            {"name": "GetPositionSummary", "operation": "get_position_summary",
-             "request": "GetPositionSummaryRequest", "response": "PositionSummary"},
-            {"name": "WatchPositions", "operation": "watch_positions",
-             "request": "WatchPositionsRequest", "response": "PositionUpdate",
-             "server_streaming": True},
-        ]},
-        {"name": "LiquidityForecastService", "rpcs": [
-            {"name": "ForecastLiquidity", "operation": "forecast_liquidity",
-             "request": "ForecastLiquidityRequest", "response": "LiquidityForecast"},
-        ]},
-        {"name": "HedgingService", "rpcs": [
-            {"name": "ListHedges", "operation": "list_hedges",
-             "request": "ListHedgesRequest", "response": "ListHedgesResponse"},
-            {"name": "PlaceHedge", "operation": "place_hedge",
-             "request": "PlaceHedgeRequest", "response": "Hedge"},
-            {"name": "GetHedge", "operation": "get_hedge",
-             "request": "GetHedgeRequest", "response": "Hedge"},
-            {"name": "CancelHedge", "operation": "cancel_hedge",
-             "request": "CancelHedgeRequest", "response": "Hedge"},
-            {"name": "SettleHedge", "operation": "settle_hedge",
-             "request": "SettleHedgeRequest", "response": "Hedge"},
-        ]},
-        {"name": "FundsTransferService", "rpcs": [
-            {"name": "TransferFunds", "operation": "transfer_funds",
-             "request": "TransferFundsRequest", "response": "Transfer"},
-            {"name": "ApproveTransfer", "operation": "approve_transfer",
-             "request": "ApproveTransferRequest", "response": "Transfer"},
-            {"name": "GetTransfer", "operation": "get_transfer",
-             "request": "GetTransferRequest", "response": "Transfer"},
-            {"name": "ListTransfers", "operation": "list_transfers",
-             "request": "ListTransfersRequest", "response": "ListTransfersResponse"},
-        ]},
-        {"name": "ExposureService", "rpcs": [
-            {"name": "GetExposure", "operation": "get_exposure",
-             "request": "GetExposureRequest", "response": "CurrencyExposure"},
-            {"name": "ListExposures", "operation": "list_exposures",
-             "request": "ListExposuresRequest", "response": "ListExposuresResponse"},
-        ]},
-        {"name": "TreasuryOperationsService", "rpcs": [
-            {"name": "ListOperations", "operation": "list_operations",
-             "request": "ListOperationsRequest", "response": "ListOperationsResponse"},
-            {"name": "GetOperation", "operation": "get_operation",
-             "request": "GetOperationRequest", "response": "TreasuryOperation"},
-        ]},
+        {
+            "name": "CashPositionService",
+            "rpcs": [
+                {
+                    "name": "ListPositions",
+                    "operation": "list_positions",
+                    "request": "ListPositionsRequest",
+                    "response": "ListPositionsResponse",
+                },
+                {
+                    "name": "GetPosition",
+                    "operation": "get_position",
+                    "request": "GetPositionRequest",
+                    "response": "CurrencyPosition",
+                },
+                {
+                    "name": "GetAccount",
+                    "operation": "get_account",
+                    "request": "GetAccountRequest",
+                    "response": "AccountPosition",
+                },
+                {
+                    "name": "GetPositionSummary",
+                    "operation": "get_position_summary",
+                    "request": "GetPositionSummaryRequest",
+                    "response": "PositionSummary",
+                },
+                {
+                    "name": "WatchPositions",
+                    "operation": "watch_positions",
+                    "request": "WatchPositionsRequest",
+                    "response": "PositionUpdate",
+                    "server_streaming": True,
+                },
+            ],
+        },
+        {
+            "name": "LiquidityForecastService",
+            "rpcs": [
+                {
+                    "name": "ForecastLiquidity",
+                    "operation": "forecast_liquidity",
+                    "request": "ForecastLiquidityRequest",
+                    "response": "LiquidityForecast",
+                },
+            ],
+        },
+        {
+            "name": "HedgingService",
+            "rpcs": [
+                {
+                    "name": "ListHedges",
+                    "operation": "list_hedges",
+                    "request": "ListHedgesRequest",
+                    "response": "ListHedgesResponse",
+                },
+                {
+                    "name": "PlaceHedge",
+                    "operation": "place_hedge",
+                    "request": "PlaceHedgeRequest",
+                    "response": "Hedge",
+                },
+                {
+                    "name": "GetHedge",
+                    "operation": "get_hedge",
+                    "request": "GetHedgeRequest",
+                    "response": "Hedge",
+                },
+                {
+                    "name": "CancelHedge",
+                    "operation": "cancel_hedge",
+                    "request": "CancelHedgeRequest",
+                    "response": "Hedge",
+                },
+                {
+                    "name": "SettleHedge",
+                    "operation": "settle_hedge",
+                    "request": "SettleHedgeRequest",
+                    "response": "Hedge",
+                },
+            ],
+        },
+        {
+            "name": "FundsTransferService",
+            "rpcs": [
+                {
+                    "name": "TransferFunds",
+                    "operation": "transfer_funds",
+                    "request": "TransferFundsRequest",
+                    "response": "Transfer",
+                },
+                {
+                    "name": "ApproveTransfer",
+                    "operation": "approve_transfer",
+                    "request": "ApproveTransferRequest",
+                    "response": "Transfer",
+                },
+                {
+                    "name": "GetTransfer",
+                    "operation": "get_transfer",
+                    "request": "GetTransferRequest",
+                    "response": "Transfer",
+                },
+                {
+                    "name": "ListTransfers",
+                    "operation": "list_transfers",
+                    "request": "ListTransfersRequest",
+                    "response": "ListTransfersResponse",
+                },
+            ],
+        },
+        {
+            "name": "ExposureService",
+            "rpcs": [
+                {
+                    "name": "GetExposure",
+                    "operation": "get_exposure",
+                    "request": "GetExposureRequest",
+                    "response": "CurrencyExposure",
+                },
+                {
+                    "name": "ListExposures",
+                    "operation": "list_exposures",
+                    "request": "ListExposuresRequest",
+                    "response": "ListExposuresResponse",
+                },
+            ],
+        },
+        {
+            "name": "TreasuryOperationsService",
+            "rpcs": [
+                {
+                    "name": "ListOperations",
+                    "operation": "list_operations",
+                    "request": "ListOperationsRequest",
+                    "response": "ListOperationsResponse",
+                },
+                {
+                    "name": "GetOperation",
+                    "operation": "get_operation",
+                    "request": "GetOperationRequest",
+                    "response": "TreasuryOperation",
+                },
+            ],
+        },
     ],
 )
 
@@ -139,8 +241,11 @@ def _iso(dt: datetime) -> str:
 def _currency(ctx: Ctx, field: str) -> str:
     value = str(ctx.payload[field]).upper()
     if not gen.fx_supported(value):
-        raise _fail("INVALID_ARGUMENT", "currency_not_supported",
-                    f"{field} {value!r} is not a supported currency")
+        raise _fail(
+            "INVALID_ARGUMENT",
+            "currency_not_supported",
+            f"{field} {value!r} is not a supported currency",
+        )
     return value
 
 
@@ -150,7 +255,9 @@ def _amount(ctx: Ctx, field: str = "amount") -> float:
     except (TypeError, ValueError):
         raise _fail("INVALID_ARGUMENT", "invalid_amount", f"{field} must be a number")
     if value <= 0:
-        raise _fail("INVALID_ARGUMENT", "invalid_amount", f"{field} must be greater than zero")
+        raise _fail(
+            "INVALID_ARGUMENT", "invalid_amount", f"{field} must be greater than zero"
+        )
     return value
 
 
@@ -166,15 +273,24 @@ def _value_date(ctx: Ctx, base_dt: datetime) -> datetime:
     try:
         parsed = datetime.fromisoformat(str(raw)).replace(tzinfo=timezone.utc)
     except ValueError:
-        raise _fail("INVALID_ARGUMENT", "invalid_value_date", "valueDate must be ISO-8601 (YYYY-MM-DD)")
+        raise _fail(
+            "INVALID_ARGUMENT",
+            "invalid_value_date",
+            "valueDate must be ISO-8601 (YYYY-MM-DD)",
+        )
     if parsed.date() < base_dt.date():
-        raise _fail("FAILED_PRECONDITION", "value_date_in_past",
-                    "valueDate cannot precede the current treasury date")
+        raise _fail(
+            "FAILED_PRECONDITION",
+            "value_date_in_past",
+            "valueDate cannot precede the current treasury date",
+        )
     return parsed
 
 
 def _accounts_for(ctx: Ctx, currency: str) -> list[dict]:
-    return [p for p in ctx.state.table("positions").values() if p["currency"] == currency]
+    return [
+        p for p in ctx.state.table("positions").values() if p["currency"] == currency
+    ]
 
 
 @base.seeder(ID)
@@ -213,8 +329,12 @@ def get_position(ctx: Ctx) -> dict:
     value_dated = _money(sum(a["valueDatedBalance"] for a in accounts), currency)
     projected = _money(sum(a["projectedBalance"] for a in accounts), currency)
     float_amount = _money(sum(a.get("floatAmount", 0.0) for a in accounts), currency)
-    investable = _money(sum(a.get("investableSurplus", 0.0) for a in accounts), currency)
-    minimum = _money(sum(a.get("minimumOperatingBalance", 0.0) for a in accounts), currency)
+    investable = _money(
+        sum(a.get("investableSurplus", 0.0) for a in accounts), currency
+    )
+    minimum = _money(
+        sum(a.get("minimumOperatingBalance", 0.0) for a in accounts), currency
+    )
     accrued = _money(sum(a.get("accruedInterestMtd", 0.0) for a in accounts), currency)
     as_of = max(a["asOf"] for a in accounts)
     return {
@@ -233,11 +353,15 @@ def get_position(ctx: Ctx) -> dict:
         "availableBalanceBase": round(gen.keystone_usd(available, currency), 2),
         "investableSurplusBase": round(gen.keystone_usd(investable, currency), 2),
         "accounts": [
-            {"accountId": a["accountId"], "legalEntity": a["legalEntity"],
-             "bankName": a["bankName"], "purpose": a["purpose"],
-             "availableBalance": a["availableBalance"],
-             "investableSurplus": a.get("investableSurplus", 0.0),
-             "sweepEligible": a.get("sweepEligible", False)}
+            {
+                "accountId": a["accountId"],
+                "legalEntity": a["legalEntity"],
+                "bankName": a["bankName"],
+                "purpose": a["purpose"],
+                "availableBalance": a["availableBalance"],
+                "investableSurplus": a.get("investableSurplus", 0.0),
+                "sweepEligible": a.get("sweepEligible", False),
+            }
             for a in sorted(accounts, key=lambda x: x["legalEntityId"])
         ],
     }
@@ -262,13 +386,26 @@ def get_position_summary(ctx: Ctx) -> dict:
     total_investable_base = 0.0
     for a in accounts:
         ccy = a["currency"]
-        bucket = by_currency.setdefault(ccy, {"currency": ccy, "accountCount": 0,
-                                               "availableBalance": 0.0, "ledgerBalance": 0.0,
-                                               "investableSurplus": 0.0})
+        bucket = by_currency.setdefault(
+            ccy,
+            {
+                "currency": ccy,
+                "accountCount": 0,
+                "availableBalance": 0.0,
+                "ledgerBalance": 0.0,
+                "investableSurplus": 0.0,
+            },
+        )
         bucket["accountCount"] += 1
-        bucket["availableBalance"] = _money(bucket["availableBalance"] + a["availableBalance"], ccy)
-        bucket["ledgerBalance"] = _money(bucket["ledgerBalance"] + a["ledgerBalance"], ccy)
-        bucket["investableSurplus"] = _money(bucket["investableSurplus"] + a.get("investableSurplus", 0.0), ccy)
+        bucket["availableBalance"] = _money(
+            bucket["availableBalance"] + a["availableBalance"], ccy
+        )
+        bucket["ledgerBalance"] = _money(
+            bucket["ledgerBalance"] + a["ledgerBalance"], ccy
+        )
+        bucket["investableSurplus"] = _money(
+            bucket["investableSurplus"] + a.get("investableSurplus", 0.0), ccy
+        )
     for ccy, bucket in by_currency.items():
         base_eq = round(gen.keystone_usd(bucket["availableBalance"], ccy), 2)
         investable_base = round(gen.keystone_usd(bucket["investableSurplus"], ccy), 2)
@@ -283,7 +420,9 @@ def get_position_summary(ctx: Ctx) -> dict:
         "totalInvestableSurplusBase": round(total_investable_base, 2),
         "currencyCount": len(by_currency),
         "accountCount": len(accounts),
-        "byCurrency": sorted(by_currency.values(), key=lambda b: b["availableBalanceBase"], reverse=True),
+        "byCurrency": sorted(
+            by_currency.values(), key=lambda b: b["availableBalanceBase"], reverse=True
+        ),
     }
 
 
@@ -304,14 +443,21 @@ def watch_positions(ctx: Ctx) -> dict:
         rng = gen._rng(ID, "watch", currency, i)
         delta = round(rng.uniform(-0.02, 0.02) * base_available, 2)
         running = _money(running + delta, currency)
-        updates.append({
-            "sequence": i,
-            "currency": currency,
-            "asOf": _iso(start + timedelta(minutes=i * 5)),
-            "availableBalance": running,
-            "movement": delta,
-        })
-    return {"currency": currency, "streaming": True, "count": len(updates), "updates": updates}
+        updates.append(
+            {
+                "sequence": i,
+                "currency": currency,
+                "asOf": _iso(start + timedelta(minutes=i * 5)),
+                "availableBalance": running,
+                "movement": delta,
+            }
+        )
+    return {
+        "currency": currency,
+        "streaming": True,
+        "count": len(updates),
+        "updates": updates,
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -328,13 +474,18 @@ def forecast_liquidity(ctx: Ctx) -> dict:
     try:
         horizon = int(ctx.payload["horizonDays"])
     except (TypeError, ValueError):
-        raise _fail("INVALID_ARGUMENT", "invalid_horizon", "horizonDays must be an integer")
+        raise _fail(
+            "INVALID_ARGUMENT", "invalid_horizon", "horizonDays must be an integer"
+        )
     if horizon <= 0 or horizon > 365:
         raise _fail("INVALID_ARGUMENT", "invalid_horizon", "horizonDays must be 1..365")
     scenario = str(ctx.get("scenario", "base")).lower()
     if scenario not in _FORECAST_SCENARIOS:
-        raise _fail("INVALID_ARGUMENT", "invalid_scenario",
-                          f"scenario must be one of {', '.join(_FORECAST_SCENARIOS)}")
+        raise _fail(
+            "INVALID_ARGUMENT",
+            "invalid_scenario",
+            f"scenario must be one of {', '.join(_FORECAST_SCENARIOS)}",
+        )
 
     bias = {"base": 1.0, "optimistic": 1.4, "stress": 0.55}[scenario]
     confidence = {"base": 0.8, "optimistic": 0.6, "stress": 0.9}[scenario]
@@ -362,27 +513,31 @@ def forecast_liquidity(ctx: Ctx) -> dict:
         balance = _money(balance + net, currency)
         cumulative_net = _money(cumulative_net + net, currency)
         minimum = min(minimum, balance)
-        band = round(abs(balance) * (1 - confidence) * 0.5, gen.fx_minor_units(currency))
-        points.append({
-            "day": day,
-            "date": (_now() + timedelta(days=day)).date().isoformat(),
-            "openingBalance": opening_day,
-            "projectedInflows": inflows,
-            "projectedOutflows": outflows,
-            "netCashFlow": net,
-            "cumulativeNetCashFlow": cumulative_net,
-            "closingBalance": balance,
-            "closingBalanceLow": _money(balance - band, currency),
-            "closingBalanceHigh": _money(balance + band, currency),
-            "categories": {
-                "receivables": ar,
-                "intercompany": interco_in,
-                "payables": ap,
-                "payroll": payroll,
-                "tax": tax,
-                "debtService": debt,
-            },
-        })
+        band = round(
+            abs(balance) * (1 - confidence) * 0.5, gen.fx_minor_units(currency)
+        )
+        points.append(
+            {
+                "day": day,
+                "date": (_now() + timedelta(days=day)).date().isoformat(),
+                "openingBalance": opening_day,
+                "projectedInflows": inflows,
+                "projectedOutflows": outflows,
+                "netCashFlow": net,
+                "cumulativeNetCashFlow": cumulative_net,
+                "closingBalance": balance,
+                "closingBalanceLow": _money(balance - band, currency),
+                "closingBalanceHigh": _money(balance + band, currency),
+                "categories": {
+                    "receivables": ar,
+                    "intercompany": interco_in,
+                    "payables": ap,
+                    "payroll": payroll,
+                    "tax": tax,
+                    "debtService": debt,
+                },
+            }
+        )
 
     forecast = {
         "forecastId": base.new_id("fct"),
@@ -412,13 +567,21 @@ def forecast_liquidity(ctx: Ctx) -> dict:
 def _parse_pair(value: str) -> tuple[str, str]:
     parts = str(value).upper().replace("-", "/").split("/")
     if len(parts) != 2 or not all(parts):
-        raise _fail("INVALID_ARGUMENT", "invalid_pair", "pair must be formatted 'BUY/SELL'")
+        raise _fail(
+            "INVALID_ARGUMENT", "invalid_pair", "pair must be formatted 'BUY/SELL'"
+        )
     buy, sell = parts
     if buy == sell:
-        raise _fail("INVALID_ARGUMENT", "same_currency_pair", "pair currencies must differ")
+        raise _fail(
+            "INVALID_ARGUMENT", "same_currency_pair", "pair currencies must differ"
+        )
     for ccy in (buy, sell):
         if not gen.fx_supported(ccy):
-            raise _fail("INVALID_ARGUMENT", "currency_not_supported", f"{ccy} is not a tradeable currency")
+            raise _fail(
+                "INVALID_ARGUMENT",
+                "currency_not_supported",
+                f"{ccy} is not a tradeable currency",
+            )
     return buy, sell
 
 
@@ -446,15 +609,21 @@ def place_hedge(ctx: Ctx) -> dict:
     notional = _amount(ctx, "notional")
     instrument = str(ctx.get("instrument", "forward")).lower()
     if instrument not in _HEDGE_INSTRUMENTS:
-        raise _fail("INVALID_ARGUMENT", "invalid_instrument",
-                          f"instrument must be one of {', '.join(_HEDGE_INSTRUMENTS)}")
+        raise _fail(
+            "INVALID_ARGUMENT",
+            "invalid_instrument",
+            f"instrument must be one of {', '.join(_HEDGE_INSTRUMENTS)}",
+        )
     tenor_days = int(ctx.get("tenorDays", 90))
     if tenor_days <= 0 or tenor_days > 730:
         raise _fail("INVALID_ARGUMENT", "invalid_tenor", "tenorDays must be 1..730")
     designation = str(ctx.get("designation", "cash_flow_hedge")).lower()
     if designation not in _HEDGE_DESIGNATIONS:
-        raise _fail("INVALID_ARGUMENT", "invalid_designation",
-                    f"designation must be one of {', '.join(_HEDGE_DESIGNATIONS)}")
+        raise _fail(
+            "INVALID_ARGUMENT",
+            "invalid_designation",
+            f"designation must be one of {', '.join(_HEDGE_DESIGNATIONS)}",
+        )
 
     now = _now()
     value_date = _value_date(ctx, now)
@@ -519,7 +688,11 @@ def cancel_hedge(ctx: Ctx) -> dict:
     if hedge is None:
         raise _fail("NOT_FOUND", "hedge_not_found", ctx.payload["hedgeId"])
     if hedge["status"] == "settled":
-        raise _fail("FAILED_PRECONDITION", "hedge_not_cancellable", "a settled hedge cannot be cancelled")
+        raise _fail(
+            "FAILED_PRECONDITION",
+            "hedge_not_cancellable",
+            "a settled hedge cannot be cancelled",
+        )
     if hedge["status"] == "cancelled":
         return hedge
     hedge["status"] = "cancelled"
@@ -535,7 +708,11 @@ def settle_hedge(ctx: Ctx) -> dict:
     if hedge is None:
         raise _fail("NOT_FOUND", "hedge_not_found", ctx.payload["hedgeId"])
     if hedge["status"] == "cancelled":
-        raise _fail("FAILED_PRECONDITION", "hedge_cancelled", "a cancelled hedge cannot be settled")
+        raise _fail(
+            "FAILED_PRECONDITION",
+            "hedge_cancelled",
+            "a cancelled hedge cannot be settled",
+        )
     if hedge["status"] == "settled":
         return hedge
     now = _now()
@@ -568,21 +745,33 @@ def transfer_funds(ctx: Ctx) -> dict:
         if source is None:
             raise _fail("NOT_FOUND", "account_not_found", ctx.payload["fromAccountId"])
         if source["currency"] != currency:
-            raise _fail("INVALID_ARGUMENT", "currency_mismatch",
-                              f"source account holds {source['currency']}, not {currency}")
+            raise _fail(
+                "INVALID_ARGUMENT",
+                "currency_mismatch",
+                f"source account holds {source['currency']}, not {currency}",
+            )
     if amount > source["availableBalance"]:
-        raise _fail("FAILED_PRECONDITION", "insufficient_liquidity",
-                          f"amount exceeds {source['availableBalance']} available on {source['accountId']}")
+        raise _fail(
+            "FAILED_PRECONDITION",
+            "insufficient_liquidity",
+            f"amount exceeds {source['availableBalance']} available on {source['accountId']}",
+        )
 
-    dest_entity = gen.keystone_entity(region=str(ctx.get("destination", "")),
-                                      currency=str(ctx.get("toCurrency", "")) or None)
+    dest_entity = gen.keystone_entity(
+        region=str(ctx.get("destination", "")),
+        currency=str(ctx.get("toCurrency", "")) or None,
+    )
     to_account = ctx.get("toAccountId")
     dest_country = None
     if to_account:
         dest = ctx.state.table("positions").get(to_account)
         if dest is None:
             raise _fail("NOT_FOUND", "account_not_found", to_account)
-        to_account_id, to_entity_id, to_entity = dest["accountId"], dest["legalEntityId"], dest["legalEntity"]
+        to_account_id, to_entity_id, to_entity = (
+            dest["accountId"],
+            dest["legalEntityId"],
+            dest["legalEntity"],
+        )
         dest_country = dest.get("country")
     elif dest_entity is not None:
         to_account_id = f"acct_{dest_entity[0].lower()}_concentration"
@@ -593,12 +782,21 @@ def transfer_funds(ctx: Ctx) -> dict:
         to_entity_id, to_entity = "EXTERNAL", str(ctx.get("destination", "external"))
 
     if to_account_id == source["accountId"]:
-        raise _fail("INVALID_ARGUMENT", "same_account_transfer", "source and destination accounts are identical")
+        raise _fail(
+            "INVALID_ARGUMENT",
+            "same_account_transfer",
+            "source and destination accounts are identical",
+        )
 
     now = _now()
     value_date = _value_date(ctx, now)
     same_entity = to_entity_id == source["legalEntityId"]
-    cross_border = dest_country is not None and dest_country != source["country"] or dest_country is None and not same_entity
+    cross_border = (
+        dest_country is not None
+        and dest_country != source["country"]
+        or dest_country is None
+        and not same_entity
+    )
     if same_entity:
         method = "book_transfer"
     elif cross_border:
@@ -608,11 +806,17 @@ def transfer_funds(ctx: Ctx) -> dict:
     fee = 0.0 if same_entity else _money(min(25.0, amount * 0.0001), currency)
 
     amount_base = gen.keystone_usd(amount, currency)
-    requires_approval = not same_entity and amount_base >= _TRANSFER_APPROVAL_THRESHOLD_BASE
+    requires_approval = (
+        not same_entity and amount_base >= _TRANSFER_APPROVAL_THRESHOLD_BASE
+    )
     status = "pending_approval" if requires_approval else "executed"
     if not requires_approval:
-        source["availableBalance"] = _money(source["availableBalance"] - amount, currency)
-        source["valueDatedBalance"] = _money(source["valueDatedBalance"] - amount, currency)
+        source["availableBalance"] = _money(
+            source["availableBalance"] - amount, currency
+        )
+        source["valueDatedBalance"] = _money(
+            source["valueDatedBalance"] - amount, currency
+        )
 
     transfer = {
         "transferId": base.new_id("tr"),
@@ -635,8 +839,12 @@ def transfer_funds(ctx: Ctx) -> dict:
         "settlementMethod": method,
         "settlementRail": "ISO20022_pain.001" if method == "swift" else method.upper(),
         "crossBorder": cross_border,
-        "chargeBearer": str(ctx.get("chargeBearer", "OUR")).upper() if not same_entity else "OUR",
-        "correspondentBank": str(ctx.get("counterparty", "Halcyon Bank")) if cross_border else None,
+        "chargeBearer": str(ctx.get("chargeBearer", "OUR")).upper()
+        if not same_entity
+        else "OUR",
+        "correspondentBank": str(ctx.get("counterparty", "Halcyon Bank"))
+        if cross_border
+        else None,
         "regulatoryReportingRequired": cross_border and amount_base > 1_000_000,
         "purposeCode": str(ctx.get("purposeCode", "INTC")),
         "fee": fee,
@@ -658,16 +866,26 @@ def approve_transfer(ctx: Ctx) -> dict:
     if transfer is None:
         raise _fail("NOT_FOUND", "transfer_not_found", ctx.payload["transferId"])
     if transfer["status"] != "pending_approval":
-        raise _fail("FAILED_PRECONDITION", "transfer_not_pending_approval",
-                    f"transfer is {transfer['status']}, not pending_approval")
+        raise _fail(
+            "FAILED_PRECONDITION",
+            "transfer_not_pending_approval",
+            f"transfer is {transfer['status']}, not pending_approval",
+        )
     source = ctx.state.table("positions").get(transfer["fromAccountId"])
     currency, amount = transfer["currency"], transfer["amount"]
     if source is not None:
         if amount > source["availableBalance"]:
-            raise _fail("FAILED_PRECONDITION", "insufficient_liquidity",
-                        f"amount exceeds {source['availableBalance']} available on {source['accountId']}")
-        source["availableBalance"] = _money(source["availableBalance"] - amount, currency)
-        source["valueDatedBalance"] = _money(source["valueDatedBalance"] - amount, currency)
+            raise _fail(
+                "FAILED_PRECONDITION",
+                "insufficient_liquidity",
+                f"amount exceeds {source['availableBalance']} available on {source['accountId']}",
+            )
+        source["availableBalance"] = _money(
+            source["availableBalance"] - amount, currency
+        )
+        source["valueDatedBalance"] = _money(
+            source["valueDatedBalance"] - amount, currency
+        )
     now = _now()
     transfer["status"] = "executed"
     transfer["approvalState"] = "approved"
@@ -715,10 +933,14 @@ def get_exposure(ctx: Ctx) -> dict:
 
 @base.op(ID, "list_exposures")
 def list_exposures(ctx: Ctx) -> dict:
-    items = sorted(ctx.state.table("exposures").values(),
-                   key=lambda e: abs(e["netExposureBase"]), reverse=True)
-    total_unhedged_base = round(sum(
-        gen.keystone_usd(e["unhedgedAmount"], e["currency"]) for e in items), 2)
+    items = sorted(
+        ctx.state.table("exposures").values(),
+        key=lambda e: abs(e["netExposureBase"]),
+        reverse=True,
+    )
+    total_unhedged_base = round(
+        sum(gen.keystone_usd(e["unhedgedAmount"], e["currency"]) for e in items), 2
+    )
     return {
         "reportingCurrency": _REPORTING_CCY,
         "asOf": _iso(_now()),

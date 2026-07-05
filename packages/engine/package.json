@@ -51,6 +51,7 @@
   "dependencies": {
     "@caracalai/admin": "workspace:*",
     "@caracalai/core": "workspace:*",
+    "@caracalai/server-core": "workspace:*",
     "@caracalai/oauth": "workspace:*"
   },
   "devDependencies": {

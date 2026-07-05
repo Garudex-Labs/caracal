@@ -38,7 +38,10 @@ export function readDotenv(path: string): Record<string, string> {
 }
 
 export class SecretFileError extends Error {
-  constructor(public readonly key: string, public readonly path: string) {
+  constructor(
+    public readonly key: string,
+    public readonly path: string,
+  ) {
     super(`secret file empty: ${key}_FILE=${path}`)
     this.name = 'SecretFileError'
   }
@@ -68,7 +71,10 @@ function resolveSecret(key: EnvKey, spec: EnvSpec, env: Record<string, string | 
 }
 
 export class PinnedVarError extends Error {
-  constructor(public readonly key: string, public readonly mode: StackMode) {
+  constructor(
+    public readonly key: string,
+    public readonly mode: StackMode,
+  ) {
     super(`pinned env var ${key} cannot be overridden in ${mode} mode`)
     this.name = 'PinnedVarError'
   }

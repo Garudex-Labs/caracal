@@ -61,7 +61,9 @@ class CaracalAuthTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(cm.exception.code, "missing_token")
         self.assertIsInstance(cm.exception.description, str)
-        self.assertEqual(cm.exception.hint, "Send Authorization: Bearer <Caracal mandate>.")
+        self.assertEqual(
+            cm.exception.hint, "Send Authorization: Bearer <Caracal mandate>."
+        )
 
     async def test_forwards_hop_count_limit(self) -> None:
         token, jwk = mint_es256_token(claims={"hop_count": 2})

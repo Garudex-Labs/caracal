@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 Session endpoints: two-state gate (landing accepted, setup validated).
 """
+
 from __future__ import annotations
 
 from fastapi import APIRouter, Request, Response
@@ -30,5 +31,7 @@ def setup_complete(request: Request, response: Response):
         )
         denied.delete_cookie(SETUP_COOKIE)
         return denied
-    response.set_cookie(SETUP_COOKIE, "1", max_age=86400, httponly=False, samesite="lax")
+    response.set_cookie(
+        SETUP_COOKIE, "1", max_age=86400, httponly=False, samesite="lax"
+    )
     return {"setup": True}

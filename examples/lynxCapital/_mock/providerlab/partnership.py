@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 Caracal partnership terms a mandate-verifying provider is configured with: accepted resource-view audiences and scope-to-operation grants.
 """
+
 from __future__ import annotations
 
 import json

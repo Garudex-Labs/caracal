@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 Session-level conversation and run history retained across multiple runs.
 """
+
 from __future__ import annotations
 
 import json
@@ -15,8 +16,8 @@ from pathlib import Path
 from threading import Lock
 from typing import Literal
 
-MAX_TURNS = 20   # user + assistant pairs kept
-MAX_RUNS = 10    # run records kept
+MAX_TURNS = 20  # user + assistant pairs kept
+MAX_RUNS = 10  # run records kept
 log = logging.getLogger("lynx.session_memory")
 
 
@@ -24,7 +25,7 @@ log = logging.getLogger("lynx.session_memory")
 class RunRecord:
     run_id: str
     prompt: str
-    status: str            # completed | failed | denied | cancelled
+    status: str  # completed | failed | denied | cancelled
     regions: list[str]
     errors: list[str]
     ts: float = field(default_factory=time.time)
@@ -90,7 +91,9 @@ class SessionMemory:
         if runs:
             recent = runs[-5:]
             selected = list(recent)
-            relevant = self._rank_runs(query, runs, exclude=recent, limit=3) if query else []
+            relevant = (
+                self._rank_runs(query, runs, exclude=recent, limit=3) if query else []
+            )
             for r in relevant:
                 if r not in selected:
                     selected.insert(0, r)
@@ -109,10 +112,15 @@ class SessionMemory:
 
     @staticmethod
     def _tokens(text: str) -> set[str]:
-        return {w for w in "".join(c.lower() if c.isalnum() else " " for c in text).split() if len(w) > 2}
+        return {
+            w
+            for w in "".join(c.lower() if c.isalnum() else " " for c in text).split()
+            if len(w) > 2
+        }
 
-    def _rank_runs(self, query: str, runs: list[RunRecord], exclude: list[RunRecord],
-                   limit: int) -> list[RunRecord]:
+    def _rank_runs(
+        self, query: str, runs: list[RunRecord], exclude: list[RunRecord], limit: int
+    ) -> list[RunRecord]:
         terms = self._tokens(query)
         if not terms:
             return []
@@ -138,7 +146,7 @@ class SessionMemory:
 
     def _trim(self) -> None:
         if len(self._turns) > MAX_TURNS * 2:
-            self._turns = self._turns[-(MAX_TURNS * 2):]
+            self._turns = self._turns[-(MAX_TURNS * 2) :]
 
     def _load(self) -> None:
         if not self._path or not self._path.exists():
@@ -150,7 +158,9 @@ class SessionMemory:
         with self._lock:
             self._runs = [
                 RunRecord(
-                    run_id=r["run_id"], prompt=r["prompt"], status=r["status"],
+                    run_id=r["run_id"],
+                    prompt=r["prompt"],
+                    status=r["status"],
                     regions=list(r.get("regions") or []),
                     errors=list(r.get("errors") or []),
                     ts=float(r.get("ts") or time.time()),
@@ -158,8 +168,12 @@ class SessionMemory:
                 for r in data.get("runs", [])
             ]
             self._turns = [
-                Turn(role=t["role"], content=t["content"],
-                     run_id=t.get("run_id"), ts=float(t.get("ts") or time.time()))
+                Turn(
+                    role=t["role"],
+                    content=t["content"],
+                    run_id=t.get("run_id"),
+                    ts=float(t.get("ts") or time.time()),
+                )
                 for t in data.get("turns", [])
             ]
 
@@ -170,13 +184,22 @@ class SessionMemory:
             payload = {
                 "runs": [
                     {
-                        "run_id": r.run_id, "prompt": r.prompt, "status": r.status,
-                        "regions": r.regions, "errors": r.errors, "ts": r.ts,
+                        "run_id": r.run_id,
+                        "prompt": r.prompt,
+                        "status": r.status,
+                        "regions": r.regions,
+                        "errors": r.errors,
+                        "ts": r.ts,
                     }
                     for r in self._runs
                 ],
                 "turns": [
-                    {"role": t.role, "content": t.content, "run_id": t.run_id, "ts": t.ts}
+                    {
+                        "role": t.role,
+                        "content": t.content,
+                        "run_id": t.run_id,
+                        "ts": t.ts,
+                    }
                     for t in self._turns
                 ],
             }

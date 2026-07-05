@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 Lifecycle invariant tests: spawn/terminate pairing, cancellation order, ephemeral timing.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -43,7 +44,10 @@ class _FakeLLM:
 
     def _classify(self, messages):
         for m in messages:
-            if getattr(m, "type", None) == "system" or m.__class__.__name__ == "SystemMessage":
+            if (
+                getattr(m, "type", None) == "system"
+                or m.__class__.__name__ == "SystemMessage"
+            ):
                 txt = str(m.content)
                 if "Finance Control" in txt:
                     self._role = "fc"
@@ -51,6 +55,7 @@ class _FakeLLM:
                     self._role = "regional"
                     # pull the region token: "for the XX region"
                     import re
+
                     m2 = re.search(r"for the (\w+) region", txt)
                     if m2:
                         self._region = m2.group(1)
@@ -58,6 +63,7 @@ class _FakeLLM:
 
     async def astream(self, messages):
         from langchain_core.messages import AIMessageChunk
+
         if self._role is None:
             self._classify(messages)
         self._turn += 1
@@ -66,25 +72,40 @@ class _FakeLLM:
             if self._turn == 1:
                 yield AIMessageChunk(
                     content="Planning the run.",
-                    tool_calls=[{
-                        "name": "write_todos",
-                        "args": {"todos": [
-                            {"content": f"Dispatch {r} region", "status": "pending"}
-                            for r in ("US", "IN", "DE", "SG", "BR")
-                        ]},
-                        "id": "fc-plan",
-                        "type": "tool_call",
-                    }],
+                    tool_calls=[
+                        {
+                            "name": "write_todos",
+                            "args": {
+                                "todos": [
+                                    {
+                                        "content": f"Dispatch {r} region",
+                                        "status": "pending",
+                                    }
+                                    for r in ("US", "IN", "DE", "SG", "BR")
+                                ]
+                            },
+                            "id": "fc-plan",
+                            "type": "tool_call",
+                        }
+                    ],
                 )
             elif self._turn == 2:
                 tool_calls = [
-                    {"name": "dispatch_region", "args": {"region": r, "focus": "batch"}, "id": f"fc-{r}", "type": "tool_call"}
+                    {
+                        "name": "dispatch_region",
+                        "args": {"region": r, "focus": "batch"},
+                        "id": f"fc-{r}",
+                        "type": "tool_call",
+                    }
                     for r in ("US", "IN", "DE", "SG", "BR")
                 ]
-                yield AIMessageChunk(content="Dispatching regions.", tool_calls=tool_calls)
+                yield AIMessageChunk(
+                    content="Dispatching regions.", tool_calls=tool_calls
+                )
             elif self._turn == 3:
                 import json as _json
                 from langchain_core.messages import ToolMessage
+
                 job_ids: list[str] = []
                 for m in messages:
                     if isinstance(m, ToolMessage):
@@ -96,12 +117,14 @@ class _FakeLLM:
                             job_ids.append(d["job_id"])
                 yield AIMessageChunk(
                     content="Awaiting region jobs.",
-                    tool_calls=[{
-                        "name": "await_jobs",
-                        "args": {"job_ids": job_ids, "timeout_s": 60},
-                        "id": "fc-await",
-                        "type": "tool_call",
-                    }],
+                    tool_calls=[
+                        {
+                            "name": "await_jobs",
+                            "args": {"job_ids": job_ids, "timeout_s": 60},
+                            "id": "fc-await",
+                            "type": "tool_call",
+                        }
+                    ],
                 )
             else:
                 yield AIMessageChunk(content="All regions completed.")
@@ -112,45 +135,112 @@ class _FakeLLM:
         if self._turn == 1:
             yield AIMessageChunk(
                 content="",
-                tool_calls=[{
-                    "name": "write_todos",
-                    "args": {"todos": [
-                        {"content": "List pending invoices", "status": "in_progress"},
-                        {"content": "Process invoices", "status": "pending"},
-                        {"content": "Finalize audit", "status": "pending"},
-                    ]},
-                    "id": f"r-{region}-plan",
-                    "type": "tool_call",
-                }],
+                tool_calls=[
+                    {
+                        "name": "write_todos",
+                        "args": {
+                            "todos": [
+                                {
+                                    "content": "List pending invoices",
+                                    "status": "in_progress",
+                                },
+                                {"content": "Process invoices", "status": "pending"},
+                                {"content": "Finalize audit", "status": "pending"},
+                            ]
+                        },
+                        "id": f"r-{region}-plan",
+                        "type": "tool_call",
+                    }
+                ],
             )
         elif self._turn == 2:
             yield AIMessageChunk(
                 content="",
-                tool_calls=[{"name": "list_pending_invoices", "args": {"limit": 2}, "id": f"r-{region}-list", "type": "tool_call"}],
+                tool_calls=[
+                    {
+                        "name": "list_pending_invoices",
+                        "args": {"limit": 2},
+                        "id": f"r-{region}-list",
+                        "type": "tool_call",
+                    }
+                ],
             )
         elif self._turn == 3:
             # Use the last ToolMessage to pick a real invoice id from region data.
             from app.core.dataset import INVOICES, VENDORS
+
             invs = [i for i in INVOICES if i.region == region][:1]
             if not invs:
                 yield AIMessageChunk(content="no invoices")
                 return
             inv = invs[0]
             vendor = VENDORS.get(inv.vendor_id)
-            rail = vendor.preferred_rails[0].value if vendor and vendor.preferred_rails else "WIRE"
-            yield AIMessageChunk(content="", tool_calls=[
-                {"name": "extract_invoice_data", "args": {"invoice_id": inv.id}, "id": f"r-{region}-e1", "type": "tool_call"},
-                {"name": "match_invoice_in_ledger", "args": {"invoice_id": inv.id, "vendor_id": inv.vendor_id, "amount": float(inv.amount_local), "currency": inv.currency}, "id": f"r-{region}-m1", "type": "tool_call"},
-                {"name": "check_vendor_compliance", "args": {"vendor_id": inv.vendor_id}, "id": f"r-{region}-c1", "type": "tool_call"},
-                {"name": "submit_payment", "args": {"vendor_id": inv.vendor_id, "amount": float(inv.amount_local), "currency": inv.currency, "rail": rail, "reference": f"ref-{inv.id}"}, "id": f"r-{region}-p1", "type": "tool_call"},
-            ])
+            rail = (
+                vendor.preferred_rails[0].value
+                if vendor and vendor.preferred_rails
+                else "WIRE"
+            )
+            yield AIMessageChunk(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "extract_invoice_data",
+                        "args": {"invoice_id": inv.id},
+                        "id": f"r-{region}-e1",
+                        "type": "tool_call",
+                    },
+                    {
+                        "name": "match_invoice_in_ledger",
+                        "args": {
+                            "invoice_id": inv.id,
+                            "vendor_id": inv.vendor_id,
+                            "amount": float(inv.amount_local),
+                            "currency": inv.currency,
+                        },
+                        "id": f"r-{region}-m1",
+                        "type": "tool_call",
+                    },
+                    {
+                        "name": "check_vendor_compliance",
+                        "args": {"vendor_id": inv.vendor_id},
+                        "id": f"r-{region}-c1",
+                        "type": "tool_call",
+                    },
+                    {
+                        "name": "submit_payment",
+                        "args": {
+                            "vendor_id": inv.vendor_id,
+                            "amount": float(inv.amount_local),
+                            "currency": inv.currency,
+                            "rail": rail,
+                            "reference": f"ref-{inv.id}",
+                        },
+                        "id": f"r-{region}-p1",
+                        "type": "tool_call",
+                    },
+                ],
+            )
         elif self._turn == 4:
             from app.core.dataset import REGIONS
+
             currency = REGIONS[region].currency
-            yield AIMessageChunk(content="", tool_calls=[
-                {"name": "lookup_withholding_rate", "args": {"currency": currency}, "id": f"r-{region}-w", "type": "tool_call"},
-                {"name": "record_audit", "args": {"summary": f"{region} batch complete"}, "id": f"r-{region}-a", "type": "tool_call"},
-            ])
+            yield AIMessageChunk(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "lookup_withholding_rate",
+                        "args": {"currency": currency},
+                        "id": f"r-{region}-w",
+                        "type": "tool_call",
+                    },
+                    {
+                        "name": "record_audit",
+                        "args": {"summary": f"{region} batch complete"},
+                        "id": f"r-{region}-a",
+                        "type": "tool_call",
+                    },
+                ],
+            )
         else:
             yield AIMessageChunk(content=f"{region} batch complete.")
 
@@ -163,7 +253,9 @@ def fresh_bus(monkeypatch):
     monkeypatch.setattr(swarm_mod, "bus", new_bus)
     monkeypatch.setattr(runner_mod, "bus", new_bus)
     monkeypatch.setattr(tools_mod, "bus", new_bus)
-    monkeypatch.setattr(swarm_mod, "_make_llm", lambda model, temperature=0.1: _FakeLLM())
+    monkeypatch.setattr(
+        swarm_mod, "_make_llm", lambda model, temperature=0.1: _FakeLLM()
+    )
     load_config()
     return new_bus
 
@@ -173,6 +265,7 @@ def _run(coro):
 
 
 # Every agent_spawn has exactly one agent_terminate with the same agent_id
+
 
 def test_spawn_terminate_pairing(fresh_bus):
     run_id = "test-lifecycle-pairing"
@@ -186,7 +279,9 @@ def test_spawn_terminate_pairing(fresh_bus):
     assert spawns, "No agent_spawn events found"
     for aid in spawns:
         count = terminates.count(aid)
-        assert count == 1, f"agent {aid} has {count} agent_terminate events (expected 1)"
+        assert count == 1, (
+            f"agent {aid} has {count} agent_terminate events (expected 1)"
+        )
 
     # No terminate without a prior spawn
     for aid in terminates:
@@ -194,6 +289,7 @@ def test_spawn_terminate_pairing(fresh_bus):
 
 
 # run_end fires only after all agents have terminated
+
 
 def test_run_end_after_all_terminates(fresh_bus):
     run_id = "test-run-end-order"
@@ -218,32 +314,31 @@ def test_run_end_after_all_terminates(fresh_bus):
 # Ephemeral agents: payment-execution terminates, no later sibling events
 # from the same parent before the next non-ephemeral layer begins.
 
+
 def test_ephemeral_agents_terminate_completely(fresh_bus):
     run_id = "test-ephemeral"
     _run(swarm_mod.run_swarm(run_id, "process weekly payouts"))
 
     events = fresh_bus.history(run_id)
 
-    spawns = {
-        e.payload["agent_id"]: e
-        for e in events if e.kind == "agent_spawn"
-    }
-    terminates = {
-        e.payload["agent_id"]
-        for e in events if e.kind == "agent_terminate"
-    }
+    spawns = {e.payload["agent_id"]: e for e in events if e.kind == "agent_spawn"}
+    terminates = {e.payload["agent_id"] for e in events if e.kind == "agent_terminate"}
 
     # payment-execution nodes are the ephemeral batch nodes; verify they terminated
     pe_agents = [
-        aid for aid, s in spawns.items()
+        aid
+        for aid, s in spawns.items()
         if s.payload.get("layer") == "payment-execution"
     ]
     assert pe_agents, "No payment-execution agents found"
     for aid in pe_agents:
-        assert aid in terminates, f"Ephemeral payment-execution agent {aid} never terminated"
+        assert aid in terminates, (
+            f"Ephemeral payment-execution agent {aid} never terminated"
+        )
 
 
 # agent_start and agent_end appear between spawn and terminate for every agent
+
 
 def test_start_end_within_lifecycle(fresh_bus):
     run_id = "test-lifecycle-order"
@@ -264,8 +359,8 @@ def test_start_end_within_lifecycle(fresh_bus):
             continue
         spawn = lifecycle["agent_spawn"]
         start = lifecycle["agent_start"]
-        end   = lifecycle["agent_end"]
-        term  = lifecycle["agent_terminate"]
+        end = lifecycle["agent_end"]
+        term = lifecycle["agent_terminate"]
         assert spawn < start < end < term, (
             f"Lifecycle out of order for agent {aid}: "
             f"spawn={spawn} start={start} end={end} terminate={term}"

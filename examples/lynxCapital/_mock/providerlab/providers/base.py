@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 Shared contract for provider domain modules: per-provider state, request context, scope helpers, and the operation/seeder registries.
 """
+
 from __future__ import annotations
 
 import threading
@@ -19,7 +20,9 @@ from _mock.providerlab import partnership
 class DomainError(Exception):
     """Raised when a domain operation rejects a request the way a real provider would."""
 
-    def __init__(self, status: int, code: str, message: str, details: dict | None = None):
+    def __init__(
+        self, status: int, code: str, message: str, details: dict | None = None
+    ):
         super().__init__(message)
         self.status = status
         self.code = code
@@ -63,8 +66,11 @@ class Ctx:
     def require(self, *names: str) -> None:
         missing = [n for n in names if self.payload.get(n) in (None, "")]
         if missing:
-            raise DomainError(422, "invalid_request",
-                              f"missing required field(s): {', '.join(missing)}")
+            raise DomainError(
+                422,
+                "invalid_request",
+                f"missing required field(s): {', '.join(missing)}",
+            )
 
     def scopes(self) -> set[str]:
         raw = self.principal.get("scope")
@@ -80,8 +86,13 @@ class Ctx:
         # native scope vocabulary.
         if self.principal.get("issuedBy") == "caracal":
             return
-        if self.principal.get("auth") in ("oauth", "caracal_mandate") and scope not in self.scopes():
-            raise DomainError(403, "insufficient_scope", f"operation requires scope {scope!r}")
+        if (
+            self.principal.get("auth") in ("oauth", "caracal_mandate")
+            and scope not in self.scopes()
+        ):
+            raise DomainError(
+                403, "insufficient_scope", f"operation requires scope {scope!r}"
+            )
 
     def get(self, name: str, default=None):
         return self.payload.get(name, default)
@@ -90,9 +101,14 @@ class Ctx:
         page = max(1, int(self.payload.get("page", 1)))
         size = max(1, min(int(self.payload.get("pageSize", size_default)), 100))
         start = (page - 1) * size
-        window = items[start:start + size]
-        return {"page": page, "pageSize": size, "total": len(items),
-                "items": window, "hasMore": start + size < len(items)}
+        window = items[start : start + size]
+        return {
+            "page": page,
+            "pageSize": size,
+            "total": len(items),
+            "items": window,
+            "hasMore": start + size < len(items),
+        }
 
 
 HANDLERS: dict[str, dict[str, Callable[[Ctx], dict]]] = {}
@@ -114,22 +130,31 @@ def grpc_service(provider_id: str, *, package: str, services: list[dict]) -> Non
     GRPC_SERVICES[provider_id] = {"package": package, "services": services}
 
 
-
-def op(provider_id: str, name: str, *, title: str | None = None,
-       description: str | None = None, input_schema: dict | None = None,
-       output_schema: dict | None = None, annotations: dict | None = None,
-       hidden: bool = False) -> Callable:
+def op(
+    provider_id: str,
+    name: str,
+    *,
+    title: str | None = None,
+    description: str | None = None,
+    input_schema: dict | None = None,
+    output_schema: dict | None = None,
+    annotations: dict | None = None,
+    hidden: bool = False,
+) -> Callable:
     """Register a handler for one provider operation.
 
     Optional metadata describes the operation as an MCP tool (title, JSON Schema
     input/output, behavior annotations). Hidden operations stay callable for
     dispatch but are not advertised in the tool catalog."""
+
     def deco(fn: Callable[[Ctx], dict]) -> Callable[[Ctx], dict]:
         HANDLERS.setdefault(provider_id, {})[name] = fn
         if not hidden:
-            spec: dict = {"name": name,
-                          "description": (description or (fn.__doc__ or "")).strip(),
-                          "inputSchema": input_schema or {"type": "object", "properties": {}}}
+            spec: dict = {
+                "name": name,
+                "description": (description or (fn.__doc__ or "")).strip(),
+                "inputSchema": input_schema or {"type": "object", "properties": {}},
+            }
             if title:
                 spec["title"] = title
             if output_schema:
@@ -138,53 +163,87 @@ def op(provider_id: str, name: str, *, title: str | None = None,
                 spec["annotations"] = annotations
             TOOLSPECS.setdefault(provider_id, {})[name] = spec
         return fn
+
     return deco
 
 
-def resource(provider_id: str, *, uri: str, name: str, description: str,
-             title: str | None = None, mime_type: str = "application/json") -> Callable:
+def resource(
+    provider_id: str,
+    *,
+    uri: str,
+    name: str,
+    description: str,
+    title: str | None = None,
+    mime_type: str = "application/json",
+) -> Callable:
     """Register an MCP resource backed by a hidden read handler keyed by its URI."""
+
     def deco(fn: Callable[[Ctx], dict]) -> Callable[[Ctx], dict]:
         HANDLERS.setdefault(provider_id, {})[uri] = fn
-        entry = {"uri": uri, "name": name, "description": description, "mimeType": mime_type}
+        entry = {
+            "uri": uri,
+            "name": name,
+            "description": description,
+            "mimeType": mime_type,
+        }
         if title:
             entry["title"] = title
         RESOURCES.setdefault(provider_id, []).append(entry)
         return fn
+
     return deco
 
 
-def resource_template(provider_id: str, *, uri_template: str, name: str, description: str,
-                      title: str | None = None, mime_type: str = "application/json") -> Callable:
+def resource_template(
+    provider_id: str,
+    *,
+    uri_template: str,
+    name: str,
+    description: str,
+    title: str | None = None,
+    mime_type: str = "application/json",
+) -> Callable:
     """Register an MCP resource template (RFC 6570) backed by a read handler.
 
     The handler is keyed by the template string. At read time the transport
     matches a concrete URI against the template, extracts the path variables,
     and passes them as the request payload."""
+
     def deco(fn: Callable[[Ctx], dict]) -> Callable[[Ctx], dict]:
         HANDLERS.setdefault(provider_id, {})[uri_template] = fn
-        entry = {"uriTemplate": uri_template, "name": name,
-                 "description": description, "mimeType": mime_type}
+        entry = {
+            "uriTemplate": uri_template,
+            "name": name,
+            "description": description,
+            "mimeType": mime_type,
+        }
         if title:
             entry["title"] = title
         RESOURCE_TEMPLATES.setdefault(provider_id, []).append(entry)
         return fn
+
     return deco
 
 
 def seeder(provider_id: str) -> Callable:
     """Register the dataset seeding function for a provider."""
+
     def deco(fn: Callable[[State], None]) -> Callable[[State], None]:
         SEEDERS[provider_id] = fn
         return fn
+
     return deco
 
 
-def dispatch(provider, state: State, operation: str, payload: dict, principal: dict) -> dict:
+def dispatch(
+    provider, state: State, operation: str, payload: dict, principal: dict
+) -> dict:
     """Resolve one domain operation against provider state, returning a realistic body."""
     handlers = HANDLERS.get(provider.id)
     if not handlers:
-        raise DomainError(404, "unknown_resource", f"no domain registered for {provider.id}")
+        raise DomainError(
+            404, "unknown_resource", f"no domain registered for {provider.id}"
+        )
     handler = handlers.get(operation)
     if handler is None:
         raise DomainError(404, "unknown_operation", operation)
@@ -201,8 +260,11 @@ def dispatch(provider, state: State, operation: str, payload: dict, principal: d
             terms = partnership.for_provider(provider.id)
             allowed = terms.operations_for(ctx.scopes()) if terms else set()
             if operation not in allowed:
-                raise DomainError(403, "insufficient_scope",
-                                  f"mandate scopes do not grant operation {operation!r}")
+                raise DomainError(
+                    403,
+                    "insufficient_scope",
+                    f"mandate scopes do not grant operation {operation!r}",
+                )
         return handler(ctx)
 
 

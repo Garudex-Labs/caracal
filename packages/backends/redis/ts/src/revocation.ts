@@ -34,7 +34,10 @@ export class RedisRevocationStore implements RevocationStore {
   private readonly defaultTtlMs: number
   private readonly failClosed: boolean
 
-  constructor(private readonly redis: RedisRevocationClient, opts: RedisRevocationStoreOptions = {}) {
+  constructor(
+    private readonly redis: RedisRevocationClient,
+    opts: RedisRevocationStoreOptions = {},
+  ) {
     this.keyPrefix = opts.keyPrefix ?? 'caracal:revoked:sessions:'
     this.defaultTtlMs = opts.defaultTtlMs ?? DEFAULT_REVOCATION_TTL_MS
     this.failClosed = opts.failClosed ?? true
@@ -43,7 +46,7 @@ export class RedisRevocationStore implements RevocationStore {
   async isRevoked(sid: string): Promise<boolean> {
     if (sid === '') return false
     try {
-      return await this.redis.get(this.key(sid)) !== null
+      return (await this.redis.get(this.key(sid))) !== null
     } catch (err) {
       if (this.failClosed) return true
       throw err
@@ -318,13 +321,9 @@ export class RedisDelegationInvalidationConsumer {
 }
 
 function revocationAnchors(values: Record<string, StreamValue>): string[] {
-  const anchors = [
-    values.session_id,
-    values.sid,
-    values.root_sid,
-    values.agent_session_id,
-    values.delegation_edge_id,
-  ].filter((value): value is string => typeof value === 'string' && value !== '')
+  const anchors = [values.session_id, values.sid, values.root_sid, values.agent_session_id, values.delegation_edge_id].filter(
+    (value): value is string => typeof value === 'string' && value !== '',
+  )
   return [...new Set(anchors)]
 }
 

@@ -7,7 +7,7 @@ import { createPrivateKey, randomUUID, sign, type KeyObject } from 'node:crypto'
 import { lookup } from 'node:dns/promises'
 import { request as httpsRequest } from 'node:https'
 import { isIP } from 'node:net'
-import { loadZoneKek, open } from '@caracalai/core'
+import { loadZoneKek, open } from '@caracalai/server-core'
 
 const PROVIDER_TOKEN_EXCHANGE_TIMEOUT_MS = 15_000
 const PROVIDER_TOKEN_EXCHANGE_MAX_BODY_BYTES = 64 * 1024

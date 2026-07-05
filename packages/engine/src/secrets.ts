@@ -8,7 +8,7 @@ import { spawnSync } from 'node:child_process'
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { userInfo } from 'node:os'
 import { resolve } from 'node:path'
-import { devSecretsHome } from '@caracalai/core'
+import { devSecretsHome } from '@caracalai/server-core'
 
 const isPosix = process.platform !== 'win32'
 const SECRET_FILE_MODE = 0o444

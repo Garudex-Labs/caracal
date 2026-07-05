@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 Tests for long-horizon primitives: WorkerPool, JobRegistry, stage budget, and stage event flow.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -44,8 +45,11 @@ def test_worker_pool_acquire_release(fresh_bus):
     run_id = "wp-1"
     runner = runner_mod.create_runner(run_id)
     parent = runner.spawn(
-        role="finance-control", scope="global", parent=None,
-        layer="finance-control", region=None,
+        role="finance-control",
+        scope="global",
+        parent=None,
+        layer="finance-control",
+        region=None,
     )
     parent.start()
     pool = workers_mod.WorkerPool(run_id, runner, parent)
@@ -66,8 +70,11 @@ def test_worker_pool_drain_terminates_active(fresh_bus):
     run_id = "wp-2"
     runner = runner_mod.create_runner(run_id)
     parent = runner.spawn(
-        role="finance-control", scope="global", parent=None,
-        layer="finance-control", region=None,
+        role="finance-control",
+        scope="global",
+        parent=None,
+        layer="finance-control",
+        region=None,
     )
     parent.start()
     pool = workers_mod.WorkerPool(run_id, runner, parent)
@@ -75,7 +82,8 @@ def test_worker_pool_drain_terminates_active(fresh_bus):
     pool.drain("cancelled")
     assert pool.active_ids() == []
     terms = [
-        e for e in fresh_bus.history(run_id)
+        e
+        for e in fresh_bus.history(run_id)
         if e.kind == "agent_terminate" and e.payload.get("agent_id") == w.id
     ]
     assert len(terms) == 1
@@ -134,20 +142,26 @@ class _StageFakeLLM:
         if self._turn == 1:
             yield AIMessageChunk(
                 content="",
-                tool_calls=[{
-                    "name": "start_stage",
-                    "args": {"name": "extract", "intent": "pull pending invoices"},
-                    "id": "s1", "type": "tool_call",
-                }],
+                tool_calls=[
+                    {
+                        "name": "start_stage",
+                        "args": {"name": "extract", "intent": "pull pending invoices"},
+                        "id": "s1",
+                        "type": "tool_call",
+                    }
+                ],
             )
         elif self._turn == 2:
             yield AIMessageChunk(
                 content="",
-                tool_calls=[{
-                    "name": "complete_stage",
-                    "args": {"name": "extract", "summary": "two invoices ready"},
-                    "id": "s2", "type": "tool_call",
-                }],
+                tool_calls=[
+                    {
+                        "name": "complete_stage",
+                        "args": {"name": "extract", "summary": "two invoices ready"},
+                        "id": "s2",
+                        "type": "tool_call",
+                    }
+                ],
             )
         else:
             yield AIMessageChunk(content="done")
@@ -157,8 +171,11 @@ def test_stage_complete_writes_finding_and_exits_loop(fresh_bus):
     run_id = "stage-1"
     runner = runner_mod.create_runner(run_id)
     agent = runner.spawn(
-        role="regional-orchestrator", scope="region:US",
-        parent=None, layer="regional-orchestrator", region="US",
+        role="regional-orchestrator",
+        scope="region:US",
+        parent=None,
+        layer="regional-orchestrator",
+        region="US",
     )
     agent.start()
 
@@ -169,22 +186,35 @@ def test_stage_complete_writes_finding_and_exits_loop(fresh_bus):
     state = {"current": None}
 
     tools = swarm_mod._build_agent_builtins(
-        run_id, agent.id, plans, files, board, region="US",
-        stage_state=state, worker_pool=pool,
+        run_id,
+        agent.id,
+        plans,
+        files,
+        board,
+        region="US",
+        stage_state=state,
+        worker_pool=pool,
     )
     tool_map = {t.name: t for t in tools}
 
     fake = _StageFakeLLM().bind_tools(tools)
     summarizer = _StageFakeLLM()
     mem = RunMemoryStore(run_id, "gpt-5.4-nano").open(
-        agent_id=agent.id, system=SystemMessage(content="test"),
+        agent_id=agent.id,
+        system=SystemMessage(content="test"),
     )
 
     async def run():
         return await swarm_mod._drive_stages(
-            run_id=run_id, agent=agent, model_name="gpt-5.4-nano",
-            llm_with_tools=fake, summarizer=summarizer,
-            mem=mem, tool_map=tool_map, stage_budget=4, total_budget=20,
+            run_id=run_id,
+            agent=agent,
+            model_name="gpt-5.4-nano",
+            llm_with_tools=fake,
+            summarizer=summarizer,
+            mem=mem,
+            tool_map=tool_map,
+            stage_budget=4,
+            total_budget=20,
         )
 
     asyncio.run(run())
@@ -205,11 +235,14 @@ class _RunawayFakeLLM:
     async def astream(self, messages):
         yield AIMessageChunk(
             content="",
-            tool_calls=[{
-                "name": "post_finding",
-                "args": {"kind": "noise", "content": "x"},
-                "id": "n", "type": "tool_call",
-            }],
+            tool_calls=[
+                {
+                    "name": "post_finding",
+                    "args": {"kind": "noise", "content": "x"},
+                    "id": "n",
+                    "type": "tool_call",
+                }
+            ],
         )
 
 
@@ -217,8 +250,11 @@ def test_turn_loop_honors_stage_budget(fresh_bus):
     run_id = "stage-budget"
     runner = runner_mod.create_runner(run_id)
     agent = runner.spawn(
-        role="regional-orchestrator", scope="region:US",
-        parent=None, layer="regional-orchestrator", region="US",
+        role="regional-orchestrator",
+        scope="region:US",
+        parent=None,
+        layer="regional-orchestrator",
+        region="US",
     )
     agent.start()
 
@@ -228,7 +264,12 @@ def test_turn_loop_honors_stage_budget(fresh_bus):
     state = {"current": None}
 
     tools = swarm_mod._build_agent_builtins(
-        run_id, agent.id, plans, files, board, region="US",
+        run_id,
+        agent.id,
+        plans,
+        files,
+        board,
+        region="US",
         stage_state=state,
     )
     tool_map = {t.name: t for t in tools}
@@ -236,17 +277,29 @@ def test_turn_loop_honors_stage_budget(fresh_bus):
     fake = _RunawayFakeLLM()
     summarizer = _RunawayFakeLLM()
     mem = RunMemoryStore(run_id, "gpt-5.4-nano").open(
-        agent_id=agent.id, system=SystemMessage(content="test"),
+        agent_id=agent.id,
+        system=SystemMessage(content="test"),
     )
 
-    loop_state = {"total_used": 0, "tool_calls": 0, "stage_done": False, "current": None,
-                   "total_budget": 100}
+    loop_state = {
+        "total_used": 0,
+        "tool_calls": 0,
+        "stage_done": False,
+        "current": None,
+        "total_budget": 100,
+    }
 
     async def run():
         return await swarm_mod._turn_loop(
-            run_id=run_id, agent=agent, model_name="gpt-5.4-nano",
-            llm_with_tools=fake, summarizer=summarizer,
-            mem=mem, tool_map=tool_map, stage_budget=3, state=loop_state,
+            run_id=run_id,
+            agent=agent,
+            model_name="gpt-5.4-nano",
+            llm_with_tools=fake,
+            summarizer=summarizer,
+            mem=mem,
+            tool_map=tool_map,
+            stage_budget=3,
+            state=loop_state,
         )
 
     asyncio.run(run())

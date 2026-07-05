@@ -18,10 +18,7 @@ export interface CommandRegistry {
   readonly ordered: readonly CommandBinding[]
 }
 
-export function buildRegistry(
-  table: readonly CommandDescriptor[],
-  executors: Record<string, Executor>,
-): CommandRegistry {
+export function buildRegistry(table: readonly CommandDescriptor[], executors: Record<string, Executor>): CommandRegistry {
   const byName = new Map<string, CommandBinding>()
   const ordered: CommandBinding[] = []
   const missing: string[] = []
@@ -43,7 +40,7 @@ export function buildRegistry(
   const extras = Object.keys(executors).filter((n) => !byName.has(n))
   if (extras.length > 0) {
     throw new Error(
-      `command registry has executors with no descriptor: ${extras.join(', ')}: add them to @caracalai/core/commands or remove the executor.`,
+      `command registry has executors with no descriptor: ${extras.join(', ')}: add them to @caracalai/engine/commands or remove the executor.`,
     )
   }
   return { byName, ordered }

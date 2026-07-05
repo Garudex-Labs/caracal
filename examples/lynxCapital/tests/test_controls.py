@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 Tests for the approval gate, session memory, event bus, agent memory compaction, and job registry.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -32,7 +33,9 @@ def test_approval_approve_flow(monkeypatch):
 
     async def scenario():
         request_id, pending = await gate.request("run-1", "submit_payment")
-        assert gate.list_pending("run-1") == [{"requestId": request_id, "action": "submit_payment"}]
+        assert gate.list_pending("run-1") == [
+            {"requestId": request_id, "action": "submit_payment"}
+        ]
         waiter = asyncio.create_task(gate.wait("run-1", request_id, pending))
         await asyncio.sleep(0)
         assert gate.resolve("run-1", request_id, True, "ok") is True
@@ -64,14 +67,32 @@ def test_resolve_unknown_request_returns_false():
 
 def test_session_memory_keyword_recall():
     mem = SessionMemory()
-    mem._runs.extend([
-        RunRecord("aaaaaaaa", "reconcile vendor invoices in EMEA", "completed", ["EMEA"], []),
-        RunRecord("bbbbbbbb", "hedge treasury fx exposure", "completed", ["APAC"], []),
-        RunRecord("cccccccc", "screen new supplier for sanctions", "completed", ["AMER"], []),
-    ])
+    mem._runs.extend(
+        [
+            RunRecord(
+                "aaaaaaaa",
+                "reconcile vendor invoices in EMEA",
+                "completed",
+                ["EMEA"],
+                [],
+            ),
+            RunRecord(
+                "bbbbbbbb", "hedge treasury fx exposure", "completed", ["APAC"], []
+            ),
+            RunRecord(
+                "cccccccc",
+                "screen new supplier for sanctions",
+                "completed",
+                ["AMER"],
+                [],
+            ),
+        ]
+    )
     # add recent runs so older relevant one must be surfaced by keyword overlap
     for i in range(5):
-        mem._runs.append(RunRecord(f"recent{i}", f"unrelated daily summary {i}", "completed", [], []))
+        mem._runs.append(
+            RunRecord(f"recent{i}", f"unrelated daily summary {i}", "completed", [], [])
+        )
     block = mem.context_block("please reconcile the vendor invoices again")
     assert "aaaaaaaa" in block  # relevant older run surfaced despite not being recent
 
@@ -102,7 +123,9 @@ def test_publish_from_thread_reaches_loop_subscriber():
         bus = EventBus()
         q = bus.subscribe("run-t")
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, bus.publish, ev.run_start("run-t", "cross-thread"))
+        await loop.run_in_executor(
+            None, bus.publish, ev.run_start("run-t", "cross-thread")
+        )
         event = await asyncio.wait_for(q.get(), timeout=2)
         assert event.kind == "run_start"
 
@@ -116,14 +139,21 @@ class StubLLM:
 
 def test_compaction_tail_never_starts_with_tool_message():
     mem = AgentMemory(
-        agent_id="w1", model="gpt-5.4-mini", system=SystemMessage(content="sys"),
+        agent_id="w1",
+        model="gpt-5.4-mini",
+        system=SystemMessage(content="sys"),
     )
     for i in range(3):
         mem.append(HumanMessage(content=f"step {i}"))
-    mem.append(AIMessage(content="", tool_calls=[
-        {"name": "lookup", "args": {}, "id": "call-1"},
-        {"name": "lookup", "args": {}, "id": "call-2"},
-    ]))
+    mem.append(
+        AIMessage(
+            content="",
+            tool_calls=[
+                {"name": "lookup", "args": {}, "id": "call-1"},
+                {"name": "lookup", "args": {}, "id": "call-2"},
+            ],
+        )
+    )
     mem.append(ToolMessage(content="result 1", tool_call_id="call-1"))
     mem.append(ToolMessage(content="result 2", tool_call_id="call-2"))
     for i in range(4):
@@ -138,7 +168,9 @@ def test_compaction_tail_never_starts_with_tool_message():
 
 def test_compaction_skips_when_no_clean_cut_exists():
     mem = AgentMemory(
-        agent_id="w2", model="gpt-5.4-mini", system=SystemMessage(content="sys"),
+        agent_id="w2",
+        model="gpt-5.4-mini",
+        system=SystemMessage(content="sys"),
     )
     for i in range(10):
         mem.append(ToolMessage(content=f"result {i}", tool_call_id=f"call-{i}"))

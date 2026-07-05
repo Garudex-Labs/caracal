@@ -31,14 +31,7 @@ const adversarialSlugInputs = [
   '{}',
 ]
 
-const adversarialNameInputs = [
-  '',
-  ' ',
-  'a'.repeat(10_000),
-  '\u0000zero',
-  '\uFEFFbom',
-  '<img src=x onerror=alert(1)>',
-]
+const adversarialNameInputs = ['', ' ', 'a'.repeat(10_000), '\u0000zero', '\uFEFFbom', '<img src=x onerror=alert(1)>']
 
 describe('Zone creation with adversarial names', () => {
   it.each(adversarialNameInputs)('does not crash for name: %j', async (name) => {
@@ -71,20 +64,8 @@ describe('Zone creation with adversarial slugs', () => {
 })
 
 describe('GET requests with adversarial IDs', () => {
-  const endpoints = [
-    '/v1/zones/',
-    '/v1/applications/',
-    '/v1/resources/',
-    '/v1/providers/',
-  ]
-  const ids = [
-    "'; DROP TABLE zones;--",
-    '../admin',
-    '%00',
-    'a'.repeat(500),
-    '<script>',
-    '../../',
-  ]
+  const endpoints = ['/v1/zones/', '/v1/applications/', '/v1/resources/', '/v1/providers/']
+  const ids = ["'; DROP TABLE zones;--", '../admin', '%00', 'a'.repeat(500), '<script>', '../../']
 
   for (const base of endpoints) {
     it.each(ids)(`GET ${base}%j does not crash`, async (id) => {

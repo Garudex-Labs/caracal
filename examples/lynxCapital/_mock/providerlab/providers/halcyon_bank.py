@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 Halcyon Bank domain: open-banking accounts, balances, transactions, beneficiaries, standing orders, direct debits, scheduled payments, payment initiation, funds confirmation, and statements.
 """
+
 from __future__ import annotations
 
 import time
@@ -15,16 +16,34 @@ from _mock.providerlab.providers.base import Ctx, DomainError
 ID = "halcyon-bank"
 
 _RAIL_SCHEMES = {
-    "ACH": "US.ACH", "RTP": "US.RTP", "WIRE": "SWIFT.WIRE",
-    "SEPA": "EU.SEPA.CT", "PAYNOW": "SG.PAYNOW", "PIX": "BR.PIX",
-    "NEFT": "IN.NEFT", "RTGS": "IN.RTGS", "FASTERPAYMENTS": "UK.OBIE.FPS",
+    "ACH": "US.ACH",
+    "RTP": "US.RTP",
+    "WIRE": "SWIFT.WIRE",
+    "SEPA": "EU.SEPA.CT",
+    "PAYNOW": "SG.PAYNOW",
+    "PIX": "BR.PIX",
+    "NEFT": "IN.NEFT",
+    "RTGS": "IN.RTGS",
+    "FASTERPAYMENTS": "UK.OBIE.FPS",
 }
-_DOMESTIC_RAILS = {"ACH", "RTP", "FASTERPAYMENTS", "SEPA", "PAYNOW", "PIX", "NEFT", "RTGS"}
+_DOMESTIC_RAILS = {
+    "ACH",
+    "RTP",
+    "FASTERPAYMENTS",
+    "SEPA",
+    "PAYNOW",
+    "PIX",
+    "NEFT",
+    "RTGS",
+}
 _TERMINAL = {"AcceptedCreditSettlementCompleted", "Rejected"}
 _PAYMENT_CONTEXT_CODES = {
-    "BillingGoodsAndServicesInAdvance", "BillingGoodsAndServicesInArrears",
-    "EcommerceMerchantInitiatedPayment", "FaceToFacePointOfSale",
-    "TransferToSelf", "TransferToThirdParty",
+    "BillingGoodsAndServicesInAdvance",
+    "BillingGoodsAndServicesInArrears",
+    "EcommerceMerchantInitiatedPayment",
+    "FaceToFacePointOfSale",
+    "TransferToSelf",
+    "TransferToThirdParty",
 }
 _DUAL_AUTH_THRESHOLD = 250_000.0
 
@@ -36,8 +55,12 @@ def _iso(epoch: int) -> str:
 def _account_or_404(ctx: Ctx, account_id: str) -> dict:
     acct = ctx.state.table("accounts").get(account_id)
     if acct is None:
-        raise DomainError(404, "account_not_found", account_id,
-                          {"obieErrorCode": "UK.OBIE.Resource.NotFound", "path": "accountId"})
+        raise DomainError(
+            404,
+            "account_not_found",
+            account_id,
+            {"obieErrorCode": "UK.OBIE.Resource.NotFound", "path": "accountId"},
+        )
     return acct
 
 
@@ -49,16 +72,23 @@ def seed(state: base.State) -> None:
     txns = gen.bank_transactions(ID, accounts, 400)
     state.tables["transactions"] = gen.index_by(txns, key="transactionId")
     state.tables["statements"] = gen.index_by(
-        gen.bank_statements(ID, accounts, txns), key="statementId")
-    state.tables["balances"] = {aid: gen.bank_balances(acct) for aid, acct in accounts.items()}
+        gen.bank_statements(ID, accounts, txns), key="statementId"
+    )
+    state.tables["balances"] = {
+        aid: gen.bank_balances(acct) for aid, acct in accounts.items()
+    }
     state.tables["beneficiaries"] = gen.index_by(
-        gen.bank_beneficiaries(ID, accounts), key="beneficiaryId")
+        gen.bank_beneficiaries(ID, accounts), key="beneficiaryId"
+    )
     state.tables["standing_orders"] = gen.index_by(
-        gen.bank_standing_orders(ID, accounts), key="standingOrderId")
+        gen.bank_standing_orders(ID, accounts), key="standingOrderId"
+    )
     state.tables["direct_debits"] = gen.index_by(
-        gen.bank_direct_debits(ID, accounts), key="directDebitId")
+        gen.bank_direct_debits(ID, accounts), key="directDebitId"
+    )
     state.tables["scheduled_payments"] = gen.index_by(
-        gen.bank_scheduled_payments(ID, accounts), key="scheduledPaymentId")
+        gen.bank_scheduled_payments(ID, accounts), key="scheduledPaymentId"
+    )
     state.tables["payments"] = {}
 
 
@@ -94,14 +124,22 @@ def list_transactions(ctx: Ctx) -> dict:
     ctx.require_scope("transactions")
     account_id = ctx.get("accountId")
     if account_id and account_id not in ctx.state.table("accounts"):
-        raise DomainError(404, "account_not_found", account_id,
-                          {"obieErrorCode": "UK.OBIE.Resource.NotFound", "path": "accountId"})
+        raise DomainError(
+            404,
+            "account_not_found",
+            account_id,
+            {"obieErrorCode": "UK.OBIE.Resource.NotFound", "path": "accountId"},
+        )
     txns = list(ctx.state.table("transactions").values())
     if account_id:
         txns = [t for t in txns if t["accountId"] == account_id]
     indicator = ctx.get("creditDebitIndicator")
     if indicator:
-        txns = [t for t in txns if t["creditDebitIndicator"].lower() == str(indicator).lower()]
+        txns = [
+            t
+            for t in txns
+            if t["creditDebitIndicator"].lower() == str(indicator).lower()
+        ]
     status = ctx.get("status")
     if status:
         txns = [t for t in txns if t["status"].lower() == str(status).lower()]
@@ -119,8 +157,12 @@ def list_beneficiaries(ctx: Ctx) -> dict:
     ctx.require_scope("beneficiaries")
     account_id = ctx.get("accountId")
     if account_id and account_id not in ctx.state.table("accounts"):
-        raise DomainError(404, "account_not_found", account_id,
-                          {"obieErrorCode": "UK.OBIE.Resource.NotFound", "path": "accountId"})
+        raise DomainError(
+            404,
+            "account_not_found",
+            account_id,
+            {"obieErrorCode": "UK.OBIE.Resource.NotFound", "path": "accountId"},
+        )
     items = list(ctx.state.table("beneficiaries").values())
     if account_id:
         items = [b for b in items if b["accountId"] == account_id]
@@ -132,8 +174,12 @@ def list_standing_orders(ctx: Ctx) -> dict:
     ctx.require_scope("standing_orders")
     account_id = ctx.get("accountId")
     if account_id and account_id not in ctx.state.table("accounts"):
-        raise DomainError(404, "account_not_found", account_id,
-                          {"obieErrorCode": "UK.OBIE.Resource.NotFound", "path": "accountId"})
+        raise DomainError(
+            404,
+            "account_not_found",
+            account_id,
+            {"obieErrorCode": "UK.OBIE.Resource.NotFound", "path": "accountId"},
+        )
     items = list(ctx.state.table("standing_orders").values())
     if account_id:
         items = [s for s in items if s["accountId"] == account_id]
@@ -145,8 +191,12 @@ def list_direct_debits(ctx: Ctx) -> dict:
     ctx.require_scope("direct_debits")
     account_id = ctx.get("accountId")
     if account_id and account_id not in ctx.state.table("accounts"):
-        raise DomainError(404, "account_not_found", account_id,
-                          {"obieErrorCode": "UK.OBIE.Resource.NotFound", "path": "accountId"})
+        raise DomainError(
+            404,
+            "account_not_found",
+            account_id,
+            {"obieErrorCode": "UK.OBIE.Resource.NotFound", "path": "accountId"},
+        )
     items = list(ctx.state.table("direct_debits").values())
     if account_id:
         items = [d for d in items if d["accountId"] == account_id]
@@ -158,8 +208,12 @@ def list_scheduled_payments(ctx: Ctx) -> dict:
     ctx.require_scope("accounts")
     account_id = ctx.get("accountId")
     if account_id and account_id not in ctx.state.table("accounts"):
-        raise DomainError(404, "account_not_found", account_id,
-                          {"obieErrorCode": "UK.OBIE.Resource.NotFound", "path": "accountId"})
+        raise DomainError(
+            404,
+            "account_not_found",
+            account_id,
+            {"obieErrorCode": "UK.OBIE.Resource.NotFound", "path": "accountId"},
+        )
     items = list(ctx.state.table("scheduled_payments").values())
     if account_id:
         items = [s for s in items if s["accountId"] == account_id]
@@ -176,8 +230,12 @@ def confirm_funds(ctx: Ctx) -> dict:
     try:
         amount = round(float(ctx.payload["amount"]), 2)
     except (TypeError, ValueError):
-        raise DomainError(422, "invalid_amount", "amount must be a number",
-                          {"obieErrorCode": "UK.OBIE.Field.Invalid", "path": "amount"})
+        raise DomainError(
+            422,
+            "invalid_amount",
+            "amount must be a number",
+            {"obieErrorCode": "UK.OBIE.Field.Invalid", "path": "amount"},
+        )
     currency = ctx.get("currency", acct["currency"])
     now = base.now()
     return {
@@ -196,29 +254,63 @@ def initiate_payment(ctx: Ctx) -> dict:
     ctx.require("fromAccount", "amount", "creditor")
     acct = _account_or_404(ctx, ctx.payload["fromAccount"])
     if acct["status"] != "Enabled":
-        raise DomainError(409, "account_not_enabled", "debtor account is not enabled for payments",
-                          {"obieErrorCode": "UK.OBIE.Rules.ResourceAlreadyExists"})
+        raise DomainError(
+            409,
+            "account_not_enabled",
+            "debtor account is not enabled for payments",
+            {"obieErrorCode": "UK.OBIE.Rules.ResourceAlreadyExists"},
+        )
     try:
         amount = round(float(ctx.payload["amount"]), 2)
     except (TypeError, ValueError):
-        raise DomainError(422, "invalid_amount", "amount must be a number",
-                          {"obieErrorCode": "UK.OBIE.Field.Invalid", "path": "instructedAmount.amount"})
+        raise DomainError(
+            422,
+            "invalid_amount",
+            "amount must be a number",
+            {
+                "obieErrorCode": "UK.OBIE.Field.Invalid",
+                "path": "instructedAmount.amount",
+            },
+        )
     if amount <= 0:
-        raise DomainError(422, "invalid_amount", "amount must be positive",
-                          {"obieErrorCode": "UK.OBIE.Field.Invalid", "path": "instructedAmount.amount"})
+        raise DomainError(
+            422,
+            "invalid_amount",
+            "amount must be positive",
+            {
+                "obieErrorCode": "UK.OBIE.Field.Invalid",
+                "path": "instructedAmount.amount",
+            },
+        )
     currency = ctx.get("currency", acct["currency"])
     if currency != acct["currency"]:
-        raise DomainError(422, "currency_mismatch",
-                          f"account currency {acct['currency']} does not match {currency}",
-                          {"obieErrorCode": "UK.OBIE.Unsupported.Currency", "path": "instructedAmount.currency"})
+        raise DomainError(
+            422,
+            "currency_mismatch",
+            f"account currency {acct['currency']} does not match {currency}",
+            {
+                "obieErrorCode": "UK.OBIE.Unsupported.Currency",
+                "path": "instructedAmount.currency",
+            },
+        )
     context_code = ctx.get("paymentContextCode", "TransferToThirdParty")
     if context_code not in _PAYMENT_CONTEXT_CODES:
-        raise DomainError(422, "invalid_payment_context",
-                          f"unsupported PaymentContextCode {context_code!r}",
-                          {"obieErrorCode": "UK.OBIE.Field.Invalid", "path": "risk.paymentContextCode"})
+        raise DomainError(
+            422,
+            "invalid_payment_context",
+            f"unsupported PaymentContextCode {context_code!r}",
+            {
+                "obieErrorCode": "UK.OBIE.Field.Invalid",
+                "path": "risk.paymentContextCode",
+            },
+        )
     if amount > acct["balances"]["available"]:
-        raise DomainError(402, "insufficient_funds", "amount exceeds available balance",
-                          {"obieErrorCode": "UK.OBIE.Rules.FailsControlParameters"})
+        raise DomainError(
+            402,
+            "insufficient_funds",
+            "amount exceeds available balance",
+            {"obieErrorCode": "UK.OBIE.Rules.FailsControlParameters"},
+        )
 
     idem = ctx.get("idempotencyKey")
     payments = ctx.state.table("payments")
@@ -234,11 +326,16 @@ def initiate_payment(ctx: Ctx) -> dict:
 
     charges = []
     if not domestic:
-        charges.append({
-            "chargeBearer": "BorneByDebtor",
-            "type": "UK.OBIE.CHAPSOut",
-            "amount": {"amount": round(amount * 0.001 + 12.0, 2), "currency": currency},
-        })
+        charges.append(
+            {
+                "chargeBearer": "BorneByDebtor",
+                "type": "UK.OBIE.CHAPSOut",
+                "amount": {
+                    "amount": round(amount * 0.001 + 12.0, 2),
+                    "currency": currency,
+                },
+            }
+        )
 
     status = "Pending" if scheduled else "AcceptedSettlementInProcess"
     payment = {
@@ -256,8 +353,10 @@ def initiate_payment(ctx: Ctx) -> dict:
             "accountId": acct["accountId"],
             "identification": acct["identification"],
         },
-        "creditorAccount": {"name": ctx.payload["creditor"],
-                            "identification": ctx.get("creditorAccount", "")},
+        "creditorAccount": {
+            "name": ctx.payload["creditor"],
+            "identification": ctx.get("creditorAccount", ""),
+        },
         "instructedAmount": {"amount": amount, "currency": currency},
         "remittanceInformation": {
             "unstructured": ctx.get("reference", ""),
@@ -302,8 +401,12 @@ def get_payment(ctx: Ctx) -> dict:
     ctx.require("paymentId")
     payment = ctx.state.table("payments").get(ctx.payload["paymentId"])
     if payment is None:
-        raise DomainError(404, "payment_not_found", ctx.payload["paymentId"],
-                          {"obieErrorCode": "UK.OBIE.Resource.NotFound", "path": "paymentId"})
+        raise DomainError(
+            404,
+            "payment_not_found",
+            ctx.payload["paymentId"],
+            {"obieErrorCode": "UK.OBIE.Resource.NotFound", "path": "paymentId"},
+        )
     multi = payment.get("multiAuthorisation")
     if multi and multi["status"] == "AwaitingFurtherAuthorisation":
         multi["status"] = "Authorised"
@@ -324,8 +427,12 @@ def list_statements(ctx: Ctx) -> dict:
     ctx.require_scope("statements")
     account_id = ctx.get("accountId")
     if account_id and account_id not in ctx.state.table("accounts"):
-        raise DomainError(404, "account_not_found", account_id,
-                          {"obieErrorCode": "UK.OBIE.Resource.NotFound", "path": "accountId"})
+        raise DomainError(
+            404,
+            "account_not_found",
+            account_id,
+            {"obieErrorCode": "UK.OBIE.Resource.NotFound", "path": "accountId"},
+        )
     statements = list(ctx.state.table("statements").values())
     if account_id:
         statements = [s for s in statements if s["accountId"] == account_id]
@@ -340,18 +447,36 @@ def get_statement(ctx: Ctx) -> dict:
     account_id = ctx.payload["accountId"]
     _account_or_404(ctx, account_id)
     statements = sorted(
-        (s for s in ctx.state.table("statements").values() if s["accountId"] == account_id),
-        key=lambda s: s["endDateTime"], reverse=True)
+        (
+            s
+            for s in ctx.state.table("statements").values()
+            if s["accountId"] == account_id
+        ),
+        key=lambda s: s["endDateTime"],
+        reverse=True,
+    )
     statement_id = ctx.get("statementId")
     if statement_id:
         match = next((s for s in statements if s["statementId"] == statement_id), None)
         if match is None:
-            raise DomainError(404, "statement_not_found", statement_id,
-                              {"obieErrorCode": "UK.OBIE.Resource.NotFound", "path": "statementId"})
+            raise DomainError(
+                404,
+                "statement_not_found",
+                statement_id,
+                {"obieErrorCode": "UK.OBIE.Resource.NotFound", "path": "statementId"},
+            )
         return match
     if not statements:
-        raise DomainError(404, "statement_not_found", account_id,
-                          {"obieErrorCode": "UK.OBIE.Resource.NotFound", "path": "accountId"})
+        raise DomainError(
+            404,
+            "statement_not_found",
+            account_id,
+            {"obieErrorCode": "UK.OBIE.Resource.NotFound", "path": "accountId"},
+        )
     latest = statements[0]
-    return {"accountId": account_id, "currency": latest["currency"],
-            "latest": latest, "statements": statements}
+    return {
+        "accountId": account_id,
+        "currency": latest["currency"],
+        "latest": latest,
+        "statements": statements,
+    }

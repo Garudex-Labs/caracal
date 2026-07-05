@@ -22,14 +22,9 @@ export class FastMcpAuthError extends CaracalError {
   }
 }
 
-export async function verifyFastMcpToken(
-  token: string,
-  opts: FastMcpAuthOptions,
-  route: AuthOverrides = {},
-): Promise<FastMcpContext> {
-  const result = 'authenticate' in opts && 'defaults' in opts
-    ? await opts.authenticate(token, route)
-    : await authenticate(token, { ...opts, ...route })
+export async function verifyFastMcpToken(token: string, opts: FastMcpAuthOptions, route: AuthOverrides = {}): Promise<FastMcpContext> {
+  const result =
+    'authenticate' in opts && 'defaults' in opts ? await opts.authenticate(token, route) : await authenticate(token, { ...opts, ...route })
   if (!result.ok) throw new FastMcpAuthError(result.error.code, result.error.description)
   const claims = result.principal
   return { sub: claims.sub, zoneId: claims.zoneId, scope: claims.scope }

@@ -6,7 +6,7 @@
 import { existsSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { loadEnvFile } from 'node:process'
-import { getenv, mustGetenv, intEnv, boolEnv, resolveFileSecrets, isPublished } from '@caracalai/core'
+import { getenv, mustGetenv, intEnv, boolEnv, resolveFileSecrets, isPublished } from '@caracalai/server-core'
 import type { ProviderConfig } from './operator-gateway.js'
 
 function loadEnvChain(): void {

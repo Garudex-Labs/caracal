@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 Local launcher that serves every lab provider on its own localhost port in one process.
 """
+
 from __future__ import annotations
 
 import os
@@ -19,7 +20,9 @@ HOST = os.environ.get("PROVIDERLAB_HOST", "127.0.0.1")
 
 
 def _serve(provider: catalog.Provider) -> None:
-    config = uvicorn.Config(build_app(provider), host=HOST, port=provider.port, log_level="warning")
+    config = uvicorn.Config(
+        build_app(provider), host=HOST, port=provider.port, log_level="warning"
+    )
     uvicorn.Server(config).run()
 
 
@@ -29,10 +32,16 @@ def main() -> None:
     if sts_url and stsbridge.start(issuer, sts_url):
         print(f"provider lab: STS bridge {issuer} -> {sts_url}")
     for provider in catalog.CATALOG:
-        threading.Thread(target=_serve, args=(provider,), daemon=True, name=f"lab-{provider.id}").start()
-    print(f"provider lab: {len(catalog.CATALOG)} providers on {HOST}:{catalog.CATALOG[0].port}-{catalog.CATALOG[-1].port}")
+        threading.Thread(
+            target=_serve, args=(provider,), daemon=True, name=f"lab-{provider.id}"
+        ).start()
+    print(
+        f"provider lab: {len(catalog.CATALOG)} providers on {HOST}:{catalog.CATALOG[0].port}-{catalog.CATALOG[-1].port}"
+    )
     for provider in catalog.CATALOG:
-        print(f"  {provider.port}  {provider.category:<28} {provider.brand}  http://{HOST}:{provider.port}/")
+        print(
+            f"  {provider.port}  {provider.category:<28} {provider.brand}  http://{HOST}:{provider.port}/"
+        )
     try:
         while True:
             time.sleep(3600)

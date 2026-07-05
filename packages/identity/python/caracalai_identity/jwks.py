@@ -41,7 +41,9 @@ def _is_loopback_host(host: str | None) -> bool:
 
 class JwksCache:
     def __init__(self) -> None:
-        self._cache: dict[tuple[str, str], tuple[list[dict[str, JsonValue]], float]] = {}
+        self._cache: dict[
+            tuple[str, str], tuple[list[dict[str, JsonValue]], float]
+        ] = {}
         self._locks: dict[tuple[str, str], asyncio.Lock] = {}
         self._locks_guard = asyncio.Lock()
 
@@ -57,7 +59,11 @@ class JwksCache:
         _assert_secure_issuer(issuer)
         if not zone_id:
             raise ValueError("zone_id required: STS serves one signing keyset per zone")
-        url = issuer.rstrip("/") + "/.well-known/jwks.json?" + urlencode({"zone_id": zone_id})
+        url = (
+            issuer.rstrip("/")
+            + "/.well-known/jwks.json?"
+            + urlencode({"zone_id": zone_id})
+        )
         key = (issuer, zone_id)
         entry = self._cache.get(key)
         if entry and time.monotonic() - entry[1] < _TTL:

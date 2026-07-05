@@ -111,10 +111,7 @@ export const stepUpChallengesRoutes: FastifyPluginAsync = async (fastify) => {
     if (!params) return
     const page = parseListPagination(req, reply)
     if (!page) return
-    const keyset = appendKeysetCondition(
-      { conds: ['zone_id = $1'], values: [params.zoneId] },
-      page,
-    )
+    const keyset = appendKeysetCondition({ conds: ['zone_id = $1'], values: [params.zoneId] }, page)
     const { rows } = await fastify.db.query(
       `SELECT ${CHALLENGE_COLUMNS}
        FROM step_up_challenges WHERE ${keyset.conds.join(' AND ')}

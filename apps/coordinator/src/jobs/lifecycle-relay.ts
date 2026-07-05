@@ -5,13 +5,8 @@
 
 import { timingSafeEqual } from 'node:crypto'
 import type { Redis } from 'ioredis'
-import {
-  STREAM_SIG_FIELD,
-  type StreamValue,
-  isPublished,
-  loadStreamsHmacKey,
-  signStream,
-} from '@caracalai/core'
+import { STREAM_SIG_FIELD, type StreamValue, signStream } from '@caracalai/core'
+import { isPublished, loadStreamsHmacKey } from '@caracalai/server-core'
 import { type JobHandle, makeIntervalJob } from './job.js'
 import { cfg } from '../config.js'
 
@@ -138,10 +133,7 @@ export class LifecycleRelay {
       return
     }
     relayStats.observed++
-    this.opts.log?.info(
-      { id, event: stringVal(values.event), zone_id: stringVal(values.zone_id) },
-      'lifecycle event',
-    )
+    this.opts.log?.info({ id, event: stringVal(values.event), zone_id: stringVal(values.zone_id) }, 'lifecycle event')
     await this.ack(id)
   }
 
@@ -159,13 +151,7 @@ export class LifecycleRelay {
     const id = values.outbox_id
     if (typeof id !== 'string' || id === '') return false
     try {
-      const res = await this.redis.set(
-        DEDUPE_KEY_PREFIX + id,
-        '1',
-        'PX',
-        this.opts.dedupeTtlMs,
-        'NX',
-      )
+      const res = await this.redis.set(DEDUPE_KEY_PREFIX + id, '1', 'PX', this.opts.dedupeTtlMs, 'NX')
       return res !== 'OK'
     } catch (err) {
       this.opts.log?.warn({ err, id }, 'dedupe setnx failed; proceeding')

@@ -9,7 +9,8 @@ import { runDeadlineSweep, startDeadlineEnforcer } from '../../../../../../apps/
 
 function clientWith(rows: unknown[], acquired = true) {
   return {
-    query: vi.fn()
+    query: vi
+      .fn()
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [{ acquired }] })
       .mockResolvedValueOnce({ rows })
@@ -19,7 +20,9 @@ function clientWith(rows: unknown[], acquired = true) {
 }
 
 describe('runDeadlineSweep', () => {
-  afterEach(() => { vi.useRealTimers() })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
 
   it('skips when another node holds the lock', async () => {
     const client = clientWith([], false)
@@ -39,25 +42,23 @@ describe('runDeadlineSweep', () => {
     const count = await runDeadlineSweep(db as never)
     expect(count).toBe(2)
 
-    const updateCall = client.query.mock.calls.find((call) =>
-      String(call[0]).includes("'failed'") && String(call[0]).includes("'timed_out'"))
+    const updateCall = client.query.mock.calls.find(
+      (call) => String(call[0]).includes("'failed'") && String(call[0]).includes("'timed_out'"),
+    )
     expect(updateCall).toBeDefined()
 
-    const outboxInserts = client.query.mock.calls.filter((call) =>
-      String(call[0]).includes('INSERT INTO caracal_outbox'))
+    const outboxInserts = client.query.mock.calls.filter((call) => String(call[0]).includes('INSERT INTO caracal_outbox'))
     expect(outboxInserts.length).toBe(1)
     const params = (outboxInserts[0]?.[1] ?? []) as unknown[]
-    expect(params).toEqual(expect.arrayContaining([
-      'invocation.failed:inv-1',
-      'invocation.timed_out:inv-2',
-    ]))
+    expect(params).toEqual(expect.arrayContaining(['invocation.failed:inv-1', 'invocation.timed_out:inv-2']))
     expect(client.query).toHaveBeenCalledWith('COMMIT')
   })
 
   it('rolls back and releases when the transition query fails', async () => {
     const err = new Error('deadlock')
     const client = {
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [{ acquired: true }] })
         .mockRejectedValueOnce(err)

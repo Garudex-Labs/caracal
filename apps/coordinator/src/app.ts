@@ -14,14 +14,16 @@ import {
   getTraceContext,
   parseTraceparent,
   bindTrace,
-  renderObservabilityMetrics,
   devLogMetrics,
   buildPinoRedactPaths,
+  CaracalError,
+} from '@caracalai/core'
+import {
+  renderObservabilityMetrics,
   instrumentFastifyApp,
   withTimeout,
-  CaracalError,
   isPublished,
-} from '@caracalai/core'
+} from '@caracalai/server-core'
 import { agentsRoutes } from './routes/agents.js'
 import { agentServicesRoutes } from './routes/agent-services.js'
 import { delegationsRoutes } from './routes/delegations.js'

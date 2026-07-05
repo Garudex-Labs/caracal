@@ -5,7 +5,7 @@
 
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify'
 import { createHash, randomBytes } from 'node:crypto'
-import { loadZoneKek, seal } from '@caracalai/core'
+import { loadZoneKek, seal } from '@caracalai/server-core'
 import { z } from 'zod'
 import { v7 as uuidv7 } from 'uuid'
 import { scopesAllowed } from '@caracalai/core'

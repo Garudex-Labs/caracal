@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 SSE generators for per-run event streams and the global categorized log stream.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -38,7 +39,9 @@ async def run_stream(run_id: str) -> AsyncIterator[str]:
         bus.unsubscribe(run_id, q)
 
 
-async def log_stream(run_id: str | None = None, category: str | None = None) -> AsyncIterator[str]:
+async def log_stream(
+    run_id: str | None = None, category: str | None = None
+) -> AsyncIterator[str]:
     q = bus.subscribe_global()
 
     for rid in bus.runs():

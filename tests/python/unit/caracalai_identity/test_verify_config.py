@@ -62,7 +62,6 @@ class StubCache:
         return self.keys
 
 
-
 class VerifyConfigTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
         self.original_cache = verify._cache
@@ -107,7 +106,9 @@ class VerifyConfigTests(unittest.IsolatedAsyncioTestCase):
             await self._verify({}, require_delegation=True)
 
     async def test_accepts_when_delegation_edge_id_present(self) -> None:
-        claims = await self._verify({"delegation_edge_id": "edge-1"}, require_delegation=True)
+        claims = await self._verify(
+            {"delegation_edge_id": "edge-1"}, require_delegation=True
+        )
         self.assertEqual(claims.delegation_edge_id, "edge-1")
 
     async def test_raises_chain_mismatch_when_app_absent(self) -> None:
@@ -120,7 +121,13 @@ class VerifyConfigTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(cm.exception.missing_application_id, "app-parent")
 
     async def test_accepts_chain_when_app_present(self) -> None:
-        chain = [{"application_id": "app-parent", "agent_session_id": "s1", "delegation_edge_id": "e1"}]
+        chain = [
+            {
+                "application_id": "app-parent",
+                "agent_session_id": "s1",
+                "delegation_edge_id": "e1",
+            }
+        ]
         claims = await self._verify(
             {"delegation_chain": chain},
             require_chain_contains=["app-parent"],
@@ -204,7 +211,9 @@ class VerifyConfigTests(unittest.IsolatedAsyncioTestCase):
 
 
 class VerifyChainContainsTests(unittest.TestCase):
-    def _claims(self, client_id: str = "app-1", chain: list[ChainHop] | None = None) -> Claims:
+    def _claims(
+        self, client_id: str = "app-1", chain: list[ChainHop] | None = None
+    ) -> Claims:
         return Claims(
             sub="u",
             zone_id="z",
@@ -229,7 +238,9 @@ class VerifyChainContainsTests(unittest.TestCase):
 
     def test_returns_false_when_application_is_absent(self) -> None:
         chain = [ChainHop(application_id="app-other")]
-        self.assertFalse(verify_chain_contains(self._claims(chain=chain), "app-unknown"))
+        self.assertFalse(
+            verify_chain_contains(self._claims(chain=chain), "app-unknown")
+        )
 
 
 if __name__ == "__main__":

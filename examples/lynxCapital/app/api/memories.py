@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 Session memory endpoint: clear cross-run conversation state.
 """
+
 from __future__ import annotations
 
 from fastapi import APIRouter

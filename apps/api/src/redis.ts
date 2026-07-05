@@ -22,7 +22,7 @@ export const STREAM_SESSIONS_REVOKE = 'caracal.sessions.revoke'
 export const STREAM_AGENTS_LIFECYCLE = 'caracal.agents.lifecycle'
 
 export async function redisMinuteBucket(redis: RedisClient): Promise<number> {
-  return Math.floor(await redisTimeMs(redis) / 60_000)
+  return Math.floor((await redisTimeMs(redis)) / 60_000)
 }
 
 export async function redisTimeMs(redis: RedisClient): Promise<number> {

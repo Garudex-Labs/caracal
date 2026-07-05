@@ -16,7 +16,13 @@ sys.path.append(str(Path(__file__).parents[3] / "shared" / "test-utils" / "pytho
 from caracal_test_tokens import mint_es256_token
 from caracalai_identity import verify
 from caracalai_revocation import InMemoryRevocationStore
-from caracalai_verify import AuthOptions, authenticate, check_active_authority, create_mandate_verifier, extract_bearer
+from caracalai_verify import (
+    AuthOptions,
+    authenticate,
+    check_active_authority,
+    create_mandate_verifier,
+    extract_bearer,
+)
 
 
 class StubCache:
@@ -54,10 +60,15 @@ class TransportMcpAuthenticateTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(result.error.code if result.error else None, "missing_token")
-        self.assertEqual(result.error.hint if result.error else None, "Send Authorization: Bearer <Caracal mandate>.")
+        self.assertEqual(
+            result.error.hint if result.error else None,
+            "Send Authorization: Bearer <Caracal mandate>.",
+        )
 
     async def test_reusable_verifier_authorization_and_route_overrides(self) -> None:
-        token, jwk = mint_es256_token(scopes=("read",), claims={"target": ["resource://api/tickets"]})
+        token, jwk = mint_es256_token(
+            scopes=("read",), claims={"target": ["resource://api/tickets"]}
+        )
         self.cache.keys = [jwk]
         verifier = create_mandate_verifier(
             AuthOptions(
@@ -131,11 +142,17 @@ class TransportMcpAuthenticateTests(unittest.IsolatedAsyncioTestCase):
             InMemoryRevocationStore(),
         )
         assert result.principal is not None
-        error = check_active_authority(result.principal, InMemoryRevocationStore(), now_seconds=result.principal.expires_at + 1)
+        error = check_active_authority(
+            result.principal,
+            InMemoryRevocationStore(),
+            now_seconds=result.principal.expires_at + 1,
+        )
         self.assertEqual(error.code if error else None, "invalid_token")
 
     async def test_requires_delegation_chain_membership(self) -> None:
-        token, jwk = mint_es256_token(claims={"delegation_chain": [{"application_id": "app-child"}]})
+        token, jwk = mint_es256_token(
+            claims={"delegation_chain": [{"application_id": "app-child"}]}
+        )
         self.cache.keys = [jwk]
 
         result = await authenticate(
@@ -163,7 +180,9 @@ class TransportMcpAuthenticateTests(unittest.IsolatedAsyncioTestCase):
             InMemoryRevocationStore(),
         )
 
-        self.assertEqual(result.error.code if result.error else None, "insufficient_scope")
+        self.assertEqual(
+            result.error.code if result.error else None, "insufficient_scope"
+        )
 
     async def test_rejects_missing_target_resource(self) -> None:
         token, jwk = mint_es256_token(claims={"target": ["resource://tools/files"]})
@@ -226,7 +245,9 @@ class TransportMcpAuthenticateTests(unittest.IsolatedAsyncioTestCase):
             require_delegation=True,
         )
 
-        self.assertEqual(result.error.code if result.error else None, "delegation_required")
+        self.assertEqual(
+            result.error.code if result.error else None, "delegation_required"
+        )
 
     async def test_rejects_hop_count_exceeded(self) -> None:
         token, jwk = mint_es256_token(claims={"hop_count": 2})
@@ -242,7 +263,9 @@ class TransportMcpAuthenticateTests(unittest.IsolatedAsyncioTestCase):
             max_hop_count=1,
         )
 
-        self.assertEqual(result.error.code if result.error else None, "hop_count_exceeded")
+        self.assertEqual(
+            result.error.code if result.error else None, "hop_count_exceeded"
+        )
 
     async def test_rejects_invalid_zone(self) -> None:
         token, jwk = mint_es256_token()

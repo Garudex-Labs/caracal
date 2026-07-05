@@ -4,6 +4,7 @@ Caracal, a product of Garudex Labs
 
 Lumen Identity domain: LynxCapital's internal directory and IAM platform for employees, org structure, RBAC roles, groups, and service accounts.
 """
+
 from __future__ import annotations
 
 from _mock.providerlab.data import generators as gen
@@ -27,10 +28,16 @@ def _resolve_user(ctx: Ctx, key: str = "userId") -> dict:
     user = users.get(ref)
     if user is None:
         ref_l = str(ref).lower()
-        user = next((u for u in users.values()
-                     if u["username"].lower() == ref_l
-                     or u["workEmail"].lower() == ref_l
-                     or u["userPrincipalName"].lower() == ref_l), None)
+        user = next(
+            (
+                u
+                for u in users.values()
+                if u["username"].lower() == ref_l
+                or u["workEmail"].lower() == ref_l
+                or u["userPrincipalName"].lower() == ref_l
+            ),
+            None,
+        )
     if user is None:
         raise DomainError(404, "user_not_found", str(ref))
     return user
@@ -53,7 +60,7 @@ def _sod_conflicts(role_ids: set[str]) -> list[dict]:
     held = sorted(role_ids)
     conflicts = []
     for i, a in enumerate(held):
-        for b in held[i + 1:]:
+        for b in held[i + 1 :]:
             rationale = rules.get(frozenset((a, b)))
             if rationale:
                 conflicts.append({"roleIds": [a, b], "rationale": rationale})
@@ -98,11 +105,16 @@ def get_user(ctx: Ctx) -> dict:
 def lookup_user(ctx: Ctx) -> dict:
     ctx.require("query")
     query = str(ctx.payload["query"]).lower()
-    matches = [u for u in ctx.state.table("users").values()
-               if query in u["displayName"].lower()
-               or query in u["workEmail"].lower()
-               or query in u["username"].lower()]
-    return ctx.paginate(sorted(matches, key=lambda u: u["displayName"]), size_default=25)
+    matches = [
+        u
+        for u in ctx.state.table("users").values()
+        if query in u["displayName"].lower()
+        or query in u["workEmail"].lower()
+        or query in u["username"].lower()
+    ]
+    return ctx.paginate(
+        sorted(matches, key=lambda u: u["displayName"]), size_default=25
+    )
 
 
 @base.op(ID, "list_users")
@@ -140,8 +152,7 @@ def get_user_entitlements(ctx: Ctx) -> dict:
         if role is None:
             continue
         for perm in role.get("permissions", []):
-            grants.setdefault(perm, []).append(
-                {"roleId": rid, "via": "direct"})
+            grants.setdefault(perm, []).append({"roleId": rid, "via": "direct"})
     for gid in user.get("groupIds", []):
         group = groups.get(gid)
         if group is None:
@@ -152,7 +163,8 @@ def get_user_entitlements(ctx: Ctx) -> dict:
                 continue
             for perm in role.get("permissions", []):
                 grants.setdefault(perm, []).append(
-                    {"roleId": rid, "via": "group", "groupId": gid})
+                    {"roleId": rid, "via": "group", "groupId": gid}
+                )
     entitlements = [
         {"permission": perm, "grantedBy": sources}
         for perm, sources in sorted(grants.items())
@@ -186,8 +198,11 @@ def check_segregation_of_duties(ctx: Ctx) -> dict:
 @base.op(ID, "list_direct_reports")
 def list_direct_reports(ctx: Ctx) -> dict:
     manager = _resolve_user(ctx, "managerId")
-    reports = [u for u in ctx.state.table("users").values()
-               if u.get("managerId") == manager["id"]]
+    reports = [
+        u
+        for u in ctx.state.table("users").values()
+        if u.get("managerId") == manager["id"]
+    ]
     reports.sort(key=lambda u: u["displayName"])
     return {"managerId": manager["id"], "count": len(reports), "items": reports}
 
@@ -204,8 +219,14 @@ def get_manager_chain(ctx: Ctx) -> dict:
         if manager is None:
             break
         seen.add(current)
-        chain.append({"id": manager["id"], "displayName": manager["displayName"],
-                      "jobTitle": manager["jobTitle"], "departmentId": manager["departmentId"]})
+        chain.append(
+            {
+                "id": manager["id"],
+                "displayName": manager["displayName"],
+                "jobTitle": manager["jobTitle"],
+                "departmentId": manager["departmentId"],
+            }
+        )
         current = manager.get("managerId")
     return {"userId": user["id"], "depth": len(chain), "chain": chain}
 
@@ -226,8 +247,11 @@ def get_role(ctx: Ctx) -> dict:
     role = ctx.state.table("roles").get(ctx.payload["roleId"])
     if role is None:
         raise DomainError(404, "role_not_found", ctx.payload["roleId"])
-    assigned = [u["id"] for u in ctx.state.table("users").values()
-                if ctx.payload["roleId"] in u.get("roleIds", [])]
+    assigned = [
+        u["id"]
+        for u in ctx.state.table("users").values()
+        if ctx.payload["roleId"] in u.get("roleIds", [])
+    ]
     return {**role, "assignedCount": len(assigned)}
 
 
@@ -239,20 +263,24 @@ def list_role_members(ctx: Ctx) -> dict:
     if ctx.state.table("roles").get(rid) is None:
         raise DomainError(404, "role_not_found", rid)
     groups = ctx.state.table("groups")
-    inheriting_groups = {gid for gid, g in groups.items() if rid in g.get("roleIds", [])}
+    inheriting_groups = {
+        gid for gid, g in groups.items() if rid in g.get("roleIds", [])
+    }
     members = []
     for u in ctx.state.table("users").values():
         direct = rid in u.get("roleIds", [])
         via_group = sorted(inheriting_groups.intersection(u.get("groupIds", [])))
         if direct or via_group:
-            members.append({
-                "userId": u["id"],
-                "displayName": u["displayName"],
-                "departmentId": u["departmentId"],
-                "status": u["status"],
-                "assignment": "direct" if direct else "group",
-                "viaGroupIds": via_group,
-            })
+            members.append(
+                {
+                    "userId": u["id"],
+                    "displayName": u["displayName"],
+                    "departmentId": u["departmentId"],
+                    "status": u["status"],
+                    "assignment": "direct" if direct else "group",
+                    "viaGroupIds": via_group,
+                }
+            )
     members.sort(key=lambda m: m["userId"])
     return ctx.paginate(members, size_default=50)
 
@@ -261,23 +289,27 @@ def list_role_members(ctx: Ctx) -> dict:
 def list_privileged_users(ctx: Ctx) -> dict:
     """Active identities holding any privileged role; the privileged-access review population."""
     roles = ctx.state.table("roles")
-    privileged_roles = {rid for rid, r in roles.items() if r.get("category") == "privileged"}
+    privileged_roles = {
+        rid for rid, r in roles.items() if r.get("category") == "privileged"
+    }
     items = []
     for u in ctx.state.table("users").values():
         held = _assigned_role_ids(ctx, u)
         priv = sorted(held.intersection(privileged_roles))
         if not priv:
             continue
-        items.append({
-            "userId": u["id"],
-            "displayName": u["displayName"],
-            "departmentId": u["departmentId"],
-            "status": u["status"],
-            "accountEnabled": u.get("accountEnabled", u["status"] == "active"),
-            "mfaEnabled": u.get("mfaEnabled", False),
-            "privilegedRoleIds": priv,
-            "accessReviewDueDate": u.get("accessReviewDueDate"),
-        })
+        items.append(
+            {
+                "userId": u["id"],
+                "displayName": u["displayName"],
+                "departmentId": u["departmentId"],
+                "status": u["status"],
+                "accountEnabled": u.get("accountEnabled", u["status"] == "active"),
+                "mfaEnabled": u.get("mfaEnabled", False),
+                "privilegedRoleIds": priv,
+                "accessReviewDueDate": u.get("accessReviewDueDate"),
+            }
+        )
     items.sort(key=lambda m: m["userId"])
     return ctx.paginate(items, size_default=50)
 
@@ -317,8 +349,9 @@ def get_team(ctx: Ctx) -> dict:
     team = ctx.state.table("teams").get(ctx.payload["teamId"])
     if team is None:
         raise DomainError(404, "team_not_found", ctx.payload["teamId"])
-    members = [u["id"] for u in ctx.state.table("users").values()
-               if u["teamId"] == team["id"]]
+    members = [
+        u["id"] for u in ctx.state.table("users").values() if u["teamId"] == team["id"]
+    ]
     return {**team, "memberIds": sorted(members)}
 
 
@@ -344,10 +377,14 @@ def get_department(ctx: Ctx) -> dict:
             if d["parentDepartmentId"] in subtree and d["id"] not in subtree:
                 subtree.add(d["id"])
                 changed = True
-    child_ids = sorted(d["id"] for d in departments.values()
-                       if d["parentDepartmentId"] == dept["id"])
-    teams = [t["id"] for t in ctx.state.table("teams").values()
-             if t["departmentId"] in subtree]
+    child_ids = sorted(
+        d["id"] for d in departments.values() if d["parentDepartmentId"] == dept["id"]
+    )
+    teams = [
+        t["id"]
+        for t in ctx.state.table("teams").values()
+        if t["departmentId"] in subtree
+    ]
     return {**dept, "childDepartmentIds": child_ids, "teamIds": sorted(teams)}
 
 
@@ -367,5 +404,7 @@ def get_service_account(ctx: Ctx) -> dict:
     ctx.require("serviceAccountId")
     svc = ctx.state.table("service_accounts").get(ctx.payload["serviceAccountId"])
     if svc is None:
-        raise DomainError(404, "service_account_not_found", ctx.payload["serviceAccountId"])
+        raise DomainError(
+            404, "service_account_not_found", ctx.payload["serviceAccountId"]
+        )
     return svc
