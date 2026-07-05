@@ -22,7 +22,7 @@ import (
 	"net/http"
 	"time"
 
-	nethttpadapter "github.com/garudex-labs/caracal/packages/adapters/nethttp/go"
+	nethttp "github.com/garudex-labs/caracal/packages/adapters/nethttp/go"
 	revocation "github.com/garudex-labs/caracal/packages/revocation/go"
 	verify "github.com/garudex-labs/caracal/packages/verify/go"
 )
@@ -37,11 +37,11 @@ func main() {
 		Revocations: revocations,
 	})
 
-	protected := nethttpadapter.VerifierMiddleware(verifier.Require(verify.Options{
+	protected := nethttp.VerifierMiddleware(verifier.Require(verify.Options{
 		RequiredScopes:  []string{"tickets:read"},
 		RequiredTargets: []string{"https://api.example.com/tickets"},
 	}))(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		claims, ok := nethttpadapter.ClaimsFromContext(r.Context())
+		claims, ok := nethttp.ClaimsFromContext(r.Context())
 		if !ok {
 			http.Error(w, "missing claims", http.StatusUnauthorized)
 			return

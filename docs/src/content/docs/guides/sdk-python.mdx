@@ -127,7 +127,7 @@ app = FastAPI()
 app.add_middleware(caracal.context_middleware())
 ```
 
-The middleware propagates context. It does not verify JWT signatures or revocation; use a connector or transport verifier at the trust boundary.
+The middleware propagates context. It does not verify JWT signatures or revocation; use an adapter or verify-engine verifier at the trust boundary.
 
 ## Troubleshooting
 
