@@ -5,7 +5,25 @@ Caracal, a product of Garudex Labs
 Public surface of the Caracal Python SDK.
 """
 
-from .auth import ApprovalRequired, ClientCredentials, CredentialsResolver
+from caracalai_oauth import (
+    AccessDenied,
+    ApprovalRequired,
+    CaracalError,
+    CaracalEvent,
+    ClientCredentials,
+    CredentialsResolver,
+    CredentialsUnavailableError,
+    DelegationRequired,
+    EventHook,
+    InvalidRequest,
+    InvalidToken,
+    OperationNotPermitted,
+    ResourceNotFound,
+    ScopeInsufficient,
+    ServiceUnavailable,
+    ZoneMismatch,
+)
+
 from .client import Caracal, CaracalConfig, GatewayRequest, ResourceBinding
 from .context import (
     AuthoritySummary,
@@ -19,22 +37,7 @@ from .context import (
 )
 from .coordinator import CoordinatorClient, DelegationConstraints, DelegationResponse
 from .envelope import Envelope
-from .errors import (
-    AccessDenied,
-    CaracalError,
-    CoordinatorError,
-    CredentialsUnavailableError,
-    DelegationRequired,
-    InvalidRequest,
-    InvalidToken,
-    MissingTokenError,
-    OperationNotPermitted,
-    ResourceNotFound,
-    ScopeInsufficient,
-    ServiceUnavailable,
-    ZoneMismatch,
-)
-from .events import CaracalEvent, EventHook
+from .errors import CoordinatorError, MissingTokenError
 from .http import CaracalASGIMiddleware, TokenVerifier
 from .json_types import JsonObject, JsonPrimitive, JsonValue
 from .primitives import Grant, LifecycleHook, ServiceAgent, adopt_delegation

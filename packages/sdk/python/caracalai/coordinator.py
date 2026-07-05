@@ -14,8 +14,9 @@ from urllib.parse import quote
 
 import httpx
 
+from caracalai_oauth import CaracalEvent, EventHook, emit_event
+
 from .errors import CoordinatorError
-from .events import CaracalEvent, EventHook, emit_event
 from .json_types import JsonObject, JsonValue
 
 
