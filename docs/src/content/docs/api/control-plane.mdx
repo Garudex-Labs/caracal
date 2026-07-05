@@ -4,7 +4,22 @@ description: Management API endpoints served by the Caracal API service.
 pageType: api
 ---
 
-The Control-Plane REST API is served by the API service on port `3000`. Management routes are registered under `/v1` and are protected by admin authentication.
+The Management API is served by the API service on port `3000`. Management routes are registered under `/v1` and are protected by admin authentication.
+
+## Authentication
+
+Send an admin token as a bearer credential on every `/v1` request:
+
+```
+Authorization: Bearer <admin token>
+```
+
+| Status | Error | Meaning |
+| --- | --- | --- |
+| `401` | `unauthorized`, `invalid_admin_token` | Token is missing, malformed, expired, or revoked. |
+| `403` | `admin_token_read_only` | Write attempted with a read-only token. |
+| `403` | `admin_token_zone_mismatch`, `zone_forbidden` | Token is scoped to a different zone. |
+| `403` | `system_zone_read_only` | Write attempted against the reserved system zone. |
 
 ## Health and Diagnostics
 
@@ -19,10 +34,13 @@ The Control-Plane REST API is served by the API service on port `3000`. Manageme
 
 | Resource | Collection | Item | Extra |
 | --- | --- | --- | --- |
-| Zones | `GET`, `POST /v1/zones` | `GET`, `PATCH`, `DELETE /v1/zones/:id` | `GET /v1/zones/:id/dcr-status` |
-| Applications | `GET`, `POST /v1/zones/:zoneId/applications` | `GET`, `PATCH`, `DELETE /v1/zones/:zoneId/applications/:id` | `POST /v1/zones/:zoneId/applications/dcr` |
+| Zones | `GET`, `POST /v1/zones` | `GET`, `PATCH`, `DELETE /v1/zones/:id` | `GET /v1/zones/:id/dcr-status`, `GET /v1/zones/:id/overview` |
+| Applications | `GET`, `POST /v1/zones/:zoneId/applications` | `GET`, `PATCH`, `DELETE /v1/zones/:zoneId/applications/:id` | `POST /v1/zones/:zoneId/applications/dcr`, `POST /v1/zones/:zoneId/applications/:id/rotate-secret` |
 | Providers | `GET`, `POST /v1/zones/:zoneId/providers` | `GET`, `PATCH`, `DELETE /v1/zones/:zoneId/providers/:id` | - |
 | Resources | `GET`, `POST /v1/zones/:zoneId/resources` | `GET`, `PATCH`, `DELETE /v1/zones/:zoneId/resources/:id` | - |
+| Workloads | `GET`, `POST /v1/zones/:zoneId/workloads` | `GET`, `PUT`, `DELETE /v1/zones/:zoneId/workloads/:id` | `POST /v1/zones/:zoneId/workloads/:id/rotate-secret` |
+
+Workloads are the launcher identities `caracal run` uses. Create a workload, store its one-time secret, and rotate the secret here when you automate runtime setup.
 
 ## Policy and Access
 
@@ -33,7 +51,7 @@ The Control-Plane REST API is served by the API service on port `3000`. Manageme
 | Policy sets | `GET /v1/zones/:zoneId/policy-sets`, `GET /v1/zones/:zoneId/policy-sets/:id`, `GET /v1/zones/:zoneId/policy-sets/:id/versions/:versionId`, `GET /v1/zones/:zoneId/policy-sets/:id/activation-status` | `POST /v1/zones/:zoneId/policy-sets`, `POST /v1/zones/:zoneId/policy-sets/:id/versions`, `POST /v1/zones/:zoneId/policy-sets/:id/activate`, `POST /v1/zones/:zoneId/policy-sets/:id/simulate`, `DELETE /v1/zones/:zoneId/policy-sets/:id` |
 | Policy templates | `GET /v1/policy-templates` | - |
 | Grants | `GET /v1/zones/:zoneId/grants`, `GET /v1/zones/:zoneId/grants/:id` | `POST /v1/zones/:zoneId/grants`, `DELETE /v1/zones/:zoneId/grants/:id` |
-| Provider grants | - | `POST /v1/zones/:zoneId/provider-grants`, `POST /v1/zones/:zoneId/provider-grants/oauth/authorize`, `POST /v1/zones/:zoneId/provider-grants/revoke` |
+| Provider grants | `GET /v1/zones/:zoneId/provider-grants/oauth/callback` (OAuth redirect target) | `POST /v1/zones/:zoneId/provider-grants`, `POST /v1/zones/:zoneId/provider-grants/oauth/authorize`, `POST /v1/zones/:zoneId/provider-grants/revoke` |
 
 Use Console when you are performing these operations interactively. Use the Admin SDK or Control API when automation needs the same management behavior.
 
@@ -46,7 +64,23 @@ Use Console when you are performing these operations interactively. Use the Admi
 | Sessions | `GET /v1/zones/:zoneId/sessions` |
 | Agent sessions | `GET /v1/zones/:zoneId/agent-sessions` (filter by `status`, `lifecycle`, `label`, `parent_id`, `application_id`; `format=csv` to export) |
 | Step-up challenges | `GET /v1/zones/:zoneId/step-up-challenges`, `GET /v1/zones/:zoneId/step-up-challenges/:id`, `POST /v1/zones/:zoneId/step-up-challenges/:id/approve`, `POST /v1/zones/:zoneId/step-up-challenges/:id/reject` |
-| Zone events | Zone-scoped event routes under `/v1/zones/:zoneId/...` |
+
+## Platform Administration
+
+These routes require the global admin token.
+
+| Resource | Methods and paths |
+| --- | --- |
+| Admin tokens | `GET`, `POST /v1/admin-tokens`; `DELETE /v1/admin-tokens/:id` |
+| Audit retention | `GET`, `PUT /v1/audit-retention` |
+
+Use `POST /v1/admin-tokens` to mint read-only or zone-scoped tokens for automation, and keep the bootstrap token as break-glass.
+
+## Listing and Filters
+
+- List endpoints accept `limit` (default `200`, max `500`) and an opaque `cursor`. Responses include `next_cursor` when more rows exist.
+- `GET /v1/zones/:zoneId/audit` accepts `since`, `until`, `request_id`, `decision`, `event_type`, `application_id`, `agent_session_id`, `session_id`, and `label`.
+- Add `format=csv` to audit and admin-audit lists for exports; use `fields` to select columns.
 
 ## Usage Notes
 
@@ -54,6 +88,7 @@ Use Console when you are performing these operations interactively. Use the Admi
 - For scoped, non-interactive provisioning, drive the Control API with a control key. See [Automate Management](/services/control/#non-interactive-automation) and the `controlBootstrap` example.
 - Prefer declarative reconciliation over scripting individual writes: [Declarative Management](/services/control/#declarative-management) converges a zone from a desired-state document with idempotent apply, dry-run plan, and CI-friendly verify.
 - Policy activation and simulation are API operations, but top-level `caracal` runtime commands do not expose them.
+- Caracal Operator routes under `/v1/operator` and zone-scoped operator paths back the web console. They are not a stable automation surface.
 - Writes that produce downstream state changes enqueue signed Redis stream events through the API outbox.
 
 ## Next Step

@@ -41,6 +41,8 @@ Gateway rejects before upstream dispatch. Treat these checks as the safety gate 
 
 After checks pass, Gateway performs a signed STS exchange, receives a resource mandate, forwards the request to the bound upstream, and emits audit evidence. Request and upstream timeouts are controlled by Gateway service config.
 
+Gateway proxies HTTP request/response traffic, including streamed responses such as SSE. Streamed bodies are flushed chunk by chunk, and revocation anchors are re-checked on every chunk boundary; a mid-stream revocation truncates the stream and sets the `X-Caracal-Revoked` trailer. Gateway does not proxy WebSocket connections: hop-by-hop headers, including `Upgrade`, are stripped before forwarding, so upgrade handshakes never reach the upstream. Protect WebSocket workloads with in-process verification at the service edge instead, using [Protect an MCP Server](/guides/protect-mcp/) or a framework adapter.
+
 ## Next Step
 
 Continue to [Use Event Topics](/api/event-topics/) to understand the Redis Stream topics that carry audit, invalidation, revocation, and agent lifecycle events.

@@ -4,7 +4,7 @@ description: Redis Streams, transactional outboxes, consumer groups, and replay 
 pageType: architecture
 ---
 
-Caracal uses Postgres outboxes for durable enqueue and Redis Streams for asynchronous delivery. Published modes sign stream messages with `STREAMS_HMAC_KEY`.
+Caracal uses Postgres outboxes for durable enqueue and Redis Streams for asynchronous delivery. In rc and stable builds, producers sign stream messages with `STREAMS_HMAC_KEY` and consumers verify the signature before processing.
 
 ## Event Pipeline
 
@@ -20,17 +20,7 @@ flowchart LR
 
 ## Streams
 
-| Stream | Producers | Consumers |
-| --- | --- | --- |
-| `caracal.audit.events` | API, STS, Gateway, Coordinator, Control | Audit `audit-ingestor`, SIEM exporters |
-| `caracal.audit.events.dlq` | Audit | DLQ observers |
-| `caracal.policy.invalidate` | API | STS policy loader |
-| `caracal.sessions.revoke` | API/Coordinator | STS and resource/Gateway revocation consumers |
-| `caracal.keys.invalidate` | API/STS | STS key caches |
-| `caracal.agents.lifecycle` | Coordinator | Coordinator lifecycle relay job |
-| `caracal.invocations.lifecycle` | Coordinator | Invocation observers |
-| `caracal.delegations.invalidate` | Coordinator | Delegation observers |
-| `caracal.providers.ratelimit` | Redis provisioner/provider coordination | Provider rate-limit coordination |
+[Review Event Topics](/api/event-topics/) is the canonical list of stream topics, producers, and consumer groups. This page covers how events move: outbox enqueue, signed delivery, consumer groups, and replay.
 
 ## Outbox Behavior
 
