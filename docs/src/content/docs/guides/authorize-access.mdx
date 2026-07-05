@@ -41,9 +41,9 @@ If you do not have a request ID, reproduce the request with your runtime configu
 | Scope is missing | Resource does not define the scope, or policy allowlist omits it. | Add the scope to the resource and policy deliberately. |
 | Wrong resource is evaluated | App used the wrong resource ID or Gateway header. | Use the resource ID from Console and `X-Caracal-Resource`. |
 | Policy change has no effect | New policy version is not in the active policy-set version. | Create and activate a new policy-set version. |
-| Access continues after revocation | Resource server is not consuming revocation state, or Gateway route is not used. | Confirm Gateway-mediated routing or shared revocation consumers for connectors. |
+| Access continues after revocation | Resource server is not consuming revocation state, or Gateway route is not used. | Confirm Gateway-mediated routing or shared revocation consumers for adapters. |
 | Gateway returns 403 | Mandate is expired, missing, revoked, or scoped for another resource. | Rerun the workload for a fresh mandate and confirm resource bindings. |
-| Upstream succeeds without audit | Request bypassed Gateway or connector result audit. | Route through Gateway or emit service-side action-result audit after connector verification. |
+| Upstream succeeds without audit | Request bypassed Gateway or adapter result audit. | Route through Gateway or emit service-side action-result audit after adapter verification. |
 | No audit event appears | Request never reached STS/Gateway, wrong zone is selected, or audit ingestion is delayed. | Confirm profile, selected zone, and request ID; refresh audit after a short wait. |
 
 ## Iterate from a Denial

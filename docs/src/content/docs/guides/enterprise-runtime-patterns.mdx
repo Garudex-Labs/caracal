@@ -3,14 +3,14 @@ title: Production Integration Patterns
 description: Integration patterns for APIs, MCP servers, queues, service mesh, SIEM, provider SDKs, and production rollout.
 ---
 
-Production deployments usually combine the Gateway, connectors, SDKs, revocation consumers, audit export, and policy automation. Keep the same authority model, then place enforcement where it best fits the system.
+Production deployments usually combine the Gateway, adapters, SDKs, revocation consumers, audit export, and policy automation. Keep the same authority model, then place enforcement where it best fits the system.
 
 ## Pick an Enforcement Pattern
 
 | Pattern | Use when | Primary guide |
 | --- | --- | --- |
 | Gateway-routed HTTP | You can route traffic through Caracal before it reaches the upstream. | [Protect a Gateway-Routed HTTP API](/guides/protect-gateway-http/) |
-| In-process connector | The resource server owns verification inside its framework. | [Protect an Express App](/guides/protect-express/), [Protect a FastMCP App](/guides/protect-fastmcp/), [Protect a Go net/http Service](/guides/protect-nethttp/) |
+| In-process adapter | The resource server owns verification inside its framework. | [Protect an Express App](/guides/protect-express/), [Protect a FastMCP App](/guides/protect-fastmcp/), [Protect a Go net/http Service](/guides/protect-nethttp/) |
 | MCP transport | You need framework-neutral MCP bearer verification. | [Protect an MCP Server](/guides/protect-mcp/) |
 | SDK transport injection | Provider SDK accepts custom fetch, transport, or HTTP client hooks. | [SDK guides](/guides/) |
 | Batch or queue worker | Work runs outside request/response but still needs scoped mandates. | [Run an Agent with caracal run](/guides/runtime-run/) |
@@ -24,7 +24,7 @@ flowchart LR
   STS --> OPA["Policy set"]
   SDK --> Gateway["Gateway"]
   Gateway --> API["HTTP upstream"]
-  SDK --> Connector["In-process connector"]
+  SDK --> Connector["In-process adapter"]
   Connector --> MCP["MCP tools"]
   STS --> Audit["Audit ledger"]
   Gateway --> Audit

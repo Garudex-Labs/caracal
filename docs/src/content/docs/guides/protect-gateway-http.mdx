@@ -11,7 +11,7 @@ Use Gateway-routed protection when the upstream is HTTP-routable and you want Ca
 | --- | --- |
 | The upstream is HTTP, REST, MCP-over-HTTP, or another Gateway-routable target. | The service must verify mandates inside its own process. |
 | You want provider credentials to stay inside the trusted Gateway/STS boundary. | The application must call the provider directly and only needs attribution. |
-| You want action-result audit from the central Gateway. | The resource server owns result audit after connector verification. |
+| You want action-result audit from the central Gateway. | The resource server owns result audit after adapter verification. |
 
 For in-process enforcement, use [Protect an Express App](/guides/protect-express/), [Protect a FastMCP App](/guides/protect-fastmcp/), [Protect a Go net/http Service](/guides/protect-nethttp/), or [Protect an MCP Server](/guides/protect-mcp/).
 
