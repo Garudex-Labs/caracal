@@ -2,7 +2,7 @@
 title: Policies and Policy Sets
 description: Versioned policy data documents the platform decision contract evaluates inside the STS at token-exchange time.
 sidebar:
-  order: 7
+  order: 8
 ---
 
 The platform decision contract decides whether the STS may issue a mandate. The contract is a signed, versioned Rego module that Caracal owns and embeds in the STS; it is the only thing that emits an authorization decision. You author **policy data documents** - grants, bindings, confinement, and restrictions - that the contract reads. Policies are versioned immutably, bundled into policy sets, and activated per zone.
