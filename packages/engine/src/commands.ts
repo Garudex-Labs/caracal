@@ -95,6 +95,12 @@ export const SHELL_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
     },
   },
   {
+    name: 'invite',
+    group: 'stack',
+    summary: 'Mint a one-time invite code for the first operator account',
+    requiresArgs: true,
+  },
+  {
     name: 'run',
     group: 'runtime',
     summary: 'Run a command with just-in-time injected credentials',

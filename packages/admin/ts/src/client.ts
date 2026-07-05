@@ -79,13 +79,8 @@ interface RequestOptions {
   headers?: Record<string, string>
 }
 
-interface AgentListResponse {
-  items: AgentSession[]
-  next_cursor: string | null
-}
-
-interface RowListResponse<T> {
-  rows: T[]
+interface ListResponse<T> {
+  items: T[]
   next_cursor: string | null
 }
 
@@ -238,7 +233,11 @@ export class AdminClient {
 
   // Zones
   zones = {
-    list: () => this.request<Zone[]>('/v1/zones'),
+    list: async () => {
+      const response = await this.request<ListResponse<Zone>>('/v1/zones')
+      if (!Array.isArray(response.items)) throw new Error('zones response missing items')
+      return response.items
+    },
     get: (id: string) => this.request<Zone>(`/v1/zones/${id}`),
     dcrStatus: (id: string) => this.request<ZoneDcrStatus>(`/v1/zones/${id}/dcr-status`),
     create: (input: ZoneInput) => this.request<Zone>('/v1/zones', { method: 'POST', body: input }),
@@ -248,7 +247,11 @@ export class AdminClient {
 
   // Applications
   applications = {
-    list: (zoneId: string) => this.request<Application[]>(`/v1/zones/${zoneId}/applications`),
+    list: async (zoneId: string) => {
+      const response = await this.request<ListResponse<Application>>(`/v1/zones/${zoneId}/applications`)
+      if (!Array.isArray(response.items)) throw new Error('applications response missing items')
+      return response.items
+    },
     get: (zoneId: string, id: string) => this.request<Application>(`/v1/zones/${zoneId}/applications/${id}`),
     create: (zoneId: string, input: ApplicationInput) =>
       this.request<Application>(`/v1/zones/${zoneId}/applications`, { method: 'POST', body: input }),
@@ -270,7 +273,11 @@ export class AdminClient {
 
   // Resources
   resources = {
-    list: (zoneId: string) => this.request<Resource[]>(`/v1/zones/${zoneId}/resources`),
+    list: async (zoneId: string) => {
+      const response = await this.request<ListResponse<Resource>>(`/v1/zones/${zoneId}/resources`)
+      if (!Array.isArray(response.items)) throw new Error('resources response missing items')
+      return response.items
+    },
     get: (zoneId: string, id: string) => this.request<Resource>(`/v1/zones/${zoneId}/resources/${id}`),
     create: (zoneId: string, input: ResourceInput) =>
       this.request<Resource>(`/v1/zones/${zoneId}/resources`, {
@@ -288,7 +295,11 @@ export class AdminClient {
 
   // Providers
   providers = {
-    list: (zoneId: string) => this.request<Provider[]>(`/v1/zones/${zoneId}/providers`),
+    list: async (zoneId: string) => {
+      const response = await this.request<ListResponse<Provider>>(`/v1/zones/${zoneId}/providers`)
+      if (!Array.isArray(response.items)) throw new Error('providers response missing items')
+      return response.items
+    },
     get: (zoneId: string, id: string) => this.request<Provider>(`/v1/zones/${zoneId}/providers/${id}`),
     create: (zoneId: string, input: ProviderInput) =>
       this.request<Provider>(`/v1/zones/${zoneId}/providers`, { method: 'POST', body: input }),
@@ -300,7 +311,11 @@ export class AdminClient {
 
   // Policies (immutable Rego versions)
   policies = {
-    list: (zoneId: string) => this.request<Policy[]>(`/v1/zones/${zoneId}/policies`),
+    list: async (zoneId: string) => {
+      const response = await this.request<ListResponse<Policy>>(`/v1/zones/${zoneId}/policies`)
+      if (!Array.isArray(response.items)) throw new Error('policies response missing items')
+      return response.items
+    },
     get: (zoneId: string, id: string) => this.request<Policy & { versions: PolicyVersion[] }>(`/v1/zones/${zoneId}/policies/${id}`),
     create: (zoneId: string, input: PolicyInput) =>
       this.request<Policy & { version_id: string; version: PolicyVersion }>(`/v1/zones/${zoneId}/policies`, {
@@ -333,7 +348,11 @@ export class AdminClient {
 
   // Policy sets
   policySets = {
-    list: (zoneId: string) => this.request<PolicySet[]>(`/v1/zones/${zoneId}/policy-sets`),
+    list: async (zoneId: string) => {
+      const response = await this.request<ListResponse<PolicySet>>(`/v1/zones/${zoneId}/policy-sets`)
+      if (!Array.isArray(response.items)) throw new Error('policy sets response missing items')
+      return response.items
+    },
     get: (zoneId: string, id: string) => this.request<PolicySet>(`/v1/zones/${zoneId}/policy-sets/${id}`),
     create: (zoneId: string, name: string, description?: string) =>
       this.request<PolicySet>(`/v1/zones/${zoneId}/policy-sets`, {
@@ -361,7 +380,11 @@ export class AdminClient {
 
   // Grants
   grants = {
-    list: (zoneId: string, query?: GrantQuery) => this.request<Grant[]>(`/v1/zones/${zoneId}/grants`, { query: grantListQuery(query) }),
+    list: async (zoneId: string, query?: GrantQuery) => {
+      const response = await this.request<ListResponse<Grant>>(`/v1/zones/${zoneId}/grants`, { query: grantListQuery(query) })
+      if (!Array.isArray(response.items)) throw new Error('grants response missing items')
+      return response.items
+    },
     get: (zoneId: string, id: string) => this.request<Grant>(`/v1/zones/${zoneId}/grants/${id}`),
     create: (zoneId: string, input: GrantInput) => this.request<Grant>(`/v1/zones/${zoneId}/grants`, { method: 'POST', body: input }),
     revoke: (zoneId: string, id: string) => this.request<void>(`/v1/zones/${zoneId}/grants/${id}`, { method: 'DELETE', expectEmpty: true }),
@@ -379,9 +402,9 @@ export class AdminClient {
   // Sessions (read; revocation is a side effect of grant.revoke or agent.terminate)
   sessions = {
     list: async (zoneId: string, query?: SessionQuery) => {
-      const response = await this.request<RowListResponse<Session>>(`/v1/zones/${zoneId}/sessions`, { query: { ...query } })
-      if (!Array.isArray(response.rows)) throw new Error('sessions response missing rows')
-      return response.rows
+      const response = await this.request<ListResponse<Session>>(`/v1/zones/${zoneId}/sessions`, { query: { ...query } })
+      if (!Array.isArray(response.items)) throw new Error('sessions response missing items')
+      return response.items
     },
   }
 
@@ -389,18 +412,18 @@ export class AdminClient {
   // available directly from the API endpoint with format=csv.
   agentSessions = {
     list: async (zoneId: string, query?: AgentSessionQuery) => {
-      const response = await this.request<RowListResponse<AgentSessionRow>>(`/v1/zones/${zoneId}/agent-sessions`, { query: { ...query } })
-      if (!Array.isArray(response.rows)) throw new Error('agent-sessions response missing rows')
-      return response.rows
+      const response = await this.request<ListResponse<AgentSessionRow>>(`/v1/zones/${zoneId}/agent-sessions`, { query: { ...query } })
+      if (!Array.isArray(response.items)) throw new Error('agent-sessions response missing items')
+      return response.items
     },
   }
 
   // Audit
   audit = {
     list: async (zoneId: string, query?: AuditQuery) => {
-      const response = await this.request<RowListResponse<AuditEvent>>(`/v1/zones/${zoneId}/audit`, { query: { ...query } })
-      if (!Array.isArray(response.rows)) throw new Error('audit response missing rows')
-      return response.rows
+      const response = await this.request<ListResponse<AuditEvent>>(`/v1/zones/${zoneId}/audit`, { query: { ...query } })
+      if (!Array.isArray(response.items)) throw new Error('audit response missing items')
+      return response.items
     },
     byRequest: (zoneId: string, requestId: string) => this.request<AuditDetail[]>(`/v1/zones/${zoneId}/audit/by-request/${requestId}`),
     explain: (zoneId: string, requestId: string) =>
@@ -409,14 +432,18 @@ export class AdminClient {
 
   adminAudit = {
     list: async (zoneId: string, query?: AdminAuditQuery) => {
-      const response = await this.request<RowListResponse<AdminAuditEvent>>(`/v1/zones/${zoneId}/admin-audit`, { query: { ...query } })
-      if (!Array.isArray(response.rows)) throw new Error('admin audit response missing rows')
-      return response.rows
+      const response = await this.request<ListResponse<AdminAuditEvent>>(`/v1/zones/${zoneId}/admin-audit`, { query: { ...query } })
+      if (!Array.isArray(response.items)) throw new Error('admin audit response missing items')
+      return response.items
     },
   }
 
   stepUpChallenges = {
-    list: (zoneId: string) => this.request<StepUpChallenge[]>(`/v1/zones/${zoneId}/step-up-challenges`),
+    list: async (zoneId: string) => {
+      const response = await this.request<ListResponse<StepUpChallenge>>(`/v1/zones/${zoneId}/step-up-challenges`)
+      if (!Array.isArray(response.items)) throw new Error('step-up challenges response missing items')
+      return response.items
+    },
     get: (zoneId: string, id: string) => this.request<StepUpChallenge>(`/v1/zones/${zoneId}/step-up-challenges/${id}`),
     approve: (zoneId: string, id: string, reason?: string) =>
       this.request<StepUpDecision>(`/v1/zones/${zoneId}/step-up-challenges/${id}/approve`, {
@@ -433,13 +460,16 @@ export class AdminClient {
   // Agents (coordinator)
   agents = {
     list: async (zoneId: string, query?: AgentListQuery) => {
-      const response = await this.request<AgentListResponse>(`/zones/${zoneId}/agents`, { base: 'coordinator', query: { ...query } })
+      const response = await this.request<ListResponse<AgentSession>>(`/zones/${zoneId}/agents`, {
+        base: 'coordinator',
+        query: { ...query },
+      })
       if (!Array.isArray(response.items)) throw new Error('agents response missing items')
       return response.items
     },
     get: (zoneId: string, id: string) => this.request<AgentSession>(`/zones/${zoneId}/agents/${id}`, { base: 'coordinator' }),
     children: async (zoneId: string, id: string, query?: AgentListQuery) => {
-      const response = await this.request<AgentListResponse>(`/zones/${zoneId}/agents/${id}/children`, {
+      const response = await this.request<ListResponse<AgentSession>>(`/zones/${zoneId}/agents/${id}/children`, {
         base: 'coordinator',
         query: { ...query },
       })
@@ -458,8 +488,7 @@ export class AdminClient {
 
   // Delegations (coordinator)
   delegations = {
-    active: (zoneId: string) =>
-      this.request<{ items: DelegationEdge[]; next_cursor: string | null }>(`/zones/${zoneId}/delegations/active`, { base: 'coordinator' }),
+    active: (zoneId: string) => this.request<ListResponse<DelegationEdge>>(`/zones/${zoneId}/delegations/active`, { base: 'coordinator' }),
     inbound: (zoneId: string, sessionId: string) =>
       this.request<DelegationEdge[]>(`/zones/${zoneId}/delegations/inbound/${sessionId}`, { base: 'coordinator' }),
     outbound: (zoneId: string, sessionId: string) =>
