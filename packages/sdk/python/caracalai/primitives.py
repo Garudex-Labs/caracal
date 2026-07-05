@@ -19,7 +19,8 @@ from collections.abc import AsyncGenerator, Awaitable, Callable
 
 import httpx
 
-from .auth import TokenSource
+from caracalai_oauth import TokenSource
+
 from .context import CaracalContext, current, _ctx_var
 from .coordinator import (
     Lifecycle,

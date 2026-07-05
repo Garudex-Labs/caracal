@@ -30,12 +30,15 @@ from .context import (
     from_envelope,
     to_envelope,
 )
-from .auth import (
+from caracalai_oauth import (
+    CaracalEvent,
     ClientCredentials,
     ClientSecretExchanger,
     CredentialsResolver,
+    EventHook,
     TokenSource,
-    _decode_jwt_exp,
+    decode_jwt_exp,
+    emit_event,
 )
 from .coordinator import (
     CoordinatorClient,
@@ -55,7 +58,6 @@ from .envelope import (
     to_headers,
 )
 from .errors import MissingTokenError
-from .events import CaracalEvent, EventHook, emit_event
 from .json_types import JsonObject
 from .primitives import (
     Grant,
@@ -566,7 +568,7 @@ def _validate_subject_token(token: str) -> None:
     unchanged. Signature verification is the verifier's responsibility."""
     import time
 
-    exp = _decode_jwt_exp(token)
+    exp = decode_jwt_exp(token)
     if exp is None:
         return
     if exp <= time.time():
@@ -1831,7 +1833,7 @@ class Caracal:
                 delegation_edge_id=edge.delegation_edge_id,
                 ttl_seconds=mandate_ttl,
             )
-            exp = _decode_jwt_exp(token) or (time.time() + mandate_ttl)
+            exp = decode_jwt_exp(token) or (time.time() + mandate_ttl)
             return token, exp
         except BaseException:
             for agent_session_id in spawned:
