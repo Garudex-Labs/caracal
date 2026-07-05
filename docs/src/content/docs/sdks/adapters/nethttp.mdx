@@ -1,0 +1,65 @@
+---
+title: Go net/http Connector
+description: Go middleware for protecting HTTP handlers with Caracal mandate verification.
+---
+
+The Go net/http connector wraps handlers with MCP transport verification and stores verified claims in the request context.
+
+## Install
+
+```bash
+go get github.com/garudex-labs/caracal/packages/adapters/nethttp/go
+```
+
+## Middleware
+
+```go
+import (
+	"net/http"
+	"time"
+
+	nethttp "github.com/garudex-labs/caracal/packages/adapters/nethttp/go"
+	revocation "github.com/garudex-labs/caracal/packages/revocation/go"
+	transportmcp "github.com/garudex-labs/caracal/packages/verify/go"
+)
+
+revocations := revocation.NewInMemoryStore(24 * time.Hour)
+
+verifier := transportmcp.NewVerifier(transportmcp.Options{
+	Issuer:          "https://sts.example.com",
+	Audience:        "https://api.example.com",
+	ZoneID:          "zone_prod",
+	Revocations:     revocations,
+})
+
+handler := nethttp.VerifierMiddleware(verifier.Require(transportmcp.Options{
+	RequiredScopes:  []string{"tickets:read"},
+	RequiredTargets: []string{"https://api.example.com/tickets"},
+	RequireAgent:    true,
+}))(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	claims, ok := nethttp.ClaimsFromContext(r.Context())
+	if !ok {
+		http.Error(w, "missing claims", http.StatusUnauthorized)
+		return
+	}
+	_, _ = w.Write([]byte(claims.Sub))
+}))
+```
+
+## APIs
+
+| API | Purpose |
+| --- | --- |
+| `Middleware(opts)` | Return middleware that verifies the bearer token and rejects failed requests. |
+| `VerifierMiddleware(verifier)` | Return middleware backed by a reusable verifier with shared defaults. |
+| `ClaimsFromContext(ctx)` | Retrieve verified Caracal claims inside a handler. |
+
+## Failure behavior
+
+The middleware maps MCP transport auth errors to HTTP failures before the handler runs and includes a safe `error_hint` in JSON failures. Use a shared revocation store through `transportmcp.Options` in production so revoked sessions are rejected consistently across service instances.
+
+## Related pages
+
+- [Protect a Go net/http Service](/guides/protect-nethttp/)
+- [Go SDK](/sdks/go/)
+- [MCP Auth Transport](/sdks/verify/)
