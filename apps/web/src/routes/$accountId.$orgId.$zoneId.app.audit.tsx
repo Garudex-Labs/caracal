@@ -240,8 +240,8 @@ function ExportDialog({
       if (format === "csv") {
         blob = await res.blob();
       } else {
-        const body = (await res.json()) as { rows: unknown[] };
-        blob = new Blob([JSON.stringify(body.rows, null, 2)], { type: "application/json" });
+        const body = (await res.json()) as { items: unknown[] };
+        blob = new Blob([JSON.stringify(body.items, null, 2)], { type: "application/json" });
       }
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");

@@ -8,7 +8,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { Button, Field, Modal } from "@/components/ui";
 import { cx } from "@/lib/cx";
-import { consoleApi } from "@/platform/api/client";
+import { consoleApi, ConsoleApiError } from "@/platform/api/client";
 import type { PolicyTemplate } from "@/platform/api/types";
 
 // A valid adopter policy is a Rego DATA document: it supplies data the signed platform
@@ -108,22 +108,19 @@ export function PolicyEditorModal({
     }
     setValidation({ status: "validating" });
     try {
-      const result = await consoleApi.policies.validate(content);
-      if (result.valid) {
-        setValidation({ status: "idle" });
-        return true;
-      }
-      setValidation({
-        status: "invalid",
-        message: humanizeRegoError(result.detail ?? result.error),
-      });
-      return false;
+      await consoleApi.policies.validate(content);
+      setValidation({ status: "idle" });
+      return true;
     } catch (error) {
-      const message =
-        error && typeof error === "object" && "code" in error
-          ? String((error as { code: unknown }).code)
-          : "Validation failed.";
-      setValidation({ status: "invalid", message });
+      if (error instanceof ConsoleApiError) {
+        const body = error.detail as { error_description?: string } | undefined;
+        setValidation({
+          status: "invalid",
+          message: humanizeRegoError(body?.error_description ?? error.code),
+        });
+      } else {
+        setValidation({ status: "invalid", message: "Validation failed." });
+      }
       return false;
     }
   }
