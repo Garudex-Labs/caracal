@@ -191,7 +191,8 @@ class _Zones:
         self._client = client
 
     def list(self) -> Any:
-        return self._client._request("/v1/zones")
+        response = self._client._request("/v1/zones")
+        return _unwrap(response, "items", "zones response missing items")
 
     def get(self, zone_id: str) -> Any:
         return self._client._request(f"/v1/zones/{zone_id}")
@@ -216,7 +217,8 @@ class _Applications:
         self._client = client
 
     def list(self, zone_id: str) -> Any:
-        return self._client._request(f"/v1/zones/{zone_id}/applications")
+        response = self._client._request(f"/v1/zones/{zone_id}/applications")
+        return _unwrap(response, "items", "applications response missing items")
 
     def get(self, zone_id: str, application_id: str) -> Any:
         return self._client._request(
@@ -266,7 +268,8 @@ class _Resources:
         self._client = client
 
     def list(self, zone_id: str) -> Any:
-        return self._client._request(f"/v1/zones/{zone_id}/resources")
+        response = self._client._request(f"/v1/zones/{zone_id}/resources")
+        return _unwrap(response, "items", "resources response missing items")
 
     def get(self, zone_id: str, resource_id: str) -> Any:
         return self._client._request(f"/v1/zones/{zone_id}/resources/{resource_id}")
@@ -294,7 +297,8 @@ class _Providers:
         self._client = client
 
     def list(self, zone_id: str) -> Any:
-        return self._client._request(f"/v1/zones/{zone_id}/providers")
+        response = self._client._request(f"/v1/zones/{zone_id}/providers")
+        return _unwrap(response, "items", "providers response missing items")
 
     def get(self, zone_id: str, provider_id: str) -> Any:
         return self._client._request(f"/v1/zones/{zone_id}/providers/{provider_id}")
@@ -322,7 +326,8 @@ class _Policies:
         self._client = client
 
     def list(self, zone_id: str) -> Any:
-        return self._client._request(f"/v1/zones/{zone_id}/policies")
+        response = self._client._request(f"/v1/zones/{zone_id}/policies")
+        return _unwrap(response, "items", "policies response missing items")
 
     def get(self, zone_id: str, policy_id: str) -> Any:
         return self._client._request(f"/v1/zones/{zone_id}/policies/{policy_id}")
@@ -364,7 +369,8 @@ class _PolicySets:
         self._client = client
 
     def list(self, zone_id: str) -> Any:
-        return self._client._request(f"/v1/zones/{zone_id}/policy-sets")
+        response = self._client._request(f"/v1/zones/{zone_id}/policy-sets")
+        return _unwrap(response, "items", "policy sets response missing items")
 
     def get(self, zone_id: str, set_id: str) -> Any:
         return self._client._request(f"/v1/zones/{zone_id}/policy-sets/{set_id}")
@@ -457,9 +463,10 @@ class _Grants:
         self._client = client
 
     def list(self, zone_id: str, query: dict[str, Any] | None = None) -> Any:
-        return self._client._request(
+        response = self._client._request(
             f"/v1/zones/{zone_id}/grants", query=_grant_list_query(query)
         )
+        return _unwrap(response, "items", "grants response missing items")
 
     def get(self, zone_id: str, grant_id: str) -> Any:
         return self._client._request(f"/v1/zones/{zone_id}/grants/{grant_id}")
@@ -508,7 +515,7 @@ class _Sessions:
 
     def list(self, zone_id: str, query: dict[str, Any] | None = None) -> Any:
         response = self._client._request(f"/v1/zones/{zone_id}/sessions", query=query)
-        return _unwrap(response, "rows", "sessions response missing rows")
+        return _unwrap(response, "items", "sessions response missing items")
 
 
 class _AgentSessions:
@@ -522,7 +529,7 @@ class _AgentSessions:
         response = self._client._request(
             f"/v1/zones/{zone_id}/agent-sessions", query=query
         )
-        return _unwrap(response, "rows", "agent-sessions response missing rows")
+        return _unwrap(response, "items", "agent-sessions response missing items")
 
 
 class _Audit:
@@ -531,7 +538,7 @@ class _Audit:
 
     def list(self, zone_id: str, query: dict[str, Any] | None = None) -> Any:
         response = self._client._request(f"/v1/zones/{zone_id}/audit", query=query)
-        return _unwrap(response, "rows", "audit response missing rows")
+        return _unwrap(response, "items", "audit response missing items")
 
     def by_request(self, zone_id: str, request_id: str) -> Any:
         return self._client._request(
@@ -552,7 +559,7 @@ class _AdminAudit:
         response = self._client._request(
             f"/v1/zones/{zone_id}/admin-audit", query=query
         )
-        return _unwrap(response, "rows", "admin audit response missing rows")
+        return _unwrap(response, "items", "admin audit response missing items")
 
 
 class _StepUpChallenges:
@@ -560,7 +567,8 @@ class _StepUpChallenges:
         self._client = client
 
     def list(self, zone_id: str) -> Any:
-        return self._client._request(f"/v1/zones/{zone_id}/step-up-challenges")
+        response = self._client._request(f"/v1/zones/{zone_id}/step-up-challenges")
+        return _unwrap(response, "items", "step-up challenges response missing items")
 
     def get(self, zone_id: str, challenge_id: str) -> Any:
         return self._client._request(

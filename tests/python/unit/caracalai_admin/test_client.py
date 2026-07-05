@@ -38,7 +38,13 @@ class AdminClientTests(unittest.TestCase):
     def test_sends_bearer_token_and_parses_json(self):
         requests: list[httpx.Request] = []
         client = make_client(
-            [httpx.Response(200, json=[{"id": "z1", "slug": "demo"}])], requests
+            [
+                httpx.Response(
+                    200,
+                    json={"items": [{"id": "z1", "slug": "demo"}], "next_cursor": None},
+                )
+            ],
+            requests,
         )
 
         out = client.zones.list()
@@ -112,7 +118,8 @@ class AdminClientTests(unittest.TestCase):
         client = make_client(
             [
                 httpx.Response(
-                    400, json={"error": "invalid_input", "detail": "bad slug"}
+                    400,
+                    json={"error": "invalid_input", "error_description": "bad slug"},
                 )
             ],
             requests,
@@ -124,7 +131,8 @@ class AdminClientTests(unittest.TestCase):
         self.assertEqual(caught.exception.status, 400)
         self.assertEqual(caught.exception.code, "invalid_input")
         self.assertEqual(
-            caught.exception.body, {"error": "invalid_input", "detail": "bad slug"}
+            caught.exception.body,
+            {"error": "invalid_input", "error_description": "bad slug"},
         )
 
     def test_falls_back_to_reason_phrase_when_not_json(self):
@@ -146,7 +154,9 @@ class AdminClientTests(unittest.TestCase):
                 httpx.Response(
                     503, json={"error": "unavailable"}, headers={"retry-after": "0"}
                 ),
-                httpx.Response(200, json=[{"id": "z1"}]),
+                httpx.Response(
+                    200, json={"items": [{"id": "z1"}], "next_cursor": None}
+                ),
             ],
             requests,
             retries=1,
@@ -173,7 +183,7 @@ class AdminClientTests(unittest.TestCase):
         client = make_client(
             [
                 httpx.Response(429, json={}, headers={"retry-after": when}),
-                httpx.Response(200, json=[]),
+                httpx.Response(200, json={"items": [], "next_cursor": None}),
             ],
             requests,
             retries=1,
@@ -184,7 +194,7 @@ class AdminClientTests(unittest.TestCase):
 
     def test_covers_provisioning_surface_with_paths_and_methods(self):
         requests: list[httpx.Request] = []
-        responses = [httpx.Response(200, json={})] * 14
+        responses = [httpx.Response(200, json={"items": [], "next_cursor": None})] * 14
         client = make_client(responses, requests)
 
         client.applications.list("z1")
@@ -269,7 +279,10 @@ class AdminClientTests(unittest.TestCase):
 class AdminOperationsTests(unittest.TestCase):
     def test_grant_list_query_maps_scopes_and_subject_id(self):
         requests: list[httpx.Request] = []
-        client = make_client([httpx.Response(200, json=[])] * 2, requests)
+        client = make_client(
+            [httpx.Response(200, json={"items": [], "next_cursor": None})] * 2,
+            requests,
+        )
 
         client.grants.list(
             "z1", {"subject_id": "user:richard", "scopes": ["read", "write"]}
@@ -306,11 +319,13 @@ class AdminOperationsTests(unittest.TestCase):
         )
         self.assertEqual(str(requests[0].url), "http://api/v1/policy-templates")
 
-    def test_row_listing_unwraps_and_validates_rows(self):
+    def test_listing_unwraps_and_validates_items(self):
         requests: list[httpx.Request] = []
         client = make_client(
             [
-                httpx.Response(200, json={"rows": [{"id": "s1"}], "next_cursor": None}),
+                httpx.Response(
+                    200, json={"items": [{"id": "s1"}], "next_cursor": None}
+                ),
                 httpx.Response(200, json={"next_cursor": None}),
             ],
             requests,
@@ -324,14 +339,14 @@ class AdminOperationsTests(unittest.TestCase):
         )
         with self.assertRaises(RuntimeError) as caught:
             client.agent_sessions.list("z1")
-        self.assertEqual(str(caught.exception), "agent-sessions response missing rows")
+        self.assertEqual(str(caught.exception), "agent-sessions response missing items")
 
     def test_audit_surface_paths(self):
         requests: list[httpx.Request] = []
         client = make_client(
             [
-                httpx.Response(200, json={"rows": []}),
-                httpx.Response(200, json={"rows": []}),
+                httpx.Response(200, json={"items": []}),
+                httpx.Response(200, json={"items": []}),
                 httpx.Response(200, json=[]),
                 httpx.Response(200, json={"request_id": "req-1"}),
             ],
@@ -487,7 +502,7 @@ class AdminOperationsTests(unittest.TestCase):
     def test_with_default_headers_merges_over_defaults(self):
         requests: list[httpx.Request] = []
         client = make_client(
-            [httpx.Response(200, json=[])],
+            [httpx.Response(200, json={"items": [], "next_cursor": None})],
             requests,
             headers={"x-request-id": "base", "x-tenant": "piedpiper"},
         )

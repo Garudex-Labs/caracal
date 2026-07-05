@@ -610,9 +610,16 @@ services:
       CARACAL_COORDINATOR_URL: http://coordinator:4000
       CARACAL_ADMIN_TOKEN_FILE: /run/secrets/caracalAdminToken
       CARACAL_COORDINATOR_TOKEN_FILE: /run/secrets/caracalCoordinatorToken
+      CARACAL_OPERATOR_INVITE_FILE: /run/caracalHostSecrets/operatorInvite.json
       LOG_LEVEL: ${LOG_LEVEL:-info}
       PORT: 3002
       HOST: 0.0.0.0
+    # The invite file is minted by `caracal invite` after the stack is already up, so it arrives
+    # through a directory bind rather than a compose secret, whose file source must exist at
+    # start. Only the invites subdirectory is mounted, read-only, so the container never sees
+    # sibling host secrets; consumption falls back to the invite's one-hour expiry.
+    volumes:
+      - ${CARACAL_SECRETS_DIR:-../secrets/files}/invites:/run/caracalHostSecrets:ro
     ports:
       - "127.0.0.1:${CARACAL_WEB_PORT:-3001}:3002"
     healthcheck:
