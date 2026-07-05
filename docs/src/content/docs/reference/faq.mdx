@@ -54,7 +54,7 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro';
         <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-001">Share</button>
       </summary>
       <span id="faq-what-problem-does-caracal-solve" className="faqAnchor"></span>
-      <p>Caracal gives agents and automated workflows short-lived, policy-approved authority instead of long-lived credentials. The agent asks for scoped authority at the moment it acts, STS evaluates policy, Gateway or a connector enforces the mandate, and Audit records the decision and result.</p>
+      <p>Caracal gives agents and automated workflows short-lived, policy-approved authority instead of long-lived credentials. The agent asks for scoped authority at the moment it acts, STS evaluates policy, Gateway or an adapter enforces the mandate, and Audit records the decision and result.</p>
       <p>See <a href="/concepts/authority-model/">Authority and Enforcement</a> and the <a href="/concepts/model-overview/">Caracal Mental Model</a>.</p>
       <p className="faqRelated">Related: <a href="#faq-002">FAQ-002</a>, <a href="#faq-003">FAQ-003</a>, <a href="#faq-016">FAQ-016</a></p>
     </details>
@@ -280,7 +280,7 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro';
         <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-018">Share</button>
       </summary>
       <span id="faq-missing-audit-event" className="faqAnchor"></span>
-      <p>First confirm the request reached a Caracal-protected boundary. If it did, check the selected zone, time window, request ID, Audit service readiness, Redis stream health, replay backlog, and DLQ. If the request failed before STS, Gateway, Coordinator, or a connector emitted evidence, there may be no action-result event for that boundary.</p>
+      <p>First confirm the request reached a Caracal-protected boundary. If it did, check the selected zone, time window, request ID, Audit service readiness, Redis stream health, replay backlog, and DLQ. If the request failed before STS, Gateway, Coordinator, or an adapter emitted evidence, there may be no action-result event for that boundary.</p>
       <p>Start with <a href="/runtime-console/observability/">Inspect Diagnostics and Audit</a> and <a href="/operations/debugging/">Debug Infrastructure Issues</a>.</p>
       <p className="faqRelated">Related: <a href="#faq-016">FAQ-016</a>, <a href="#faq-017">FAQ-017</a></p>
     </details>

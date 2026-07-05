@@ -38,8 +38,8 @@ dependencies = [
     "caracalai-identity==0.1.6rc2",
     "caracalai-oauth==0.1.6rc2",
     "caracalai-revocation==0.1.6rc2",
-    "caracalai-transport-mcp==0.1.6rc2",
-    "caracalai-mcp-fastmcp==0.1.6rc2",
+    "caracalai-verify==0.1.6rc2",
+    "caracalai-fastmcp==0.1.6rc2",
     "caracalai-revocation-redis==0.1.6rc2",
 ]
 

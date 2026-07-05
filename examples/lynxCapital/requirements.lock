@@ -38,9 +38,9 @@ caracalai-identity==0.1.6rc2 \
     --hash=sha256:fc85af2e4061dbee95415f1d693a306acec9b29e7ce8fa071428c92700140db3
     # via
     #   caracalai-sdk
-    #   caracalai-transport-mcp
+    #   caracalai-verify
     #   lynx-capital
-caracalai-mcp-fastmcp==0.1.6rc2 \
+caracalai-fastmcp==0.1.6rc2 \
     --hash=sha256:a040fa84de3d15f48a839a0e51884317e41baffad06e5332b77e675e2e7c5474 \
     --hash=sha256:cb658f20579b13c431f85450312fb9edfa0928dfad4d59b234be66776584b9ab
     # via lynx-capital
@@ -52,9 +52,9 @@ caracalai-revocation==0.1.6rc2 \
     --hash=sha256:51bb1e70a4304a16ef88967b8b8240362386de1610177c618b058b3f719eb9fc \
     --hash=sha256:b1cbe9d7f53582e3dc9eb1835ab5af1c591488336e503aa9653e3293440167e9
     # via
-    #   caracalai-mcp-fastmcp
+    #   caracalai-fastmcp
     #   caracalai-revocation-redis
-    #   caracalai-transport-mcp
+    #   caracalai-verify
     #   lynx-capital
 caracalai-revocation-redis==0.1.6rc2 \
     --hash=sha256:5c5eb34890120a81743878067468b974e11db565d45cd66050c0cbbc243b4868 \
@@ -64,11 +64,11 @@ caracalai-sdk==0.1.6rc2 \
     --hash=sha256:5fdb6d6ba26889c3cb6315cd10747d884c74dcf68ffb4dd8829a3f88fc67f103 \
     --hash=sha256:9d325e2ccbbe79da217d3e0bbffcfcb3f54c70b648749574360cd015fde29a04
     # via lynx-capital
-caracalai-transport-mcp==0.1.6rc2 \
+caracalai-verify==0.1.6rc2 \
     --hash=sha256:0950fafba80e933e676e56e128fccac7f25675e4617d99e5817e0bbafd0c7a2f \
     --hash=sha256:5d8dba91c7b0cc93ff28b8311a7fc4f8dedb76504f97603d7c48a892312bc9f0
     # via
-    #   caracalai-mcp-fastmcp
+    #   caracalai-fastmcp
     #   lynx-capital
 certifi==2026.4.22 \
     --hash=sha256:3cb2210c8f88ba2318d29b0388d1023c8492ff72ecdde4ebdaddbb13a31b1c4a \

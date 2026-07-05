@@ -14,7 +14,7 @@ The most common mistake is treating these four boundaries as interchangeable. Th
 | Boundary | Enforcement point | Credential holder | Action-result audit | Use when |
 | --- | --- | --- | --- | --- |
 | Gateway-mediated | Caracal Gateway | Gateway (sealed provider secret) | Gateway | The upstream is HTTP-routable and you want Caracal to broker the credential and enforce every call. |
-| Connector-verified | Your service process | Your service | Your service after connector verification | You own the service and must enforce mandates in process. |
+| Adapter-verified | Your service process | Your service | Your service after adapter verification | You own the service and must enforce mandates in process. |
 | Application-managed call | Your application code | Your application | Your application | You call the provider directly and only attach Caracal context for attribution. Not Caracal-enforced. |
 | Runtime token injection | Your runtime, eligibility gated by Caracal | Your runtime process | Your application | An existing client or CLI must receive a brokered token at runtime, and the provider sets `allow_runtime_injection=true`. |
 
