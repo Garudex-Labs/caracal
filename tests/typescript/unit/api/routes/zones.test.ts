@@ -393,7 +393,7 @@ describe('PATCH /v1/zones/:id', () => {
     })
 
     expect(res.statusCode).toBe(200)
-    expect(client.query).toHaveBeenCalledWith(expect.stringContaining('UPDATE applications'), ['z1', ['app-1'], 'test-admin', false])
+    expect(client.query).toHaveBeenCalledWith(expect.stringContaining('UPDATE applications'), ['z1', ['app-1'], 'admin:test-admin', false])
     const archiveCall = client.query.mock.calls.find((call) => String(call[0]).includes('UPDATE applications'))
     expect(String(archiveCall?.[0])).toContain('updated_by')
     expect(client.query).toHaveBeenCalledWith(expect.stringContaining('UPDATE sessions'), ['z1', ['app-1']])
@@ -417,7 +417,7 @@ describe('PATCH /v1/zones/:id', () => {
     })
 
     expect(res.statusCode).toBe(200)
-    expect(client.query).toHaveBeenCalledWith(expect.stringContaining('UPDATE applications'), ['z1', ['app-1'], 'test-admin', false])
+    expect(client.query).toHaveBeenCalledWith(expect.stringContaining('UPDATE applications'), ['z1', ['app-1'], 'admin:test-admin', false])
   })
 
   it('returns an actionable error when DCR shutdown runtime grants are missing', async () => {

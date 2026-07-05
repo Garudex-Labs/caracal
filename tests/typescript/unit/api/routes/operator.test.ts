@@ -116,7 +116,7 @@ const conversationRow = {
   status: 'active',
   mode: 'agent',
   autopilot: false,
-  created_by: 'actor-1',
+  created_by: 'admin:actor-1',
   created_at: '2026-01-01T00:00:00Z',
   updated_at: '2026-01-01T00:00:00Z',
   last_activity_at: '2026-01-01T00:00:00Z',
@@ -222,12 +222,12 @@ describe('POST /v1/zones/:zoneId/operator-conversations', () => {
       payload: { title: 'Connect GitHub' },
     })
     expect(res.statusCode).toBe(201)
-    expect(JSON.parse(res.body)).toMatchObject({ id: 'conv-1', status: 'active', created_by: 'actor-1' })
+    expect(JSON.parse(res.body)).toMatchObject({ id: 'conv-1', status: 'active', created_by: 'admin:actor-1' })
     const insert = db.query.mock.calls[1]
     expect(insert[0]).toContain('INSERT INTO operator_conversations')
     // The number is drawn from the durable per-zone counter so it is never reused after a delete.
     expect(insert[0]).toContain('operator_conversation_counters')
-    expect(insert[1]).toEqual([expect.any(String), 'z1', 'Connect GitHub', 'agent', false, 'actor-1'])
+    expect(insert[1]).toEqual([expect.any(String), 'z1', 'Connect GitHub', 'agent', false, 'admin:actor-1'])
   })
 
   it('creates a conversation in ask mode when requested', async () => {
@@ -243,7 +243,7 @@ describe('POST /v1/zones/:zoneId/operator-conversations', () => {
     expect(res.statusCode).toBe(201)
     expect(JSON.parse(res.body)).toMatchObject({ mode: 'ask' })
     const insert = db.query.mock.calls[1]
-    expect(insert[1]).toEqual([expect.any(String), 'z1', 'Audit access', 'ask', false, 'actor-1'])
+    expect(insert[1]).toEqual([expect.any(String), 'z1', 'Audit access', 'ask', false, 'admin:actor-1'])
   })
 
   it('creates a conversation with autopilot engaged when requested', async () => {
@@ -259,7 +259,7 @@ describe('POST /v1/zones/:zoneId/operator-conversations', () => {
     expect(res.statusCode).toBe(201)
     expect(JSON.parse(res.body)).toMatchObject({ autopilot: true })
     const insert = db.query.mock.calls[1]
-    expect(insert[1]).toEqual([expect.any(String), 'z1', 'Automate', 'agent', true, 'actor-1'])
+    expect(insert[1]).toEqual([expect.any(String), 'z1', 'Automate', 'agent', true, 'admin:actor-1'])
   })
 
   it('rejects an unknown mode', async () => {

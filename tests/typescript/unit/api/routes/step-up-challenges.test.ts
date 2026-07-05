@@ -134,18 +134,18 @@ describe('POST /v1/zones/:zoneId/step-up-challenges/:id decisions', () => {
     expect(JSON.parse(payload.data)).toMatchObject({ decision: 'rejected', metadata_json: { reason: 'wrong amount' } })
   })
 
-  it('attributes a console operator through the bound account', async () => {
+  it('attributes a console decision through the bound account profile id', async () => {
     const { app, db } = buildRouteApp(
       stepUpChallengesRoutes,
       { prefix: '/v1' },
       {
         ...OPERATOR,
-        account: { id: 'acct-1', email: 'richard.hendricks@piedpiper.example' },
+        account: { id: 'acct-1' },
       },
     )
     const client = txClient((sql) => {
       if (sql.includes('UPDATE step_up_challenges')) {
-        return { rows: [{ ...DECIDED_ROW, approver_subject_id: 'console:richard.hendricks@piedpiper.example' }] }
+        return { rows: [{ ...DECIDED_ROW, approver_subject_id: 'console:acct-1' }] }
       }
       return undefined
     })
@@ -156,7 +156,7 @@ describe('POST /v1/zones/:zoneId/step-up-challenges/:id decisions', () => {
 
     expect(res.statusCode).toBe(200)
     const update = client.query.mock.calls.find((c) => String(c[0]).includes('UPDATE step_up_challenges'))
-    expect(update?.[1]?.[2]).toBe('console:richard.hendricks@piedpiper.example')
+    expect(update?.[1]?.[2]).toBe('console:acct-1')
   })
 
   it('returns 404 when no such challenge exists in the zone', async () => {

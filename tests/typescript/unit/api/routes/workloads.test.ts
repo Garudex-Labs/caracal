@@ -154,7 +154,7 @@ describe('PUT /v1/zones/:zoneId/workloads/:id', () => {
     expect(JSON.parse(res.body)).toMatchObject({ id: 'wl-1', bindings: stored })
     const updateValues = db.query.mock.calls[0][1] as unknown[]
     expect(JSON.parse(updateValues[2] as string)).toEqual(stored)
-    expect(updateValues[3]).toBe('operator')
+    expect(updateValues[3]).toBe('admin:actor-1')
   })
 
   it('rejects blocked env names', async () => {
