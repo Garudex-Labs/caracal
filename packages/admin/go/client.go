@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// AdminClient: typed wrapper over the Caracal admin API provisioning surface.
+// AdminClient: typed wrapper over the Caracal admin API and coordinator surfaces.
 
 package admin
 
@@ -9,10 +9,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math/rand/v2"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -25,14 +27,26 @@ const (
 	defaultRetries      = 3
 	maxRetryAfter       = 30 * time.Second
 	defaultPolicySchema = "2026-05-20"
+	baseAPI             = "api"
+	baseCoordinator     = "coordinator"
 )
 
+// ErrCoordinatorURLNotConfigured is returned when a coordinator-backed call
+// runs without CoordinatorURL configured.
+var ErrCoordinatorURLNotConfigured = errors.New("coordinator_url_not_configured")
+
+// ErrCoordinatorTokenNotConfigured is returned when a coordinator-backed call
+// runs without CoordinatorToken configured.
+var ErrCoordinatorTokenNotConfigured = errors.New("coordinator_token_not_configured")
+
 // AdminAPIError is a non-2xx admin API response, carrying the HTTP status,
-// the stable wire code, and the redacted response body.
+// the stable wire code, the redacted response body, and the target base
+// ("api" or "coordinator").
 type AdminAPIError struct {
 	Status int
 	Code   string
 	Body   any
+	Target string
 }
 
 func (e *AdminAPIError) Error() string {
@@ -40,36 +54,53 @@ func (e *AdminAPIError) Error() string {
 }
 
 // AdminClientOptions configures an AdminClient. Retries 0 means the default
-// of 3; a negative value disables retries.
+// of 3; a negative value disables retries. CoordinatorURL and
+// CoordinatorToken are required only for coordinator-backed surfaces (agents
+// and delegations).
 type AdminClientOptions struct {
-	APIURL     string
-	AdminToken string
-	HTTPClient *http.Client
-	Retries    int
-	Headers    map[string]string
+	APIURL           string
+	AdminToken       string
+	CoordinatorURL   string
+	CoordinatorToken string
+	HTTPClient       *http.Client
+	Retries          int
+	Headers          map[string]string
 }
 
-// AdminClient is an admin API client covering the provisioning surface:
-// zones, applications, resources, providers, policies, and policy sets. Only
-// idempotent (GET/HEAD) requests are retried, on transient statuses with
-// jittered backoff honoring Retry-After.
+// AdminClient is an admin API client covering provisioning (zones,
+// applications, resources, providers, policies, policy sets, policy
+// templates, grants) and operations (sessions, audit, step-up, agents,
+// delegations) surfaces. Only idempotent (GET/HEAD) requests are retried, on
+// transient statuses with jittered backoff honoring Retry-After.
 type AdminClient struct {
-	apiURL     string
-	token      string
-	httpClient *http.Client
-	retries    int
-	headers    map[string]string
+	apiURL           string
+	token            string
+	coordinatorURL   string
+	coordinatorToken string
+	httpClient       *http.Client
+	retries          int
+	headers          map[string]string
 
-	Zones        *ZonesService
-	Applications *ApplicationsService
-	Resources    *ResourcesService
-	Providers    *ProvidersService
-	Policies     *PoliciesService
-	PolicySets   *PolicySetsService
+	Zones            *ZonesService
+	Applications     *ApplicationsService
+	Resources        *ResourcesService
+	Providers        *ProvidersService
+	Policies         *PoliciesService
+	PolicyTemplates  *PolicyTemplatesService
+	PolicySets       *PolicySetsService
+	Grants           *GrantsService
+	ProviderGrants   *ProviderGrantsService
+	Sessions         *SessionsService
+	AgentSessions    *AgentSessionsService
+	Audit            *AuditService
+	AdminAudit       *AdminAuditService
+	StepUpChallenges *StepUpChallengesService
+	Agents           *AgentsService
+	Delegations      *DelegationsService
 }
 
 // NewAdminClient builds an AdminClient from options, trimming the trailing
-// slash from the base URL.
+// slash from the base URLs.
 func NewAdminClient(opts AdminClientOptions) *AdminClient {
 	httpClient := opts.HTTPClient
 	if httpClient == nil {
@@ -83,22 +114,75 @@ func NewAdminClient(opts AdminClientOptions) *AdminClient {
 		retries = 0
 	}
 	client := &AdminClient{
-		apiURL:     strings.TrimRight(opts.APIURL, "/"),
-		token:      opts.AdminToken,
-		httpClient: httpClient,
-		retries:    retries,
-		headers:    opts.Headers,
+		apiURL:           strings.TrimRight(opts.APIURL, "/"),
+		token:            opts.AdminToken,
+		coordinatorURL:   strings.TrimRight(opts.CoordinatorURL, "/"),
+		coordinatorToken: opts.CoordinatorToken,
+		httpClient:       httpClient,
+		retries:          retries,
+		headers:          opts.Headers,
 	}
 	client.Zones = &ZonesService{client}
 	client.Applications = &ApplicationsService{client}
 	client.Resources = &ResourcesService{client}
 	client.Providers = &ProvidersService{client}
 	client.Policies = &PoliciesService{client}
+	client.PolicyTemplates = &PolicyTemplatesService{client}
 	client.PolicySets = &PolicySetsService{client}
+	client.Grants = &GrantsService{client}
+	client.ProviderGrants = &ProviderGrantsService{client}
+	client.Sessions = &SessionsService{client}
+	client.AgentSessions = &AgentSessionsService{client}
+	client.Audit = &AuditService{client}
+	client.AdminAudit = &AdminAuditService{client}
+	client.StepUpChallenges = &StepUpChallengesService{client}
+	client.Agents = &AgentsService{client}
+	client.Delegations = &DelegationsService{client}
 	return client
 }
 
+// WithDefaultHeaders returns a derived client sharing this client's transport
+// and configuration with the given headers merged over the defaults.
+func (c *AdminClient) WithDefaultHeaders(headers map[string]string) *AdminClient {
+	merged := make(map[string]string, len(c.headers)+len(headers))
+	for key, value := range c.headers {
+		merged[key] = value
+	}
+	for key, value := range headers {
+		merged[key] = value
+	}
+	return NewAdminClient(AdminClientOptions{
+		APIURL:           c.apiURL,
+		AdminToken:       c.token,
+		CoordinatorURL:   c.coordinatorURL,
+		CoordinatorToken: c.coordinatorToken,
+		HTTPClient:       c.httpClient,
+		Retries:          c.retries,
+		Headers:          merged,
+	})
+}
+
 func (c *AdminClient) do(ctx context.Context, method, path string, body any, out any, expectEmpty bool) error {
+	return c.request(ctx, baseAPI, method, path, nil, body, out, expectEmpty)
+}
+
+func (c *AdminClient) request(ctx context.Context, base, method, path string, query url.Values, body any, out any, expectEmpty bool) error {
+	baseURL := c.apiURL
+	token := c.token
+	if base == baseCoordinator {
+		if c.coordinatorURL == "" {
+			return ErrCoordinatorURLNotConfigured
+		}
+		if c.coordinatorToken == "" {
+			return ErrCoordinatorTokenNotConfigured
+		}
+		baseURL = c.coordinatorURL
+		token = c.coordinatorToken
+	}
+	requestURL := baseURL + path
+	if len(query) > 0 {
+		requestURL += "?" + query.Encode()
+	}
 	var payload []byte
 	if body != nil {
 		encoded, err := json.Marshal(body)
@@ -116,11 +200,11 @@ func (c *AdminClient) do(ctx context.Context, method, path string, body any, out
 		if payload != nil {
 			reader = bytes.NewReader(payload)
 		}
-		req, err := http.NewRequestWithContext(ctx, method, c.apiURL+path, reader)
+		req, err := http.NewRequestWithContext(ctx, method, requestURL, reader)
 		if err != nil {
 			return err
 		}
-		req.Header.Set("Authorization", "Bearer "+c.token)
+		req.Header.Set("Authorization", "Bearer "+token)
 		for key, value := range c.headers {
 			req.Header.Set(key, value)
 		}
@@ -153,7 +237,7 @@ func (c *AdminClient) do(ctx context.Context, method, path string, body any, out
 				}
 				continue
 			}
-			return apiError(res.StatusCode, data)
+			return apiError(res.StatusCode, data, base)
 		}
 		if expectEmpty || res.StatusCode == http.StatusNoContent || out == nil {
 			return nil
@@ -162,7 +246,7 @@ func (c *AdminClient) do(ctx context.Context, method, path string, body any, out
 	}
 }
 
-func apiError(status int, data []byte) *AdminAPIError {
+func apiError(status int, data []byte, target string) *AdminAPIError {
 	code := http.StatusText(status)
 	if code == "" {
 		code = "request_failed"
@@ -181,7 +265,7 @@ func apiError(status int, data []byte) *AdminAPIError {
 			}
 		}
 	}
-	return &AdminAPIError{Status: status, Code: code, Body: redactBody(parsed)}
+	return &AdminAPIError{Status: status, Code: code, Body: redactBody(parsed), Target: target}
 }
 
 func redactBody(body any) any {
