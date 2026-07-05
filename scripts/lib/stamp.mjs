@@ -65,6 +65,42 @@ function stampPyproject(entry, pypiVersions, diff) {
   if (after !== before) diff.push({ path, before, after })
 }
 
+const installPinPattern = /((?:--version|-Version) )v[0-9]{4}\.[0-9]{2}\.[0-9]{2}(?:\.[0-9]+)?(?:-rc\.(?:sha[0-9A-Za-z]+|[0-9]+))?/g
+
+export function stampReadmePins(text, productVersion) {
+  return text.replace(installPinPattern, `$1v${productVersion}`)
+}
+
+function stampReadme(config, diff) {
+  const path = join(repoRoot, 'README.md')
+  const before = readFileSync(path, 'utf8')
+  const after = stampReadmePins(before, config.product.version)
+  if (after !== before) diff.push({ path, before, after })
+}
+
+function goWorkspaceModulePaths(goWorkText) {
+  return [...goWorkText.matchAll(/^\t\.\/(\S+)$/gm)].map((match) => match[1])
+}
+
+function stampGoDependencies(text, versions) {
+  return text.replace(/(github\.com\/garudex-labs\/caracal\/packages\/[a-z0-9/]+\/go) v[0-9]\S*/g, (match, module) => {
+    const version = versions[module]
+    return version ? `${module} v${version}` : match
+  })
+}
+
+function stampGoModules(config, diff) {
+  const versions = Object.fromEntries((config.packages.go ?? []).map((entry) => [entry.module, entry.version]))
+  const workPath = join(repoRoot, 'go.work')
+  const workBefore = readFileSync(workPath, 'utf8')
+  const modulePaths = goWorkspaceModulePaths(workBefore).map((dir) => join(repoRoot, dir, 'go.mod'))
+  for (const path of [workPath, ...modulePaths]) {
+    const before = path === workPath ? workBefore : readFileSync(path, 'utf8')
+    const after = stampGoDependencies(before, versions)
+    if (after !== before) diff.push({ path, before, after })
+  }
+}
+
 function stampHelm(config, diff) {
   const productVersion = config.product.version
   const chartPath = join(repoRoot, 'infra/helm/caracal/Chart.yaml')
@@ -90,7 +126,9 @@ export function computeStamp(config = readReleaseConfig()) {
   for (const entry of config.packages.pypi) {
     stampPyproject(entry, pypiVersions, diff)
   }
+  stampGoModules(config, diff)
   stampHelm(config, diff)
+  stampReadme(config, diff)
   return diff
 }
 

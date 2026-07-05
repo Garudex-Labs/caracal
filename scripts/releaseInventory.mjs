@@ -45,6 +45,26 @@ export function npmPackages(config = readReleaseConfig()) {
   })
 }
 
+export function goPackages(config = readReleaseConfig()) {
+  return (config.packages.go ?? []).map((entry) => {
+    const text = readFileSync(join(repoRoot, entry.dir, 'go.mod'), 'utf8')
+    const module = text.match(/^module (\S+)$/m)?.[1]
+    if (module !== entry.module) throw new Error(`${entry.dir}/go.mod module ${module} does not match ${entry.module}`)
+    if (!entry.version) throw new Error(`release.config.json missing version for ${entry.module}`)
+    return {
+      ecosystem: 'go',
+      id: entry.id,
+      group: entry.group,
+      dir: entry.dir,
+      module: entry.module,
+      version: entry.version,
+      tier: entry.tier,
+      publish: entry.publish !== false,
+      tag: `${entry.dir}/v${entry.version}`,
+    }
+  })
+}
+
 export function pypiPackages(config = readReleaseConfig()) {
   return config.packages.pypi.map((entry) => {
     const text = readFileSync(join(repoRoot, entry.dir, 'pyproject.toml'), 'utf8')
@@ -90,6 +110,7 @@ export function releaseInventory(config = readReleaseConfig()) {
     packages: {
       npm: npmPackages(config),
       pypi: pypiPackages(config),
+      go: goPackages(config),
     },
   }
 }

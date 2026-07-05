@@ -9,13 +9,14 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, wri
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { productArchiveTargets, productContainers, releaseInventory } from './releaseInventory.mjs'
-import { applyStamp, computeStamp } from './lib/stamp.mjs'
+import { applyStamp, computeStamp, stampReadmePins } from './lib/stamp.mjs'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const inventory = releaseInventory()
 
 const npmPaths = inventory.packages.npm.map((pkg) => pkg.dir)
 const pyPaths = inventory.packages.pypi.map((pkg) => pkg.dir)
+const goModules = inventory.packages.go.filter((mod) => mod.publish)
 const productImages = productContainers(inventory.config)
 const containers = productImages.filter((image) => image.name !== 'runtime').map((image) => image.name)
 const archiveTargets = productArchiveTargets(inventory.config).map((target) => `caracal-runtime-${target.os}-${target.arch}`)
@@ -316,6 +317,31 @@ function remoteTagExists(tag) {
   }
 }
 
+function localTagExists(tag) {
+  try {
+    execFileSync('git', ['rev-parse', '--verify', '--quiet', `refs/tags/${tag}`], { cwd: repoRoot, stdio: 'ignore' })
+    return true
+  } catch {
+    return false
+  }
+}
+
+// Go modules are consumed straight from git, so every publishable module gets a
+// prefixed semver tag (packages/<module>/go/vX.Y.Z) on the release commit. Tags
+// already on origin are immutable published versions and are never re-pointed.
+function planGoModuleTags() {
+  const create = []
+  for (const mod of goModules) {
+    if (remoteTagExists(mod.tag)) {
+      say(`go module already published: ${mod.tag}`)
+      continue
+    }
+    if (localTagExists(mod.tag)) die(`local tag ${mod.tag} is not on origin; delete it or bump ${mod.module} in release.config.json`)
+    create.push(mod.tag)
+  }
+  return create
+}
+
 function pendingChangesets() {
   try {
     return readdirSync(join(repoRoot, '.changeset')).filter((name) => name.endsWith('.md') && name !== 'README.md').length
@@ -335,6 +361,7 @@ function validateStablePackageVersions(manifest) {
 function writeStableManifest(manifest) {
   validateStablePackageVersions(manifest)
   rewriteHelm(manifest)
+  rewriteReadme(manifest.helm.appVersion)
   return writeManifest(manifest)
 }
 
@@ -366,6 +393,8 @@ function stable(options) {
   const pending = pendingChangesets()
   say(`stable: ${tag}`)
   say(`changesets: ${pending}`)
+  const goTags = planGoModuleTags()
+  for (const goTag of goTags) say(`go module tag: ${goTag}`)
   if (dryRun) {
     if (pending > 0) {
       execFileSync('pnpm', ['changeset', 'status'], { cwd: repoRoot, stdio: 'inherit' })
@@ -385,6 +414,7 @@ function stable(options) {
         '**/pyproject.toml',
         'infra/helm/caracal/Chart.yaml',
         'infra/helm/caracal/values.yaml',
+        'README.md',
         `releases/${tag}/manifest.json`,
       ],
       { cwd: repoRoot, stdio: 'inherit' },
@@ -407,12 +437,17 @@ function stable(options) {
   }
   assertStableCommit(tag)
   execFileSync('git', ['tag', '-a', tag, '-m', tag], { cwd: repoRoot, stdio: 'inherit' })
+  for (const goTag of goTags) {
+    execFileSync('git', ['tag', '-a', goTag, '-m', goTag], { cwd: repoRoot, stdio: 'inherit' })
+  }
+  const pushRefs = ['main', `refs/tags/${tag}`, ...goTags.map((goTag) => `refs/tags/${goTag}`)]
   try {
-    execFileSync('git', ['push', '--atomic', 'origin', 'main', `refs/tags/${tag}`], { cwd: repoRoot, stdio: 'inherit' })
+    execFileSync('git', ['push', '--atomic', 'origin', ...pushRefs], { cwd: repoRoot, stdio: 'inherit' })
   } catch {
-    die(`atomic push failed for main and ${tag}`)
+    die(`atomic push failed for ${pushRefs.join(', ')}`)
   }
   say(`pushed ${tag}`)
+  for (const goTag of goTags) say(`pushed ${goTag}`)
   say('Actions will publish release assets.')
 }
 
@@ -465,6 +500,11 @@ function rewriteHelm(manifest) {
   values = values.replace(/^  tag: .*/m, `  tag: "${manifest.helm.imageTag}"`)
   writeFileSync(chartPath, chart)
   writeFileSync(valuesPath, values)
+}
+
+function rewriteReadme(version) {
+  const path = join(repoRoot, 'README.md')
+  writeFileSync(path, stampReadmePins(readFileSync(path, 'utf8'), version))
 }
 
 function prepare(options) {
