@@ -460,6 +460,13 @@ export const consoleApi = {
   status: () => request<ConsoleStatus>("/status"),
   diagnostics: () => request<DiagnosticsReport>("/diagnostics"),
 
+  profiles: {
+    resolve: (ids: string[]) =>
+      request<{ profiles: { id: string; name: string }[] }>(
+        `/profiles?ids=${encodeURIComponent(ids.join(","))}`,
+      ),
+  },
+
   zones: {
     list: async (signal?: AbortSignal) => (await fetchAllPages<Zone>("/v1/zones", signal)).rows,
     get: (id: string, signal?: AbortSignal) =>
