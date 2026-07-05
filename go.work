@@ -2,14 +2,14 @@ go 1.26
 
 use (
 	./packages/admin/go
-	./packages/connectors/nethttp/go
-	./packages/connectors/redis/go
+	./packages/adapters/nethttp/go
+	./packages/backends/redis/go
 	./packages/core/go
 	./packages/identity/go
 	./packages/oauth/go
 	./packages/revocation/go
 	./packages/sdk/go
-	./packages/transport/mcp/go
+	./packages/verify/go
 	./services/audit
 	./services/gateway
 	./services/sts
@@ -29,4 +29,4 @@ replace github.com/garudex-labs/caracal/packages/identity/go v0.1.6-rc.3 => ./pa
 
 replace github.com/garudex-labs/caracal/packages/revocation/go v0.1.6-rc.3 => ./packages/revocation/go
 
-replace github.com/garudex-labs/caracal/packages/transport/mcp/go v0.1.6-rc.3 => ./packages/transport/mcp/go
+replace github.com/garudex-labs/caracal/packages/verify/go v0.1.6-rc.3 => ./packages/verify/go

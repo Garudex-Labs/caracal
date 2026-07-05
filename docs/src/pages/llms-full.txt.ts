@@ -104,6 +104,7 @@ const pageOrder = [
   'sdks/verification-layer',
   'sdks/adapters',
   'sdks/adapters/express',
+  'sdks/adapters/asgi',
   'sdks/adapters/fastmcp',
   'sdks/adapters/nethttp',
   'sdks/verify',

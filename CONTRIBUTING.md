@@ -231,9 +231,8 @@ Protected workflows are the normal path for npm and PyPI. They read `release.con
 
 ```
 npm:    @caracalai/{core,oauth,admin,identity,revocation,sdk,
-                    transport-mcp,transport-a2a,
-                    mcp-express,mcp-fastmcp,tokenstate-postgres,revocation-redis}
-pypi:   caracalai-{core,oauth,identity,revocation,sdk,transport-mcp,mcp-fastmcp,revocation-redis}
+                    verify,express,fastmcp,revocation-redis}
+pypi:   caracalai-{core,oauth,identity,revocation,sdk,verify,fastmcp,asgi,revocation-redis}
 ghcr:   ghcr.io/garudex-labs/caracal-{go,node,web,postgres,redis,runtime}
 ```
 
