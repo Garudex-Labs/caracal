@@ -15,7 +15,7 @@ const state = vi.hoisted(() => ({
   statusCommand: vi.fn(),
   upgradeCommand: vi.fn(),
   purgeCommand: vi.fn(),
-  inviteCommand: vi.fn(),
+  allowlistCommand: vi.fn(),
   webCommand: vi.fn(),
   webInterfaceAvailable: vi.fn(() => true),
 }))
@@ -29,7 +29,7 @@ vi.mock('@caracalai/engine/commands', () => ({
     { name: 'status', summary: 'status', group: 'stack' },
     { name: 'upgrade', summary: 'upgrade', group: 'stack' },
     { name: 'purge', summary: 'purge', group: 'runtime' },
-    { name: 'invite', summary: 'invite', group: 'stack', requiresArgs: true },
+    { name: 'allowlist', summary: 'allowlist', group: 'stack', requiresArgs: true },
     { name: 'run', summary: 'run', group: 'runtime', requiresArgs: true, requiresConfig: true },
     { name: 'web', summary: 'web', group: 'runtime' },
   ],
@@ -47,7 +47,7 @@ vi.mock('../../../../apps/runtime/src/commands/stack.ts', () => ({
   upgradeCommand: state.upgradeCommand,
 }))
 vi.mock('../../../../apps/runtime/src/commands/purge.ts', () => ({ purgeCommand: state.purgeCommand }))
-vi.mock('../../../../apps/runtime/src/commands/invite.ts', () => ({ inviteCommand: state.inviteCommand }))
+vi.mock('../../../../apps/runtime/src/commands/allowlist.ts', () => ({ allowlistCommand: state.allowlistCommand }))
 vi.mock('../../../../apps/runtime/src/commands/web.ts', () => ({
   webCommand: state.webCommand,
   webInterfaceAvailable: state.webInterfaceAvailable,
@@ -98,14 +98,14 @@ describe('runtime shell entrypoint', () => {
     await opts.registry.byName.get('down')!.run(['--volumes'], cfg)
     await opts.registry.byName.get('status')!.run(['--json'], cfg)
     await opts.registry.byName.get('purge')!.run(['--force'], cfg)
-    await opts.registry.byName.get('invite')!.run(['richard.hendricks@piedpiper.example'], cfg)
+    await opts.registry.byName.get('allowlist')!.run(['add', 'richard.hendricks@piedpiper.example'], cfg)
     await opts.registry.byName.get('run')!.run(['--', 'node', 'tool.js'], cfg)
 
     expect(state.upCommand).toHaveBeenCalledWith(['--detach'])
     expect(state.downCommand).toHaveBeenCalledWith(['--volumes'])
     expect(state.statusCommand).toHaveBeenCalledWith(['--json'])
     expect(state.purgeCommand).toHaveBeenCalledWith(['--force'])
-    expect(state.inviteCommand).toHaveBeenCalledWith(['richard.hendricks@piedpiper.example'])
+    expect(state.allowlistCommand).toHaveBeenCalledWith(['add', 'richard.hendricks@piedpiper.example'])
     expect(state.runCommand).toHaveBeenCalledWith(['--', 'node', 'tool.js'], cfg)
   })
 

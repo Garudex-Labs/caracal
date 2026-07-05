@@ -8,7 +8,7 @@ import { existsSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { scrubTokens } from '@caracalai/engine/crash'
 import { printError, printInfo, printWarn, style } from '../style.ts'
-import { devAuthDatabaseUrl, devAuthSecret } from './authStore.ts'
+import { devAllowlistFile, devAuthDatabaseUrl, devAuthSecret } from './authStore.ts'
 import { killTree, resolvePnpm, spawnSyncTree, spawnTree } from '../processTree.ts'
 
 // The development launcher serves the console on the same host port as the packaged stack
@@ -52,6 +52,7 @@ function authStoreEnv(): NodeJS.ProcessEnv {
     if (url) env.CARACAL_AUTH_DATABASE_URL = url
   }
   if (!process.env.CARACAL_AUTH_SECRET) env.CARACAL_AUTH_SECRET = devAuthSecret()
+  if (!process.env.CARACAL_OPERATOR_ALLOWLIST_FILE) env.CARACAL_OPERATOR_ALLOWLIST_FILE = devAllowlistFile()
   return env
 }
 

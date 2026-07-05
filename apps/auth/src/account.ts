@@ -6,6 +6,10 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 
 import { auth } from './auth.ts'
+import { resolveAccess } from './allowlist.ts'
+import { loadConfig } from './config.ts'
+
+const cfg = loadConfig()
 
 const MAX_BODY_BYTES = 4096
 
@@ -62,6 +66,14 @@ export async function handleAccount(req: IncomingMessage, res: ServerResponse): 
   const session = await auth.api.getSession({ headers: toWebHeaders(req) })
   if (!session) {
     sendJson(res, 401, { error: 'unauthenticated' })
+    return true
+  }
+
+  // A locked or removed entry keeps the account's data by contract, so self-deletion is denied
+  // alongside every other authenticated capability.
+  const access = resolveAccess(session.user.email, cfg)
+  if (access !== 'allowed') {
+    sendJson(res, 403, { error: access === 'locked' ? 'account_locked' : 'sign_in_not_permitted' })
     return true
   }
 
