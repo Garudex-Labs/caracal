@@ -17,12 +17,13 @@ Caracal separates durable state from propagation state.
 
 | Domain | Tables |
 | --- | --- |
-| Product model | `zones`, `providers`, `applications`, `resources`, `application_dependencies` |
-| Authority | `sessions`, `delegated_grants`, `provider_grants`, `step_up_challenges` |
+| Product model | `zones`, `providers`, `applications`, `resources`, `workloads` |
+| Authority | `sessions`, `delegated_grants`, `provider_grants`, `step_up_challenges`, `secrets` |
 | Policy | `policies`, `policy_versions`, `policy_sets`, `policy_set_versions`, `policy_set_bindings` |
-| Audit | `audit_events`, partitions, `audit_export_watermark`, `audit_ingest_alerts`, `admin_audit_events` |
+| Audit | `audit_events`, partitions, `audit_chain_rehash`, `audit_retention`, `audit_export_watermark`, `audit_ingest_alerts`, `admin_audit_events` |
 | Agents | `agent_sessions`, `agent_topology`, `agent_services`, `agent_invocations`, `delegation_edges`, `delegation_graph_epochs` |
-| Operations | `event_outbox`, `caracal_outbox`, `admin_tokens`, `gateway_resource_bindings`, `gateway_binding_revision`, `resource_rate_limits` |
+| Caracal Operator | `operator_conversations`, `operator_turns`, `operator_message_runs`, `operator_message_run_events`, `operator_plan_secrets`, `operator_zone_memory`, `operator_conversation_counters`, `operator_ai_providers` |
+| Operations | `event_outbox`, `caracal_outbox`, `admin_tokens`, `gateway_resource_bindings`, `gateway_binding_revision` |
 
 ## Integrity Controls
 
