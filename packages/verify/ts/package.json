@@ -1,0 +1,52 @@
+{
+  "name": "@caracalai/verify",
+  "version": "0.1.6-rc.3",
+  "description": "Caracal framework-neutral mandate verification engine.",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/Garudex-Labs/caracal",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Garudex-Labs/caracal.git",
+    "directory": "packages/verify/ts"
+  },
+  "keywords": [
+    "caracal",
+    "verification",
+    "mandate",
+    "jwt"
+  ],
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --root ../../.. tests/typescript/unit/verify",
+    "prepublishOnly": "tsc"
+  },
+  "dependencies": {
+    "@caracalai/identity": "0.1.6-rc.3",
+    "@caracalai/revocation": "0.1.6-rc.3"
+  },
+  "devDependencies": {
+    "@types/node": "^26.0.1",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
+  }
+}

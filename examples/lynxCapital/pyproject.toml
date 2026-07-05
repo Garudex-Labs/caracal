@@ -33,14 +33,14 @@ dependencies = [
     "redis>=5.2",
     # Caracal SDK - published release v2026.06.25-rc.1. Upstream gateway routing for
     # external providers and the verifier boundary for internal providers.
-    "caracalai-sdk==0.1.6rc2",
-    "caracalai-core==0.1.6rc2",
-    "caracalai-identity==0.1.6rc2",
-    "caracalai-oauth==0.1.6rc2",
-    "caracalai-revocation==0.1.6rc2",
-    "caracalai-verify==0.1.6rc2",
-    "caracalai-fastmcp==0.1.6rc2",
-    "caracalai-revocation-redis==0.1.6rc2",
+    "caracalai-sdk==0.1.6rc3",
+    "caracalai-core==0.1.6rc3",
+    "caracalai-identity==0.1.6rc3",
+    "caracalai-oauth==0.1.6rc3",
+    "caracalai-revocation==0.1.6rc3",
+    "caracalai-verify==0.1.6rc3",
+    "caracalai-fastmcp==0.1.6rc3",
+    "caracalai-revocation-redis==0.1.6rc3",
 ]
 
 [project.optional-dependencies]
