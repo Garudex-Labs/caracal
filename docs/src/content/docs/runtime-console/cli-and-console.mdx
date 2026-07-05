@@ -14,7 +14,7 @@ human product management              -> web console
 scripted product management           -> Control API or Admin SDK
 ```
 
-The top-level runtime CLI intentionally contains only `up`, `down`, `status`, `upgrade`, `purge`, `invite`, `run`, and `web`.
+The top-level runtime CLI intentionally contains only `up`, `down`, `status`, `upgrade`, `purge`, `allowlist`, `run`, and `web`.
 
 :::note[FAQ]
 [Why are zone and policy commands in the web console instead of the `caracal` CLI?](/reference/faq/#faq-015)
@@ -32,7 +32,7 @@ The top-level runtime CLI intentionally contains only `up`, `down`, `status`, `u
 | Emit structured status | `caracal status --json` |
 | Upgrade local runtime assets | `caracal upgrade` |
 | Remove local stack/runtime state | `caracal purge` |
-| Invite the first console operator with a one-time bootstrap code | `caracal invite <email>` |
+| Manage which emails may sign in on the console | `caracal allowlist add\|remove\|lock\|unlock\|list` |
 | Run a process with resource tokens | `caracal run -- <command>` |
 | Open the packaged local web console | `http://localhost:3001` after `caracal up` |
 | Launch the local web development server | `caracal web` |
