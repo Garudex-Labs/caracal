@@ -30,7 +30,7 @@ Use this checklist before exposing Caracal to production workloads or protected 
 | Check | Expected |
 | --- | --- |
 | STS | Fails closed on invalid client credentials, policy denial, revoked sessions, replay, invalid delegation, and undecided step-up holds. |
-| Gateway | Requires bearer token and `X-Caracal-Resource`, validates binding, rejects path traversal and unsafe upstreams. |
+| Gateway | Requires bearer token and `X-Caracal-Resource`, validates binding, rejects path traversal and unsafe upstreams. Pin egress hosts with `UPSTREAM_HOST_ALLOWLIST=api.internal.example,billing.internal.example`. |
 | Control | Disabled unless explicitly needed; invoke endpoint requires gate, JWT, replay protection, rate limit, and audit. |
 | Resource servers | Verify mandate signature, issuer, audience, scopes, token use, agent/delegation requirements, hop limits, and revocation. |
 

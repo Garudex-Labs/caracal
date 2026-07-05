@@ -24,7 +24,7 @@ Use these terms consistently across docs, API names, web console labels, and exa
 | Policy set | Activated bundle of policy versions for a zone. |
 | Principal | User, service, application, or agent identity participating in authority. |
 | Provider | Credential source or upstream integration for a protected resource. |
-| Resource | Protected API, tool, MCP server, provider target, or upstream identifier. |
+| Resource | Protected API, tool, MCP server, provider target, or upstream identifier. Use a stable `resource://` URI such as `resource://billing`; the upstream URL can change without changing the identifier. |
 | Root session | Originating session at the root of a delegation chain; its ID is propagated as the authority root and checked as a revocation anchor. |
 | Runtime profile | `caracal.toml` or environment configuration used by SDK credential loaders. |
 | Run manifest | Console-authored launch bindings served by STS to `caracal run`. |
