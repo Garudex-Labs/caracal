@@ -55,7 +55,7 @@ function signedOut(): void {
 function zonesRespond(rows: Array<{ id: string }>): void {
   globalThis.fetch = vi.fn(
     async () =>
-      new Response(JSON.stringify(rows), {
+      new Response(JSON.stringify({ items: rows, next_cursor: null }), {
         status: 200,
         headers: { 'content-type': 'application/json' },
       }),

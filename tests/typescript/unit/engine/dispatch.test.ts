@@ -196,7 +196,10 @@ describe('dispatch', () => {
     const a = admin()
     a.policies = {
       create: vi.fn(async () => {
-        throw new AdminApiError(422, 'invalid_rego', { error: 'invalid_rego', detail: 'rego_parse_error: unexpected token' })
+        throw new AdminApiError(422, 'invalid_rego', {
+          error: 'invalid_rego',
+          error_description: 'rego_parse_error: unexpected token',
+        })
       }),
     } as unknown as AdminClient['policies']
 
