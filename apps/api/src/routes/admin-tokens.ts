@@ -11,7 +11,7 @@ import { sha256 } from '@caracalai/server-core'
 import { hashAdminToken } from '../hash-secret.js'
 import { isDerivedConsoleActor } from '../auth.js'
 import { zoneExists } from '../zone-guard.js'
-import { appendKeysetCondition, parseListPagination, setNextLink } from './list-pagination.js'
+import { appendKeysetCondition, listPage, parseListPagination } from './list-pagination.js'
 
 const MintBody = z
   .object({
@@ -119,8 +119,7 @@ export const adminTokensRoutes: FastifyPluginAsync = async (fastify) => {
        ORDER BY created_at DESC, id DESC LIMIT ${keyset.limitPlaceholder}`,
       keyset.values,
     )
-    setNextLink(req, reply, rows as { id: string; created_at: string | Date }[], page.limit)
-    return rows
+    return listPage(rows as { id: string; created_at: string | Date }[], page.limit)
   })
 
   fastify.delete('/admin-tokens/:id', async (req, reply) => {

@@ -13,7 +13,7 @@ import { appendAttribution, buildPatchUpdate, patchColumn } from './patch.js'
 import { resolveAttribution, type Attribution } from '../attribution.js'
 import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
 import { zoneExists } from '../zone-guard.js'
-import { appendKeysetCondition, parseListPagination, setNextLink } from './list-pagination.js'
+import { appendKeysetCondition, listPage, parseListPagination } from './list-pagination.js'
 import { validateTraits } from '../traits.js'
 import { assertReservedNamespace } from '../reserved-namespace.js'
 
@@ -141,8 +141,7 @@ export const applicationsRoutes: FastifyPluginAsync = async (fastify) => {
        ORDER BY created_at DESC, id DESC LIMIT ${keyset.limitPlaceholder}`,
       keyset.values,
     )
-    setNextLink(req, reply, rows, page.limit)
-    return rows
+    return listPage(rows, page.limit)
   })
 
   fastify.get('/zones/:zoneId/applications/:id', async (req, reply) => {
@@ -221,7 +220,7 @@ export const applicationsRoutes: FastifyPluginAsync = async (fastify) => {
     const { rows } = await fastify.db.query(
       `UPDATE applications SET ${update.sets.join(', ')}, updated_at = now()
        WHERE id = $1 AND zone_id = $2 AND archived_at IS NULL
-       RETURNING id, name`,
+       RETURNING ${applicationSelect(req)}`,
       update.values,
     )
     if (!rows[0]) return reply.code(404).send({ error: 'application_not_found' })

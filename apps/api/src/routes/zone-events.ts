@@ -313,11 +313,11 @@ export const zoneEventsRoutes: FastifyPluginAsync = async (fastify) => {
     const next = redacted.length === q.limit && last ? encodeCursor(new Date(last.occurred_at).toISOString(), last.id) : null
     if (q.fields) {
       return {
-        rows: redacted.map((r) => projectRow(r, fields, AUDIT_ROW_FIELDS, 'metadata_json')),
+        items: redacted.map((r) => projectRow(r, fields, AUDIT_ROW_FIELDS, 'metadata_json')),
         next_cursor: next,
       }
     }
-    return { rows: redacted, next_cursor: next }
+    return { items: redacted, next_cursor: next }
   })
 
   fastify.get('/zones/:zoneId/audit/by-request/:requestId', async (req, reply) => {
@@ -439,11 +439,11 @@ export const zoneEventsRoutes: FastifyPluginAsync = async (fastify) => {
     const next = redacted.length === q.limit && last ? encodeCursor(new Date(last.occurred_at).toISOString(), last.id) : null
     if (q.fields) {
       return {
-        rows: redacted.map((r) => projectRow(r, fields, ADMIN_AUDIT_ROW_FIELDS, 'payload_json')),
+        items: redacted.map((r) => projectRow(r, fields, ADMIN_AUDIT_ROW_FIELDS, 'payload_json')),
         next_cursor: next,
       }
     }
-    return { rows: redacted, next_cursor: next }
+    return { items: redacted, next_cursor: next }
   })
 
   fastify.get('/zones/:zoneId/sessions', async (req, reply) => {
@@ -491,7 +491,7 @@ export const zoneEventsRoutes: FastifyPluginAsync = async (fastify) => {
 
     const last = rows[rows.length - 1]
     const next = rows.length === q.limit && last ? encodeCursor(new Date(last.created_at).toISOString(), last.id) : null
-    return { rows, next_cursor: next }
+    return { items: rows, next_cursor: next }
   })
 
   fastify.get('/zones/:zoneId/agent-sessions', async (req, reply) => {
@@ -551,6 +551,6 @@ export const zoneEventsRoutes: FastifyPluginAsync = async (fastify) => {
 
     const last = rows[rows.length - 1]
     const next = rows.length === q.limit && last ? encodeCursor(new Date(last.spawned_at).toISOString(), last.id) : null
-    return { rows, next_cursor: next }
+    return { items: rows, next_cursor: next }
   })
 }
