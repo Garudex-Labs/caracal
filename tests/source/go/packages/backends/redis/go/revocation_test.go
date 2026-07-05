@@ -8,6 +8,7 @@ package revocationredis
 import (
 	"context"
 	"errors"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -82,6 +83,60 @@ func TestStorePropagatesRedisSetErrors(t *testing.T) {
 
 	if err := store.MarkRevoked("sid-1", time.Hour); err == nil || !strings.Contains(err.Error(), "write failed") {
 		t.Fatalf("want redis set error, got %v", err)
+	}
+}
+
+func TestStoreTracksTheLatestDelegationGraphEpoch(t *testing.T) {
+	rdb := newFakeRedis()
+	store := NewStore(rdb, WithKeyPrefix("test:"))
+
+	if got := store.CurrentDelegationEpoch("zone1"); got != 0 {
+		t.Fatalf("expected epoch 0, got %d", got)
+	}
+	if err := store.MarkDelegationEpoch("zone1", 7, time.Hour); err != nil {
+		t.Fatalf("mark delegation epoch: %v", err)
+	}
+	if err := store.MarkDelegationEpoch("zone1", 6, time.Hour); err != nil {
+		t.Fatalf("mark stale delegation epoch: %v", err)
+	}
+	if got := store.CurrentDelegationEpoch("zone1"); got != 7 {
+		t.Fatalf("expected epoch 7, got %d", got)
+	}
+	if rdb.values["test:delegation-epoch:zone1"] != "7" {
+		t.Fatalf("unexpected epoch key contents: %#v", rdb.values)
+	}
+}
+
+func TestStoreNormalizesInvalidDelegationEpochsAndFailModes(t *testing.T) {
+	rdb := newFakeRedis()
+	store := NewStore(rdb, WithKeyPrefix("test:"))
+	rdb.values["test:delegation-epoch:zone1"] = "nan"
+
+	if got := store.CurrentDelegationEpoch("zone1"); got != 0 {
+		t.Fatalf("expected malformed epoch to normalize to 0, got %d", got)
+	}
+
+	rdb.getErr = errors.New("redis down")
+	if got := store.CurrentDelegationEpoch("zone1"); got != math.MaxInt64 {
+		t.Fatalf("expected fail-closed epoch, got %d", got)
+	}
+	if got := NewStore(rdb, WithFailClosed(false)).CurrentDelegationEpoch("zone1"); got != 0 {
+		t.Fatalf("expected fail-open epoch 0, got %d", got)
+	}
+}
+
+func TestStoreIgnoresInvalidDelegationEpochWrites(t *testing.T) {
+	rdb := newFakeRedis()
+	store := NewStore(rdb)
+
+	if err := store.MarkDelegationEpoch("", 7, time.Hour); err != nil {
+		t.Fatalf("empty zone mark should be a no-op: %v", err)
+	}
+	if err := store.MarkDelegationEpoch("zone1", -1, time.Hour); err != nil {
+		t.Fatalf("negative epoch mark should be a no-op: %v", err)
+	}
+	if len(rdb.values) != 0 {
+		t.Fatalf("invalid epoch writes stored keys: %#v", rdb.values)
 	}
 }
 
@@ -318,6 +373,82 @@ func TestReplayPendingContinuesAcrossClaimPages(t *testing.T) {
 
 	if n != 2 || !store.IsRevoked("sid-a") || !store.IsRevoked("sid-b") {
 		t.Fatalf("pending pages not fully replayed, n=%d values=%#v", n, rdb.values)
+	}
+}
+
+func TestDelegationInvalidationConsumerMarksSignedEpochs(t *testing.T) {
+	rdb := newFakeRedis()
+	store := NewStore(rdb)
+	key := []byte("0123456789abcdef0123456789abcdef")
+	values := map[string]any{
+		"event":   "edge_revoke",
+		"zone_id": "zone1",
+		"edge_id": "edge-1",
+		"epoch":   "9",
+	}
+	values[sharedcrypto.StreamSigField] = sharedcrypto.SignStream(key, DelegationInvalidationStream, values)
+	rdb.messages = []redis.XMessage{{ID: "1-0", Values: values}}
+
+	consumer, err := NewDelegationInvalidationConsumer(rdb, store, "resource-1", WithStreamHMAC(key, true))
+	if err != nil {
+		t.Fatalf("new delegation consumer: %v", err)
+	}
+	if consumer.stream != DelegationInvalidationStream || consumer.group != "resource-delegation-invalidation" {
+		t.Fatalf("unexpected defaults: stream=%q group=%q", consumer.stream, consumer.group)
+	}
+
+	n, err := consumer.PollOnce(context.Background())
+	if err != nil {
+		t.Fatalf("poll once: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("handled %d messages, want 1", n)
+	}
+	if got := store.CurrentDelegationEpoch("zone1"); got != 9 {
+		t.Fatalf("expected epoch 9, got %d", got)
+	}
+	if len(rdb.acked) != 1 || rdb.acked[0] != "1-0" {
+		t.Fatalf("message should be acked once, got %v", rdb.acked)
+	}
+}
+
+func TestDelegationInvalidationConsumerAcksInvalidAndMalformedMessages(t *testing.T) {
+	rdb := newFakeRedis()
+	store := NewStore(rdb)
+	rdb.messages = []redis.XMessage{{ID: "1-1", Values: map[string]any{
+		"zone_id":                   "zone1",
+		"epoch":                     "11",
+		sharedcrypto.StreamSigField: "00",
+	}}}
+	consumer, err := NewDelegationInvalidationConsumer(rdb, store, "resource-1", WithStreamHMAC([]byte("0123456789abcdef0123456789abcdef"), true))
+	if err != nil {
+		t.Fatalf("new delegation consumer: %v", err)
+	}
+	if n, err := consumer.PollOnce(context.Background()); err != nil || n != 1 {
+		t.Fatalf("poll once: n=%d err=%v", n, err)
+	}
+	if got := store.CurrentDelegationEpoch("zone1"); got != 0 {
+		t.Fatalf("invalid signature must not mark epoch, got %d", got)
+	}
+
+	unsigned := newFakeRedis()
+	unsignedStore := NewStore(unsigned)
+	unsigned.messages = []redis.XMessage{
+		{ID: "2-0", Values: map[string]any{"zone_id": "zone1", "epoch": "nan"}},
+		{ID: "2-1", Values: map[string]any{"epoch": "3"}},
+	}
+	unsignedConsumer, err := NewDelegationInvalidationConsumer(unsigned, unsignedStore, "resource-1")
+	if err != nil {
+		t.Fatalf("new delegation consumer: %v", err)
+	}
+	if n, err := unsignedConsumer.PollOnce(context.Background()); err != nil || n != 2 {
+		t.Fatalf("poll once: n=%d err=%v", n, err)
+	}
+	if got := unsignedStore.CurrentDelegationEpoch("zone1"); got != 0 {
+		t.Fatalf("malformed epochs must not mark, got %d", got)
+	}
+	if len(unsigned.acked) != 2 {
+		t.Fatalf("expected 2 acks, got %v", unsigned.acked)
 	}
 }
 

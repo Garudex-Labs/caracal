@@ -144,6 +144,84 @@ func TestCheckActiveAuthorityRejectsExpiredExecution(t *testing.T) {
 	}
 }
 
+func TestAuthenticateRejectsStaleGraphEpochs(t *testing.T) {
+	token, issuer, closeServer := mintToken(t, jwt.MapClaims{
+		"delegation_edge_id":     "edge-1",
+		"delegation_graph_epoch": 7,
+	})
+	defer closeServer()
+	store := revocation.NewInMemoryStore(time.Hour)
+	if err := store.MarkDelegationEpoch("zone-1", 8, time.Hour); err != nil {
+		t.Fatalf("mark delegation epoch: %v", err)
+	}
+
+	_, authErr := verify.Authenticate(token, verify.Options{
+		Issuer:      issuer,
+		Audience:    "resource://api",
+		Revocations: store,
+	})
+	if authErr == nil || authErr.Code != verify.ErrDelegationStale {
+		t.Fatalf("expected delegation_stale, got %#v", authErr)
+	}
+	if authErr.Description != "Delegation graph changed" {
+		t.Fatalf("unexpected description %q", authErr.Description)
+	}
+}
+
+func TestAuthenticateAcceptsCurrentGraphEpochs(t *testing.T) {
+	token, issuer, closeServer := mintToken(t, jwt.MapClaims{
+		"delegation_edge_id":     "edge-1",
+		"delegation_graph_epoch": 8,
+	})
+	defer closeServer()
+	store := revocation.NewInMemoryStore(time.Hour)
+	if err := store.MarkDelegationEpoch("zone-1", 8, time.Hour); err != nil {
+		t.Fatalf("mark delegation epoch: %v", err)
+	}
+
+	if _, authErr := verify.Authenticate(token, verify.Options{
+		Issuer:      issuer,
+		Audience:    "resource://api",
+		Revocations: store,
+	}); authErr != nil {
+		t.Fatalf("expected token at current epoch to verify, got %#v", authErr)
+	}
+}
+
+func TestAuthenticateSkipsGraphEpochCheckWithoutClaimOrCapability(t *testing.T) {
+	token, issuer, closeServer := mintToken(t, jwt.MapClaims{"scope": "mcp:call"})
+	defer closeServer()
+	store := revocation.NewInMemoryStore(time.Hour)
+	if err := store.MarkDelegationEpoch("zone-1", 8, time.Hour); err != nil {
+		t.Fatalf("mark delegation epoch: %v", err)
+	}
+	if _, authErr := verify.Authenticate(token, verify.Options{
+		Issuer:      issuer,
+		Audience:    "resource://api",
+		Revocations: store,
+	}); authErr != nil {
+		t.Fatalf("expected token without epoch claim to verify, got %#v", authErr)
+	}
+
+	epochToken, epochIssuer, closeEpochServer := mintToken(t, jwt.MapClaims{
+		"delegation_edge_id":     "edge-1",
+		"delegation_graph_epoch": 7,
+	})
+	defer closeEpochServer()
+	if _, authErr := verify.Authenticate(epochToken, verify.Options{
+		Issuer:      epochIssuer,
+		Audience:    "resource://api",
+		Revocations: plainStore{},
+	}); authErr != nil {
+		t.Fatalf("expected store without epoch capability to verify, got %#v", authErr)
+	}
+}
+
+type plainStore struct{}
+
+func (plainStore) IsRevoked(string) bool                   { return false }
+func (plainStore) MarkRevoked(string, time.Duration) error { return nil }
+
 func TestAuthenticateMapsIdentityErrors(t *testing.T) {
 	tests := []struct {
 		name   string
