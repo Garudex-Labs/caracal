@@ -5,8 +5,9 @@
 
 ## Architecture Design
 - Domain packages use `<domain>/<language>/` when multiple language bindings exist.
-- Transport packages live under `transport/<protocol>/<language>/`.
-- Framework and storage adapters live under `connectors/<adapter>/<language>/`.
+- The framework-neutral verification engine lives under `verify/<language>/`.
+- Framework adapters live under `adapters/<framework>/<language>/`.
+- Storage backends live under `backends/<store>/<language>/`.
 - Runnable services and apps consume packages; packages must not depend on apps or services.
 
 ## Required

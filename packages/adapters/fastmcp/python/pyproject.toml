@@ -10,7 +10,7 @@ build-backend = "hatchling.build"
 [project]
 name = "caracalai-fastmcp"
 version = "0.1.6rc3"
-description = "FastMCP adapter for Caracal MCP authentication"
+description = "FastMCP adapter for Caracal mandate verification"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 readme = "README.md"

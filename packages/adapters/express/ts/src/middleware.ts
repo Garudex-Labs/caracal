@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Express middleware that delegates MCP auth to @caracalai/verify.
+// Express middleware that delegates bearer verification to @caracalai/verify.
 
 import type { NextFunction, Request, RequestHandler, Response } from 'express'
 import type { Claims } from '@caracalai/identity'
