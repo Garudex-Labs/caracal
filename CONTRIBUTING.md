@@ -32,13 +32,13 @@
 
 ```bash
 git clone https://github.com/Garudex-Labs/caracal.git && cd caracal
-pnpm caracal up                     # Build and start the full stack
+pnpm caracal up                     # Build and start the Caracal platform
 
 # Essential Commands
-pnpm caracal --help                 # Show runtime shell help and available lifecycle commands
-pnpm caracal status                 # Check health status of all services
-pnpm caracal down [--help]          # Stop the stack
-pnpm caracal purge                  # Remove stack, volumes, logs, examples, cache, and installed data
+pnpm caracal --help                 # Show CLI help and available commands
+pnpm caracal status                 # Show platform health
+pnpm caracal down [--help]          # Stop the platform (-v removes volumes)
+pnpm caracal purge                  # Remove platform state (stack, volumes, logs, config, cache)
 ```
 
 <details>

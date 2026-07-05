@@ -94,7 +94,7 @@ describe('dispatch', () => {
     const registry = buildRegistry(SHELL_COMMANDS, executors)
     await expect(dispatch({ binary: 'caracal web', version: '0.0.0', mode: 'dev', registry }, ['--help'])).rejects.toThrow('exit:0')
     const out = stdout.mock.calls.map((c) => String(c[0])).join('')
-    expect(out).toContain('Usage: caracal web')
+    expect(out).toContain('caracal web <command> [options]')
   })
 
   it('keeps runtime help limited to visible commands and global options', async () => {
