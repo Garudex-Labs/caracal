@@ -32,7 +32,7 @@ flowchart TD
 | Principal | The acting identity, such as a user, service, or agent. |
 | Resource | The protected target: API, MCP server, tool group, or upstream service. |
 | Policy | Rego logic that evaluates the requested exchange. |
-| Mandate | The short-lived JWT that proves authority to a Gateway or connector. |
+| Mandate | The short-lived JWT that proves authority to a Gateway or adapter. |
 
 Most of these are configured directly. A *grant* is a permission binding for resource scopes that policy can read during evaluation; it is not the mandate a resource server verifies.
 
@@ -57,7 +57,7 @@ One application backs many agent sessions. A durable workload registers **one ma
 
 The STS is the decision point. It evaluates the active policy set with the principal, session, resource, scopes, grant, delegation edge, and step-up context. If policy allows the request, the STS signs a mandate. If policy denies the request, no mandate is issued.
 
-Resource servers still verify mandates locally through the Gateway or connectors. That keeps every request protected even after token exchange succeeds.
+Resource servers still verify mandates locally through the Gateway or adapters. That keeps every request protected even after token exchange succeeds.
 
 ## Why This Model Matters
 

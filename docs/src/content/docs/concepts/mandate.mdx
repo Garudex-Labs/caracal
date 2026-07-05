@@ -5,7 +5,7 @@ sidebar:
   order: 8
 ---
 
-A mandate is the token Caracal issues after the STS approves an exchange. It is a short-lived JWT signed with the zone signing key and verified by the Gateway or resource connectors.
+A mandate is the token Caracal issues after the STS approves an exchange. It is a short-lived JWT signed with the zone signing key and verified by the Gateway or resource adapters.
 
 ## What a Mandate Proves
 
@@ -25,7 +25,7 @@ flowchart LR
   Subject["Subject token or agent context"] --> Exchange["OAuth token exchange"]
   Exchange --> Policy["Policy evaluation"]
   Policy -->|"allow"| Mandate["Mandate JWT"]
-  Mandate --> Verify["Gateway or connector verification"]
+  Mandate --> Verify["Gateway or adapter verification"]
   Verify --> Resource["Protected resource"]
 ```
 

@@ -24,7 +24,7 @@ Applications represent software that can participate in Caracal flows:
 - an agent runtime that spawns child agents;
 - a backend service that requests mandates;
 - a Gateway application that fronts protected upstreams;
-- a connector-protected resource server;
+- a adapter-protected resource server;
 - a managed or dynamically registered client.
 
 Applications have registration metadata, a server-owned token credential, and a registration method. Managed applications are operator-provisioned for known durable software, including the runtime that spawns and fans out child agents. Dynamically registered applications are short-lived, isolated identities created through the zone DCR endpoint when a separate auto-expiring credential boundary is needed - for example a per-tenant or per-integration identity - rather than for ordinary spawn fan-out.

@@ -33,7 +33,7 @@ sequenceDiagram
   participant Control as Console or Admin API
   participant Store as Postgres
   participant Stream as Redis revocation stream
-  participant Resource as Gateway or connector
+  participant Resource as Gateway or adapter
 
   Control->>Store: Revoke grant, session, agent, or edge
   Store->>Stream: Publish revocation anchor
@@ -55,7 +55,7 @@ Revocation should follow authority:
 
 ## Resource-Server Responsibility
 
-The Gateway and connectors must be configured with a revocation store. For development, an in-memory store can be useful. For production, use a shared store and stream consumer so revocations propagate across resource-server instances.
+The Gateway and adapters must be configured with a revocation store. For development, an in-memory store can be useful. For production, use a shared store and stream consumer so revocations propagate across resource-server instances.
 
 ## Next Step
 
