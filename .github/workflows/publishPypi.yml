@@ -21,7 +21,7 @@ on:
           - identity
           - revocation
           - sdk
-          - transport-mcp
+          - verify
           - fastmcp
           - redis
       baseRef:

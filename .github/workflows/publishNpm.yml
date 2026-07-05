@@ -22,11 +22,9 @@ on:
           - identity
           - revocation
           - sdk
-          - transport-mcp
-          - transport-a2a
+          - verify
           - express
           - fastmcp
-          - postgres
           - redis
       baseRef:
         description: 'Diff base. Empty uses latest release tag.'

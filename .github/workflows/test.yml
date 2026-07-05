@@ -172,19 +172,19 @@ jobs:
             # under-triggers; precision is traded for safety.
             while IFS= read -r path; do
               case "$path" in
-                .github/workflows/test.yml|.prettierrc.json|scripts/checkStyle.mjs|package.json|pnpm-lock.yaml|pnpm-workspace.yaml|apps/**|packages/engine/**|packages/*/ts/**|packages/connectors/*/ts/**|packages/transport/*/ts/**|tests/typescript/**)
+                .github/workflows/test.yml|.prettierrc.json|scripts/checkStyle.mjs|package.json|pnpm-lock.yaml|pnpm-workspace.yaml|apps/**|packages/engine/**|packages/*/ts/**|packages/adapters/*/ts/**|packages/backends/*/ts/**|tests/typescript/**)
                   typescript=true
                   style=true
                   ;;
               esac
               case "$path" in
-                .github/workflows/test.yml|go.work|go.work.sum|services/**|packages/*/go/**|packages/connectors/*/go/**|packages/transport/*/go/**|tests/go/**|tests/source/go/**)
+                .github/workflows/test.yml|go.work|go.work.sum|services/**|packages/*/go/**|packages/adapters/*/go/**|packages/backends/*/go/**|tests/go/**|tests/source/go/**)
                   go=true
                   style=true
                   ;;
               esac
               case "$path" in
-                .github/workflows/test.yml|scripts/pythonStyleRequirements.in|scripts/pythonStyleRequirements.lock|scripts/setupDev.mjs|packages/*/python/**|packages/connectors/*/python/**|packages/transport/*/python/**|tests/python/**|tests/shared/test-utils/python/**)
+                .github/workflows/test.yml|scripts/pythonStyleRequirements.in|scripts/pythonStyleRequirements.lock|scripts/setupDev.mjs|packages/*/python/**|packages/adapters/*/python/**|packages/backends/*/python/**|tests/python/**|tests/shared/test-utils/python/**)
                   python=true
                   style=true
                   ;;
@@ -384,10 +384,10 @@ jobs:
             packages/identity/python/pyproject.toml
             packages/revocation/python/pyproject.toml
             packages/sdk/python/pyproject.toml
-            packages/transport/mcp/python/pyproject.toml
-            packages/connectors/fastmcp/python/pyproject.toml
-            packages/connectors/asgi/python/pyproject.toml
-            packages/connectors/redis/python/pyproject.toml
+            packages/verify/python/pyproject.toml
+            packages/adapters/fastmcp/python/pyproject.toml
+            packages/adapters/asgi/python/pyproject.toml
+            packages/backends/redis/python/pyproject.toml
 
       - name: Install dependencies
         run: |
