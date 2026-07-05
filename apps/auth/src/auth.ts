@@ -9,6 +9,7 @@ import { APIError } from 'better-auth/api'
 
 import { authDatabase } from './database.ts'
 import { loadConfig, isOperatorAllowed } from './config.ts'
+import { inviteAuthorizes } from './bootstrapInvite.ts'
 import { createMailer } from './mailer.ts'
 import { githubCredentials, googleCredentials } from './providers.ts'
 import { logger } from './logger.ts'
@@ -56,11 +57,11 @@ export const auth = betterAuth({
   emailAndPassword: {
     enabled: true,
     minPasswordLength: 8,
-    // Email/password registration asserts an email the registrant has not proven they own, which
-    // would otherwise grant allowlisted admin to whoever claims the address first. Disable sign-up
-    // in production by default (operators bootstrap through a provider-verified identity) and
-    // require a verified email before a session is issued where sign-up is permitted.
-    disableSignUp: !cfg.passwordSignup,
+    // Password sign-up is gated in front of this handler: the BFF's sign-up interceptor either
+    // passes the request through (password sign-up configured on) or demands a valid one-time
+    // invite code before forwarding. Better Auth therefore keeps the endpoint enabled, and the
+    // user-creation hook below stays the email authority for every registration path.
+    disableSignUp: false,
     requireEmailVerification: cfg.requireEmailVerification,
     // A password reset proves control of the mailbox, not possession of every signed-in device.
     // Revoke all existing sessions on reset so a compromised credential cannot keep riding an
@@ -117,7 +118,11 @@ export const auth = betterAuth({
     user: {
       create: {
         before: async (user) => {
-          if (isOperatorAllowed(user.email, cfg)) return
+          // A live invite naming this email is an authority grant equal to the allowlist: it was
+          // minted by someone with shell access to the stack host's secrets directory, which
+          // outranks a self-asserted email address. It also admits a provider-verified sign-in
+          // for the invited address, so the first operator may bootstrap through OAuth instead.
+          if (isOperatorAllowed(user.email, cfg) || inviteAuthorizes(user.email, cfg)) return
           logger.warn('registration denied for unlisted operator', { email: user.email })
           throw new APIError('FORBIDDEN', { message: 'registration_not_permitted' })
         },

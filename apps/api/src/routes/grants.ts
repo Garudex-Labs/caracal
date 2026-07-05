@@ -15,7 +15,7 @@ import { withTransaction, TxAbort } from '../db.js'
 import { resolveAttribution, type Attribution } from '../attribution.js'
 import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
 import { zoneExists } from '../zone-guard.js'
-import { appendKeysetCondition, parseListPagination, setNextLink } from './list-pagination.js'
+import { appendKeysetCondition, listPage, parseListPagination } from './list-pagination.js'
 import {
   buildTokenRequest,
   ensureAllowedTokenEndpoint,
@@ -251,8 +251,7 @@ export const grantsRoutes: FastifyPluginAsync = async (fastify) => {
        ORDER BY dg.created_at DESC, dg.id DESC LIMIT ${keyset.limitPlaceholder}`,
       keyset.values,
     )
-    setNextLink(req, reply, rows, page.limit)
-    return rows
+    return listPage(rows, page.limit)
   })
 
   fastify.get('/zones/:zoneId/grants/:id', async (req, reply) => {
@@ -308,7 +307,10 @@ export const grantsRoutes: FastifyPluginAsync = async (fastify) => {
     if (refsRow.provider_kind !== 'oauth2_authorization_code') {
       return reply
         .code(400)
-        .send({ error: 'provider_grant_unsupported', detail: 'only oauth2_authorization_code providers use delegated provider grants' })
+        .send({
+          error: 'provider_grant_unsupported',
+          error_description: 'only oauth2_authorization_code providers use delegated provider grants',
+        })
     }
     if (!refsRow.resource_scopes) return reply.code(404).send({ error: 'resource_not_found' })
     if (refsRow.resource_provider_id !== body.provider_id) {
@@ -371,7 +373,10 @@ export const grantsRoutes: FastifyPluginAsync = async (fastify) => {
     if (row.provider_kind !== 'oauth2_authorization_code') {
       return reply
         .code(400)
-        .send({ error: 'provider_grant_unsupported', detail: 'only oauth2_authorization_code providers use browser authorization' })
+        .send({
+          error: 'provider_grant_unsupported',
+          error_description: 'only oauth2_authorization_code providers use browser authorization',
+        })
     }
     if (!row.resource_scopes) return reply.code(404).send({ error: 'resource_not_found' })
     if (row.resource_provider_id !== body.provider_id) {
@@ -394,7 +399,7 @@ export const grantsRoutes: FastifyPluginAsync = async (fastify) => {
     } catch (err) {
       return reply
         .code(400)
-        .send({ error: 'provider_authorization_endpoint_invalid', detail: err instanceof Error ? err.message : String(err) })
+        .send({ error: 'provider_authorization_endpoint_invalid', error_description: err instanceof Error ? err.message : String(err) })
     }
     const state = randomUrlToken()
     const codeVerifier = randomUrlToken()
@@ -505,7 +510,7 @@ export const grantsRoutes: FastifyPluginAsync = async (fastify) => {
         req,
         reply,
         400,
-        { error: 'provider_oauth_denied', detail: query.error_description ?? query.error },
+        { error: 'provider_oauth_denied', error_description: query.error_description ?? query.error },
         'OAuth authorization denied',
         query.error_description ?? query.error,
         'error',
@@ -607,7 +612,7 @@ export const grantsRoutes: FastifyPluginAsync = async (fastify) => {
         req,
         reply,
         400,
-        { error: 'provider_token_endpoint_not_allowed', detail: err instanceof Error ? err.message : String(err) },
+        { error: 'provider_token_endpoint_not_allowed', error_description: err instanceof Error ? err.message : String(err) },
         'OAuth callback failed',
         'The provider token endpoint is not allowed by this provider configuration.',
         'error',

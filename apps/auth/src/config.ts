@@ -29,6 +29,9 @@ export interface AuthConfig {
   operatorAllowlist: string[]
   openRegistration: boolean
   passwordSignup: boolean
+  // Path to the one-time first-operator invite file minted by `caracal invite`. Empty disables
+  // the bootstrap flow entirely; the file's presence and freshness are checked per request.
+  operatorInviteFile: string
   requireEmailVerification: boolean
   smtpUrl: string | null
   smtpFrom: string | null
@@ -202,6 +205,7 @@ export function loadConfig(): AuthConfig {
     operatorAllowlist,
     openRegistration,
     passwordSignup,
+    operatorInviteFile: process.env.CARACAL_OPERATOR_INVITE_FILE?.trim() ?? '',
     requireEmailVerification,
     smtpUrl: smtp.url,
     smtpFrom: smtp.from,
