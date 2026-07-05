@@ -9,7 +9,8 @@ import { v7 as uuidv7 } from 'uuid'
 import { randomBytes } from 'node:crypto'
 import { hashClientSecret } from '../hash-secret.js'
 import { withTransaction, TxAbort } from '../db.js'
-import { buildPatchUpdate, patchColumn } from './patch.js'
+import { appendAttribution, buildPatchUpdate, patchColumn } from './patch.js'
+import { resolveAttribution, type Attribution } from '../attribution.js'
 import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
 import { zoneExists } from '../zone-guard.js'
 import { appendKeysetCondition, parseListPagination, setNextLink } from './list-pagination.js'
@@ -22,6 +23,8 @@ const DCR_MAX_LIFETIME_SECONDS = 3600
 const NAME_MAX_LENGTH = 200
 
 const CLIENT_SECRET_MIN_LENGTH = 32
+
+const APP_ATTRIBUTION = 'created_by, created_via_operator, updated_by, updated_via_operator, created_at, updated_at'
 
 const AppBody = z
   .object({
@@ -74,15 +77,15 @@ async function activeNameTaken(
 async function createManagedApplication(
   db: { query: <T = unknown>(text: string, params?: unknown[]) => Promise<{ rows: T[] }> },
   zoneId: string,
-  input: { name: string; traits?: string[] },
+  input: { name: string; traits?: string[]; attribution: Attribution },
 ): Promise<{ row: Record<string, unknown>; clientSecret: string }> {
   const clientSecret = generateClientSecret()
   const secretHash = await hashClientSecret(clientSecret)
   const { rows } = await db.query<Record<string, unknown>>(
-    `INSERT INTO applications (id, zone_id, name, registration_method, credential_type, client_secret_hash, traits)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
-     RETURNING id, zone_id, name, registration_method, expires_at, created_at`,
-    [uuidv7(), zoneId, input.name, 'managed', 'token', secretHash, input.traits ?? []],
+    `INSERT INTO applications (id, zone_id, name, registration_method, credential_type, client_secret_hash, traits, created_by, created_via_operator)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+     RETURNING id, zone_id, name, registration_method, expires_at, ${APP_ATTRIBUTION}`,
+    [uuidv7(), zoneId, input.name, 'managed', 'token', secretHash, input.traits ?? [], input.attribution.actor, input.attribution.viaOperator],
   )
   return { row: rows[0], clientSecret }
 }
@@ -94,15 +97,16 @@ async function rotateApplicationClientSecret(
   db: { query: <T = unknown>(text: string, params?: unknown[]) => Promise<{ rows: T[] }> },
   zoneId: string,
   applicationId: string,
+  attribution: Attribution,
 ): Promise<{ row: Record<string, unknown>; clientSecret: string } | null> {
   const clientSecret = generateClientSecret()
   const secretHash = await hashClientSecret(clientSecret)
   const { rows } = await db.query<Record<string, unknown>>(
     `UPDATE applications
-        SET client_secret_hash = $3
+        SET client_secret_hash = $3, updated_by = $4, updated_via_operator = $5, updated_at = now()
       WHERE id = $1 AND zone_id = $2 AND archived_at IS NULL
-      RETURNING id, zone_id, name, registration_method, expires_at, created_at`,
-    [applicationId, zoneId, secretHash],
+      RETURNING id, zone_id, name, registration_method, expires_at, ${APP_ATTRIBUTION}`,
+    [applicationId, zoneId, secretHash, attribution.actor, attribution.viaOperator],
   )
   if (!rows[0]) return null
   return { row: rows[0], clientSecret }
@@ -110,8 +114,8 @@ async function rotateApplicationClientSecret(
 
 function applicationSelect(req: FastifyRequest): string {
   return req.actor?.scope === 'global'
-    ? 'id, zone_id, name, registration_method, traits, expires_at, created_at'
-    : 'id, zone_id, name, registration_method, expires_at, created_at'
+    ? `id, zone_id, name, registration_method, traits, expires_at, ${APP_ATTRIBUTION}`
+    : `id, zone_id, name, registration_method, expires_at, ${APP_ATTRIBUTION}`
 }
 
 export const applicationsRoutes: FastifyPluginAsync = async (fastify) => {
@@ -162,6 +166,7 @@ export const applicationsRoutes: FastifyPluginAsync = async (fastify) => {
     const { row, clientSecret } = await createManagedApplication(fastify.db, params.zoneId, {
       name: body.name,
       traits: body.traits,
+      attribution: await resolveAttribution(req, fastify.db, params.zoneId),
     })
     return reply.code(201).send({ ...row, client_secret: clientSecret })
   })
@@ -169,7 +174,8 @@ export const applicationsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post('/zones/:zoneId/applications/:id/rotate-secret', async (req, reply) => {
     const params = parseParams(ZoneIdParams, req, reply)
     if (!params) return
-    const rotated = await rotateApplicationClientSecret(fastify.db, params.zoneId, params.id)
+    const attribution = await resolveAttribution(req, fastify.db, params.zoneId)
+    const rotated = await rotateApplicationClientSecret(fastify.db, params.zoneId, params.id, attribution)
     if (!rotated) return reply.code(404).send({ error: 'application_not_found' })
     return { ...rotated.row, client_secret: rotated.clientSecret }
   })
@@ -201,8 +207,9 @@ export const applicationsRoutes: FastifyPluginAsync = async (fastify) => {
       [patchColumn('name', body.name), patchColumn('client_secret_hash', patchedHash), patchColumn('traits', body.traits)],
     )
     if (!update) return reply.code(400).send({ error: 'no_fields' })
+    appendAttribution(update, await resolveAttribution(req, fastify.db, params.zoneId))
     const { rows } = await fastify.db.query(
-      `UPDATE applications SET ${update.sets.join(', ')}
+      `UPDATE applications SET ${update.sets.join(', ')}, updated_at = now()
        WHERE id = $1 AND zone_id = $2 AND archived_at IS NULL
        RETURNING id, name`,
       update.values,
@@ -214,11 +221,12 @@ export const applicationsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.delete('/zones/:zoneId/applications/:id', async (req, reply) => {
     const params = parseParams(ZoneIdParams, req, reply)
     if (!params) return
+    const attribution = await resolveAttribution(req, fastify.db, params.zoneId)
     return withTransaction(fastify.db, async (client) => {
       const { rowCount } = await client.query(
-        `UPDATE applications SET archived_at = now()
+        `UPDATE applications SET archived_at = now(), updated_at = now(), updated_by = $3, updated_via_operator = $4
          WHERE id = $1 AND zone_id = $2 AND archived_at IS NULL`,
-        [params.id, params.zoneId],
+        [params.id, params.zoneId, attribution.actor, attribution.viaOperator],
       )
       if (!rowCount) throw new TxAbort(reply.code(404).send({ error: 'application_not_found' }))
       // Clear any Gateway resource bindings that named this application as their
@@ -271,11 +279,12 @@ export const applicationsRoutes: FastifyPluginAsync = async (fastify) => {
       }
       const clientSecret = generateClientSecret()
       const dcrSecretHash = await hashClientSecret(clientSecret)
+      const attribution = await resolveAttribution(req, client, params.zoneId)
       const { rows } = await client.query(
-        `INSERT INTO applications (id, zone_id, name, registration_method, credential_type, client_secret_hash, traits, expires_at)
-         VALUES ($1, $2, $3, 'dcr', $4, $5, $6, now() + ($7::int * interval '1 second'))
-         RETURNING id, zone_id, name, registration_method, expires_at, created_at`,
-        [id, params.zoneId, body.name, 'token', dcrSecretHash, [], body.expires_in],
+        `INSERT INTO applications (id, zone_id, name, registration_method, credential_type, client_secret_hash, traits, expires_at, created_by, created_via_operator)
+         VALUES ($1, $2, $3, 'dcr', $4, $5, $6, now() + ($7::int * interval '1 second'), $8, $9)
+         RETURNING id, zone_id, name, registration_method, expires_at, ${APP_ATTRIBUTION}`,
+        [id, params.zoneId, body.name, 'token', dcrSecretHash, [], body.expires_in, attribution.actor, attribution.viaOperator],
       )
       return reply.code(201).send({ ...rows[0], client_secret: clientSecret })
     })

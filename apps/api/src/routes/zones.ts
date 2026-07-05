@@ -184,15 +184,16 @@ async function revokeDcrIdentities(
   zoneId: string,
   applicationIds: string[],
   requestId: string,
+  attribution: Attribution,
 ): Promise<{ applications: number; sessions: number; agents: number; delegations: number }> {
   if (applicationIds.length === 0) return { applications: 0, sessions: 0, agents: 0, delegations: 0 }
 
   const { rows: apps } = await client.query<{ id: string }>(
     `UPDATE applications
-     SET archived_at = now()
+     SET archived_at = now(), updated_at = now(), updated_by = $3, updated_via_operator = $4
      WHERE zone_id = $1 AND id = ANY($2::text[]) AND archived_at IS NULL
      RETURNING id`,
-    [zoneId, applicationIds],
+    [zoneId, applicationIds, attribution.actor, attribution.viaOperator],
   )
 
   const { rows: sessions } = await client.query<RevokedSession>(
@@ -430,8 +431,9 @@ export const zonesRoutes: FastifyPluginAsync = async (fastify) => {
     if (body.dcr_shutdown && body.dcr_enabled !== false) {
       return reply.code(400).send({ error: 'dcr_shutdown_not_applicable' })
     }
+    const attribution = await resolveAttribution(req, fastify.db, params.id)
     if (body.dcr_enabled !== false) {
-      const row = await patchZone(fastify.db, params.id, body)
+      const row = await patchZone(fastify.db, params.id, body, attribution)
       if (row === null) return reply.code(404).send({ error: 'zone_not_found' })
       if (row === undefined) return reply.code(400).send({ error: 'no_fields' })
       return row
@@ -442,6 +444,7 @@ export const zonesRoutes: FastifyPluginAsync = async (fastify) => {
       [patchColumn('name', body.name), patchColumn('slug', body.slug), patchColumn('dcr_enabled', body.dcr_enabled)],
     )
     if (!update) return reply.code(400).send({ error: 'no_fields' })
+    appendAttribution(update, attribution)
     try {
       return await withTransaction(fastify.db, async (client) => {
         const { rows: zones } = await client.query<{ dcr_enabled: boolean }>(
@@ -458,7 +461,7 @@ export const zonesRoutes: FastifyPluginAsync = async (fastify) => {
         const { rows } = await client.query<ZoneRow>(
           `UPDATE zones SET ${update.sets.join(', ')}, updated_at = now()
            WHERE id = $1 AND archived_at IS NULL
-           RETURNING id, name, slug, dcr_enabled, created_at, updated_at`,
+           RETURNING ${ZONE_SELECT}`,
           update.values,
         )
         const shutdown =
@@ -468,6 +471,7 @@ export const zonesRoutes: FastifyPluginAsync = async (fastify) => {
                 params.id,
                 apps.map((app) => app.id),
                 req.id,
+                attribution,
               )
             : { applications: 0, sessions: 0, agents: 0, delegations: 0 }
         if (zones[0].dcr_enabled || body.dcr_shutdown) {
@@ -497,10 +501,11 @@ export const zonesRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.delete('/zones/:id', async (req, reply) => {
     const params = parseParams(IdParams, req, reply)
     if (!params) return
+    const attribution = await resolveAttribution(req, fastify.db, params.id)
     const { rowCount } = await fastify.db.query(
-      `UPDATE zones SET archived_at = now(), updated_at = now()
+      `UPDATE zones SET archived_at = now(), updated_at = now(), updated_by = $2, updated_via_operator = $3
        WHERE id = $1 AND archived_at IS NULL`,
-      [params.id],
+      [params.id, attribution.actor, attribution.viaOperator],
     )
     if (!rowCount) return reply.code(404).send({ error: 'zone_not_found' })
     return reply.code(204).send()

@@ -12,6 +12,7 @@ import { scopesAllowed } from '@caracalai/core'
 import { STREAM_SESSIONS_REVOKE, redisTimeMs } from '../redis.js'
 import { enqueueOutbox } from '../outbox.js'
 import { withTransaction, TxAbort } from '../db.js'
+import { resolveAttribution, type Attribution } from '../attribution.js'
 import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
 import { zoneExists } from '../zone-guard.js'
 import { appendKeysetCondition, parseListPagination, setNextLink } from './list-pagination.js'
@@ -172,6 +173,7 @@ export async function createDelegatedGrant(
   db: { query: <T = unknown>(text: string, params?: unknown[]) => Promise<{ rows: T[] }> },
   zoneId: string,
   input: { application_id: string; user_id: string; resource_id: string; scopes: string[] },
+  attribution: Attribution,
 ): Promise<{ ok: true; row: Record<string, unknown> } | { ok: false; error: CreateGrantError }> {
   const { rows: refs } = await db.query<{ application_exists: boolean; resource_scopes: string[] | null }>(
     `SELECT
@@ -189,10 +191,10 @@ export async function createDelegatedGrant(
     return { ok: false, error: 'grant_scopes_exceed_resource' }
   }
   const { rows } = await db.query<Record<string, unknown>>(
-    `INSERT INTO delegated_grants (id, zone_id, application_id, user_id, resource_id, scopes, status)
-     VALUES ($1, $2, $3, $4, $5, $6, 'active')
-     RETURNING id, zone_id, application_id, user_id, resource_id, scopes, status, created_at`,
-    [uuidv7(), zoneId, input.application_id, input.user_id, input.resource_id, input.scopes],
+    `INSERT INTO delegated_grants (id, zone_id, application_id, user_id, resource_id, scopes, status, created_by, created_via_operator)
+     VALUES ($1, $2, $3, $4, $5, $6, 'active', $7, $8)
+     RETURNING id, zone_id, application_id, user_id, resource_id, scopes, status, created_by, created_via_operator, created_at`,
+    [uuidv7(), zoneId, input.application_id, input.user_id, input.resource_id, input.scopes, attribution.actor, attribution.viaOperator],
   )
   return { ok: true, row: rows[0] }
 }
@@ -240,7 +242,7 @@ export const grantsRoutes: FastifyPluginAsync = async (fastify) => {
               r.name AS resource_name,
               p.name AS provider_name,
               p.provider_kind AS provider_kind,
-              dg.scopes, dg.status, dg.created_at
+              dg.scopes, dg.status, dg.created_by, dg.created_via_operator, dg.updated_by, dg.updated_via_operator, dg.created_at
        FROM delegated_grants dg
        LEFT JOIN applications a ON a.zone_id = dg.zone_id AND a.id = dg.application_id
        LEFT JOIN resources r ON r.zone_id = dg.zone_id AND r.id = dg.resource_id
@@ -257,7 +259,8 @@ export const grantsRoutes: FastifyPluginAsync = async (fastify) => {
     const params = parseParams(ZoneIdParams, req, reply)
     if (!params) return
     const { rows } = await fastify.db.query(
-      `SELECT id, zone_id, application_id, user_id, resource_id, scopes, status, created_at
+      `SELECT id, zone_id, application_id, user_id, resource_id, scopes, status,
+              created_by, created_via_operator, updated_by, updated_via_operator, created_at
        FROM delegated_grants WHERE id = $1 AND zone_id = $2`,
       [params.id, params.zoneId],
     )
@@ -272,7 +275,7 @@ export const grantsRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.code(404).send({ error: 'zone_not_found' })
     }
     const body = GrantBody.parse(req.body)
-    const result = await createDelegatedGrant(fastify.db, params.zoneId, body)
+    const result = await createDelegatedGrant(fastify.db, params.zoneId, body, await resolveAttribution(req, fastify.db, params.zoneId))
     if (!result.ok) {
       const status = result.error === 'grant_scopes_exceed_resource' ? 403 : 404
       return reply.code(status).send({ error: result.error })
@@ -709,12 +712,13 @@ export const grantsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.delete('/zones/:zoneId/grants/:id', async (req, reply) => {
     const params = parseParams(ZoneIdParams, req, reply)
     if (!params) return
+    const attribution = await resolveAttribution(req, fastify.db, params.zoneId)
     return withTransaction(fastify.db, async (client) => {
       const { rows } = await client.query<{ user_id: string }>(
-        `UPDATE delegated_grants SET status = 'revoked'
+        `UPDATE delegated_grants SET status = 'revoked', updated_by = $3, updated_via_operator = $4, updated_at = now()
          WHERE id = $1 AND zone_id = $2
          RETURNING user_id`,
-        [params.id, params.zoneId],
+        [params.id, params.zoneId, attribution.actor, attribution.viaOperator],
       )
       if (!rows[0]) throw new TxAbort(reply.code(404).send({ error: 'grant_not_found' }))
 
