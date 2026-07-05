@@ -8,6 +8,7 @@ import { Link, createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 
 import { ResourceFormModal } from "@/components/console/ResourceForm";
+import { CreatedBy } from "@/components/console/CreatedBy";
 import {
   CopyValue,
   DangerZone,
@@ -392,7 +393,17 @@ function ResourceDetail({
         <DetailField label="Upstream URL">
           {resource.upstream_url ? <CopyValue value={resource.upstream_url} /> : <Mono>-</Mono>}
         </DetailField>
+        {resource.created_by ? (
+          <DetailField label="Created by">
+            <CreatedBy name={resource.created_by} coAuthored={resource.created_via_operator} />
+          </DetailField>
+        ) : null}
         <DetailField label="Created">{new Date(resource.created_at).toLocaleString()}</DetailField>
+        {resource.updated_by ? (
+          <DetailField label="Updated by">
+            <CreatedBy name={resource.updated_by} coAuthored={resource.updated_via_operator} />
+          </DetailField>
+        ) : null}
         {resource.updated_at && resource.updated_at !== resource.created_at ? (
           <DetailField label="Updated">
             {new Date(resource.updated_at).toLocaleString()}

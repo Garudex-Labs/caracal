@@ -10,6 +10,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { DcrField } from "@/components/console/DcrField";
 import { ModulePage } from "@/components/console/ModulePage";
+import { CreatedBy } from "@/components/console/CreatedBy";
 import {
   CopyValue,
   DangerZone,
@@ -717,7 +718,17 @@ function ZoneDetailDrawer({
               <CopyValue value={zone.id} />
             </DetailField>
             <DetailField label="Owner">{owner}</DetailField>
+            {zone.created_by ? (
+              <DetailField label="Created by">
+                <CreatedBy name={zone.created_by} coAuthored={zone.created_via_operator} />
+              </DetailField>
+            ) : null}
             <DetailField label="Created">{new Date(zone.created_at).toLocaleString()}</DetailField>
+            {zone.updated_by ? (
+              <DetailField label="Updated by">
+                <CreatedBy name={zone.updated_by} coAuthored={zone.updated_via_operator} />
+              </DetailField>
+            ) : null}
             {zone.updated_at && zone.updated_at !== zone.created_at ? (
               <DetailField label="Updated">
                 {new Date(zone.updated_at).toLocaleString()}

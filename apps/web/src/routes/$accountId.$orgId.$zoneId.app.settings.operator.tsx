@@ -372,7 +372,7 @@ function AttributionGroup() {
   return (
     <SettingsGroup
       title="Attribution"
-      description="Show a co-author badge on items the Caracal Operator creates in this zone."
+      description="Show a co-author badge on items the Caracal Operator creates or updates in this zone."
       action={
         <button
           type="button"

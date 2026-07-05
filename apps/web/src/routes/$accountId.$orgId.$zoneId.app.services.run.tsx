@@ -16,6 +16,7 @@ import {
   DetailSection,
   ResourceWorkspace,
 } from "@/components/console/ResourceWorkspace";
+import { CreatedBy } from "@/components/console/CreatedBy";
 import type { FilterGroup } from "@/components/ui";
 import { SecretModal, type RevealedSecret } from "@/components/console/SecretModal";
 import { ZoneScopedPage } from "@/components/console/ZoneScope";
@@ -332,11 +333,21 @@ function WorkloadDetail({
         <DetailField label="Workload ID">
           <CopyValue value={workload.id} />
         </DetailField>
+        {workload.created_by ? (
+          <DetailField label="Created by">
+            <CreatedBy name={workload.created_by} coAuthored={workload.created_via_operator} />
+          </DetailField>
+        ) : null}
         <DetailField label="Created">{new Date(workload.created_at).toLocaleString()}</DetailField>
         {workload.updated_by ? (
           <DetailField label="Configured by">
-            {workload.updated_by}
-            {workload.updated_at ? ` · ${new Date(workload.updated_at).toLocaleString()}` : ""}
+            <CreatedBy name={workload.updated_by} coAuthored={workload.updated_via_operator} />
+            {workload.updated_at ? (
+              <span className="text-muted-foreground">
+                {" "}
+                · {new Date(workload.updated_at).toLocaleString()}
+              </span>
+            ) : null}
           </DetailField>
         ) : null}
       </DetailGroup>
