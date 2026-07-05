@@ -628,12 +628,12 @@ function ControlKeyInspector({
         <DetailField label="Created">{new Date(keyRecord.createdAt).toLocaleString()}</DetailField>
         {keyRecord.createdBy ? (
           <DetailField label="Created by">
-            <CreatedBy name={keyRecord.createdBy} coAuthored={keyRecord.createdViaOperator} />
+            <CreatedBy id={keyRecord.createdBy} coAuthored={keyRecord.createdViaOperator} />
           </DetailField>
         ) : null}
         {keyRecord.updatedBy ? (
           <DetailField label="Updated by">
-            <CreatedBy name={keyRecord.updatedBy} coAuthored={keyRecord.updatedViaOperator} />
+            <CreatedBy id={keyRecord.updatedBy} coAuthored={keyRecord.updatedViaOperator} />
           </DetailField>
         ) : null}
       </DetailGroup>
