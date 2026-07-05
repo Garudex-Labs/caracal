@@ -42,7 +42,7 @@ describe('PUT /v1/audit-retention', () => {
   it('stores a window within the ceiling', async () => {
     const { app, db } = buildRouteApp(auditRetentionRoutes)
     db.query.mockResolvedValueOnce({
-      rows: [{ retention_days: 30, updated_by: 'test-admin', updated_at: '2026-05-05T00:00:00.000Z' }],
+      rows: [{ retention_days: 30, updated_by: 'admin:test-admin', updated_at: '2026-05-05T00:00:00.000Z' }],
     })
 
     await app.ready()
@@ -56,10 +56,10 @@ describe('PUT /v1/audit-retention', () => {
     expect(JSON.parse(res.body)).toEqual({
       retention_days: 30,
       max_days: 365,
-      updated_by: 'test-admin',
+      updated_by: 'admin:test-admin',
       updated_at: '2026-05-05T00:00:00.000Z',
     })
-    expect(db.query.mock.calls[0][1]).toEqual([30, 'test-admin'])
+    expect(db.query.mock.calls[0][1]).toEqual([30, 'admin:test-admin'])
   })
 
   it('rejects a window above the ceiling', async () => {
