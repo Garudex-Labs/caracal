@@ -296,7 +296,9 @@ describe('GET /v1/zones/:zoneId/operator-conversations', () => {
     await app.ready()
     const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/operator-conversations' })
     expect(res.statusCode).toBe(200)
-    expect(JSON.parse(res.body)).toHaveLength(1)
+    const body = JSON.parse(res.body)
+    expect(body.items).toHaveLength(1)
+    expect(body.next_cursor).toBeNull()
     expect(db.query.mock.calls[0][0]).toContain('archived_at IS NULL')
   })
 

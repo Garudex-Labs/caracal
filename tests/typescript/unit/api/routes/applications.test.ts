@@ -397,7 +397,9 @@ describe('GET /v1/zones/:zoneId/applications', () => {
     const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/applications' })
 
     expect(res.statusCode).toBe(200)
-    expect(JSON.parse(res.body)).toHaveLength(2)
+    const body = JSON.parse(res.body)
+    expect(body.items).toHaveLength(2)
+    expect(body.next_cursor).toBeNull()
   })
 
   it('includes internal traits only for Control callers and paginates full pages', async () => {
@@ -416,7 +418,7 @@ describe('GET /v1/zones/:zoneId/applications', () => {
     })
 
     expect(res.statusCode).toBe(200)
-    expect(res.headers.link).toContain('cursor=')
+    expect(JSON.parse(res.body).next_cursor).toEqual(expect.any(String))
     expect(String(db.query.mock.calls[0][0])).toContain('traits')
   })
 })
@@ -464,13 +466,29 @@ describe('PATCH /v1/zones/:zoneId/applications/:id', () => {
   it('updates the application name', async () => {
     const { app, db } = buildApp()
     db.query.mockResolvedValueOnce({ rows: [] })
-    db.query.mockResolvedValueOnce({ rows: [{ id: 'app-1', name: 'Renamed' }] })
+    db.query.mockResolvedValueOnce({
+      rows: [
+        {
+          id: 'app-1',
+          zone_id: 'z1',
+          name: 'Renamed',
+          registration_method: 'managed',
+          expires_at: null,
+          created_by: 'admin:op-1',
+          created_via_operator: false,
+          updated_by: 'admin:op-1',
+          updated_via_operator: false,
+          created_at: '2026-01-01T00:00:00.000Z',
+          updated_at: '2026-01-02T00:00:00.000Z',
+        },
+      ],
+    })
 
     await app.ready()
     const res = await app.inject({ method: 'PATCH', url: '/v1/zones/z1/applications/app-1', payload: { name: 'Renamed' } })
 
     expect(res.statusCode).toBe(200)
-    expect(JSON.parse(res.body)).toMatchObject({ name: 'Renamed' })
+    expect(JSON.parse(res.body)).toMatchObject({ id: 'app-1', zone_id: 'z1', name: 'Renamed', registration_method: 'managed' })
   })
 
   it('rejects renaming to a name held by another active managed application', async () => {

@@ -789,7 +789,9 @@ describe('GET /v1/zones/:zoneId/grants list and detail', () => {
     const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/grants' })
 
     expect(res.statusCode).toBe(200)
-    expect(JSON.parse(res.body)).toHaveLength(2)
+    const body = JSON.parse(res.body)
+    expect(body.items).toHaveLength(2)
+    expect(body.next_cursor).toBeNull()
   })
 
   it('applies grant list filters and enriches provider context', async () => {
