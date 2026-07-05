@@ -256,9 +256,10 @@ function ApplicationsPage({ zoneId, zoneName }: { zoneId: string; zoneName: stri
                 try {
                   await updateApp.mutateAsync({ id: app.id, input: { name } });
                   toast({ tone: "success", title: "Application renamed", description: name });
+                  return true;
                 } catch (err) {
                   toast({ tone: "error", title: "Rename failed", description: errorMessage(err) });
-                  throw err;
+                  return false;
                 }
               }}
               onRotate={() => setRotateTarget(app)}
@@ -370,7 +371,7 @@ function ApplicationDetail({
 }: {
   app: Application;
   busy: boolean;
-  onRename: (name: string) => Promise<void>;
+  onRename: (name: string) => Promise<boolean>;
   onRotate: () => void;
   onDelete: () => void;
 }) {
@@ -421,7 +422,7 @@ function IdentitySection({
 }: {
   app: Application;
   busy: boolean;
-  onRename: (name: string) => Promise<void>;
+  onRename: (name: string) => Promise<boolean>;
 }) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(app.name);
@@ -430,6 +431,15 @@ function IdentitySection({
     setName(app.name);
     setEditing(false);
   }, [app.id, app.name]);
+
+  function commitRename() {
+    const nextName = name.trim();
+    if (!nextName || nextName === app.name) return;
+
+    void onRename(nextName).then((renamed) => {
+      if (renamed) setEditing(false);
+    });
+  }
 
   return (
     <DetailGroup title="Identity">
@@ -444,8 +454,8 @@ function IdentitySection({
                 className="flex-1"
                 autoFocus
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && name.trim() && name.trim() !== app.name) {
-                    void onRename(name.trim()).then(() => setEditing(false));
+                  if (e.key === "Enter") {
+                    commitRename();
                   } else if (e.key === "Escape") {
                     setName(app.name);
                     setEditing(false);
@@ -457,7 +467,7 @@ function IdentitySection({
                 loading={busy}
                 mutating
                 disabled={!name.trim() || name.trim() === app.name}
-                onClick={() => void onRename(name.trim()).then(() => setEditing(false))}
+                onClick={commitRename}
               >
                 Save
               </Button>
