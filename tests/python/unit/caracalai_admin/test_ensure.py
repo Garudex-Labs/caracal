@@ -12,11 +12,16 @@ import unittest
 from unittest import mock
 
 from caracalai_admin import (
+    GovernedUpstream,
+    GovernedUpstreamGrant,
+    GovernedUpstreamProvider,
+    GovernedUpstreamResource,
     ResourceGrant,
     author_grants_document,
     ensure_active_policy_set,
     ensure_api_key_provider,
     ensure_application,
+    ensure_governed_upstreams,
     ensure_grants,
     ensure_resource,
 )
@@ -664,6 +669,145 @@ class EnsureGrantsTests(unittest.TestCase):
         self.assertEqual(body["name"], "caracal.sys/operator-bindings")
         client.policy_sets.create.assert_called_once_with(
             ZONE, "caracal.sys/operator-policy"
+        )
+
+
+def upstream_admin():
+    client = mock.Mock()
+    client.providers.list.return_value = []
+    client.providers.create.return_value = {"id": "prov-created"}
+    client.providers.patch.return_value = {}
+    client.resources.list.return_value = []
+    client.resources.create.side_effect = lambda zone, body: {
+        "id": "res-created",
+        **body,
+    }
+    client.policies.list.return_value = []
+    client.policies.create.return_value = {
+        "id": "pol-created",
+        "version_id": "ver-created",
+    }
+    client.policy_sets.list.return_value = []
+    client.policy_sets.create.return_value = {
+        "id": "set-created",
+        "active_version_id": None,
+    }
+    client.policy_sets.add_version.return_value = {"version_id": "setver-1"}
+    client.policy_sets.activate.return_value = {}
+    return client
+
+
+def pipernet_upstream(api_key="sk-pipernet"):
+    return GovernedUpstream(
+        provider=GovernedUpstreamProvider(
+            name="Hooli PiperNet OIDC",
+            identifier="provider://pipernet",
+            public_config={
+                "auth_location": "header",
+                "header_name": "Authorization",
+                "auth_scheme": "Bearer",
+            },
+            api_key=api_key,
+        ),
+        resource=GovernedUpstreamResource(
+            name="PiperNet",
+            identifier="resource://pipernet",
+            scopes=["data:read"],
+            upstream_url="https://api.pipernet.example",
+            gateway_application_id="app-son-of-anton",
+        ),
+        grants=[
+            GovernedUpstreamGrant(
+                application_id="app-son-of-anton", scopes=["data:read"]
+            )
+        ],
+    )
+
+
+class EnsureGovernedUpstreamsTests(unittest.TestCase):
+    def test_converges_provider_resource_and_grants_in_dependency_order(self):
+        client = upstream_admin()
+        results = ensure_governed_upstreams(
+            client, ZONE, upstreams=[pipernet_upstream()]
+        )
+
+        client.providers.create.assert_called_once_with(
+            ZONE,
+            {
+                "name": "Hooli PiperNet OIDC",
+                "identifier": "provider://pipernet",
+                "kind": "api_key",
+                "config_json": {
+                    "auth_location": "header",
+                    "header_name": "Authorization",
+                    "auth_scheme": "Bearer",
+                    "api_key": "sk-pipernet",
+                },
+            },
+        )
+        client.resources.create.assert_called_once_with(
+            ZONE,
+            {
+                "name": "PiperNet",
+                "identifier": "resource://pipernet",
+                "scopes": ["data:read", "agent:lifecycle"],
+                "upstream_url": "https://api.pipernet.example",
+                "credential_provider_id": "prov-created",
+                "gateway_application_id": "app-son-of-anton",
+            },
+        )
+        client.policies.create.assert_called_once_with(
+            ZONE,
+            {
+                "name": "application-grants",
+                "content": author_grants_document(
+                    [
+                        ResourceGrant(
+                            application_id="app-son-of-anton",
+                            resource_identifier="resource://pipernet",
+                            scopes=["data:read"],
+                        )
+                    ]
+                ),
+            },
+        )
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].provider_id, "prov-created")
+        self.assertEqual(results[0].resource["identifier"], "resource://pipernet")
+
+    def test_fails_closed_before_binding_when_provider_has_no_sealed_key(self):
+        client = upstream_admin()
+        with self.assertRaisesRegex(RuntimeError, "no sealed api key"):
+            ensure_governed_upstreams(
+                client, ZONE, upstreams=[pipernet_upstream(api_key=None)]
+            )
+
+        client.resources.create.assert_not_called()
+        client.policies.create.assert_not_called()
+
+    def test_converges_empty_set_without_materializing_artifacts(self):
+        client = upstream_admin()
+        results = ensure_governed_upstreams(client, ZONE, upstreams=[])
+
+        self.assertEqual(results, [])
+        client.providers.create.assert_not_called()
+        client.resources.create.assert_not_called()
+        client.policies.create.assert_not_called()
+
+    def test_threads_caller_policy_and_set_names(self):
+        client = upstream_admin()
+        ensure_governed_upstreams(
+            client,
+            ZONE,
+            upstreams=[pipernet_upstream()],
+            policy_name="pied-piper-grants",
+            set_name="pied-piper-grant-policy",
+        )
+
+        body = client.policies.create.call_args[0][1]
+        self.assertEqual(body["name"], "pied-piper-grants")
+        client.policy_sets.create.assert_called_once_with(
+            ZONE, "pied-piper-grant-policy"
         )
 
 

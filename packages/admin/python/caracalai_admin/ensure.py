@@ -312,3 +312,125 @@ def ensure_grants(
         content=author_grants_document(list(grants)),
         create_when_missing=len(grants) > 0,
     )
+
+
+@dataclass(frozen=True)
+class GovernedUpstreamProvider:
+    """The sealed credential of a governed upstream, in the shape
+    ensure_api_key_provider reconciles."""
+
+    name: str
+    identifier: str
+    public_config: dict[str, Any] = field(default_factory=dict)
+    api_key: str | None = None
+
+
+@dataclass(frozen=True)
+class GovernedUpstreamResource:
+    """The gateway-bound resource fields of a governed upstream. The
+    credential provider binding is threaded by the reconciler."""
+
+    name: str
+    identifier: str
+    scopes: list[str]
+    upstream_url: str
+    gateway_application_id: str
+    operation_enforcement: str | None = None
+
+
+@dataclass(frozen=True)
+class GovernedUpstreamGrant:
+    """One application granted to mint scopes on a governed upstream's
+    resource. Role semantics match ResourceGrant."""
+
+    application_id: str
+    scopes: list[str] = field(default_factory=list)
+    role: str | None = None
+
+
+@dataclass(frozen=True)
+class GovernedUpstream:
+    """One upstream in a governed set: the sealed credential the gateway
+    injects, the gateway-bound resource that proxies it, and the applications
+    granted to mint on it. The first grant names the resource's owning
+    application - the identity whose governed transport may bootstrap on
+    it."""
+
+    provider: GovernedUpstreamProvider
+    resource: GovernedUpstreamResource
+    grants: list[GovernedUpstreamGrant] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class GovernedUpstreamResult:
+    """The converged state of one governed upstream."""
+
+    provider_id: str
+    resource: Any
+
+
+def ensure_governed_upstreams(
+    client: AdminClient,
+    zone_id: str,
+    *,
+    upstreams: Sequence[GovernedUpstream],
+    policy_name: str | None = None,
+    set_name: str | None = None,
+) -> list[GovernedUpstreamResult]:
+    """Converges a set of governed upstreams - sealed credential provider,
+    gateway-bound resource, and the zone's grant document - in dependency
+    order, so one call declares everything the platform needs to govern the
+    set. Rego permits one definition of the grant document per zone, so the
+    set converges as a whole: an upstream absent from it loses its grants on
+    the next run, which is the revocation. Every step is idempotent, so a
+    partial failure converges on rerun, and grants land last so nothing is
+    authorized before its resource exists. An upstream whose provider resolves
+    to no sealed key fails closed before any resource binds a dead
+    credential."""
+    results: list[GovernedUpstreamResult] = []
+    grants: list[ResourceGrant] = []
+    for upstream in upstreams:
+        provider_id = ensure_api_key_provider(
+            client,
+            zone_id,
+            name=upstream.provider.name,
+            identifier=upstream.provider.identifier,
+            public_config=upstream.provider.public_config,
+            api_key=upstream.provider.api_key,
+        )
+        if provider_id is None:
+            raise RuntimeError(
+                f"provider {upstream.provider.identifier} has no sealed api key: "
+                f"supply api_key before governing {upstream.resource.identifier}"
+            )
+        resource = ensure_resource(
+            client,
+            zone_id,
+            name=upstream.resource.name,
+            identifier=upstream.resource.identifier,
+            scopes=upstream.resource.scopes,
+            upstream_url=upstream.resource.upstream_url,
+            credential_provider_id=provider_id,
+            gateway_application_id=upstream.resource.gateway_application_id,
+            operation_enforcement=(
+                upstream.resource.operation_enforcement
+                if upstream.resource.operation_enforcement is not None
+                else _UNSET
+            ),
+        )
+        results.append(
+            GovernedUpstreamResult(provider_id=provider_id, resource=resource)
+        )
+        grants.extend(
+            ResourceGrant(
+                application_id=grant.application_id,
+                resource_identifier=upstream.resource.identifier,
+                scopes=grant.scopes,
+                role=grant.role,
+            )
+            for grant in upstream.grants
+        )
+    ensure_grants(
+        client, zone_id, grants=grants, policy_name=policy_name, set_name=set_name
+    )
+    return results
