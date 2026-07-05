@@ -63,6 +63,39 @@ const version = await admin.policySets.addVersion(zoneId, set.id, [
 await admin.policySets.activate(zoneId, set.id, version.id);
 ```
 
+## Idempotent provisioning
+
+Alongside the API groups, the package exports `ensure*` reconcilers - `ensureApplication`, `ensureApiKeyProvider`, `ensureResource`, `ensureGrants`, and `ensureActivePolicySet` - that converge an object to a desired state: create it when absent, patch it only on drift, and return the live object. They are safe to rerun, so provisioning scripts and CI jobs declare state instead of scripting create-then-patch sequences.
+
+`ensureGovernedUpstreams` composes them for the most common declaration: a set of upstream APIs, each with a sealed credential provider, a gateway-bound resource, and its application grants, converged in dependency order in one call.
+
+```ts
+import { ensureGovernedUpstreams } from "@caracalai/admin";
+
+const results = await ensureGovernedUpstreams(admin, zoneId, {
+  upstreams: [
+    {
+      provider: {
+        name: "OpenAI key",
+        identifier: "provider://openai",
+        publicConfig: { auth_location: "header", header_name: "Authorization", auth_scheme: "Bearer" },
+        apiKey: process.env.OPENAI_API_KEY,
+      },
+      resource: {
+        name: "OpenAI",
+        identifier: "resource://openai",
+        scopes: ["models:read", "chat:write"],
+        upstream_url: "https://api.openai.com",
+        gateway_application_id: agentAppId,
+      },
+      grants: [{ applicationId: agentAppId, scopes: ["models:read", "chat:write"] }],
+    },
+  ],
+});
+```
+
+Each run seals the provider key, binds the resource to it, and rewrites the zone's grant document to exactly the declared set - an upstream removed from the input loses its grants on the next run, which is the revocation. An upstream whose provider has no sealed key fails closed before any resource binds a dead credential. The same reconcilers ship in the Python package (`caracalai-admin`, as `ensure_governed_upstreams`) and the Go module (`github.com/garudex-labs/caracal/packages/admin/go`, as `EnsureGovernedUpstreams`).
+
 ## Dynamic Client Registration (DCR)
 
 DCR is the **only** way to create short-lived, self-registering client identities, and it is **programmatic-only** - Console creates managed applications, not DCR applications. Use `applications.dcr()` from a control-plane workload (per-tenant onboarding, a CI job, a per-integration identity) that already holds an admin token.

@@ -70,7 +70,9 @@ class LynxControl:
             ttl_seconds=ttl_seconds,
         )
 
-    def invoke(self, command: str, subcommand: str, flags: dict | None = None) -> object:
+    def invoke(
+        self, command: str, subcommand: str, flags: dict | None = None
+    ) -> object:
         for attempt in range(4):
             try:
                 return self._client.invoke(

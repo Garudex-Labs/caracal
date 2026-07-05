@@ -166,9 +166,7 @@ def ensure_applications(
     return application_ids
 
 
-def ensure_providers(
-    client: LynxControl, provider_cmds: list[dict]
-) -> dict[str, str]:
+def ensure_providers(client: LynxControl, provider_cmds: list[dict]) -> dict[str, str]:
     """Register each upstream credential provider, returning a map of provider identifier to
     the control-plane id so resources can bind to it. Existing providers are patched so
     config changes (endpoints, credentials, token host allowlists) reconcile on re-run."""

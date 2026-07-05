@@ -37,6 +37,7 @@ COPY apps/api/ apps/api/
 COPY apps/coordinator/ apps/coordinator/
 RUN set -e; \
     pnpm --filter @caracalai/core build; \
+    pnpm --filter @caracalai/server-core build; \
     pnpm --filter @caracalai/admin build; \
     pnpm --filter @caracalai/oauth build; \
     pnpm --filter @caracalai/engine build; \
