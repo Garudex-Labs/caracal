@@ -7,6 +7,7 @@ import type { NextFunction, Request, RequestHandler, Response } from 'express'
 import type { Claims } from '@caracalai/identity'
 import {
   authenticate,
+  authErrorBody,
   extractBearer,
   httpStatusForAuthError,
   type AuthDeps,
@@ -79,15 +80,7 @@ export function caracalAuth(opts: MiddlewareOptions | VerifierMiddlewareOptions,
 }
 
 function mapError(err: AuthError): { status: number; body: { error: string; error_description: string; error_hint?: string } } {
-  return { status: httpStatusForAuthError(err.code), body: errorBody(err) }
-}
-
-function errorBody(err: AuthError): { error: string; error_description: string; error_hint?: string } {
-  return {
-    error: err.code,
-    error_description: err.description,
-    ...(err.hint ? { error_hint: err.hint } : {}),
-  }
+  return { status: httpStatusForAuthError(err.code), body: authErrorBody(err) }
 }
 
 function middlewareZone(opts: MiddlewareOptions | VerifierMiddlewareOptions): string | undefined {

@@ -4,4 +4,5 @@
 // Public surface of @caracalai/verify: framework-neutral mandate verification.
 
 export * from './authenticate.js'
+export * from './fetch.js'
 export * from './types.js'
