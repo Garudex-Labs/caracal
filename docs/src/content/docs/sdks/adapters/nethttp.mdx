@@ -3,7 +3,7 @@ title: Go net/http Adapter
 description: Go middleware for protecting HTTP handlers with Caracal mandate verification.
 ---
 
-The Go net/http connector wraps handlers with MCP transport verification and stores verified claims in the request context.
+The Go net/http adapter wraps handlers with verify-engine verification and stores verified claims in the request context.
 
 ## Install
 
@@ -20,19 +20,19 @@ import (
 
 	nethttp "github.com/garudex-labs/caracal/packages/adapters/nethttp/go"
 	revocation "github.com/garudex-labs/caracal/packages/revocation/go"
-	transportmcp "github.com/garudex-labs/caracal/packages/verify/go"
+	verify "github.com/garudex-labs/caracal/packages/verify/go"
 )
 
 revocations := revocation.NewInMemoryStore(24 * time.Hour)
 
-verifier := transportmcp.NewVerifier(transportmcp.Options{
+verifier := verify.NewVerifier(verify.Options{
 	Issuer:          "https://sts.example.com",
 	Audience:        "https://api.example.com",
 	ZoneID:          "zone_prod",
 	Revocations:     revocations,
 })
 
-handler := nethttp.VerifierMiddleware(verifier.Require(transportmcp.Options{
+handler := nethttp.VerifierMiddleware(verifier.Require(verify.Options{
 	RequiredScopes:  []string{"tickets:read"},
 	RequiredTargets: []string{"https://api.example.com/tickets"},
 	RequireAgent:    true,
@@ -56,7 +56,7 @@ handler := nethttp.VerifierMiddleware(verifier.Require(transportmcp.Options{
 
 ## Failure behavior
 
-The middleware maps MCP transport auth errors to HTTP failures before the handler runs and includes a safe `error_hint` in JSON failures. Use a shared revocation store through `transportmcp.Options` in production so revoked sessions are rejected consistently across service instances.
+The middleware maps verification errors to HTTP failures before the handler runs and includes a safe `error_hint` in JSON failures. Use a shared revocation store through `verify.Options` in production so revoked sessions are rejected consistently across service instances.
 
 ## Related pages
 

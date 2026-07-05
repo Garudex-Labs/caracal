@@ -8,7 +8,7 @@ sidebar:
 Caracal separates **granting authority** from **using authority**.
 
 - The STS grants authority by issuing a short-lived mandate after policy evaluation.
-- The Gateway or connector uses authority by verifying the mandate before forwarding a request or running a tool.
+- The Gateway or adapter uses authority by verifying the mandate before forwarding a request or running a tool.
 
 ## Enforcement Flow
 
@@ -17,7 +17,7 @@ sequenceDiagram
   participant Client as Agent or app
   participant STS as STS
   participant OPA as Active policy set
-  participant Guard as Gateway or connector
+  participant Guard as Gateway or adapter
   participant Resource as Protected resource
   participant Audit as Audit ledger
 
@@ -44,7 +44,7 @@ sequenceDiagram
 | Grant | Declares which application and user may request resource scopes. | Console or Admin API |
 | Policy set | Makes the final allow, deny, or step-up decision. | Rego policy versions |
 | Mandate | Carries approved authority as a short-lived signed JWT. | STS |
-| Gateway or connector | Verifies mandate claims and revocation before use. | Runtime and resource server config |
+| Gateway or adapter | Verifies mandate claims and revocation before use. | Runtime and resource server config |
 | Audit ledger | Records decisions, diagnostics, and request correlation. | API, Console, and storage |
 
 ## Default Posture
@@ -58,9 +58,9 @@ Caracal should be treated as deny-by-default:
 
 Missing configuration, invalid signatures, expired mandates, insufficient scopes, revoked sessions, and failed delegation checks all stop the request.
 
-## Gateway and Connector Roles
+## Gateway and Adapter Roles
 
-Use the Gateway when you want Caracal to front an HTTP upstream and mediate requests centrally. Use a connector when the resource server should verify mandates inside its own framework, such as Express, FastMCP, net/http, or MCP transport.
+Use the Gateway when you want Caracal to front an HTTP upstream and mediate requests centrally. Use an adapter when the resource server should verify mandates inside its own framework, such as Express, FastMCP, or net/http, or use the verify engine directly for custom boundaries.
 
 Both patterns share the same authority model. The difference is only where mandate verification runs.
 
@@ -72,11 +72,11 @@ The SDK exposes several call paths. They are not interchangeable: each does a di
 | --- | --- | --- | --- |
 | `caracal.fetch` / `gateway_request` through the Gateway | **Enforce** | Yes - the Gateway verifies claims and revocation before forwarding | Caracal fronts an HTTP upstream and mediates centrally |
 | Direct Gateway call (`curl` to the Gateway URL) | **Enforce** | Yes - same Gateway verification | Non-SDK clients or debugging the enforced path |
-| Connector verify (`context_middleware(verifier=…)`, Express, FastMCP, net/http, MCP transport) | **Enforce** | Yes - the connector verifies inside the resource server | The resource server should enforce in its own framework |
-| `caracal.transport` / `context_middleware()` (no verifier) | **Propagate** | No - carries and binds the envelope only | A Gateway or connector already enforced upstream and you only need context to flow |
+| Adapter verify (`context_middleware(verifier=…)`, Express, FastMCP, net/http, verify engine) | **Enforce** | Yes - the adapter verifies inside the resource server | The resource server should enforce in its own framework |
+| `caracal.transport` / `context_middleware()` (no verifier) | **Propagate** | No - carries and binds the envelope only | A Gateway or adapter already enforced upstream and you only need context to flow |
 | App-managed provider call (your code calls the provider SDK directly) | **Attribute** | No - Caracal records who acted, but does not gate the call | You want audit attribution without routing through the Gateway |
 
-Rule of thumb: **use the Gateway or a connector verifier to enforce; use transport/propagation to carry identity after enforcement; treat app-managed provider calls as attribution only.** If a path says "no" under *verifies the mandate*, something upstream must have already enforced it.
+Rule of thumb: **use the Gateway or an adapter verifier to enforce; use transport/propagation to carry identity after enforcement; treat app-managed provider calls as attribution only.** If a path says "no" under *verifies the mandate*, something upstream must have already enforced it.
 
 ## Next Step
 
