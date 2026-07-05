@@ -17,6 +17,7 @@ export default defineConfig({
       provider: 'v8',
       exclude: [
         'packages/core/ts/src/index.ts',
+        'packages/serverCore/ts/src/index.ts',
         'packages/identity/ts/src/index.ts',
         'packages/oauth/ts/src/index.ts',
         'packages/revocation/ts/src/index.ts',

@@ -16,8 +16,8 @@ import {
   seedConsoleWriteToken,
   seedConsoleApproveToken,
 } from '../../../../apps/api/src/auth.js'
-import { deriveConsoleReadToken, deriveConsoleWriteToken } from '../../../../packages/core/ts/src/consoleToken.js'
-import { signAccountAssertion } from '../../../../packages/core/ts/src/accountAssertion.js'
+import { deriveConsoleReadToken, deriveConsoleWriteToken } from '../../../../packages/serverCore/ts/src/consoleToken.js'
+import { signAccountAssertion } from '../../../../packages/serverCore/ts/src/accountAssertion.js'
 
 function digest(token: string): Buffer {
   return createHash('sha256').update(token).digest()

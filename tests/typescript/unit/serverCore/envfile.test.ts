@@ -15,7 +15,7 @@ import {
   installedHome,
   managedSecretDirs,
   readEnvFile,
-} from '../../../../packages/core/ts/src/envfile.js'
+} from '../../../../packages/serverCore/ts/src/envfile.js'
 
 describe('installedHome', () => {
   const saved = { ...process.env }
