@@ -7,6 +7,7 @@ This file defines the Audit route.
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useState, type ReactNode } from "react";
 
+import { CreatedBy } from "@/components/console/CreatedBy";
 import { FeedTabs, FeedToolbar } from "@/components/console/FeedToolbar";
 import {
   DetailField,
@@ -1280,7 +1281,7 @@ function AdminAuditPage({
         return (
           <div className="min-w-0">
             <div className="truncate text-sm text-foreground">
-              {operator ?? e.actor_name ?? "-"}
+              {operator ? <CreatedBy id={operator} /> : (e.actor_name ?? "-")}
             </div>
             <div className="truncate text-[11px] text-muted-foreground">
               {operator ? (e.actor_name ?? e.actor_scope ?? "") : (e.actor_scope ?? "")}
@@ -1435,7 +1436,9 @@ function AdminAuditDetailView({ event }: { event: AdminAuditEvent }) {
 
       <DetailGroup title="Actor">
         {operatorOf(event.payload_json) ? (
-          <DetailField label="Operator">{operatorOf(event.payload_json)}</DetailField>
+          <DetailField label="Profile">
+            <CreatedBy id={operatorOf(event.payload_json)} />
+          </DetailField>
         ) : null}
         <DetailField label="Name">{event.actor_name ?? "-"}</DetailField>
         <DetailField label="Scope">{event.actor_scope ?? "-"}</DetailField>

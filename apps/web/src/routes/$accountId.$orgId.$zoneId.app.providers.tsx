@@ -449,13 +449,13 @@ function ProviderDetail({
         <DetailField label="Type">{KIND_LABEL[provider.kind]}</DetailField>
         {provider.created_by ? (
           <DetailField label="Created by">
-            <CreatedBy name={provider.created_by} coAuthored={provider.created_via_operator} />
+            <CreatedBy id={provider.created_by} coAuthored={provider.created_via_operator} />
           </DetailField>
         ) : null}
         <DetailField label="Created">{new Date(provider.created_at).toLocaleString()}</DetailField>
         {provider.updated_by ? (
           <DetailField label="Updated by">
-            <CreatedBy name={provider.updated_by} coAuthored={provider.updated_via_operator} />
+            <CreatedBy id={provider.updated_by} coAuthored={provider.updated_via_operator} />
           </DetailField>
         ) : null}
         {provider.updated_at && provider.updated_at !== provider.created_at ? (
@@ -681,10 +681,7 @@ function ProviderConnections({ provider, zoneId }: { provider: Provider; zoneId:
                     {grant.created_by ? (
                       <div className="mt-0.5 text-[11px] text-muted-foreground">
                         Created by{" "}
-                        <CreatedBy
-                          name={grant.created_by}
-                          coAuthored={grant.created_via_operator}
-                        />
+                        <CreatedBy id={grant.created_by} coAuthored={grant.created_via_operator} />
                       </div>
                     ) : null}
                   </td>
