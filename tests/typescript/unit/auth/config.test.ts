@@ -4,7 +4,7 @@
 // Unit tests for the authentication backend configuration: TLS posture, cookie security, origins, and migration gating.
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { loadConfig, isOperatorAllowed } from '../../../../apps/auth/src/config.ts'
+import { loadConfig } from '../../../../apps/auth/src/config.ts'
 
 const SAVED = { ...process.env }
 
@@ -135,22 +135,15 @@ describe('port resolution', () => {
 })
 
 describe('operator registration gating', () => {
-  it('is open in development when no allowlist is configured', () => {
+  it('is open in development when no override is configured', () => {
     const cfg = loadConfig()
-    expect(cfg.operatorAllowlist).toEqual([])
     expect(cfg.openRegistration).toBe(true)
+    expect(cfg.operatorAllowlistFile).toBe('')
   })
 
-  it('fails closed in production when no allowlist is configured', () => {
+  it('fails closed in production by default', () => {
     reset({ NODE_ENV: 'production' })
     expect(loadConfig().openRegistration).toBe(false)
-  })
-
-  it('parses and normalizes a comma-separated allowlist', () => {
-    reset({ CARACAL_OPERATOR_EMAILS: 'Ops@Example.com, @Team.io ,, ' })
-    const cfg = loadConfig()
-    expect(cfg.operatorAllowlist).toEqual(['ops@example.com', '@team.io'])
-    expect(cfg.openRegistration).toBe(false)
   })
 
   it('honors an explicit open-registration override in production', () => {
@@ -158,35 +151,9 @@ describe('operator registration gating', () => {
     expect(loadConfig().openRegistration).toBe(true)
   })
 
-  it('an allowlist always takes precedence over the open-registration flag', () => {
-    reset({ CARACAL_OPERATOR_EMAILS: 'ops@example.com', CARACAL_OPEN_REGISTRATION: 'true' })
-    expect(loadConfig().openRegistration).toBe(false)
-  })
-})
-
-describe('isOperatorAllowed', () => {
-  it('follows open registration when no allowlist is set', () => {
-    expect(isOperatorAllowed('anyone@example.com', { operatorAllowlist: [], openRegistration: true })).toBe(true)
-    expect(isOperatorAllowed('anyone@example.com', { operatorAllowlist: [], openRegistration: false })).toBe(false)
-  })
-
-  it('matches exact emails case-insensitively', () => {
-    const cfg = { operatorAllowlist: ['ops@example.com'], openRegistration: false }
-    expect(isOperatorAllowed('OPS@example.com', cfg)).toBe(true)
-    expect(isOperatorAllowed('other@example.com', cfg)).toBe(false)
-  })
-
-  it('matches domain-suffix entries', () => {
-    const cfg = { operatorAllowlist: ['@example.com'], openRegistration: false }
-    expect(isOperatorAllowed('anyone@example.com', cfg)).toBe(true)
-    expect(isOperatorAllowed('anyone@evil.com', cfg)).toBe(false)
-    expect(isOperatorAllowed('anyone@sub.example.com', cfg)).toBe(false)
-  })
-
-  it('rejects empty or malformed emails', () => {
-    const cfg = { operatorAllowlist: ['@example.com'], openRegistration: true }
-    expect(isOperatorAllowed('', cfg)).toBe(false)
-    expect(isOperatorAllowed('   ', cfg)).toBe(false)
+  it('carries the allowlist file path from the environment', () => {
+    reset({ CARACAL_OPERATOR_ALLOWLIST_FILE: ' /run/caracalHostSecrets/operatorAllowlist.json ' })
+    expect(loadConfig().operatorAllowlistFile).toBe('/run/caracalHostSecrets/operatorAllowlist.json')
   })
 })
 
