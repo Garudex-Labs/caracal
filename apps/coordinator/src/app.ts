@@ -10,20 +10,8 @@ import pino from 'pino'
 import type { Pool } from 'pg'
 import type { Redis as RedisClient } from 'ioredis'
 import { ZodError } from 'zod'
-import {
-  getTraceContext,
-  parseTraceparent,
-  bindTrace,
-  devLogMetrics,
-  buildPinoRedactPaths,
-  CaracalError,
-} from '@caracalai/core'
-import {
-  renderObservabilityMetrics,
-  instrumentFastifyApp,
-  withTimeout,
-  isPublished,
-} from '@caracalai/server-core'
+import { getTraceContext, parseTraceparent, bindTrace, devLogMetrics, buildPinoRedactPaths, CaracalError } from '@caracalai/core'
+import { renderObservabilityMetrics, instrumentFastifyApp, withTimeout, isPublished } from '@caracalai/server-core'
 import { agentsRoutes } from './routes/agents.js'
 import { agentServicesRoutes } from './routes/agent-services.js'
 import { delegationsRoutes } from './routes/delegations.js'
