@@ -12,11 +12,9 @@ import { policiesRoutes } from '../../../../../apps/api/src/routes/policies.js'
 
 function buildApp() {
   const app = Fastify({ logger: false })
-  const clientQuery = vi
-    .fn()
-    .mockResolvedValue({
-      rows: [{ id: 'pv-1', policy_id: 'p-1', version: 1, content_sha256: 'abc', schema_version: '2026-03-16', created_at: new Date() }],
-    })
+  const clientQuery = vi.fn().mockResolvedValue({
+    rows: [{ id: 'pv-1', policy_id: 'p-1', version: 1, content_sha256: 'abc', schema_version: '2026-03-16', created_at: new Date() }],
+  })
   const db = {
     query: vi.fn(),
     connect: vi.fn().mockResolvedValue({

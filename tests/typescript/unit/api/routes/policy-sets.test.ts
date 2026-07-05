@@ -443,18 +443,16 @@ describe('POST /v1/zones/:zoneId/policy-sets/:id/versions', () => {
   it('creates a version after validating the manifest contract', async () => {
     const { app, db } = buildRouteApp(policySetsRoutes)
     setActor(app)
-    db.query
-      .mockResolvedValueOnce({ rows: [{ id: 'ps-1' }] })
-      .mockResolvedValueOnce({
-        rows: [
-          {
-            id: 'pv-1',
-            content: '# caracal:data-document\npackage caracal.authz\ngrants := {}',
-            zone_id: 'z1',
-            schema_version: '2026-05-20',
-          },
-        ],
-      })
+    db.query.mockResolvedValueOnce({ rows: [{ id: 'ps-1' }] }).mockResolvedValueOnce({
+      rows: [
+        {
+          id: 'pv-1',
+          content: '# caracal:data-document\npackage caracal.authz\ngrants := {}',
+          zone_id: 'z1',
+          schema_version: '2026-05-20',
+        },
+      ],
+    })
     const client = { query: vi.fn(), release: vi.fn() }
     client.query
       .mockResolvedValueOnce({ rows: [] })
@@ -480,11 +478,9 @@ describe('POST /v1/zones/:zoneId/policy-sets/:id/versions', () => {
   it('rejects duplicate and missing policy version manifests', async () => {
     const duplicate = buildRouteApp(policySetsRoutes)
     setActor(duplicate.app)
-    duplicate.db.query
-      .mockResolvedValueOnce({ rows: [{ id: 'ps-1' }] })
-      .mockResolvedValueOnce({
-        rows: [{ id: 'pv-1', content: 'package caracal.authz\nresult := {"allow": true}', zone_id: 'z1', schema_version: '2026-05-20' }],
-      })
+    duplicate.db.query.mockResolvedValueOnce({ rows: [{ id: 'ps-1' }] }).mockResolvedValueOnce({
+      rows: [{ id: 'pv-1', content: 'package caracal.authz\nresult := {"allow": true}', zone_id: 'z1', schema_version: '2026-05-20' }],
+    })
     await duplicate.app.ready()
     const duplicateRes = await duplicate.app.inject({
       method: 'POST',
