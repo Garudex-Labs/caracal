@@ -28,7 +28,7 @@ import { resolveStsUrl } from '@caracalai/engine/runtime-config'
 import { downstreamHeaders, safeTarget } from './security.ts'
 import { selectProxyCredential, shouldRetryWithFallback } from './proxyCredential.ts'
 import { coordZoneId, resolveZoneAccess, type ZoneProbeResult } from './zoneAccess.ts'
-import { resolveAccess } from './allowlist.ts'
+import { enforceDenial, resolveAccess } from './allowlist.ts'
 import { loadConfig } from './config.ts'
 import { logger } from './logger.ts'
 
@@ -825,11 +825,19 @@ export async function handleConsole(req: IncomingMessage, res: ServerResponse, c
   }
 
   // The allowlist is re-checked on every proxied request, not just at sign-in, so a lock or
-  // removal on the host cuts a live session off from the control plane within one request
-  // instead of waiting out the session's lifetime.
+  // removal on the host cuts a live session off within one request instead of waiting out the
+  // session's lifetime: the session is revoked (and a removed account erased) before the
+  // response, and the browser receives one uniform code that reveals nothing about which
+  // denial applied.
   const access = resolveAccess(session.user.email, cfg)
   if (access !== 'allowed') {
-    sendJson(res, 403, { error: access === 'locked' ? 'account_locked' : 'sign_in_not_permitted' })
+    logger.warn('console access denied by allowlist', { id: ctx.id, userId: session.user.id, access })
+    try {
+      await enforceDenial(await auth.$context, access, { id: session.user.id, email: session.user.email })
+    } catch (err) {
+      logger.error('allowlist enforcement failed', { id: ctx.id, userId: session.user.id, err })
+    }
+    sendJson(res, 403, { error: 'access_denied' })
     return true
   }
 

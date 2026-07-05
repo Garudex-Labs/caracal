@@ -6,7 +6,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 
 import { auth } from './auth.ts'
-import { resolveAccess } from './allowlist.ts'
+import { enforceDenial, resolveAccess } from './allowlist.ts'
 import { loadConfig } from './config.ts'
 
 const cfg = loadConfig()
@@ -69,11 +69,13 @@ export async function handleAccount(req: IncomingMessage, res: ServerResponse): 
     return true
   }
 
-  // A locked or removed entry keeps the account's data by contract, so self-deletion is denied
-  // alongside every other authenticated capability.
+  // Denials are enforced here exactly as on the console proxy: a lock keeps the account's data
+  // by contract (so self-deletion is refused), a removal erases the auth records, and the
+  // response code never reveals which case applied.
   const access = resolveAccess(session.user.email, cfg)
   if (access !== 'allowed') {
-    sendJson(res, 403, { error: access === 'locked' ? 'account_locked' : 'sign_in_not_permitted' })
+    await enforceDenial(await auth.$context, access, { id: session.user.id, email: session.user.email })
+    sendJson(res, 403, { error: 'access_denied' })
     return true
   }
 
