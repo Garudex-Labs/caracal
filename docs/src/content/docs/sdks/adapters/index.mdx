@@ -1,0 +1,48 @@
+---
+title: Framework Adapters
+description: Framework adapters for Caracal-protected resource servers.
+---
+
+Framework connectors adapt the lower-level identity and MCP auth transport packages to common server frameworks. Use them before reaching for lower-level verification APIs.
+
+## Connector Map
+
+| Connector | Package | Use it for |
+| --- | --- | --- |
+| [Express](/sdks/adapters/express/) | `@caracalai/express` | Protecting Express 5 routes with Caracal mandate verification. |
+| [ASGI](/sdks/adapters/asgi/) | `caracalai-asgi` | Protecting FastAPI, Starlette, and other Python ASGI apps with Caracal mandate verification. |
+| [FastMCP](/sdks/adapters/fastmcp/) | `@caracalai/fastmcp`, `caracalai-fastmcp` | Verifying FastMCP bearer tokens before tool execution. |
+| [Go net/http](/sdks/adapters/nethttp/) | `github.com/garudex-labs/caracal/packages/adapters/nethttp/go` | Protecting Go HTTP handlers. |
+
+## Choose a Verification Layer
+
+| Need | Use |
+| --- | --- |
+| Framework-neutral verification | [Verify Package](/sdks/verify/) |
+| Express route middleware | [Express Adapter](/sdks/adapters/express/) |
+| FastAPI/Starlette (ASGI) middleware | [ASGI Adapter](/sdks/adapters/asgi/) |
+| FastMCP tool/server authentication | [FastMCP Adapter](/sdks/adapters/fastmcp/) |
+| Go HTTP middleware | [Go net/http Adapter](/sdks/adapters/nethttp/) |
+| Shared revocation store | [Redis Revocation Store](/sdks/backends/redis/) |
+
+## Boundary Semantics
+
+Every HTTP connector maps verification failures through one canonical status function in `@caracalai/verify` (`httpStatusForAuthError` in TypeScript, `transportmcp.HTTPStatus` in Go), so the boundary behaves identically across frameworks and languages:
+
+- **401** - the credential itself was not accepted: `missing_token`, `invalid_token`, `invalid_zone`, `session_revoked`, `delegation_stale`.
+- **403** - the mandate verified but its authority is insufficient for the route: `insufficient_scope`, `agent_required`, `delegation_required`, `chain_mismatch`, `hop_count_exceeded`.
+
+Connectors never re-derive these status codes; they consume the shared mapping.
+
+## Related State Backends
+
+- [Redis Revocation Store](/sdks/backends/redis/)
+
+## Related Guides
+
+- [Verification Layer Overview](/sdks/verification-layer/)
+- [Protect an MCP Server](/guides/protect-mcp/)
+- [Protect an Express App](/guides/protect-express/)
+- [Protect a FastAPI App](/guides/protect-fastapi/)
+- [Protect a FastMCP App](/guides/protect-fastmcp/)
+- [Protect a Go net/http Service](/guides/protect-nethttp/)

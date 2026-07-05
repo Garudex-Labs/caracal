@@ -1,9 +1,9 @@
 ---
-title: ASGI Connector
+title: ASGI Adapter
 description: Pure ASGI middleware that verifies Caracal mandates for FastAPI, Starlette, and Quart resource servers.
 ---
 
-The ASGI connector protects any Python ASGI application - FastAPI, Starlette, Quart, Django ASGI - with fail-closed Caracal mandate verification. It is pure ASGI: it imports no web framework and delegates every check to [MCP Auth Transport](/sdks/verify/).
+The ASGI connector protects any Python ASGI application - FastAPI, Starlette, Quart, Django ASGI - with fail-closed Caracal mandate verification. It is pure ASGI: it imports no web framework and delegates every check to [Verify Package](/sdks/verify/).
 
 ## Install
 
@@ -64,5 +64,5 @@ The connector verifies inbound mandates; it does not create agent sessions or de
 ## Related pages
 
 - [Protect a FastAPI App](/guides/protect-fastapi/)
-- [MCP Auth Transport](/sdks/verify/)
+- [Verify Package](/sdks/verify/)
 - [Sessions and Revocation](/concepts/sessions-revocation/)
