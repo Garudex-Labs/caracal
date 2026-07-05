@@ -3,12 +3,12 @@ title: Protect a FastMCP App
 description: Attach CaracalAuth to a FastMCP server so tool calls are mandate-verified before handlers run.
 ---
 
-Use `caracalai-mcp-fastmcp` when a Python FastMCP app should reject invalid, expired, insufficient, or revoked Caracal mandates.
+Use `caracalai-fastmcp` when a Python FastMCP app should reject invalid, expired, insufficient, or revoked Caracal mandates.
 
 ## Install
 
 ```bash
-pip install "caracalai-mcp-fastmcp[fastmcp]" caracalai-revocation
+pip install "caracalai-fastmcp[fastmcp]" caracalai-revocation
 ```
 
 Use `caracalai-revocation-redis` for shared production revocation. The in-memory store is only for local development and tests.
@@ -16,7 +16,7 @@ Use `caracalai-revocation-redis` for shared production revocation. The in-memory
 ## Create an authenticator
 
 ```python
-from caracalai_mcp_fastmcp import CaracalAuth
+from caracalai_fastmcp import CaracalAuth
 from caracalai_revocation import InMemoryRevocationStore
 
 auth = CaracalAuth(
@@ -36,7 +36,7 @@ async def startup():
 ## Verify before running a tool
 
 ```python
-from caracalai_mcp_fastmcp import CaracalAuthError
+from caracalai_fastmcp import CaracalAuthError
 
 async def handle_tool_call(token: str, payload: dict):
     try:
