@@ -88,7 +88,10 @@ func TestServiceMethodsPropagateAPIErrors(t *testing.T) {
 			_, err := c.Applications.Patch(ctx, "z1", "a", map[string]any{})
 			return err
 		},
-		func(c *admin.AdminClient, ctx context.Context) error { _, err := c.Resources.Get(ctx, "z1", "r"); return err },
+		func(c *admin.AdminClient, ctx context.Context) error {
+			_, err := c.Resources.Get(ctx, "z1", "r")
+			return err
+		},
 		func(c *admin.AdminClient, ctx context.Context) error {
 			_, err := c.Resources.Create(ctx, "z1", map[string]any{})
 			return err
@@ -97,7 +100,10 @@ func TestServiceMethodsPropagateAPIErrors(t *testing.T) {
 			_, err := c.Resources.Patch(ctx, "z1", "r", map[string]any{})
 			return err
 		},
-		func(c *admin.AdminClient, ctx context.Context) error { _, err := c.Providers.Get(ctx, "z1", "p"); return err },
+		func(c *admin.AdminClient, ctx context.Context) error {
+			_, err := c.Providers.Get(ctx, "z1", "p")
+			return err
+		},
 		func(c *admin.AdminClient, ctx context.Context) error {
 			_, err := c.Providers.Create(ctx, "z1", map[string]any{})
 			return err
@@ -106,7 +112,10 @@ func TestServiceMethodsPropagateAPIErrors(t *testing.T) {
 			_, err := c.Providers.Patch(ctx, "z1", "p", map[string]any{})
 			return err
 		},
-		func(c *admin.AdminClient, ctx context.Context) error { _, err := c.Policies.Get(ctx, "z1", "p"); return err },
+		func(c *admin.AdminClient, ctx context.Context) error {
+			_, err := c.Policies.Get(ctx, "z1", "p")
+			return err
+		},
 		func(c *admin.AdminClient, ctx context.Context) error {
 			_, err := c.Policies.Create(ctx, "z1", map[string]any{})
 			return err
@@ -115,7 +124,10 @@ func TestServiceMethodsPropagateAPIErrors(t *testing.T) {
 			_, err := c.Policies.AddVersion(ctx, "z1", "p", "content", "")
 			return err
 		},
-		func(c *admin.AdminClient, ctx context.Context) error { _, err := c.PolicySets.Get(ctx, "z1", "s"); return err },
+		func(c *admin.AdminClient, ctx context.Context) error {
+			_, err := c.PolicySets.Get(ctx, "z1", "s")
+			return err
+		},
 		func(c *admin.AdminClient, ctx context.Context) error {
 			_, err := c.PolicySets.Create(ctx, "z1", "name", "")
 			return err
@@ -132,7 +144,10 @@ func TestServiceMethodsPropagateAPIErrors(t *testing.T) {
 			_, err := c.Policies.Validate(ctx, "content", "")
 			return err
 		},
-		func(c *admin.AdminClient, ctx context.Context) error { _, err := c.Grants.Get(ctx, "z1", "g"); return err },
+		func(c *admin.AdminClient, ctx context.Context) error {
+			_, err := c.Grants.Get(ctx, "z1", "g")
+			return err
+		},
 		func(c *admin.AdminClient, ctx context.Context) error {
 			_, err := c.Grants.Create(ctx, "z1", map[string]any{})
 			return err
@@ -157,7 +172,10 @@ func TestServiceMethodsPropagateAPIErrors(t *testing.T) {
 			_, err := c.StepUpChallenges.Approve(ctx, "z1", "ch", "")
 			return err
 		},
-		func(c *admin.AdminClient, ctx context.Context) error { _, err := c.Audit.Explain(ctx, "z1", "req"); return err },
+		func(c *admin.AdminClient, ctx context.Context) error {
+			_, err := c.Audit.Explain(ctx, "z1", "req")
+			return err
+		},
 	}
 	for index, call := range calls {
 		transport := &scripted{steps: []any{respond(http.StatusInternalServerError, `{"error":"boom"}`, nil)}}
