@@ -13,7 +13,7 @@ import { buildPatchUpdate, patchColumn } from './patch.js'
 import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
 import { zoneExists } from '../zone-guard.js'
 import { appendKeysetCondition, parseListPagination, setNextLink } from './list-pagination.js'
-import { resolveCreatedBy } from '../attribution.js'
+import { resolveAttribution } from '../attribution.js'
 
 const NAME_MAX_LENGTH = 200
 const RESOURCE_MAX_LENGTH = 500
@@ -74,7 +74,8 @@ function generateWorkloadSecret(): string {
   return `ws_${randomBytes(32).toString('base64url')}`
 }
 
-const WORKLOAD_SELECT = 'id, zone_id, name, bindings, created_at, updated_by, updated_at'
+const WORKLOAD_SELECT =
+  'id, zone_id, name, bindings, created_by, created_via_operator, created_at, updated_by, updated_via_operator, updated_at'
 
 // Reports whether another workload in the zone already uses the name, case-insensitively,
 // so launcher identities stay unambiguous. excludeId lets a rename skip the workload
@@ -135,11 +136,12 @@ export const workloadsRoutes: FastifyPluginAsync = async (fastify) => {
     }
     const secret = generateWorkloadSecret()
     const secretHash = await hashClientSecret(secret)
+    const attribution = await resolveAttribution(req, fastify.db, params.zoneId)
     const { rows } = await fastify.db.query<Record<string, unknown>>(
-      `INSERT INTO workloads (id, zone_id, name, secret_hash)
-       VALUES ($1, $2, $3, $4)
+      `INSERT INTO workloads (id, zone_id, name, secret_hash, created_by, created_via_operator)
+       VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING ${WORKLOAD_SELECT}`,
-      [uuidv7(), params.zoneId, parsed.data.name, secretHash],
+      [uuidv7(), params.zoneId, parsed.data.name, secretHash, attribution.actor, attribution.viaOperator],
     )
     return reply.code(201).send({ ...rows[0], secret })
   })
@@ -160,9 +162,15 @@ export const workloadsRoutes: FastifyPluginAsync = async (fastify) => {
       if ('error' in normalized) return reply.code(400).send(normalized.error)
       storedBindings = JSON.stringify(normalized.bindings)
     }
+    const attribution = await resolveAttribution(req, fastify.db, params.zoneId)
     const update = buildPatchUpdate(
       [params.id, params.zoneId],
-      [patchColumn('name', body.name), patchColumn('bindings', storedBindings), patchColumn('updated_by', resolveCreatedBy(req))],
+      [
+        patchColumn('name', body.name),
+        patchColumn('bindings', storedBindings),
+        patchColumn('updated_by', attribution.actor),
+        patchColumn('updated_via_operator', attribution.viaOperator),
+      ],
     )
     if (!update) return reply.code(400).send({ error: 'no_fields' })
     const { rows } = await fastify.db.query(
@@ -180,11 +188,12 @@ export const workloadsRoutes: FastifyPluginAsync = async (fastify) => {
     if (!params) return
     const secret = generateWorkloadSecret()
     const secretHash = await hashClientSecret(secret)
+    const attribution = await resolveAttribution(req, fastify.db, params.zoneId)
     const { rows } = await fastify.db.query(
-      `UPDATE workloads SET secret_hash = $3
+      `UPDATE workloads SET secret_hash = $3, updated_by = $4, updated_via_operator = $5, updated_at = now()
        WHERE id = $1 AND zone_id = $2
        RETURNING ${WORKLOAD_SELECT}`,
-      [params.id, params.zoneId, secretHash],
+      [params.id, params.zoneId, secretHash, attribution.actor, attribution.viaOperator],
     )
     if (!rows[0]) return reply.code(404).send({ error: 'workload_not_found' })
     return { ...rows[0], secret }

@@ -21,7 +21,7 @@ import { OPA_INPUT_SCHEMA_VERSION, validateAuthzPolicy, validatePolicySchemaVers
 import { appendKeysetCondition, parseListPagination, setNextLink } from './list-pagination.js'
 import type { Queryable } from '../db.js'
 import { withTransaction, TxAbort } from '../db.js'
-import { resolveCreatedBy, isOperatorOrigin, zoneCoauthorEnabled } from '../attribution.js'
+import { resolveAttribution } from '../attribution.js'
 
 const MANIFEST_MAX_ENTRIES = 256
 
@@ -70,7 +70,8 @@ export const policySetsRoutes: FastifyPluginAsync = async (fastify) => {
       'ps.id',
     )
     const { rows } = await fastify.db.query(
-      `SELECT ps.id, ps.zone_id, ps.name, ps.description, ps.created_by, ps.co_authored_by_operator, ps.created_at,
+      `SELECT ps.id, ps.zone_id, ps.name, ps.description, ps.created_by, ps.created_via_operator,
+              ps.updated_by, ps.updated_via_operator, ps.created_at, ps.updated_at,
               psb.active_version_id
        FROM policy_sets ps
        LEFT JOIN policy_set_bindings psb ON psb.policy_set_id = ps.id AND psb.zone_id = ps.zone_id
@@ -86,7 +87,8 @@ export const policySetsRoutes: FastifyPluginAsync = async (fastify) => {
     const params = parseParams(ZoneIdParams, req, reply)
     if (!params) return
     const { rows } = await fastify.db.query(
-      `SELECT ps.id, ps.zone_id, ps.name, ps.description, ps.created_by, ps.co_authored_by_operator, ps.created_at,
+      `SELECT ps.id, ps.zone_id, ps.name, ps.description, ps.created_by, ps.created_via_operator,
+              ps.updated_by, ps.updated_via_operator, ps.created_at, ps.updated_at,
               psb.active_version_id
        FROM policy_sets ps
        LEFT JOIN policy_set_bindings psb ON psb.policy_set_id = ps.id AND psb.zone_id = ps.zone_id
@@ -105,15 +107,14 @@ export const policySetsRoutes: FastifyPluginAsync = async (fastify) => {
     }
     const body = PolicySetBody.parse(req.body)
     const id = uuidv7()
-    const createdBy = resolveCreatedBy(req)
-    const coAuthored = isOperatorOrigin(req) && (await zoneCoauthorEnabled(fastify.db, params.zoneId))
+    const attribution = await resolveAttribution(req, fastify.db, params.zoneId)
 
     return withTransaction(fastify.db, async (client) => {
       const { rows } = await client.query(
-        `INSERT INTO policy_sets (id, zone_id, name, description, created_by, co_authored_by_operator)
+        `INSERT INTO policy_sets (id, zone_id, name, description, created_by, created_via_operator)
          VALUES ($1, $2, $3, $4, $5, $6)
-         RETURNING id, zone_id, name, description, created_by, co_authored_by_operator, created_at`,
-        [id, params.zoneId, body.name, body.description ?? null, createdBy, coAuthored],
+         RETURNING id, zone_id, name, description, created_by, created_via_operator, updated_by, updated_via_operator, created_at, updated_at`,
+        [id, params.zoneId, body.name, body.description ?? null, attribution.actor, attribution.viaOperator],
       )
       await client.query(
         `INSERT INTO policy_set_bindings (zone_id, policy_set_id)
@@ -140,6 +141,7 @@ export const policySetsRoutes: FastifyPluginAsync = async (fastify) => {
     const contractErr = await policySetContractError(fastify.db, params.zoneId, body.manifest, body.schema_version)
     if (contractErr) return reply.code(422).send({ error: 'invalid_policy_contract', detail: contractErr })
 
+    const attribution = await resolveAttribution(req, fastify.db, params.zoneId)
     return withTransaction(fastify.db, async (client) => {
       await client.query(`SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`, [params.id])
       const manifestJSON = JSON.stringify(body.manifest)
@@ -151,10 +153,14 @@ export const policySetsRoutes: FastifyPluginAsync = async (fastify) => {
            SELECT COALESCE(MAX(version), 0) + 1 AS v
            FROM policy_set_versions WHERE policy_set_id = $2
          )
-         INSERT INTO policy_set_versions (id, policy_set_id, version, manifest_json, manifest_sha256, schema_version, created_by)
-         SELECT $1, $2, next.v, $3::jsonb, $4, $5, $6 FROM next
+         INSERT INTO policy_set_versions (id, policy_set_id, version, manifest_json, manifest_sha256, schema_version, created_by, created_via_operator)
+         SELECT $1, $2, next.v, $3::jsonb, $4, $5, $6, $7 FROM next
          RETURNING id, policy_set_id, version, manifest_sha256, schema_version, created_at`,
-        [versionId, params.id, manifestJSON, manifestSHA, body.schema_version, req.actor.name],
+        [versionId, params.id, manifestJSON, manifestSHA, body.schema_version, attribution.actor, attribution.viaOperator],
+      )
+      await client.query(
+        `UPDATE policy_sets SET updated_by = $3, updated_via_operator = $4, updated_at = now() WHERE id = $1 AND zone_id = $2`,
+        [params.id, params.zoneId, attribution.actor, attribution.viaOperator],
       )
       return reply.code(201).send({ version_id: rows[0].id, ...rows[0] })
     })
@@ -228,6 +234,7 @@ export const policySetsRoutes: FastifyPluginAsync = async (fastify) => {
       if (shadowErr) return reply.code(422).send({ error: 'invalid_shadow_policy_contract', detail: shadowErr })
     }
 
+    const attribution = await resolveAttribution(req, fastify.db, params.zoneId)
     const outboxId = await withTransaction(fastify.db, async (client) => {
       const referencedIds = collectManifestIds(vRows[0].manifest_json)
       if (body.shadow_version_id) {
@@ -257,6 +264,10 @@ export const policySetsRoutes: FastifyPluginAsync = async (fastify) => {
       if (!rowCount) {
         throw new TxAbort(reply.code(404).send({ error: 'policy_set_binding_not_found' }))
       }
+      await client.query(
+        `UPDATE policy_sets SET updated_by = $3, updated_via_operator = $4, updated_at = now() WHERE id = $1 AND zone_id = $2`,
+        [params.id, params.zoneId, attribution.actor, attribution.viaOperator],
+      )
       return enqueueOutbox(client, {
         streamName: STREAM_POLICY_INVALIDATE,
         payload: {
@@ -369,10 +380,11 @@ export const policySetsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.delete('/zones/:zoneId/policy-sets/:id', async (req, reply) => {
     const params = parseParams(ZoneIdParams, req, reply)
     if (!params) return
+    const attribution = await resolveAttribution(req, fastify.db, params.zoneId)
     const { rowCount } = await fastify.db.query(
-      `UPDATE policy_sets SET archived_at = now(), updated_at = now()
+      `UPDATE policy_sets SET archived_at = now(), updated_at = now(), updated_by = $3, updated_via_operator = $4
        WHERE id = $1 AND zone_id = $2 AND archived_at IS NULL`,
-      [params.id, params.zoneId],
+      [params.id, params.zoneId, attribution.actor, attribution.viaOperator],
     )
     if (!rowCount) return reply.code(404).send({ error: 'policy_set_not_found' })
     return reply.code(204).send()

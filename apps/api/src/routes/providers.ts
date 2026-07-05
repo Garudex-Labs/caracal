@@ -7,7 +7,8 @@ import type { FastifyBaseLogger, FastifyInstance, FastifyPluginAsync } from 'fas
 import { loadZoneKek, seal } from '@caracalai/server-core'
 import { z } from 'zod'
 import { v7 as uuidv7 } from 'uuid'
-import { buildPatchUpdate, patchColumn, patchExpression } from './patch.js'
+import { buildPatchUpdate, patchColumn, patchExpression, appendAttribution } from './patch.js'
+import { resolveAttribution } from '../attribution.js'
 import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
 import { zoneExists } from '../zone-guard.js'
 import { appendKeysetCondition, parseListPagination, setNextLink } from './list-pagination.js'
@@ -393,7 +394,8 @@ function requireExistingOAuthSecret(
 }
 
 const RETURNING = `id, zone_id, name, identifier, provider_kind AS kind,
-                  config_json, secret_config_keys, connectivity_failed_at, created_at, updated_at`
+                  config_json, secret_config_keys, connectivity_failed_at,
+                  created_by, created_via_operator, updated_by, updated_via_operator, created_at, updated_at`
 
 // Connectivity checks against OAuth token endpoints reach outside the platform, so they
 // are capped per zone per minute to keep the control plane from being used as a request
@@ -621,13 +623,15 @@ export const providersRoutes: FastifyPluginAsync = async (fastify) => {
     }
     const reservedErr = assertReservedNamespace('providerIdentifier', identifier, req.actor)
     if (reservedErr) return reply.code(409).send(reservedErr)
+    const attribution = await resolveAttribution(req, fastify.db, params.zoneId)
     for (let attempt = 0; attempt < 3; attempt++) {
       const id = uuidv7()
       try {
         const { rows } = await fastify.db.query<ProviderRow>(
           `INSERT INTO providers (id, zone_id, name, identifier, provider_kind, config_json,
-                                  secret_config_ct, secret_config_nonce, secret_config_keys, connectivity_failed_at)
-           VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $10)
+                                  secret_config_ct, secret_config_nonce, secret_config_keys, connectivity_failed_at,
+                                  created_by, created_via_operator)
+           VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $10, $11, $12)
            RETURNING ${RETURNING}`,
           [
             id,
@@ -640,6 +644,8 @@ export const providersRoutes: FastifyPluginAsync = async (fastify) => {
             sealed?.nonce ?? null,
             config.secretKeys,
             connectivityFailedAt,
+            attribution.actor,
+            attribution.viaOperator,
           ],
         )
         return reply.code(201).send(rows[0])
@@ -708,6 +714,7 @@ export const providersRoutes: FastifyPluginAsync = async (fastify) => {
       ],
     )
     if (!update) return reply.code(400).send({ error: 'no_fields' })
+    appendAttribution(update, await resolveAttribution(req, fastify.db, params.zoneId))
     let rows: ProviderRow[]
     try {
       const result = await fastify.db.query<ProviderRow>(
@@ -728,10 +735,11 @@ export const providersRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.delete('/zones/:zoneId/providers/:id', async (req, reply) => {
     const params = parseParams(ZoneIdParams, req, reply)
     if (!params) return
+    const attribution = await resolveAttribution(req, fastify.db, params.zoneId)
     const { rowCount } = await fastify.db.query(
-      `UPDATE providers SET archived_at = now(), updated_at = now()
+      `UPDATE providers SET archived_at = now(), updated_at = now(), updated_by = $3, updated_via_operator = $4
        WHERE id = $1 AND zone_id = $2 AND archived_at IS NULL`,
-      [params.id, params.zoneId],
+      [params.id, params.zoneId, attribution.actor, attribution.viaOperator],
     )
     if (!rowCount) return reply.code(404).send({ error: 'provider_not_found' })
     return reply.code(204).send()
