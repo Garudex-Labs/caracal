@@ -11,6 +11,7 @@ import {
   resolveCreatedBy,
   isOperatorOrigin,
   zoneCoauthorEnabled,
+  resolveAttribution,
 } from '../../../../apps/api/src/attribution.js'
 import type { Queryable } from '../../../../apps/api/src/db.js'
 
@@ -80,5 +81,47 @@ describe('zoneCoauthorEnabled', () => {
 
   it('defaults on when the zone row is missing', async () => {
     expect(await zoneCoauthorEnabled(db([]), 'z1')).toBe(true)
+  })
+})
+
+describe('resolveAttribution', () => {
+  function db(rows: { operator_coauthor_badge: boolean }[], calls?: { count: number }): Queryable {
+    return {
+      query: async () => {
+        if (calls) calls.count += 1
+        return { rows }
+      },
+    } as unknown as Queryable
+  }
+
+  it('stamps the actor without touching the zone setting for a non-operator mutation', async () => {
+    const calls = { count: 0 }
+    const attribution = await resolveAttribution(makeReq({ account: { id: 'op-1', name: 'Monica Hall' } }), db([], calls), 'z1')
+    expect(attribution).toEqual({ actor: 'Monica Hall', viaOperator: false })
+    expect(calls.count).toBe(0)
+  })
+
+  it('stamps operator involvement when the zone attribution setting is on', async () => {
+    const req = makeReq({
+      headers: { [CREATED_VIA_HEADER]: 'operator', [AUTHORIZED_BY_HEADER]: 'Richard Hendricks' },
+    })
+    const attribution = await resolveAttribution(req, db([{ operator_coauthor_badge: true }]), 'z1')
+    expect(attribution).toEqual({ actor: 'Richard Hendricks', viaOperator: true })
+  })
+
+  it('suppresses the operator stamp when the zone attribution setting is off', async () => {
+    const req = makeReq({
+      headers: { [CREATED_VIA_HEADER]: 'operator', [AUTHORIZED_BY_HEADER]: 'Richard Hendricks' },
+    })
+    const attribution = await resolveAttribution(req, db([{ operator_coauthor_badge: false }]), 'z1')
+    expect(attribution).toEqual({ actor: 'Richard Hendricks', viaOperator: false })
+  })
+
+  it('stamps operator involvement without a zone lookup for global objects', async () => {
+    const calls = { count: 0 }
+    const req = makeReq({ headers: { [CREATED_VIA_HEADER]: 'operator' }, actorName: 'operator' })
+    const attribution = await resolveAttribution(req, db([], calls), null)
+    expect(attribution).toEqual({ actor: 'operator', viaOperator: true })
+    expect(calls.count).toBe(0)
   })
 })

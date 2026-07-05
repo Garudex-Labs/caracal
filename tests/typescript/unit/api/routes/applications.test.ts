@@ -564,7 +564,7 @@ describe('POST /v1/zones/:zoneId/applications/:id/rotate-secret', () => {
     expect(JSON.parse(res.body)).toMatchObject({ id: 'app-1', client_secret: expect.stringMatching(/^cs_[A-Za-z0-9_-]+$/) })
     const updateCall = db.query.mock.calls[0]
     expect(String(updateCall[0])).toContain('SET client_secret_hash')
-    expect(updateCall[1]).toEqual(['app-1', 'z1', expect.any(String)])
+    expect(updateCall[1]).toEqual(['app-1', 'z1', expect.any(String), 'operator', false])
   })
 
   it('returns 404 when rotating a missing application', async () => {
