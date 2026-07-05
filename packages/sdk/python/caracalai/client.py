@@ -8,6 +8,7 @@ Caracal: drop-in bound client wrapping zone, application, subject token, and coo
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import json
 import os
 import sys
@@ -380,6 +381,35 @@ def _production_env(env: Mapping[str, str]) -> bool:
     return env.get("CARACAL_ENV") == "production"
 
 
+def _is_loopback_host(host: str | None) -> bool:
+    if host is None:
+        return False
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def _assert_production_transport(
+    name: str, value: str | None, env: Mapping[str, str]
+) -> None:
+    if not value or not _production_env(env):
+        return
+    if env.get("CARACAL_ALLOW_INSECURE_CONFIG_URLS") == "true":
+        return
+    parsed = urlparse(value)
+    if parsed.scheme == "https":
+        return
+    if parsed.scheme == "http" and _is_loopback_host(parsed.hostname):
+        return
+    raise RuntimeError(
+        f"Caracal SDK: {name} must use https in production; http is limited "
+        "to loopback hosts unless CARACAL_ALLOW_INSECURE_CONFIG_URLS=true"
+    )
+
+
 def _default_ttl_from_env(env: Mapping[str, str]) -> int | None:
     raw = env.get("CARACAL_DEFAULT_TTL_SECONDS")
     if not raw:
@@ -629,6 +659,7 @@ def _config_from_env(env: Mapping[str, str] | None = None) -> CaracalConfig:
             ],
             gateway_url=gateway_url,
             default_ttl_seconds=default_ttl,
+            env=e,
         )
 
     if not subject_token:
@@ -636,6 +667,8 @@ def _config_from_env(env: Mapping[str, str] | None = None) -> CaracalConfig:
             "Caracal.from_env: provide CARACAL_APP_CLIENT_SECRET or CARACAL_SUBJECT_TOKEN"
         )
     _validate_subject_token(subject_token)
+    _assert_production_transport("CARACAL_COORDINATOR_URL", coordinator_url, e)
+    _assert_production_transport("CARACAL_GATEWAY_URL", gateway_url, e)
     return CaracalConfig(
         coordinator=CoordinatorClient(base_url=coordinator_url),
         zone_id=zone_id,
@@ -660,7 +693,9 @@ def _config_from_client_secret(
     scope: str = "agent:lifecycle",
     default_ttl_seconds: int | None = None,
     http_client: httpx.Client | None = None,
+    env: Mapping[str, str] | None = None,
 ) -> CaracalConfig:
+    transport_env = env if env is not None else os.environ
     if credentials is not None and (zone_id or application_id or client_secret):
         raise ValueError(
             "Caracal.from_client_secret: pass either credentials or the "
@@ -680,6 +715,9 @@ def _config_from_client_secret(
         raise ValueError(
             "Caracal.from_client_secret: default_ttl_seconds must be a positive integer"
         )
+    _assert_production_transport("coordinator_url", coordinator_url, transport_env)
+    _assert_production_transport("sts_url", sts_url, transport_env)
+    _assert_production_transport("gateway_url", gateway_url, transport_env)
     bindings: list[ResourceBinding] = []
     resource_ids: list[str] = []
     for r in resources or []:
@@ -796,6 +834,7 @@ def _config_from_file(
         resources=resources,
         gateway_url=gateway_url,
         default_ttl_seconds=default_ttl,
+        env=e,
     )
 
 

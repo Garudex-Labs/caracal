@@ -556,6 +556,7 @@ services:
       REDIS_URL_FILE: /run/secrets/redisUrl
       STS_URL: http://sts:8080
       ISSUER_URL: ${CARACAL_STS_ISSUER_URL:-http://sts:8080}
+      CARACAL_ALLOW_INSECURE_CONFIG_URLS: "true"
       STREAMS_HMAC_KEY_FILE: /run/secrets/streamsHmacKey
       CARACAL_COORDINATOR_TOKEN_FILE: /run/secrets/caracalCoordinatorToken
       AGENT_COORDINATOR_SCOPE: agent:lifecycle

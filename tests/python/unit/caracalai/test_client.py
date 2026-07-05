@@ -122,6 +122,43 @@ class FromEnvTests(unittest.TestCase):
                 }
             )
 
+    def test_production_restricts_http_urls_to_loopback_or_override(self) -> None:
+        base = {
+            "CARACAL_ENV": "production",
+            "CARACAL_ZONE_ID": "z",
+            "CARACAL_APPLICATION_ID": "app",
+            "CARACAL_SUBJECT_TOKEN": "tok",
+            "CARACAL_STS_URL": "https://sts.internal",
+            "CARACAL_GATEWAY_URL": "https://gateway.internal",
+        }
+        with self.assertRaisesRegex(RuntimeError, "must use https"):
+            Caracal.from_env(
+                base | {"CARACAL_COORDINATOR_URL": "http://coordinator.internal:4000"}
+            )
+        Caracal.from_env(base | {"CARACAL_COORDINATOR_URL": "http://127.0.0.1:4000"})
+        Caracal.from_env(
+            base
+            | {
+                "CARACAL_COORDINATOR_URL": "http://coordinator.internal:4000",
+                "CARACAL_ALLOW_INSECURE_CONFIG_URLS": "true",
+            }
+        )
+
+    def test_production_client_secret_requires_https_sts(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "sts_url must use https"):
+            Caracal.from_env(
+                {
+                    "CARACAL_ENV": "production",
+                    "CARACAL_COORDINATOR_URL": "https://coordinator.internal",
+                    "CARACAL_GATEWAY_URL": "https://gateway.internal",
+                    "CARACAL_ZONE_ID": "z",
+                    "CARACAL_APPLICATION_ID": "app",
+                    "CARACAL_APP_CLIENT_SECRET": "secret",
+                    "CARACAL_STS_URL": "http://sts.internal:8080",
+                    "CARACAL_RESOURCES": "calendar=https://api.example.com/v1",
+                }
+            )
+
     def test_client_secret_env_rejects_conflicting_sources(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "only one"):
             Caracal.from_env(
