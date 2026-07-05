@@ -71,8 +71,8 @@ function errorMessage(error: unknown): string {
 // when the optimistic pre-check could not see the clients (status fetch failed or raced).
 function liveDcrFromError(error: unknown): number | null {
   if (error instanceof ConsoleApiError && error.code === "dcr_shutdown_required") {
-    const detail = error.detail as { live_dcr_applications?: unknown } | undefined;
-    const count = detail?.live_dcr_applications;
+    const body = error.detail as { details?: { live_dcr_applications?: unknown } } | undefined;
+    const count = body?.details?.live_dcr_applications;
     return typeof count === "number" ? count : 0;
   }
   return null;

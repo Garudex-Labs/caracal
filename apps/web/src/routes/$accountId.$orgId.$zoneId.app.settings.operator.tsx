@@ -63,7 +63,9 @@ function checkErrorMessage(err: unknown): string {
     if (err.code === "ai_unreachable") {
       // Surface the upstream's own status so a rejected key (401/403) reads differently from a
       // wrong endpoint (404) or an unreachable host, rather than one ambiguous message.
-      const attempts = (err.detail as { attempts?: { reason?: string }[] } | undefined)?.attempts;
+      const attempts = (
+        err.detail as { details?: { attempts?: { reason?: string }[] } } | undefined
+      )?.details?.attempts;
       const reason = attempts?.[0]?.reason ?? "";
       const status = reason.match(/status (\d{3})/)?.[1];
       if (status === "401" || status === "403")

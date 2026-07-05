@@ -322,7 +322,8 @@ function ProvidersPage({ zoneId, zoneName }: { zoneId: string; zoneName: string 
             }
           } catch (err) {
             if (err instanceof ConsoleApiError && err.code === "provider_check_failed") {
-              const check = (err.detail as { check?: ProviderTestResult } | undefined)?.check;
+              const check = (err.detail as { details?: { check?: ProviderTestResult } } | undefined)
+                ?.details?.check;
               if (check) return check;
             }
             toast({
