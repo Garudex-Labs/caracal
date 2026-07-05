@@ -59,16 +59,12 @@ describe('admin audit hook', () => {
     expect(params[17]).toBe(1)
   })
 
-  it('records the verified console operator profile alongside the credential actor', async () => {
+  it('records the verified console profile id alongside the credential actor', async () => {
     const captured: Captured[] = []
     const app = Fastify({ logger: false })
     registerAdminAuditHook(app, { db: makeDb(captured) })
     app.addHook('preHandler', async (req) => {
-      ;(req as unknown as { account: unknown }).account = {
-        id: 'acct-1',
-        name: 'Richard Hendricks',
-        email: 'richard.hendricks@piedpiper.example',
-      }
+      ;(req as unknown as { account: unknown }).account = { id: 'acct-1' }
     })
     app.put('/v1/zones/:zoneId/applications/:id/run-manifest', async () => ({ ok: true }))
     await app.inject({
@@ -80,7 +76,7 @@ describe('admin audit hook', () => {
     const ins = insertCall(captured)
     expect(ins).toBeDefined()
     const payload = ins!.params![12] as Record<string, unknown>
-    expect(payload.operator).toBe('Richard Hendricks')
+    expect(payload.operator).toBe('acct-1')
     expect(ins!.params![9]).toBe('applications')
     expect(ins!.params![10]).toBe('app-1')
   })
