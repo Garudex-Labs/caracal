@@ -6,17 +6,30 @@ pageType: reference
 
 STS is the authority issuance boundary. It authenticates applications, validates sessions and delegated authority, evaluates policies, handles step-up challenges, and returns scoped mandate JWTs.
 
-## Runtime
+## Endpoints
 
-| Property | Value |
+STS listens on port `8080`.
+
+| Method and path | Purpose |
 | --- | --- |
-| Port | `8080` |
-| Token exchange | `POST /oauth/2/token` |
-| JWKS | `GET /.well-known/jwks.json?zone_id={zone}` |
-| Step-up hold state and decision | `GET /step-up/{id}`, `POST /step-up/{id}/decision` |
-| Health/readiness | `GET /health`, `GET /ready` |
-| Metrics | `GET /metrics`, `GET /metrics.json` |
-| Internal policy simulation | `POST /internal/policy/simulate` |
+| `POST /oauth/2/token` | Token exchange that issues mandates. |
+| `POST /v1/run/manifest` | Binding manifest for `caracal run` workloads. |
+| `POST /v1/run/credential` | Credential minting for `caracal run` workloads. |
+| `GET /.well-known/jwks.json?zone_id={zone}` | Public signing keys. |
+| `GET /step-up/{id}` | Step-up hold status. |
+| `POST /step-up/{id}/decision` | Step-up approval or rejection. |
+| `GET /health`, `GET /ready` | Liveness and readiness. |
+| `GET /metrics`, `GET /metrics.json` | Service metrics. |
+
+### Internal Endpoints
+
+Only other Caracal services call these routes. Do not expose them to workloads or the public network.
+
+| Method and path | Purpose |
+| --- | --- |
+| `POST /internal/policy/simulate` | Policy-set simulation for the API service. |
+| `GET /internal/policy/status/{zoneID}` | Policy activation status for the API service. |
+| `POST /internal/zones/{zoneID}/signing-key/rotate` | Zone signing-key rotation for the API service. |
 
 ## Dependencies
 

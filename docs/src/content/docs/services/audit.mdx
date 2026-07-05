@@ -16,6 +16,8 @@ Audit consumes signed audit events from Redis, verifies integrity, writes append
 | Search | `GET /api/audit/search` |
 | DLQ | `GET /api/audit/dlq`, `GET /api/audit/dlq/{id}`, `POST /api/audit/dlq/replay` |
 
+Search and DLQ routes require the `AUDIT_ADMIN_TOKEN` bearer. When the token is not configured, these routes return `404`. For zone-scoped audit reads with admin tokens, use `GET /v1/zones/:zoneId/audit` on the API service (port `3000`) instead; see [Use Management API](/api/control-plane/).
+
 ## Consumer Behavior
 
 Audit consumes `caracal.audit.events` with the `audit-ingestor` consumer group. On startup it drains pending entries for its consumer, periodically claims orphaned entries, retries until `AUDIT_MAX_DELIVERIES`, and moves permanent failures to `caracal.audit.events.dlq`.

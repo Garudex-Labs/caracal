@@ -1,14 +1,22 @@
 ---
 title: Admin Package
-description: TypeScript client for the Caracal Admin API and Coordinator management surfaces.
+description: Automation clients for the Caracal Admin API and Coordinator management surfaces in TypeScript, Python, and Go.
 ---
 
-`@caracalai/admin` is the automation client for control-plane objects. It mirrors Console management workflows for scripts and services.
+The admin package is the automation client for control-plane objects. It mirrors Console management workflows for scripts and services, and ships in three languages: `@caracalai/admin` (TypeScript), `caracalai-admin` (Python), and `github.com/garudex-labs/caracal/packages/admin/go` (Go).
 
 ## Install
 
 ```bash
 npm install @caracalai/admin
+```
+
+```bash
+pip install caracalai-admin
+```
+
+```bash
+go get github.com/garudex-labs/caracal/packages/admin/go
 ```
 
 ## Create a client
@@ -25,6 +33,32 @@ const admin = new AdminClient({
 ```
 
 `apiUrl` and `adminToken` are required for API-backed resources. `coordinatorUrl` and `coordinatorToken` are required for agent and delegation methods.
+
+Python:
+
+```python
+from caracalai_admin import AdminClient
+
+admin = AdminClient(
+    api_url=os.environ["CARACAL_API_URL"],
+    admin_token=os.environ["CARACAL_ADMIN_TOKEN"],
+    coordinator_url=os.environ.get("CARACAL_COORDINATOR_URL"),
+    coordinator_token=os.environ.get("CARACAL_COORDINATOR_TOKEN"),
+)
+```
+
+Go:
+
+```go
+import admin "github.com/garudex-labs/caracal/packages/admin/go"
+
+client := admin.NewAdminClient(admin.AdminClientOptions{
+    APIURL:           os.Getenv("CARACAL_API_URL"),
+    AdminToken:       os.Getenv("CARACAL_ADMIN_TOKEN"),
+    CoordinatorURL:   os.Getenv("CARACAL_COORDINATOR_URL"),
+    CoordinatorToken: os.Getenv("CARACAL_COORDINATOR_TOKEN"),
+})
+```
 
 ## API groups
 
@@ -46,6 +80,8 @@ const admin = new AdminClient({
 | `stepUpChallenges` | `list`, `get`, `approve`, `reject` |
 | `agents` | `list`, `get`, `children`, `suspend`, `resume`, `terminate`, `effectiveAuthority` |
 | `delegations` | `active`, `inbound`, `outbound`, `traverse`, `impact`, `revoke` |
+
+The same groups exist in every language with idiomatic naming: `admin.policySets.addVersion(...)` in TypeScript is `admin.policy_sets.add_version(...)` in Python and `client.PolicySets.AddVersion(...)` in Go.
 
 ## Policy activation example
 
@@ -133,7 +169,7 @@ Rotation is rejected with `client_secret_not_configured` if the application has 
 
 ## Error handling
 
-Failed HTTP responses throw `AdminApiError` with `status`, `code`, parsed response details, and the base surface (`api` or `coordinator`). Non-idempotent write methods are not retried; read methods retry transient statuses.
+Failed HTTP responses throw `AdminApiError` (TypeScript and Python) or return `*AdminAPIError` (Go) with `status`, `code`, parsed response details, and the base surface (`api` or `coordinator`). Non-idempotent write methods are not retried; read methods retry transient statuses.
 
 ## Boundary
 
