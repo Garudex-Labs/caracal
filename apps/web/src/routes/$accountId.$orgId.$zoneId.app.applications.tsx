@@ -16,6 +16,7 @@ import {
   DetailSection,
   ResourceWorkspace,
 } from "@/components/console/ResourceWorkspace";
+import { CreatedBy } from "@/components/console/CreatedBy";
 import type { FilterGroup } from "@/components/ui";
 import { SecretModal, type RevealedSecret } from "@/components/console/SecretModal";
 import { ZoneScopedPage } from "@/components/console/ZoneScope";
@@ -484,7 +485,17 @@ function IdentitySection({
       <DetailField label="Application ID">
         <CopyValue value={app.id} />
       </DetailField>
+      {app.created_by ? (
+        <DetailField label="Created by">
+          <CreatedBy name={app.created_by} coAuthored={app.created_via_operator} />
+        </DetailField>
+      ) : null}
       <DetailField label="Created">{new Date(app.created_at).toLocaleString()}</DetailField>
+      {app.updated_by ? (
+        <DetailField label="Updated by">
+          <CreatedBy name={app.updated_by} coAuthored={app.updated_via_operator} />
+        </DetailField>
+      ) : null}
       {(app.traits ?? []).length > 0 ? (
         <DetailField label="Traits">
           <span className="flex flex-wrap gap-1.5">

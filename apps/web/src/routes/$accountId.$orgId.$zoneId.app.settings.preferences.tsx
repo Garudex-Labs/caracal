@@ -135,6 +135,15 @@ function PreferencesPage() {
             />
           )}
         </div>
+        {retention.data?.updated_by ? (
+          <p className="mt-2 text-xs text-muted-foreground">
+            Last set by {retention.data.updated_by}
+            {retention.data.updated_at
+              ? ` on ${new Date(retention.data.updated_at).toLocaleString()}`
+              : ""}
+            .
+          </p>
+        ) : null}
       </SettingsGroup>
 
       <ConfirmModal

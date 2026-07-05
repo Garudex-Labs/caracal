@@ -483,9 +483,14 @@ function PolicySetInspector({
         <DetailField label="Name">{policySet.name}</DetailField>
         <DetailField label="Description">{policySet.description ?? "-"}</DetailField>
         <DetailField label="Created by">
-          <CreatedBy name={policySet.created_by} coAuthored={policySet.co_authored_by_operator} />
+          <CreatedBy name={policySet.created_by} coAuthored={policySet.created_via_operator} />
         </DetailField>
         <DetailField label="Created">{new Date(policySet.created_at).toLocaleString()}</DetailField>
+        {policySet.updated_by ? (
+          <DetailField label="Updated by">
+            <CreatedBy name={policySet.updated_by} coAuthored={policySet.updated_via_operator} />
+          </DetailField>
+        ) : null}
       </DetailGroup>
 
       <ActiveManifest zoneId={zoneId} policySet={policySet} policies={policies} />
@@ -1232,9 +1237,14 @@ function PolicyInspector({
         <DetailField label="Name">{policy.name}</DetailField>
         <DetailField label="Description">{policy.description ?? "-"}</DetailField>
         <DetailField label="Created by">
-          <CreatedBy name={policy.created_by} coAuthored={policy.co_authored_by_operator} />
+          <CreatedBy name={policy.created_by} coAuthored={policy.created_via_operator} />
         </DetailField>
         <DetailField label="Created">{new Date(policy.created_at).toLocaleString()}</DetailField>
+        {policy.updated_by ? (
+          <DetailField label="Updated by">
+            <CreatedBy name={policy.updated_by} coAuthored={policy.updated_via_operator} />
+          </DetailField>
+        ) : null}
       </DetailGroup>
 
       <section className="border-t border-border pt-4">

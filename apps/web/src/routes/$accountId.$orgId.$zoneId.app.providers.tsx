@@ -8,6 +8,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 
 import { ProviderFormModal, TEST_STATUS } from "@/components/console/ProviderForm";
+import { CreatedBy } from "@/components/console/CreatedBy";
 import {
   CopyValue,
   DangerZone,
@@ -445,7 +446,17 @@ function ProviderDetail({
           <CopyValue value={provider.id} />
         </DetailField>
         <DetailField label="Type">{KIND_LABEL[provider.kind]}</DetailField>
+        {provider.created_by ? (
+          <DetailField label="Created by">
+            <CreatedBy name={provider.created_by} coAuthored={provider.created_via_operator} />
+          </DetailField>
+        ) : null}
         <DetailField label="Created">{new Date(provider.created_at).toLocaleString()}</DetailField>
+        {provider.updated_by ? (
+          <DetailField label="Updated by">
+            <CreatedBy name={provider.updated_by} coAuthored={provider.updated_via_operator} />
+          </DetailField>
+        ) : null}
         {provider.updated_at && provider.updated_at !== provider.created_at ? (
           <DetailField label="Updated">
             {new Date(provider.updated_at).toLocaleString()}
