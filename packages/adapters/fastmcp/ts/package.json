@@ -1,7 +1,7 @@
 {
   "name": "@caracalai/fastmcp",
   "version": "0.1.6-rc.3",
-  "description": "Caracal MCP authentication adapter for FastMCP.",
+  "description": "Caracal mandate verification adapter for FastMCP.",
   "license": "Apache-2.0",
   "homepage": "https://github.com/Garudex-Labs/caracal",
   "repository": {
@@ -11,9 +11,9 @@
   },
   "keywords": [
     "caracal",
-    "mcp",
     "fastmcp",
-    "connector"
+    "adapter",
+    "verification"
   ],
   "type": "module",
   "engines": {
