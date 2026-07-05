@@ -275,11 +275,12 @@ services:
     # before rollout. Set "true" only for a single-replica install with no migration Job.
     autoMigrate: "false"
     # Additional environment entries for the auth tier, rendered verbatim into the container.
-    # Use these to configure operator registration (CARACAL_OPERATOR_EMAILS,
+    # Use these to configure registration posture (CARACAL_OPEN_REGISTRATION,
     # CARACAL_PASSWORD_SIGNUP), social sign-in (GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET,
     # GITHUB_CLIENT_ID/GITHUB_CLIENT_SECRET), and mail delivery for password reset and
-    # verification (CARACAL_SMTP_URL, CARACAL_SMTP_FROM). Reference credentials with
-    # valueFrom.secretKeyRef rather than inline values.
+    # verification (CARACAL_SMTP_URL, CARACAL_SMTP_FROM). Console sign-in admission is the
+    # operatorAllowlist.json key on the runtime secret, projected read-only into the pod.
+    # Reference credentials with valueFrom.secretKeyRef rather than inline values.
     extraEnv: []
     resources:
       requests:

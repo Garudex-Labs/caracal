@@ -493,7 +493,7 @@ services:
       CARACAL_AUTH_AUTO_MIGRATE: "true"
       CARACAL_AUTH_URL: ${CARACAL_WEB_URL:-http://localhost:3001}
       CARACAL_WEB_ORIGIN: ${CARACAL_WEB_ORIGIN:-}
-      CARACAL_OPERATOR_EMAILS: ${CARACAL_OPERATOR_EMAILS:-}
+      CARACAL_OPERATOR_ALLOWLIST_FILE: /run/caracalHostSecrets/operatorAllowlist.json
       CARACAL_OPEN_REGISTRATION: ${CARACAL_OPEN_REGISTRATION:-}
       CARACAL_PASSWORD_SIGNUP: ${CARACAL_PASSWORD_SIGNUP:-}
       CARACAL_SMTP_URL: ${CARACAL_SMTP_URL:-}
@@ -509,6 +509,12 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       PORT: 3002
       HOST: 0.0.0.0
+    # The allowlist file is written by `caracal allowlist` on the host, often after the stack is
+    # already up, so it arrives through a directory bind rather than a compose secret, whose
+    # file source must exist at start. Only the allowlist subdirectory is mounted, read-only,
+    # so the container never sees sibling host secrets and cannot change admission policy.
+    volumes:
+      - ${CARACAL_SECRETS_DIR:-./secrets}/allowlist:/run/caracalHostSecrets:ro
     ports:
       - "127.0.0.1:3001:3002"
     healthcheck:
