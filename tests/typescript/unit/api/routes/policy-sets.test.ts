@@ -43,7 +43,7 @@ describe('POST /v1/zones/:zoneId/policy-sets/:id/activate', () => {
     })
 
     expect(res.statusCode).toBe(422)
-    expect(JSON.parse(res.body).detail).toMatch(/different zone/)
+    expect(JSON.parse(res.body).error_description).toMatch(/different zone/)
   })
 
   it('activates valid version, enqueues outbox row in TX, returns 202', async () => {
@@ -305,7 +305,7 @@ describe('POST /v1/zones/:zoneId/policy-sets/:id/simulate', () => {
     })
 
     expect(res.statusCode).toBe(422)
-    expect(JSON.parse(res.body).detail).toContain('does not match policy set schema')
+    expect(JSON.parse(res.body).error_description).toContain('does not match policy set schema')
   })
 
   it('returns input warnings and STS simulation failure details', async () => {
@@ -380,7 +380,9 @@ describe('GET /v1/zones/:zoneId/policy-sets', () => {
     const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/policy-sets' })
 
     expect(res.statusCode).toBe(200)
-    expect(JSON.parse(res.body)).toHaveLength(2)
+    const body = JSON.parse(res.body)
+    expect(body.items).toHaveLength(2)
+    expect(body.next_cursor).toBeNull()
   })
 
   it('returns a single policy set', async () => {
@@ -488,7 +490,7 @@ describe('POST /v1/zones/:zoneId/policy-sets/:id/versions', () => {
       payload: { manifest: [{ policy_version_id: 'pv-1' }, { policy_version_id: 'pv-1' }], schema_version: '2026-05-20' },
     })
     expect(duplicateRes.statusCode).toBe(422)
-    expect(JSON.parse(duplicateRes.body).detail).toContain('duplicate')
+    expect(JSON.parse(duplicateRes.body).error_description).toContain('duplicate')
 
     const missing = buildRouteApp(policySetsRoutes)
     setActor(missing.app)
@@ -500,7 +502,7 @@ describe('POST /v1/zones/:zoneId/policy-sets/:id/versions', () => {
       payload: { manifest: [{ policy_version_id: 'pv-missing' }], schema_version: '2026-05-20' },
     })
     expect(missingRes.statusCode).toBe(422)
-    expect(JSON.parse(missingRes.body).detail).toContain('missing policy versions')
+    expect(JSON.parse(missingRes.body).error_description).toContain('missing policy versions')
   })
 
   it('returns 404 when the policy set is missing', async () => {

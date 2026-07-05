@@ -21,7 +21,10 @@ describe('GET /v1/zones/:zoneId/resources', () => {
     })
 
     expect(res.statusCode).toBe(200)
-    expect(JSON.parse(res.body)).toEqual([{ id: 'res-demo', identifier: 'demo-api', created_at: '2026-05-25T00:00:00.000Z' }])
+    expect(JSON.parse(res.body)).toEqual({
+      items: [{ id: 'res-demo', identifier: 'demo-api', created_at: '2026-05-25T00:00:00.000Z' }],
+      next_cursor: null,
+    })
     expect(db.query).toHaveBeenCalledWith(expect.stringContaining('r.identifier <> $2'), ['z1', 'caracal-control', 200])
   })
 
@@ -38,7 +41,10 @@ describe('GET /v1/zones/:zoneId/resources', () => {
     })
 
     expect(res.statusCode).toBe(200)
-    expect(JSON.parse(res.body)).toEqual([{ id: 'res-control', identifier: 'caracal-control', created_at: '2026-05-25T00:00:00.000Z' }])
+    expect(JSON.parse(res.body)).toEqual({
+      items: [{ id: 'res-control', identifier: 'caracal-control', created_at: '2026-05-25T00:00:00.000Z' }],
+      next_cursor: null,
+    })
     expect(db.query).not.toHaveBeenCalledWith(expect.stringContaining('r.identifier <> $2'), expect.anything())
   })
 })

@@ -64,7 +64,7 @@ describe('POST /v1/zones/:zoneId/policies', () => {
       payload: { name: 'p1', content: 'package caracal.authz\ndefault allow = false' },
     })
     expect(res.statusCode).toBe(422)
-    expect(JSON.parse(res.body)).toMatchObject({ detail: 'must_be_data_document' })
+    expect(JSON.parse(res.body)).toMatchObject({ error_description: 'must_be_data_document' })
   })
 
   it('accepts a valid data document', async () => {
@@ -183,7 +183,9 @@ describe('GET /v1/zones/:zoneId/policies', () => {
     const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/policies' })
 
     expect(res.statusCode).toBe(200)
-    expect(JSON.parse(res.body)).toHaveLength(2)
+    const body = JSON.parse(res.body)
+    expect(body.items).toHaveLength(2)
+    expect(body.next_cursor).toBeNull()
   })
 })
 
