@@ -1,0 +1,11 @@
+#!/bin/sh
+# Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+# Caracal, a product of Garudex Labs
+#
+# Pre-commit hook that runs the project style gate on staged files.
+
+node scripts/checkStyle.mjs --staged || {
+  echo ''
+  echo 'Style gate failed. Run "pnpm run style:fix" and re-stage the files.'
+  exit 1
+}

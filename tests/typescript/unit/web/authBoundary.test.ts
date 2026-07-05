@@ -38,9 +38,7 @@ afterEach(() => {
 
 describe('fetchEnabledProviders', () => {
   it('parses the providers response', async () => {
-    globalThis.fetch = vi.fn(async () =>
-      Response.json({ email: true, google: false, github: false, passwordReset: false }),
-    ) as typeof fetch
+    globalThis.fetch = vi.fn(async () => Response.json({ email: true, google: false, github: false, passwordReset: false })) as typeof fetch
     const enabled = await auth.fetchEnabledProviders()
     expect(enabled).toEqual({ email: true, google: false, github: false, passwordReset: false })
   })
@@ -60,4 +58,3 @@ describe('fetchEnabledProviders', () => {
     expect(enabled).toEqual({ email: true, google: false, github: false, passwordReset: false })
   })
 })
-
