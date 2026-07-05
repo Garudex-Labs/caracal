@@ -841,7 +841,9 @@ describe('GET /v1/zones/:zoneId/providers', () => {
     const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/providers' })
 
     expect(res.statusCode).toBe(200)
-    expect(JSON.parse(res.body)).toHaveLength(2)
+    const body = JSON.parse(res.body)
+    expect(body.items).toHaveLength(2)
+    expect(body.next_cursor).toBeNull()
   })
 })
 
@@ -1122,7 +1124,7 @@ describe('POST /v1/zones/:zoneId/providers with connectivity check', () => {
     const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/providers', payload: { ...oauthPayload, check: true } })
 
     expect(res.statusCode).toBe(422)
-    expect(JSON.parse(res.body)).toMatchObject({ error: 'provider_check_failed', check: { status: 'auth_failed' } })
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'provider_check_failed', details: { check: { status: 'auth_failed' } } })
     expect(db.query).toHaveBeenCalledTimes(1)
   })
 

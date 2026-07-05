@@ -7,34 +7,26 @@ import { describe, it, expect } from 'vitest'
 import {
   appendKeysetCondition,
   encodeCursor,
+  listPage,
   parseListPagination,
-  setNextLink,
   DEFAULT_LIST_LIMIT,
   MAX_LIST_LIMIT,
 } from '../../../../../apps/api/src/routes/list-pagination.js'
 
 function makeReply() {
-  const headers: Record<string, string> = {}
   const sent: { code?: number; body?: unknown } = {}
   const reply: {
     code: (c: number) => typeof reply
     send: (b: unknown) => typeof reply
-    header: (k: string, v: string) => typeof reply
     sent: typeof sent
-    headers: typeof headers
   } = {
     sent,
-    headers,
     code(c) {
       sent.code = c
       return reply
     },
     send(b) {
       sent.body = b
-      return reply
-    },
-    header(k, v) {
-      headers[k.toLowerCase()] = v
       return reply
     },
   }
@@ -91,20 +83,29 @@ describe('appendKeysetCondition', () => {
   })
 })
 
-describe('setNextLink', () => {
-  it('omits Link header when fewer rows than limit returned', () => {
-    const reply = makeReply()
-    setNextLink({ url: '/v1/zones' } as never, reply as never, [{ id: 'r1', created_at: '2026-01-01T00:00:00.000Z' }], 10)
-    expect(reply.headers.link).toBeUndefined()
+describe('listPage', () => {
+  it('returns items with a null cursor when fewer rows than limit returned', () => {
+    const rows = [{ id: 'r1', created_at: '2026-01-01T00:00:00.000Z' }]
+    expect(listPage(rows, 10)).toEqual({ items: rows, next_cursor: null })
   })
 
-  it('emits Link header with next-page cursor when full page returned', () => {
-    const reply = makeReply()
+  it('returns a null cursor for an empty page', () => {
+    expect(listPage([], 10)).toEqual({ items: [], next_cursor: null })
+  })
+
+  it('encodes the last row into the cursor when a full page is returned', () => {
     const rows = Array.from({ length: 3 }, (_, i) => ({ id: `r${i}`, created_at: `2026-0${i + 1}-01T00:00:00.000Z` }))
-    setNextLink({ url: '/v1/zones?foo=bar' } as never, reply as never, rows, 3)
-    expect(reply.headers.link).toBeDefined()
-    expect(reply.headers.link).toContain('rel="next"')
-    expect(reply.headers.link).toContain('cursor=')
-    expect(reply.headers.link).toContain('limit=3')
+    const page = listPage(rows, 3)
+    expect(page.items).toEqual(rows)
+    expect(page.next_cursor).toBe(encodeCursor('2026-03-01T00:00:00.000Z', 'r2'))
+    expect(JSON.parse(Buffer.from(page.next_cursor!, 'base64url').toString('utf8'))).toEqual({
+      ts: '2026-03-01T00:00:00.000Z',
+      id: 'r2',
+    })
+  })
+
+  it('normalizes Date timestamps to ISO strings in the cursor', () => {
+    const page = listPage([{ id: 'r1', created_at: new Date('2026-01-01T00:00:00.000Z') }], 1)
+    expect(page.next_cursor).toBe(encodeCursor('2026-01-01T00:00:00.000Z', 'r1'))
   })
 })

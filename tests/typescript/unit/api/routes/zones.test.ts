@@ -40,7 +40,7 @@ function cursor(ts: string, id: string): string {
 }
 
 describe('GET /v1/zones', () => {
-  it('lists zones with keyset pagination and next link', async () => {
+  it('lists zones with keyset pagination and next cursor', async () => {
     const { app, db } = buildRouteApp(zonesRoutes)
     db.query.mockResolvedValueOnce({
       rows: [
@@ -56,8 +56,9 @@ describe('GET /v1/zones', () => {
     })
 
     expect(res.statusCode).toBe(200)
-    expect(JSON.parse(res.body)).toHaveLength(2)
-    expect(res.headers.link).toContain('cursor=')
+    const body = JSON.parse(res.body)
+    expect(body.items).toHaveLength(2)
+    expect(body.next_cursor).toBe(cursor('2026-01-01T00:00:00.000Z', 'z1'))
     expect(db.query.mock.calls[0][1]).toEqual(['2026-01-03T00:00:00.000Z', 'z3', 2])
   })
 
@@ -343,7 +344,7 @@ describe('PATCH /v1/zones/:id', () => {
     })
 
     expect(res.statusCode).toBe(409)
-    expect(JSON.parse(res.body)).toMatchObject({ error: 'dcr_shutdown_required', live_dcr_applications: 2 })
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'dcr_shutdown_required', details: { live_dcr_applications: 2 } })
     expect(client.query).toHaveBeenCalledWith('ROLLBACK')
   })
 
