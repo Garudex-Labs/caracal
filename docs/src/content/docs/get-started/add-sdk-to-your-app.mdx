@@ -8,9 +8,25 @@ This page shows the smallest SDK integration in TypeScript, Python, and Go. Each
 
 Complete [First Protected Call](/get-started/first-protected-call/) first so you have runtime configuration, a resource ID, and a protected path.
 
-## Use the Runtime Profile
+## Author the Runtime Profile
 
-All SDKs read the same runtime configuration you set up in First Protected Call - a `caracal.toml` profile or environment variables.
+First Protected Call leaves you with a zone ID, an application ID, a client secret file, and a resource. All SDKs read those values from a `caracal.toml` profile or from `CARACAL_*` environment variables. The profile is a file you author with the IDs from guided setup - guided setup does not write it for you:
+
+```toml
+zone_id = "zone_prod"
+application_id = "app_agent"
+
+[[credentials]]
+env = "EXAMPLE_API_TOKEN"
+resource = "resource://example-api"
+upstream_prefix = "http://caracalDemoUpstream:80"
+```
+
+On the local stack this is the whole file: the SDK defaults cover the STS, Coordinator, and Gateway URLs, and the client secret is read from the runtime credential path your launch binding created. For cloud or custom deployments add `zone_url`, `coordinator_url`, `gateway_url`, and `app_client_secret_file`; see [Configuration File](/runtime-console/config-file/) for the full schema.
+
+The profile identifies the workload, not each agent. `zone_id` and `application_id` name the one confidential application your service runs as; every agent session the SDK spawns executes under that application identity, so one profile serves all the agents your workload creates.
+
+Point the examples at the profile and choose which configured resource and path they call:
 
 ```sh
 export CARACAL_CONFIG=/path/to/caracal.toml
@@ -25,8 +41,6 @@ $env:CARACAL_CONFIG = "C:\path\to\caracal.toml"
 $env:CARACAL_RESOURCE_ID = "resource://example-api"
 $env:CARACAL_RESOURCE_PATH = "/"
 ```
-
-The profile supplies the zone, application, STS URL, Coordinator URL, app secret file, Gateway URL, and resource bindings. The resource variables choose which configured resource and path these examples call.
 
 ## Install the SDK
 

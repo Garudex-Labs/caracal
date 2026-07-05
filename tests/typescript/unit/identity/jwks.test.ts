@@ -12,6 +12,7 @@ describe('getKeySet', () => {
   afterEach(() => {
     clearJwksCache()
     vi.unstubAllGlobals()
+    vi.unstubAllEnvs()
     vi.useRealTimers()
   })
 
@@ -38,6 +39,17 @@ describe('getKeySet', () => {
 
     expect(first).toBe(second)
     expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('restricts http issuers to loopback hosts or the explicit override', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ keys: [] }) })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(getKeySet('http://sts.internal:8080', 'zone1')).rejects.toThrow('insecure issuer scheme')
+    await expect(getKeySet('http://127.0.0.1:8080', 'zone1')).resolves.toBeTypeOf('function')
+
+    vi.stubEnv('CARACAL_ALLOW_INSECURE_CONFIG_URLS', 'true')
+    await expect(getKeySet('http://sts.internal:8080', 'zone1')).resolves.toBeTypeOf('function')
   })
 
   it('rejects key set lookups without a zone', async () => {

@@ -49,6 +49,43 @@ describe('Caracal.fromEnv', () => {
     expect(c.config.gatewayUrl).toBe('http://localhost:8081')
   })
 
+  it('restricts production http URLs to loopback hosts or the explicit override', () => {
+    const base = {
+      CARACAL_ENV: 'production',
+      CARACAL_ZONE_ID: 'z1',
+      CARACAL_APPLICATION_ID: 'a1',
+      CARACAL_SUBJECT_TOKEN: 't1',
+      CARACAL_STS_URL: 'https://sts.internal',
+      CARACAL_GATEWAY_URL: 'https://gateway.internal',
+    }
+    expect(() => Caracal.fromEnv({ ...base, CARACAL_COORDINATOR_URL: 'http://coordinator.internal:4000' } as NodeJS.ProcessEnv)).toThrow(
+      /CARACAL_COORDINATOR_URL must use https/,
+    )
+    expect(() => Caracal.fromEnv({ ...base, CARACAL_COORDINATOR_URL: 'http://127.0.0.1:4000' } as NodeJS.ProcessEnv)).not.toThrow()
+    expect(() =>
+      Caracal.fromEnv({
+        ...base,
+        CARACAL_COORDINATOR_URL: 'http://coordinator.internal:4000',
+        CARACAL_ALLOW_INSECURE_CONFIG_URLS: 'true',
+      } as NodeJS.ProcessEnv),
+    ).not.toThrow()
+  })
+
+  it('enforces https for the sts url in production client-secret mode', () => {
+    expect(() =>
+      Caracal.fromEnv({
+        CARACAL_ENV: 'production',
+        CARACAL_COORDINATOR_URL: 'https://coordinator.internal',
+        CARACAL_GATEWAY_URL: 'https://gateway.internal',
+        CARACAL_ZONE_ID: 'z',
+        CARACAL_APPLICATION_ID: 'app',
+        CARACAL_APP_CLIENT_SECRET: 'secret',
+        CARACAL_STS_URL: 'http://sts.internal:8080',
+        CARACAL_RESOURCES: 'calendar=https://api.example.com/v1',
+      } as NodeJS.ProcessEnv),
+    ).toThrow(/stsUrl must use https/)
+  })
+
   it('constructs a client-secret token source from env', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
