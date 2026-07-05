@@ -286,9 +286,10 @@ export default defineConfig({
               collapsed: true,
               items: [
                 { label: 'Resources and Grants', link: '/concepts/resource-grant/' },
+                { label: 'Providers', link: '/concepts/provider/' },
                 { label: 'Policies and Policy Sets', link: '/concepts/policy/' },
-                { label: 'Step-Up Challenges', link: '/concepts/step-up/' },
                 { label: 'Mandates', link: '/concepts/mandate/' },
+                { label: 'Step-Up Challenges', link: '/concepts/step-up/' },
               ],
             },
             {

@@ -47,4 +47,17 @@ query-filters:
   # re-trigger it. File content flowing anywhere other than a bearer header on
   # the internal hop remains a code-review boundary in envfile.ts callers.
   - exclude:
-      id: js/file-access-to-http
+      id: js/file-access-to-http  # js/xss-through-exception flags the TxAbort idiom in apps/api routes: a
+  # handler throws TxAbort carrying reply.code(...).send({...}) and
+  # withTransaction (apps/api/src/db.ts) returns that carried value from the
+  # route, which the query reads as exception text flowing into a response.
+  # Every payload on that path is a constant-keyed JSON object serialized by
+  # Fastify as application/json, the global error handler in
+  # apps/api/src/app.ts maps real exceptions to structured CaracalError JSON
+  # without echoing their text, and every /v1 response carries
+  # x-content-type-options: nosniff, so exception text is never interpretable
+  # as HTML. The idiom spans the zone, resource, policy, grant, application,
+  # operator, and step-up route files and every new TxAbort route re-triggers
+  # the finding, so the query is excluded rather than dismissed per alert.
+  - exclude:
+      id: js/xss-through-exception

@@ -3,21 +3,13 @@
 //
 // Zone lifecycle integration tests: create, read, update, and delete sequence.
 
-import { describe, it, expect, vi } from 'vitest'
-import Fastify from 'fastify'
-import type { DB } from '../../../../apps/api/src/db.js'
-import type { RedisClient } from '../../../../apps/api/src/redis.js'
+import { describe, it, expect } from 'vitest'
 import '../../../../apps/api/src/fastify-augmentation.js'
 import { zonesRoutes } from '../../../../apps/api/src/routes/zones.js'
+import { buildRouteApp } from '../../../shared/test-utils/typescript/fastify.js'
 
 function buildApp() {
-  const app = Fastify({ logger: false })
-  const db = { query: vi.fn(), connect: vi.fn() }
-  const redis = { incr: vi.fn(), expire: vi.fn(), xadd: vi.fn() }
-  app.decorate('db', db as unknown as DB)
-  app.decorate('redis', redis as unknown as RedisClient)
-  app.register(zonesRoutes, { prefix: '/v1' })
-  return { app, db, redis }
+  return buildRouteApp(zonesRoutes)
 }
 
 const mockZone = {
