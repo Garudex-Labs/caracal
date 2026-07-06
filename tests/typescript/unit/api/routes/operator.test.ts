@@ -1007,7 +1007,6 @@ describe('plan credential vault endpoints', () => {
           name: 'PiperNet',
           scopes: ['mesh.read'],
           upstream_url: 'https://api.pipernet.example',
-          gateway_application_id: 'app-1',
           credential_provider_id: 'provider-1',
         },
       },

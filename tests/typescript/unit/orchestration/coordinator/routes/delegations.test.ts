@@ -308,7 +308,7 @@ describe('POST /v1/zones/:zoneId/delegations', () => {
     expect(JSON.parse(res.body)).toMatchObject({ error: 'resource_not_found' })
   })
 
-  it('rejects resources owned by another application', async () => {
+  it('rejects an issuer outside the resource caller allowlist', async () => {
     const { app, db } = buildApp()
     const client = {
       query: vi
@@ -321,7 +321,9 @@ describe('POST /v1/zones/:zoneId/delegations', () => {
             { id: 'dst-1', application_id: 'receiver-1' },
           ],
         })
-        .mockResolvedValueOnce({ rows: [{ id: 'res-1', identifier: 'calendar', application_id: 'other-app', scopes: ['read'] }] })
+        .mockResolvedValueOnce({
+          rows: [{ id: 'res-1', identifier: 'calendar', allowed_application_ids: ['other-app'], scopes: ['read'] }],
+        })
         .mockResolvedValue({ rows: [] }),
       release: vi.fn(),
     }
@@ -335,7 +337,7 @@ describe('POST /v1/zones/:zoneId/delegations', () => {
     })
 
     expect(res.statusCode).toBe(403)
-    expect(res.json()).toEqual({ error: 'resource_ownership_required' })
+    expect(res.json()).toEqual({ error: 'issuer_application_not_allowed' })
     expect(client.query).toHaveBeenCalledWith('ROLLBACK')
   })
 
@@ -352,7 +354,7 @@ describe('POST /v1/zones/:zoneId/delegations', () => {
             { id: 'dst-1', application_id: 'receiver-1' },
           ],
         })
-        .mockResolvedValueOnce({ rows: [{ application_id: 'issuer-1', scopes: ['read'] }] })
+        .mockResolvedValueOnce({ rows: [{ id: 'res-1', identifier: 'calendar', allowed_application_ids: [], scopes: ['read'] }] })
         .mockResolvedValueOnce({ rows: [] }),
       release: vi.fn(),
     }
@@ -384,8 +386,8 @@ describe('POST /v1/zones/:zoneId/delegations', () => {
         })
         .mockResolvedValueOnce({
           rows: [
-            { id: 'res-1', identifier: 'calendar', application_id: 'issuer-1', scopes: ['read'] },
-            { id: 'res-2', identifier: 'ledger', application_id: 'issuer-1', scopes: ['write'] },
+            { id: 'res-1', identifier: 'calendar', allowed_application_ids: ['issuer-1'], scopes: ['read'] },
+            { id: 'res-2', identifier: 'ledger', allowed_application_ids: [], scopes: ['write'] },
           ],
         })
         .mockResolvedValueOnce({ rows: [] })
@@ -426,7 +428,9 @@ describe('POST /v1/zones/:zoneId/delegations', () => {
             { id: 'dst-1', application_id: 'receiver-1' },
           ],
         })
-        .mockResolvedValueOnce({ rows: [{ id: 'res-1', identifier: 'calendar', application_id: 'issuer-1', scopes: ['read', 'write'] }] })
+        .mockResolvedValueOnce({
+          rows: [{ id: 'res-1', identifier: 'calendar', allowed_application_ids: ['issuer-1'], scopes: ['read', 'write'] }],
+        })
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [{ id: 'edge-sdk' }] })
@@ -455,7 +459,7 @@ describe('POST /v1/zones/:zoneId/delegations', () => {
     expect(res.statusCode).toBe(201)
     expect(JSON.parse(res.body)).toMatchObject({ id: 'edge-sdk' })
     const resourceCall = client.query.mock.calls.find((call) => String(call[0]).includes('FROM resources r'))
-    expect(String(resourceCall?.[0])).toContain('gateway_resource_bindings b')
+    expect(String(resourceCall?.[0])).toContain('r.allowed_application_ids')
     expect(String(resourceCall?.[0])).not.toContain('r.application_id')
     const insertCall = client.query.mock.calls.find((call) => String(call[0]).includes('INSERT INTO delegation_edges'))
     const values = insertCall?.[1] as unknown[]
@@ -519,7 +523,7 @@ describe('POST /v1/zones/:zoneId/delegations', () => {
             { id: 'dst-1', application_id: 'receiver-1' },
           ],
         })
-        .mockResolvedValueOnce({ rows: [{ id: 'res-2', identifier: 'files', application_id: 'issuer-1', scopes: ['read'] }] })
+        .mockResolvedValueOnce({ rows: [{ id: 'res-2', identifier: 'files', allowed_application_ids: [], scopes: ['read'] }] })
         .mockResolvedValueOnce({
           rows: [
             {
@@ -564,7 +568,7 @@ describe('POST /v1/zones/:zoneId/delegations', () => {
             { id: 'dst-1', application_id: 'receiver-1' },
           ],
         })
-        .mockResolvedValueOnce({ rows: [{ id: 'res-1', identifier: 'calendar', application_id: 'issuer-1', scopes: ['read'] }] })
+        .mockResolvedValueOnce({ rows: [{ id: 'res-1', identifier: 'calendar', allowed_application_ids: ['issuer-1'], scopes: ['read'] }] })
         .mockResolvedValueOnce({
           rows: [
             {
@@ -618,7 +622,7 @@ describe('POST /v1/zones/:zoneId/delegations', () => {
             { id: 'dst-1', application_id: 'receiver-1' },
           ],
         })
-        .mockResolvedValueOnce({ rows: [{ id: 'res-1', identifier: 'calendar', application_id: 'issuer-1', scopes: ['read'] }] })
+        .mockResolvedValueOnce({ rows: [{ id: 'res-1', identifier: 'calendar', allowed_application_ids: ['issuer-1'], scopes: ['read'] }] })
         .mockResolvedValueOnce({
           rows: [
             {
@@ -665,7 +669,7 @@ describe('POST /v1/zones/:zoneId/delegations', () => {
             { id: 'dst-1', application_id: 'receiver-1' },
           ],
         })
-        .mockResolvedValueOnce({ rows: [{ id: 'res-1', identifier: 'calendar', application_id: 'issuer-1', scopes: ['read'] }] })
+        .mockResolvedValueOnce({ rows: [{ id: 'res-1', identifier: 'calendar', allowed_application_ids: ['issuer-1'], scopes: ['read'] }] })
         .mockResolvedValueOnce({
           rows: [
             {

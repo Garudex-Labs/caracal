@@ -108,6 +108,7 @@ describe('POST /v1/zones/:zoneId/providers', () => {
       token_endpoint: 'https://issuer.example/oauth/token',
       client_id: 'hooli-client',
       client_auth_method: 'client_secret_basic',
+      grant_type: 'client_credentials',
       scopes: ['pipernet.read'],
       audience: 'https://api.hooli.example',
       resource: 'https://resource.hooli.example',
@@ -147,6 +148,7 @@ describe('POST /v1/zones/:zoneId/providers', () => {
       token_endpoint: 'https://issuer.example/oauth/token',
       client_id: 'hooli-client',
       client_auth_method: 'private_key_jwt',
+      grant_type: 'client_credentials',
       key_id: 'key-1',
       allowed_token_hosts: ['issuer.example'],
     })
@@ -788,6 +790,7 @@ describe('PATCH /v1/zones/:zoneId/providers/:id', () => {
       token_endpoint: 'https://issuer.example/oauth/token',
       client_id: 'hooli-client',
       client_auth_method: 'client_secret_basic',
+      grant_type: 'client_credentials',
       allowed_token_hosts: ['issuer.example'],
     })
   })
@@ -1213,5 +1216,365 @@ describe('POST /v1/zones/:zoneId/providers with connectivity check', () => {
     expect(httpsRequest).not.toHaveBeenCalled()
     expect(redis.incr).not.toHaveBeenCalled()
     expect(db.query).toHaveBeenCalledTimes(1)
+  })
+})
+
+// Static EC P-256 test fixture: a throwaway self-signed pair used only to exercise
+// certificate parsing and thumbprint headers, never a real credential.
+const TEST_CERTIFICATE = `-----BEGIN CERTIFICATE-----
+MIIBljCCATugAwIBAgIUCIvavTQpsWT0/TbSfm8CoHAeumkwCgYIKoZIzj0EAwIw
+IDEeMBwGA1UEAwwVY2FyYWNhbC1wcm92aWRlci10ZXN0MB4XDTI2MDcwNjA3MDgw
+M1oXDTM2MDcwMzA3MDgwM1owIDEeMBwGA1UEAwwVY2FyYWNhbC1wcm92aWRlci10
+ZXN0MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEr+0KCRqFP1Tq61FKDLYCadly
+7CPqO7BUu8SyH1RxyFRp3jHHLXG6BUSPtGNcniAI13bAehg6UbVNXmx9SHBJUKNT
+MFEwHQYDVR0OBBYEFJdXYq44/XLHFtgE42SCyoRoe6R8MB8GA1UdIwQYMBaAFJdX
+Yq44/XLHFtgE42SCyoRoe6R8MA8GA1UdEwEB/wQFMAMBAf8wCgYIKoZIzj0EAwID
+SQAwRgIhAOTXrAasAk4caclzDW8NvH06gVtghTZHSwLjyCpImvhaAiEA3kUJ/vRD
+l/L5GomD3TmOEq09SHU30dPFv2VA+SWTZbA=
+-----END CERTIFICATE-----`
+const TEST_CERTIFICATE_KEY = `-----BEGIN PRIVATE KEY-----
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgNlZmm7FKTOHdXBlr
+rhlWuIX4JbFnIYKi06HWrc4ylkahRANCAASv7QoJGoU/VOrrUUoMtgJp2XLsI+o7
+sFS7xLIfVHHIVGneMcctcboFRI+0Y1yeIAjXdsB6GDpRtU1ebH1IcElQ
+-----END PRIVATE KEY-----`
+
+describe('POST /v1/zones/:zoneId/providers with http_basic kind', () => {
+  it('stores the username publicly and seals only the password', async () => {
+    const { app, db } = buildRouteApp(providersRoutes)
+    db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] }).mockResolvedValueOnce({
+      rows: [{ id: 'provider-1', zone_id: 'z1', identifier: 'provider://hoolibox-basic', kind: 'http_basic' }],
+    })
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/providers',
+      payload: {
+        identifier: 'provider://hoolibox-basic',
+        kind: 'http_basic',
+        config_json: { username: 'richard.hendricks@piedpiper.example', password: 'jira-api-token' },
+      },
+    })
+
+    const values = db.query.mock.calls[1][1] as unknown[]
+    expect(res.statusCode).toBe(201)
+    expect(values[4]).toBe('http_basic')
+    expect(JSON.parse(values[5] as string)).toEqual({ username: 'richard.hendricks@piedpiper.example' })
+    expect(values[8]).toEqual(['password'])
+    expect(values[5]).not.toContain('jira-api-token')
+  })
+
+  it('rejects http_basic providers missing the username or password', async () => {
+    const { app, db } = buildRouteApp(providersRoutes)
+    db.query.mockResolvedValue({ rows: [{ '?column?': 1 }] })
+
+    await app.ready()
+    for (const config of [{ password: 'jira-api-token' }, { username: 'richard.hendricks@piedpiper.example' }]) {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/zones/z1/providers',
+        payload: { identifier: 'provider://hoolibox-basic', kind: 'http_basic', config_json: config },
+      })
+      expect(res.statusCode).toBe(400)
+      expect(JSON.parse(res.body)).toMatchObject({ error: 'invalid_provider_config' })
+    }
+  })
+
+  it('rejects runtime injection configuration on http_basic providers', async () => {
+    const { app, db } = buildRouteApp(providersRoutes)
+    db.query.mockResolvedValue({ rows: [{ '?column?': 1 }] })
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/providers',
+      payload: {
+        identifier: 'provider://hoolibox-basic',
+        kind: 'http_basic',
+        config_json: { username: 'richard.hendricks@piedpiper.example', password: 'x', allow_runtime_injection: true },
+      },
+    })
+
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body).error_description).toContain('unsupported keys: allow_runtime_injection')
+  })
+})
+
+describe('POST /v1/zones/:zoneId/providers with jwt_bearer grant type', () => {
+  afterEach(() => {
+    vi.clearAllMocks()
+  })
+
+  function jwtBearerConfig(extra: Record<string, unknown> = {}): Record<string, unknown> {
+    const { privateKey } = generateKeyPairSync('ec', { namedCurve: 'prime256v1' })
+    return {
+      token_endpoint: 'https://oauth2.googleapis.example/token',
+      client_id: 'son-of-anton@pied-piper.iam.gserviceaccount.example',
+      grant_type: 'jwt_bearer',
+      private_key: privateKey.export({ type: 'pkcs8', format: 'pem' }) as string,
+      scopes: ['https://www.googleapis.example/auth/cloud-platform'],
+      ...extra,
+    }
+  }
+
+  it('defaults client authentication to none and stores the assertion fields', async () => {
+    const { app, db } = buildRouteApp(providersRoutes)
+    db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] }).mockResolvedValueOnce({
+      rows: [{ id: 'provider-1', zone_id: 'z1', identifier: 'provider://vertex-sa', kind: 'oauth2_client_credentials' }],
+    })
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/providers',
+      payload: {
+        identifier: 'provider://vertex-sa',
+        kind: 'oauth2_client_credentials',
+        config_json: jwtBearerConfig({ assertion_subject: 'monica.hall@piedpiper.example' }),
+      },
+    })
+
+    const values = db.query.mock.calls[1][1] as unknown[]
+    expect(res.statusCode).toBe(201)
+    expect(JSON.parse(values[5] as string)).toMatchObject({
+      grant_type: 'jwt_bearer',
+      client_auth_method: 'none',
+      assertion_subject: 'monica.hall@piedpiper.example',
+    })
+    expect(values[8]).toEqual(['private_key'])
+  })
+
+  it('rejects invalid jwt_bearer combinations', async () => {
+    const { app, db } = buildRouteApp(providersRoutes)
+    db.query.mockResolvedValue({ rows: [{ '?column?': 1 }] })
+
+    await app.ready()
+    for (const config of [
+      jwtBearerConfig({ client_auth_method: 'private_key_jwt' }),
+      jwtBearerConfig({ audience: 'https://api.hooli.example' }),
+      jwtBearerConfig({ private_key: undefined }),
+      { ...jwtBearerConfig(), grant_type: 'client_credentials', client_secret: 's', assertion_subject: 'x' },
+    ]) {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/zones/z1/providers',
+        payload: { identifier: 'provider://vertex-sa', kind: 'oauth2_client_credentials', config_json: config },
+      })
+      expect(res.statusCode).toBe(400)
+      expect(JSON.parse(res.body)).toMatchObject({ error: 'invalid_provider_config' })
+    }
+  })
+
+  it('submits a signed assertion grant with scopes in the claim for the connectivity check', async () => {
+    const { app, db, redis } = buildRouteApp(providersRoutes)
+    redis.incr.mockResolvedValueOnce(1)
+    db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] }).mockResolvedValueOnce({
+      rows: [{ id: 'provider-1', zone_id: 'z1', identifier: 'provider://vertex-sa', kind: 'oauth2_client_credentials' }],
+    })
+    vi.mocked(lookup).mockResolvedValue([{ address: '203.0.113.10', family: 4 }] as never)
+    const bodies = mockTokenResponse({ access_token: 'issued-token', token_type: 'Bearer' }, 200)
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/providers',
+      payload: {
+        identifier: 'provider://vertex-sa',
+        kind: 'oauth2_client_credentials',
+        check: true,
+        config_json: jwtBearerConfig(),
+      },
+    })
+
+    expect(res.statusCode).toBe(201)
+    const form = new URLSearchParams(bodies.join(''))
+    expect(form.get('grant_type')).toBe('urn:ietf:params:oauth:grant-type:jwt-bearer')
+    expect(form.get('scope')).toBeNull()
+    const assertion = form.get('assertion') ?? ''
+    const claims = JSON.parse(Buffer.from(assertion.split('.')[1], 'base64url').toString()) as Record<string, unknown>
+    expect(claims).toMatchObject({
+      iss: 'son-of-anton@pied-piper.iam.gserviceaccount.example',
+      sub: 'son-of-anton@pied-piper.iam.gserviceaccount.example',
+      aud: 'https://oauth2.googleapis.example/token',
+      scope: 'https://www.googleapis.example/auth/cloud-platform',
+    })
+  })
+
+  it('classifies an invalid_grant answer to a jwt_bearer check as an authentication failure', async () => {
+    const { app, db, redis } = buildRouteApp(providersRoutes)
+    redis.incr.mockResolvedValueOnce(1)
+    db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
+    vi.mocked(lookup).mockResolvedValue([{ address: '203.0.113.10', family: 4 }] as never)
+    mockTokenResponse({ error: 'invalid_grant' }, 400)
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/providers',
+      payload: {
+        identifier: 'provider://vertex-sa',
+        kind: 'oauth2_client_credentials',
+        check: true,
+        config_json: jwtBearerConfig(),
+      },
+    })
+
+    expect(res.statusCode).toBe(422)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'provider_check_failed', details: { check: { status: 'auth_failed' } } })
+  })
+})
+
+describe('POST /v1/zones/:zoneId/providers with private_key_jwt certificate', () => {
+  afterEach(() => {
+    vi.clearAllMocks()
+  })
+
+  function certConfig(extra: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      token_endpoint: 'https://login.hooli.example/oauth/token',
+      client_id: 'hooli-client',
+      client_auth_method: 'private_key_jwt',
+      private_key: TEST_CERTIFICATE_KEY,
+      certificate: TEST_CERTIFICATE,
+      ...extra,
+    }
+  }
+
+  it('stores a matching certificate and emits x5t thumbprint headers on the client assertion', async () => {
+    const { app, db, redis } = buildRouteApp(providersRoutes)
+    redis.incr.mockResolvedValueOnce(1)
+    db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] }).mockResolvedValueOnce({
+      rows: [{ id: 'provider-1', zone_id: 'z1', identifier: 'provider://entra-app', kind: 'oauth2_client_credentials' }],
+    })
+    vi.mocked(lookup).mockResolvedValue([{ address: '203.0.113.10', family: 4 }] as never)
+    const bodies = mockTokenResponse({ access_token: 'issued-token', token_type: 'Bearer' }, 200)
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/providers',
+      payload: { identifier: 'provider://entra-app', kind: 'oauth2_client_credentials', check: true, config_json: certConfig() },
+    })
+
+    expect(res.statusCode).toBe(201)
+    const values = db.query.mock.calls[1][1] as unknown[]
+    expect(JSON.parse(values[5] as string).certificate).toBe(TEST_CERTIFICATE)
+    const assertion = new URLSearchParams(bodies.join('')).get('client_assertion') ?? ''
+    const header = JSON.parse(Buffer.from(assertion.split('.')[0], 'base64url').toString()) as Record<string, unknown>
+    expect(typeof header.x5t).toBe('string')
+    expect(typeof header['x5t#S256']).toBe('string')
+  })
+
+  it('rejects a certificate that does not match the private key or sits on the wrong method', async () => {
+    const { privateKey } = generateKeyPairSync('ec', { namedCurve: 'prime256v1' })
+    const otherKey = privateKey.export({ type: 'pkcs8', format: 'pem' }) as string
+    const { app, db } = buildRouteApp(providersRoutes)
+    db.query.mockResolvedValue({ rows: [{ '?column?': 1 }] })
+
+    await app.ready()
+    for (const config of [
+      certConfig({ private_key: otherKey }),
+      certConfig({ certificate: 'not a certificate' }),
+      {
+        token_endpoint: 'https://login.hooli.example/oauth/token',
+        client_id: 'hooli-client',
+        client_secret: 'hooli-secret',
+        certificate: TEST_CERTIFICATE,
+      },
+    ]) {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/zones/z1/providers',
+        payload: { identifier: 'provider://entra-app', kind: 'oauth2_client_credentials', config_json: config },
+      })
+      expect(res.statusCode).toBe(400)
+      expect(JSON.parse(res.body)).toMatchObject({ error: 'invalid_provider_config' })
+    }
+  })
+})
+
+describe('POST /v1/zones/:zoneId/providers/discovery', () => {
+  afterEach(() => {
+    vi.clearAllMocks()
+  })
+
+  const metadata = {
+    issuer: 'https://login.hooli.example',
+    authorization_endpoint: 'https://login.hooli.example/oauth/authorize',
+    token_endpoint: 'https://login.hooli.example/oauth/token',
+    scopes_supported: ['openid', 'pipernet.read'],
+    token_endpoint_auth_methods_supported: ['client_secret_basic', 'private_key_jwt', 'tls_client_auth'],
+  }
+
+  it('resolves issuer metadata into endpoint fields with unsupported auth methods filtered', async () => {
+    const { app, db, redis } = buildRouteApp(providersRoutes)
+    redis.incr.mockResolvedValueOnce(1)
+    db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
+    vi.mocked(lookup).mockResolvedValue([{ address: '203.0.113.10', family: 4 }] as never)
+    mockTokenResponse(metadata, 200)
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/providers/discovery',
+      payload: { issuer: 'https://login.hooli.example' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body)).toEqual({
+      issuer: 'https://login.hooli.example',
+      token_endpoint: 'https://login.hooli.example/oauth/token',
+      authorization_endpoint: 'https://login.hooli.example/oauth/authorize',
+      scopes_supported: ['openid', 'pipernet.read'],
+      token_endpoint_auth_methods_supported: ['client_secret_basic', 'private_key_jwt'],
+    })
+  })
+
+  it('rejects issuers that are not clean HTTPS URLs', async () => {
+    const { app, db } = buildRouteApp(providersRoutes)
+    db.query.mockResolvedValue({ rows: [{ '?column?': 1 }] })
+
+    await app.ready()
+    for (const issuer of ['http://login.hooli.example', 'https://login.hooli.example?x=1', 'not a url']) {
+      const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/providers/discovery', payload: { issuer } })
+      expect(res.statusCode).toBe(400)
+      expect(JSON.parse(res.body)).toMatchObject({ error: 'invalid_issuer' })
+    }
+    expect(httpsRequest).not.toHaveBeenCalled()
+  })
+
+  it('rejects metadata whose issuer does not match the requested issuer', async () => {
+    const { app, db, redis } = buildRouteApp(providersRoutes)
+    redis.incr.mockResolvedValueOnce(1)
+    db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
+    vi.mocked(lookup).mockResolvedValue([{ address: '203.0.113.10', family: 4 }] as never)
+    mockTokenResponse({ ...metadata, issuer: 'https://login.endframe.example' }, 200)
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/providers/discovery',
+      payload: { issuer: 'https://login.hooli.example' },
+    })
+
+    expect(res.statusCode).toBe(422)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'provider_discovery_failed' })
+  })
+
+  it('rate limits discovery probes per zone', async () => {
+    const { app, db, redis } = buildRouteApp(providersRoutes)
+    redis.incr.mockResolvedValueOnce(11)
+    db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/providers/discovery',
+      payload: { issuer: 'https://login.hooli.example' },
+    })
+
+    expect(res.statusCode).toBe(429)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'provider_discovery_rate_limited' })
+    expect(httpsRequest).not.toHaveBeenCalled()
   })
 })
