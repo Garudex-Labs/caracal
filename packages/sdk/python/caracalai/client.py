@@ -1667,11 +1667,12 @@ class Caracal:
         upstream (or any absolute URL) are rewritten through the configured
         gateway; requests already addressed to the gateway pass through.
 
-        The mandate is cached per application identity, resource, and scope
-        set, refreshed before expiry with a fresh session cycle; concurrent
-        requests share one in-flight cycle. ``labels`` tag the spawned sessions
-        (default: the application id). ``mandate_ttl_seconds`` bounds each
-        mandate; sessions outlive it by a fixed buffer.
+        The mandate is cached per application identity, resource, scope set,
+        effective labels, and mandate TTL, refreshed before expiry with a
+        fresh session cycle; concurrent requests share one in-flight cycle.
+        ``labels`` tag the spawned sessions (default: the application id).
+        ``mandate_ttl_seconds`` bounds each mandate; sessions outlive it by a
+        fixed buffer.
 
         Requires client-secret credentials."""
         return httpx.AsyncClient(
@@ -1792,9 +1793,10 @@ class Caracal:
         assert exchanger is not None
         zone_id, application_id = exchanger.identity()
         session_labels = labels if labels else [application_id]
+        encoded_labels = json.dumps(session_labels, separators=(",", ":"))
         key = (
             f"{zone_id}::{application_id}::{resource_id}::{' '.join(scopes)}::"
-            f"{' '.join(session_labels)}::{mandate_ttl}"
+            f"{encoded_labels}::{mandate_ttl}"
         )
         cached = self._governed_cached(key)
         if cached is not None:

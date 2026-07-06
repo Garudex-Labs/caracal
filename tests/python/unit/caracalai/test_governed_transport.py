@@ -220,7 +220,7 @@ class GovernedCycleTests(unittest.TestCase):
         with c.sync_governed_transport(
             RESOURCE,
             scopes=["data:read"],
-            labels=["admin"],
+            labels=["a", "b"],
             mandate_ttl_seconds=60,
             transport=httpx.MockTransport(_gateway_echo),
         ) as client:
@@ -229,7 +229,7 @@ class GovernedCycleTests(unittest.TestCase):
         self.assertEqual(platform.mints, 2)
         self.assertEqual(platform.spawns, 4)
         spawns = platform.spawn_calls()
-        self.assertEqual(spawns[2][1]["labels"], ["admin"])
+        self.assertEqual(spawns[2][1]["labels"], ["a", "b"])
         self.assertEqual(spawns[2][1]["ttl_seconds"], 180)
         self.assertEqual(platform.mint_forms()[-1]["ttl_seconds"], ["60"])
 

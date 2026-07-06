@@ -634,12 +634,13 @@ export class Caracal {
    * authority: each mint cycle bootstraps a lifecycle token, spawns a
    * source/target agent session pair, narrows the target to `scopes` on the
    * resource over a delegation edge, and mints the mandate every request
-   * presents at the Gateway. Mandates are cached per resource and scope set
-   * and re-minted on a fresh session pair before expiry; sessions from a
-   * failed cycle are terminated best-effort. Requests already addressed to
-   * the Gateway pass through unchanged; other absolute URLs are rewritten
-   * onto it. When a scope is approval-gated the request rejects with
-   * InteractionRequiredError. Requires a client-secret configuration.
+   * presents at the Gateway. Mandates are cached per resolved identity,
+   * resource, scope set, effective labels, and mandate TTL, then re-minted on
+   * a fresh session pair before expiry; sessions from a failed cycle are
+   * terminated best-effort. Requests already addressed to the Gateway pass
+   * through unchanged; other absolute URLs are rewritten onto it. When a scope
+   * is approval-gated the request rejects with InteractionRequiredError.
+   * Requires a client-secret configuration.
    */
   governedTransport(resourceId: string, opts: GovernedTransportOptions): typeof fetch {
     const exchanger = this.config.exchanger
@@ -674,7 +675,7 @@ export class Caracal {
     const identity = await exchanger.identity()
     const mandateTtl = opts.mandateTtlSeconds ?? GOVERNED_MANDATE_TTL_SECONDS
     const labels = opts.labels ?? [identity.applicationId]
-    const key = `${identity.zoneId}::${identity.applicationId}::${resourceId}::${scopes.join(' ')}::${labels.join(' ')}::${mandateTtl}`
+    const key = `${identity.zoneId}::${identity.applicationId}::${resourceId}::${scopes.join(' ')}::${JSON.stringify(labels)}::${mandateTtl}`
     const cached = this.governedMandates.get(key)
     if (cached && Date.now() / 1000 < cached.expiresAt - GOVERNED_REFRESH_MARGIN_SECONDS) return cached
     const inflight = this.governedInflight.get(key)

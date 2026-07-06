@@ -314,7 +314,7 @@ func TestGovernedTransportCacheSeparatesLabelsAndTTL(t *testing.T) {
 	c := governedClient(t, server.URL, gateway.URL, nil)
 	worker, err := c.GovernedTransport(nil, governedResource, sdk.GovernedTransportOptions{
 		Scopes:            []string{"data:read"},
-		Labels:            []string{"worker"},
+		Labels:            []string{"a b"},
 		MandateTTLSeconds: 300,
 	})
 	if err != nil {
@@ -322,7 +322,7 @@ func TestGovernedTransportCacheSeparatesLabelsAndTTL(t *testing.T) {
 	}
 	admin, err := c.GovernedTransport(nil, governedResource, sdk.GovernedTransportOptions{
 		Scopes:            []string{"data:read"},
-		Labels:            []string{"admin"},
+		Labels:            []string{"a", "b"},
 		MandateTTLSeconds: 60,
 	})
 	if err != nil {
@@ -343,8 +343,8 @@ func TestGovernedTransportCacheSeparatesLabelsAndTTL(t *testing.T) {
 		t.Fatalf("expected 4 spawned sessions, got %d", platform.agentN)
 	}
 	labels, _ := platform.spawnBodies[2]["labels"].([]any)
-	if len(labels) != 1 || labels[0] != "admin" {
-		t.Fatalf("expected second cycle admin labels, got %v", platform.spawnBodies[2]["labels"])
+	if len(labels) != 2 || labels[0] != "a" || labels[1] != "b" {
+		t.Fatalf("expected second cycle split labels, got %v", platform.spawnBodies[2]["labels"])
 	}
 	if platform.spawnBodies[2]["ttl_seconds"] != float64(180) {
 		t.Fatalf("expected second session ttl 180, got %v", platform.spawnBodies[2]["ttl_seconds"])

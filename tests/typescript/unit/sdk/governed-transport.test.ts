@@ -144,8 +144,8 @@ describe('Caracal.governedTransport', () => {
   it('does not share cached mandates across different labels or TTLs', async () => {
     const { fetchImpl, calls, counters } = fakeFetch()
     const caracal = client(fetchImpl)
-    const worker = caracal.governedTransport(RESOURCE, { scopes: ['data:read'], labels: ['worker'], mandateTtlSeconds: 300 })
-    const admin = caracal.governedTransport(RESOURCE, { scopes: ['data:read'], labels: ['admin'], mandateTtlSeconds: 60 })
+    const worker = caracal.governedTransport(RESOURCE, { scopes: ['data:read'], labels: ['a b'], mandateTtlSeconds: 300 })
+    const admin = caracal.governedTransport(RESOURCE, { scopes: ['data:read'], labels: ['a', 'b'], mandateTtlSeconds: 60 })
 
     await worker(`${GATEWAY}/worker`, { method: 'POST', body: '{}' })
     await admin(`${GATEWAY}/admin`, { method: 'POST', body: '{}' })
@@ -153,7 +153,7 @@ describe('Caracal.governedTransport', () => {
     expect(counters.mint).toBe(2)
     expect(counters.spawn).toBe(4)
     const spawnBodies = calls.filter((c) => c.url.endsWith('/agents')).map((c) => JSON.parse(c.body!))
-    expect(spawnBodies[2].labels).toEqual(['admin'])
+    expect(spawnBodies[2].labels).toEqual(['a', 'b'])
     expect(spawnBodies[2].ttl_seconds).toBe(180)
     const finalMint = calls
       .filter((c) => c.url === `${STS}/oauth/2/token`)
