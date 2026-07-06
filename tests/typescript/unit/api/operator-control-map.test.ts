@@ -362,7 +362,7 @@ describe('describeOutcome', () => {
 
   it('reports the activated policy set and version from the arguments', () => {
     const outcome = CONTROL_CAPABILITIES.activatePolicySet.describeOutcome(
-      { activated: true, version_id: 'sv-1', shadow_version_id: null },
+      { activated: true, version_id: 'sv-1' },
       { policy_set_id: 'set-1', policy_set_version_id: 'sv-1' },
       gen,
     )

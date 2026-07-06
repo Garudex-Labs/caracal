@@ -191,7 +191,7 @@ function fakeAdmin(seed: Partial<FakeState> = {}): { admin: AdminClient; state: 
         state.calls.push('policySets.activate')
         const set = state.policySets.find((s) => s.id === sid)!
         set.active_version_id = versionId
-        return { activated: true, version_id: versionId, shadow_version_id: null }
+        return { activated: true, version_id: versionId }
       },
     },
     applications: {

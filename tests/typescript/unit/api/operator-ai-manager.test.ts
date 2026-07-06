@@ -160,7 +160,7 @@ function fakeAdmin(): { admin: AdminClient; state: AdminState } {
       activate: async (_z: string, sid: string, versionId: string) => {
         const set = state.policySets.find((s) => s.id === sid)!
         set.active_version_id = versionId
-        return { activated: true, version_id: versionId, shadow_version_id: null }
+        return { activated: true, version_id: versionId }
       },
     },
   }
