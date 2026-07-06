@@ -183,7 +183,7 @@ describe('ensureResource', () => {
     expect(client.resources.create).toHaveBeenCalledWith(ZONE, {
       name: 'PiperNet',
       identifier: 'resource://pipernet',
-      scopes: ['data:read', 'agent:lifecycle'],
+      scopes: ['data:read'],
       upstream_url: 'https://api.pipernet.example',
       operation_enforcement: 'transport_uniform',
     })
@@ -193,7 +193,7 @@ describe('ensureResource', () => {
     const existing = {
       id: 'res-1',
       identifier: 'resource://pipernet',
-      scopes: ['data:read', 'agent:lifecycle'],
+      scopes: ['data:read'],
       upstream_url: 'https://api.pipernet.example',
     }
     const client = admin([existing])
@@ -213,7 +213,7 @@ describe('ensureResource', () => {
       {
         id: 'res-1',
         identifier: 'resource://pipernet',
-        scopes: ['data:read', 'agent:lifecycle'],
+        scopes: ['data:read'],
         upstream_url: 'https://stale.pipernet.example',
         credential_provider_id: 'prov-unmanaged',
       },
@@ -227,41 +227,15 @@ describe('ensureResource', () => {
 
     // credential_provider_id was not part of the desired state, so the patch never touches it.
     expect(client.resources.patch).toHaveBeenCalledWith(ZONE, 'res-1', {
-      scopes: ['data:read', 'agent:lifecycle'],
-      upstream_url: 'https://api.pipernet.example',
-    })
-  })
-
-  it('adds agent:lifecycle to a gateway-routed resource so the owner can bootstrap its governed transport', async () => {
-    const client = admin([])
-    await ensureResource(client as unknown as AdminClient, ZONE, {
-      name: 'PiperNet',
-      identifier: 'resource://pipernet',
       scopes: ['data:read'],
       upstream_url: 'https://api.pipernet.example',
     })
-
-    expect(client.resources.create).toHaveBeenCalledWith(ZONE, {
-      name: 'PiperNet',
-      identifier: 'resource://pipernet',
-      scopes: ['data:read', 'agent:lifecycle'],
-      upstream_url: 'https://api.pipernet.example',
-    })
   })
 
-  it('does not duplicate agent:lifecycle when the caller already declares it', async () => {
-    const client = admin([])
-    await ensureResource(client as unknown as AdminClient, ZONE, {
-      name: 'PiperNet',
-      identifier: 'resource://pipernet',
-      scopes: ['agent:lifecycle', 'data:read'],
-      upstream_url: 'https://api.pipernet.example',
-    })
-
-    expect(client.resources.create).toHaveBeenCalledWith(ZONE, expect.objectContaining({ scopes: ['agent:lifecycle', 'data:read'] }))
-  })
-
-  it('treats a gateway-routed resource already carrying agent:lifecycle as converged', async () => {
+  // Declared scopes are the resource's business vocabulary: the lifecycle bootstrap scope
+  // is derived by STS for gateway-routed resources, so the reconciler sends exactly what
+  // the caller declared and converges away any stamped copy on the live row.
+  it('sends declared scopes verbatim and converges a stamped lifecycle scope away', async () => {
     const client = admin([
       {
         id: 'res-1',
@@ -277,18 +251,10 @@ describe('ensureResource', () => {
       upstream_url: 'https://api.pipernet.example',
     })
 
-    expect(client.resources.patch).not.toHaveBeenCalled()
-  })
-
-  it('never adds agent:lifecycle to a resource without an upstream', async () => {
-    const client = admin([])
-    await ensureResource(client as unknown as AdminClient, ZONE, {
-      name: 'PiperNet',
-      identifier: 'resource://pipernet',
+    expect(client.resources.patch).toHaveBeenCalledWith(ZONE, 'res-1', {
       scopes: ['data:read'],
+      upstream_url: 'https://api.pipernet.example',
     })
-
-    expect(client.resources.create).toHaveBeenCalledWith(ZONE, expect.objectContaining({ scopes: ['data:read'] }))
   })
 })
 
@@ -558,7 +524,7 @@ describe('ensureGovernedUpstreams', () => {
     expect(client.resources.create).toHaveBeenCalledWith(ZONE, {
       name: 'PiperNet',
       identifier: 'resource://pipernet',
-      scopes: ['data:read', 'agent:lifecycle'],
+      scopes: ['data:read'],
       upstream_url: 'https://api.pipernet.example',
       credential_provider_id: 'prov-created',
     })

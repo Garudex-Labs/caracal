@@ -384,11 +384,12 @@ describe('provisionSystemZone with governed upstreams', () => {
     expect(provider.kind).toBe('api_key')
     expect(provider.config_json).toMatchObject({ api_key: 'sk-live-secret', allow_runtime_injection: true, header_name: 'Authorization' })
 
-    // The resource declares the data scope (the admin reconciler adds agent:lifecycle to
-    // every gateway-routed resource) and binds the credential provider; the zone's grant
-    // policy alone decides which identities may mint on it.
+    // The resource declares only its business scope (STS derives the platform-reserved
+    // agent:lifecycle bootstrap scope for gateway-routed resources) and binds the
+    // credential provider; the zone's grant policy alone decides which identities may
+    // mint on it.
     const resource = state.resources.find((r) => r.identifier === 'caracal-sys://operator-llm-openai')!
-    expect([...resource.scopes].sort()).toEqual(['agent:lifecycle', 'llm:invoke'])
+    expect([...resource.scopes]).toEqual(['llm:invoke'])
     expect(resource.credential_provider_id).toBe(provider.id)
     expect(resource.operation_enforcement).toBe('transport_uniform')
 
