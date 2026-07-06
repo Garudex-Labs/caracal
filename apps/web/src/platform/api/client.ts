@@ -69,6 +69,12 @@ import type {
   SimulateResult,
   StepUpChallenge,
   StepUpDecision,
+  ApprovalQuery,
+  ApprovalCounts,
+  NotificationSink,
+  NotificationSinkCreated,
+  NotificationSinkInput,
+  SinkDelivery,
   OperatorCapability,
   OperatorConversation,
   OperatorConversationMode,
@@ -720,13 +726,19 @@ export const consoleApi = {
   // lifecycle state; approve/reject decide a live operator-plane hold, with an optional rationale
   // recorded on the hold and in the zone audit stream.
   approvals: {
-    list: (zoneId: string, cursor?: string): Promise<Paged<StepUpChallenge>> =>
+    list: (zoneId: string, query: ApprovalQuery = {}): Promise<Paged<StepUpChallenge>> =>
       requestList<StepUpChallenge>(
         `/v1/zones/${encodeURIComponent(zoneId)}/step-up-challenges${queryString({
           limit: 100,
-          cursor,
+          cursor: query.cursor,
+          state: query.state,
         })}`,
       ).then((res) => ({ rows: res.rows, nextCursor: res.nextCursor })),
+    counts: (zoneId: string, signal?: AbortSignal): Promise<ApprovalCounts> =>
+      request<ApprovalCounts>(
+        `/v1/zones/${encodeURIComponent(zoneId)}/step-up-challenges/counts`,
+        { signal },
+      ),
     approve: (zoneId: string, id: string, reason?: string) =>
       request<StepUpDecision>(
         `/v1/zones/${encodeURIComponent(zoneId)}/step-up-challenges/${encodeURIComponent(id)}/approve`,
@@ -736,6 +748,39 @@ export const consoleApi = {
       request<StepUpDecision>(
         `/v1/zones/${encodeURIComponent(zoneId)}/step-up-challenges/${encodeURIComponent(id)}/reject`,
         { method: "POST", body: JSON.stringify(reason ? { reason } : {}) },
+      ),
+  },
+
+  // Webhook sinks that push zone approval activity to external systems. The signing secret
+  // is returned exactly once, on create and on rotate; reads never include it.
+  notificationSinks: {
+    list: (zoneId: string): Promise<Paged<NotificationSink>> =>
+      requestList<NotificationSink>(
+        `/v1/zones/${encodeURIComponent(zoneId)}/notification-sinks${queryString({ limit: 100 })}`,
+      ),
+    create: (zoneId: string, input: NotificationSinkInput) =>
+      request<NotificationSinkCreated>(
+        `/v1/zones/${encodeURIComponent(zoneId)}/notification-sinks`,
+        { method: "POST", body: JSON.stringify(input) },
+      ),
+    update: (zoneId: string, id: string, patch: Partial<NotificationSinkInput>) =>
+      request<NotificationSink>(
+        `/v1/zones/${encodeURIComponent(zoneId)}/notification-sinks/${encodeURIComponent(id)}`,
+        { method: "PATCH", body: JSON.stringify(patch) },
+      ),
+    rotateSecret: (zoneId: string, id: string) =>
+      request<NotificationSinkCreated>(
+        `/v1/zones/${encodeURIComponent(zoneId)}/notification-sinks/${encodeURIComponent(id)}/rotate-secret`,
+        { method: "POST", body: JSON.stringify({}) },
+      ),
+    remove: (zoneId: string, id: string) =>
+      request<void>(
+        `/v1/zones/${encodeURIComponent(zoneId)}/notification-sinks/${encodeURIComponent(id)}`,
+        { method: "DELETE" },
+      ),
+    deliveries: (zoneId: string, id: string): Promise<Paged<SinkDelivery>> =>
+      requestList<SinkDelivery>(
+        `/v1/zones/${encodeURIComponent(zoneId)}/notification-sinks/${encodeURIComponent(id)}/deliveries${queryString({ limit: 50 })}`,
       ),
   },
 

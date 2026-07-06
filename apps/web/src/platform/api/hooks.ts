@@ -22,11 +22,13 @@ import type {
   ApplicationPatchInput,
   AdminAuditQuery,
   AgentQuery,
+  ApprovalQuery,
   AuditQuery,
   ControlKeyCreateInput,
   ControlTokenInput,
   DiagnosticsReport,
   DiagnosticStatus,
+  NotificationSinkInput,
   OperatorConversationMode,
   OperatorAiProviderInput,
   OperatorAiProviderPatch,
@@ -88,6 +90,11 @@ const keys = {
   policySets: (zoneId: string | null) => ["console", "policy-sets", zoneId] as const,
   sessions: (zoneId: string | null) => ["console", "sessions", zoneId] as const,
   approvals: (zoneId: string | null) => ["console", "approvals", zoneId] as const,
+  approvalCounts: (zoneId: string | null) => ["console", "approval-counts", zoneId] as const,
+  notificationSinks: (zoneId: string | null) =>
+    ["console", "notification-sinks", zoneId] as const,
+  sinkDeliveries: (zoneId: string | null, sinkId: string | null) =>
+    ["console", "sink-deliveries", zoneId, sinkId] as const,
   audit: (zoneId: string | null) => ["console", "audit", zoneId] as const,
   auditRetention: ["console", "audit-retention"] as const,
   auditExplain: (zoneId: string | null, requestId: string | null) =>
@@ -950,12 +957,26 @@ export function useSessionsFeed(zoneId: string | null, query: SessionQuery) {
 
 // Cursor-paginated feed of human-approval holds. Live polling keeps pending holds visible
 // the moment an agent run parks on one, since approval latency is the whole user experience.
-export function useApprovalsFeed(zoneId: string | null) {
+// State filtering happens server-side so a filtered page is a true page, not a sieve over
+// whatever happened to be in the first hundred rows.
+export function useApprovalsFeed(zoneId: string | null, query: ApprovalQuery = {}) {
   return useInfiniteQuery({
-    queryKey: [...keys.approvals(zoneId), "feed"],
-    queryFn: ({ pageParam }) => consoleApi.approvals.list(zoneId as string, pageParam ?? undefined),
+    queryKey: [...keys.approvals(zoneId), "feed", query.state ?? "all"],
+    queryFn: ({ pageParam }) =>
+      consoleApi.approvals.list(zoneId as string, { ...query, cursor: pageParam ?? undefined }),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.nextCursor ?? undefined,
+    enabled: Boolean(zoneId),
+    refetchInterval: LIVE_MS,
+  });
+}
+
+// One cheap aggregate that powers every pending-approval indicator: the sidebar badge,
+// the dashboard summary, and the workspace filter counts all read the same numbers.
+export function useApprovalCounts(zoneId: string | null) {
+  return useQuery({
+    queryKey: keys.approvalCounts(zoneId),
+    queryFn: ({ signal }) => consoleApi.approvals.counts(zoneId as string, signal),
     enabled: Boolean(zoneId),
     refetchInterval: LIVE_MS,
   });
@@ -972,6 +993,67 @@ export function useDecideApproval(zoneId: string | null) {
         : consoleApi.approvals.reject(zoneId as string, input.id, input.reason),
     onSettled: () => {
       qc.invalidateQueries({ queryKey: keys.approvals(zoneId) });
+      qc.invalidateQueries({ queryKey: keys.approvalCounts(zoneId) });
+    },
+  });
+}
+
+export function useNotificationSinks(zoneId: string | null) {
+  return useQuery({
+    queryKey: keys.notificationSinks(zoneId),
+    queryFn: () => consoleApi.notificationSinks.list(zoneId as string),
+    enabled: Boolean(zoneId),
+    refetchInterval: LIVE_MS,
+  });
+}
+
+export function useSinkDeliveries(zoneId: string | null, sinkId: string | null) {
+  return useQuery({
+    queryKey: keys.sinkDeliveries(zoneId, sinkId),
+    queryFn: () => consoleApi.notificationSinks.deliveries(zoneId as string, sinkId as string),
+    enabled: Boolean(zoneId) && Boolean(sinkId),
+    refetchInterval: LIVE_MS,
+  });
+}
+
+export function useCreateNotificationSink(zoneId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: NotificationSinkInput) =>
+      consoleApi.notificationSinks.create(zoneId as string, input),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: keys.notificationSinks(zoneId) });
+    },
+  });
+}
+
+export function useUpdateNotificationSink(zoneId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { id: string; patch: Partial<NotificationSinkInput> }) =>
+      consoleApi.notificationSinks.update(zoneId as string, input.id, input.patch),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: keys.notificationSinks(zoneId) });
+    },
+  });
+}
+
+export function useRotateSinkSecret(zoneId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => consoleApi.notificationSinks.rotateSecret(zoneId as string, id),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: keys.notificationSinks(zoneId) });
+    },
+  });
+}
+
+export function useDeleteNotificationSink(zoneId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => consoleApi.notificationSinks.remove(zoneId as string, id),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: keys.notificationSinks(zoneId) });
     },
   });
 }
