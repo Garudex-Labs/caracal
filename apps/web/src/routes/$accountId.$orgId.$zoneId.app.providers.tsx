@@ -98,20 +98,20 @@ function errorMessage(error: unknown): string {
   return "Unexpected error.";
 }
 
-// Surfaces the concrete blast radius of deleting a provider: the resources bound to it as
-// their credential source will lose upstream access the moment it is removed.
-function deleteProviderDescription(provider: Provider | null, resources: Resource[]): string {
+// Surfaces the concrete blast radius of archiving a provider: the resources bound to it as
+// their credential source will lose upstream access the moment it is removed from active use.
+function archiveProviderDescription(provider: Provider | null, resources: Resource[]): string {
   if (!provider) return "";
   const bound = resources.filter((r) => r.credential_provider_id === provider.id);
   if (bound.length === 0) {
-    return `Deleting "${provider.name}" removes its credential routing. No resources are bound to it. This cannot be undone.`;
+    return `Archiving "${provider.name}" removes its credential routing. No resources are bound to it. This cannot be undone; the record stays visible under Archived for audit.`;
   }
   const names = bound
     .slice(0, 3)
     .map((r) => r.name)
     .join(", ");
   const more = bound.length > 3 ? ` and ${bound.length - 3} more` : "";
-  return `Deleting "${provider.name}" will break upstream access for ${bound.length} bound resource${bound.length === 1 ? "" : "s"} (${names}${more}). They will fail until rebound to another provider. This cannot be undone.`;
+  return `Archiving "${provider.name}" will break upstream access for ${bound.length} bound resource${bound.length === 1 ? "" : "s"} (${names}${more}). They will fail until rebound to another provider. This cannot be undone; the record stays visible under Archived for audit.`;
 }
 
 function routingSummary(provider: Provider): string {
@@ -135,7 +135,8 @@ function routingSummary(provider: Provider): string {
 
 function ProvidersPage({ zoneId, zoneName }: { zoneId: string; zoneName: string }) {
   const toast = useToast();
-  const query = useProviders(zoneId);
+  const [view, setView] = useState<"active" | "archived">("active");
+  const query = useProviders(zoneId, view);
   const resourcesQuery = useResources(zoneId);
   const createProvider = useCreateProvider(zoneId);
   const updateProvider = useUpdateProvider(zoneId);
@@ -166,6 +167,16 @@ function ProvidersPage({ zoneId, zoneName }: { zoneId: string; zoneName: string 
   );
 
   const filters: FilterGroup[] = [
+    {
+      id: "lifecycle",
+      label: "Lifecycle",
+      value: view,
+      onChange: (v) => setView(v as "active" | "archived"),
+      options: [
+        { id: "active", label: "Active" },
+        { id: "archived", label: "Archived" },
+      ],
+    },
     {
       id: "kind",
       label: "Type",
@@ -250,6 +261,21 @@ function ProvidersPage({ zoneId, zoneName }: { zoneId: string; zoneName: string 
         </span>
       ),
     },
+    ...(view === "archived"
+      ? [
+          {
+            id: "archived",
+            header: "Archived",
+            sortable: true,
+            align: "right",
+            cell: (p) => (
+              <span className="text-xs text-muted-foreground">
+                {p.archived_at ? new Date(p.archived_at).toLocaleDateString() : "-"}
+              </span>
+            ),
+          } satisfies Column<Provider>,
+        ]
+      : []),
   ];
 
   return (
@@ -263,24 +289,32 @@ function ProvidersPage({ zoneId, zoneName }: { zoneId: string; zoneName: string 
         loading={query.isLoading}
         columns={columns}
         rowKey={(p) => p.id}
-        filters={allRows.length > 0 ? filters : undefined}
+        filters={allRows.length > 0 || view === "archived" ? filters : undefined}
         search={{
           placeholder: "Search providers…",
           match: (p, q) =>
             p.name.toLowerCase().includes(q) ||
             p.identifier.toLowerCase().includes(q) ||
+            p.id.toLowerCase().includes(q) ||
             KIND_LABEL[p.kind].toLowerCase().includes(q),
         }}
         initialSort={{ column: "created", direction: "desc" }}
         sortValues={{
           name: (p) => p.name.toLowerCase(),
           created: (p) => Date.parse(p.created_at) || 0,
+          archived: (p) => (p.archived_at ? Date.parse(p.archived_at) : 0),
         }}
         empty={{
-          title: query.isError ? "Could not load providers" : "No providers configured",
+          title: query.isError
+            ? "Could not load providers"
+            : view === "archived"
+              ? "No archived providers"
+              : "No providers configured",
           description: query.isError
             ? errorMessage(query.error)
-            : "Add a provider so applications can obtain mandates and upstream credentials.",
+            : view === "archived"
+              ? "Providers you archive keep their record here for audit."
+              : "Add a provider so applications can obtain mandates and upstream credentials.",
         }}
         detail={{
           title: (p) => p.name,
@@ -302,6 +336,7 @@ function ProvidersPage({ zoneId, zoneName }: { zoneId: string; zoneName: string 
         open={createOpen}
         mode="create"
         busy={createProvider.isPending}
+        zoneId={zoneId}
         onClose={() => setCreateOpen(false)}
         onDiscover={(issuer) => discoverProvider.mutateAsync(issuer)}
         onSubmit={async (input): Promise<ProviderTestResult | undefined> => {
@@ -342,6 +377,7 @@ function ProvidersPage({ zoneId, zoneName }: { zoneId: string; zoneName: string 
         mode="edit"
         provider={editTarget ?? undefined}
         busy={updateProvider.isPending}
+        zoneId={zoneId}
         onClose={() => setEditTarget(null)}
         onDiscover={(issuer) => discoverProvider.mutateAsync(issuer)}
         onSubmit={async (input: ProviderInput): Promise<ProviderTestResult | undefined> => {
@@ -367,17 +403,17 @@ function ProvidersPage({ zoneId, zoneName }: { zoneId: string; zoneName: string 
       <ConfirmDialog
         open={deleteTarget !== null}
         onClose={() => setDeleteTarget(null)}
-        title="Delete provider"
-        description={deleteProviderDescription(deleteTarget, resourcesQuery.data ?? [])}
-        confirmLabel="Delete provider"
+        title="Archive provider"
+        description={archiveProviderDescription(deleteTarget, resourcesQuery.data ?? [])}
+        confirmLabel="Archive provider"
         tone="danger"
         onConfirm={async () => {
           if (!deleteTarget) return;
           try {
             await deleteProvider.mutateAsync(deleteTarget.id);
-            toast({ tone: "info", title: "Provider deleted", description: deleteTarget.name });
+            toast({ tone: "info", title: "Provider archived", description: deleteTarget.name });
           } catch (err) {
-            toast({ tone: "error", title: "Delete failed", description: errorMessage(err) });
+            toast({ tone: "error", title: "Archive failed", description: errorMessage(err) });
           }
         }}
       />
@@ -615,6 +651,19 @@ function ProviderConnectivity({ provider, zoneId }: { provider: Provider; zoneId
 
 /* ------------------------------ Provider grants ----------------------------- */
 
+// A connection is healthy while its upstream token is live or STS can refresh it on
+// use; a lapsed token with no refresh token needs the user to reconnect.
+function GrantHealthBadge({ grant }: { grant: ProviderGrant }) {
+  if (grant.status !== "active") {
+    return <Badge tone={grant.status === "expired" ? "warning" : "muted"}>{grant.status}</Badge>;
+  }
+  const lapsed = grant.expires_at !== null && new Date(grant.expires_at) < new Date();
+  if (lapsed && !grant.renewable) {
+    return <Badge tone="warning">needs reconnect</Badge>;
+  }
+  return <Badge tone="success">active</Badge>;
+}
+
 // Provider grants only apply to delegated OAuth (authorization_code). For every other
 // kind the upstream credential is sealed on the provider itself, so there is nothing
 // per-user to connect.
@@ -686,9 +735,18 @@ function ProviderConnections({ provider, zoneId }: { provider: Provider; zoneId:
                     ) : null}
                   </td>
                   <td className="px-3 py-2 align-top text-right">
-                    <Badge tone={grant.status === "active" ? "success" : "muted"}>
-                      {grant.status}
-                    </Badge>
+                    <GrantHealthBadge grant={grant} />
+                    {grant.expires_at ? (
+                      <div className="mt-0.5 text-[11px] text-muted-foreground">
+                        {new Date(grant.expires_at) < new Date()
+                          ? grant.renewable
+                            ? "refreshes on use"
+                            : "expired " + new Date(grant.expires_at).toLocaleString()
+                          : "expires " + new Date(grant.expires_at).toLocaleString()}
+                      </div>
+                    ) : (
+                      <div className="mt-0.5 text-[11px] text-muted-foreground">non-expiring</div>
+                    )}
                   </td>
                   <td className="w-20 px-3 py-2 text-right align-top">
                     {grant.status === "active" ? (

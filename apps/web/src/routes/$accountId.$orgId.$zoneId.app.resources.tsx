@@ -74,7 +74,8 @@ type EnforcementFilter = "all" | "enforced" | "transport_uniform";
 
 function ResourcesPage({ zoneId }: { zoneId: string }) {
   const toast = useToast();
-  const query = useResources(zoneId);
+  const [view, setView] = useState<"active" | "archived">("active");
+  const query = useResources(zoneId, view);
   const providersQuery = useProviders(zoneId);
   const createResource = useCreateResource(zoneId);
   const updateResource = useUpdateResource(zoneId);
@@ -112,6 +113,16 @@ function ResourcesPage({ zoneId }: { zoneId: string }) {
 
   const filters: FilterGroup[] = [
     {
+      id: "lifecycle",
+      label: "Lifecycle",
+      value: view,
+      onChange: (v) => setView(v as "active" | "archived"),
+      options: [
+        { id: "active", label: "Active" },
+        { id: "archived", label: "Archived" },
+      ],
+    },
+    {
       id: "enforcement",
       label: "Enforcement",
       value: filter,
@@ -148,20 +159,18 @@ function ResourcesPage({ zoneId }: { zoneId: string }) {
       ),
     },
     {
-      id: "binding",
-      header: "Binding",
+      id: "provider",
+      header: "Provider",
       truncate: true,
-      cell: (r) => (
-        <div className="flex min-w-0 flex-col gap-0.5 text-xs">
-          <RelationCell
-            label="cred"
-            value={
-              r.credential_provider_id ? providerById.get(r.credential_provider_id)?.name : null
-            }
-            unresolved={Boolean(r.credential_provider_id)}
-          />
-        </div>
-      ),
+      cell: (r) => {
+        const name = r.credential_provider_id
+          ? providerById.get(r.credential_provider_id)?.name
+          : null;
+        if (name) return <span className="block truncate text-xs text-foreground">{name}</span>;
+        if (r.credential_provider_id)
+          return <span className="block truncate text-xs text-muted-foreground">Unavailable</span>;
+        return <span className="text-xs text-muted-foreground/50">-</span>;
+      },
     },
     {
       id: "enforcement",
@@ -182,6 +191,21 @@ function ResourcesPage({ zoneId }: { zoneId: string }) {
         <span className="font-mono text-xs text-muted-foreground">{(r.scopes ?? []).length}</span>
       ),
     },
+    ...(view === "archived"
+      ? [
+          {
+            id: "archived",
+            header: "Archived",
+            sortable: true,
+            align: "right",
+            cell: (r) => (
+              <span className="text-xs text-muted-foreground">
+                {r.archived_at ? new Date(r.archived_at).toLocaleDateString() : "-"}
+              </span>
+            ),
+          } satisfies Column<Resource>,
+        ]
+      : []),
   ];
 
   return (
@@ -195,12 +219,13 @@ function ResourcesPage({ zoneId }: { zoneId: string }) {
         loading={query.isLoading}
         columns={columns}
         rowKey={(r) => r.id}
-        filters={allRows.length > 0 ? filters : undefined}
+        filters={allRows.length > 0 || view === "archived" ? filters : undefined}
         search={{
           placeholder: "Search resources, scopes, upstreams…",
           match: (r, q) =>
             r.name.toLowerCase().includes(q) ||
             r.identifier.toLowerCase().includes(q) ||
+            r.id.toLowerCase().includes(q) ||
             (r.upstream_url ?? "").toLowerCase().includes(q) ||
             (r.scopes ?? []).some((s) => s.toLowerCase().includes(q)),
         }}
@@ -208,12 +233,19 @@ function ResourcesPage({ zoneId }: { zoneId: string }) {
         sortValues={{
           name: (r) => r.name.toLowerCase(),
           scopes: (r) => (r.scopes ?? []).length,
+          archived: (r) => (r.archived_at ? Date.parse(r.archived_at) : 0),
         }}
         empty={{
-          title: query.isError ? "Could not load resources" : "No resources yet",
+          title: query.isError
+            ? "Could not load resources"
+            : view === "archived"
+              ? "No archived resources"
+              : "No resources yet",
           description: query.isError
             ? errorMessage(query.error)
-            : "Register a protected upstream so the Gateway can authorize requests to it.",
+            : view === "archived"
+              ? "Resources you archive keep their record here for audit."
+              : "Register a protected upstream so the Gateway can authorize requests to it.",
         }}
         detail={{
           title: (r) => r.name,
@@ -276,17 +308,17 @@ function ResourcesPage({ zoneId }: { zoneId: string }) {
       <ConfirmDialog
         open={deleteTarget !== null}
         onClose={() => setDeleteTarget(null)}
-        title="Delete resource"
-        description={`Archiving "${deleteTarget?.name ?? ""}" removes its Gateway route and authorization, so agents lose access to this upstream. The record is retained for audit.`}
-        confirmLabel="Delete resource"
+        title="Archive resource"
+        description={`Archiving "${deleteTarget?.name ?? ""}" removes its Gateway route and authorization, so agents lose access to this upstream. The record stays visible under Archived for audit.`}
+        confirmLabel="Archive resource"
         tone="danger"
         onConfirm={async () => {
           if (!deleteTarget) return;
           try {
             await deleteResource.mutateAsync(deleteTarget.id);
-            toast({ tone: "info", title: "Resource deleted", description: deleteTarget.name });
+            toast({ tone: "info", title: "Resource archived", description: deleteTarget.name });
           } catch (err) {
-            toast({ tone: "error", title: "Delete failed", description: errorMessage(err) });
+            toast({ tone: "error", title: "Archive failed", description: errorMessage(err) });
           }
         }}
       />
@@ -302,45 +334,6 @@ function hostOf(url: string): string {
   }
 }
 
-function RelationCell({
-  label,
-  value,
-  unresolved,
-}: {
-  label: string;
-  value: string | null | undefined;
-  unresolved: boolean;
-}) {
-  if (value) {
-    return (
-      <span className="flex items-center gap-1.5">
-        <span className="font-mono text-[10px] uppercase tracking-wide text-muted-foreground/70">
-          {label}
-        </span>
-        <span className="truncate text-foreground">{value}</span>
-      </span>
-    );
-  }
-  if (unresolved) {
-    return (
-      <span className="flex items-center gap-1.5">
-        <span className="font-mono text-[10px] uppercase tracking-wide text-muted-foreground/70">
-          {label}
-        </span>
-        <span className="truncate text-muted-foreground">linked</span>
-      </span>
-    );
-  }
-  return (
-    <span className="flex items-center gap-1.5">
-      <span className="font-mono text-[10px] uppercase tracking-wide text-muted-foreground/70">
-        {label}
-      </span>
-      <span className="text-muted-foreground/50">-</span>
-    </span>
-  );
-}
-
 function ResourceDetail({
   resource,
   provider,
@@ -354,13 +347,16 @@ function ResourceDetail({
 }) {
   const scopes = resource.scopes ?? [];
   const operations = resource.operations ?? [];
+  const archived = Boolean(resource.archived_at);
   return (
     <div className="flex flex-col gap-6">
       <DetailHeader
         action={
-          <Button variant="secondary" size="sm" onClick={onEdit}>
-            Edit
-          </Button>
+          archived ? undefined : (
+            <Button variant="secondary" size="sm" onClick={onEdit}>
+              Edit
+            </Button>
+          )
         }
       >
         {resource.operation_enforcement === "enforced" ? (
@@ -368,9 +364,17 @@ function ResourceDetail({
         ) : (
           <Badge tone="muted">Transport uniform</Badge>
         )}
+        {archived && resource.archived_at ? (
+          <span className="text-xs text-muted-foreground">
+            Archived {new Date(resource.archived_at).toLocaleString()}
+          </span>
+        ) : null}
       </DetailHeader>
 
       <DetailGroup title="Routing">
+        <DetailField label="Resource ID">
+          <CopyValue value={resource.id} />
+        </DetailField>
         <DetailField label="Identifier">
           <CopyValue value={resource.identifier} />
         </DetailField>
@@ -455,11 +459,18 @@ function ResourceDetail({
         )}
       </DetailSection>
 
-      <DangerZone
-        description="Remove this resource and its Gateway route."
-        actionLabel="Delete"
-        onAction={onDelete}
-      />
+      {archived ? (
+        <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+          This resource is archived: its Gateway route and authorization are removed and the record
+          is retained for audit.
+        </p>
+      ) : (
+        <DangerZone
+          description="Archive this resource and remove its Gateway route. Agents lose access to this upstream."
+          actionLabel="Archive"
+          onAction={onDelete}
+        />
+      )}
     </div>
   );
 }
@@ -481,13 +492,17 @@ function BindingCell({
         {label}
       </div>
       {id ? (
-        <Link
-          to={to}
-          search={{ focus: id }}
-          className="mt-1 block truncate text-sm text-foreground hover:underline"
-        >
-          {value ?? "Linked"}
-        </Link>
+        value ? (
+          <Link
+            to={to}
+            search={{ focus: id }}
+            className="mt-1 block truncate text-sm text-foreground hover:underline"
+          >
+            {value}
+          </Link>
+        ) : (
+          <div className="mt-1 text-sm text-muted-foreground">Unavailable</div>
+        )
       ) : (
         <div className="mt-1 text-sm text-muted-foreground">Not bound</div>
       )}

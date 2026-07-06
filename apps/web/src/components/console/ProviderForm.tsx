@@ -179,13 +179,6 @@ const FIELDS: Record<ProviderKind, ProviderField[]> = {
       advanced: true,
       hint: "Also send X-Caracal-Identity to trusted upstreams.",
     },
-    {
-      key: "allow_runtime_injection",
-      label: "Allow runtime injection",
-      kind: "bool",
-      advanced: true,
-      hint: "Allow caracal run to inject this credential into a child process.",
-    },
   ],
   oauth2_client_credentials: [
     {
@@ -505,6 +498,7 @@ export function ProviderFormModal({
   mode,
   provider,
   busy,
+  zoneId,
   onClose,
   onSubmit,
   onDiscover,
@@ -513,6 +507,7 @@ export function ProviderFormModal({
   mode: "create" | "edit";
   provider?: Provider;
   busy: boolean;
+  zoneId?: string;
   onClose: () => void;
   onSubmit: (input: ProviderInput) => Promise<ProviderTestResult | undefined>;
   onDiscover?: (issuer: string) => Promise<ProviderDiscovery>;
@@ -554,7 +549,19 @@ export function ProviderFormModal({
   }
 
   const fields = FIELDS[kind];
-  const visibleFields = fields.filter((f) => fieldVisible(f, values));
+  // The callback path is fixed and the zone is known, so the redirect URI guidance
+  // shows the exact value to register with the provider instead of a template the
+  // operator has to assemble by hand.
+  const visibleFields = fields
+    .filter((f) => fieldVisible(f, values))
+    .map((f) =>
+      f.key === "redirect_uri" && zoneId
+        ? {
+            ...f,
+            hint: `Caracal's callback: <control-plane URL>/v1/zones/${zoneId}/provider-grants/oauth/callback. Register this exact URL with the provider.`,
+          }
+        : f,
+    );
   const basicFields = visibleFields.filter((f) => !f.advanced);
   const advancedFields = visibleFields.filter((f) => f.advanced);
 
