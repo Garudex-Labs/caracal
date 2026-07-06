@@ -50,6 +50,16 @@ func makeJWTWithoutZone(t *testing.T, offset time.Duration) string {
 	return header + "." + base64.RawURLEncoding.EncodeToString(payload) + ".sig"
 }
 
+func makeJWTWithoutClient(t *testing.T, offset time.Duration) string {
+	t.Helper()
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none","typ":"JWT"}`))
+	payload, _ := json.Marshal(struct {
+		Exp    int64  `json:"exp"`
+		ZoneID string `json:"zone_id"`
+	}{Exp: time.Now().Add(offset).Unix(), ZoneID: "z"})
+	return header + "." + base64.RawURLEncoding.EncodeToString(payload) + ".sig"
+}
+
 func TestProxyOversizedBearerRejected(t *testing.T) {
 	sts := newFakeSTS(t, "http://127.0.0.1:1", nil)
 	defer sts.Close()
@@ -78,11 +88,25 @@ func TestProxyMissingZoneClaimRejected(t *testing.T) {
 	}
 }
 
+func TestProxyMissingClientClaimRejected(t *testing.T) {
+	sts := newFakeSTS(t, "http://127.0.0.1:1", nil)
+	defer sts.Close()
+	p := newProxyForTest(t, sts)
+
+	resp := doProxiedRequest(t, p, http.MethodGet, "/x", nil, proxyHeaders(makeJWTWithoutClient(t, time.Hour)))
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("status = %d", resp.StatusCode)
+	}
+	if p.metrics.Snapshot().DenialsBadRouting != 1 {
+		t.Fatalf("bad routing denials = %d", p.metrics.Snapshot().DenialsBadRouting)
+	}
+}
+
 func TestProxySignatureFailureRejected(t *testing.T) {
 	sts := newFakeSTS(t, "http://127.0.0.1:1", nil)
 	defer sts.Close()
 	stsClient := newSTSClient(sts.URL, time.Second, nil)
-	p := newProxy(stsClient, denyVerifier{err: errors.New("bad signature")}, newUpstreamGuard(nil), zerolog.Nop(), 1<<20, time.Second, testBindings(), allowTracker{}, allowRevocations{}, &GatewayMetrics{}, nil)
+	p := newProxy(stsClient, denyVerifier{err: errors.New("bad signature")}, newUpstreamGuard(nil), zerolog.Nop(), 1<<20, time.Second, allowTracker{}, allowRevocations{}, &GatewayMetrics{}, nil)
 
 	resp := doProxiedRequest(t, p, http.MethodGet, "/x", nil, proxyHeaders(makeJWT(t, time.Hour)))
 	if resp.StatusCode != http.StatusUnauthorized {
@@ -97,7 +121,7 @@ func TestProxyJTIReplayRejected(t *testing.T) {
 	sts := newFakeSTS(t, "http://127.0.0.1:1", nil)
 	defer sts.Close()
 	stsClient := newSTSClient(sts.URL, time.Second, nil)
-	p := newProxy(stsClient, allowVerifier{}, newUpstreamGuard(nil), zerolog.Nop(), 1<<20, time.Second, testBindings(), denyTracker{}, allowRevocations{}, &GatewayMetrics{}, nil)
+	p := newProxy(stsClient, allowVerifier{}, newUpstreamGuard(nil), zerolog.Nop(), 1<<20, time.Second, denyTracker{}, allowRevocations{}, &GatewayMetrics{}, nil)
 
 	resp := doProxiedRequest(t, p, http.MethodGet, "/x", nil, proxyHeaders(makeJWT(t, time.Hour)))
 	if resp.StatusCode != http.StatusUnauthorized {
@@ -150,7 +174,7 @@ func TestProxyRejectsDisallowedProviderHost(t *testing.T) {
 	defer sts.Close()
 	rec := &recordAudit{}
 	stsClient := newSTSClient(sts.URL, time.Second, nil)
-	p := newProxy(stsClient, allowVerifier{}, newUpstreamGuard(nil), zerolog.Nop(), 1<<20, time.Second, testBindings(), allowTracker{}, allowRevocations{}, &GatewayMetrics{}, rec)
+	p := newProxy(stsClient, allowVerifier{}, newUpstreamGuard(nil), zerolog.Nop(), 1<<20, time.Second, allowTracker{}, allowRevocations{}, &GatewayMetrics{}, rec)
 
 	resp := doProxiedRequest(t, p, http.MethodGet, "/x", nil, proxyHeaders(makeJWT(t, time.Hour)))
 	if resp.StatusCode != http.StatusBadGateway {
@@ -169,7 +193,7 @@ func TestProxyUpstreamTransportErrorAudited(t *testing.T) {
 	defer sts.Close()
 	rec := &recordAudit{}
 	stsClient := newSTSClient(sts.URL, time.Second, nil)
-	p := newProxy(stsClient, allowVerifier{}, newUpstreamGuard(nil), zerolog.Nop(), 1<<20, time.Second, testBindings(), allowTracker{}, allowRevocations{}, &GatewayMetrics{}, rec)
+	p := newProxy(stsClient, allowVerifier{}, newUpstreamGuard(nil), zerolog.Nop(), 1<<20, time.Second, allowTracker{}, allowRevocations{}, &GatewayMetrics{}, rec)
 
 	resp := doProxiedRequest(t, p, http.MethodGet, "/r", nil, proxyHeaders(makeJWT(t, time.Hour)))
 	if resp.StatusCode != http.StatusBadGateway {
@@ -212,13 +236,13 @@ func TestNewProxyPanicsWithoutRequiredDependencies(t *testing.T) {
 	}
 	guard := newUpstreamGuard(nil)
 	expectPanic("nil jwks", func() {
-		newProxy(nil, nil, guard, zerolog.Nop(), 1, time.Second, nil, allowTracker{}, allowRevocations{}, nil, nil)
+		newProxy(nil, nil, guard, zerolog.Nop(), 1, time.Second, allowTracker{}, allowRevocations{}, nil, nil)
 	})
 	expectPanic("nil tracker", func() {
-		newProxy(nil, allowVerifier{}, guard, zerolog.Nop(), 1, time.Second, nil, nil, allowRevocations{}, nil, nil)
+		newProxy(nil, allowVerifier{}, guard, zerolog.Nop(), 1, time.Second, nil, allowRevocations{}, nil, nil)
 	})
 	expectPanic("nil revocations", func() {
-		newProxy(nil, allowVerifier{}, guard, zerolog.Nop(), 1, time.Second, nil, allowTracker{}, nil, nil, nil)
+		newProxy(nil, allowVerifier{}, guard, zerolog.Nop(), 1, time.Second, allowTracker{}, nil, nil, nil)
 	})
 }
 

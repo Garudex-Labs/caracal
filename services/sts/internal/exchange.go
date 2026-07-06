@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -351,6 +352,16 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		if dbErr != nil {
 			if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "resource_not_found", &OPAResult{},
 				mergeAuditMeta(appMeta, map[string]any{"resource": identifier})); auditErr != nil {
+				return nil, nil, http.StatusInternalServerError, auditErr
+			}
+			continue
+		}
+		// A resource with a caller allowlist structurally admits only the listed
+		// applications, before any policy work. An empty allowlist leaves the
+		// app-to-resource decision to policy.
+		if len(resource.AllowedApplications) > 0 && !slices.Contains(resource.AllowedApplications, app.ID) {
+			if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "application_not_allowed", &OPAResult{},
+				mergeAuditMeta(appMeta, map[string]any{"resource": resource.Identifier})); auditErr != nil {
 				return nil, nil, http.StatusInternalServerError, auditErr
 			}
 			continue

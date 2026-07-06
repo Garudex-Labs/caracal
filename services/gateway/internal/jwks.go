@@ -65,7 +65,7 @@ func newJWKSCache(stsURL string, timeout time.Duration, log zerolog.Logger) *jwk
 
 // Verify parses an ES256 JWS, looks up the public key for (zoneID, kid), and
 // validates the signature. It does not enforce claim semantics: only that the
-// token is signed by the zone whose binding the gateway resolved.
+// token is signed by the zone the bearer claims to belong to.
 func (c *jwksCache) Verify(ctx context.Context, zoneID, token string) error {
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
