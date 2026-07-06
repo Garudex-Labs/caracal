@@ -72,6 +72,7 @@ class VerifyConfigTests(unittest.IsolatedAsyncioTestCase):
     async def _verify(self, extra_claims: dict, **config_kwargs) -> Claims:
         token, jwk = mint_es256_token(claims=extra_claims)
         verify._cache = StubCache([jwk])
+        config_kwargs.setdefault("expected_zone_id", "zone1")
         cfg = JwtConfig(
             issuer="https://sts.example.com",
             audience="resource://api",
@@ -150,7 +151,11 @@ class VerifyConfigTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_raises_for_invalid_token_string(self) -> None:
         verify._cache = StubCache([])
-        cfg = JwtConfig(issuer="https://sts.example.com", audience="resource://api")
+        cfg = JwtConfig(
+            issuer="https://sts.example.com",
+            audience="resource://api",
+            expected_zone_id="zone1",
+        )
         with self.assertRaises(TokenInvalidError):
             await verify_config("not.a.jwt", cfg)
 
@@ -190,7 +195,11 @@ class VerifyConfigTests(unittest.IsolatedAsyncioTestCase):
         _, wrong_jwk = mint_es256_token()
         wrong_jwk["kid"] = "other-kid"
         verify._cache = StubCache([wrong_jwk])
-        cfg = JwtConfig(issuer="https://sts.example.com", audience="resource://api")
+        cfg = JwtConfig(
+            issuer="https://sts.example.com",
+            audience="resource://api",
+            expected_zone_id="zone1",
+        )
         with self.assertRaises(TokenInvalidError):
             await verify_config(token, cfg)
 
@@ -198,14 +207,22 @@ class VerifyConfigTests(unittest.IsolatedAsyncioTestCase):
         token, _ = mint_es256_token()
         _, wrong_jwk = mint_es256_token()
         verify._cache = StubCache([wrong_jwk])
-        cfg = JwtConfig(issuer="https://sts.example.com", audience="resource://api")
+        cfg = JwtConfig(
+            issuer="https://sts.example.com",
+            audience="resource://api",
+            expected_zone_id="zone1",
+        )
         with self.assertRaises(TokenInvalidError):
             await verify_config(token, cfg)
 
     async def test_resolves_no_kid_token_using_all_keys(self) -> None:
         token, jwk = _mint_no_kid_token()
         verify._cache = StubCache([jwk])
-        cfg = JwtConfig(issuer="https://sts.example.com", audience="resource://api")
+        cfg = JwtConfig(
+            issuer="https://sts.example.com",
+            audience="resource://api",
+            expected_zone_id="zone1",
+        )
         claims = await verify_config(token, cfg)
         self.assertEqual(claims.sub, "user1")
 

@@ -145,7 +145,10 @@ def ensure_client_credentials_provider(
     )
     secrets = {
         key: value
-        for key, value in (("client_secret", client_secret), ("private_key", private_key))
+        for key, value in (
+            ("client_secret", client_secret),
+            ("private_key", private_key),
+        )
         if value is not None
     }
     if not secrets:
