@@ -108,6 +108,8 @@ const DOMAIN_ROW_FIELDS: Record<string, { idField: string; fields: string[] }> =
     fields: ['issuer_application_id', 'receiver_application_id', 'resource_id', 'scopes', 'status', 'expires_at', 'created_at'],
   },
   audit: { idField: 'id', fields: ['event_type', 'decision', 'evaluation_status', 'request_id', 'occurred_at'] },
+  workload: { idField: 'id', fields: ['name', 'created_at', 'updated_at'] },
+  approval: { idField: 'id', fields: ['challenge_type', 'tier', 'approver_class', 'state', 'created_at', 'expires_at'] },
 }
 
 // Flattens one allowlisted field value for a display row: strings pass through, string arrays keep
@@ -208,12 +210,14 @@ function summarizeRows(
 }
 
 // Narrows the governed reads to the object domains a turn actually concerns, so a request about one
-// domain reads only that domain instead of fanning out across every read. An unspecified or empty
-// domain set reads everything, and a domain set that maps to no governed read also falls back to the
-// full set, so a turn can never end up with nothing to ground on because triage named a domain that
-// has no read behind it.
+// domain reads only that domain instead of fanning out across every read. Only reads whose arguments
+// accept an empty call participate - a read that requires an argument (a request id, a policy
+// document) answers a specific question, not a state sweep. An unspecified or empty domain set reads
+// everything, and a domain set that maps to no governed read also falls back to the full set, so a
+// turn can never end up with nothing to ground on because triage named a domain that has no read
+// behind it.
 function selectReads(domains: string[] | undefined): string[] {
-  const all = governedReadCapabilities()
+  const all = governedReadCapabilities().filter((id) => CAPABILITIES[id].args.safeParse({}).success)
   if (!domains || domains.length === 0) return all
   const scoped = all.filter((id) => domains.includes(CAPABILITIES[id].domain))
   return scoped.length > 0 ? scoped : all

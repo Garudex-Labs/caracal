@@ -5,6 +5,7 @@
 
 import { z } from 'zod'
 import { planProviderConfigError } from './operator-plan-secrets.js'
+import { SECRET_PROVIDER_CONFIG_KEYS } from './provider-config.js'
 
 const IdRef = z.string().min(1).max(128)
 const ScopePattern = /^[A-Za-z][A-Za-z0-9._:-]*$/
@@ -17,12 +18,32 @@ const PolicyContent = z.string().min(1).max(20000)
 // The object domain a capability operates on, mirroring the Console's navigation
 // so the Operator reasons in user-visible terms rather than internal endpoints.
 export type CapabilityDomain =
-  'zone' | 'application' | 'provider' | 'resource' | 'policy' | 'grant' | 'session' | 'agent' | 'delegation' | 'audit'
+  | 'zone'
+  | 'application'
+  | 'provider'
+  | 'resource'
+  | 'policy'
+  | 'grant'
+  | 'session'
+  | 'agent'
+  | 'delegation'
+  | 'audit'
+  | 'workload'
+  | 'approval'
 
 // A live-state target a preview resolves against. The catalog names the logical noun; the
 // preview interpreter owns the table and liveness predicate, so the catalog stays free of
 // any database detail.
-export type PreviewTarget = 'applications' | 'providers' | 'resources' | 'policies' | 'policySets' | 'grants'
+export type PreviewTarget =
+  | 'applications'
+  | 'providers'
+  | 'resources'
+  | 'policies'
+  | 'policySets'
+  | 'grants'
+  | 'workloads'
+  | 'agentSessions'
+  | 'delegations'
 
 // How a capability's effect is resolved against live state, declared on the capability so a
 // new capability needs no change to the preview interpreter: a read changes nothing; a
@@ -70,6 +91,31 @@ export interface Capability {
 
 const NoArgs = z.object({}).strict()
 
+// Every config key any provider kind seals, plus the client id the credential vault also
+// carries: an update's config may never touch credential material, whatever kind the
+// provider turns out to be at apply time.
+const PROVIDER_CREDENTIAL_KEYS = new Set([
+  'client_id',
+  ...Object.values(SECRET_PROVIDER_CONFIG_KEYS).flatMap((keys) => [...keys]),
+])
+
+// A resource operation route: the method, path, and scope triple the Gateway enforces.
+const ResourceOperationArg = z
+  .object({ method: z.string().min(1).max(16), path: z.string().min(1).max(2048), scope: Scope })
+  .strict()
+
+// A workload credential binding: which environment variable carries which governed
+// resource credential when caracal run launches the workload.
+const WorkloadBindingArg = z
+  .object({
+    env: z.string().min(1).max(200),
+    resource: z.string().min(1).max(500),
+    scopes: z.array(z.string().min(1).max(200)).max(32).optional(),
+    optional: z.boolean().optional(),
+    on_failure: z.enum(['warn', 'error']).optional(),
+  })
+  .strict()
+
 export const CAPABILITIES: Record<string, Capability> = {
   listApplications: {
     id: 'listApplications',
@@ -111,6 +157,24 @@ export const CAPABILITIES: Record<string, Capability> = {
       idArg: 'application_id',
       effect: 'update',
       live: (id) => `Would rotate the secret for application ${id}.`,
+      blocked: (id) => `Application ${id} was not found in this zone.`,
+    },
+    outputs: ['application_id'],
+  },
+  updateApplication: {
+    id: 'updateApplication',
+    title: 'Rename an application',
+    summary: 'Change the display name of an application registered in the zone.',
+    domain: 'application',
+    mutating: true,
+    args: z.object({ application_id: IdRef, name: z.string().min(1).max(200) }).strict(),
+    argsHint: 'application_id (string), name (string)',
+    preview: {
+      kind: 'mutateById',
+      target: 'applications',
+      idArg: 'application_id',
+      effect: 'update',
+      live: (id) => `Would rename application ${id}.`,
       blocked: (id) => `Application ${id} was not found in this zone.`,
     },
     outputs: ['application_id'],
@@ -170,6 +234,47 @@ export const CAPABILITIES: Record<string, Capability> = {
     },
     outputs: ['provider_id'],
   },
+  updateProvider: {
+    id: 'updateProvider',
+    title: 'Update a provider',
+    summary:
+      'Change the display name or non-secret settings of an upstream provider. The provider\u2019s kind and its credentials never change here: credential rotation goes through the console\u2019s secure prompt.',
+    domain: 'provider',
+    mutating: true,
+    args: z
+      .object({
+        provider_id: IdRef,
+        name: z.string().min(1).max(200).optional(),
+        config: z.record(z.string().max(64), z.unknown()).optional(),
+      })
+      .strict()
+      .superRefine((args, ctx) => {
+        if (args.name === undefined && args.config === undefined) {
+          ctx.addIssue({ code: 'custom', message: 'update requires name or config' })
+          return
+        }
+        for (const key of Object.keys(args.config ?? {})) {
+          if (PROVIDER_CREDENTIAL_KEYS.has(key)) {
+            ctx.addIssue({
+              code: 'custom',
+              message: `config must not carry ${key}: credentials are entered through the console's secure prompt`,
+              path: ['config'],
+            })
+          }
+        }
+      }),
+    argsHint:
+      'provider_id (string), name (string, optional), config (object, optional: the kind\u2019s non-secret settings - never a client id, secret, key, or token, and never the kind itself)',
+    preview: {
+      kind: 'mutateById',
+      target: 'providers',
+      idArg: 'provider_id',
+      effect: 'update',
+      live: (id) => `Would update provider ${id}.`,
+      blocked: (id) => `Provider ${id} was not found in this zone.`,
+    },
+    outputs: ['provider_id'],
+  },
   deleteProvider: {
     id: 'deleteProvider',
     title: 'Delete a provider',
@@ -221,6 +326,39 @@ export const CAPABILITIES: Record<string, Capability> = {
     args: NoArgs,
     argsHint: 'no arguments',
     preview: { kind: 'read' },
+  },
+  updateResource: {
+    id: 'updateResource',
+    title: 'Update a resource',
+    summary:
+      'Change a protected resource\u2019s name, scopes, or Gateway routing: the upstream URL, the credential provider, or its operation routes.',
+    domain: 'resource',
+    mutating: true,
+    args: z
+      .object({
+        resource_id: IdRef,
+        name: z.string().min(1).max(200).optional(),
+        scopes: z.array(Scope).min(1).max(64).optional(),
+        upstream_url: z.string().min(1).max(2048).url().optional(),
+        credential_provider_id: IdRef.optional(),
+        operations: z.array(ResourceOperationArg).max(64).optional(),
+        operation_enforcement: z.enum(['enforced', 'transport_uniform']).optional(),
+      })
+      .strict()
+      .superRefine((args, ctx) => {
+        if (Object.keys(args).length <= 1) ctx.addIssue({ code: 'custom', message: 'update requires at least one field beyond resource_id' })
+      }),
+    argsHint:
+      'resource_id (string), then at least one of: name (string), scopes (array of scope strings), upstream_url (string), credential_provider_id (string), operations (array of {method, path, scope}), operation_enforcement (enforced or transport_uniform)',
+    preview: {
+      kind: 'mutateById',
+      target: 'resources',
+      idArg: 'resource_id',
+      effect: 'update',
+      live: (id) => `Would update resource ${id}.`,
+      blocked: (id) => `Resource ${id} was not found in this zone.`,
+    },
+    outputs: ['resource_id'],
   },
   deleteResource: {
     id: 'deleteResource',
@@ -294,14 +432,14 @@ export const CAPABILITIES: Record<string, Capability> = {
       blocked: (id) => `Grant ${id} was not found in this zone.`,
     },
   },
-  explainAccess: {
-    id: 'explainAccess',
-    title: 'Explain access',
-    summary: 'Read why an application can or cannot reach a resource. Changes nothing.',
+  explainRequest: {
+    id: 'explainRequest',
+    title: 'Explain a request',
+    summary: 'Read the full decision trace for one request id: every recorded event, the final decision, and which policies determined any denial. Changes nothing.',
     domain: 'audit',
     mutating: false,
-    args: z.object({ application_id: IdRef.optional(), resource_id: IdRef.optional() }).strict(),
-    argsHint: 'application_id (string, optional), resource_id (string, optional)',
+    args: z.object({ request_id: IdRef }).strict(),
+    argsHint: 'request_id (string)',
     preview: { kind: 'read' },
   },
   listPolicies: {
@@ -312,6 +450,16 @@ export const CAPABILITIES: Record<string, Capability> = {
     mutating: false,
     args: NoArgs,
     argsHint: 'no arguments',
+    preview: { kind: 'read' },
+  },
+  validatePolicy: {
+    id: 'validatePolicy',
+    title: 'Validate a policy document',
+    summary: 'Check an authored Rego data document against the control plane\u2019s validator without creating anything. Changes nothing.',
+    domain: 'policy',
+    mutating: false,
+    args: z.object({ content: PolicyContent }).strict(),
+    argsHint: 'content (Rego data document)',
     preview: { kind: 'read' },
   },
   listPolicySets: {
@@ -433,20 +581,60 @@ export const CAPABILITIES: Record<string, Capability> = {
     },
     outputs: ['policy_set_id', 'policy_set_version_id'],
   },
-  // The session, agent, delegation, and audit domains are deliberately read-only here. Runtime
-  // authority interventions - suspending or terminating an agent session, revoking a delegation
-  // edge - are live incident controls that belong to the console's runtime surfaces and the Admin
-  // SDK, where a human acts directly on the running system; they are not zone-topology changes an
-  // agent should plan, batch, or hold at an approval gate. The Operator reads these domains so it
-  // can reason about them, and stops there.
+  simulatePolicySet: {
+    id: 'simulatePolicySet',
+    title: 'Simulate a policy set version',
+    summary: 'Evaluate a policy set version against a hypothetical authorization input without activating it. Changes nothing.',
+    domain: 'policy',
+    mutating: false,
+    args: z
+      .object({
+        policy_set_id: IdRef,
+        policy_set_version_id: IdRef,
+        input: z.record(z.string().max(128), z.unknown()).optional(),
+      })
+      .strict(),
+    argsHint: 'policy_set_id (string), policy_set_version_id (string), input (object, optional: the authorization input to evaluate)',
+    preview: { kind: 'read' },
+  },
+  deletePolicySet: {
+    id: 'deletePolicySet',
+    title: 'Delete a policy set',
+    summary: 'Archive a policy set, removing it from active use in the zone; the record is retained for audit.',
+    domain: 'policy',
+    mutating: true,
+    args: z.object({ policy_set_id: IdRef }).strict(),
+    argsHint: 'policy_set_id (string)',
+    preview: {
+      kind: 'mutateById',
+      target: 'policySets',
+      idArg: 'policy_set_id',
+      effect: 'delete',
+      live: (id) => `Would delete policy set ${id} from this zone.`,
+      blocked: (id) => `Policy set ${id} was not found in this zone.`,
+    },
+  },
+  // Runtime authority is governed here like everything else: suspending, resuming, or
+  // terminating an agent session and revoking a delegation edge ride the same catalog,
+  // preview, approval gate, and governed control-plane apply as zone-topology changes.
+  // The one deliberate exception is deciding a step-up approval: the control plane's
+  // credential carries write capability and never approve, so an agent structurally
+  // cannot decide a challenge that exists to put a human in the loop. The Operator
+  // reads approvals so it can reason about them, and stops there.
   listSessions: {
     id: 'listSessions',
     title: 'List sessions',
-    summary: 'Read the authenticated sessions active in the zone with their subjects and expiry.',
+    summary: 'Read the authenticated sessions active in the zone with their subjects and expiry, optionally filtered by subject or status.',
     domain: 'session',
     mutating: false,
-    args: NoArgs,
-    argsHint: 'no arguments',
+    args: z
+      .object({
+        subject: z.string().min(1).max(200).optional(),
+        status: z.string().min(1).max(64).optional(),
+        limit: z.number().int().min(1).max(500).optional(),
+      })
+      .strict(),
+    argsHint: 'subject (string, optional), status (string, optional), limit (number, optional)',
     preview: { kind: 'read' },
   },
   listAgents: {
@@ -459,6 +647,59 @@ export const CAPABILITIES: Record<string, Capability> = {
     argsHint: 'no arguments',
     preview: { kind: 'read' },
   },
+  suspendAgent: {
+    id: 'suspendAgent',
+    title: 'Suspend an agent session',
+    summary: 'Pause a running agent session so it stops acting until resumed; its delegated authority is retained.',
+    domain: 'agent',
+    mutating: true,
+    args: z.object({ agent_session_id: IdRef }).strict(),
+    argsHint: 'agent_session_id (string)',
+    preview: {
+      kind: 'mutateById',
+      target: 'agentSessions',
+      idArg: 'agent_session_id',
+      effect: 'update',
+      live: (id) => `Would suspend agent session ${id}.`,
+      blocked: (id) => `Agent session ${id} is not live in this zone.`,
+    },
+    outputs: ['agent_session_id'],
+  },
+  resumeAgent: {
+    id: 'resumeAgent',
+    title: 'Resume an agent session',
+    summary: 'Resume a suspended agent session so it can act again under its existing authority.',
+    domain: 'agent',
+    mutating: true,
+    args: z.object({ agent_session_id: IdRef }).strict(),
+    argsHint: 'agent_session_id (string)',
+    preview: {
+      kind: 'mutateById',
+      target: 'agentSessions',
+      idArg: 'agent_session_id',
+      effect: 'update',
+      live: (id) => `Would resume agent session ${id}.`,
+      blocked: (id) => `Agent session ${id} is not live in this zone.`,
+    },
+    outputs: ['agent_session_id'],
+  },
+  terminateAgent: {
+    id: 'terminateAgent',
+    title: 'Terminate an agent session',
+    summary: 'Permanently end an agent session and its descendants, revoking the authority delegated to them.',
+    domain: 'agent',
+    mutating: true,
+    args: z.object({ agent_session_id: IdRef }).strict(),
+    argsHint: 'agent_session_id (string)',
+    preview: {
+      kind: 'mutateById',
+      target: 'agentSessions',
+      idArg: 'agent_session_id',
+      effect: 'delete',
+      live: (id) => `Would terminate agent session ${id} and its descendants.`,
+      blocked: (id) => `Agent session ${id} is not live in this zone.`,
+    },
+  },
   listDelegations: {
     id: 'listDelegations',
     title: 'List delegations',
@@ -469,11 +710,150 @@ export const CAPABILITIES: Record<string, Capability> = {
     argsHint: 'no arguments',
     preview: { kind: 'read' },
   },
+  revokeDelegation: {
+    id: 'revokeDelegation',
+    title: 'Revoke a delegation',
+    summary: 'Revoke a delegation edge, withdrawing the scopes it conferred from the receiving agent and its descendants.',
+    domain: 'delegation',
+    mutating: true,
+    args: z.object({ delegation_id: IdRef }).strict(),
+    argsHint: 'delegation_id (string)',
+    preview: {
+      kind: 'mutateById',
+      target: 'delegations',
+      idArg: 'delegation_id',
+      effect: 'delete',
+      live: (id) => `Would revoke delegation ${id}.`,
+      blocked: (id) => `Delegation ${id} is not active in this zone.`,
+    },
+  },
   listAuditEvents: {
     id: 'listAuditEvents',
     title: 'List audit events',
-    summary: 'Read the most recent authorization decisions and control events recorded in the zone.',
+    summary:
+      'Read the most recent authorization decisions and control events recorded in the zone, optionally filtered by time window, decision, event type, or request id.',
     domain: 'audit',
+    mutating: false,
+    args: z
+      .object({
+        since: z.string().min(1).max(64).optional(),
+        until: z.string().min(1).max(64).optional(),
+        decision: z.string().min(1).max(32).optional(),
+        event_type: z.string().min(1).max(128).optional(),
+        request_id: IdRef.optional(),
+        limit: z.number().int().min(1).max(500).optional(),
+      })
+      .strict(),
+    argsHint:
+      'since (ISO timestamp, optional), until (ISO timestamp, optional), decision (string, optional), event_type (string, optional), request_id (string, optional), limit (number, optional)',
+    preview: { kind: 'read' },
+  },
+  listAdminActivity: {
+    id: 'listAdminActivity',
+    title: 'List admin activity',
+    summary: 'Read the most recent admin actions recorded in the zone: who changed what, when, and through which surface.',
+    domain: 'audit',
+    mutating: false,
+    args: NoArgs,
+    argsHint: 'no arguments',
+    preview: { kind: 'read' },
+  },
+  listWorkloads: {
+    id: 'listWorkloads',
+    title: 'List workloads',
+    summary: 'Read the workload launcher identities defined in the zone and their credential bindings.',
+    domain: 'workload',
+    mutating: false,
+    args: NoArgs,
+    argsHint: 'no arguments',
+    preview: { kind: 'read' },
+  },
+  createWorkload: {
+    id: 'createWorkload',
+    title: 'Create a workload',
+    summary:
+      'Create a workload launcher identity for caracal run. The one-time workload secret is issued at apply and never retrievable again.',
+    domain: 'workload',
+    mutating: true,
+    args: z.object({ name: z.string().min(1).max(200) }).strict(),
+    argsHint: 'name (string)',
+    preview: {
+      kind: 'createByName',
+      target: 'workloads',
+      exists: (name) => `A workload named \u201c${name}\u201d already exists.`,
+      create: (name) => `Would create workload \u201c${name}\u201d and issue its one-time secret.`,
+    },
+    outputs: ['workload_id'],
+  },
+  updateWorkload: {
+    id: 'updateWorkload',
+    title: 'Update a workload',
+    summary: 'Change a workload\u2019s name or replace its credential bindings: which environment variables carry which governed resource credentials.',
+    domain: 'workload',
+    mutating: true,
+    args: z
+      .object({
+        workload_id: IdRef,
+        name: z.string().min(1).max(200).optional(),
+        bindings: z.array(WorkloadBindingArg).max(64).optional(),
+      })
+      .strict()
+      .superRefine((args, ctx) => {
+        if (args.name === undefined && args.bindings === undefined) ctx.addIssue({ code: 'custom', message: 'update requires name or bindings' })
+      }),
+    argsHint:
+      'workload_id (string), then at least one of: name (string), bindings (array of {env, resource, scopes (optional), optional (boolean, optional), on_failure (warn or error, optional)})',
+    preview: {
+      kind: 'mutateById',
+      target: 'workloads',
+      idArg: 'workload_id',
+      effect: 'update',
+      live: (id) => `Would update workload ${id}.`,
+      blocked: (id) => `Workload ${id} was not found in this zone.`,
+    },
+    outputs: ['workload_id'],
+  },
+  rotateWorkloadSecret: {
+    id: 'rotateWorkloadSecret',
+    title: 'Rotate a workload secret',
+    summary: 'Issue a fresh one-time secret for a workload and retire the old one.',
+    domain: 'workload',
+    mutating: true,
+    args: z.object({ workload_id: IdRef }).strict(),
+    argsHint: 'workload_id (string)',
+    preview: {
+      kind: 'mutateById',
+      target: 'workloads',
+      idArg: 'workload_id',
+      effect: 'update',
+      live: (id) => `Would rotate the secret for workload ${id}.`,
+      blocked: (id) => `Workload ${id} was not found in this zone.`,
+    },
+    outputs: ['workload_id'],
+  },
+  deleteWorkload: {
+    id: 'deleteWorkload',
+    title: 'Delete a workload',
+    summary: 'Permanently delete a workload launcher identity and its credential bindings; its secret stops working immediately.',
+    domain: 'workload',
+    mutating: true,
+    args: z.object({ workload_id: IdRef }).strict(),
+    argsHint: 'workload_id (string)',
+    preview: {
+      kind: 'mutateById',
+      target: 'workloads',
+      idArg: 'workload_id',
+      effect: 'delete',
+      live: (id) => `Would delete workload ${id} from this zone.`,
+      blocked: (id) => `Workload ${id} was not found in this zone.`,
+    },
+  },
+  listApprovals: {
+    id: 'listApprovals',
+    title: 'List approvals',
+    summary:
+      'Read the step-up approval requests recorded in the zone and their state. Deciding an approval stays with humans: the Operator can never approve or reject.',
+    domain: 'approval',
     mutating: false,
     args: NoArgs,
     argsHint: 'no arguments',

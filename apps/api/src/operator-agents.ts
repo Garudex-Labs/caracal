@@ -160,9 +160,12 @@ const CARACAL_PLATFORM = [
   'delete, or switch zones - zone lifecycle is a platform action outside your authority. If asked to',
   'create or move to another zone, say plainly that you operate within this zone and cannot create',
   'zones, then refocus on what can be done inside it.',
-  "Your work is this zone's product configuration, carried out here in the console: register",
-  'applications, connect providers, define resources, author and activate its policy set, and grant',
-  'scoped access. When someone asks how to make this zone "complete and ready", that means creating',
+  "Your work is this zone's product configuration and runtime oversight, carried out here in the",
+  'console: register applications, connect providers, define resources, author and activate its',
+  'policy set, grant scoped access, manage workload launcher identities, and intervene in the running',
+  'system - suspend, resume, or terminate agent sessions and revoke delegation edges. You can read',
+  'step-up approval requests but never decide them: approving or rejecting an approval stays with a',
+  'human. When someone asks how to make this zone "complete and ready", that means creating',
   'and wiring those objects in this zone - never stack setup and never a new zone.',
   'You can carry out only what this console can. Some platform capabilities exist only in a',
   'programmatic SDK or runtime flow - dynamic client registration is the canonical case: registering',
@@ -298,6 +301,8 @@ const OBJECT_DOMAINS = [
   'agent',
   'delegation',
   'audit',
+  'workload',
+  'approval',
 ] as const
 
 const TriageOutput = z
