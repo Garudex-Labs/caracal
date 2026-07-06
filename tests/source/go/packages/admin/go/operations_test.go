@@ -169,24 +169,24 @@ func TestProviderGrantsPaths(t *testing.T) {
 	client := newAdmin(transport, -1)
 
 	body := map[string]any{"user_id": "user:richard"}
-	if _, err := client.ProviderGrants.Create(context.Background(), "z1", body); err != nil {
+	if _, err := client.ProviderConnections.Create(context.Background(), "z1", body); err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	handshake, err := client.ProviderGrants.AuthorizeOAuth(context.Background(), "z1", body)
+	handshake, err := client.ProviderConnections.AuthorizeOAuth(context.Background(), "z1", body)
 	if err != nil {
 		t.Fatalf("authorize: %v", err)
 	}
 	if handshake.State != "st" {
 		t.Fatalf("handshake: %+v", handshake)
 	}
-	if _, err := client.ProviderGrants.Revoke(context.Background(), "z1", body); err != nil {
+	if _, err := client.ProviderConnections.Revoke(context.Background(), "z1", body); err != nil {
 		t.Fatalf("revoke: %v", err)
 	}
 
 	expected := []string{
-		"http://api/v1/zones/z1/provider-grants",
-		"http://api/v1/zones/z1/provider-grants/oauth/authorize",
-		"http://api/v1/zones/z1/provider-grants/revoke",
+		"http://api/v1/zones/z1/provider-connections",
+		"http://api/v1/zones/z1/provider-connections/oauth/authorize",
+		"http://api/v1/zones/z1/provider-connections/revoke",
 	}
 	for index, want := range expected {
 		if got := transport.requests[index]; got.url != want || got.method != http.MethodPost {

@@ -153,15 +153,15 @@ func TestServiceMethodsPropagateAPIErrors(t *testing.T) {
 			return err
 		},
 		func(c *admin.AdminClient, ctx context.Context) error {
-			_, err := c.ProviderGrants.Create(ctx, "z1", map[string]any{})
+			_, err := c.ProviderConnections.Create(ctx, "z1", map[string]any{})
 			return err
 		},
 		func(c *admin.AdminClient, ctx context.Context) error {
-			_, err := c.ProviderGrants.AuthorizeOAuth(ctx, "z1", map[string]any{})
+			_, err := c.ProviderConnections.AuthorizeOAuth(ctx, "z1", map[string]any{})
 			return err
 		},
 		func(c *admin.AdminClient, ctx context.Context) error {
-			_, err := c.ProviderGrants.Revoke(ctx, "z1", map[string]any{})
+			_, err := c.ProviderConnections.Revoke(ctx, "z1", map[string]any{})
 			return err
 		},
 		func(c *admin.AdminClient, ctx context.Context) error {
