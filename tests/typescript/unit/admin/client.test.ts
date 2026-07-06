@@ -399,7 +399,7 @@ describe('AdminClient', () => {
     await c.policies.list('z1')
     await c.policies.get('z1', 'pol1')
     await c.policies.create('z1', {} as never)
-    await c.policies.validate('package x', '2026-05-20')
+    await c.policies.validate('package x')
     await c.policies.addVersion('z1', 'pol1', 'content')
     await c.policies.delete('z1', 'pol1')
     await c.policyTemplates.list()
@@ -407,8 +407,10 @@ describe('AdminClient', () => {
     await c.policySets.get('z1', 'ps1')
     await c.policySets.create('z1', 'Set', 'desc')
     await c.policySets.addVersion('z1', 'ps1', [{ policy_version_id: 'v1' }])
+    await c.policySets.listVersions('z1', 'ps1')
     await c.policySets.simulate('z1', 'ps1', 'v1', { foo: 1 })
-    await c.policySets.activate('z1', 'ps1', 'v1', 'shadow')
+    await c.policySets.activate('z1', 'ps1', 'v1')
+    await c.policySets.activationStatus('z1', 'ps1', 'v1', 'outbox-1')
     await c.policySets.delete('z1', 'ps1')
     await c.grants.list('z1', { subject_id: 'user-1', provider_id: 'provider-1', scopes: ['read', 'write'] })
     await c.grants.get('z1', 'g1')
@@ -438,6 +440,10 @@ describe('AdminClient', () => {
 
     expect(calls.some((x) => x.url === 'http://api/v1/zones/z1' && x.method === 'DELETE')).toBe(true)
     expect(calls.some((x) => x.url === 'http://api/v1/policies/validate' && x.method === 'POST')).toBe(true)
+    expect(calls.some((x) => x.url === 'http://api/v1/zones/z1/policy-sets/ps1/versions' && x.method === 'GET')).toBe(true)
+    expect(calls.some((x) => x.url === 'http://api/v1/zones/z1/policy-sets/ps1/activation-status?version_id=v1&outbox_id=outbox-1')).toBe(
+      true,
+    )
     expect(calls.some((x) => x.url === 'http://api/v1/zones/z1/grants?provider_id=provider-1&user_id=user-1&scopes=read%2Cwrite')).toBe(
       true,
     )
@@ -457,6 +463,7 @@ describe('AdminClient', () => {
       (c) => c.providers.list('z1'),
       (c) => c.policies.list('z1'),
       (c) => c.policySets.list('z1'),
+      (c) => c.policySets.listVersions('z1', 'ps1'),
       (c) => c.grants.list('z1'),
       (c) => c.sessions.list('z1'),
       (c) => c.agentSessions.list('z1'),
