@@ -848,6 +848,27 @@ describe('GET /v1/zones/:zoneId/providers', () => {
     expect(body.items).toHaveLength(2)
     expect(body.next_cursor).toBeNull()
   })
+
+  it('lists archived providers for audit when requested', async () => {
+    const { app, db } = buildRouteApp(providersRoutes)
+    db.query.mockResolvedValueOnce({
+      rows: [{ id: 'provider-retired', zone_id: 'z1', archived_at: '2026-07-01T00:00:00.000Z' }],
+    })
+
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/providers?status=archived' })
+
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body).items).toHaveLength(1)
+    expect(String(db.query.mock.calls[0][0])).toContain('archived_at IS NOT NULL')
+  })
+
+  it('rejects an unknown status filter', async () => {
+    const { app } = buildRouteApp(providersRoutes)
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/providers?status=all' })
+    expect(res.statusCode).toBe(400)
+  })
 })
 
 describe('DELETE /v1/zones/:zoneId/providers/:id', () => {

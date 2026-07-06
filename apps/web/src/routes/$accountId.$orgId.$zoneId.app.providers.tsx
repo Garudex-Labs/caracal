@@ -438,6 +438,7 @@ function ProviderDetail({
     ([key]) => !secretKeys.has(key as never),
   );
   const credentialKind = provider.kind !== "none" && provider.kind !== "caracal_mandate";
+  const archived = Boolean(provider.archived_at);
 
   return (
     <div className="flex flex-col gap-6">
@@ -455,9 +456,11 @@ function ProviderDetail({
             >
               Copy JSON
             </Button>
-            <Button variant="secondary" size="sm" onClick={onEdit}>
-              Edit
-            </Button>
+            {archived ? null : (
+              <Button variant="secondary" size="sm" onClick={onEdit}>
+                Edit
+              </Button>
+            )}
           </>
         }
       >
@@ -471,6 +474,11 @@ function ProviderDetail({
           <Badge tone="warning">Secrets sealed</Badge>
         ) : credentialKind ? (
           <Badge tone="muted">No secret stored</Badge>
+        ) : null}
+        {archived && provider.archived_at ? (
+          <span className="text-xs text-muted-foreground">
+            Archived {new Date(provider.archived_at).toLocaleString()}
+          </span>
         ) : null}
       </DetailHeader>
 
@@ -561,15 +569,22 @@ function ProviderDetail({
         )}
       </DetailSection>
 
-      <ProviderConnectivity provider={provider} zoneId={zoneId} />
+      {archived ? null : <ProviderConnectivity provider={provider} zoneId={zoneId} />}
 
       <ProviderConnections provider={provider} zoneId={zoneId} />
 
-      <DangerZone
-        description="Remove this provider and its credential routing."
-        actionLabel="Delete"
-        onAction={onDelete}
-      />
+      {archived ? (
+        <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+          This provider is archived: its credential routing is removed and the record is retained
+          for audit.
+        </p>
+      ) : (
+        <DangerZone
+          description="Archive this provider and remove its credential routing."
+          actionLabel="Archive"
+          onAction={onDelete}
+        />
+      )}
     </div>
   );
 }
