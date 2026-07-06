@@ -234,7 +234,7 @@ describe('POST /v1/verify', () => {
   it('rejects when no token provided', async () => {
     const app = buildApp()
     await app.ready()
-    const res = await app.inject({ method: 'POST', url: '/v1/verify', payload: {} })
+    const res = await app.inject({ method: 'POST', url: '/v1/verify', payload: { zone_id: 'z1' } })
     expect(res.statusCode).toBe(400)
     expect(res.json()).toMatchObject({ valid: false, error: 'missing_token' })
   })
@@ -245,7 +245,7 @@ describe('POST /v1/verify', () => {
     const res = await app.inject({
       method: 'POST',
       url: '/v1/verify',
-      payload: { token: 'not-a-jwt' },
+      payload: { token: 'not-a-jwt', zone_id: 'z1' },
     })
     expect(res.statusCode).toBe(401)
     const body = res.json()

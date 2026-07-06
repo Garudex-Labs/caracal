@@ -54,6 +54,7 @@ class CaracalAuthTests(unittest.IsolatedAsyncioTestCase):
             "https://sts.example.com",
             "resource://api",
             InMemoryRevocationStore(),
+            expected_zone_id="zone1",
         )
 
         with self.assertRaises(CaracalAuthError) as cm:
@@ -73,6 +74,7 @@ class CaracalAuthTests(unittest.IsolatedAsyncioTestCase):
             "resource://api",
             InMemoryRevocationStore(),
             max_hop_count=1,
+            expected_zone_id="zone1",
         )
 
         with self.assertRaises(CaracalAuthError) as cm:

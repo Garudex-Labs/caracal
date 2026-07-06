@@ -217,11 +217,7 @@ async def verify_token(
     if not isinstance(scope, str):
         raise TokenInvalidError("Token claim scope must be a string")
     zone_id = decoded.get("zone_id")
-    if (
-        not isinstance(zone_id, str)
-        or not zone_id
-        or zone_id != fetch_zone
-    ):
+    if not isinstance(zone_id, str) or not zone_id or zone_id != fetch_zone:
         raise ZoneInvalidError("Token zone validation failed")
     for required in required_scopes or []:
         if not has_scope(scope, required):

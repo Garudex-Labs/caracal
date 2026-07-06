@@ -33,6 +33,7 @@ func TestMiddlewareAttachesClaimsToRequestContext(t *testing.T) {
 	handler := nethttp.Middleware(nethttp.Options{
 		Issuer:      issuer,
 		Audience:    "resource://api",
+		ZoneID:      "zone-1",
 		Revocations: store,
 	})(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		claims, ok = nethttp.ClaimsFromContext(r.Context())
@@ -64,6 +65,7 @@ func TestMiddlewareHonorsRequestContextDeadline(t *testing.T) {
 	handler := nethttp.Middleware(nethttp.Options{
 		Issuer:      slow.URL,
 		Audience:    "resource://api",
+		ZoneID:      "zone-1",
 		Revocations: store,
 	})(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Error("handler must not run when verification fails")

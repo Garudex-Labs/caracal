@@ -37,7 +37,7 @@ async def balances(request):
     return {"sub": principal.sub, "scopes": principal.scope}
 ```
 
-`issuer` defaults to `CARACAL_STS_URL` and `expected_zone_id` to `CARACAL_ZONE_ID`, so a provider deployed with the standard Caracal workload variables only states its own audience and revocation store. Construction fails if no issuer can be resolved.
+`issuer` defaults to `CARACAL_STS_URL` and `expected_zone_id` to `CARACAL_ZONE_ID`, so a provider deployed with the standard Caracal workload variables only states its own audience and revocation store. Construction fails if no issuer or zone can be resolved.
 
 ## Options
 

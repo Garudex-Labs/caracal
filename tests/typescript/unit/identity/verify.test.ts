@@ -100,9 +100,9 @@ describe('verify', () => {
 
   it('throws TokenInvalidError for a malformed token', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ keys: [] }) }))
-    await expect(verify('not.a.jwt', { issuer: 'https://issuer.example.com', audience: 'resource://api', zoneId: 'zone-1' })).rejects.toBeInstanceOf(
-      TokenInvalidError,
-    )
+    await expect(
+      verify('not.a.jwt', { issuer: 'https://issuer.example.com', audience: 'resource://api', zoneId: 'zone-1' }),
+    ).rejects.toBeInstanceOf(TokenInvalidError)
   })
 
   it('throws ZoneInvalidError when zone_id is absent', async () => {
@@ -132,7 +132,9 @@ describe('verify', () => {
 
   it('throws TokenInvalidError when required use does not match', async () => {
     const { token, issuer } = await mintToken({ use: 'session' })
-    await expect(verify(token, { issuer, audience: 'resource://api', zoneId: 'zone-1', requiredUse: 'resource' })).rejects.toBeInstanceOf(TokenInvalidError)
+    await expect(verify(token, { issuer, audience: 'resource://api', zoneId: 'zone-1', requiredUse: 'resource' })).rejects.toBeInstanceOf(
+      TokenInvalidError,
+    )
   })
 
   it('throws ZoneInvalidError when zone_id does not match config', async () => {
@@ -171,12 +173,16 @@ describe('verify', () => {
 
   it('throws HopCountExceededError when hop_count exceeds the limit', async () => {
     const { token, issuer } = await mintToken({ hop_count: 5 })
-    await expect(verify(token, { issuer, audience: 'resource://api', zoneId: 'zone-1', maxHopCount: 3 })).rejects.toBeInstanceOf(HopCountExceededError)
+    await expect(verify(token, { issuer, audience: 'resource://api', zoneId: 'zone-1', maxHopCount: 3 })).rejects.toBeInstanceOf(
+      HopCountExceededError,
+    )
   })
 
   it('throws ChainMismatchError when required application is absent from the chain', async () => {
     const { token, issuer } = await mintToken({ delegation_chain: [{ application_id: 'app-child' }] })
-    await expect(verify(token, { issuer, audience: 'resource://api', zoneId: 'zone-1', requireChainContains: ['app-parent'] })).rejects.toMatchObject({
+    await expect(
+      verify(token, { issuer, audience: 'resource://api', zoneId: 'zone-1', requireChainContains: ['app-parent'] }),
+    ).rejects.toMatchObject({
       name: 'ChainMismatchError',
       missingApplicationId: 'app-parent',
     })
