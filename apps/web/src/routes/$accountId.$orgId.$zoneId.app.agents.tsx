@@ -9,6 +9,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useState, type ReactNode } from "react";
 
 import { DelegationInspector } from "@/components/console/DelegationInspector";
+import { CsvExportButton } from "@/components/console/CsvExportButton";
 import {
   delegationErrorMessage,
   edgeStatusLabel,
@@ -39,6 +40,7 @@ import {
 } from "@/components/ui";
 import { cx } from "@/lib/cx";
 import { auditDecisionTone, auditEventContext, auditEventLabel } from "@/lib/auditPresentation";
+import { relativeTime } from "@/lib/time";
 import { ConsoleApiError } from "@/platform/api/client";
 import {
   useAgentActivity,
@@ -254,18 +256,6 @@ function agentExpiry(agent: Agent): string {
   return "-";
 }
 
-function relativeTime(iso: string, now = Date.now()): string {
-  const diff = Date.parse(iso) - now;
-  const abs = Math.abs(diff);
-  const suffix = diff >= 0 ? "from now" : "ago";
-  const mins = Math.round(abs / 60_000);
-  if (mins < 1) return diff >= 0 ? "in <1m" : "<1m ago";
-  if (mins < 60) return `${mins}m ${suffix}`;
-  const hrs = Math.round(mins / 60);
-  if (hrs < 24) return `${hrs}h ${suffix}`;
-  return `${Math.round(hrs / 24)}d ${suffix}`;
-}
-
 // The most human-meaningful name for an agent row. Operators tag agents by role via labels,
 // so the first label reads as the agent's name; the application's name is the fallback. The
 // raw session id stays available as a secondary, copyable identifier.
@@ -462,6 +452,16 @@ function AgentsPage({ zoneId, tabs }: { zoneId: string; tabs: ReactNode }) {
             onLifecycle={setLifecycleFilter}
             onApplication={setApplication}
             onLabel={setLabel}
+            exportControl={
+              <CsvExportButton
+                zoneId={zoneId}
+                path="agent-sessions"
+                query={Object.fromEntries(
+                  Object.entries(serverQuery).map(([k, v]) => [k, String(v)]),
+                )}
+                noun="agent sessions"
+              />
+            }
           />
         }
         rows={rows}
@@ -533,6 +533,7 @@ function AgentFilterBar({
   onLifecycle,
   onApplication,
   onLabel,
+  exportControl,
 }: {
   tabs: ReactNode;
   status: string;
@@ -545,13 +546,20 @@ function AgentFilterBar({
   onLifecycle: (v: string) => void;
   onApplication: (v: string) => void;
   onLabel: (v: string) => void;
+  exportControl: ReactNode;
 }) {
   const activeFilters =
     (status !== "all" ? 1 : 0) +
     (lifecycle !== "all" ? 1 : 0) +
     [application, label].filter((v) => v.trim()).length;
   return (
-    <FeedToolbar trailing={tabs} activeFilters={activeFilters} loaded={loaded} noun="agent">
+    <FeedToolbar
+      extra={exportControl}
+      trailing={tabs}
+      activeFilters={activeFilters}
+      loaded={loaded}
+      noun="agent"
+    >
       <Select label="Status" value={status} onChange={(e) => onStatus(e.target.value)}>
         <option value="all">All statuses</option>
         <option value="active">Active</option>
@@ -937,7 +945,7 @@ function AgentInspector({
           <DetailField label="Subject session">
             <Link
               to={appLink("/sessions")}
-              search={{ subject: agent.subject_session_id }}
+              search={{ focus: agent.subject_session_id }}
               className="font-mono text-xs text-foreground hover:underline"
             >
               {agent.subject_session_id}

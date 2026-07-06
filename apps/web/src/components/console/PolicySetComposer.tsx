@@ -21,7 +21,7 @@ export interface ComposerResult {
   name?: string;
   description?: string;
   manifest: PolicyManifestEntry[];
-  deploy: "activate" | "shadow" | "none";
+  deploy: "activate" | "none";
 }
 
 export function PolicySetComposer({
@@ -30,7 +30,6 @@ export function PolicySetComposer({
   zoneId,
   policies,
   policySetName,
-  hasActiveVersion = false,
   busy,
   onClose,
   onSubmit,
@@ -40,16 +39,11 @@ export function PolicySetComposer({
   zoneId: string;
   policies: Policy[];
   policySetName?: string;
-  hasActiveVersion?: boolean;
   busy: boolean;
   onClose: () => void;
   onSubmit: (result: ComposerResult) => void;
 }) {
   const isCreate = mode === "create";
-  // Shadow only makes sense when a live version already governs the zone: it evaluates
-  // the new manifest alongside the active one without changing enforcement. A first
-  // activation (zone otherwise deny-all) has nothing to shadow.
-  const canShadow = !isCreate && hasActiveVersion;
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [deploy, setDeploy] = useState<ComposerResult["deploy"]>("activate");
@@ -61,9 +55,7 @@ export function PolicySetComposer({
     if (!open) return;
     setName("");
     setDescription("");
-    // Safer default: when a version is already live, compose to shadow so enforcement is
-    // never silently replaced; otherwise default to activating the first version.
-    setDeploy(canShadow ? "shadow" : "activate");
+    setDeploy("activate");
     setSelected(new Map());
     setError(null);
     setChoices(null);
@@ -92,7 +84,7 @@ export function PolicySetComposer({
     return () => {
       cancelled = true;
     };
-  }, [open, zoneId, policies, canShadow]);
+  }, [open, zoneId, policies]);
 
   function toggle(choice: PolicyChoice) {
     setSelected((prev) => {
@@ -128,12 +120,7 @@ export function PolicySetComposer({
     });
   }
 
-  const submitLabel =
-    deploy === "shadow"
-      ? "Compose & shadow"
-      : deploy === "activate"
-        ? "Compose & activate"
-        : "Compose version";
+  const submitLabel = deploy === "activate" ? "Save & activate" : "Save version";
 
   return (
     <Modal
@@ -142,8 +129,8 @@ export function PolicySetComposer({
       title={isCreate ? "New policy set" : `New version · ${policySetName ?? ""}`}
       description={
         isCreate
-          ? "Compose policy versions into a set. Activating a set makes it govern every decision in the zone."
-          : "Compose a new immutable version of this set from policy versions."
+          ? "Pick the policy versions this set enforces. Activating a set makes it govern every decision in the zone."
+          : "Save a new immutable version of this set from the policy versions you pick."
       }
       footer={
         <>
@@ -234,7 +221,7 @@ export function PolicySetComposer({
           )}
         </div>
 
-        <DeployChoice value={deploy} onChange={setDeploy} canShadow={canShadow} />
+        <DeployChoice value={deploy} onChange={setDeploy} />
 
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
       </div>
@@ -242,41 +229,24 @@ export function PolicySetComposer({
   );
 }
 
-// Lets the operator choose how the composed version reaches enforcement. Shadow is only
-// offered when a live version exists, since it evaluates in parallel without replacing it.
+// Lets the operator choose how the saved version reaches enforcement. Activation is
+// always simulated first, so the default path stays safe without a separate mode.
 function DeployChoice({
   value,
   onChange,
-  canShadow,
 }: {
   value: ComposerResult["deploy"];
   onChange: (value: ComposerResult["deploy"]) => void;
-  canShadow: boolean;
 }) {
   const options: { id: ComposerResult["deploy"]; label: string; hint: string }[] = [
-    ...(canShadow
-      ? [
-          {
-            id: "shadow" as const,
-            label: "Deploy as shadow",
-            hint: "Evaluate alongside the live version without changing enforcement. Compare, then promote.",
-          },
-          {
-            id: "activate" as const,
-            label: "Replace live version",
-            hint: "Immediately govern every decision in the zone with this version.",
-          },
-        ]
-      : [
-          {
-            id: "activate" as const,
-            label: "Activate immediately",
-            hint: "Make this version govern every decision in the zone as soon as it is composed.",
-          },
-        ]),
     {
-      id: "none" as const,
-      label: "Compose only",
+      id: "activate",
+      label: "Save & activate",
+      hint: "Verify the version with a dry run, then make it govern every decision in the zone.",
+    },
+    {
+      id: "none",
+      label: "Save only",
       hint: "Save the version without changing what is enforced. Activate it later.",
     },
   ];

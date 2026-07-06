@@ -6,10 +6,10 @@ This file provides the Rego data-document policy editor with templates and inlin
 */
 import { useEffect, useRef, useState } from "react";
 
-import { Button, Field, Modal } from "@/components/ui";
+import { Badge, Button, Field, Modal } from "@/components/ui";
 import { cx } from "@/lib/cx";
 import { consoleApi, ConsoleApiError } from "@/platform/api/client";
-import type { PolicyTemplate } from "@/platform/api/types";
+import type { PolicyPreview, PolicyTemplate } from "@/platform/api/types";
 
 // A valid adopter policy is a Rego DATA document: it supplies data the signed platform
 // decision contract reads, and must never define `result`. This starter mirrors the
@@ -37,7 +37,10 @@ grants := {
 `;
 
 type ValidationState =
-  { status: "idle" } | { status: "validating" } | { status: "invalid"; message: string };
+  | { status: "idle" }
+  | { status: "validating" }
+  | { status: "valid"; preview: PolicyPreview | null }
+  | { status: "invalid"; message: string };
 
 export function PolicyEditorModal({
   open,
@@ -96,10 +99,34 @@ export function PolicyEditorModal({
     };
   }, [open, templates]);
 
-  // Validation is invalidated whenever content changes.
+  // Live validation: the validate endpoint is read-only and cheap, so every pause in
+  // typing checks the document and surfaces the parsed preview. The contract teaches
+  // itself - authors see the data keys and inputs their document defines as they write.
   useEffect(() => {
-    setValidation({ status: "idle" });
-  }, [content]);
+    if (!open) return;
+    if (!content.trim()) {
+      setValidation({ status: "idle" });
+      return;
+    }
+    setValidation({ status: "validating" });
+    const timer = setTimeout(async () => {
+      try {
+        const result = await consoleApi.policies.validate(content);
+        setValidation({ status: "valid", preview: result.preview ?? null });
+      } catch (error) {
+        if (error instanceof ConsoleApiError) {
+          const body = error.detail as { error_description?: string } | undefined;
+          setValidation({
+            status: "invalid",
+            message: humanizeRegoError(body?.error_description ?? error.code),
+          });
+        } else {
+          setValidation({ status: "invalid", message: "Validation failed." });
+        }
+      }
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [open, content]);
 
   async function validate(): Promise<boolean> {
     if (!content.trim()) {
@@ -108,8 +135,8 @@ export function PolicyEditorModal({
     }
     setValidation({ status: "validating" });
     try {
-      await consoleApi.policies.validate(content);
-      setValidation({ status: "idle" });
+      const result = await consoleApi.policies.validate(content);
+      setValidation({ status: "valid", preview: result.preview ?? null });
       return true;
     } catch (error) {
       if (error instanceof ConsoleApiError) {
@@ -159,7 +186,7 @@ export function PolicyEditorModal({
           </Button>
           <Button
             onClick={() => void submit()}
-            loading={busy || validation.status === "validating"}
+            loading={busy}
             disabled={(isCreate && !name.trim()) || validation.status === "invalid"}
           >
             {isCreate ? "Create" : "Add version"}
@@ -253,6 +280,47 @@ export function PolicyEditorModal({
               </div>
             </div>
           </div>
+        ) : validation.status === "valid" ? (
+          <div className="flex flex-col gap-2 rounded-md border border-border bg-surface px-3 py-2.5 text-xs">
+            <div className="flex items-center gap-2">
+              <Dot className="bg-emerald-500" />
+              <span className="font-medium text-foreground">Valid data document</span>
+            </div>
+            {validation.preview ? (
+              <dl className="grid grid-cols-[auto,1fr] gap-x-3 gap-y-1">
+                {validation.preview.rules.length > 0 ? (
+                  <>
+                    <dt className="text-muted-foreground">Defines</dt>
+                    <dd className="flex flex-wrap gap-1">
+                      {validation.preview.rules.map((rule) => (
+                        <Badge key={rule} tone="neutral">
+                          {rule}
+                        </Badge>
+                      ))}
+                    </dd>
+                  </>
+                ) : null}
+                {validation.preview.inputs_referenced.length > 0 ? (
+                  <>
+                    <dt className="text-muted-foreground">Reads input</dt>
+                    <dd className="font-mono text-[11px] text-muted-foreground">
+                      {validation.preview.inputs_referenced.join(", ")}
+                    </dd>
+                  </>
+                ) : null}
+                {validation.preview.data_referenced.length > 0 ? (
+                  <>
+                    <dt className="text-muted-foreground">Reads data</dt>
+                    <dd className="font-mono text-[11px] text-muted-foreground">
+                      {validation.preview.data_referenced.join(", ")}
+                    </dd>
+                  </>
+                ) : null}
+              </dl>
+            ) : null}
+          </div>
+        ) : validation.status === "validating" ? (
+          <p className="text-xs text-muted-foreground">Checking document…</p>
         ) : null}
       </div>
     </Modal>
