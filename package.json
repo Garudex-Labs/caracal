@@ -53,7 +53,7 @@
     "@fastify/rate-limit": "^11.1.0",
     "@vitest/coverage-v8": "4.1.10",
     "express": "^5.2.1",
-    "fastify": "^5.9.0",
+    "fastify": "^5.10.0",
     "pg": "^8.22.0",
     "knip": "^6.24.0",
     "prettier": "^3.9.4",
