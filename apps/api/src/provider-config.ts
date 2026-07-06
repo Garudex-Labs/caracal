@@ -24,6 +24,9 @@ export interface ProviderConfigField {
   // argument, a model prompt, or a log; the console collects them through masked inputs and
   // the Operator collects them through the secure credential prompt.
   secret?: boolean
+  // Multiline secrets such as PEM keys legitimately contain newlines; every other secret is
+  // a single-line credential in which embedded control characters are paste artifacts.
+  multiline?: boolean
   note?: string
 }
 
@@ -56,7 +59,13 @@ export const PROVIDER_CONFIG_FIELDS: Record<ProviderKind, readonly ProviderConfi
     { key: 'token_endpoint', requirement: 'required', note: 'HTTPS endpoint where tokens are issued' },
     { key: 'client_id', requirement: 'required', note: 'the OAuth client id' },
     { key: 'client_secret', requirement: 'required', secret: true, note: 'not used with private_key_jwt or none' },
-    { key: 'private_key', requirement: 'optional', secret: true, note: 'PEM key, required with private_key_jwt or jwt_bearer' },
+    {
+      key: 'private_key',
+      requirement: 'optional',
+      secret: true,
+      multiline: true,
+      note: 'PEM key, required with private_key_jwt or jwt_bearer',
+    },
     { key: 'scopes', requirement: 'optional', note: 'upstream OAuth scopes to request' },
     {
       key: 'client_auth_method',
@@ -120,3 +129,12 @@ export const PUBLIC_PROVIDER_CONFIG_KEYS = configKeys(false)
 // The secret config keys each provider kind seals at rest. A value under one of these keys
 // must never appear in a conversation ledger, a plan argument, a model prompt, or a log.
 export const SECRET_PROVIDER_CONFIG_KEYS = configKeys(true)
+
+// The secret config keys whose values legitimately span multiple lines. Every other secret
+// is a single-line credential, and intake rejects embedded control characters in it.
+export const MULTILINE_SECRET_CONFIG_KEYS: ReadonlySet<string> = new Set(
+  Object.values(PROVIDER_CONFIG_FIELDS)
+    .flat()
+    .filter((field) => field.secret && field.multiline)
+    .map((field) => field.key),
+)

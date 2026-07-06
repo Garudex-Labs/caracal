@@ -219,6 +219,34 @@ export function crossFieldIssues(
       });
     }
   }
+  // Single-line credentials pasted with embedded newlines or with their authorization
+  // scheme still attached would be sealed verbatim and fail every upstream call, so the
+  // same control-plane intake rules are surfaced in the form before submit. PEM private
+  // keys legitimately span multiple lines and are exempt.
+  for (const key of ["client_secret", "api_key", "bearer_token", "password"]) {
+    const secret = (values[key] ?? "").trim();
+    if (secret !== "" && /[\u0000-\u001f\u007f]/.test(secret)) {
+      issues.push({ key, message: "Must be a single-line value without control characters." });
+    }
+  }
+  const composed =
+    kind === "bearer_token"
+      ? { key: "bearer_token", scheme: (values.auth_scheme ?? "").trim() || "Bearer" }
+      : kind === "api_key" && (values.auth_scheme ?? "").trim() !== ""
+        ? { key: "api_key", scheme: (values.auth_scheme ?? "").trim() }
+        : undefined;
+  if (
+    composed &&
+    (values[composed.key] ?? "")
+      .trim()
+      .toLowerCase()
+      .startsWith(`${composed.scheme.toLowerCase()} `)
+  ) {
+    issues.push({
+      key: composed.key,
+      message: `Enter the credential without the '${composed.scheme}' prefix; the gateway adds it.`,
+    });
+  }
   return issues;
 }
 

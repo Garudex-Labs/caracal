@@ -14,7 +14,12 @@ import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
 import { zoneExists } from '../zone-guard.js'
 import { appendKeysetCondition, listPage, parseListPagination } from './list-pagination.js'
 import { assertReservedNamespace } from '../reserved-namespace.js'
-import { PROVIDER_KINDS, PUBLIC_PROVIDER_CONFIG_KEYS, SECRET_PROVIDER_CONFIG_KEYS } from '../provider-config.js'
+import {
+  MULTILINE_SECRET_CONFIG_KEYS,
+  PROVIDER_KINDS,
+  PUBLIC_PROVIDER_CONFIG_KEYS,
+  SECRET_PROVIDER_CONFIG_KEYS,
+} from '../provider-config.js'
 import {
   buildClientAssertion,
   buildGrantAssertion,
@@ -301,7 +306,16 @@ function splitProviderConfig(
     if (secretAllowed.has(key)) {
       if (typeof value !== 'string' || value.trim().length === 0)
         throw new Error(`${kind} provider config ${key} must be a non-empty string`)
-      secretConfig[key] = value
+      // Outer whitespace is a paste artifact: sealed verbatim it would ride into the
+      // upstream credential and fail every call as an opaque transport error, so the
+      // secret is trimmed at intake. Embedded control characters are the same mistake
+      // in single-line credentials; only multiline secrets such as PEM keys carry
+      // legitimate newlines.
+      const secret = value.trim()
+      if (!MULTILINE_SECRET_CONFIG_KEYS.has(key) && /[\u0000-\u001f\u007f]/.test(secret)) {
+        throw new Error(`${kind} provider config ${key} must not contain control characters`)
+      }
+      secretConfig[key] = secret
     } else {
       publicConfig[key] = value
     }
@@ -412,6 +426,16 @@ function splitProviderConfig(
       if (secretConfig.private_key) throw new Error(`${kind} provider config private_key requires private_key_jwt or jwt_bearer`)
       if (publicConfig.key_id !== undefined) throw new Error(`${kind} provider config key_id requires private_key_jwt or jwt_bearer`)
     }
+    // A malformed signing key otherwise surfaces only when the first assertion is
+    // signed - at a connectivity check the operator may skip, or worse at runtime -
+    // so the PEM is parsed here and creation fails fast with a field-level error.
+    if (secretConfig.private_key) {
+      try {
+        createPrivateKey(secretConfig.private_key)
+      } catch {
+        throw new Error(`${kind} provider config private_key must be a valid PEM private key`)
+      }
+    }
     if (clientAuthMethod === 'private_key_jwt') {
       requireOptionalCertificate(publicConfig, secretConfig.private_key)
     } else if (publicConfig.certificate !== undefined) {
@@ -425,6 +449,20 @@ function splitProviderConfig(
     }
   }
   requireOptionalAuthScheme(publicConfig, 'auth_scheme', `${kind} provider config auth_scheme must be an auth scheme token`)
+  // A credential pasted with its authorization scheme still attached would be composed
+  // into "<scheme> <scheme> <value>" at the gateway, so it is rejected wherever a scheme
+  // is in effect: always for bearer_token (Bearer default), and for api_key only when an
+  // auth_scheme is configured, since a schemeless api_key value is forwarded raw and may
+  // intentionally carry any prefix.
+  const composed =
+    kind === 'bearer_token'
+      ? { key: 'bearer_token', scheme: (publicConfig.auth_scheme as string | undefined) ?? 'Bearer' }
+      : kind === 'api_key' && typeof publicConfig.auth_scheme === 'string'
+        ? { key: 'api_key', scheme: publicConfig.auth_scheme }
+        : undefined
+  if (composed && secretConfig[composed.key]?.toLowerCase().startsWith(`${composed.scheme.toLowerCase()} `)) {
+    throw new Error(`${kind} provider config ${composed.key} must not start with the '${composed.scheme}' scheme; the gateway adds it`)
+  }
   requireOptionalBoolean(publicConfig, 'forward_caracal_identity', `${kind} provider config forward_caracal_identity must be a boolean`)
   requireOptionalBoolean(publicConfig, 'allow_runtime_injection', `${kind} provider config allow_runtime_injection must be a boolean`)
   return { publicConfig, secretConfig, secretKeys: Object.keys(secretConfig).sort() }
