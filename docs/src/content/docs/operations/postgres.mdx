@@ -4,7 +4,7 @@ description: Operate the durable Caracal control-plane database.
 pageType: workflow
 ---
 
-Postgres stores Caracal control-plane state: zones, providers, applications, resources, grants, sessions, policies, audit events, agent sessions, delegation edges, outboxes, gateway bindings, admin tokens, and step-up challenges.
+Postgres stores Caracal control-plane state: zones, providers, applications, resources, grants, sessions, policies, audit events, agent sessions, delegation edges, outboxes, admin tokens, and step-up challenges.
 
 ## Storage Model
 
@@ -14,7 +14,7 @@ flowchart TB
   Coordinator[Coordinator writes agents and delegation] --> PG
   Audit[Audit ingests audit events] --> PG
   STS[STS reads policy, grants, keys, sessions] --> PG
-  Gateway[Gateway reads bindings and revocation snapshots] --> PG
+  Gateway[Gateway reads revocation snapshots] --> PG
   PG --> Outbox[event_outbox and caracal_outbox]
 ```
 
@@ -56,7 +56,7 @@ The validation script checks migration idempotency, concurrent migrators, expand
 
 ## Backup and Restore
 
-Back up the whole database. Audit events are append-only and partitioned; restore must preserve audit tables, admin audit tables, outboxes, agent/delegation state, gateway bindings, and key material references.
+Back up the whole database. Audit events are append-only and partitioned; restore must preserve audit tables, admin audit tables, outboxes, agent/delegation state, and key material references.
 
 ## Troubleshooting
 

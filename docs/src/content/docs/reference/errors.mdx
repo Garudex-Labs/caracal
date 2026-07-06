@@ -25,7 +25,7 @@ The **Likely source** column names the surface that most often emits the code, a
 | --- | --- | --- | --- |
 | `access_denied` | Request is authenticated but not authorized. | STS policy decision, or an in-process verifier scope check. | Run `request trace`: confirm the active policy set allows the application, subject, resource, and scopes. |
 | `invalid_token` | Token is missing, malformed, expired, invalid, replayed, or fails verification. | Gateway or a resource verifier. | Confirm the mandate is unexpired, the verifier trusts the issuing zone JWKS, and the token was not already consumed. |
-| `resource_not_found` | Requested resource does not exist or is unavailable in the current scope. | API, or Gateway binding resolution. | Confirm the resource identifier and that a Gateway binding exists for `(zone, resource)`. |
+| `resource_not_found` | Requested resource does not exist or is unavailable in the current scope. | API, or STS resource resolution. | Confirm the resource identifier and that the resource carries an upstream URL for `(zone, resource)`. |
 | `internal_error` | Service failed unexpectedly. | Any service. | Check service readiness and logs for the `requestId`. |
 | `policy_eval_failed` | Policy evaluation failed. | STS policy engine. | Confirm the active policy set compiles and that required `input` fields are present. |
 | `provider_rate_limited` | Provider or provider coordination rate limit denied work. | Gateway upstream or provider coordination. | Inspect provider limits and retry/backoff; confirm the provider grant is active. |

@@ -103,7 +103,7 @@ await admin.policySets.activate(zoneId, set.id, version.id);
 
 Alongside the API groups, the package exports `ensure*` reconcilers - `ensureApplication`, `ensureApiKeyProvider`, `ensureResource`, `ensureGrants`, and `ensureActivePolicySet` - that converge an object to a desired state: create it when absent, patch it only on drift, and return the live object. They are safe to rerun, so provisioning scripts and CI jobs declare state instead of scripting create-then-patch sequences.
 
-`ensureGovernedUpstreams` composes them for the most common declaration: a set of upstream APIs, each with a sealed credential provider, a gateway-bound resource, and its application grants, converged in dependency order in one call.
+`ensureGovernedUpstreams` composes them for the most common declaration: a set of upstream APIs, each with a sealed credential provider, a gateway-routed resource, and its application grants, converged in dependency order in one call.
 
 ```ts
 import { ensureGovernedUpstreams } from "@caracalai/admin";
@@ -122,7 +122,7 @@ const results = await ensureGovernedUpstreams(admin, zoneId, {
         identifier: "resource://openai",
         scopes: ["models:read", "chat:write"],
         upstream_url: "https://api.openai.com",
-        gateway_application_id: agentAppId,
+        allowed_application_ids: [agentAppId],
       },
       grants: [{ applicationId: agentAppId, scopes: ["models:read", "chat:write"] }],
     },
