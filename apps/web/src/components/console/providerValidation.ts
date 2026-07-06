@@ -225,6 +225,8 @@ export function crossFieldIssues(
   // keys legitimately span multiple lines and are exempt.
   for (const key of ["client_secret", "api_key", "bearer_token", "password"]) {
     const secret = (values[key] ?? "").trim();
+    // Matching control characters is the entire point of this check.
+    // eslint-disable-next-line no-control-regex
     if (secret !== "" && /[\u0000-\u001f\u007f]/.test(secret)) {
       issues.push({ key, message: "Must be a single-line value without control characters." });
     }
