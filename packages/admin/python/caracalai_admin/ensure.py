@@ -15,8 +15,6 @@ from typing import Any
 
 from .client import AdminClient
 
-LIFECYCLE_SCOPE = "agent:lifecycle"
-
 GRANT_POLICY_NAME = "application-grants"
 GRANT_POLICY_SET_NAME = "application-grant-policy"
 
@@ -133,13 +131,11 @@ def ensure_resource(
     absent and patching it only on drift so a steady state never bumps caches
     keyed on the resource row. Fields left unset are not managed: they are
     excluded from both the drift comparison and the patch, so a reconciler
-    that owns only some fields never clobbers the rest. A gateway-routed
-    resource always also carries agent:lifecycle, the scope its owner's
-    governed transport bootstraps with. Returns the live resource."""
-    desired_scopes = scopes
-    if upstream_url is not _UNSET and upstream_url and LIFECYCLE_SCOPE not in scopes:
-        desired_scopes = [*scopes, LIFECYCLE_SCOPE]
-    desired: dict[str, Any] = {"scopes": desired_scopes}
+    that owns only some fields never clobbers the rest. Declared scopes are
+    the resource's business vocabulary; the platform-reserved agent:lifecycle
+    bootstrap scope is derived by STS for gateway-routed resources and never
+    stored on the row. Returns the live resource."""
+    desired: dict[str, Any] = {"scopes": scopes}
     if upstream_url is not _UNSET:
         desired["upstream_url"] = upstream_url
     if credential_provider_id is not _UNSET:
@@ -155,15 +151,12 @@ def ensure_resource(
         return client.resources.create(
             zone_id, {"name": name, "identifier": identifier, **desired}
         )
-    drifted = (
-        not _same_string_set(existing.get("scopes"), desired_scopes)
-        or any(
-            key in desired and existing.get(key) != desired[key]
-            for key in (
-                "upstream_url",
-                "credential_provider_id",
-                "operation_enforcement",
-            )
+    drifted = not _same_string_set(existing.get("scopes"), scopes) or any(
+        key in desired and existing.get(key) != desired[key]
+        for key in (
+            "upstream_url",
+            "credential_provider_id",
+            "operation_enforcement",
         )
     )
     if not drifted:

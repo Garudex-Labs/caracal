@@ -264,7 +264,7 @@ class EnsureResourceTests(unittest.TestCase):
             {
                 "name": "PiperNet",
                 "identifier": "resource://pipernet",
-                "scopes": ["data:read", "agent:lifecycle"],
+                "scopes": ["data:read"],
                 "upstream_url": "https://api.pipernet.example",
                 "operation_enforcement": "transport_uniform",
             },
@@ -274,7 +274,7 @@ class EnsureResourceTests(unittest.TestCase):
         existing = {
             "id": "res-1",
             "identifier": "resource://pipernet",
-            "scopes": ["data:read", "agent:lifecycle"],
+            "scopes": ["data:read"],
             "upstream_url": "https://api.pipernet.example",
         }
         client = resource_admin([existing])
@@ -296,7 +296,7 @@ class EnsureResourceTests(unittest.TestCase):
                 {
                     "id": "res-1",
                     "identifier": "resource://pipernet",
-                    "scopes": ["data:read", "agent:lifecycle"],
+                    "scopes": ["data:read"],
                     "upstream_url": "https://stale.pipernet.example",
                     "credential_provider_id": "prov-unmanaged",
                 }
@@ -315,47 +315,15 @@ class EnsureResourceTests(unittest.TestCase):
             ZONE,
             "res-1",
             {
-                "scopes": ["data:read", "agent:lifecycle"],
+                "scopes": ["data:read"],
                 "upstream_url": "https://api.pipernet.example",
             },
         )
 
-    def test_adds_lifecycle_scope_to_gateway_routed_resource(self):
-        client = resource_admin([])
-        ensure_resource(
-            client,
-            ZONE,
-            name="PiperNet",
-            identifier="resource://pipernet",
-            scopes=["data:read"],
-            upstream_url="https://api.pipernet.example",
-        )
-
-        client.resources.create.assert_called_once_with(
-            ZONE,
-            {
-                "name": "PiperNet",
-                "identifier": "resource://pipernet",
-                "scopes": ["data:read", "agent:lifecycle"],
-                "upstream_url": "https://api.pipernet.example",
-            },
-        )
-
-    def test_does_not_duplicate_lifecycle_scope(self):
-        client = resource_admin([])
-        ensure_resource(
-            client,
-            ZONE,
-            name="PiperNet",
-            identifier="resource://pipernet",
-            scopes=["agent:lifecycle", "data:read"],
-            upstream_url="https://api.pipernet.example",
-        )
-
-        body = client.resources.create.call_args[0][1]
-        self.assertEqual(body["scopes"], ["agent:lifecycle", "data:read"])
-
-    def test_gateway_routed_resource_with_lifecycle_is_converged(self):
+    def test_sends_declared_scopes_verbatim(self):
+        """Declared scopes are the resource's business vocabulary: the lifecycle
+        bootstrap scope is derived by STS, so the reconciler sends exactly what
+        the caller declared and converges away any stamped copy on the live row."""
         client = resource_admin(
             [
                 {
@@ -375,20 +343,11 @@ class EnsureResourceTests(unittest.TestCase):
             upstream_url="https://api.pipernet.example",
         )
 
-        client.resources.patch.assert_not_called()
-
-    def test_never_adds_lifecycle_without_upstream(self):
-        client = resource_admin([])
-        ensure_resource(
-            client,
+        client.resources.patch.assert_called_once_with(
             ZONE,
-            name="PiperNet",
-            identifier="resource://pipernet",
-            scopes=["data:read"],
+            "res-1",
+            {"scopes": ["data:read"], "upstream_url": "https://api.pipernet.example"},
         )
-
-        body = client.resources.create.call_args[0][1]
-        self.assertEqual(body["scopes"], ["data:read"])
 
 
 CONTENT = "package caracal.authz\n"
@@ -752,7 +711,7 @@ class EnsureGovernedUpstreamsTests(unittest.TestCase):
             {
                 "name": "PiperNet",
                 "identifier": "resource://pipernet",
-                "scopes": ["data:read", "agent:lifecycle"],
+                "scopes": ["data:read"],
                 "upstream_url": "https://api.pipernet.example",
                 "credential_provider_id": "prov-created",
             },

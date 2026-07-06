@@ -212,14 +212,14 @@ func TestEnsureResourceCreatesWithManagedFields(t *testing.T) {
 		t.Fatalf("ensure: %+v err=%v", resource, err)
 	}
 	assertJSONEqual(t, transport.requests[1].body, map[string]any{
-		"name": "PiperNet", "identifier": "resource://pipernet", "scopes": []any{"data:read", "agent:lifecycle"},
+		"name": "PiperNet", "identifier": "resource://pipernet", "scopes": []any{"data:read"},
 		"upstream_url": "https://api.pipernet.example", "operation_enforcement": "enforce",
 	})
 }
 
 func TestEnsureResourceLeavesConvergedResourceAlone(t *testing.T) {
 	transport := &scripted{steps: []any{
-		ok(`{"items":[{"id":"res-1","identifier":"resource://pipernet","scopes":["data:read","agent:lifecycle"],"upstream_url":"https://api.pipernet.example"}],"next_cursor":null}`),
+		ok(`{"items":[{"id":"res-1","identifier":"resource://pipernet","scopes":["data:read"],"upstream_url":"https://api.pipernet.example"}],"next_cursor":null}`),
 	}}
 	client := newAdmin(transport, -1)
 
@@ -237,7 +237,7 @@ func TestEnsureResourceLeavesConvergedResourceAlone(t *testing.T) {
 
 func TestEnsureResourcePatchesOnlyManagedFieldsOnDrift(t *testing.T) {
 	transport := &scripted{steps: []any{
-		ok(`{"items":[{"id":"res-1","identifier":"resource://pipernet","scopes":["data:read","agent:lifecycle"],"upstream_url":"https://stale.pipernet.example","credential_provider_id":"prov-unmanaged"}],"next_cursor":null}`),
+		ok(`{"items":[{"id":"res-1","identifier":"resource://pipernet","scopes":["data:read"],"upstream_url":"https://stale.pipernet.example","credential_provider_id":"prov-unmanaged"}],"next_cursor":null}`),
 		ok(`{"id":"res-1"}`),
 	}}
 	client := newAdmin(transport, -1)
@@ -249,54 +249,13 @@ func TestEnsureResourcePatchesOnlyManagedFieldsOnDrift(t *testing.T) {
 		t.Fatalf("ensure: %v", err)
 	}
 	assertJSONEqual(t, transport.requests[1].body, map[string]any{
-		"scopes": []any{"data:read", "data:write", "agent:lifecycle"}, "upstream_url": "https://api.pipernet.example",
+		"scopes": []any{"data:read", "data:write"}, "upstream_url": "https://api.pipernet.example",
 	})
-}
-
-func TestEnsureResourceAddsLifecycleScopeWhenGatewayRouted(t *testing.T) {
-	transport := &scripted{steps: []any{
-		ok(`{"items":[],"next_cursor":null}`),
-		ok(`{"id":"res-created"}`),
-	}}
-	client := newAdmin(transport, -1)
-
-	if _, err := admin.EnsureResource(context.Background(), client, "z1", admin.ResourceEnsure{
-		Name: "PiperNet", Identifier: "resource://pipernet", Scopes: []string{"data:read"},
-		UpstreamURL: strPtr("https://api.pipernet.example"),
-	}); err != nil {
-		t.Fatalf("ensure: %v", err)
-	}
-	body := decodeBody(t, transport.requests[1].body)
-	scopes, _ := body["scopes"].([]any)
-	if len(scopes) != 2 || scopes[0] != "data:read" || scopes[1] != admin.LifecycleScope {
-		t.Fatalf("unexpected scopes %v", scopes)
-	}
-}
-
-func TestEnsureResourceDoesNotDuplicateDeclaredLifecycleScope(t *testing.T) {
-	transport := &scripted{steps: []any{
-		ok(`{"items":[],"next_cursor":null}`),
-		ok(`{"id":"res-created"}`),
-	}}
-	client := newAdmin(transport, -1)
-
-	if _, err := admin.EnsureResource(context.Background(), client, "z1", admin.ResourceEnsure{
-		Name: "PiperNet", Identifier: "resource://pipernet",
-		Scopes:      []string{"data:read", admin.LifecycleScope},
-		UpstreamURL: strPtr("https://api.pipernet.example"),
-	}); err != nil {
-		t.Fatalf("ensure: %v", err)
-	}
-	body := decodeBody(t, transport.requests[1].body)
-	scopes, _ := body["scopes"].([]any)
-	if len(scopes) != 2 {
-		t.Fatalf("expected two scopes, got %v", scopes)
-	}
 }
 
 func TestEnsureResourceGatewayRoutedConvergedNeedsNoPatch(t *testing.T) {
 	transport := &scripted{steps: []any{
-		ok(`{"items":[{"id":"res-1","identifier":"resource://pipernet","scopes":["data:read","agent:lifecycle"],"upstream_url":"https://api.pipernet.example"}],"next_cursor":null}`),
+		ok(`{"items":[{"id":"res-1","identifier":"resource://pipernet","scopes":["data:read"],"upstream_url":"https://api.pipernet.example"}],"next_cursor":null}`),
 	}}
 	client := newAdmin(transport, -1)
 
@@ -311,15 +270,19 @@ func TestEnsureResourceGatewayRoutedConvergedNeedsNoPatch(t *testing.T) {
 	}
 }
 
-func TestEnsureResourceWithoutUpstreamAddsNoLifecycleScope(t *testing.T) {
+// Declared scopes are the resource's business vocabulary: the lifecycle bootstrap
+// scope is derived by STS, so the reconciler sends exactly what the caller declared
+// and converges away any stamped copy on the live row.
+func TestEnsureResourceSendsDeclaredScopesVerbatim(t *testing.T) {
 	transport := &scripted{steps: []any{
-		ok(`{"items":[],"next_cursor":null}`),
-		ok(`{"id":"res-created"}`),
+		ok(`{"items":[{"id":"res-1","identifier":"resource://pipernet","scopes":["data:read","agent:lifecycle"],"upstream_url":"https://api.pipernet.example"}],"next_cursor":null}`),
+		ok(`{"id":"res-1"}`),
 	}}
 	client := newAdmin(transport, -1)
 
 	if _, err := admin.EnsureResource(context.Background(), client, "z1", admin.ResourceEnsure{
 		Name: "PiperNet", Identifier: "resource://pipernet", Scopes: []string{"data:read"},
+		UpstreamURL: strPtr("https://api.pipernet.example"),
 	}); err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
@@ -625,7 +588,7 @@ func TestEnsureGovernedUpstreamsConvergesInDependencyOrder(t *testing.T) {
 	})
 	assertJSONEqual(t, transport.requests[3].body, map[string]any{
 		"name": "PiperNet", "identifier": "resource://pipernet",
-		"scopes":                 []any{"data:read", "agent:lifecycle"},
+		"scopes":                 []any{"data:read"},
 		"upstream_url":           "https://api.pipernet.example",
 		"credential_provider_id": "prov-created",
 	})
