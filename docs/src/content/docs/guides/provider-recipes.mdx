@@ -58,6 +58,38 @@ Caracal owns `client_id`, `redirect_uri`, `state`, and PKCE. Use the provider `c
 [When should I use per-user OAuth instead of a shared provider credential?](/reference/faq/#faq-014)
 :::
 
+## Google Cloud service account (jwt_bearer)
+
+Machine access to Google APIs - Vertex AI, Cloud Storage, and every other `googleapis.com` surface - signed with a service-account key instead of user consent.
+
+| Field | Value |
+| --- | --- |
+| Provider kind | `oauth2_client_credentials` |
+| `grant_type` | `jwt_bearer` |
+| `token_endpoint` | `https://oauth2.googleapis.com/token` |
+| `client_id` | The service account email, e.g. `agent@project.iam.gserviceaccount.com` |
+| `private_key` | The service account's PEM private key (sealed). |
+| `scopes` | e.g. `https://www.googleapis.com/auth/cloud-platform` |
+| `assertion_subject` (Advanced) | A user email, only for domain-wide delegation. |
+| Resource upstream URL | e.g. `https://aiplatform.googleapis.com` |
+
+STS signs the RFC 7523 assertion with the sealed key, carries the scopes inside the assertion's `scope` claim as Google expects, and caches the returned access token. The same shape covers Salesforce's JWT bearer flow: set `client_id` to the consumer key, `assertion_subject` to the Salesforce username, and `assertion_audience` to `https://login.salesforce.com`.
+
+## Atlassian Jira (HTTP Basic)
+
+Jira Cloud REST authenticates with an email and API token as a Basic pair.
+
+| Field | Value |
+| --- | --- |
+| Provider kind | `http_basic` |
+| `username` | The Atlassian account email. |
+| `password` | The Atlassian API token (sealed). |
+| Resource identifier | `resource://jira` |
+| Resource upstream URL | `https://your-site.atlassian.net` |
+| Resource scopes | `jira:issues-read`, `jira:issues-write` |
+
+Gateway composes `Authorization: Basic ...` at forward time; callers never see the pair. The same recipe covers Twilio (Account SID as username, auth token as password), Elasticsearch, Zendesk, and other Basic-authenticated REST APIs.
+
 ## GitHub (bearer token, with OAuth note)
 
 For automation, the simplest path is a pre-issued token.

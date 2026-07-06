@@ -158,7 +158,7 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro';
       <p>See <a href="/concepts/principal/">Identities and Applications</a> and <a href="/guides/modeling-recipes/">Model Your Application in Caracal</a>.</p>
       <p className="faqRelated">Related: <a href="#faq-005">FAQ-005</a>, <a href="#faq-006">FAQ-006</a>, <a href="#faq-007">FAQ-007</a></p>
     </details>
-    <details id="faq-009" className="faqEntry" data-faq-entry data-faq-category="resources" data-faq-id="FAQ-009" data-faq-title="What is the difference between a resource and a provider?" data-keywords="resource provider protected target policy audience upstream URL Gateway binding credentials OAuth API key bearer token">
+    <details id="faq-009" className="faqEntry" data-faq-entry data-faq-category="resources" data-faq-id="FAQ-009" data-faq-title="What is the difference between a resource and a provider?" data-keywords="resource provider protected target policy audience upstream URL Gateway routing credentials OAuth API key bearer token">
       <summary className="faqEntryHeader">
         <span className="faqNumber">FAQ-009</span>
         <span className="faqTag faqTagResource">Resources</span>
@@ -167,7 +167,7 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro';
       </summary>
       <span id="faq-resource-versus-provider" className="faqAnchor"></span>
       <p>A resource is the protected target and policy audience: the thing a mandate authorizes access to. A provider describes how Gateway authenticates upstream: no credential, Caracal mandate, OAuth, API key, or bearer token.</p>
-      <p>Keep target identity, scopes, upstream URL, and Gateway binding on the resource. Keep secrets, token endpoints, OAuth settings, API keys, and bearer tokens on the provider.</p>
+      <p>Keep target identity, scopes, upstream URL, and caller allowlist on the resource. Keep secrets, token endpoints, OAuth settings, API keys, and bearer tokens on the provider.</p>
       <p className="faqRelated">Related: <a href="#faq-010">FAQ-010</a>, <a href="#faq-011">FAQ-011</a>, <a href="#faq-013">FAQ-013</a></p>
     </details>
 

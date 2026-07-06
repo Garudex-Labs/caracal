@@ -18,9 +18,10 @@ Callers never hold upstream credentials. The agent presents a Caracal mandate; G
 | None | No credential. | Gateway is the enforcement point and the upstream expects nothing. |
 | Caracal mandate | The Caracal mandate as a bearer token. | The upstream verifies Caracal tokens itself with a verifier or adapter. |
 | OAuth 2.0 authorization code | A per-user delegated token. | The upstream needs user consent. |
-| OAuth 2.0 client credentials | A service-to-service token. | The upstream uses machine-to-machine OAuth. |
+| OAuth 2.0 client credentials | A service-to-service token. | The upstream uses machine-to-machine OAuth, via the standard grant or an RFC 7523 signed-assertion grant such as a Google service account. |
 | API key | A static key in a configured header. | The upstream uses vendor API keys. |
 | Bearer token | A static pre-issued token. | The upstream expects a fixed bearer credential Caracal does not mint. |
+| HTTP Basic | `Authorization: Basic` from a username and sealed password. | The upstream authenticates with a username/password or username/API-token pair. |
 
 ## How a Provider Is Used
 
