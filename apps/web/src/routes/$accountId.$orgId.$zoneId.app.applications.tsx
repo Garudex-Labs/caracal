@@ -373,7 +373,7 @@ function ApplicationsPage({ zoneId, zoneName }: { zoneId: string; zoneName: stri
         open={deleteTarget !== null}
         onClose={() => setDeleteTarget(null)}
         title="Archive application"
-        description={`Archiving "${deleteTarget?.name ?? ""}" revokes its identity: it can no longer obtain tokens and any agent using its credentials stops authenticating. An application still named in a resource's caller allowlist cannot be archived; remove it from the resource first. This cannot be undone; the record stays visible under Archived for audit.`}
+        description={`Archiving "${deleteTarget?.name ?? ""}" revokes its identity: it can no longer obtain tokens and any agent using its credentials stops authenticating. This cannot be undone; the record stays visible under Archived for audit.`}
         confirmLabel="Archive application"
         tone="danger"
         onConfirm={async () => {

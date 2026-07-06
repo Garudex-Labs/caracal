@@ -2,7 +2,7 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-This file builds the create and edit dialog for Gateway-routed resources, covering routing, caller allowlist, scopes, and operation authority.
+This file builds the create and edit dialog for Gateway-routed resources, covering routing, scopes, and operation authority.
 */
 import { useMemo, useState } from "react";
 
@@ -14,7 +14,6 @@ import {
 } from "@/platform/api/validation";
 import { PROVIDER_KIND_LABEL } from "@/platform/api/types";
 import type {
-  Application,
   Provider,
   Resource,
   ResourceInput,
@@ -56,7 +55,6 @@ interface ResourceFormProps {
   open: boolean;
   mode: "create" | "edit";
   resource?: Resource;
-  applications: Application[];
   providers: Provider[];
   busy: boolean;
   onClose: () => void;
@@ -73,18 +71,12 @@ export function ResourceFormModal(props: ResourceFormProps) {
 function ResourceFormBody({
   mode,
   resource,
-  applications,
   providers,
   busy,
   onClose,
   onSubmit,
 }: ResourceFormProps) {
   const isEdit = mode === "edit";
-
-  const managedApps = useMemo(
-    () => applications.filter((app) => app.registration_method === "managed"),
-    [applications],
-  );
 
   const [name, setName] = useState(resource?.name ?? "");
   const [identifier, setIdentifier] = useState(
@@ -101,9 +93,6 @@ function ResourceFormBody({
     const referenced = new Set((resource?.operations ?? []).map((op) => op.scope));
     return declared.filter((scope) => !referenced.has(scope)).join(", ");
   });
-  // An empty allowlist leaves minting policy-governed, so nothing is preselected; capping
-  // callers stays a deliberate operator decision.
-  const [allowedApps, setAllowedApps] = useState<string[]>(resource?.allowed_application_ids ?? []);
   // When the zone has exactly one candidate the choice is unambiguous, so the dialog
   // preselects it; anything less certain stays a deliberate operator decision.
   const [credentialProvider, setCredentialProvider] = useState(
@@ -215,7 +204,6 @@ function ResourceFormBody({
             }))
           : [],
       upstream_url: upstreamUrl.trim(),
-      allowed_application_ids: allowedApps,
       credential_provider_id: credentialProvider,
       ...(identifier.trim()
         ? { identifier: `${RESOURCE_IDENTIFIER_PREFIX}${identifier.trim()}` }
@@ -237,10 +225,6 @@ function ResourceFormBody({
 
   function removeOperation(index: number) {
     setOperations((prev) => prev.filter((_, i) => i !== index));
-  }
-
-  function toggleAllowedApp(id: string) {
-    setAllowedApps((prev) => (prev.includes(id) ? prev.filter((v) => v !== id) : [...prev, id]));
   }
 
   const missingPrereqs = !isEdit && providers.length === 0;
@@ -303,39 +287,6 @@ function ResourceFormBody({
               error={show("upstreamUrl")}
               onChange={(e) => setUpstreamUrl(e.target.value)}
             />
-            <div>
-              <span className="flex items-center gap-1.5">
-                <span className="text-sm font-medium text-foreground">Caller allowlist</span>
-                <InfoHint label="Caps which applications may mint tokens for this resource at the STS. Leave empty to let grants and policies govern callers." />
-              </span>
-              {managedApps.length === 0 ? (
-                <p className="mt-2 text-xs text-muted-foreground">
-                  No managed applications in this zone. Minting stays policy governed.
-                </p>
-              ) : (
-                <ul className="mt-2 divide-y divide-border rounded-md border border-border">
-                  {managedApps.map((app) => (
-                    <li key={app.id} className="flex items-center gap-3 px-3 py-2">
-                      <input
-                        type="checkbox"
-                        checked={allowedApps.includes(app.id)}
-                        onChange={() => toggleAllowedApp(app.id)}
-                        aria-label={`Allow ${app.name}`}
-                        className="h-4 w-4 shrink-0 accent-primary"
-                      />
-                      <span className="min-w-0 flex-1 truncate text-sm text-foreground">
-                        {app.name}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {allowedApps.length === 0 ? (
-                <p className="mt-1.5 text-xs text-muted-foreground">
-                  Empty: any application a grant and policy permits may mint for this resource.
-                </p>
-              ) : null}
-            </div>
             <div>
               <Select
                 label="Credential provider"

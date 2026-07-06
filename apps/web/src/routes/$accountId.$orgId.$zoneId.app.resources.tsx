@@ -31,7 +31,6 @@ import {
 } from "@/components/ui";
 import { ConsoleApiError } from "@/platform/api/client";
 import {
-  useApplications,
   useCreateResource,
   useDeleteResource,
   useProviders,
@@ -40,7 +39,7 @@ import {
 } from "@/platform/api/hooks";
 import { appLink } from "@/platform/nav/appLink";
 import { useCreateDeepLink } from "@/platform/nav/createDeepLink";
-import type { Application, Provider, Resource, ResourceInput } from "@/platform/api/types";
+import type { Provider, Resource, ResourceInput } from "@/platform/api/types";
 
 export const Route = createFileRoute("/$accountId/$orgId/$zoneId/app/resources")({
   component: ResourcesRoute,
@@ -76,7 +75,6 @@ type EnforcementFilter = "all" | "enforced" | "transport_uniform";
 function ResourcesPage({ zoneId }: { zoneId: string }) {
   const toast = useToast();
   const query = useResources(zoneId);
-  const appsQuery = useApplications(zoneId);
   const providersQuery = useProviders(zoneId);
   const createResource = useCreateResource(zoneId);
   const updateResource = useUpdateResource(zoneId);
@@ -93,10 +91,8 @@ function ResourcesPage({ zoneId }: { zoneId: string }) {
   const [filter, setFilter] = useState<EnforcementFilter>("all");
 
   const allRows = useMemo(() => query.data ?? [], [query.data]);
-  const apps = useMemo(() => appsQuery.data ?? [], [appsQuery.data]);
   const providers = useMemo(() => providersQuery.data ?? [], [providersQuery.data]);
 
-  const appById = useMemo(() => new Map(apps.map((a) => [a.id, a])), [apps]);
   const providerById = useMemo(() => new Map(providers.map((p) => [p.id, p])), [providers]);
 
   const rows = useMemo(
@@ -157,15 +153,6 @@ function ResourcesPage({ zoneId }: { zoneId: string }) {
       truncate: true,
       cell: (r) => (
         <div className="flex min-w-0 flex-col gap-0.5 text-xs">
-          <RelationCell
-            label="callers"
-            value={
-              r.allowed_application_ids.length > 0
-                ? r.allowed_application_ids.map((id) => appById.get(id)?.name ?? id).join(", ")
-                : "policy governed"
-            }
-            unresolved={false}
-          />
           <RelationCell
             label="cred"
             value={
@@ -236,10 +223,6 @@ function ResourcesPage({ zoneId }: { zoneId: string }) {
           render: (r) => (
             <ResourceDetail
               resource={r}
-              allowedApps={r.allowed_application_ids.map((id) => ({
-                id,
-                name: appById.get(id)?.name,
-              }))}
               provider={
                 r.credential_provider_id ? providerById.get(r.credential_provider_id) : undefined
               }
@@ -253,7 +236,6 @@ function ResourcesPage({ zoneId }: { zoneId: string }) {
       <ResourceFormModal
         open={createOpen}
         mode="create"
-        applications={apps}
         providers={providers}
         busy={createResource.isPending}
         onClose={() => setCreateOpen(false)}
@@ -272,7 +254,6 @@ function ResourcesPage({ zoneId }: { zoneId: string }) {
         open={editTarget !== null}
         mode="edit"
         resource={editTarget ?? undefined}
-        applications={apps}
         providers={providers}
         busy={updateResource.isPending}
         onClose={() => setEditTarget(null)}
@@ -362,13 +343,11 @@ function RelationCell({
 
 function ResourceDetail({
   resource,
-  allowedApps,
   provider,
   onEdit,
   onDelete,
 }: {
   resource: Resource;
-  allowedApps: { id: string; name?: string }[];
   provider?: Provider;
   onEdit: () => void;
   onDelete: () => void;
@@ -417,28 +396,7 @@ function ResourceDetail({
       </DetailGroup>
 
       <DetailSection title="Bindings">
-        <div className="grid gap-px overflow-hidden rounded-lg border border-border bg-border sm:grid-cols-2 [&>*]:bg-card">
-          <div className="p-3">
-            <div className="text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
-              Caller allowlist
-            </div>
-            {allowedApps.length > 0 ? (
-              <div className="mt-1 flex flex-col gap-0.5">
-                {allowedApps.map((app) => (
-                  <Link
-                    key={app.id}
-                    to={appLink("/applications")}
-                    search={{ focus: app.id }}
-                    className="block truncate text-sm text-foreground hover:underline"
-                  >
-                    {app.name ?? app.id}
-                  </Link>
-                ))}
-              </div>
-            ) : (
-              <div className="mt-1 text-sm text-muted-foreground">Policy governed</div>
-            )}
-          </div>
+        <div className="grid gap-px overflow-hidden rounded-lg border border-border bg-border [&>*]:bg-card">
           <BindingCell
             label="Credential provider"
             value={provider?.name}
