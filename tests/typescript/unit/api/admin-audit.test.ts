@@ -221,15 +221,15 @@ describe('admin audit hook', () => {
   it('records the provider oauth callback and strips the query string', async () => {
     const captured: Captured[] = []
     const app = buildApp(captured)
-    app.get('/v1/zones/:zoneId/provider-grants/oauth/callback', async () => ({ ok: true }))
-    await app.inject({ method: 'GET', url: '/v1/zones/z1/provider-grants/oauth/callback?code=abc&state=secrettoken' })
+    app.get('/v1/zones/:zoneId/provider-connections/oauth/callback', async () => ({ ok: true }))
+    await app.inject({ method: 'GET', url: '/v1/zones/z1/provider-connections/oauth/callback?code=abc&state=secrettoken' })
     await app.close()
     const ins = insertCall(captured)
     expect(ins).toBeDefined()
     const params = ins!.params!
     expect(params[8]).toBe('z1')
-    expect(params[5]).toBe('GET /v1/zones/z1/provider-grants/oauth/callback')
-    expect(params[7]).toBe('/v1/zones/z1/provider-grants/oauth/callback')
+    expect(params[5]).toBe('GET /v1/zones/z1/provider-connections/oauth/callback')
+    expect(params[7]).toBe('/v1/zones/z1/provider-connections/oauth/callback')
     expect(JSON.stringify(params)).not.toContain('secrettoken')
   })
 

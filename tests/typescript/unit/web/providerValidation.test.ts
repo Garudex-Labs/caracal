@@ -110,6 +110,26 @@ describe('crossFieldIssues', () => {
     const issues = crossFieldIssues('api_key', { auth_location: 'query', auth_scheme: 'ApiKey' })
     expect(issues.some((i) => i.key === 'auth_scheme')).toBe(true)
   })
+  it('flags control characters in single-line secrets and leaves PEM keys alone', () => {
+    expect(crossFieldIssues('bearer_token', { bearer_token: 'line-one\nline-two' }).some((i) => i.key === 'bearer_token')).toBe(true)
+    expect(
+      crossFieldIssues('oauth2_client_credentials', {
+        grant_type: 'jwt_bearer',
+        private_key: '-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----',
+      }),
+    ).toEqual([])
+  })
+  it('flags a credential pasted with the composed authorization scheme attached', () => {
+    expect(crossFieldIssues('bearer_token', { bearer_token: 'Bearer hoolibox-token' }).some((i) => i.key === 'bearer_token')).toBe(true)
+    expect(
+      crossFieldIssues('api_key', {
+        header_name: 'Authorization',
+        auth_scheme: 'Bearer',
+        api_key: 'bearer sk-hooli',
+      }).some((i) => i.key === 'api_key'),
+    ).toBe(true)
+    expect(crossFieldIssues('api_key', { header_name: 'X-Custom-Auth', api_key: 'Bearer raw-value' })).toEqual([])
+  })
   it('reports no issues for a valid client-credentials config', () => {
     expect(
       crossFieldIssues('oauth2_client_credentials', {
