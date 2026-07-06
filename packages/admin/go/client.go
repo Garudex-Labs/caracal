@@ -23,12 +23,11 @@ import (
 )
 
 const (
-	defaultTimeout      = 30 * time.Second
-	defaultRetries      = 3
-	maxRetryAfter       = 30 * time.Second
-	defaultPolicySchema = "2026-05-20"
-	baseAPI             = "api"
-	baseCoordinator     = "coordinator"
+	defaultTimeout  = 30 * time.Second
+	defaultRetries  = 3
+	maxRetryAfter   = 30 * time.Second
+	baseAPI         = "api"
+	baseCoordinator = "coordinator"
 )
 
 // ErrCoordinatorURLNotConfigured is returned when a coordinator-backed call
@@ -630,26 +629,18 @@ func (s *PoliciesService) Create(ctx context.Context, zoneID string, body map[st
 	return &out, nil
 }
 
-// Validate checks policy content without persisting it. An empty
-// schemaVersion lets the server apply its current default.
-func (s *PoliciesService) Validate(ctx context.Context, content, schemaVersion string) (map[string]any, error) {
+// Validate checks policy content without persisting it.
+func (s *PoliciesService) Validate(ctx context.Context, content string) (map[string]any, error) {
 	body := map[string]any{"content": content}
-	if schemaVersion != "" {
-		body["schema_version"] = schemaVersion
-	}
 	var out map[string]any
 	err := s.client.do(ctx, http.MethodPost, "/v1/policies/validate", body, &out, false)
 	return out, err
 }
 
-// AddVersion appends an immutable content version to the policy. An empty
-// schemaVersion applies the current schema default.
-func (s *PoliciesService) AddVersion(ctx context.Context, zoneID, policyID, content, schemaVersion string) (*PolicyVersionAdded, error) {
-	if schemaVersion == "" {
-		schemaVersion = defaultPolicySchema
-	}
+// AddVersion appends an immutable content version to the policy.
+func (s *PoliciesService) AddVersion(ctx context.Context, zoneID, policyID, content string) (*PolicyVersionAdded, error) {
 	var out PolicyVersionAdded
-	body := map[string]any{"content": content, "schema_version": schemaVersion}
+	body := map[string]any{"content": content}
 	if err := s.client.do(ctx, http.MethodPost, "/v1/zones/"+zoneID+"/policies/"+policyID+"/versions", body, &out, false); err != nil {
 		return nil, err
 	}
@@ -697,18 +688,28 @@ func (s *PolicySetsService) Create(ctx context.Context, zoneID, name, descriptio
 	return &out, nil
 }
 
-// AddVersion appends a manifest version to the set. An empty schemaVersion is
-// omitted so the server applies its default.
-func (s *PolicySetsService) AddVersion(ctx context.Context, zoneID, setID string, manifest []map[string]any, schemaVersion string) (*PolicySetVersion, error) {
+// AddVersion appends a manifest version to the set.
+func (s *PolicySetsService) AddVersion(ctx context.Context, zoneID, setID string, manifest []map[string]any) (*PolicySetVersion, error) {
 	body := map[string]any{"manifest": manifest}
-	if schemaVersion != "" {
-		body["schema_version"] = schemaVersion
-	}
 	var out PolicySetVersion
 	if err := s.client.do(ctx, http.MethodPost, "/v1/zones/"+zoneID+"/policy-sets/"+setID+"/versions", body, &out, false); err != nil {
 		return nil, err
 	}
 	return &out, nil
+}
+
+// ListVersions returns the set's immutable versions, newest first.
+func (s *PolicySetsService) ListVersions(ctx context.Context, zoneID, setID string) ([]PolicySetVersion, error) {
+	var out struct {
+		Items []PolicySetVersion `json:"items"`
+	}
+	if err := s.client.do(ctx, http.MethodGet, "/v1/zones/"+zoneID+"/policy-sets/"+setID+"/versions", nil, &out, false); err != nil {
+		return nil, err
+	}
+	if out.Items == nil {
+		return nil, errors.New("policy set versions response missing items")
+	}
+	return out.Items, nil
 }
 
 // Simulate evaluates a set version against an input without activating it. A
@@ -723,15 +724,31 @@ func (s *PolicySetsService) Simulate(ctx context.Context, zoneID, setID, version
 	return out, err
 }
 
-// Activate promotes a set version; an empty shadowVersionID is omitted from
-// the body.
-func (s *PolicySetsService) Activate(ctx context.Context, zoneID, setID, versionID, shadowVersionID string) (map[string]any, error) {
+// Activate promotes a set version to govern the zone.
+func (s *PolicySetsService) Activate(ctx context.Context, zoneID, setID, versionID string) (map[string]any, error) {
 	body := map[string]any{"version_id": versionID}
-	if shadowVersionID != "" {
-		body["shadow_version_id"] = shadowVersionID
-	}
 	var out map[string]any
 	err := s.client.do(ctx, http.MethodPost, "/v1/zones/"+zoneID+"/policy-sets/"+setID+"/activate", body, &out, false)
+	return out, err
+}
+
+// ActivationStatus reports how far an activation has propagated into the STS
+// runtime. Empty versionID and outboxID are omitted so the server reports the
+// currently active version.
+func (s *PolicySetsService) ActivationStatus(ctx context.Context, zoneID, setID, versionID, outboxID string) (map[string]any, error) {
+	path := "/v1/zones/" + zoneID + "/policy-sets/" + setID + "/activation-status"
+	query := url.Values{}
+	if versionID != "" {
+		query.Set("version_id", versionID)
+	}
+	if outboxID != "" {
+		query.Set("outbox_id", outboxID)
+	}
+	if encoded := query.Encode(); encoded != "" {
+		path += "?" + encoded
+	}
+	var out map[string]any
+	err := s.client.do(ctx, http.MethodGet, path, nil, &out, false)
 	return out, err
 }
 

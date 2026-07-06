@@ -414,6 +414,19 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 			continue
 		}
 
+		// The control resource is mintable only through the control-key contract above.
+		// Any other route to it - a delegated grant on the control resource, a session
+		// exchange, a scope outside the key's traits - would mint a control-audience
+		// token free of the control-key restrictions, so it is denied categorically.
+		if resource.Identifier == controlAudience() {
+			if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "control_resource_requires_control_key", &OPAResult{},
+				mergeAuditMeta(appMeta, map[string]any{"resource": resource.Identifier})); auditErr != nil {
+				return nil, nil, http.StatusInternalServerError, auditErr
+			}
+			return nil, nil, http.StatusForbidden, sharederr.New(sharederr.AccessDenied,
+				"the control resource is mintable only by a control key exchanging its own client credentials for control scopes")
+		}
+
 		providerCredentialAccess := req.GatewayAuthenticated
 		if providerCredentialAccess && resource.CredentialProviderID != nil {
 			provider, perr := s.db.GetProvider(ctx, *resource.CredentialProviderID)

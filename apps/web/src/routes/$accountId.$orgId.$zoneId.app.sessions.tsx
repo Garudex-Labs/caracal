@@ -5,7 +5,7 @@ Caracal, a product of Garudex Labs
 This file defines the Sessions route.
 */
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 
 import {
   CopyValue,
@@ -25,8 +25,10 @@ import {
   useCopyToClipboard,
   type Column,
 } from "@/components/ui";
+import { CsvExportButton } from "@/components/console/CsvExportButton";
 import { cx } from "@/lib/cx";
 import { auditDecisionTone, auditEventContext, auditEventLabel } from "@/lib/auditPresentation";
+import { formatDuration, relativeTime } from "@/lib/time";
 import { appLink } from "@/platform/nav/appLink";
 import { ConsoleApiError } from "@/platform/api/client";
 import { useSessionActivity, useSessionsFeed } from "@/platform/api/hooks";
@@ -34,8 +36,11 @@ import type { Session, SessionQuery } from "@/platform/api/types";
 
 export const Route = createFileRoute("/$accountId/$orgId/$zoneId/app/sessions")({
   component: SessionsRoute,
-  validateSearch: (search: Record<string, unknown>): { subject?: string } => ({
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): { subject?: string; focus?: string } => ({
     subject: typeof search.subject === "string" ? search.subject : undefined,
+    focus: typeof search.focus === "string" ? search.focus : undefined,
   }),
 });
 
@@ -86,31 +91,6 @@ function statusTone(status: EffectiveStatus): "success" | "muted" | "danger" {
   if (status === "active") return "success";
   if (status === "revoked") return "danger";
   return "muted";
-}
-
-function relativeTime(iso: string, now = Date.now()): string {
-  const diff = Date.parse(iso) - now;
-  const abs = Math.abs(diff);
-  const suffix = diff >= 0 ? "from now" : "ago";
-  const mins = Math.floor(abs / 60000);
-  if (mins < 1) return diff >= 0 ? "in <1m" : "<1m ago";
-  if (mins < 60) return `${mins}m ${suffix}`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ${suffix}`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ${suffix}`;
-}
-
-// Human-readable span between two instants, used to show how long a session held
-// authority from authentication to its terminal moment (or to now while it is live).
-function formatDuration(ms: number): string {
-  const mins = Math.floor(Math.max(0, ms) / 60000);
-  if (mins < 1) return "<1m";
-  if (mins < 60) return `${mins}m`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ${mins % 60}m`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ${hours % 24}h`;
 }
 
 // The instant a session stopped carrying authority: its revocation time when revoked,
@@ -282,12 +262,24 @@ function SessionsPage({ zoneId, initialSubject }: { zoneId: string; initialSubje
           loaded={rows.length}
           onStatus={setStatus}
           onSubject={setSubject}
+          exportControl={
+            <CsvExportButton
+              zoneId={zoneId}
+              path="sessions"
+              query={Object.fromEntries(
+                Object.entries(serverQuery).map(([k, v]) => [k, String(v)]),
+              )}
+              noun="sessions"
+            />
+          }
         />
       }
       search={{
-        placeholder: "Search loaded sessions by subject…",
+        placeholder: "Search loaded sessions by subject or session ID…",
         match: (s, q) =>
-          s.subject_id.toLowerCase().includes(q) || s.session_type.toLowerCase().includes(q),
+          s.subject_id.toLowerCase().includes(q) ||
+          s.id.toLowerCase().includes(q) ||
+          s.session_type.toLowerCase().includes(q),
       }}
       initialSort={{ column: "authenticated", direction: "desc" }}
       sortValues={{
@@ -323,16 +315,18 @@ function SessionFilterBar({
   loaded,
   onStatus,
   onSubject,
+  exportControl,
 }: {
   status: string;
   subject: string;
   loaded: number;
   onStatus: (v: string) => void;
   onSubject: (v: string) => void;
+  exportControl: ReactNode;
 }) {
   const activeFilters = (status !== "all" ? 1 : 0) + (subject.trim() ? 1 : 0);
   return (
-    <FeedToolbar activeFilters={activeFilters} loaded={loaded} noun="session">
+    <FeedToolbar extra={exportControl} activeFilters={activeFilters} loaded={loaded} noun="session">
       <Select label="Status" value={status} onChange={(e) => onStatus(e.target.value)}>
         <option value="all">All statuses</option>
         <option value="active">Active</option>
@@ -341,7 +335,7 @@ function SessionFilterBar({
       </Select>
       <Field
         label="Subject"
-        placeholder="user@example.com"
+        placeholder="user:richard.hendricks@piedpiper.example"
         value={subject}
         onChange={(e) => onSubject(e.target.value)}
       />
