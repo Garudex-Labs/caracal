@@ -83,7 +83,7 @@ interface AdminState {
     upstream_url?: string | null
     scopes?: string[]
     credential_provider_id?: string | null
-    gateway_application_id?: string | null
+    allowed_application_ids?: string[]
     operation_enforcement?: string
   }[]
   policies: { id: string; name: string; versions: { id: string; version: number; content_sha256: string }[] }[]

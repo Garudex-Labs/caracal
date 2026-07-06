@@ -176,6 +176,7 @@ describe('ensureResource', () => {
       identifier: 'resource://pipernet',
       scopes: ['data:read'],
       upstream_url: 'https://api.pipernet.example',
+      allowed_application_ids: ['app-son-of-anton'],
       operation_enforcement: 'transport_uniform',
     })
 
@@ -183,8 +184,9 @@ describe('ensureResource', () => {
     expect(client.resources.create).toHaveBeenCalledWith(ZONE, {
       name: 'PiperNet',
       identifier: 'resource://pipernet',
-      scopes: ['data:read'],
+      scopes: ['data:read', 'agent:lifecycle'],
       upstream_url: 'https://api.pipernet.example',
+      allowed_application_ids: ['app-son-of-anton'],
       operation_enforcement: 'transport_uniform',
     })
   })
@@ -193,7 +195,7 @@ describe('ensureResource', () => {
     const existing = {
       id: 'res-1',
       identifier: 'resource://pipernet',
-      scopes: ['data:read'],
+      scopes: ['data:read', 'agent:lifecycle'],
       upstream_url: 'https://api.pipernet.example',
     }
     const client = admin([existing])
@@ -213,9 +215,9 @@ describe('ensureResource', () => {
       {
         id: 'res-1',
         identifier: 'resource://pipernet',
-        scopes: ['data:read'],
-        upstream_url: 'https://old.pipernet.example',
-        gateway_application_id: 'app-unmanaged',
+        scopes: ['data:read', 'agent:lifecycle'],
+        upstream_url: 'https://stale.pipernet.example',
+        allowed_application_ids: ['app-unmanaged'],
       },
     ])
     await ensureResource(client as unknown as AdminClient, ZONE, {
@@ -225,27 +227,68 @@ describe('ensureResource', () => {
       upstream_url: 'https://api.pipernet.example',
     })
 
-    // gateway_application_id was not part of the desired state, so the patch never touches it.
+    // allowed_application_ids was not part of the desired state, so the patch never touches it.
     expect(client.resources.patch).toHaveBeenCalledWith(ZONE, 'res-1', {
-      scopes: ['data:read'],
+      scopes: ['data:read', 'agent:lifecycle'],
       upstream_url: 'https://api.pipernet.example',
     })
   })
 
-  it('adds agent:lifecycle to a gateway-bound resource so the owner can bootstrap its governed transport', async () => {
+  it('treats the caller allowlist as an unordered set when checking drift', async () => {
+    const client = admin([
+      {
+        id: 'res-1',
+        identifier: 'resource://pipernet',
+        scopes: ['data:read'],
+        allowed_application_ids: ['app-fiona', 'app-son-of-anton'],
+      },
+    ])
+    await ensureResource(client as unknown as AdminClient, ZONE, {
+      name: 'PiperNet',
+      identifier: 'resource://pipernet',
+      scopes: ['data:read'],
+      allowed_application_ids: ['app-son-of-anton', 'app-fiona'],
+    })
+
+    expect(client.resources.patch).not.toHaveBeenCalled()
+  })
+
+  it('patches the caller allowlist when its membership drifts', async () => {
+    const client = admin([
+      {
+        id: 'res-1',
+        identifier: 'resource://pipernet',
+        scopes: ['data:read'],
+        allowed_application_ids: ['app-fiona'],
+      },
+    ])
+    await ensureResource(client as unknown as AdminClient, ZONE, {
+      name: 'PiperNet',
+      identifier: 'resource://pipernet',
+      scopes: ['data:read'],
+      allowed_application_ids: ['app-son-of-anton'],
+    })
+
+    expect(client.resources.patch).toHaveBeenCalledWith(ZONE, 'res-1', {
+      scopes: ['data:read'],
+      allowed_application_ids: ['app-son-of-anton'],
+    })
+  })
+
+  it('adds agent:lifecycle to a gateway-routed resource so the owner can bootstrap its governed transport', async () => {
     const client = admin([])
     await ensureResource(client as unknown as AdminClient, ZONE, {
       name: 'PiperNet',
       identifier: 'resource://pipernet',
       scopes: ['data:read'],
-      gateway_application_id: 'app-son-of-anton',
+      upstream_url: 'https://api.pipernet.example',
     })
 
     expect(client.resources.create).toHaveBeenCalledWith(ZONE, {
       name: 'PiperNet',
       identifier: 'resource://pipernet',
       scopes: ['data:read', 'agent:lifecycle'],
-      gateway_application_id: 'app-son-of-anton',
+      upstream_url: 'https://api.pipernet.example',
     })
   })
 
@@ -255,32 +298,32 @@ describe('ensureResource', () => {
       name: 'PiperNet',
       identifier: 'resource://pipernet',
       scopes: ['agent:lifecycle', 'data:read'],
-      gateway_application_id: 'app-son-of-anton',
+      upstream_url: 'https://api.pipernet.example',
     })
 
     expect(client.resources.create).toHaveBeenCalledWith(ZONE, expect.objectContaining({ scopes: ['agent:lifecycle', 'data:read'] }))
   })
 
-  it('treats a gateway-bound resource already carrying agent:lifecycle as converged', async () => {
+  it('treats a gateway-routed resource already carrying agent:lifecycle as converged', async () => {
     const client = admin([
       {
         id: 'res-1',
         identifier: 'resource://pipernet',
         scopes: ['data:read', 'agent:lifecycle'],
-        gateway_application_id: 'app-son-of-anton',
+        upstream_url: 'https://api.pipernet.example',
       },
     ])
     await ensureResource(client as unknown as AdminClient, ZONE, {
       name: 'PiperNet',
       identifier: 'resource://pipernet',
       scopes: ['data:read'],
-      gateway_application_id: 'app-son-of-anton',
+      upstream_url: 'https://api.pipernet.example',
     })
 
     expect(client.resources.patch).not.toHaveBeenCalled()
   })
 
-  it('never adds agent:lifecycle to a resource without a gateway binding', async () => {
+  it('never adds agent:lifecycle to a resource without an upstream', async () => {
     const client = admin([])
     await ensureResource(client as unknown as AdminClient, ZONE, {
       name: 'PiperNet',
@@ -541,7 +584,7 @@ describe('ensureGovernedUpstreams', () => {
       identifier: 'resource://pipernet',
       scopes: ['data:read'],
       upstream_url: 'https://api.pipernet.example',
-      gateway_application_id: 'app-son-of-anton',
+      allowed_application_ids: ['app-son-of-anton'],
     },
     grants: [{ applicationId: 'app-son-of-anton', scopes: ['data:read'] }],
   }
@@ -562,7 +605,7 @@ describe('ensureGovernedUpstreams', () => {
       scopes: ['data:read', 'agent:lifecycle'],
       upstream_url: 'https://api.pipernet.example',
       credential_provider_id: 'prov-created',
-      gateway_application_id: 'app-son-of-anton',
+      allowed_application_ids: ['app-son-of-anton'],
     })
     expect(client.policies.create).toHaveBeenCalledWith(ZONE, {
       name: 'application-grants',

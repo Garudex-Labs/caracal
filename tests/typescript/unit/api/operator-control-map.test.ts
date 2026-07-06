@@ -112,14 +112,13 @@ describe('buildInvocation', () => {
     })
   })
 
-  it('builds defineResource with the full Gateway binding flags', () => {
+  it('builds defineResource with the full Gateway routing flags', () => {
     expect(
       CONTROL_CAPABILITIES.defineResource.buildInvocation(
         {
           name: 'FinXpert',
           scopes: ['finxpert.read', 'finxpert.write'],
           upstream_url: 'https://api.finxpert.example',
-          gateway_application_id: 'app-1',
           credential_provider_id: 'provider-1',
         },
         gen,
@@ -131,7 +130,6 @@ describe('buildInvocation', () => {
         name: 'FinXpert',
         scopes: ['finxpert.read', 'finxpert.write'],
         'upstream-url': 'https://api.finxpert.example',
-        'gateway-application-id': 'app-1',
         'credential-provider-id': 'provider-1',
       },
     })

@@ -810,9 +810,9 @@ describe('createOrchestrator', () => {
 
   it('critiques a two-step plan coupled by a step-output reference', async () => {
     const plan = {
-      summary: 'Register the sync app and define its resource',
+      summary: 'Connect the sync provider and define its resource',
       steps: [
-        { id: 's1', capability: 'registerApplication', args: { name: 'Sync' } },
+        { id: 's1', capability: 'connectProvider', args: { name: 'Sync OIDC', kind: 'oauth2_client_credentials' } },
         {
           id: 's2',
           capability: 'defineResource',
@@ -820,8 +820,7 @@ describe('createOrchestrator', () => {
             name: 'Sync API',
             scopes: ['read'],
             upstream_url: 'https://api.sync.example',
-            gateway_application_id: '{{steps.s1.outputs.application_id}}',
-            credential_provider_id: 'prov-1',
+            credential_provider_id: '{{steps.s1.outputs.provider_id}}',
           },
         },
       ],
