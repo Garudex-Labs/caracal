@@ -190,12 +190,12 @@ function ensureLlmProvider(admin: AdminClient, zoneId: string, upstream: Governe
   })
 }
 
-// Reconciles the governed LLM resource and its gateway binding. The resource declares the
-// data scope (the reconciler adds the owner's bootstrap scope to every gateway-bound
-// resource), binds the sealed credential provider, and routes through the gateway as the
-// Operator identity. transport_uniform treats the upstream as one surface, so an arbitrary
+// Reconciles the governed LLM resource. The resource declares the data scope (the
+// reconciler adds the owner's bootstrap scope to every gateway-routed resource), binds the
+// sealed credential provider, and caps callers to the Operator identity through the resource
+// allowlist. transport_uniform treats the upstream as one surface, so an arbitrary
 // chat-completions path passes the mint-time scope check rather than a per-path operation
-// match. Patched only on drift, so a steady state never bumps the gateway binding cache.
+// match. Patched only on drift, so a steady state never rewrites the resource.
 async function ensureLlmResource(
   admin: AdminClient,
   zoneId: string,
@@ -210,7 +210,7 @@ async function ensureLlmResource(
     scopes: [LLM_SCOPE],
     upstream_url: upstream.baseUrl,
     credential_provider_id: providerId,
-    gateway_application_id: operatorAppId,
+    allowed_application_ids: [operatorAppId],
     operation_enforcement: 'transport_uniform',
   })
   return identifier

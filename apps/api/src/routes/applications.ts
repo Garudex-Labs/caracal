@@ -241,23 +241,29 @@ export const applicationsRoutes: FastifyPluginAsync = async (fastify) => {
     if (!params) return
     const attribution = await resolveAttribution(req, fastify.db, params.zoneId)
     return withTransaction(fastify.db, async (client) => {
+      // An application named in a resource caller allowlist cannot be archived:
+      // silently dropping it from the allowlist would widen access, and leaving
+      // a dangling entry would deny exchanges without an operator-visible cause.
+      const { rows: allowlisted } = await client.query<{ identifier: string }>(
+        `SELECT identifier FROM resources
+         WHERE zone_id = $1 AND archived_at IS NULL AND $2 = ANY(allowed_application_ids)
+         LIMIT 1`,
+        [params.zoneId, params.id],
+      )
+      if (allowlisted[0]) {
+        throw new TxAbort(
+          reply.code(409).send({
+            error: 'application_in_resource_allowlist',
+            error_description: `application is in the caller allowlist of ${allowlisted[0].identifier}; remove it from the resource first`,
+          }),
+        )
+      }
       const { rowCount } = await client.query(
         `UPDATE applications SET archived_at = now(), updated_at = now(), updated_by = $3, updated_via_operator = $4
          WHERE id = $1 AND zone_id = $2 AND archived_at IS NULL`,
         [params.id, params.zoneId, attribution.actor, attribution.viaOperator],
       )
       if (!rowCount) throw new TxAbort(reply.code(404).send({ error: 'application_not_found' }))
-      // Clear any Gateway resource bindings that named this application as their
-      // exchange identity so no binding is left pointing at an archived app, and
-      // bump the binding revision so the Gateway drops the stale route from cache.
-      const { rowCount: unbound } = await client.query(
-        `DELETE FROM gateway_resource_bindings
-         WHERE zone_id = $1 AND application_id = $2`,
-        [params.zoneId, params.id],
-      )
-      if (unbound) {
-        await client.query(`UPDATE gateway_binding_revision SET version = version + 1, updated_at = now() WHERE id = true`)
-      }
       return reply.code(204).send()
     })
   })
