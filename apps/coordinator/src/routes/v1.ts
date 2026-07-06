@@ -63,7 +63,7 @@ const RevokeDelegationBody = z.object({
 const VerifyBody = z.object({
   authorization: z.string().min(1).optional(),
   token: z.string().min(1).optional(),
-  zone_id: z.string().min(1).optional(),
+  zone_id: z.string().min(1),
   required_scope: z.string().min(1).optional(),
   require_agent: z.boolean().optional(),
   require_delegation: z.boolean().optional(),
@@ -213,7 +213,7 @@ export const v1Routes: FastifyPluginAsync = async (fastify) => {
     const config: JwtConfig = {
       issuer: cfg.issuerUrl,
       audience: cfg.audience,
-      ...(body.zone_id ? { zoneId: body.zone_id } : {}),
+      zoneId: body.zone_id,
       ...(body.required_scope ? { requiredScopes: [body.required_scope] } : {}),
       ...(body.require_agent ? { requireAgent: true } : {}),
       ...(body.require_delegation ? { requireDelegation: true } : {}),

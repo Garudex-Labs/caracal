@@ -778,8 +778,8 @@ function ProviderFormModal({
           The endpoint must speak the OpenAI <span className="font-mono">/chat/completions</span>{" "}
           format - OpenAI and Azure work directly; for Claude, Gemini, or others, point this at an
           OpenAI-compatible proxy such as LiteLLM or OpenRouter. Caracal seals the key into the
-          caracal.sys system zone, grants the Operator its scopes, and routes the Operator
-          only through the governed gateway.
+          caracal.sys system zone, grants the Operator its scopes, and routes the Operator only
+          through the governed gateway.
         </div>
 
         {error ? <p className="text-xs text-destructive">{error}</p> : null}

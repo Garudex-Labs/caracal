@@ -119,8 +119,7 @@ export const CAPABILITIES: Record<string, Capability> = {
   deleteApplication: {
     id: 'deleteApplication',
     title: 'Delete an application',
-    summary:
-      'Archive an application identity, removing it from active use in the zone; the record is retained for audit.',
+    summary: 'Archive an application identity, removing it from active use in the zone; the record is retained for audit.',
     domain: 'application',
     mutating: true,
     args: z.object({ application_id: IdRef }).strict(),
