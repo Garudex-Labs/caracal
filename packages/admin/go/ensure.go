@@ -166,13 +166,12 @@ func EnsureAPIKeyProvider(ctx context.Context, client *AdminClient, zoneID strin
 // slice fields are not managed: they are excluded from both the drift
 // comparison and the patch.
 type ResourceEnsure struct {
-	Name                  string
-	Identifier            string
-	Scopes                []string
-	UpstreamURL           *string
-	CredentialProviderID  *string
-	AllowedApplicationIDs []string
-	OperationEnforcement  *string
+	Name                 string
+	Identifier           string
+	Scopes               []string
+	UpstreamURL          *string
+	CredentialProviderID *string
+	OperationEnforcement *string
 }
 
 // EnsureResource converges a resource to the given desired fields, creating
@@ -197,9 +196,6 @@ func EnsureResource(ctx context.Context, client *AdminClient, zoneID string, inp
 		if value != nil {
 			desired[key] = *value
 		}
-	}
-	if input.AllowedApplicationIDs != nil {
-		desired["allowed_application_ids"] = input.AllowedApplicationIDs
 	}
 	resources, err := client.Resources.List(ctx, zoneID)
 	if err != nil {
@@ -232,9 +228,6 @@ func EnsureResource(ctx context.Context, client *AdminClient, zoneID string, inp
 		if live[key] == nil || *live[key] != *value {
 			drifted = true
 		}
-	}
-	if input.AllowedApplicationIDs != nil && !sameStringSet(existing.AllowedApplicationIDs, input.AllowedApplicationIDs) {
-		drifted = true
 	}
 	if !drifted {
 		return existing, nil
@@ -476,16 +469,13 @@ type GovernedUpstreamGrant struct {
 
 // GovernedUpstreamResource is the gateway-routed resource fields of a
 // governed upstream. The credential provider binding is threaded by the
-// reconciler, and an empty OperationEnforcement is left unmanaged. A
-// non-empty caller allowlist structurally caps which applications can
-// exchange for the resource; nil leaves minting policy-governed.
+// reconciler, and an empty OperationEnforcement is left unmanaged.
 type GovernedUpstreamResource struct {
-	Name                  string
-	Identifier            string
-	Scopes                []string
-	UpstreamURL           string
-	AllowedApplicationIDs []string
-	OperationEnforcement  string
+	Name                 string
+	Identifier           string
+	Scopes               []string
+	UpstreamURL          string
+	OperationEnforcement string
 }
 
 // GovernedUpstream is one upstream in a governed set: the sealed credential
@@ -535,12 +525,11 @@ func EnsureGovernedUpstreams(ctx context.Context, client *AdminClient, zoneID st
 			return nil, fmt.Errorf("provider %s has no sealed api key: supply APIKey before governing %s", upstream.Provider.Identifier, upstream.Resource.Identifier)
 		}
 		resourceInput := ResourceEnsure{
-			Name:                  upstream.Resource.Name,
-			Identifier:            upstream.Resource.Identifier,
-			Scopes:                upstream.Resource.Scopes,
-			UpstreamURL:           &upstream.Resource.UpstreamURL,
-			CredentialProviderID:  &providerID,
-			AllowedApplicationIDs: upstream.Resource.AllowedApplicationIDs,
+			Name:                 upstream.Resource.Name,
+			Identifier:           upstream.Resource.Identifier,
+			Scopes:               upstream.Resource.Scopes,
+			UpstreamURL:          &upstream.Resource.UpstreamURL,
+			CredentialProviderID: &providerID,
 		}
 		if upstream.Resource.OperationEnforcement != "" {
 			resourceInput.OperationEnforcement = &upstream.Resource.OperationEnforcement

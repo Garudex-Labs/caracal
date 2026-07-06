@@ -348,11 +348,10 @@ type Resource struct {
 	ID                    string   `json:"id"`
 	Name                  string   `json:"name"`
 	Identifier            string   `json:"identifier"`
-	Scopes                []string `json:"scopes"`
-	UpstreamURL           *string  `json:"upstream_url"`
-	CredentialProviderID  *string  `json:"credential_provider_id"`
-	AllowedApplicationIDs []string `json:"allowed_application_ids"`
-	OperationEnforcement  *string  `json:"operation_enforcement"`
+	Scopes               []string `json:"scopes"`
+	UpstreamURL          *string  `json:"upstream_url"`
+	CredentialProviderID *string  `json:"credential_provider_id"`
+	OperationEnforcement *string  `json:"operation_enforcement"`
 }
 
 // Policy is the admin API policy list row.
