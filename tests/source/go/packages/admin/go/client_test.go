@@ -121,6 +121,47 @@ func TestSendsBearerTokenAndParsesJSON(t *testing.T) {
 	}
 }
 
+func TestListDrainsCursorsToTheCompleteCollection(t *testing.T) {
+	transport := &scripted{steps: []any{
+		ok(`{"items":[{"id":"app-1"}],"next_cursor":"c1"}`),
+		ok(`{"items":[{"id":"app-2"}],"next_cursor":"c2"}`),
+		ok(`{"items":[{"id":"app-3"}],"next_cursor":null}`),
+	}}
+	client := newAdmin(transport, -1)
+
+	apps, err := client.Applications.List(context.Background(), "z1")
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(apps) != 3 || apps[0].ID != "app-1" || apps[2].ID != "app-3" {
+		t.Fatalf("unexpected applications %+v", apps)
+	}
+	wantURLs := []string{
+		"http://api/v1/zones/z1/applications",
+		"http://api/v1/zones/z1/applications?cursor=c1",
+		"http://api/v1/zones/z1/applications?cursor=c2",
+	}
+	for i, want := range wantURLs {
+		if transport.requests[i].url != want {
+			t.Fatalf("request %d url %s, want %s", i, transport.requests[i].url, want)
+		}
+	}
+}
+
+func TestListRefusesACursorChainThatNeverTerminates(t *testing.T) {
+	steps := make([]any, 0, 50)
+	for i := 0; i < 50; i++ {
+		steps = append(steps, ok(`{"items":[{"id":"app-1"}],"next_cursor":"again"}`))
+	}
+	transport := &scripted{steps: steps}
+	client := newAdmin(transport, -1)
+
+	_, err := client.Applications.List(context.Background(), "z1")
+	if err == nil || !strings.Contains(err.Error(), "pagination did not terminate") {
+		t.Fatalf("expected non-termination error, got %v", err)
+	}
+}
+
 func TestSerializesJSONBodyWithContentType(t *testing.T) {
 	transport := &scripted{steps: []any{ok(`{"id":"z2","slug":"new"}`)}}
 	client := newAdmin(transport, -1)

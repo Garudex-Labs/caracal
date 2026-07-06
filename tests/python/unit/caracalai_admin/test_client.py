@@ -356,6 +356,52 @@ class AdminOperationsTests(unittest.TestCase):
             client.agent_sessions.list("z1")
         self.assertEqual(str(caught.exception), "agent-sessions response missing items")
 
+    def test_list_drains_cursors_to_the_complete_collection(self):
+        requests: list[httpx.Request] = []
+        client = make_client(
+            [
+                httpx.Response(
+                    200, json={"items": [{"id": "app-1"}], "next_cursor": "c1"}
+                ),
+                httpx.Response(
+                    200, json={"items": [{"id": "app-2"}], "next_cursor": "c2"}
+                ),
+                httpx.Response(
+                    200, json={"items": [{"id": "app-3"}], "next_cursor": None}
+                ),
+            ],
+            requests,
+        )
+
+        out = client.applications.list("z1")
+
+        self.assertEqual(out, [{"id": "app-1"}, {"id": "app-2"}, {"id": "app-3"}])
+        self.assertEqual(str(requests[0].url), "http://api/v1/zones/z1/applications")
+        self.assertEqual(
+            str(requests[1].url), "http://api/v1/zones/z1/applications?cursor=c1"
+        )
+        self.assertEqual(
+            str(requests[2].url), "http://api/v1/zones/z1/applications?cursor=c2"
+        )
+
+    def test_list_refuses_a_cursor_chain_that_never_terminates(self):
+        requests: list[httpx.Request] = []
+        client = make_client(
+            [
+                httpx.Response(
+                    200, json={"items": [{"id": "app-1"}], "next_cursor": "again"}
+                )
+            ]
+            * 50,
+            requests,
+        )
+
+        with self.assertRaises(RuntimeError) as caught:
+            client.applications.list("z1")
+        self.assertEqual(
+            str(caught.exception), "applications pagination did not terminate"
+        )
+
     def test_audit_surface_paths(self):
         requests: list[httpx.Request] = []
         client = make_client(

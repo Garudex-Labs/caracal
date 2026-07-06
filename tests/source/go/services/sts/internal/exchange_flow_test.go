@@ -401,6 +401,34 @@ func TestExchangeControlKeyCapsTTL(t *testing.T) {
 	}
 }
 
+func TestExchangeControlResourceRequiresControlKey(t *testing.T) {
+	db := exchangeFlowDB(t)
+	db.resource = &Resource{
+		ID:         "res-control",
+		ZoneID:     "zone1",
+		Identifier: defaultControlAudience,
+		Scopes:     []string{"control:agent:read"},
+	}
+	srv := exchangeFlowServer(t, db, runCredentialAllowPolicy)
+	resp, challenge, code, apiErr := srv.exchange(context.Background(), TokenExchangeRequest{
+		GrantType:     "urn:ietf:params:oauth:grant-type:token-exchange",
+		ZoneID:        "zone1",
+		ApplicationID: "app1",
+		ClientSecret:  "piper-secret",
+		Resources:     []string{defaultControlAudience},
+		Scope:         "control:agent:read",
+	}, "req-control-deny")
+	if resp != nil || challenge != nil {
+		t.Fatalf("control resource must never mint for a non-control key: resp=%#v challenge=%#v", resp, challenge)
+	}
+	if code != http.StatusForbidden {
+		t.Fatalf("code = %d, want %d (err=%#v)", code, http.StatusForbidden, apiErr)
+	}
+	if apiErr == nil || !strings.Contains(apiErr.Error(), "control key") {
+		t.Fatalf("expected a control-key denial, got %#v", apiErr)
+	}
+}
+
 func TestExchangeOperationFloor(t *testing.T) {
 	db := exchangeFlowDB(t)
 	db.session = activeUserSession("sess-1")

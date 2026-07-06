@@ -136,6 +136,8 @@ class OAuthClientTests(unittest.IsolatedAsyncioTestCase):
                     "error_description": "step up",
                     "challenge_id": "challenge1",
                     "acr_values": "urn:mfa",
+                    "binding": "abc123",
+                    "challenge_expires_at": "2026-01-01T00:05:00Z",
                 },
                 headers={"content-type": "application/json"},
             )
@@ -151,6 +153,39 @@ class OAuthClientTests(unittest.IsolatedAsyncioTestCase):
             await client.exchange("subject", "resource://api")
         self.assertEqual(raised.exception.challenge_id, "challenge1")
         self.assertEqual(raised.exception.resource, "resource://api")
+        self.assertEqual(raised.exception.binding, "abc123")
+        self.assertEqual(raised.exception.expires_at, "2026-01-01T00:05:00Z")
+
+    async def test_exchange_sends_challenge_id(self) -> None:
+        seen: dict[str, str] = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen.update(
+                dict(pair.split("=", 1) for pair in request.content.decode().split("&"))
+            )
+            return httpx.Response(
+                200,
+                json={
+                    "access_token": "token",
+                    "token_type": "Bearer",
+                    "expires_in": 3600,
+                },
+                headers={"content-type": "application/json"},
+            )
+
+        client = OAuthClient(
+            "https://sts.example.com",
+            "zone1",
+            "app1",
+            http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        )
+
+        await client.exchange(
+            "subject",
+            "resource://api",
+            ExchangeOptions(challenge_id="challenge1"),
+        )
+        self.assertEqual(seen.get("challenge_id"), "challenge1")
 
     async def test_exchange_retries_once_after_unauthorized(self) -> None:
         requests = 0
