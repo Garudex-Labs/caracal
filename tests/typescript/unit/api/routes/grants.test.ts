@@ -125,6 +125,57 @@ describe('POST /v1/zones/:zoneId/grants', () => {
   })
 })
 
+describe('GET /v1/zones/:zoneId/provider-grants', () => {
+  it('lists stored upstream provider grants with filters against provider_grants', async () => {
+    const { app, db } = buildRouteApp(grantsRoutes)
+    db.query.mockResolvedValueOnce({
+      rows: [
+        {
+          id: 'pg-1',
+          zone_id: 'z1',
+          user_id: 'user:richard.hendricks@piedpiper.example',
+          resource_id: 'res-1',
+          provider_id: 'provider-1',
+          scopes: ['pipernet:read'],
+          status: 'active',
+          expires_at: null,
+          refreshed_at: null,
+          renewable: false,
+        },
+      ],
+    })
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/zones/z1/provider-grants?provider_id=provider-1&status=active',
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body).items[0]).toMatchObject({
+      id: 'pg-1',
+      user_id: 'user:richard.hendricks@piedpiper.example',
+      renewable: false,
+    })
+    const [sql, values] = db.query.mock.calls[0] as [string, unknown[]]
+    expect(sql).toContain('FROM provider_grants pg')
+    expect(sql).toContain('refresh_token_ct IS NOT NULL) AS renewable')
+    expect(sql).not.toContain('delegated_grants')
+    expect(values).toEqual(expect.arrayContaining(['z1', 'provider-1', 'active']))
+  })
+
+  it('rejects malformed filter queries', async () => {
+    const { app, db } = buildRouteApp(grantsRoutes)
+
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/provider-grants?status=' })
+
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'invalid_query' })
+    expect(db.query).not.toHaveBeenCalled()
+  })
+})
+
 describe('POST /v1/zones/:zoneId/provider-grants', () => {
   it('rejects invalid provider grant payloads and missing zones', async () => {
     const invalid = buildRouteApp(grantsRoutes)

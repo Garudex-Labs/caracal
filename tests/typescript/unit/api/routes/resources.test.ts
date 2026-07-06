@@ -47,6 +47,30 @@ describe('GET /v1/zones/:zoneId/resources', () => {
     })
     expect(db.query).not.toHaveBeenCalledWith(expect.stringContaining('r.identifier <> $2'), expect.anything())
   })
+
+  it('lists archived resources for audit when requested', async () => {
+    const { app, db } = buildRouteApp(resourcesRoutes)
+    db.query.mockResolvedValueOnce({
+      rows: [{ id: 'res-retired', identifier: 'resource://not-hotdog', archived_at: '2026-07-01T00:00:00.000Z' }],
+    })
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/zones/z1/resources?status=archived',
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body).items).toHaveLength(1)
+    expect(String(db.query.mock.calls[0][0])).toContain('r.archived_at IS NOT NULL')
+  })
+
+  it('rejects an unknown status filter', async () => {
+    const { app } = buildRouteApp(resourcesRoutes)
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/resources?status=all' })
+    expect(res.statusCode).toBe(400)
+  })
 })
 
 describe('GET /v1/zones/:zoneId/resources/:id', () => {

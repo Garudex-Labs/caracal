@@ -439,6 +439,7 @@ interface ProviderRow {
   connectivity_failed_at: string | null
   created_at: string
   updated_at: string
+  archived_at: string | null
 }
 
 interface ProviderKindRow {
@@ -465,7 +466,7 @@ function requireExistingOAuthSecret(
 
 const RETURNING = `id, zone_id, name, identifier, provider_kind AS kind,
                   config_json, secret_config_keys, connectivity_failed_at,
-                  created_by, created_via_operator, updated_by, updated_via_operator, created_at, updated_at`
+                  created_by, created_via_operator, updated_by, updated_via_operator, created_at, updated_at, archived_at`
 
 // Connectivity checks and issuer discovery reach outside the platform, so each probe
 // class is capped per zone per minute to keep the control plane from being used as a
@@ -652,12 +653,22 @@ async function runProviderCheck(
 }
 
 export const providersRoutes: FastifyPluginAsync = async (fastify) => {
+  const ListStatusQuery = z.object({
+    status: z.enum(['active', 'archived']).default('active'),
+  })
+
   fastify.get('/zones/:zoneId/providers', async (req, reply) => {
     const params = parseParams(ZoneParams, req, reply)
     if (!params) return
     const page = parseListPagination(req, reply)
     if (!page) return
-    const keyset = appendKeysetCondition({ conds: ['zone_id = $1', 'archived_at IS NULL'], values: [params.zoneId] }, page)
+    const search = ListStatusQuery.safeParse(req.query ?? {})
+    if (!search.success) return reply.code(400).send({ error: 'invalid_query' })
+    // Archived providers stay listable for audit: their credential routing is removed
+    // at archive time, so exposing the records grants nothing beyond visibility into
+    // past credential sources.
+    const lifecycle = search.data.status === 'archived' ? 'archived_at IS NOT NULL' : 'archived_at IS NULL'
+    const keyset = appendKeysetCondition({ conds: ['zone_id = $1', lifecycle], values: [params.zoneId] }, page)
     const { rows } = await fastify.db.query<ProviderRow>(
       `SELECT ${RETURNING}
        FROM providers WHERE ${keyset.conds.join(' AND ')}
