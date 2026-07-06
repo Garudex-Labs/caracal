@@ -223,10 +223,7 @@ function sendOAuthCallback(
 // and the Operator executor so both authorize and persist a grant identically. Returns a
 // typed error rather than throwing so each caller maps it to its own surface.
 export type CreateGrantError =
-  | 'application_not_found'
-  | 'resource_not_found'
-  | 'grant_scopes_exceed_resource'
-  | 'control_resource_not_grantable'
+  'application_not_found' | 'resource_not_found' | 'grant_scopes_exceed_resource' | 'control_resource_not_grantable'
 
 export async function createDelegatedGrant(
   db: { query: <T = unknown>(text: string, params?: unknown[]) => Promise<{ rows: T[] }> },

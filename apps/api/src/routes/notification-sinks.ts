@@ -87,10 +87,10 @@ export const notificationSinksRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get('/zones/:zoneId/notification-sinks/:id', async (req, reply) => {
     const params = parseParams(ZoneIdParams, req, reply)
     if (!params) return
-    const { rows } = await fastify.db.query(
-      `SELECT ${SINK_COLUMNS} FROM notification_sinks WHERE id = $1 AND zone_id = $2`,
-      [params.id, params.zoneId],
-    )
+    const { rows } = await fastify.db.query(`SELECT ${SINK_COLUMNS} FROM notification_sinks WHERE id = $1 AND zone_id = $2`, [
+      params.id,
+      params.zoneId,
+    ])
     if (!rows[0]) return reply.code(404).send({ error: 'sink_not_found' })
     return rows[0]
   })
@@ -104,10 +104,7 @@ export const notificationSinksRoutes: FastifyPluginAsync = async (fastify) => {
     if (!params) return
     const page = parseListPagination(req, reply)
     if (!page) return
-    const keyset = appendKeysetCondition(
-      { conds: ['sink_id = $1', 'zone_id = $2'], values: [params.id, params.zoneId] },
-      page,
-    )
+    const keyset = appendKeysetCondition({ conds: ['sink_id = $1', 'zone_id = $2'], values: [params.id, params.zoneId] }, page)
     const { rows } = await fastify.db.query(
       `SELECT id, sink_id, event_id, event_type, attempts, available_at, delivered_at,
               abandoned_at, response_status, last_error, created_at
@@ -202,10 +199,7 @@ export const notificationSinksRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.delete('/zones/:zoneId/notification-sinks/:id', async (req, reply) => {
     const params = parseParams(ZoneIdParams, req, reply)
     if (!params) return
-    const { rowCount } = await fastify.db.query(
-      `DELETE FROM notification_sinks WHERE id = $1 AND zone_id = $2`,
-      [params.id, params.zoneId],
-    )
+    const { rowCount } = await fastify.db.query(`DELETE FROM notification_sinks WHERE id = $1 AND zone_id = $2`, [params.id, params.zoneId])
     if (!rowCount) return reply.code(404).send({ error: 'sink_not_found' })
     return reply.code(204).send()
   })

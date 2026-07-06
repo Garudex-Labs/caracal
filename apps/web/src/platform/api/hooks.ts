@@ -91,8 +91,7 @@ const keys = {
   sessions: (zoneId: string | null) => ["console", "sessions", zoneId] as const,
   approvals: (zoneId: string | null) => ["console", "approvals", zoneId] as const,
   approvalCounts: (zoneId: string | null) => ["console", "approval-counts", zoneId] as const,
-  notificationSinks: (zoneId: string | null) =>
-    ["console", "notification-sinks", zoneId] as const,
+  notificationSinks: (zoneId: string | null) => ["console", "notification-sinks", zoneId] as const,
   sinkDeliveries: (zoneId: string | null, sinkId: string | null) =>
     ["console", "sink-deliveries", zoneId, sinkId] as const,
   audit: (zoneId: string | null) => ["console", "audit", zoneId] as const,
