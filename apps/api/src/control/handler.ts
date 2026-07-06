@@ -13,7 +13,7 @@ import type { ControlGate } from './gate.js'
 import { redisMinuteBucket, type RedisClient } from '../redis.js'
 import { AUTHORIZED_BY_HEADER, CREATED_VIA_HEADER } from '../attribution.js'
 
-const MAX_BODY_BYTES = 64 * 1024
+const MAX_BODY_BYTES = 256 * 1024
 
 // The header the in-process Operator stamps to act in a tenant zone's live state. The token is
 // minted in the Operator's own (system) zone; this names the zone the command targets. The
@@ -133,7 +133,7 @@ async function handle(req: FastifyRequest, reply: FastifyReply, deps: InvokeDeps
       reason: 'control disabled',
       requestId,
     })
-    return reply.code(503).send({ error: 'control disabled' })
+    return reply.code(503).send({ ok: false, error: errorBody('control_disabled', 'the control endpoint is disabled on this deployment') })
   }
 
   if (await ipRateExceeded(deps.redis, req.ip, deps.ipRateLimitPerMin)) {
@@ -145,7 +145,7 @@ async function handle(req: FastifyRequest, reply: FastifyReply, deps: InvokeDeps
       reason: 'ip rate limited',
       requestId,
     })
-    return reply.code(429).send({ error: 'rate limited' })
+    return reply.code(429).send({ ok: false, error: errorBody('rate_limited', 'request rate exceeded; retry with backoff') })
   }
 
   let claims
@@ -160,7 +160,7 @@ async function handle(req: FastifyRequest, reply: FastifyReply, deps: InvokeDeps
       reason: 'auth: ' + describe(err),
       requestId,
     })
-    return reply.code(401).send({ error: 'unauthorized' })
+    return reply.code(401).send({ ok: false, error: errorBody('unauthorized', 'the control token is missing, malformed, or failed verification') })
   }
 
   if (!(await deps.replay.mark(claims.jti, claims.exp))) {
@@ -174,7 +174,7 @@ async function handle(req: FastifyRequest, reply: FastifyReply, deps: InvokeDeps
       reason: 'replay',
       requestId,
     })
-    return reply.code(401).send({ error: 'token replay' })
+    return reply.code(401).send({ ok: false, error: errorBody('token_replay', 'this token was already used; mint a fresh token per invoke') })
   }
   if (!deps.rate.allow(claims.sub)) {
     await emitDeny({
@@ -187,7 +187,7 @@ async function handle(req: FastifyRequest, reply: FastifyReply, deps: InvokeDeps
       reason: 'rate limited',
       requestId,
     })
-    return reply.code(429).send({ error: 'rate limited' })
+    return reply.code(429).send({ ok: false, error: errorBody('rate_limited', 'request rate exceeded; retry with backoff') })
   }
 
   const body = req.body as InvokeBody | null
@@ -230,7 +230,6 @@ async function handle(req: FastifyRequest, reply: FastifyReply, deps: InvokeDeps
   const effectiveZone = zoneScope.zone
 
   const principal: Principal = {
-    kind: 'remote',
     subject: claims.sub,
     zoneId: effectiveZone,
     clientId: claims.clientId,
