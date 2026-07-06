@@ -216,7 +216,6 @@ export interface Policy {
   zone_id: string;
   name: string;
   description: string | null;
-  owner_type: string;
   created_by: string;
   created_via_operator: boolean;
   updated_by: string | null;
@@ -313,7 +312,6 @@ export interface ActivationStatus {
   version_id: string;
   active: boolean;
   active_version_id: string | null;
-  shadow_version_id: string | null;
   manifest_sha256: string | null;
   propagation_status: string;
   outbox: { state: string; [key: string]: unknown };

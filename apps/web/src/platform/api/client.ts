@@ -624,10 +624,13 @@ export const consoleApi = {
       }),
     templates: () => request<PolicyTemplate[]>(`/v1/policy-templates`),
     create: (zoneId: string, input: PolicyInput) =>
-      request<{ id: string }>(`/v1/zones/${encodeURIComponent(zoneId)}/policies`, {
-        method: "POST",
-        body: JSON.stringify(input),
-      }),
+      request<{ id: string; version_id: string }>(
+        `/v1/zones/${encodeURIComponent(zoneId)}/policies`,
+        {
+          method: "POST",
+          body: JSON.stringify(input),
+        },
+      ),
     addVersion: (zoneId: string, id: string, content: string) =>
       request<{ version_id: string; version: number }>(
         `/v1/zones/${encodeURIComponent(zoneId)}/policies/${encodeURIComponent(id)}/versions`,
@@ -672,15 +675,12 @@ export const consoleApi = {
       request<PolicySetVersion>(
         `/v1/zones/${encodeURIComponent(zoneId)}/policy-sets/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionId)}`,
       ),
-    activate: (zoneId: string, id: string, versionId: string, shadowVersionId?: string) =>
+    activate: (zoneId: string, id: string, versionId: string) =>
       request<{ activated: boolean; version_id: string; status_url: string }>(
         `/v1/zones/${encodeURIComponent(zoneId)}/policy-sets/${encodeURIComponent(id)}/activate`,
         {
           method: "POST",
-          body: JSON.stringify({
-            version_id: versionId,
-            ...(shadowVersionId ? { shadow_version_id: shadowVersionId } : {}),
-          }),
+          body: JSON.stringify({ version_id: versionId }),
         },
       ),
     activationStatus: (zoneId: string, id: string, versionId?: string) =>
