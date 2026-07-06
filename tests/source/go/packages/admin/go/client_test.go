@@ -266,8 +266,8 @@ func TestHonoursDateBasedRetryAfter(t *testing.T) {
 }
 
 func TestProvisioningSurfacePathsAndMethods(t *testing.T) {
-	steps := make([]any, 0, 14)
-	for range 14 {
+	steps := make([]any, 0, 16)
+	for range 16 {
 		steps = append(steps, ok(`{"items":[],"next_cursor":null}`))
 	}
 	transport := &scripted{steps: steps}
@@ -279,14 +279,16 @@ func TestProvisioningSurfacePathsAndMethods(t *testing.T) {
 	client.Applications.DCR(ctx, "z1", map[string]any{"name": "ephemeral"})
 	client.Resources.Create(ctx, "z1", map[string]any{"name": "PiperNet", "identifier": "resource://pipernet"})
 	client.Providers.Patch(ctx, "z1", "prov-1", map[string]any{"config_json": map[string]any{}})
-	client.Policies.Validate(ctx, "package caracal.authz\n", "")
-	client.Policies.AddVersion(ctx, "z1", "pol-1", "content", "")
+	client.Policies.Validate(ctx, "package caracal.authz\n")
+	client.Policies.AddVersion(ctx, "z1", "pol-1", "content")
 	client.PolicySets.List(ctx, "z1")
 	client.PolicySets.Create(ctx, "z1", "PiperNet set", "")
 	client.PolicySets.Create(ctx, "z1", "PiperNet set", "baseline")
-	client.PolicySets.AddVersion(ctx, "z1", "set-1", []map[string]any{{"policy_version_id": "ver-1"}}, "")
+	client.PolicySets.AddVersion(ctx, "z1", "set-1", []map[string]any{{"policy_version_id": "ver-1"}})
+	client.PolicySets.ListVersions(ctx, "z1", "set-1")
 	client.PolicySets.Simulate(ctx, "z1", "set-1", "setver-1", map[string]any{"subject": "richard"})
-	client.PolicySets.Activate(ctx, "z1", "set-1", "setver-1", "")
+	client.PolicySets.Activate(ctx, "z1", "set-1", "setver-1")
+	client.PolicySets.ActivationStatus(ctx, "z1", "set-1", "setver-1", "outbox-1")
 	client.PolicySets.Delete(ctx, "z1", "set-1")
 
 	expected := []struct {
@@ -304,8 +306,10 @@ func TestProvisioningSurfacePathsAndMethods(t *testing.T) {
 		{"http://api/v1/zones/z1/policy-sets", http.MethodPost},
 		{"http://api/v1/zones/z1/policy-sets", http.MethodPost},
 		{"http://api/v1/zones/z1/policy-sets/set-1/versions", http.MethodPost},
+		{"http://api/v1/zones/z1/policy-sets/set-1/versions", http.MethodGet},
 		{"http://api/v1/zones/z1/policy-sets/set-1/simulate", http.MethodPost},
 		{"http://api/v1/zones/z1/policy-sets/set-1/activate", http.MethodPost},
+		{"http://api/v1/zones/z1/policy-sets/set-1/activation-status?outbox_id=outbox-1&version_id=setver-1", http.MethodGet},
 		{"http://api/v1/zones/z1/policy-sets/set-1", http.MethodDelete},
 	}
 	if len(transport.requests) != len(expected) {
@@ -318,10 +322,10 @@ func TestProvisioningSurfacePathsAndMethods(t *testing.T) {
 		}
 	}
 	assertJSONEqual(t, transport.requests[5].body, map[string]any{"content": "package caracal.authz\n"})
-	assertJSONEqual(t, transport.requests[6].body, map[string]any{"content": "content", "schema_version": "2026-05-20"})
+	assertJSONEqual(t, transport.requests[6].body, map[string]any{"content": "content"})
 	assertJSONEqual(t, transport.requests[8].body, map[string]any{"name": "PiperNet set"})
 	assertJSONEqual(t, transport.requests[9].body, map[string]any{"name": "PiperNet set", "description": "baseline"})
 	assertJSONEqual(t, transport.requests[10].body, map[string]any{"manifest": []any{map[string]any{"policy_version_id": "ver-1"}}})
-	assertJSONEqual(t, transport.requests[11].body, map[string]any{"version_id": "setver-1", "input": map[string]any{"subject": "richard"}})
-	assertJSONEqual(t, transport.requests[12].body, map[string]any{"version_id": "setver-1"})
+	assertJSONEqual(t, transport.requests[12].body, map[string]any{"version_id": "setver-1", "input": map[string]any{"subject": "richard"}})
+	assertJSONEqual(t, transport.requests[13].body, map[string]any{"version_id": "setver-1"})
 }

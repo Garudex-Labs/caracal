@@ -370,7 +370,7 @@ func EnsureActivePolicySet(ctx context.Context, client *AdminClient, zoneID stri
 		if latest.ContentSHA256 == desiredSHA {
 			policyVersionID = latest.ID
 		} else {
-			added, err := client.Policies.AddVersion(ctx, zoneID, policy.ID, input.Content, "")
+			added, err := client.Policies.AddVersion(ctx, zoneID, policy.ID, input.Content)
 			if err != nil {
 				return err
 			}
@@ -397,11 +397,11 @@ func EnsureActivePolicySet(ctx context.Context, client *AdminClient, zoneID stri
 		policySet = created
 	}
 	if policyChanged || policySet.ActiveVersionID == nil || *policySet.ActiveVersionID == "" {
-		version, err := client.PolicySets.AddVersion(ctx, zoneID, policySet.ID, []map[string]any{{"policy_version_id": policyVersionID}}, "")
+		version, err := client.PolicySets.AddVersion(ctx, zoneID, policySet.ID, []map[string]any{{"policy_version_id": policyVersionID}})
 		if err != nil {
 			return err
 		}
-		if _, err := client.PolicySets.Activate(ctx, zoneID, policySet.ID, version.VersionID, ""); err != nil {
+		if _, err := client.PolicySets.Activate(ctx, zoneID, policySet.ID, version.VersionID); err != nil {
 			return err
 		}
 	}

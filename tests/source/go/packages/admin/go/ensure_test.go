@@ -454,7 +454,7 @@ func TestEnsureActivePolicySetAddsVersionOnDigestChange(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
-	assertJSONEqual(t, transport.requests[2].body, map[string]any{"content": policyContent, "schema_version": "2026-05-20"})
+	assertJSONEqual(t, transport.requests[2].body, map[string]any{"content": policyContent})
 	assertJSONEqual(t, transport.requests[4].body, map[string]any{"manifest": []any{map[string]any{"policy_version_id": "ver-added"}}})
 	assertJSONEqual(t, transport.requests[5].body, map[string]any{"version_id": "setver-1"})
 }

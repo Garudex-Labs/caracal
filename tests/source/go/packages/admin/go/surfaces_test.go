@@ -121,7 +121,7 @@ func TestServiceMethodsPropagateAPIErrors(t *testing.T) {
 			return err
 		},
 		func(c *admin.AdminClient, ctx context.Context) error {
-			_, err := c.Policies.AddVersion(ctx, "z1", "p", "content", "")
+			_, err := c.Policies.AddVersion(ctx, "z1", "p", "content")
 			return err
 		},
 		func(c *admin.AdminClient, ctx context.Context) error {
@@ -133,15 +133,19 @@ func TestServiceMethodsPropagateAPIErrors(t *testing.T) {
 			return err
 		},
 		func(c *admin.AdminClient, ctx context.Context) error {
-			_, err := c.PolicySets.AddVersion(ctx, "z1", "s", nil, "")
+			_, err := c.PolicySets.AddVersion(ctx, "z1", "s", nil)
 			return err
 		},
 		func(c *admin.AdminClient, ctx context.Context) error {
-			_, err := c.PolicySets.Activate(ctx, "z1", "s", "v", "")
+			_, err := c.PolicySets.Activate(ctx, "z1", "s", "v")
 			return err
 		},
 		func(c *admin.AdminClient, ctx context.Context) error {
-			_, err := c.Policies.Validate(ctx, "content", "")
+			_, err := c.PolicySets.ActivationStatus(ctx, "z1", "s", "v", "")
+			return err
+		},
+		func(c *admin.AdminClient, ctx context.Context) error {
+			_, err := c.Policies.Validate(ctx, "content")
 			return err
 		},
 		func(c *admin.AdminClient, ctx context.Context) error {
