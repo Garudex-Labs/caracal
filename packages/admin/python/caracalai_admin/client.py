@@ -337,23 +337,16 @@ class _Policies:
             f"/v1/zones/{zone_id}/policies", method="POST", body=body
         )
 
-    def validate(self, content: str, schema_version: str | None = None) -> Any:
-        body: dict[str, Any] = {"content": content}
-        if schema_version is not None:
-            body["schema_version"] = schema_version
-        return self._client._request("/v1/policies/validate", method="POST", body=body)
+    def validate(self, content: str) -> Any:
+        return self._client._request(
+            "/v1/policies/validate", method="POST", body={"content": content}
+        )
 
-    def add_version(
-        self,
-        zone_id: str,
-        policy_id: str,
-        content: str,
-        schema_version: str | None = None,
-    ) -> Any:
+    def add_version(self, zone_id: str, policy_id: str, content: str) -> Any:
         return self._client._request(
             f"/v1/zones/{zone_id}/policies/{policy_id}/versions",
             method="POST",
-            body={"content": content, "schema_version": schema_version or "2026-05-20"},
+            body={"content": content},
         )
 
     def delete(self, zone_id: str, policy_id: str) -> None:
@@ -388,16 +381,18 @@ class _PolicySets:
         zone_id: str,
         set_id: str,
         manifest: list[dict[str, Any]],
-        schema_version: str | None = None,
     ) -> Any:
-        body: dict[str, Any] = {"manifest": manifest}
-        if schema_version is not None:
-            body["schema_version"] = schema_version
         return self._client._request(
             f"/v1/zones/{zone_id}/policy-sets/{set_id}/versions",
             method="POST",
-            body=body,
+            body={"manifest": manifest},
         )
+
+    def list_versions(self, zone_id: str, set_id: str) -> Any:
+        response = self._client._request(
+            f"/v1/zones/{zone_id}/policy-sets/{set_id}/versions"
+        )
+        return _unwrap(response, "items", "policy set versions response missing items")
 
     def simulate(
         self,
@@ -415,20 +410,28 @@ class _PolicySets:
             body=body,
         )
 
-    def activate(
-        self,
-        zone_id: str,
-        set_id: str,
-        version_id: str,
-        shadow_version_id: str | None = None,
-    ) -> Any:
-        body: dict[str, Any] = {"version_id": version_id}
-        if shadow_version_id is not None:
-            body["shadow_version_id"] = shadow_version_id
+    def activate(self, zone_id: str, set_id: str, version_id: str) -> Any:
         return self._client._request(
             f"/v1/zones/{zone_id}/policy-sets/{set_id}/activate",
             method="POST",
-            body=body,
+            body={"version_id": version_id},
+        )
+
+    def activation_status(
+        self,
+        zone_id: str,
+        set_id: str,
+        version_id: str | None = None,
+        outbox_id: str | None = None,
+    ) -> Any:
+        query: dict[str, Any] = {}
+        if version_id is not None:
+            query["version_id"] = version_id
+        if outbox_id is not None:
+            query["outbox_id"] = outbox_id
+        return self._client._request(
+            f"/v1/zones/{zone_id}/policy-sets/{set_id}/activation-status",
+            query=query or None,
         )
 
     def delete(self, zone_id: str, set_id: str) -> None:

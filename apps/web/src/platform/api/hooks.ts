@@ -898,15 +898,8 @@ export function useAddPolicySetVersion(zoneId: string | null) {
 export function useActivatePolicySet(zoneId: string | null) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({
-      id,
-      versionId,
-      shadowVersionId,
-    }: {
-      id: string;
-      versionId: string;
-      shadowVersionId?: string;
-    }) => consoleApi.policySets.activate(zoneId as string, id, versionId, shadowVersionId),
+    mutationFn: ({ id, versionId }: { id: string; versionId: string }) =>
+      consoleApi.policySets.activate(zoneId as string, id, versionId),
     onSuccess: () => invalidatePolicySets(qc, zoneId),
   });
 }

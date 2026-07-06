@@ -194,7 +194,7 @@ class AdminClientTests(unittest.TestCase):
 
     def test_covers_provisioning_surface_with_paths_and_methods(self):
         requests: list[httpx.Request] = []
-        responses = [httpx.Response(200, json={"items": [], "next_cursor": None})] * 14
+        responses = [httpx.Response(200, json={"items": [], "next_cursor": None})] * 16
         client = make_client(responses, requests)
 
         client.applications.list("z1")
@@ -210,10 +210,14 @@ class AdminClientTests(unittest.TestCase):
         client.policy_sets.create("z1", "PiperNet set")
         client.policy_sets.create("z1", "PiperNet set", description="baseline")
         client.policy_sets.add_version("z1", "set-1", [{"policy_version_id": "ver-1"}])
+        client.policy_sets.list_versions("z1", "set-1")
         client.policy_sets.simulate(
             "z1", "set-1", "setver-1", input={"subject": "richard"}
         )
         client.policy_sets.activate("z1", "set-1", "setver-1")
+        client.policy_sets.activation_status(
+            "z1", "set-1", version_id="setver-1", outbox_id="outbox-1"
+        )
         client.policy_sets.delete("z1", "set-1")
 
         observed = [(str(req.url), req.method, req.content) for req in requests]
@@ -240,7 +244,7 @@ class AdminClientTests(unittest.TestCase):
         )
         self.assertEqual(
             json.loads(observed[6][2]),
-            {"content": "content", "schema_version": "2026-05-20"},
+            {"content": "content"},
         )
         self.assertEqual(observed[7][:2], ("http://api/v1/zones/z1/policy-sets", "GET"))
         self.assertEqual(
@@ -260,19 +264,30 @@ class AdminClientTests(unittest.TestCase):
         )
         self.assertEqual(
             observed[11][:2],
-            ("http://api/v1/zones/z1/policy-sets/set-1/simulate", "POST"),
-        )
-        self.assertEqual(
-            json.loads(observed[11][2]),
-            {"version_id": "setver-1", "input": {"subject": "richard"}},
+            ("http://api/v1/zones/z1/policy-sets/set-1/versions", "GET"),
         )
         self.assertEqual(
             observed[12][:2],
+            ("http://api/v1/zones/z1/policy-sets/set-1/simulate", "POST"),
+        )
+        self.assertEqual(
+            json.loads(observed[12][2]),
+            {"version_id": "setver-1", "input": {"subject": "richard"}},
+        )
+        self.assertEqual(
+            observed[13][:2],
             ("http://api/v1/zones/z1/policy-sets/set-1/activate", "POST"),
         )
-        self.assertEqual(json.loads(observed[12][2]), {"version_id": "setver-1"})
+        self.assertEqual(json.loads(observed[13][2]), {"version_id": "setver-1"})
         self.assertEqual(
-            observed[13][:2], ("http://api/v1/zones/z1/policy-sets/set-1", "DELETE")
+            observed[14][:2],
+            (
+                "http://api/v1/zones/z1/policy-sets/set-1/activation-status?version_id=setver-1&outbox_id=outbox-1",
+                "GET",
+            ),
+        )
+        self.assertEqual(
+            observed[15][:2], ("http://api/v1/zones/z1/policy-sets/set-1", "DELETE")
         )
 
 

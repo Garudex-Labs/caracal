@@ -309,13 +309,10 @@ const policyHandler = bySubcommand({
       name: mustStr(flags, 'name'),
       description: getStr(flags, 'description'),
       content: mustStr(flags, 'content'),
-      schema_version: getStr(flags, 'schema-version'),
-      owner_type: getStr(flags, 'owner-type'),
-      shadow: getBool(flags, 'shadow'),
-    } as never),
-  validate: ({ flags, ctx }) => ctx.admin.policies.validate(mustStr(flags, 'content'), getStr(flags, 'schema-version')),
+    }),
+  validate: ({ flags, ctx }) => ctx.admin.policies.validate(mustStr(flags, 'content')),
   version: ({ principal, flags, ctx }) =>
-    ctx.admin.policies.addVersion(requireZone(principal), mustStr(flags, 'id'), mustStr(flags, 'content'), getStr(flags, 'schema-version')),
+    ctx.admin.policies.addVersion(requireZone(principal), mustStr(flags, 'id'), mustStr(flags, 'content')),
   delete: ({ principal, flags, ctx }) => ctx.admin.policies.delete(requireZone(principal), mustStr(flags, 'id')),
 })
 
@@ -334,7 +331,7 @@ const policySetHandler = bySubcommand({
     )
   },
   activate: ({ principal, flags, ctx }) =>
-    ctx.admin.policySets.activate(requireZone(principal), mustStr(flags, 'id'), mustStr(flags, 'version'), getStr(flags, 'shadow')),
+    ctx.admin.policySets.activate(requireZone(principal), mustStr(flags, 'id'), mustStr(flags, 'version')),
   simulate: ({ principal, flags, ctx }) =>
     ctx.admin.policySets.simulate(requireZone(principal), mustStr(flags, 'id'), mustStr(flags, 'version'), getJsonObject(flags, 'input')),
   delete: ({ principal, flags, ctx }) => ctx.admin.policySets.delete(requireZone(principal), mustStr(flags, 'id')),
