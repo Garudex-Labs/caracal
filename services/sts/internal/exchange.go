@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -715,7 +716,7 @@ func (s *Server) buildUpstreamDirective(ctx context.Context, zoneID string, subj
 	}
 	if runtimeCredentialInjection {
 		kind := derefStr(provider.ProviderKind)
-		if !cfg.AllowRuntimeInjection || kind == "none" || kind == "caracal_mandate" {
+		if !cfg.AllowRuntimeInjection || kind == "none" || kind == "caracal_mandate" || kind == "http_basic" {
 			return directive, fmt.Errorf("provider runtime injection not allowed")
 		}
 	}
@@ -824,6 +825,10 @@ func applyProviderDirective(provider *ProviderConfig, directive *UpstreamDirecti
 			}
 			directive.AuthScheme = scheme
 		}
+	case "http_basic":
+		directive.AuthMode = UpstreamAuthProviderOAuth
+		directive.AuthHeader = "Authorization"
+		directive.AuthScheme = "Basic"
 	case "oauth2_authorization_code", "oauth2_client_credentials":
 		directive.AuthMode = UpstreamAuthProviderOAuth
 		directive.AuthScheme = "Bearer"
@@ -853,7 +858,11 @@ type oauthClientCredentialsConfig struct {
 	TokenEndpoint     string            `json:"token_endpoint"`
 	ClientID          string            `json:"client_id"`
 	ClientAuthMethod  string            `json:"client_auth_method"`
+	GrantType         string            `json:"grant_type"`
+	AssertionSubject  string            `json:"assertion_subject"`
+	AssertionAudience string            `json:"assertion_audience"`
 	KeyID             string            `json:"key_id"`
+	Certificate       string            `json:"certificate"`
 	AllowedTokenHosts []string          `json:"allowed_token_hosts"`
 	Scopes            []string          `json:"scopes"`
 	Audience          string            `json:"audience"`
@@ -883,6 +892,15 @@ func (s *Server) providerServiceToken(ctx context.Context, provider *ProviderCon
 			return "", fmt.Errorf("provider bearer token missing")
 		}
 		return secretConfig.BearerToken, nil
+	case "http_basic":
+		cfg, err := providerDirectiveConfig(provider.ConfigJSON)
+		if err != nil || strings.TrimSpace(cfg.Username) == "" {
+			return "", fmt.Errorf("provider basic username missing")
+		}
+		if secretConfig.Password == "" {
+			return "", fmt.Errorf("provider basic password missing")
+		}
+		return base64.StdEncoding.EncodeToString([]byte(strings.TrimSpace(cfg.Username) + ":" + secretConfig.Password)), nil
 	case "oauth2_client_credentials":
 		var cfg oauthClientCredentialsConfig
 		if err := json.Unmarshal(provider.ConfigJSON, &cfg); err != nil || cfg.TokenEndpoint == "" || cfg.ClientID == "" {
@@ -924,11 +942,24 @@ func (s *Server) fetchProviderServiceToken(ctx context.Context, provider *Provid
 	if s.providerCircuitOpen(ctx, provider.ID) {
 		return "", time.Time{}, fmt.Errorf("provider token circuit open")
 	}
-	form, err := oauthClientCredentialsForm(cfg)
-	if err != nil {
-		return "", time.Time{}, err
+	var form url.Values
+	if cfg.GrantType == "jwt_bearer" {
+		assertion, err := buildProviderGrantAssertion(cfg, secretConfig.PrivateKey, tokenEndpoint.String(), time.Now().UTC())
+		if err != nil {
+			return "", time.Time{}, err
+		}
+		form = url.Values{"grant_type": {"urn:ietf:params:oauth:grant-type:jwt-bearer"}, "assertion": {assertion}}
+		if err := applyOAuthTokenParams(form, cfg.TokenParams); err != nil {
+			return "", time.Time{}, err
+		}
+	} else {
+		var err error
+		form, err = oauthClientCredentialsForm(cfg)
+		if err != nil {
+			return "", time.Time{}, err
+		}
 	}
-	body, err := s.refreshProviderToken(ctx, provider.ID, tokenEndpoint, form, cfg.ClientID, secretConfig.ClientSecret, cfg.ClientAuthMethod, cfg.KeyID, secretConfig.PrivateKey)
+	body, err := s.refreshProviderToken(ctx, provider.ID, tokenEndpoint, form, cfg.ClientID, secretConfig.ClientSecret, cfg.ClientAuthMethod, cfg.KeyID, secretConfig.PrivateKey, cfg.Certificate)
 	if err != nil {
 		return "", time.Time{}, err
 	}
@@ -1004,6 +1035,7 @@ type providerForwardingConfig struct {
 	HeaderName             string   `json:"header_name"`
 	QueryParamName         string   `json:"query_param_name"`
 	AuthScheme             string   `json:"auth_scheme"`
+	Username               string   `json:"username"`
 	AllowedTokenHosts      []string `json:"allowed_token_hosts"`
 	ForwardCaracalIdentity bool     `json:"forward_caracal_identity"`
 	AllowRuntimeInjection  bool     `json:"allow_runtime_injection"`

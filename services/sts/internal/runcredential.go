@@ -144,7 +144,7 @@ func (s *Server) handleRunCredential(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	kind := derefStr(provider.ProviderKind)
-	if !providerCfg.AllowRuntimeInjection || kind == "none" || kind == "caracal_mandate" {
+	if !providerCfg.AllowRuntimeInjection || kind == "none" || kind == "caracal_mandate" || kind == "http_basic" {
 		if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "credential_injection_denied", &OPAResult{},
 			mergeAuditMeta(resourceMeta, map[string]any{"reason": "runtime_injection_not_allowed"})); auditErr != nil {
 			writeError(w, http.StatusInternalServerError, auditErr)
