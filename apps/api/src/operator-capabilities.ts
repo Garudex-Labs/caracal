@@ -120,7 +120,7 @@ export const CAPABILITIES: Record<string, Capability> = {
     id: 'deleteApplication',
     title: 'Delete an application',
     summary:
-      'Archive an application identity, removing it from active use in the zone and revoking its Gateway bindings; the record is retained for audit.',
+      'Archive an application identity, removing it from active use in the zone; resources whose caller allowlist names it block the archive, and the record is retained for audit.',
     domain: 'application',
     mutating: true,
     args: z.object({ application_id: IdRef }).strict(),
@@ -208,9 +208,7 @@ export const CAPABILITIES: Record<string, Capability> = {
       'name (string), scopes (array of scope strings), upstream_url (string: the upstream API base URL the Gateway forwards to), credential_provider_id (string: the id of an existing provider whose credential the Gateway attaches)',
     preview: {
       kind: 'requireLiveThenCreate',
-      requires: [
-        { target: 'providers', idArg: 'credential_provider_id', blocked: (id) => `Provider ${id} was not found in this zone.` },
-      ],
+      requires: [{ target: 'providers', idArg: 'credential_provider_id', blocked: (id) => `Provider ${id} was not found in this zone.` }],
       create: (args) =>
         `Would define resource “${String(args.name)}” exposing ${(Array.isArray(args.scopes) ? (args.scopes as string[]) : []).join(', ')}, routed to ${String(args.upstream_url)}.`,
     },
