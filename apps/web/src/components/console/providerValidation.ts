@@ -140,6 +140,10 @@ export function validateFieldFormat(key: string, raw: string): string | undefine
     case "authorization_params":
     case "token_params":
       return parseParams(value, reservedParamsFor(key)).error;
+    case "certificate":
+      return value.startsWith("-----BEGIN CERTIFICATE-----")
+        ? undefined
+        : "Must be a PEM-encoded certificate.";
     default:
       return undefined;
   }
@@ -158,9 +162,13 @@ export function crossFieldIssues(
 ): CrossFieldIssue[] {
   const issues: CrossFieldIssue[] = [];
   if (kind === "oauth2_authorization_code" || kind === "oauth2_client_credentials") {
-    const method = (values.client_auth_method || "client_secret_basic").trim();
+    const grantType = (values.grant_type || "client_credentials").trim();
+    const method = (
+      values.client_auth_method || (grantType === "jwt_bearer" ? "none" : "client_secret_basic")
+    ).trim();
     const hasSecret = (values.client_secret ?? "").trim() !== "";
     const hasPrivateKey = (values.private_key ?? "").trim() !== "";
+    const needsPrivateKey = method === "private_key_jwt" || grantType === "jwt_bearer";
 
     if (kind === "oauth2_authorization_code" && method === "private_key_jwt") {
       issues.push({
@@ -168,26 +176,37 @@ export function crossFieldIssues(
         message: "private_key_jwt is not supported for authorization code providers.",
       });
     }
-    if (method === "private_key_jwt") {
-      if (hasSecret) {
-        issues.push({
-          key: "client_secret",
-          message: "Remove the client secret when using private_key_jwt.",
-        });
-      }
-    } else {
+    if (grantType === "jwt_bearer" && method === "private_key_jwt") {
+      issues.push({
+        key: "client_auth_method",
+        message: "private_key_jwt cannot be combined with the jwt_bearer grant.",
+      });
+    }
+    if (method === "private_key_jwt" && hasSecret) {
+      issues.push({
+        key: "client_secret",
+        message: "Remove the client secret when using private_key_jwt.",
+      });
+    }
+    if (!needsPrivateKey) {
       if (hasPrivateKey) {
         issues.push({
           key: "private_key",
-          message: "A private key requires the private_key_jwt method.",
+          message: "A private key requires private_key_jwt or the jwt_bearer grant.",
         });
       }
       if ((values.key_id ?? "").trim() !== "") {
         issues.push({
           key: "key_id",
-          message: "Key ID requires the private_key_jwt method.",
+          message: "Key ID requires private_key_jwt or the jwt_bearer grant.",
         });
       }
+    }
+    if (method !== "private_key_jwt" && (values.certificate ?? "").trim() !== "") {
+      issues.push({
+        key: "certificate",
+        message: "A client certificate requires the private_key_jwt method.",
+      });
     }
   }
   if (kind === "api_key") {

@@ -35,7 +35,6 @@ type DelegationConstraints = z.infer<typeof ConstraintBody>
 interface ResourceAuthority {
   id: string
   identifier: string
-  allowed_application_ids: string[]
   scopes: string[]
 }
 
@@ -132,12 +131,6 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
       if (resources.error) {
         await client.query('ROLLBACK')
         return reply.code(resources.status).send({ error: resources.error })
-      }
-      for (const resource of resources.items) {
-        if (resource.allowed_application_ids.length > 0 && !resource.allowed_application_ids.includes(body.issuer_application_id)) {
-          await client.query('ROLLBACK')
-          return reply.code(403).send({ error: 'issuer_application_not_allowed' })
-        }
       }
       // Scopes are validated against the union of the constrained resources:
       // the STS narrows to each resource's own scopes at mandate minting.
@@ -633,7 +626,7 @@ async function activeAgentEndpoints(
 
 async function getResource(db: Queryable, zoneId: string, resourceId: string): Promise<ResourceAuthority | null> {
   const { rows } = await db.query(
-    `SELECT r.id, r.identifier, r.allowed_application_ids, r.scopes
+    `SELECT r.id, r.identifier, r.scopes
      FROM resources r
      WHERE r.id = $1 AND r.zone_id = $2 AND r.archived_at IS NULL`,
     [resourceId, zoneId],
@@ -656,7 +649,7 @@ async function resolveResourceAuthority(
   if (identifiers.length > 0) {
     const uniqueIdentifiers = [...new Set(identifiers)]
     const { rows } = await db.query<ResourceAuthority>(
-      `SELECT r.id, r.identifier, r.allowed_application_ids, r.scopes
+      `SELECT r.id, r.identifier, r.scopes
        FROM resources r
        WHERE r.zone_id = $1
          AND r.identifier = ANY($2::text[])
