@@ -110,11 +110,28 @@ describe('POST /v1/zones/:zoneId/grants', () => {
     expect(JSON.parse(res.body)).toMatchObject({ error: 'grant_scopes_exceed_resource' })
   })
 
+  it('refuses a delegated grant on the control resource', async () => {
+    const { app, db } = buildRouteApp(grantsRoutes)
+    db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] }).mockResolvedValueOnce({
+      rows: [{ application_exists: true, resource_scopes: ['control:agent:read'], resource_identifier: 'caracal-control' }],
+    })
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/grants',
+      payload: { ...grantBody, scopes: ['control:agent:read'] },
+    })
+
+    expect(res.statusCode).toBe(403)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'control_resource_not_grantable' })
+  })
+
   it('creates a grant with same-zone references and bounded scopes', async () => {
     const { app, db } = buildRouteApp(grantsRoutes)
     db.query
       .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
-      .mockResolvedValueOnce({ rows: [{ application_exists: true, resource_scopes: ['read', 'write'] }] })
+      .mockResolvedValueOnce({ rows: [{ application_exists: true, resource_scopes: ['read', 'write'], resource_identifier: 'urn:res-1' }] })
       .mockResolvedValueOnce({ rows: [{ id: 'grant-1', zone_id: 'z1', scopes: ['read'] }] })
 
     await app.ready()

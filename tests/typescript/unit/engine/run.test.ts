@@ -139,9 +139,7 @@ describe('buildRunEnv', () => {
 
   it('waits for an approval and retries the mint with the challenge id', async () => {
     fetchRunCredentialMock
-      .mockRejectedValueOnce(
-        new InteractionRequiredError('approval required', 'chal-1', { binding: 'aa', expiresAt: '2026-01-01T00:00:00Z' }),
-      )
+      .mockRejectedValueOnce(new InteractionRequiredError('approval required', 'chal-1', { binding: 'aa' }))
       .mockResolvedValueOnce({ env: 'API_KEY', credential: 'after-approval' })
     pollStepUpStateMock.mockResolvedValue('approved')
     const lines: string[] = []
@@ -153,6 +151,21 @@ describe('buildRunEnv', () => {
       challengeId: 'chal-1',
       launchId: 'launch-1',
     })
+  })
+
+  it('bounds the wait window by the hold expiry', async () => {
+    fetchRunCredentialMock
+      .mockRejectedValueOnce(
+        new InteractionRequiredError('approval required', 'chal-1', {
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        }),
+      )
+      .mockResolvedValueOnce({ env: 'API_KEY', credential: 'after-approval' })
+    pollStepUpStateMock.mockResolvedValue('approved')
+    await buildRunEnv(profile([binding({ resource: 'r' })]))
+    const timeoutMs = pollStepUpStateMock.mock.calls[0][2].timeoutMs as number
+    expect(timeoutMs).toBeGreaterThan(50_000)
+    expect(timeoutMs).toBeLessThanOrEqual(60_000)
   })
 
   it('fails the credential when the approval is rejected', async () => {
