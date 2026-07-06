@@ -399,17 +399,41 @@ type PolicySetVersion struct {
 // ZonesService covers /v1/zones.
 type ZonesService struct{ client *AdminClient }
 
+const maxListPages = 50
+
+// listAll drains a keyset-paginated collection by following next_cursor until
+// exhausted, so a list is the complete collection rather than a silently
+// truncated first page. The page cap bounds the walk against a server bug that
+// never terminates the cursor chain.
+func listAll[T any](ctx context.Context, client *AdminClient, path, label string) ([]T, error) {
+	items := []T{}
+	cursor := ""
+	for page := 0; page < maxListPages; page++ {
+		requestPath := path
+		if cursor != "" {
+			requestPath += "?cursor=" + url.QueryEscape(cursor)
+		}
+		var out struct {
+			Items      []T     `json:"items"`
+			NextCursor *string `json:"next_cursor"`
+		}
+		if err := client.do(ctx, http.MethodGet, requestPath, nil, &out, false); err != nil {
+			return nil, err
+		}
+		if out.Items == nil {
+			return nil, errors.New(label + " response missing items")
+		}
+		items = append(items, out.Items...)
+		if out.NextCursor == nil || *out.NextCursor == "" {
+			return items, nil
+		}
+		cursor = *out.NextCursor
+	}
+	return nil, errors.New(label + " pagination did not terminate")
+}
+
 func (s *ZonesService) List(ctx context.Context) ([]Zone, error) {
-	var out struct {
-		Items []Zone `json:"items"`
-	}
-	if err := s.client.do(ctx, http.MethodGet, "/v1/zones", nil, &out, false); err != nil {
-		return nil, err
-	}
-	if out.Items == nil {
-		return nil, errors.New("zones response missing items")
-	}
-	return out.Items, nil
+	return listAll[Zone](ctx, s.client, "/v1/zones", "zones")
 }
 
 func (s *ZonesService) Get(ctx context.Context, zoneID string) (*Zone, error) {
@@ -450,16 +474,7 @@ func (s *ZonesService) Delete(ctx context.Context, zoneID string) error {
 type ApplicationsService struct{ client *AdminClient }
 
 func (s *ApplicationsService) List(ctx context.Context, zoneID string) ([]Application, error) {
-	var out struct {
-		Items []Application `json:"items"`
-	}
-	if err := s.client.do(ctx, http.MethodGet, "/v1/zones/"+zoneID+"/applications", nil, &out, false); err != nil {
-		return nil, err
-	}
-	if out.Items == nil {
-		return nil, errors.New("applications response missing items")
-	}
-	return out.Items, nil
+	return listAll[Application](ctx, s.client, "/v1/zones/"+zoneID+"/applications", "applications")
 }
 
 func (s *ApplicationsService) Get(ctx context.Context, zoneID, applicationID string) (*Application, error) {
@@ -513,16 +528,7 @@ func (s *ApplicationsService) DCR(ctx context.Context, zoneID string, body map[s
 type ResourcesService struct{ client *AdminClient }
 
 func (s *ResourcesService) List(ctx context.Context, zoneID string) ([]Resource, error) {
-	var out struct {
-		Items []Resource `json:"items"`
-	}
-	if err := s.client.do(ctx, http.MethodGet, "/v1/zones/"+zoneID+"/resources", nil, &out, false); err != nil {
-		return nil, err
-	}
-	if out.Items == nil {
-		return nil, errors.New("resources response missing items")
-	}
-	return out.Items, nil
+	return listAll[Resource](ctx, s.client, "/v1/zones/"+zoneID+"/resources", "resources")
 }
 
 func (s *ResourcesService) Get(ctx context.Context, zoneID, resourceID string) (*Resource, error) {
@@ -557,16 +563,7 @@ func (s *ResourcesService) Delete(ctx context.Context, zoneID, resourceID string
 type ProvidersService struct{ client *AdminClient }
 
 func (s *ProvidersService) List(ctx context.Context, zoneID string) ([]Provider, error) {
-	var out struct {
-		Items []Provider `json:"items"`
-	}
-	if err := s.client.do(ctx, http.MethodGet, "/v1/zones/"+zoneID+"/providers", nil, &out, false); err != nil {
-		return nil, err
-	}
-	if out.Items == nil {
-		return nil, errors.New("providers response missing items")
-	}
-	return out.Items, nil
+	return listAll[Provider](ctx, s.client, "/v1/zones/"+zoneID+"/providers", "providers")
 }
 
 func (s *ProvidersService) Get(ctx context.Context, zoneID, providerID string) (*Provider, error) {
@@ -601,16 +598,7 @@ func (s *ProvidersService) Delete(ctx context.Context, zoneID, providerID string
 type PoliciesService struct{ client *AdminClient }
 
 func (s *PoliciesService) List(ctx context.Context, zoneID string) ([]Policy, error) {
-	var out struct {
-		Items []Policy `json:"items"`
-	}
-	if err := s.client.do(ctx, http.MethodGet, "/v1/zones/"+zoneID+"/policies", nil, &out, false); err != nil {
-		return nil, err
-	}
-	if out.Items == nil {
-		return nil, errors.New("policies response missing items")
-	}
-	return out.Items, nil
+	return listAll[Policy](ctx, s.client, "/v1/zones/"+zoneID+"/policies", "policies")
 }
 
 func (s *PoliciesService) Get(ctx context.Context, zoneID, policyID string) (*PolicyDetail, error) {
@@ -655,16 +643,7 @@ func (s *PoliciesService) Delete(ctx context.Context, zoneID, policyID string) e
 type PolicySetsService struct{ client *AdminClient }
 
 func (s *PolicySetsService) List(ctx context.Context, zoneID string) ([]PolicySet, error) {
-	var out struct {
-		Items []PolicySet `json:"items"`
-	}
-	if err := s.client.do(ctx, http.MethodGet, "/v1/zones/"+zoneID+"/policy-sets", nil, &out, false); err != nil {
-		return nil, err
-	}
-	if out.Items == nil {
-		return nil, errors.New("policy sets response missing items")
-	}
-	return out.Items, nil
+	return listAll[PolicySet](ctx, s.client, "/v1/zones/"+zoneID+"/policy-sets", "policy sets")
 }
 
 func (s *PolicySetsService) Get(ctx context.Context, zoneID, setID string) (*PolicySet, error) {
@@ -700,16 +679,7 @@ func (s *PolicySetsService) AddVersion(ctx context.Context, zoneID, setID string
 
 // ListVersions returns the set's immutable versions, newest first.
 func (s *PolicySetsService) ListVersions(ctx context.Context, zoneID, setID string) ([]PolicySetVersion, error) {
-	var out struct {
-		Items []PolicySetVersion `json:"items"`
-	}
-	if err := s.client.do(ctx, http.MethodGet, "/v1/zones/"+zoneID+"/policy-sets/"+setID+"/versions", nil, &out, false); err != nil {
-		return nil, err
-	}
-	if out.Items == nil {
-		return nil, errors.New("policy set versions response missing items")
-	}
-	return out.Items, nil
+	return listAll[PolicySetVersion](ctx, s.client, "/v1/zones/"+zoneID+"/policy-sets/"+setID+"/versions", "policy set versions")
 }
 
 // Simulate evaluates a set version against an input without activating it. A

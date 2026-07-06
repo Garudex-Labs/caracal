@@ -13,6 +13,8 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/rs/zerolog"
 )
 
 func runManifestRequest(t *testing.T, srv *Server, form url.Values) *httptest.ResponseRecorder {
@@ -33,7 +35,23 @@ func runWorkloadServer(t *testing.T, db *stubDB) (*Server, string) {
 	if db.workload != nil && db.workload.SecretHash == "" {
 		db.workload.SecretHash = hash
 	}
-	return &Server{db: db, redis: newMemSTSRedis()}, "ws_good"
+	srv := &Server{
+		db:          db,
+		redis:       newMemSTSRedis(),
+		auditBuffer: &AuditBuffer{ch: make(chan AuditEvent, 100)},
+		log:         zerolog.Nop(),
+	}
+	return srv, "ws_good"
+}
+
+func drainRunAudit(t *testing.T, srv *Server) *AuditEvent {
+	t.Helper()
+	select {
+	case event := <-srv.auditBuffer.ch:
+		return &event
+	default:
+		return nil
+	}
 }
 
 func TestRunManifestRequiresCredentials(t *testing.T) {
@@ -55,7 +73,12 @@ func TestRunManifestOpaqueAuthFailures(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			srv := &Server{db: tc.db, redis: newMemSTSRedis()}
+			srv := &Server{
+				db:          tc.db,
+				redis:       newMemSTSRedis(),
+				auditBuffer: &AuditBuffer{ch: make(chan AuditEvent, 100)},
+				log:         zerolog.Nop(),
+			}
 			w := runManifestRequest(t, srv, url.Values{"workload_id": {"wl-1"}, "secret": {"ws_good"}})
 			if w.Code != http.StatusUnauthorized {
 				t.Fatalf("status = %d, want 401", w.Code)
@@ -63,16 +86,36 @@ func TestRunManifestOpaqueAuthFailures(t *testing.T) {
 			if !strings.Contains(w.Body.String(), "invalid workload credentials") {
 				t.Fatalf("want opaque credential error, got %s", w.Body.String())
 			}
+			if event := drainRunAudit(t, srv); event != nil {
+				t.Fatalf("unknown workloads cannot be zone attributed, got audit event %+v", event)
+			}
 		})
 	}
 }
 
 func TestRunManifestRejectsWrongSecret(t *testing.T) {
-	db := &stubDB{workload: &Workload{ID: "wl-1", ZoneID: "z1"}}
+	db := &stubDB{workload: &Workload{ID: "wl-1", ZoneID: "z1", Name: "Son of Anton"}}
 	srv, _ := runWorkloadServer(t, db)
 	w := runManifestRequest(t, srv, url.Values{"workload_id": {"wl-1"}, "secret": {"ws_wrong"}})
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want 401", w.Code)
+	}
+	event := drainRunAudit(t, srv)
+	if event == nil {
+		t.Fatal("want a workload_auth_failed audit event")
+	}
+	if event.EventType != "run_launch" || event.Decision != "deny" || event.EvaluationStatus != "workload_auth_failed" {
+		t.Fatalf("audit event mismatch: %+v", event)
+	}
+	if event.ZoneID != "z1" {
+		t.Fatalf("zone = %s, want z1", event.ZoneID)
+	}
+	var meta map[string]any
+	if err := json.Unmarshal(event.MetadataJSON, &meta); err != nil {
+		t.Fatalf("decode meta: %v", err)
+	}
+	if meta["workload_id"] != "wl-1" || meta["workload_name"] != "Son of Anton" {
+		t.Fatalf("meta mismatch: %+v", meta)
 	}
 }
 
@@ -120,6 +163,73 @@ func TestRunManifestSuccess(t *testing.T) {
 	}
 	if !resp.Bindings[1].Optional || resp.Bindings[1].OnFailure != "warn" {
 		t.Fatalf("optional binding mismatch: %+v", resp.Bindings[1])
+	}
+	event := drainRunAudit(t, srv)
+	if event == nil {
+		t.Fatal("want a run_launch audit event")
+	}
+	if event.EventType != "run_launch" || event.Decision != "allow" || event.EvaluationStatus != "complete" || event.ZoneID != "z1" {
+		t.Fatalf("audit event mismatch: %+v", event)
+	}
+	var meta map[string]any
+	if err := json.Unmarshal(event.MetadataJSON, &meta); err != nil {
+		t.Fatalf("decode meta: %v", err)
+	}
+	if meta["binding_count"] != float64(2) || meta["workload_name"] != "Son of Anton" {
+		t.Fatalf("meta mismatch: %+v", meta)
+	}
+}
+
+func TestRunManifestLaunchCorrelation(t *testing.T) {
+	db := &stubDB{
+		workload: &Workload{
+			ID:       "wl-1",
+			ZoneID:   "z1",
+			Name:     "Son of Anton",
+			Bindings: []byte(`[{"env": "PIPERNET_TOKEN", "resource": "resource://pipernet"}]`),
+		},
+	}
+	srv, secret := runWorkloadServer(t, db)
+	form := url.Values{"workload_id": {"wl-1"}, "secret": {secret}}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/run/manifest", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("X-Caracal-Launch-Id", "0190a1b2-0000-7000-8000-000000000001")
+	w := httptest.NewRecorder()
+	srv.handleRunManifest(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", w.Code, w.Body.String())
+	}
+	event := drainRunAudit(t, srv)
+	if event == nil {
+		t.Fatal("want a run_launch audit event")
+	}
+	var meta map[string]any
+	if err := json.Unmarshal(event.MetadataJSON, &meta); err != nil {
+		t.Fatalf("decode meta: %v", err)
+	}
+	if meta["launch_id"] != "0190a1b2-0000-7000-8000-000000000001" {
+		t.Fatalf("launch id missing from meta: %+v", meta)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/v1/run/manifest", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("X-Caracal-Launch-Id", "not-a-uuid")
+	w = httptest.NewRecorder()
+	srv.handleRunManifest(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", w.Code, w.Body.String())
+	}
+	event = drainRunAudit(t, srv)
+	if event == nil {
+		t.Fatal("want a run_launch audit event")
+	}
+	meta = nil
+	if err := json.Unmarshal(event.MetadataJSON, &meta); err != nil {
+		t.Fatalf("decode meta: %v", err)
+	}
+	if _, present := meta["launch_id"]; present {
+		t.Fatalf("malformed launch id must be dropped, got %+v", meta)
 	}
 }
 

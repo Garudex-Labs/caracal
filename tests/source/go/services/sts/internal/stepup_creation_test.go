@@ -7,6 +7,7 @@ package internal
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -36,7 +37,7 @@ func TestEnsureApprovalPersistsResolvedHold(t *testing.T) {
 	server := &Server{db: db}
 	approval := resolvedApproval{Tier: "money", Approver: ApproverClassSubject, TTL: 10 * time.Minute, Privacy: PrivacyAnonymous}
 	before := time.Now()
-	hold, created, err := server.ensureApproval(context.Background(), "zone-1", "session-1", "principal-1", "app-1", approval, []string{" Resource://B ", "resource://a"}, []string{"nucleus:pay"})
+	hold, created, err := server.ensureApproval(context.Background(), "zone-1", "session-1", "agent-session-1", "edge-1", "principal-1", "app-1", approval, []string{" Resource://B ", "resource://a"}, []string{"nucleus:pay"})
 	if err != nil {
 		t.Fatalf("ensure approval: %v", err)
 	}
@@ -56,12 +57,19 @@ func TestEnsureApprovalPersistsResolvedHold(t *testing.T) {
 	if hold.ExpiresAt.Before(before.Add(10*time.Minute-time.Second)) || hold.ExpiresAt.After(time.Now().Add(10*time.Minute+time.Second)) {
 		t.Fatalf("unexpected hold expiry: %s", hold.ExpiresAt)
 	}
+	var meta map[string]any
+	if err := json.Unmarshal(hold.MetadataJSON, &meta); err != nil {
+		t.Fatalf("hold metadata: %v", err)
+	}
+	if meta["agent_session_id"] != "agent-session-1" || meta["delegation_edge_id"] != "edge-1" {
+		t.Fatalf("agent lineage not carried in hold metadata: %v", meta)
+	}
 }
 
 func TestEnsureApprovalConvergesOnLiveHold(t *testing.T) {
 	live := &StepUpChallengePG{ID: "existing", ZoneID: "zone-1", ChallengeType: humanApprovalChallengeType}
 	db := &approvalStoreDB{stored: live}
-	hold, created, err := (&Server{db: db}).ensureApproval(context.Background(), "zone-1", "session-1", "principal-1", "app-1", resolvedApproval{Tier: "money", Approver: ApproverClassOperator, TTL: time.Minute, Privacy: PrivacyIdentified}, []string{"resource://a"}, nil)
+	hold, created, err := (&Server{db: db}).ensureApproval(context.Background(), "zone-1", "session-1", "", "", "principal-1", "app-1", resolvedApproval{Tier: "money", Approver: ApproverClassOperator, TTL: time.Minute, Privacy: PrivacyIdentified}, []string{"resource://a"}, nil)
 	if err != nil {
 		t.Fatalf("ensure approval: %v", err)
 	}
@@ -72,7 +80,7 @@ func TestEnsureApprovalConvergesOnLiveHold(t *testing.T) {
 
 func TestEnsureApprovalReturnsStoreErrors(t *testing.T) {
 	want := errors.New("database unavailable")
-	_, _, err := (&Server{db: &approvalStoreDB{err: want}}).ensureApproval(context.Background(), "zone-1", "session-1", "principal-1", "app-1", resolvedApproval{Tier: "money", Approver: ApproverClassOperator, TTL: time.Minute, Privacy: PrivacyIdentified}, nil, nil)
+	_, _, err := (&Server{db: &approvalStoreDB{err: want}}).ensureApproval(context.Background(), "zone-1", "session-1", "", "", "principal-1", "app-1", resolvedApproval{Tier: "money", Approver: ApproverClassOperator, TTL: time.Minute, Privacy: PrivacyIdentified}, nil, nil)
 	if !errors.Is(err, want) {
 		t.Fatalf("want store error, got %v", err)
 	}
