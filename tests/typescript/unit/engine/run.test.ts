@@ -36,7 +36,7 @@ function binding(overrides: Partial<RunBinding> = {}): RunBinding {
 }
 
 function profile(bindings: RunBinding[]): RunProfile {
-  return { identity, zoneId: 'z1', bindings }
+  return { identity, zoneId: 'z1', bindings, launchId: 'launch-1' }
 }
 
 afterEach(() => {
@@ -54,8 +54,8 @@ describe('resolveRunConfig', () => {
     ]
     fetchRunManifestMock.mockResolvedValue({ zoneId: 'z1', workloadId: 'wl1', bindings })
     const cfg = await resolveRunConfig(identity)
-    expect(fetchRunManifestMock).toHaveBeenCalledWith('http://localhost:8080', 'wl1', 'ws_secret')
-    expect(cfg).toEqual({ identity, zoneId: 'z1', bindings })
+    expect(fetchRunManifestMock).toHaveBeenCalledWith('http://localhost:8080', 'wl1', 'ws_secret', { launchId: cfg.launchId })
+    expect(cfg).toEqual({ identity, zoneId: 'z1', bindings, launchId: expect.any(String) })
   })
 
   it('rejects manifests with blocked or duplicate env names', async () => {
@@ -79,13 +79,37 @@ describe('buildRunEnv', () => {
     fetchRunCredentialMock.mockResolvedValue({ env: 'API_KEY', credential: 'tok-123' })
     const env = await buildRunEnv(profile([binding()]))
     expect(env.API_KEY).toBe('tok-123')
-    expect(fetchRunCredentialMock).toHaveBeenCalledWith('http://localhost:8080', 'wl1', 'ws_secret', 'API_KEY')
+    expect(env.API_KEY_EXPIRES_AT).toBeUndefined()
+    expect(fetchRunCredentialMock).toHaveBeenCalledWith('http://localhost:8080', 'wl1', 'ws_secret', 'API_KEY', {
+      launchId: 'launch-1',
+    })
+  })
+
+  it('injects the expiry companion variable when the mint reports one', async () => {
+    fetchRunCredentialMock.mockResolvedValue({ env: 'API_KEY', credential: 'tok-123', expiresAt: 1750000000 })
+    const env = await buildRunEnv(profile([binding()]))
+    expect(env.API_KEY).toBe('tok-123')
+    expect(env.API_KEY_EXPIRES_AT).toBe('1750000000')
+  })
+
+  it('lets an explicit binding claim the derived expiry name', async () => {
+    fetchRunCredentialMock.mockImplementation(async (_url, _id, _secret, env: string) => ({
+      env,
+      credential: `tok-${env}`,
+      expiresAt: 1750000000,
+    }))
+    const env = await buildRunEnv(
+      profile([binding(), binding({ env: 'API_KEY_EXPIRES_AT', resource: 'urn:other' })]),
+    )
+    expect(env.API_KEY).toBe('tok-API_KEY')
+    expect(env.API_KEY_EXPIRES_AT).toBe('tok-API_KEY_EXPIRES_AT')
   })
 
   it('rejects invalid, blocked, and duplicate credential env names', async () => {
     fetchRunCredentialMock.mockResolvedValue({ env: 'X', credential: 'tok' })
     await expect(buildRunEnv(profile([binding({ env: '1bad' })]))).rejects.toThrow(/invalid_credential_env/)
     await expect(buildRunEnv(profile([binding({ env: 'LD_PRELOAD' })]))).rejects.toThrow(/blocked_credential_env/)
+    await expect(buildRunEnv(profile([binding({ env: 'ld_preload' })]))).rejects.toThrow(/blocked_credential_env/)
     await expect(buildRunEnv(profile([binding({ env: 'DUP', resource: 'r1' }), binding({ env: 'DUP', resource: 'r2' })]))).rejects.toThrow(
       /duplicate_credential_env/,
     )
@@ -127,6 +151,7 @@ describe('buildRunEnv', () => {
     expect(pollStepUpStateMock).toHaveBeenCalledWith('http://localhost:8080', 'chal-1', { timeoutMs: 300_000 })
     expect(fetchRunCredentialMock).toHaveBeenLastCalledWith('http://localhost:8080', 'wl1', 'ws_secret', 'API_KEY', {
       challengeId: 'chal-1',
+      launchId: 'launch-1',
     })
   })
 
@@ -147,6 +172,7 @@ describe('runExec', () => {
   it('rejects invalid child env keys', () => {
     expect(() => runExec({ argv: ['true'], env: { '1bad': 'x' }, forwardSignals: false })).toThrow(/invalid_child_env/)
     expect(() => runExec({ argv: ['true'], env: { LD_PRELOAD: 'x' }, forwardSignals: false })).toThrow(/blocked_child_env/)
+    expect(() => runExec({ argv: ['true'], env: { ld_preload: 'x' }, forwardSignals: false })).toThrow(/blocked_child_env/)
   })
 
   it('captures output and resolves the exit code', async () => {

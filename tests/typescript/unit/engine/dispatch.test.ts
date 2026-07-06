@@ -8,15 +8,13 @@ import type { AdminClient } from '../../../../packages/admin/ts/src/client.js'
 import { AdminApiError } from '../../../../packages/admin/ts/src/errors.js'
 import { dispatch, DispatchError, validateFlags, type Principal } from '../../../../packages/engine/src/dispatch.js'
 
-const local: Principal = {
-  kind: 'local',
+const operator: Principal = {
   subject: 'operator',
   zoneId: 'z1',
-  scopes: [],
+  scopes: ['control:resource:write', 'control:policy:write', 'control:policy-set:read', 'control:policy-set:write', 'control:explain:read'],
 }
 
-const remote: Principal = {
-  kind: 'remote',
+const reader: Principal = {
   subject: 'automation',
   zoneId: 'z1',
   scopes: ['control:resource:read'],
@@ -46,7 +44,7 @@ describe('validateFlags', () => {
   it('rejects oversized and unsupported flag payloads', () => {
     expect(() => validateFlags(Object.fromEntries(Array.from({ length: 33 }, (_, i) => [`k${i}`, true])))).toThrow(/too many flags/)
     expect(() => validateFlags({ '': true })).toThrow(/out of range/)
-    expect(() => validateFlags({ long: 'x'.repeat(32769) })).toThrow(/string too long/)
+    expect(() => validateFlags({ long: 'x'.repeat(131073) })).toThrow(/string too long/)
     expect(() => validateFlags({ list: Array.from({ length: 65 }, () => 'x') })).toThrow(/array too long/)
     expect(() => validateFlags({ list: [{}] as never })).toThrow(/unsupported array element/)
     expect(() => validateFlags({ object: {} as never })).toThrow(/unsupported type/)
@@ -58,20 +56,27 @@ describe('validateFlags', () => {
 })
 
 describe('dispatch', () => {
-  it('maps catalog denials and missing required flags to DispatchError codes', async () => {
-    await expect(dispatch({ command: 'missing', subcommand: '' }, remote, { admin: admin() })).rejects.toMatchObject({ code: 'denied' })
-    await expect(dispatch({ command: 'zone', subcommand: 'missing' }, remote, { admin: admin() })).rejects.toMatchObject({ code: 'denied' })
-    await expect(dispatch({ command: 'zone', subcommand: 'create' }, local, { admin: admin() })).rejects.toBeInstanceOf(DispatchError)
+  it('maps catalog denials, missing scopes, and missing required flags to DispatchError codes', async () => {
+    await expect(dispatch({ command: 'missing', subcommand: '' }, reader, { admin: admin() })).rejects.toMatchObject({ code: 'denied' })
+    await expect(dispatch({ command: 'zone', subcommand: 'list' }, reader, { admin: admin() })).rejects.toMatchObject({ code: 'denied' })
+    await expect(dispatch({ command: 'resource', subcommand: 'missing' }, reader, { admin: admin() })).rejects.toMatchObject({
+      code: 'denied',
+    })
+    await expect(dispatch({ command: 'resource', subcommand: 'create', flags: { name: 'Nucleus' } }, reader, { admin: admin() })).rejects.toMatchObject({
+      code: 'denied',
+    })
+    await expect(dispatch({ command: 'resource', subcommand: 'create' }, operator, { admin: admin() })).rejects.toBeInstanceOf(DispatchError)
   })
 
-  it('denies global zone administration for remote principals', async () => {
+  it('denies a principal without a zone binding', async () => {
     await expect(
       dispatch(
         {
-          command: 'zone',
-          subcommand: 'list',
+          command: 'resource',
+          subcommand: 'create',
+          flags: { name: 'Nucleus', identifier: 'resource://nucleus', scopes: ['read'] },
         },
-        { ...remote, scopes: ['control:zone:read'] },
+        { ...operator, zoneId: undefined },
         { admin: admin() },
       ),
     ).rejects.toMatchObject({ code: 'denied' })
@@ -92,7 +97,7 @@ describe('dispatch', () => {
             'upstream-url': 'https://calendar.example.com',
           },
         },
-        local,
+        operator,
         { admin: a },
       ),
     ).resolves.toMatchObject({
@@ -107,7 +112,7 @@ describe('dispatch', () => {
           subcommand: 'patch',
           flags: { id: 'res-1', 'upstream-url': null },
         },
-        local,
+        operator,
         { admin: a },
       ),
     ).resolves.toMatchObject({ upstream_url: null })
@@ -119,7 +124,7 @@ describe('dispatch', () => {
           subcommand: 'version',
           flags: { id: 'ps-1' },
         },
-        local,
+        operator,
         { admin: a },
       ),
     ).rejects.toMatchObject({ code: 'invalid' })
@@ -131,7 +136,7 @@ describe('dispatch', () => {
           subcommand: 'simulate',
           flags: { id: 'ps-1', version: 'v1', input: '{"principal":{}}' },
         },
-        local,
+        operator,
         { admin: a },
       ),
     ).resolves.toEqual({ principal: {} })
@@ -147,7 +152,7 @@ describe('dispatch', () => {
           subcommand: 'simulate',
           flags: { id: 'ps-1', version: 'v1', input: '{not json' },
         },
-        local,
+        operator,
         { admin: a },
       ),
     ).rejects.toMatchObject({ code: 'invalid', message: 'flag "input" must be valid JSON' })
@@ -159,26 +164,15 @@ describe('dispatch', () => {
           subcommand: 'create',
           flags: { name: 'Calendar', identifier: 'resource://calendar', scopes: ['read'], operations: '[not json' },
         },
-        local,
+        operator,
         { admin: a },
       ),
     ).rejects.toMatchObject({ code: 'invalid', message: 'flag "operations" must be valid JSON' })
   })
 
-  it('dispatches explain aliases through audit explain handlers', async () => {
+  it('dispatches explain through the audit explain handler', async () => {
     const a = admin()
 
-    await expect(
-      dispatch(
-        {
-          command: 'debug',
-          subcommand: 'request',
-          flags: { 'request-id': 'req-1' },
-        },
-        local,
-        { admin: a },
-      ),
-    ).resolves.toEqual({ ok: true })
     await expect(
       dispatch(
         {
@@ -186,7 +180,7 @@ describe('dispatch', () => {
           subcommand: '',
           flags: { 'request-id': 'req-1' },
         },
-        local,
+        operator,
         { admin: a },
       ),
     ).resolves.toEqual({ ok: true })
@@ -210,7 +204,7 @@ describe('dispatch', () => {
           subcommand: 'create',
           flags: { name: 'PiperNet baseline', content: 'package caracal.authz' },
         },
-        local,
+        operator,
         { admin: a },
       ),
     ).rejects.toMatchObject({
@@ -234,7 +228,7 @@ describe('dispatch', () => {
           subcommand: 'create',
           flags: { name: 'PiperNet baseline', content: 'package caracal.authz' },
         },
-        local,
+        operator,
         { admin: a },
       ),
     ).rejects.toMatchObject({ code: 'upstream' })
