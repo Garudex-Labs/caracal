@@ -602,10 +602,26 @@ export function ProviderFormModal({
         return next;
       });
       setCheckFailed(null);
+      // RFC 8414 metadata advertises which client authentication methods the token
+      // endpoint accepts; a mismatch with the selected method is flagged here so it
+      // fails at form time, not at the first token request. The jwt_bearer grant
+      // authenticates through the assertion itself, so the hint does not apply.
+      const supported = metadata.token_endpoint_auth_methods_supported;
+      const effectiveAuth = values.client_auth_method || "client_secret_basic";
+      const authMismatch =
+        values.grant_type !== "jwt_bearer" &&
+        Array.isArray(supported) &&
+        supported.length > 0 &&
+        !supported.includes(effectiveAuth);
       if (kind === "oauth2_authorization_code" && !metadata.authorization_endpoint) {
         setDiscoverNote({
           tone: "danger",
           text: "The issuer metadata has no authorization endpoint; filled the token endpoint only.",
+        });
+      } else if (authMismatch) {
+        setDiscoverNote({
+          tone: "danger",
+          text: `Filled the ${filled.join(" and ")}, but the issuer does not list ${effectiveAuth} as a supported client authentication method (supported: ${supported.join(", ")}).`,
         });
       } else {
         setDiscoverNote({

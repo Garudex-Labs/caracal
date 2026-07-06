@@ -8,7 +8,7 @@ import { generateKeyPairSync } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import { lookup } from 'node:dns/promises'
 import { request as httpsRequest } from 'node:https'
-import { loadZoneKek, seal } from '@caracalai/server-core'
+import { loadZoneKek, open, seal } from '@caracalai/server-core'
 import { providersRoutes } from '../../../../../apps/api/src/routes/providers.js'
 import { buildRouteApp } from '../../../../shared/test-utils/typescript/fastify.js'
 
@@ -125,6 +125,10 @@ describe('POST /v1/zones/:zoneId/providers', () => {
     })
 
     await app.ready()
+    const privateKeyPem = generateKeyPairSync('ec', { namedCurve: 'prime256v1' }).privateKey.export({
+      type: 'pkcs8',
+      format: 'pem',
+    }) as string
     const res = await app.inject({
       method: 'POST',
       url: '/v1/zones/z1/providers',
@@ -136,7 +140,7 @@ describe('POST /v1/zones/:zoneId/providers', () => {
           client_id: 'hooli-client',
           client_auth_method: 'private_key_jwt',
           key_id: 'key-1',
-          private_key: '-----BEGIN PRIVATE KEY-----\nsecret\n-----END PRIVATE KEY-----',
+          private_key: privateKeyPem,
           allowed_token_hosts: ['issuer.example'],
         },
       },
@@ -1259,6 +1263,90 @@ rhlWuIX4JbFnIYKi06HWrc4ylkahRANCAASv7QoJGoU/VOrrUUoMtgJp2XLsI+o7
 sFS7xLIfVHHIVGneMcctcboFRI+0Y1yeIAjXdsB6GDpRtU1ebH1IcElQ
 -----END PRIVATE KEY-----`
 
+describe('POST /v1/zones/:zoneId/providers secret intake hygiene', () => {
+  it('trims outer whitespace from a pasted secret before sealing', async () => {
+    const { app, db } = buildRouteApp(providersRoutes)
+    db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] }).mockResolvedValueOnce({
+      rows: [{ id: 'provider-1', zone_id: 'z1', identifier: 'provider://hoolibox-token', kind: 'bearer_token' }],
+    })
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/providers',
+      payload: {
+        identifier: 'provider://hoolibox-token',
+        kind: 'bearer_token',
+        config_json: { bearer_token: '  hoolibox-static-token\n' },
+      },
+    })
+
+    expect(res.statusCode).toBe(201)
+    const values = db.query.mock.calls[1][1] as unknown[]
+    const sealed = open(loadZoneKek(), { nonce: values[7] as Buffer, ciphertext: values[6] as Buffer })
+    expect(JSON.parse(sealed.toString('utf8'))).toEqual({ bearer_token: 'hoolibox-static-token' })
+  })
+
+  it('rejects embedded control characters in single-line secrets', async () => {
+    const { app, db } = buildRouteApp(providersRoutes)
+    db.query.mockResolvedValue({ rows: [{ '?column?': 1 }] })
+
+    await app.ready()
+    for (const [kind, config] of [
+      ['bearer_token', { bearer_token: 'line-one\nline-two' }],
+      ['http_basic', { username: 'richard.hendricks@piedpiper.example', password: 'pass\tword' }],
+    ] as const) {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/zones/z1/providers',
+        payload: { identifier: 'provider://hoolibox-token', kind, config_json: config },
+      })
+      expect(res.statusCode).toBe(400)
+      expect(JSON.parse(res.body).error_description).toContain('must not contain control characters')
+    }
+  })
+
+  it('rejects a credential pasted with the composed authorization scheme attached', async () => {
+    const { app, db } = buildRouteApp(providersRoutes)
+    db.query.mockResolvedValue({ rows: [{ '?column?': 1 }] })
+
+    await app.ready()
+    for (const payload of [
+      { kind: 'bearer_token', config_json: { bearer_token: 'Bearer hoolibox-static-token' } },
+      { kind: 'bearer_token', config_json: { bearer_token: 'token hoolibox-static-token', auth_scheme: 'Token' } },
+      { kind: 'api_key', config_json: { header_name: 'Authorization', auth_scheme: 'Bearer', api_key: 'bearer sk-hooli' } },
+    ]) {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/zones/z1/providers',
+        payload: { identifier: 'provider://hoolibox-token', ...payload },
+      })
+      expect(res.statusCode).toBe(400)
+      expect(JSON.parse(res.body).error_description).toContain('the gateway adds it')
+    }
+  })
+
+  it('accepts a schemeless api_key value carrying an intentional prefix', async () => {
+    const { app, db } = buildRouteApp(providersRoutes)
+    db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] }).mockResolvedValueOnce({
+      rows: [{ id: 'provider-1', zone_id: 'z1', identifier: 'provider://hoolibox-raw', kind: 'api_key' }],
+    })
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/providers',
+      payload: {
+        identifier: 'provider://hoolibox-raw',
+        kind: 'api_key',
+        config_json: { header_name: 'X-Custom-Auth', api_key: 'Bearer raw-forwarded-value' },
+      },
+    })
+
+    expect(res.statusCode).toBe(201)
+  })
+})
+
 describe('POST /v1/zones/:zoneId/providers with http_basic kind', () => {
   it('stores the username publicly and seals only the password', async () => {
     const { app, db } = buildRouteApp(providersRoutes)
@@ -1384,6 +1472,25 @@ describe('POST /v1/zones/:zoneId/providers with jwt_bearer grant type', () => {
       expect(res.statusCode).toBe(400)
       expect(JSON.parse(res.body)).toMatchObject({ error: 'invalid_provider_config' })
     }
+  })
+
+  it('rejects a private_key that is not parseable PEM at creation', async () => {
+    const { app, db } = buildRouteApp(providersRoutes)
+    db.query.mockResolvedValue({ rows: [{ '?column?': 1 }] })
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/providers',
+      payload: {
+        identifier: 'provider://vertex-sa',
+        kind: 'oauth2_client_credentials',
+        config_json: jwtBearerConfig({ private_key: '-----BEGIN PRIVATE KEY-----\nnot-a-key\n-----END PRIVATE KEY-----' }),
+      },
+    })
+
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body).error_description).toContain('private_key must be a valid PEM private key')
   })
 
   it('submits a signed assertion grant with scopes in the claim for the connectivity check', async () => {

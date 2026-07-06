@@ -17,11 +17,14 @@ import (
 	"encoding/base64"
 	"encoding/pem"
 	"math/big"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+
+	sharederr "github.com/garudex-labs/caracal/packages/core/go/errors"
 )
 
 func TestBuildUpstreamDirectiveSupportsHTTPBasicProvider(t *testing.T) {
@@ -82,6 +85,50 @@ func TestBuildUpstreamDirectiveRejectsHTTPBasicRuntimeInjection(t *testing.T) {
 	}
 	if _, err := srv.buildUpstreamDirective(context.Background(), "zone1", nil, resource, true, true); err == nil {
 		t.Fatal("http_basic must never be eligible for runtime credential injection")
+	}
+}
+
+func TestExchangeSurfacesProviderCredentialFailure(t *testing.T) {
+	providerID := "provider1"
+	db := exchangeFlowDB(t)
+	db.resource.CredentialProviderID = &providerID
+	secretCt, secretNonce := testProviderSecret(t, exchangeFlowZEK(), `{}`)
+	db.provider = &ProviderConfig{
+		ID:                providerID,
+		ProviderKind:      strPtr("oauth2_client_credentials"),
+		ConfigJSON:        []byte(`{"token_endpoint":"https://issuer.example/token","client_id":"hooli-client","allowed_token_hosts":["issuer.example"]}`),
+		SecretConfigCt:    secretCt,
+		SecretConfigNonce: secretNonce,
+	}
+	db.session = activeUserSession("sess-1")
+	srv := exchangeFlowServer(t, db, runCredentialAllowPolicy)
+	req := baseExchangeRequest()
+	req.ClientSecret = ""
+	req.GatewayAuthenticated = true
+	req.SubjectToken = sessionMandate(t, srv, "user-1", "sess-1", "pipernet:read")
+
+	_, _, code, apiErr := srv.exchange(context.Background(), req, "req-1")
+	if code != http.StatusBadGateway || apiErr == nil || apiErr.Code != sharederr.HTTPRequestFailed {
+		t.Fatalf("code=%d err=%#v", code, apiErr)
+	}
+	if !strings.Contains(apiErr.Description, "resource://pipernet") || !strings.Contains(apiErr.Description, "provider token endpoint") {
+		t.Fatalf("description must carry the resource and reason: %s", apiErr.Description)
+	}
+	audited := false
+	for {
+		select {
+		case event := <-srv.auditBuffer.ch:
+			if event.Decision == "deny" && event.EvaluationStatus == "provider_credential_unavailable" {
+				audited = true
+			}
+		default:
+		}
+		if audited || len(srv.auditBuffer.ch) == 0 {
+			break
+		}
+	}
+	if !audited {
+		t.Fatal("provider credential failure must be audited as a deny")
 	}
 }
 
