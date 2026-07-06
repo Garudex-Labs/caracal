@@ -60,10 +60,6 @@ export type Authorize = (command: string, verb: ScopeVerb) => void
 export interface ReconcileDeps {
   readonly admin: AdminClient
   readonly authorize: Authorize
-  // Whether the caller may declare traits in the privileged platform namespaces. Only a local
-  // (in-process) principal holds this authority; a remote control key must never mint or widen
-  // control-plane traits through the declarative surface, so absence means denied.
-  readonly allowPrivilegedTraits?: boolean
 }
 
 const SECRET_CONFIG_KEYS = new Set(['client_secret', 'private_key', 'api_key', 'bearer_token'])
@@ -191,10 +187,18 @@ const APPLICATION_ADAPTER: Adapter = {
       registration_method: 'managed',
       traits: Array.isArray(spec.traits) ? (spec.traits as string[]) : undefined,
     }) as unknown as Promise<LiveObject>,
-  update: (admin, zone, live, spec) =>
-    admin.applications.patch(zone, live.id, {
+  update: (admin, zone, live, spec) => {
+    if (Array.isArray(live.traits) && (live.traits as string[]).includes(CONTROL_INVOKE_TRAIT)) {
+      throw new DispatchError(
+        'denied',
+        `application "${String(live.name)}" is a control key`,
+        'Manage control keys through the Console; declarative specs cannot modify them.',
+      )
+    }
+    return admin.applications.patch(zone, live.id, {
       traits: Array.isArray(spec.traits) ? (spec.traits as string[]) : undefined,
-    }) as unknown as Promise<LiveObject>,
+    }) as unknown as Promise<LiveObject>
+  },
   protectedFromPrune: (live) => Array.isArray(live.traits) && (live.traits as string[]).includes(CONTROL_INVOKE_TRAIT),
 }
 
@@ -370,9 +374,8 @@ function assertZoneAlignment(doc: DesiredState, zoneId: string): void {
   }
 }
 
-/** Refuse privileged trait namespaces unless the caller holds platform trait authority. */
-function assertTraitAuthority(doc: DesiredState, deps: ReconcileDeps): void {
-  if (deps.allowPrivilegedTraits === true) return
+/** Refuse privileged trait namespaces: no declarative caller holds platform trait authority. */
+function assertTraitAuthority(doc: DesiredState): void {
   for (const object of doc.objects) {
     if (object.kind !== 'application' || !Array.isArray(object.spec.traits)) continue
     for (const trait of object.spec.traits) {
@@ -416,7 +419,7 @@ export async function reconcile(
   const dryRun = opts.dryRun === true
   const prune = opts.prune === true
   assertZoneAlignment(doc, zoneId)
-  assertTraitAuthority(doc, deps)
+  assertTraitAuthority(doc)
   authorizeAll(doc, deps, opts)
 
   // List each declared kind once and index it by identity. Listings are independent reads, so

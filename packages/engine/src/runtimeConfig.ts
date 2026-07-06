@@ -92,7 +92,8 @@ function safePathSegment(value: string): string {
 
 export function assertCredentialEnvName(name: string): void {
   if (!ENV_NAME.test(name)) throw new RuntimeConfigValidationError('runtime config', `invalid credential env '${name}'`)
-  if (BLOCKED_CREDENTIAL_ENV.has(name)) throw new RuntimeConfigValidationError('runtime config', `blocked credential env '${name}'`)
+  // Case-insensitive: Windows environments fold case, so 'ld_preload' must be as blocked as 'LD_PRELOAD'.
+  if (BLOCKED_CREDENTIAL_ENV.has(name.toUpperCase())) throw new RuntimeConfigValidationError('runtime config', `blocked credential env '${name}'`)
 }
 
 // Resolves the workload identity from the environment. The workload id names the
@@ -143,13 +144,11 @@ export function validateEndpointUrl(value: string, key: string, source: string, 
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
     failConfig(source, `${key} must use http or https`)
   }
-  if (
-    url.protocol === 'http:' &&
-    !isLocalHostname(url.hostname) &&
-    (env.NODE_ENV ?? 'development') !== 'development' &&
-    env.CARACAL_ALLOW_INSECURE_CONFIG_URLS !== 'true'
-  ) {
-    failConfig(source, `${key} must use https outside local development`)
+  if (url.protocol === 'http:' && !isLocalHostname(url.hostname) && env.CARACAL_ALLOW_INSECURE_CONFIG_URLS !== 'true') {
+    failConfig(
+      source,
+      `${key} must use https for non-local hosts; set CARACAL_ALLOW_INSECURE_CONFIG_URLS=true only on a trusted private network`,
+    )
   }
   return value
 }
@@ -175,12 +174,15 @@ function readSecretFile(path: string, source: string): string {
 function assertSecretFileSecure(path: string, source: string): void {
   if (process.platform === 'win32') return
   const mode = statSync(path).mode & 0o777
-  if ((mode & 0o022) !== 0) {
-    failConfig(source, `secret file permissions are too broad: ${path} is ${formatMode(mode)}; remove group/world write bits`)
+  if ((mode & 0o077) !== 0) {
+    failConfig(source, `secret file permissions are too broad: ${path} is ${formatMode(mode)}; make it owner-only (chmod 600)`)
   }
 }
 
+// CARACAL_ENV names the deployment environment explicitly and wins over NODE_ENV,
+// matching the SDK's gate so one convention covers every Caracal surface.
 function isProductionRuntime(env: NodeJS.ProcessEnv): boolean {
+  if (env.CARACAL_ENV) return env.CARACAL_ENV === 'production'
   return env.NODE_ENV === 'production'
 }
 
@@ -191,25 +193,26 @@ function existingLocalFile(path: string, env: NodeJS.ProcessEnv): string | undef
 
 export class ServiceUrlMissingError extends CaracalError {
   readonly envKey: string
-  readonly nodeEnv: string
-  constructor(envKey: string, nodeEnv: string) {
-    super('config_missing', `${envKey} is required when NODE_ENV=${nodeEnv}`, {
-      details: { envKey, nodeEnv },
+  readonly runtimeEnv: string
+  constructor(envKey: string, runtimeEnv: string) {
+    super('config_missing', `${envKey} is required when the runtime environment is ${runtimeEnv}`, {
+      details: { envKey, runtimeEnv },
     })
     this.name = 'ServiceUrlMissingError'
     this.envKey = envKey
-    this.nodeEnv = nodeEnv
+    this.runtimeEnv = runtimeEnv
   }
 }
 
 // Returns the env-var override or the dev default. Throws ServiceUrlMissingError
-// in non-development so misconfigured production management never silently hits localhost.
+// outside development so misconfigured production management never silently hits
+// localhost. CARACAL_ENV wins over NODE_ENV, matching isProductionRuntime.
 export function resolveServiceUrl(envKey: string, devDefault: string, env: NodeJS.ProcessEnv = process.env): string {
   const v = env[envKey]
   if (v) return v
-  const nodeEnv = env.NODE_ENV ?? 'development'
-  if (nodeEnv !== 'development') {
-    throw new ServiceUrlMissingError(envKey, nodeEnv)
+  const runtimeEnv = env.CARACAL_ENV ?? env.NODE_ENV ?? 'development'
+  if (runtimeEnv !== 'development') {
+    throw new ServiceUrlMissingError(envKey, runtimeEnv)
   }
   return devDefault
 }
