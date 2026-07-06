@@ -55,8 +55,27 @@ describe('isControlExecutable', () => {
     expect(isControlExecutable('createPolicySet')).toBe(true)
     expect(isControlExecutable('versionPolicySet')).toBe(true)
     expect(isControlExecutable('activatePolicySet')).toBe(true)
-    // Read-only explanation is not a control command.
-    expect(isControlExecutable('explainAccess')).toBe(false)
+    expect(isControlExecutable('deletePolicySet')).toBe(true)
+    expect(isControlExecutable('updateApplication')).toBe(true)
+    expect(isControlExecutable('updateProvider')).toBe(true)
+    expect(isControlExecutable('updateResource')).toBe(true)
+    expect(isControlExecutable('suspendAgent')).toBe(true)
+    expect(isControlExecutable('resumeAgent')).toBe(true)
+    expect(isControlExecutable('terminateAgent')).toBe(true)
+    expect(isControlExecutable('revokeDelegation')).toBe(true)
+    expect(isControlExecutable('createWorkload')).toBe(true)
+    expect(isControlExecutable('updateWorkload')).toBe(true)
+    expect(isControlExecutable('rotateWorkloadSecret')).toBe(true)
+    expect(isControlExecutable('deleteWorkload')).toBe(true)
+    expect(isControlExecutable('listWorkloads')).toBe(true)
+    expect(isControlExecutable('listApprovals')).toBe(true)
+    expect(isControlExecutable('listAdminActivity')).toBe(true)
+    expect(isControlExecutable('explainRequest')).toBe(true)
+    expect(isControlExecutable('validatePolicy')).toBe(true)
+    expect(isControlExecutable('simulatePolicySet')).toBe(true)
+    // Deciding a step-up approval is never governed-executable: the control credential
+    // carries write capability, never approve, so approval decisions stay with humans.
+    expect(isControlExecutable('decideApproval')).toBe(false)
     // Connecting a credential-free provider is a thin create the Operator applies directly.
     expect(isControlExecutable('connectProvider')).toBe(true)
   })
@@ -219,6 +238,144 @@ describe('buildInvocation', () => {
     })
   })
 
+  it('builds updateApplication as a rename patch', () => {
+    expect(CONTROL_CAPABILITIES.updateApplication.buildInvocation({ application_id: 'app-1', name: 'Son of Anton' })).toEqual({
+      command: 'app',
+      subcommand: 'patch',
+      flags: { id: 'app-1', name: 'Son of Anton' },
+    })
+  })
+
+  it('builds updateProvider carrying only the fields present and serializing the config', () => {
+    expect(CONTROL_CAPABILITIES.updateProvider.buildInvocation({ provider_id: 'prov-1', name: 'Hooli OIDC' })).toEqual({
+      command: 'identity-provider',
+      subcommand: 'patch',
+      flags: { id: 'prov-1', name: 'Hooli OIDC' },
+    })
+    const withConfig = CONTROL_CAPABILITIES.updateProvider.buildInvocation({
+      provider_id: 'prov-1',
+      config: { token_endpoint: 'https://login.hooli.example/oauth/token' },
+    })
+    expect(withConfig.flags.id).toBe('prov-1')
+    expect(withConfig.flags.config).toContain('https://login.hooli.example/oauth/token')
+    expect(withConfig.flags.name).toBeUndefined()
+  })
+
+  it('builds updateResource carrying only the routing fields present', () => {
+    expect(
+      CONTROL_CAPABILITIES.updateResource.buildInvocation({
+        resource_id: 'res-1',
+        scopes: ['pipernet:read'],
+        upstream_url: 'https://api.pipernet.example',
+        operations: [{ method: 'GET', path: '/status', scope: 'pipernet:read' }],
+        operation_enforcement: 'enforced',
+      }),
+    ).toEqual({
+      command: 'resource',
+      subcommand: 'patch',
+      flags: {
+        id: 'res-1',
+        scopes: ['pipernet:read'],
+        'upstream-url': 'https://api.pipernet.example',
+        operations: [{ method: 'GET', path: '/status', scope: 'pipernet:read' }],
+        'operation-enforcement': 'enforced',
+      },
+    })
+  })
+
+  it('builds the runtime interventions from the session and edge ids', () => {
+    expect(CONTROL_CAPABILITIES.suspendAgent.buildInvocation({ agent_session_id: 'agent-1' })).toEqual({
+      command: 'agent',
+      subcommand: 'suspend',
+      flags: { id: 'agent-1' },
+    })
+    expect(CONTROL_CAPABILITIES.resumeAgent.buildInvocation({ agent_session_id: 'agent-1' })).toEqual({
+      command: 'agent',
+      subcommand: 'resume',
+      flags: { id: 'agent-1' },
+    })
+    expect(CONTROL_CAPABILITIES.terminateAgent.buildInvocation({ agent_session_id: 'agent-1' })).toEqual({
+      command: 'agent',
+      subcommand: 'terminate',
+      flags: { id: 'agent-1' },
+    })
+    expect(CONTROL_CAPABILITIES.revokeDelegation.buildInvocation({ delegation_id: 'edge-1' })).toEqual({
+      command: 'delegation',
+      subcommand: 'revoke',
+      flags: { id: 'edge-1' },
+    })
+  })
+
+  it('builds the workload lifecycle invocations', () => {
+    expect(CONTROL_CAPABILITIES.createWorkload.buildInvocation({ name: 'PiperNet AI' })).toEqual({
+      command: 'workload',
+      subcommand: 'create',
+      flags: { name: 'PiperNet AI' },
+    })
+    expect(
+      CONTROL_CAPABILITIES.updateWorkload.buildInvocation({
+        workload_id: 'wl-1',
+        bindings: [{ env: 'CARACAL_RESOURCE_PIPERNET_TOKEN', resource: 'resource://pipernet' }],
+      }),
+    ).toEqual({
+      command: 'workload',
+      subcommand: 'patch',
+      flags: { id: 'wl-1', bindings: [{ env: 'CARACAL_RESOURCE_PIPERNET_TOKEN', resource: 'resource://pipernet' }] },
+    })
+    expect(CONTROL_CAPABILITIES.rotateWorkloadSecret.buildInvocation({ workload_id: 'wl-1' })).toEqual({
+      command: 'workload',
+      subcommand: 'rotate-secret',
+      flags: { id: 'wl-1' },
+    })
+    expect(CONTROL_CAPABILITIES.deleteWorkload.buildInvocation({ workload_id: 'wl-1' })).toEqual({
+      command: 'workload',
+      subcommand: 'delete',
+      flags: { id: 'wl-1' },
+    })
+  })
+
+  it('builds explainRequest against the request id', () => {
+    expect(CONTROL_CAPABILITIES.explainRequest.buildInvocation({ request_id: 'req-1' })).toEqual({
+      command: 'explain',
+      subcommand: '',
+      flags: { 'request-id': 'req-1' },
+    })
+  })
+
+  it('builds validatePolicy and simulatePolicySet as read-scoped dry runs', () => {
+    expect(CONTROL_CAPABILITIES.validatePolicy.buildInvocation({ content: 'package caracal.authz' })).toEqual({
+      command: 'policy',
+      subcommand: 'validate',
+      flags: { content: 'package caracal.authz' },
+    })
+    expect(CONTROL_CAPABILITIES.validatePolicy.scopes).toEqual(['control:policy:read'])
+    const simulation = CONTROL_CAPABILITIES.simulatePolicySet.buildInvocation({
+      policy_set_id: 'set-1',
+      policy_set_version_id: 'sv-1',
+      input: { subject: 'user:richard.hendricks@piedpiper.example' },
+    })
+    expect(simulation.command).toBe('policy-set')
+    expect(simulation.subcommand).toBe('simulate')
+    expect(simulation.flags.id).toBe('set-1')
+    expect(simulation.flags.version).toBe('sv-1')
+    expect(simulation.flags.input).toContain('richard.hendricks')
+    expect(CONTROL_CAPABILITIES.simulatePolicySet.scopes).toEqual(['control:policy-set:read'])
+  })
+
+  it('carries the optional session and audit filters into control flags', () => {
+    expect(CONTROL_CAPABILITIES.listSessions.buildInvocation({}).flags).toEqual({})
+    expect(CONTROL_CAPABILITIES.listSessions.buildInvocation({ subject: 'user-1', status: 'active', limit: 10 }).flags).toEqual({
+      subject: 'user-1',
+      status: 'active',
+      limit: 10,
+    })
+    expect(CONTROL_CAPABILITIES.listAuditEvents.buildInvocation({}).flags).toEqual({ limit: 50 })
+    expect(
+      CONTROL_CAPABILITIES.listAuditEvents.buildInvocation({ decision: 'deny', event_type: 'exchange', request_id: 'req-1', limit: 5 })
+        .flags,
+    ).toEqual({ decision: 'deny', 'event-type': 'exchange', 'request-id': 'req-1', limit: 5 })
+  })
+
   it('builds reads with no flags', () => {
     expect(CONTROL_CAPABILITIES.listApplications.buildInvocation({}).flags).toEqual({})
     expect(CONTROL_CAPABILITIES.listProviders.buildInvocation({}).flags).toEqual({})
@@ -245,6 +402,23 @@ describe('describeOutcome', () => {
     )
     expect(outcome.detail).not.toContain('cs_rotated')
     expect(outcome.output).toEqual({ application_id: 'app-1', client_secret: 'cs_rotated' })
+  })
+
+  it('surfaces the one-time workload secret as output and keeps it out of the detail', () => {
+    const created = CONTROL_CAPABILITIES.createWorkload.describeOutcome({ id: 'wl-1', name: 'PiperNet AI', secret: 'ws_issued' }, { name: 'PiperNet AI' })
+    expect(created.detail).not.toContain('ws_issued')
+    expect(created.output).toEqual({ workload_id: 'wl-1', secret: 'ws_issued' })
+    const rotated = CONTROL_CAPABILITIES.rotateWorkloadSecret.describeOutcome({ id: 'wl-1', secret: 'ws_rotated' }, { workload_id: 'wl-1' })
+    expect(rotated.detail).not.toContain('ws_rotated')
+    expect(rotated.output).toEqual({ workload_id: 'wl-1', secret: 'ws_rotated' })
+  })
+
+  it('reports the explain trace decision in the detail and the whole trace as output', () => {
+    const trace = { request_id: 'req-1', final_decision: 'deny', denied: [], events: [] }
+    const outcome = CONTROL_CAPABILITIES.explainRequest.describeOutcome(trace, { request_id: 'req-1' })
+    expect(outcome.detail).toContain('req-1')
+    expect(outcome.detail).toContain('deny')
+    expect(outcome.output).toEqual({ trace })
   })
 
   it('surfaces the resource id and names its scopes and upstream', () => {

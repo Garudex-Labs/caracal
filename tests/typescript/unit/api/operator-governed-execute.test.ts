@@ -120,9 +120,9 @@ describe('executeViaControlPlane', () => {
 
   it('fails closed when a step is not governed-executable, before any invoke', async () => {
     const { client, calls } = fakeClient([])
-    const result = await executeViaControlPlane(client, [{ id: 's1', capability: 'explainAccess', args: { application_id: 'app-1' } }], {})
+    const result = await executeViaControlPlane(client, [{ id: 's1', capability: 'decideApproval', args: { approval_id: 'ch-1' } }], {})
     expect(result.applied).toHaveLength(0)
-    expect(result.failure).toMatchObject({ stepId: 's1', capability: 'explainAccess' })
+    expect(result.failure).toMatchObject({ stepId: 's1', capability: 'decideApproval' })
     expect(calls).toHaveLength(0)
   })
 

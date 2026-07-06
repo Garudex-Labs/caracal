@@ -137,15 +137,26 @@ describe('operator enablement gating', () => {
       'connectProvider',
       'createPolicy',
       'createPolicySet',
+      'createWorkload',
       'defineResource',
       'deleteApplication',
       'deletePolicy',
+      'deletePolicySet',
       'deleteProvider',
       'deleteResource',
+      'deleteWorkload',
       'grantAccess',
       'registerApplication',
+      'resumeAgent',
+      'revokeDelegation',
       'revokeGrant',
       'rotateApplicationSecret',
+      'rotateWorkloadSecret',
+      'suspendAgent',
+      'terminateAgent',
+      'updateApplication',
+      'updateProvider',
+      'updateResource',
       'versionPolicy',
       'versionPolicySet',
     ])
@@ -1462,28 +1473,13 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/plan/execute', () =>
     expect(body.steps[0]).toMatchObject({ step_id: 's1', capability: 'grantAccess', code: 'capability_forbidden' })
   })
 
-  it('refuses an authorized step that maps to no governed control command', async () => {
-    const { app, clientQuery } = buildApp(true, governedControl)
-    // explainAccess is read-only (always authorized) but has no governed control command,
-    // so it is refused as not executable rather than applied by any other means.
-    const explainPlan = { summary: 'Explain', steps: [{ id: 's1', capability: 'explainAccess', mutating: false, args: {} }] }
-    clientQuery
-      .mockResolvedValueOnce(undefined) // BEGIN
-      .mockResolvedValueOnce({ rows: [{ status: 'active' }] }) // conv status
-      .mockResolvedValueOnce({ rows: [{ content: explainPlan }] }) // plan
-      .mockResolvedValueOnce({ rows: [{ kind: 'approval' }] }) // approved
-      .mockResolvedValueOnce({ rows: [] }) // not executed
-      .mockResolvedValueOnce(undefined) // COMMIT
-    await app.ready()
-    const res = await app.inject({
-      method: 'POST',
-      url: '/v1/zones/z1/operator-conversations/conv-1/plan/execute',
-      payload: { plan_seq: 2 },
-    })
-    expect(res.statusCode).toBe(422)
-    const body = JSON.parse(res.body)
-    expect(body.error).toBe('capability_not_executable')
-    expect(body.steps[0]).toMatchObject({ step_id: 's1', capability: 'explainAccess' })
+  it('maps every catalog capability to a governed control command, so the executability guard is a pure fail-closed backstop', () => {
+    // The execute route refuses any step that is not governed-executable (422
+    // capability_not_executable). With the whole catalog mapped, that state is unreachable
+    // from a validated plan; this invariant is what keeps it that way.
+    for (const id of Object.keys(CAPABILITIES)) {
+      expect(isControlExecutable(id), `${id} must map to a governed control command`).toBe(true)
+    }
   })
 
   it('executes an approved grant plan through the control plane and records an execution turn', async () => {
