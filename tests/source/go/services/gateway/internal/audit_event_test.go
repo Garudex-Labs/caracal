@@ -43,7 +43,7 @@ func TestGatewayActionEventCarriesForensicMetadata(t *testing.T) {
 		UpstreamHost:       "api.pipernet.example",
 		AuthMode:           "provider_oauth",
 		ProviderID:         "provider-1",
-		GrantID:            "grant-1",
+		ConnectionID:       "grant-1",
 		GatewayStatus:      200,
 		UpstreamStatus:     502,
 		Latency:            1500 * time.Millisecond,
@@ -68,7 +68,7 @@ func TestGatewayActionEventCarriesForensicMetadata(t *testing.T) {
 	if meta["revocation_interrupted"] != true || meta["error_kind"] != "upstream_error" {
 		t.Fatalf("failure metadata missing: %#v", meta)
 	}
-	if meta["upstream_host"] != "api.pipernet.example" || meta["auth_mode"] != "provider_oauth" || meta["provider_id"] != "provider-1" || meta["grant_id"] != "grant-1" {
+	if meta["upstream_host"] != "api.pipernet.example" || meta["auth_mode"] != "provider_oauth" || meta["provider_id"] != "provider-1" || meta["connection_id"] != "grant-1" {
 		t.Fatalf("upstream identity metadata missing: %#v", meta)
 	}
 	if meta["latency_ms"] != float64(1500) || meta["response_bytes"] != float64(64) {
@@ -89,7 +89,7 @@ func TestGatewayActionEventOmitsOptionalFields(t *testing.T) {
 	if err := json.Unmarshal(event.MetadataJSON, &meta); err != nil {
 		t.Fatal(err)
 	}
-	for _, absent := range []string{"upstream_host", "auth_mode", "provider_id", "grant_id", "upstream_status", "result_class", "response_bytes", "revocation_interrupted", "error_kind"} {
+	for _, absent := range []string{"upstream_host", "auth_mode", "provider_id", "connection_id", "upstream_status", "result_class", "response_bytes", "revocation_interrupted", "error_kind"} {
 		if _, ok := meta[absent]; ok {
 			t.Errorf("metadata key %q must be omitted when unset", absent)
 		}

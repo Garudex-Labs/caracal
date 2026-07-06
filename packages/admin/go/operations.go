@@ -88,22 +88,22 @@ func (q *GrantQuery) values() url.Values {
 	return values
 }
 
-// ProviderGrant is the admin API provider grant row.
-type ProviderGrant struct {
-	ID         string   `json:"id"`
-	ZoneID     string   `json:"zone_id"`
-	UserID     string   `json:"user_id"`
-	ResourceID string   `json:"resource_id"`
-	ProviderID string   `json:"provider_id"`
-	Scopes     []string `json:"scopes"`
-	Status     string   `json:"status"`
-	ExpiresAt  *string  `json:"expires_at"`
-	CreatedAt  string   `json:"created_at"`
-	UpdatedAt  string   `json:"updated_at"`
+// ProviderConnection is the admin API provider connection row: one subject's
+// authenticated upstream account on a provider.
+type ProviderConnection struct {
+	ID                 string  `json:"id"`
+	ZoneID             string  `json:"zone_id"`
+	SubjectID          string  `json:"subject_id"`
+	ProviderID         string  `json:"provider_id"`
+	Status             string  `json:"status"`
+	ExpiresAt          *string `json:"expires_at"`
+	UpstreamRevocation string  `json:"upstream_revocation,omitempty"`
+	CreatedAt          string  `json:"created_at"`
+	UpdatedAt          string  `json:"updated_at"`
 }
 
-// ProviderGrantOAuthAuthorize is the started OAuth authorization handshake.
-type ProviderGrantOAuthAuthorize struct {
+// ProviderConnectionAuthorize is the started OAuth authorization handshake.
+type ProviderConnectionAuthorize struct {
 	AuthorizationURL string `json:"authorization_url"`
 	State            string `json:"state"`
 	ExpiresAt        string `json:"expires_at"`
@@ -500,28 +500,28 @@ func (s *GrantsService) Revoke(ctx context.Context, zoneID, grantID string) erro
 	return s.client.do(ctx, http.MethodDelete, "/v1/zones/"+zoneID+"/grants/"+grantID, nil, nil, true)
 }
 
-// ProviderGrantsService covers /v1/zones/{zone}/provider-grants.
-type ProviderGrantsService struct{ client *AdminClient }
+// ProviderConnectionsService covers /v1/zones/{zone}/provider-connections.
+type ProviderConnectionsService struct{ client *AdminClient }
 
-func (s *ProviderGrantsService) Create(ctx context.Context, zoneID string, body map[string]any) (*ProviderGrant, error) {
-	var out ProviderGrant
-	if err := s.client.do(ctx, http.MethodPost, "/v1/zones/"+zoneID+"/provider-grants", body, &out, false); err != nil {
+func (s *ProviderConnectionsService) Create(ctx context.Context, zoneID string, body map[string]any) (*ProviderConnection, error) {
+	var out ProviderConnection
+	if err := s.client.do(ctx, http.MethodPost, "/v1/zones/"+zoneID+"/provider-connections", body, &out, false); err != nil {
 		return nil, err
 	}
 	return &out, nil
 }
 
-func (s *ProviderGrantsService) AuthorizeOAuth(ctx context.Context, zoneID string, body map[string]any) (*ProviderGrantOAuthAuthorize, error) {
-	var out ProviderGrantOAuthAuthorize
-	if err := s.client.do(ctx, http.MethodPost, "/v1/zones/"+zoneID+"/provider-grants/oauth/authorize", body, &out, false); err != nil {
+func (s *ProviderConnectionsService) AuthorizeOAuth(ctx context.Context, zoneID string, body map[string]any) (*ProviderConnectionAuthorize, error) {
+	var out ProviderConnectionAuthorize
+	if err := s.client.do(ctx, http.MethodPost, "/v1/zones/"+zoneID+"/provider-connections/oauth/authorize", body, &out, false); err != nil {
 		return nil, err
 	}
 	return &out, nil
 }
 
-func (s *ProviderGrantsService) Revoke(ctx context.Context, zoneID string, body map[string]any) (*ProviderGrant, error) {
-	var out ProviderGrant
-	if err := s.client.do(ctx, http.MethodPost, "/v1/zones/"+zoneID+"/provider-grants/revoke", body, &out, false); err != nil {
+func (s *ProviderConnectionsService) Revoke(ctx context.Context, zoneID string, body map[string]any) (*ProviderConnection, error) {
+	var out ProviderConnection
+	if err := s.client.do(ctx, http.MethodPost, "/v1/zones/"+zoneID+"/provider-connections/revoke", body, &out, false); err != nil {
 		return nil, err
 	}
 	return &out, nil

@@ -81,22 +81,22 @@ type AdminClient struct {
 	retries          int
 	headers          map[string]string
 
-	Zones            *ZonesService
-	Applications     *ApplicationsService
-	Resources        *ResourcesService
-	Providers        *ProvidersService
-	Policies         *PoliciesService
-	PolicyTemplates  *PolicyTemplatesService
-	PolicySets       *PolicySetsService
-	Grants           *GrantsService
-	ProviderGrants   *ProviderGrantsService
-	Sessions         *SessionsService
-	AgentSessions    *AgentSessionsService
-	Audit            *AuditService
-	AdminAudit       *AdminAuditService
-	StepUpChallenges *StepUpChallengesService
-	Agents           *AgentsService
-	Delegations      *DelegationsService
+	Zones               *ZonesService
+	Applications        *ApplicationsService
+	Resources           *ResourcesService
+	Providers           *ProvidersService
+	Policies            *PoliciesService
+	PolicyTemplates     *PolicyTemplatesService
+	PolicySets          *PolicySetsService
+	Grants              *GrantsService
+	ProviderConnections *ProviderConnectionsService
+	Sessions            *SessionsService
+	AgentSessions       *AgentSessionsService
+	Audit               *AuditService
+	AdminAudit          *AdminAuditService
+	StepUpChallenges    *StepUpChallengesService
+	Agents              *AgentsService
+	Delegations         *DelegationsService
 }
 
 // NewAdminClient builds an AdminClient from options, trimming the trailing
@@ -130,7 +130,7 @@ func NewAdminClient(opts AdminClientOptions) *AdminClient {
 	client.PolicyTemplates = &PolicyTemplatesService{client}
 	client.PolicySets = &PolicySetsService{client}
 	client.Grants = &GrantsService{client}
-	client.ProviderGrants = &ProviderGrantsService{client}
+	client.ProviderConnections = &ProviderConnectionsService{client}
 	client.Sessions = &SessionsService{client}
 	client.AgentSessions = &AgentSessionsService{client}
 	client.Audit = &AuditService{client}

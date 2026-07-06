@@ -18,18 +18,18 @@ func TestRefreshExpiredBrokeredGrantShortCircuits(t *testing.T) {
 	providerID := "provider-1"
 
 	missing := refreshTestServer(&grantDB{grantErr: errors.New("no grant")}, nil)
-	if got := missing.refreshExpiredBrokeredGrant(context.Background(), "z", "user-1", "r", &providerID); got != nil {
+	if got := missing.refreshExpiredProviderConnection(context.Background(), "z", "user-1", &providerID); got != nil {
 		t.Fatalf("missing grant must be silent, got %#v", got)
 	}
 
 	future := time.Now().Add(time.Hour)
-	fresh := refreshTestServer(&grantDB{grant: &ProviderGrant{ID: "grant-1", ExpiresAt: &future}}, nil)
-	if got := fresh.refreshExpiredBrokeredGrant(context.Background(), "z", "user-1", "r", &providerID); got != nil {
+	fresh := refreshTestServer(&grantDB{grant: &ProviderConnection{ID: "grant-1", ExpiresAt: &future}}, nil)
+	if got := fresh.refreshExpiredProviderConnection(context.Background(), "z", "user-1", &providerID); got != nil {
 		t.Fatalf("peer-refreshed grant must be silent, got %#v", got)
 	}
 
 	dead := refreshTestServer(&grantDB{grant: expiredGrant(nil, &providerID)}, nil)
-	got := dead.refreshExpiredBrokeredGrant(context.Background(), "z", "user-1", "r", &providerID)
+	got := dead.refreshExpiredProviderConnection(context.Background(), "z", "user-1", &providerID)
 	if got == nil || got.Code != sharederr.CredentialExpired {
 		t.Fatalf("non-renewable grant must expire, got %#v", got)
 	}
