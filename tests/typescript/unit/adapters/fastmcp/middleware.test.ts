@@ -113,6 +113,7 @@ describe('verifyFastMcpToken', () => {
       name: 'FastMcpAuthError',
       code: 'chain_mismatch',
       message: 'Delegation chain missing application: app-parent',
+      hint: 'Check requireChainContains and the mandate delegation chain.',
     } satisfies Partial<FastMcpAuthError>)
   })
 
