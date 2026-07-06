@@ -201,7 +201,7 @@ const ADMIN_AUDIT_ROW_FIELDS = [
   'signed',
 ] as const
 
-const ADMIN_AUDIT_EXPORT_FIELDS: readonly string[] = [...ADMIN_AUDIT_ROW_FIELDS, 'changed_fields']
+const ADMIN_AUDIT_EXPORT_FIELDS: readonly string[] = [...ADMIN_AUDIT_ROW_FIELDS, 'change_kind', 'changed_fields']
 
 // Projects an event row onto the caller-selected export fields, flattening the
 // redacted JSON payload so exports carry human-usable columns instead of blobs.

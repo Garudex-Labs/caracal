@@ -10,22 +10,108 @@ import { withTransaction } from './db.js'
 import type { DB } from './db.js'
 import type { Actor } from './auth.js'
 
-// Field names whose presence is recorded but whose values are never persisted to
-// the admin audit log, so a secret rotation is distinguishable from a rename
-// without the secret ever entering the audit record.
-const SECRET_FIELD_NAMES = new Set(['client_secret', 'secret', 'password', 'token', 'private_key', 'api_key', 'assertion'])
+// Field names whose presence marks a mutation as carrying secret material, at any depth
+// of the body. Values under any name are never persisted to the admin audit log; these
+// names are additionally excluded from changed_fields and raise the secret_rotated flag,
+// so a credential rotation is distinguishable from a rename without the secret ever
+// entering the audit record.
+const SECRET_FIELD_NAMES = new Set([
+  'client_secret',
+  'secret',
+  'password',
+  'token',
+  'private_key',
+  'api_key',
+  'assertion',
+  'bearer_token',
+  'access_token',
+  'refresh_token',
+])
 
-// changeSummary captures which top-level fields a mutation touched, never their
-// values, so a rename, a trait change, and a secret rotation are distinguishable
-// in the admin audit log while remaining secret-free.
-function changeSummary(method: string, body: unknown): { changed_fields: string[]; secret_rotated?: true } | null {
-  if (method === 'DELETE') return { changed_fields: [] }
-  if (!body || typeof body !== 'object' || Array.isArray(body)) return null
-  const keys = Object.keys(body as Record<string, unknown>)
-  if (keys.length === 0) return null
-  const changed = keys.filter((key) => !SECRET_FIELD_NAMES.has(key.toLowerCase())).sort()
-  const secretRotated = keys.some((key) => SECRET_FIELD_NAMES.has(key.toLowerCase()))
-  return secretRotated ? { changed_fields: changed, secret_rotated: true } : { changed_fields: changed }
+// Sub-resource action verbs that replace stored secret material without carrying it in
+// the body, so the mutation classifies as a rotation even though the request is empty.
+const SECRET_ACTION_SEGMENTS = new Set(['rotate-secret'])
+
+const CHANGE_FIELD_DEPTH = 3
+const CHANGE_FIELD_LIMIT = 64
+
+type ChangeKind = 'create' | 'update' | 'delete' | 'action' | 'secret_rotation'
+
+interface ChangeSummary {
+  change_kind: ChangeKind
+  changed_fields: string[]
+  secret_rotated?: true
+}
+
+// Walks the mutation body and records the dotted path of every field the caller touched
+// (for example config_json.header_name) — names only, never values. Secret-named fields
+// at any depth are excluded from the paths and reported through the return flag, and a
+// nested object with no recordable children still surfaces as its own path so an edit is
+// never invisible.
+function collectChangedFields(body: Record<string, unknown>, prefix: string, depth: number, fields: string[]): boolean {
+  let secret = false
+  for (const [key, value] of Object.entries(body)) {
+    if (SECRET_FIELD_NAMES.has(key.toLowerCase())) {
+      secret = true
+      continue
+    }
+    const path = prefix ? `${prefix}.${key}` : key
+    if (value && typeof value === 'object' && !Array.isArray(value) && depth < CHANGE_FIELD_DEPTH) {
+      const before = fields.length
+      const nestedSecret = collectChangedFields(value as Record<string, unknown>, path, depth + 1, fields)
+      if (nestedSecret) secret = true
+      if (fields.length === before && !nestedSecret && fields.length < CHANGE_FIELD_LIMIT) fields.push(path)
+      continue
+    }
+    if (fields.length < CHANGE_FIELD_LIMIT) fields.push(path)
+  }
+  return secret
+}
+
+// The trailing verb of a sub-resource action route, such as `test` in
+// POST /v1/zones/z1/providers/p1/test, or null for plain collection and entity routes.
+// The scan walks from the end so the innermost entity wins, matching entityFromUrl.
+function actionSegment(url: string): string | null {
+  const segments = pathOnly(url).split('/').filter(Boolean)
+  for (let i = segments.length - 2; i >= 0; i--) {
+    const candidate = segments[i]
+    if (
+      candidate &&
+      segments[i + 1] &&
+      /^(zones|applications|workloads|resources|providers|provider-grants|policies|policy-sets|policy-templates|grants|step-up-challenges|admin-tokens|operator-conversations)$/.test(
+        candidate,
+      )
+    ) {
+      return segments[i + 2] ?? null
+    }
+  }
+  return null
+}
+
+// Classifies each mutation into a semantic change record: what kind of operation it was
+// (create, update, delete, sub-resource action, or secret rotation), which fields it
+// touched through the full body hierarchy, and whether it carried secret material. The
+// classification is derived from the method, the route shape, and field names alone, so
+// the audit trail answers what changed and whether it was security-sensitive without
+// ever storing a value.
+function changeSummary(method: string, url: string, body: unknown): ChangeSummary | null {
+  const action = actionSegment(url)
+  const fields: string[] = []
+  let secretRotated = false
+  if (body && typeof body === 'object' && !Array.isArray(body)) {
+    secretRotated = collectChangedFields(body as Record<string, unknown>, '', 0, fields)
+    fields.sort()
+  }
+  if (action && SECRET_ACTION_SEGMENTS.has(action)) secretRotated = true
+  let changeKind: ChangeKind
+  if (method === 'DELETE') changeKind = 'delete'
+  else if (action) changeKind = secretRotated ? 'secret_rotation' : 'action'
+  else if (method === 'POST') changeKind = 'create'
+  else changeKind = secretRotated ? 'secret_rotation' : 'update'
+  if (changeKind === 'update' && fields.length === 0) return null
+  const summary: ChangeSummary = { change_kind: changeKind, changed_fields: fields }
+  if (secretRotated) summary.secret_rotated = true
+  return summary
 }
 
 function zoneFromUrl(url: string): string | null {
@@ -83,7 +169,7 @@ export function registerAdminAuditHook(app: FastifyInstance, opts: AuditPluginOp
     // id so every audit record identifies the human who performed the change even across renames;
     // the console resolves the id to the profile's current name at render time.
     const operator = account ? { operator: account.id } : null
-    const change = reply.statusCode < 400 ? changeSummary(req.method, req.body) : null
+    const change = reply.statusCode < 400 ? changeSummary(req.method, req.url, req.body) : null
     return withTransaction(opts.db, (client) =>
       insertAdminAuditRecord(
         client,
