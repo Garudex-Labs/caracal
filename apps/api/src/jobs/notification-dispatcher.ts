@@ -22,7 +22,10 @@ const CLEANUP_BATCH = 500
 const SEAL_NONCE_BYTES = 12
 
 export interface SinkFetch {
-  (url: string, init: { method: string; headers: Record<string, string>; body: string; redirect: 'error'; signal: AbortSignal }): Promise<{ status: number }>
+  (
+    url: string,
+    init: { method: string; headers: Record<string, string>; body: string; redirect: 'error'; signal: AbortSignal },
+  ): Promise<{ status: number }>
 }
 
 interface SinkRow {
@@ -126,10 +129,10 @@ async function fanOutSink(db: DB, sink: SinkRow): Promise<number> {
         [uuidv7(), sink.id, sink.zone_id, event.id, event.event_type, JSON.stringify(sinkPayload(event))],
       )
     }
-    await client.query(
-      `UPDATE notification_sinks SET cursor_chain_seq = GREATEST(cursor_chain_seq, $2) WHERE id = $1`,
-      [sink.id, nextCursor],
-    )
+    await client.query(`UPDATE notification_sinks SET cursor_chain_seq = GREATEST(cursor_chain_seq, $2) WHERE id = $1`, [
+      sink.id,
+      nextCursor,
+    ])
   })
   return events.length
 }
@@ -184,9 +187,7 @@ async function deliverOne(db: DB, delivery: DeliveryRow, fetchImpl: SinkFetch): 
       : `UPDATE notification_deliveries
          SET available_at = now() + ($4 || ' seconds')::interval, response_status = NULLIF($2, 0), last_error = $3
          WHERE id = $1`,
-    abandoned
-      ? [delivery.id, status, failure]
-      : [delivery.id, status, failure, String(sinkBackoffSeconds(delivery.attempts))],
+    abandoned ? [delivery.id, status, failure] : [delivery.id, status, failure, String(sinkBackoffSeconds(delivery.attempts))],
   )
   await db.query(
     `UPDATE notification_sinks
@@ -200,7 +201,10 @@ async function deliverOne(db: DB, delivery: DeliveryRow, fetchImpl: SinkFetch): 
 // One dispatch pass: enqueue new deliveries from the audit stream, post everything due,
 // and prune settled records past retention. Replicas coordinate through an advisory
 // lock; the claim itself also skips locked rows, so a lock lapse can never double-send.
-export async function runNotificationDispatch(db: DB, fetchImpl: SinkFetch = fetch as unknown as SinkFetch): Promise<{ enqueued: number; delivered: number; failed: number }> {
+export async function runNotificationDispatch(
+  db: DB,
+  fetchImpl: SinkFetch = fetch as unknown as SinkFetch,
+): Promise<{ enqueued: number; delivered: number; failed: number }> {
   const client = await db.connect()
   const totals = { enqueued: 0, delivered: 0, failed: 0 }
   try {

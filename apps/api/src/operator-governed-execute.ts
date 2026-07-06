@@ -108,11 +108,7 @@ type StepApply = { ok: true; result: GovernedStepResult } | { ok: false; failure
 // to exactly the capability's scopes, and invokes the governed control command; the control
 // plane authorizes, executes, and audits it. The produced outputs register under the step
 // id so later steps can bind to them.
-async function applyStep(
-  client: ControlClient,
-  step: GovernedPlanStep,
-  outputs: Map<string, Record<string, unknown>>,
-): Promise<StepApply> {
+async function applyStep(client: ControlClient, step: GovernedPlanStep, outputs: Map<string, Record<string, unknown>>): Promise<StepApply> {
   const capability = CONTROL_CAPABILITIES[step.capability]
   if (!capability) {
     return {

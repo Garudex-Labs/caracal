@@ -160,7 +160,9 @@ async function handle(req: FastifyRequest, reply: FastifyReply, deps: InvokeDeps
       reason: 'auth: ' + describe(err),
       requestId,
     })
-    return reply.code(401).send({ ok: false, error: errorBody('unauthorized', 'the control token is missing, malformed, or failed verification') })
+    return reply
+      .code(401)
+      .send({ ok: false, error: errorBody('unauthorized', 'the control token is missing, malformed, or failed verification') })
   }
 
   if (!(await deps.replay.mark(claims.jti, claims.exp))) {
@@ -174,7 +176,9 @@ async function handle(req: FastifyRequest, reply: FastifyReply, deps: InvokeDeps
       reason: 'replay',
       requestId,
     })
-    return reply.code(401).send({ ok: false, error: errorBody('token_replay', 'this token was already used; mint a fresh token per invoke') })
+    return reply
+      .code(401)
+      .send({ ok: false, error: errorBody('token_replay', 'this token was already used; mint a fresh token per invoke') })
   }
   if (!deps.rate.allow(claims.sub)) {
     await emitDeny({

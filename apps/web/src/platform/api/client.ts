@@ -735,10 +735,9 @@ export const consoleApi = {
         })}`,
       ).then((res) => ({ rows: res.rows, nextCursor: res.nextCursor })),
     counts: (zoneId: string, signal?: AbortSignal): Promise<ApprovalCounts> =>
-      request<ApprovalCounts>(
-        `/v1/zones/${encodeURIComponent(zoneId)}/step-up-challenges/counts`,
-        { signal },
-      ),
+      request<ApprovalCounts>(`/v1/zones/${encodeURIComponent(zoneId)}/step-up-challenges/counts`, {
+        signal,
+      }),
     approve: (zoneId: string, id: string, reason?: string) =>
       request<StepUpDecision>(
         `/v1/zones/${encodeURIComponent(zoneId)}/step-up-challenges/${encodeURIComponent(id)}/approve`,
