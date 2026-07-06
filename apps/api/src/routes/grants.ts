@@ -72,6 +72,13 @@ const ProviderGrantBody = z.object({
   expires_at: z.string().datetime().optional(),
 })
 
+const ProviderGrantListQuery = z.object({
+  provider_id: z.string().min(1).optional(),
+  resource_id: z.string().min(1).optional(),
+  user_id: z.string().min(1).optional(),
+  status: z.string().min(1).optional(),
+})
+
 const ProviderGrantOAuthAuthorizeBody = z.object({
   user_id: z.string().min(1),
   resource_id: z.string().min(1),
@@ -280,6 +287,48 @@ export const grantsRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.code(status).send({ error: result.error })
     }
     return reply.code(201).send(result.row)
+  })
+
+  // Lists stored upstream provider grants (delegated OAuth connections). This is the
+  // read surface behind the provider Connections panel: status and expiry reflect the
+  // brokered upstream tokens, not Caracal authorization grants.
+  fastify.get('/zones/:zoneId/provider-grants', async (req, reply) => {
+    const params = parseParams(ZoneParams, req, reply)
+    if (!params) return
+    const page = parseListPagination(req, reply)
+    if (!page) return
+    const parsed = ProviderGrantListQuery.safeParse(req.query ?? {})
+    if (!parsed.success) return reply.code(400).send({ error: 'invalid_query' })
+    const query = parsed.data
+    const base = { conds: ['pg.zone_id = $1'], values: [params.zoneId] as unknown[] }
+    if (query.provider_id) {
+      base.values.push(query.provider_id)
+      base.conds.push(`pg.provider_id = $${base.values.length}`)
+    }
+    if (query.resource_id) {
+      base.values.push(query.resource_id)
+      base.conds.push(`pg.resource_id = $${base.values.length}`)
+    }
+    if (query.user_id) {
+      base.values.push(query.user_id)
+      base.conds.push(`pg.user_id = $${base.values.length}`)
+    }
+    if (query.status) {
+      base.values.push(query.status)
+      base.conds.push(`pg.status = $${base.values.length}`)
+    }
+    const keyset = appendKeysetCondition(base, page, 'pg.created_at', 'pg.id')
+    const { rows } = await fastify.db.query(
+      `SELECT pg.id, pg.zone_id, pg.user_id, pg.resource_id, pg.provider_id, pg.scopes,
+              pg.status, pg.expires_at, pg.refreshed_at,
+              (pg.refresh_token_ct IS NOT NULL) AS renewable,
+              pg.created_at, pg.updated_at
+       FROM provider_grants pg
+       WHERE ${keyset.conds.join(' AND ')}
+       ORDER BY pg.created_at DESC, pg.id DESC LIMIT ${keyset.limitPlaceholder}`,
+      keyset.values,
+    )
+    return listPage(rows, page.limit)
   })
 
   fastify.post('/zones/:zoneId/provider-grants', async (req, reply) => {

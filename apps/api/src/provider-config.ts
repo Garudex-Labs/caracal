@@ -33,6 +33,9 @@ export interface ProviderConfigField {
 export const PROVIDER_CONFIG_FIELDS: Record<ProviderKind, readonly ProviderConfigField[]> = {
   none: [],
   caracal_mandate: [],
+  // User-consent grants are keyed to a user principal, and workload launches have
+  // none, so the kind carries no runtime-injection switch: STS denies the path
+  // unconditionally.
   oauth2_authorization_code: [
     { key: 'authorization_endpoint', requirement: 'required', note: 'HTTPS endpoint where users approve delegated access' },
     { key: 'token_endpoint', requirement: 'required', note: 'HTTPS endpoint where tokens are issued or refreshed' },
@@ -47,7 +50,6 @@ export const PROVIDER_CONFIG_FIELDS: Record<ProviderKind, readonly ProviderConfi
     { key: 'auth_header', requirement: 'optional' },
     { key: 'auth_scheme', requirement: 'optional' },
     { key: 'forward_caracal_identity', requirement: 'optional' },
-    { key: 'allow_runtime_injection', requirement: 'optional' },
   ],
   oauth2_client_credentials: [
     { key: 'token_endpoint', requirement: 'required', note: 'HTTPS endpoint where tokens are issued' },

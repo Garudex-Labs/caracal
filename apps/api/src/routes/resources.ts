@@ -29,7 +29,7 @@ const ResourceOperation = z.object({
 })
 
 const RESOURCE_SELECT = `id, zone_id, name, identifier, upstream_url, scopes, credential_provider_id, operations, operation_enforcement,
-           created_by, created_via_operator, updated_by, updated_via_operator, created_at, updated_at`
+           created_by, created_via_operator, updated_by, updated_via_operator, created_at, updated_at, archived_at`
 
 const ResourceBodyBase = z.object({
   name: z.string().min(1).max(200).optional(),
@@ -44,6 +44,10 @@ const ResourceBody = ResourceBodyBase.refine((body) => body.name !== undefined |
   message: 'name_or_identifier_required',
 })
 const ResourcePatchBody = ResourceBodyBase.partial()
+
+const ListStatusQuery = z.object({
+  status: z.enum(['active', 'archived']).default('active'),
+})
 
 const DEFAULT_CONTROL_AUDIENCE = 'caracal-control'
 const NONE_PROVIDER_ID_PREFIX = 'provider-none-'
@@ -200,7 +204,13 @@ export const resourcesRoutes: FastifyPluginAsync = async (fastify) => {
     if (!params) return
     const page = parseListPagination(req, reply)
     if (!page) return
-    const base = { conds: ['r.zone_id = $1', 'r.archived_at IS NULL'], values: [params.zoneId] }
+    const search = ListStatusQuery.safeParse(req.query ?? {})
+    if (!search.success) return reply.code(400).send({ error: 'invalid_query' })
+    // Archived resources stay listable for audit: their Gateway route and authorization
+    // are removed at archive time, so exposing the records grants nothing beyond
+    // visibility into past upstreams.
+    const lifecycle = search.data.status === 'archived' ? 'r.archived_at IS NOT NULL' : 'r.archived_at IS NULL'
+    const base = { conds: ['r.zone_id = $1', lifecycle], values: [params.zoneId] }
     if (!isControlResourceOperation(req)) {
       base.values.push(controlAudience())
       base.conds.push(`r.identifier <> $${base.values.length}`)
@@ -211,7 +221,7 @@ export const resourcesRoutes: FastifyPluginAsync = async (fastify) => {
               r.credential_provider_id,
               r.operations, r.operation_enforcement,
               r.created_by, r.created_via_operator, r.updated_by, r.updated_via_operator,
-              r.created_at, r.updated_at
+              r.created_at, r.updated_at, r.archived_at
        FROM resources r
        WHERE ${keyset.conds.join(' AND ')}
        ORDER BY r.created_at DESC, r.id DESC LIMIT ${keyset.limitPlaceholder}`,
@@ -228,7 +238,7 @@ export const resourcesRoutes: FastifyPluginAsync = async (fastify) => {
               r.credential_provider_id,
               r.operations, r.operation_enforcement,
               r.created_by, r.created_via_operator, r.updated_by, r.updated_via_operator,
-              r.created_at, r.updated_at
+              r.created_at, r.updated_at, r.archived_at
        FROM resources r
        WHERE r.id = $1 AND r.zone_id = $2 AND r.archived_at IS NULL`,
       [params.id, params.zoneId],
