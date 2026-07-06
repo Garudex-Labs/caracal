@@ -282,6 +282,23 @@ export const MANAGEMENT_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
   },
 
   {
+    name: 'workload',
+    group: 'admin',
+    summary: 'Manage workload launcher identities and their credential bindings',
+    subcommands: ['list', 'get', 'create', 'patch', 'rotate-secret', 'delete'],
+    requiresZone: true,
+    flags: {
+      create: [{ name: '--name', summary: 'Workload name' }],
+      patch: [
+        { name: '--id', summary: 'Workload ID' },
+        { name: '--name', summary: 'Workload name' },
+        { name: '--bindings', summary: 'JSON array of {env, resource, scopes, optional, on_failure} credential bindings' },
+      ],
+      'rotate-secret': [{ name: '--id', summary: 'Workload ID' }],
+    },
+  },
+
+  {
     name: 'session',
     group: 'admin',
     summary: 'List authority sessions',
@@ -297,11 +314,22 @@ export const MANAGEMENT_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
   },
 
   {
+    name: 'approval',
+    group: 'admin',
+    summary: 'Read step-up approval requests awaiting a human decision',
+    subcommands: ['list'],
+    requiresZone: true,
+  },
+
+  {
     name: 'audit',
     group: 'observability',
     summary: 'Search audit events',
-    subcommands: ['tail'],
+    subcommands: ['tail', 'admin'],
     requiresZone: true,
+    // The admin subcommand reads the admin action log; it is a read despite its verb not
+    // being a conventional read verb, so the scope is pinned explicitly.
+    scopes: { admin: 'read' },
     flags: {
       tail: [
         { name: '--since', summary: 'Start of time window' },
@@ -311,6 +339,7 @@ export const MANAGEMENT_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
         { name: '--request-id', summary: 'Filter by request ID' },
         { name: '--limit', summary: 'Maximum rows to return' },
       ],
+      admin: [{ name: '--limit', summary: 'Maximum rows to return' }],
     },
   },
 

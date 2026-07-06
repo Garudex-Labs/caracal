@@ -334,6 +334,32 @@ const policySetHandler = bySubcommand({
   delete: ({ principal, flags, ctx }) => ctx.admin.policySets.delete(requireZone(principal), mustStr(flags, 'id')),
 })
 
+const workloadHandler = bySubcommand({
+  list: ({ principal, ctx }) => ctx.admin.workloads.list(requireZone(principal)),
+  get: ({ principal, flags, ctx }) => ctx.admin.workloads.get(requireZone(principal), mustStr(flags, 'id')),
+  create: ({ principal, flags, ctx }) => ctx.admin.workloads.create(requireZone(principal), { name: mustStr(flags, 'name') }),
+  patch: ({ principal, flags, ctx }) => {
+    const raw = getStr(flags, 'bindings')
+    let bindings: Record<string, unknown>[] | undefined
+    if (raw) {
+      let parsed: unknown
+      try {
+        parsed = JSON.parse(raw)
+      } catch {
+        invalid('flag "bindings" must be valid JSON')
+      }
+      if (!Array.isArray(parsed)) invalid('flag "bindings" must be a JSON array')
+      bindings = parsed as Record<string, unknown>[]
+    }
+    return ctx.admin.workloads.update(requireZone(principal), mustStr(flags, 'id'), {
+      name: getStr(flags, 'name'),
+      bindings,
+    } as never)
+  },
+  'rotate-secret': ({ principal, flags, ctx }) => ctx.admin.workloads.rotateSecret(requireZone(principal), mustStr(flags, 'id')),
+  delete: ({ principal, flags, ctx }) => ctx.admin.workloads.delete(requireZone(principal), mustStr(flags, 'id')),
+})
+
 const sessionHandler = bySubcommand({
   list: ({ principal, flags, ctx }) =>
     ctx.admin.sessions.list(requireZone(principal), {
@@ -353,6 +379,11 @@ const auditHandler = bySubcommand({
       request_id: getStr(flags, 'request-id'),
       limit: getNum(flags, 'limit'),
     } as never),
+  admin: ({ principal, flags, ctx }) => ctx.admin.adminAudit.list(requireZone(principal), { limit: getNum(flags, 'limit') } as never),
+})
+
+const approvalHandler = bySubcommand({
+  list: ({ principal, ctx }) => ctx.admin.stepUpChallenges.list(requireZone(principal)),
 })
 
 const explainHandler: Handler = async ({ principal, flags, ctx }) =>
@@ -462,6 +493,10 @@ function commandHandler(command: string): Handler | undefined {
       return catalogHandler
     case 'session':
       return sessionHandler
+    case 'workload':
+      return workloadHandler
+    case 'approval':
+      return approvalHandler
     case 'audit':
       return auditHandler
     case 'explain':

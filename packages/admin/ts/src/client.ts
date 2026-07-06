@@ -50,6 +50,8 @@ import type {
   StepUpChallenge,
   StepUpDecision,
   TraverseNode,
+  Workload,
+  WorkloadUpdateInput,
   Zone,
   ZoneDcrStatus,
   ZoneInput,
@@ -399,6 +401,22 @@ export class AdminClient {
       }),
     revoke: (zoneId: string, input: ProviderConnectionRevokeInput) =>
       this.request<ProviderConnection>(`/v1/zones/${zoneId}/provider-connections/revoke`, { method: 'POST', body: input }),
+  }
+
+  // Workloads (launcher identities and their credential bindings for caracal run)
+  workloads = {
+    list: (zoneId: string) => this.listAll<Workload>(`/v1/zones/${zoneId}/workloads`, 'workloads'),
+    get: (zoneId: string, id: string) => this.request<Workload>(`/v1/zones/${zoneId}/workloads/${id}`),
+    // The response carries the one-time plaintext workload secret; it is never retrievable again.
+    create: (zoneId: string, input: { name: string }) =>
+      this.request<Workload & { secret: string }>(`/v1/zones/${zoneId}/workloads`, { method: 'POST', body: input }),
+    update: (zoneId: string, id: string, input: WorkloadUpdateInput) =>
+      this.request<Workload>(`/v1/zones/${zoneId}/workloads/${id}`, { method: 'PUT', body: input }),
+    // Rotates the credential server-side; the response carries the one-time plaintext secret.
+    rotateSecret: (zoneId: string, id: string) =>
+      this.request<Workload & { secret: string }>(`/v1/zones/${zoneId}/workloads/${id}/rotate-secret`, { method: 'POST' }),
+    delete: (zoneId: string, id: string) =>
+      this.request<void>(`/v1/zones/${zoneId}/workloads/${id}`, { method: 'DELETE', expectEmpty: true }),
   }
 
   // Sessions (read; revocation is a side effect of grant.revoke or agent.terminate)

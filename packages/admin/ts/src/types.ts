@@ -367,6 +367,32 @@ export interface GrantQuery {
   limit?: number
 }
 
+export interface WorkloadBinding {
+  env: string
+  resource: string
+  scopes?: string[]
+  optional?: boolean
+  on_failure?: 'warn' | 'error'
+}
+
+export interface Workload {
+  id: string
+  zone_id: string
+  name: string
+  bindings: WorkloadBinding[]
+  created_by: string | null
+  created_via_operator: boolean
+  created_at: string
+  updated_by: string | null
+  updated_via_operator: boolean
+  updated_at: string
+}
+
+export interface WorkloadUpdateInput {
+  name?: string
+  bindings?: WorkloadBinding[]
+}
+
 export interface ProviderConnectionInput {
   subject_id: string
   provider_id: string
