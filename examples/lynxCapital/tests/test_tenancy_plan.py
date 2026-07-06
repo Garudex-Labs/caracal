@@ -203,10 +203,9 @@ def test_generated_grants_document_is_fresh():
 def test_resource_commands_carry_native_operation_authority():
     model = tenancy.load_model()
     provider_ids = {p.identifier: f"cp_{p.id}" for p in model.providers}
-    application_ids = {a.id: f"app_{a.id}" for a in model.applications}
     commands = {
         c["flags"]["identifier"]: c["flags"]
-        for c in tenancy.resource_commands(model, provider_ids, application_ids)
+        for c in tenancy.resource_commands(model, provider_ids)
     }
     rest = commands["resource://payments-meridian"]
     assert rest["operation-enforcement"] == "enforced"

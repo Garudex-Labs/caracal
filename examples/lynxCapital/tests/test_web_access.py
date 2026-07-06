@@ -358,8 +358,7 @@ def test_provision_scripts_exist_and_build_plan():
     provider_ids = {
         c["flags"]["identifier"]: c["flags"]["identifier"] for c in providers
     }
-    application_ids = {a.id: f"app_{a.id}" for a in model.applications}
-    resources = tenancy.resource_commands(model, provider_ids, application_ids)
+    resources = tenancy.resource_commands(model, provider_ids)
     assert {c["flags"]["identifier"] for c in resources} == {
         r.identifier for r in model.resources
     }
