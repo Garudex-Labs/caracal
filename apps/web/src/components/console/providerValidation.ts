@@ -119,6 +119,7 @@ export function validateFieldFormat(key: string, raw: string): string | undefine
   switch (key) {
     case "authorization_endpoint":
     case "token_endpoint":
+    case "revocation_endpoint":
       return isHttpsUrl(value) ? undefined : "Must be an HTTPS URL.";
     case "redirect_uri":
       return isAbsoluteUri(value) ? undefined : "Must be an absolute URI.";

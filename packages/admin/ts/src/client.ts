@@ -33,11 +33,11 @@ import type {
   PolicyValidation,
   PolicyVersion,
   Provider,
-  ProviderGrant,
-  ProviderGrantInput,
-  ProviderGrantOAuthAuthorize,
-  ProviderGrantOAuthAuthorizeInput,
-  ProviderGrantRevokeInput,
+  ProviderConnection,
+  ProviderConnectionAuthorize,
+  ProviderConnectionAuthorizeInput,
+  ProviderConnectionInput,
+  ProviderConnectionRevokeInput,
   ProviderInput,
   ProviderPatchInput,
   Resource,
@@ -390,13 +390,16 @@ export class AdminClient {
     revoke: (zoneId: string, id: string) => this.request<void>(`/v1/zones/${zoneId}/grants/${id}`, { method: 'DELETE', expectEmpty: true }),
   }
 
-  providerGrants = {
-    create: (zoneId: string, input: ProviderGrantInput) =>
-      this.request<ProviderGrant>(`/v1/zones/${zoneId}/provider-grants`, { method: 'POST', body: input }),
-    authorizeOAuth: (zoneId: string, input: ProviderGrantOAuthAuthorizeInput) =>
-      this.request<ProviderGrantOAuthAuthorize>(`/v1/zones/${zoneId}/provider-grants/oauth/authorize`, { method: 'POST', body: input }),
-    revoke: (zoneId: string, input: ProviderGrantRevokeInput) =>
-      this.request<ProviderGrant>(`/v1/zones/${zoneId}/provider-grants/revoke`, { method: 'POST', body: input }),
+  providerConnections = {
+    create: (zoneId: string, input: ProviderConnectionInput) =>
+      this.request<ProviderConnection>(`/v1/zones/${zoneId}/provider-connections`, { method: 'POST', body: input }),
+    authorizeOAuth: (zoneId: string, input: ProviderConnectionAuthorizeInput) =>
+      this.request<ProviderConnectionAuthorize>(`/v1/zones/${zoneId}/provider-connections/oauth/authorize`, {
+        method: 'POST',
+        body: input,
+      }),
+    revoke: (zoneId: string, input: ProviderConnectionRevokeInput) =>
+      this.request<ProviderConnection>(`/v1/zones/${zoneId}/provider-connections/revoke`, { method: 'POST', body: input }),
   }
 
   // Sessions (read; revocation is a side effect of grant.revoke or agent.terminate)

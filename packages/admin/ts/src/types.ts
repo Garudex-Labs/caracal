@@ -331,44 +331,38 @@ export interface GrantQuery {
   limit?: number
 }
 
-export interface ProviderGrantInput {
-  user_id: string
-  resource_id: string
+export interface ProviderConnectionInput {
+  subject_id: string
   provider_id: string
-  scopes: string[]
   access_token: string
   refresh_token?: string
   expires_at?: string
 }
 
-export interface ProviderGrantOAuthAuthorizeInput {
-  user_id: string
-  resource_id: string
+export interface ProviderConnectionAuthorizeInput {
+  subject_id: string
   provider_id: string
-  scopes: string[]
 }
 
-export interface ProviderGrantOAuthAuthorize {
+export interface ProviderConnectionAuthorize {
   authorization_url: string
   state: string
   expires_at: string
 }
 
-export interface ProviderGrantRevokeInput {
-  user_id: string
-  resource_id: string
+export interface ProviderConnectionRevokeInput {
+  subject_id: string
   provider_id: string
 }
 
-export interface ProviderGrant {
+export interface ProviderConnection {
   id: string
   zone_id: string
-  user_id: string
-  resource_id: string
+  subject_id: string
   provider_id: string
-  scopes: string[]
   status: string
   expires_at: string | null
+  upstream_revocation?: 'revoked' | 'unsupported' | 'failed'
   created_at: string
   updated_at: string
 }

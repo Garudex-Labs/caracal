@@ -206,6 +206,7 @@ export interface ProviderDiscovery {
   issuer: string;
   token_endpoint: string;
   authorization_endpoint?: string;
+  revocation_endpoint?: string;
   scopes_supported?: string[];
   token_endpoint_auth_methods_supported?: string[];
 }
