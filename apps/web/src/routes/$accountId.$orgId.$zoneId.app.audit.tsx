@@ -184,6 +184,7 @@ const ADMIN_EXPORT_FIELDS: { id: string; label: string; core?: boolean }[] = [
   { id: "actor_id", label: "Actor ID" },
   { id: "actor_name", label: "Actor name", core: true },
   { id: "actor_scope", label: "Actor scope" },
+  { id: "change_kind", label: "Change kind" },
   { id: "changed_fields", label: "Changed fields" },
   { id: "request_id", label: "Request ID" },
   { id: "chain_seq", label: "Chain sequence" },

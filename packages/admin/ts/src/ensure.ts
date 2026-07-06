@@ -6,11 +6,6 @@
 import type { AdminClient } from './client.js'
 import type { APIKeyProviderConfig, ProviderIdentifier, Resource, ResourceInput, ResourceOperationEnforcement } from './types.js'
 
-// The scope an owning application requests on its resource to bootstrap a governed mint
-// cycle. Declared automatically on every gateway-routed resource so no caller has to know
-// the invariant.
-const LIFECYCLE_SCOPE = 'agent:lifecycle'
-
 function sameStringSet(live: readonly string[] | undefined, desired: readonly string[]): boolean {
   const have = new Set(live ?? [])
   return have.size === desired.length && desired.every((value) => have.has(value))
@@ -103,22 +98,22 @@ export interface EnsureResourceInput {
 // Converges a resource to the given desired fields, creating it when absent and patching
 // it only on drift so a steady state never bumps caches keyed on the resource row. Fields
 // left undefined are not managed: they are excluded from both the drift comparison and the
-// patch, so a reconciler that owns only some fields never clobbers the rest. A
-// gateway-routed resource always also carries agent:lifecycle, the scope its owner's
-// governed transport bootstraps with. Returns the live resource.
+// patch, so a reconciler that owns only some fields never clobbers the rest. Declared
+// scopes are the resource's business vocabulary; the platform-reserved agent:lifecycle
+// bootstrap scope is derived by STS for gateway-routed resources and never stored on the
+// row. Returns the live resource.
 export async function ensureResource(client: AdminClient, zoneId: string, input: EnsureResourceInput): Promise<Resource> {
-  const scopes = input.upstream_url && !input.scopes.includes(LIFECYCLE_SCOPE) ? [...input.scopes, LIFECYCLE_SCOPE] : input.scopes
-  const desired: Partial<ResourceInput> = { scopes }
+  const desired: Partial<ResourceInput> = { scopes: input.scopes }
   if (input.upstream_url !== undefined) desired.upstream_url = input.upstream_url
   if (input.credential_provider_id !== undefined) desired.credential_provider_id = input.credential_provider_id
   if (input.operation_enforcement !== undefined) desired.operation_enforcement = input.operation_enforcement
   const resources = await client.resources.list(zoneId)
   const existing = resources.find((resource) => resource.identifier === input.identifier)
   if (!existing) {
-    return client.resources.create(zoneId, { name: input.name, identifier: input.identifier, ...desired, scopes })
+    return client.resources.create(zoneId, { name: input.name, identifier: input.identifier, ...desired, scopes: input.scopes })
   }
   const drifted =
-    !sameStringSet(existing.scopes, scopes) ||
+    !sameStringSet(existing.scopes, input.scopes) ||
     (desired.upstream_url !== undefined && existing.upstream_url !== desired.upstream_url) ||
     (desired.credential_provider_id !== undefined && existing.credential_provider_id !== desired.credential_provider_id) ||
     (desired.operation_enforcement !== undefined && existing.operation_enforcement !== desired.operation_enforcement)

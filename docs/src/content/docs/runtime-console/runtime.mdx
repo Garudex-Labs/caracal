@@ -37,7 +37,7 @@ workload identity -> binding fetch -> credential mint -> env injection -> child 
 1. Load the workload identity: `CARACAL_WORKLOAD_ID` plus a workload secret from the environment or the default secret file.
 2. Fetch the workload's launch bindings from STS; each binding carries the environment name, resource, scopes, and failure behavior authored in the web console.
 3. Validate secret-file permissions and credential environment names.
-4. Mint a credential for each required binding under only its selected scopes.
+4. Mint a credential for each required binding under only its selected scopes. Binding scopes narrow the policy decision that authorizes the mint; for static provider credentials such as API keys and bearer tokens, the injected value itself carries the upstream's full authority regardless of the scopes selected.
 5. Mint each optional binding and apply its unavailable behavior.
 6. Spawn the child process without `shell: true`, attached to your terminal's stdin, stdout, and stderr.
 7. Wait for the child and exit with its exit code.
