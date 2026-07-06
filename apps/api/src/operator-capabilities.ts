@@ -193,7 +193,7 @@ export const CAPABILITIES: Record<string, Capability> = {
     id: 'defineResource',
     title: 'Define a resource',
     summary:
-      'Describe a protected resource, the scopes it exposes, and its Gateway binding: the upstream URL, the managed Gateway application, and the provider whose credential the Gateway attaches.',
+      'Describe a protected resource, the scopes it exposes, and its Gateway routing: the upstream URL and the provider whose credential the Gateway attaches.',
     domain: 'resource',
     mutating: true,
     args: z
@@ -201,16 +201,14 @@ export const CAPABILITIES: Record<string, Capability> = {
         name: z.string().min(1).max(200),
         scopes: z.array(Scope).min(1).max(64),
         upstream_url: z.string().min(1).max(2048).url(),
-        gateway_application_id: IdRef,
         credential_provider_id: IdRef,
       })
       .strict(),
     argsHint:
-      'name (string), scopes (array of scope strings), upstream_url (string: the upstream API base URL the Gateway forwards to), gateway_application_id (string: the id of an existing managed application the Gateway exchanges as), credential_provider_id (string: the id of an existing provider whose credential the Gateway attaches)',
+      'name (string), scopes (array of scope strings), upstream_url (string: the upstream API base URL the Gateway forwards to), credential_provider_id (string: the id of an existing provider whose credential the Gateway attaches)',
     preview: {
       kind: 'requireLiveThenCreate',
       requires: [
-        { target: 'applications', idArg: 'gateway_application_id', blocked: (id) => `Application ${id} was not found in this zone.` },
         { target: 'providers', idArg: 'credential_provider_id', blocked: (id) => `Provider ${id} was not found in this zone.` },
       ],
       create: (args) =>

@@ -167,10 +167,9 @@ export const CONTROL_CAPABILITIES: Record<string, ControlCapability> = {
       }
     },
   },
-  // A resource is created with its full Gateway binding in one step: the control plane requires
-  // every resource to name the upstream URL it fronts, the managed application the Gateway
-  // exchanges as, and the provider whose credential the Gateway attaches. The resource://<slug>
-  // identifier is derived from the name.
+  // A resource is created with its full Gateway routing in one step: the control plane requires
+  // every resource to name the upstream URL it fronts and the provider whose credential the
+  // Gateway attaches. The resource://<slug> identifier is derived from the name.
   defineResource: {
     scopes: ['control:resource:write'],
     buildInvocation: (args) => ({
@@ -180,7 +179,6 @@ export const CONTROL_CAPABILITIES: Record<string, ControlCapability> = {
         name: asString(args.name),
         scopes: asScopes(args.scopes),
         'upstream-url': asString(args.upstream_url),
-        'gateway-application-id': asString(args.gateway_application_id),
         'credential-provider-id': asString(args.credential_provider_id),
       },
     }),
