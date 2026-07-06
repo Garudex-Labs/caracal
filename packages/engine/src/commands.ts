@@ -202,7 +202,10 @@ export const MANAGEMENT_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
         { name: '--identifier', summary: 'Resource identifier; generated from name when omitted' },
         { name: '--scopes', summary: 'Comma-separated resource scopes' },
         { name: '--upstream-url', summary: 'Upstream URL' },
-        { name: '--gateway-application-id', summary: 'Gateway application for upstream routing' },
+        {
+          name: '--allowed-application-ids',
+          summary: 'Comma-separated application IDs allowed to exchange for this resource; empty leaves it policy-governed',
+        },
         { name: '--credential-provider-id', summary: 'Upstream credential provider ID' },
         { name: '--operations', summary: 'JSON array of {method, path, scope} operations the Gateway authorizes' },
         { name: '--operation-enforcement', summary: 'enforced (deny undeclared operations) or transport_uniform' },
@@ -212,7 +215,10 @@ export const MANAGEMENT_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
         { name: '--name', summary: 'Resource name' },
         { name: '--scopes', summary: 'Comma-separated resource scopes' },
         { name: '--upstream-url', summary: 'Upstream URL' },
-        { name: '--gateway-application-id', summary: 'Gateway application for upstream routing' },
+        {
+          name: '--allowed-application-ids',
+          summary: 'Comma-separated application IDs allowed to exchange for this resource; empty leaves it policy-governed',
+        },
         { name: '--credential-provider-id', summary: 'Upstream credential provider ID' },
         { name: '--operations', summary: 'JSON array of {method, path, scope} operations the Gateway authorizes' },
         { name: '--operation-enforcement', summary: 'enforced (deny undeclared operations) or transport_uniform' },

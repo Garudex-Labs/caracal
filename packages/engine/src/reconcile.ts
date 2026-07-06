@@ -242,8 +242,8 @@ const RESOURCE_ADAPTER: Adapter = {
     if (typeof spec.name === 'string' && live.name !== spec.name) drift.push('name')
     if (Array.isArray(spec.scopes) && !sameSet(live.scopes, spec.scopes)) drift.push('scopes')
     if ('upstream_url' in spec && live.upstream_url !== (spec.upstream_url ?? null)) drift.push('upstream_url')
-    if ('gateway_application_id' in spec && live.gateway_application_id !== (spec.gateway_application_id ?? null))
-      drift.push('gateway_application_id')
+    if ('allowed_application_ids' in spec && !sameSet(live.allowed_application_ids ?? [], spec.allowed_application_ids ?? []))
+      drift.push('allowed_application_ids')
     if ('credential_provider_id' in spec && live.credential_provider_id !== (spec.credential_provider_id ?? null))
       drift.push('credential_provider_id')
     if ('operations' in spec && !sameOperations(live.operations, spec.operations)) drift.push('operations')
@@ -256,7 +256,7 @@ const RESOURCE_ADAPTER: Adapter = {
       identifier: reqStr(spec, 'identifier', 'resource'),
       scopes: Array.isArray(spec.scopes) ? (spec.scopes as string[]) : [],
       upstream_url: 'upstream_url' in spec ? (spec.upstream_url as string | null) : undefined,
-      gateway_application_id: 'gateway_application_id' in spec ? (spec.gateway_application_id as string | null) : undefined,
+      allowed_application_ids: 'allowed_application_ids' in spec ? (spec.allowed_application_ids as string[]) : undefined,
       credential_provider_id: 'credential_provider_id' in spec ? (spec.credential_provider_id as string | null) : undefined,
       operations: 'operations' in spec ? (spec.operations as never) : undefined,
       operation_enforcement: 'operation_enforcement' in spec ? (spec.operation_enforcement as never) : undefined,
@@ -266,7 +266,7 @@ const RESOURCE_ADAPTER: Adapter = {
       name: optStr(spec, 'name'),
       scopes: Array.isArray(spec.scopes) ? (spec.scopes as string[]) : undefined,
       upstream_url: 'upstream_url' in spec ? (spec.upstream_url as string | null) : undefined,
-      gateway_application_id: 'gateway_application_id' in spec ? (spec.gateway_application_id as string | null) : undefined,
+      allowed_application_ids: 'allowed_application_ids' in spec ? (spec.allowed_application_ids as string[]) : undefined,
       credential_provider_id: 'credential_provider_id' in spec ? (spec.credential_provider_id as string | null) : undefined,
       operations: 'operations' in spec ? (spec.operations as never) : undefined,
       operation_enforcement: 'operation_enforcement' in spec ? (spec.operation_enforcement as never) : undefined,
