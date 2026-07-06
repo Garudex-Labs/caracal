@@ -613,7 +613,6 @@ CREATE TABLE public.policies (
     zone_id text NOT NULL,
     name text NOT NULL,
     description text,
-    owner_type text DEFAULT 'customer'::text NOT NULL,
     archived_at timestamp with time zone,
     created_by text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
@@ -632,7 +631,6 @@ CREATE TABLE public.policy_set_bindings (
     zone_id text NOT NULL,
     policy_set_id text NOT NULL,
     active_version_id text,
-    shadow_version_id text,
     updated_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
@@ -664,8 +662,6 @@ CREATE TABLE public.policy_sets (
     zone_id text NOT NULL,
     name text NOT NULL,
     description text,
-    scope_type text DEFAULT 'zone'::text NOT NULL,
-    owner_type text DEFAULT 'customer'::text NOT NULL,
     archived_at timestamp with time zone,
     created_by text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
@@ -1772,6 +1768,13 @@ CREATE INDEX policy_sets_zone_keyset_idx ON public.policy_sets USING btree (zone
 
 
 --
+-- Name: policy_set_bindings_one_active_per_zone; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX policy_set_bindings_one_active_per_zone ON public.policy_set_bindings USING btree (zone_id) WHERE (active_version_id IS NOT NULL);
+
+
+--
 -- Name: policy_versions_policy_id_created_at_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2350,14 +2353,6 @@ ALTER TABLE ONLY public.policy_set_bindings
 
 ALTER TABLE ONLY public.policy_set_bindings
     ADD CONSTRAINT policy_set_bindings_policy_set_id_fkey FOREIGN KEY (policy_set_id) REFERENCES public.policy_sets(id);
-
-
---
--- Name: policy_set_bindings policy_set_bindings_shadow_version_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.policy_set_bindings
-    ADD CONSTRAINT policy_set_bindings_shadow_version_id_fkey FOREIGN KEY (shadow_version_id) REFERENCES public.policy_set_versions(id);
 
 
 --
