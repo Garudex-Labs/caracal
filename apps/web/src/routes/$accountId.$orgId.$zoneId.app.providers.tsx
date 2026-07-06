@@ -38,6 +38,7 @@ import {
   useAuthorizeProviderGrant,
   useCreateProvider,
   useDeleteProvider,
+  useDiscoverProvider,
   useProviderGrants,
   useProviders,
   useResources,
@@ -73,6 +74,7 @@ const KIND_SHORT: Record<ProviderKind, string> = {
   oauth2_client_credentials: "OAuth · client creds",
   api_key: "API key",
   bearer_token: "Bearer",
+  http_basic: "Basic",
 };
 
 function ProvidersRoute() {
@@ -124,6 +126,7 @@ function routingSummary(provider: Provider): string {
   }
   if (typeof config.header_name === "string") return `header ${config.header_name}`;
   if (typeof config.query_param_name === "string") return `query ${config.query_param_name}`;
+  if (typeof config.username === "string") return `user ${config.username}`;
   if (Array.isArray(config.allowed_token_hosts) && config.allowed_token_hosts.length > 0) {
     return String(config.allowed_token_hosts[0]);
   }
@@ -137,6 +140,7 @@ function ProvidersPage({ zoneId, zoneName }: { zoneId: string; zoneName: string 
   const createProvider = useCreateProvider(zoneId);
   const updateProvider = useUpdateProvider(zoneId);
   const deleteProvider = useDeleteProvider(zoneId);
+  const discoverProvider = useDiscoverProvider(zoneId);
 
   const [createOpen, setCreateOpen] = useState(false);
   useCreateDeepLink({
@@ -299,6 +303,7 @@ function ProvidersPage({ zoneId, zoneName }: { zoneId: string; zoneName: string 
         mode="create"
         busy={createProvider.isPending}
         onClose={() => setCreateOpen(false)}
+        onDiscover={(issuer) => discoverProvider.mutateAsync(issuer)}
         onSubmit={async (input): Promise<ProviderTestResult | undefined> => {
           try {
             const created = await createProvider.mutateAsync(input);
@@ -338,6 +343,7 @@ function ProvidersPage({ zoneId, zoneName }: { zoneId: string; zoneName: string 
         provider={editTarget ?? undefined}
         busy={updateProvider.isPending}
         onClose={() => setEditTarget(null)}
+        onDiscover={(issuer) => discoverProvider.mutateAsync(issuer)}
         onSubmit={async (input: ProviderInput): Promise<ProviderTestResult | undefined> => {
           if (!editTarget) return;
           const kindUnchanged = input.kind === editTarget.kind;

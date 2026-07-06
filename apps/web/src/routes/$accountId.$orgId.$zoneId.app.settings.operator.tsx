@@ -467,7 +467,7 @@ function EndpointField({ value, onChange }: { value: string; onChange: (value: s
 // OpenAI-compatible endpoint, a key, and the model ids the endpoint serves. The slug defaults
 // from the label. Editing locks the slug and omits the key, which is changed through rotate. The
 // provider and resource details Caracal sets automatically (api-key auth, an Authorization Bearer
-// header, the llm:invoke and agent:lifecycle scopes, and the gateway binding) are explained
+// header, the llm:invoke and agent:lifecycle scopes, and the caller allowlist) are explained
 // rather than asked for.
 function ProviderFormModal({
   open,
@@ -778,8 +778,8 @@ function ProviderFormModal({
           The endpoint must speak the OpenAI <span className="font-mono">/chat/completions</span>{" "}
           format - OpenAI and Azure work directly; for Claude, Gemini, or others, point this at an
           OpenAI-compatible proxy such as LiteLLM or OpenRouter. Caracal seals the key into the
-          caracal.sys system zone, sets the scopes and gateway binding, and routes the Operator only
-          through the governed gateway.
+          caracal.sys system zone, sets the scopes and caller allowlist, and routes the Operator
+          only through the governed gateway.
         </div>
 
         {error ? <p className="text-xs text-destructive">{error}</p> : null}
