@@ -297,12 +297,8 @@ def _caracal_steps() -> list[dict[str, object]]:
                     "label": "Views",
                     "value": f"{len(model.resources)} resources, identifier resource://<app>-<provider>",
                 },
-                {
-                    "label": "Caller allowlist",
-                    "value": "each view admits exactly one application",
-                },
             ],
-            "why": "Every view admits exactly one application and carries only the scopes that boundary may hold.",
+            "why": "Each view carries only the scopes its boundary may hold; the policy set admits exactly one application per view.",
         },
         {
             "step": "05",
