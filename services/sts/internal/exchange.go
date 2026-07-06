@@ -545,7 +545,7 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		// an approval bound to this exact request. Issuance is idempotent per binding,
 		// and a hold an approver has already granted releases the mint right here even
 		// when the retry did not carry the challenge id.
-		hold, created, holdErr := s.ensureApproval(ctx, zoneID, req.SessionID, principalID, app.ID, resolveApproval(gateDecls), req.Resources, scopes)
+		hold, created, holdErr := s.ensureApproval(ctx, zoneID, req.SessionID, req.AgentSessionID, req.DelegationEdgeID, principalID, app.ID, resolveApproval(gateDecls), req.Resources, scopes)
 		if holdErr != nil {
 			return nil, nil, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "challenge creation failed")
 		}
@@ -1482,7 +1482,9 @@ func (s *Server) emitStepUpAudit(requestID, zoneID, eventType, decision string, 
 }
 
 // stepUpAuditMeta is the challenge context every step-up audit event and step-up deny
-// carries: the authorization facts of the hold, never request business context.
+// carries: the authorization facts of the hold, never request business context. The
+// expiry rides along so a downstream consumer (a notification sink, an export) can state
+// the response window without a lookup against a row that may already be swept.
 func stepUpAuditMeta(c *StepUpChallengePG) map[string]any {
 	meta := map[string]any{
 		"challenge_id":   c.ID,
@@ -1490,6 +1492,7 @@ func stepUpAuditMeta(c *StepUpChallengePG) map[string]any {
 		"approver_class": c.ApproverClass,
 		"privacy_mode":   c.PrivacyMode,
 		"binding":        hex.EncodeToString(c.ResourceSetHash),
+		"expires_at":     c.ExpiresAt.UTC().Format(time.RFC3339),
 	}
 	if c.ApplicationID != "" {
 		meta["application_id"] = c.ApplicationID

@@ -11,8 +11,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/google/uuid"
-
 	sharederr "github.com/garudex-labs/caracal/packages/core/go/errors"
 )
 
@@ -50,16 +48,11 @@ func (s *Server) handleRunCredential(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	requestID := r.Header.Get("X-Request-Id")
-	if requestID == "" {
-		id, err := uuid.NewV7()
-		if err != nil {
-			s.log.Error().Err(err).Msg("request id generation failed")
-			writeError(w, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "generate request id"))
-			return
-		}
-		requestID = id.String()
+	requestID, ok := s.runRequestID(w, r)
+	if !ok {
+		return
 	}
+	launchID := launchIDFromHeader(r)
 
 	ctx := r.Context()
 	if rateErr := s.checkRateLimit(ctx, "run-credential", workloadID, "mint"); rateErr != nil {
@@ -67,13 +60,15 @@ func (s *Server) handleRunCredential(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	workload := s.authenticateRunWorkload(ctx, workloadID, secret)
+	workload := s.requireRunAuth(w, r, requestID, launchID, workloadID, secret)
 	if workload == nil {
-		writeError(w, http.StatusUnauthorized, sharederr.New(sharederr.AccessDenied, "invalid workload credentials"))
 		return
 	}
 	zoneID := workload.ZoneID
 	meta := workloadAuditMeta(workload)
+	if launchID != "" {
+		meta["launch_id"] = launchID
+	}
 
 	now, timeErr := s.db.CurrentTime(ctx)
 	if timeErr != nil {
@@ -269,7 +264,7 @@ func (s *Server) handleRunCredential(w http.ResponseWriter, r *http.Request) {
 			// hold an approver has already granted releases the mint right here even
 			// when the retry did not carry the challenge id. Workload holds bind to the
 			// workload principal with no session.
-			hold, created, holdErr := s.ensureApproval(ctx, zoneID, "", workload.ID, "", resolveApproval(gateDecls), boundResources, scopes)
+			hold, created, holdErr := s.ensureApproval(ctx, zoneID, "", "", "", workload.ID, "", resolveApproval(gateDecls), boundResources, scopes)
 			if holdErr != nil {
 				writeError(w, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "challenge creation failed"))
 				return

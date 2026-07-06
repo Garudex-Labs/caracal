@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/google/uuid"
+
 	sharederr "github.com/garudex-labs/caracal/packages/core/go/errors"
 )
 
@@ -31,15 +33,86 @@ type RunManifestResponse struct {
 	Bindings   []RunBinding `json:"bindings"`
 }
 
-// authenticateRunWorkload resolves a workload that proves possession of its secret.
-// Every failure returns nil so callers report one opaque error: an unknown id and a
-// wrong secret are indistinguishable, avoiding an enumeration oracle.
-func (s *Server) authenticateRunWorkload(ctx context.Context, workloadID, secret string) *Workload {
+// authenticateRunWorkload resolves a workload that proves possession of its secret. The
+// authenticated result is nil unless verification succeeds; a workload that exists but
+// fails verification is still returned so the failure can be audited in its zone. A
+// dummy argon2id derivation runs for unknown ids so both failure paths cost one
+// verification, keeping the caller's opaque error free of a timing oracle.
+func (s *Server) authenticateRunWorkload(ctx context.Context, workloadID, secret string) (authenticated, known *Workload) {
 	workload, err := s.db.GetWorkloadByID(ctx, workloadID)
-	if err != nil || workload.SecretHash == "" || !verifyClientSecret(workload.SecretHash, secret) {
-		return nil
+	if err != nil || workload.SecretHash == "" {
+		verifyArgon2id("", secret)
+		return nil, nil
 	}
-	return workload
+	if !verifyClientSecret(workload.SecretHash, secret) {
+		return nil, workload
+	}
+	return workload, workload
+}
+
+// launchIDFromHeader returns the client-generated launch correlation id when it is a
+// well-formed UUID; anything else is dropped so audit metadata never carries free text.
+func launchIDFromHeader(r *http.Request) string {
+	id := strings.TrimSpace(r.Header.Get("X-Caracal-Launch-Id"))
+	if id == "" {
+		return ""
+	}
+	if _, err := uuid.Parse(id); err != nil {
+		return ""
+	}
+	return id
+}
+
+// emitRunAudit records a workload launch decision under the run_launch event type so
+// manifest fetches and workload authentication failures are visible in the zone ledger.
+func (s *Server) emitRunAudit(requestID, zoneID, decision, status string, meta map[string]any) *sharederr.CaracalError {
+	event, err := buildAuditEvent(requestID, zoneID, decision, status, &OPAResult{}, meta)
+	if err != nil {
+		s.log.Error().Err(err).Str("request_id", requestID).Str("zone_id", zoneID).Msg("audit event id generation failed")
+		return sharederr.New(sharederr.Internal, "audit event creation failed")
+	}
+	event.EventType = "run_launch"
+	s.auditBuffer.Emit(event)
+	return nil
+}
+
+// requireRunAuth authenticates a workload for a run endpoint, auditing a failed secret
+// verification in the workload's zone and logging unknown ids, which cannot be zone
+// attributed. Both failures answer with the same opaque 401.
+func (s *Server) requireRunAuth(w http.ResponseWriter, r *http.Request, requestID, launchID, workloadID, secret string) *Workload {
+	workload, known := s.authenticateRunWorkload(r.Context(), workloadID, secret)
+	if workload != nil {
+		return workload
+	}
+	if known != nil {
+		meta := workloadAuditMeta(known)
+		if launchID != "" {
+			meta["launch_id"] = launchID
+		}
+		if auditErr := s.emitRunAudit(requestID, known.ZoneID, "deny", "workload_auth_failed", meta); auditErr != nil {
+			writeError(w, http.StatusInternalServerError, auditErr)
+			return nil
+		}
+	} else {
+		s.log.Warn().Str("workload_id", workloadID).Str("request_id", requestID).Msg("run authentication failed for unknown workload id")
+	}
+	writeError(w, http.StatusUnauthorized, sharederr.New(sharederr.AccessDenied, "invalid workload credentials"))
+	return nil
+}
+
+// runRequestID returns the caller-provided request id or a generated UUIDv7.
+func (s *Server) runRequestID(w http.ResponseWriter, r *http.Request) (string, bool) {
+	requestID := r.Header.Get("X-Request-Id")
+	if requestID == "" {
+		id, err := uuid.NewV7()
+		if err != nil {
+			s.log.Error().Err(err).Msg("request id generation failed")
+			writeError(w, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "generate request id"))
+			return "", false
+		}
+		requestID = id.String()
+	}
+	return requestID, true
 }
 
 // runBindings decodes a workload's stored binding list.
@@ -68,15 +141,20 @@ func (s *Server) handleRunManifest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	requestID, ok := s.runRequestID(w, r)
+	if !ok {
+		return
+	}
+	launchID := launchIDFromHeader(r)
+
 	ctx := r.Context()
 	if rateErr := s.checkRateLimit(ctx, "run-manifest", workloadID, "fetch"); rateErr != nil {
 		writeError(w, http.StatusTooManyRequests, rateErr)
 		return
 	}
 
-	workload := s.authenticateRunWorkload(ctx, workloadID, secret)
+	workload := s.requireRunAuth(w, r, requestID, launchID, workloadID, secret)
 	if workload == nil {
-		writeError(w, http.StatusUnauthorized, sharederr.New(sharederr.AccessDenied, "invalid workload credentials"))
 		return
 	}
 
@@ -89,6 +167,16 @@ func (s *Server) handleRunManifest(w http.ResponseWriter, r *http.Request) {
 	if len(bindings) == 0 {
 		writeError(w, http.StatusNotFound, sharederr.New(sharederr.ResourceNotFound,
 			"no credential bindings configured; define them for this workload on the Launcher page in the Caracal web console"))
+		return
+	}
+
+	meta := workloadAuditMeta(workload)
+	meta["binding_count"] = len(bindings)
+	if launchID != "" {
+		meta["launch_id"] = launchID
+	}
+	if auditErr := s.emitRunAudit(requestID, workload.ZoneID, "allow", "complete", meta); auditErr != nil {
+		writeError(w, http.StatusInternalServerError, auditErr)
 		return
 	}
 

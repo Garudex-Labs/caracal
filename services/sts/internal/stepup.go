@@ -234,8 +234,10 @@ func challengeLifecycleState(c *StepUpChallengePG, now time.Time) string {
 // purged, then a single live row per (zone, principal, session, request hash) is either
 // created or returned, so duplicate mints share one challenge, a rejection stays
 // authoritative until it expires, and a decided hold is found again by the retry that
-// consumes it. The second return reports whether a new hold was created.
-func (s *Server) ensureApproval(ctx context.Context, zoneID, sessionID, principalID, applicationID string, approval resolvedApproval, resources, scopes []string) (*StepUpChallengePG, bool, error) {
+// consumes it. Agent lineage rides in the hold's metadata so an approver can trace the
+// requesting agent run before deciding. The second return reports whether a new hold was
+// created.
+func (s *Server) ensureApproval(ctx context.Context, zoneID, sessionID, agentSessionID, delegationEdgeID, principalID, applicationID string, approval resolvedApproval, resources, scopes []string) (*StepUpChallengePG, bool, error) {
 	id, err := uuid.NewV7()
 	if err != nil {
 		return nil, false, err
@@ -244,10 +246,17 @@ func (s *Server) ensureApproval(ctx context.Context, zoneID, sessionID, principa
 	if err != nil {
 		return nil, false, err
 	}
-	metadata, _ := json.Marshal(map[string]any{
+	meta := map[string]any{
 		"requested_scopes": scopes,
 		"resources":        resources,
-	})
+	}
+	if agentSessionID != "" {
+		meta["agent_session_id"] = agentSessionID
+	}
+	if delegationEdgeID != "" {
+		meta["delegation_edge_id"] = delegationEdgeID
+	}
+	metadata, _ := json.Marshal(meta)
 	return s.db.GetOrCreateApprovalChallenge(ctx, &StepUpChallengePG{
 		ID:              id.String(),
 		ZoneID:          zoneID,
