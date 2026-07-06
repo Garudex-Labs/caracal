@@ -265,6 +265,26 @@ func TestExchangeDenyTaxonomy(t *testing.T) {
 		}
 	})
 
+	t.Run("application outside resource allowlist is denied", func(t *testing.T) {
+		db := exchangeFlowDB(t)
+		db.resource.AllowedApplications = []string{"app2"}
+		srv := exchangeFlowServer(t, db, runCredentialAllowPolicy)
+		_, _, code, apiErr := srv.exchange(context.Background(), baseExchangeRequest(), "req-1")
+		if code != http.StatusForbidden || apiErr == nil || apiErr.Code != sharederr.AccessDenied {
+			t.Fatalf("code=%d err=%#v", code, apiErr)
+		}
+	})
+
+	t.Run("application inside resource allowlist mints", func(t *testing.T) {
+		db := exchangeFlowDB(t)
+		db.resource.AllowedApplications = []string{"app2", "app1"}
+		srv := exchangeFlowServer(t, db, runCredentialAllowPolicy)
+		resp, _, _, apiErr := srv.exchange(context.Background(), baseExchangeRequest(), "req-1")
+		if apiErr != nil || resp == nil {
+			t.Fatalf("allowlisted application must mint, err=%#v", apiErr)
+		}
+	})
+
 	t.Run("rate limited resource is skipped", func(t *testing.T) {
 		srv := exchangeFlowServer(t, exchangeFlowDB(t), runCredentialAllowPolicy)
 		srv.redis = &fakeSTSRedis{failures: rateLimitMax}

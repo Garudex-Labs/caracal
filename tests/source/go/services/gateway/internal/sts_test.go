@@ -77,7 +77,7 @@ func TestSTSClientSignsGatewayExchange(t *testing.T) {
 	defer srv.Close()
 
 	client := newSTSClient(srv.URL, time.Second, key)
-	out := client.Exchange(context.Background(), "subject", binding{ZoneID: "zone", ApplicationID: "app"}, "resource://api", "POST", "/api/initiate_payment", "req-123")
+	out := client.Exchange(context.Background(), "subject", "zone", "app", "resource://api", "POST", "/api/initiate_payment", "req-123")
 	if out.ClientErr != nil || out.Result == nil {
 		t.Fatalf("expected signed exchange success, got %#v", out)
 	}

@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/garudex-labs/caracal/packages/core/go/audit"
-	"github.com/jackc/pgx/v5"
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 )
@@ -46,21 +45,6 @@ func (f *fakeGatewayRedis) XReadGroup(ctx context.Context, _, _, _ string, _ int
 	return nil, ctx.Err()
 }
 
-// revisionPool answers every binding query with a stable revision row so
-// ReloadIfChanged reports no change.
-type revisionPool struct{}
-
-func (revisionPool) Query(_ context.Context, _ string, _ ...any) (pgx.Rows, error) {
-	return rowValues([]any{int64(0)}), nil
-}
-
-// errBindingPool fails every query to simulate an unreachable Postgres.
-type errBindingPool struct{ err error }
-
-func (p errBindingPool) Query(_ context.Context, _ string, _ ...any) (pgx.Rows, error) {
-	return nil, p.err
-}
-
 func newTestAuditClient(t *testing.T, dir string) *audit.Client {
 	t.Helper()
 	client, err := audit.NewClient(&fakeGatewayRedis{}, audit.ClientConfig{ReplayDir: dir, Logger: zerolog.Nop()})
@@ -85,7 +69,6 @@ func newGatewayTestServer(t *testing.T) *Server {
 		jwks:        newJWKSCache("http://127.0.0.1:1", time.Second, zerolog.Nop()),
 		guard:       newUpstreamGuard(nil),
 		tracker:     tracker,
-		bindings:    newTestBindingStore(revisionPool{}),
 		redis:       &fakeGatewayRedis{},
 		audit:       newTestAuditClient(t, t.TempDir()),
 		revocations: revocations,
@@ -109,18 +92,6 @@ func readyReason(t *testing.T, s *Server) (int, string) {
 
 func TestHandleReadyReportsEachDependencyFailure(t *testing.T) {
 	s := newGatewayTestServer(t)
-	s.bindings = nil
-	if _, reason := readyReason(t, s); reason != "bindings_unavailable" {
-		t.Fatalf("reason = %q", reason)
-	}
-
-	s = newGatewayTestServer(t)
-	s.bindings = newTestBindingStore(errBindingPool{err: errors.New("pg down")})
-	if _, reason := readyReason(t, s); reason != "postgres_unreachable" {
-		t.Fatalf("reason = %q", reason)
-	}
-
-	s = newGatewayTestServer(t)
 	s.redis = &fakeGatewayRedis{pingErr: errors.New("redis down")}
 	if _, reason := readyReason(t, s); reason != "redis_unreachable" {
 		t.Fatalf("reason = %q", reason)
