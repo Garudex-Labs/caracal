@@ -118,10 +118,7 @@ function agentLineage(challenge: StepUpChallenge): { agentSession?: string; edge
 
 function ApprovalsPage({ zoneId }: { zoneId: string }) {
   const [state, setState] = useState<string>("all");
-  const feed = useApprovalsFeed(
-    zoneId,
-    state === "all" ? {} : { state: state as StepUpState },
-  );
+  const feed = useApprovalsFeed(zoneId, state === "all" ? {} : { state: state as StepUpState });
   const counts = useApprovalCounts(zoneId);
   const rows = useMemo(() => (feed.data?.pages ?? []).flatMap((page) => page.rows), [feed.data]);
   const now = Date.now();
@@ -261,8 +258,8 @@ function ApprovalFilterBar({
       <p className="text-[11px] text-muted-foreground sm:col-span-2">
         States derive from the same rule the token service enforces: an approved hold past its
         window reads as <span className="font-medium">expired</span>, and a consumed hold already
-        released its token. Settled holds age out of this list after a day; the zone audit
-        stream keeps the permanent record of every decision.
+        released its token. Settled holds age out of this list after a day; the zone audit stream
+        keeps the permanent record of every decision.
       </p>
     </FeedToolbar>
   );

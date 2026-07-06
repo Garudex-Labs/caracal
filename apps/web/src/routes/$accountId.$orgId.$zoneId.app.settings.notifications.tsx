@@ -82,9 +82,11 @@ function NotificationsPage() {
   const toast = useToast();
 
   const [formOpen, setFormOpen] = useState(false);
-  const [revealed, setRevealed] = useState<{ name: string; secret: string; rotated: boolean } | null>(
-    null,
-  );
+  const [revealed, setRevealed] = useState<{
+    name: string;
+    secret: string;
+    rotated: boolean;
+  } | null>(null);
   const [rotating, setRotating] = useState<NotificationSink | null>(null);
   const [deleting, setDeleting] = useState<NotificationSink | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -160,8 +162,8 @@ function NotificationsPage() {
           </li>
           <li>
             Any 2xx response marks the event delivered. Anything else retries with exponential
-            backoff for up to 8 attempts, then the delivery is abandoned. Each event is delivered
-            at least once per sink; use the delivery id in{" "}
+            backoff for up to 8 attempts, then the delivery is abandoned. Each event is delivered at
+            least once per sink; use the delivery id in{" "}
             <code className="font-mono text-xs">X-Caracal-Delivery</code> to deduplicate.
           </li>
           <li>
@@ -296,8 +298,12 @@ function SinkRow({
   );
 }
 
-function deliveryStatus(d: SinkDelivery): { label: string; tone: "success" | "warning" | "danger" } {
-  if (d.delivered_at) return { label: d.response_status ? `${d.response_status}` : "delivered", tone: "success" };
+function deliveryStatus(d: SinkDelivery): {
+  label: string;
+  tone: "success" | "warning" | "danger";
+} {
+  if (d.delivered_at)
+    return { label: d.response_status ? `${d.response_status}` : "delivered", tone: "success" };
   if (d.abandoned_at) return { label: "abandoned", tone: "danger" };
   return { label: `retrying · attempt ${d.attempts}`, tone: "warning" };
 }
@@ -451,7 +457,9 @@ function SecretRevealModal({
     <Modal
       open={revealed !== null}
       onClose={onClose}
-      title={revealed?.rotated ? "Store the new signing secret now" : "Store the signing secret now"}
+      title={
+        revealed?.rotated ? "Store the new signing secret now" : "Store the signing secret now"
+      }
       description="This secret is shown once and cannot be retrieved later. The receiving endpoint uses it to verify the X-Caracal-Signature header."
       footer={<Button onClick={onClose}>Done</Button>}
     >

@@ -36,9 +36,7 @@ import type { Session, SessionQuery } from "@/platform/api/types";
 
 export const Route = createFileRoute("/$accountId/$orgId/$zoneId/app/sessions")({
   component: SessionsRoute,
-  validateSearch: (
-    search: Record<string, unknown>,
-  ): { subject?: string; focus?: string } => ({
+  validateSearch: (search: Record<string, unknown>): { subject?: string; focus?: string } => ({
     subject: typeof search.subject === "string" ? search.subject : undefined,
     focus: typeof search.focus === "string" ? search.focus : undefined,
   }),
