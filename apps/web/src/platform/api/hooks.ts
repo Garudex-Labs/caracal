@@ -760,6 +760,12 @@ export function useTestProvider(zoneId: string | null) {
   });
 }
 
+export function useDiscoverProvider(zoneId: string | null) {
+  return useMutation({
+    mutationFn: (issuer: string) => consoleApi.providers.discover(zoneId as string, issuer),
+  });
+}
+
 export function useDeleteProvider(zoneId: string | null) {
   const qc = useQueryClient();
   return useMutation({

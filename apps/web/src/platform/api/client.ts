@@ -55,6 +55,7 @@ import type {
   ProviderGrantAuthorizeResult,
   ProviderGrantListQuery,
   ProviderGrantRevokeInput,
+  ProviderDiscovery,
   ProviderInput,
   ProviderPatchInput,
   ProviderTestResult,
@@ -592,6 +593,11 @@ export const consoleApi = {
         `/v1/zones/${encodeURIComponent(zoneId)}/providers/${encodeURIComponent(id)}/test`,
         { method: "POST", body: JSON.stringify({}) },
       ),
+    discover: (zoneId: string, issuer: string) =>
+      request<ProviderDiscovery>(`/v1/zones/${encodeURIComponent(zoneId)}/providers/discovery`, {
+        method: "POST",
+        body: JSON.stringify({ issuer }),
+      }),
   },
 
   policies: {

@@ -116,7 +116,7 @@ export interface Resource {
   name: string;
   identifier: string;
   upstream_url: string | null;
-  gateway_application_id: string | null;
+  allowed_application_ids: string[];
   scopes: string[];
   credential_provider_id: string | null;
   operations: ResourceOperation[];
@@ -135,7 +135,7 @@ export interface ResourceInput {
   upstream_url?: string | null;
   scopes: string[];
   credential_provider_id?: string | null;
-  gateway_application_id?: string | null;
+  allowed_application_ids?: string[];
   operations?: ResourceOperation[];
   operation_enforcement?: ResourceOperationEnforcement;
 }
@@ -148,7 +148,8 @@ export type ProviderKind =
   | "oauth2_authorization_code"
   | "oauth2_client_credentials"
   | "api_key"
-  | "bearer_token";
+  | "bearer_token"
+  | "http_basic";
 
 export const PROVIDER_KIND_LABEL: Record<ProviderKind, string> = {
   none: "None",
@@ -157,9 +158,11 @@ export const PROVIDER_KIND_LABEL: Record<ProviderKind, string> = {
   oauth2_client_credentials: "OAuth 2.0 (client creds)",
   api_key: "API key",
   bearer_token: "Bearer token",
+  http_basic: "HTTP Basic",
 };
 
-export type ProviderSecretConfigKey = "client_secret" | "private_key" | "api_key" | "bearer_token";
+export type ProviderSecretConfigKey =
+  "client_secret" | "private_key" | "api_key" | "bearer_token" | "password";
 
 export interface Provider {
   id: string;
@@ -197,6 +200,14 @@ export interface ProviderTestResult {
   status: "ok" | "auth_failed" | "unreachable" | "endpoint_error" | "config_error";
   detail: string;
   checked_at: string;
+}
+
+export interface ProviderDiscovery {
+  issuer: string;
+  token_endpoint: string;
+  authorization_endpoint?: string;
+  scopes_supported?: string[];
+  token_endpoint_auth_methods_supported?: string[];
 }
 
 export interface Policy {
