@@ -110,9 +110,8 @@ describe('Console focus ring treatment', () => {
     const fieldRing = 'focus:border-ring focus:ring-2 focus:ring-ring/25'
     const method = tagOf(html, /<input[^>]*aria-label="Method"[^>]*>/)
     const path = tagOf(html, /<input[^>]*value="\/v1\/nodes"[^>]*>/)
-    const scope = (html.match(/<select[^>]*>/g) ?? []).find((tag) => tag.includes('font-mono'))
-    expect(scope).toBeDefined()
-    for (const control of [method, path, scope!]) {
+    const scope = tagOf(html, /<input[^>]*aria-label="Scope"[^>]*>/)
+    for (const control of [method, path, scope]) {
       expect(control).toContain('outline-none')
       expect(control).toContain(fieldRing)
     }
