@@ -99,6 +99,17 @@ describe('trusted web origins', () => {
   })
 })
 
+describe('release version', () => {
+  it('reports the injected stack version', () => {
+    reset({ CARACAL_VERSION: 'v2026.07.03-rc.1' })
+    expect(loadConfig().version).toBe('v2026.07.03-rc.1')
+  })
+
+  it('falls back to dev for local source runs', () => {
+    expect(loadConfig().version).toBe('dev')
+  })
+})
+
 describe('auto migration gating', () => {
   it('is on for local development', () => {
     expect(loadConfig().autoProvisionDatabase).toBe(true)

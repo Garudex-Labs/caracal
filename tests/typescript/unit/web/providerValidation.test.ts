@@ -10,18 +10,27 @@ import {
   parseParams,
   RESERVED_TOKEN_PARAMS,
   serializeParams,
+  stripIdentifierPrefix,
   validateFieldFormat,
   validateIdentifier,
 } from '../../../../apps/web/src/components/console/providerValidation.ts'
 
 describe('validateIdentifier', () => {
-  it('accepts an empty identifier (auto-generated) and a valid slug', () => {
+  it('accepts an empty slug (auto-generated) and a valid slug', () => {
     expect(validateIdentifier('')).toBeUndefined()
-    expect(validateIdentifier('provider://hooli-oidc')).toBeUndefined()
+    expect(validateIdentifier('hooli-oidc')).toBeUndefined()
   })
-  it('rejects a malformed identifier', () => {
-    expect(validateIdentifier('hooli')).toBeDefined()
-    expect(validateIdentifier('provider://Hooli_OIDC')).toBeDefined()
+  it('rejects values that are not a lowercase slug', () => {
+    expect(validateIdentifier('provider://hooli-oidc')).toBeDefined()
+    expect(validateIdentifier('Hooli_OIDC')).toBeDefined()
+    expect(validateIdentifier('-hooli')).toBeDefined()
+  })
+})
+
+describe('stripIdentifierPrefix', () => {
+  it('removes the locked namespace from pasted full identifiers', () => {
+    expect(stripIdentifierPrefix('provider://hooli-oidc')).toBe('hooli-oidc')
+    expect(stripIdentifierPrefix('hooli-oidc')).toBe('hooli-oidc')
   })
 })
 

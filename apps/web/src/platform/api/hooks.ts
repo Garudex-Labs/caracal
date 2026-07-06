@@ -11,6 +11,7 @@ import { getActiveZoneId, setActiveZoneId } from "@/platform/state/localInstall"
 import { isSystemZone } from "@/platform/state/zones";
 import { clearSystemZoneViewLatch, isSystemZoneViewTab } from "@/platform/state/systemZoneView";
 import { systemZoneViewPath } from "@/platform/nav/appLink";
+import { config } from "@/platform/config";
 
 export { systemZoneViewPath };
 
@@ -1354,6 +1355,21 @@ function useSystemZone(enabled: boolean) {
       const id = await consoleApi.operator.systemZoneId(signal);
       if (!id) return null;
       return consoleApi.zones.get(id, signal);
+    },
+  });
+}
+
+// The release version of the web binary serving this console, reported by the
+// backend-for-frontend. Static per deployment, so it is held for the session.
+export function useConsoleVersion() {
+  return useQuery({
+    queryKey: ["console", "version"] as const,
+    staleTime: Infinity,
+    queryFn: async ({ signal }) => {
+      const response = await fetch(`${config.authBaseUrl}/version`, { signal });
+      if (!response.ok) return null;
+      const body = (await response.json()) as { version?: unknown };
+      return typeof body.version === "string" ? body.version : null;
     },
   });
 }
