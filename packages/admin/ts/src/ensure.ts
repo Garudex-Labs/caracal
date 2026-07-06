@@ -97,7 +97,6 @@ export interface EnsureResourceInput {
   scopes: string[]
   upstream_url?: string | null
   credential_provider_id?: string | null
-  allowed_application_ids?: string[]
   operation_enforcement?: ResourceOperationEnforcement
 }
 
@@ -112,7 +111,6 @@ export async function ensureResource(client: AdminClient, zoneId: string, input:
   const desired: Partial<ResourceInput> = { scopes }
   if (input.upstream_url !== undefined) desired.upstream_url = input.upstream_url
   if (input.credential_provider_id !== undefined) desired.credential_provider_id = input.credential_provider_id
-  if (input.allowed_application_ids !== undefined) desired.allowed_application_ids = input.allowed_application_ids
   if (input.operation_enforcement !== undefined) desired.operation_enforcement = input.operation_enforcement
   const resources = await client.resources.list(zoneId)
   const existing = resources.find((resource) => resource.identifier === input.identifier)
@@ -123,7 +121,6 @@ export async function ensureResource(client: AdminClient, zoneId: string, input:
     !sameStringSet(existing.scopes, scopes) ||
     (desired.upstream_url !== undefined && existing.upstream_url !== desired.upstream_url) ||
     (desired.credential_provider_id !== undefined && existing.credential_provider_id !== desired.credential_provider_id) ||
-    (desired.allowed_application_ids !== undefined && !sameStringSet(existing.allowed_application_ids, desired.allowed_application_ids)) ||
     (desired.operation_enforcement !== undefined && existing.operation_enforcement !== desired.operation_enforcement)
   if (!drifted) return existing
   return client.resources.patch(zoneId, existing.id, desired)
@@ -263,8 +260,7 @@ export async function ensureGrants(client: AdminClient, zoneId: string, input: E
 // gateway-routed resource that proxies it, and the applications granted to mint on it.
 // The resource's credential provider binding is threaded by the reconciler, and the first
 // grant names the resource's owning application - the identity whose governed transport
-// may bootstrap on it. A non-empty caller allowlist structurally caps which applications
-// can exchange for the resource; an empty one leaves minting policy-governed.
+// may bootstrap on it.
 export interface GovernedUpstream {
   provider: EnsureApiKeyProviderInput
   resource: {
@@ -272,7 +268,6 @@ export interface GovernedUpstream {
     identifier: string
     scopes: string[]
     upstream_url: string
-    allowed_application_ids?: string[]
     operation_enforcement?: ResourceOperationEnforcement
   }
   grants: Omit<ResourceGrant, 'resourceIdentifier'>[]

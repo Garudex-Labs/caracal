@@ -6,8 +6,6 @@
 import { CaracalError, redact, type JsonValue } from '@caracalai/core'
 
 export type AdminApiErrorCode =
-  | 'allowed_application_not_found'
-  | 'application_in_resource_allowlist'
   | 'application_not_found'
   | 'authorization_code_required'
   | 'challenge_not_found'

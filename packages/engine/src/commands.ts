@@ -202,10 +202,6 @@ export const MANAGEMENT_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
         { name: '--identifier', summary: 'Resource identifier; generated from name when omitted' },
         { name: '--scopes', summary: 'Comma-separated resource scopes' },
         { name: '--upstream-url', summary: 'Upstream URL' },
-        {
-          name: '--allowed-application-ids',
-          summary: 'Comma-separated application IDs allowed to exchange for this resource; empty leaves it policy-governed',
-        },
         { name: '--credential-provider-id', summary: 'Upstream credential provider ID' },
         { name: '--operations', summary: 'JSON array of {method, path, scope} operations the Gateway authorizes' },
         { name: '--operation-enforcement', summary: 'enforced (deny undeclared operations) or transport_uniform' },
@@ -215,10 +211,6 @@ export const MANAGEMENT_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
         { name: '--name', summary: 'Resource name' },
         { name: '--scopes', summary: 'Comma-separated resource scopes' },
         { name: '--upstream-url', summary: 'Upstream URL' },
-        {
-          name: '--allowed-application-ids',
-          summary: 'Comma-separated application IDs allowed to exchange for this resource; empty leaves it policy-governed',
-        },
         { name: '--credential-provider-id', summary: 'Upstream credential provider ID' },
         { name: '--operations', summary: 'JSON array of {method, path, scope} operations the Gateway authorizes' },
         { name: '--operation-enforcement', summary: 'enforced (deny undeclared operations) or transport_uniform' },
@@ -238,7 +230,8 @@ export const MANAGEMENT_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
         { name: '--identifier', summary: 'Provider identifier' },
         {
           name: '--kind',
-          summary: 'Provider kind (caracal_mandate, oauth2_authorization_code, oauth2_client_credentials, api_key, bearer_token)',
+          summary:
+            'Provider kind (none, caracal_mandate, oauth2_authorization_code, oauth2_client_credentials, api_key, bearer_token, http_basic)',
         },
         { name: '--config', summary: 'Inline config JSON' },
       ],
@@ -247,7 +240,8 @@ export const MANAGEMENT_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
         { name: '--name', summary: 'Provider name' },
         {
           name: '--kind',
-          summary: 'Provider kind (caracal_mandate, oauth2_authorization_code, oauth2_client_credentials, api_key, bearer_token)',
+          summary:
+            'Provider kind (none, caracal_mandate, oauth2_authorization_code, oauth2_client_credentials, api_key, bearer_token, http_basic)',
         },
         { name: '--config', summary: 'Inline config JSON' },
       ],
