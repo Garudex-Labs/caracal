@@ -28,6 +28,7 @@ import {
 } from "@/components/console/providerValidation";
 import type {
   Provider,
+  ProviderDiscovery,
   ProviderInput,
   ProviderKind,
   ProviderTestResult,
@@ -50,10 +51,14 @@ const KIND_OPTIONS: { value: ProviderKind; label: string }[] = [
   { value: "oauth2_client_credentials", label: "OAuth 2.0: client credentials" },
   { value: "api_key", label: "API key" },
   { value: "bearer_token", label: "Bearer token" },
+  { value: "http_basic", label: "HTTP Basic" },
   { value: "none", label: "None" },
 ];
 
-type FieldKind = "text" | "secret" | "secret-multiline" | "list" | "params" | "bool" | "select";
+type FieldKind =
+  "text" | "multiline" | "secret" | "secret-multiline" | "list" | "params" | "bool" | "select";
+
+type Values = Record<string, string>;
 
 interface ProviderField {
   key: string;
@@ -65,10 +70,21 @@ interface ProviderField {
   options?: string[];
   placeholder?: string;
   dependsOn?: Partial<Record<string, string>>;
+  visible?: (values: Values) => boolean;
 }
 
 const AUTH_CODE_METHODS = ["client_secret_basic", "client_secret_post", "none"];
 const CC_METHODS = ["client_secret_basic", "client_secret_post", "private_key_jwt", "none"];
+const CC_GRANT_TYPES = ["client_credentials", "jwt_bearer"];
+
+// The private key signs either a private_key_jwt client assertion or a jwt_bearer
+// grant assertion, so the key and kid fields surface for both selections.
+function needsPrivateKey(values: Values): boolean {
+  return (
+    (values.client_auth_method ?? defaultFor("client_auth_method", values)) === "private_key_jwt" ||
+    (values.grant_type ?? "client_credentials") === "jwt_bearer"
+  );
+}
 
 // Mirrors apps/api PUBLIC/SECRET provider config keys so the form never sends
 // fields the control plane would reject.
@@ -201,10 +217,34 @@ const FIELDS: Record<ProviderKind, ProviderField[]> = {
       advanced: true,
     },
     {
+      key: "grant_type",
+      label: "Grant type",
+      kind: "select",
+      options: CC_GRANT_TYPES,
+      hint: "client_credentials for standard machine-to-machine OAuth; jwt_bearer for RFC 7523 signed-assertion grants such as Google service accounts.",
+    },
+    {
+      key: "assertion_subject",
+      label: "Assertion subject",
+      kind: "text",
+      advanced: true,
+      dependsOn: { grant_type: "jwt_bearer" },
+      hint: "Optional sub claim, e.g. a user to act as under domain-wide delegation. Defaults to the client ID.",
+    },
+    {
+      key: "assertion_audience",
+      label: "Assertion audience",
+      kind: "text",
+      advanced: true,
+      dependsOn: { grant_type: "jwt_bearer" },
+      hint: "Optional aud claim for providers that expect a value other than the token endpoint.",
+    },
+    {
       key: "audience",
       label: "Token audience",
       kind: "text",
       advanced: true,
+      dependsOn: { grant_type: "client_credentials" },
       hint: "Optional audience parameter for token endpoints that require one.",
     },
     {
@@ -212,6 +252,7 @@ const FIELDS: Record<ProviderKind, ProviderField[]> = {
       label: "Resource indicator",
       kind: "text",
       advanced: true,
+      dependsOn: { grant_type: "client_credentials" },
       hint: "Optional RFC 8707 / Azure-style resource value.",
     },
     {
@@ -219,16 +260,24 @@ const FIELDS: Record<ProviderKind, ProviderField[]> = {
       label: "Key ID",
       kind: "text",
       advanced: true,
-      dependsOn: { client_auth_method: "private_key_jwt" },
-      hint: "Optional kid header for private_key_jwt assertions.",
+      visible: needsPrivateKey,
+      hint: "Optional kid header for signed assertions.",
     },
     {
       key: "private_key",
       label: "Private key (PEM)",
       kind: "secret-multiline",
       advanced: true,
+      visible: needsPrivateKey,
+      hint: "PEM private key used to sign private_key_jwt or jwt_bearer assertions.",
+    },
+    {
+      key: "certificate",
+      label: "Client certificate (PEM)",
+      kind: "multiline",
+      advanced: true,
       dependsOn: { client_auth_method: "private_key_jwt" },
-      hint: "PEM private key used to sign private_key_jwt client assertions.",
+      hint: "Optional. Adds x5t thumbprint headers to client assertions, required by Microsoft Entra ID certificate credentials.",
     },
     {
       key: "token_params",
@@ -354,11 +403,39 @@ const FIELDS: Record<ProviderKind, ProviderField[]> = {
       advanced: true,
     },
   ],
+  http_basic: [
+    {
+      key: "username",
+      label: "Username",
+      kind: "text",
+      required: true,
+      placeholder: "richard.hendricks@piedpiper.example",
+      hint: "Username or account identifier the upstream pairs with the password.",
+    },
+    {
+      key: "password",
+      label: "Password",
+      kind: "secret",
+      required: true,
+      hint: "Password or API token, sealed at rest. Gateway sends Authorization: Basic.",
+    },
+    {
+      key: "forward_caracal_identity",
+      label: "Forward Caracal identity",
+      kind: "bool",
+      advanced: true,
+      hint: "Also send X-Caracal-Identity to trusted upstreams.",
+    },
+  ],
 };
 
-const SECRET_KEYS = new Set(["client_secret", "private_key", "api_key", "bearer_token"]);
-
-type Values = Record<string, string>;
+const SECRET_KEYS = new Set([
+  "client_secret",
+  "private_key",
+  "api_key",
+  "bearer_token",
+  "password",
+]);
 
 const PARAM_KEYS = new Set(["authorization_params", "token_params"]);
 
@@ -406,16 +483,20 @@ function buildConfig(kind: ProviderKind, values: Values, isEdit: boolean): Recor
 const KEEP_SECRET = "";
 
 function fieldVisible(field: ProviderField, values: Values): boolean {
+  if (field.visible) return field.visible(values);
   if (!field.dependsOn) return true;
   return Object.entries(field.dependsOn).every(([key, expected]) => {
-    const current = values[key] ?? defaultFor(key);
+    const current = values[key] ?? defaultFor(key, values);
     return current === expected;
   });
 }
 
-function defaultFor(key: string): string {
+function defaultFor(key: string, values: Values): string {
   if (key === "auth_location") return "header";
-  if (key === "client_auth_method") return "client_secret_basic";
+  if (key === "grant_type") return "client_credentials";
+  if (key === "client_auth_method") {
+    return (values.grant_type ?? "") === "jwt_bearer" ? "none" : "client_secret_basic";
+  }
   return "";
 }
 
@@ -426,6 +507,7 @@ export function ProviderFormModal({
   busy,
   onClose,
   onSubmit,
+  onDiscover,
 }: {
   open: boolean;
   mode: "create" | "edit";
@@ -433,6 +515,7 @@ export function ProviderFormModal({
   busy: boolean;
   onClose: () => void;
   onSubmit: (input: ProviderInput) => Promise<ProviderTestResult | undefined>;
+  onDiscover?: (issuer: string) => Promise<ProviderDiscovery>;
 }) {
   const isEdit = mode === "edit";
   const [name, setName] = useState("");
@@ -442,6 +525,12 @@ export function ProviderFormModal({
   const [touched, setTouched] = useState(false);
   const [checkFailed, setCheckFailed] = useState<ProviderTestResult | null>(null);
   const [action, setAction] = useState<"connect" | "skip">("connect");
+  const [issuer, setIssuer] = useState("");
+  const [discoverBusy, setDiscoverBusy] = useState(false);
+  const [discoverNote, setDiscoverNote] = useState<{
+    tone: "success" | "danger";
+    text: string;
+  } | null>(null);
 
   // Seed (or fully reset) the form each time the modal opens. Resetting the seed ref on
   // close is essential: for "create" the seed key is constant, so without this the previous
@@ -457,6 +546,9 @@ export function ProviderFormModal({
     setValues(initialValues(provider));
     setTouched(false);
     setCheckFailed(null);
+    setIssuer("");
+    setDiscoverBusy(false);
+    setDiscoverNote(null);
   } else if (!open && seedRef !== null) {
     setSeedRef(null);
   }
@@ -471,6 +563,48 @@ export function ProviderFormModal({
     setCheckFailed(null);
   }
 
+  // Resolves the issuer's published OIDC / RFC 8414 metadata through the control plane
+  // and fills the endpoint fields, replacing the most error-prone copy-paste step of
+  // OAuth provider onboarding. MCP servers publish this metadata, so pasting an MCP
+  // server's issuer works the same way.
+  async function discover() {
+    if (!onDiscover || !issuer.trim() || discoverBusy) return;
+    setDiscoverBusy(true);
+    setDiscoverNote(null);
+    try {
+      const metadata = await onDiscover(issuer.trim());
+      const filled: string[] = [];
+      setValues((prev) => {
+        const next: Values = { ...prev, token_endpoint: metadata.token_endpoint };
+        filled.push("token endpoint");
+        if (kind === "oauth2_authorization_code" && metadata.authorization_endpoint) {
+          next.authorization_endpoint = metadata.authorization_endpoint;
+          filled.push("authorization endpoint");
+        }
+        return next;
+      });
+      setCheckFailed(null);
+      if (kind === "oauth2_authorization_code" && !metadata.authorization_endpoint) {
+        setDiscoverNote({
+          tone: "danger",
+          text: "The issuer metadata has no authorization endpoint; filled the token endpoint only.",
+        });
+      } else {
+        setDiscoverNote({
+          tone: "success",
+          text: `Filled the ${filled.join(" and ")} from the issuer metadata.`,
+        });
+      }
+    } catch {
+      setDiscoverNote({
+        tone: "danger",
+        text: "Discovery failed. Check the issuer URL or enter the endpoints manually.",
+      });
+    } finally {
+      setDiscoverBusy(false);
+    }
+  }
+
   function missingRequired(): string | null {
     if (!isEdit && !name.trim()) return "Provider name is required.";
     const kindUnchanged = isEdit && kind === provider?.kind;
@@ -482,16 +616,20 @@ export function ProviderFormModal({
       if (SECRET_KEYS.has(field.key) && secretStored(field.key)) continue;
       if (raw === "") return `${field.label} is required.`;
     }
-    // OAuth client authentication makes a credential conditionally mandatory, exactly as the
-    // control plane enforces: a client secret for the secret-based methods, or a private key
-    // for private_key_jwt. 'none' needs neither.
+    // OAuth client authentication and grant type make a credential conditionally mandatory,
+    // exactly as the control plane enforces: a client secret for the secret-based methods,
+    // and a private key for private_key_jwt client assertions or jwt_bearer grants.
     if (kind === "oauth2_authorization_code" || kind === "oauth2_client_credentials") {
-      const method = (values.client_auth_method || "client_secret_basic").trim();
-      if (method === "private_key_jwt") {
+      const grantType = (values.grant_type || "client_credentials").trim();
+      const method = (values.client_auth_method || defaultFor("client_auth_method", values)).trim();
+      if (method === "private_key_jwt" || grantType === "jwt_bearer") {
         if ((values.private_key ?? "").trim() === "" && !secretStored("private_key")) {
-          return "A private key is required for private_key_jwt.";
+          return grantType === "jwt_bearer"
+            ? "A private key is required to sign jwt_bearer assertions."
+            : "A private key is required for private_key_jwt.";
         }
-      } else if (method !== "none") {
+      }
+      if (method !== "none" && method !== "private_key_jwt") {
         if ((values.client_secret ?? "").trim() === "" && !secretStored("client_secret")) {
           return "Client secret is required for this authentication method.";
         }
@@ -618,11 +756,50 @@ export function ProviderFormModal({
           </Select>
         </div>
 
+        {canConnect && onDiscover ? (
+          <div className="flex flex-col gap-1.5 rounded-lg border border-border bg-muted/30 px-3 py-2.5">
+            <div className="flex items-end gap-2">
+              <div className="min-w-0 flex-1">
+                <Field
+                  label="Issuer URL"
+                  info="Autofills the endpoint fields from the issuer's published OIDC or OAuth authorization server metadata. Works for identity providers and MCP servers alike; endpoints stay editable afterwards."
+                  placeholder="https://login.hooli.example"
+                  value={issuer}
+                  onChange={(e) => {
+                    setIssuer(e.target.value);
+                    setDiscoverNote(null);
+                  }}
+                />
+              </div>
+              <Button
+                variant="secondary"
+                onClick={() => void discover()}
+                loading={discoverBusy}
+                disabled={busy || !issuer.trim()}
+              >
+                Autofill
+              </Button>
+            </div>
+            {discoverNote ? (
+              <p
+                className={
+                  discoverNote.tone === "success"
+                    ? "text-xs text-muted-foreground"
+                    : "text-xs text-destructive"
+                }
+              >
+                {discoverNote.text}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
         {basicFields.map((field) => (
           <ProviderFieldInput
             key={field.key}
             field={field}
             value={values[field.key] ?? ""}
+            fallback={defaultFor(field.key, values)}
             stored={Boolean(provider?.secret_config_keys.includes(field.key as never))}
             isEdit={isEdit}
             error={errors[field.key]}
@@ -641,6 +818,7 @@ export function ProviderFormModal({
               key={field.key}
               field={field}
               value={values[field.key] ?? ""}
+              fallback={defaultFor(field.key, values)}
               stored={Boolean(provider?.secret_config_keys.includes(field.key as never))}
               isEdit={isEdit}
               error={errors[field.key]}
@@ -690,6 +868,7 @@ export function ProviderFormModal({
 function ProviderFieldInput({
   field,
   value,
+  fallback,
   stored,
   isEdit,
   error,
@@ -697,6 +876,7 @@ function ProviderFieldInput({
 }: {
   field: ProviderField;
   value: string;
+  fallback?: string;
   stored: boolean;
   isEdit: boolean;
   error?: string;
@@ -735,7 +915,7 @@ function ProviderFieldInput({
       <Select
         label={field.label}
         info={field.hint}
-        value={value || field.options?.[0]}
+        value={value || fallback || field.options?.[0]}
         onChange={(e) => onChange(e.target.value)}
       >
         {field.options?.map((option) => (
@@ -747,7 +927,7 @@ function ProviderFieldInput({
     );
   }
 
-  if (field.kind === "secret-multiline") {
+  if (field.kind === "multiline" || field.kind === "secret-multiline") {
     return (
       <div>
         <Textarea

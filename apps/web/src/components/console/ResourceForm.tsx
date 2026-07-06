@@ -2,7 +2,7 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-This file builds the create and edit dialog for Gateway-routed resources, covering routing, binding, scopes, and operation authority.
+This file builds the create and edit dialog for Gateway-routed resources, covering routing, caller allowlist, scopes, and operation authority.
 */
 import { useMemo, useState } from "react";
 
@@ -37,13 +37,7 @@ interface OperationRow {
 
 type FieldErrors = Partial<
   Record<
-    | "name"
-    | "scopes"
-    | "upstreamUrl"
-    | "gatewayApp"
-    | "credentialProvider"
-    | "identifier"
-    | "operations",
+    "name" | "scopes" | "upstreamUrl" | "credentialProvider" | "identifier" | "operations",
     string
   >
 >;
@@ -107,11 +101,11 @@ function ResourceFormBody({
     const referenced = new Set((resource?.operations ?? []).map((op) => op.scope));
     return declared.filter((scope) => !referenced.has(scope)).join(", ");
   });
+  // An empty allowlist leaves minting policy-governed, so nothing is preselected; capping
+  // callers stays a deliberate operator decision.
+  const [allowedApps, setAllowedApps] = useState<string[]>(resource?.allowed_application_ids ?? []);
   // When the zone has exactly one candidate the choice is unambiguous, so the dialog
   // preselects it; anything less certain stays a deliberate operator decision.
-  const [gatewayApp, setGatewayApp] = useState(
-    resource?.gateway_application_id ?? (managedApps.length === 1 ? managedApps[0].id : ""),
-  );
   const [credentialProvider, setCredentialProvider] = useState(
     resource?.credential_provider_id ?? (providers.length === 1 ? providers[0].id : ""),
   );
@@ -161,7 +155,7 @@ function ResourceFormBody({
           : "Declare at least one scope.";
     }
     const upstream = upstreamUrl.trim();
-    // The control plane requires the full Gateway binding for every resource.
+    // The control plane requires upstream routing for every resource.
     if (!upstream) {
       next.upstreamUrl = "Upstream URL is required.";
     } else {
@@ -174,7 +168,6 @@ function ResourceFormBody({
         next.upstreamUrl = "Enter a valid http(s) URL.";
       }
     }
-    if (!gatewayApp) next.gatewayApp = "Select the managed application that fronts this resource.";
     if (!credentialProvider) {
       next.credentialProvider = "Select the provider that supplies upstream credentials.";
     }
@@ -202,16 +195,7 @@ function ResourceFormBody({
       }
     }
     return next;
-  }, [
-    name,
-    grantable,
-    upstreamUrl,
-    gatewayApp,
-    credentialProvider,
-    identifier,
-    enforcement,
-    operations,
-  ]);
+  }, [name, grantable, upstreamUrl, credentialProvider, identifier, enforcement, operations]);
 
   const show = (key: keyof FieldErrors) => (touched ? errors[key] : undefined);
 
@@ -231,7 +215,7 @@ function ResourceFormBody({
             }))
           : [],
       upstream_url: upstreamUrl.trim(),
-      gateway_application_id: gatewayApp,
+      allowed_application_ids: allowedApps,
       credential_provider_id: credentialProvider,
       ...(identifier.trim()
         ? { identifier: `${RESOURCE_IDENTIFIER_PREFIX}${identifier.trim()}` }
@@ -255,7 +239,11 @@ function ResourceFormBody({
     setOperations((prev) => prev.filter((_, i) => i !== index));
   }
 
-  const missingPrereqs = !isEdit && (managedApps.length === 0 || providers.length === 0);
+  function toggleAllowedApp(id: string) {
+    setAllowedApps((prev) => (prev.includes(id) ? prev.filter((v) => v !== id) : [...prev, id]));
+  }
+
+  const missingPrereqs = !isEdit && providers.length === 0;
 
   return (
     <Modal
@@ -281,11 +269,7 @@ function ResourceFormBody({
       <div className="flex flex-col gap-5">
         {missingPrereqs ? (
           <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
-            {managedApps.length === 0 && providers.length === 0
-              ? "This zone has no application and provider yet."
-              : managedApps.length === 0
-                ? "This zone has no application yet."
-                : "This zone has no provider yet."}
+            This zone has no provider yet.
           </div>
         ) : null}
 
@@ -320,25 +304,36 @@ function ResourceFormBody({
               onChange={(e) => setUpstreamUrl(e.target.value)}
             />
             <div>
-              <Select
-                label="Gateway application"
-                info="Application this route serves. The Gateway only accepts callers whose mandates were minted under this application; policies and grants then decide what each caller may do."
-                value={gatewayApp}
-                onChange={(e) => setGatewayApp(e.target.value)}
-              >
-                <option value="">
-                  {managedApps.length === 0
-                    ? "No managed applications in this zone"
-                    : "Select a managed application…"}
-                </option>
-                {managedApps.map((app) => (
-                  <option key={app.id} value={app.id}>
-                    {app.name}
-                  </option>
-                ))}
-              </Select>
-              {show("gatewayApp") ? (
-                <p className="mt-1 text-xs text-destructive">{show("gatewayApp")}</p>
+              <span className="flex items-center gap-1.5">
+                <span className="text-sm font-medium text-foreground">Caller allowlist</span>
+                <InfoHint label="Caps which applications may mint tokens for this resource at the STS. Leave empty to let grants and policies govern callers." />
+              </span>
+              {managedApps.length === 0 ? (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  No managed applications in this zone. Minting stays policy governed.
+                </p>
+              ) : (
+                <ul className="mt-2 divide-y divide-border rounded-md border border-border">
+                  {managedApps.map((app) => (
+                    <li key={app.id} className="flex items-center gap-3 px-3 py-2">
+                      <input
+                        type="checkbox"
+                        checked={allowedApps.includes(app.id)}
+                        onChange={() => toggleAllowedApp(app.id)}
+                        aria-label={`Allow ${app.name}`}
+                        className="h-4 w-4 shrink-0 accent-primary"
+                      />
+                      <span className="min-w-0 flex-1 truncate text-sm text-foreground">
+                        {app.name}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {allowedApps.length === 0 ? (
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  Empty: any application a grant and policy permits may mint for this resource.
+                </p>
               ) : null}
             </div>
             <div>
@@ -371,7 +366,7 @@ function ResourceFormBody({
           <div className="mt-3 flex flex-col gap-4">
             <Select
               label="Enforcement"
-              info="Operation enforced: each call must match a declared method, path, and scope; fits REST-style APIs. Transport uniform: granted scopes are the only boundary with no operation list; fits MCP servers and streaming upstreams."
+              info="Operation enforced: each call must match a declared method, path, and scope; fits REST-style APIs. Transport uniform: granted scopes are the only boundary with no operation list; fits MCP servers, streaming transports, and upstreams that enforce their own authorization."
               value={enforcement}
               onChange={(e) => {
                 const next = e.target.value as ResourceOperationEnforcement;
@@ -517,7 +512,7 @@ function ResourceFormBody({
           title="Advanced"
           description={
             isEdit
-              ? "Identifier changes rewrite the Gateway binding."
+              ? "Identifier changes rewrite the audience that grants, policies, and tokens reference."
               : "Override the generated identifier."
           }
         >

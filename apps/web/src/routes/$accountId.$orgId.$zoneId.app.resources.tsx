@@ -158,9 +158,13 @@ function ResourcesPage({ zoneId }: { zoneId: string }) {
       cell: (r) => (
         <div className="flex min-w-0 flex-col gap-0.5 text-xs">
           <RelationCell
-            label="app"
-            value={r.gateway_application_id ? appById.get(r.gateway_application_id)?.name : null}
-            unresolved={Boolean(r.gateway_application_id)}
+            label="callers"
+            value={
+              r.allowed_application_ids.length > 0
+                ? r.allowed_application_ids.map((id) => appById.get(id)?.name ?? id).join(", ")
+                : "policy governed"
+            }
+            unresolved={false}
           />
           <RelationCell
             label="cred"
@@ -232,9 +236,10 @@ function ResourcesPage({ zoneId }: { zoneId: string }) {
           render: (r) => (
             <ResourceDetail
               resource={r}
-              gatewayApp={
-                r.gateway_application_id ? appById.get(r.gateway_application_id) : undefined
-              }
+              allowedApps={r.allowed_application_ids.map((id) => ({
+                id,
+                name: appById.get(id)?.name,
+              }))}
               provider={
                 r.credential_provider_id ? providerById.get(r.credential_provider_id) : undefined
               }
@@ -357,13 +362,13 @@ function RelationCell({
 
 function ResourceDetail({
   resource,
-  gatewayApp,
+  allowedApps,
   provider,
   onEdit,
   onDelete,
 }: {
   resource: Resource;
-  gatewayApp?: Application;
+  allowedApps: { id: string; name?: string }[];
   provider?: Provider;
   onEdit: () => void;
   onDelete: () => void;
@@ -413,12 +418,27 @@ function ResourceDetail({
 
       <DetailSection title="Bindings">
         <div className="grid gap-px overflow-hidden rounded-lg border border-border bg-border sm:grid-cols-2 [&>*]:bg-card">
-          <BindingCell
-            label="Gateway application"
-            value={gatewayApp?.name}
-            id={resource.gateway_application_id}
-            to={appLink("/applications")}
-          />
+          <div className="p-3">
+            <div className="text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+              Caller allowlist
+            </div>
+            {allowedApps.length > 0 ? (
+              <div className="mt-1 flex flex-col gap-0.5">
+                {allowedApps.map((app) => (
+                  <Link
+                    key={app.id}
+                    to={appLink("/applications")}
+                    search={{ focus: app.id }}
+                    className="block truncate text-sm text-foreground hover:underline"
+                  >
+                    {app.name ?? app.id}
+                  </Link>
+                ))}
+              </div>
+            ) : (
+              <div className="mt-1 text-sm text-muted-foreground">Policy governed</div>
+            )}
+          </div>
           <BindingCell
             label="Credential provider"
             value={provider?.name}
