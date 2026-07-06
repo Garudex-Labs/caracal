@@ -117,7 +117,7 @@ function ResourcesPage({ zoneId }: { zoneId: string }) {
   const filters: FilterGroup[] = [
     {
       id: "enforcement",
-      label: "Authority",
+      label: "Enforcement",
       value: filter,
       onChange: (v) => setFilter(v as EnforcementFilter),
       options: [
@@ -174,12 +174,12 @@ function ResourcesPage({ zoneId }: { zoneId: string }) {
     },
     {
       id: "enforcement",
-      header: "Authority",
+      header: "Enforcement",
       cell: (r) =>
         r.operation_enforcement === "enforced" ? (
           <Badge tone="success">{(r.operations ?? []).length} ops enforced</Badge>
         ) : (
-          <Badge tone="muted">Transport</Badge>
+          <Badge tone="muted">Transport uniform</Badge>
         ),
     },
     {
@@ -448,7 +448,7 @@ function ResourceDetail({
       <DetailSection title="Operations">
         {resource.operation_enforcement === "transport_uniform" ? (
           <p className="text-sm text-muted-foreground">
-            Authorization is uniform across the transport. Individual operations are not listed.
+            Transport uniform: one decision covers every call, so no operation list applies.
           </p>
         ) : operations.length > 0 ? (
           <div className="overflow-hidden rounded-lg border border-border">

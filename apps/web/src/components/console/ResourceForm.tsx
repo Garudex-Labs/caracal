@@ -295,7 +295,7 @@ function ResourceFormBody({
             <div>
               <Select
                 label="Gateway application"
-                info="Managed application identity the Gateway authorizes requests as before they reach the upstream."
+                info="Managed application identity the Gateway exchanges tokens as when routing to this upstream. It does not limit which applications can call the resource; that is decided by policies and grants."
                 value={gatewayApp}
                 onChange={(e) => setGatewayApp(e.target.value)}
               >
@@ -366,17 +366,22 @@ function ResourceFormBody({
               ) : null}
             </div>
 
-            <Select
-              label="Enforcement"
-              info="Enforced authorizes only the listed operations. Transport uniform makes one decision for the whole upstream surface (MCP-style)."
-              value={enforcement}
-              onChange={(e) => setEnforcement(e.target.value as ResourceOperationEnforcement)}
-            >
-              <option value="enforced">Enforced — only listed operations are allowed</option>
-              <option value="transport_uniform">
-                Transport uniform — one decision covers the whole surface
-              </option>
-            </Select>
+            <div>
+              <Select
+                label="Enforcement"
+                info="How the Gateway authorizes calls to this upstream."
+                value={enforcement}
+                onChange={(e) => setEnforcement(e.target.value as ResourceOperationEnforcement)}
+              >
+                <option value="enforced">Operation enforced</option>
+                <option value="transport_uniform">Transport uniform</option>
+              </Select>
+              <p className="mt-1.5 text-xs text-muted-foreground">
+                {enforcement === "enforced"
+                  ? "Every call must exactly match a declared method and path and carry that operation's scope. Use this for REST-style APIs where each operation can be listed."
+                  : "One decision covers every call: the scopes granted at token exchange are the only boundary and no operation list applies. Use this for MCP servers, streaming transports, or upstreams without meaningful paths."}
+              </p>
+            </div>
 
             {enforcement === "enforced" ? (
               <div className="flex flex-col gap-2">
@@ -469,12 +474,7 @@ function ResourceFormBody({
                   <p className="text-xs text-destructive">{show("operations")}</p>
                 ) : null}
               </div>
-            ) : (
-              <p className="text-xs text-muted-foreground">
-                One authorization decision covers the transport. Individual operations are not
-                listed.
-              </p>
-            )}
+            ) : null}
           </div>
         </section>
 
