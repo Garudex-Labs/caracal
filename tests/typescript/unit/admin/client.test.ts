@@ -414,9 +414,9 @@ describe('AdminClient', () => {
     await c.grants.get('z1', 'g1')
     await c.grants.create('z1', {} as never)
     await c.grants.revoke('z1', 'g1')
-    await c.providerGrants.create('z1', {} as never)
-    await c.providerGrants.authorizeOAuth('z1', {} as never)
-    await c.providerGrants.revoke('z1', {} as never)
+    await c.providerConnections.create('z1', {} as never)
+    await c.providerConnections.authorizeOAuth('z1', {} as never)
+    await c.providerConnections.revoke('z1', {} as never)
     await c.sessions.list('z1', { status: 'active' } as never)
     await c.audit.list('z1', { limit: 5 } as never)
     await c.stepUpChallenges.list('z1')
@@ -441,7 +441,7 @@ describe('AdminClient', () => {
     expect(calls.some((x) => x.url === 'http://api/v1/zones/z1/grants?provider_id=provider-1&user_id=user-1&scopes=read%2Cwrite')).toBe(
       true,
     )
-    expect(calls.some((x) => x.url === 'http://api/v1/zones/z1/provider-grants' && x.method === 'POST')).toBe(true)
+    expect(calls.some((x) => x.url === 'http://api/v1/zones/z1/provider-connections' && x.method === 'POST')).toBe(true)
     expect(calls.some((x) => x.url === 'http://api/v1/zones/z1/step-up-challenges/challenge1/approve' && x.method === 'POST')).toBe(true)
     expect(calls.some((x) => x.url === 'http://api/v1/zones/z1/step-up-challenges/challenge1/reject' && x.method === 'POST')).toBe(true)
     expect(calls.some((x) => x.url === 'http://coord/zones/z1/agents/ag1/suspend' && x.method === 'PATCH')).toBe(true)

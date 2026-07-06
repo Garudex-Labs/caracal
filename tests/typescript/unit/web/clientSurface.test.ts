@@ -304,16 +304,16 @@ describe('coordinator endpoints', () => {
   })
 })
 
-describe('provider grants', () => {
+describe('provider connections', () => {
   it('lists with filters and posts authorize and revoke bodies', async () => {
     const calls = record(() => ({ items: [], next_cursor: null }))
-    await consoleApi.providerGrants.list('z1', { provider_id: 'p1', status: 'active' })
+    await consoleApi.providerConnections.list('z1', { provider_id: 'p1', status: 'active' })
     expect(last(calls).url).toContain('provider_id=p1')
     expect(last(calls).url).toContain('&limit=500')
-    await consoleApi.providerGrants.authorize('z1', { provider_id: 'p1', resource_id: 'r1', user_id: 'richard' })
+    await consoleApi.providerConnections.authorize('z1', { provider_id: 'p1', subject_id: 'richard' })
     expect(last(calls)).toMatchObject({ method: 'POST', body: { provider_id: 'p1' } })
-    await consoleApi.providerGrants.revoke('z1', { grant_id: 'g1' })
-    expect(last(calls).url).toBe('/api/console/v1/zones/z1/provider-grants/revoke')
+    await consoleApi.providerConnections.revoke('z1', { subject_id: 'richard', provider_id: 'p1' })
+    expect(last(calls).url).toBe('/api/console/v1/zones/z1/provider-connections/revoke')
   })
 })
 

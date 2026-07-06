@@ -125,18 +125,16 @@ describe('POST /v1/zones/:zoneId/grants', () => {
   })
 })
 
-describe('GET /v1/zones/:zoneId/provider-grants', () => {
-  it('lists stored upstream provider grants with filters against provider_grants', async () => {
+describe('GET /v1/zones/:zoneId/provider-connections', () => {
+  it('lists stored provider connections with filters against provider_connections', async () => {
     const { app, db } = buildRouteApp(grantsRoutes)
     db.query.mockResolvedValueOnce({
       rows: [
         {
-          id: 'pg-1',
+          id: 'pc-1',
           zone_id: 'z1',
-          user_id: 'user:richard.hendricks@piedpiper.example',
-          resource_id: 'res-1',
+          subject_id: 'user:richard.hendricks@piedpiper.example',
           provider_id: 'provider-1',
-          scopes: ['pipernet:read'],
           status: 'active',
           expires_at: null,
           refreshed_at: null,
@@ -148,17 +146,17 @@ describe('GET /v1/zones/:zoneId/provider-grants', () => {
     await app.ready()
     const res = await app.inject({
       method: 'GET',
-      url: '/v1/zones/z1/provider-grants?provider_id=provider-1&status=active',
+      url: '/v1/zones/z1/provider-connections?provider_id=provider-1&status=active',
     })
 
     expect(res.statusCode).toBe(200)
     expect(JSON.parse(res.body).items[0]).toMatchObject({
-      id: 'pg-1',
-      user_id: 'user:richard.hendricks@piedpiper.example',
+      id: 'pc-1',
+      subject_id: 'user:richard.hendricks@piedpiper.example',
       renewable: false,
     })
     const [sql, values] = db.query.mock.calls[0] as [string, unknown[]]
-    expect(sql).toContain('FROM provider_grants pg')
+    expect(sql).toContain('FROM provider_connections pc')
     expect(sql).toContain('refresh_token_ct IS NOT NULL) AS renewable')
     expect(sql).not.toContain('delegated_grants')
     expect(values).toEqual(expect.arrayContaining(['z1', 'provider-1', 'active']))
@@ -168,7 +166,7 @@ describe('GET /v1/zones/:zoneId/provider-grants', () => {
     const { app, db } = buildRouteApp(grantsRoutes)
 
     await app.ready()
-    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/provider-grants?status=' })
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/provider-connections?status=' })
 
     expect(res.statusCode).toBe(400)
     expect(JSON.parse(res.body)).toMatchObject({ error: 'invalid_query' })
@@ -176,14 +174,14 @@ describe('GET /v1/zones/:zoneId/provider-grants', () => {
   })
 })
 
-describe('POST /v1/zones/:zoneId/provider-grants', () => {
+describe('POST /v1/zones/:zoneId/provider-connections', () => {
   it('rejects invalid provider grant payloads and missing zones', async () => {
     const invalid = buildRouteApp(grantsRoutes)
     invalid.db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
     await invalid.app.ready()
     const invalidRes = await invalid.app.inject({
       method: 'POST',
-      url: '/v1/zones/z1/provider-grants',
+      url: '/v1/zones/z1/provider-connections',
       payload: { user_id: 'user-1' },
     })
     expect(invalidRes.statusCode).toBe(400)
@@ -193,12 +191,10 @@ describe('POST /v1/zones/:zoneId/provider-grants', () => {
     await missingZone.app.ready()
     const missingZoneRes = await missingZone.app.inject({
       method: 'POST',
-      url: '/v1/zones/z1/provider-grants',
+      url: '/v1/zones/z1/provider-connections',
       payload: {
-        user_id: 'user-1',
-        resource_id: 'res-1',
+        subject_id: 'user-1',
         provider_id: 'provider-1',
-        scopes: ['read'],
         access_token: 'token',
       },
     })
@@ -206,66 +202,26 @@ describe('POST /v1/zones/:zoneId/provider-grants', () => {
     expect(JSON.parse(missingZoneRes.body)).toMatchObject({ error: 'zone_not_found' })
   })
 
-  it('rejects unsupported providers, resource mismatches, and oversized scopes', async () => {
+  it('rejects unsupported provider kinds', async () => {
     const unsupported = buildRouteApp(grantsRoutes)
     unsupported.db.query
       .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
-      .mockResolvedValueOnce({ rows: [{ provider_kind: 'api_key', resource_scopes: ['read'], resource_provider_id: 'provider-1' }] })
+      .mockResolvedValueOnce({ rows: [{ provider_kind: 'api_key' }] })
     await unsupported.app.ready()
     const unsupportedRes = await unsupported.app.inject({
       method: 'POST',
-      url: '/v1/zones/z1/provider-grants',
+      url: '/v1/zones/z1/provider-connections',
       payload: {
-        user_id: 'user-1',
-        resource_id: 'res-1',
+        subject_id: 'user-1',
         provider_id: 'provider-1',
-        scopes: ['read'],
         access_token: 'token',
       },
     })
     expect(unsupportedRes.statusCode).toBe(400)
-    expect(JSON.parse(unsupportedRes.body)).toMatchObject({ error: 'provider_grant_unsupported' })
-
-    const mismatch = buildRouteApp(grantsRoutes)
-    mismatch.db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] }).mockResolvedValueOnce({
-      rows: [{ provider_kind: 'oauth2_authorization_code', resource_scopes: ['read'], resource_provider_id: 'other-provider' }],
-    })
-    await mismatch.app.ready()
-    const mismatchRes = await mismatch.app.inject({
-      method: 'POST',
-      url: '/v1/zones/z1/provider-grants',
-      payload: {
-        user_id: 'user-1',
-        resource_id: 'res-1',
-        provider_id: 'provider-1',
-        scopes: ['read'],
-        access_token: 'token',
-      },
-    })
-    expect(mismatchRes.statusCode).toBe(400)
-    expect(JSON.parse(mismatchRes.body)).toMatchObject({ error: 'provider_resource_mismatch' })
-
-    const forbidden = buildRouteApp(grantsRoutes)
-    forbidden.db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] }).mockResolvedValueOnce({
-      rows: [{ provider_kind: 'oauth2_authorization_code', resource_scopes: ['read'], resource_provider_id: 'provider-1' }],
-    })
-    await forbidden.app.ready()
-    const forbiddenRes = await forbidden.app.inject({
-      method: 'POST',
-      url: '/v1/zones/z1/provider-grants',
-      payload: {
-        user_id: 'user-1',
-        resource_id: 'res-1',
-        provider_id: 'provider-1',
-        scopes: ['write'],
-        access_token: 'token',
-      },
-    })
-    expect(forbiddenRes.statusCode).toBe(403)
-    expect(JSON.parse(forbiddenRes.body)).toMatchObject({ error: 'grant_scopes_exceed_resource' })
+    expect(JSON.parse(unsupportedRes.body)).toMatchObject({ error: 'provider_connection_unsupported' })
   })
 
-  it('stores delegated provider tokens only for matching authorization-code resources', async () => {
+  it('stores imported upstream tokens for authorization-code providers', async () => {
     const { app, db } = buildRouteApp(grantsRoutes)
     db.query
       .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
@@ -273,35 +229,31 @@ describe('POST /v1/zones/:zoneId/provider-grants', () => {
         rows: [
           {
             provider_kind: 'oauth2_authorization_code',
-            resource_scopes: ['read', 'write'],
-            resource_provider_id: 'provider-1',
           },
         ],
       })
       .mockResolvedValueOnce({
-        rows: [{ id: 'provider-grant-1', zone_id: 'z1', provider_id: 'provider-1', scopes: ['read'] }],
+        rows: [{ id: 'connection-1', zone_id: 'z1', provider_id: 'provider-1', scopes: ['read'] }],
       })
 
     await app.ready()
     const res = await app.inject({
       method: 'POST',
-      url: '/v1/zones/z1/provider-grants',
+      url: '/v1/zones/z1/provider-connections',
       payload: {
-        user_id: 'user-1',
-        resource_id: 'res-1',
+        subject_id: 'user-1',
         provider_id: 'provider-1',
-        scopes: ['read'],
         access_token: 'provider-access',
         refresh_token: 'provider-refresh',
       },
     })
 
     expect(res.statusCode).toBe(201)
-    expect(JSON.parse(res.body)).toMatchObject({ id: 'provider-grant-1', provider_id: 'provider-1' })
-    expect(String(db.query.mock.calls[2][0])).toContain('ON CONFLICT (zone_id, user_id, resource_id, provider_id)')
+    expect(JSON.parse(res.body)).toMatchObject({ id: 'connection-1', provider_id: 'provider-1' })
+    expect(String(db.query.mock.calls[2][0])).toContain('ON CONFLICT (zone_id, subject_id, provider_id)')
     const values = db.query.mock.calls[2][1] as unknown[]
-    expect(values[6]).toBeInstanceOf(Buffer)
-    expect(values[7]).toBeInstanceOf(Buffer)
+    expect(values[4]).toBeInstanceOf(Buffer)
+    expect(values[5]).toBeInstanceOf(Buffer)
   })
 })
 
@@ -317,7 +269,7 @@ describe('OAuth provider grant browser flow', () => {
           config_json: {
             authorization_endpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
             token_endpoint: 'https://oauth2.googleapis.com/token',
-            redirect_uri: 'http://localhost:3000/v1/zones/z1/provider-grants/oauth/callback',
+            redirect_uri: 'http://localhost:3000/v1/zones/z1/provider-connections/oauth/callback',
             client_id: 'google-client',
             client_auth_method: 'client_secret_basic',
             scopes: ['https://www.googleapis.com/auth/drive.readonly'],
@@ -326,8 +278,6 @@ describe('OAuth provider grant browser flow', () => {
           },
           secret_config_ct: null,
           secret_config_nonce: null,
-          resource_scopes: ['read', 'write'],
-          resource_provider_id: 'provider-1',
         },
       ],
     })
@@ -335,12 +285,10 @@ describe('OAuth provider grant browser flow', () => {
     await app.ready()
     const res = await app.inject({
       method: 'POST',
-      url: '/v1/zones/z1/provider-grants/oauth/authorize',
+      url: '/v1/zones/z1/provider-connections/oauth/authorize',
       payload: {
-        user_id: 'user-1',
-        resource_id: 'res-1',
+        subject_id: 'user-1',
         provider_id: 'provider-1',
-        scopes: ['read'],
       },
     })
 
@@ -372,8 +320,6 @@ describe('OAuth provider grant browser flow', () => {
           },
           secret_config_ct: null,
           secret_config_nonce: null,
-          resource_scopes: ['read'],
-          resource_provider_id: 'provider-1',
         },
       ],
     })
@@ -381,12 +327,10 @@ describe('OAuth provider grant browser flow', () => {
     await app.ready()
     const res = await app.inject({
       method: 'POST',
-      url: '/v1/zones/z1/provider-grants/oauth/authorize',
+      url: '/v1/zones/z1/provider-connections/oauth/authorize',
       payload: {
-        user_id: 'user-1',
-        resource_id: 'res-1',
+        subject_id: 'user-1',
         provider_id: 'provider-1',
-        scopes: ['read'],
       },
     })
 
@@ -401,10 +345,8 @@ describe('OAuth provider grant browser flow', () => {
     redis.call.mockResolvedValue(
       JSON.stringify({
         zone_id: 'z1',
-        user_id: 'user-1',
-        resource_id: 'res-1',
+        subject_id: 'user-1',
         provider_id: 'provider-1',
-        scopes: ['read'],
         code_verifier: 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890-._~',
       }),
     )
@@ -416,7 +358,7 @@ describe('OAuth provider grant browser flow', () => {
             provider_kind: 'oauth2_authorization_code',
             config_json: {
               token_endpoint: 'https://oauth2.googleapis.com/token',
-              redirect_uri: 'http://localhost:3000/v1/zones/z1/provider-grants/oauth/callback',
+              redirect_uri: 'http://localhost:3000/v1/zones/z1/provider-connections/oauth/callback',
               client_id: 'google-client',
               client_auth_method: 'client_secret_basic',
               allowed_token_hosts: ['oauth2.googleapis.com'],
@@ -424,13 +366,11 @@ describe('OAuth provider grant browser flow', () => {
             },
             secret_config_ct: sealed.ciphertext,
             secret_config_nonce: sealed.nonce,
-            resource_scopes: ['read', 'write'],
-            resource_provider_id: 'provider-1',
           },
         ],
       })
       .mockResolvedValueOnce({
-        rows: [{ id: 'provider-grant-1', zone_id: 'z1', provider_id: 'provider-1', scopes: ['read'] }],
+        rows: [{ id: 'connection-1', zone_id: 'z1', provider_id: 'provider-1', scopes: ['read'] }],
       })
     vi.mocked(lookup).mockResolvedValue([{ address: '142.250.0.1', family: 4 }])
     const exchange = mockProviderTokenResponse({ access_token: 'google-access', refresh_token: 'google-refresh', expires_in: 3600 })
@@ -438,16 +378,16 @@ describe('OAuth provider grant browser flow', () => {
     await app.ready()
     const res = await app.inject({
       method: 'GET',
-      url: `/v1/zones/z1/provider-grants/oauth/callback?state=${state}&code=provider-code`,
+      url: `/v1/zones/z1/provider-connections/oauth/callback?state=${state}&code=provider-code`,
     })
 
     expect(res.statusCode).toBe(201)
-    expect(JSON.parse(res.body)).toMatchObject({ id: 'provider-grant-1', provider_id: 'provider-1' })
+    expect(JSON.parse(res.body)).toMatchObject({ id: 'connection-1', provider_id: 'provider-1' })
     expect(redis.call).toHaveBeenCalledWith('GETDEL', `api:provider_oauth_state:${state}`)
-    expect(String(db.query.mock.calls[1][0])).toContain('ON CONFLICT (zone_id, user_id, resource_id, provider_id)')
+    expect(String(db.query.mock.calls[1][0])).toContain('ON CONFLICT (zone_id, subject_id, provider_id)')
     const values = db.query.mock.calls[1][1] as unknown[]
-    expect(values[6]).toBeInstanceOf(Buffer)
-    expect(values[7]).toBeInstanceOf(Buffer)
+    expect(values[4]).toBeInstanceOf(Buffer)
+    expect(values[5]).toBeInstanceOf(Buffer)
     expect(httpsRequest).toHaveBeenCalledOnce()
     expect(exchange.options[0].method).toBe('POST')
     expect((exchange.options[0].headers as Record<string, string>).Authorization).toBe(
@@ -466,10 +406,8 @@ describe('OAuth provider grant browser flow', () => {
     redis.call.mockResolvedValue(
       JSON.stringify({
         zone_id: 'z1',
-        user_id: 'user-1',
-        resource_id: 'res-1',
+        subject_id: 'user-1',
         provider_id: 'provider-1',
-        scopes: ['read'],
         code_verifier: 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890-._~',
       }),
     )
@@ -480,22 +418,20 @@ describe('OAuth provider grant browser flow', () => {
           provider_kind: 'oauth2_authorization_code',
           config_json: {
             token_endpoint: 'https://oauth2.googleapis.com/token',
-            redirect_uri: 'http://localhost:3000/v1/zones/z1/provider-grants/oauth/callback',
+            redirect_uri: 'http://localhost:3000/v1/zones/z1/provider-connections/oauth/callback',
             client_id: 'google-client',
             client_auth_method: 'none',
             allowed_token_hosts: ['login.example.com'],
           },
           secret_config_ct: null,
           secret_config_nonce: null,
-          resource_scopes: ['read'],
-          resource_provider_id: 'provider-1',
         },
       ],
     })
     await app.ready()
     const res = await app.inject({
       method: 'GET',
-      url: `/v1/zones/z1/provider-grants/oauth/callback?state=${state}&code=provider-code`,
+      url: `/v1/zones/z1/provider-connections/oauth/callback?state=${state}&code=provider-code`,
     })
 
     expect(res.statusCode).toBe(400)
@@ -510,10 +446,8 @@ describe('OAuth provider grant browser flow', () => {
     redis.call.mockResolvedValue(
       JSON.stringify({
         zone_id: 'z1',
-        user_id: 'user-1',
-        resource_id: 'res-1',
+        subject_id: 'user-1',
         provider_id: 'provider-1',
-        scopes: ['read'],
         code_verifier: 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890-._~',
       }),
     )
@@ -524,15 +458,13 @@ describe('OAuth provider grant browser flow', () => {
           provider_kind: 'oauth2_authorization_code',
           config_json: {
             token_endpoint: 'https://oauth2.googleapis.com/token',
-            redirect_uri: 'http://localhost:3000/v1/zones/z1/provider-grants/oauth/callback',
+            redirect_uri: 'http://localhost:3000/v1/zones/z1/provider-connections/oauth/callback',
             client_id: 'google-client',
             client_auth_method: 'client_secret_basic',
             allowed_token_hosts: ['oauth2.googleapis.com'],
           },
           secret_config_ct: sealed.ciphertext,
           secret_config_nonce: sealed.nonce,
-          resource_scopes: ['read'],
-          resource_provider_id: 'provider-1',
         },
       ],
     })
@@ -541,7 +473,7 @@ describe('OAuth provider grant browser flow', () => {
     await app.ready()
     const res = await app.inject({
       method: 'GET',
-      url: `/v1/zones/z1/provider-grants/oauth/callback?state=${state}&code=provider-code`,
+      url: `/v1/zones/z1/provider-connections/oauth/callback?state=${state}&code=provider-code`,
     })
 
     expect(res.statusCode).toBe(502)
@@ -556,10 +488,8 @@ describe('OAuth provider grant browser flow', () => {
     redis.call.mockResolvedValue(
       JSON.stringify({
         zone_id: 'z1',
-        user_id: 'user-1',
-        resource_id: 'res-1',
+        subject_id: 'user-1',
         provider_id: 'provider-1',
-        scopes: ['read'],
         code_verifier: 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890-._~',
       }),
     )
@@ -570,15 +500,13 @@ describe('OAuth provider grant browser flow', () => {
           provider_kind: 'oauth2_authorization_code',
           config_json: {
             token_endpoint: 'https://oauth2.googleapis.com/token',
-            redirect_uri: 'http://localhost:3000/v1/zones/z1/provider-grants/oauth/callback',
+            redirect_uri: 'http://localhost:3000/v1/zones/z1/provider-connections/oauth/callback',
             client_id: 'google-client',
             client_auth_method: 'client_secret_basic',
             allowed_token_hosts: ['oauth2.googleapis.com'],
           },
           secret_config_ct: sealed.ciphertext,
           secret_config_nonce: sealed.nonce,
-          resource_scopes: ['read'],
-          resource_provider_id: 'provider-1',
         },
       ],
     })
@@ -587,7 +515,7 @@ describe('OAuth provider grant browser flow', () => {
     await app.ready()
     const res = await app.inject({
       method: 'GET',
-      url: `/v1/zones/z1/provider-grants/oauth/callback?state=${state}&code=provider-code`,
+      url: `/v1/zones/z1/provider-connections/oauth/callback?state=${state}&code=provider-code`,
     })
 
     expect(res.statusCode).toBe(502)
@@ -602,10 +530,8 @@ describe('OAuth provider grant browser flow', () => {
     redis.call.mockResolvedValue(
       JSON.stringify({
         zone_id: 'z1',
-        user_id: 'user-1',
-        resource_id: 'res-1',
+        subject_id: 'user-1',
         provider_id: 'provider-1',
-        scopes: ['read'],
         code_verifier: 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890-._~',
       }),
     )
@@ -616,15 +542,13 @@ describe('OAuth provider grant browser flow', () => {
           provider_kind: 'oauth2_authorization_code',
           config_json: {
             token_endpoint: 'https://oauth2.googleapis.com/token',
-            redirect_uri: 'http://localhost:3000/v1/zones/z1/provider-grants/oauth/callback',
+            redirect_uri: 'http://localhost:3000/v1/zones/z1/provider-connections/oauth/callback',
             client_id: 'google-client',
             client_auth_method: 'client_secret_basic',
             allowed_token_hosts: ['oauth2.googleapis.com'],
           },
           secret_config_ct: sealed.ciphertext,
           secret_config_nonce: sealed.nonce,
-          resource_scopes: ['read'],
-          resource_provider_id: 'provider-1',
         },
       ],
     })
@@ -633,7 +557,7 @@ describe('OAuth provider grant browser flow', () => {
     await app.ready()
     const res = await app.inject({
       method: 'GET',
-      url: `/v1/zones/z1/provider-grants/oauth/callback?state=${state}&code=provider-code`,
+      url: `/v1/zones/z1/provider-connections/oauth/callback?state=${state}&code=provider-code`,
     })
 
     expect(res.statusCode).toBe(502)
@@ -648,10 +572,8 @@ describe('OAuth provider grant browser flow', () => {
     redis.call.mockResolvedValue(
       JSON.stringify({
         zone_id: 'z1',
-        user_id: 'user-1',
-        resource_id: 'res-1',
+        subject_id: 'user-1',
         provider_id: 'provider-1',
-        scopes: ['read'],
         code_verifier: 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890-._~',
       }),
     )
@@ -663,20 +585,18 @@ describe('OAuth provider grant browser flow', () => {
             provider_kind: 'oauth2_authorization_code',
             config_json: {
               token_endpoint: 'https://oauth2.googleapis.com/token',
-              redirect_uri: 'http://localhost:3000/v1/zones/z1/provider-grants/oauth/callback',
+              redirect_uri: 'http://localhost:3000/v1/zones/z1/provider-connections/oauth/callback',
               client_id: 'google-client',
               client_auth_method: 'client_secret_basic',
               allowed_token_hosts: ['oauth2.googleapis.com'],
             },
             secret_config_ct: sealed.ciphertext,
             secret_config_nonce: sealed.nonce,
-            resource_scopes: ['read'],
-            resource_provider_id: 'provider-1',
           },
         ],
       })
       .mockResolvedValueOnce({
-        rows: [{ id: 'provider-grant-1', zone_id: 'z1', provider_id: 'provider-1', scopes: ['read'] }],
+        rows: [{ id: 'connection-1', zone_id: 'z1', provider_id: 'provider-1', subject_id: 'user-1' }],
       })
     vi.mocked(lookup).mockResolvedValue([{ address: '142.250.0.1', family: 4 }])
     mockProviderTokenResponse({ access_token: 'google-access', refresh_token: 'google-refresh', expires_in: 3600 })
@@ -684,7 +604,7 @@ describe('OAuth provider grant browser flow', () => {
     await app.ready()
     const res = await app.inject({
       method: 'GET',
-      url: `/v1/zones/z1/provider-grants/oauth/callback?state=${state}&code=provider-code`,
+      url: `/v1/zones/z1/provider-connections/oauth/callback?state=${state}&code=provider-code`,
       headers: { accept: 'text/html' },
     })
 
@@ -693,13 +613,56 @@ describe('OAuth provider grant browser flow', () => {
     expect(res.body).toContain('OAuth provider connected')
   })
 
+  it('rejects token responses with a non-bearer token_type', async () => {
+    const { app, db, redis } = buildRouteApp(grantsRoutes)
+    const state = 'abcdefghijklmnopqrstuvwxyz1234567890'
+    const sealed = sealedSecretConfig({ client_secret: 'google-secret' })
+    redis.call.mockResolvedValue(
+      JSON.stringify({
+        zone_id: 'z1',
+        subject_id: 'user-1',
+        provider_id: 'provider-1',
+        code_verifier: 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890-._~',
+      }),
+    )
+    db.query.mockResolvedValueOnce({
+      rows: [
+        {
+          id: 'provider-1',
+          provider_kind: 'oauth2_authorization_code',
+          config_json: {
+            token_endpoint: 'https://oauth2.googleapis.com/token',
+            redirect_uri: 'http://localhost:3000/v1/zones/z1/provider-connections/oauth/callback',
+            client_id: 'google-client',
+            client_auth_method: 'client_secret_basic',
+            allowed_token_hosts: ['oauth2.googleapis.com'],
+          },
+          secret_config_ct: sealed.ciphertext,
+          secret_config_nonce: sealed.nonce,
+        },
+      ],
+    })
+    vi.mocked(lookup).mockResolvedValue([{ address: '142.250.0.1', family: 4 }])
+    mockProviderTokenResponse({ access_token: 'google-access', token_type: 'MAC', expires_in: 3600 })
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'GET',
+      url: `/v1/zones/z1/provider-connections/oauth/callback?state=${state}&code=provider-code`,
+    })
+
+    expect(res.statusCode).toBe(502)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'provider_token_type_unsupported' })
+    expect(db.query).toHaveBeenCalledOnce()
+  })
+
   it('handles expired, denied, and malformed callback state without provider calls', async () => {
     const expired = buildRouteApp(grantsRoutes)
     expired.redis.call.mockResolvedValue(null)
     await expired.app.ready()
     const expiredRes = await expired.app.inject({
       method: 'GET',
-      url: '/v1/zones/z1/provider-grants/oauth/callback?state=abcdefghijklmnopqrstuvwxyz1234567890&code=provider-code',
+      url: '/v1/zones/z1/provider-connections/oauth/callback?state=abcdefghijklmnopqrstuvwxyz1234567890&code=provider-code',
     })
     expect(expiredRes.statusCode).toBe(400)
     expect(JSON.parse(expiredRes.body)).toMatchObject({ error: 'oauth_state_expired' })
@@ -709,7 +672,7 @@ describe('OAuth provider grant browser flow', () => {
     await invalid.app.ready()
     const invalidRes = await invalid.app.inject({
       method: 'GET',
-      url: '/v1/zones/z1/provider-grants/oauth/callback?state=abcdefghijklmnopqrstuvwxyz1234567890&code=provider-code',
+      url: '/v1/zones/z1/provider-connections/oauth/callback?state=abcdefghijklmnopqrstuvwxyz1234567890&code=provider-code',
     })
     expect(invalidRes.statusCode).toBe(400)
     expect(JSON.parse(invalidRes.body)).toMatchObject({ error: 'oauth_state_invalid' })
@@ -718,17 +681,15 @@ describe('OAuth provider grant browser flow', () => {
     denied.redis.call.mockResolvedValue(
       JSON.stringify({
         zone_id: 'z1',
-        user_id: 'user-1',
-        resource_id: 'res-1',
+        subject_id: 'user-1',
         provider_id: 'provider-1',
-        scopes: ['read'],
         code_verifier: 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890-._~',
       }),
     )
     await denied.app.ready()
     const deniedRes = await denied.app.inject({
       method: 'GET',
-      url: '/v1/zones/z1/provider-grants/oauth/callback?state=abcdefghijklmnopqrstuvwxyz1234567890&error=access_denied',
+      url: '/v1/zones/z1/provider-connections/oauth/callback?state=abcdefghijklmnopqrstuvwxyz1234567890&error=access_denied',
       headers: { accept: 'text/html' },
     })
     expect(deniedRes.statusCode).toBe(400)
@@ -738,46 +699,136 @@ describe('OAuth provider grant browser flow', () => {
   })
 })
 
-describe('POST /v1/zones/:zoneId/provider-grants/revoke', () => {
-  it('revokes the active provider grant for a user resource provider binding', async () => {
+describe('POST /v1/zones/:zoneId/provider-connections/revoke', () => {
+  it('revokes locally and reports unsupported upstream revocation without an endpoint', async () => {
     const { app, db } = buildRouteApp(grantsRoutes)
-    db.query.mockResolvedValueOnce({
-      rows: [{ id: 'provider-grant-1', zone_id: 'z1', provider_id: 'provider-1', status: 'revoked' }],
-    })
+    const sealed = sealedSecretConfig({ client_secret: 'google-secret' })
+    db.query
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            access_token_ct: Buffer.from('ct'),
+            refresh_token_ct: null,
+            config_json: { client_id: 'google-client', client_auth_method: 'client_secret_basic' },
+            secret_config_ct: sealed.ciphertext,
+            secret_config_nonce: sealed.nonce,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        rows: [{ id: 'connection-1', zone_id: 'z1', provider_id: 'provider-1', status: 'revoked' }],
+      })
 
     await app.ready()
     const res = await app.inject({
       method: 'POST',
-      url: '/v1/zones/z1/provider-grants/revoke',
-      payload: {
-        user_id: 'user-1',
-        resource_id: 'res-1',
-        provider_id: 'provider-1',
-      },
+      url: '/v1/zones/z1/provider-connections/revoke',
+      payload: { subject_id: 'user-1', provider_id: 'provider-1' },
     })
 
     expect(res.statusCode).toBe(200)
-    expect(JSON.parse(res.body)).toMatchObject({ id: 'provider-grant-1', status: 'revoked' })
-    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("status = 'revoked'"), ['z1', 'user-1', 'res-1', 'provider-1'])
+    expect(JSON.parse(res.body)).toMatchObject({
+      id: 'connection-1',
+      status: 'revoked',
+      upstream_revocation: 'unsupported',
+    })
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("status = 'revoked'"), ['z1', 'user-1', 'provider-1'])
+    expect(httpsRequest).not.toHaveBeenCalled()
   })
 
-  it('returns 404 when there is no active provider grant to revoke', async () => {
+  it('revokes the upstream refresh token through RFC 7009 when the provider advertises an endpoint', async () => {
     const { app, db } = buildRouteApp(grantsRoutes)
-    db.query.mockResolvedValueOnce({ rows: [] })
+    const sealed = sealedSecretConfig({ client_secret: 'google-secret' })
+    const refreshSealed = seal(loadZoneKek(), Buffer.from('google-refresh', 'utf8'))
+    db.query
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            access_token_ct: null,
+            refresh_token_ct: Buffer.concat([refreshSealed.nonce, refreshSealed.ciphertext]),
+            config_json: {
+              client_id: 'google-client',
+              client_auth_method: 'client_secret_basic',
+              revocation_endpoint: 'https://oauth2.googleapis.com/revoke',
+            },
+            secret_config_ct: sealed.ciphertext,
+            secret_config_nonce: sealed.nonce,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        rows: [{ id: 'connection-1', zone_id: 'z1', provider_id: 'provider-1', status: 'revoked' }],
+      })
+    vi.mocked(lookup).mockResolvedValue([{ address: '142.250.0.1', family: 4 }])
+    const revocation = mockProviderTokenResponse({}, 200)
 
     await app.ready()
     const res = await app.inject({
       method: 'POST',
-      url: '/v1/zones/z1/provider-grants/revoke',
-      payload: {
-        user_id: 'user-1',
-        resource_id: 'res-1',
-        provider_id: 'provider-1',
-      },
+      url: '/v1/zones/z1/provider-connections/revoke',
+      payload: { subject_id: 'user-1', provider_id: 'provider-1' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body)).toMatchObject({ upstream_revocation: 'revoked' })
+    const form = new URLSearchParams(revocation.bodies[0])
+    expect(form.get('token')).toBe('google-refresh')
+    expect(form.get('token_type_hint')).toBe('refresh_token')
+    expect((revocation.options[0].headers as Record<string, string>).Authorization).toBe(
+      `Basic ${Buffer.from('google-client:google-secret').toString('base64')}`,
+    )
+  })
+
+  it('keeps local revocation successful when the upstream rejects the revocation call', async () => {
+    const { app, db } = buildRouteApp(grantsRoutes)
+    const sealed = sealedSecretConfig({ client_secret: 'google-secret' })
+    const refreshSealed = seal(loadZoneKek(), Buffer.from('google-refresh', 'utf8'))
+    db.query
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            access_token_ct: null,
+            refresh_token_ct: Buffer.concat([refreshSealed.nonce, refreshSealed.ciphertext]),
+            config_json: {
+              client_id: 'google-client',
+              client_auth_method: 'client_secret_basic',
+              revocation_endpoint: 'https://oauth2.googleapis.com/revoke',
+            },
+            secret_config_ct: sealed.ciphertext,
+            secret_config_nonce: sealed.nonce,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        rows: [{ id: 'connection-1', zone_id: 'z1', provider_id: 'provider-1', status: 'revoked' }],
+      })
+    vi.mocked(lookup).mockResolvedValue([{ address: '142.250.0.1', family: 4 }])
+    mockProviderTokenResponse({ error: 'unsupported_token_type' }, 400)
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/provider-connections/revoke',
+      payload: { subject_id: 'user-1', provider_id: 'provider-1' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body)).toMatchObject({ status: 'revoked', upstream_revocation: 'failed' })
+  })
+
+  it('returns 404 when there is no active provider connection to revoke', async () => {
+    const { app, db } = buildRouteApp(grantsRoutes)
+    db.query.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [] })
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/provider-connections/revoke',
+      payload: { subject_id: 'user-1', provider_id: 'provider-1' },
     })
 
     expect(res.statusCode).toBe(404)
-    expect(JSON.parse(res.body)).toMatchObject({ error: 'provider_grant_not_found' })
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'provider_connection_not_found' })
   })
 })
 
