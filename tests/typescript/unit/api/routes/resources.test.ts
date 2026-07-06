@@ -297,8 +297,8 @@ describe('POST /v1/zones/:zoneId/resources', () => {
 
     const insertValues = db.query.mock.calls[2]![1] as unknown[]
     expect(res.statusCode).toBe(201)
-    expect(insertValues[8]).toBe(JSON.stringify([{ method: 'GET', path: '/api/get_payment', scope: 'read' }]))
-    expect(insertValues[9]).toBe('enforced')
+    expect(insertValues[7]).toBe(JSON.stringify([{ method: 'GET', path: '/api/get_payment', scope: 'read' }]))
+    expect(insertValues[8]).toBe('enforced')
   })
 
   it('suffixes generated resource identifiers when the resource name already exists in the zone', async () => {

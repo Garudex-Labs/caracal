@@ -255,7 +255,6 @@ class EnsureResourceTests(unittest.TestCase):
             identifier="resource://pipernet",
             scopes=["data:read"],
             upstream_url="https://api.pipernet.example",
-            allowed_application_ids=["app-son-of-anton"],
             operation_enforcement="transport_uniform",
         )
 
@@ -267,7 +266,6 @@ class EnsureResourceTests(unittest.TestCase):
                 "identifier": "resource://pipernet",
                 "scopes": ["data:read", "agent:lifecycle"],
                 "upstream_url": "https://api.pipernet.example",
-                "allowed_application_ids": ["app-son-of-anton"],
                 "operation_enforcement": "transport_uniform",
             },
         )
@@ -300,7 +298,7 @@ class EnsureResourceTests(unittest.TestCase):
                     "identifier": "resource://pipernet",
                     "scopes": ["data:read", "agent:lifecycle"],
                     "upstream_url": "https://stale.pipernet.example",
-                    "allowed_application_ids": ["app-unmanaged"],
+                    "credential_provider_id": "prov-unmanaged",
                 }
             ]
         )
@@ -319,57 +317,6 @@ class EnsureResourceTests(unittest.TestCase):
             {
                 "scopes": ["data:read", "agent:lifecycle"],
                 "upstream_url": "https://api.pipernet.example",
-            },
-        )
-
-    def test_allowlist_drift_is_set_based(self):
-        client = resource_admin(
-            [
-                {
-                    "id": "res-1",
-                    "identifier": "resource://pipernet",
-                    "scopes": ["data:read"],
-                    "allowed_application_ids": ["app-fiona", "app-son-of-anton"],
-                }
-            ]
-        )
-        ensure_resource(
-            client,
-            ZONE,
-            name="PiperNet",
-            identifier="resource://pipernet",
-            scopes=["data:read"],
-            allowed_application_ids=["app-son-of-anton", "app-fiona"],
-        )
-
-        client.resources.patch.assert_not_called()
-
-    def test_patches_allowlist_when_membership_drifts(self):
-        client = resource_admin(
-            [
-                {
-                    "id": "res-1",
-                    "identifier": "resource://pipernet",
-                    "scopes": ["data:read"],
-                    "allowed_application_ids": ["app-fiona"],
-                }
-            ]
-        )
-        ensure_resource(
-            client,
-            ZONE,
-            name="PiperNet",
-            identifier="resource://pipernet",
-            scopes=["data:read"],
-            allowed_application_ids=["app-son-of-anton"],
-        )
-
-        client.resources.patch.assert_called_once_with(
-            ZONE,
-            "res-1",
-            {
-                "scopes": ["data:read"],
-                "allowed_application_ids": ["app-son-of-anton"],
             },
         )
 
@@ -770,7 +717,6 @@ def pipernet_upstream(api_key="sk-pipernet"):
             identifier="resource://pipernet",
             scopes=["data:read"],
             upstream_url="https://api.pipernet.example",
-            allowed_application_ids=["app-son-of-anton"],
         ),
         grants=[
             GovernedUpstreamGrant(
@@ -809,7 +755,6 @@ class EnsureGovernedUpstreamsTests(unittest.TestCase):
                 "scopes": ["data:read", "agent:lifecycle"],
                 "upstream_url": "https://api.pipernet.example",
                 "credential_provider_id": "prov-created",
-                "allowed_application_ids": ["app-son-of-anton"],
             },
         )
         client.policies.create.assert_called_once_with(
