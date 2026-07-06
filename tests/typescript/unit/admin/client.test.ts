@@ -62,6 +62,40 @@ describe('AdminClient', () => {
     await expect(c.sessions.list('z1')).rejects.toThrow(/sessions response missing items/)
   })
 
+  it('drains list cursors so a list is the complete collection', async () => {
+    const pages = [
+      { items: [{ id: 'app-1' }], next_cursor: 'c1' },
+      { items: [{ id: 'app-2' }], next_cursor: 'c2' },
+      { items: [{ id: 'app-3' }], next_cursor: null },
+    ]
+    const f = vi.fn().mockImplementation(async (url: string) => {
+      const page = pages[url.includes('cursor=c2') ? 2 : url.includes('cursor=c1') ? 1 : 0]
+      return {
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        text: async () => JSON.stringify(page),
+        json: async () => page,
+      }
+    }) as unknown as typeof fetch
+    const c = new AdminClient({ apiUrl: 'http://api', adminToken: 't', fetchImpl: f })
+
+    await expect(c.applications.list('z1')).resolves.toEqual([{ id: 'app-1' }, { id: 'app-2' }, { id: 'app-3' }])
+    const calls = (f as unknown as { mock: { calls: [string][] } }).mock.calls.map(([url]) => url)
+    expect(calls).toEqual([
+      'http://api/v1/zones/z1/applications',
+      'http://api/v1/zones/z1/applications?cursor=c1',
+      'http://api/v1/zones/z1/applications?cursor=c2',
+    ])
+  })
+
+  it('refuses a cursor chain that never terminates', async () => {
+    const f = fetchOk({ items: [{ id: 'app-1' }], next_cursor: 'again' })
+    const c = new AdminClient({ apiUrl: 'http://api', adminToken: 't', fetchImpl: f })
+
+    await expect(c.applications.list('z1')).rejects.toThrow(/pagination did not terminate/)
+  })
+
   it('serializes JSON body with Content-Type', async () => {
     const f = fetchOk({ id: 'z2', slug: 'new' })
     const c = new AdminClient({ apiUrl: 'http://api', adminToken: 't', fetchImpl: f })

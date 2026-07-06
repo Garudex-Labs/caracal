@@ -69,7 +69,7 @@ describe('registerInvokeRoute', () => {
     })
 
     expect(res.statusCode).toBe(503)
-    expect(res.json()).toEqual({ error: 'control disabled' })
+    expect(res.json()).toEqual({ ok: false, error: { code: 'control_disabled', reason: expect.any(String) } })
     expect(verify).not.toHaveBeenCalled()
   })
 
@@ -89,7 +89,7 @@ describe('registerInvokeRoute', () => {
     })
 
     expect(res.statusCode).toBe(401)
-    expect(res.json()).toEqual({ error: 'token replay' })
+    expect(res.json()).toEqual({ ok: false, error: { code: 'token_replay', reason: expect.any(String) } })
     expect(d.sink.emit).toHaveBeenCalledWith(expect.objectContaining({ decision: 'deny', reason: 'replay' }))
   })
 
@@ -110,7 +110,7 @@ describe('registerInvokeRoute', () => {
     })
 
     expect(res.statusCode).toBe(429)
-    expect(res.json()).toEqual({ error: 'rate limited' })
+    expect(res.json()).toEqual({ ok: false, error: { code: 'rate_limited', reason: expect.any(String) } })
     expect(d.sink.emit).toHaveBeenCalledWith(expect.objectContaining({ decision: 'deny', reason: 'rate limited' }))
   })
 
@@ -137,7 +137,7 @@ describe('registerInvokeRoute', () => {
     const second = await app.inject({ method: 'POST', url: '/v1/control/invoke', headers, payload })
 
     expect(second.statusCode).toBe(429)
-    expect(second.json()).toEqual({ error: 'rate limited' })
+    expect(second.json()).toEqual({ ok: false, error: { code: 'rate_limited', reason: expect.any(String) } })
     expect(d.sink.emit).toHaveBeenCalledWith(expect.objectContaining({ decision: 'deny', reason: 'ip rate limited' }))
     expect(verify).toHaveBeenCalledTimes(1)
   })
