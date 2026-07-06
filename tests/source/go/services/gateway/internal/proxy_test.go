@@ -139,9 +139,10 @@ func makeJWT(t *testing.T, offset time.Duration) string {
 	t.Helper()
 	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none","typ":"JWT"}`))
 	payload, _ := json.Marshal(struct {
-		Exp    int64  `json:"exp"`
-		ZoneID string `json:"zone_id"`
-	}{Exp: time.Now().Add(offset).Unix(), ZoneID: "z"})
+		Exp      int64  `json:"exp"`
+		ZoneID   string `json:"zone_id"`
+		ClientID string `json:"client_id"`
+	}{Exp: time.Now().Add(offset).Unix(), ZoneID: "z", ClientID: "a"})
 	body := base64.RawURLEncoding.EncodeToString(payload)
 	return header + "." + body + ".sig"
 }
@@ -152,8 +153,9 @@ func makeJWTWithDelegation(t *testing.T, offset time.Duration, edgeID string) st
 	payload, _ := json.Marshal(struct {
 		Exp              int64  `json:"exp"`
 		ZoneID           string `json:"zone_id"`
+		ClientID         string `json:"client_id"`
 		DelegationEdgeID string `json:"delegation_edge_id"`
-	}{Exp: time.Now().Add(offset).Unix(), ZoneID: "z", DelegationEdgeID: edgeID})
+	}{Exp: time.Now().Add(offset).Unix(), ZoneID: "z", ClientID: "a", DelegationEdgeID: edgeID})
 	body := base64.RawURLEncoding.EncodeToString(payload)
 	return header + "." + body + ".sig"
 }
@@ -162,10 +164,11 @@ func makeJWTWithRoot(t *testing.T, offset time.Duration, rootSID string) string 
 	t.Helper()
 	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none","typ":"JWT"}`))
 	payload, _ := json.Marshal(struct {
-		Exp     int64  `json:"exp"`
-		ZoneID  string `json:"zone_id"`
-		RootSID string `json:"root_sid"`
-	}{Exp: time.Now().Add(offset).Unix(), ZoneID: "z", RootSID: rootSID})
+		Exp      int64  `json:"exp"`
+		ZoneID   string `json:"zone_id"`
+		ClientID string `json:"client_id"`
+		RootSID  string `json:"root_sid"`
+	}{Exp: time.Now().Add(offset).Unix(), ZoneID: "z", ClientID: "a", RootSID: rootSID})
 	body := base64.RawURLEncoding.EncodeToString(payload)
 	return header + "." + body + ".sig"
 }
@@ -196,25 +199,13 @@ func newFakeSTS(t *testing.T, upstream string, calls *int32) *httptest.Server {
 func newProxyForTest(_ *testing.T, sts *httptest.Server) *proxy {
 	stsClient := newSTSClient(sts.URL, 2*time.Second, nil)
 	guard := newUpstreamGuard(nil)
-	return newProxy(stsClient, allowVerifier{}, guard, zerolog.New(io.Discard), 1<<20, 5*time.Second, testBindings(), allowTracker{}, allowRevocations{}, &GatewayMetrics{}, nil)
+	return newProxy(stsClient, allowVerifier{}, guard, zerolog.New(io.Discard), 1<<20, 5*time.Second, allowTracker{}, allowRevocations{}, &GatewayMetrics{}, nil)
 }
 
 func newProxyForTestWithRevocations(_ *testing.T, sts *httptest.Server, revocations revocationChecker) *proxy {
 	stsClient := newSTSClient(sts.URL, 2*time.Second, nil)
 	guard := newUpstreamGuard(nil)
-	return newProxy(stsClient, allowVerifier{}, guard, zerolog.New(io.Discard), 1<<20, 5*time.Second, testBindings(), allowTracker{}, revocations, &GatewayMetrics{}, nil)
-}
-
-// testBindings returns a bindingStore preloaded with the resource identifiers used
-// across proxy tests. The empty pool is safe because tests never trigger Reload.
-func testBindings() *bindingStore {
-	s := &bindingStore{log: zerolog.Nop(), pollInterval: defaultBindingPollInterval}
-	m := map[string]binding{
-		bindingKey("z", "r"):  {ZoneID: "z", ApplicationID: "a"},
-		bindingKey("z", "r1"): {ZoneID: "z", ApplicationID: "a"},
-	}
-	s.cache.Store(&m)
-	return s
+	return newProxy(stsClient, allowVerifier{}, guard, zerolog.New(io.Discard), 1<<20, 5*time.Second, allowTracker{}, revocations, &GatewayMetrics{}, nil)
 }
 
 func doProxiedRequest(t *testing.T, p *proxy, method, target string, body io.Reader, hdr http.Header) *http.Response {
@@ -933,7 +924,7 @@ func TestProxySignedExchangeBrokersProviderCredentialWithoutIdentityLeak(t *test
 
 	stsClient := newSTSClient(sts.URL, 2*time.Second, key)
 	guard := newUpstreamGuard(nil)
-	p := newProxy(stsClient, allowVerifier{}, guard, zerolog.New(io.Discard), 1<<20, 5*time.Second, testBindings(), allowTracker{}, allowRevocations{}, &GatewayMetrics{}, nil)
+	p := newProxy(stsClient, allowVerifier{}, guard, zerolog.New(io.Discard), 1<<20, 5*time.Second, allowTracker{}, allowRevocations{}, &GatewayMetrics{}, nil)
 	resp := doProxiedRequest(t, p, "GET", "/x", nil, http.Header{
 		"Authorization":      {"Bearer " + makeJWT(t, time.Hour)},
 		"X-Api-Key":          {"caller-supplied"},
@@ -1106,7 +1097,7 @@ func TestProxyBodySizeLimitEnforced(t *testing.T) {
 
 	stsClient := newSTSClient(sts.URL, 2*time.Second, nil)
 	guard := newUpstreamGuard(nil)
-	p := newProxy(stsClient, allowVerifier{}, guard, zerolog.New(io.Discard), 16, 2*time.Second, testBindings(), allowTracker{}, allowRevocations{}, &GatewayMetrics{}, nil)
+	p := newProxy(stsClient, allowVerifier{}, guard, zerolog.New(io.Discard), 16, 2*time.Second, allowTracker{}, allowRevocations{}, &GatewayMetrics{}, nil)
 
 	tok := makeJWT(t, time.Hour)
 	hdr := http.Header{
@@ -1375,7 +1366,7 @@ func TestSTSClientTransportFailureSanitised(t *testing.T) {
 	c := newSTSClient("http://127.0.0.1:1", 100*time.Millisecond, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
-	outcome := c.Exchange(ctx, "tok", binding{}, "r", "GET", "/x", "rid")
+	outcome := c.Exchange(ctx, "tok", "z", "a", "r", "GET", "/x", "rid")
 	if outcome.InternalErr == nil {
 		t.Fatal("expected transport error")
 	}

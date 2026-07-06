@@ -127,30 +127,26 @@ def ensure_resource(
     scopes: list[str],
     upstream_url: str | None = _UNSET,
     credential_provider_id: str | None = _UNSET,
-    gateway_application_id: str | None = _UNSET,
+    allowed_application_ids: list[str] = _UNSET,
     operation_enforcement: str = _UNSET,
 ) -> Any:
     """Converges a resource to the given desired fields, creating it when
     absent and patching it only on drift so a steady state never bumps caches
     keyed on the resource row. Fields left unset are not managed: they are
     excluded from both the drift comparison and the patch, so a reconciler
-    that owns only some fields never clobbers the rest. A gateway-bound
+    that owns only some fields never clobbers the rest. A gateway-routed
     resource always also carries agent:lifecycle, the scope its owner's
     governed transport bootstraps with. Returns the live resource."""
     desired_scopes = scopes
-    if (
-        gateway_application_id is not _UNSET
-        and gateway_application_id
-        and LIFECYCLE_SCOPE not in scopes
-    ):
+    if upstream_url is not _UNSET and upstream_url and LIFECYCLE_SCOPE not in scopes:
         desired_scopes = [*scopes, LIFECYCLE_SCOPE]
     desired: dict[str, Any] = {"scopes": desired_scopes}
     if upstream_url is not _UNSET:
         desired["upstream_url"] = upstream_url
     if credential_provider_id is not _UNSET:
         desired["credential_provider_id"] = credential_provider_id
-    if gateway_application_id is not _UNSET:
-        desired["gateway_application_id"] = gateway_application_id
+    if allowed_application_ids is not _UNSET:
+        desired["allowed_application_ids"] = allowed_application_ids
     if operation_enforcement is not _UNSET:
         desired["operation_enforcement"] = operation_enforcement
     resources = client.resources.list(zone_id)
@@ -162,13 +158,22 @@ def ensure_resource(
         return client.resources.create(
             zone_id, {"name": name, "identifier": identifier, **desired}
         )
-    drifted = not _same_string_set(existing.get("scopes"), desired_scopes) or any(
-        key in desired and existing.get(key) != desired[key]
-        for key in (
-            "upstream_url",
-            "credential_provider_id",
-            "gateway_application_id",
-            "operation_enforcement",
+    drifted = (
+        not _same_string_set(existing.get("scopes"), desired_scopes)
+        or (
+            "allowed_application_ids" in desired
+            and not _same_string_set(
+                existing.get("allowed_application_ids"),
+                desired["allowed_application_ids"],
+            )
+        )
+        or any(
+            key in desired and existing.get(key) != desired[key]
+            for key in (
+                "upstream_url",
+                "credential_provider_id",
+                "operation_enforcement",
+            )
         )
     )
     if not drifted:
@@ -327,14 +332,16 @@ class GovernedUpstreamProvider:
 
 @dataclass(frozen=True)
 class GovernedUpstreamResource:
-    """The gateway-bound resource fields of a governed upstream. The
-    credential provider binding is threaded by the reconciler."""
+    """The gateway-routed resource fields of a governed upstream. The
+    credential provider binding is threaded by the reconciler. A non-empty
+    caller allowlist structurally caps which applications can exchange for
+    the resource; None leaves minting policy-governed."""
 
     name: str
     identifier: str
     scopes: list[str]
     upstream_url: str
-    gateway_application_id: str
+    allowed_application_ids: list[str] | None = None
     operation_enforcement: str | None = None
 
 
@@ -351,7 +358,7 @@ class GovernedUpstreamGrant:
 @dataclass(frozen=True)
 class GovernedUpstream:
     """One upstream in a governed set: the sealed credential the gateway
-    injects, the gateway-bound resource that proxies it, and the applications
+    injects, the gateway-routed resource that proxies it, and the applications
     granted to mint on it. The first grant names the resource's owning
     application - the identity whose governed transport may bootstrap on
     it."""
@@ -378,7 +385,7 @@ def ensure_governed_upstreams(
     set_name: str | None = None,
 ) -> list[GovernedUpstreamResult]:
     """Converges a set of governed upstreams - sealed credential provider,
-    gateway-bound resource, and the zone's grant document - in dependency
+    gateway-routed resource, and the zone's grant document - in dependency
     order, so one call declares everything the platform needs to govern the
     set. Rego permits one definition of the grant document per zone, so the
     set converges as a whole: an upstream absent from it loses its grants on
@@ -411,7 +418,11 @@ def ensure_governed_upstreams(
             scopes=upstream.resource.scopes,
             upstream_url=upstream.resource.upstream_url,
             credential_provider_id=provider_id,
-            gateway_application_id=upstream.resource.gateway_application_id,
+            allowed_application_ids=(
+                upstream.resource.allowed_application_ids
+                if upstream.resource.allowed_application_ids is not None
+                else _UNSET
+            ),
             operation_enforcement=(
                 upstream.resource.operation_enforcement
                 if upstream.resource.operation_enforcement is not None
