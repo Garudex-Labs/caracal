@@ -33,6 +33,8 @@ class CaracalAuth:
         require_chain_contains: list[str] | None = None,
         max_hop_count: int | None = None,
     ) -> None:
+        if not expected_zone_id:
+            raise ValueError("CaracalAuth requires a zone: pass expected_zone_id=")
         self.verifier: MandateVerifier = create_mandate_verifier(
             AuthOptions(
                 issuer=issuer,

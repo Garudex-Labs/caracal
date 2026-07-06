@@ -69,6 +69,11 @@ class CaracalASGIAuth:
             )
         if not audience:
             raise ValueError("CaracalASGIAuth requires the provider's own audience")
+        expected_zone_id = expected_zone_id or os.environ.get("CARACAL_ZONE_ID")
+        if not expected_zone_id:
+            raise ValueError(
+                "CaracalASGIAuth requires a zone: pass expected_zone_id= or set CARACAL_ZONE_ID"
+            )
         self.app = app
         self.verifier = MandateVerifier(
             AuthOptions(
@@ -76,9 +81,7 @@ class CaracalASGIAuth:
                 audience=audience,
                 revocations=revocations,
                 required_scopes=required_scopes or [],
-                expected_zone_id=expected_zone_id
-                or os.environ.get("CARACAL_ZONE_ID")
-                or None,
+                expected_zone_id=expected_zone_id,
                 require_agent=require_agent,
                 require_delegation=require_delegation,
                 require_chain_contains=require_chain_contains or [],
