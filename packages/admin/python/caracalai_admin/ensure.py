@@ -127,7 +127,6 @@ def ensure_resource(
     scopes: list[str],
     upstream_url: str | None = _UNSET,
     credential_provider_id: str | None = _UNSET,
-    allowed_application_ids: list[str] = _UNSET,
     operation_enforcement: str = _UNSET,
 ) -> Any:
     """Converges a resource to the given desired fields, creating it when
@@ -145,8 +144,6 @@ def ensure_resource(
         desired["upstream_url"] = upstream_url
     if credential_provider_id is not _UNSET:
         desired["credential_provider_id"] = credential_provider_id
-    if allowed_application_ids is not _UNSET:
-        desired["allowed_application_ids"] = allowed_application_ids
     if operation_enforcement is not _UNSET:
         desired["operation_enforcement"] = operation_enforcement
     resources = client.resources.list(zone_id)
@@ -160,13 +157,6 @@ def ensure_resource(
         )
     drifted = (
         not _same_string_set(existing.get("scopes"), desired_scopes)
-        or (
-            "allowed_application_ids" in desired
-            and not _same_string_set(
-                existing.get("allowed_application_ids"),
-                desired["allowed_application_ids"],
-            )
-        )
         or any(
             key in desired and existing.get(key) != desired[key]
             for key in (
@@ -333,15 +323,12 @@ class GovernedUpstreamProvider:
 @dataclass(frozen=True)
 class GovernedUpstreamResource:
     """The gateway-routed resource fields of a governed upstream. The
-    credential provider binding is threaded by the reconciler. A non-empty
-    caller allowlist structurally caps which applications can exchange for
-    the resource; None leaves minting policy-governed."""
+    credential provider binding is threaded by the reconciler."""
 
     name: str
     identifier: str
     scopes: list[str]
     upstream_url: str
-    allowed_application_ids: list[str] | None = None
     operation_enforcement: str | None = None
 
 
@@ -418,11 +405,6 @@ def ensure_governed_upstreams(
             scopes=upstream.resource.scopes,
             upstream_url=upstream.resource.upstream_url,
             credential_provider_id=provider_id,
-            allowed_application_ids=(
-                upstream.resource.allowed_application_ids
-                if upstream.resource.allowed_application_ids is not None
-                else _UNSET
-            ),
             operation_enforcement=(
                 upstream.resource.operation_enforcement
                 if upstream.resource.operation_enforcement is not None

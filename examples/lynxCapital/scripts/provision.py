@@ -198,12 +198,11 @@ def ensure_resources(
     client: LynxControl,
     model: tenancy.TenancyModel,
     provider_ids: dict[str, str],
-    application_ids: dict[str, str],
 ) -> None:
     """Create each per-application resource view. Existing views are patched so upstream
     URLs, scopes, and bindings reconcile on re-run."""
     existing = client.invoke("resource", "list")
-    for command in tenancy.resource_commands(model, provider_ids, application_ids):
+    for command in tenancy.resource_commands(model, provider_ids):
         identifier = command["flags"]["identifier"]
         found = find_by_identifier(existing, identifier)
         if found:
@@ -216,9 +215,6 @@ def ensure_resources(
                     "upstream-url": command["flags"]["upstream-url"],
                     "credential-provider-id": command["flags"][
                         "credential-provider-id"
-                    ],
-                    "gateway-application-id": command["flags"][
-                        "gateway-application-id"
                     ],
                     "operations": command["flags"]["operations"],
                     "operation-enforcement": command["flags"]["operation-enforcement"],
@@ -346,7 +342,7 @@ def main() -> None:
     partnership = tenancy.partnership_manifest(model)
     application_ids = ensure_applications(client, model, zone)
     provider_ids = ensure_providers(client, provider_cmds)
-    ensure_resources(client, model, provider_ids, application_ids)
+    ensure_resources(client, model, provider_ids)
     ensure_policy_set(client, model, application_ids)
     write_outputs(application_ids, provider_ids, model, zone)
     terms = json.dumps(partnership, separators=(",", ":"))

@@ -255,6 +255,7 @@ class EnsureResourceTests(unittest.TestCase):
             identifier="resource://pipernet",
             scopes=["data:read"],
             upstream_url="https://api.pipernet.example",
+            allowed_application_ids=["app-son-of-anton"],
             operation_enforcement="transport_uniform",
         )
 
@@ -264,8 +265,9 @@ class EnsureResourceTests(unittest.TestCase):
             {
                 "name": "PiperNet",
                 "identifier": "resource://pipernet",
-                "scopes": ["data:read"],
+                "scopes": ["data:read", "agent:lifecycle"],
                 "upstream_url": "https://api.pipernet.example",
+                "allowed_application_ids": ["app-son-of-anton"],
                 "operation_enforcement": "transport_uniform",
             },
         )
@@ -274,7 +276,7 @@ class EnsureResourceTests(unittest.TestCase):
         existing = {
             "id": "res-1",
             "identifier": "resource://pipernet",
-            "scopes": ["data:read"],
+            "scopes": ["data:read", "agent:lifecycle"],
             "upstream_url": "https://api.pipernet.example",
         }
         client = resource_admin([existing])
@@ -296,9 +298,9 @@ class EnsureResourceTests(unittest.TestCase):
                 {
                     "id": "res-1",
                     "identifier": "resource://pipernet",
-                    "scopes": ["data:read"],
-                    "upstream_url": "https://old.pipernet.example",
-                    "gateway_application_id": "app-unmanaged",
+                    "scopes": ["data:read", "agent:lifecycle"],
+                    "upstream_url": "https://stale.pipernet.example",
+                    "allowed_application_ids": ["app-unmanaged"],
                 }
             ]
         )
@@ -314,10 +316,64 @@ class EnsureResourceTests(unittest.TestCase):
         client.resources.patch.assert_called_once_with(
             ZONE,
             "res-1",
-            {"scopes": ["data:read"], "upstream_url": "https://api.pipernet.example"},
+            {
+                "scopes": ["data:read", "agent:lifecycle"],
+                "upstream_url": "https://api.pipernet.example",
+            },
         )
 
-    def test_adds_lifecycle_scope_to_gateway_bound_resource(self):
+    def test_allowlist_drift_is_set_based(self):
+        client = resource_admin(
+            [
+                {
+                    "id": "res-1",
+                    "identifier": "resource://pipernet",
+                    "scopes": ["data:read"],
+                    "allowed_application_ids": ["app-fiona", "app-son-of-anton"],
+                }
+            ]
+        )
+        ensure_resource(
+            client,
+            ZONE,
+            name="PiperNet",
+            identifier="resource://pipernet",
+            scopes=["data:read"],
+            allowed_application_ids=["app-son-of-anton", "app-fiona"],
+        )
+
+        client.resources.patch.assert_not_called()
+
+    def test_patches_allowlist_when_membership_drifts(self):
+        client = resource_admin(
+            [
+                {
+                    "id": "res-1",
+                    "identifier": "resource://pipernet",
+                    "scopes": ["data:read"],
+                    "allowed_application_ids": ["app-fiona"],
+                }
+            ]
+        )
+        ensure_resource(
+            client,
+            ZONE,
+            name="PiperNet",
+            identifier="resource://pipernet",
+            scopes=["data:read"],
+            allowed_application_ids=["app-son-of-anton"],
+        )
+
+        client.resources.patch.assert_called_once_with(
+            ZONE,
+            "res-1",
+            {
+                "scopes": ["data:read"],
+                "allowed_application_ids": ["app-son-of-anton"],
+            },
+        )
+
+    def test_adds_lifecycle_scope_to_gateway_routed_resource(self):
         client = resource_admin([])
         ensure_resource(
             client,
@@ -325,7 +381,7 @@ class EnsureResourceTests(unittest.TestCase):
             name="PiperNet",
             identifier="resource://pipernet",
             scopes=["data:read"],
-            gateway_application_id="app-son-of-anton",
+            upstream_url="https://api.pipernet.example",
         )
 
         client.resources.create.assert_called_once_with(
@@ -334,7 +390,7 @@ class EnsureResourceTests(unittest.TestCase):
                 "name": "PiperNet",
                 "identifier": "resource://pipernet",
                 "scopes": ["data:read", "agent:lifecycle"],
-                "gateway_application_id": "app-son-of-anton",
+                "upstream_url": "https://api.pipernet.example",
             },
         )
 
@@ -346,20 +402,20 @@ class EnsureResourceTests(unittest.TestCase):
             name="PiperNet",
             identifier="resource://pipernet",
             scopes=["agent:lifecycle", "data:read"],
-            gateway_application_id="app-son-of-anton",
+            upstream_url="https://api.pipernet.example",
         )
 
         body = client.resources.create.call_args[0][1]
         self.assertEqual(body["scopes"], ["agent:lifecycle", "data:read"])
 
-    def test_gateway_bound_resource_with_lifecycle_is_converged(self):
+    def test_gateway_routed_resource_with_lifecycle_is_converged(self):
         client = resource_admin(
             [
                 {
                     "id": "res-1",
                     "identifier": "resource://pipernet",
                     "scopes": ["data:read", "agent:lifecycle"],
-                    "gateway_application_id": "app-son-of-anton",
+                    "upstream_url": "https://api.pipernet.example",
                 }
             ]
         )
@@ -369,12 +425,12 @@ class EnsureResourceTests(unittest.TestCase):
             name="PiperNet",
             identifier="resource://pipernet",
             scopes=["data:read"],
-            gateway_application_id="app-son-of-anton",
+            upstream_url="https://api.pipernet.example",
         )
 
         client.resources.patch.assert_not_called()
 
-    def test_never_adds_lifecycle_without_gateway_binding(self):
+    def test_never_adds_lifecycle_without_upstream(self):
         client = resource_admin([])
         ensure_resource(
             client,
@@ -714,7 +770,7 @@ def pipernet_upstream(api_key="sk-pipernet"):
             identifier="resource://pipernet",
             scopes=["data:read"],
             upstream_url="https://api.pipernet.example",
-            gateway_application_id="app-son-of-anton",
+            allowed_application_ids=["app-son-of-anton"],
         ),
         grants=[
             GovernedUpstreamGrant(
@@ -753,7 +809,7 @@ class EnsureGovernedUpstreamsTests(unittest.TestCase):
                 "scopes": ["data:read", "agent:lifecycle"],
                 "upstream_url": "https://api.pipernet.example",
                 "credential_provider_id": "prov-created",
-                "gateway_application_id": "app-son-of-anton",
+                "allowed_application_ids": ["app-son-of-anton"],
             },
         )
         client.policies.create.assert_called_once_with(
