@@ -64,21 +64,19 @@ describe('policy-sets STS response degradation', () => {
       stsUrl: 'http://sts.local',
       gatewayStsHmacKey: Buffer.alloc(32, 1),
     } as never)
-    db.query
-      .mockResolvedValueOnce({ rows: [{ active_version_id: 'psv-1', shadow_version_id: null, manifest_sha256: 'sha-1' }] })
-      .mockResolvedValueOnce({
-        rows: [
-          {
-            id: 'outbox-1',
-            stream_name: 'caracal.policy.invalidate',
-            payload_json: { zone_id: 'z1', policy_set_id: 'ps-1', policy_set_version_id: 'psv-1' },
-            attempts: 1,
-            last_error: null,
-            dispatched_at: new Date('2026-01-01T00:00:00Z'),
-            available_at: new Date('2026-01-01T00:00:00Z'),
-          },
-        ],
-      })
+    db.query.mockResolvedValueOnce({ rows: [{ active_version_id: 'psv-1', manifest_sha256: 'sha-1' }] }).mockResolvedValueOnce({
+      rows: [
+        {
+          id: 'outbox-1',
+          stream_name: 'caracal.policy.invalidate',
+          payload_json: { zone_id: 'z1', policy_set_id: 'ps-1', policy_set_version_id: 'psv-1' },
+          attempts: 1,
+          last_error: null,
+          dispatched_at: new Date('2026-01-01T00:00:00Z'),
+          available_at: new Date('2026-01-01T00:00:00Z'),
+        },
+      ],
+    })
     const fetchMock = vi
       .spyOn(globalThis, 'fetch')
       .mockResolvedValue(new Response('not json', { status: 200, headers: { 'content-type': 'application/json' } }))

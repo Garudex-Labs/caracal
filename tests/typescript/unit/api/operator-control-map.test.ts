@@ -156,10 +156,10 @@ describe('buildInvocation', () => {
     })
   })
 
-  it('builds createPolicy with the authored document and hyphenated schema flag', () => {
+  it('builds createPolicy with the authored document', () => {
     expect(
       CONTROL_CAPABILITIES.createPolicy.buildInvocation(
-        { name: 'PiperNet baseline', description: 'read for operators', content: 'package caracal.authz', schema_version: '2026-05-01' },
+        { name: 'PiperNet baseline', description: 'read for operators', content: 'package caracal.authz' },
         gen,
       ),
     ).toEqual({
@@ -169,7 +169,6 @@ describe('buildInvocation', () => {
         name: 'PiperNet baseline',
         description: 'read for operators',
         content: 'package caracal.authz',
-        'schema-version': '2026-05-01',
       },
     })
   })
@@ -185,15 +184,10 @@ describe('buildInvocation', () => {
   })
 
   it('builds versionPolicy against the existing policy id', () => {
-    expect(
-      CONTROL_CAPABILITIES.versionPolicy.buildInvocation(
-        { policy_id: 'pol-1', content: 'package caracal.authz', schema_version: '2026-05-01' },
-        gen,
-      ),
-    ).toEqual({
+    expect(CONTROL_CAPABILITIES.versionPolicy.buildInvocation({ policy_id: 'pol-1', content: 'package caracal.authz' }, gen)).toEqual({
       command: 'policy',
       subcommand: 'version',
-      flags: { id: 'pol-1', content: 'package caracal.authz', 'schema-version': '2026-05-01' },
+      flags: { id: 'pol-1', content: 'package caracal.authz' },
     })
   })
 

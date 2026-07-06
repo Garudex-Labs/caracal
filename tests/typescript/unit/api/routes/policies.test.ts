@@ -13,7 +13,7 @@ import { policiesRoutes } from '../../../../../apps/api/src/routes/policies.js'
 function buildApp() {
   const app = Fastify({ logger: false })
   const clientQuery = vi.fn().mockResolvedValue({
-    rows: [{ id: 'pv-1', policy_id: 'p-1', version: 1, content_sha256: 'abc', schema_version: '2026-03-16', created_at: new Date() }],
+    rows: [{ id: 'pv-1', policy_id: 'p-1', version: 1, content_sha256: 'abc', schema_version: '2026-05-20', created_at: new Date() }],
   })
   const db = {
     query: vi.fn(),
@@ -105,16 +105,16 @@ describe('POST /v1/policies/validate', () => {
     })
   })
 
-  it('rejects unsupported schema versions', async () => {
+  it('stamps the pinned input schema on validation success', async () => {
     const { app } = buildApp()
     await app.ready()
     const res = await app.inject({
       method: 'POST',
       url: '/v1/policies/validate',
-      payload: { content: validRego, schema_version: '2099-01-01' },
+      payload: { content: validRego },
     })
-    expect(res.statusCode).toBe(422)
-    expect(JSON.parse(res.body)).toMatchObject({ error: 'invalid_schema_version' })
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body)).toMatchObject({ valid: true, schema_version: '2026-05-20', input_schema_version: '2026-05-20' })
   })
 })
 

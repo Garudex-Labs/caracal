@@ -188,6 +188,66 @@ describe('GET /v1/zones/:zoneId/audit', () => {
     expect(db.query.mock.calls[0][1]).toEqual(['z1', 'agt-1', '["refund-agent"]', 100])
   })
 
+  it('filters by a comma-separated event_type list covering an audit domain', async () => {
+    const { app, db } = buildRouteApp(zoneEventsRoutes)
+    db.query.mockResolvedValueOnce({ rows: [] })
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/zones/z1/audit?event_type=step_up_issued,step_up_decided,step_up_consumed',
+    })
+
+    expect(res.statusCode).toBe(200)
+    const sql = db.query.mock.calls[0][0] as string
+    expect(sql).toContain('event_type = ANY($2)')
+    expect(db.query.mock.calls[0][1]).toEqual([
+      'z1',
+      ['step_up_issued', 'step_up_decided', 'step_up_consumed'],
+      100,
+    ])
+  })
+
+  it('rejects an event_type list with no usable entries', async () => {
+    const { app, db } = buildRouteApp(zoneEventsRoutes)
+
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/audit?event_type=,,' })
+
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body)).toEqual({ error: 'invalid_query' })
+    expect(db.query).not.toHaveBeenCalled()
+  })
+
+  it('exports correlation and approval metadata fields', async () => {
+    const { app, db } = buildRouteApp(zoneEventsRoutes)
+    db.query.mockResolvedValueOnce({
+      rows: [
+        {
+          id: 'audit-1',
+          zone_id: 'z1',
+          event_type: 'gateway_resource_request',
+          decision: 'allow',
+          occurred_at: '2026-05-01T00:00:00.000Z',
+          metadata_json: { trace_id: 'trace-7', provider_id: 'prov-1', authorized_by: 'Richard Hendricks' },
+        },
+      ],
+    })
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/zones/z1/audit?fields=trace_id,provider_id,authorized_by',
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body).items[0]).toEqual({
+      trace_id: 'trace-7',
+      provider_id: 'prov-1',
+      authorized_by: 'Richard Hendricks',
+    })
+  })
+
   it('filters audit by session_id', async () => {
     const { app, db } = buildRouteApp(zoneEventsRoutes)
     db.query.mockResolvedValueOnce({ rows: [] })
