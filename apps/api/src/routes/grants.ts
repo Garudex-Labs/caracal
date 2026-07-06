@@ -222,7 +222,11 @@ function sendOAuthCallback(
 // and the requested scopes are within the resource's scopes. Shared by the grants route
 // and the Operator executor so both authorize and persist a grant identically. Returns a
 // typed error rather than throwing so each caller maps it to its own surface.
-export type CreateGrantError = 'application_not_found' | 'resource_not_found' | 'grant_scopes_exceed_resource'
+export type CreateGrantError =
+  | 'application_not_found'
+  | 'resource_not_found'
+  | 'grant_scopes_exceed_resource'
+  | 'control_resource_not_grantable'
 
 export async function createDelegatedGrant(
   db: { query: <T = unknown>(text: string, params?: unknown[]) => Promise<{ rows: T[] }> },
@@ -230,18 +234,29 @@ export async function createDelegatedGrant(
   input: { application_id: string; user_id: string; resource_id: string; scopes: string[] },
   attribution: Attribution,
 ): Promise<{ ok: true; row: Record<string, unknown> } | { ok: false; error: CreateGrantError }> {
-  const { rows: refs } = await db.query<{ application_exists: boolean; resource_scopes: string[] | null }>(
+  const { rows: refs } = await db.query<{
+    application_exists: boolean
+    resource_scopes: string[] | null
+    resource_identifier: string | null
+  }>(
     `SELECT
        EXISTS (
          SELECT 1 FROM applications
          WHERE id = $2 AND zone_id = $1 AND archived_at IS NULL
            AND (expires_at IS NULL OR expires_at > now())
        ) AS application_exists,
-       (SELECT scopes FROM resources WHERE id = $3 AND zone_id = $1 AND archived_at IS NULL) AS resource_scopes`,
+       (SELECT scopes FROM resources WHERE id = $3 AND zone_id = $1 AND archived_at IS NULL) AS resource_scopes,
+       (SELECT identifier FROM resources WHERE id = $3 AND zone_id = $1 AND archived_at IS NULL) AS resource_identifier`,
     [zoneId, input.application_id, input.resource_id],
   )
   if (!refs[0]?.application_exists) return { ok: false, error: 'application_not_found' }
   if (!refs[0].resource_scopes) return { ok: false, error: 'resource_not_found' }
+  // A delegated grant on the control resource would open a non-control-key mint
+  // path for control-audience tokens; control authority flows only through control
+  // keys, so the grant is refused at creation.
+  if (refs[0].resource_identifier === (process.env.CONTROL_AUDIENCE ?? 'caracal-control')) {
+    return { ok: false, error: 'control_resource_not_grantable' }
+  }
   if (!scopesAllowed(input.scopes, refs[0].resource_scopes)) {
     return { ok: false, error: 'grant_scopes_exceed_resource' }
   }
@@ -331,7 +346,7 @@ export const grantsRoutes: FastifyPluginAsync = async (fastify) => {
     const body = GrantBody.parse(req.body)
     const result = await createDelegatedGrant(fastify.db, params.zoneId, body, await resolveAttribution(req, fastify.db, params.zoneId))
     if (!result.ok) {
-      const status = result.error === 'grant_scopes_exceed_resource' ? 403 : 404
+      const status = result.error === 'application_not_found' || result.error === 'resource_not_found' ? 404 : 403
       return reply.code(status).send({ error: result.error })
     }
     return reply.code(201).send(result.row)

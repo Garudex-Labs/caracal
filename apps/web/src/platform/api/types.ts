@@ -404,6 +404,59 @@ export interface StepUpDecision {
   approver_subject_id: string;
 }
 
+export interface ApprovalQuery {
+  state?: StepUpState;
+  cursor?: string;
+}
+
+export interface ApprovalCounts {
+  pending: number;
+  approved: number;
+  rejected: number;
+  expired: number;
+  consumed: number;
+}
+
+export interface NotificationSink {
+  id: string;
+  zone_id: string;
+  name: string;
+  url: string;
+  event_types: string[];
+  active: boolean;
+  consecutive_failures: number;
+  last_success_at: string | null;
+  last_failure_at: string | null;
+  last_error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NotificationSinkCreated extends NotificationSink {
+  secret: string;
+}
+
+export interface NotificationSinkInput {
+  name: string;
+  url: string;
+  event_types?: string[];
+  active?: boolean;
+}
+
+export interface SinkDelivery {
+  id: string;
+  sink_id: string;
+  event_id: string;
+  event_type: string;
+  attempts: number;
+  available_at: string;
+  delivered_at: string | null;
+  abandoned_at: string | null;
+  response_status: number | null;
+  last_error: string | null;
+  created_at: string;
+}
+
 export interface DeniedDecision {
   event_id: string;
   event_type: string;
