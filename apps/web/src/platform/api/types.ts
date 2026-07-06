@@ -126,6 +126,7 @@ export interface Resource {
   updated_via_operator: boolean;
   created_at: string;
   updated_at: string;
+  archived_at?: string | null;
 }
 
 export interface ResourceInput {
@@ -177,6 +178,7 @@ export interface Provider {
   updated_via_operator: boolean;
   created_at: string;
   updated_at: string;
+  archived_at?: string | null;
 }
 
 export interface ProviderInput {
@@ -577,6 +579,8 @@ export interface ProviderGrant {
   updated_by?: string | null;
   updated_via_operator?: boolean;
   expires_at: string | null;
+  refreshed_at?: string | null;
+  renewable?: boolean;
   created_at: string;
   updated_at: string;
 }

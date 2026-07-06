@@ -543,9 +543,13 @@ export const consoleApi = {
   },
 
   resources: {
-    list: async (zoneId: string, signal?: AbortSignal) =>
-      (await fetchAllPages<Resource>(`/v1/zones/${encodeURIComponent(zoneId)}/resources`, signal))
-        .rows,
+    list: async (zoneId: string, signal?: AbortSignal, status: "active" | "archived" = "active") =>
+      (
+        await fetchAllPages<Resource>(
+          `/v1/zones/${encodeURIComponent(zoneId)}/resources${status === "archived" ? "?status=archived" : ""}`,
+          signal,
+        )
+      ).rows,
     get: (zoneId: string, id: string) =>
       request<Resource>(
         `/v1/zones/${encodeURIComponent(zoneId)}/resources/${encodeURIComponent(id)}`,
@@ -567,9 +571,13 @@ export const consoleApi = {
   },
 
   providers: {
-    list: async (zoneId: string, signal?: AbortSignal) =>
-      (await fetchAllPages<Provider>(`/v1/zones/${encodeURIComponent(zoneId)}/providers`, signal))
-        .rows,
+    list: async (zoneId: string, signal?: AbortSignal, status: "active" | "archived" = "active") =>
+      (
+        await fetchAllPages<Provider>(
+          `/v1/zones/${encodeURIComponent(zoneId)}/providers${status === "archived" ? "?status=archived" : ""}`,
+          signal,
+        )
+      ).rows,
     get: (zoneId: string, id: string) =>
       request<Provider>(
         `/v1/zones/${encodeURIComponent(zoneId)}/providers/${encodeURIComponent(id)}`,
@@ -1155,7 +1163,7 @@ export const consoleApi = {
     list: async (zoneId: string, query: ProviderGrantListQuery = {}) =>
       (
         await fetchAllPages<ProviderGrant>(
-          `/v1/zones/${encodeURIComponent(zoneId)}/grants${queryString({
+          `/v1/zones/${encodeURIComponent(zoneId)}/provider-grants${queryString({
             provider_id: query.provider_id,
             resource_id: query.resource_id,
             user_id: query.user_id,

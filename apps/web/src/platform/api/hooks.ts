@@ -669,10 +669,10 @@ export function useDeleteApplication(zoneId: string | null) {
   });
 }
 
-export function useResources(zoneId: string | null) {
+export function useResources(zoneId: string | null, status: "active" | "archived" = "active") {
   return useQuery({
-    queryKey: keys.resources(zoneId),
-    queryFn: ({ signal }) => consoleApi.resources.list(zoneId as string, signal),
+    queryKey: [...keys.resources(zoneId), status],
+    queryFn: ({ signal }) => consoleApi.resources.list(zoneId as string, signal, status),
     enabled: Boolean(zoneId),
   });
 }
@@ -713,10 +713,10 @@ export function useDeleteResource(zoneId: string | null) {
   });
 }
 
-export function useProviders(zoneId: string | null) {
+export function useProviders(zoneId: string | null, status: "active" | "archived" = "active") {
   return useQuery({
-    queryKey: keys.providers(zoneId),
-    queryFn: ({ signal }) => consoleApi.providers.list(zoneId as string, signal),
+    queryKey: [...keys.providers(zoneId), status],
+    queryFn: ({ signal }) => consoleApi.providers.list(zoneId as string, signal, status),
     enabled: Boolean(zoneId),
   });
 }
