@@ -69,7 +69,10 @@ class TokenValidationSecurityTests(unittest.IsolatedAsyncioTestCase):
 
         with self.assertRaises(ZoneInvalidError):
             await verify.verify_token(
-                token, "https://sts.example.com", "resource://api"
+                token,
+                "https://sts.example.com",
+                "resource://api",
+                expected_zone_id="zone1",
             )
 
     async def test_rejects_wrong_audience(self) -> None:
@@ -78,7 +81,10 @@ class TokenValidationSecurityTests(unittest.IsolatedAsyncioTestCase):
 
         with self.assertRaises(TokenInvalidError):
             await verify.verify_token(
-                token, "https://sts.example.com", "resource://api"
+                token,
+                "https://sts.example.com",
+                "resource://api",
+                expected_zone_id="zone1",
             )
 
 

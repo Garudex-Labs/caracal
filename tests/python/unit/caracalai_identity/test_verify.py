@@ -52,20 +52,22 @@ class VerifyTokenTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(claims["sub_type"], "user")
         self.assertEqual(self.cache.requests, [("https://sts.example.com", "zone1")])
 
-    async def test_derives_jwks_zone_from_token_claim_when_unconfigured(self) -> None:
-        token, jwk = mint_es256_token(scopes=("read",))
+    async def test_uses_configured_zone_for_jwks_and_rejects_mismatched_claim(
+        self,
+    ) -> None:
+        token, jwk = mint_es256_token(scopes=("read",), zone_id="zone-evil")
         self.cache.keys = [jwk]
 
-        claims = await verify.verify_token(
-            token,
-            "https://sts.example.com",
-            "resource://api",
-        )
-
-        self.assertEqual(claims["zone_id"], "zone1")
+        with self.assertRaises(verify.ZoneInvalidError):
+            await verify.verify_token(
+                token,
+                "https://sts.example.com",
+                "resource://api",
+                expected_zone_id="zone1",
+            )
         self.assertEqual(self.cache.requests, [("https://sts.example.com", "zone1")])
 
-    async def test_rejects_token_without_zone_claim_when_unconfigured(self) -> None:
+    async def test_rejects_token_when_zone_claim_absent(self) -> None:
         token, jwk = mint_es256_token(scopes=("read",), zone_id="")
         self.cache.keys = [jwk]
 
@@ -74,8 +76,8 @@ class VerifyTokenTests(unittest.IsolatedAsyncioTestCase):
                 token,
                 "https://sts.example.com",
                 "resource://api",
+                expected_zone_id="zone1",
             )
-        self.assertEqual(self.cache.requests, [])
 
 
 if __name__ == "__main__":
