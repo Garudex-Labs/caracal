@@ -573,8 +573,9 @@ function ScopePicker({
         })}
       </div>
       <p className="text-[11px] text-muted-foreground">
-        The credential is minted with only the selected scopes. Leave all unchecked to request the
-        resource's full scope set.
+        Selected scopes narrow the policy decision and are recorded in the audit trail. Leave all
+        unchecked to request the resource's full scope set. Static provider credentials (API keys,
+        bearer tokens) always carry the provider's full authority regardless of scope selection.
       </p>
     </div>
   );

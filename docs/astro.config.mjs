@@ -196,6 +196,7 @@ export default defineConfig({
                 { label: 'Tail and Query the Audit Stream', link: '/guides/audit-stream/' },
                 { label: 'Implement Multi-Agent Delegation', link: '/guides/delegation/' },
                 { label: 'Step-Up Re-Authentication', link: '/guides/step-up/' },
+                { label: 'Approval Notifications', link: '/guides/approval-notifications/' },
                 { label: 'Production Integration Patterns', link: '/guides/enterprise-runtime-patterns/' },
               ],
             },

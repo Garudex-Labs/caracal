@@ -12,6 +12,7 @@ export const AUDIT_EVENT_LABELS: Record<string, string> = {
   step_up_issued: "Approval requested",
   step_up_decided: "Approval decided",
   step_up_consumed: "Approval consumed",
+  run_launch: "Workload launch",
   "control.invoke": "Control command",
 };
 
@@ -20,6 +21,7 @@ export const AUDIT_EVENT_LABELS: Record<string, string> = {
 // decision to avoid presenting a denial as an issued credential.
 export function auditEventLabel(eventType: string, decision?: string | null): string {
   if (eventType === "token_exchange" && decision === "deny") return "Token denied";
+  if (eventType === "run_launch" && decision === "deny") return "Workload launch denied";
   if (eventType === "step_up_decided") {
     if (decision === "approved") return "Approval granted";
     if (decision === "rejected") return "Approval rejected";
@@ -46,7 +48,7 @@ export interface AuditCategory {
 }
 
 export const AUDIT_CATEGORIES: readonly AuditCategory[] = [
-  { id: "authority", label: "Authority decisions", types: ["token_exchange"] },
+  { id: "authority", label: "Authority decisions", types: ["token_exchange", "run_launch"] },
   { id: "resource", label: "Resource access", types: ["gateway_resource_request"] },
   {
     id: "approvals",
@@ -185,6 +187,10 @@ export const AUDIT_DENY_REASONS: Record<string, { label: string; hint: string }>
     label: "The approval hold expired before use",
     hint: "Request a new approval and complete the exchange within its TTL.",
   },
+  workload_auth_failed: {
+    label: "The workload's secret failed verification",
+    hint: "Rotate the workload secret on the Launcher page and update the secret stored on the runtime host.",
+  },
   exchange_denied: {
     label: "Every requested resource was refused",
     hint: "Each per-resource denial in this request has its own event; open the decision trace for the full picture.",
@@ -204,12 +210,15 @@ function metaStr(meta: Record<string, unknown>, key: string): string | null {
 }
 
 // Resolves the human name of the acting principal from event metadata; token
-// exchange events carry application_name directly, others only the id.
+// exchange events carry application_name directly, run events carry workload_name,
+// others only the id.
 export function auditActor(event: AuditEventLike): string | null {
   const meta = event.metadata_json ?? {};
   return (
     metaStr(meta, "application_name") ??
+    metaStr(meta, "workload_name") ??
     metaStr(meta, "application_id") ??
+    metaStr(meta, "workload_id") ??
     metaStr(meta, "subject") ??
     metaStr(meta, "client_id")
   );

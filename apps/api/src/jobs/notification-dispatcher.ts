@@ -11,7 +11,7 @@ import { loadZoneKek, open } from '@caracalai/server-core'
 import type { DB } from '../db.js'
 import { withTransaction } from '../db.js'
 
-const DISPATCH_LOCK_KEY = '7163920485318482'
+const DISPATCH_LOCK_KEY = '7163920485318484'
 const FANOUT_SINK_BATCH = 200
 const FANOUT_EVENT_BATCH = 100
 const DELIVER_BATCH = 25
