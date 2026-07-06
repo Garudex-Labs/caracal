@@ -184,16 +184,15 @@ type Resource struct {
 	CredentialProviderID *string
 	Operations           []ResourceOperation
 	OperationEnforcement string
-	AllowedApplications  []string
 }
 
 func (d *DB) GetResourceByIdentifier(ctx context.Context, zoneID, identifier string) (*Resource, error) {
 	var r Resource
 	var operations []byte
 	err := d.pool.QueryRow(ctx,
-		`SELECT id, zone_id, identifier, upstream_url, scopes, credential_provider_id, operations, operation_enforcement, allowed_application_ids FROM resources
+		`SELECT id, zone_id, identifier, upstream_url, scopes, credential_provider_id, operations, operation_enforcement FROM resources
 		 WHERE zone_id = $1 AND identifier = $2 AND archived_at IS NULL`, zoneID, identifier,
-	).Scan(&r.ID, &r.ZoneID, &r.Identifier, &r.UpstreamURL, &r.Scopes, &r.CredentialProviderID, &operations, &r.OperationEnforcement, &r.AllowedApplications)
+	).Scan(&r.ID, &r.ZoneID, &r.Identifier, &r.UpstreamURL, &r.Scopes, &r.CredentialProviderID, &operations, &r.OperationEnforcement)
 	if err != nil {
 		return nil, err
 	}

@@ -18,7 +18,7 @@ import (
 )
 
 // LifecycleScope is the scope a governed transport bootstraps with on a
-// gateway-bound resource.
+// gateway-routed resource.
 const LifecycleScope = "agent:lifecycle"
 
 const (
@@ -162,42 +162,44 @@ func EnsureAPIKeyProvider(ctx context.Context, client *AdminClient, zoneID strin
 	return existing.ID, nil
 }
 
-// ResourceEnsure is the desired state for EnsureResource. Nil pointer fields
-// are not managed: they are excluded from both the drift comparison and the
-// patch.
+// ResourceEnsure is the desired state for EnsureResource. Nil pointer and
+// slice fields are not managed: they are excluded from both the drift
+// comparison and the patch.
 type ResourceEnsure struct {
-	Name                 string
-	Identifier           string
-	Scopes               []string
-	UpstreamURL          *string
-	CredentialProviderID *string
-	GatewayApplicationID *string
-	OperationEnforcement *string
+	Name                  string
+	Identifier            string
+	Scopes                []string
+	UpstreamURL           *string
+	CredentialProviderID  *string
+	AllowedApplicationIDs []string
+	OperationEnforcement  *string
 }
 
 // EnsureResource converges a resource to the given desired fields, creating
 // it when absent and patching it only on drift so a steady state never bumps
 // caches keyed on the resource row. Unmanaged fields are never clobbered, so
 // a reconciler that owns only some fields leaves the rest alone. A
-// gateway-bound resource always also carries agent:lifecycle, the scope its
+// gateway-routed resource always also carries agent:lifecycle, the scope its
 // owner's governed transport bootstraps with. Returns the live resource.
 func EnsureResource(ctx context.Context, client *AdminClient, zoneID string, input ResourceEnsure) (*Resource, error) {
 	desiredScopes := input.Scopes
-	gatewayBound := input.GatewayApplicationID != nil && *input.GatewayApplicationID != ""
-	if gatewayBound && !slices.Contains(input.Scopes, LifecycleScope) {
+	gatewayRouted := input.UpstreamURL != nil && *input.UpstreamURL != ""
+	if gatewayRouted && !slices.Contains(input.Scopes, LifecycleScope) {
 		desiredScopes = append(slices.Clone(input.Scopes), LifecycleScope)
 	}
 	desired := map[string]any{"scopes": desiredScopes}
 	managed := map[string]*string{
 		"upstream_url":           input.UpstreamURL,
 		"credential_provider_id": input.CredentialProviderID,
-		"gateway_application_id": input.GatewayApplicationID,
 		"operation_enforcement":  input.OperationEnforcement,
 	}
 	for key, value := range managed {
 		if value != nil {
 			desired[key] = *value
 		}
+	}
+	if input.AllowedApplicationIDs != nil {
+		desired["allowed_application_ids"] = input.AllowedApplicationIDs
 	}
 	resources, err := client.Resources.List(ctx, zoneID)
 	if err != nil {
@@ -220,7 +222,6 @@ func EnsureResource(ctx context.Context, client *AdminClient, zoneID string, inp
 	live := map[string]*string{
 		"upstream_url":           existing.UpstreamURL,
 		"credential_provider_id": existing.CredentialProviderID,
-		"gateway_application_id": existing.GatewayApplicationID,
 		"operation_enforcement":  existing.OperationEnforcement,
 	}
 	drifted := !sameStringSet(existing.Scopes, desiredScopes)
@@ -231,6 +232,9 @@ func EnsureResource(ctx context.Context, client *AdminClient, zoneID string, inp
 		if live[key] == nil || *live[key] != *value {
 			drifted = true
 		}
+	}
+	if input.AllowedApplicationIDs != nil && !sameStringSet(existing.AllowedApplicationIDs, input.AllowedApplicationIDs) {
+		drifted = true
 	}
 	if !drifted {
 		return existing, nil
@@ -470,20 +474,22 @@ type GovernedUpstreamGrant struct {
 	Role          string
 }
 
-// GovernedUpstreamResource is the gateway-bound resource fields of a governed
-// upstream. The credential provider binding is threaded by the reconciler,
-// and an empty OperationEnforcement is left unmanaged.
+// GovernedUpstreamResource is the gateway-routed resource fields of a
+// governed upstream. The credential provider binding is threaded by the
+// reconciler, and an empty OperationEnforcement is left unmanaged. A
+// non-empty caller allowlist structurally caps which applications can
+// exchange for the resource; nil leaves minting policy-governed.
 type GovernedUpstreamResource struct {
-	Name                 string
-	Identifier           string
-	Scopes               []string
-	UpstreamURL          string
-	GatewayApplicationID string
-	OperationEnforcement string
+	Name                  string
+	Identifier            string
+	Scopes                []string
+	UpstreamURL           string
+	AllowedApplicationIDs []string
+	OperationEnforcement  string
 }
 
 // GovernedUpstream is one upstream in a governed set: the sealed credential
-// the gateway injects, the gateway-bound resource that proxies it, and the
+// the gateway injects, the gateway-routed resource that proxies it, and the
 // applications granted to mint on it. The first grant names the resource's
 // owning application - the identity whose governed transport may bootstrap
 // on it.
@@ -509,7 +515,7 @@ type GovernedUpstreamResult struct {
 }
 
 // EnsureGovernedUpstreams converges a set of governed upstreams - sealed
-// credential provider, gateway-bound resource, and the zone's grant document
+// credential provider, gateway-routed resource, and the zone's grant document
 // - in dependency order, so one call declares everything the platform needs
 // to govern the set. Rego permits one definition of the grant document per
 // zone, so the set converges as a whole: an upstream absent from it loses its
@@ -529,12 +535,12 @@ func EnsureGovernedUpstreams(ctx context.Context, client *AdminClient, zoneID st
 			return nil, fmt.Errorf("provider %s has no sealed api key: supply APIKey before governing %s", upstream.Provider.Identifier, upstream.Resource.Identifier)
 		}
 		resourceInput := ResourceEnsure{
-			Name:                 upstream.Resource.Name,
-			Identifier:           upstream.Resource.Identifier,
-			Scopes:               upstream.Resource.Scopes,
-			UpstreamURL:          &upstream.Resource.UpstreamURL,
-			CredentialProviderID: &providerID,
-			GatewayApplicationID: &upstream.Resource.GatewayApplicationID,
+			Name:                  upstream.Resource.Name,
+			Identifier:            upstream.Resource.Identifier,
+			Scopes:                upstream.Resource.Scopes,
+			UpstreamURL:           &upstream.Resource.UpstreamURL,
+			CredentialProviderID:  &providerID,
+			AllowedApplicationIDs: upstream.Resource.AllowedApplicationIDs,
 		}
 		if upstream.Resource.OperationEnforcement != "" {
 			resourceInput.OperationEnforcement = &upstream.Resource.OperationEnforcement
