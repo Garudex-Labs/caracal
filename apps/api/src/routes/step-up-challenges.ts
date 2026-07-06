@@ -19,6 +19,24 @@ const REASON_MAX_LENGTH = 500
 
 const DecisionBody = z.object({ reason: z.string().max(REASON_MAX_LENGTH).optional() })
 
+// Server-side list filters. Each state maps to the exact column predicates behind the
+// derived-state CASE, so a filtered list and a row's reported state can never disagree.
+const ListFilters = z.object({
+  state: z.enum(['pending', 'approved', 'rejected', 'expired', 'consumed']).optional(),
+  tier: z.string().min(1).max(64).optional(),
+  principal: z.string().min(1).max(128).optional(),
+  since: z.string().datetime().optional(),
+  until: z.string().datetime().optional(),
+})
+
+const STATE_PREDICATES: Record<string, string> = {
+  pending: 'consumed_at IS NULL AND rejected_at IS NULL AND satisfied_at IS NULL AND expires_at > now()',
+  approved: 'consumed_at IS NULL AND rejected_at IS NULL AND satisfied_at IS NOT NULL AND expires_at > now()',
+  rejected: 'consumed_at IS NULL AND rejected_at IS NOT NULL',
+  expired: 'consumed_at IS NULL AND rejected_at IS NULL AND expires_at <= now()',
+  consumed: 'consumed_at IS NOT NULL',
+}
+
 // Every read returns the full approval fact plus a derived lifecycle state. The precedence
 // mirrors the STS exactly - consumed and rejected are terminal and outrank expiry, an approved
 // hold past its window reads expired - so both planes always report the same state for the same
@@ -111,7 +129,28 @@ export const stepUpChallengesRoutes: FastifyPluginAsync = async (fastify) => {
     if (!params) return
     const page = parseListPagination(req, reply)
     if (!page) return
-    const keyset = appendKeysetCondition({ conds: ['zone_id = $1'], values: [params.zoneId] }, page)
+    const filters = ListFilters.safeParse(req.query ?? {})
+    if (!filters.success) return reply.code(400).send({ error: 'invalid_query' })
+    const conds = ['zone_id = $1']
+    const values: unknown[] = [params.zoneId]
+    if (filters.data.state) conds.push(STATE_PREDICATES[filters.data.state])
+    if (filters.data.tier) {
+      values.push(filters.data.tier)
+      conds.push(`tier = $${values.length}`)
+    }
+    if (filters.data.principal) {
+      values.push(filters.data.principal)
+      conds.push(`principal_id = $${values.length}`)
+    }
+    if (filters.data.since) {
+      values.push(filters.data.since)
+      conds.push(`created_at >= $${values.length}`)
+    }
+    if (filters.data.until) {
+      values.push(filters.data.until)
+      conds.push(`created_at <= $${values.length}`)
+    }
+    const keyset = appendKeysetCondition({ conds, values }, page)
     const { rows } = await fastify.db.query(
       `SELECT ${CHALLENGE_COLUMNS}
        FROM step_up_challenges WHERE ${keyset.conds.join(' AND ')}
@@ -119,6 +158,32 @@ export const stepUpChallengesRoutes: FastifyPluginAsync = async (fastify) => {
       keyset.values,
     )
     return listPage(rows, page.limit)
+  })
+
+  // One aggregate over the zone's live approval table, cheap enough to poll: the counts
+  // behind navigation badges and dashboard summaries. Terminal rows age out of this table
+  // on the retention sweep, so the counts reflect the actionable working set, not history.
+  fastify.get('/zones/:zoneId/step-up-challenges/counts', async (req, reply) => {
+    const params = parseParams(ZoneParams, req, reply)
+    if (!params) return
+    const { rows } = await fastify.db.query<Record<string, string>>(
+      `SELECT
+         count(*) FILTER (WHERE ${STATE_PREDICATES.pending}) AS pending,
+         count(*) FILTER (WHERE ${STATE_PREDICATES.approved}) AS approved,
+         count(*) FILTER (WHERE ${STATE_PREDICATES.rejected}) AS rejected,
+         count(*) FILTER (WHERE ${STATE_PREDICATES.expired}) AS expired,
+         count(*) FILTER (WHERE ${STATE_PREDICATES.consumed}) AS consumed
+       FROM step_up_challenges WHERE zone_id = $1`,
+      [params.zoneId],
+    )
+    const counts = rows[0] ?? {}
+    return {
+      pending: Number(counts.pending ?? 0),
+      approved: Number(counts.approved ?? 0),
+      rejected: Number(counts.rejected ?? 0),
+      expired: Number(counts.expired ?? 0),
+      consumed: Number(counts.consumed ?? 0),
+    }
   })
 
   fastify.get('/zones/:zoneId/step-up-challenges/:id', async (req, reply) => {

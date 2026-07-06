@@ -3,7 +3,7 @@
 //
 // The ephemeral Operator state researcher: gathers live evidence through governed reads onto a per-turn blackboard so a read answer is grounded in real state, not a guess.
 
-import { CONTROL_CAPABILITIES, type ControlGen } from './operator-control-map.js'
+import { CONTROL_CAPABILITIES } from './operator-control-map.js'
 import { CAPABILITIES } from './operator-capabilities.js'
 import { ControlClientError, type ControlClient } from '@caracalai/admin'
 
@@ -229,12 +229,11 @@ export function createStateResearcher(client: ControlClient): Researcher {
   return {
     async gather(domains?: string[]): Promise<Blackboard> {
       const reads = selectReads(domains)
-      const gen: ControlGen = { secret: '' }
       const evidence = await Promise.all(
         reads.map(async (id): Promise<Evidence> => {
           const capability = CONTROL_CAPABILITIES[id]
           const domain = CAPABILITIES[id].domain
-          const invocation = capability.buildInvocation({}, gen)
+          const invocation = capability.buildInvocation({})
           try {
             const result = await client.invoke(invocation.command, invocation.subcommand, invocation.flags, capability.scopes)
             const { count, names, items, attributes, rows } = summarizeRows(result, domain)

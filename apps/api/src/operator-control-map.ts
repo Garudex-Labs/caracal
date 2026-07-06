@@ -13,13 +13,6 @@ export interface ControlInvocation {
   flags: Record<string, unknown>
 }
 
-// Generated material a capability needs that is not derivable from its arguments. The
-// only case today is a freshly minted client secret for a rotation, supplied by the
-// executor so the mapping stays deterministic and testable.
-export interface ControlGen {
-  secret: string
-}
-
 // The ledger-safe result of applying a capability through the control plane. detail is
 // the human summary persisted to the turn; output carries one-time material (such as an
 // issued client secret) that reaches the caller in the HTTP response only.
@@ -37,8 +30,8 @@ export interface ControlOutcome {
 // the plan, the ledger, or any log.
 export interface ControlCapability {
   scopes: readonly string[]
-  buildInvocation(args: Record<string, unknown>, gen: ControlGen, secrets?: Record<string, string>): ControlInvocation
-  describeOutcome(result: unknown, args: Record<string, unknown>, gen: ControlGen): ControlOutcome
+  buildInvocation(args: Record<string, unknown>, secrets?: Record<string, string>): ControlInvocation
+  describeOutcome(result: unknown, args: Record<string, unknown>): ControlOutcome
 }
 
 function asString(value: unknown): string {
@@ -147,7 +140,7 @@ export const CONTROL_CAPABILITIES: Record<string, ControlCapability> = {
   // provider:// identifier from the name.
   connectProvider: {
     scopes: ['control:identity-provider:write'],
-    buildInvocation: (args, _gen, secrets) => {
+    buildInvocation: (args, secrets) => {
       const config = { ...asRecord(args.config), ...(secrets ?? {}) }
       return {
         command: 'identity-provider',
@@ -191,19 +184,19 @@ export const CONTROL_CAPABILITIES: Record<string, ControlCapability> = {
       }
     },
   },
+  // The control plane mints the replacement secret server-side and returns it once in the
+  // rotation response; it reaches the caller through the step output only and is never
+  // persisted to the plan or the ledger.
   rotateApplicationSecret: {
     scopes: ['control:app:write'],
-    // The control plane sets a caller-provided secret rather than minting one, so the
-    // Operator generates a fresh high-entropy secret and sets it through app patch. This
-    // is the same way an external customer rotates a secret through the control plane.
-    buildInvocation: (args, gen) => ({
+    buildInvocation: (args) => ({
       command: 'app',
-      subcommand: 'patch',
-      flags: { id: asString(args.application_id), 'client-secret': gen.secret },
+      subcommand: 'rotate-secret',
+      flags: { id: asString(args.application_id) },
     }),
-    describeOutcome: (_result, args, gen) => ({
+    describeOutcome: (result, args) => ({
       detail: `Rotated the client secret for application ${asString(args.application_id)} and retired the old one.`,
-      output: { application_id: asString(args.application_id), client_secret: gen.secret },
+      output: { application_id: asString(args.application_id), client_secret: asString(asRecord(result).client_secret) },
     }),
   },
   deleteApplication: removeControl('app', 'delete', 'application_id', (id) => `Deleted application ${id} from this zone.`),

@@ -3,8 +3,7 @@
 //
 // The governed Operator executor: applies an approved plan's steps through the control plane as the Operator's own scoped identity, never the admin token.
 
-import { randomBytes } from 'node:crypto'
-import { CONTROL_CAPABILITIES, type ControlGen } from './operator-control-map.js'
+import { CONTROL_CAPABILITIES } from './operator-control-map.js'
 import { CAPABILITIES, parseStepReference } from './operator-capabilities.js'
 import { ControlClientError, type ControlClient } from '@caracalai/admin'
 
@@ -55,12 +54,6 @@ export interface GovernedPlanStep {
   // sealed vault by the execute pre-flight for exactly this step. Held in memory only and
   // merged into the control invocation; never recorded, logged, or echoed.
   secrets?: Record<string, string>
-}
-
-// Generates a fresh high-entropy client secret, matching the format the applications
-// route issues, so a rotation through the control plane sets an equivalent secret.
-function generateClientSecret(): string {
-  return `cs_${randomBytes(32).toString('base64url')}`
 }
 
 // Substitutes every whole-string {{steps.<id>.outputs.<key>}} reference in a step's
@@ -119,7 +112,6 @@ async function applyStep(
   client: ControlClient,
   step: GovernedPlanStep,
   outputs: Map<string, Record<string, unknown>>,
-  genSecret: () => string,
 ): Promise<StepApply> {
   const capability = CONTROL_CAPABILITIES[step.capability]
   if (!capability) {
@@ -132,11 +124,10 @@ async function applyStep(
   if (!resolved.ok) {
     return { ok: false, failure: { stepId: step.id, capability: step.capability, reason: resolved.reason, terminal: false } }
   }
-  const gen: ControlGen = { secret: genSecret() }
-  const invocation = capability.buildInvocation(resolved.args, gen, step.secrets)
+  const invocation = capability.buildInvocation(resolved.args, step.secrets)
   try {
     const result = await client.invoke(invocation.command, invocation.subcommand, invocation.flags, capability.scopes)
-    const outcome = capability.describeOutcome(result, resolved.args, gen)
+    const outcome = capability.describeOutcome(result, resolved.args)
     if (outcome.output) outputs.set(step.id, outcome.output)
     return { ok: true, result: { id: step.id, capability: step.capability, detail: outcome.detail, output: outcome.output } }
   } catch (err) {
@@ -164,13 +155,11 @@ async function applyStep(
 // persisted outputs of a prior partial run on resume). The model proposes and the
 // deterministic pipeline has already validated and previewed the plan - this only carries
 // each approved step to the governed surface. A failure stops all further scheduling and
-// is returned as the failure, so a plan never silently half-applies. genSecret is
-// injectable for deterministic tests.
+// is returned as the failure, so a plan never silently half-applies.
 export async function executeViaControlPlane(
   client: ControlClient,
   steps: GovernedPlanStep[],
   priorOutputs: Record<string, Record<string, unknown>> = {},
-  genSecret: () => string = generateClientSecret,
 ): Promise<GovernedExecutionResult> {
   const applied: GovernedStepResult[] = []
   const outputs = new Map<string, Record<string, unknown>>(Object.entries(priorOutputs))
@@ -187,7 +176,7 @@ export async function executeViaControlPlane(
     const reads = wave.filter((step) => CAPABILITIES[step.capability]?.mutating !== true)
     const writes = wave.filter((step) => CAPABILITIES[step.capability]?.mutating === true)
 
-    const readResults = await Promise.all(reads.map((step) => applyStep(client, step, outputs, genSecret)))
+    const readResults = await Promise.all(reads.map((step) => applyStep(client, step, outputs)))
     let failure: GovernedStepFailure | null = null
     for (const settled of readResults) {
       if (settled.ok) applied.push(settled.result)
@@ -196,7 +185,7 @@ export async function executeViaControlPlane(
     if (failure) return { applied, failure }
 
     for (const step of writes) {
-      const settled = await applyStep(client, step, outputs, genSecret)
+      const settled = await applyStep(client, step, outputs)
       if (!settled.ok) return { applied, failure: settled.failure }
       applied.push(settled.result)
     }
