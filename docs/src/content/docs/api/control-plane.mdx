@@ -92,7 +92,7 @@ Use `POST /v1/admin-tokens` to mint read-only or zone-scoped tokens for automati
 
 ## Listing and Filters
 
-- List endpoints accept `limit` (default `200`, max `500`) and an opaque `cursor`. Every list response is an envelope of `items` and `next_cursor`; pass `next_cursor` as the next request's `cursor` and stop when it is `null`.
+- List endpoints accept `limit` (default `200`, max `500`) and an opaque `cursor`. Every list response is an envelope of `items` and `next_cursor`; pass `next_cursor` as the next request's `cursor` and stop when it is `null`. The Admin SDK list helpers for collection resources drain the cursor chain and return the complete collection.
 - `GET /v1/zones/:zoneId/audit` accepts `since`, `until`, `request_id`, `decision`, `event_type`, `application_id`, `agent_session_id`, `session_id`, and `label`.
 - Add `format=csv` to audit and admin-audit lists for exports; use `fields` to select columns.
 

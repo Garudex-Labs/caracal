@@ -19,7 +19,7 @@ Every service exposes health/readiness endpoints; most services also expose metr
 
 ## Metrics Authentication
 
-In published builds (`CARACAL_MODE=rc` or `stable`), every metrics endpoint fails closed: it returns `401` unless `METRICS_BEARER` is set and the scraper presents `Authorization: Bearer <token>`. This applies to API, STS, Gateway, Audit, and Coordinator, all of which are reachable on the internal service network. `caracal up` generates the managed `metricsBearer` secret and mounts it into every service via `METRICS_BEARER_FILE`; `caracal doctor` discovers the same secret and authenticates its metrics probes automatically. Point external scrapers at the same secret file. In `dev` mode metrics stay open for local inspection.
+In published builds (`CARACAL_MODE=rc` or `stable`), every metrics endpoint fails closed: it returns `401` unless `METRICS_BEARER` is set and the scraper presents `Authorization: Bearer <token>`. This applies to API, STS, Gateway, Audit, and Coordinator, all of which are reachable on the internal service network. `caracal up` generates the managed `metricsBearer` secret and mounts it into every service via `METRICS_BEARER_FILE`; the web console **Diagnostics** checks discover the same secret and authenticate their metrics probes automatically. Point external scrapers at the same secret file. In `dev` mode metrics stay open for local inspection.
 
 ## Readiness Ladder
 

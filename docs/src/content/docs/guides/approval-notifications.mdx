@@ -1,0 +1,87 @@
+---
+title: Approval Notifications
+description: Push approval lifecycle events to your own systems with signed, retried webhook sinks, and verify each delivery before acting on it.
+---
+
+Approval holds are decided fastest when the right person hears about them immediately. A notification sink is a zone-scoped webhook endpoint that Caracal pushes approval lifecycle events to: your relay turns the delivery into a page, a chat message, or a ticket in whatever system your team watches. Sinks are optional - a zone without one loses nothing except the push, since the Console badges pending holds and the [Approvals page](/guides/step-up/#decide-as-an-operator) remains the decision surface.
+
+## Create a sink
+
+Open **Settings → Notifications** in the Console and add a sink with a name, an HTTPS endpoint, and the event types it should receive. The response reveals the signing secret exactly once - store it in your receiver's secret manager before closing the dialog, because Caracal keeps only a sealed copy it cannot show again. For automation, the Admin API exposes the same lifecycle:
+
+```bash
+curl -X POST "$CARACAL_API_URL/v1/zones/$CARACAL_ZONE_ID/notification-sinks" \
+  -H "Authorization: Bearer $CARACAL_ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Pied Piper on-call relay",
+    "url": "https://hooks.hooli.example/caracal-approvals",
+    "event_types": ["step_up_issued", "step_up_decided"]
+  }'
+```
+
+Endpoints must be HTTPS; plain HTTP is accepted only for loopback addresses during local development, and URLs may never embed credentials - authentication is the signature, not the URL. A zone holds at most 20 sinks.
+
+| Event type | Fires when |
+| --- | --- |
+| `step_up_issued` | A hold is created and waits for a decision. This is the event to page on. |
+| `step_up_decided` | An approver settles the hold - the payload's `decision` field says whether it was approved or rejected. |
+| `step_up_consumed` | The approved hold releases its mandate to the retrying agent. |
+
+## Verify every delivery
+
+Each delivery is an HTTP `POST` with a JSON body and these headers:
+
+| Header | Content |
+| --- | --- |
+| `X-Caracal-Event` | The event type, for routing before parsing. |
+| `X-Caracal-Delivery` | Unique delivery id. Deliveries are at-least-once; use this id to deduplicate. |
+| `X-Caracal-Sink` | The sink id, so one receiver can serve several sinks. |
+| `X-Caracal-Timestamp` | Unix seconds when the delivery was signed. Reject stale timestamps to stop replays. |
+| `X-Caracal-Signature` | `v1=` followed by hex HMAC-SHA256 of `timestamp.body` under the sink secret. |
+
+Verify the signature over the raw request body before trusting anything in it:
+
+```ts
+import { createHmac, timingSafeEqual } from "node:crypto";
+
+function verifySink(secret: string, headers: Record<string, string>, rawBody: string): boolean {
+  const timestamp = headers["x-caracal-timestamp"];
+  if (Math.abs(Date.now() / 1000 - Number(timestamp)) > 300) return false;
+  const expected = `v1=${createHmac("sha256", secret).update(`${timestamp}.${rawBody}`).digest("hex")}`;
+  const received = headers["x-caracal-signature"] ?? "";
+  return received.length === expected.length && timingSafeEqual(Buffer.from(received), Buffer.from(expected));
+}
+```
+
+The body carries the audit event verbatim - `data` is the same metadata the zone audit stream records for the hold, so a relay can render a complete approval prompt without calling back:
+
+```json
+{
+  "id": "0195f2aa-7c31-7d4e-a01b-3f6c2d9e8b10",
+  "type": "step_up_issued",
+  "zone_id": "0195f2a9-1b22-7c3d-9e4f-5a6b7c8d9e0f",
+  "decision": "pending",
+  "occurred_at": "2026-01-01T12:00:00.000Z",
+  "data": {
+    "challenge_id": "0195f2aa-6d20-7b3c-8e1a-2f4d6c8b0a9e",
+    "tier": "high",
+    "approver_class": "operator",
+    "privacy_mode": "identified",
+    "binding": "9f3c…",
+    "expires_at": "2026-01-01T12:30:00Z",
+    "application_id": "0195f2a9-4e55-7a1b-bc2d-3e4f5a6b7c8d",
+    "session_id": "0195f2aa-2c11-7e9f-8a0b-1c2d3e4f5a6b"
+  }
+}
+```
+
+Respond with any `2xx` status within ten seconds. The response body is ignored - do your downstream work asynchronously and acknowledge fast.
+
+## Delivery semantics
+
+Delivery is at-least-once with per-sink ordering by the zone audit sequence. A non-`2xx` response or a timeout schedules a retry with exponential backoff from 30 seconds to a 15-minute ceiling; after 8 attempts the delivery is abandoned and the failure is visible on the sink's delivery record in the Console. Pausing a sink stops deliveries without losing anything: the sink's cursor into the audit stream holds its place, and resuming catches up from where it stopped. A run of consecutive failures flags the sink as failing in the Console but never disables it - fix the receiver and the backlog drains on its own.
+
+Rotating the secret (Console or `POST …/notification-sinks/{id}/rotate-secret`) invalidates the old value immediately and reveals the replacement once; update the receiver in the same change window. Sink creation, edits, rotations, and deletions are themselves recorded in the zone audit stream, with secret material redacted.
+
+Related pages: [Human Approval](/guides/step-up/) and [Tail and Query the Audit Stream](/guides/audit-stream/).

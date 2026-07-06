@@ -231,6 +231,11 @@ branch on a stable `code` and surface the operator-facing `remediation`:
 | `not_found` | `404` | A referenced object does not exist. |
 | `unsupported` | `501` | The command or subcommand is not exposed remotely. |
 | `upstream` | `502` | A downstream dependency failed. |
+| `control_disabled` | `503` | The runtime gate is off; control is not accepting invokes. |
+| `unauthorized` | `401` | The token is missing, malformed, or failed verification. |
+| `token_replay` | `401` | The token was already used; mint a fresh token per invoke. |
+| `rate_limited` | `429` | The subject or source address exceeded the invoke rate limit. |
+| `audit_unavailable` | `500` | The invoke could not be durably audited, so it was not executed. |
 
 The successful shape is unchanged: `{ "ok": true, "result": ... }`. Correlate any
 response with the `x-request-id` response header in the web console **Audit** decision trace.
@@ -301,9 +306,18 @@ lifecycle itself), non-zone operations, and hidden commands are never grantable.
 A token later exchanged from the key is additionally checked against the scopes
 recorded on the key, so a token can only narrow, never widen, the granted set.
 
+Control keys are also shielded from the surface they authorize. The `app`
+command's `patch`, `rotate-secret`, and `delete` verbs, and declarative
+`ensure`/`state` reconciliation, refuse to touch an application that is a
+control key, so one automation key can never mutate, rotate, or delete another.
+The `caracal-control` token audience is mintable only by a control key
+exchanging its own client credentials; no grant or delegation can produce a
+control-audience token for any other identity. Manage the keys themselves only
+in Console.
+
 ## Safety Behavior
 
-Control returns `503` when the gate is disabled, `401` for authentication or replay failures, and `429` for rate limiting. Dispatch failures return the structured envelope described in [Structured Errors](#structured-errors): `403` denied, `400` invalid, `409` zone mismatch or conflict, `404` not found, `501` unsupported, and `502` upstream.
+Every failure returns the structured envelope described in [Structured Errors](#structured-errors), including the checks that run before dispatch: `control_disabled` (`503`) when the gate is off, `unauthorized` (`401`) for authentication failures, `token_replay` (`401`) when a token is presented twice, `rate_limited` (`429`) for subject or source throttling, and `audit_unavailable` (`500`) when the invoke cannot be durably audited. Request bodies are capped at 256 KB and rejected with `413` beyond that.
 
 Control is a product-management surface. Do not expose it as a top-level `caracal` runtime command.
 

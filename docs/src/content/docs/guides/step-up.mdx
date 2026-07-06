@@ -83,7 +83,7 @@ curl -X POST \
   -d '{"reason": "PiperNet refund reviewed against baseline v3"}'
 ```
 
-Use `/reject` to settle the hold terminally. Deciding requires an admin token minted with the `approve` capability - `write` alone cannot decide a hold, so day-to-day automation credentials never carry approval authority. The approver is recorded from the authenticated actor, never from the request body, and a hold declared `"approver": "subject"` refuses every operator decision with `subject_approval_required`.
+Use `/reject` to settle the hold terminally. Deciding requires an admin token minted with the `approve` capability - `write` alone cannot decide a hold, so day-to-day automation credentials never carry approval authority. The approver is recorded from the authenticated actor, never from the request body, and a hold declared `"approver": "subject"` refuses every operator decision with `subject_approval_required`. To hear about new holds without watching the Console, add a [notification sink](/guides/approval-notifications/) that pushes approval events to your team's own systems.
 
 ## Decide as the application's end user
 
@@ -112,4 +112,4 @@ Retry with `challenge_id` once the hold is approved. The STS verifies the approv
 | `approve_capability_required` | The admin token carries `write`, not `approve`. Mint a token with the `approve` capability. |
 | Retry still denied | The approval may have expired before consumption, or the retry changed the resource or scope set - the binding must match the original request exactly. |
 
-Related pages: [Step-Up Challenges](/concepts/step-up/) and [Author Policy Data](/guides/author-policy/).
+Related pages: [Step-Up Challenges](/concepts/step-up/), [Approval Notifications](/guides/approval-notifications/), and [Author Policy Data](/guides/author-policy/).
