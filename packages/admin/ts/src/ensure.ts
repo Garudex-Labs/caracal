@@ -7,7 +7,7 @@ import type { AdminClient } from './client.js'
 import type { APIKeyProviderConfig, ProviderIdentifier, Resource, ResourceInput, ResourceOperationEnforcement } from './types.js'
 
 // The scope an owning application requests on its resource to bootstrap a governed mint
-// cycle. Declared automatically on every gateway-bound resource so no caller has to know
+// cycle. Declared automatically on every gateway-routed resource so no caller has to know
 // the invariant.
 const LIFECYCLE_SCOPE = 'agent:lifecycle'
 
@@ -97,7 +97,7 @@ export interface EnsureResourceInput {
   scopes: string[]
   upstream_url?: string | null
   credential_provider_id?: string | null
-  gateway_application_id?: string | null
+  allowed_application_ids?: string[]
   operation_enforcement?: ResourceOperationEnforcement
 }
 
@@ -105,14 +105,14 @@ export interface EnsureResourceInput {
 // it only on drift so a steady state never bumps caches keyed on the resource row. Fields
 // left undefined are not managed: they are excluded from both the drift comparison and the
 // patch, so a reconciler that owns only some fields never clobbers the rest. A
-// gateway-bound resource always also carries agent:lifecycle, the scope its owner's
+// gateway-routed resource always also carries agent:lifecycle, the scope its owner's
 // governed transport bootstraps with. Returns the live resource.
 export async function ensureResource(client: AdminClient, zoneId: string, input: EnsureResourceInput): Promise<Resource> {
-  const scopes = input.gateway_application_id && !input.scopes.includes(LIFECYCLE_SCOPE) ? [...input.scopes, LIFECYCLE_SCOPE] : input.scopes
+  const scopes = input.upstream_url && !input.scopes.includes(LIFECYCLE_SCOPE) ? [...input.scopes, LIFECYCLE_SCOPE] : input.scopes
   const desired: Partial<ResourceInput> = { scopes }
   if (input.upstream_url !== undefined) desired.upstream_url = input.upstream_url
   if (input.credential_provider_id !== undefined) desired.credential_provider_id = input.credential_provider_id
-  if (input.gateway_application_id !== undefined) desired.gateway_application_id = input.gateway_application_id
+  if (input.allowed_application_ids !== undefined) desired.allowed_application_ids = input.allowed_application_ids
   if (input.operation_enforcement !== undefined) desired.operation_enforcement = input.operation_enforcement
   const resources = await client.resources.list(zoneId)
   const existing = resources.find((resource) => resource.identifier === input.identifier)
@@ -123,7 +123,7 @@ export async function ensureResource(client: AdminClient, zoneId: string, input:
     !sameStringSet(existing.scopes, scopes) ||
     (desired.upstream_url !== undefined && existing.upstream_url !== desired.upstream_url) ||
     (desired.credential_provider_id !== undefined && existing.credential_provider_id !== desired.credential_provider_id) ||
-    (desired.gateway_application_id !== undefined && existing.gateway_application_id !== desired.gateway_application_id) ||
+    (desired.allowed_application_ids !== undefined && !sameStringSet(existing.allowed_application_ids, desired.allowed_application_ids)) ||
     (desired.operation_enforcement !== undefined && existing.operation_enforcement !== desired.operation_enforcement)
   if (!drifted) return existing
   return client.resources.patch(zoneId, existing.id, desired)
@@ -260,10 +260,11 @@ export async function ensureGrants(client: AdminClient, zoneId: string, input: E
 }
 
 // One upstream in a governed set: the sealed credential the gateway injects, the
-// gateway-bound resource that proxies it, and the applications granted to mint on it. The
-// resource's credential provider binding is threaded by the reconciler, and the first
+// gateway-routed resource that proxies it, and the applications granted to mint on it.
+// The resource's credential provider binding is threaded by the reconciler, and the first
 // grant names the resource's owning application - the identity whose governed transport
-// may bootstrap on it.
+// may bootstrap on it. A non-empty caller allowlist structurally caps which applications
+// can exchange for the resource; an empty one leaves minting policy-governed.
 export interface GovernedUpstream {
   provider: EnsureApiKeyProviderInput
   resource: {
@@ -271,7 +272,7 @@ export interface GovernedUpstream {
     identifier: string
     scopes: string[]
     upstream_url: string
-    gateway_application_id: string
+    allowed_application_ids?: string[]
     operation_enforcement?: ResourceOperationEnforcement
   }
   grants: Omit<ResourceGrant, 'resourceIdentifier'>[]
@@ -290,7 +291,7 @@ export interface GovernedUpstreamResult {
   resource: Resource
 }
 
-// Converges a set of governed upstreams - sealed credential provider, gateway-bound
+// Converges a set of governed upstreams - sealed credential provider, gateway-routed
 // resource, and the zone's grant document - in dependency order, so one call declares
 // everything the platform needs to govern the set. Rego permits one definition of the
 // grant document per zone, so the set converges as a whole: an upstream absent from it

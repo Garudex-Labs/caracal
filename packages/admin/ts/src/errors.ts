@@ -6,14 +6,13 @@
 import { CaracalError, redact, type JsonValue } from '@caracalai/core'
 
 export type AdminApiErrorCode =
+  | 'allowed_application_not_found'
+  | 'application_in_resource_allowlist'
   | 'application_not_found'
   | 'authorization_code_required'
   | 'challenge_not_found'
   | 'challenge_not_satisfiable'
   | 'dcr_shutdown_required'
-  | 'gateway_application_not_found'
-  | 'gateway_application_required'
-  | 'gateway_exchange_application_must_be_managed'
   | 'grant_not_found'
   | 'grant_scopes_exceed_resource'
   | 'invalid_cursor'

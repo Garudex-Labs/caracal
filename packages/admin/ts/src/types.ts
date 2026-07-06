@@ -76,7 +76,7 @@ export interface Resource {
   name: string
   identifier: string
   upstream_url: string | null
-  gateway_application_id: string | null
+  allowed_application_ids: string[]
   scopes: string[]
   credential_provider_id: string | null
   operations: ResourceOperation[]
@@ -92,7 +92,7 @@ export interface ResourceInput {
   name?: string
   identifier?: ResourceIdentifier
   upstream_url?: string | null
-  gateway_application_id?: string | null
+  allowed_application_ids?: string[]
   scopes: string[]
   credential_provider_id?: string | null
   operations?: ResourceOperation[]
