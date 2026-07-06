@@ -46,7 +46,7 @@ describe('caracalAuth middleware', () => {
   })
 
   it('rejects request with no Authorization header', async () => {
-    const middleware = caracalAuth({ issuer: 'https://sts.zone1', audience: 'resource://api', revocations })
+    const middleware = caracalAuth({ issuer: 'https://sts.zone1', audience: 'resource://api', zoneId: 'zone-1', revocations })
     const req = { headers: {} } as Request
     const res = makeMockRes()
     const next = vi.fn()
@@ -56,7 +56,7 @@ describe('caracalAuth middleware', () => {
   })
 
   it('rejects request with non-Bearer scheme', async () => {
-    const middleware = caracalAuth({ issuer: 'https://sts.zone1', audience: 'resource://api', revocations })
+    const middleware = caracalAuth({ issuer: 'https://sts.zone1', audience: 'resource://api', zoneId: 'zone-1', revocations })
     const req = { headers: { authorization: 'Basic abc' } } as Request
     const res = makeMockRes()
     const next = vi.fn()
@@ -65,7 +65,7 @@ describe('caracalAuth middleware', () => {
   })
 
   it('rejects invalid JWT', async () => {
-    const middleware = caracalAuth({ issuer: 'https://sts.zone1', audience: 'resource://api', revocations })
+    const middleware = caracalAuth({ issuer: 'https://sts.zone1', audience: 'resource://api', zoneId: 'zone-1', revocations })
     const req = { headers: { authorization: 'Bearer invalid.jwt.token' } } as Request
     const res = makeMockRes()
     const next = vi.fn()
@@ -76,7 +76,7 @@ describe('caracalAuth middleware', () => {
 
   it('supports reusable verifier instances and attaches claims aliases', async () => {
     const verifier: MandateVerifier = {
-      defaults: { issuer: 'https://sts.zone1', audience: 'resource://api', revocations },
+      defaults: { issuer: 'https://sts.zone1', audience: 'resource://api', zoneId: 'zone-1', revocations },
       authenticate: vi.fn().mockResolvedValue({
         ok: true,
         principal: {

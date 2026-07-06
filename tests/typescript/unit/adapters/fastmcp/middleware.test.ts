@@ -106,6 +106,7 @@ describe('verifyFastMcpToken', () => {
       verifyFastMcpToken(token, {
         issuer,
         audience,
+        zoneId: 'zone-1',
         revocations,
         requireChainContains: ['app-parent'],
       }),
@@ -118,7 +119,7 @@ describe('verifyFastMcpToken', () => {
 
   it('accepts reusable verifier instances with route requirements', async () => {
     const verifier: MandateVerifier = {
-      defaults: { issuer: 'https://sts.example.com', audience: 'resource://mcp', revocations },
+      defaults: { issuer: 'https://sts.example.com', audience: 'resource://mcp', zoneId: 'zone-1', revocations },
       authenticate: vi.fn().mockResolvedValue({
         ok: true,
         principal: {

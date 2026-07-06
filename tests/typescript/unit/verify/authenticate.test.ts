@@ -128,6 +128,7 @@ describe('verify authentication', () => {
       authenticate(token, {
         issuer,
         audience,
+        zoneId: 'zone-1',
         revocations: undefined as never,
       }),
     ).resolves.toMatchObject({
@@ -190,6 +191,7 @@ describe('verify authentication', () => {
       authenticate(first.token, {
         issuer: first.issuer,
         audience: first.audience,
+        zoneId: 'zone-1',
         revocations,
       }),
     ).resolves.toMatchObject({ ok: true, principal: { sid: 'sid-1' } })
@@ -197,6 +199,7 @@ describe('verify authentication', () => {
       authenticate(second.token, {
         issuer: second.issuer,
         audience: second.audience,
+        zoneId: 'zone-1',
         revocations,
       }),
     ).resolves.toMatchObject({ ok: true, principal: { sid: 'sid-2' } })
@@ -210,6 +213,7 @@ describe('verify authentication', () => {
       authenticate(token, {
         issuer,
         audience,
+        zoneId: 'zone-1',
         revocations,
       }),
     ).resolves.toMatchObject({
@@ -230,6 +234,7 @@ describe('verify authentication', () => {
       authenticate(token, {
         issuer,
         audience,
+        zoneId: 'zone-1',
         revocations,
       }),
     ).resolves.toMatchObject({
@@ -251,6 +256,7 @@ describe('verify authentication', () => {
       authenticate(token, {
         issuer,
         audience,
+        zoneId: 'zone-1',
         revocations,
       }),
     ).resolves.toMatchObject({
@@ -340,6 +346,7 @@ describe('verify authentication', () => {
       authenticate(token, {
         issuer,
         audience,
+        zoneId: 'zone-1',
         revocations,
         ...deps,
       }),
@@ -354,6 +361,7 @@ describe('verify authentication', () => {
       authenticate('invalid.jwt.token', {
         issuer: 'https://issuer.example.com',
         audience: 'resource://api',
+        zoneId: 'zone-1',
         revocations,
       }),
     ).resolves.toMatchObject({
@@ -365,7 +373,7 @@ describe('verify authentication', () => {
   it('reuses verifier defaults and supports route-level requirements', async () => {
     const { token, issuer, audience } = await mintToken({ target: ['resource://api'] })
     revocations.isRevoked.mockResolvedValue(false)
-    const verifier = createMandateVerifier({ issuer, audience, revocations })
+    const verifier = createMandateVerifier({ issuer, audience, zoneId: 'zone-1', revocations })
 
     await expect(
       verifier.authorization(`Bearer ${token}`, {
@@ -402,15 +410,20 @@ describe('verify authentication', () => {
     expect(fetch).toHaveBeenCalledWith(`${issuer}/.well-known/jwks.json?zone_id=zone-1`, expect.anything())
   })
 
-  it('skips warmup when no zone is configured', async () => {
-    const cache = { warm: vi.fn(async () => undefined) }
-    const verifier = createMandateVerifier({
-      issuer: 'https://issuer-cache.example.com',
-      audience: 'resource://api',
-      revocations,
-      jwksCache: cache as never,
+  it('pins the zone anchor to config and rejects a token that claims another zone', async () => {
+    const { token, issuer, audience } = await mintToken({ zone_id: 'zone-evil' })
+    revocations.isRevoked.mockResolvedValue(false)
+
+    await expect(
+      authenticate(token, {
+        issuer,
+        audience,
+        zoneId: 'zone-1',
+        revocations,
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'invalid_zone' },
     })
-    await verifier.warmup()
-    expect(cache.warm).not.toHaveBeenCalled()
   })
 })
