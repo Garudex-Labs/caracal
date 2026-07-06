@@ -16,16 +16,19 @@ export interface FastMcpContext {
 }
 
 export class FastMcpAuthError extends CaracalError {
-  constructor(code: AuthErrorCode, description: string) {
+  readonly hint?: string
+
+  constructor(code: AuthErrorCode, description: string, hint?: string) {
     super(code, description)
     this.name = 'FastMcpAuthError'
+    this.hint = hint
   }
 }
 
 export async function verifyFastMcpToken(token: string, opts: FastMcpAuthOptions, route: AuthOverrides = {}): Promise<FastMcpContext> {
   const result =
     'authenticate' in opts && 'defaults' in opts ? await opts.authenticate(token, route) : await authenticate(token, { ...opts, ...route })
-  if (!result.ok) throw new FastMcpAuthError(result.error.code, result.error.description)
+  if (!result.ok) throw new FastMcpAuthError(result.error.code, result.error.description, result.error.hint)
   const claims = result.principal
   return { sub: claims.sub, zoneId: claims.zoneId, scope: claims.scope }
 }
