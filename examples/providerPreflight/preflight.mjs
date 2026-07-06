@@ -66,8 +66,6 @@ export function checkApiReady(probe) {
 }
 
 const GATEWAY_READY_REMEDIATION = {
-  bindings_unavailable: 'Gateway has no routing bindings loaded; confirm it can reach Postgres and that bindings exist.',
-  postgres_unreachable: 'Gateway cannot reach Postgres; check database connectivity and credentials.',
   redis_unreachable: 'Gateway cannot reach Redis; check Redis connectivity (revocation and replay protection depend on it).',
   revocation_snapshot_stale: 'Revocation snapshot is stale; verify the revocation snapshot poller and Postgres health.',
   audit_replay_unavailable: 'Audit replay backlog is unavailable; check audit sink connectivity.',
@@ -102,7 +100,7 @@ export function checkGatewayReady(probe) {
       GATEWAY_READY_REMEDIATION[reason] ?? 'Check Gateway logs for the failing dependency.',
     )
   }
-  return ok('readiness', id, 'Gateway reports ready (bindings, Postgres, Redis, revocations, audit, STS)')
+  return ok('readiness', id, 'Gateway reports ready (Redis, revocations, audit, STS)')
 }
 
 // --- Phase 2: dependencies ----------------------------------------------
@@ -131,14 +129,6 @@ export function checkBinding(resource, provider) {
       id,
       `credential_provider_id ${resource.credential_provider_id} does not resolve to a provider`,
       'The bound provider was deleted or lives in another zone; rebind the resource to an existing provider.',
-    )
-  }
-  if (!resource.gateway_application_id) {
-    return warn(
-      'dependencies',
-      id,
-      `bound to ${provider.identifier} (${provider.kind}) but no gateway application is set`,
-      'Set gateway_application_id on the resource; Gateway-mediated routing needs an application identity.',
     )
   }
   return ok('dependencies', id, `bound to ${provider.identifier} (${provider.kind})`)
@@ -174,12 +164,13 @@ export function checkApplication(application, resource, now = new Date()) {
       )
     }
   }
-  if (resource?.gateway_application_id && resource.gateway_application_id !== application.id) {
-    return warn(
+  const allowlist = resource?.allowed_application_ids ?? []
+  if (allowlist.length > 0 && !allowlist.includes(application.id)) {
+    return fail(
       'dependencies',
       id,
-      `resource routes to application ${resource.gateway_application_id}, not ${application.id}`,
-      "Either update the resource's gateway_application_id or run the preflight for the bound application.",
+      `resource caps callers to [${allowlist.join(', ')}]; ${application.id} is not in the allowlist`,
+      "Add the application to the resource's allowed_application_ids or run the preflight for an allowed application.",
     )
   }
   return ok('dependencies', id, `application ${application.name} (${application.registration_method}) is valid`)

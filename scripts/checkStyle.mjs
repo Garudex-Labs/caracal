@@ -144,7 +144,7 @@ if (tsFiles.length > 0) {
   const require = createRequire(join(root, 'package.json'))
   const prettierBin = join(dirname(require.resolve('prettier/package.json')), 'bin', 'prettier.cjs')
   for (const batch of chunk(tsFiles)) {
-    const result = run(process.execPath, [prettierBin, fix ? '--write' : '--check', ...batch])
+    const result = run(process.execPath, [prettierBin, ...(fix ? ['--write'] : ['--check', '--log-level=warn']), ...batch])
     if (result.status !== 0) failed = true
   }
 }

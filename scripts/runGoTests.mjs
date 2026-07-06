@@ -59,6 +59,10 @@ function run(command, args) {
 
 function goEnv(name) {
   const result = spawnSync('go', ['env', name], { cwd: root, encoding: 'utf8' })
+  if (result.error) {
+    process.stderr.write(`failed to read go env ${name}: ${result.error.message}\n`)
+    process.exit(1)
+  }
   if (result.status !== 0) {
     process.stderr.write(`failed to read go env ${name}\n`)
     process.exit(result.status ?? 1)
