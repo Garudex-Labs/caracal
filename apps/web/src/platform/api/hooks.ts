@@ -37,8 +37,8 @@ import type {
   PolicyManifestEntry,
   PolicySet,
   Provider,
-  ProviderGrantAuthorizeInput,
-  ProviderGrantRevokeInput,
+  ProviderConnectionAuthorizeInput,
+  ProviderConnectionRevokeInput,
   ProviderInput,
   ProviderPatchInput,
   Resource,
@@ -1206,31 +1206,33 @@ export function useRevokeDelegation(zoneId: string | null) {
   });
 }
 
-/* ------------------------------ Provider grants ----------------------------- */
+/* --------------------------- Provider connections --------------------------- */
 
-export function useProviderGrants(zoneId: string | null, providerId: string | null) {
+export function useProviderConnections(zoneId: string | null, providerId: string | null) {
   return useQuery({
-    queryKey: ["console", "provider-grants", zoneId, providerId],
+    queryKey: ["console", "provider-connections", zoneId, providerId],
     queryFn: () =>
-      consoleApi.providerGrants.list(zoneId as string, { provider_id: providerId as string }),
+      consoleApi.providerConnections.list(zoneId as string, { provider_id: providerId as string }),
     enabled: Boolean(zoneId && providerId),
   });
 }
 
-export function useAuthorizeProviderGrant(zoneId: string | null) {
+export function useAuthorizeProviderConnection(zoneId: string | null) {
   return useMutation({
-    mutationFn: (input: ProviderGrantAuthorizeInput) =>
-      consoleApi.providerGrants.authorize(zoneId as string, input),
+    mutationFn: (input: ProviderConnectionAuthorizeInput) =>
+      consoleApi.providerConnections.authorize(zoneId as string, input),
   });
 }
 
-export function useRevokeProviderGrant(zoneId: string | null) {
+export function useRevokeProviderConnection(zoneId: string | null) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (input: ProviderGrantRevokeInput) =>
-      consoleApi.providerGrants.revoke(zoneId as string, input),
+    mutationFn: (input: ProviderConnectionRevokeInput) =>
+      consoleApi.providerConnections.revoke(zoneId as string, input),
     onSuccess: (_data, vars) =>
-      qc.invalidateQueries({ queryKey: ["console", "provider-grants", zoneId, vars.provider_id] }),
+      qc.invalidateQueries({
+        queryKey: ["console", "provider-connections", zoneId, vars.provider_id],
+      }),
   });
 }
 

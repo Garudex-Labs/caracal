@@ -44,6 +44,7 @@ export const PROVIDER_CONFIG_FIELDS: Record<ProviderKind, readonly ProviderConfi
     { key: 'client_secret', requirement: 'required', secret: true, note: 'not used when client_auth_method is none' },
     { key: 'scopes', requirement: 'optional', note: 'upstream OAuth scopes to request' },
     { key: 'client_auth_method', requirement: 'optional', note: 'client_secret_basic default, client_secret_post, or none' },
+    { key: 'revocation_endpoint', requirement: 'optional', note: 'RFC 7009 endpoint for best-effort upstream revocation on disconnect' },
     { key: 'allowed_token_hosts', requirement: 'optional', note: 'defaults to the token endpoint host' },
     { key: 'authorization_params', requirement: 'optional' },
     { key: 'token_params', requirement: 'optional' },
