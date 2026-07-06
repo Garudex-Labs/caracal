@@ -10,6 +10,7 @@ import {
   ensureActivePolicySet,
   ensureApiKeyProvider,
   ensureApplication,
+  ensureClientCredentialsProvider,
   ensureGovernedUpstreams,
   ensureGrants,
   ensureResource,
@@ -152,6 +153,101 @@ describe('ensureApiKeyProvider', () => {
     expect(client.providers.patch).toHaveBeenCalledWith(ZONE, 'prov-1', {
       kind: 'api_key',
       config_json: { ...placement, api_key: 'sk-rotated' },
+    })
+  })
+})
+
+describe('ensureClientCredentialsProvider', () => {
+  const oauth = {
+    token_endpoint: 'https://login.hooli.example/oauth/token',
+    client_id: 'nucleus-client',
+    allowed_token_hosts: ['login.hooli.example'],
+  }
+
+  function admin(existing: Record<string, unknown>[]) {
+    return {
+      providers: {
+        list: vi.fn().mockResolvedValue(existing),
+        create: vi.fn().mockResolvedValue({ id: 'prov-created' }),
+        patch: vi.fn().mockResolvedValue({}),
+      },
+    }
+  }
+
+  it('returns null when no provider exists and the auth method needs an unsupplied credential', async () => {
+    const client = admin([])
+    const id = await ensureClientCredentialsProvider(client as unknown as AdminClient, ZONE, {
+      name: 'Hooli OIDC',
+      identifier: 'provider://hooli',
+      publicConfig: oauth,
+    })
+
+    expect(id).toBeNull()
+    expect(client.providers.create).not.toHaveBeenCalled()
+    expect(client.providers.patch).not.toHaveBeenCalled()
+  })
+
+  it('patches only the public config when no credential was supplied, preserving the sealed secret', async () => {
+    const client = admin([{ id: 'prov-1', identifier: 'provider://hooli' }])
+    const id = await ensureClientCredentialsProvider(client as unknown as AdminClient, ZONE, {
+      name: 'Hooli OIDC',
+      identifier: 'provider://hooli',
+      publicConfig: oauth,
+    })
+
+    expect(id).toBe('prov-1')
+    expect(client.providers.patch).toHaveBeenCalledWith(ZONE, 'prov-1', { config_json: oauth })
+  })
+
+  it('creates the provider with the client secret sealed into the config', async () => {
+    const client = admin([])
+    const id = await ensureClientCredentialsProvider(client as unknown as AdminClient, ZONE, {
+      name: 'Hooli OIDC',
+      identifier: 'provider://hooli',
+      publicConfig: oauth,
+      clientSecret: 'cs-sealed',
+    })
+
+    expect(id).toBe('prov-created')
+    expect(client.providers.create).toHaveBeenCalledWith(ZONE, {
+      name: 'Hooli OIDC',
+      identifier: 'provider://hooli',
+      kind: 'oauth2_client_credentials',
+      config_json: { ...oauth, client_secret: 'cs-sealed' },
+    })
+  })
+
+  it('re-seals the signing key of an existing jwt_bearer provider', async () => {
+    const client = admin([{ id: 'prov-1', identifier: 'provider://hooli' }])
+    const jwtBearer = { ...oauth, grant_type: 'jwt_bearer' as const }
+    await ensureClientCredentialsProvider(client as unknown as AdminClient, ZONE, {
+      name: 'Hooli OIDC',
+      identifier: 'provider://hooli',
+      publicConfig: jwtBearer,
+      privateKey: 'pem-rotated',
+    })
+
+    expect(client.providers.patch).toHaveBeenCalledWith(ZONE, 'prov-1', {
+      kind: 'oauth2_client_credentials',
+      config_json: { ...jwtBearer, private_key: 'pem-rotated' },
+    })
+  })
+
+  it('creates a public client without any credential when the auth method is none', async () => {
+    const client = admin([])
+    const publicClient = { ...oauth, client_auth_method: 'none' as const }
+    const id = await ensureClientCredentialsProvider(client as unknown as AdminClient, ZONE, {
+      name: 'Hooli OIDC',
+      identifier: 'provider://hooli',
+      publicConfig: publicClient,
+    })
+
+    expect(id).toBe('prov-created')
+    expect(client.providers.create).toHaveBeenCalledWith(ZONE, {
+      name: 'Hooli OIDC',
+      identifier: 'provider://hooli',
+      kind: 'oauth2_client_credentials',
+      config_json: publicClient,
     })
   })
 })

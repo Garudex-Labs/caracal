@@ -98,8 +98,8 @@ export interface ResourceInput {
 }
 
 export type ProviderKind =
-  'none' | 'caracal_mandate' | 'oauth2_authorization_code' | 'oauth2_client_credentials' | 'api_key' | 'bearer_token'
-export type ProviderSecretConfigKey = 'client_secret' | 'private_key' | 'api_key' | 'bearer_token'
+  'none' | 'caracal_mandate' | 'oauth2_authorization_code' | 'oauth2_client_credentials' | 'api_key' | 'bearer_token' | 'http_basic'
+export type ProviderSecretConfigKey = 'client_secret' | 'private_key' | 'api_key' | 'bearer_token' | 'password'
 export type OAuthClientAuthMethod = 'client_secret_basic' | 'client_secret_post' | 'private_key_jwt' | 'none'
 export type APIKeyAuthLocation = 'header' | 'query'
 
@@ -115,6 +115,7 @@ export type EmptyProviderConfig = Record<string, never>
 export interface OAuth2AuthorizationCodeProviderConfig extends ProviderConfigBase {
   authorization_endpoint: string
   token_endpoint: string
+  revocation_endpoint?: string
   redirect_uri: string
   client_id: string
   client_auth_method?: Exclude<OAuthClientAuthMethod, 'private_key_jwt'>
@@ -129,9 +130,13 @@ export interface OAuth2ClientCredentialsProviderConfig extends ProviderConfigBas
   token_endpoint: string
   client_id: string
   client_auth_method?: OAuthClientAuthMethod
+  grant_type?: 'client_credentials' | 'jwt_bearer'
   client_secret?: string
   private_key?: string
   key_id?: string
+  certificate?: string
+  assertion_subject?: string
+  assertion_audience?: string
   scopes?: string[]
   audience?: string
   resource?: string
@@ -159,12 +164,19 @@ export interface BearerTokenProviderConfig extends ProviderConfigBase {
   allowed_token_hosts?: string[]
 }
 
+export interface HTTPBasicProviderConfig {
+  username: string
+  password?: string
+  forward_caracal_identity?: boolean
+}
+
 export type ProviderConfig =
   | EmptyProviderConfig
   | OAuth2AuthorizationCodeProviderConfig
   | OAuth2ClientCredentialsProviderConfig
   | APIKeyProviderConfig
   | BearerTokenProviderConfig
+  | HTTPBasicProviderConfig
 
 interface ProviderInputBase {
   name?: string
@@ -178,6 +190,7 @@ export type ProviderInput =
   | (ProviderInputBase & { kind: 'oauth2_client_credentials'; config_json: OAuth2ClientCredentialsProviderConfig })
   | (ProviderInputBase & { kind: 'api_key'; config_json: APIKeyProviderConfig })
   | (ProviderInputBase & { kind: 'bearer_token'; config_json: BearerTokenProviderConfig })
+  | (ProviderInputBase & { kind: 'http_basic'; config_json: HTTPBasicProviderConfig })
 
 export interface ProviderPatchInput extends ProviderInputBase {
   kind?: ProviderKind

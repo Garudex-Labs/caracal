@@ -4,7 +4,14 @@
 // Idempotent reconcilers that converge applications, providers, resources, and policy sets to a desired state.
 
 import type { AdminClient } from './client.js'
-import type { APIKeyProviderConfig, ProviderIdentifier, Resource, ResourceInput, ResourceOperationEnforcement } from './types.js'
+import type {
+  APIKeyProviderConfig,
+  OAuth2ClientCredentialsProviderConfig,
+  ProviderIdentifier,
+  Resource,
+  ResourceInput,
+  ResourceOperationEnforcement,
+} from './types.js'
 
 function sameStringSet(live: readonly string[] | undefined, desired: readonly string[]): boolean {
   const have = new Set(live ?? [])
@@ -83,6 +90,57 @@ export async function ensureApiKeyProvider(client: AdminClient, zoneId: string, 
     return created.id
   }
   await client.providers.patch(zoneId, existing.id, { kind: 'api_key', config_json: config })
+  return existing.id
+}
+
+export interface EnsureClientCredentialsProviderInput {
+  name: string
+  identifier: ProviderIdentifier
+  publicConfig: OAuth2ClientCredentialsProviderConfig
+  clientSecret?: string
+  privateKey?: string
+}
+
+// Seals the client credential into an oauth2_client_credentials provider so the caller
+// never holds it after the run. When a client secret or signing key is supplied it is
+// reconciled together with the public config (the sealed secret cannot be read back, so
+// setting or rotating re-seals). When no credential is supplied but the public config may
+// have changed, an existing provider is patched without resupplying the credential, so an
+// edit applies and the sealed secret is preserved. Whether a missing provider without a
+// credential is creatable follows the declared authentication: jwt_bearer grants and
+// every client_auth_method except none require a sealed credential, so absence returns
+// null and no resource binds a dead credential; a public client (none) is complete
+// without one and is created. Returns the provider id.
+export async function ensureClientCredentialsProvider(
+  client: AdminClient,
+  zoneId: string,
+  input: EnsureClientCredentialsProviderInput,
+): Promise<string | null> {
+  const providers = await client.providers.list(zoneId)
+  const existing = providers.find((provider) => provider.identifier === input.identifier)
+  const secrets: Record<string, string> = {}
+  if (input.clientSecret !== undefined) secrets.client_secret = input.clientSecret
+  if (input.privateKey !== undefined) secrets.private_key = input.privateKey
+  if (Object.keys(secrets).length === 0) {
+    const grantType = input.publicConfig.grant_type ?? 'client_credentials'
+    const authMethod = input.publicConfig.client_auth_method ?? (grantType === 'jwt_bearer' ? 'none' : 'client_secret_basic')
+    if (grantType === 'jwt_bearer' || authMethod !== 'none') {
+      if (!existing) return null
+      await client.providers.patch(zoneId, existing.id, { config_json: input.publicConfig })
+      return existing.id
+    }
+  }
+  const config = { ...input.publicConfig, ...secrets }
+  if (!existing) {
+    const created = await client.providers.create(zoneId, {
+      name: input.name,
+      identifier: input.identifier,
+      kind: 'oauth2_client_credentials',
+      config_json: config,
+    })
+    return created.id
+  }
+  await client.providers.patch(zoneId, existing.id, { kind: 'oauth2_client_credentials', config_json: config })
   return existing.id
 }
 
