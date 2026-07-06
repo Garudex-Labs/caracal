@@ -190,15 +190,15 @@ func TestOpenZEKRejectsTamperedCiphertext(t *testing.T) {
 	}
 }
 
-func TestRefreshGrantKeyPrefersGrantID(t *testing.T) {
-	if got := refreshGrantKey("z", "u", "r", nil, &ProviderGrant{ID: "grant-1"}); got != "grant\x00grant-1" {
-		t.Fatalf("grant id key = %q", got)
+func TestRefreshConnectionKeyPrefersConnectionID(t *testing.T) {
+	if got := refreshConnectionKey("z", "u", nil, &ProviderConnection{ID: "connection-1"}); got != "connection\x00connection-1" {
+		t.Fatalf("connection id key = %q", got)
 	}
 	providerID := "provider-1"
-	if got := refreshGrantKey("z", "u", "r", &providerID, nil); got != "z\x00u\x00r\x00provider-1" {
+	if got := refreshConnectionKey("z", "u", &providerID, nil); got != "z\x00u\x00provider-1" {
 		t.Fatalf("composite key = %q", got)
 	}
-	if got := refreshGrantKey("z", "u", "r", nil, &ProviderGrant{}); got != "z\x00u\x00r\x00" {
+	if got := refreshConnectionKey("z", "u", nil, &ProviderConnection{}); got != "z\x00u\x00" {
 		t.Fatalf("composite key without provider = %q", got)
 	}
 }
@@ -557,10 +557,10 @@ type refreshDB struct {
 	stubDB
 	updateErrs []error
 	updates    int
-	latest     *ProviderGrant
+	latest     *ProviderConnection
 }
 
-func (d *refreshDB) UpdateProviderGrantTokens(_ context.Context, _ string, _ int, _, _ []byte, _ time.Time) error {
+func (d *refreshDB) UpdateProviderConnectionTokens(_ context.Context, _ string, _ int, _, _ []byte, _ time.Time) error {
 	d.updates++
 	if len(d.updateErrs) == 0 {
 		return nil
@@ -570,7 +570,7 @@ func (d *refreshDB) UpdateProviderGrantTokens(_ context.Context, _ string, _ int
 	return err
 }
 
-func (d *refreshDB) GetProviderGrant(_ context.Context, _, _, _ string, _ *string) (*ProviderGrant, error) {
+func (d *refreshDB) GetProviderConnection(_ context.Context, _, _ string, _ *string) (*ProviderConnection, error) {
 	if d.latest == nil {
 		return nil, errors.New("no grant")
 	}
@@ -578,13 +578,13 @@ func (d *refreshDB) GetProviderGrant(_ context.Context, _, _, _ string, _ *strin
 }
 
 func TestPersistRefreshedGrantPaths(t *testing.T) {
-	grant := &ProviderGrant{ID: "grant-1", RefreshTokenVersion: 1}
+	grant := &ProviderConnection{ID: "grant-1", RefreshTokenVersion: 1}
 	expiresAt := time.Now().Add(time.Hour)
 
 	t.Run("first write succeeds", func(t *testing.T) {
 		db := &refreshDB{}
 		server := refreshTestServer(db, nil)
-		if err := server.persistRefreshedGrant(context.Background(), "z", "u", "r", grant, []byte("a"), []byte("b"), expiresAt); err != nil {
+		if err := server.persistRefreshedConnection(context.Background(), "z", "u", grant, []byte("a"), []byte("b"), expiresAt); err != nil {
 			t.Fatal(err)
 		}
 		if db.updates != 1 {
@@ -595,7 +595,7 @@ func TestPersistRefreshedGrantPaths(t *testing.T) {
 	t.Run("non-conflict error propagates", func(t *testing.T) {
 		db := &refreshDB{updateErrs: []error{errors.New("pg down")}}
 		server := refreshTestServer(db, nil)
-		if err := server.persistRefreshedGrant(context.Background(), "z", "u", "r", grant, nil, nil, expiresAt); err == nil {
+		if err := server.persistRefreshedConnection(context.Background(), "z", "u", grant, nil, nil, expiresAt); err == nil {
 			t.Fatal("database failure must propagate")
 		}
 	})
@@ -604,10 +604,10 @@ func TestPersistRefreshedGrantPaths(t *testing.T) {
 		future := time.Now().Add(30 * time.Minute)
 		db := &refreshDB{
 			updateErrs: []error{ErrConcurrentGrantUpdate},
-			latest:     &ProviderGrant{ID: "grant-1", RefreshTokenVersion: 2, ExpiresAt: &future},
+			latest:     &ProviderConnection{ID: "grant-1", RefreshTokenVersion: 2, ExpiresAt: &future},
 		}
 		server := refreshTestServer(db, nil)
-		if err := server.persistRefreshedGrant(context.Background(), "z", "u", "r", grant, nil, nil, expiresAt); err != nil {
+		if err := server.persistRefreshedConnection(context.Background(), "z", "u", grant, nil, nil, expiresAt); err != nil {
 			t.Fatalf("peer-refreshed grant must succeed silently, got %v", err)
 		}
 		if db.updates != 1 {
@@ -619,10 +619,10 @@ func TestPersistRefreshedGrantPaths(t *testing.T) {
 		past := time.Now().Add(-time.Minute)
 		db := &refreshDB{
 			updateErrs: []error{ErrConcurrentGrantUpdate, ErrConcurrentGrantUpdate, ErrConcurrentGrantUpdate},
-			latest:     &ProviderGrant{ID: "grant-1", RefreshTokenVersion: 2, ExpiresAt: &past},
+			latest:     &ProviderConnection{ID: "grant-1", RefreshTokenVersion: 2, ExpiresAt: &past},
 		}
 		server := refreshTestServer(db, nil)
-		if err := server.persistRefreshedGrant(context.Background(), "z", "u", "r", grant, nil, nil, expiresAt); !errors.Is(err, ErrConcurrentGrantUpdate) {
+		if err := server.persistRefreshedConnection(context.Background(), "z", "u", grant, nil, nil, expiresAt); !errors.Is(err, ErrConcurrentGrantUpdate) {
 			t.Fatalf("exhausted retries must surface the conflict, got %v", err)
 		}
 	})
@@ -631,13 +631,13 @@ func TestPersistRefreshedGrantPaths(t *testing.T) {
 // grantDB serves scripted grant and provider rows for refresh deny-path tests.
 type grantDB struct {
 	stubDB
-	grant       *ProviderGrant
+	grant       *ProviderConnection
 	grantErr    error
 	providerRow *ProviderConfig
 	providerErr error
 }
 
-func (d *grantDB) GetProviderGrant(_ context.Context, _, _, _ string, _ *string) (*ProviderGrant, error) {
+func (d *grantDB) GetProviderConnection(_ context.Context, _, _ string, _ *string) (*ProviderConnection, error) {
 	return d.grant, d.grantErr
 }
 
@@ -645,30 +645,30 @@ func (d *grantDB) GetProvider(_ context.Context, _ string) (*ProviderConfig, err
 	return d.providerRow, d.providerErr
 }
 
-func expiredGrant(refreshCt []byte, providerID *string) *ProviderGrant {
+func expiredGrant(refreshCt []byte, providerID *string) *ProviderConnection {
 	past := time.Now().Add(-time.Minute)
-	return &ProviderGrant{ID: "grant-1", ProviderID: providerID, RefreshTokenCt: refreshCt, ExpiresAt: &past}
+	return &ProviderConnection{ID: "grant-1", ProviderID: providerID, RefreshTokenCt: refreshCt, ExpiresAt: &past}
 }
 
 func TestTryRefreshBrokeredGrantSkipPaths(t *testing.T) {
 	providerID := "provider-1"
 
 	server := refreshTestServer(&grantDB{grantErr: errors.New("no grant")}, nil)
-	if err := server.tryRefreshBrokeredGrant(context.Background(), "z", "", "r", nil); err != nil {
+	if err := server.tryRefreshProviderConnection(context.Background(), "z", "", nil); err != nil {
 		t.Fatalf("empty user must be a no-op, got %v", err)
 	}
-	if err := server.tryRefreshBrokeredGrant(context.Background(), "z", "user-1", "r", nil); err != nil {
+	if err := server.tryRefreshProviderConnection(context.Background(), "z", "user-1", nil); err != nil {
 		t.Fatalf("missing grant must be a no-op, got %v", err)
 	}
 
 	future := time.Now().Add(time.Hour)
-	fresh := refreshTestServer(&grantDB{grant: &ProviderGrant{ID: "grant-1", ExpiresAt: &future}}, nil)
-	if err := fresh.tryRefreshBrokeredGrant(context.Background(), "z", "user-1", "r", nil); err != nil {
+	fresh := refreshTestServer(&grantDB{grant: &ProviderConnection{ID: "grant-1", ExpiresAt: &future}}, nil)
+	if err := fresh.tryRefreshProviderConnection(context.Background(), "z", "user-1", nil); err != nil {
 		t.Fatalf("fresh grant must be a no-op, got %v", err)
 	}
 
 	dead := refreshTestServer(&grantDB{grant: expiredGrant(nil, &providerID)}, nil)
-	err := dead.tryRefreshBrokeredGrant(context.Background(), "z", "user-1", "r", nil)
+	err := dead.tryRefreshProviderConnection(context.Background(), "z", "user-1", nil)
 	if err == nil || err.Code != sharederr.CredentialExpired {
 		t.Fatalf("grant without refresh token must be expired, got %#v", err)
 	}
@@ -687,7 +687,7 @@ func TestRefreshExpiredBrokeredGrantDenyMatrix(t *testing.T) {
 
 	run := func(db DBQuerier) *sharederr.CaracalError {
 		server := refreshTestServer(db, nil)
-		return server.refreshExpiredBrokeredGrant(context.Background(), "z", "user-1", "r", &providerID)
+		return server.refreshExpiredProviderConnection(context.Background(), "z", "user-1", &providerID)
 	}
 
 	cases := map[string]struct {

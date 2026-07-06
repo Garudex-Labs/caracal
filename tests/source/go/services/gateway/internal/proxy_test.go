@@ -1161,7 +1161,7 @@ func TestProxyEmitsCredentialFreeActionAudit(t *testing.T) {
 				AuthScheme:    "ApiKey",
 				ProviderToken: "provider-secret",
 				ProviderID:    "provider-1",
-				GrantID:       "grant-1",
+				ConnectionID:  "grant-1",
 			}},
 		})
 	}))
@@ -1195,12 +1195,12 @@ func TestProxyEmitsCredentialFreeActionAudit(t *testing.T) {
 	if err := json.Unmarshal(event.MetadataJSON, &meta); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"application_id", "resource", "subject_fingerprint", "method", "upstream_host", "auth_mode", "provider_id", "grant_id", "gateway_status", "upstream_status", "latency_ms"} {
+	for _, want := range []string{"application_id", "resource", "subject_fingerprint", "method", "upstream_host", "auth_mode", "provider_id", "connection_id", "gateway_status", "upstream_status", "latency_ms"} {
 		if _, ok := meta[want]; !ok {
 			t.Fatalf("missing audit metadata %q in %#v", want, meta)
 		}
 	}
-	if meta["provider_id"] != "provider-1" || meta["grant_id"] != "grant-1" {
+	if meta["provider_id"] != "provider-1" || meta["connection_id"] != "grant-1" {
 		t.Fatalf("provider trace metadata = %#v", meta)
 	}
 	rawMeta := string(event.MetadataJSON)

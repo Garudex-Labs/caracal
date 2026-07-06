@@ -260,7 +260,7 @@ type stubDB struct {
 	appGlobalErr  error
 	resource      *Resource
 	resErr        error
-	grant         *ProviderGrant
+	grant         *ProviderConnection
 	grantErr      error
 	provider      *ProviderConfig
 	session       *Session
@@ -313,7 +313,7 @@ func (s *stubDB) GetWorkloadByID(_ context.Context, _ string) (*Workload, error)
 func (s *stubDB) GetResourceByIdentifier(_ context.Context, _, _ string) (*Resource, error) {
 	return s.resource, s.resErr
 }
-func (s *stubDB) GetProviderGrant(_ context.Context, _, _, _ string, providerID *string) (*ProviderGrant, error) {
+func (s *stubDB) GetProviderConnection(_ context.Context, _, _ string, providerID *string) (*ProviderConnection, error) {
 	if s.grantErr != nil {
 		return nil, s.grantErr
 	}
@@ -325,10 +325,10 @@ func (s *stubDB) GetProviderGrant(_ context.Context, _, _, _ string, providerID 
 	}
 	return nil, errors.New("stub")
 }
-func (s *stubDB) UpdateProviderGrantTokens(_ context.Context, _ string, _ int, _, _ []byte, _ time.Time) error {
+func (s *stubDB) UpdateProviderConnectionTokens(_ context.Context, _ string, _ int, _, _ []byte, _ time.Time) error {
 	return nil
 }
-func (s *stubDB) MarkProviderGrantExpired(_ context.Context, id string) error {
+func (s *stubDB) MarkProviderConnectionExpired(_ context.Context, id string) error {
 	s.markedExpired = append(s.markedExpired, id)
 	return nil
 }
@@ -715,7 +715,7 @@ func TestBuildUpstreamDirectiveIncludesProviderTokenOnlyForGateway(t *testing.T)
 	expiresAt := time.Now().Add(time.Minute)
 	srv := &Server{
 		db: &stubDB{
-			grant:    &ProviderGrant{ProviderID: &providerID, AccessTokenCt: token, ExpiresAt: &expiresAt},
+			grant:    &ProviderConnection{ProviderID: &providerID, AccessTokenCt: token, ExpiresAt: &expiresAt},
 			provider: &ProviderConfig{ID: providerID, ProviderKind: strPtr("oauth2_authorization_code")},
 		},
 		keys: &KeyCache{zek: zek},
@@ -745,7 +745,7 @@ func TestBuildUpstreamDirectiveBindsGrantToConfiguredProvider(t *testing.T) {
 		t.Fatalf("seal provider token: %v", err)
 	}
 	srv := &Server{
-		db:   &stubDB{grant: &ProviderGrant{ProviderID: &otherProviderID, AccessTokenCt: token}},
+		db:   &stubDB{grant: &ProviderConnection{ProviderID: &otherProviderID, AccessTokenCt: token}},
 		keys: &KeyCache{zek: zek},
 	}
 	if _, err := srv.buildUpstreamDirective(context.Background(), "zone1", map[string]any{"sub": "user1"}, resource, true, false); err == nil {
@@ -1205,7 +1205,7 @@ func TestBuildUpstreamDirectiveRejectsMalformedProviderConfig(t *testing.T) {
 	}
 	srv := &Server{
 		db: &stubDB{
-			grant: &ProviderGrant{ProviderID: &providerID, AccessTokenCt: token},
+			grant: &ProviderConnection{ProviderID: &providerID, AccessTokenCt: token},
 			provider: &ProviderConfig{
 				ID:           providerID,
 				ProviderKind: strPtr("oauth2_authorization_code"),
@@ -1235,7 +1235,7 @@ func TestBuildUpstreamDirectiveRejectsMalformedProviderAuthScheme(t *testing.T) 
 	}
 	srv := &Server{
 		db: &stubDB{
-			grant: &ProviderGrant{ProviderID: &providerID, AccessTokenCt: token},
+			grant: &ProviderConnection{ProviderID: &providerID, AccessTokenCt: token},
 			provider: &ProviderConfig{
 				ID:           providerID,
 				ProviderKind: strPtr("oauth2_authorization_code"),

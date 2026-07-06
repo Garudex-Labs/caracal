@@ -204,7 +204,7 @@ func TestBuildProviderClientAssertionCertificateThumbprints(t *testing.T) {
 	}
 }
 
-func brokeredGrantServer(grant *ProviderGrant, kind string) (*Server, *stubDB) {
+func brokeredGrantServer(grant *ProviderConnection, kind string) (*Server, *stubDB) {
 	db := &stubDB{
 		grant:    grant,
 		provider: &ProviderConfig{ID: "provider1", ProviderKind: strPtr(kind), ConfigJSON: []byte(`{}`)},
@@ -215,8 +215,8 @@ func brokeredGrantServer(grant *ProviderGrant, kind string) (*Server, *stubDB) {
 
 func TestTryRefreshBrokeredGrantServesNonExpiringTokens(t *testing.T) {
 	providerID := "provider1"
-	srv, db := brokeredGrantServer(&ProviderGrant{ID: "grant1", ProviderID: &providerID, AccessTokenCt: []byte("ct")}, "oauth2_authorization_code")
-	if rerr := srv.tryRefreshBrokeredGrant(context.Background(), "zone1", "user1", "res1", &providerID); rerr != nil {
+	srv, db := brokeredGrantServer(&ProviderConnection{ID: "grant1", ProviderID: &providerID, AccessTokenCt: []byte("ct")}, "oauth2_authorization_code")
+	if rerr := srv.tryRefreshProviderConnection(context.Background(), "zone1", "user1", &providerID); rerr != nil {
 		t.Fatalf("a grant without an expiry is non-expiring and must be served: %v", rerr)
 	}
 	if len(db.markedExpired) != 0 {
@@ -227,8 +227,8 @@ func TestTryRefreshBrokeredGrantServesNonExpiringTokens(t *testing.T) {
 func TestTryRefreshBrokeredGrantMarksDeadGrantsExpired(t *testing.T) {
 	providerID := "provider1"
 	expired := time.Now().Add(-time.Minute)
-	srv, db := brokeredGrantServer(&ProviderGrant{ID: "grant1", ProviderID: &providerID, AccessTokenCt: []byte("ct"), ExpiresAt: &expired}, "oauth2_authorization_code")
-	rerr := srv.tryRefreshBrokeredGrant(context.Background(), "zone1", "user1", "res1", &providerID)
+	srv, db := brokeredGrantServer(&ProviderConnection{ID: "grant1", ProviderID: &providerID, AccessTokenCt: []byte("ct"), ExpiresAt: &expired}, "oauth2_authorization_code")
+	rerr := srv.tryRefreshProviderConnection(context.Background(), "zone1", "user1", &providerID)
 	if rerr == nil || rerr.Description != "credential_expired_not_renewable" {
 		t.Fatalf("expired grant without a refresh token must deny as not renewable, got %v", rerr)
 	}
@@ -242,14 +242,14 @@ func TestTryRefreshBrokeredGrantSkewBoundary(t *testing.T) {
 	// The stub's provider kind check inside the refresh path fails fast, so a returned
 	// error proves the skew window triggered a refresh attempt without any network.
 	nearExpiry := time.Now().Add(10 * time.Second)
-	srv, _ := brokeredGrantServer(&ProviderGrant{ID: "grant1", ProviderID: &providerID, AccessTokenCt: []byte("ct"), RefreshTokenCt: []byte("rt"), ExpiresAt: &nearExpiry}, "bearer_token")
-	if rerr := srv.tryRefreshBrokeredGrant(context.Background(), "zone1", "user1", "res1", &providerID); rerr == nil {
+	srv, _ := brokeredGrantServer(&ProviderConnection{ID: "grant1", ProviderID: &providerID, AccessTokenCt: []byte("ct"), RefreshTokenCt: []byte("rt"), ExpiresAt: &nearExpiry}, "bearer_token")
+	if rerr := srv.tryRefreshProviderConnection(context.Background(), "zone1", "user1", &providerID); rerr == nil {
 		t.Fatal("a renewable grant inside the refresh skew must attempt a refresh")
 	}
 
 	freshExpiry := time.Now().Add(5 * time.Minute)
-	srv, _ = brokeredGrantServer(&ProviderGrant{ID: "grant1", ProviderID: &providerID, AccessTokenCt: []byte("ct"), RefreshTokenCt: []byte("rt"), ExpiresAt: &freshExpiry}, "bearer_token")
-	if rerr := srv.tryRefreshBrokeredGrant(context.Background(), "zone1", "user1", "res1", &providerID); rerr != nil {
+	srv, _ = brokeredGrantServer(&ProviderConnection{ID: "grant1", ProviderID: &providerID, AccessTokenCt: []byte("ct"), RefreshTokenCt: []byte("rt"), ExpiresAt: &freshExpiry}, "bearer_token")
+	if rerr := srv.tryRefreshProviderConnection(context.Background(), "zone1", "user1", &providerID); rerr != nil {
 		t.Fatalf("a grant beyond the refresh skew must be served without refresh: %v", rerr)
 	}
 }
