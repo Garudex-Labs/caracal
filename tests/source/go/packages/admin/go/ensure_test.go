@@ -197,6 +197,112 @@ func TestEnsureAPIKeyProviderReSealsExistingProvider(t *testing.T) {
 	})
 }
 
+func TestEnsureClientCredentialsProviderAbsentWithoutCredentialReturnsEmpty(t *testing.T) {
+	transport := &scripted{steps: []any{ok(`{"items":[],"next_cursor":null}`)}}
+	client := newAdmin(transport, -1)
+
+	id, err := admin.EnsureClientCredentialsProvider(context.Background(), client, "z1", admin.ClientCredentialsProviderEnsure{
+		Name: "Hooli OIDC", Identifier: "hooli-oauth",
+		PublicConfig: map[string]any{"token_endpoint": "https://login.hooli.example/oauth/token", "client_id": "nucleus-client"},
+	})
+	if err != nil || id != "" {
+		t.Fatalf("expected empty id, got id=%q err=%v", id, err)
+	}
+	if len(transport.requests) != 1 {
+		t.Fatalf("expected no writes, got %v", requestSummary(transport))
+	}
+}
+
+func TestEnsureClientCredentialsProviderPatchesPublicConfigWithoutCredential(t *testing.T) {
+	transport := &scripted{steps: []any{
+		ok(`{"items":[{"id":"prov-1","name":"Hooli OIDC","identifier":"hooli-oauth","kind":"oauth2_client_credentials"}],"next_cursor":null}`),
+		ok(`{"id":"prov-1"}`),
+	}}
+	client := newAdmin(transport, -1)
+
+	id, err := admin.EnsureClientCredentialsProvider(context.Background(), client, "z1", admin.ClientCredentialsProviderEnsure{
+		Name: "Hooli OIDC", Identifier: "hooli-oauth",
+		PublicConfig: map[string]any{"token_endpoint": "https://login.hooli.example/oauth/token", "client_id": "nucleus-client"},
+	})
+	if err != nil || id != "prov-1" {
+		t.Fatalf("ensure: id=%s err=%v", id, err)
+	}
+	assertJSONEqual(t, transport.requests[1].body, map[string]any{
+		"config_json": map[string]any{"token_endpoint": "https://login.hooli.example/oauth/token", "client_id": "nucleus-client"},
+	})
+}
+
+func TestEnsureClientCredentialsProviderCreatesSealedProvider(t *testing.T) {
+	transport := &scripted{steps: []any{
+		ok(`{"items":[],"next_cursor":null}`),
+		ok(`{"id":"prov-created"}`),
+	}}
+	client := newAdmin(transport, -1)
+
+	id, err := admin.EnsureClientCredentialsProvider(context.Background(), client, "z1", admin.ClientCredentialsProviderEnsure{
+		Name: "Hooli OIDC", Identifier: "hooli-oauth",
+		PublicConfig: map[string]any{"token_endpoint": "https://login.hooli.example/oauth/token", "client_id": "nucleus-client"},
+		ClientSecret: "cs_sealed",
+	})
+	if err != nil || id != "prov-created" {
+		t.Fatalf("ensure: id=%s err=%v", id, err)
+	}
+	assertJSONEqual(t, transport.requests[1].body, map[string]any{
+		"name": "Hooli OIDC", "identifier": "hooli-oauth", "kind": "oauth2_client_credentials",
+		"config_json": map[string]any{
+			"token_endpoint": "https://login.hooli.example/oauth/token", "client_id": "nucleus-client",
+			"client_secret": "cs_sealed",
+		},
+	})
+}
+
+func TestEnsureClientCredentialsProviderReSealsJWTBearerSigningKey(t *testing.T) {
+	transport := &scripted{steps: []any{
+		ok(`{"items":[{"id":"prov-1","name":"Hooli OIDC","identifier":"hooli-oauth","kind":"oauth2_client_credentials"}],"next_cursor":null}`),
+		ok(`{"id":"prov-1"}`),
+	}}
+	client := newAdmin(transport, -1)
+
+	id, err := admin.EnsureClientCredentialsProvider(context.Background(), client, "z1", admin.ClientCredentialsProviderEnsure{
+		Name: "Hooli OIDC", Identifier: "hooli-oauth",
+		PublicConfig: map[string]any{"token_endpoint": "https://login.hooli.example/oauth/token", "client_id": "nucleus-client", "grant_type": "jwt_bearer"},
+		PrivateKey:   "pem_rotated",
+	})
+	if err != nil || id != "prov-1" {
+		t.Fatalf("ensure: id=%s err=%v", id, err)
+	}
+	assertJSONEqual(t, transport.requests[1].body, map[string]any{
+		"kind": "oauth2_client_credentials",
+		"config_json": map[string]any{
+			"token_endpoint": "https://login.hooli.example/oauth/token", "client_id": "nucleus-client",
+			"grant_type": "jwt_bearer", "private_key": "pem_rotated",
+		},
+	})
+}
+
+func TestEnsureClientCredentialsProviderCreatesPublicClientWithoutCredential(t *testing.T) {
+	transport := &scripted{steps: []any{
+		ok(`{"items":[],"next_cursor":null}`),
+		ok(`{"id":"prov-created"}`),
+	}}
+	client := newAdmin(transport, -1)
+
+	id, err := admin.EnsureClientCredentialsProvider(context.Background(), client, "z1", admin.ClientCredentialsProviderEnsure{
+		Name: "Hooli OIDC", Identifier: "hooli-oauth",
+		PublicConfig: map[string]any{"token_endpoint": "https://login.hooli.example/oauth/token", "client_id": "nucleus-client", "client_auth_method": "none"},
+	})
+	if err != nil || id != "prov-created" {
+		t.Fatalf("ensure: id=%s err=%v", id, err)
+	}
+	assertJSONEqual(t, transport.requests[1].body, map[string]any{
+		"name": "Hooli OIDC", "identifier": "hooli-oauth", "kind": "oauth2_client_credentials",
+		"config_json": map[string]any{
+			"token_endpoint": "https://login.hooli.example/oauth/token", "client_id": "nucleus-client",
+			"client_auth_method": "none",
+		},
+	})
+}
+
 func TestEnsureResourceCreatesWithManagedFields(t *testing.T) {
 	transport := &scripted{steps: []any{
 		ok(`{"items":[],"next_cursor":null}`),

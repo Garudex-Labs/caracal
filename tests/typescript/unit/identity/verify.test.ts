@@ -78,7 +78,7 @@ describe('verify', () => {
       hop_count: 2,
       delegation_graph_epoch: 7,
     })
-    const claims = await verify(token, { issuer, audience: 'resource://api' })
+    const claims = await verify(token, { issuer, audience: 'resource://api', zoneId: 'zone-1' })
     expect(claims.sub).toBe('user-1')
     expect(claims.zoneId).toBe('zone-1')
     expect(claims.clientId).toBe('app-1')
@@ -100,39 +100,39 @@ describe('verify', () => {
 
   it('throws TokenInvalidError for a malformed token', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ keys: [] }) }))
-    await expect(verify('not.a.jwt', { issuer: 'https://issuer.example.com', audience: 'resource://api' })).rejects.toBeInstanceOf(
+    await expect(verify('not.a.jwt', { issuer: 'https://issuer.example.com', audience: 'resource://api', zoneId: 'zone-1' })).rejects.toBeInstanceOf(
       TokenInvalidError,
     )
   })
 
   it('throws ZoneInvalidError when zone_id is absent', async () => {
     const { token, issuer } = await mintToken({ zone_id: undefined })
-    await expect(verify(token, { issuer, audience: 'resource://api' })).rejects.toBeInstanceOf(ZoneInvalidError)
+    await expect(verify(token, { issuer, audience: 'resource://api', zoneId: 'zone-1' })).rejects.toBeInstanceOf(ZoneInvalidError)
   })
 
   it('throws TokenInvalidError when exp is absent', async () => {
     const { token, issuer } = await mintToken({ exp: undefined })
-    await expect(verify(token, { issuer, audience: 'resource://api' })).rejects.toBeInstanceOf(TokenInvalidError)
+    await expect(verify(token, { issuer, audience: 'resource://api', zoneId: 'zone-1' })).rejects.toBeInstanceOf(TokenInvalidError)
   })
 
   it('throws TokenInvalidError when sid is absent', async () => {
     const { token, issuer } = await mintToken({ sid: undefined })
-    await expect(verify(token, { issuer, audience: 'resource://api' })).rejects.toBeInstanceOf(TokenInvalidError)
+    await expect(verify(token, { issuer, audience: 'resource://api', zoneId: 'zone-1' })).rejects.toBeInstanceOf(TokenInvalidError)
   })
 
   it('throws TokenInvalidError when root_sid is absent', async () => {
     const { token, issuer } = await mintToken({ root_sid: undefined })
-    await expect(verify(token, { issuer, audience: 'resource://api' })).rejects.toBeInstanceOf(TokenInvalidError)
+    await expect(verify(token, { issuer, audience: 'resource://api', zoneId: 'zone-1' })).rejects.toBeInstanceOf(TokenInvalidError)
   })
 
   it('throws TokenInvalidError when sub_type is absent', async () => {
     const { token, issuer } = await mintToken({ sub_type: undefined })
-    await expect(verify(token, { issuer, audience: 'resource://api' })).rejects.toBeInstanceOf(TokenInvalidError)
+    await expect(verify(token, { issuer, audience: 'resource://api', zoneId: 'zone-1' })).rejects.toBeInstanceOf(TokenInvalidError)
   })
 
   it('throws TokenInvalidError when required use does not match', async () => {
     const { token, issuer } = await mintToken({ use: 'session' })
-    await expect(verify(token, { issuer, audience: 'resource://api', requiredUse: 'resource' })).rejects.toBeInstanceOf(TokenInvalidError)
+    await expect(verify(token, { issuer, audience: 'resource://api', zoneId: 'zone-1', requiredUse: 'resource' })).rejects.toBeInstanceOf(TokenInvalidError)
   })
 
   it('throws ZoneInvalidError when zone_id does not match config', async () => {
@@ -142,7 +142,7 @@ describe('verify', () => {
 
   it('throws ScopeInsufficientError for a missing required scope', async () => {
     const { token, issuer } = await mintToken({}, 'read')
-    await expect(verify(token, { issuer, audience: 'resource://api', requiredScopes: ['admin'] })).rejects.toMatchObject({
+    await expect(verify(token, { issuer, audience: 'resource://api', zoneId: 'zone-1', requiredScopes: ['admin'] })).rejects.toMatchObject({
       name: 'ScopeInsufficientError',
       missingScope: 'admin',
     })
@@ -151,32 +151,32 @@ describe('verify', () => {
   it('throws TokenInvalidError for a missing required target resource', async () => {
     const { token, issuer } = await mintToken({ target: ['resource://tools/files'] })
     await expect(
-      verify(token, { issuer, audience: 'resource://api', requiredTargets: ['resource://tools/calendar'] }),
+      verify(token, { issuer, audience: 'resource://api', zoneId: 'zone-1', requiredTargets: ['resource://tools/calendar'] }),
     ).rejects.toBeInstanceOf(TokenInvalidError)
   })
 
   it('throws AgentIdentityRequiredError when agent is required but absent', async () => {
     const { token, issuer } = await mintToken()
-    await expect(verify(token, { issuer, audience: 'resource://api', requireAgent: true })).rejects.toBeInstanceOf(
+    await expect(verify(token, { issuer, audience: 'resource://api', zoneId: 'zone-1', requireAgent: true })).rejects.toBeInstanceOf(
       AgentIdentityRequiredError,
     )
   })
 
   it('throws DelegationRequiredError when delegation is required but absent', async () => {
     const { token, issuer } = await mintToken()
-    await expect(verify(token, { issuer, audience: 'resource://api', requireDelegation: true })).rejects.toBeInstanceOf(
+    await expect(verify(token, { issuer, audience: 'resource://api', zoneId: 'zone-1', requireDelegation: true })).rejects.toBeInstanceOf(
       DelegationRequiredError,
     )
   })
 
   it('throws HopCountExceededError when hop_count exceeds the limit', async () => {
     const { token, issuer } = await mintToken({ hop_count: 5 })
-    await expect(verify(token, { issuer, audience: 'resource://api', maxHopCount: 3 })).rejects.toBeInstanceOf(HopCountExceededError)
+    await expect(verify(token, { issuer, audience: 'resource://api', zoneId: 'zone-1', maxHopCount: 3 })).rejects.toBeInstanceOf(HopCountExceededError)
   })
 
   it('throws ChainMismatchError when required application is absent from the chain', async () => {
     const { token, issuer } = await mintToken({ delegation_chain: [{ application_id: 'app-child' }] })
-    await expect(verify(token, { issuer, audience: 'resource://api', requireChainContains: ['app-parent'] })).rejects.toMatchObject({
+    await expect(verify(token, { issuer, audience: 'resource://api', zoneId: 'zone-1', requireChainContains: ['app-parent'] })).rejects.toMatchObject({
       name: 'ChainMismatchError',
       missingApplicationId: 'app-parent',
     })
@@ -190,6 +190,7 @@ describe('verify', () => {
       verify(token, {
         issuer,
         audience: 'resource://api',
+        zoneId: 'zone-1',
         requireChainContains: ['app-child'],
       }),
     ).rejects.toBeInstanceOf(TokenInvalidError)
@@ -201,6 +202,7 @@ describe('verify', () => {
       verify(token, {
         issuer,
         audience: 'resource://api',
+        zoneId: 'zone-1',
         requireAgent: true,
       }),
     ).rejects.toBeInstanceOf(TokenInvalidError)
@@ -208,7 +210,7 @@ describe('verify', () => {
 
   it('ignores legacy graph_epoch claim', async () => {
     const { token, issuer } = await mintToken({ graph_epoch: 42 })
-    const claims = await verify(token, { issuer, audience: 'resource://api' })
+    const claims = await verify(token, { issuer, audience: 'resource://api', zoneId: 'zone-1' })
     expect(claims.graphEpoch).toBeUndefined()
   })
 })

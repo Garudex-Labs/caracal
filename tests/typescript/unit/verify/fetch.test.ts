@@ -73,7 +73,7 @@ async function mintToken(): Promise<{ token: string; deps: AuthDeps }> {
   const body = `${header}.${payload}`
   const signature = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key.privateKey, new TextEncoder().encode(body))
   const token = `${body}.${base64url(new Uint8Array(signature))}`
-  return { token, deps: { issuer, audience, revocations } }
+  return { token, deps: { issuer, audience, zoneId: 'zone-1', revocations } }
 }
 
 function base64url(value: string | Uint8Array): string {

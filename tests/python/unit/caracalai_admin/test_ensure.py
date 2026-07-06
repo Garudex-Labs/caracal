@@ -21,6 +21,7 @@ from caracalai_admin import (
     ensure_active_policy_set,
     ensure_api_key_provider,
     ensure_application,
+    ensure_client_credentials_provider,
     ensure_governed_upstreams,
     ensure_grants,
     ensure_resource,
@@ -228,6 +229,109 @@ class EnsureApiKeyProviderTests(unittest.TestCase):
             ZONE,
             "prov-1",
             {"kind": "api_key", "config_json": {**PLACEMENT, "api_key": "sk-rotated"}},
+        )
+
+
+OAUTH = {
+    "token_endpoint": "https://login.hooli.example/oauth/token",
+    "client_id": "nucleus-client",
+    "allowed_token_hosts": ["login.hooli.example"],
+}
+
+
+class EnsureClientCredentialsProviderTests(unittest.TestCase):
+    def test_returns_none_when_absent_and_credential_needed(self):
+        client = provider_admin([])
+        providerId = ensure_client_credentials_provider(
+            client,
+            ZONE,
+            name="Hooli OIDC",
+            identifier="provider://hooli",
+            public_config=OAUTH,
+        )
+
+        self.assertIsNone(providerId)
+        client.providers.create.assert_not_called()
+        client.providers.patch.assert_not_called()
+
+    def test_patches_only_public_config_without_credential(self):
+        client = provider_admin([{"id": "prov-1", "identifier": "provider://hooli"}])
+        providerId = ensure_client_credentials_provider(
+            client,
+            ZONE,
+            name="Hooli OIDC",
+            identifier="provider://hooli",
+            public_config=OAUTH,
+        )
+
+        self.assertEqual(providerId, "prov-1")
+        client.providers.patch.assert_called_once_with(
+            ZONE, "prov-1", {"config_json": OAUTH}
+        )
+
+    def test_creates_provider_with_sealed_client_secret(self):
+        client = provider_admin([])
+        providerId = ensure_client_credentials_provider(
+            client,
+            ZONE,
+            name="Hooli OIDC",
+            identifier="provider://hooli",
+            public_config=OAUTH,
+            client_secret="cs-sealed",
+        )
+
+        self.assertEqual(providerId, "prov-created")
+        client.providers.create.assert_called_once_with(
+            ZONE,
+            {
+                "name": "Hooli OIDC",
+                "identifier": "provider://hooli",
+                "kind": "oauth2_client_credentials",
+                "config_json": {**OAUTH, "client_secret": "cs-sealed"},
+            },
+        )
+
+    def test_reseals_signing_key_of_jwt_bearer_provider(self):
+        client = provider_admin([{"id": "prov-1", "identifier": "provider://hooli"}])
+        jwtBearer = {**OAUTH, "grant_type": "jwt_bearer"}
+        ensure_client_credentials_provider(
+            client,
+            ZONE,
+            name="Hooli OIDC",
+            identifier="provider://hooli",
+            public_config=jwtBearer,
+            private_key="pem-rotated",
+        )
+
+        client.providers.patch.assert_called_once_with(
+            ZONE,
+            "prov-1",
+            {
+                "kind": "oauth2_client_credentials",
+                "config_json": {**jwtBearer, "private_key": "pem-rotated"},
+            },
+        )
+
+    def test_creates_public_client_without_credential(self):
+        client = provider_admin([])
+        publicClient = {**OAUTH, "client_auth_method": "none"}
+        providerId = ensure_client_credentials_provider(
+            client,
+            ZONE,
+            name="Hooli OIDC",
+            identifier="provider://hooli",
+            public_config=publicClient,
+        )
+
+        self.assertEqual(providerId, "prov-created")
+        client.providers.create.assert_called_once_with(
+            ZONE,
+            {
+                "name": "Hooli OIDC",
+                "identifier": "provider://hooli",
+                "kind": "oauth2_client_credentials",
+                "config_json": publicClient,
+            },
         )
 
 
