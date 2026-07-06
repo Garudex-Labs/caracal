@@ -44,7 +44,6 @@ type proxy struct {
 	client       *http.Client
 	log          zerolog.Logger
 	maxBytes     int64
-	bindings     *bindingStore
 	tracker      replayTracker
 	revocations  revocationChecker
 	metrics      *GatewayMetrics
@@ -75,7 +74,7 @@ type tokenRevocationIDs struct {
 	DelegationEdgeID string
 }
 
-func newProxy(sts *stsClient, jwks tokenVerifier, guard *upstreamGuard, log zerolog.Logger, maxBytes int64, upstreamTimeout time.Duration, bindings *bindingStore, tracker replayTracker, revocations revocationChecker, metrics *GatewayMetrics, audit auditEmitter) *proxy {
+func newProxy(sts *stsClient, jwks tokenVerifier, guard *upstreamGuard, log zerolog.Logger, maxBytes int64, upstreamTimeout time.Duration, tracker replayTracker, revocations revocationChecker, metrics *GatewayMetrics, audit auditEmitter) *proxy {
 	if jwks == nil {
 		panic("proxy requires jwks verifier")
 	}
@@ -103,7 +102,6 @@ func newProxy(sts *stsClient, jwks tokenVerifier, guard *upstreamGuard, log zero
 		client:      &http.Client{Transport: transport, CheckRedirect: noRedirect},
 		log:         log,
 		maxBytes:    maxBytes,
-		bindings:    bindings,
 		tracker:     tracker,
 		revocations: revocations,
 		metrics:     metrics,
@@ -149,7 +147,7 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.Header.Get("X-Caracal-Client-ID") != "" {
-		writeErr(w, requestID, http.StatusBadRequest, sharederr.InvalidToken, "client id is bound by gateway configuration")
+		writeErr(w, requestID, http.StatusBadRequest, sharederr.InvalidToken, "client identity derives from the bearer token")
 		p.metrics.RequestsDenied.Add(1)
 		p.metrics.DenialsBadRouting.Add(1)
 		logger.Info().Int("status", http.StatusBadRequest).Msg("denied: client id header not honored")
@@ -171,12 +169,15 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		logger.Info().Int("status", http.StatusUnauthorized).Msg("denied: bearer missing zone")
 		return
 	}
-	bind, ok := p.bindings.Get(zoneID, resource)
-	if !ok {
-		writeErr(w, requestID, http.StatusForbidden, sharederr.AccessDenied, "resource not configured")
+	// The caller's application identity is the client_id claim STS stamped into the
+	// mandate at mint. The peek is unverified here; nothing acts on it until the
+	// JWKS signature check below proves the token is STS-issued.
+	clientID := jwtClientID(bearer)
+	if clientID == "" {
+		writeErr(w, requestID, http.StatusUnauthorized, sharederr.InvalidToken, "missing token client")
 		p.metrics.RequestsDenied.Add(1)
-		p.metrics.DenialsBinding.Add(1)
-		logger.Info().Int("status", http.StatusForbidden).Str("resource", resource).Msg("denied: resource has no client binding")
+		p.metrics.DenialsBadRouting.Add(1)
+		logger.Info().Int("status", http.StatusUnauthorized).Msg("denied: bearer missing client")
 		return
 	}
 
@@ -189,13 +190,13 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	logger = logger.With().
-		Str("zone_id", bind.ZoneID).
-		Str("application_id", bind.ApplicationID).
+		Str("zone_id", zoneID).
+		Str("application_id", clientID).
 		Str("resource", resource).
 		Str("subject_fp", tokenFingerprint(bearer)).
 		Logger()
 
-	if err := p.jwks.Verify(r.Context(), bind.ZoneID, bearer); err != nil {
+	if err := p.jwks.Verify(r.Context(), zoneID, bearer); err != nil {
 		writeErr(w, requestID, http.StatusUnauthorized, sharederr.InvalidToken, "bearer signature invalid")
 		p.metrics.RequestsDenied.Add(1)
 		p.metrics.DenialsSignature.Add(1)
@@ -203,7 +204,7 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !p.tracker.Check(r.Context(), jwtJTI(bearer), exp, jwtUse(bearer), requestID, resource, bind.ZoneID, bind.ApplicationID, tokenFingerprint(bearer)) {
+	if !p.tracker.Check(r.Context(), jwtJTI(bearer), exp, jwtUse(bearer), requestID, resource, zoneID, clientID, tokenFingerprint(bearer)) {
 		writeErr(w, requestID, http.StatusUnauthorized, sharederr.InvalidToken, "token replay detected")
 		p.metrics.RequestsDenied.Add(1)
 		p.metrics.DenialsJTIReplay.Add(1)
@@ -243,7 +244,7 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	stsCtx, cancel := context.WithTimeout(r.Context(), p.sts.client.Timeout)
-	out := p.sts.Exchange(stsCtx, bearer, bind, resource, r.Method, r.URL.Path, requestID)
+	out := p.sts.Exchange(stsCtx, bearer, zoneID, clientID, resource, r.Method, r.URL.Path, requestID)
 	cancel()
 	p.metrics.STSExchangeLatencyMs.Store(uint64(out.Latency / time.Millisecond))
 	if out.ClientErr != nil {
@@ -268,8 +269,8 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		logger.Error().Err(err).Str("upstream_raw", res.Upstream.URL).Msg("upstream rejected by guard")
 		p.emitActionAudit(gatewayAuditInput{
 			RequestID:          requestID,
-			ZoneID:             bind.ZoneID,
-			ApplicationID:      bind.ApplicationID,
+			ZoneID:             zoneID,
+			ApplicationID:      clientID,
 			Resource:           resource,
 			SubjectFingerprint: tokenFingerprint(bearer),
 			Method:             r.Method,
@@ -293,8 +294,8 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		logger.Warn().Msg("provider credential host rejected")
 		p.emitActionAudit(gatewayAuditInput{
 			RequestID:          requestID,
-			ZoneID:             bind.ZoneID,
-			ApplicationID:      bind.ApplicationID,
+			ZoneID:             zoneID,
+			ApplicationID:      clientID,
 			Resource:           resource,
 			SubjectFingerprint: tokenFingerprint(bearer),
 			Method:             r.Method,
@@ -319,8 +320,8 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		logger.Error().Err(err).Msg("build upstream request")
 		p.emitActionAudit(gatewayAuditInput{
 			RequestID:          requestID,
-			ZoneID:             bind.ZoneID,
-			ApplicationID:      bind.ApplicationID,
+			ZoneID:             zoneID,
+			ApplicationID:      clientID,
 			Resource:           resource,
 			SubjectFingerprint: tokenFingerprint(bearer),
 			Method:             r.Method,
@@ -349,8 +350,8 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		p.emitActionAudit(gatewayAuditInput{
 			RequestID:          requestID,
 			TraceID:            traceID,
-			ZoneID:             bind.ZoneID,
-			ApplicationID:      bind.ApplicationID,
+			ZoneID:             zoneID,
+			ApplicationID:      clientID,
 			Resource:           resource,
 			SubjectFingerprint: tokenFingerprint(bearer),
 			Method:             r.Method,
@@ -376,8 +377,8 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	p.emitActionAudit(gatewayAuditInput{
 		RequestID:          requestID,
 		TraceID:            traceID,
-		ZoneID:             bind.ZoneID,
-		ApplicationID:      bind.ApplicationID,
+		ZoneID:             zoneID,
+		ApplicationID:      clientID,
 		Resource:           resource,
 		SubjectFingerprint: tokenFingerprint(bearer),
 		Method:             r.Method,
@@ -706,7 +707,7 @@ func jwtExp(token string) (time.Time, bool) {
 	return time.Unix(claims.Exp, 0), true
 }
 
-var zoneIDPattern = regexp.MustCompile(`^[A-Za-z0-9._:-]{1,128}$`)
+var claimIDPattern = regexp.MustCompile(`^[A-Za-z0-9._:-]{1,128}$`)
 
 func jwtZoneID(token string) string {
 	parts := strings.Split(token, ".")
@@ -723,10 +724,31 @@ func jwtZoneID(token string) string {
 	if err := json.Unmarshal(payload, &claims); err != nil {
 		return ""
 	}
-	if !zoneIDPattern.MatchString(claims.ZoneID) {
+	if !claimIDPattern.MatchString(claims.ZoneID) {
 		return ""
 	}
 	return claims.ZoneID
+}
+
+func jwtClientID(token string) string {
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return ""
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return ""
+	}
+	var claims struct {
+		ClientID string `json:"client_id"`
+	}
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return ""
+	}
+	if !claimIDPattern.MatchString(claims.ClientID) {
+		return ""
+	}
+	return claims.ClientID
 }
 
 func extractBearer(h string) string {
