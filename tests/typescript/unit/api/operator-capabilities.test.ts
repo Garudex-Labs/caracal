@@ -20,7 +20,12 @@ describe('capability catalog', () => {
   it('classifies read capabilities as non-mutating', () => {
     expect(CAPABILITIES.listApplications.mutating).toBe(false)
     expect(CAPABILITIES.listPolicySets.mutating).toBe(false)
-    expect(CAPABILITIES.explainAccess.mutating).toBe(false)
+    expect(CAPABILITIES.explainRequest.mutating).toBe(false)
+    expect(CAPABILITIES.validatePolicy.mutating).toBe(false)
+    expect(CAPABILITIES.simulatePolicySet.mutating).toBe(false)
+    expect(CAPABILITIES.listWorkloads.mutating).toBe(false)
+    expect(CAPABILITIES.listApprovals.mutating).toBe(false)
+    expect(CAPABILITIES.listAdminActivity.mutating).toBe(false)
     expect(CAPABILITIES.grantAccess.mutating).toBe(true)
     expect(CAPABILITIES.rotateApplicationSecret.mutating).toBe(true)
     expect(CAPABILITIES.deleteApplication.mutating).toBe(true)
@@ -34,6 +39,18 @@ describe('capability catalog', () => {
     expect(CAPABILITIES.createPolicySet.mutating).toBe(true)
     expect(CAPABILITIES.versionPolicySet.mutating).toBe(true)
     expect(CAPABILITIES.activatePolicySet.mutating).toBe(true)
+    expect(CAPABILITIES.updateApplication.mutating).toBe(true)
+    expect(CAPABILITIES.updateProvider.mutating).toBe(true)
+    expect(CAPABILITIES.updateResource.mutating).toBe(true)
+    expect(CAPABILITIES.deletePolicySet.mutating).toBe(true)
+    expect(CAPABILITIES.suspendAgent.mutating).toBe(true)
+    expect(CAPABILITIES.resumeAgent.mutating).toBe(true)
+    expect(CAPABILITIES.terminateAgent.mutating).toBe(true)
+    expect(CAPABILITIES.revokeDelegation.mutating).toBe(true)
+    expect(CAPABILITIES.createWorkload.mutating).toBe(true)
+    expect(CAPABILITIES.updateWorkload.mutating).toBe(true)
+    expect(CAPABILITIES.rotateWorkloadSecret.mutating).toBe(true)
+    expect(CAPABILITIES.deleteWorkload.mutating).toBe(true)
   })
 })
 
@@ -47,12 +64,12 @@ describe('validateProposedPlan', () => {
   it('validates a correct read-only plan', () => {
     const result = parse({
       summary: 'Audit access',
-      steps: [{ id: 's1', capability: 'explainAccess', args: { application_id: 'app-1' } }],
+      steps: [{ id: 's1', capability: 'explainRequest', args: { request_id: 'req-1' } }],
     })
     expect(result.ok).toBe(true)
     expect(result.mutating).toBe(false)
     expect(result.mutating_step_count).toBe(0)
-    expect(result.steps[0]).toMatchObject({ id: 's1', capability: 'explainAccess', mutating: false })
+    expect(result.steps[0]).toMatchObject({ id: 's1', capability: 'explainRequest', mutating: false })
   })
 
   it('derives the authoritative mutating flag from the catalog', () => {

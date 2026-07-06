@@ -13,14 +13,17 @@ describe('researcherRoleScopes', () => {
     expect([...scopes].sort()).toEqual([
       'control:agent:read',
       'control:app:read',
+      'control:approval:read',
       'control:audit:read',
       'control:delegation:read',
+      'control:explain:read',
       'control:grant:read',
       'control:identity-provider:read',
       'control:policy-set:read',
       'control:policy:read',
       'control:resource:read',
       'control:session:read',
+      'control:workload:read',
     ])
     expect([...scopes].some((scope) => scope.endsWith(':write'))).toBe(false)
   })
@@ -36,6 +39,11 @@ describe('executorRoleScopes', () => {
     expect(scopes.has('control:resource:delete')).toBe(true)
     expect(scopes.has('control:identity-provider:delete')).toBe(true)
     expect(scopes.has('control:policy:delete')).toBe(true)
+    expect(scopes.has('control:agent:write')).toBe(true)
+    expect(scopes.has('control:agent:delete')).toBe(true)
+    expect(scopes.has('control:delegation:delete')).toBe(true)
+    expect(scopes.has('control:workload:write')).toBe(true)
+    expect(scopes.has('control:workload:delete')).toBe(true)
     expect(scopes.has('control:app:read')).toBe(true)
   })
 

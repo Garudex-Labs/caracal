@@ -53,7 +53,7 @@ describe('previewPlan', () => {
     const db = scriptedDb([])
     const result = await previewPlan(db, 'z1', {
       summary: 'Audit',
-      steps: [{ id: 's1', capability: 'explainAccess', args: { application_id: 'app-1' } }],
+      steps: [{ id: 's1', capability: 'explainRequest', args: { request_id: 'req-1' } }],
     })
     expect(result.steps[0]).toMatchObject({ effect: 'read_only' })
     expect(db.query as ReturnType<typeof vi.fn>).not.toHaveBeenCalled()
