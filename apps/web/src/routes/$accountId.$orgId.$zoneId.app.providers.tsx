@@ -46,6 +46,7 @@ import {
   useUpdateProvider,
 } from "@/platform/api/hooks";
 import { useCreateDeepLink } from "@/platform/nav/createDeepLink";
+import { PROVIDER_KIND_LABEL } from "@/platform/api/types";
 import type {
   Provider,
   ProviderGrant,
@@ -63,14 +64,7 @@ export const Route = createFileRoute("/$accountId/$orgId/$zoneId/app/providers")
   }),
 });
 
-const KIND_LABEL: Record<ProviderKind, string> = {
-  none: "None",
-  caracal_mandate: "Caracal mandate",
-  oauth2_authorization_code: "OAuth 2.0 (auth code)",
-  oauth2_client_credentials: "OAuth 2.0 (client creds)",
-  api_key: "API key",
-  bearer_token: "Bearer token",
-};
+const KIND_LABEL = PROVIDER_KIND_LABEL;
 
 const KIND_SHORT: Record<ProviderKind, string> = {
   none: "None",

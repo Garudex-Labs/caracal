@@ -12,6 +12,7 @@ import {
   stripResourceIdentifierPrefix,
   validateResourceIdentifier,
 } from "@/platform/api/validation";
+import { PROVIDER_KIND_LABEL } from "@/platform/api/types";
 import type {
   Application,
   Provider,
@@ -295,7 +296,7 @@ function ResourceFormBody({
             <div>
               <Select
                 label="Gateway application"
-                info="Managed application identity the Gateway exchanges tokens as when routing to this upstream. It does not limit which applications can call the resource; that is decided by policies and grants."
+                info="Application this route serves. The Gateway only accepts callers whose mandates were minted under this application; policies and grants then decide what each caller may do."
                 value={gatewayApp}
                 onChange={(e) => setGatewayApp(e.target.value)}
               >
@@ -326,7 +327,7 @@ function ResourceFormBody({
                 </option>
                 {providers.map((provider) => (
                   <option key={provider.id} value={provider.id}>
-                    {provider.name}
+                    {provider.name} · {PROVIDER_KIND_LABEL[provider.kind]}
                   </option>
                 ))}
               </Select>
