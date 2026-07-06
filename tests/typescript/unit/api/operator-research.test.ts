@@ -27,8 +27,11 @@ describe('governedReadCapabilities', () => {
   it('derives exactly the non-mutating, control-mapped capabilities', () => {
     const reads = governedReadCapabilities()
     expect(reads.sort()).toEqual([
+      'explainRequest',
+      'listAdminActivity',
       'listAgents',
       'listApplications',
+      'listApprovals',
       'listAuditEvents',
       'listDelegations',
       'listGrants',
@@ -37,6 +40,9 @@ describe('governedReadCapabilities', () => {
       'listProviders',
       'listResources',
       'listSessions',
+      'listWorkloads',
+      'simulatePolicySet',
+      'validatePolicy',
     ])
   })
 
@@ -74,7 +80,7 @@ describe('createStateResearcher', () => {
     ])
     expect(byDomain.resource.items).toEqual([])
     // Every invoke is a read verb - a researcher can never reach a mutating command.
-    for (const call of invoke.mock.calls) expect(['list', 'active', 'tail']).toContain(call[1])
+    for (const call of invoke.mock.calls) expect(['list', 'active', 'tail', 'admin']).toContain(call[1])
   })
 
   it('caps the names it surfaces while keeping the full live count', async () => {
@@ -197,14 +203,16 @@ describe('createStateResearcher', () => {
   it('reads everything when no domains are named', async () => {
     const { client, invoke } = clientFor({ app: [], 'identity-provider': [], resource: [], policy: [] })
     await createStateResearcher(client).gather([])
-    expect(invoke).toHaveBeenCalledTimes(governedReadCapabilities().length)
+    // The fan-out is every governed read that needs no arguments: explainRequest,
+    // validatePolicy, and simulatePolicySet answer specific questions, not state sweeps.
+    expect(invoke).toHaveBeenCalledTimes(governedReadCapabilities().length - 3)
   })
 
   it('falls back to the full read set when the named domains map to no governed read', async () => {
     const { client, invoke } = clientFor({ app: [], 'identity-provider': [], resource: [], policy: [] })
     // 'zone' has no governed read behind it, so the gather must not end up empty.
     await createStateResearcher(client).gather(['zone'])
-    expect(invoke).toHaveBeenCalledTimes(governedReadCapabilities().length)
+    expect(invoke).toHaveBeenCalledTimes(governedReadCapabilities().length - 3)
   })
 
   it('builds display rows from the allowlisted descriptor fields only', async () => {

@@ -473,6 +473,44 @@ class AdminOperationsTests(unittest.TestCase):
         )
         self.assertTrue(all(req.method == "POST" for req in requests))
 
+    def test_workload_surface_paths_and_one_time_secret(self):
+        requests: list[httpx.Request] = []
+        client = make_client(
+            [
+                httpx.Response(200, json={"items": [], "next_cursor": None}),
+                httpx.Response(200, json={"id": "wl1"}),
+                httpx.Response(
+                    200, json={"id": "wl1", "name": "launcher", "secret": "ws_one_time"}
+                ),
+                httpx.Response(200, json={"id": "wl1", "name": "launcher-2"}),
+                httpx.Response(200, json={"id": "wl1", "secret": "ws_rotated"}),
+                httpx.Response(204),
+            ],
+            requests,
+        )
+
+        client.workloads.list("z1")
+        client.workloads.get("z1", "wl1")
+        created = client.workloads.create("z1", {"name": "launcher"})
+        client.workloads.update("z1", "wl1", {"name": "launcher-2"})
+        rotated = client.workloads.rotate_secret("z1", "wl1")
+        client.workloads.delete("z1", "wl1")
+
+        self.assertEqual(created["secret"], "ws_one_time")
+        self.assertEqual(rotated["secret"], "ws_rotated")
+        self.assertEqual(str(requests[0].url), "http://api/v1/zones/z1/workloads")
+        self.assertEqual(str(requests[1].url), "http://api/v1/zones/z1/workloads/wl1")
+        self.assertEqual(requests[2].method, "POST")
+        self.assertEqual(json.loads(requests[2].content), {"name": "launcher"})
+        self.assertEqual(requests[3].method, "PUT")
+        self.assertEqual(json.loads(requests[3].content), {"name": "launcher-2"})
+        self.assertEqual(
+            str(requests[4].url),
+            "http://api/v1/zones/z1/workloads/wl1/rotate-secret",
+        )
+        self.assertEqual(requests[4].method, "POST")
+        self.assertEqual(requests[5].method, "DELETE")
+
     def test_coordinator_surfaces_use_coordinator_base_and_token(self):
         requests: list[httpx.Request] = []
         client = make_client(

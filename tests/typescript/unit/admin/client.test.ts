@@ -62,6 +62,19 @@ describe('AdminClient', () => {
     await expect(c.sessions.list('z1')).rejects.toThrow(/sessions response missing items/)
   })
 
+  it('carries the one-time workload secret on create and rotate', async () => {
+    const row = { id: 'wl1', zone_id: 'z1', name: 'launcher', bindings: [], secret: 'ws_one_time' }
+    const f = fetchOk(row)
+    const c = new AdminClient({ apiUrl: 'http://api', adminToken: 't', fetchImpl: f })
+
+    await expect(c.workloads.create('z1', { name: 'launcher' })).resolves.toMatchObject({ id: 'wl1', secret: 'ws_one_time' })
+    await expect(c.workloads.rotateSecret('z1', 'wl1')).resolves.toMatchObject({ secret: 'ws_one_time' })
+    const calls = (f as unknown as { mock: { calls: [string, RequestInit][] } }).mock.calls
+    expect(calls[0][0]).toBe('http://api/v1/zones/z1/workloads')
+    expect(JSON.parse(calls[0][1].body as string)).toEqual({ name: 'launcher' })
+    expect(calls[1][0]).toBe('http://api/v1/zones/z1/workloads/wl1/rotate-secret')
+  })
+
   it('drains list cursors so a list is the complete collection', async () => {
     const pages = [
       { items: [{ id: 'app-1' }], next_cursor: 'c1' },
@@ -453,6 +466,12 @@ describe('AdminClient', () => {
     await c.providerConnections.create('z1', {} as never)
     await c.providerConnections.authorizeOAuth('z1', {} as never)
     await c.providerConnections.revoke('z1', {} as never)
+    await c.workloads.list('z1')
+    await c.workloads.get('z1', 'wl1')
+    await c.workloads.create('z1', { name: 'launcher' })
+    await c.workloads.update('z1', 'wl1', { name: 'launcher-2' })
+    await c.workloads.rotateSecret('z1', 'wl1')
+    await c.workloads.delete('z1', 'wl1')
     await c.sessions.list('z1', { status: 'active' } as never)
     await c.audit.list('z1', { limit: 5 } as never)
     await c.stepUpChallenges.list('z1')
@@ -482,6 +501,10 @@ describe('AdminClient', () => {
       true,
     )
     expect(calls.some((x) => x.url === 'http://api/v1/zones/z1/provider-connections' && x.method === 'POST')).toBe(true)
+    expect(calls.some((x) => x.url === 'http://api/v1/zones/z1/workloads' && x.method === 'POST')).toBe(true)
+    expect(calls.some((x) => x.url === 'http://api/v1/zones/z1/workloads/wl1' && x.method === 'PUT')).toBe(true)
+    expect(calls.some((x) => x.url === 'http://api/v1/zones/z1/workloads/wl1/rotate-secret' && x.method === 'POST')).toBe(true)
+    expect(calls.some((x) => x.url === 'http://api/v1/zones/z1/workloads/wl1' && x.method === 'DELETE')).toBe(true)
     expect(calls.some((x) => x.url === 'http://api/v1/zones/z1/step-up-challenges/challenge1/approve' && x.method === 'POST')).toBe(true)
     expect(calls.some((x) => x.url === 'http://api/v1/zones/z1/step-up-challenges/challenge1/reject' && x.method === 'POST')).toBe(true)
     expect(calls.some((x) => x.url === 'http://coord/zones/z1/agents/ag1/suspend' && x.method === 'PATCH')).toBe(true)
@@ -504,6 +527,7 @@ describe('AdminClient', () => {
       (c) => c.audit.list('z1'),
       (c) => c.adminAudit.list('z1'),
       (c) => c.stepUpChallenges.list('z1'),
+      (c) => c.workloads.list('z1'),
       (c) => c.agents.list('z1'),
       (c) => c.agents.children('z1', 'ag1'),
     ]
