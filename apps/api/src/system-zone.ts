@@ -239,7 +239,7 @@ function ensureOperatorGrants(admin: AdminClient, zoneId: string, operatorAppId:
 // sealed key, and its partial-unique identifier index makes a later re-add of the same id
 // clean. The grant is revoked separately by the policy-set reconcile, so the removed upstream
 // loses both its authorization and its key. The LLM resource is deliberately left in place: a
-// non-control resource must always carry a credential provider and gateway binding (it cannot
+// non-control resource must always carry a credential provider and upstream routing (it cannot
 // be neutralized in place), and once its grant and provider are gone it is inert - no grant
 // means no mandate and no gateway access. Leaving it also avoids the global-unique identifier
 // conflict that archiving then re-adding would cause, and a later re-add patches it straight
@@ -252,7 +252,7 @@ async function pruneOrphanedProviders(admin: AdminClient, zoneId: string, desire
   }
 }
 
-// Reconciles every governed upstream to a sealed provider + LLM resource + gateway binding,
+// Reconciles every governed upstream to a sealed provider + gateway-routed LLM resource,
 // archives the providers for upstreams no longer configured, then reconciles the one
 // system-zone policy-set so it grants the Operator exactly the current upstreams. An upstream
 // whose provider cannot be resolved (no key supplied and none sealed before) is skipped, so it
