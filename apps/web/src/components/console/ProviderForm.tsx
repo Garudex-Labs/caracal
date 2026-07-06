@@ -114,8 +114,8 @@ const FIELDS: Record<ProviderKind, ProviderField[]> = {
       kind: "text",
       required: true,
       placeholder:
-        "https://caracal.piedpiper.example/v1/zones/<zone-id>/provider-grants/oauth/callback",
-      hint: "Caracal's callback: <control-plane URL>/v1/zones/<zone-id>/provider-grants/oauth/callback. Register this exact URL with the provider.",
+        "https://caracal.piedpiper.example/v1/zones/<zone-id>/provider-connections/oauth/callback",
+      hint: "Caracal's callback: <control-plane URL>/v1/zones/<zone-id>/provider-connections/oauth/callback. Register this exact URL with the provider.",
     },
     { key: "client_id", label: "Client ID", kind: "text", required: true },
     {
@@ -136,6 +136,13 @@ const FIELDS: Record<ProviderKind, ProviderField[]> = {
       kind: "select",
       options: AUTH_CODE_METHODS,
       advanced: true,
+    },
+    {
+      key: "revocation_endpoint",
+      label: "Revocation endpoint",
+      kind: "text",
+      advanced: true,
+      hint: "Optional RFC 7009 endpoint. When set, revoking a connection also revokes the upstream tokens at the provider.",
     },
     {
       key: "authorization_params",
@@ -558,7 +565,7 @@ export function ProviderFormModal({
       f.key === "redirect_uri" && zoneId
         ? {
             ...f,
-            hint: `Caracal's callback: <control-plane URL>/v1/zones/${zoneId}/provider-grants/oauth/callback. Register this exact URL with the provider.`,
+            hint: `Caracal's callback: <control-plane URL>/v1/zones/${zoneId}/provider-connections/oauth/callback. Register this exact URL with the provider.`,
           }
         : f,
     );
@@ -587,6 +594,10 @@ export function ProviderFormModal({
         if (kind === "oauth2_authorization_code" && metadata.authorization_endpoint) {
           next.authorization_endpoint = metadata.authorization_endpoint;
           filled.push("authorization endpoint");
+        }
+        if (kind === "oauth2_authorization_code" && metadata.revocation_endpoint) {
+          next.revocation_endpoint = metadata.revocation_endpoint;
+          filled.push("revocation endpoint");
         }
         return next;
       });

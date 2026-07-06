@@ -695,16 +695,14 @@ CREATE TABLE public.policy_versions (
 
 
 --
--- Name: provider_grants; Type: TABLE; Schema: public; Owner: -
+-- Name: provider_connections; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.provider_grants (
+CREATE TABLE public.provider_connections (
     id text NOT NULL,
     zone_id text NOT NULL,
-    user_id text NOT NULL,
-    resource_id text NOT NULL,
+    subject_id text NOT NULL,
     provider_id text NOT NULL,
-    scopes text[] DEFAULT '{}'::text[] NOT NULL,
     status text DEFAULT 'active'::text NOT NULL,
     access_token_ct bytea,
     refresh_token_ct bytea,
@@ -713,7 +711,7 @@ CREATE TABLE public.provider_grants (
     refresh_token_version integer DEFAULT 0 NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT provider_grants_status_check CHECK ((status = ANY (ARRAY['active'::text, 'revoked'::text, 'expired'::text])))
+    CONSTRAINT provider_connections_status_check CHECK ((status = ANY (ARRAY['active'::text, 'revoked'::text, 'expired'::text])))
 );
 
 
@@ -1250,11 +1248,11 @@ ALTER TABLE ONLY public.policy_versions
 
 
 --
--- Name: provider_grants provider_grants_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: provider_connections provider_connections_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.provider_grants
-    ADD CONSTRAINT provider_grants_pkey PRIMARY KEY (id);
+ALTER TABLE ONLY public.provider_connections
+    ADD CONSTRAINT provider_connections_pkey PRIMARY KEY (id);
 
 
 --
@@ -1781,24 +1779,24 @@ CREATE INDEX policy_versions_policy_id_created_at_idx ON public.policy_versions 
 
 
 --
--- Name: provider_grants_active_subject_provider_uidx; Type: INDEX; Schema: public; Owner: -
+-- Name: provider_connections_active_subject_provider_uidx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX provider_grants_active_subject_provider_uidx ON public.provider_grants USING btree (zone_id, user_id, resource_id, provider_id) WHERE (status = 'active'::text);
-
-
---
--- Name: provider_grants_zone_provider_status_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX provider_grants_zone_provider_status_idx ON public.provider_grants USING btree (zone_id, provider_id, status);
+CREATE UNIQUE INDEX provider_connections_active_subject_provider_uidx ON public.provider_connections USING btree (zone_id, subject_id, provider_id) WHERE (status = 'active'::text);
 
 
 --
--- Name: provider_grants_zone_user_resource_status_idx; Type: INDEX; Schema: public; Owner: -
+-- Name: provider_connections_zone_provider_status_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX provider_grants_zone_user_resource_status_idx ON public.provider_grants USING btree (zone_id, user_id, resource_id, status);
+CREATE INDEX provider_connections_zone_provider_status_idx ON public.provider_connections USING btree (zone_id, provider_id, status);
+
+
+--
+-- Name: provider_connections_zone_subject_status_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX provider_connections_zone_subject_status_idx ON public.provider_connections USING btree (zone_id, subject_id, status);
 
 
 --
@@ -2395,19 +2393,11 @@ ALTER TABLE ONLY public.policy_versions
 
 
 --
--- Name: provider_grants provider_grants_zone_provider_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: provider_connections provider_connections_zone_provider_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.provider_grants
-    ADD CONSTRAINT provider_grants_zone_provider_fk FOREIGN KEY (zone_id, provider_id) REFERENCES public.providers(zone_id, id);
-
-
---
--- Name: provider_grants provider_grants_zone_resource_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.provider_grants
-    ADD CONSTRAINT provider_grants_zone_resource_fk FOREIGN KEY (zone_id, resource_id) REFERENCES public.resources(zone_id, id);
+ALTER TABLE ONLY public.provider_connections
+    ADD CONSTRAINT provider_connections_zone_provider_fk FOREIGN KEY (zone_id, provider_id) REFERENCES public.providers(zone_id, id);
 
 
 --
@@ -2605,10 +2595,10 @@ ALTER TABLE public.policy_set_bindings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.policy_sets ENABLE ROW LEVEL SECURITY;
 
 --
--- Name: provider_grants; Type: ROW SECURITY; Schema: public; Owner: -
+-- Name: provider_connections; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
-ALTER TABLE public.provider_grants ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.provider_connections ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: providers; Type: ROW SECURITY; Schema: public; Owner: -
@@ -2774,10 +2764,10 @@ CREATE POLICY zone_isolation ON public.policy_sets USING (((current_setting('car
 
 
 --
--- Name: provider_grants zone_isolation; Type: POLICY; Schema: public; Owner: -
+-- Name: provider_connections zone_isolation; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY zone_isolation ON public.provider_grants USING (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true)))) WITH CHECK (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true))));
+CREATE POLICY zone_isolation ON public.provider_connections USING (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true)))) WITH CHECK (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true))));
 
 
 --
@@ -3003,11 +2993,11 @@ GRANT SELECT,INSERT ON TABLE public.policy_versions TO caracalapi;
 
 
 --
--- Name: TABLE provider_grants; Type: ACL; Schema: public; Owner: -
+-- Name: TABLE provider_connections; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT SELECT,INSERT,UPDATE ON TABLE public.provider_grants TO caracalsts;
-GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.provider_grants TO caracalapi;
+GRANT SELECT,INSERT,UPDATE ON TABLE public.provider_connections TO caracalsts;
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.provider_connections TO caracalapi;
 
 
 --

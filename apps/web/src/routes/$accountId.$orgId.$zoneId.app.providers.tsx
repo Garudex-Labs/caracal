@@ -35,14 +35,15 @@ import {
 } from "@/components/ui";
 import { ConsoleApiError } from "@/platform/api/client";
 import {
-  useAuthorizeProviderGrant,
+  useApplications,
+  useAuthorizeProviderConnection,
   useCreateProvider,
   useDeleteProvider,
   useDiscoverProvider,
-  useProviderGrants,
+  useProviderConnections,
   useProviders,
   useResources,
-  useRevokeProviderGrant,
+  useRevokeProviderConnection,
   useTestProvider,
   useUpdateProvider,
 } from "@/platform/api/hooks";
@@ -50,7 +51,7 @@ import { useCreateDeepLink } from "@/platform/nav/createDeepLink";
 import { PROVIDER_KIND_LABEL } from "@/platform/api/types";
 import type {
   Provider,
-  ProviderGrant,
+  ProviderConnection,
   ProviderInput,
   ProviderKind,
   ProviderTestResult,
@@ -664,109 +665,98 @@ function ProviderConnectivity({ provider, zoneId }: { provider: Provider; zoneId
   );
 }
 
-/* ------------------------------ Provider grants ----------------------------- */
+/* --------------------------- Provider connections --------------------------- */
 
 // A connection is healthy while its upstream token is live or STS can refresh it on
-// use; a lapsed token with no refresh token needs the user to reconnect.
-function GrantHealthBadge({ grant }: { grant: ProviderGrant }) {
-  if (grant.status !== "active") {
-    return <Badge tone={grant.status === "expired" ? "warning" : "muted"}>{grant.status}</Badge>;
+// use; a lapsed token with no refresh token needs the subject to reconnect.
+function ConnectionHealthBadge({ connection }: { connection: ProviderConnection }) {
+  if (connection.status !== "active") {
+    return (
+      <Badge tone={connection.status === "expired" ? "warning" : "muted"}>
+        {connection.status}
+      </Badge>
+    );
   }
-  const lapsed = grant.expires_at !== null && new Date(grant.expires_at) < new Date();
-  if (lapsed && !grant.renewable) {
+  const lapsed = connection.expires_at !== null && new Date(connection.expires_at) < new Date();
+  if (lapsed && !connection.renewable) {
     return <Badge tone="warning">needs reconnect</Badge>;
   }
   return <Badge tone="success">active</Badge>;
 }
 
-// Provider grants only apply to delegated OAuth (authorization_code). For every other
+// Connections apply only to delegated OAuth (authorization_code). For every other
 // kind the upstream credential is sealed on the provider itself, so there is nothing
-// per-user to connect.
+// per-subject to connect. One connection serves every resource routed through the
+// provider; authorization stays per-resource through policies and grants.
 function ProviderConnections({ provider, zoneId }: { provider: Provider; zoneId: string }) {
   const isDelegatedOAuth = provider.kind === "oauth2_authorization_code";
   const toast = useToast();
-  const grants = useProviderGrants(zoneId, isDelegatedOAuth ? provider.id : null);
-  const resourcesQuery = useResources(zoneId);
-  const revoke = useRevokeProviderGrant(zoneId);
+  const connections = useProviderConnections(zoneId, isDelegatedOAuth ? provider.id : null);
+  const revoke = useRevokeProviderConnection(zoneId);
   const [connectOpen, setConnectOpen] = useState(false);
-  const [revokeTarget, setRevokeTarget] = useState<ProviderGrant | null>(null);
-
-  const resourceName = (id: string) => resourcesQuery.data?.find((r) => r.id === id)?.name ?? id;
+  const [revokeTarget, setRevokeTarget] = useState<ProviderConnection | null>(null);
 
   if (!isDelegatedOAuth) {
     return (
       <DetailSection title="Connections">
         <p className="text-xs text-muted-foreground">
           {provider.kind === "none" || provider.kind === "caracal_mandate"
-            ? "This provider issues no upstream credential, so there is nothing to connect per user."
-            : "This provider seals a single shared upstream credential. Per-user OAuth connections apply only to authorization-code providers."}
+            ? "This provider issues no upstream credential, so there is nothing to connect per subject."
+            : "This provider seals a single shared upstream credential. Per-subject OAuth connections apply only to authorization-code providers."}
         </p>
       </DetailSection>
     );
   }
 
-  const rows = grants.data ?? [];
+  const rows = connections.data ?? [];
 
   return (
     <DetailSection
-      title={`Connected users (${rows.length})`}
+      title={`Connections (${rows.length})`}
       action={
         <Button variant="secondary" size="sm" mutating onClick={() => setConnectOpen(true)}>
-          Connect user
+          Connect
         </Button>
       }
     >
-      {grants.isLoading ? (
+      {connections.isLoading ? (
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <Spinner className="h-3.5 w-3.5" /> Loading connections…
         </div>
       ) : rows.length === 0 ? (
         <p className="text-xs text-muted-foreground">
-          No users connected yet. Use “Connect user” to start the OAuth authorization flow for a
-          subject and resource.
+          No subjects connected yet. Use “Connect” to authorize an upstream account for a subject;
+          the stored connection then serves every resource routed through this provider.
         </p>
       ) : (
         <div className="overflow-hidden rounded-lg border border-border">
           <table className="w-full text-sm">
             <tbody className="divide-y divide-border">
-              {rows.map((grant) => (
-                <tr key={grant.id}>
+              {rows.map((connection) => (
+                <tr key={connection.id}>
                   <td className="px-3 py-2 align-top">
                     <div className="break-all font-mono text-xs text-foreground">
-                      {grant.user_id}
+                      {connection.subject_id}
                     </div>
-                    <div className="mt-0.5 break-words text-[11px] text-muted-foreground">
-                      {resourceName(grant.resource_id)}
-                      <span className="font-mono">
-                        {" · "}
-                        {grant.scopes.join(" · ") || "no scopes"}
-                      </span>
-                    </div>
-                    {grant.created_by ? (
-                      <div className="mt-0.5 text-[11px] text-muted-foreground">
-                        Created by{" "}
-                        <CreatedBy id={grant.created_by} coAuthored={grant.created_via_operator} />
-                      </div>
-                    ) : null}
                   </td>
                   <td className="px-3 py-2 align-top text-right">
-                    <GrantHealthBadge grant={grant} />
-                    {grant.expires_at ? (
+                    <ConnectionHealthBadge connection={connection} />
+                    {connection.expires_at ? (
                       <div className="mt-0.5 text-[11px] text-muted-foreground">
-                        {new Date(grant.expires_at) < new Date()
-                          ? grant.renewable
+                        {new Date(connection.expires_at) < new Date()
+                          ? connection.renewable
                             ? "refreshes on use"
-                            : "expired " + new Date(grant.expires_at).toLocaleString()
-                          : "expires " + new Date(grant.expires_at).toLocaleString()}
+                            : "expired " + new Date(connection.expires_at).toLocaleString()
+                          : "expires " + new Date(connection.expires_at).toLocaleString()}
                       </div>
                     ) : (
                       <div className="mt-0.5 text-[11px] text-muted-foreground">non-expiring</div>
                     )}
                   </td>
                   <td className="w-20 px-3 py-2 text-right align-top">
-                    {grant.status === "active" ? (
+                    {connection.status === "active" ? (
                       <button
-                        onClick={() => setRevokeTarget(grant)}
+                        onClick={() => setRevokeTarget(connection)}
                         className="text-xs font-medium text-destructive hover:underline"
                       >
                         Revoke
@@ -785,25 +775,44 @@ function ProviderConnections({ provider, zoneId }: { provider: Provider; zoneId:
         provider={provider}
         zoneId={zoneId}
         onClose={() => setConnectOpen(false)}
-        onConnected={() => grants.refetch()}
+        onConnected={() => connections.refetch()}
       />
 
       <ConfirmDialog
         open={revokeTarget !== null}
         onClose={() => setRevokeTarget(null)}
         title="Revoke connection"
-        description={`Revoking ${provider.name} for "${revokeTarget?.user_id ?? ""}" immediately invalidates the stored upstream tokens. The user must reconnect to regain access.`}
+        description={`Revoking ${provider.name} for "${revokeTarget?.subject_id ?? ""}" immediately invalidates the stored upstream tokens for every resource routed through this provider. The subject must reconnect to regain access.`}
         confirmLabel="Revoke connection"
         tone="danger"
         onConfirm={async () => {
           if (!revokeTarget) return;
           try {
-            await revoke.mutateAsync({
-              user_id: revokeTarget.user_id,
-              resource_id: revokeTarget.resource_id,
+            const result = await revoke.mutateAsync({
+              subject_id: revokeTarget.subject_id,
               provider_id: revokeTarget.provider_id,
             });
-            toast({ tone: "info", title: "Connection revoked", description: revokeTarget.user_id });
+            if (result.upstream_revocation === "revoked") {
+              toast({
+                tone: "info",
+                title: "Connection revoked",
+                description: `${revokeTarget.subject_id} — the upstream token was also revoked at the provider.`,
+              });
+            } else if (result.upstream_revocation === "unsupported") {
+              toast({
+                tone: "info",
+                title: "Connection revoked in Caracal",
+                description:
+                  "This provider does not advertise standards-based token revocation (RFC 7009); the upstream token may stay valid until it expires at the provider.",
+              });
+            } else {
+              toast({
+                tone: "info",
+                title: "Connection revoked in Caracal",
+                description:
+                  "Upstream revocation could not be completed at the provider; the upstream token may stay valid until it expires.",
+              });
+            }
           } catch (err) {
             toast({ tone: "error", title: "Revoke failed", description: errorMessage(err) });
           }
@@ -813,10 +822,12 @@ function ProviderConnections({ provider, zoneId }: { provider: Provider; zoneId:
   );
 }
 
-// Drives the per-user OAuth authorize flow. The web improves on the TUI here: the
-// resource picker is bound to providers that route through this OAuth provider, scopes
-// are pre-filled from the chosen resource, and the resulting authorization URL is
-// presented with copy + open actions and a live expiry so operators can hand it off.
+// Drives the OAuth connect flow: one authenticated upstream account per subject and
+// provider, reused by every resource routed through the provider. The subject must
+// match the runtime session subject exactly - today that is the application identity,
+// so the field suggests the zone's applications - and the resulting authorization URL
+// is presented with copy + open actions and a live expiry so operators can hand it off
+// to whoever owns the upstream account.
 function ConnectProviderModal({
   open,
   provider,
@@ -831,23 +842,18 @@ function ConnectProviderModal({
   onConnected: () => void;
 }) {
   const copy = useCopyToClipboard();
-  const resourcesQuery = useResources(zoneId);
-  const authorize = useAuthorizeProviderGrant(zoneId);
-  const [userId, setUserId] = useState("");
-  const [resourceId, setResourceId] = useState("");
-  const [scopes, setScopes] = useState("");
+  const applicationsQuery = useApplications(zoneId);
+  const authorize = useAuthorizeProviderConnection(zoneId);
+  const [subjectId, setSubjectId] = useState("");
   const [result, setResult] = useState<{ url: string; expiresAt: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const boundResources = useMemo<Resource[]>(
-    () => (resourcesQuery.data ?? []).filter((r) => r.credential_provider_id === provider.id),
-    [resourcesQuery.data, provider.id],
-  );
+  const upstreamScopes = Array.isArray(provider.config_json?.scopes)
+    ? (provider.config_json.scopes as string[])
+    : [];
 
   function reset() {
-    setUserId("");
-    setResourceId("");
-    setScopes("");
+    setSubjectId("");
     setResult(null);
     setError(null);
   }
@@ -857,27 +863,13 @@ function ConnectProviderModal({
     onClose();
   }
 
-  function selectResource(id: string) {
-    setResourceId(id);
-    const resource = boundResources.find((r) => r.id === id);
-    setScopes(resource ? resource.scopes.join(", ") : "");
-  }
-
   async function submit() {
     setError(null);
-    const parsedScopes = scopes
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
-    if (!userId.trim()) return setError("A subject (user ID) is required.");
-    if (!resourceId) return setError("Choose the resource this connection authorizes.");
-    if (parsedScopes.length === 0) return setError("At least one scope is required.");
+    if (!subjectId.trim()) return setError("A subject is required.");
     try {
       const res = await authorize.mutateAsync({
-        user_id: userId.trim(),
-        resource_id: resourceId,
+        subject_id: subjectId.trim(),
         provider_id: provider.id,
-        scopes: parsedScopes,
       });
       setResult({ url: res.authorization_url, expiresAt: res.expires_at });
       onConnected();
@@ -890,8 +882,8 @@ function ConnectProviderModal({
     <Modal
       open={open}
       onClose={handleClose}
-      title={`Connect a user to ${provider.name}`}
-      description="Generate an OAuth authorization link for a subject and resource."
+      title={`Connect ${provider.name}`}
+      description="Authorize an upstream account for a subject. The connection serves every resource routed through this provider."
       footer={
         result ? (
           <Button onClick={handleClose}>Done</Button>
@@ -910,8 +902,8 @@ function ConnectProviderModal({
       {result ? (
         <div className="flex flex-col gap-4">
           <p className="text-sm text-muted-foreground">
-            Send this authorization link to the user. After they approve, Caracal stores the
-            provider grant automatically. The link expires{" "}
+            Send this authorization link to whoever owns the upstream account. After they approve,
+            Caracal stores the connection automatically. The link expires{" "}
             <span className="text-foreground">{new Date(result.expiresAt).toLocaleString()}</span>.
           </p>
           <div className="flex items-stretch gap-2">
@@ -932,43 +924,31 @@ function ConnectProviderModal({
             </a>
           </div>
         </div>
-      ) : boundResources.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          No resources route through this provider yet. Bind a resource to{" "}
-          <span className="text-foreground">{provider.name}</span> as its credential provider before
-          connecting users.
-        </p>
       ) : (
         <div className="flex flex-col gap-4">
           <Field
-            label="Subject (user ID)"
-            info="The end user this connection authorizes. Their approval binds upstream tokens to this subject for the selected resource."
-            placeholder="user:richard.hendricks@piedpiper.example"
-            value={userId}
-            onChange={(e) => setUserId(e.target.value)}
+            label="Subject"
+            info="The runtime identity that will use this connection. It must exactly match the subject of the sessions making calls: for an agent application, that is the application ID."
+            hint="For agent applications, use the application ID."
+            placeholder="Select or paste an application ID"
+            list="connect-subject-suggestions"
+            value={subjectId}
+            onChange={(e) => setSubjectId(e.target.value)}
             autoFocus
           />
-          <Select
-            label="Resource"
-            info="The protected resource this connection grants the user access to. Only resources routed through this provider are listed."
-            value={resourceId}
-            onChange={(e) => selectResource(e.target.value)}
-          >
-            <option value="">Select a resource…</option>
-            {boundResources.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.name} ({r.identifier})
+          <datalist id="connect-subject-suggestions">
+            {(applicationsQuery.data ?? []).map((app) => (
+              <option key={app.id} value={app.id}>
+                {app.name}
               </option>
             ))}
-          </Select>
-          <Field
-            label="Scopes"
-            info="The upstream permissions requested during authorization. Pre-filled from the resource; trim to request least privilege."
-            hint="Comma-separated. Pre-filled from the resource; trim to request least privilege."
-            placeholder="invoices:read, invoices:write"
-            value={scopes}
-            onChange={(e) => setScopes(e.target.value)}
-          />
+          </datalist>
+          {upstreamScopes.length > 0 ? (
+            <p className="text-xs text-muted-foreground">
+              The provider will request these upstream scopes during consent:{" "}
+              <span className="font-mono">{upstreamScopes.join(" ")}</span>
+            </p>
+          ) : null}
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
         </div>
       )}

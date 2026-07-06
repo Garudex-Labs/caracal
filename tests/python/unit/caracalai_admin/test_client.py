@@ -390,21 +390,25 @@ class AdminOperationsTests(unittest.TestCase):
             json.loads(requests[1].content), {"reason": "policy violation"}
         )
 
-    def test_provider_grants_paths(self):
+    def test_provider_connections_paths(self):
         requests: list[httpx.Request] = []
         client = make_client([httpx.Response(200, json={})] * 3, requests)
 
-        client.provider_grants.create("z1", {"user_id": "user:richard"})
-        client.provider_grants.authorize_oauth("z1", {"user_id": "user:richard"})
-        client.provider_grants.revoke("z1", {"user_id": "user:richard"})
+        client.provider_connections.create("z1", {"subject_id": "user:richard"})
+        client.provider_connections.authorize_oauth(
+            "z1", {"subject_id": "user:richard"}
+        )
+        client.provider_connections.revoke("z1", {"subject_id": "user:richard"})
 
-        self.assertEqual(str(requests[0].url), "http://api/v1/zones/z1/provider-grants")
         self.assertEqual(
-            str(requests[1].url),
-            "http://api/v1/zones/z1/provider-grants/oauth/authorize",
+            str(requests[0].url), "http://api/v1/zones/z1/provider-connections"
         )
         self.assertEqual(
-            str(requests[2].url), "http://api/v1/zones/z1/provider-grants/revoke"
+            str(requests[1].url),
+            "http://api/v1/zones/z1/provider-connections/oauth/authorize",
+        )
+        self.assertEqual(
+            str(requests[2].url), "http://api/v1/zones/z1/provider-connections/revoke"
         )
         self.assertTrue(all(req.method == "POST" for req in requests))
 

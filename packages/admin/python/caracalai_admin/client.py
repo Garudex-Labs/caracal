@@ -113,7 +113,7 @@ class AdminClient:
         self.policy_templates = _PolicyTemplates(self)
         self.policy_sets = _PolicySets(self)
         self.grants = _Grants(self)
-        self.provider_grants = _ProviderGrants(self)
+        self.provider_connections = _ProviderConnections(self)
         self.sessions = _Sessions(self)
         self.agent_sessions = _AgentSessions(self)
         self.audit = _Audit(self)
@@ -484,25 +484,25 @@ class _Grants:
         )
 
 
-class _ProviderGrants:
+class _ProviderConnections:
     def __init__(self, client: AdminClient) -> None:
         self._client = client
 
     def create(self, zone_id: str, body: dict[str, Any]) -> Any:
         return self._client._request(
-            f"/v1/zones/{zone_id}/provider-grants", method="POST", body=body
+            f"/v1/zones/{zone_id}/provider-connections", method="POST", body=body
         )
 
     def authorize_oauth(self, zone_id: str, body: dict[str, Any]) -> Any:
         return self._client._request(
-            f"/v1/zones/{zone_id}/provider-grants/oauth/authorize",
+            f"/v1/zones/{zone_id}/provider-connections/oauth/authorize",
             method="POST",
             body=body,
         )
 
     def revoke(self, zone_id: str, body: dict[str, Any]) -> Any:
         return self._client._request(
-            f"/v1/zones/{zone_id}/provider-grants/revoke", method="POST", body=body
+            f"/v1/zones/{zone_id}/provider-connections/revoke", method="POST", body=body
         )
 
 
