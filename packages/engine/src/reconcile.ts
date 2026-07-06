@@ -287,16 +287,9 @@ const POLICY_ADAPTER: Adapter = {
       name: reqStr(spec, 'name', 'policy'),
       description: optStr(spec, 'description'),
       content: reqStr(spec, 'content', 'policy'),
-      schema_version: optStr(spec, 'schema_version'),
-      owner_type: optStr(spec, 'owner_type'),
-    } as never) as unknown as Promise<LiveObject>,
+    }) as unknown as Promise<LiveObject>,
   update: (admin, zone, live, spec) =>
-    admin.policies.addVersion(
-      zone,
-      live.id,
-      reqStr(spec, 'content', 'policy'),
-      optStr(spec, 'schema_version'),
-    ) as unknown as Promise<LiveObject>,
+    admin.policies.addVersion(zone, live.id, reqStr(spec, 'content', 'policy')) as unknown as Promise<LiveObject>,
   protectedFromPrune: () => false,
 }
 

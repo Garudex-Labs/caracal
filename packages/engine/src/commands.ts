@@ -260,20 +260,14 @@ export const MANAGEMENT_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
         { name: '--description', summary: 'Policy description' },
         { name: '--content', summary: 'Inline policy content' },
         { name: '--file', summary: 'Read content from file' },
-        { name: '--schema-version', summary: 'Policy schema version' },
-        { name: '--owner-type', summary: 'Owner type' },
-        { name: '--shadow', summary: 'Shadow policy mode' },
       ],
       validate: [
         { name: '--file', summary: 'Read Rego from file' },
         { name: '--content', summary: 'Inline Rego content' },
-        { name: '--schema-version', summary: 'Policy schema version' },
       ],
       version: [
-        { name: '--version', summary: 'Version label' },
         { name: '--content', summary: 'Inline policy content' },
         { name: '--file', summary: 'Read content from file' },
-        { name: '--schema-version', summary: 'Policy schema version' },
       ],
     },
   },
@@ -290,10 +284,7 @@ export const MANAGEMENT_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
         { name: '--description', summary: 'Description' },
       ],
       version: [{ name: '--policy-versions', summary: 'Comma-separated policy version IDs' }],
-      activate: [
-        { name: '--version', summary: 'Policy set version ID' },
-        { name: '--shadow', summary: 'Shadow policy set version ID' },
-      ],
+      activate: [{ name: '--version', summary: 'Policy set version ID' }],
       simulate: [
         { name: '--version', summary: 'Policy set version ID' },
         { name: '--input', summary: 'Inline OPA input fixture JSON' },

@@ -27,6 +27,7 @@ import type {
   Policy,
   PolicyInput,
   PolicySet,
+  PolicySetActivationStatus,
   PolicySetSimulation,
   PolicySetVersion,
   PolicyTemplate,
@@ -322,15 +323,15 @@ export class AdminClient {
         method: 'POST',
         body: input,
       }),
-    validate: (content: string, schemaVersion?: string) =>
+    validate: (content: string) =>
       this.request<PolicyValidation>('/v1/policies/validate', {
         method: 'POST',
-        body: { content, schema_version: schemaVersion },
+        body: { content },
       }),
-    addVersion: (zoneId: string, id: string, content: string, schemaVersion?: string) =>
+    addVersion: (zoneId: string, id: string, content: string) =>
       this.request<PolicyVersion & { version_id: string }>(`/v1/zones/${zoneId}/policies/${id}/versions`, {
         method: 'POST',
-        body: { content, schema_version: schemaVersion ?? '2026-05-20' },
+        body: { content },
       }),
     delete: (zoneId: string, id: string) =>
       this.request<void>(`/v1/zones/${zoneId}/policies/${id}`, { method: 'DELETE', expectEmpty: true }),
@@ -359,21 +360,33 @@ export class AdminClient {
         method: 'POST',
         body: { name, description },
       }),
-    addVersion: (zoneId: string, id: string, manifest: { policy_version_id: string }[], schemaVersion?: string) =>
+    addVersion: (zoneId: string, id: string, manifest: { policy_version_id: string }[]) =>
       this.request<PolicySetVersion & { version_id: string }>(`/v1/zones/${zoneId}/policy-sets/${id}/versions`, {
         method: 'POST',
-        body: { manifest, schema_version: schemaVersion },
+        body: { manifest },
       }),
+    listVersions: async (zoneId: string, id: string) => {
+      const response = await this.request<ListResponse<PolicySetVersion>>(`/v1/zones/${zoneId}/policy-sets/${id}/versions`)
+      if (!Array.isArray(response.items)) throw new Error('policy set versions response missing items')
+      return response.items
+    },
     simulate: (zoneId: string, id: string, versionId: string, input?: Record<string, unknown>) =>
       this.request<PolicySetSimulation>(`/v1/zones/${zoneId}/policy-sets/${id}/simulate`, {
         method: 'POST',
         body: { version_id: versionId, input },
       }),
-    activate: (zoneId: string, id: string, versionId: string, shadowVersionId?: string) =>
-      this.request<{ activated: boolean; version_id: string; shadow_version_id: string | null }>(
+    activate: (zoneId: string, id: string, versionId: string) =>
+      this.request<{ activated: boolean; version_id: string; outbox_id: string; status_url: string }>(
         `/v1/zones/${zoneId}/policy-sets/${id}/activate`,
-        { method: 'POST', body: { version_id: versionId, shadow_version_id: shadowVersionId } },
+        { method: 'POST', body: { version_id: versionId } },
       ),
+    activationStatus: (zoneId: string, id: string, versionId?: string, outboxId?: string) =>
+      this.request<PolicySetActivationStatus>(`/v1/zones/${zoneId}/policy-sets/${id}/activation-status`, {
+        query: {
+          ...(versionId ? { version_id: versionId } : {}),
+          ...(outboxId ? { outbox_id: outboxId } : {}),
+        },
+      }),
     delete: (zoneId: string, id: string) =>
       this.request<void>(`/v1/zones/${zoneId}/policy-sets/${id}`, { method: 'DELETE', expectEmpty: true }),
   }

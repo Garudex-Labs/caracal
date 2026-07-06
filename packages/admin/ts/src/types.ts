@@ -215,7 +215,6 @@ export interface Policy {
   zone_id: string
   name: string
   description: string | null
-  owner_type: string
   created_by: string
   created_at: string
 }
@@ -232,9 +231,7 @@ export interface PolicyVersion {
 export interface PolicyInput {
   name: string
   description?: string
-  owner_type?: string
   content: string
-  schema_version?: string
 }
 
 export interface PolicyTemplate {
@@ -282,6 +279,32 @@ export interface PolicySetVersion {
   manifest_sha256: string
   schema_version: string
   created_at: string
+}
+
+export interface PolicySetActivationStatus {
+  zone_id: string
+  policy_set_id: string
+  version_id: string
+  active: boolean
+  active_version_id: string | null
+  manifest_sha256: string | null
+  propagation_status: 'loaded' | 'waiting_for_activation' | 'waiting_for_outbox' | 'waiting_for_sts' | 'failed'
+  outbox: {
+    id: string | null
+    state: 'dispatched' | 'pending' | 'dead' | 'missing' | 'mismatch'
+    attempts: number
+    last_error: string | null
+    dispatched_at: string | null
+  }
+  sts: {
+    state: 'loaded' | 'not_loaded' | 'not_configured' | 'unreachable' | 'failed'
+    loaded?: boolean
+    policy_set_version_id?: string
+    manifest_sha256?: string
+    loaded_at?: string
+    age_seconds?: number
+    detail?: string
+  }
 }
 
 export interface PolicySetSimulation {
