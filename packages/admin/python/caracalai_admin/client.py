@@ -20,6 +20,7 @@ from .errors import AdminApiError
 DEFAULT_TIMEOUT_SECONDS = 30.0
 DEFAULT_RETRIES = 3
 MAX_RETRY_AFTER_SECONDS = 30.0
+MAX_LIST_PAGES = 50
 
 
 def _jitter_backoff(attempt: int) -> float:
@@ -185,14 +186,30 @@ class AdminClient:
             return res.json()
         raise RuntimeError("admin request exhausted")
 
+    def _list_all(
+        self, path: str, label: str, query: dict[str, Any] | None = None
+    ) -> list[Any]:
+        """Drains a keyset-paginated collection by following next_cursor until
+        exhausted, so a list is the complete collection rather than a silently
+        truncated first page. The page cap bounds the walk against a server bug
+        that never terminates the cursor chain."""
+        items: list[Any] = []
+        cursor: str | None = None
+        for _ in range(MAX_LIST_PAGES):
+            response = self._request(path, query={**(query or {}), "cursor": cursor})
+            items.extend(_unwrap(response, "items", f"{label} response missing items"))
+            cursor = response.get("next_cursor") if isinstance(response, dict) else None
+            if not cursor:
+                return items
+        raise RuntimeError(f"{label} pagination did not terminate")
+
 
 class _Zones:
     def __init__(self, client: AdminClient) -> None:
         self._client = client
 
     def list(self) -> Any:
-        response = self._client._request("/v1/zones")
-        return _unwrap(response, "items", "zones response missing items")
+        return self._client._list_all("/v1/zones", "zones")
 
     def get(self, zone_id: str) -> Any:
         return self._client._request(f"/v1/zones/{zone_id}")
@@ -217,8 +234,7 @@ class _Applications:
         self._client = client
 
     def list(self, zone_id: str) -> Any:
-        response = self._client._request(f"/v1/zones/{zone_id}/applications")
-        return _unwrap(response, "items", "applications response missing items")
+        return self._client._list_all(f"/v1/zones/{zone_id}/applications", "applications")
 
     def get(self, zone_id: str, application_id: str) -> Any:
         return self._client._request(
@@ -268,8 +284,7 @@ class _Resources:
         self._client = client
 
     def list(self, zone_id: str) -> Any:
-        response = self._client._request(f"/v1/zones/{zone_id}/resources")
-        return _unwrap(response, "items", "resources response missing items")
+        return self._client._list_all(f"/v1/zones/{zone_id}/resources", "resources")
 
     def get(self, zone_id: str, resource_id: str) -> Any:
         return self._client._request(f"/v1/zones/{zone_id}/resources/{resource_id}")
@@ -297,8 +312,7 @@ class _Providers:
         self._client = client
 
     def list(self, zone_id: str) -> Any:
-        response = self._client._request(f"/v1/zones/{zone_id}/providers")
-        return _unwrap(response, "items", "providers response missing items")
+        return self._client._list_all(f"/v1/zones/{zone_id}/providers", "providers")
 
     def get(self, zone_id: str, provider_id: str) -> Any:
         return self._client._request(f"/v1/zones/{zone_id}/providers/{provider_id}")
@@ -326,8 +340,7 @@ class _Policies:
         self._client = client
 
     def list(self, zone_id: str) -> Any:
-        response = self._client._request(f"/v1/zones/{zone_id}/policies")
-        return _unwrap(response, "items", "policies response missing items")
+        return self._client._list_all(f"/v1/zones/{zone_id}/policies", "policies")
 
     def get(self, zone_id: str, policy_id: str) -> Any:
         return self._client._request(f"/v1/zones/{zone_id}/policies/{policy_id}")
@@ -362,8 +375,7 @@ class _PolicySets:
         self._client = client
 
     def list(self, zone_id: str) -> Any:
-        response = self._client._request(f"/v1/zones/{zone_id}/policy-sets")
-        return _unwrap(response, "items", "policy sets response missing items")
+        return self._client._list_all(f"/v1/zones/{zone_id}/policy-sets", "policy sets")
 
     def get(self, zone_id: str, set_id: str) -> Any:
         return self._client._request(f"/v1/zones/{zone_id}/policy-sets/{set_id}")
@@ -389,10 +401,10 @@ class _PolicySets:
         )
 
     def list_versions(self, zone_id: str, set_id: str) -> Any:
-        response = self._client._request(
-            f"/v1/zones/{zone_id}/policy-sets/{set_id}/versions"
+        return self._client._list_all(
+            f"/v1/zones/{zone_id}/policy-sets/{set_id}/versions",
+            "policy set versions",
         )
-        return _unwrap(response, "items", "policy set versions response missing items")
 
     def simulate(
         self,
@@ -466,10 +478,9 @@ class _Grants:
         self._client = client
 
     def list(self, zone_id: str, query: dict[str, Any] | None = None) -> Any:
-        response = self._client._request(
-            f"/v1/zones/{zone_id}/grants", query=_grant_list_query(query)
+        return self._client._list_all(
+            f"/v1/zones/{zone_id}/grants", "grants", query=_grant_list_query(query)
         )
-        return _unwrap(response, "items", "grants response missing items")
 
     def get(self, zone_id: str, grant_id: str) -> Any:
         return self._client._request(f"/v1/zones/{zone_id}/grants/{grant_id}")
@@ -570,8 +581,9 @@ class _StepUpChallenges:
         self._client = client
 
     def list(self, zone_id: str) -> Any:
-        response = self._client._request(f"/v1/zones/{zone_id}/step-up-challenges")
-        return _unwrap(response, "items", "step-up challenges response missing items")
+        return self._client._list_all(
+            f"/v1/zones/{zone_id}/step-up-challenges", "step-up challenges"
+        )
 
     def get(self, zone_id: str, challenge_id: str) -> Any:
         return self._client._request(

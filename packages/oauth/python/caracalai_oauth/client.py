@@ -138,6 +138,7 @@ class OAuthClient:
         _set_value(data, "session_id", opts.session_id)
         _set_value(data, "agent_session_id", opts.agent_session_id)
         _set_value(data, "delegation_edge_id", opts.delegation_edge_id)
+        _set_value(data, "challenge_id", opts.challenge_id)
         scope = _normalized_scopes(opts.scopes)
         if scope:
             data["scope"] = scope
@@ -175,6 +176,12 @@ class OAuthClient:
                     str(body.get("challenge_id") or ""),
                     resource,
                     str(body["acr_values"]) if "acr_values" in body else None,
+                    str(body["binding"]) if "binding" in body else None,
+                    (
+                        str(body["challenge_expires_at"])
+                        if "challenge_expires_at" in body
+                        else None
+                    ),
                 )
             if response.status_code == 401 and not is_retry:
                 return await self._do_exchange(
@@ -188,6 +195,7 @@ class OAuthClient:
                         session_id=opts.session_id,
                         agent_session_id=opts.agent_session_id,
                         delegation_edge_id=opts.delegation_edge_id,
+                        challenge_id=opts.challenge_id,
                         scopes=opts.scopes,
                         timeout_ms=opts.timeout_ms,
                         retries=0,

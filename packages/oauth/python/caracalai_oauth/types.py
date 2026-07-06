@@ -27,6 +27,7 @@ class ExchangeOptions:
     session_id: str | None = None
     agent_session_id: str | None = None
     delegation_edge_id: str | None = None
+    challenge_id: str | None = None
     scopes: list[str] = field(default_factory=list)
     timeout_ms: int = 30_000
     retries: int = 3
@@ -40,8 +41,12 @@ class InteractionRequiredError(Exception):
         challenge_id: str,
         resource: str,
         acr_values: str | None = None,
+        binding: str | None = None,
+        expires_at: str | None = None,
     ) -> None:
         super().__init__(message)
         self.challenge_id = challenge_id
         self.resource = resource
         self.acr_values = acr_values
+        self.binding = binding
+        self.expires_at = expires_at
