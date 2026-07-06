@@ -205,12 +205,11 @@ describe('POST /v1/zones/:zoneId/resources', () => {
     expect(db.connect).not.toHaveBeenCalled()
   })
 
-  it('creates the resource with its caller allowlist', async () => {
+  it('creates the resource', async () => {
     const { app, db } = buildRouteApp(resourcesRoutes)
     db.query
       .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
       .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
-      .mockResolvedValueOnce({ rows: [{ id: 'app-1' }] })
       .mockResolvedValueOnce({
         rows: [
           {
@@ -219,7 +218,6 @@ describe('POST /v1/zones/:zoneId/resources', () => {
             identifier: 'resource://api',
             upstream_url: 'https://api.example.com',
             scopes: ['read'],
-            allowed_application_ids: ['app-1'],
           },
         ],
       })
@@ -232,41 +230,15 @@ describe('POST /v1/zones/:zoneId/resources', () => {
         identifier: 'resource://api',
         upstream_url: 'https://api.example.com',
         scopes: ['read'],
-        allowed_application_ids: ['app-1'],
         credential_provider_id: 'provider-1',
       },
     })
 
     expect(res.statusCode).toBe(201)
-    expect(JSON.parse(res.body)).toMatchObject({ id: 'res-1', allowed_application_ids: ['app-1'] })
-    const insertValues = db.query.mock.calls[3]![1] as unknown[]
-    expect(insertValues[7]).toEqual(['app-1'])
+    expect(JSON.parse(res.body)).toMatchObject({ id: 'res-1', identifier: 'resource://api' })
+    const insertValues = db.query.mock.calls[2]![1] as unknown[]
+    expect(insertValues[6]).toBe('provider-1')
     expect(db.connect).not.toHaveBeenCalled()
-  })
-
-  it('rejects an allowlist naming an application outside the zone', async () => {
-    const { app, db } = buildRouteApp(resourcesRoutes)
-    db.query
-      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
-      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
-      .mockResolvedValueOnce({ rows: [] })
-
-    await app.ready()
-    const res = await app.inject({
-      method: 'POST',
-      url: '/v1/zones/z1/resources',
-      payload: {
-        identifier: 'resource://api',
-        upstream_url: 'https://api.example.com',
-        scopes: ['read'],
-        allowed_application_ids: ['app-other-zone'],
-        credential_provider_id: 'provider-1',
-      },
-    })
-
-    expect(res.statusCode).toBe(404)
-    expect(JSON.parse(res.body)).toMatchObject({ error: 'allowed_application_not_found' })
-    expect(db.query).toHaveBeenCalledWith(expect.stringContaining('FROM applications'), ['z1', ['app-other-zone']])
   })
 
   it('rejects operations whose scope is not declared on the resource', async () => {
@@ -460,22 +432,6 @@ describe('POST /v1/zones/:zoneId/resources', () => {
 })
 
 describe('PATCH /v1/zones/:zoneId/resources/:id', () => {
-  it('rejects an allowlist patch naming an application outside the zone', async () => {
-    const { app, db } = buildRouteApp(resourcesRoutes)
-    db.query.mockResolvedValueOnce({ rows: [] })
-
-    await app.ready()
-    const res = await app.inject({
-      method: 'PATCH',
-      url: '/v1/zones/z1/resources/res-1',
-      payload: { allowed_application_ids: ['app-other-zone'] },
-    })
-
-    expect(res.statusCode).toBe(404)
-    expect(JSON.parse(res.body)).toMatchObject({ error: 'allowed_application_not_found' })
-    expect(db.query).toHaveBeenCalledTimes(1)
-  })
-
   it('returns 404 when the resource is missing during patch', async () => {
     const { app, db } = buildRouteApp(resourcesRoutes)
     const client = {
@@ -508,7 +464,6 @@ describe('PATCH /v1/zones/:zoneId/resources/:id', () => {
               identifier: 'resource://api',
               upstream_url: 'https://api.example.com',
               credential_provider_id: 'provider-1',
-              allowed_application_ids: ['app-1'],
               scopes: ['read'],
               operations: [],
             },
@@ -559,7 +514,6 @@ describe('PATCH /v1/zones/:zoneId/resources/:id', () => {
               identifier: 'resource://api',
               upstream_url: 'https://api.example.com',
               credential_provider_id: 'provider-1',
-              allowed_application_ids: ['app-1'],
               scopes: ['read'],
               operations: [],
             },
@@ -573,7 +527,6 @@ describe('PATCH /v1/zones/:zoneId/resources/:id', () => {
               identifier: 'resource://api/v2',
               upstream_url: 'https://api.example.com',
               scopes: ['read'],
-              allowed_application_ids: ['app-1'],
             },
           ],
         })
@@ -592,58 +545,8 @@ describe('PATCH /v1/zones/:zoneId/resources/:id', () => {
     expect(res.statusCode).toBe(200)
     expect(JSON.parse(res.body)).toMatchObject({
       identifier: 'resource://api/v2',
-      allowed_application_ids: ['app-1'],
     })
     expect(client.query).toHaveBeenCalledWith(expect.stringContaining('UPDATE resources'), expect.arrayContaining(['res-1', 'z1']))
-    expect(client.query).toHaveBeenCalledWith('COMMIT')
-  })
-
-  it('replaces the caller allowlist on patch', async () => {
-    const { app, db } = buildRouteApp(resourcesRoutes)
-    db.query.mockResolvedValueOnce({ rows: [{ id: 'app-2' }] })
-    const client = {
-      query: vi
-        .fn()
-        .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({
-          rows: [
-            {
-              identifier: 'resource://api',
-              upstream_url: 'https://api.example.com',
-              credential_provider_id: 'provider-1',
-              allowed_application_ids: ['app-1'],
-              scopes: ['read'],
-              operations: [],
-            },
-          ],
-        })
-        .mockResolvedValueOnce({
-          rows: [
-            {
-              id: 'res-1',
-              zone_id: 'z1',
-              identifier: 'resource://api',
-              upstream_url: 'https://api.example.com',
-              scopes: ['read'],
-              allowed_application_ids: ['app-2'],
-            },
-          ],
-        })
-        .mockResolvedValueOnce({ rows: [] }),
-      release: vi.fn(),
-    }
-    db.connect.mockResolvedValueOnce(client)
-
-    await app.ready()
-    const res = await app.inject({
-      method: 'PATCH',
-      url: '/v1/zones/z1/resources/res-1',
-      payload: { allowed_application_ids: ['app-2'] },
-    })
-
-    expect(res.statusCode).toBe(200)
-    expect(JSON.parse(res.body)).toMatchObject({ allowed_application_ids: ['app-2'] })
-    expect(client.query).toHaveBeenCalledWith(expect.stringContaining('allowed_application_ids ='), expect.arrayContaining([['app-2']]))
     expect(client.query).toHaveBeenCalledWith('COMMIT')
   })
 
@@ -659,7 +562,6 @@ describe('PATCH /v1/zones/:zoneId/resources/:id', () => {
               identifier: 'resource://api',
               upstream_url: 'https://api.example.com',
               credential_provider_id: 'provider-1',
-              allowed_application_ids: [],
               scopes: ['read'],
               operations: [],
             },
@@ -695,7 +597,6 @@ describe('PATCH /v1/zones/:zoneId/resources/:id', () => {
               identifier: 'caracal-control',
               upstream_url: null,
               credential_provider_id: null,
-              allowed_application_ids: [],
               scopes: ['control:agent:write'],
               operations: [],
             },
