@@ -98,9 +98,7 @@ describe('buildRunEnv', () => {
       credential: `tok-${env}`,
       expiresAt: 1750000000,
     }))
-    const env = await buildRunEnv(
-      profile([binding(), binding({ env: 'API_KEY_EXPIRES_AT', resource: 'urn:other' })]),
-    )
+    const env = await buildRunEnv(profile([binding(), binding({ env: 'API_KEY_EXPIRES_AT', resource: 'urn:other' })]))
     expect(env.API_KEY).toBe('tok-API_KEY')
     expect(env.API_KEY_EXPIRES_AT).toBe('tok-API_KEY_EXPIRES_AT')
   })

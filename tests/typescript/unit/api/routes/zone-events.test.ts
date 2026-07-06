@@ -201,11 +201,7 @@ describe('GET /v1/zones/:zoneId/audit', () => {
     expect(res.statusCode).toBe(200)
     const sql = db.query.mock.calls[0][0] as string
     expect(sql).toContain('event_type = ANY($2)')
-    expect(db.query.mock.calls[0][1]).toEqual([
-      'z1',
-      ['step_up_issued', 'step_up_decided', 'step_up_consumed'],
-      100,
-    ])
+    expect(db.query.mock.calls[0][1]).toEqual(['z1', ['step_up_issued', 'step_up_decided', 'step_up_consumed'], 100])
   })
 
   it('rejects an event_type list with no usable entries', async () => {

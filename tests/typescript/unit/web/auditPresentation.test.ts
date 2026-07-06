@@ -17,12 +17,7 @@ import {
   auditSummary,
 } from '../../../../apps/web/src/lib/auditPresentation'
 
-function event(
-  eventType: string,
-  decision: string | null,
-  meta: Record<string, unknown>,
-  evaluationStatus?: string | null,
-) {
+function event(eventType: string, decision: string | null, meta: Record<string, unknown>, evaluationStatus?: string | null) {
   return { event_type: eventType, decision, evaluation_status: evaluationStatus ?? null, metadata_json: meta }
 }
 
@@ -123,15 +118,13 @@ describe('auditSummary', () => {
     const summary = auditSummary(
       event('token_exchange', 'deny', { application_name: 'Fiona', resource: 'resource://not-hotdog' }, 'scope_mismatch'),
     )
-    expect(summary).toBe(
-      'Fiona was denied a credential for resource://not-hotdog - Requested scopes exceed what the resource allows',
-    )
+    expect(summary).toBe('Fiona was denied a credential for resource://not-hotdog - Requested scopes exceed what the resource allows')
   })
 
   it('narrates approval lifecycle events', () => {
-    expect(
-      auditSummary(event('step_up_issued', 'pending', { application_name: 'Son of Anton', tier: 'money' })),
-    ).toBe('A human approval hold was raised for Son of Anton (money tier); the exchange waits on an approver')
+    expect(auditSummary(event('step_up_issued', 'pending', { application_name: 'Son of Anton', tier: 'money' }))).toBe(
+      'A human approval hold was raised for Son of Anton (money tier); the exchange waits on an approver',
+    )
     expect(
       auditSummary(
         event('step_up_decided', 'rejected', {
@@ -226,9 +219,7 @@ describe('auditEntities', () => {
   })
 
   it('extracts provider and approval-hold entities', () => {
-    const entities = auditEntities(
-      event('gateway_resource_request', 'allow', { provider_id: 'prov-1', challenge_id: 'chal-9' }),
-    )
+    const entities = auditEntities(event('gateway_resource_request', 'allow', { provider_id: 'prov-1', challenge_id: 'chal-9' }))
     expect(entities).toEqual([
       { kind: 'provider', id: 'prov-1', label: 'prov-1' },
       { kind: 'approval', id: 'chal-9', label: 'chal-9' },
