@@ -12,10 +12,13 @@ import { formatPageMarkdown } from '../../lib/pageMarkdown'
 export const getStaticPaths: GetStaticPaths = async () => {
   const docs = await getCollection('docs')
 
+  // The .md extension lives in the param value rather than the route filename:
+  // extension-suffixed dynamic routes collide with trailingSlash normalization
+  // during static generation, which rejects every generated path.
   return docs
     .filter((doc) => doc.id !== '404')
     .map((doc) => ({
-      params: { slug: doc.id },
+      params: { slug: `${doc.id}.md` },
       props: { doc },
     }))
 }
