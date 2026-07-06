@@ -86,7 +86,6 @@ describe('dispatch handler surface', () => {
           name: 'PiperNet',
           scopes: 'pipernet:read',
           'upstream-url': 'https://api.pipernet.example',
-          'allowed-application-ids': 'app-1,app-2',
           'credential-provider-id': 'provider-1',
         },
       },
@@ -99,7 +98,6 @@ describe('dispatch handler surface', () => {
       identifier: undefined,
       scopes: ['pipernet:read'],
       upstream_url: 'https://api.pipernet.example',
-      allowed_application_ids: ['app-1', 'app-2'],
       credential_provider_id: 'provider-1',
     })
   })

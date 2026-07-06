@@ -11,7 +11,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { Tabs } from '@/components/ui/Tabs'
 import { DcrField } from '@/components/console/DcrField'
 import { ResourceFormModal } from '@/components/console/ResourceForm'
-import type { Application, Provider, Resource } from '@/platform/api/types'
+import type { Provider, Resource } from '@/platform/api/types'
 
 // The server renderer cannot host the modal portal, so the overlay is stubbed to render its
 // body inline while every other kit component stays real.
@@ -65,7 +65,6 @@ describe('Console focus ring treatment', () => {
       name: 'PiperNet',
       identifier: 'resource://pipernet',
       upstream_url: 'https://api.pipernet.example',
-      allowed_application_ids: ['app-1'],
       scopes: ['read'],
       credential_provider_id: 'prov-1',
       operations: [{ method: 'GET', path: '/v1/nodes', scope: 'read' }],
@@ -73,15 +72,6 @@ describe('Console focus ring treatment', () => {
       created_at: '2026-01-01T00:00:00Z',
       updated_at: '2026-01-01T00:00:00Z',
     }
-    const applications: Application[] = [
-      {
-        id: 'app-1',
-        zone_id: 'zone-1',
-        name: 'Son of Anton',
-        registration_method: 'managed',
-        created_at: '2026-01-01T00:00:00Z',
-      },
-    ]
     const providers: Provider[] = [
       {
         id: 'prov-1',
@@ -100,7 +90,6 @@ describe('Console focus ring treatment', () => {
         open: true,
         mode: 'edit',
         resource,
-        applications,
         providers,
         busy: false,
         onClose: () => {},
