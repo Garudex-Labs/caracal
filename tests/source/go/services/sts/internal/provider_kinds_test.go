@@ -1,0 +1,181 @@
+// Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+// Caracal, a product of Garudex Labs
+//
+// Tests for http_basic provider directives and RFC 7523 jwt_bearer assertion signing.
+
+package internal
+
+import (
+	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/sha1"
+	"crypto/sha256"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/base64"
+	"encoding/pem"
+	"math/big"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/golang-jwt/jwt/v5"
+)
+
+func TestBuildUpstreamDirectiveSupportsHTTPBasicProvider(t *testing.T) {
+	providerID := "provider1"
+	upstreamURL := "https://upstream.example"
+	resource := &Resource{
+		ID:                   "res1",
+		Identifier:           "resource://api",
+		UpstreamURL:          &upstreamURL,
+		CredentialProviderID: &providerID,
+	}
+	zek := []byte("12345678901234567890123456789012")
+	secretCt, secretNonce := testProviderSecret(t, zek, `{"password":"piper-pass"}`)
+	srv := &Server{
+		db: &stubDB{
+			provider: &ProviderConfig{
+				ID:                providerID,
+				ProviderKind:      strPtr("http_basic"),
+				ConfigJSON:        []byte(`{"username":"richard"}`),
+				SecretConfigCt:    secretCt,
+				SecretConfigNonce: secretNonce,
+			},
+		},
+		keys: &KeyCache{zek: zek},
+	}
+	directive, err := srv.buildUpstreamDirective(context.Background(), "zone1", map[string]any{"sub": "user1"}, resource, true, false)
+	if err != nil {
+		t.Fatalf("gateway directive should support http_basic provider shape: %v", err)
+	}
+	expected := base64.StdEncoding.EncodeToString([]byte("richard:piper-pass"))
+	if directive.AuthMode != UpstreamAuthProviderOAuth || directive.AuthHeader != "Authorization" || directive.AuthScheme != "Basic" || directive.ProviderToken != expected {
+		t.Fatalf("unexpected http_basic directive: %#v", directive)
+	}
+}
+
+func TestBuildUpstreamDirectiveRejectsHTTPBasicRuntimeInjection(t *testing.T) {
+	providerID := "provider1"
+	upstreamURL := "https://upstream.example"
+	resource := &Resource{
+		ID:                   "res1",
+		Identifier:           "resource://api",
+		UpstreamURL:          &upstreamURL,
+		CredentialProviderID: &providerID,
+	}
+	zek := []byte("12345678901234567890123456789012")
+	secretCt, secretNonce := testProviderSecret(t, zek, `{"password":"piper-pass"}`)
+	srv := &Server{
+		db: &stubDB{
+			provider: &ProviderConfig{
+				ID:                providerID,
+				ProviderKind:      strPtr("http_basic"),
+				ConfigJSON:        []byte(`{"username":"richard","allow_runtime_injection":true}`),
+				SecretConfigCt:    secretCt,
+				SecretConfigNonce: secretNonce,
+			},
+		},
+		keys: &KeyCache{zek: zek},
+	}
+	if _, err := srv.buildUpstreamDirective(context.Background(), "zone1", nil, resource, true, true); err == nil {
+		t.Fatal("http_basic must never be eligible for runtime credential injection")
+	}
+}
+
+func TestBuildProviderGrantAssertionClaims(t *testing.T) {
+	pemKey := ecKeyPEM(t, elliptic.P256())
+	cfg := oauthClientCredentialsConfig{
+		ClientID: "agent@project.iam.gserviceaccount.example",
+		KeyID:    "kid-1",
+		Scopes:   []string{"https://www.googleapis.example/auth/cloud-platform"},
+	}
+	signed, err := buildProviderGrantAssertion(cfg, pemKey, "https://oauth2.googleapis.example/token", time.Now().UTC())
+	if err != nil {
+		t.Fatalf("grant assertion: %v", err)
+	}
+	token, _, err := jwt.NewParser().ParseUnverified(signed, jwt.MapClaims{})
+	if err != nil {
+		t.Fatalf("parse assertion: %v", err)
+	}
+	claims := token.Claims.(jwt.MapClaims)
+	if claims["iss"] != cfg.ClientID || claims["sub"] != cfg.ClientID {
+		t.Fatalf("iss/sub must default to the client id: %#v", claims)
+	}
+	if claims["aud"] != "https://oauth2.googleapis.example/token" {
+		t.Fatalf("aud must default to the token endpoint: %#v", claims)
+	}
+	if claims["scope"] != "https://www.googleapis.example/auth/cloud-platform" {
+		t.Fatalf("scopes must ride inside the assertion scope claim: %#v", claims)
+	}
+	if token.Header["kid"] != "kid-1" {
+		t.Fatalf("kid header missing: %#v", token.Header)
+	}
+
+	cfg.AssertionSubject = "monica.hall@piedpiper.example"
+	cfg.AssertionAudience = "https://login.salesforce.example"
+	signed, err = buildProviderGrantAssertion(cfg, pemKey, "https://oauth2.googleapis.example/token", time.Now().UTC())
+	if err != nil {
+		t.Fatalf("grant assertion with overrides: %v", err)
+	}
+	token, _, err = jwt.NewParser().ParseUnverified(signed, jwt.MapClaims{})
+	if err != nil {
+		t.Fatalf("parse assertion: %v", err)
+	}
+	claims = token.Claims.(jwt.MapClaims)
+	if claims["sub"] != "monica.hall@piedpiper.example" || claims["aud"] != "https://login.salesforce.example" {
+		t.Fatalf("assertion overrides must win: %#v", claims)
+	}
+}
+
+func testCertificatePEM(t *testing.T, key *ecdsa.PrivateKey) string {
+	t.Helper()
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "caracal-provider-test"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+	}
+	der, err := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
+	if err != nil {
+		t.Fatalf("create certificate: %v", err)
+	}
+	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}))
+}
+
+func TestBuildProviderClientAssertionCertificateThumbprints(t *testing.T) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	keyDER, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		t.Fatalf("marshal key: %v", err)
+	}
+	pemKey := string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER}))
+	certPEM := testCertificatePEM(t, key)
+
+	signed, err := buildProviderClientAssertion("https://login.hooli.example/oauth/token", "client-1", "", pemKey, certPEM, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("client assertion: %v", err)
+	}
+	token, _, err := jwt.NewParser().ParseUnverified(signed, jwt.MapClaims{})
+	if err != nil {
+		t.Fatalf("parse assertion: %v", err)
+	}
+	block, _ := pem.Decode([]byte(certPEM))
+	sum1 := sha1.Sum(block.Bytes)
+	sum256 := sha256.Sum256(block.Bytes)
+	if token.Header["x5t"] != base64.RawURLEncoding.EncodeToString(sum1[:]) {
+		t.Fatalf("x5t header mismatch: %#v", token.Header)
+	}
+	if token.Header["x5t#S256"] != base64.RawURLEncoding.EncodeToString(sum256[:]) {
+		t.Fatalf("x5t#S256 header mismatch: %#v", token.Header)
+	}
+
+	if _, err := buildProviderClientAssertion("https://login.hooli.example/oauth/token", "client-1", "", pemKey, "not pem", time.Now().UTC()); err == nil || !strings.Contains(err.Error(), "certificate") {
+		t.Fatalf("malformed certificate must fail assertion signing, got %v", err)
+	}
+}

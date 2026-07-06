@@ -11,8 +11,10 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
@@ -170,7 +172,7 @@ func (s *Server) refreshExpiredBrokeredGrant(ctx context.Context, zoneID, userID
 	if err := applyOAuthTokenParams(form, provCfg.TokenParams); err != nil {
 		return sharederr.New(sharederr.CredentialExpired, "provider token params invalid")
 	}
-	body, err := s.refreshProviderToken(ctx, provider.ID, tokenEndpoint, form, provCfg.ClientID, secretConfig.ClientSecret, provCfg.ClientAuthMethod, "", "")
+	body, err := s.refreshProviderToken(ctx, provider.ID, tokenEndpoint, form, provCfg.ClientID, secretConfig.ClientSecret, provCfg.ClientAuthMethod, "", "", "")
 	if err != nil {
 		return sharederr.New(sharederr.CredentialExpired, "credential_expired_not_renewable")
 	}
@@ -374,6 +376,7 @@ type providerSecretConfig struct {
 	PrivateKey   string `json:"private_key"`
 	APIKey       string `json:"api_key"`
 	BearerToken  string `json:"bearer_token"`
+	Password     string `json:"password"`
 }
 
 func openProviderSecretConfig(zek []byte, provider *ProviderConfig) (providerSecretConfig, error) {
@@ -604,7 +607,7 @@ func safeHTTPClient(timeout time.Duration) *http.Client {
 	}
 }
 
-func (s *Server) refreshProviderToken(ctx context.Context, providerID string, endpoint *url.URL, form url.Values, clientID, clientSecret, clientAuthMethod, keyID, privateKey string) ([]byte, error) {
+func (s *Server) refreshProviderToken(ctx context.Context, providerID string, endpoint *url.URL, form url.Values, clientID, clientSecret, clientAuthMethod, keyID, privateKey, certificate string) ([]byte, error) {
 	method := normalizeOAuthClientAuthMethod(clientAuthMethod)
 	if clientID == "" {
 		return nil, errors.New("provider oauth client_id missing")
@@ -625,7 +628,7 @@ func (s *Server) refreshProviderToken(ctx context.Context, providerID string, en
 			case <-time.After(jitteredBackoff(providerRetryBackoff, attempt-1)):
 			}
 		}
-		req, err := buildProviderTokenRequest(ctx, endpoint, form, clientID, clientSecret, method, keyID, privateKey)
+		req, err := buildProviderTokenRequest(ctx, endpoint, form, clientID, clientSecret, method, keyID, privateKey, certificate)
 		if err != nil {
 			return nil, err
 		}
@@ -650,7 +653,7 @@ func (s *Server) refreshProviderToken(ctx context.Context, providerID string, en
 	return nil, lastErr
 }
 
-func buildProviderTokenRequest(ctx context.Context, endpoint *url.URL, form url.Values, clientID, clientSecret, method, keyID, privateKey string) (*http.Request, error) {
+func buildProviderTokenRequest(ctx context.Context, endpoint *url.URL, form url.Values, clientID, clientSecret, method, keyID, privateKey, certificate string) (*http.Request, error) {
 	requestForm := url.Values{}
 	for key, values := range form {
 		requestForm[key] = append([]string(nil), values...)
@@ -660,7 +663,7 @@ func buildProviderTokenRequest(ctx context.Context, endpoint *url.URL, form url.
 		requestForm.Set("client_id", clientID)
 		requestForm.Set("client_secret", clientSecret)
 	case "private_key_jwt":
-		assertion, err := buildProviderClientAssertion(endpoint.String(), clientID, keyID, privateKey, time.Now().UTC())
+		assertion, err := buildProviderClientAssertion(endpoint.String(), clientID, keyID, privateKey, certificate, time.Now().UTC())
 		if err != nil {
 			return nil, err
 		}
@@ -684,7 +687,7 @@ func buildProviderTokenRequest(ctx context.Context, endpoint *url.URL, form url.
 	return req, nil
 }
 
-func buildProviderClientAssertion(audience, clientID, keyID, privateKey string, now time.Time) (string, error) {
+func buildProviderClientAssertion(audience, clientID, keyID, privateKey, certificate string, now time.Time) (string, error) {
 	method, key, err := providerSigningKey(privateKey)
 	if err != nil {
 		return "", err
@@ -697,6 +700,17 @@ func buildProviderClientAssertion(audience, clientID, keyID, privateKey string, 
 		"exp": now.Add(time.Minute).Unix(),
 		"jti": uuid.NewString(),
 	})
+	if certificate != "" {
+		// Microsoft Entra ID certificate credentials identify the signing certificate by
+		// thumbprint header rather than kid; both digest forms are emitted since verifiers
+		// accept either and ignore the one they do not use.
+		x5t, x5tS256, err := providerCertThumbprints(certificate)
+		if err != nil {
+			return "", err
+		}
+		token.Header["x5t"] = x5t
+		token.Header["x5t#S256"] = x5tS256
+	}
 	if text := strings.TrimSpace(keyID); text != "" {
 		token.Header["kid"] = text
 	}
@@ -718,6 +732,57 @@ func providerSigningKey(privateKey string) (jwt.SigningMethod, any, error) {
 		return providerECDSASigningMethod(key)
 	}
 	return nil, nil, errors.New("provider oauth private_key is unsupported")
+}
+
+// providerCertThumbprints digests the certificate's DER bytes into the JOSE x5t
+// (SHA-1, required by Microsoft Entra ID) and x5t#S256 header values.
+func providerCertThumbprints(certificate string) (string, string, error) {
+	block, _ := pem.Decode([]byte(certificate))
+	if block == nil {
+		return "", "", errors.New("provider certificate must be PEM encoded")
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return "", "", errors.New("provider certificate is invalid")
+	}
+	sum1 := sha1.Sum(cert.Raw)
+	sum256 := sha256.Sum256(cert.Raw)
+	return base64.RawURLEncoding.EncodeToString(sum1[:]), base64.RawURLEncoding.EncodeToString(sum256[:]), nil
+}
+
+// buildProviderGrantAssertion signs the RFC 7523 section 2.1 authorization grant: the
+// assertion itself is the grant, so the scopes ride inside the JWT as Google's
+// service-account flow expects, the subject defaults to the client id, and the
+// audience defaults to the token endpoint.
+func buildProviderGrantAssertion(cfg oauthClientCredentialsConfig, privateKey, tokenEndpoint string, now time.Time) (string, error) {
+	method, key, err := providerSigningKey(privateKey)
+	if err != nil {
+		return "", err
+	}
+	subject := strings.TrimSpace(cfg.AssertionSubject)
+	if subject == "" {
+		subject = cfg.ClientID
+	}
+	audience := strings.TrimSpace(cfg.AssertionAudience)
+	if audience == "" {
+		audience = tokenEndpoint
+	}
+	claims := jwt.MapClaims{
+		"iss": cfg.ClientID,
+		"sub": subject,
+		"aud": audience,
+		"iat": now.Unix(),
+		"exp": now.Add(5 * time.Minute).Unix(),
+		"jti": uuid.NewString(),
+	}
+	if len(cfg.Scopes) > 0 {
+		claims["scope"] = strings.Join(cfg.Scopes, " ")
+	}
+	token := jwt.NewWithClaims(method, claims)
+	if text := strings.TrimSpace(cfg.KeyID); text != "" {
+		token.Header["kid"] = text
+	}
+	return token.SignedString(key)
 }
 
 func providerSigningMethod(key any) (jwt.SigningMethod, any, error) {
