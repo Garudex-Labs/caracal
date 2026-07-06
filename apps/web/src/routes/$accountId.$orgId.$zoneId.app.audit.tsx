@@ -27,6 +27,7 @@ import {
   type Column,
 } from "@/components/ui";
 import {
+  AUDIT_CATEGORIES,
   auditDelegationChain,
   auditEntities,
   auditEventLabel,
@@ -81,7 +82,13 @@ type AuditMode = "activity" | "admin";
 
 function AuditRoute() {
   const search = Route.useSearch();
-  const [mode, setMode] = useState<AuditMode>(search.view === "admin" ? "admin" : "activity");
+  const navigate = Route.useNavigate();
+  const mode: AuditMode = search.view === "admin" ? "admin" : "activity";
+  const onMode = (m: AuditMode) =>
+    navigate({
+      search: { view: m === "admin" ? m : undefined },
+      replace: true,
+    });
   return (
     <ZoneScopedPage
       title="Audit"
@@ -93,7 +100,7 @@ function AuditRoute() {
           <AuditPage
             zoneId={zone.id}
             mode={mode}
-            onMode={setMode}
+            onMode={onMode}
             initial={{
               request: search.request,
               agent: search.agent,
@@ -102,7 +109,7 @@ function AuditRoute() {
             }}
           />
         ) : (
-          <AdminAuditPage zoneId={zone.id} mode={mode} onMode={setMode} />
+          <AdminAuditPage zoneId={zone.id} mode={mode} onMode={onMode} />
         )
       }
     </ZoneScopedPage>
@@ -155,10 +162,13 @@ const ACTIVITY_EXPORT_FIELDS: { id: string; label: string; core?: boolean }[] = 
   { id: "decision", label: "Decision", core: true },
   { id: "evaluation_status", label: "Evaluation status" },
   { id: "request_id", label: "Request ID", core: true },
+  { id: "trace_id", label: "Trace ID" },
   { id: "id", label: "Event ID" },
   { id: "application_id", label: "Application ID", core: true },
   { id: "application_name", label: "Application name", core: true },
   { id: "resource", label: "Resource", core: true },
+  { id: "provider_id", label: "Provider ID" },
+  { id: "connection_id", label: "Connection ID" },
   { id: "requested_scopes", label: "Requested scopes" },
   { id: "reason", label: "Denial reason", core: true },
   { id: "agent_session_id", label: "Agent session" },
@@ -169,7 +179,22 @@ const ACTIVITY_EXPORT_FIELDS: { id: string; label: string; core?: boolean }[] = 
   { id: "method", label: "HTTP method" },
   { id: "latency_ms", label: "Latency (ms)" },
   { id: "upstream_status", label: "Upstream status" },
+  { id: "upstream_host", label: "Upstream host" },
+  { id: "gateway_status", label: "Gateway status" },
   { id: "result_class", label: "Result class" },
+  { id: "error_kind", label: "Error kind" },
+  { id: "response_bytes", label: "Response bytes" },
+  { id: "auth_mode", label: "Auth mode" },
+  { id: "subject_fingerprint", label: "Subject fingerprint" },
+  { id: "subject", label: "Subject" },
+  { id: "authorized_by", label: "Authorized by" },
+  { id: "command", label: "Command" },
+  { id: "subcommand", label: "Subcommand" },
+  { id: "challenge_id", label: "Approval hold" },
+  { id: "tier", label: "Approval tier" },
+  { id: "approver_class", label: "Approver class" },
+  { id: "privacy_mode", label: "Privacy mode" },
+  { id: "approver_subject_id", label: "Approver subject" },
   { id: "ingested_at", label: "Ingested at" },
 ];
 
@@ -371,9 +396,9 @@ function errorMessage(error: unknown): string {
 }
 
 function decisionTone(decision: string | null): "success" | "danger" | "warning" | "muted" {
-  if (decision === "allow") return "success";
-  if (decision === "deny") return "danger";
-  if (decision === "partial") return "warning";
+  if (decision === "allow" || decision === "approved" || decision === "consumed") return "success";
+  if (decision === "deny" || decision === "rejected") return "danger";
+  if (decision === "partial" || decision === "pending") return "warning";
   return "muted";
 }
 
@@ -425,6 +450,7 @@ function AuditPage({
   onMode: (m: AuditMode) => void;
   initial: { request?: string; agent?: string; application?: string; session?: string };
 }) {
+  const [category, setCategory] = useState<string>("all");
   const [decision, setDecision] = useState<string>("all");
   const [eventType, setEventType] = useState("");
   const [requestId, setRequestId] = useState(initial.request ?? "");
@@ -438,7 +464,12 @@ function AuditPage({
   const serverQuery = useMemo<AuditQuery>(() => {
     const q: AuditQuery = {};
     if (decision !== "all") q.decision = decision;
+    // An explicit event type is the narrower filter and wins over the category's type list.
     if (eventType.trim()) q.event_type = eventType.trim();
+    else if (category !== "all") {
+      const domain = AUDIT_CATEGORIES.find((c) => c.id === category);
+      if (domain) q.event_type = domain.types.join(",");
+    }
     if (requestId.trim()) q.request_id = requestId.trim();
     if (applicationId.trim()) q.application_id = applicationId.trim();
     if (agentSession.trim()) q.agent_session_id = agentSession.trim();
@@ -449,7 +480,18 @@ function AuditPage({
     const untilTs = parseTimeInput(until);
     if (untilTs) q.until = untilTs;
     return q;
-  }, [decision, eventType, requestId, applicationId, agentSession, sessionId, label, since, until]);
+  }, [
+    category,
+    decision,
+    eventType,
+    requestId,
+    applicationId,
+    agentSession,
+    sessionId,
+    label,
+    since,
+    until,
+  ]);
 
   const feed = useAuditFeed(zoneId, serverQuery);
   const rows = useMemo(() => (feed.data?.pages ?? []).flatMap((page) => page.rows), [feed.data]);
@@ -481,7 +523,9 @@ function AuditPage({
       header: "Event",
       cell: (e) => (
         <div className="min-w-0">
-          <div className="font-medium text-foreground">{auditEventLabel(e.event_type)}</div>
+          <div className="font-medium text-foreground">
+            {auditEventLabel(e.event_type, e.decision)}
+          </div>
           <div className="truncate text-xs text-muted-foreground">
             {auditSummary(e, actorName(e))}
           </div>
@@ -552,6 +596,7 @@ function AuditPage({
               )}
             />
           }
+          category={category}
           decision={decision}
           eventType={eventType}
           requestId={requestId}
@@ -563,6 +608,7 @@ function AuditPage({
           since={since}
           until={until}
           loaded={rows.length}
+          onCategory={setCategory}
           onDecision={setDecision}
           onEventType={setEventType}
           onRequestId={setRequestId}
@@ -579,8 +625,9 @@ function AuditPage({
         match: (e, q) => {
           const meta = e.metadata_json ?? {};
           return (
+            e.id.toLowerCase().includes(q) ||
             e.event_type.toLowerCase().includes(q) ||
-            auditEventLabel(e.event_type).toLowerCase().includes(q) ||
+            auditEventLabel(e.event_type, e.decision).toLowerCase().includes(q) ||
             (e.request_id ?? "").toLowerCase().includes(q) ||
             (actorName(e) ?? "").toLowerCase().includes(q) ||
             (typeof meta.resource === "string" ? meta.resource : "").toLowerCase().includes(q)
@@ -594,7 +641,7 @@ function AuditPage({
           : "Authority decisions and security events will appear here as traffic flows through this zone.",
       }}
       detail={{
-        title: (e) => auditEventLabel(e.event_type),
+        title: (e) => auditEventLabel(e.event_type, e.decision),
         description: (e) => auditSummary(e, actorName(e)),
         width: "max-w-xl",
         render: (e) => (
@@ -612,6 +659,7 @@ function AuditFilterBar({
   mode,
   onMode,
   exportControl,
+  category,
   decision,
   eventType,
   requestId,
@@ -623,6 +671,7 @@ function AuditFilterBar({
   since,
   until,
   loaded,
+  onCategory,
   onDecision,
   onEventType,
   onRequestId,
@@ -636,6 +685,7 @@ function AuditFilterBar({
   mode: AuditMode;
   onMode: (m: AuditMode) => void;
   exportControl: ReactNode;
+  category: string;
   decision: string;
   eventType: string;
   requestId: string;
@@ -647,6 +697,7 @@ function AuditFilterBar({
   since: string;
   until: string;
   loaded: number;
+  onCategory: (v: string) => void;
   onDecision: (v: string) => void;
   onEventType: (v: string) => void;
   onRequestId: (v: string) => void;
@@ -658,6 +709,7 @@ function AuditFilterBar({
   onUntil: (v: string) => void;
 }) {
   const activeFilters =
+    (category !== "all" ? 1 : 0) +
     (decision !== "all" ? 1 : 0) +
     [eventType, requestId, applicationId, agentSession, sessionId, label, since, until].filter(
       (v) => v.trim(),
@@ -671,6 +723,14 @@ function AuditFilterBar({
       loaded={loaded}
       noun="event"
     >
+      <Select label="Category" value={category} onChange={(e) => onCategory(e.target.value)}>
+        <option value="all">All categories</option>
+        {AUDIT_CATEGORIES.map((c) => (
+          <option key={c.id} value={c.id}>
+            {c.label}
+          </option>
+        ))}
+      </Select>
       <Select label="Decision" value={decision} onChange={(e) => onDecision(e.target.value)}>
         <option value="all">All decisions</option>
         <option value="allow">Allow</option>
@@ -777,30 +837,43 @@ function SubHeading({ children }: { children: ReactNode }) {
 }
 
 // Maps a linked entity to the console page that owns it, so an audit event drills
-// straight into the application, resource, agent, or delegation edge it references.
+// straight into the application, resource, provider, agent, delegation edge, or
+// approval hold it references.
 function entityLink(entity: AuditEntity): { to: string; search?: Record<string, string> } {
   switch (entity.kind) {
     case "application":
       return { to: appLink("/applications"), search: { focus: entity.id } };
     case "resource":
       return { to: appLink("/resources"), search: { focus: entity.id } };
+    case "provider":
+      return { to: appLink("/providers"), search: { focus: entity.id } };
     case "agent":
       return { to: appLink("/agents"), search: { focus: entity.id } };
     case "delegation":
       return { to: appLink("/agents"), search: { view: "delegation", focus: entity.id } };
+    case "approval":
+      return { to: appLink("/approvals"), search: { focus: entity.id } };
   }
 }
 
 const ENTITY_KIND_LABELS: Record<AuditEntity["kind"], string> = {
   application: "Application",
   resource: "Resource",
+  provider: "Provider",
   agent: "Agent session",
   delegation: "Delegation edge",
+  approval: "Approval hold",
 };
 
 function metaString(meta: Record<string, unknown>, key: string): string | null {
   const value = meta[key];
   return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+// Evaluation statuses double as deny-reason codes on STS events, so they render as
+// plain words rather than raw snake_case.
+function evaluationLabel(status: string | null): string {
+  return status ? status.replace(/_/g, " ") : "-";
 }
 
 function AuditDetailView({
@@ -832,6 +905,8 @@ function AuditDetailView({
   }
   const resultClass = metaString(meta, "result_class");
   if (resultClass) facts.push({ label: "Result", value: resultClass });
+  const errorKind = metaString(meta, "error_kind");
+  if (errorKind) facts.push({ label: "Error", value: errorKind.replace(/_/g, " ") });
   const authMode = metaString(meta, "auth_mode");
   if (authMode) facts.push({ label: "Auth mode", value: authMode });
   const upstreamHost = metaString(meta, "upstream_host");
@@ -843,6 +918,31 @@ function AuditDetailView({
   const lifecycle = metaString(meta, "agent_lifecycle");
   if (lifecycle) facts.push({ label: "Agent lifecycle", value: lifecycle });
 
+  // Attribution facts answer who stood behind the action: the control-plane subject,
+  // and the operator-asserted authority recorded for approval-gated changes.
+  const attribution: { label: string; value: ReactNode }[] = [];
+  const subject = metaString(meta, "subject");
+  if (subject) attribution.push({ label: "Subject", value: <Mono>{subject}</Mono> });
+  const authorizedBy = metaString(meta, "authorized_by");
+  if (authorizedBy) attribution.push({ label: "Authorized by", value: authorizedBy });
+  const approverSubject = metaString(meta, "approver_subject_id");
+  if (approverSubject) {
+    attribution.push({ label: "Approver", value: <Mono>{approverSubject}</Mono> });
+  }
+  const subjectFingerprint = metaString(meta, "subject_fingerprint");
+  if (subjectFingerprint) {
+    attribution.push({ label: "Subject fingerprint", value: <Mono>{subjectFingerprint}</Mono> });
+  }
+
+  // Approval facts reconstruct the hold an approval-gated exchange waited on.
+  const approval: { label: string; value: ReactNode }[] = [];
+  const tier = metaString(meta, "tier");
+  if (tier) approval.push({ label: "Tier", value: tier });
+  const approverClass = metaString(meta, "approver_class");
+  if (approverClass) approval.push({ label: "Approver class", value: approverClass });
+  const privacyMode = metaString(meta, "privacy_mode");
+  if (privacyMode) approval.push({ label: "Privacy mode", value: privacyMode });
+
   return (
     <div className="flex flex-col gap-5">
       <div className="flex items-center justify-between gap-2">
@@ -850,7 +950,7 @@ function AuditDetailView({
           {event.decision ? (
             <Badge tone={decisionTone(event.decision)}>{event.decision}</Badge>
           ) : null}
-          <Badge tone="neutral">{auditEventLabel(event.event_type)}</Badge>
+          <Badge tone="neutral">{auditEventLabel(event.event_type, event.decision)}</Badge>
         </div>
         <CopyJsonButton value={event} label="Copy event JSON" />
       </div>
@@ -867,13 +967,18 @@ function AuditDetailView({
       ) : null}
 
       <DetailGroup title="What happened">
-        <DetailField label="Event">{auditEventLabel(event.event_type)}</DetailField>
+        <DetailField label="Event">{auditEventLabel(event.event_type, event.decision)}</DetailField>
         <DetailField label="Decision">{event.decision ?? "-"}</DetailField>
-        <DetailField label="Evaluation">{event.evaluation_status ?? "-"}</DetailField>
+        <DetailField label="Evaluation">{evaluationLabel(event.evaluation_status)}</DetailField>
         <DetailField label="Occurred">{new Date(event.occurred_at).toLocaleString()}</DetailField>
         {event.request_id ? (
           <DetailField label="Request ID">
             <Mono>{event.request_id}</Mono>
+          </DetailField>
+        ) : null}
+        {metaString(meta, "trace_id") ? (
+          <DetailField label="Trace ID">
+            <Mono>{metaString(meta, "trace_id")}</Mono>
           </DetailField>
         ) : null}
       </DetailGroup>
@@ -901,6 +1006,26 @@ function AuditDetailView({
               </DetailField>
             );
           })}
+        </DetailGroup>
+      ) : null}
+
+      {attribution.length > 0 ? (
+        <DetailGroup title="Attribution">
+          {attribution.map((fact) => (
+            <DetailField key={fact.label} label={fact.label}>
+              {fact.value}
+            </DetailField>
+          ))}
+        </DetailGroup>
+      ) : null}
+
+      {approval.length > 0 ? (
+        <DetailGroup title="Approval hold">
+          {approval.map((fact) => (
+            <DetailField key={fact.label} label={fact.label}>
+              {fact.value}
+            </DetailField>
+          ))}
         </DetailGroup>
       ) : null}
 
@@ -1003,7 +1128,9 @@ function TraceEventDetail({
       <summary className="flex cursor-pointer items-center justify-between gap-2 px-3 py-2 text-xs">
         <span className="flex items-center gap-2">
           <span className="text-muted-foreground">#{index + 1}</span>
-          <span className="font-medium text-foreground">{auditEventLabel(event.event_type)}</span>
+          <span className="font-medium text-foreground">
+            {auditEventLabel(event.event_type, event.decision)}
+          </span>
         </span>
         {event.decision ? (
           <Badge tone={decisionTone(event.decision)}>{event.decision}</Badge>
@@ -1020,11 +1147,14 @@ function TraceEventDetail({
           <DetailField label="Evaluation">{event.evaluation_status ?? "-"}</DetailField>
           {event.policy_set_id ? (
             <DetailField label="Policy set">
-              {setName ? (
-                <span title={event.policy_set_id}>{setName}</span>
-              ) : (
-                <Mono>{event.policy_set_id}</Mono>
-              )}
+              <Link
+                to={appLink("/policies")}
+                search={{ tab: "sets", focus: event.policy_set_id }}
+                className="text-foreground underline decoration-border underline-offset-2 transition-colors hover:decoration-foreground"
+                title={event.policy_set_id}
+              >
+                {setName ?? event.policy_set_id}
+              </Link>
             </DetailField>
           ) : null}
           {event.policy_set_version_id ? (
@@ -1103,7 +1233,9 @@ function DeniedDecisionDetail({ denied, index }: { denied: DeniedDecision; index
       <summary className="flex cursor-pointer items-center justify-between gap-2 px-3 py-2 text-xs">
         <span className="flex items-center gap-2">
           <span className="text-muted-foreground">#{index + 1}</span>
-          <span className="font-medium text-foreground">{auditEventLabel(denied.event_type)}</span>
+          <span className="font-medium text-foreground">
+            {auditEventLabel(denied.event_type, "deny")}
+          </span>
         </span>
         <Badge tone="danger">deny</Badge>
       </summary>
@@ -1235,6 +1367,7 @@ function AdminAuditPage({
   onMode: (m: AuditMode) => void;
 }) {
   const [entityType, setEntityType] = useState("");
+  const [entityId, setEntityId] = useState("");
   const [actorId, setActorId] = useState("");
   const [method, setMethod] = useState("");
   const [since, setSince] = useState("");
@@ -1243,6 +1376,7 @@ function AdminAuditPage({
   const serverQuery = useMemo<AdminAuditQuery>(() => {
     const q: AdminAuditQuery = {};
     if (entityType.trim()) q.entity_type = entityType.trim();
+    if (entityId.trim()) q.entity_id = entityId.trim();
     if (actorId.trim()) q.actor_id = actorId.trim();
     if (method) q.method = method;
     const sinceTs = parseTimeInput(since);
@@ -1250,7 +1384,7 @@ function AdminAuditPage({
     const untilTs = parseTimeInput(until);
     if (untilTs) q.until = untilTs;
     return q;
-  }, [entityType, actorId, method, since, until]);
+  }, [entityType, entityId, actorId, method, since, until]);
 
   const feed = useAdminAuditFeed(zoneId, serverQuery);
   const rows = useMemo(() => (feed.data?.pages ?? []).flatMap((page) => page.rows), [feed.data]);
@@ -1369,12 +1503,14 @@ function AdminAuditPage({
             />
           }
           entityType={entityType}
+          entityId={entityId}
           actorId={actorId}
           method={method}
           since={since}
           until={until}
           loaded={rows.length}
           onEntityType={setEntityType}
+          onEntityId={setEntityId}
           onActorId={setActorId}
           onMethod={setMethod}
           onSince={setSince}
@@ -1489,12 +1625,14 @@ function AdminAuditFilterBar({
   onMode,
   exportControl,
   entityType,
+  entityId,
   actorId,
   method,
   since,
   until,
   loaded,
   onEntityType,
+  onEntityId,
   onActorId,
   onMethod,
   onSince,
@@ -1504,19 +1642,21 @@ function AdminAuditFilterBar({
   onMode: (m: AuditMode) => void;
   exportControl: ReactNode;
   entityType: string;
+  entityId: string;
   actorId: string;
   method: string;
   since: string;
   until: string;
   loaded: number;
   onEntityType: (v: string) => void;
+  onEntityId: (v: string) => void;
   onActorId: (v: string) => void;
   onMethod: (v: string) => void;
   onSince: (v: string) => void;
   onUntil: (v: string) => void;
 }) {
   const activeFilters =
-    (method ? 1 : 0) + [entityType, actorId, since, until].filter((v) => v.trim()).length;
+    (method ? 1 : 0) + [entityType, entityId, actorId, since, until].filter((v) => v.trim()).length;
   return (
     <AuditToolbar
       mode={mode}
@@ -1538,6 +1678,12 @@ function AdminAuditFilterBar({
         placeholder="applications, resources…"
         value={entityType}
         onChange={(e) => onEntityType(e.target.value)}
+      />
+      <Field
+        label="Entity ID"
+        placeholder="Follow one entity's history"
+        value={entityId}
+        onChange={(e) => onEntityId(e.target.value)}
       />
       <Field
         label="Actor ID"

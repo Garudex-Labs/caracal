@@ -182,6 +182,7 @@ function ApprovalsPage({ zoneId }: { zoneId: string }) {
       search={{
         placeholder: "Search loaded holds by principal, session, or binding…",
         match: (c, q) =>
+          c.id.toLowerCase().includes(q) ||
           c.principal_id.toLowerCase().includes(q) ||
           c.session_id.toLowerCase().includes(q) ||
           c.binding.toLowerCase().includes(q) ||

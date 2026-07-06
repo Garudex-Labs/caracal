@@ -73,6 +73,19 @@ interface SimulateTarget {
   version?: number;
 }
 
+interface ActivateTarget {
+  set: PolicySet;
+  versionId: string;
+  versionNumber?: number;
+}
+
+interface QuickDeployTarget {
+  policyId: string;
+  policyVersionId: string;
+  policyName: string;
+  set: PolicySet | null;
+}
+
 function PolicyWorkspaceRoute() {
   return (
     <ZoneScopedPage
@@ -121,6 +134,7 @@ function PolicyWorkspace({ zoneId }: { zoneId: string }) {
   // Switch to the Policies tab and hand the tab a one-shot signal to open the editor, then
   // strip the param so the form does not reopen on refresh.
   const [autoCreatePolicy, setAutoCreatePolicy] = useState(false);
+  const [autoCreateSet, setAutoCreateSet] = useState(false);
   const deepLinkFired = useRef(false);
   useEffect(() => {
     if (!create || deepLinkFired.current) return;
@@ -147,13 +161,24 @@ function PolicyWorkspace({ zoneId }: { zoneId: string }) {
   );
 
   return tab === "sets" ? (
-    <PolicySetsTab zoneId={zoneId} policies={policies.data ?? []} headerExtra={tabsNode} />
+    <PolicySetsTab
+      zoneId={zoneId}
+      policies={policies.data ?? []}
+      headerExtra={tabsNode}
+      autoCreate={autoCreateSet}
+      onAutoCreateHandled={() => setAutoCreateSet(false)}
+    />
   ) : (
     <PoliciesTab
       zoneId={zoneId}
+      policySets={policySets.data ?? []}
       headerExtra={tabsNode}
       autoCreate={autoCreatePolicy}
       onAutoCreateHandled={() => setAutoCreatePolicy(false)}
+      onSetupEnforcement={() => {
+        setTab("sets");
+        setAutoCreateSet(true);
+      }}
     />
   );
 }
@@ -164,16 +189,19 @@ function PolicySetsTab({
   zoneId,
   policies,
   headerExtra,
+  autoCreate = false,
+  onAutoCreateHandled,
 }: {
   zoneId: string;
   policies: Policy[];
   headerExtra: ReactNode;
+  autoCreate?: boolean;
+  onAutoCreateHandled?: () => void;
 }) {
   const toast = useToast();
   const query = usePolicySets(zoneId);
   const createSet = useCreatePolicySet(zoneId);
   const addVersion = useAddPolicySetVersion(zoneId);
-  const activate = useActivatePolicySet(zoneId);
   const deleteSet = useDeletePolicySet(zoneId);
 
   const [composer, setComposer] = useState<{ mode: "create" | "version"; set?: PolicySet } | null>(
@@ -181,78 +209,45 @@ function PolicySetsTab({
   );
   const [simulateTarget, setSimulateTarget] = useState<SimulateTarget | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<PolicySet | null>(null);
-  const [rollbackTarget, setRollbackTarget] = useState<{
-    set: PolicySet;
-    version: PolicySetVersion;
-  } | null>(null);
-  const [confirmActivation, setConfirmActivation] = useState<{
-    set: PolicySet;
-    result: ComposerResult;
-  } | null>(null);
+  const [activateTarget, setActivateTarget] = useState<ActivateTarget | null>(null);
+
+  // Honor the setup-enforcement handoff once: open the set composer, then clear the
+  // one-shot flag so the form does not reopen on the next render.
+  useEffect(() => {
+    if (!autoCreate) return;
+    setComposer({ mode: "create" });
+    onAutoCreateHandled?.();
+  }, [autoCreate, onAutoCreateHandled]);
 
   const rows = query.data ?? [];
-  const busy = createSet.isPending || addVersion.isPending || activate.isPending;
+  const busy = createSet.isPending || addVersion.isPending;
 
+  // Saving a version and activating it are separate steps by design: the version is
+  // durable once saved, and every activation flows through one dialog that dry-runs
+  // the exact version before it can govern the zone.
   async function runCompose(result: ComposerResult) {
     try {
+      let set: PolicySet;
       if (composer?.mode === "create") {
-        const set = await createSet.mutateAsync({
+        set = await createSet.mutateAsync({
           name: result.name!,
           description: result.description,
         });
-        const version = await addVersion.mutateAsync({ id: set.id, manifest: result.manifest });
-        // A new set has no live version, so only direct activation applies here.
-        if (result.deploy === "activate") {
-          await activate.mutateAsync({ id: set.id, versionId: version.version_id });
-        }
-        toast({ tone: "success", title: "Policy set created", description: set.name });
       } else if (composer?.set) {
-        const version = await addVersion.mutateAsync({
-          id: composer.set.id,
-          manifest: result.manifest,
-        });
-        if (result.deploy === "activate") {
-          await activate.mutateAsync({ id: composer.set.id, versionId: version.version_id });
-        } else if (result.deploy === "shadow" && composer.set.active_version_id) {
-          // Keep the current version live and evaluate the new one in parallel by pinning
-          // it as the shadow over the still-active primary.
-          await activate.mutateAsync({
-            id: composer.set.id,
-            versionId: composer.set.active_version_id,
-            shadowVersionId: version.version_id,
-          });
-        }
-        toast({
-          tone: "success",
-          title:
-            result.deploy === "activate"
-              ? "Version composed and activated"
-              : result.deploy === "shadow"
-                ? "Shadow version deployed"
-                : "Version composed",
-          description: composer.set.name,
-        });
+        set = composer.set;
+      } else {
+        return;
       }
+      const version = await addVersion.mutateAsync({ id: set.id, manifest: result.manifest });
       setComposer(null);
+      if (result.deploy === "activate") {
+        setActivateTarget({ set, versionId: version.version_id });
+      } else {
+        toast({ tone: "success", title: "Version saved", description: set.name });
+      }
     } catch (err) {
-      toast({ tone: "error", title: "Compose failed", description: errorMessage(err) });
+      toast({ tone: "error", title: "Save failed", description: errorMessage(err) });
     }
-  }
-
-  // Activating a new version that replaces a live one rewrites enforcement for the whole
-  // zone, so confirm that specific case. First activations (zone currently deny-all) and
-  // shadow deployments (which never touch the live version) are safe and proceed directly.
-  async function handleCompose(result: ComposerResult) {
-    if (
-      result.deploy === "activate" &&
-      composer?.mode === "version" &&
-      composer.set?.active_version_id
-    ) {
-      setComposer(null);
-      setConfirmActivation({ set: composer.set, result });
-      return;
-    }
-    await runCompose(result);
   }
 
   const columns: Column<PolicySet>[] = [
@@ -310,7 +305,9 @@ function PolicySetsTab({
         search={{
           placeholder: "Search policy sets…",
           match: (ps, q) =>
-            ps.name.toLowerCase().includes(q) || (ps.description ?? "").toLowerCase().includes(q),
+            ps.name.toLowerCase().includes(q) ||
+            (ps.description ?? "").toLowerCase().includes(q) ||
+            ps.id.toLowerCase().includes(q),
         }}
         sortOptions={[
           { id: "name", label: "Name" },
@@ -320,7 +317,7 @@ function PolicySetsTab({
           title: query.isError ? "Could not load policy sets" : "No policy sets yet",
           description: query.isError
             ? errorMessage(query.error)
-            : "Without an active policy set, every request in this zone denies by default. Compose and activate one to authorize traffic.",
+            : "Without an active policy set, every request in this zone denies by default. Create and activate one to authorize traffic.",
         }}
         detail={{
           title: (ps) => ps.name,
@@ -339,7 +336,13 @@ function PolicySetsTab({
                   version: version?.version,
                 })
               }
-              onActivateVersion={(version) => setRollbackTarget({ set: ps, version })}
+              onActivateVersion={(version) =>
+                setActivateTarget({
+                  set: ps,
+                  versionId: version.id,
+                  versionNumber: version.version,
+                })
+              }
               onDelete={() => setDeleteTarget(ps)}
             />
           ),
@@ -352,10 +355,9 @@ function PolicySetsTab({
         zoneId={zoneId}
         policies={policies}
         policySetName={composer?.set?.name}
-        hasActiveVersion={Boolean(composer?.set?.active_version_id)}
         busy={busy}
         onClose={() => setComposer(null)}
-        onSubmit={handleCompose}
+        onSubmit={runCompose}
       />
 
       <SimulateModal
@@ -364,32 +366,10 @@ function PolicySetsTab({
         onClose={() => setSimulateTarget(null)}
       />
 
-      <ConfirmDialog
-        open={rollbackTarget !== null}
-        onClose={() => setRollbackTarget(null)}
-        title="Activate this version"
-        description={
-          rollbackTarget?.set.active_version_id
-            ? `Version ${rollbackTarget.version.version} of "${rollbackTarget.set.name}" replaces the currently enforcing version for every request in this zone. Simulate it first if you are unsure.`
-            : `Version ${rollbackTarget?.version.version ?? ""} of "${rollbackTarget?.set.name ?? ""}" starts enforcing immediately, switching the zone from deny-all to the rules it pins.`
-        }
-        confirmLabel="Activate version"
-        tone="danger"
-        onConfirm={async () => {
-          const pending = rollbackTarget;
-          if (!pending) return;
-          setRollbackTarget(null);
-          try {
-            await activate.mutateAsync({ id: pending.set.id, versionId: pending.version.id });
-            toast({
-              tone: "success",
-              title: `Version ${pending.version.version} activated`,
-              description: pending.set.name,
-            });
-          } catch (err) {
-            toast({ tone: "error", title: "Activation failed", description: errorMessage(err) });
-          }
-        }}
+      <ActivateVersionDialog
+        zoneId={zoneId}
+        target={activateTarget}
+        onClose={() => setActivateTarget(null)}
       />
 
       <ConfirmDialog
@@ -410,33 +390,6 @@ function PolicySetsTab({
             toast({ tone: "info", title: "Policy set deleted", description: deleteTarget.name });
           } catch (err) {
             toast({ tone: "error", title: "Delete failed", description: errorMessage(err) });
-          }
-        }}
-      />
-      <ConfirmDialog
-        open={confirmActivation !== null}
-        onClose={() => setConfirmActivation(null)}
-        title="Replace active enforcement"
-        description={`"${confirmActivation?.set.name ?? ""}" already governs this zone. Activating the new version immediately replaces the live policy for every request. Simulate first if you are unsure.`}
-        confirmLabel="Activate new version"
-        tone="danger"
-        onConfirm={async () => {
-          const pending = confirmActivation;
-          if (!pending) return;
-          setConfirmActivation(null);
-          try {
-            const version = await addVersion.mutateAsync({
-              id: pending.set.id,
-              manifest: pending.result.manifest,
-            });
-            await activate.mutateAsync({ id: pending.set.id, versionId: version.version_id });
-            toast({
-              tone: "success",
-              title: "Version composed and activated",
-              description: pending.set.name,
-            });
-          } catch (err) {
-            toast({ tone: "error", title: "Compose failed", description: errorMessage(err) });
           }
         }}
       />
@@ -547,7 +500,7 @@ function ActiveManifest({
       </h3>
       {!versionId ? (
         <p className="mt-2 text-sm text-muted-foreground">
-          No version is active. Compose a version and activate it to enforce rules.
+          No version is active. Save a version and activate it to enforce rules.
         </p>
       ) : version.loading ? (
         <Skeleton className="mt-3 h-16 w-full" />
@@ -634,7 +587,7 @@ function SetVersionHistory({
         <p className="mt-2 text-sm text-muted-foreground">Could not load versions.</p>
       ) : rows.length === 0 ? (
         <p className="mt-2 text-sm text-muted-foreground">
-          No versions yet. Compose one to define what this set enforces.
+          No versions yet. Save one to define what this set enforces.
         </p>
       ) : (
         <div className="mt-3 flex flex-col gap-2">
@@ -789,14 +742,6 @@ function EnforcementStatus({
             <dd>
               <Mono>{(status.manifest_sha256 ?? "").slice(0, 12) || "-"}…</Mono>
             </dd>
-            {status.shadow_version_id ? (
-              <>
-                <dt className="text-muted-foreground">Shadow</dt>
-                <dd>
-                  <Mono>{status.shadow_version_id.slice(0, 12)}…</Mono>
-                </dd>
-              </>
-            ) : null}
           </dl>
           {status.propagation_status === "failed" ? (
             <p className="border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
@@ -893,6 +838,198 @@ function usePolicySetVersion(zoneId: string, policySetId: string, versionId: str
   }
 
   return state;
+}
+
+// One-click follow-up after a policy is saved: roll it into the zone's enforcing set and
+// review the activation, or set up enforcement when nothing governs the zone yet. Skippable,
+// so the policy library stays usable without ever touching enforcement.
+function QuickDeployDialog({
+  target,
+  busy,
+  onClose,
+  onDeploy,
+  onSetupEnforcement,
+}: {
+  target: QuickDeployTarget | null;
+  busy: boolean;
+  onClose: () => void;
+  onDeploy: () => void;
+  onSetupEnforcement: () => void;
+}) {
+  const hasSet = Boolean(target?.set);
+  return (
+    <Modal
+      open={target !== null}
+      onClose={onClose}
+      title={hasSet ? "Enforce this policy now?" : "Policy saved"}
+      description={
+        hasSet
+          ? `"${target?.set?.name ?? ""}" is enforcing this zone. One click saves a set version that includes "${target?.policyName ?? ""}" and reviews its activation.`
+          : `"${target?.policyName ?? ""}" is saved to the library, but no policy set is enforcing this zone yet, so every request still denies.`
+      }
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose} disabled={busy}>
+            Not now
+          </Button>
+          {hasSet ? (
+            <Button mutating loading={busy} onClick={onDeploy}>
+              Add to "{target?.set?.name ?? ""}" & activate
+            </Button>
+          ) : (
+            <Button onClick={onSetupEnforcement}>Set up enforcement</Button>
+          )}
+        </>
+      }
+    >
+      <p className="text-sm text-muted-foreground">
+        {hasSet
+          ? "The set's next version pins the current manifest with this policy updated. A dry run verifies it before anything changes."
+          : "Create a policy set with this policy and activate it to start authorizing traffic."}
+      </p>
+    </Modal>
+  );
+}
+
+// Every activation flows through this dialog: it dry-runs the exact version on open and
+// blocks the confirm until the run passes, so verification is ambient rather than a step
+// the operator has to remember. A failed dry run (contract or bundle rejection) cannot be
+// activated from here at all.
+function ActivateVersionDialog({
+  zoneId,
+  target,
+  onClose,
+  onActivated,
+}: {
+  zoneId: string;
+  target: ActivateTarget | null;
+  onClose: () => void;
+  onActivated?: () => void;
+}) {
+  const toast = useToast();
+  const activate = useActivatePolicySet(zoneId);
+  const [check, setCheck] = useState<
+    | { status: "running" }
+    | { status: "passed"; result: SimulateResult }
+    | { status: "failed"; message: string }
+  >({ status: "running" });
+  const [seedKey, setSeedKey] = useState("");
+
+  const key = target ? `${target.set.id}:${target.versionId}` : "";
+  useEffect(() => {
+    if (!target || seedKey === key) return;
+    setSeedKey(key);
+    setCheck({ status: "running" });
+    let cancelled = false;
+    consoleApi.policySets
+      .simulate(zoneId, target.set.id, target.versionId)
+      .then((result) => {
+        if (!cancelled) setCheck({ status: "passed", result });
+      })
+      .catch((err) => {
+        if (!cancelled) setCheck({ status: "failed", message: errorMessage(err) });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [zoneId, target, key, seedKey]);
+
+  const replacing =
+    Boolean(target?.set.active_version_id) && target?.set.active_version_id !== target?.versionId;
+  const versionLabel = target?.versionNumber ? `Version ${target.versionNumber}` : "This version";
+
+  return (
+    <Modal
+      open={target !== null}
+      onClose={() => {
+        setSeedKey("");
+        onClose();
+      }}
+      title="Activate version"
+      description={
+        replacing
+          ? `${versionLabel} of "${target?.set.name ?? ""}" replaces the currently enforcing version for every request in this zone.`
+          : `${versionLabel} of "${target?.set.name ?? ""}" starts enforcing immediately, switching the zone from deny-all to the rules it pins.`
+      }
+      footer={
+        <>
+          <Button
+            variant="secondary"
+            onClick={() => {
+              setSeedKey("");
+              onClose();
+            }}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="danger"
+            mutating
+            loading={activate.isPending}
+            disabled={check.status !== "passed"}
+            onClick={async () => {
+              if (!target) return;
+              try {
+                await activate.mutateAsync({ id: target.set.id, versionId: target.versionId });
+                toast({
+                  tone: "success",
+                  title: target.versionNumber
+                    ? `Version ${target.versionNumber} activated`
+                    : "Version activated",
+                  description: target.set.name,
+                });
+                setSeedKey("");
+                onClose();
+                onActivated?.();
+              } catch (err) {
+                toast({
+                  tone: "error",
+                  title: "Activation failed",
+                  description: errorMessage(err),
+                });
+              }
+            }}
+          >
+            Activate version
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-3">
+        {check.status === "running" ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Spinner /> Verifying this version compiles and satisfies the rollout contract…
+          </div>
+        ) : check.status === "failed" ? (
+          <div className="border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+            <div className="font-medium">Dry run failed</div>
+            <div className="mt-0.5">{check.message}</div>
+            <div className="mt-1 text-destructive/80">
+              This version cannot be activated. Fix the policies it pins and save a new version.
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge tone="success">Dry run passed</Badge>
+              <span className="font-mono text-[11px] text-muted-foreground">
+                {check.result.policies.length} polic
+                {check.result.policies.length === 1 ? "y" : "ies"}
+              </span>
+              <Mono>{(check.result.manifest_sha256 ?? "").slice(0, 12)}…</Mono>
+            </div>
+            {check.result.warnings.length > 0 ? (
+              <div className="border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+                {check.result.warnings.map((warning, index) => (
+                  <div key={index}>{warning}</div>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        )}
+      </div>
+    </Modal>
+  );
 }
 
 function SimulateModal({
@@ -1058,25 +1195,32 @@ function SimulationResult({ result }: { result: SimulateResult }) {
 
 function PoliciesTab({
   zoneId,
+  policySets,
   headerExtra,
   autoCreate = false,
   onAutoCreateHandled,
+  onSetupEnforcement,
 }: {
   zoneId: string;
+  policySets: PolicySet[];
   headerExtra: ReactNode;
   autoCreate?: boolean;
   onAutoCreateHandled?: () => void;
+  onSetupEnforcement: () => void;
 }) {
   const toast = useToast();
   const query = usePolicies(zoneId);
   const createPolicy = useCreatePolicy(zoneId);
   const addVersion = useAddPolicyVersion(zoneId);
+  const addSetVersion = useAddPolicySetVersion(zoneId);
   const deletePolicy = useDeletePolicy(zoneId);
 
   const [editor, setEditor] = useState<{ mode: "create" | "version"; policy?: Policy } | null>(
     null,
   );
   const [deleteTarget, setDeleteTarget] = useState<Policy | null>(null);
+  const [quickDeploy, setQuickDeploy] = useState<QuickDeployTarget | null>(null);
+  const [activateTarget, setActivateTarget] = useState<ActivateTarget | null>(null);
 
   // Honor the guided-setup deep link once: open the create editor, then notify the parent
   // so the one-shot flag clears and the form does not reopen on the next render.
@@ -1088,21 +1232,63 @@ function PoliciesTab({
 
   const rows = query.data ?? [];
   const busy = createPolicy.isPending || addVersion.isPending;
+  // At most one set can be enforcing the zone; it is the target of the one-click
+  // "add and activate" follow-up after a policy is saved.
+  const enforcingSet = policySets.find((set) => set.active_version_id) ?? null;
 
   async function handleSubmit(values: { name?: string; description?: string; content: string }) {
     try {
       if (editor?.mode === "create") {
-        await createPolicy.mutateAsync({
+        const created = await createPolicy.mutateAsync({
           name: values.name!,
           description: values.description,
           content: values.content,
         });
         toast({ tone: "success", title: "Policy created", description: values.name });
+        setQuickDeploy({
+          policyId: created.id,
+          policyVersionId: created.version_id,
+          policyName: values.name!,
+          set: enforcingSet,
+        });
       } else if (editor?.policy) {
-        await addVersion.mutateAsync({ id: editor.policy.id, content: values.content });
+        const version = await addVersion.mutateAsync({
+          id: editor.policy.id,
+          content: values.content,
+        });
         toast({ tone: "success", title: "Version added", description: editor.policy.name });
+        setQuickDeploy({
+          policyId: editor.policy.id,
+          policyVersionId: version.version_id,
+          policyName: editor.policy.name,
+          set: enforcingSet,
+        });
       }
       setEditor(null);
+    } catch (err) {
+      toast({ tone: "error", title: "Save failed", description: errorMessage(err) });
+    }
+  }
+
+  // Rolls the saved policy version into the enforcing set: the set's next version pins
+  // the active manifest with this policy's entry replaced (or appended), so "make my
+  // change live" is one action instead of re-selecting every policy in the composer.
+  async function quickDeployToSet(target: QuickDeployTarget) {
+    const set = target.set;
+    if (!set?.active_version_id) return;
+    try {
+      const [active, detail] = await Promise.all([
+        consoleApi.policySets.getVersion(zoneId, set.id, set.active_version_id),
+        consoleApi.policies.get(zoneId, target.policyId),
+      ]);
+      const ownVersions = new Set((detail.versions ?? []).map((version) => version.id));
+      const manifest = (active.policies ?? [])
+        .filter((versionId) => !ownVersions.has(versionId))
+        .map((policy_version_id) => ({ policy_version_id }));
+      manifest.push({ policy_version_id: target.policyVersionId });
+      const version = await addSetVersion.mutateAsync({ id: set.id, manifest });
+      setQuickDeploy(null);
+      setActivateTarget({ set, versionId: version.version_id });
     } catch (err) {
       toast({ tone: "error", title: "Save failed", description: errorMessage(err) });
     }
@@ -1121,11 +1307,6 @@ function PoliciesTab({
           ) : null}
         </div>
       ),
-    },
-    {
-      id: "owner",
-      header: "Owner",
-      cell: (p) => <Badge tone="neutral">{p.owner_type}</Badge>,
     },
     {
       id: "created",
@@ -1155,7 +1336,9 @@ function PoliciesTab({
         search={{
           placeholder: "Search policies…",
           match: (p, q) =>
-            p.name.toLowerCase().includes(q) || (p.description ?? "").toLowerCase().includes(q),
+            p.name.toLowerCase().includes(q) ||
+            (p.description ?? "").toLowerCase().includes(q) ||
+            p.id.toLowerCase().includes(q),
         }}
         sortOptions={[
           { id: "name", label: "Name" },
@@ -1165,7 +1348,7 @@ function PoliciesTab({
           title: query.isError ? "Could not load policies" : "No policies yet",
           description: query.isError
             ? errorMessage(query.error)
-            : "Policies are the Rego rules that authorize requests. Create one, then compose it into a policy set.",
+            : "Policies are the Rego rules that authorize requests. Create one, then add it to a policy set.",
         }}
         detail={{
           title: (p) => p.name,
@@ -1189,6 +1372,23 @@ function PoliciesTab({
         busy={busy}
         onClose={() => setEditor(null)}
         onSubmit={handleSubmit}
+      />
+
+      <QuickDeployDialog
+        target={quickDeploy}
+        busy={addSetVersion.isPending}
+        onClose={() => setQuickDeploy(null)}
+        onDeploy={() => quickDeploy && void quickDeployToSet(quickDeploy)}
+        onSetupEnforcement={() => {
+          setQuickDeploy(null);
+          onSetupEnforcement();
+        }}
+      />
+
+      <ActivateVersionDialog
+        zoneId={zoneId}
+        target={activateTarget}
+        onClose={() => setActivateTarget(null)}
       />
 
       <DeletePolicyDialog
@@ -1232,7 +1432,6 @@ function PolicyInspector({
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center gap-2">
-        <Badge tone="neutral">{policy.owner_type}</Badge>
         <div className="ml-auto">
           <Button size="sm" mutating onClick={onNewVersion}>
             New version
