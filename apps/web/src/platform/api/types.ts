@@ -116,7 +116,6 @@ export interface Resource {
   name: string;
   identifier: string;
   upstream_url: string | null;
-  allowed_application_ids: string[];
   scopes: string[];
   credential_provider_id: string | null;
   operations: ResourceOperation[];
@@ -135,7 +134,6 @@ export interface ResourceInput {
   upstream_url?: string | null;
   scopes: string[];
   credential_provider_id?: string | null;
-  allowed_application_ids?: string[];
   operations?: ResourceOperation[];
   operation_enforcement?: ResourceOperationEnforcement;
 }

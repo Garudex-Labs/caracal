@@ -191,18 +191,12 @@ function ensureLlmProvider(admin: AdminClient, zoneId: string, upstream: Governe
 }
 
 // Reconciles the governed LLM resource. The resource declares the data scope (the
-// reconciler adds the owner's bootstrap scope to every gateway-routed resource), binds the
-// sealed credential provider, and caps callers to the Operator identity through the resource
-// allowlist. transport_uniform treats the upstream as one surface, so an arbitrary
+// reconciler adds the owner's bootstrap scope to every gateway-routed resource) and binds
+// the sealed credential provider; the zone's grant policy alone decides which identities
+// may mint on it. transport_uniform treats the upstream as one surface, so an arbitrary
 // chat-completions path passes the mint-time scope check rather than a per-path operation
 // match. Patched only on drift, so a steady state never rewrites the resource.
-async function ensureLlmResource(
-  admin: AdminClient,
-  zoneId: string,
-  upstream: GovernedUpstream,
-  providerId: string,
-  operatorAppId: string,
-): Promise<string> {
+async function ensureLlmResource(admin: AdminClient, zoneId: string, upstream: GovernedUpstream, providerId: string): Promise<string> {
   const identifier = llmResourceIdentifier(upstream.id)
   await ensureResource(admin, zoneId, {
     name: `Operator LLM ${upstream.id}`,
@@ -210,7 +204,6 @@ async function ensureLlmResource(
     scopes: [LLM_SCOPE],
     upstream_url: upstream.baseUrl,
     credential_provider_id: providerId,
-    allowed_application_ids: [operatorAppId],
     operation_enforcement: 'transport_uniform',
   })
   return identifier
@@ -269,7 +262,7 @@ export async function provisionGovernedUpstreams(
   for (const upstream of upstreams) {
     const providerId = await ensureLlmProvider(admin, zoneId, upstream)
     if (!providerId) continue
-    const resourceIdentifier = await ensureLlmResource(admin, zoneId, upstream, providerId, operatorAppId)
+    const resourceIdentifier = await ensureLlmResource(admin, zoneId, upstream, providerId)
     governed.push({ id: upstream.id, resourceIdentifier })
   }
   await pruneOrphanedProviders(admin, zoneId, new Set(upstreams.map((upstream) => llmProviderIdentifier(upstream.id))))

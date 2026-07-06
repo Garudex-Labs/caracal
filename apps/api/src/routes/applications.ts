@@ -241,23 +241,6 @@ export const applicationsRoutes: FastifyPluginAsync = async (fastify) => {
     if (!params) return
     const attribution = await resolveAttribution(req, fastify.db, params.zoneId)
     return withTransaction(fastify.db, async (client) => {
-      // An application named in a resource caller allowlist cannot be archived:
-      // silently dropping it from the allowlist would widen access, and leaving
-      // a dangling entry would deny exchanges without an operator-visible cause.
-      const { rows: allowlisted } = await client.query<{ identifier: string }>(
-        `SELECT identifier FROM resources
-         WHERE zone_id = $1 AND archived_at IS NULL AND $2 = ANY(allowed_application_ids)
-         LIMIT 1`,
-        [params.zoneId, params.id],
-      )
-      if (allowlisted[0]) {
-        throw new TxAbort(
-          reply.code(409).send({
-            error: 'application_in_resource_allowlist',
-            error_description: `application is in the caller allowlist of ${allowlisted[0].identifier}; remove it from the resource first`,
-          }),
-        )
-      }
       const { rowCount } = await client.query(
         `UPDATE applications SET archived_at = now(), updated_at = now(), updated_by = $3, updated_via_operator = $4
          WHERE id = $1 AND zone_id = $2 AND archived_at IS NULL`,

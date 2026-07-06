@@ -28,7 +28,7 @@ const ResourceOperation = z.object({
   scope: z.string().min(1).max(200),
 })
 
-const RESOURCE_SELECT = `id, zone_id, name, identifier, upstream_url, scopes, credential_provider_id, allowed_application_ids, operations, operation_enforcement,
+const RESOURCE_SELECT = `id, zone_id, name, identifier, upstream_url, scopes, credential_provider_id, operations, operation_enforcement,
            created_by, created_via_operator, updated_by, updated_via_operator, created_at, updated_at`
 
 const ResourceBodyBase = z.object({
@@ -37,7 +37,6 @@ const ResourceBodyBase = z.object({
   upstream_url: HttpURL.nullable().optional(),
   scopes: z.array(z.string().min(1).max(200)).min(1).max(64),
   credential_provider_id: z.string().nullable().optional(),
-  allowed_application_ids: z.array(z.string().min(1).max(200)).max(64).optional(),
   operations: z.array(ResourceOperation).max(256).optional(),
   operation_enforcement: z.enum(['enforced', 'transport_uniform']).optional(),
 })
@@ -62,26 +61,6 @@ async function providerExists(fastify: FastifyInstance, zoneId: string, provider
     zoneId,
   ])
   return rows.length > 0
-}
-
-async function allowedApplicationsError(
-  fastify: FastifyInstance,
-  zoneId: string,
-  applicationIds: string[],
-): Promise<'allowed_application_not_found' | null> {
-  if (applicationIds.length === 0) return null
-  const { rows } = await fastify.db.query<{ id: string }>(
-    `SELECT id FROM applications
-     WHERE zone_id = $1 AND id = ANY($2) AND archived_at IS NULL
-       AND (expires_at IS NULL OR expires_at > now())`,
-    [zoneId, applicationIds],
-  )
-  const found = new Set(rows.map((row) => row.id))
-  return applicationIds.every((id) => found.has(id)) ? null : 'allowed_application_not_found'
-}
-
-function dedupeIds(ids: string[]): string[] {
-  return [...new Set(ids)]
 }
 
 function slugValue(value: string): string {
@@ -229,7 +208,7 @@ export const resourcesRoutes: FastifyPluginAsync = async (fastify) => {
     const keyset = appendKeysetCondition(base, page, 'r.created_at', 'r.id')
     const { rows } = await fastify.db.query(
       `SELECT r.id, r.zone_id, r.name, r.identifier, r.upstream_url, r.scopes,
-              r.credential_provider_id, r.allowed_application_ids,
+              r.credential_provider_id,
               r.operations, r.operation_enforcement,
               r.created_by, r.created_via_operator, r.updated_by, r.updated_via_operator,
               r.created_at, r.updated_at
@@ -246,7 +225,7 @@ export const resourcesRoutes: FastifyPluginAsync = async (fastify) => {
     if (!params) return
     const { rows } = await fastify.db.query(
       `SELECT r.id, r.zone_id, r.name, r.identifier, r.upstream_url, r.scopes,
-              r.credential_provider_id, r.allowed_application_ids,
+              r.credential_provider_id,
               r.operations, r.operation_enforcement,
               r.created_by, r.created_via_operator, r.updated_by, r.updated_via_operator,
               r.created_at, r.updated_at
@@ -291,9 +270,6 @@ export const resourcesRoutes: FastifyPluginAsync = async (fastify) => {
     const operationCheck = normalizeOperations(body.operations, body.scopes)
     if (operationCheck.error) return reply.code(400).send({ error: operationCheck.error })
     const operationEnforcement = body.operation_enforcement ?? 'enforced'
-    const allowedApplicationIds = isControlResource(identifier) ? [] : dedupeIds(body.allowed_application_ids ?? [])
-    const allowedError = await allowedApplicationsError(fastify, params.zoneId, allowedApplicationIds)
-    if (allowedError) return reply.code(404).send({ error: allowedError })
     if (await resourceQuotaExceeded(fastify, params.zoneId)) {
       return reply.code(409).send({ error: 'resource_quota_exceeded' })
     }
@@ -301,8 +277,8 @@ export const resourcesRoutes: FastifyPluginAsync = async (fastify) => {
     const attribution = await resolveAttribution(req, fastify.db, params.zoneId)
     try {
       const { rows } = await fastify.db.query(
-        `INSERT INTO resources (id, zone_id, name, identifier, upstream_url, scopes, credential_provider_id, allowed_application_ids, operations, operation_enforcement, created_by, created_via_operator)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12)
+        `INSERT INTO resources (id, zone_id, name, identifier, upstream_url, scopes, credential_provider_id, operations, operation_enforcement, created_by, created_via_operator)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11)
          RETURNING ${RESOURCE_SELECT}`,
         [
           id,
@@ -312,7 +288,6 @@ export const resourcesRoutes: FastifyPluginAsync = async (fastify) => {
           body.upstream_url ?? null,
           body.scopes,
           credentialProviderID,
-          allowedApplicationIds,
           JSON.stringify(operationCheck.value),
           operationEnforcement,
           attribution.actor,
@@ -337,22 +312,16 @@ export const resourcesRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.code(404).send({ error: 'provider_not_found' })
       }
     }
-    const requestedAllowedIds = body.allowed_application_ids !== undefined ? dedupeIds(body.allowed_application_ids) : undefined
-    if (requestedAllowedIds !== undefined) {
-      const allowedError = await allowedApplicationsError(fastify, params.zoneId, requestedAllowedIds)
-      if (allowedError) return reply.code(404).send({ error: allowedError })
-    }
     try {
       return await withTransaction(fastify.db, async (client) => {
         const { rows: currentRows } = await client.query<{
           identifier: string
           upstream_url: string | null
           credential_provider_id: string | null
-          allowed_application_ids: string[]
           scopes: string[]
           operations: ResourceOperationValue[]
         }>(
-          `SELECT identifier, upstream_url, credential_provider_id, allowed_application_ids, scopes, operations
+          `SELECT identifier, upstream_url, credential_provider_id, scopes, operations
            FROM resources
            WHERE id = $1 AND zone_id = $2 AND archived_at IS NULL
            FOR UPDATE`,
@@ -386,9 +355,6 @@ export const resourcesRoutes: FastifyPluginAsync = async (fastify) => {
         }
         const gatewayError = validateGatewayRouting(nextIdentifier, nextUpstreamURL, nextCredentialProviderID)
         if (gatewayError) throw new TxAbort(reply.code(400).send({ error: gatewayError }))
-        const nextAllowedApplicationIds = isControlResource(nextIdentifier) ? [] : (requestedAllowedIds ?? current.allowed_application_ids)
-        const writeAllowedIds =
-          requestedAllowedIds !== undefined || (isControlResource(nextIdentifier) && current.allowed_application_ids.length > 0)
         const effectiveScopes = body.scopes ?? current.scopes
         const effectiveOperations = body.operations ?? current.operations
         const operationCheck = normalizeOperations(effectiveOperations, effectiveScopes)
@@ -401,10 +367,6 @@ export const resourcesRoutes: FastifyPluginAsync = async (fastify) => {
             patchColumn('upstream_url', body.upstream_url),
             patchColumn('scopes', body.scopes),
             patchColumn('credential_provider_id', body.credential_provider_id),
-            patchExpression(
-              writeAllowedIds ? nextAllowedApplicationIds : undefined,
-              (placeholder) => `allowed_application_ids = ${placeholder}`,
-            ),
             patchExpression(
               body.operations !== undefined ? JSON.stringify(operationCheck.value) : undefined,
               (placeholder) => `operations = ${placeholder}::jsonb`,
