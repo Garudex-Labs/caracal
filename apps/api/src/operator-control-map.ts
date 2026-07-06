@@ -224,7 +224,6 @@ export const CONTROL_CAPABILITIES: Record<string, ControlCapability> = {
         name: asString(args.name),
         ...(args.description === undefined ? {} : { description: asString(args.description) }),
         content: asString(args.content),
-        ...(args.schema_version === undefined ? {} : { 'schema-version': asString(args.schema_version) }),
       },
     }),
     describeOutcome: (result, args) => {
@@ -246,7 +245,6 @@ export const CONTROL_CAPABILITIES: Record<string, ControlCapability> = {
       flags: {
         id: asString(args.policy_id),
         content: asString(args.content),
-        ...(args.schema_version === undefined ? {} : { 'schema-version': asString(args.schema_version) }),
       },
     }),
     describeOutcome: (result, args) => {

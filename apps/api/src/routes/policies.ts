@@ -10,7 +10,7 @@ import { v7 as uuidv7 } from 'uuid'
 import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
 import { zoneExists } from '../zone-guard.js'
 import { withTransaction, TxAbort } from '../db.js'
-import { OPA_INPUT_SCHEMA_VERSION, previewAuthzPolicy, validateAuthzPolicy, validatePolicySchemaVersion } from '../rego.js'
+import { OPA_INPUT_SCHEMA_VERSION, previewAuthzPolicy, validateAuthzPolicy } from '../rego.js'
 import { appendKeysetCondition, listPage, parseListPagination } from './list-pagination.js'
 import { assertReservedNamespace } from '../reserved-namespace.js'
 import { resolveAttribution } from '../attribution.js'
@@ -18,19 +18,15 @@ import { resolveAttribution } from '../attribution.js'
 const PolicyBody = z.object({
   name: z.string().min(1),
   description: z.string().optional(),
-  owner_type: z.string().optional(),
   content: z.string().min(1),
-  schema_version: z.string().default(OPA_INPUT_SCHEMA_VERSION),
 })
 
 const VersionBody = z.object({
   content: z.string().min(1),
-  schema_version: z.string().default(OPA_INPUT_SCHEMA_VERSION),
 })
 
 const ValidateBody = z.object({
   content: z.string().min(1),
-  schema_version: z.string().default(OPA_INPUT_SCHEMA_VERSION),
 })
 
 function validateRego(content: string): string | null {
@@ -40,13 +36,11 @@ function validateRego(content: string): string | null {
 export const policiesRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post('/policies/validate', async (req, reply) => {
     const body = ValidateBody.parse(req.body)
-    const schemaErr = validatePolicySchemaVersion(body.schema_version)
-    if (schemaErr) return reply.code(422).send({ valid: false, error: 'invalid_schema_version', error_description: schemaErr })
     const regoErr = validateRego(body.content)
     if (regoErr) return reply.code(422).send({ valid: false, error: 'invalid_rego', error_description: regoErr })
     return {
       valid: true,
-      schema_version: body.schema_version,
+      schema_version: OPA_INPUT_SCHEMA_VERSION,
       input_schema_version: OPA_INPUT_SCHEMA_VERSION,
       output_contract: {
         package: 'caracal.authz',
@@ -65,7 +59,7 @@ export const policiesRoutes: FastifyPluginAsync = async (fastify) => {
     if (!page) return
     const keyset = appendKeysetCondition({ conds: ['zone_id = $1', 'archived_at IS NULL'], values: [params.zoneId] }, page)
     const { rows } = await fastify.db.query(
-      `SELECT id, zone_id, name, description, owner_type, created_by, created_via_operator, updated_by, updated_via_operator, created_at, updated_at
+      `SELECT id, zone_id, name, description, created_by, created_via_operator, updated_by, updated_via_operator, created_at, updated_at
        FROM policies WHERE ${keyset.conds.join(' AND ')}
        ORDER BY created_at DESC, id DESC LIMIT ${keyset.limitPlaceholder}`,
       keyset.values,
@@ -77,7 +71,7 @@ export const policiesRoutes: FastifyPluginAsync = async (fastify) => {
     const params = parseParams(ZoneIdParams, req, reply)
     if (!params) return
     const { rows } = await fastify.db.query(
-      `SELECT p.id, p.zone_id, p.name, p.description, p.owner_type, p.created_by, p.created_via_operator,
+      `SELECT p.id, p.zone_id, p.name, p.description, p.created_by, p.created_via_operator,
               p.updated_by, p.updated_via_operator, p.created_at, p.updated_at,
               json_agg(pv ORDER BY pv.version DESC) AS versions
        FROM policies p
@@ -99,8 +93,6 @@ export const policiesRoutes: FastifyPluginAsync = async (fastify) => {
     const body = PolicyBody.parse(req.body)
     const reservedErr = assertReservedNamespace('policyName', body.name, req.actor)
     if (reservedErr) return reply.code(409).send(reservedErr)
-    const schemaErr = validatePolicySchemaVersion(body.schema_version)
-    if (schemaErr) return reply.code(422).send({ error: 'invalid_schema_version', error_description: schemaErr })
     const regoErr = validateRego(body.content)
     if (regoErr) return reply.code(422).send({ error: 'invalid_rego', error_description: regoErr })
     const policyId = uuidv7()
@@ -110,23 +102,15 @@ export const policiesRoutes: FastifyPluginAsync = async (fastify) => {
 
     return withTransaction(fastify.db, async (client) => {
       await client.query(
-        `INSERT INTO policies (id, zone_id, name, description, owner_type, created_by, created_via_operator)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [
-          policyId,
-          params.zoneId,
-          body.name,
-          body.description ?? null,
-          body.owner_type ?? 'customer',
-          attribution.actor,
-          attribution.viaOperator,
-        ],
+        `INSERT INTO policies (id, zone_id, name, description, created_by, created_via_operator)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [policyId, params.zoneId, body.name, body.description ?? null, attribution.actor, attribution.viaOperator],
       )
       const { rows } = await client.query(
         `INSERT INTO policy_versions (id, policy_id, version, content, content_sha256, schema_version, created_by, created_via_operator)
          VALUES ($1, $2, 1, $3, $4, $5, $6, $7)
          RETURNING id, policy_id, version, content_sha256, schema_version, created_at`,
-        [versionId, policyId, body.content, contentSHA, body.schema_version, attribution.actor, attribution.viaOperator],
+        [versionId, policyId, body.content, contentSHA, OPA_INPUT_SCHEMA_VERSION, attribution.actor, attribution.viaOperator],
       )
       return reply.code(201).send({
         id: policyId,
@@ -143,8 +127,6 @@ export const policiesRoutes: FastifyPluginAsync = async (fastify) => {
     const params = parseParams(ZoneIdParams, req, reply)
     if (!params) return
     const body = VersionBody.parse(req.body)
-    const schemaErr = validatePolicySchemaVersion(body.schema_version)
-    if (schemaErr) return reply.code(422).send({ error: 'invalid_schema_version', error_description: schemaErr })
     const regoErr = validateRego(body.content)
     if (regoErr) return reply.code(422).send({ error: 'invalid_rego', error_description: regoErr })
 
@@ -166,7 +148,7 @@ export const policiesRoutes: FastifyPluginAsync = async (fastify) => {
          INSERT INTO policy_versions (id, policy_id, version, content, content_sha256, schema_version, created_by, created_via_operator)
          SELECT $1, $2, next.v, $3, $4, $5, $6, $7 FROM next
          RETURNING id, policy_id, version, content_sha256, schema_version, created_at`,
-        [versionId, params.id, body.content, contentSHA, body.schema_version, attribution.actor, attribution.viaOperator],
+        [versionId, params.id, body.content, contentSHA, OPA_INPUT_SCHEMA_VERSION, attribution.actor, attribution.viaOperator],
       )
       await client.query(
         `UPDATE policies SET updated_by = $3, updated_via_operator = $4, updated_at = now() WHERE id = $1 AND zone_id = $2`,

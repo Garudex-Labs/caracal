@@ -13,7 +13,6 @@ const Scope = z.string().min(1).max(128).regex(ScopePattern)
 // inline to the control plane. Bounded in length so a plan step stays small; the control plane
 // re-validates the Rego on apply, so the catalog only guards shape.
 const PolicyContent = z.string().min(1).max(20000)
-const SchemaVersion = z.string().min(1).max(64)
 
 // The object domain a capability operates on, mirroring the Console's navigation
 // so the Operator reasons in user-visible terms rather than internal endpoints.
@@ -353,10 +352,9 @@ export const CAPABILITIES: Record<string, Capability> = {
         name: z.string().min(1).max(200),
         description: z.string().max(500).optional(),
         content: PolicyContent,
-        schema_version: SchemaVersion.optional(),
       })
       .strict(),
-    argsHint: 'name (string), description (string, optional), content (Rego data document), schema_version (string, optional)',
+    argsHint: 'name (string), description (string, optional), content (Rego data document)',
     preview: {
       kind: 'createByName',
       target: 'policies',
@@ -371,8 +369,8 @@ export const CAPABILITIES: Record<string, Capability> = {
     summary: 'Seal a new immutable version of an existing policy from an authored data document.',
     domain: 'policy',
     mutating: true,
-    args: z.object({ policy_id: IdRef, content: PolicyContent, schema_version: SchemaVersion.optional() }).strict(),
-    argsHint: 'policy_id (string), content (Rego data document), schema_version (string, optional)',
+    args: z.object({ policy_id: IdRef, content: PolicyContent }).strict(),
+    argsHint: 'policy_id (string), content (Rego data document)',
     preview: {
       kind: 'mutateById',
       target: 'policies',

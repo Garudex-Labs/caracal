@@ -77,7 +77,7 @@ const AuditQuery = z.object({
   until: z.string().datetime().optional(),
   request_id: z.string().min(1).optional(),
   decision: z.enum(['allow', 'deny', 'partial']).optional(),
-  event_type: z.string().min(1).optional(),
+  event_type: z.string().min(1).max(512).optional(),
   application_id: z.string().min(1).max(128).optional(),
   agent_session_id: z.string().min(1).max(128).optional(),
   session_id: z.string().min(1).max(128).optional(),
@@ -87,6 +87,16 @@ const AuditQuery = z.object({
   cursor: z.string().min(1).max(512).optional(),
   limit: z.coerce.number().int().min(1).max(1000).default(100),
 })
+
+// event_type accepts a single type or a comma-separated list, so one query can cover an
+// audit domain (for example every step_up_* lifecycle event) without client-side merging.
+function parseEventTypes(raw: string): string[] | null {
+  const types = raw
+    .split(',')
+    .map((t) => t.trim())
+    .filter(Boolean)
+  return types.length > 0 && types.length <= 16 ? types : null
+}
 
 const SessionQuery = z.object({
   status: z.enum(['active', 'revoked', 'expired']).optional(),
@@ -180,6 +190,24 @@ const AUDIT_METADATA_FIELDS = [
   'upstream_status',
   'result_class',
   'reason',
+  'trace_id',
+  'provider_id',
+  'connection_id',
+  'upstream_host',
+  'gateway_status',
+  'error_kind',
+  'response_bytes',
+  'auth_mode',
+  'subject_fingerprint',
+  'subject',
+  'authorized_by',
+  'command',
+  'subcommand',
+  'challenge_id',
+  'tier',
+  'approver_class',
+  'privacy_mode',
+  'approver_subject_id',
 ] as const
 
 const AUDIT_EXPORT_FIELDS: readonly string[] = [...AUDIT_ROW_FIELDS, ...AUDIT_METADATA_FIELDS]
@@ -243,7 +271,7 @@ export const zoneEventsRoutes: FastifyPluginAsync = async (fastify) => {
     if (!fields) return reply.code(400).send({ error: 'invalid_fields' })
 
     const conds = ['zone_id = $1']
-    const values: (string | number)[] = [params.zoneId]
+    const values: (string | number | string[])[] = [params.zoneId]
     if (q.since) {
       values.push(q.since)
       conds.push(`occurred_at >= $${values.length}`)
@@ -261,8 +289,15 @@ export const zoneEventsRoutes: FastifyPluginAsync = async (fastify) => {
       conds.push(`decision = $${values.length}`)
     }
     if (q.event_type) {
-      values.push(q.event_type)
-      conds.push(`event_type = $${values.length}`)
+      const types = parseEventTypes(q.event_type)
+      if (!types) return reply.code(400).send({ error: 'invalid_query' })
+      if (types.length === 1) {
+        values.push(types[0]!)
+        conds.push(`event_type = $${values.length}`)
+      } else {
+        values.push(types)
+        conds.push(`event_type = ANY($${values.length})`)
+      }
     }
     if (q.application_id) {
       values.push(q.application_id)
