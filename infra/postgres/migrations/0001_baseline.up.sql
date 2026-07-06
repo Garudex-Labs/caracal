@@ -449,6 +449,50 @@ CREATE TABLE public.event_outbox (
 
 
 --
+-- Name: notification_deliveries; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.notification_deliveries (
+    id text NOT NULL,
+    sink_id text NOT NULL,
+    zone_id text NOT NULL,
+    event_id text NOT NULL,
+    event_type text NOT NULL,
+    payload_json jsonb NOT NULL,
+    attempts integer DEFAULT 0 NOT NULL,
+    available_at timestamp with time zone DEFAULT now() NOT NULL,
+    delivered_at timestamp with time zone,
+    abandoned_at timestamp with time zone,
+    response_status integer,
+    last_error text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: notification_sinks; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.notification_sinks (
+    id text NOT NULL,
+    zone_id text NOT NULL,
+    name text NOT NULL,
+    url text NOT NULL,
+    secret_ct bytea NOT NULL,
+    event_types text[] NOT NULL,
+    active boolean DEFAULT true NOT NULL,
+    cursor_chain_seq bigint DEFAULT 0 NOT NULL,
+    consecutive_failures integer DEFAULT 0 NOT NULL,
+    last_success_at timestamp with time zone,
+    last_failure_at timestamp with time zone,
+    last_error text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT notification_sinks_event_types_check CHECK ((cardinality(event_types) > 0))
+);
+
+
+--
 -- Name: operator_ai_providers; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1092,6 +1136,30 @@ ALTER TABLE ONLY public.event_outbox
 
 
 --
+-- Name: notification_deliveries notification_deliveries_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.notification_deliveries
+    ADD CONSTRAINT notification_deliveries_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: notification_deliveries notification_deliveries_sink_event_uniq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.notification_deliveries
+    ADD CONSTRAINT notification_deliveries_sink_event_uniq UNIQUE (sink_id, event_id);
+
+
+--
+-- Name: notification_sinks notification_sinks_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.notification_sinks
+    ADD CONSTRAINT notification_sinks_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: operator_ai_providers operator_ai_providers_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1674,6 +1742,34 @@ CREATE INDEX event_outbox_dispatch_ready ON public.event_outbox USING btree (ava
 --
 
 CREATE INDEX event_outbox_undispatched_age ON public.event_outbox USING btree (created_at) WHERE (dispatched_at IS NULL);
+
+
+--
+-- Name: notification_deliveries_due_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX notification_deliveries_due_idx ON public.notification_deliveries USING btree (available_at) WHERE ((delivered_at IS NULL) AND (abandoned_at IS NULL));
+
+
+--
+-- Name: notification_deliveries_settled_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX notification_deliveries_settled_idx ON public.notification_deliveries USING btree (created_at) WHERE ((delivered_at IS NOT NULL) OR (abandoned_at IS NOT NULL));
+
+
+--
+-- Name: notification_deliveries_sink_keyset_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX notification_deliveries_sink_keyset_idx ON public.notification_deliveries USING btree (sink_id, created_at DESC, id DESC);
+
+
+--
+-- Name: notification_sinks_zone_keyset_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX notification_sinks_zone_keyset_idx ON public.notification_sinks USING btree (zone_id, created_at DESC, id DESC);
 
 
 --
@@ -2284,6 +2380,22 @@ ALTER TABLE ONLY public.delegation_graph_epochs
 
 
 --
+-- Name: notification_deliveries notification_deliveries_sink_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.notification_deliveries
+    ADD CONSTRAINT notification_deliveries_sink_id_fkey FOREIGN KEY (sink_id) REFERENCES public.notification_sinks(id) ON DELETE CASCADE;
+
+
+--
+-- Name: notification_sinks notification_sinks_zone_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.notification_sinks
+    ADD CONSTRAINT notification_sinks_zone_id_fkey FOREIGN KEY (zone_id) REFERENCES public.zones(id) ON DELETE CASCADE;
+
+
+--
 -- Name: operator_message_run_events operator_message_run_events_conversation_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2848,6 +2960,7 @@ GRANT SELECT ON TABLE public.applications TO caracalgateway;
 --
 
 GRANT SELECT,INSERT ON TABLE public.audit_events TO caracalaudit;
+GRANT SELECT ON TABLE public.audit_events TO caracalapi;
 
 
 --
@@ -2945,6 +3058,20 @@ GRANT SELECT,INSERT ON TABLE public.operator_turns TO caracalapi;
 --
 
 GRANT SELECT,INSERT ON TABLE public.operator_zone_memory TO caracalapi;
+
+
+--
+-- Name: TABLE notification_deliveries; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.notification_deliveries TO caracalapi;
+
+
+--
+-- Name: TABLE notification_sinks; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.notification_sinks TO caracalapi;
 
 
 --

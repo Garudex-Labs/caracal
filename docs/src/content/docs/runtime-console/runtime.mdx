@@ -60,8 +60,8 @@ Web console **Guided setup** is the recommended way to create the first zone, pr
 | Stage | Behavior |
 | --- | --- |
 | Provisioning | Create the workload and its launch bindings on the console's **Launcher** page; copy its one-time secret into an owner-only file at the runtime path. |
-| Consumption | At launch, the workload secret authenticates the binding fetch and one credential mint per binding; results are injected as child environment variables. |
-| TTL | Injected credentials carry the expiry of the minted mandate or provider token. |
+| Consumption | At launch, the workload secret authenticates the binding fetch and one credential mint per binding; results are injected as child environment variables. The binding fetch and every mint are recorded in the zone's audit ledger, correlated by a per-launch id. |
+| TTL | Injected credentials carry the expiry of the minted mandate or provider token; when the provider reports one, it is also injected as `<ENV>_EXPIRES_AT` in epoch seconds. |
 | Renewal | None. The launcher never re-mints after spawn; long-running workloads use a Caracal SDK. |
 | Rotation | Rotate the workload secret on the **Launcher** page, then update the local secret file. |
 | Revocation | Revoke through the web console; Gateway-routed requests are rejected immediately, and injected tokens expire at TTL. |
@@ -74,10 +74,10 @@ When STS returns `interaction_required`, the runtime writes an `approval_require
 
 The child process receives only:
 
-- The configured credential environment variables.
-- An inherited allowlist: `PATH`, `HOME`, `USER`, `LOGNAME`, `SHELL`, temporary-directory variables, locale (`LANG`, `LC_*`), terminal and color variables, `CI`, `XDG_*` directories, and standard Windows system variables.
+- The configured credential environment variables, each with a companion `<ENV>_EXPIRES_AT` (epoch seconds) when the provider reports an expiry.
+- An inherited allowlist: `PATH`, `HOME`, `USER`, `LOGNAME`, `SHELL`, temporary-directory variables, locale (`LANG`, `LC_*`), terminal and color variables, `CI`, `NODE_ENV`, `CARACAL_ENV`, `XDG_*` directories, and standard Windows system variables.
 
-Everything else is dropped, including `CARACAL_*` configuration variables: they configure the launcher and do not propagate to the child. Credential entries may not use environment names that alter process loading, such as `NODE_OPTIONS`, `BUN_OPTIONS`, `LD_PRELOAD`, `LD_LIBRARY_PATH`, or `DYLD_*` variables.
+Everything else is dropped, including `CARACAL_*` configuration variables: they configure the launcher and do not propagate to the child. `CARACAL_ENV` is the one exception because it names the deployment environment rather than configuring the launcher. Credential entries may not use environment names that alter process loading, such as `NODE_OPTIONS`, `BUN_OPTIONS`, `LD_PRELOAD`, `LD_LIBRARY_PATH`, or `DYLD_*` variables.
 
 SDK-based children resolve their own configuration from the default profile path, which works because `HOME` and `XDG_CONFIG_HOME` are inherited.
 
