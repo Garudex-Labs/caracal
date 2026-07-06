@@ -130,6 +130,30 @@ func TestBuildProviderGrantAssertionClaims(t *testing.T) {
 	}
 }
 
+func TestResourceMintScopesDerivesLifecycleForGatewayRouted(t *testing.T) {
+	upstream := "https://api.pipernet.example"
+	routed := &Resource{Identifier: "resource://pipernet", UpstreamURL: &upstream, Scopes: []string{"data:read"}}
+	if !scopesAllowed([]string{"agent:lifecycle"}, resourceMintScopes(routed)) {
+		t.Fatal("gateway-routed resources must accept the lifecycle bootstrap scope without declaring it")
+	}
+	if !scopesAllowed([]string{"data:read"}, resourceMintScopes(routed)) {
+		t.Fatal("declared business scopes must stay mintable")
+	}
+	if scopesAllowed([]string{"data:write"}, resourceMintScopes(routed)) {
+		t.Fatal("undeclared business scopes must stay denied")
+	}
+
+	declared := &Resource{Identifier: "resource://pipernet", UpstreamURL: &upstream, Scopes: []string{"data:read", "agent:lifecycle"}}
+	if got := resourceMintScopes(declared); len(got) != 2 {
+		t.Fatalf("a declared lifecycle scope must not duplicate: %v", got)
+	}
+
+	unrouted := &Resource{Identifier: "resource://pipernet", Scopes: []string{"data:read"}}
+	if scopesAllowed([]string{"agent:lifecycle"}, resourceMintScopes(unrouted)) {
+		t.Fatal("resources without an upstream must not accept the lifecycle scope implicitly")
+	}
+}
+
 func testCertificatePEM(t *testing.T, key *ecdsa.PrivateKey) string {
 	t.Helper()
 	template := x509.Certificate{

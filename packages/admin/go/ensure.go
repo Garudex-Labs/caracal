@@ -12,14 +12,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"slices"
 	"sort"
 	"strings"
 )
-
-// LifecycleScope is the scope a governed transport bootstraps with on a
-// gateway-routed resource.
-const LifecycleScope = "agent:lifecycle"
 
 const (
 	// GrantPolicyName is the default policy EnsureGrants converges.
@@ -177,16 +172,12 @@ type ResourceEnsure struct {
 // EnsureResource converges a resource to the given desired fields, creating
 // it when absent and patching it only on drift so a steady state never bumps
 // caches keyed on the resource row. Unmanaged fields are never clobbered, so
-// a reconciler that owns only some fields leaves the rest alone. A
-// gateway-routed resource always also carries agent:lifecycle, the scope its
-// owner's governed transport bootstraps with. Returns the live resource.
+// a reconciler that owns only some fields leaves the rest alone. Declared
+// scopes are the resource's business vocabulary; the platform-reserved
+// agent:lifecycle bootstrap scope is derived by STS for gateway-routed
+// resources and never stored on the row. Returns the live resource.
 func EnsureResource(ctx context.Context, client *AdminClient, zoneID string, input ResourceEnsure) (*Resource, error) {
-	desiredScopes := input.Scopes
-	gatewayRouted := input.UpstreamURL != nil && *input.UpstreamURL != ""
-	if gatewayRouted && !slices.Contains(input.Scopes, LifecycleScope) {
-		desiredScopes = append(slices.Clone(input.Scopes), LifecycleScope)
-	}
-	desired := map[string]any{"scopes": desiredScopes}
+	desired := map[string]any{"scopes": input.Scopes}
 	managed := map[string]*string{
 		"upstream_url":           input.UpstreamURL,
 		"credential_provider_id": input.CredentialProviderID,
@@ -220,7 +211,7 @@ func EnsureResource(ctx context.Context, client *AdminClient, zoneID string, inp
 		"credential_provider_id": existing.CredentialProviderID,
 		"operation_enforcement":  existing.OperationEnforcement,
 	}
-	drifted := !sameStringSet(existing.Scopes, desiredScopes)
+	drifted := !sameStringSet(existing.Scopes, input.Scopes)
 	for key, value := range managed {
 		if value == nil {
 			continue

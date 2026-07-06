@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -359,7 +360,7 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 			}
 			continue
 		}
-		if !scopesAllowed(scopes, resource.Scopes) {
+		if !scopesAllowed(scopes, resourceMintScopes(resource)) {
 			if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "scope_mismatch", &OPAResult{},
 				mergeAuditMeta(appMeta, map[string]any{"resource": resource.Identifier})); auditErr != nil {
 				return nil, nil, http.StatusInternalServerError, auditErr
@@ -1955,6 +1956,24 @@ func scopesAllowed(requested, available []string) bool {
 		}
 	}
 	return true
+}
+
+// lifecycleScope is the platform-reserved bootstrap scope. The decision contract owns
+// its doctrine: bootstrap_exchange permits it exactly and alone, delegated_mint forbids
+// it, and the bootstrap allow rule gates on resource ownership rather than declared
+// scopes.
+const lifecycleScope = "agent:lifecycle"
+
+// resourceMintScopes returns the scopes mintable against a resource: its declared
+// business scopes plus the platform-reserved lifecycle bootstrap scope for
+// gateway-routed resources. Declared scopes stay the adopter's business vocabulary,
+// and the lifecycle invariant holds identically for every creation surface instead of
+// depending on clients stamping the scope into the resource row.
+func resourceMintScopes(resource *Resource) []string {
+	if resource.UpstreamURL == nil || slices.Contains(resource.Scopes, lifecycleScope) {
+		return resource.Scopes
+	}
+	return append(append(make([]string, 0, len(resource.Scopes)+1), resource.Scopes...), lifecycleScope)
 }
 
 func derefStr(s *string) string {
